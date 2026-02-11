@@ -27,6 +27,14 @@ jobs:
             exit 1
           fi
 
+      - name: Build skills directory from .claude/skills
+        run: |
+          mkdir -p skills
+          for skill_dir in .claude/skills/aitask-*/; do
+            skill_name="$(basename "$skill_dir")"
+            cp -r "$skill_dir" "skills/$skill_name"
+          done
+
       - name: Create release tarball
         run: |
           tar -czf aitasks-${{ github.ref_name }}.tar.gz \
