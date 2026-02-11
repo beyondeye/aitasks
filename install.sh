@@ -179,8 +179,34 @@ install_skills() {
 # --- Create data directories ---
 create_data_dirs() {
     mkdir -p "$INSTALL_DIR/aitasks/metadata"
+    mkdir -p "$INSTALL_DIR/aitasks/metadata/profiles"
     mkdir -p "$INSTALL_DIR/aitasks/archived"
     mkdir -p "$INSTALL_DIR/aiplans/archived"
+}
+
+# --- Install seed profiles ---
+install_seed_profiles() {
+    if [[ ! -d "$INSTALL_DIR/seed/profiles" ]]; then
+        warn "No seed/profiles/ directory in tarball — skipping profile installation"
+        return
+    fi
+
+    mkdir -p "$INSTALL_DIR/aitasks/metadata/profiles"
+
+    for profile in "$INSTALL_DIR/seed/profiles"/*.yaml; do
+        [[ -f "$profile" ]] || continue
+        local bname
+        bname="$(basename "$profile")"
+        local dest="$INSTALL_DIR/aitasks/metadata/profiles/$bname"
+        if [[ -f "$dest" && "$FORCE" != true ]]; then
+            info "  Profile exists (kept): $bname"
+        else
+            cp "$profile" "$dest"
+            info "  Installed profile: $bname"
+        fi
+    done
+
+    rm -rf "$INSTALL_DIR/seed"
 }
 
 # --- Set permissions ---
@@ -217,6 +243,9 @@ main() {
 
     info "Creating data directories..."
     create_data_dirs
+
+    info "Installing execution profiles..."
+    install_seed_profiles
 
     info "Setting permissions..."
     set_permissions

@@ -33,7 +33,8 @@ jobs:
             ait \
             VERSION \
             aiscripts/ \
-            skills/
+            skills/ \
+            seed/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

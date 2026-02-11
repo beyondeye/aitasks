@@ -5,7 +5,34 @@ description: Select the next AI task for implementation from the `aitasks/` dire
 
 ## Workflow
 
-### Step 0: Check for Direct Task Selection (Optional Argument)
+### Step 0a: Select Execution Profile
+
+Check for available execution profiles:
+
+```bash
+ls aitasks/metadata/profiles/*.yaml 2>/dev/null
+```
+
+**If no profiles found:** Skip this step (no profile active, all questions asked normally).
+
+**If exactly one profile found:** Auto-load it and inform user: "Using execution profile: \<name\> (\<description\>)".
+
+**If multiple profiles found:**
+
+Read each profile's `name` and `description` fields. Use `AskUserQuestion`:
+- Question: "Select an execution profile (pre-configured answers to reduce prompts):"
+- Header: "Profile"
+- Options:
+  - Each profile: label = `name` field, description = `description` field
+  - "No profile" (description: "Ask all questions interactively")
+
+**If "No profile" selected:** Proceed with all questions asked normally (no active profile).
+
+Store the selected profile in memory for use throughout remaining steps.
+
+**Error handling:** If a profile file has invalid YAML, warn the user ("Profile '\<filename\>' has invalid format, skipping") and exclude it from the selection list.
+
+### Step 0b: Check for Direct Task Selection (Optional Argument)
 
 If this skill is invoked with a numeric argument:
 
@@ -24,7 +51,11 @@ If this skill is invoked with a numeric argument:
     - **Show task summary and confirm:**
       - Read the task file content
       - Generate a brief 1-2 sentence summary of the task description
-      - Use `AskUserQuestion`:
+      - **Profile check:** If the active profile has `skip_task_confirmation` set to `true`:
+        - Display: "Profile '\<name\>': auto-confirming task selection"
+        - Skip the AskUserQuestion below and proceed directly to **Step 3** (Task Status Checks)
+
+        Otherwise, use `AskUserQuestion`:
         - Question: "Is this the correct task? Brief summary: <1-2 sentence summary of the task>"
         - Header: "Confirm task"
         - Options: "Yes, proceed" (description: "This is the correct task, continue with aitask-pick workflow") / "No, abort" (description: "Wrong task, cancel the selection")
@@ -44,7 +75,11 @@ If this skill is invoked with a numeric argument:
   - Also read pending sibling task files from `aitasks/t<parent>/` and their plans from `aiplans/p<parent>/` if they exist.
   - **Show task summary and confirm:**
     - Generate a brief 1-2 sentence summary of the child task description, mentioning the parent task name for context
-    - Use `AskUserQuestion`:
+    - **Profile check:** If the active profile has `skip_task_confirmation` set to `true`:
+      - Display: "Profile '\<name\>': auto-confirming task selection"
+      - Skip the AskUserQuestion below and proceed directly to **Step 3** (Task Status Checks)
+
+      Otherwise, use `AskUserQuestion`:
       - Question: "Is this the correct task? Brief summary: <1-2 sentence summary of the child task> (Parent: <parent task name>)"
       - Header: "Confirm task"
       - Options: "Yes, proceed" (description: "This is the correct task, continue with aitask-pick workflow") / "No, abort" (description: "Wrong task, cancel the selection")
@@ -111,7 +146,7 @@ ___________
 
 #### 2c: Ask User to Select Task
 
-**Note:** This sub-step is skipped if a task number was provided as an argument in Step 0.
+**Note:** This sub-step is skipped if a task number was provided as an argument in Step 0b.
 
 Since `AskUserQuestion` supports a maximum of 4 options, implement pagination to show all available tasks:
 
@@ -157,7 +192,7 @@ If the selected task is a parent task with children in `aitasks/t<N>/`:
 
 ### Step 3: Task Status Checks
 
-After a task is selected and confirmed (from Step 0 or Step 2), perform these checks before proceeding to Step 4.
+After a task is selected and confirmed (from Step 0b or Step 2), perform these checks before proceeding to Step 4.
 
 **Check 1 - Done but unarchived task:**
 - Read the task file's frontmatter `status` field
@@ -202,7 +237,12 @@ If neither check triggers, proceed to Step 4 as normal.
   cat aitasks/metadata/emails.txt 2>/dev/null | sort -u
   ```
 
-- **Ask for email using `AskUserQuestion`:**
+- **Profile check:** If the active profile has `default_email` set:
+  - If value is `"first"`: Read `aitasks/metadata/emails.txt` and use the first email address. Display: "Profile '\<name\>': using email \<email\>". If emails.txt is empty or missing, fall through to the AskUserQuestion below.
+  - If value is a literal email address: Use that email directly. Display: "Profile '\<name\>': using email \<email\>"
+  - Skip the AskUserQuestion below
+
+  Otherwise, **ask for email using `AskUserQuestion`:**
   - Question: "Enter your email to track who is working on this task (optional):"
   - Header: "Email"
   - Options:
@@ -240,13 +280,24 @@ If neither check triggers, proceed to Step 4 as normal.
 
 ### Step 5: Environment and Branch Setup
 
-- Use `AskUserQuestion` to ask:
+- **Profile check:** If the active profile has `run_location` set:
+  - Use the value directly (`"locally"` or `"remotely"`). Display: "Profile '\<name\>': running \<value\>"
+  - Skip the AskUserQuestion below
+
+  Otherwise, use `AskUserQuestion` to ask:
   - "Are you running Claude Code locally or remotely?"
   - Options: "Locally" / "Remotely"
 
-- If running **locally**, use `AskUserQuestion` to ask:
-  - "Do you want to create a separate branch and worktree for this task?"
-  - Options: "No, work on current branch" (default, first option) / "Yes, create worktree (recommended for complex features or when working in parallel on multiple features)"
+- If running **locally**:
+
+  - **Profile check:** If the active profile has `create_worktree` set:
+    - If `true`: Create worktree. Display: "Profile '\<name\>': creating worktree"
+    - If `false`: Work on current branch. Display: "Profile '\<name\>': working on current branch"
+    - Skip the AskUserQuestion below
+
+    Otherwise, use `AskUserQuestion` to ask:
+    - "Do you want to create a separate branch and worktree for this task?"
+    - Options: "No, work on current branch" (default, first option) / "Yes, create worktree (recommended for complex features or when working in parallel on multiple features)"
 
 **If Yes:**
 
@@ -254,7 +305,11 @@ If neither check triggers, proceed to Step 4 as normal.
   - For parent: `t16_implement_channel_settings` from `t16_implement_channel_settings.md`
   - For child: `t16_2_add_login` from `t16_2_add_login.md`
 
-- Ask which branch to base the new branch on using `AskUserQuestion`:
+- **Profile check:** If the active profile has `base_branch` set:
+  - Use the specified branch name. Display: "Profile '\<name\>': using base branch \<branch\>"
+  - Skip the AskUserQuestion below
+
+  Otherwise, ask which branch to base the new branch on using `AskUserQuestion`:
   - "Which branch should the new task branch be based on?"
   - Options: "main (Recommended)" / "Other branch"
   - If "Other branch", ask user to specify the branch name
@@ -287,7 +342,15 @@ Check if a plan file already exists at the expected path:
 ls aiplans/p<taskid>_*.md 2>/dev/null
 ```
 
-**If a plan file exists**, read it and use `AskUserQuestion`:
+**If a plan file exists**, read it.
+
+**Profile check:** If the active profile has `plan_preference` set:
+- If `"use_current"`: Skip to the **Checkpoint** at the end of Step 6. Display: "Profile '\<name\>': using existing plan"
+- If `"verify"`: Enter verification mode (step 6.1). Display: "Profile '\<name\>': verifying existing plan"
+- If `"create_new"`: Proceed with step 6.1 as normal. Display: "Profile '\<name\>': creating plan from scratch"
+- Skip the AskUserQuestion below
+
+Otherwise, use `AskUserQuestion`:
 - Question: "An existing implementation plan was found at `<plan_path>`. How would you like to proceed?"
 - Header: "Plan"
 - Options:
@@ -405,7 +468,12 @@ Base branch: main
 ```
 
 **Checkpoint (after plan is saved):**
-Use `AskUserQuestion`:
+
+**Profile check:** If the active profile has `post_plan_action` set to `"start_implementation"`:
+- Display: "Profile '\<name\>': proceeding to implementation"
+- Skip the AskUserQuestion below and proceed directly to Step 7
+
+Otherwise, use `AskUserQuestion`:
 - Question: "Plan saved to `<plan_path>`. How would you like to proceed?"
 - Header: "Proceed"
 - Options:
@@ -697,3 +765,52 @@ This procedure is referenced from Step 9 wherever a task is being archived. It h
 - **IMPORTANT:** When modifying any task file, always update the `updated_at` field in frontmatter to the current date/time using format `YYYY-MM-DD HH:MM`
 - **Child task naming:** Use format `t{parent}_{child}_description.md` where both parent and child identifiers are **numbers only**. Do not insert tasks "in-between" (e.g., no `t10_1b` between `t10_1` and `t10_2`). If you discover a missing implementation step, add it as the next available number and adjust dependencies accordingly
 - When archiving a task with an `issue` field, the workflow offers to update/close the linked issue using `aitask_issue_update.sh`. The SKILL.md workflow is platform-agnostic; the script handles platform specifics (GitHub, GitLab, etc.). It auto-detects commits and includes "Final Implementation Notes" from the archived plan file.
+
+### Execution Profiles
+
+Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer workflow questions to reduce interactive prompts. Two profiles ship by default:
+- **default** — All questions asked normally (empty profile, serves as template)
+- **fast** — Skip confirmations, use first stored email, work locally on current branch, reuse existing plans
+
+#### Profile Schema Reference
+
+| Key | Type | Required | Values | Step |
+|-----|------|----------|--------|------|
+| `name` | string | yes | Display name shown during profile selection | Step 0a |
+| `description` | string | yes | Description shown below profile name during selection | Step 0a |
+| `skip_task_confirmation` | bool | no | `true` = auto-confirm task; omit or `false` = ask | Step 0b |
+| `default_email` | string | no | `"first"` = first from emails.txt; or a literal email address; omit = ask | Step 4 |
+| `run_location` | string | no | `"locally"` or `"remotely"` | Step 5.1 |
+| `create_worktree` | bool | no | `true` = create worktree; `false` = current branch | Step 5.2 |
+| `base_branch` | string | no | Branch name (e.g., `"main"`) | Step 5.3 |
+| `plan_preference` | string | no | `"use_current"`, `"verify"`, or `"create_new"` | Step 6.0 |
+| `post_plan_action` | string | no | `"start_implementation"` = skip to impl; omit = ask | Step 6 checkpoint |
+
+Only `name` and `description` are required. Omitting any other key means the corresponding question is asked interactively.
+
+#### Customizing Execution Profiles
+
+**To create a custom profile:**
+1. Copy an existing profile: `cp aitasks/metadata/profiles/fast.yaml aitasks/metadata/profiles/my-profile.yaml`
+2. Edit `name` and `description` (both required — `description` is shown during profile selection)
+3. Add, remove, or change setting keys as needed
+4. Any key you omit will cause that question to be asked interactively
+
+**Example — worktree-based workflow:**
+```yaml
+name: worktree
+description: Like fast but creates a worktree on main for each task
+skip_task_confirmation: true
+default_email: first
+run_location: locally
+create_worktree: true
+base_branch: main
+plan_preference: use_current
+post_plan_action: start_implementation
+```
+
+**Notes:**
+- Profiles are partial — only include keys you want to pre-configure
+- The `description` field is shown next to the profile name when selecting a profile
+- Profiles are preserved during `install.sh --force` upgrades (existing files are not overwritten)
+- Plan approval (ExitPlanMode) is always mandatory and cannot be skipped by profiles
