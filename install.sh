@@ -206,7 +206,24 @@ install_seed_profiles() {
         fi
     done
 
-    rm -rf "$INSTALL_DIR/seed"
+}
+
+# --- Install seed task types ---
+install_seed_task_types() {
+    local src="$INSTALL_DIR/seed/task_types.txt"
+    local dest="$INSTALL_DIR/aitasks/metadata/task_types.txt"
+
+    if [[ ! -f "$src" ]]; then
+        warn "No seed/task_types.txt in tarball — skipping task types installation"
+        return
+    fi
+
+    if [[ -f "$dest" && "$FORCE" != true ]]; then
+        info "  Task types file exists (kept): task_types.txt"
+    else
+        cp "$src" "$dest"
+        info "  Installed task types: task_types.txt"
+    fi
 }
 
 # --- Set permissions ---
@@ -246,6 +263,12 @@ main() {
 
     info "Installing execution profiles..."
     install_seed_profiles
+
+    info "Installing seed task types..."
+    install_seed_task_types
+
+    # Clean up seed directory after all seed installers have run
+    rm -rf "$INSTALL_DIR/seed"
 
     info "Setting permissions..."
     set_permissions

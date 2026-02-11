@@ -144,7 +144,7 @@ Tasks are markdown files with YAML frontmatter in the `aitasks/` directory:
 priority: high
 effort: medium
 depends: []
-issue_type: feature
+issue_type: feature  # See aitasks/metadata/task_types.txt for valid types
 status: Ready
 labels: [ui, backend]
 created_at: 2026-01-15 10:00
@@ -159,6 +159,18 @@ Detailed description of what needs to be done.
 **Status workflow:** Ready → Editing → Implementing → Done → Archived
 
 Tasks support parent-child hierarchies for breaking complex work into subtasks. Child tasks live in `aitasks/t<parent>/` subdirectories.
+
+### Customizing Task Types
+
+Valid issue types are defined in `aitasks/metadata/task_types.txt` (one type per line, sorted alphabetically). The default types are:
+
+```
+bug
+feature
+refactor
+```
+
+To add a custom type, simply add a new line to the file. All scripts (`ait create`, `ait update`, `ait board`, `ait stats`) read from this file dynamically.
 
 ## Known Issues
 

@@ -8,6 +8,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TASK_DIR="aitasks"
 LABELS_FILE="aitasks/metadata/labels.txt"
+TASK_TYPES_FILE="aitasks/metadata/task_types.txt"
 
 # Colors for output
 RED='\033[0;31m'
@@ -99,7 +100,7 @@ Metadata options (batch mode):
   --priority, -p LEVEL   Priority: high, medium, low
   --effort, -e LEVEL     Effort: low, medium, high
   --status, -s STATUS    Status: Ready, Editing, Implementing, Postponed, Done
-  --type TYPE            Issue type: feature, bug
+  --type TYPE            Issue type (see aitasks/metadata/task_types.txt)
   --deps DEPS            Dependencies (comma-separated task numbers, replaces all)
 
 Label options (batch mode):
@@ -472,6 +473,33 @@ add_label_to_file() {
     fi
 }
 
+# --- Task Types Management ---
+
+ensure_task_types_file() {
+    local dir
+    dir=$(dirname "$TASK_TYPES_FILE")
+    mkdir -p "$dir"
+    touch "$TASK_TYPES_FILE"
+}
+
+get_valid_task_types() {
+    ensure_task_types_file
+    if [[ -s "$TASK_TYPES_FILE" ]]; then
+        sort -u "$TASK_TYPES_FILE"
+    else
+        printf '%s\n' "bug" "feature" "refactor"
+    fi
+}
+
+validate_task_type() {
+    local type="$1"
+    if ! grep -qFx "$type" <(get_valid_task_types); then
+        local valid
+        valid=$(get_valid_task_types | tr '\n' ', ' | sed 's/,$//')
+        die "Invalid type: $type (must be one of: $valid)"
+    fi
+}
+
 process_label_operations() {
     local current_labels="$1"
     local new_labels="$2"
@@ -735,7 +763,7 @@ interactive_update_status() {
 
 interactive_update_type() {
     local current="$1"
-    echo -e "feature\nbug" | fzf --prompt="Type (current: $current): " --height=8 --no-info --header="Select issue type"
+    get_valid_task_types | fzf --prompt="Type (current: $current): " --height=10 --no-info --header="Select issue type"
 }
 
 interactive_update_deps() {
@@ -1169,10 +1197,7 @@ run_batch_mode() {
     fi
 
     if [[ -n "$BATCH_TYPE" ]]; then
-        case "$BATCH_TYPE" in
-            feature|bug) ;;
-            *) die "Invalid type: $BATCH_TYPE (must be feature or bug)" ;;
-        esac
+        validate_task_type "$BATCH_TYPE"
     fi
 
     # Handle description from file

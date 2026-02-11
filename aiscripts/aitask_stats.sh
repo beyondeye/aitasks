@@ -5,6 +5,7 @@
 TASK_DIR="aitasks"
 ARCHIVE_DIR="$TASK_DIR/archived"
 ARCHIVE_TAR="$ARCHIVE_DIR/old.tar.gz"
+TASK_TYPES_FILE="$TASK_DIR/metadata/task_types.txt"
 
 # --- Help Function ---
 show_help() {
@@ -25,8 +26,8 @@ STATISTICS PROVIDED:
   - Daily breakdown: Completions per day
   - Day of week: Current week counts + 30d/all-time averages
   - Label weekly trends: Last 4 weeks per label
-  - Task type trends: Parent/child and feature/bug weekly trends
-  - Label+type trends: Features/bugs by label weekly
+  - Task type trends: Parent/child and issue type weekly trends
+  - Label+type trends: Issue types by label weekly
 
 EXAMPLES:
   $(basename "$0")              # Basic stats (last 7 days)
@@ -35,6 +36,25 @@ EXAMPLES:
   $(basename "$0") -v           # Verbose with task IDs
   $(basename "$0") --csv        # Export to CSV
 EOF
+}
+
+# --- Task Types ---
+
+get_valid_task_types() {
+    if [[ -s "$TASK_TYPES_FILE" ]]; then
+        sort -u "$TASK_TYPES_FILE"
+    else
+        printf '%s\n' "bug" "feature" "refactor"
+    fi
+}
+
+get_type_display_name() {
+    case "$1" in
+        feature) echo "Features" ;;
+        bug) echo "Bug Fixes" ;;
+        refactor) echo "Refactors" ;;
+        *) echo "$1" | sed 's/^./\U&/' ;;
+    esac
 }
 
 # --- Default Values ---
@@ -582,7 +602,7 @@ print_type_trends() {
     echo "| Type           | Total | W-3 | W-2 | W-1 | This Week |"
     echo "|----------------|-------|-----|-----|-----|-----------|"
 
-    for type in "parent" "child" "feature" "bug"; do
+    for type in "parent" "child"; do
         local total=0
         for week in {0..3}; do
             ((total += ${type_week_counts["$type:$week"]:-0}))
@@ -593,22 +613,38 @@ print_type_trends() {
         local w1=${type_week_counts["$type:1"]:-0}
         local w0=${type_week_counts["$type:0"]:-0}
 
-        local display_type="$type"
+        local display_type
         case $type in
             parent) display_type="Parent Tasks" ;;
             child) display_type="Child Tasks" ;;
-            feature) display_type="Features" ;;
-            bug) display_type="Bug Fixes" ;;
         esac
 
         printf "| %-14s | %-5d | %-3d | %-3d | %-3d | %-9d |\n" "$display_type" "$total" "$w3" "$w2" "$w1" "$w0"
     done
+
+    while IFS= read -r type; do
+        [[ -z "$type" ]] && continue
+        local total=0
+        for week in {0..3}; do
+            ((total += ${type_week_counts["$type:$week"]:-0}))
+        done
+
+        local w3=${type_week_counts["$type:3"]:-0}
+        local w2=${type_week_counts["$type:2"]:-0}
+        local w1=${type_week_counts["$type:1"]:-0}
+        local w0=${type_week_counts["$type:0"]:-0}
+
+        local display_type
+        display_type=$(get_type_display_name "$type")
+
+        printf "| %-14s | %-5d | %-3d | %-3d | %-3d | %-9d |\n" "$display_type" "$total" "$w3" "$w2" "$w1" "$w0"
+    done < <(get_valid_task_types)
     echo ""
 }
 
-# Print features/bugs by label trends
+# Print issue types by label trends
 print_label_type_trends() {
-    echo "### Features/Bugs by Label - Weekly Trend (Last 4 Weeks)"
+    echo "### By Issue Type per Label - Weekly Trend (Last 4 Weeks)"
     echo "| Label        | Type    | Total | W-3 | W-2 | W-1 | This Week |"
     echo "|--------------|---------|-------|-----|-----|-----|-----------|"
 
@@ -621,7 +657,8 @@ print_label_type_trends() {
         [[ -z "$label" ]] && continue
         [[ "$label" == "(unlabeled)" ]] && continue
 
-        for issue_type in "feature" "bug"; do
+        while IFS= read -r issue_type; do
+            [[ -z "$issue_type" ]] && continue
             local total=0
             for week in {0..3}; do
                 ((total += ${label_type_week_counts["$label:$issue_type:$week"]:-0}))
@@ -638,7 +675,7 @@ print_label_type_trends() {
             local type_display=$(echo "$issue_type" | sed 's/^./\U&/')
 
             printf "| %-12s | %-7s | %-5d | %-3d | %-3d | %-3d | %-9d |\n" "$label" "$type_display" "$total" "$w3" "$w2" "$w1" "$w0"
-        done
+        done < <(get_valid_task_types)
     done <<< "$sorted_labels"
     echo ""
 }

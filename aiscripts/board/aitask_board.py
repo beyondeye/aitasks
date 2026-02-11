@@ -22,6 +22,21 @@ from textual import on, work
 
 TASKS_DIR = Path("aitasks")
 METADATA_FILE = TASKS_DIR / "metadata" / "board_config.json"
+TASK_TYPES_FILE = TASKS_DIR / "metadata" / "task_types.txt"
+def _load_task_types() -> list:
+    """Load valid task types from task_types.txt, with fallback defaults."""
+    try:
+        if TASK_TYPES_FILE.exists():
+            types = sorted(set(
+                line.strip() for line in TASK_TYPES_FILE.read_text().splitlines()
+                if line.strip()
+            ))
+            if types:
+                return types
+    except OSError:
+        pass
+    return ["bug", "feature", "refactor"]
+
 DEFAULT_COLUMNS = [
     {"id": "now", "title": "Now ⚡", "color": "#FF5555"},
     {"id": "next", "title": "Next Week 📅", "color": "#50FA7B"},
@@ -934,7 +949,7 @@ class TaskDetailScreen(ModalScreen):
                 yield CycleField("Status", ["Ready", "Editing", "Implementing", "Postponed", "Done"],
                                  meta.get("status", "Ready"), "status",
                                  id="cf_status")
-                yield CycleField("Type", ["feature", "bug"],
+                yield CycleField("Type", _load_task_types(),
                                  meta.get("issue_type", "feature"), "issue_type",
                                  id="cf_issue_type")
 

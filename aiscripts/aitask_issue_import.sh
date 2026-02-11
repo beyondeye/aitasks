@@ -148,11 +148,13 @@ github_map_labels() {
     echo "$result"
 }
 
-# Input: JSON labels array. Output: "bug" or "feature"
+# Input: JSON labels array. Output: "bug", "refactor", or "feature"
 github_detect_type() {
     local labels_json="$1"
     if echo "$labels_json" | jq -r '.[].name' 2>/dev/null | grep -qi "^bug$"; then
         echo "bug"
+    elif echo "$labels_json" | jq -r '.[].name' 2>/dev/null | grep -qiE "^(refactor|refactoring|tech-debt|cleanup)$"; then
+        echo "refactor"
     else
         echo "feature"
     fi
@@ -699,7 +701,7 @@ Batch mode options:
   --source, -S PLATFORM    Source platform: github (default)
   --priority, -p LEVEL     Override priority: high, medium (default), low
   --effort, -e LEVEL       Override effort: low, medium (default), high
-  --type, -t TYPE          Override issue type: feature, bug (default: auto-detect)
+  --type, -t TYPE          Override issue type (see aitasks/metadata/task_types.txt, default: auto-detect)
   --status, -s STATUS      Override status (default: Ready)
   --labels, -l LABELS      Override labels (default: from issue labels)
   --deps DEPS              Set dependencies (comma-separated task numbers)

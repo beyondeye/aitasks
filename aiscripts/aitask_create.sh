@@ -64,7 +64,7 @@ Batch mode (for automation):
   --desc-file FILE       Read description from file (use - for stdin)
   --priority, -p LEVEL   Priority: high, medium, low (default: medium)
   --effort, -e LEVEL     Effort: low, medium, high (default: medium)
-  --type, -t TYPE        Issue type: feature, bug (default: feature)
+  --type, -t TYPE        Issue type (see aitasks/metadata/task_types.txt, default: feature)
   --status, -s STATUS    Status: Ready, Editing, Implementing, Postponed (default: Ready)
   --assigned-to, -a EMAIL  Email of person assigned to task (optional)
   --issue URL            Issue tracker URL (e.g., GitHub issue URL)
@@ -370,7 +370,7 @@ select_effort() {
 }
 
 select_issue_type() {
-    echo -e "feature\nbug" | fzf --prompt="Issue type: " --height=8 --no-info --header="Select issue type"
+    get_valid_task_types | fzf --prompt="Issue type: " --height=10 --no-info --header="Select issue type"
 }
 
 select_status() {
@@ -379,6 +379,7 @@ select_status() {
 
 LABELS_FILE="aitasks/metadata/labels.txt"
 EMAILS_FILE="aitasks/metadata/emails.txt"
+TASK_TYPES_FILE="aitasks/metadata/task_types.txt"
 
 ensure_emails_file() {
     local dir
@@ -424,6 +425,34 @@ add_label_to_file() {
         echo "$label" >> "$LABELS_FILE"
         # Keep file sorted
         sort -u "$LABELS_FILE" -o "$LABELS_FILE"
+    fi
+}
+
+# --- Task Types Management ---
+
+ensure_task_types_file() {
+    local dir
+    dir=$(dirname "$TASK_TYPES_FILE")
+    mkdir -p "$dir"
+    touch "$TASK_TYPES_FILE"
+}
+
+get_valid_task_types() {
+    ensure_task_types_file
+    if [[ -s "$TASK_TYPES_FILE" ]]; then
+        sort -u "$TASK_TYPES_FILE"
+    else
+        # Fallback defaults if file is empty
+        printf '%s\n' "bug" "feature" "refactor"
+    fi
+}
+
+validate_task_type() {
+    local type="$1"
+    if ! grep -qFx "$type" <(get_valid_task_types); then
+        local valid
+        valid=$(get_valid_task_types | tr '\n' ', ' | sed 's/,$//')
+        die "Invalid type: $type (must be one of: $valid)"
     fi
 }
 
@@ -840,10 +869,7 @@ run_batch_mode() {
         *) die "Invalid effort: $BATCH_EFFORT (must be low, medium, or high)" ;;
     esac
 
-    case "$BATCH_TYPE" in
-        feature|bug) ;;
-        *) die "Invalid type: $BATCH_TYPE (must be feature or bug)" ;;
-    esac
+    validate_task_type "$BATCH_TYPE"
 
     case "$BATCH_STATUS" in
         Ready|Editing|Implementing|Postponed) ;;
