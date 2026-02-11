@@ -1433,7 +1433,7 @@ class KanbanApp(App):
     def action_create_task(self):
         """Open a new terminal and launch aitask_create.sh."""
         terminal = os.environ.get("TERMINAL", "xdg-terminal-exec")
-        subprocess.Popen([terminal, "--", "./aitask_create.sh"])
+        subprocess.Popen([terminal, "--", "./aiscripts/aitask_create.sh"])
 
     # --- Expand/Collapse Children ---
 
