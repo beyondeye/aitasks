@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Verify VERSION file matches tag
+        run: |
+          file_version=$(cat VERSION)
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [ "$file_version" != "$tag_version" ]; then
+            echo "ERROR: VERSION file ($file_version) does not match tag ($tag_version)"
+            exit 1
+          fi
+
+      - name: Create release tarball
+        run: |
+          tar -czf aitasks-${{ github.ref_name }}.tar.gz \
+            ait \
+            VERSION \
+            aiscripts/ \
+            skills/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: aitasks-${{ github.ref_name }}.tar.gz
+          generate_release_notes: true
