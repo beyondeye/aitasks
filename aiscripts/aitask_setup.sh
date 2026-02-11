@@ -1,0 +1,295 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# aitask_setup.sh - Cross-platform dependency installer for aitask framework
+# Invoked via: ait setup
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="$HOME/.aitask/venv"
+SHIM_DIR="$HOME/.local/bin"
+VERSION_FILE="$SCRIPT_DIR/../VERSION"
+REPO="beyondeye/aitasks"
+
+# --- Color helpers ---
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
+info()    { echo -e "${BLUE}[ait]${NC} $1"; }
+success() { echo -e "${GREEN}[ait]${NC} $1"; }
+warn()    { echo -e "${YELLOW}[ait]${NC} $1"; }
+die()     { echo -e "${RED}[ait] Error:${NC} $1" >&2; exit 1; }
+
+# --- OS detection ---
+detect_os() {
+    OS=""
+    local kernel
+    kernel="$(uname -s)"
+
+    case "$kernel" in
+        Darwin)
+            OS="macos"
+            ;;
+        Linux)
+            # Check WSL first
+            if grep -qi microsoft /proc/version 2>/dev/null; then
+                OS="wsl"
+                return
+            fi
+
+            # Source os-release for distro detection
+            if [[ -f /etc/os-release ]]; then
+                # shellcheck disable=SC1091
+                source /etc/os-release
+                local id="${ID:-}"
+                local id_like="${ID_LIKE:-}"
+
+                case "$id" in
+                    arch|manjaro|endeavouros)
+                        OS="arch" ;;
+                    ubuntu|debian|pop|linuxmint|elementary)
+                        OS="debian" ;;
+                    fedora|rhel|centos|rocky|alma)
+                        OS="fedora" ;;
+                    *)
+                        # Fallback to ID_LIKE
+                        case "$id_like" in
+                            *arch*)   OS="arch" ;;
+                            *debian*|*ubuntu*) OS="debian" ;;
+                            *fedora*|*rhel*)   OS="fedora" ;;
+                            *)        OS="linux-unknown" ;;
+                        esac
+                        ;;
+                esac
+            else
+                OS="linux-unknown"
+            fi
+            ;;
+        *)
+            die "Unsupported operating system: $kernel"
+            ;;
+    esac
+}
+
+# --- CLI tools installation ---
+install_cli_tools() {
+    local os="$1"
+    local tools=(fzf gh jq git)
+    local missing=()
+
+    for tool in "${tools[@]}"; do
+        if ! command -v "$tool" &>/dev/null; then
+            missing+=("$tool")
+        fi
+    done
+
+    if [[ ${#missing[@]} -eq 0 ]]; then
+        success "All CLI tools already installed (fzf, gh, jq, git)"
+        return
+    fi
+
+    info "Installing missing CLI tools: ${missing[*]}"
+
+    case "$os" in
+        arch)
+            # Map tool names to Arch package names
+            local pkgs=()
+            for tool in "${missing[@]}"; do
+                case "$tool" in
+                    gh) pkgs+=("github-cli") ;;
+                    *)  pkgs+=("$tool") ;;
+                esac
+            done
+            sudo pacman -S --needed --noconfirm "${pkgs[@]}"
+            ;;
+
+        debian|wsl)
+            # gh needs special repo setup on Debian/Ubuntu
+            local apt_pkgs=()
+            local need_gh=false
+            for tool in "${missing[@]}"; do
+                case "$tool" in
+                    gh) need_gh=true ;;
+                    *)  apt_pkgs+=("$tool") ;;
+                esac
+            done
+
+            if $need_gh; then
+                info "Adding GitHub CLI repository..."
+                (type -p wget >/dev/null || sudo apt-get install wget -y -qq) \
+                    && sudo mkdir -p -m 755 /etc/apt/keyrings \
+                    && wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+                       | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+                    && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+                    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+                       | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+                    && sudo apt-get update -qq
+                apt_pkgs+=("gh")
+            fi
+
+            # Also ensure python3 and python3-venv are installed
+            apt_pkgs+=("python3" "python3-venv")
+
+            sudo apt-get install -y -qq "${apt_pkgs[@]}"
+            ;;
+
+        fedora)
+            local dnf_pkgs=()
+            for tool in "${missing[@]}"; do
+                dnf_pkgs+=("$tool")
+            done
+            sudo dnf install -y -q "${dnf_pkgs[@]}"
+            ;;
+
+        macos)
+            if ! command -v brew &>/dev/null; then
+                die "Homebrew is required on macOS. Install from https://brew.sh"
+            fi
+
+            local brew_pkgs=()
+            for tool in "${missing[@]}"; do
+                brew_pkgs+=("$tool")
+            done
+
+            # Also install bash 5.x (macOS ships 3.2) and coreutils for gdate
+            brew_pkgs+=("bash" "coreutils")
+
+            brew install "${brew_pkgs[@]}"
+            ;;
+
+        linux-unknown)
+            warn "Unknown Linux distribution. Please install these tools manually:"
+            warn "  ${missing[*]}"
+            warn "Continuing with the rest of setup..."
+            return
+            ;;
+    esac
+
+    success "CLI tools installed"
+}
+
+# --- Python venv setup ---
+setup_python_venv() {
+    local python_cmd=""
+    if command -v python3 &>/dev/null; then
+        python_cmd="python3"
+    elif command -v python &>/dev/null; then
+        python_cmd="python"
+    else
+        die "Python 3 not found. Install python3 and try again."
+    fi
+
+    if [[ ! -d "$VENV_DIR" ]]; then
+        info "Creating Python virtual environment at $VENV_DIR..."
+        mkdir -p "$(dirname "$VENV_DIR")"
+        "$python_cmd" -m venv "$VENV_DIR"
+    else
+        info "Python virtual environment already exists at $VENV_DIR"
+    fi
+
+    info "Installing/upgrading Python dependencies..."
+    "$VENV_DIR/bin/pip" install --quiet --upgrade pip
+    "$VENV_DIR/bin/pip" install --quiet textual pyyaml linkify-it-py
+
+    success "Python venv ready at $VENV_DIR"
+}
+
+# --- Global shim installation ---
+install_global_shim() {
+    # Non-blocking: if anything fails, warn and continue
+    {
+        mkdir -p "$SHIM_DIR"
+
+        cat > "$SHIM_DIR/ait" << 'SHIM'
+#!/usr/bin/env bash
+# Global shim for ait - finds nearest project-local ait dispatcher
+if [[ "${_AIT_SHIM_ACTIVE:-}" == "1" ]]; then
+    echo "Error: ait dispatcher not found in any parent directory." >&2
+    exit 1
+fi
+export _AIT_SHIM_ACTIVE=1
+dir="$PWD"
+while [[ "$dir" != "/" ]]; do
+    if [[ -x "$dir/ait" && -d "$dir/aiscripts" ]]; then
+        exec "$dir/ait" "$@"
+    fi
+    dir="$(dirname "$dir")"
+done
+echo "Error: No ait project found in any parent directory of $PWD" >&2
+echo "  Install aitasks in a project: curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash" >&2
+exit 1
+SHIM
+
+        chmod +x "$SHIM_DIR/ait"
+
+        # Check if SHIM_DIR is in PATH
+        if [[ ":$PATH:" != *":$SHIM_DIR:"* ]]; then
+            warn "$SHIM_DIR is not in your PATH."
+            warn "Add this to your shell profile (~/.bashrc or ~/.zshrc):"
+            warn "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+        else
+            success "Global shim installed at $SHIM_DIR/ait"
+        fi
+    } || {
+        warn "Could not install global shim at $SHIM_DIR/ait (non-fatal)"
+    }
+}
+
+# --- Version check ---
+check_latest_version() {
+    local local_version=""
+    if [[ -f "$VERSION_FILE" ]]; then
+        local_version="$(cat "$VERSION_FILE")"
+    else
+        return
+    fi
+
+    local latest_version=""
+    latest_version="$(curl -sS --max-time 5 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+        | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"v\?\([^"]*\)".*/\1/')" || true
+
+    if [[ -z "$latest_version" ]]; then
+        return
+    fi
+
+    if [[ "$local_version" != "$latest_version" ]]; then
+        echo ""
+        info "Update available: $local_version → $latest_version"
+        info "Run: curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash"
+    fi
+}
+
+# --- Main ---
+main() {
+    echo ""
+    info "aitask framework setup"
+    echo ""
+
+    detect_os
+    info "Detected OS: $OS"
+    echo ""
+
+    install_cli_tools "$OS"
+    echo ""
+
+    setup_python_venv
+    echo ""
+
+    install_global_shim
+    echo ""
+
+    check_latest_version
+
+    echo ""
+    success "Setup complete!"
+    echo ""
+    info "Summary:"
+    info "  Python venv: $VENV_DIR"
+    info "  Global shim: $SHIM_DIR/ait"
+    if [[ -f "$VERSION_FILE" ]]; then
+        info "  Version: $(cat "$VERSION_FILE")"
+    fi
+    echo ""
+}
+
+# Allow sourcing for testing without running main
+[[ "${1:-}" == "--source-only" ]] && return 0 2>/dev/null || true
+
+main "$@"
