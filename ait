@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+AIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$AIT_DIR"  # CRITICAL: ensures TASK_DIR="aitasks" works in all scripts
+
+SCRIPTS_DIR="$AIT_DIR/aiscripts"
+
+show_version() {
+    local version_file="$AIT_DIR/VERSION"
+    if [[ -f "$version_file" ]]; then
+        echo "ait version $(cat "$version_file")"
+    else
+        echo "ait version unknown"
+    fi
+}
+
+show_usage() {
+    cat <<'EOF'
+Usage: ait <command> [options]
+
+Commands:
+  create         Create a new task file
+  ls             List and prioritize tasks
+  update         Update task metadata
+  issue-import   Import tasks from GitHub/GitLab issues
+  board          Launch the task board TUI
+  stats          Show task completion statistics
+  clear-old      Archive old completed tasks
+  issue-update   Update/close linked issues
+  setup          Install dependencies
+
+Options:
+  -h, --help     Show this help message
+  -v, --version  Show version
+
+Run 'ait <command> --help' for more information on a command.
+EOF
+}
+
+case "${1:-help}" in
+    create)       shift; exec "$SCRIPTS_DIR/aitask_create.sh" "$@" ;;
+    ls)           shift; exec "$SCRIPTS_DIR/aitask_ls.sh" "$@" ;;
+    update)       shift; exec "$SCRIPTS_DIR/aitask_update.sh" "$@" ;;
+    issue-import) shift; exec "$SCRIPTS_DIR/aitask_issue_import.sh" "$@" ;;
+    board)        shift; exec "$SCRIPTS_DIR/aitask_board.sh" "$@" ;;
+    stats)        shift; exec "$SCRIPTS_DIR/aitask_stats.sh" "$@" ;;
+    clear-old)    shift; exec "$SCRIPTS_DIR/aitask_clear_old.sh" "$@" ;;
+    issue-update) shift; exec "$SCRIPTS_DIR/aitask_issue_update.sh" "$@" ;;
+    setup)        shift; exec "$SCRIPTS_DIR/aitask_setup.sh" "$@" ;;
+    help|--help|-h) show_usage ;;
+    --version|-v)   show_version ;;
+    *)
+        echo "ait: unknown command '$1'" >&2
+        echo "Run 'ait help' for usage information." >&2
+        exit 1
+        ;;
+esac
