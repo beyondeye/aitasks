@@ -6,7 +6,7 @@ description: Create a new aitask file interactively using bash/fzf (faster alter
 Run the interactive task creation script:
 
 ```bash
-./aitask_create.sh
+./aiscripts/aitask_create.sh
 ```
 
 The script handles all prompts interactively in the terminal using fzf:
@@ -25,7 +25,7 @@ This is a faster, terminal-native alternative to the `/aitask-create` skill.
 To create a child task in batch mode (non-interactive):
 
 ```bash
-./aitask_create.sh --batch --parent <PARENT_NUM> --name "<name>" --desc "<description>"
+./aiscripts/aitask_create.sh --batch --parent <PARENT_NUM> --name "<name>" --desc "<description>"
 ```
 
 Options:
@@ -35,10 +35,10 @@ Options:
 Example:
 ```bash
 # Create first child of task t10
-./aitask_create.sh --batch --parent 10 --name "first_subtask" --desc "First subtask"
+./aiscripts/aitask_create.sh --batch --parent 10 --name "first_subtask" --desc "First subtask"
 
 # Create child without auto sibling dependency
-./aitask_create.sh --batch --parent 10 --name "parallel_task" --desc "Parallel work" --no-sibling-dep
+./aiscripts/aitask_create.sh --batch --parent 10 --name "parallel_task" --desc "Parallel work" --no-sibling-dep
 ```
 
 Child tasks are stored in `aitasks/t<parent>/` subdirectory with naming `t<parent>_<N>_<name>.md`.

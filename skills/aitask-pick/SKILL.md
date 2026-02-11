@@ -75,12 +75,12 @@ Before retrieving tasks, ask the user if they want to filter by labels.
 Run the task selection script to get the top 15 prioritized **parent** tasks:
 
 ```bash
-./aitask_ls.sh -v 15
+./aiscripts/aitask_ls.sh -v 15
 ```
 
 If labels were selected in Step 1:
 ```bash
-./aitask_ls.sh -v -l label1,label2 15
+./aiscripts/aitask_ls.sh -v -l label1,label2 15
 ```
 
 **Note:** This only shows parent-level tasks, not children. Parent tasks with pending children will show as "Has children" and can be selected to drill down into child tasks.
@@ -138,7 +138,7 @@ If the selected task is a parent task with children in `aitasks/t<N>/`:
 
 - List all child tasks:
   ```bash
-  ./aitask_ls.sh -v --children <parent_num> 99
+  ./aiscripts/aitask_ls.sh -v --children <parent_num> 99
   ```
 
 - Read each child task file for summaries
@@ -222,11 +222,11 @@ If neither check triggers, proceed to Step 4 as normal.
 
 - **Update task status to "Implementing" and set assigned_to:**
   ```bash
-  ./aitask_update.sh --batch <task_num> --status Implementing --assigned-to "<email>"
+  ./aiscripts/aitask_update.sh --batch <task_num> --status Implementing --assigned-to "<email>"
   ```
   Or if no email (user selected "Skip"):
   ```bash
-  ./aitask_update.sh --batch <task_num> --status Implementing
+  ./aiscripts/aitask_update.sh --batch <task_num> --status Implementing
   ```
 
 - **Commit and push the status change:**
@@ -327,7 +327,7 @@ While in plan mode:
     - **IMPORTANT:** Each child task file MUST include detailed context (see Child Task Documentation Requirements below)
     - **IMPORTANT:** Revert the parent task status back to "Ready" since only the child task being worked on should be "Implementing":
       ```bash
-      ./aitask_update.sh --batch <parent_num> --status Ready --assigned-to ""
+      ./aiscripts/aitask_update.sh --batch <parent_num> --status Ready --assigned-to ""
       ```
       The `aitask_ls.sh` script will automatically display the parent as "Has children" because it has pending `children_to_implement`. Do NOT manually set the parent status to "Blocked".
     - After creation, ask which child to start with
@@ -529,7 +529,7 @@ Execute the post-implementation cleanup steps.
 
 - **Update parent's children_to_implement:**
   ```bash
-  ./aitask_update.sh --batch <parent_num> --remove-child t<parent>_<child>
+  ./aiscripts/aitask_update.sh --batch <parent_num> --remove-child t<parent>_<child>
   ```
 
 - **Archive the child task file:**
@@ -633,7 +633,7 @@ When abort is selected at any checkpoint, execute these steps:
 
 - **Revert task status and clear assignment:**
   ```bash
-  ./aitask_update.sh --batch <task_num> --status <selected_status> --assigned-to ""
+  ./aiscripts/aitask_update.sh --batch <task_num> --status <selected_status> --assigned-to ""
   ```
 
 - **Commit the revert:**
@@ -669,15 +669,15 @@ This procedure is referenced from Step 9 wherever a task is being archived. It h
       - "Skip" (description: "Don't touch the issue")
   - If "Close with notes":
     ```bash
-    ./aitask_issue_update.sh --close <task_num>
+    ./aiscripts/aitask_issue_update.sh --close <task_num>
     ```
   - If "Comment only":
     ```bash
-    ./aitask_issue_update.sh <task_num>
+    ./aiscripts/aitask_issue_update.sh <task_num>
     ```
   - If "Close silently":
     ```bash
-    ./aitask_issue_update.sh --close --no-comment <task_num>
+    ./aiscripts/aitask_issue_update.sh --close --no-comment <task_num>
     ```
   - If "Skip": do nothing
 - If no `issue` field: skip silently

@@ -8,7 +8,7 @@ description: Archive old task and plan files to tar.gz archives, keeping only th
 Run the archive script:
 
 ```bash
-./aitask_clear_old.sh
+./aiscripts/aitask_clear_old.sh
 ```
 
 ### Options
@@ -22,17 +22,17 @@ Run the archive script:
 
 Preview what will be archived:
 ```bash
-./aitask_clear_old.sh --dry-run
+./aiscripts/aitask_clear_old.sh --dry-run
 ```
 
 Archive with verbose output:
 ```bash
-./aitask_clear_old.sh --verbose
+./aiscripts/aitask_clear_old.sh --verbose
 ```
 
 Archive without committing:
 ```bash
-./aitask_clear_old.sh --no-commit
+./aiscripts/aitask_clear_old.sh --no-commit
 ```
 
 ## What It Does

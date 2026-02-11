@@ -10,7 +10,7 @@ description: Create a new AI task file with automatic numbering and proper metad
 First, list existing active tasks to see if the user wants to create a child task:
 
 ```bash
-./aitask_ls.sh -v -s all 99
+./aiscripts/aitask_ls.sh -v -s all 99
 ```
 
 Use `AskUserQuestion`:
@@ -76,7 +76,7 @@ Use the `AskUserQuestion` tool to gather task metadata:
 **3c. Dependencies:**
 First, list existing active tasks (and siblings if creating a child):
 ```bash
-./aitask_ls.sh -v 99
+./aiscripts/aitask_ls.sh -v 99
 ```
 
 For child tasks, also list siblings:
@@ -217,7 +217,7 @@ Where:
 If creating a child task, update the parent's `children_to_implement` list:
 
 ```bash
-./aitask_update.sh --batch <parent> --add-child t<parent>_<child>
+./aiscripts/aitask_update.sh --batch <parent> --add-child t<parent>_<child>
 ```
 
 If `aitask_update.sh` doesn't support `--add-child` yet, manually update the parent file by adding or updating the `children_to_implement` field in the YAML front matter.
