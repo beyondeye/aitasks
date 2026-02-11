@@ -2,6 +2,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/terminal_compat.sh
+source "$SCRIPT_DIR/lib/terminal_compat.sh"
+
 VENV_PYTHON="$HOME/.aitask/venv/bin/python"
 
 # Prefer shared venv, fall back to system python
@@ -27,5 +30,8 @@ else
         exit 1
     fi
 fi
+
+# Check terminal capabilities (warn on incapable terminals)
+ait_warn_if_incapable_terminal
 
 exec "$PYTHON" "$SCRIPT_DIR/board/aitask_board.py" "$@"

@@ -6,16 +6,12 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/terminal_compat.sh
+source "$SCRIPT_DIR/lib/terminal_compat.sh"
+
 TASK_DIR="aitasks"
 ARCHIVED_DIR="aitasks/archived"
 ARCHIVE_FILE="aitasks/archived/old.tar.gz"
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
 
 # Batch mode variables
 BATCH_MODE=false
@@ -36,19 +32,6 @@ BATCH_ASSIGNED_TO=""
 BATCH_ISSUE=""
 
 # --- Helper Functions ---
-
-die() {
-    echo -e "${RED}Error: $1${NC}" >&2
-    exit 1
-}
-
-info() {
-    echo -e "${BLUE}$1${NC}"
-}
-
-success() {
-    echo -e "${GREEN}$1${NC}"
-}
 
 show_help() {
     cat << 'EOF'
@@ -969,6 +952,9 @@ main() {
 
     info "=== AI Task Creator ==="
     echo ""
+
+    # Check terminal capabilities (warn on incapable terminals)
+    ait_warn_if_incapable_terminal
 
     # Check dependencies
     command -v fzf &>/dev/null || die "fzf is required but not installed"

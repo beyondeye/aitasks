@@ -244,6 +244,8 @@ install_seed_claude_settings() {
 set_permissions() {
     chmod +x "$INSTALL_DIR/ait"
     chmod +x "$INSTALL_DIR"/aiscripts/*.sh
+    # Shared libraries in lib/ (sourced, not executed, but keep +x for consistency)
+    find "$INSTALL_DIR/aiscripts/lib" -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
 }
 
 # --- Main ---

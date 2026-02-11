@@ -5,18 +5,15 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/terminal_compat.sh
+source "$SCRIPT_DIR/lib/terminal_compat.sh"
+
 # --- Constants ---
 TASK_ARCHIVED_DIR="aitasks/archived"
 PLAN_ARCHIVED_DIR="aiplans/archived"
 TASK_ARCHIVE="$TASK_ARCHIVED_DIR/old.tar.gz"
 PLAN_ARCHIVE="$PLAN_ARCHIVED_DIR/old.tar.gz"
-
-# --- Colors ---
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
 
 # --- Flags ---
 DRY_RUN=false
@@ -30,23 +27,6 @@ KEEP_TASK=""
 KEEP_PLAN=""
 
 # --- Helper Functions ---
-
-die() {
-    echo -e "${RED}Error: $1${NC}" >&2
-    exit 1
-}
-
-info() {
-    echo -e "${BLUE}$1${NC}"
-}
-
-success() {
-    echo -e "${GREEN}$1${NC}"
-}
-
-warn() {
-    echo -e "${YELLOW}$1${NC}"
-}
 
 verbose() {
     if $VERBOSE; then

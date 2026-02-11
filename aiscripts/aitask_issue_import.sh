@@ -9,13 +9,8 @@ TASK_DIR="aitasks"
 ARCHIVED_DIR="aitasks/archived"
 LABELS_FILE="aitasks/metadata/labels.txt"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# shellcheck source=lib/terminal_compat.sh
+source "$SCRIPT_DIR/lib/terminal_compat.sh"
 
 # Batch mode variables
 BATCH_MODE=false
@@ -37,23 +32,6 @@ BATCH_SKIP_DUPLICATES=false
 BATCH_NO_COMMENTS=false
 
 # --- Helper Functions ---
-
-die() {
-    echo -e "${RED}Error: $1${NC}" >&2
-    exit 1
-}
-
-info() {
-    echo -e "${BLUE}$1${NC}"
-}
-
-success() {
-    echo -e "${GREEN}$1${NC}"
-}
-
-warn() {
-    echo -e "${YELLOW}Warning: $1${NC}" >&2
-}
 
 sanitize_name() {
     local name="$1"
@@ -657,6 +635,9 @@ interactive_all_open() {
 }
 
 run_interactive_mode() {
+    # Check terminal capabilities (warn on incapable terminals)
+    ait_warn_if_incapable_terminal
+
     command -v fzf &>/dev/null || die "fzf is required for interactive mode. Install via your package manager."
     source_check_cli
 
