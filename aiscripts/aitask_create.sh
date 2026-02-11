@@ -5,6 +5,7 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TASK_DIR="aitasks"
 ARCHIVED_DIR="aitasks/archived"
 ARCHIVE_FILE="aitasks/archived/old.tar.gz"
@@ -211,7 +212,7 @@ get_next_child_number() {
 select_parent_task() {
     local tasks
     # Get all tasks (including all statuses) for parent selection
-    tasks=$(./aitask_ls.sh -v -s all 99 2>/dev/null || echo "")
+    tasks=$("$SCRIPT_DIR/aitask_ls.sh" -v -s all 99 2>/dev/null || echo "")
 
     if [[ -z "$tasks" ]]; then
         echo ""
@@ -265,8 +266,8 @@ update_parent_children_to_implement() {
     fi
 
     # Update the parent file using aitask_update.sh if available, otherwise inline update
-    if [[ -x "./aitask_update.sh" ]]; then
-        ./aitask_update.sh --batch "$parent_num" --add-child "$child_id" 2>/dev/null || {
+    if [[ -x "$SCRIPT_DIR/aitask_update.sh" ]]; then
+        "$SCRIPT_DIR/aitask_update.sh" --batch "$parent_num" --add-child "$child_id" 2>/dev/null || {
             # Fallback: inline update if aitask_update.sh doesn't support --add-child yet
             update_parent_children_inline "$parent_file" "$current_children"
         }
@@ -533,7 +534,7 @@ select_dependencies() {
 
     local tasks
     # Use --status all to show all tasks for dependency selection
-    tasks=$(./aitask_ls.sh -v -s all 99 2>/dev/null || echo "")
+    tasks=$("$SCRIPT_DIR/aitask_ls.sh" -v -s all 99 2>/dev/null || echo "")
 
     # If creating a child task, also list siblings at the top
     local siblings=""

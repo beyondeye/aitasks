@@ -5,6 +5,7 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TASK_DIR="aitasks"
 LABELS_FILE="aitasks/metadata/labels.txt"
 
@@ -673,7 +674,7 @@ validate_parent_completion() {
 
 interactive_select_task() {
     local tasks
-    tasks=$(./aitask_ls.sh -v -s all 99 2>/dev/null || echo "")
+    tasks=$("$SCRIPT_DIR/aitask_ls.sh" -v -s all 99 2>/dev/null || echo "")
 
     if [[ -z "$tasks" ]]; then
         die "No tasks found in $TASK_DIR"
@@ -742,7 +743,7 @@ interactive_update_deps() {
     local exclude_task="$2"  # Task number to exclude (the task being updated)
 
     local tasks
-    tasks=$(./aitask_ls.sh -v -s all 99 2>/dev/null || echo "")
+    tasks=$("$SCRIPT_DIR/aitask_ls.sh" -v -s all 99 2>/dev/null || echo "")
 
     if [[ -z "$tasks" ]]; then
         echo ""

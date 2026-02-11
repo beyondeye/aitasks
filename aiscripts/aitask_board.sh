@@ -32,4 +32,4 @@ if [ ${#missing[@]} -gt 0 ]; then
     fi
 fi
 
-exec $PYTHON "$SCRIPT_DIR/aitask_board/aitask_board.py" "$@"
+exec $PYTHON "$SCRIPT_DIR/board/aitask_board.py" "$@"
