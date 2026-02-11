@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: [t85_2, t85_5, t85_7]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [bash, aitasks]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-11 10:00
-updated_at: 2026-02-11 14:58
+updated_at: 2026-02-11 15:03
+completed_at: 2026-02-11 15:03
 ---
 
 ## Context
@@ -112,10 +113,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [ui, backend]
 created_at: 2026-01-15 10:00
-updated_at: 2026-01-15 10:00
+updated_at: 2026-02-11 15:03
+completed_at: 2026-02-11 15:03
 ---
 
 ## Task description here
