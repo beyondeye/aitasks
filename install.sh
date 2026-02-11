@@ -226,6 +226,20 @@ install_seed_task_types() {
     fi
 }
 
+# --- Install seed Claude Code permissions ---
+install_seed_claude_settings() {
+    local src="$INSTALL_DIR/seed/claude_settings.local.json"
+    local dest="$INSTALL_DIR/aitasks/metadata/claude_settings.seed.json"
+
+    if [[ ! -f "$src" ]]; then
+        warn "No seed/claude_settings.local.json in tarball — skipping"
+        return
+    fi
+
+    cp "$src" "$dest"
+    info "  Stored Claude Code permissions seed at aitasks/metadata/claude_settings.seed.json"
+}
+
 # --- Set permissions ---
 set_permissions() {
     chmod +x "$INSTALL_DIR/ait"
@@ -266,6 +280,9 @@ main() {
 
     info "Installing seed task types..."
     install_seed_task_types
+
+    info "Storing Claude Code permissions seed..."
+    install_seed_claude_settings
 
     # Clean up seed directory after all seed installers have run
     rm -rf "$INSTALL_DIR/seed"

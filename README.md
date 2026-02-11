@@ -33,6 +33,7 @@ curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh |
 - CLI tools: `fzf`, `gh`, `jq`, `git`
 - Python venv at `~/.aitask/venv/` with `textual`, `pyyaml`, `linkify-it-py`
 - Global `ait` shim at `~/.local/bin/ait`
+- Claude Code permissions in `.claude/settings.local.json` (see below)
 
 ## Command Reference
 
@@ -124,6 +125,14 @@ post_plan_action: start_implementation
 ```
 
 Profiles are preserved during `install.sh --force` upgrades (existing files are not overwritten).
+
+### Claude Code Permissions
+
+When you run `ait setup`, it offers to install default Claude Code permissions into `.claude/settings.local.json`. These permissions allow aitask skills to execute common operations (file listing, git commands, aiscript invocations) without prompting for manual approval each time.
+
+The default permissions are defined in `seed/claude_settings.local.json` and stored at `aitasks/metadata/claude_settings.seed.json` during installation. If a `.claude/settings.local.json` already exists, the setup merges permissions (union of both allow-lists, preserving any existing entries). You can decline the permissions prompt and configure them manually later.
+
+Re-run `ait setup` at any time to add the default permissions if you skipped them initially.
 
 ## Platform Support
 

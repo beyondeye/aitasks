@@ -256,6 +256,96 @@ check_latest_version() {
     fi
 }
 
+# --- Merge Claude Code settings (union of permissions.allow) ---
+merge_claude_settings() {
+    local seed_file="$1"
+    local dest_file="$2"
+    local merged=""
+
+    if command -v jq &>/dev/null; then
+        merged="$(jq -s '
+            .[0] as $existing |
+            .[1] as $seed |
+            $existing * {
+                permissions: {
+                    allow: (
+                        ($existing.permissions.allow // []) +
+                        (($seed.permissions.allow // []) - ($existing.permissions.allow // []))
+                    )
+                }
+            }
+        ' "$dest_file" "$seed_file")"
+    elif command -v python3 &>/dev/null; then
+        merged="$(python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    existing = json.load(f)
+with open(sys.argv[2]) as f:
+    seed = json.load(f)
+existing_allow = existing.get('permissions', {}).get('allow', [])
+seed_allow = seed.get('permissions', {}).get('allow', [])
+seen = set(existing_allow)
+merged = list(existing_allow)
+for entry in seed_allow:
+    if entry not in seen:
+        merged.append(entry)
+        seen.add(entry)
+existing.setdefault('permissions', {})['allow'] = merged
+print(json.dumps(existing, indent=2))
+" "$dest_file" "$seed_file")"
+    else
+        warn "Neither jq nor python3 found. Cannot merge settings automatically."
+        warn "Please manually merge $seed_file into $dest_file"
+        return
+    fi
+
+    if [[ -n "$merged" ]]; then
+        echo "$merged" > "$dest_file"
+        info "  Merged aitask permissions into .claude/settings.local.json"
+    else
+        warn "  Merge produced empty output — existing settings unchanged"
+    fi
+}
+
+# --- Install Claude Code permission settings ---
+install_claude_settings() {
+    local project_dir="$SCRIPT_DIR/.."
+    local seed_file="$project_dir/aitasks/metadata/claude_settings.seed.json"
+    local dest_dir="$project_dir/.claude"
+    local dest_file="$dest_dir/settings.local.json"
+
+    if [[ ! -f "$seed_file" ]]; then
+        return
+    fi
+
+    echo ""
+    info "The following Claude Code permissions are recommended for aitask skills:"
+    info "These allow aitask skills to run without manual approval each time."
+    echo ""
+    grep '"Bash(' "$seed_file" | sed 's/^[[:space:]]*/  /' | sed 's/",\?$//' | sed 's/^  "/  /'
+    echo ""
+
+    printf "  Install these Claude Code permissions? [Y/n] "
+    read -r answer
+    case "${answer:-Y}" in
+        [Yy]*|"") ;;
+        *)
+            info "Skipped Claude Code permission settings."
+            return
+            ;;
+    esac
+
+    mkdir -p "$dest_dir"
+
+    if [[ ! -f "$dest_file" ]]; then
+        cp "$seed_file" "$dest_file"
+        info "  Created .claude/settings.local.json with aitask permissions"
+    else
+        info "  Existing .claude/settings.local.json found — merging permissions..."
+        merge_claude_settings "$seed_file" "$dest_file"
+    fi
+}
+
 # --- Main ---
 main() {
     echo ""
@@ -273,6 +363,9 @@ main() {
     echo ""
 
     install_global_shim
+    echo ""
+
+    install_claude_settings
     echo ""
 
     check_latest_version
