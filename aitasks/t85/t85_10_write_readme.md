@@ -1,12 +1,13 @@
 ---
 priority: medium
 effort: low
-depends: [85_2, 85_5, 85_7]
+depends: [t85_2, t85_5, t85_7]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [bash, aitasks]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-11 10:00
-updated_at: 2026-02-11 10:00
+updated_at: 2026-02-11 14:58
 ---
 
 ## Context
