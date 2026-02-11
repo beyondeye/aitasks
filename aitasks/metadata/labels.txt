@@ -1,0 +1,7 @@
+aitask_board
+aitasks
+bash
+claudeskills
+install_scripts
+scripting
+statistics

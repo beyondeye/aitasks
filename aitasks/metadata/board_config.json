@@ -1,0 +1,24 @@
+{
+  "columns": [
+    {
+      "id": "now",
+      "title": "Now \u26a1",
+      "color": "#FF5555"
+    },
+    {
+      "id": "next",
+      "title": "Next Week \ud83d\udcc5",
+      "color": "#50FA7B"
+    },
+    {
+      "id": "backlog",
+      "title": "Backlog \ud83d\uddc4\ufe0f",
+      "color": "#BD93F9"
+    }
+  ],
+  "column_order": [
+    "now",
+    "next",
+    "backlog"
+  ]
+}
