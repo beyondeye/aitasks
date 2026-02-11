@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [claudeskills, aitasks]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-11 12:45
-updated_at: 2026-02-11 12:45
+updated_at: 2026-02-11 16:17
 ---
 
 modify aitask_pick skill to ask for an execution profile from available execution profiles in aitasks/metadata. the execution profiles haa anwers to questions in the aitask-pick, to reduce the number of questions asked when the user want to go from starting aitask-pick to implementation phase with the minimum input. need to check all the askuserquestions whose answers can be stored in the execution profile. need to add a way to generate execution profiles. perhaps define a default exection profiles in aitasks metadata that is installed together with scripts. user can modifiy this or copy and create a new one
