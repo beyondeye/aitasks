@@ -370,19 +370,16 @@ main() {
     info "Setting permissions..."
     set_permissions
 
-    # Run setup
-    info "Running ait setup..."
-    echo ""
-    (cd "$INSTALL_DIR" && ./ait setup)
-
     echo ""
     echo "=== aitasks installed successfully ==="
     echo ""
+    info "Next step: run 'ait setup' to install dependencies and configure Claude Code permissions."
+    echo ""
     echo "Quick start:"
+    echo "  ait setup      # Install dependencies and configure permissions"
     echo "  ait create     # Create a new task"
     echo "  ait ls -v 15   # List top 15 tasks"
     echo "  ait board      # Open task board"
-    echo "  ait setup      # Re-run dependency setup"
     echo ""
     echo "Claude Code skills installed to .claude/skills/"
     echo ""

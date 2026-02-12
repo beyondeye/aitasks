@@ -245,8 +245,13 @@ setup_git_repo() {
     # Not a git repo — offer to initialize
     warn "No git repository found in $project_dir"
     info "The aitask framework is designed to be part of your project's git repository."
-    printf "  Initialize a git repository here? [Y/n] "
-    read -r answer
+    if [[ -t 0 ]]; then
+        printf "  Initialize a git repository here? [Y/n] "
+        read -r answer
+    else
+        info "(non-interactive: auto-accepting default)"
+        answer="Y"
+    fi
     case "${answer:-Y}" in
         [Yy]*|"")
             git -C "$project_dir" init
@@ -267,8 +272,13 @@ setup_git_repo() {
     info "  aitasks/metadata/ - task metadata and configuration"
     info "  ait            - CLI dispatcher"
     info "  .claude/skills/ - Claude Code skills"
-    printf "  Commit these files? [Y/n] "
-    read -r answer
+    if [[ -t 0 ]]; then
+        printf "  Commit these files? [Y/n] "
+        read -r answer
+    else
+        info "(non-interactive: auto-accepting default)"
+        answer="Y"
+    fi
     case "${answer:-Y}" in
         [Yy]*|"")
             ;;
@@ -391,8 +401,13 @@ install_claude_settings() {
     grep '"Bash(' "$seed_file" | sed 's/^[[:space:]]*/  /' | sed 's/",\?$//' | sed 's/^  "/  /'
     echo ""
 
-    printf "  Install these Claude Code permissions? [Y/n] "
-    read -r answer
+    if [[ -t 0 ]]; then
+        printf "  Install these Claude Code permissions? [Y/n] "
+        read -r answer
+    else
+        info "(non-interactive: auto-accepting default)"
+        answer="Y"
+    fi
     case "${answer:-Y}" in
         [Yy]*|"") ;;
         *)
