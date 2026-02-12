@@ -232,6 +232,72 @@ SHIM
     }
 }
 
+# --- Git repository setup ---
+setup_git_repo() {
+    local project_dir="$SCRIPT_DIR/.."
+
+    # Check if we're inside a git repo
+    if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        success "Git repository already initialized"
+        return
+    fi
+
+    # Not a git repo — offer to initialize
+    warn "No git repository found in $project_dir"
+    info "The aitask framework is designed to be part of your project's git repository."
+    printf "  Initialize a git repository here? [Y/n] "
+    read -r answer
+    case "${answer:-Y}" in
+        [Yy]*|"")
+            git -C "$project_dir" init
+            success "Git repository initialized"
+            ;;
+        *)
+            warn "Git repository not initialized."
+            info "Note: aitask framework is designed to be tracked in git."
+            info "You can run 'git init' later and commit the aitask files."
+            return
+            ;;
+    esac
+
+    # Offer to make an initial commit of the framework files
+    info "Would you like to commit the aitask framework files to git?"
+    info "This will add:"
+    info "  aiscripts/     - aitask scripts and tools"
+    info "  aitasks/metadata/ - task metadata and configuration"
+    info "  ait            - CLI dispatcher"
+    info "  .claude/skills/ - Claude Code skills"
+    printf "  Commit these files? [Y/n] "
+    read -r answer
+    case "${answer:-Y}" in
+        [Yy]*|"")
+            ;;
+        *)
+            warn "Skipped initial commit."
+            info "The aitask framework is designed to be part of your project repository."
+            info "You can manually commit these files later with 'git add' and 'git commit'."
+            printf "  Are you sure you want to skip? [y/N] "
+            read -r answer2
+            case "${answer2:-N}" in
+                [Yy]*)
+                    info "OK, skipping initial commit."
+                    return
+                    ;;
+                *)
+                    info "OK, proceeding with commit."
+                    ;;
+            esac
+            ;;
+    esac
+
+    (
+        cd "$project_dir"
+        git add aiscripts/ aitasks/metadata/ ait .claude/skills/ VERSION install.sh 2>/dev/null || true
+        git commit -m "Add aitask framework"
+    )
+    success "Initial commit created with aitask framework files"
+}
+
 # --- Version check ---
 check_latest_version() {
     local local_version=""
@@ -357,6 +423,9 @@ main() {
     echo ""
 
     install_cli_tools "$OS"
+    echo ""
+
+    setup_git_repo
     echo ""
 
     setup_python_venv
