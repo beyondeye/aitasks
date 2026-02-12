@@ -122,7 +122,56 @@ aitasks provides Claude Code skills that automate the full task workflow:
 | `/aitask-stats` | View completion statistics |
 | `/aitask-cleanold` | Archive old completed files |
 
-The `/aitask-pick` skill provides a full development workflow: task selection, plan mode integration, optional worktree/branch creation, implementation tracking, user review, and post-implementation archival.
+### /aitask-pick [number]
+This skill provides a full development workflow: task selection, plan mode integration, optional worktree/branch creation, implementation tracking, user review, and post-implementation archival.
+
+It select and implement a task from the `aitasks/` directory.
+
+**Features:**
+- Automatically prioritizes tasks based on status, priority, effort, and dependencies
+- Presents task summaries for user selection
+- Optionally accepts a task number to skip selection (e.g., `/aitask-pick 10`)
+- Optionally creates separate git branches and worktrees for isolated implementation
+- Manages the full task lifecycle: selection → planning → implementation → merge → archival
+
+**Usage:**
+```
+/aitask-pick        # Interactive task selection
+/aitask-pick 10     # Directly select task t10 and skip to environment setup
+```
+
+### /aitask-create
+
+Create a new task file with automatic numbering and proper metadata.
+
+**Features:**
+- Auto-determines next task number from active, archived, and compressed tasks
+- Collects priority, effort, and dependencies via interactive prompts
+- Sanitizes task names (lowercase, underscores, no special characters)
+- Iteratively collects task definition content
+- Commits the new task file to git
+
+**Usage:**
+```
+/aitask-create
+```
+
+### /aitask-cleanold
+
+Archive old task and plan files to compressed tar.gz archives.
+
+**Features:**
+- Archives old files from `aitasks/archived/` to `aitasks/archived/old.tar.gz`
+- Archives old files from `aiplans/archived/` to `aiplans/archived/old.tar.gz`
+- Keeps the most recent task and plan file uncompressed (for task numbering)
+- Appends to existing archives if they exist
+- Verifies archive integrity before deleting originals
+- Commits changes to git
+
+**Usage:**
+```
+/aitask-cleanold
+```
 
 ### Execution Profiles
 
@@ -192,8 +241,9 @@ Re-run `ait setup` at any time to add the default permissions if you skipped the
 | Windows (WSL) | Fully supported | Via WSL with Ubuntu/Debian |
 
 ## Task File Format
-
 Tasks are markdown files with YAML frontmatter in the `aitasks/` directory:
+Task files use the naming convention `t<number>_<name>.md
+Executed task files are stored in aitasks/archived and their associated plan files in aiplans/archived
 
 ```yaml
 ---
