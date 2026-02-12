@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [aitasks]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-12 10:56
-updated_at: 2026-02-12 11:01
+updated_at: 2026-02-12 11:36
 ---
 
 ## Context
