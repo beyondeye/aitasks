@@ -105,13 +105,6 @@ After installing, run `ait setup` to install dependencies and configure Claude C
 
 ## Table of Contents
 
-- [The challenge](#the-challenge)
-- [Core Philosophy](#core-philosophy)
-- [Key Features & Architecture](#key-features--architecture)
-- [Platform Support](#platform-support)
-- [Known Issues](#known-issues)
-- [Quick Install](#quick-install)
-- [What Gets Installed](#what-gets-installed)
 - [Command Reference](#command-reference)
   - [Usage Examples](#usage-examples)
   - [ait setup](#ait-setup)
