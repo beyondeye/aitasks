@@ -44,7 +44,36 @@ jobs:
             skills/ \
             seed/
 
-      - name: Create GitHub Release
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [ -f CHANGELOG.md ]; then
+            # Extract section between "## vX.Y.Z" and next "## v" heading (or EOF)
+            section=$(sed -n "/^## v${version}$/,/^## v/{
+              /^## v${version}$/d
+              /^## v/d
+              p
+            }" CHANGELOG.md)
+            if [ -n "$section" ]; then
+              echo "$section" > /tmp/release_notes.md
+              echo "found=true" >> $GITHUB_OUTPUT
+            else
+              echo "found=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release (with changelog)
+        if: steps.changelog.outputs.found == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: aitasks-${{ github.ref_name }}.tar.gz
+          body_path: /tmp/release_notes.md
+
+      - name: Create GitHub Release (auto-generated notes)
+        if: steps.changelog.outputs.found != 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: aitasks-${{ github.ref_name }}.tar.gz

@@ -23,6 +23,31 @@ if git rev-parse "v$new_version" >/dev/null 2>&1; then
   exit 1
 fi
 
+# Check if CHANGELOG.md has an entry for this version
+if [[ -f CHANGELOG.md ]]; then
+  if ./aiscripts/aitask_changelog.sh --check-version "$new_version" 2>/dev/null; then
+    echo -e "\033[0;32mCHANGELOG.md has entry for v${new_version}. Will be used as release notes.\033[0m"
+  else
+    echo ""
+    echo -e "\033[1;33mWARNING:\033[0m No CHANGELOG.md entry found for v${new_version}."
+    echo "Consider running /aitask-changelog first to generate the changelog entry."
+    read -rp "Continue without changelog? [y/N] " changelog_confirm
+    if [[ "$changelog_confirm" != [yY] ]]; then
+      echo "Aborted. Run /aitask-changelog to generate the changelog entry first."
+      exit 1
+    fi
+  fi
+else
+  echo ""
+  echo -e "\033[1;33mWARNING:\033[0m No CHANGELOG.md file found."
+  echo "Consider running /aitask-changelog first to generate the changelog."
+  read -rp "Continue without changelog? [y/N] " changelog_confirm
+  if [[ "$changelog_confirm" != [yY] ]]; then
+    echo "Aborted."
+    exit 1
+  fi
+fi
+
 echo ""
 echo "Will update VERSION $current_version -> $new_version"
 echo "Will create tag v$new_version and push to trigger release workflow."
