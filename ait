@@ -29,6 +29,7 @@ Commands:
   clear-old      Archive old completed tasks
   issue-update   Update/close linked issues
   setup          Install dependencies
+  install        Update aitasks to latest or specific version
 
 Options:
   -h, --help     Show this help message
@@ -38,16 +39,76 @@ Run 'ait <command> --help' for more information on a command.
 EOF
 }
 
+# --- Update check (runs at most once per day) ---
+check_for_updates() {
+    local cache_file="$HOME/.aitask/update_check"
+    local version_file="$AIT_DIR/VERSION"
+    local repo="beyondeye/aitasks"
+
+    # Bail if no VERSION file
+    [[ -f "$version_file" ]] || return 0
+
+    local local_version
+    local_version="$(cat "$version_file")"
+
+    local now
+    now="$(date +%s)"
+
+    # Read cache
+    local cached_time=0 cached_version=""
+    if [[ -f "$cache_file" ]]; then
+        read -r cached_time cached_version < "$cache_file" 2>/dev/null || true
+    fi
+
+    # Check if cache is fresh (less than 86400 seconds = 24 hours old)
+    local age=$(( now - cached_time ))
+    if [[ $age -lt 86400 && -n "$cached_version" ]]; then
+        # Cache is fresh — show notice if update available
+        if [[ "$local_version" != "$cached_version" ]]; then
+            echo -e "\033[1;33m[ait]\033[0m Update available: $local_version → $cached_version"
+            echo -e "\033[1;33m[ait]\033[0m Run: ait install latest"
+            echo ""
+        fi
+        return 0
+    fi
+
+    # Cache is stale — fetch in background (no message, avoids interleaved output)
+    (
+        latest_version="$(curl -sS --max-time 5 \
+            "https://api.github.com/repos/$repo/releases/latest" 2>/dev/null \
+            | grep '"tag_name"' | head -1 \
+            | sed 's/.*"tag_name": *"v\?\([^"]*\)".*/\1/')" || true
+
+        if [[ -n "$latest_version" ]]; then
+            mkdir -p "$(dirname "$cache_file")"
+            echo "$now $latest_version" > "$cache_file"
+        else
+            # Network failed — update timestamp to avoid retrying every invocation
+            mkdir -p "$(dirname "$cache_file")"
+            echo "$now ${cached_version:-$local_version}" > "$cache_file"
+        fi
+    ) &
+    disown 2>/dev/null || true
+}
+
+# Check for updates (skip for meta-commands and install itself)
+case "${1:-help}" in
+    help|--help|-h|--version|-v|install|setup) ;;
+    *) check_for_updates ;;
+esac
+
 case "${1:-help}" in
     create)       shift; exec "$SCRIPTS_DIR/aitask_create.sh" "$@" ;;
     ls)           shift; exec "$SCRIPTS_DIR/aitask_ls.sh" "$@" ;;
     update)       shift; exec "$SCRIPTS_DIR/aitask_update.sh" "$@" ;;
+    install)      shift; exec "$SCRIPTS_DIR/aitask_install.sh" "$@" ;;
     issue-import) shift; exec "$SCRIPTS_DIR/aitask_issue_import.sh" "$@" ;;
     board)        shift; exec "$SCRIPTS_DIR/aitask_board.sh" "$@" ;;
     stats)        shift; exec "$SCRIPTS_DIR/aitask_stats.sh" "$@" ;;
     clear-old)    shift; exec "$SCRIPTS_DIR/aitask_clear_old.sh" "$@" ;;
     issue-update) shift; exec "$SCRIPTS_DIR/aitask_issue_update.sh" "$@" ;;
     setup)        shift; exec "$SCRIPTS_DIR/aitask_setup.sh" "$@" ;;
+    changelog)    shift; exec "$SCRIPTS_DIR/aitask_changelog.sh" "$@" ;;
     help|--help|-h) show_usage ;;
     --version|-v)   show_version ;;
     *)

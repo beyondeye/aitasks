@@ -240,6 +240,81 @@ install_seed_claude_settings() {
     info "  Stored Claude Code permissions seed at aitasks/metadata/claude_settings.seed.json"
 }
 
+# --- Show changelog between versions (upgrade only) ---
+show_upgrade_changelog() {
+    local tarball_path="$1"
+    local install_dir="$2"
+
+    # Only relevant during upgrade (existing install + --force)
+    if [[ "$FORCE" != true ]]; then
+        return
+    fi
+
+    local current_version=""
+    if [[ -f "$install_dir/VERSION" ]]; then
+        current_version="$(cat "$install_dir/VERSION")"
+    else
+        return  # Can't determine current version, skip
+    fi
+
+    # Extract VERSION and CHANGELOG.md from tarball into temp dir
+    local tmpextract
+    tmpextract="$(mktemp -d)"
+
+    tar -xzf "$tarball_path" -C "$tmpextract" VERSION 2>/dev/null || true
+    tar -xzf "$tarball_path" -C "$tmpextract" CHANGELOG.md 2>/dev/null || true
+
+    local new_version=""
+    if [[ -f "$tmpextract/VERSION" ]]; then
+        new_version="$(cat "$tmpextract/VERSION")"
+    fi
+
+    if [[ -z "$new_version" || "$current_version" == "$new_version" ]]; then
+        rm -rf "$tmpextract"
+        return
+    fi
+
+    info "Upgrading: v${current_version} → v${new_version}"
+
+    if [[ -f "$tmpextract/CHANGELOG.md" ]]; then
+        echo ""
+        info "Changelog:"
+        echo ""
+
+        # Print all version sections newer than current_version
+        local in_range=false
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^##\ v ]]; then
+                local heading_version
+                heading_version="${line#\#\# v}"
+                if [[ "$heading_version" == "$current_version" ]]; then
+                    break  # Stop before current version's section
+                fi
+                in_range=true
+            fi
+            if $in_range; then
+                echo "  $line"
+            fi
+        done < "$tmpextract/CHANGELOG.md"
+
+        echo ""
+    else
+        warn "No CHANGELOG.md in release (changelog display requires aitasks >= next release)"
+    fi
+
+    rm -rf "$tmpextract"
+
+    # Ask for confirmation (only when stdin is a terminal)
+    if [[ -t 0 ]]; then
+        printf "  Proceed with upgrade? [Y/n] "
+        read -r answer
+        case "${answer:-Y}" in
+            [Yy]*|"") ;;
+            *) info "Aborted."; exit 0 ;;
+        esac
+    fi
+}
+
 # --- Set permissions ---
 set_permissions() {
     chmod +x "$INSTALL_DIR/ait"
@@ -267,6 +342,9 @@ main() {
     local tarball_path="$tmpdir/aitasks.tar.gz"
 
     download_tarball "$tarball_path"
+
+    # Show changelog and confirm (upgrade path only)
+    show_upgrade_changelog "$tarball_path" "$INSTALL_DIR"
 
     info "Extracting to $INSTALL_DIR..."
     tar -xzf "$tarball_path" -C "$INSTALL_DIR"

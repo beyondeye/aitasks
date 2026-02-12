@@ -252,7 +252,7 @@ check_latest_version() {
     if [[ "$local_version" != "$latest_version" ]]; then
         echo ""
         info "Update available: $local_version → $latest_version"
-        info "Run: curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash"
+        info "Run: ait install latest"
     fi
 }
 

@@ -75,6 +75,12 @@ curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh |
 Upgrade an existing installation:
 
 ```bash
+ait install latest
+```
+
+Or for fresh installs without an existing `ait` dispatcher:
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash -s -- --force
 ```
 
@@ -109,6 +115,7 @@ After installing, run `ait setup` to install dependencies and configure Claude C
 - [Command Reference](#command-reference)
   - [Usage Examples](#usage-examples)
   - [ait setup](#ait-setup)
+  - [ait install](#ait-install)
   - [ait create](#ait-create)
   - [ait ls](#ait-ls)
   - [ait update](#ait-update)
@@ -140,6 +147,7 @@ After installing, run `ait setup` to install dependencies and configure Claude C
 | Command | Description |
 |---------|-------------|
 | `ait setup` | Install/update dependencies and configure Claude Code permissions |
+| `ait install` | Update aitasks to latest or specific version |
 | `ait create` | Create a new task (interactive or batch mode) |
 | `ait ls` | List and filter tasks by priority, effort, status, labels |
 | `ait update` | Update task metadata (status, priority, labels, etc.) |
@@ -162,6 +170,8 @@ ait update --batch 42 --status Done     # Mark task done
 ait board                               # Open TUI board
 ait issue-import                        # Import GitHub issues
 ait stats                               # Show completion stats
+ait install                              # Update to latest version
+ait install 0.2.1                        # Install specific version
 ait --version                           # Show installed version
 ```
 
@@ -189,6 +199,31 @@ When you run `ait setup`, it offers to install default Claude Code permissions i
 The default permissions are defined in `seed/claude_settings.local.json` and stored at `aitasks/metadata/claude_settings.seed.json` during installation. If a `.claude/settings.local.json` already exists, the setup merges permissions (union of both allow-lists, preserving any existing entries). You can decline the permissions prompt and configure them manually later.
 
 Re-run `ait setup` at any time to add the default permissions if you skipped them initially.
+
+---
+
+### ait install
+
+Update the aitasks framework to a new version.
+
+```bash
+ait install                    # Update to latest release
+ait install latest             # Same as above
+ait install 0.2.1              # Install specific version
+```
+
+**How it works:**
+
+1. Resolves the target version (queries GitHub API for latest, or validates the provided version number)
+2. Checks if already up to date (skips if versions match)
+3. Downloads `install.sh` from the target version's git tag
+4. Runs the installer with `--force`, which shows the changelog between current and target versions and asks for confirmation
+5. Performs the full installation (tarball download, skill installation, setup)
+6. Clears the update check cache
+
+**Automatic update check:**
+
+The `ait` dispatcher checks for new versions once per day (at most). When a newer version is available, it shows a brief notice suggesting `ait install latest`. The check runs in the background to avoid adding latency. It is skipped for `help`, `version`, `install`, and `setup` commands.
 
 ---
 
