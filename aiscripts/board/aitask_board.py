@@ -5,6 +5,7 @@ import copy
 import yaml
 import json
 import glob
+import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -1438,19 +1439,44 @@ class KanbanApp(App):
         self.manager.load_tasks()
         self.refresh_board(refocus_filename=filename)
 
-    def run_aitask_pick(self, filename):
-        """Open a new terminal and launch claude with /aitask-pick for the task."""
+    def _find_terminal(self):
+        """Find an available terminal emulator, or return None."""
+        terminal = os.environ.get("TERMINAL")
+        if terminal and shutil.which(terminal):
+            return terminal
+        for term in ["x-terminal-emulator", "xdg-terminal-exec", "gnome-terminal",
+                     "konsole", "xfce4-terminal", "lxterminal", "mate-terminal", "xterm"]:
+            if shutil.which(term):
+                return term
+        return None
+
+    @work(exclusive=True)
+    async def run_aitask_pick(self, filename):
+        """Launch claude with /aitask-pick for the task."""
         task_num, _ = TaskCard._parse_filename(filename)
         if not task_num:
             return
         num = task_num.lstrip("t")
-        terminal = os.environ.get("TERMINAL", "xdg-terminal-exec")
-        subprocess.Popen([terminal, "--", "claude", f"/aitask-pick {num}"])
+        terminal = self._find_terminal()
+        if terminal:
+            subprocess.Popen([terminal, "--", "claude", f"/aitask-pick {num}"])
+        else:
+            with self.suspend():
+                subprocess.call(["claude", f"/aitask-pick {num}"])
+            self.manager.load_tasks()
+            self.refresh_board(refocus_filename=filename)
 
-    def action_create_task(self):
-        """Open a new terminal and launch aitask_create.sh."""
-        terminal = os.environ.get("TERMINAL", "xdg-terminal-exec")
-        subprocess.Popen([terminal, "--", "./aiscripts/aitask_create.sh"])
+    @work(exclusive=True)
+    async def action_create_task(self):
+        """Create a new task, using a terminal emulator or falling back to suspend."""
+        terminal = self._find_terminal()
+        if terminal:
+            subprocess.Popen([terminal, "--", "./aiscripts/aitask_create.sh"])
+        else:
+            with self.suspend():
+                subprocess.call(["./aiscripts/aitask_create.sh"])
+            self.manager.load_tasks()
+            self.refresh_board()
 
     # --- Expand/Collapse Children ---
 
