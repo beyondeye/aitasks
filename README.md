@@ -49,7 +49,20 @@ Not a research experiment. actively developed and used in real projects
 
 - Fully customizable workflow for each project:  all the scripts and workflow skills live in you project repo: modify it for your needs. You will still be able to merge new features and cabilities as they are added to the framework, with the included AI agent-based framework update skill.
 
+## Platform Support
 
+| Platform | Status | Notes |
+|----------|--------|-------|
+| Arch Linux | Fully supported | Primary development platform |
+| Ubuntu/Debian | Fully supported | Includes Pop!_OS, Linux Mint, Elementary |
+| Fedora/RHEL | Fully supported | Includes CentOS, Rocky, Alma |
+| macOS | Partial | `date -d` and bash 3.2 limitations (see [Known Issues](#known-issues)) |
+| Windows (WSL) | Fully supported | Via WSL with Ubuntu/Debian |
+
+## Known Issues
+
+- **macOS `date -d`**: The `ait stats` and `ait issue-import` commands use GNU `date -d` which is not available with macOS BSD date. Install `coreutils` via Homebrew (`brew install coreutils`) to get `gdate` as a workaround.
+- **macOS bash**: The system bash on macOS is v3.2; aitasks requires bash 4+. Running `ait setup` on macOS installs bash 5 via Homebrew.
 
 ## Quick Install
 
@@ -64,6 +77,8 @@ Upgrade an existing installation:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash -s -- --force
 ```
+
+After installing, run `ait setup` to install dependencies and configure Claude Code permissions. See [`ait setup`](#ait-setup) for details.
 
 ## What Gets Installed
 
@@ -80,16 +95,54 @@ curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh |
 - CLI tools: `fzf`, `gh`, `jq`, `git`
 - Python venv at `~/.aitask/venv/` with `textual`, `pyyaml`, `linkify-it-py`
 - Global `ait` shim at `~/.local/bin/ait`
-- Claude Code permissions in `.claude/settings.local.json` (see below)
+- Claude Code permissions in `.claude/settings.local.json` (see [Claude Code Permissions](#claude-code-permissions))
+
+## Table of Contents
+
+- [The challenge](#the-challenge)
+- [Core Philosophy](#core-philosophy)
+- [Key Features & Architecture](#key-features--architecture)
+- [Platform Support](#platform-support)
+- [Known Issues](#known-issues)
+- [Quick Install](#quick-install)
+- [What Gets Installed](#what-gets-installed)
+- [Command Reference](#command-reference)
+  - [Usage Examples](#usage-examples)
+  - [ait setup](#ait-setup)
+  - [ait create](#ait-create)
+  - [ait ls](#ait-ls)
+  - [ait update](#ait-update)
+  - [ait board](#ait-board)
+  - [ait stats](#ait-stats)
+  - [ait clear-old](#ait-clear-old)
+  - [ait issue-import](#ait-issue-import)
+  - [ait issue-update](#ait-issue-update)
+  - [ait changelog](#ait-changelog)
+- [Claude Code Integration](#claude-code-integration)
+  - [/aitask-pick](#aitask-pick-number)
+  - [/aitask-create](#aitask-create)
+  - [/aitask-create2](#aitask-create2)
+  - [/aitask-stats](#aitask-stats)
+  - [/aitask-cleanold](#aitask-cleanold)
+  - [/aitask-changelog](#aitask-changelog)
+- [Task File Format](#task-file-format)
+  - [Customizing Task Types](#customizing-task-types)
+- [Development](#development)
+  - [Architecture](#architecture)
+  - [Library Scripts](#library-scripts)
+  - [Modifying scripts](#modifying-scripts)
+  - [Testing changes](#testing-changes)
+  - [Release process](#release-process)
+- [License](#license)
 
 ## Command Reference
 
 | Command | Description |
 |---------|-------------|
+| `ait setup` | Install/update dependencies and configure Claude Code permissions |
 | `ait create` | Create a new task (interactive or batch mode) |
 | `ait ls` | List and filter tasks by priority, effort, status, labels |
 | `ait update` | Update task metadata (status, priority, labels, etc.) |
-| `ait setup` | Install/update dependencies |
 | `ait board` | Open the kanban-style TUI board |
 | `ait stats` | Show task completion statistics |
 | `ait clear-old` | Archive old completed task and plan files |
@@ -100,6 +153,7 @@ curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh |
 ### Usage Examples
 
 ```bash
+ait setup                               # Install dependencies
 ait create                              # Interactive task creation
 ait create --batch --name "fix_bug"     # Batch mode
 ait ls -v 15                            # List top 15 tasks (verbose)
@@ -110,6 +164,33 @@ ait issue-import                        # Import GitHub issues
 ait stats                               # Show completion stats
 ait --version                           # Show installed version
 ```
+
+### ait setup
+
+Cross-platform dependency installer and configuration tool. This is typically the first command to run after installing aitasks.
+
+```bash
+ait setup
+```
+
+**Guided setup flow:**
+
+1. **OS detection** — Automatically detects: macOS, Arch Linux, Debian/Ubuntu, Fedora/RHEL, WSL
+2. **CLI tools** — Installs missing tools (`fzf`, `gh`, `jq`, `git`) via the platform's package manager (pacman, apt, dnf, brew). On macOS, also installs bash 5.x and coreutils
+3. **Python venv** — Creates virtual environment at `~/.aitask/venv/` and installs `textual`, `pyyaml`, `linkify-it-py`
+4. **Global shim** — Installs `ait` shim at `~/.local/bin/ait` that finds the nearest project-local `ait` dispatcher by walking up the directory tree. Warns if `~/.local/bin` is not in PATH
+5. **Claude Code permissions** — Shows the recommended permission entries, then prompts Y/n to install them into `.claude/settings.local.json`. If settings already exist, merges permissions (union of allow-lists)
+6. **Version check** — Compares local version against latest GitHub release and suggests update if newer
+
+#### Claude Code Permissions
+
+When you run `ait setup`, it offers to install default Claude Code permissions into `.claude/settings.local.json`. These permissions allow aitask skills to execute common operations (file listing, git commands, aiscript invocations) without prompting for manual approval each time.
+
+The default permissions are defined in `seed/claude_settings.local.json` and stored at `aitasks/metadata/claude_settings.seed.json` during installation. If a `.claude/settings.local.json` already exists, the setup merges permissions (union of both allow-lists, preserving any existing entries). You can decline the permissions prompt and configure them manually later.
+
+Re-run `ait setup` at any time to add the default permissions if you skipped them initially.
+
+---
 
 ### ait create
 
@@ -264,25 +345,6 @@ ait update --batch 10 --remove-child t10_1      # Remove child from parent
 - Child task format: use `10_1` or `t10_1` to target child tasks
 - When a child task is set to Done, automatically removes it from parent's `children_to_implement` and warns when all children are complete
 - Parent tasks cannot be set to Done while `children_to_implement` is non-empty
-
----
-
-### ait setup
-
-Cross-platform dependency installer and configuration tool.
-
-```bash
-ait setup
-```
-
-**Guided setup flow:**
-
-1. **OS detection** — Automatically detects: macOS, Arch Linux, Debian/Ubuntu, Fedora/RHEL, WSL
-2. **CLI tools** — Installs missing tools (`fzf`, `gh`, `jq`, `git`) via the platform's package manager (pacman, apt, dnf, brew). On macOS, also installs bash 5.x and coreutils
-3. **Python venv** — Creates virtual environment at `~/.aitask/venv/` and installs `textual`, `pyyaml`, `linkify-it-py`
-4. **Global shim** — Installs `ait` shim at `~/.local/bin/ait` that finds the nearest project-local `ait` dispatcher by walking up the directory tree. Warns if `~/.local/bin` is not in PATH
-5. **Claude Code permissions** — Shows the recommended permission entries, then prompts Y/n to install them into `.claude/settings.local.json`. If settings already exist, merges permissions (union of allow-lists)
-6. **Version check** — Compares local version against latest GitHub release and suggests update if newer
 
 ---
 
@@ -514,7 +576,7 @@ aitasks provides Claude Code skills that automate the full task workflow:
 
 | Skill | Description |
 |-------|-------------|
-| `/aitask-pick` | Select and implement the next task (planning, branching, implementation, archival) |
+| `/aitask-pick` | The central skill — select and implement the next task (planning, branching, implementation, archival) |
 | `/aitask-create` | Create tasks interactively via Claude Code |
 | `/aitask-create2` | Create tasks using terminal fzf (faster alternative) |
 | `/aitask-stats` | View completion statistics |
@@ -523,7 +585,7 @@ aitasks provides Claude Code skills that automate the full task workflow:
 
 ### /aitask-pick [number]
 
-Full development workflow skill — manages the complete task lifecycle from selection through implementation, review, and archival.
+The central skill of the aitasks framework and the core of the development workflow. This is a full development workflow skill that manages the complete task lifecycle from selection through implementation, review, and archival.
 
 **Usage:**
 ```
@@ -534,7 +596,7 @@ Full development workflow skill — manages the complete task lifecycle from sel
 
 **Workflow overview:**
 
-1. **Profile selection** — Loads an execution profile from `aitasks/metadata/profiles/` to pre-answer workflow questions and reduce prompts. See the **Execution Profiles** section below for configuration details
+1. **Profile selection** — Loads an execution profile from `aitasks/metadata/profiles/` to pre-answer workflow questions and reduce prompts. See the [Execution Profiles](#execution-profiles) section below for configuration details
 2. **Task selection** — Shows a prioritized list of tasks (sorted by priority, effort, blocked status) with pagination, or jumps directly to a task when a number argument is provided
 3. **Child task handling** — When a parent task with children is selected, drills down to show child subtasks. Gathers context from archived sibling plan files so each child task benefits from previous siblings' implementation experience
 4. **Status checks** — Detects edge cases: tasks marked Done but not yet archived, and orphaned parent tasks where all children are complete. Offers to archive them directly
@@ -555,7 +617,54 @@ Full development workflow skill — manages the complete task lifecycle from sel
 - **Abort handling** — Available at multiple checkpoints (after planning, after implementation). Reverts task status, optionally deletes the plan file, cleans up worktree/branch if created, and commits the status change
 - **Branch/worktree support** — Optionally creates an isolated git worktree at `aiwork/<task_name>/` on a new `aitask/<task_name>` branch. After implementation, merges back to the base branch and cleans up the worktree and branch
 
-Execution profiles can pre-configure most workflow questions (email, local/remote, worktree, plan handling) to minimize prompts. See the **Execution Profiles** section for details.
+#### Execution Profiles
+
+The `/aitask-pick` skill asks several interactive questions before reaching implementation (email, local/remote, worktree, plan handling, etc.). Execution profiles let you pre-configure answers to these questions so you can go from task selection to implementation with minimal input.
+
+Profiles are YAML files stored in `aitasks/metadata/profiles/`. Two profiles ship by default:
+
+- **default** — All questions asked normally (empty profile, serves as template)
+- **fast** — Skip confirmations, use first stored email, work locally on current branch, reuse existing plans
+
+When you run `/aitask-pick`, the profile is selected first (Step 0a). If only one profile exists, it's auto-loaded. With multiple profiles, you're prompted to choose.
+
+##### Profile Settings
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `name` | string (required) | Display name shown during profile selection |
+| `description` | string (required) | Description shown below profile name during selection |
+| `skip_task_confirmation` | bool | `true` = auto-confirm task selection |
+| `default_email` | string | `"first"` = use first email from emails.txt; or a literal email address |
+| `run_location` | string | `"locally"` or `"remotely"` |
+| `create_worktree` | bool | `true` = create worktree; `false` = work on current branch |
+| `base_branch` | string | Branch name for worktree (e.g., `"main"`) |
+| `plan_preference` | string | `"use_current"`, `"verify"`, or `"create_new"` |
+| `post_plan_action` | string | `"start_implementation"` = skip post-plan prompt |
+
+Omitting a key means the corresponding question is asked interactively. Plan approval (ExitPlanMode) is always mandatory and cannot be skipped.
+
+##### Creating a Custom Profile
+
+```bash
+cp aitasks/metadata/profiles/fast.yaml aitasks/metadata/profiles/my-profile.yaml
+```
+
+Edit the file to set your preferences:
+
+```yaml
+name: worktree
+description: Like fast but creates a worktree on main for each task
+skip_task_confirmation: true
+default_email: first
+run_location: locally
+create_worktree: true
+base_branch: main
+plan_preference: use_current
+post_plan_action: start_implementation
+```
+
+Profiles are preserved during `install.sh --force` upgrades (existing files are not overwritten).
 
 ### /aitask-create
 
@@ -673,73 +782,6 @@ Generate a changelog entry by analyzing commits and archived plans since the las
 - Overlap detection handles incremental changelog updates when some tasks were already documented
 - Supports both new CHANGELOG.md creation and insertion into existing files
 
-### Execution Profiles
-
-The `/aitask-pick` skill asks several interactive questions before reaching implementation (email, local/remote, worktree, plan handling, etc.). Execution profiles let you pre-configure answers to these questions so you can go from task selection to implementation with minimal input.
-
-Profiles are YAML files stored in `aitasks/metadata/profiles/`. Two profiles ship by default:
-
-- **default** — All questions asked normally (empty profile, serves as template)
-- **fast** — Skip confirmations, use first stored email, work locally on current branch, reuse existing plans
-
-When you run `/aitask-pick`, the profile is selected first (Step 0a). If only one profile exists, it's auto-loaded. With multiple profiles, you're prompted to choose.
-
-#### Profile Settings
-
-| Key | Type | Description |
-|-----|------|-------------|
-| `name` | string (required) | Display name shown during profile selection |
-| `description` | string (required) | Description shown below profile name during selection |
-| `skip_task_confirmation` | bool | `true` = auto-confirm task selection |
-| `default_email` | string | `"first"` = use first email from emails.txt; or a literal email address |
-| `run_location` | string | `"locally"` or `"remotely"` |
-| `create_worktree` | bool | `true` = create worktree; `false` = work on current branch |
-| `base_branch` | string | Branch name for worktree (e.g., `"main"`) |
-| `plan_preference` | string | `"use_current"`, `"verify"`, or `"create_new"` |
-| `post_plan_action` | string | `"start_implementation"` = skip post-plan prompt |
-
-Omitting a key means the corresponding question is asked interactively. Plan approval (ExitPlanMode) is always mandatory and cannot be skipped.
-
-#### Creating a Custom Profile
-
-```bash
-cp aitasks/metadata/profiles/fast.yaml aitasks/metadata/profiles/my-profile.yaml
-```
-
-Edit the file to set your preferences:
-
-```yaml
-name: worktree
-description: Like fast but creates a worktree on main for each task
-skip_task_confirmation: true
-default_email: first
-run_location: locally
-create_worktree: true
-base_branch: main
-plan_preference: use_current
-post_plan_action: start_implementation
-```
-
-Profiles are preserved during `install.sh --force` upgrades (existing files are not overwritten).
-
-### Claude Code Permissions
-
-When you run `ait setup`, it offers to install default Claude Code permissions into `.claude/settings.local.json`. These permissions allow aitask skills to execute common operations (file listing, git commands, aiscript invocations) without prompting for manual approval each time.
-
-The default permissions are defined in `seed/claude_settings.local.json` and stored at `aitasks/metadata/claude_settings.seed.json` during installation. If a `.claude/settings.local.json` already exists, the setup merges permissions (union of both allow-lists, preserving any existing entries). You can decline the permissions prompt and configure them manually later.
-
-Re-run `ait setup` at any time to add the default permissions if you skipped them initially.
-
-## Platform Support
-
-| Platform | Status | Notes |
-|----------|--------|-------|
-| Arch Linux | Fully supported | Primary development platform |
-| Ubuntu/Debian | Fully supported | Includes Pop!_OS, Linux Mint, Elementary |
-| Fedora/RHEL | Fully supported | Includes CentOS, Rocky, Alma |
-| macOS | Partial | `date -d` and bash 3.2 limitations (see Known Issues) |
-| Windows (WSL) | Fully supported | Via WSL with Ubuntu/Debian |
-
 ## Task File Format
 Tasks are markdown files with YAML frontmatter in the `aitasks/` directory:
 Task files use the naming convention `t<number>_<name>.md
@@ -778,11 +820,6 @@ refactor
 ```
 
 To add a custom type, simply add a new line to the file. All scripts (`ait create`, `ait update`, `ait board`, `ait stats`) read from this file dynamically.
-
-## Known Issues
-
-- **macOS `date -d`**: The `ait stats` and `ait issue-import` commands use GNU `date -d` which is not available with macOS BSD date. Install `coreutils` via Homebrew (`brew install coreutils`) to get `gdate` as a workaround.
-- **macOS bash**: The system bash on macOS is v3.2; aitasks requires bash 4+. Running `ait setup` on macOS installs bash 5 via Homebrew.
 
 ## Development
 
@@ -865,10 +902,8 @@ bash -n aiscripts/*.sh   # Syntax-check all scripts
 
 ### Release process
 
-1. Update the `VERSION` file
-2. Commit and tag: `git tag v<version>`
-3. Push with tags: `git push && git push --tags`
-4. GitHub Actions builds the release tarball automatically
+1. Run `/aitask-changelog` in Claude Code to generate the changelog entry for the new version
+2. Run `./create_new_release.sh` which bumps the `VERSION` file, creates a git tag, and pushes to trigger the GitHub Actions release workflow
 
 ## License
 
