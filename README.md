@@ -934,5 +934,14 @@ bash -n aiscripts/*.sh   # Syntax-check all scripts
 2. Run `./create_new_release.sh` which bumps the `VERSION` file, creates a git tag, and pushes to trigger the GitHub Actions release workflow
 
 ## License
+This project is licensed under the MIT License with the Commons Clause condition.
 
+What this means:
+✅ You can: Use, copy, and modify the code for free.
+
+✅ You can: Use aitasks as a library to power your own commercial products or SaaS applications.
+
+❌ You cannot: Sell aitasks itself, or a derivative version of it, as a standalone product or service (e.g., selling a "Pro" version of the library or a managed aitasks hosting service) without prior written consent.
+
+For the full legal text, please see the LICENSE file.
 See [LICENSE](LICENSE) for details.
