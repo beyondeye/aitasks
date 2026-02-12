@@ -1234,8 +1234,10 @@ class KanbanApp(App):
                 return None  # Hide from footer
         elif action == "toggle_children":
             focused = self._focused_card()
-            if not focused or focused.is_child:
+            if not focused:
                 return None
+            if focused.is_child:
+                return True  # Always show for child cards (they have a parent)
             task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
             if not self.manager.get_child_tasks_for_parent(task_num):
                 return None
@@ -1455,13 +1457,22 @@ class KanbanApp(App):
     def _toggle_expand(self):
         """Toggle showing child tasks under the focused parent task."""
         focused = self._focused_card()
-        if not focused or focused.is_child:
+        if not focused:
             return
-        task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
-        children = self.manager.get_child_tasks_for_parent(task_num)
-        if not children:
-            return
-        fn = focused.task_data.filename
+        if focused.is_child:
+            # Child card: find parent and toggle parent's expansion
+            parent_num = self.manager.get_parent_num_for_child(focused.task_data)
+            parent_task = self.manager.find_task_by_id(parent_num)
+            if not parent_task:
+                return
+            fn = parent_task.filename
+        else:
+            # Parent card: toggle own expansion
+            task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
+            children = self.manager.get_child_tasks_for_parent(task_num)
+            if not children:
+                return
+            fn = focused.task_data.filename
         if fn in self.expanded_tasks:
             self.expanded_tasks.discard(fn)
         else:
