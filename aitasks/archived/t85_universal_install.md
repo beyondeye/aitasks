@@ -3,11 +3,11 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Editing
+status: Done
 labels: [bash, aitasks]
-children_to_implement: [t85_11]
 created_at: 2026-02-11 08:20
-updated_at: 2026-02-11 15:03
+updated_at: 2026-02-12 15:39
+completed_at: 2026-02-12 15:39
 boardcol: now
 boardidx: 10
 ---
