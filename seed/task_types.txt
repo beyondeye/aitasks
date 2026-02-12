@@ -1,3 +1,4 @@
 bug
+documentation
 feature
 refactor

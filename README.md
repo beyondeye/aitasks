@@ -272,6 +272,7 @@ Valid issue types are defined in `aitasks/metadata/task_types.txt` (one type per
 
 ```
 bug
+documentation
 feature
 refactor
 ```
