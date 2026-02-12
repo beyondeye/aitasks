@@ -4,6 +4,53 @@ AI-powered task management framework for Claude Code projects.
 
 A file-based task management system that integrates with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) via skills. Tasks are markdown files with YAML frontmatter, organized in a kanban-style workflow. Includes a Python TUI board, GitHub issue integration, and completion statistics.
 
+Built for maximizing developement speed 🚀 AND human-to-agent intent transfer efficiency 💬. 
+
+Inspired by [Conductor](https://github.com/gemini-cli-extensions/conductor), and [beads](https://github.com/steveyegge/beads)
+
+## The challenge
+AI coding agents has reached a proficiency level where, given correct specs and intent, are almost always capable of handling a code-development task. The challenge is the transfer of intent from developer/designer to the AI agent. The challenge is two-fold:
+  1) Transfer intent in a structured way that optimize context building for the AI agent
+  2) Maximize speed so that the human in the loop does not become the bottle-neck for development speed
+
+## Core Philosophy
+"Light Spec" engine: Unlike rigid Spec-Driven Development (e.g., [Speckit](https://github.com/github/spec-kit), tasks here are living documents:
+  - Raw Intent: A task starts as a simple Markdown file capturing the goal.
+  - Iterative Refinement: An included AI workflow refines task files in stages—expanding context, adding technical details, and verifying requirements—before code is written.
+
+## Key Features & Architecture
+- Repository-Centric (Inspired by Conductor)
+  - Tasks as Files: Every task is a Markdown file stored within the code repository.
+
+  - Self-Contained Metadata: Unlike Conductor, task metadata (status, priority, assignee) is stored directly in the file's YAML frontmatter. 
+
+- Daemon-less & Stateless (The Beads Evolution) No Infrastructure: No SQL backend, no background daemons. Just files and scripts.
+
+- Remote-Ready: Because the state is entirely in the file system, it works seamlessly in remote AI-agent sessions.
+
+- Dual-Mode CLI tools optimized for two distinct users:
+  - Interactive Mode (For Humans): Optimized for "Flow." Rapidly create, edit, and prioritize tasks without context switching.
+  - Batch Mode (For Agents): allowing AI agents to read specs, create tasks and update task status programmatically.
+
+- Hierarchical Execution
+  - Task Dependencies: Define task/task and task parent/task child relationships.
+
+  - Agent Decomposition: If a task is too risky or complex for a single run, the Agent can "explode" a parent task into child files.
+
+  - Parallelism: thanks to task status stored in git, and AI agents workflow that support git worktrees.
+
+- Visual Management
+TUI Board: A terminal-based visual interface (Kanban style) for visualizing and organizing tasks without leaving the terminal.
+
+- Battle tested:
+Not a research experiment. actively developed and used in real projects
+
+- Claude Code optimized.
+
+- Fully customizable workflow for each project:  all the scripts and workflow skills live in you project repo: modify it for your needs. You will still be able to merge new features and cabilities as they are added to the framework, with the included AI agent-based framework update skill.
+
+
+
 ## Quick Install
 
 Install into your project directory:
