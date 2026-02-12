@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: medium
-depends: [t99_2]
+depends: []
 issue_type: documentation
 status: Ready
 labels: [aitasks]
 created_at: 2026-02-12 10:56
-updated_at: 2026-02-12 10:56
+updated_at: 2026-02-12 11:01
 ---
 
 ## Context
