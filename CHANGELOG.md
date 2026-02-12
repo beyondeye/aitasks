@@ -4,13 +4,14 @@
 
 ### Features
 
-- **Write README** (t85_10): Added comprehensive README covering installation, command reference, Claude Code skill integration, platform support, and task file format documentation.
-- **Detect capable terminal on Windows** (t89): Added terminal capability detection for Windows/WSL environments with automatic warnings for unsupported terminals and a shared library that deduplicates color/helper code across scripts.
-- **Execution profiles for aitask-pick** (t92): Added YAML-based execution profiles that allow customizing task workflow steps, with built-in `default` and `fast` profiles.
-- **Add refactor task type** (t94): Added `refactor` as a new task type and centralized all task type definitions into a single `task_types.txt` file.
-- **Skills from .claude/skills as source of truth** (t95): Changed the release workflow to build skills from `.claude/skills/` instead of the top-level `skills/` directory.
-- **Default Claude Code permissions** (t96): Added seed permission settings for Claude Code that are interactively merged during `ait setup`.
+- **Comprehensive README** (t85_10): Added full project documentation covering installation, command reference, Claude Code skill integration, platform support, and task file format
+- **Terminal compatibility detection** (t89): Added automatic detection of terminal capabilities on Windows/WSL with helpful upgrade suggestions for unsupported terminals
+- **Execution profiles** (t92): Added YAML-based execution profiles for aitask-pick that pre-answer workflow prompts, with built-in "default" and "fast" presets
+- **Centralized task types** (t94): Added "refactor" issue type and centralized all task type definitions into a single configuration file
+- **Skills as source of truth** (t95): Changed release workflow to build distributable skills from the authoritative `.claude/skills/` directory
+- **Default Claude Code permissions** (t96): Added seed permissions file so new installations automatically get the correct Claude Code tool permissions
+- **Changelog generation** (t97): Added `aitask-changelog` skill to automatically generate release notes from completed tasks and archived plans, with integration into the release workflow. Extracted common task/plan resolution functions into a shared utilities library
 
 ### Bug Fixes
 
-- **Fix board task creation path** (t93): Fixed incorrect script path reference when creating tasks from the board's `n` shortcut.
+- **Board create shortcut** (t93): Fixed the 'n' keyboard shortcut in the task board that failed to launch task creation due to an incorrect script path
