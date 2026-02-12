@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t99_1, t99_2, t99_3, t99_4, t99_5]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [aitasks]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-12 10:56
-updated_at: 2026-02-12 10:56
+updated_at: 2026-02-12 13:58
 ---
 
 ## Context
