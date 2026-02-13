@@ -178,6 +178,83 @@ else
     echo "FAIL: bash -n aitask_setup.sh (syntax error)"
 fi
 
+# --- Test 7: setup_draft_directory creates dir and gitignore ---
+echo "--- Test 7: setup_draft_directory ---"
+
+TMPDIR_7="$(setup_fake_project)"
+(cd "$TMPDIR_7" && git init --quiet && git config user.email "t@t.com" && git config user.name "T")
+SCRIPT_DIR="$TMPDIR_7/aiscripts"
+
+# Run setup_draft_directory
+setup_draft_directory </dev/null >/dev/null 2>&1
+
+assert_dir_exists "Draft dir created" "$TMPDIR_7/aitasks/new"
+
+# Check .gitignore has the entry
+TOTAL=$((TOTAL + 1))
+if [[ -f "$TMPDIR_7/.gitignore" ]] && grep -qxF "aitasks/new/" "$TMPDIR_7/.gitignore"; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: .gitignore should contain 'aitasks/new/'"
+fi
+
+rm -rf "$TMPDIR_7"
+
+# --- Test 8: setup_draft_directory is idempotent ---
+echo "--- Test 8: setup_draft_directory idempotent ---"
+
+TMPDIR_8="$(setup_fake_project)"
+(cd "$TMPDIR_8" && git init --quiet && git config user.email "t@t.com" && git config user.name "T")
+SCRIPT_DIR="$TMPDIR_8/aiscripts"
+
+# Run twice
+setup_draft_directory </dev/null >/dev/null 2>&1
+setup_draft_directory </dev/null >/dev/null 2>&1
+
+# Should only have one 'aitasks/new/' entry in .gitignore
+entry_count=$(grep -cxF "aitasks/new/" "$TMPDIR_8/.gitignore" 2>/dev/null || echo "0")
+assert_eq "Gitignore entry not duplicated" "1" "$entry_count"
+
+rm -rf "$TMPDIR_8"
+
+# --- Test 9: setup_id_counter creates branch on remote ---
+echo "--- Test 9: setup_id_counter creates branch ---"
+
+TMPDIR_9="$(mktemp -d)"
+# Create bare remote
+git init --bare --quiet "$TMPDIR_9/remote.git"
+# Create local clone
+git clone --quiet "$TMPDIR_9/remote.git" "$TMPDIR_9/local"
+(
+    cd "$TMPDIR_9/local"
+    git config user.email "t@t.com"
+    git config user.name "T"
+    mkdir -p aiscripts/lib aitasks
+    cp "$PROJECT_DIR/aiscripts/aitask_claim_id.sh" aiscripts/
+    cp "$PROJECT_DIR/aiscripts/aitask_setup.sh" aiscripts/
+    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
+    chmod +x aiscripts/aitask_claim_id.sh aiscripts/aitask_setup.sh
+    echo "---" > aitasks/t1_test.md
+    git add -A && git commit -m "init" --quiet && git push --quiet 2>/dev/null
+)
+
+# Source setup from the temp project to get functions
+source "$TMPDIR_9/local/aiscripts/aitask_setup.sh" --source-only 2>/dev/null || true
+SCRIPT_DIR="$TMPDIR_9/local/aiscripts"
+
+# Run setup_id_counter (auto-accept)
+(cd "$TMPDIR_9/local" && printf 'y\n' | setup_id_counter >/dev/null 2>&1)
+
+# Check branch exists on remote
+branch_exists=$(git -C "$TMPDIR_9/local" ls-remote --heads origin aitask-ids 2>/dev/null | grep -c "aitask-ids")
+assert_eq "ID counter branch created" "1" "$branch_exists"
+
+rm -rf "$TMPDIR_9"
+
+# Re-source the project's setup script to restore SCRIPT_DIR for remaining tests
+SCRIPT_DIR="$PROJECT_DIR/aiscripts"
+
 # --- Summary ---
 echo ""
 echo "==============================="

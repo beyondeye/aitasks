@@ -92,6 +92,16 @@ If this skill is invoked with a numeric argument:
 
 If no argument is provided, proceed with Step 1 as normal.
 
+### Step 0c: Sync with Remote (Best-effort)
+
+Before listing tasks, do a best-effort pull to ensure the local task list is up to date (prevents picking a task that another PC already started):
+
+```bash
+git pull --ff-only --quiet 2>/dev/null || true
+```
+
+This is non-blocking — if it fails (e.g., no network, merge conflicts), continue silently.
+
 ### Step 1: Label Filtering (Optional)
 
 Before retrieving tasks, ask the user if they want to filter by labels.

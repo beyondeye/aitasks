@@ -220,7 +220,7 @@ resolve_task_file() {
     count=$(echo "$files" | wc -l)
 
     if [[ "$count" -gt 1 ]]; then
-        die "Multiple task files found for task $task_id"
+        die "Multiple task files found for task $task_id. Run 'ait setup' to initialize the atomic task ID counter and prevent future duplicates."
     fi
 
     echo "$files"

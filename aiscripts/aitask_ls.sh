@@ -136,6 +136,13 @@ for child_dir in "$TASK_DIR"/t*/; do
     ls "$child_dir" 2>/dev/null | grep -E '^t[0-9]+_[0-9]+_.*\.md$' | grep -oE '^t[0-9]+_[0-9]+' >> "$existing_ids_file"
 done
 
+# Check for duplicate parent task IDs
+duplicate_parent_ids=$(sort "$existing_ids_file" | uniq -d)
+if [[ -n "$duplicate_parent_ids" ]]; then
+    echo -e "\033[1;33mWarning: Duplicate task IDs detected: $duplicate_parent_ids\033[0m" >&2
+    echo -e "\033[1;33mRun 'ait setup' to initialize the atomic task ID counter.\033[0m" >&2
+fi
+
 is_task_uncompleted() {
     local task_id="$1"
 

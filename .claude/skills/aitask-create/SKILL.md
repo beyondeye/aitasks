@@ -29,31 +29,20 @@ Use `AskUserQuestion`:
 - Display: "Next child task will be: t<parent>_<child>"
 
 **If standalone task:**
-- Proceed with regular task number determination (Step 2)
+- Proceed with Step 2
 
-### Step 2: Determine Next Task Number (Standalone Tasks Only)
+### Step 2: Create Draft (No Network Needed)
 
-Scan active, archived, and compressed task files to find the highest existing task number, then add 1.
-
-**2a. Get task numbers from active tasks:**
+Create the draft directory if needed:
 ```bash
-ls aitasks/t*_*.md 2>/dev/null | grep -oE 't[0-9]+' | sed 's/t//' | sort -n
+mkdir -p aitasks/new
 ```
 
-**2b. Get task numbers from archived tasks:**
-```bash
-ls aitasks/archived/t*_*.md 2>/dev/null | grep -oE 't[0-9]+' | sed 's/t//' | sort -n
-```
+The task will be created as a **draft** in `aitasks/new/` with a timestamp-based filename. The real task number is assigned later during finalization (Step 8), which requires network access.
 
-**2c. Get task numbers from compressed archive (if exists):**
-```bash
-tar -tzf aitasks/archived/old.tar.gz 2>/dev/null | grep -oE 't[0-9]+' | sed 's/t//' | sort -n
-```
+Draft filename format: `draft_<YYYYMMDD_HHMM>_<sanitized_name>.md`
 
-**2d. Find the maximum and calculate next number:**
-Combine all numbers from steps 2a-2c, find the maximum, and add 1.
-
-Display to user: "Next task number will be: t<number>"
+Display to user: "Task will be created as a draft. Real task ID assigned on finalization."
 
 ### Step 3: Get Task Metadata from User
 
@@ -116,11 +105,7 @@ Use `AskUserQuestion`:
 5. Trim leading/trailing underscores
 6. Truncate to maximum 50 characters
 
-**Final filename:**
-- For standalone: `t<number>_<sanitized_name>.md`
-- For child task: `t<parent>_<child>_<sanitized_name>.md` in `aitasks/t<parent>/`
-
-Display to user: "Task file will be created as: <filepath>"
+Display to user: "Draft file will be: aitasks/new/draft_<timestamp>_<sanitized_name>.md"
 
 ### Step 5: Get Task Definition (Iterative)
 
@@ -159,8 +144,6 @@ Use the `Glob` tool to find matching files:
 Pattern: **/*<user_input>*
 ```
 
-This searches recursively for any file containing the search term.
-
 **5d-iii. Present results:**
 If matches found (limit to first 10-15 results):
 - Use `AskUserQuestion` to present matching files as options
@@ -179,17 +162,9 @@ If no matches found:
 **5e. If "Done":**
 Concatenate all collected text chunks and file references with newline separators and proceed to Step 6.
 
-### Step 6: Create Task File
+### Step 6: Create Draft Task File
 
-**For standalone tasks:**
-Create the task file at `aitasks/t<number>_<name>.md`
-
-**For child tasks:**
-1. Create the parent subdirectory if needed:
-   ```bash
-   mkdir -p aitasks/t<parent>
-   ```
-2. Create the task file at `aitasks/t<parent>/t<parent>_<child>_<name>.md`
+Write the draft file to `aitasks/new/draft_<YYYYMMDD_HHMM>_<name>.md`.
 
 **File format (YAML front matter):**
 ```yaml
@@ -200,6 +175,7 @@ depends: [<dependencies>]
 issue_type: feature
 status: Ready
 labels: []
+draft: true
 created_at: <YYYY-MM-DD HH:MM>
 updated_at: <YYYY-MM-DD HH:MM>
 ---
@@ -207,35 +183,34 @@ updated_at: <YYYY-MM-DD HH:MM>
 <task definition content>
 ```
 
+For child tasks, also include `parent: <parent_num>` in the frontmatter.
+
 Where:
 - `<priority>` = `high`, `medium`, or `low`
 - `<effort>` = `low`, `medium`, or `high`
-- `<dependencies>` = comma-separated task IDs (e.g., `1, 3` for regular tasks, `t1_2` for sibling dependencies)
+- `<dependencies>` = comma-separated task IDs
 
-### Step 7: Update Parent Task (Child Tasks Only)
+### Step 7: Update Parent Task (Child Tasks Only - Deferred)
 
-If creating a child task, update the parent's `children_to_implement` list:
+For child tasks, the parent's `children_to_implement` is updated during finalization (Step 8), not here.
 
-```bash
-./aiscripts/aitask_update.sh --batch <parent> --add-child t<parent>_<child>
-```
+### Step 8: Finalize Draft (Assign Real ID & Commit)
 
-If `aitask_update.sh` doesn't support `--add-child` yet, manually update the parent file by adding or updating the `children_to_implement` field in the YAML front matter.
-
-### Step 8: Commit to Git
-
-Stage and commit the new task file:
+Use the `aitask_create.sh` script to finalize the draft:
 
 ```bash
-git add <task_file_path>
-# For child tasks, also add the parent file if it was modified
-git add aitasks/t<parent>_*.md 2>/dev/null || true
-git commit -m "Add <task_id>: <task_name_humanized>"
+./aiscripts/aitask_create.sh --batch --finalize draft_<timestamp>_<name>.md
 ```
 
-Where:
-- `<task_id>` is `task t<N>` for standalone or `child task t<parent>_<child>` for children
-- `<task_name_humanized>` is the task name with underscores replaced by spaces
+This will:
+1. Claim a globally unique task ID from the atomic counter (requires network)
+2. Rename the file from `draft_*_<name>.md` to `t<N>_<name>.md`
+3. Move from `aitasks/new/` to `aitasks/` (or `aitasks/t<parent>/` for child tasks)
+4. Remove the `draft: true` field from frontmatter
+5. Update parent's `children_to_implement` (if child task)
+6. Stage and commit to git
+
+If finalization fails (e.g., no network), the draft is preserved in `aitasks/new/` for later finalization.
 
 ### Step 9: Confirm Completion
 
@@ -253,15 +228,7 @@ Optionally ask if the user wants to immediately start working on this task using
 ## Edge Cases
 
 ### Task Number Already Exists
-Before writing the file, verify the task number hasn't been used:
-```bash
-ls aitasks/t<number>_*.md aitasks/archived/t<number>_*.md 2>/dev/null
-```
-For child tasks:
-```bash
-ls aitasks/t<parent>/t<parent>_<child>_*.md 2>/dev/null
-```
-If a file exists, increment the number and try again.
+The atomic counter guarantees unique IDs. If the counter branch is not initialized, the fallback local scan will detect conflicts.
 
 ### Empty Task Definition
 If the user provides no content, prompt them that a task definition is required before proceeding.
@@ -275,10 +242,14 @@ If sanitization removes all characters, use "unnamed_task" as the default name.
 ### Parent Task Doesn't Exist
 If creating a child task and the parent doesn't exist, show an error and ask to select a different parent.
 
+### Finalization Fails
+If `--finalize` fails (no network, no counter branch), inform user: "Draft saved to aitasks/new/. Finalize later with `ait create` (interactive) or `./aiscripts/aitask_create.sh --batch --finalize <file>`."
+
 ## Notes
 
 - Use the YAML front matter format for metadata
 - Dependencies should only reference active (non-archived) tasks
 - For child tasks, sibling dependencies use the format `t<parent>_<sibling>` (e.g., `t1_2`)
-- The task file is committed immediately to ensure it's tracked in version control
-- Child tasks are stored in `aitasks/t<parent>/` subdirectory
+- Draft tasks are created locally in `aitasks/new/` (gitignored) - no network needed
+- Real task IDs are assigned during finalization via the atomic counter on the `aitask-ids` branch
+- Child tasks are stored in `aitasks/t<parent>/` subdirectory after finalization

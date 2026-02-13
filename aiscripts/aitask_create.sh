@@ -31,6 +31,11 @@ BATCH_NO_SIBLING_DEP=false
 BATCH_ASSIGNED_TO=""
 BATCH_ISSUE=""
 
+# Draft/finalize mode variables
+BATCH_FINALIZE=""
+BATCH_FINALIZE_ALL=false
+DRAFT_DIR="aitasks/new"
+
 # --- Helper Functions ---
 
 show_help() {
@@ -55,20 +60,34 @@ Batch mode (for automation):
   --deps DEPS            Comma-separated dependency task numbers
   --parent, -P NUM       Create as child of specified parent task number
   --no-sibling-dep       Don't auto-add dependency on previous sibling (for child tasks)
-  --commit               Automatically commit to git
+  --commit               Claim real ID and commit to git immediately (auto-finalize)
+  --finalize FILE        Finalize a specific draft from aitasks/new/ (claim ID, move, commit)
+  --finalize-all         Finalize all drafts in aitasks/new/
   --silent               Output only the created filename (for scripting)
   --help, -h             Show this help
 
+Draft workflow:
+  By default (without --commit), batch mode creates a draft in aitasks/new/.
+  Drafts use timestamp-based names and have no real task number.
+  Use --finalize or --finalize-all to assign real IDs and commit.
+  The --commit flag auto-finalizes immediately (requires network).
+
 Examples:
-  # Interactive mode
+  # Interactive mode (supports draft management)
   ./aitask_create.sh
 
-  # Batch mode with minimal options
+  # Batch mode - creates draft (no network needed)
   ./aitask_create.sh --batch --name "fix_login_bug" --desc "Fix the login issue"
 
-  # Batch mode with all options
+  # Batch mode - auto-finalize with real ID (requires network)
   ./aitask_create.sh --batch --name "add_feature" --desc "Add new feature" \
       --priority high --effort medium --type feature --labels "ui,urgent" --commit
+
+  # Finalize a specific draft
+  ./aitask_create.sh --batch --finalize draft_20260213_1423_fix_login.md
+
+  # Finalize all pending drafts
+  ./aitask_create.sh --batch --finalize-all
 
   # Create a child task of parent t1
   ./aitask_create.sh --batch --parent 1 --name "first_subtask" --desc "First subtask"
@@ -99,6 +118,8 @@ parse_args() {
             --assigned-to|-a) BATCH_ASSIGNED_TO="$2"; shift 2 ;;
             --issue) BATCH_ISSUE="$2"; shift 2 ;;
             --commit) BATCH_COMMIT=true; shift ;;
+            --finalize) BATCH_FINALIZE="$2"; shift 2 ;;
+            --finalize-all) BATCH_FINALIZE_ALL=true; shift ;;
             --silent) BATCH_SILENT=true; shift ;;
             --help|-h) show_help; exit 0 ;;
             *) die "Unknown option: $1" ;;
@@ -106,38 +127,12 @@ parse_args() {
     done
 }
 
-# --- Step 1: Determine Next Task Number ---
-
-get_next_task_number() {
-    local max_num=0
-    local num
-
-    # Get task numbers from active tasks
-    if ls "$TASK_DIR"/t*_*.md &>/dev/null; then
-        for f in "$TASK_DIR"/t*_*.md; do
-            num=$(basename "$f" | grep -oE '^t[0-9]+' | sed 's/t//')
-            [[ "$num" -gt "$max_num" ]] && max_num="$num"
-        done
-    fi
-
-    # Get task numbers from archived tasks
-    if ls "$ARCHIVED_DIR"/t*_*.md &>/dev/null; then
-        for f in "$ARCHIVED_DIR"/t*_*.md; do
-            num=$(basename "$f" | grep -oE '^t[0-9]+' | sed 's/t//')
-            [[ "$num" -gt "$max_num" ]] && max_num="$num"
-        done
-    fi
-
-    # Get task numbers from compressed archive
-    if [[ -f "$ARCHIVE_FILE" ]]; then
-        while IFS= read -r line; do
-            num=$(echo "$line" | grep -oE 't[0-9]+' | head -1 | sed 's/t//')
-            [[ -n "$num" && "$num" -gt "$max_num" ]] && max_num="$num"
-        done < <(tar -tzf "$ARCHIVE_FILE" 2>/dev/null | grep -E 't[0-9]+')
-    fi
-
-    echo $((max_num + 1))
-}
+# --- Step 1: Task Number Functions ---
+# Note: get_next_task_number() removed. Parent task IDs are now assigned via
+# aitask_claim_id.sh (atomic counter) during finalization.
+# get_next_task_number_local() is defined later as a fallback.
+# Child task IDs use get_next_child_number() (local scan, safe because parent
+# ID is unique and only one PC works on an implementing task).
 
 # --- Parent/Child Task Functions ---
 
@@ -340,6 +335,264 @@ create_child_task_file() {
     } > "$filepath"
 
     echo "$filepath"
+}
+
+# --- Draft and Finalization Functions ---
+
+# Generate draft filename with timestamp
+get_draft_filename() {
+    local task_name="$1"
+    local timestamp
+    timestamp=$(date '+%Y%m%d_%H%M')
+    echo "draft_${timestamp}_${task_name}.md"
+}
+
+# Create a draft task file in DRAFT_DIR
+create_draft_file() {
+    local task_name="$1"
+    local priority="$2"
+    local effort="$3"
+    local deps="$4"
+    local description="$5"
+    local issue_type="$6"
+    local status="$7"
+    local labels="$8"
+    local assigned_to="${9:-}"
+    local issue="${10:-}"
+    local parent_num="${11:-}"
+
+    mkdir -p "$DRAFT_DIR"
+
+    local draft_name
+    draft_name=$(get_draft_filename "$task_name")
+    local filepath="$DRAFT_DIR/$draft_name"
+
+    local timestamp
+    timestamp=$(get_timestamp)
+
+    local deps_yaml
+    deps_yaml=$(format_yaml_list "$deps")
+
+    local labels_yaml
+    labels_yaml=$(format_labels_yaml "$labels")
+
+    {
+        echo "---"
+        echo "priority: $priority"
+        echo "effort: $effort"
+        echo "depends: $deps_yaml"
+        echo "issue_type: $issue_type"
+        echo "status: $status"
+        echo "labels: $labels_yaml"
+        echo "draft: true"
+        if [[ -n "$assigned_to" ]]; then
+            echo "assigned_to: $assigned_to"
+        fi
+        if [[ -n "$issue" ]]; then
+            echo "issue: $issue"
+        fi
+        if [[ -n "$parent_num" ]]; then
+            echo "parent: $parent_num"
+        fi
+        echo "created_at: $timestamp"
+        echo "updated_at: $timestamp"
+        echo "---"
+        echo ""
+        echo "$description"
+    } > "$filepath"
+
+    echo "$filepath"
+}
+
+# Extract task name from a draft filename
+# draft_20260213_1423_fix_login.md -> fix_login
+extract_name_from_draft() {
+    local draft_file="$1"
+    local basename_f
+    basename_f=$(basename "$draft_file" .md)
+    # Remove "draft_YYYYMMDD_HHMM_" prefix
+    echo "$basename_f" | sed 's/^draft_[0-9]*_[0-9]*_//'
+}
+
+# Extract parent number from draft frontmatter (if it's a child task draft)
+extract_parent_from_draft() {
+    local draft_path="$1"
+    local in_yaml=false
+    while IFS= read -r line; do
+        if [[ "$line" == "---" ]]; then
+            if [[ "$in_yaml" == true ]]; then break; fi
+            in_yaml=true
+            continue
+        fi
+        if [[ "$in_yaml" == true && "$line" =~ ^parent:[[:space:]]*(.*) ]]; then
+            echo "${BASH_REMATCH[1]}" | tr -d '[:space:]'
+            return
+        fi
+    done < "$draft_path"
+    echo ""
+}
+
+# Finalize a single draft: claim real ID, move to aitasks/, commit
+finalize_draft() {
+    local draft_path="$1"
+    local silent="${2:-false}"
+
+    if [[ ! -f "$draft_path" ]]; then
+        die "Draft file not found: $draft_path"
+    fi
+
+    local task_name
+    task_name=$(extract_name_from_draft "$draft_path")
+    local parent_num
+    parent_num=$(extract_parent_from_draft "$draft_path")
+
+    local task_id filepath
+
+    if [[ -n "$parent_num" ]]; then
+        # Child task: use local scan (parent ID is already unique, one PC per implementing task)
+        local child_num
+        child_num=$(get_next_child_number "$parent_num")
+
+        task_id="t${parent_num}_${child_num}"
+        local child_dir="$TASK_DIR/t${parent_num}"
+        mkdir -p "$child_dir"
+        filepath="$child_dir/${task_id}_${task_name}.md"
+
+        # Copy content, remove draft-specific fields
+        sed '/^draft: true$/d; /^parent: .*$/d' "$draft_path" > "$filepath"
+
+        # Update parent's children_to_implement
+        update_parent_children_to_implement "$parent_num" "$task_id"
+
+        rm -f "$draft_path"
+
+        if [[ "$silent" != "true" ]]; then
+            success "Finalized child task: $filepath (ID: $task_id)"
+        fi
+
+        # Git commit
+        git add "$filepath"
+        local parent_file
+        parent_file=$(get_parent_task_file "$parent_num")
+        [[ -n "$parent_file" ]] && git add "$parent_file" 2>/dev/null || true
+        local humanized_name
+        humanized_name=$(echo "$task_name" | tr '_' ' ')
+        git commit -m "Add child task ${task_id}: ${humanized_name}"
+    else
+        # Parent task: claim from atomic counter
+        local claimed_id
+        claimed_id=$("$SCRIPT_DIR/aitask_claim_id.sh" --claim 2>/dev/null) || {
+            # Fallback to local scan if counter not available
+            warn "Remote ID counter unavailable, falling back to local scan" >&2
+            claimed_id=$(get_next_task_number_local)
+        }
+
+        task_id="t${claimed_id}"
+        filepath="$TASK_DIR/${task_id}_${task_name}.md"
+
+        # Copy content, remove draft field
+        sed '/^draft: true$/d' "$draft_path" > "$filepath"
+
+        rm -f "$draft_path"
+
+        # Store email if present in frontmatter
+        local assigned_email
+        assigned_email=$(grep '^assigned_to:' "$filepath" 2>/dev/null | sed 's/assigned_to: *//' || true)
+        if [[ -n "$assigned_email" ]]; then
+            add_email_to_file "$assigned_email"
+        fi
+
+        if [[ "$silent" != "true" ]]; then
+            success "Finalized: $filepath (ID: $task_id)"
+        fi
+
+        # Git commit
+        git add "$filepath"
+        local humanized_name
+        humanized_name=$(echo "$task_name" | tr '_' ' ')
+        git commit -m "Add task ${task_id}: ${humanized_name}"
+    fi
+
+    if [[ "$silent" == "true" ]]; then
+        echo "$filepath"
+    fi
+}
+
+# Finalize all drafts in DRAFT_DIR
+finalize_all_drafts() {
+    local silent="${1:-false}"
+
+    if [[ ! -d "$DRAFT_DIR" ]] || ! ls "$DRAFT_DIR"/draft_*.md &>/dev/null; then
+        if [[ "$silent" != "true" ]]; then
+            info "No draft files found in $DRAFT_DIR/"
+        fi
+        return 0
+    fi
+
+    local count=0
+    for draft_file in "$DRAFT_DIR"/draft_*.md; do
+        [[ -e "$draft_file" ]] || continue
+        finalize_draft "$draft_file" "$silent"
+        count=$((count + 1))
+    done
+
+    if [[ "$silent" != "true" ]]; then
+        success "Finalized $count draft(s)"
+    fi
+}
+
+# Local-only task number scan (fallback when atomic counter is unavailable)
+get_next_task_number_local() {
+    local max_num=0
+    local num
+
+    if ls "$TASK_DIR"/t*_*.md &>/dev/null; then
+        for f in "$TASK_DIR"/t*_*.md; do
+            num=$(basename "$f" | grep -oE '^t[0-9]+' | sed 's/t//')
+            [[ "$num" -gt "$max_num" ]] && max_num="$num"
+        done
+    fi
+
+    if ls "$ARCHIVED_DIR"/t*_*.md &>/dev/null; then
+        for f in "$ARCHIVED_DIR"/t*_*.md; do
+            num=$(basename "$f" | grep -oE '^t[0-9]+' | sed 's/t//')
+            [[ "$num" -gt "$max_num" ]] && max_num="$num"
+        done
+    fi
+
+    if [[ -f "$ARCHIVE_FILE" ]]; then
+        while IFS= read -r line; do
+            num=$(echo "$line" | grep -oE 't[0-9]+' | head -1 | sed 's/t//')
+            [[ -n "$num" && "$num" -gt "$max_num" ]] && max_num="$num"
+        done < <(tar -tzf "$ARCHIVE_FILE" 2>/dev/null | grep -E 't[0-9]+')
+    fi
+
+    echo $((max_num + 1))
+}
+
+# List draft files with summary info
+list_drafts() {
+    if [[ ! -d "$DRAFT_DIR" ]] || ! ls "$DRAFT_DIR"/draft_*.md &>/dev/null; then
+        return 1
+    fi
+
+    local drafts=()
+    for f in "$DRAFT_DIR"/draft_*.md; do
+        [[ -e "$f" ]] || continue
+        local name parent_info=""
+        name=$(extract_name_from_draft "$f")
+        local parent
+        parent=$(extract_parent_from_draft "$f")
+        [[ -n "$parent" ]] && parent_info=" (child of t$parent)"
+        drafts+=("$(basename "$f") - ${name}${parent_info}")
+    done
+
+    if [[ ${#drafts[@]} -eq 0 ]]; then
+        return 1
+    fi
+
+    printf '%s\n' "${drafts[@]}"
+    return 0
 }
 
 # --- Step 2: Metadata Collection ---
@@ -823,7 +1076,27 @@ commit_task() {
 # --- Batch Mode ---
 
 run_batch_mode() {
-    # Ensure task directory exists
+    # Handle finalize operations first (don't require --name/--desc)
+    if [[ "$BATCH_FINALIZE_ALL" == true ]]; then
+        finalize_all_drafts "$BATCH_SILENT"
+        return
+    fi
+
+    if [[ -n "$BATCH_FINALIZE" ]]; then
+        local draft_path
+        # Accept either just filename or full path
+        if [[ -f "$BATCH_FINALIZE" ]]; then
+            draft_path="$BATCH_FINALIZE"
+        elif [[ -f "$DRAFT_DIR/$BATCH_FINALIZE" ]]; then
+            draft_path="$DRAFT_DIR/$BATCH_FINALIZE"
+        else
+            die "Draft file not found: $BATCH_FINALIZE"
+        fi
+        finalize_draft "$draft_path" "$BATCH_SILENT"
+        return
+    fi
+
+    # Regular task creation - ensure task directory exists
     mkdir -p "$TASK_DIR"
 
     # Validate required fields
@@ -867,68 +1140,66 @@ run_batch_mode() {
     local filepath
     local task_id
 
-    # Check if creating a child task
-    if [[ -n "$BATCH_PARENT" ]]; then
-        # Validate parent exists
-        local parent_file
-        parent_file=$(get_parent_task_file "$BATCH_PARENT")
-        [[ -z "$parent_file" || ! -f "$parent_file" ]] && die "Parent task t$BATCH_PARENT not found"
+    if [[ "$BATCH_COMMIT" == true ]]; then
+        # --commit: auto-finalize immediately (claims real ID, requires network)
+        if [[ -n "$BATCH_PARENT" ]]; then
+            # Child task: create directly (parent ID is already unique)
+            local parent_file
+            parent_file=$(get_parent_task_file "$BATCH_PARENT")
+            [[ -z "$parent_file" || ! -f "$parent_file" ]] && die "Parent task t$BATCH_PARENT not found"
 
-        # Get next child number
-        local child_num
-        child_num=$(get_next_child_number "$BATCH_PARENT")
+            local child_num
+            child_num=$(get_next_child_number "$BATCH_PARENT")
 
-        # Add default sibling dependency unless --no-sibling-dep
-        if [[ "$BATCH_NO_SIBLING_DEP" != true && "$child_num" -gt 1 ]]; then
-            local prev_sibling="t${BATCH_PARENT}_$((child_num - 1))"
-            if [[ -n "$BATCH_DEPS" ]]; then
-                BATCH_DEPS="$prev_sibling,$BATCH_DEPS"
-            else
-                BATCH_DEPS="$prev_sibling"
+            # Add default sibling dependency unless --no-sibling-dep
+            if [[ "$BATCH_NO_SIBLING_DEP" != true && "$child_num" -gt 1 ]]; then
+                local prev_sibling="t${BATCH_PARENT}_$((child_num - 1))"
+                if [[ -n "$BATCH_DEPS" ]]; then
+                    BATCH_DEPS="$prev_sibling,$BATCH_DEPS"
+                else
+                    BATCH_DEPS="$prev_sibling"
+                fi
             fi
-        fi
 
-        # Create child task file
-        filepath=$(create_child_task_file "$BATCH_PARENT" "$child_num" "$task_name" \
-            "$BATCH_PRIORITY" "$BATCH_EFFORT" "$BATCH_DEPS" "$BATCH_DESC" \
-            "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" "$BATCH_ISSUE")
+            filepath=$(create_child_task_file "$BATCH_PARENT" "$child_num" "$task_name" \
+                "$BATCH_PRIORITY" "$BATCH_EFFORT" "$BATCH_DEPS" "$BATCH_DESC" \
+                "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" "$BATCH_ISSUE")
 
-        task_id="t${BATCH_PARENT}_${child_num}"
+            task_id="t${BATCH_PARENT}_${child_num}"
+            update_parent_children_to_implement "$BATCH_PARENT" "$task_id"
 
-        # Update parent's children_to_implement
-        update_parent_children_to_implement "$BATCH_PARENT" "$task_id"
-
-        # Git commit if requested
-        if [[ "$BATCH_COMMIT" == true ]]; then
             local humanized_name
             humanized_name=$(echo "$task_name" | tr '_' ' ')
             git add "$filepath"
-            # Also add parent if it was modified
             git add "$parent_file" 2>/dev/null || true
             git commit -m "Add child task ${task_id}: ${humanized_name}"
-        fi
-    else
-        # Create regular (parent-level) task
-        local next_num
-        next_num=$(get_next_task_number)
+        else
+            # Parent task: claim real ID from atomic counter
+            local claimed_id
+            claimed_id=$("$SCRIPT_DIR/aitask_claim_id.sh" --claim 2>/dev/null) || {
+                warn "Remote ID counter unavailable, falling back to local scan" >&2
+                claimed_id=$(get_next_task_number_local)
+            }
 
-        filepath=$(create_task_file "$next_num" "$task_name" "$BATCH_PRIORITY" "$BATCH_EFFORT" \
-            "$BATCH_DEPS" "$BATCH_DESC" "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" "$BATCH_ASSIGNED_TO" "$BATCH_ISSUE")
+            filepath=$(create_task_file "$claimed_id" "$task_name" "$BATCH_PRIORITY" "$BATCH_EFFORT" \
+                "$BATCH_DEPS" "$BATCH_DESC" "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" "$BATCH_ASSIGNED_TO" "$BATCH_ISSUE")
 
-        # Store email if provided
-        if [[ -n "$BATCH_ASSIGNED_TO" ]]; then
-            add_email_to_file "$BATCH_ASSIGNED_TO"
-        fi
+            if [[ -n "$BATCH_ASSIGNED_TO" ]]; then
+                add_email_to_file "$BATCH_ASSIGNED_TO"
+            fi
 
-        task_id="t${next_num}"
+            task_id="t${claimed_id}"
 
-        # Git commit if requested
-        if [[ "$BATCH_COMMIT" == true ]]; then
             local humanized_name
             humanized_name=$(echo "$task_name" | tr '_' ' ')
             git add "$filepath"
             git commit -m "Add task ${task_id}: ${humanized_name}"
         fi
+    else
+        # Default: create as draft in aitasks/new/ (no network needed)
+        filepath=$(create_draft_file "$task_name" "$BATCH_PRIORITY" "$BATCH_EFFORT" \
+            "$BATCH_DEPS" "$BATCH_DESC" "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" \
+            "$BATCH_ASSIGNED_TO" "$BATCH_ISSUE" "$BATCH_PARENT")
     fi
 
     # Output
@@ -961,7 +1232,64 @@ main() {
 
     # Ensure task directory and metadata directory exist
     mkdir -p "$TASK_DIR"
+    mkdir -p "$DRAFT_DIR"
     mkdir -p "$(dirname "$LABELS_FILE")"
+
+    # Step 0: Check for existing drafts
+    local draft_list
+    draft_list=$(list_drafts 2>/dev/null || true)
+
+    if [[ -n "$draft_list" ]]; then
+        info "Found draft task(s) in $DRAFT_DIR/:"
+        echo "$draft_list" | while IFS= read -r line; do
+            echo "  $line"
+        done
+        echo ""
+
+        local draft_action
+        local draft_options
+        draft_options=$(echo -e "Create new task\n$(echo "$draft_list" | sed 's/ - .*//')" | \
+            fzf --prompt="Select draft or create new: " --height=15 --no-info \
+            --header="Manage drafts or create a new task")
+
+        if [[ "$draft_action" == "Create new task" ]] || [[ -z "$draft_options" ]]; then
+            : # Fall through to creation flow below
+        elif [[ "$draft_options" == "Create new task" ]]; then
+            : # Fall through to creation flow below
+        else
+            # User selected a draft
+            local selected_draft="$draft_options"
+            local draft_path="$DRAFT_DIR/$selected_draft"
+
+            if [[ ! -f "$draft_path" ]]; then
+                warn "Draft not found: $draft_path"
+            else
+                local manage_action
+                manage_action=$(echo -e "Continue editing\nFinalize (assign real ID & commit)\nDelete draft\nBack to creation" | \
+                    fzf --prompt="What to do with this draft? " --height=10 --no-info)
+
+                case "$manage_action" in
+                    "Continue editing")
+                        ${EDITOR:-vim} "$draft_path"
+                        success "Draft updated: $draft_path"
+                        return
+                        ;;
+                    "Finalize"*)
+                        finalize_draft "$draft_path"
+                        return
+                        ;;
+                    "Delete draft")
+                        rm -f "$draft_path"
+                        success "Draft deleted: $selected_draft"
+                        return
+                        ;;
+                    "Back to creation"|"")
+                        : # Fall through to creation flow
+                        ;;
+                esac
+            fi
+        fi
+    fi
 
     # Step 1a: Ask if this should be a child task
     info "Select parent task (or None for standalone task)..."
@@ -969,17 +1297,12 @@ main() {
     parent_num=$(select_parent_task)
 
     local is_child_task=false
-    local next_num=""
-    local child_num=""
 
     if [[ -n "$parent_num" ]]; then
         is_child_task=true
-        child_num=$(get_next_child_number "$parent_num")
-        info "Creating child task t${parent_num}_${child_num} of parent t$parent_num"
+        info "Creating child task of parent t$parent_num (ID assigned on finalization)"
     else
-        # Step 1b: Get next task number for standalone task
-        next_num=$(get_next_task_number)
-        info "Next task number: t$next_num"
+        info "Creating standalone task (ID assigned on finalization)"
     fi
     echo ""
 
@@ -1008,24 +1331,6 @@ main() {
     local deps
     deps=$(select_dependencies "$parent_num")
 
-    # For child tasks, ask about sibling dependency
-    if [[ "$is_child_task" == true && "$child_num" -gt 1 ]]; then
-        local prev_sibling="t${parent_num}_$((child_num - 1))"
-        local add_sibling_dep
-        add_sibling_dep=$(echo -e "Yes - depend on $prev_sibling\nNo - no sibling dependency" | \
-            fzf --prompt="Add sibling dependency? " --height=8 --no-info \
-            --header="Should this task depend on the previous sibling?")
-
-        if [[ "$add_sibling_dep" == "Yes"* ]]; then
-            if [[ -n "$deps" ]]; then
-                deps="$prev_sibling,$deps"
-            else
-                deps="$prev_sibling"
-            fi
-            info "Added dependency on sibling: $prev_sibling"
-        fi
-    fi
-
     echo ""
     info "Priority: $priority, Effort: $effort, Issue: $issue_type, Status: $status"
     info "Dependencies: ${deps:-None}, Labels: ${labels:-None}"
@@ -1035,11 +1340,7 @@ main() {
     local task_name
     task_name=$(get_task_name)
 
-    if [[ "$is_child_task" == true ]]; then
-        info "Task filename: t${parent_num}_${child_num}_${task_name}.md"
-    else
-        info "Task filename: t${next_num}_${task_name}.md"
-    fi
+    info "Draft filename: draft_*_${task_name}.md"
     echo ""
 
     # Step 4-5: Get task definition
@@ -1051,35 +1352,20 @@ main() {
         die "Task definition cannot be empty"
     fi
 
-    # Step 6: Create task file
+    # Step 6: Create draft file
     local filepath
-    local task_id
+    filepath=$(create_draft_file "$task_name" "$priority" "$effort" "$deps" \
+        "$task_desc" "$issue_type" "$status" "$labels" "" "" \
+        "$([[ "$is_child_task" == true ]] && echo "$parent_num" || echo "")")
 
-    if [[ "$is_child_task" == true ]]; then
-        filepath=$(create_child_task_file "$parent_num" "$child_num" "$task_name" \
-            "$priority" "$effort" "$deps" "$task_desc" "$issue_type" "$status" "$labels")
-        task_id="t${parent_num}_${child_num}"
-
-        # Update parent's children_to_implement
-        update_parent_children_to_implement "$parent_num" "$task_id"
-    else
-        filepath=$(create_task_file "$next_num" "$task_name" "$priority" "$effort" \
-            "$deps" "$task_desc" "$issue_type" "$status" "$labels")
-        task_id="t${next_num}"
-    fi
-
-    success "Created: $filepath"
+    success "Draft created: $filepath"
     echo ""
 
     # Step 7: Summary
     echo ""
     echo "================================"
-    success "Task created successfully!"
+    success "Draft task created!"
     echo "================================"
-    echo "  Task ID:       $task_id"
-    if [[ "$is_child_task" == true ]]; then
-        echo "  Parent task:   t$parent_num"
-    fi
     echo "  Filename:      $filepath"
     echo "  Priority:      $priority"
     echo "  Effort:        $effort"
@@ -1087,15 +1373,25 @@ main() {
     echo "  Status:        $status"
     echo "  Dependencies:  ${deps:-None}"
     echo "  Labels:        ${labels:-None}"
+    if [[ "$is_child_task" == true ]]; then
+        echo "  Parent task:   t$parent_num"
+    fi
+    echo ""
+    info "Note: This is a draft. Real task ID will be assigned on finalization."
     echo ""
 
-    # Step 8: View/edit options
+    # Step 8: View/edit/finalize options
     while true; do
         local post_action
-        post_action=$(echo -e "Show created task\nOpen in editor\nDone" | fzf --prompt="What next? " --height=10 --no-info)
+        post_action=$(echo -e "Finalize now (assign ID & commit)\nShow draft\nOpen in editor\nSave as draft (done)" | \
+            fzf --prompt="What next? " --height=10 --no-info)
 
         case "$post_action" in
-            "Show created task")
+            "Finalize now"*)
+                finalize_draft "$filepath"
+                return
+                ;;
+            "Show draft")
                 echo ""
                 echo "--- Contents of $filepath ---"
                 cat "$filepath"
@@ -1104,37 +1400,13 @@ main() {
                 ;;
             "Open in editor")
                 ${EDITOR:-vim} "$filepath"
-                break
                 ;;
-            "Done"|"")
-                break
+            "Save as draft"*|"")
+                info "Draft saved. Finalize later with: ait create (interactive) or --batch --finalize"
+                return
                 ;;
         esac
     done
-
-    # Step 9: Git commit
-    read -rp "Commit to git? [Y/n] " commit_choice
-
-    if [[ "$commit_choice" != "n" && "$commit_choice" != "N" ]]; then
-        local humanized_name
-        humanized_name=$(echo "$task_name" | tr '_' ' ')
-
-        git add "$filepath"
-
-        if [[ "$is_child_task" == true ]]; then
-            # Also add parent file if it was modified
-            local parent_file
-            parent_file=$(get_parent_task_file "$parent_num")
-            [[ -n "$parent_file" ]] && git add "$parent_file" 2>/dev/null || true
-            git commit -m "Add child task ${task_id}: ${humanized_name}"
-        else
-            git commit -m "Add task ${task_id}: ${humanized_name}"
-        fi
-
-        local commit_hash
-        commit_hash=$(git rev-parse --short HEAD)
-        success "Committed: $commit_hash"
-    fi
 }
 
 main "$@"

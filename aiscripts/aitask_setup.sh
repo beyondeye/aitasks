@@ -308,6 +308,84 @@ setup_git_repo() {
     success "Initial commit created with aitask framework files"
 }
 
+# --- Task ID counter setup ---
+setup_id_counter() {
+    local project_dir="$SCRIPT_DIR/.."
+
+    # Only setup if we have a git repo with a remote
+    if ! git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        return
+    fi
+    if ! git -C "$project_dir" remote get-url origin &>/dev/null; then
+        info "No git remote configured — skipping task ID counter setup"
+        return
+    fi
+
+    # Check if branch already exists
+    if git ls-remote --heads origin "aitask-ids" 2>/dev/null | grep -q "aitask-ids"; then
+        success "Task ID counter branch already initialized"
+        return
+    fi
+
+    info "Setting up shared task ID counter..."
+    info "This creates a lightweight branch 'aitask-ids' on the remote to"
+    info "prevent ID collisions when multiple PCs create tasks."
+
+    if [[ -t 0 ]]; then
+        printf "  Initialize task ID counter? [Y/n] "
+        read -r answer
+    else
+        info "(non-interactive: auto-accepting default)"
+        answer="Y"
+    fi
+
+    case "${answer:-Y}" in
+        [Yy]*|"")
+            (cd "$project_dir" && "$SCRIPT_DIR/aitask_claim_id.sh" --init)
+            ;;
+        *)
+            warn "Skipped task ID counter setup."
+            info "You can initialize later by re-running: ait setup"
+            ;;
+    esac
+}
+
+# --- Draft directory and gitignore setup ---
+setup_draft_directory() {
+    local project_dir="$SCRIPT_DIR/.."
+    local gitignore="$project_dir/.gitignore"
+    local draft_dir="$project_dir/aitasks/new"
+
+    # Create draft directory
+    mkdir -p "$draft_dir"
+
+    # Add to .gitignore if not already there
+    if [[ -f "$gitignore" ]] && grep -qxF "aitasks/new/" "$gitignore"; then
+        success "Draft directory already in .gitignore"
+        return
+    fi
+
+    info "Adding aitasks/new/ to .gitignore (draft tasks are local-only)..."
+
+    if [[ -f "$gitignore" ]]; then
+        echo "" >> "$gitignore"
+        echo "# Draft tasks (local, not committed)" >> "$gitignore"
+        echo "aitasks/new/" >> "$gitignore"
+    else
+        {
+            echo "# Draft tasks (local, not committed)"
+            echo "aitasks/new/"
+        } > "$gitignore"
+    fi
+
+    # Commit the change if inside a git repo
+    if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        (cd "$project_dir" && git add .gitignore && git commit -m "Add aitasks/new/ to .gitignore (draft tasks)" 2>/dev/null) || true
+    fi
+
+    success "Draft directory configured (aitasks/new/ in .gitignore)"
+}
+
 # --- Version check ---
 check_latest_version() {
     local local_version=""
@@ -441,6 +519,12 @@ main() {
     echo ""
 
     setup_git_repo
+    echo ""
+
+    setup_draft_directory
+    echo ""
+
+    setup_id_counter
     echo ""
 
     setup_python_venv
