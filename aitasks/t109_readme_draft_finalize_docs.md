@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [aitasks, documentation]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-13 02:30
-updated_at: 2026-02-13 02:30
+updated_at: 2026-02-13 11:18
 ---
 
 Update README.md to document the new atomic task ID allocation system and draft/finalize workflow introduced in t108. The README should cover the following behavioral changes:
