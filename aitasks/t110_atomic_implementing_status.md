@@ -1,12 +1,12 @@
 ---
 priority: high
 effort: medium
-depends: []
+depends: [112]
 issue_type: feature
 status: Ready
 labels: [aitasks, bash]
 created_at: 2026-02-13 02:35
-updated_at: 2026-02-13 02:35
+updated_at: 2026-02-13 08:08
 ---
 
 ## Problem
