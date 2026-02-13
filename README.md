@@ -132,6 +132,7 @@ After installing, run `ait setup` to install dependencies and configure Claude C
   - [Parallel Development](#parallel-development)
   - [Multi-Tab Terminal Workflow](#multi-tab-terminal-workflow)
   - [Monitoring While Implementing](#monitoring-while-implementing)
+  - [Creating Follow-Up Tasks During Implementation](#creating-follow-up-tasks-during-implementation)
 - [Task File Format](#task-file-format)
   - [Customizing Task Types](#customizing-task-types)
 - [Development](#development)
@@ -957,6 +958,31 @@ While [`/aitask-pick`](#aitask-pick-number) is running — especially during the
 - **Review progress** — Watch the current diff in another tab to understand what changes are being made. Warp's built-in diff viewer or a simple `git diff` in a separate tab works well for this
 
 This parallel workflow means the human never becomes a bottleneck waiting for the AI agent to finish. You are always either reviewing the agent's output, managing your task backlog, or capturing the next set of ideas.
+
+### Creating Follow-Up Tasks During Implementation
+
+While working on a task via [`/aitask-pick`](#aitask-pick-number), Claude Code has full context about the current implementation: the codebase, the task definition, the plan, and all changes made so far. This makes it an ideal moment to create follow-up tasks — far richer than creating them separately with [`ait create`](#ait-create) or [`/aitask-create`](#aitask-create).
+
+**During implementation:**
+
+When you notice something that needs a follow-up task while Claude is working, simply ask:
+
+- "Create a follow-up task for refactoring the auth middleware"
+- "Add a task to fix the edge case I noticed in the validation logic"
+- "Create a task for adding tests to the module we just modified"
+
+Claude invokes [`/aitask-create`](#aitask-create) with the current session context already loaded. The resulting task definition automatically includes specific file paths, line numbers, code patterns, and references to the current implementation — details that would be tedious to re-explain in a standalone task creation session.
+
+**After implementation (during review):**
+
+During the review step (Step 8 of `/aitask-pick`), you may realize additional work is needed that falls outside the current task's scope. Before committing or after selecting "Need more changes", ask Claude to create follow-up tasks. The full implementation context — including the diff and plan file — is still available, so the generated task definitions are detailed and accurate.
+
+**Advantages over standalone task creation:**
+
+- **No context re-entry** — Claude already knows the codebase state, what was changed, and why
+- **Richer task definitions** — Includes specific file paths, function names, line numbers, and code patterns from the current session
+- **Obvious dependencies** — Claude can auto-set `depends: [t108]` because it knows which task was just implemented
+- **Batch creation** — Multiple related follow-up tasks can be created in one conversation, with cross-references between them
 
 ## Task File Format
 Tasks are markdown files with YAML frontmatter in the `aitasks/` directory:
