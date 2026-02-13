@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: [112]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitasks, bash]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-13 02:35
-updated_at: 2026-02-13 08:08
+updated_at: 2026-02-13 11:10
 ---
 
 ## Problem
