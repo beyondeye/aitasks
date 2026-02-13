@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [aitasks]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-12 11:22
-updated_at: 2026-02-13 12:01
+updated_at: 2026-02-13 12:12
+completed_at: 2026-02-13 12:12
 ---
 
 I want to document typical usage pattern and workflows of the aitask framework (this project) here I am going to write down in random order the way I am using aitasks for development. I will start the description of each workflow with (*) please help to organize this workflow willl be documented in the README.md file: write them in better english add details (links in the README.md) of each tool and skill i am referencing in the workflow I describe. fill missing details, and create a plan with a step for each workflow to be added in the README.md. here we start start:
