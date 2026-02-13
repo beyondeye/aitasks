@@ -350,6 +350,48 @@ setup_id_counter() {
     esac
 }
 
+# --- Task lock branch setup ---
+setup_lock_branch() {
+    local project_dir="$SCRIPT_DIR/.."
+
+    # Only setup if we have a git repo with a remote
+    if ! git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        return
+    fi
+    if ! git -C "$project_dir" remote get-url origin &>/dev/null; then
+        info "No git remote configured — skipping task lock branch setup"
+        return
+    fi
+
+    # Check if branch already exists
+    if git ls-remote --heads origin "aitask-locks" 2>/dev/null | grep -q "aitask-locks"; then
+        success "Task lock branch already initialized"
+        return
+    fi
+
+    info "Setting up task lock branch..."
+    info "This creates a lightweight branch 'aitask-locks' on the remote to"
+    info "prevent two users from picking the same task simultaneously."
+
+    if [[ -t 0 ]]; then
+        printf "  Initialize task lock branch? [Y/n] "
+        read -r answer
+    else
+        info "(non-interactive: auto-accepting default)"
+        answer="Y"
+    fi
+
+    case "${answer:-Y}" in
+        [Yy]*|"")
+            (cd "$project_dir" && "$SCRIPT_DIR/aitask_lock.sh" --init)
+            ;;
+        *)
+            warn "Skipped task lock branch setup."
+            info "You can initialize later by re-running: ait setup"
+            ;;
+    esac
+}
+
 # --- Draft directory and gitignore setup ---
 setup_draft_directory() {
     local project_dir="$SCRIPT_DIR/.."
@@ -525,6 +567,9 @@ main() {
     echo ""
 
     setup_id_counter
+    echo ""
+
+    setup_lock_branch
     echo ""
 
     setup_python_venv

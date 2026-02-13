@@ -102,6 +102,14 @@ git pull --ff-only --quiet 2>/dev/null || true
 
 This is non-blocking — if it fails (e.g., no network, merge conflicts), continue silently.
 
+Also run best-effort stale lock cleanup to remove locks for tasks that have already been archived:
+
+```bash
+./aiscripts/aitask_lock.sh --cleanup 2>/dev/null || true
+```
+
+This prevents false "locked" status for completed tasks. If the lock branch doesn't exist yet, this silently does nothing.
+
 ### Step 1: Label Filtering (Optional)
 
 Before retrieving tasks, ask the user if they want to filter by labels.
@@ -269,6 +277,15 @@ If neither check triggers, proceed to Step 4 as normal.
     echo "user@example.com" >> aitasks/metadata/emails.txt
     sort -u aitasks/metadata/emails.txt -o aitasks/metadata/emails.txt
     ```
+
+- **Acquire atomic lock (prevents race condition):**
+  ```bash
+  ./aiscripts/aitask_lock.sh --lock <task_num> --email "<email>"
+  ```
+
+  - If the lock command **succeeds**: proceed to update local task status below.
+  - If the lock command **fails with "already locked by ..."**: inform the user that the task was just claimed by another user/PC, display who locked it, and return to **Step 2** (task selection) to pick a different task. Do NOT update local status.
+  - If the lock command **fails for infrastructure reasons** (branch not initialized, no network): warn the user but continue without locking — this preserves backward compatibility for repos that haven't run `ait setup` since the lock feature was added. Display: "Warning: Could not acquire lock (lock branch may not be initialized). Proceeding without lock."
 
 - **Update task status to "Implementing" and set assigned_to:**
   ```bash
@@ -492,7 +509,7 @@ Otherwise, use `AskUserQuestion`:
   - "Abort task" (description: "Stop and revert task status")
 
 If "Revise plan": Return to the beginning of Step 6.
-If "Abort": Execute abort procedure (see Abort Handling section).
+If "Abort": Execute the **Task Abort Procedure** (see below).
 
 ### Step 7: Implement
 
@@ -541,7 +558,7 @@ After implementation is complete, the user MUST be given the opportunity to revi
     - **IMPORTANT for child tasks:** The plan file will be archived and serve as the primary reference for subsequent sibling tasks. Ensure the Final Implementation Notes are comprehensive enough that a fresh context can understand what was done and learn from the experience.
     - The plan file should now serve as a complete record of: the original plan, any post-review change requests (from the "Need more changes" loop), and final implementation notes
   - Stage and commit all implementation changes (including the updated plan file)
-  - **IMPORTANT — Commit message convention:** The commit message MUST include `(t<task_id>)` at the end (e.g., `Add channel settings screen (t16)` or `Fix login validation (t16_2)`). This tag is used by `aitask_issue_update.sh` to find commits associated with a task when posting to GitHub issues. Only source code implementation commits should include this tag — administrative commits (status changes, archival in Steps 4, 9, and Abort) must NOT include it.
+  - **IMPORTANT — Commit message convention:** The commit message MUST include `(t<task_id>)` at the end (e.g., `Add channel settings screen (t16)` or `Fix login validation (t16_2)`). This tag is used by `aitask_issue_update.sh` to find commits associated with a task when posting to GitHub issues. Only source code implementation commits should include this tag — administrative commits (status changes, archival in Steps 4, 9, and Task Abort Procedure) must NOT include it.
   - Proceed to Step 9
 
 - **If "Need more changes":**
@@ -562,7 +579,7 @@ After implementation is complete, the user MUST be given the opportunity to revi
   - Return to the beginning of Step 8
 
 - **If "Abort":**
-  - Execute abort procedure (see Abort Handling section)
+  - Execute the **Task Abort Procedure** (see below)
 
 ### Step 9: Post-Implementation
 
@@ -649,6 +666,8 @@ Execute the post-implementation cleanup steps.
       ```
     - **Update/close parent's associated issue (if linked):** Execute the **Issue Update Procedure** (see below) for the parent task, reading the `issue` field from `aitasks/archived/<parent_task_file>`.
 
+- **Release task lock:** Execute the **Lock Release Procedure** (see below) for the child task. If the parent was also archived (all children complete), also execute it for the parent task.
+
 - **Commit archived files to git:**
   ```bash
   git add aitasks/archived/t<parent>/<child_file> aiplans/archived/p<parent>/<child_plan>
@@ -677,6 +696,8 @@ Execute the post-implementation cleanup steps.
 
 - **Update/close associated issue (if linked):** Execute the **Issue Update Procedure** (see below) for the task, reading the `issue` field from `aitasks/archived/<task_file>`.
 
+- **Release task lock:** Execute the **Lock Release Procedure** (see below) for the task.
+
 - **Commit archived files to git:**
   ```bash
   git add aitasks/archived/<task_file> aiplans/archived/<plan_file>
@@ -684,9 +705,11 @@ Execute the post-implementation cleanup steps.
   git commit -m "Archive completed <task_id> task and plan files"
   ```
 
-### Abort Handling
+### Task Abort Procedure
 
-When abort is selected at any checkpoint, execute these steps:
+This procedure is referenced from Step 6 (plan checkpoint) and Step 8 (user review) wherever the user selects "Abort task". It handles lock release, status revert, email clearing, and worktree cleanup.
+
+When abort is selected at any checkpoint after Step 4, execute these steps:
 
 - **Ask about plan file (if one was created):**
   Use `AskUserQuestion`:
@@ -708,6 +731,8 @@ When abort is selected at any checkpoint, execute these steps:
   - Options:
     - "Ready" (description: "Task available for others to pick up")
     - "Editing" (description: "Task needs modifications before ready")
+
+- **Release task lock:** Execute the **Lock Release Procedure** (see below) for the task.
 
 - **Revert task status and clear assignment:**
   ```bash
@@ -759,6 +784,27 @@ This procedure is referenced from Step 9 wherever a task is being archived. It h
     ```
   - If "Skip": do nothing
 - If no `issue` field: skip silently
+
+### Lock Release Procedure
+
+This procedure is referenced from Step 9 (archival) and the Task Abort Procedure wherever a task lock may need to be released. It ensures atomic locks acquired in Step 4 are always cleaned up, regardless of how the workflow ends.
+
+**When to execute:** After Step 4 has been reached (i.e., a lock may have been acquired). This includes:
+- Step 9 (successful archival of child or parent tasks)
+- Task Abort Procedure (task aborted after Step 4)
+
+**Procedure:**
+
+- Release the task lock (best-effort, idempotent):
+  ```bash
+  ./aiscripts/aitask_lock.sh --unlock <task_num> 2>/dev/null || true
+  ```
+  This is safe to call even if no lock was acquired (e.g., lock branch not initialized, or lock acquisition was skipped due to infrastructure issues). It succeeds silently in all these cases.
+
+- **For child tasks where the parent is also being archived** (all children complete): also release the parent lock:
+  ```bash
+  ./aiscripts/aitask_lock.sh --unlock <parent_task_num> 2>/dev/null || true
+  ```
 
 ---
 
