@@ -141,7 +141,7 @@ After installing, run `ait setup` to install dependencies and configure Claude C
 |---------|-------------|
 | `ait setup` | Install/update dependencies and configure Claude Code permissions |
 | `ait install` | Update aitasks to latest or specific version |
-| `ait create` | Create a new task (interactive or batch mode) |
+| `ait create` | Create a new task as draft, or finalize drafts (interactive or batch mode) |
 | `ait ls` | List and filter tasks by priority, effort, status, labels |
 | `ait update` | Update task metadata (status, priority, labels, etc.) |
 | `ait board` | Open the kanban-style TUI board |
@@ -155,8 +155,10 @@ After installing, run `ait setup` to install dependencies and configure Claude C
 
 ```bash
 ait setup                               # Install dependencies
-ait create                              # Interactive task creation
-ait create --batch --name "fix_bug"     # Batch mode
+ait create                              # Interactive task creation (draft workflow)
+ait create --batch --name "fix_bug"     # Create draft (no network needed)
+ait create --batch --name "fix_bug" --commit  # Create and finalize immediately
+ait create --batch --finalize-all       # Finalize all draft tasks
 ait ls -v 15                            # List top 15 tasks (verbose)
 ait ls -v -l ui,frontend 10             # Filter by labels
 ait update --batch 42 --status Done     # Mark task done
@@ -180,10 +182,13 @@ ait setup
 
 1. **OS detection** — Automatically detects: macOS, Arch Linux, Debian/Ubuntu, Fedora/RHEL, WSL
 2. **CLI tools** — Installs missing tools (`fzf`, `gh`, `jq`, `git`) via the platform's package manager (pacman, apt, dnf, brew). On macOS, also installs bash 5.x and coreutils
-3. **Python venv** — Creates virtual environment at `~/.aitask/venv/` and installs `textual`, `pyyaml`, `linkify-it-py`
-4. **Global shim** — Installs `ait` shim at `~/.local/bin/ait` that finds the nearest project-local `ait` dispatcher by walking up the directory tree. Warns if `~/.local/bin` is not in PATH
-5. **Claude Code permissions** — Shows the recommended permission entries, then prompts Y/n to install them into `.claude/settings.local.json`. If settings already exist, merges permissions (union of allow-lists)
-6. **Version check** — Compares local version against latest GitHub release and suggests update if newer
+3. **Git repo** — Checks for an existing git repository; offers to initialize one and commit framework files if not found
+4. **Draft directory** — Creates `aitasks/new/` for local draft tasks and adds it to `.gitignore` so drafts stay local-only
+5. **Task ID counter** — Initializes the `aitask-ids` counter branch on the remote for atomic task numbering. This prevents duplicate task IDs when multiple PCs create tasks against the same repo
+6. **Python venv** — Creates virtual environment at `~/.aitask/venv/` and installs `textual`, `pyyaml`, `linkify-it-py`
+7. **Global shim** — Installs `ait` shim at `~/.local/bin/ait` that finds the nearest project-local `ait` dispatcher by walking up the directory tree. Warns if `~/.local/bin` is not in PATH
+8. **Claude Code permissions** — Shows the recommended permission entries, then prompts Y/n to install them into `.claude/settings.local.json`. If settings already exist, merges permissions (union of allow-lists)
+9. **Version check** — Compares local version against latest GitHub release and suggests update if newer
 
 #### Claude Code Permissions
 
@@ -226,6 +231,7 @@ Create new task files with YAML frontmatter metadata. Supports standalone and pa
 
 **Interactive mode** (default — requires fzf):
 
+0. **Draft management** — If drafts exist in `aitasks/new/`, a menu appears: select a draft to continue editing, finalize (assign real ID and commit), or delete — or create a new task
 1. **Parent selection** — Choose "None - create standalone task" or select an existing task as parent from a fzf list of all tasks (shown with status/priority/effort metadata)
 2. **Priority** — Select via fzf: high, medium, low
 3. **Effort** — Select via fzf: low, medium, high
@@ -234,16 +240,29 @@ Create new task files with YAML frontmatter metadata. Supports standalone and pa
 6. **Labels** — Iterative loop: pick from existing labels in `aitasks/metadata/labels.txt`, add a new label (auto-sanitized to lowercase alphanumeric + hyphens/underscores), or finish. New labels are persisted to the labels file for future use
 7. **Dependencies** — fzf multi-select from all open tasks. For child tasks, sibling tasks appear at the top of the list. Select "None" or press Enter with nothing selected to skip
 8. **Sibling dependency** (child tasks only, when child number > 1) — Prompted whether to depend on the previous sibling (e.g., t10_1). Defaults to suggesting "Yes"
-9. **Task name** — Free text entry, auto-sanitized: lowercase, spaces to underscores, special chars removed, max 60 characters
+9. **Task name** — Free text entry, auto-sanitized: lowercase, spaces to underscores, special chars removed, max 60 characters. Preview shows `draft_*_<name>.md` (real ID is assigned during finalization)
 10. **Description** — Iterative loop: enter text blocks, optionally add file references (fzf file walker with preview of first 50 lines, can also remove previously added references), then choose "Add more description" or "Done - create task"
-11. **Post-creation** — Choose: "Show created task" (prints file contents), "Open in editor" ($EDITOR), or "Done"
-12. **Git commit** — Prompted Y/n to commit the task file
+11. **Post-creation** — Choose: "Finalize now" (claim real ID and commit), "Show draft", "Open in editor" ($EDITOR), or "Save as draft" (finalize later via `ait create` or `--batch --finalize`)
 
 **Batch mode** (for automation and scripting):
 
 ```bash
+# Creates draft in aitasks/new/ (no network needed)
 ait create --batch --name "fix_login_bug" --desc "Fix the login issue"
+
+# Auto-finalize: claim real ID and commit immediately (requires network)
+ait create --batch --name "add_feature" --desc "New feature" --commit
+
+# Finalize a specific draft
+ait create --batch --finalize draft_20260213_1423_fix_login.md
+
+# Finalize all pending drafts
+ait create --batch --finalize-all
+
+# Child task (auto-finalized with --commit)
 ait create --batch --parent 10 --name "subtask" --desc "First subtask" --commit
+
+# Read description from stdin
 echo "Long description" | ait create --batch --name "my_task" --desc-file -
 ```
 
@@ -263,14 +282,20 @@ echo "Long description" | ait create --batch --name "my_task" --desc-file -
 | `--no-sibling-dep` | Don't auto-add dependency on previous sibling |
 | `--assigned-to, -a EMAIL` | Assignee email |
 | `--issue URL` | Linked issue tracker URL |
-| `--commit` | Auto-commit to git |
+| `--commit` | Claim real ID and commit to git immediately (auto-finalize) |
+| `--finalize FILE` | Finalize a specific draft from `aitasks/new/` (claim ID, move to `aitasks/`, commit) |
+| `--finalize-all` | Finalize all pending drafts in `aitasks/new/` |
 | `--silent` | Output only filename (for scripting) |
 
 **Key features:**
-- Auto-determines next task number from active, archived, and compressed (`old.tar.gz`) tasks
+- Tasks are created as **drafts** in `aitasks/new/` by default (no network required). Finalization claims a globally unique ID from an atomic counter on the `aitask-ids` git branch
+- Drafts use timestamp-based filenames (`draft_YYYYMMDD_HHMM_<name>.md`) and are local-only (gitignored)
+- Child task IDs are assigned via local scan (safe because the parent's unique ID acts as a namespace)
+- Atomic counter fallback: in interactive mode, warns and asks for consent to use local scan; in batch mode, fails hard if counter is unavailable
 - Child tasks stored in `aitasks/t<parent>/` with naming `t<parent>_<child>_<name>.md`
 - Updates parent's `children_to_implement` list when creating child tasks
 - Name sanitization: lowercase, underscores, no special characters, max 60 chars
+- Duplicate ID detection: `ait ls` warns if duplicate task IDs are found; `ait update` fails with a suggestion to run `ait setup`
 
 ---
 
@@ -867,6 +892,7 @@ ait <subcommand> [args]  →  aiscripts/aitask_<subcommand>.sh [args]
 | `aiscripts/lib/` | Shared library scripts sourced by main scripts |
 | `.claude/skills/aitask-*` | Claude Code skill definitions (SKILL.md files) |
 | `aitasks/` | Active task files (`t<N>_name.md`) and child task directories (`t<N>/`) |
+| `aitasks/new/` | Draft task files (gitignored, local-only) |
 | `aiplans/` | Active plan files (`p<N>_name.md`) and child plan directories (`p<N>/`) |
 | `aitasks/archived/` | Completed task files and child directories |
 | `aiplans/archived/` | Completed plan files and child directories |
@@ -912,6 +938,16 @@ Terminal capability detection and colored output helpers.
 - **`ait_check_terminal_capable()`** — Returns 0 if the terminal supports modern features (TUI, true color). Checks `COLORTERM`, `WT_SESSION`, `TERM_PROGRAM`, `TERM`, and tmux/screen presence. Caches result in `AIT_TERMINAL_CAPABLE`.
 - **`ait_is_wsl()`** — Returns 0 if running under Windows Subsystem for Linux (checks `/proc/version` for "microsoft").
 - **`ait_warn_if_incapable_terminal()`** — Prints suggestions for upgrading to a modern terminal if capability check fails. Provides WSL-specific guidance when applicable. Suppressed by `AIT_SKIP_TERMINAL_CHECK=1`.
+
+#### Atomic Task ID Counter
+
+The internal script `aiscripts/aitask_claim_id.sh` manages a shared atomic counter for task IDs. It is not exposed via the `ait` dispatcher — it is called internally by `aitask_create.sh` during finalization and by `aitask_setup.sh` during initialization.
+
+- A separate git branch `aitask-ids` holds a single file `next_id.txt` as the shared counter
+- Atomicity is achieved via git plumbing commands (`hash-object`, `mktree`, `commit-tree`) and push rejection on non-fast-forward updates (compare-and-swap semantics)
+- On push conflict (another PC claimed simultaneously), retries with random backoff up to 5 attempts
+- Initialized via `ait setup` with a buffer of 10 above the highest existing task ID
+- Child tasks do not use the atomic counter — they use local file scan instead, which is safe because the parent's unique ID acts as a namespace and only one PC works on a task at a time
 
 ### Modifying scripts
 
