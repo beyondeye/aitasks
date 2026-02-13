@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [aitasks, documentation]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-13 02:40
-updated_at: 2026-02-13 02:40
+updated_at: 2026-02-13 12:13
 ---
 
 ## Summary
