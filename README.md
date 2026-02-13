@@ -949,6 +949,18 @@ The internal script `aiscripts/aitask_claim_id.sh` manages a shared atomic count
 - Initialized via `ait setup` with a buffer of 10 above the highest existing task ID
 - Child tasks do not use the atomic counter — they use local file scan instead, which is safe because the parent's unique ID acts as a namespace and only one PC works on a task at a time
 
+#### Atomic Task Locking
+
+The internal script `aiscripts/aitask_lock.sh` prevents race conditions when two PCs try to pick the same task simultaneously. It is not exposed via the `ait` dispatcher — it is called internally by the `aitask-pick` skill workflow.
+
+- A separate git orphan branch `aitask-locks` holds per-task lock files (`t<id>_lock.yaml` in YAML format with task ID, email, timestamp, and hostname)
+- Atomicity uses the same compare-and-swap approach as the ID counter: git plumbing commands + push rejection on non-fast-forward, with random backoff up to 5 retries
+- A task is locked when picked (during status change to "Implementing") and unlocked when archived or aborted
+- Locks are idempotent: the same email can refresh its own lock, and unlocking a non-existent lock succeeds silently
+- Available commands: `--init`, `--lock <task_id> --email <email>`, `--unlock <task_id>`, `--check <task_id>`, `--list`, `--cleanup`
+- The `--cleanup` command removes stale locks for tasks that have already been archived
+- Initialized via `ait setup` alongside the atomic ID counter
+
 ### Modifying scripts
 
 All framework scripts live in `aiscripts/`. The `ait` dispatcher forwards subcommands to the corresponding `aitask_*.sh` script. Claude Code skills are defined in `.claude/skills/`.
