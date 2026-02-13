@@ -3,11 +3,12 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitasks, bash]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-13 02:45
-updated_at: 2026-02-13 10:45
+updated_at: 2026-02-13 11:03
+completed_at: 2026-02-13 11:03
 ---
 
 ## Bug
