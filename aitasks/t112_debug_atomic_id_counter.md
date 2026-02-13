@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitasks, bash]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-13 02:45
-updated_at: 2026-02-13 02:45
+updated_at: 2026-02-13 10:45
 ---
 
 ## Bug
