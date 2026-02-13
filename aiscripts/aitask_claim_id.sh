@@ -24,6 +24,8 @@ COUNTER_FILE="next_id.txt"
 MAX_RETRIES=5
 ID_BUFFER=10
 
+DEBUG=false
+
 TASK_DIR="${TASK_DIR:-aitasks}"
 ARCHIVED_DIR="${ARCHIVED_DIR:-aitasks/archived}"
 ARCHIVE_FILE="${ARCHIVE_FILE:-aitasks/archived/old.tar.gz}"
@@ -60,6 +62,12 @@ scan_max_task_id() {
     fi
 
     echo "$max_num"
+}
+
+debug() {
+    if [[ "$DEBUG" == true ]]; then
+        info "[debug] $*" >&2
+    fi
 }
 
 # Check that a git remote named 'origin' exists
@@ -111,16 +119,20 @@ init_counter_branch() {
 
 claim_next_id() {
     require_remote
+    debug "Starting claim (max retries: $MAX_RETRIES)"
 
     local attempt=0
 
     while [[ $attempt -lt $MAX_RETRIES ]]; do
         attempt=$((attempt + 1))
+        debug "Attempt $attempt/$MAX_RETRIES"
 
         # Step 1: Fetch latest counter
+        debug "Fetching branch '$BRANCH' from origin..."
         if ! git fetch origin "$BRANCH" --quiet 2>/dev/null; then
             die "Failed to fetch '$BRANCH' from origin. Run 'ait setup' to initialize the counter."
         fi
+        debug "Fetch successful"
 
         # Step 2: Read current value
         local current_id
@@ -130,6 +142,7 @@ claim_next_id() {
 
         # Trim whitespace
         current_id=$(echo "$current_id" | tr -d '[:space:]')
+        debug "Current counter value: $current_id"
 
         # Validate it's a number
         if ! [[ "$current_id" =~ ^[0-9]+$ ]]; then
@@ -138,6 +151,7 @@ claim_next_id() {
 
         # Step 3: Compute new value
         local new_id=$((current_id + 1))
+        debug "Claiming ID $current_id, advancing counter to $new_id"
 
         # Step 4: Create new commit via git plumbing
         local blob_hash tree_hash commit_hash parent_hash
@@ -149,12 +163,15 @@ claim_next_id() {
             git commit-tree "$tree_hash" -p "$parent_hash")
 
         # Step 5: Push - fails if another PC claimed simultaneously (non-fast-forward)
+        debug "Pushing to origin..."
         if git push origin "$commit_hash:refs/heads/$BRANCH" 2>/dev/null; then
+            debug "Push successful, claimed ID: $current_id"
             echo "$current_id"
             return 0
         fi
 
         # Push failed (race condition) - retry
+        debug "Push failed (race condition)"
         if [[ $attempt -lt $MAX_RETRIES ]]; then
             warn "ID claim race detected (attempt $attempt/$MAX_RETRIES), retrying..." >&2
             sleep "0.$((RANDOM % 4 + 1))"
@@ -184,7 +201,7 @@ peek_counter() {
 
 show_help() {
     cat <<'EOF'
-Usage: aitask_claim_id.sh [--init|--claim|--peek]
+Usage: aitask_claim_id.sh [--debug] [--init|--claim|--peek]
 
 Internal script for atomic task ID management.
 
@@ -192,9 +209,16 @@ Options:
   --init    Initialize the aitask-ids counter branch on remote
   --claim   Claim the next task ID atomically (default)
   --peek    Show current counter value without claiming
+  --debug   Enable verbose debug output
   --help    Show this help message
 EOF
 }
+
+# Parse --debug flag first
+while [[ "${1:-}" == "--debug" ]]; do
+    DEBUG=true
+    shift
+done
 
 case "${1:-claim}" in
     --init|init)

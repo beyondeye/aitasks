@@ -481,11 +481,35 @@ finalize_draft() {
     else
         # Parent task: claim from atomic counter
         local claimed_id
-        claimed_id=$("$SCRIPT_DIR/aitask_claim_id.sh" --claim 2>/dev/null) || {
-            # Fallback to local scan if counter not available
-            warn "Remote ID counter unavailable, falling back to local scan" >&2
-            claimed_id=$(get_next_task_number_local)
+        local claim_stderr
+        claim_stderr=$(mktemp)
+        claimed_id=$("$SCRIPT_DIR/aitask_claim_id.sh" --claim 2>"$claim_stderr") || {
+            local claim_err
+            claim_err=$(cat "$claim_stderr")
+            rm -f "$claim_stderr"
+
+            if [[ -t 0 ]]; then
+                # Interactive mode: warn and ask for consent
+                echo "" >&2
+                warn "Atomic ID counter failed: ${claim_err:-unknown error}" >&2
+                warn "*** DANGER: Local scan fallback can cause DUPLICATE task IDs ***" >&2
+                warn "*** when multiple PCs or users work on the same repository.  ***" >&2
+                warn "Run 'ait setup' to initialize the atomic counter instead." >&2
+                echo "" >&2
+                printf "Use local scan anyway? (y/N): " >&2
+                local answer
+                read -r answer
+                if [[ "$answer" =~ ^[Yy]$ ]]; then
+                    claimed_id=$(get_next_task_number_local)
+                else
+                    die "Aborted. Run 'ait setup' to initialize the atomic counter."
+                fi
+            else
+                # Batch/non-interactive mode: fail hard
+                die "Atomic ID counter failed: ${claim_err:-unknown error}. Run 'ait setup' to initialize the counter."
+            fi
         }
+        rm -f "$claim_stderr" 2>/dev/null
 
         task_id="t${claimed_id}"
         filepath="$TASK_DIR/${task_id}_${task_name}.md"
@@ -1176,10 +1200,15 @@ run_batch_mode() {
         else
             # Parent task: claim real ID from atomic counter
             local claimed_id
-            claimed_id=$("$SCRIPT_DIR/aitask_claim_id.sh" --claim 2>/dev/null) || {
-                warn "Remote ID counter unavailable, falling back to local scan" >&2
-                claimed_id=$(get_next_task_number_local)
+            local claim_stderr
+            claim_stderr=$(mktemp)
+            claimed_id=$("$SCRIPT_DIR/aitask_claim_id.sh" --claim 2>"$claim_stderr") || {
+                local claim_err
+                claim_err=$(cat "$claim_stderr")
+                rm -f "$claim_stderr"
+                die "Atomic ID counter failed: ${claim_err:-unknown error}. Run 'ait setup' to initialize the counter."
             }
+            rm -f "$claim_stderr" 2>/dev/null
 
             filepath=$(create_task_file "$claimed_id" "$task_name" "$BATCH_PRIORITY" "$BATCH_EFFORT" \
                 "$BATCH_DEPS" "$BATCH_DESC" "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" "$BATCH_ASSIGNED_TO" "$BATCH_ISSUE")

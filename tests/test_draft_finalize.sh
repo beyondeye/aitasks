@@ -362,8 +362,8 @@ assert_contains "Parent updated with child ref" "t1_1" "$parent_content10"
 
 rm -rf "$TMPDIR_10"
 
-# --- Test 11: Finalize without network ---
-echo "--- Test 11: Finalize without network ---"
+# --- Test 11: Finalize without network fails in batch mode ---
+echo "--- Test 11: Finalize without network fails in batch mode ---"
 
 TMPDIR_11="$(setup_draft_project)"
 (cd "$TMPDIR_11/local" && ./aiscripts/aitask_create.sh --batch --name "no_net" --desc "No network test" >/dev/null 2>&1)
@@ -373,16 +373,16 @@ TMPDIR_11="$(setup_draft_project)"
 
 draft_name11=$(ls "$TMPDIR_11/local/aitasks/new"/ 2>/dev/null | head -1)
 
-# Finalize should still work (fallback to local scan)
+# Finalize should FAIL (no silent fallback in non-interactive mode)
 output11=$(cd "$TMPDIR_11/local" && ./aiscripts/aitask_create.sh --batch --finalize "$draft_name11" 2>&1)
+exit_code11=$?
 
-# Draft should be gone (finalized via local fallback)
+assert_eq "Finalize fails without network" "1" "$exit_code11"
+assert_contains "Error mentions ait setup" "ait setup" "$output11"
+
+# Draft should still exist (finalization failed)
 draft_remaining11=$(ls "$TMPDIR_11/local/aitasks/new"/draft_*.md 2>/dev/null | wc -l)
-assert_eq "Draft removed with local fallback" "0" "$draft_remaining11"
-
-# Task should exist in aitasks/ (with locally-scanned ID: max(2)+1=3)
-local_finalized11=$(ls "$TMPDIR_11/local/aitasks"/t*_no_net.md 2>/dev/null | wc -l)
-assert_eq "Task created via local fallback" "1" "$local_finalized11"
+assert_eq "Draft preserved on failure" "1" "$draft_remaining11"
 
 rm -rf "$TMPDIR_11"
 
