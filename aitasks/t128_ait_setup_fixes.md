@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitasks, install_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-14 23:17
-updated_at: 2026-02-14 23:17
+updated_at: 2026-02-14 23:28
 ---
 
 when running the install script for aitasks ( [200~curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash~) the CHANGELOG.md and VERSION of aitasks projects are installed in the new project: they should not, this is probably an issue in tarball creation in the github workflow run when a new aitasks version is created. also ait shim has been updated to allow the ait setup command to autodownload the aitasks framework latest release and run install, so that he user does not have to do it manually. need to document this in the README.md
