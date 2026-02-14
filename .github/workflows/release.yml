@@ -20,7 +20,7 @@ jobs:
 
       - name: Verify VERSION file matches tag
         run: |
-          file_version=$(cat VERSION)
+          file_version=$(cat aiscripts/VERSION)
           tag_version="${GITHUB_REF_NAME#v}"
           if [ "$file_version" != "$tag_version" ]; then
             echo "ERROR: VERSION file ($file_version) does not match tag ($tag_version)"
@@ -39,7 +39,6 @@ jobs:
         run: |
           tar -czf aitasks-${{ github.ref_name }}.tar.gz \
             ait \
-            VERSION \
             CHANGELOG.md \
             aiscripts/ \
             skills/ \

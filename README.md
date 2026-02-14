@@ -86,6 +86,15 @@ curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh |
 
 After installing, run `ait setup` to install dependencies and configure Claude Code permissions. See [`ait setup`](#ait-setup) for details.
 
+**Already have the global `ait` shim?** If you've previously run `ait setup` on another project, the global shim at `~/.local/bin/ait` is already installed. You can bootstrap aitasks in any new project directory by simply running:
+
+```bash
+cd /path/to/new-project
+ait setup
+```
+
+The shim detects that no aitasks project exists, downloads the latest release, installs it, and then runs the full setup — all in one command.
+
 ## What Gets Installed
 
 **Per-project files** (committed to your repo):
@@ -185,6 +194,8 @@ Cross-platform dependency installer and configuration tool. This is typically th
 ```bash
 ait setup
 ```
+
+**Auto-bootstrap:** When run via the global shim (`~/.local/bin/ait`) in a directory without an existing aitasks installation, `ait setup` automatically downloads and installs the latest release before running the setup flow. This lets you bootstrap new projects with a single command — no need to run the `curl | bash` installer separately.
 
 **Guided setup flow:**
 

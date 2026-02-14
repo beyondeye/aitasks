@@ -7,7 +7,7 @@ cd "$AIT_DIR"  # CRITICAL: ensures TASK_DIR="aitasks" works in all scripts
 SCRIPTS_DIR="$AIT_DIR/aiscripts"
 
 show_version() {
-    local version_file="$AIT_DIR/VERSION"
+    local version_file="$AIT_DIR/aiscripts/VERSION"
     if [[ -f "$version_file" ]]; then
         echo "ait version $(cat "$version_file")"
     else
@@ -42,7 +42,7 @@ EOF
 # --- Update check (runs at most once per day) ---
 check_for_updates() {
     local cache_file="$HOME/.aitask/update_check"
-    local version_file="$AIT_DIR/VERSION"
+    local version_file="$AIT_DIR/aiscripts/VERSION"
     local repo="beyondeye/aitasks"
 
     # Bail if no VERSION file

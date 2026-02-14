@@ -63,7 +63,7 @@ setup_fake_project() {
     mkdir -p "$tmpdir/aitasks/metadata"
     mkdir -p "$tmpdir/.claude/skills"
     echo "#!/bin/bash" > "$tmpdir/ait"
-    echo "0.2.0" > "$tmpdir/VERSION"
+    echo "0.2.0" > "$tmpdir/aiscripts/VERSION"
     echo "#!/bin/bash" > "$tmpdir/install.sh"
     # Create a minimal placeholder in aiscripts so git add works
     echo "# placeholder" > "$tmpdir/aiscripts/placeholder.sh"
@@ -80,11 +80,11 @@ set +euo pipefail
 echo "=== setup_git_repo Tests ==="
 echo ""
 
-# --- Test 1: Already-initialized repo ---
-echo "--- Test 1: Already-initialized repo ---"
+# --- Test 1: Already-initialized repo with files committed ---
+echo "--- Test 1: Already-initialized repo (files committed) ---"
 
 TMPDIR_1="$(setup_fake_project)"
-(cd "$TMPDIR_1" && git init --quiet)
+(cd "$TMPDIR_1" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" && git add -A && git commit -m "init" --quiet)
 
 # Override SCRIPT_DIR so setup_git_repo uses our temp project
 SCRIPT_DIR="$TMPDIR_1/aiscripts"
@@ -92,11 +92,31 @@ output=$(setup_git_repo 2>&1 </dev/null)
 
 assert_contains "Already initialized prints success" "already initialized" "$output"
 
-# Verify no extra commits were created
+# Verify no extra commits were created (files already committed)
 commit_count=$(git -C "$TMPDIR_1" log --oneline 2>/dev/null | wc -l || echo 0)
-assert_eq "No commits in pre-existing empty repo" "0" "$commit_count"
+assert_eq "No new commits when files already committed" "1" "$commit_count"
 
 rm -rf "$TMPDIR_1"
+
+# --- Test 1b: Already-initialized repo with untracked framework files ---
+echo "--- Test 1b: Existing repo with untracked framework files ---"
+
+TMPDIR_1b="$(setup_fake_project)"
+(cd "$TMPDIR_1b" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" && echo "init" > "$TMPDIR_1b/readme.txt" && git add readme.txt && git commit -m "init" --quiet)
+
+SCRIPT_DIR="$TMPDIR_1b/aiscripts"
+output=$(setup_git_repo 2>&1 </dev/null)
+
+assert_contains "Detects untracked framework files" "not yet committed" "$output"
+
+# Non-interactive mode auto-accepts, so files should be committed
+commit_count=$(git -C "$TMPDIR_1b" log --oneline 2>/dev/null | wc -l)
+assert_eq "Framework files auto-committed (non-interactive)" "2" "$commit_count"
+
+commit_msg=$(git -C "$TMPDIR_1b" log --format='%s' -1 2>/dev/null)
+assert_eq "Commit message correct" "Add aitask framework" "$commit_msg"
+
+rm -rf "$TMPDIR_1b"
 
 # --- Test 2: Accept git init + accept commit ---
 echo "--- Test 2: Accept init + accept commit ---"
@@ -122,48 +142,40 @@ assert_contains "aitasks/metadata/ committed" "aitasks/metadata/" "$committed_fi
 
 rm -rf "$TMPDIR_2"
 
-# --- Test 3: Accept init + refuse commit + confirm refusal ---
-echo "--- Test 3: Accept init + refuse commit + confirm refusal ---"
+# --- Test 3: Non-interactive auto-init + auto-commit ---
+# Note: With -t 0 checks, piped input is ignored and non-interactive defaults apply.
+# Interactive refusal scenarios (refuse commit, refuse init) require a real terminal.
+echo "--- Test 3: Non-interactive auto-init + auto-commit ---"
 
 TMPDIR_3="$(setup_fake_project)"
 SCRIPT_DIR="$TMPDIR_3/aiscripts"
 
-output=$(printf 'y\nn\ny\n' | setup_git_repo 2>&1)
+output=$(setup_git_repo 2>&1 </dev/null)
 
 assert_dir_exists "Git dir created" "$TMPDIR_3/.git"
 
 commit_count=$(git -C "$TMPDIR_3" log --oneline 2>/dev/null | wc -l || echo 0)
-assert_eq "No commits (user confirmed skip)" "0" "$commit_count"
+assert_eq "1 commit (non-interactive auto-accept)" "1" "$commit_count"
 
-assert_contains "Output mentions skipping" "skipping" "$output"
+assert_contains "Output mentions auto-accepting" "auto-accepting" "$output"
 
 rm -rf "$TMPDIR_3"
 
-# --- Test 4: Accept init + refuse commit + reconsider (say no to "are you sure") ---
-echo "--- Test 4: Accept init + refuse commit + reconsider ---"
+# --- Test 4: Removed (was interactive-only, now covered by Test 3) ---
+echo "--- Test 4: (skipped — merged into Test 3 non-interactive) ---"
 
-TMPDIR_4="$(setup_fake_project)"
-SCRIPT_DIR="$TMPDIR_4/aiscripts"
-
-output=$(printf 'y\nn\nn\n' | setup_git_repo 2>&1)
-
-assert_dir_exists "Git dir created" "$TMPDIR_4/.git"
-
-commit_count=$(git -C "$TMPDIR_4" log --oneline 2>/dev/null | wc -l)
-assert_eq "1 commit (user reconsidered)" "1" "$commit_count"
-
-rm -rf "$TMPDIR_4"
-
-# --- Test 5: Refuse git init entirely ---
-echo "--- Test 5: Refuse git init ---"
+# --- Test 5: Non-interactive auto-inits git ---
+# Note: With -t 0 checks, non-interactive mode auto-accepts git init.
+# Refusing git init requires a real terminal.
+echo "--- Test 5: Non-interactive auto-inits git ---"
 
 TMPDIR_5="$(setup_fake_project)"
 SCRIPT_DIR="$TMPDIR_5/aiscripts"
 
-output=$(printf 'n\n' | setup_git_repo 2>&1)
+output=$(setup_git_repo 2>&1 </dev/null)
 
-assert_dir_not_exists "No .git dir" "$TMPDIR_5/.git"
-assert_contains "Output warns about not initialized" "not initialized" "$output"
+assert_dir_exists ".git dir created (non-interactive auto-accept)" "$TMPDIR_5/.git"
+assert_contains "Output mentions auto-accepting" "auto-accepting" "$output"
 
 rm -rf "$TMPDIR_5"
 

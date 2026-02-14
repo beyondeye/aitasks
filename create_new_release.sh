@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-current_version=$(cat VERSION)
+current_version=$(cat aiscripts/VERSION)
 
 echo "Current version: $current_version"
 read -rp "New version (without 'v' prefix): " new_version
@@ -57,8 +57,8 @@ if [[ "$confirm" != [yY] ]]; then
   exit 1
 fi
 
-echo "$new_version" > VERSION
-git add VERSION
+echo "$new_version" > aiscripts/VERSION
+git add aiscripts/VERSION
 git commit -m "Bump version to $new_version"
 git tag "v$new_version"
 git push origin main --tags

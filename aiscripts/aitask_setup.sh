@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$HOME/.aitask/venv"
 SHIM_DIR="$HOME/.local/bin"
-VERSION_FILE="$SCRIPT_DIR/../VERSION"
+VERSION_FILE="$SCRIPT_DIR/VERSION"
 REPO="beyondeye/aitasks"
 
 # --- Color helpers ---
@@ -303,6 +303,38 @@ setup_git_repo() {
     # Check if we're inside a git repo
     if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
         success "Git repository already initialized"
+
+        # Check if framework files are untracked (fresh install into existing repo)
+        local untracked
+        untracked="$(cd "$project_dir" && git ls-files --others --exclude-standard \
+            aiscripts/ aitasks/metadata/ ait .claude/skills/ install.sh 2>/dev/null)" || true
+
+        if [[ -n "$untracked" ]]; then
+            info "Framework files are not yet committed to git:"
+            echo "$untracked" | head -20 | sed 's/^/  /'
+            if [[ -t 0 ]]; then
+                printf "  Commit framework files to git? [Y/n] "
+                read -r answer
+            else
+                info "(non-interactive: auto-accepting default)"
+                answer="Y"
+            fi
+            case "${answer:-Y}" in
+                [Yy]*|"")
+                    (
+                        cd "$project_dir"
+                        git add aiscripts/ aitasks/metadata/ ait .claude/skills/ install.sh 2>/dev/null || true
+                        git commit -m "Add aitask framework"
+                    )
+                    success "Framework files committed to git"
+                    ;;
+                *)
+                    info "Skipped committing framework files."
+                    info "You can manually commit later with 'git add' and 'git commit'."
+                    ;;
+            esac
+        fi
+
         return
     fi
 
@@ -366,7 +398,7 @@ setup_git_repo() {
 
     (
         cd "$project_dir"
-        git add aiscripts/ aitasks/metadata/ ait .claude/skills/ VERSION install.sh 2>/dev/null || true
+        git add aiscripts/ aitasks/metadata/ ait .claude/skills/ install.sh 2>/dev/null || true
         git commit -m "Add aitask framework"
     )
     success "Initial commit created with aitask framework files"

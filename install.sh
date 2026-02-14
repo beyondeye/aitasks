@@ -253,6 +253,8 @@ show_upgrade_changelog() {
     local current_version=""
     if [[ -f "$install_dir/VERSION" ]]; then
         current_version="$(cat "$install_dir/VERSION")"
+    elif [[ -f "$install_dir/aiscripts/VERSION" ]]; then
+        current_version="$(cat "$install_dir/aiscripts/VERSION")"
     else
         return  # Can't determine current version, skip
     fi
@@ -261,12 +263,12 @@ show_upgrade_changelog() {
     local tmpextract
     tmpextract="$(mktemp -d)"
 
-    tar -xzf "$tarball_path" -C "$tmpextract" VERSION 2>/dev/null || true
+    tar -xzf "$tarball_path" -C "$tmpextract" aiscripts/VERSION 2>/dev/null || true
     tar -xzf "$tarball_path" -C "$tmpextract" CHANGELOG.md 2>/dev/null || true
 
     local new_version=""
-    if [[ -f "$tmpextract/VERSION" ]]; then
-        new_version="$(cat "$tmpextract/VERSION")"
+    if [[ -f "$tmpextract/aiscripts/VERSION" ]]; then
+        new_version="$(cat "$tmpextract/aiscripts/VERSION")"
     fi
 
     if [[ -z "$new_version" || "$current_version" == "$new_version" ]]; then
@@ -348,6 +350,11 @@ main() {
 
     info "Extracting to $INSTALL_DIR..."
     tar -xzf "$tarball_path" -C "$INSTALL_DIR"
+
+    # Remove CHANGELOG.md from project (only in tarball for upgrade changelog display)
+    rm -f "$INSTALL_DIR/CHANGELOG.md"
+    # Clean up legacy VERSION at root (moved to aiscripts/VERSION in v0.3.0+)
+    rm -f "$INSTALL_DIR/VERSION"
 
     info "Installing Claude Code skills..."
     install_skills
