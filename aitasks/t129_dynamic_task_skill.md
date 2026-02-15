@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [claudeskills]
-children_to_implement: [t129_1, t129_2, t129_3, t129_4, t129_5]
+children_to_implement: [t129_1, t129_2, t129_3, t129_4, t129_5, t129_6]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-15 08:44
 updated_at: 2026-02-15 17:15
