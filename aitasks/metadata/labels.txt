@@ -1,4 +1,5 @@
 aitask_board
+aitask_fold
 aitasks
 aitasks_explore
 bash
