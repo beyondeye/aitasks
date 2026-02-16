@@ -782,6 +782,40 @@ class RemoveDepConfirmScreen(ModalScreen):
         self.dismiss(False)
 
 
+class DeleteConfirmScreen(ModalScreen):
+    """Confirmation dialog to delete a task and associated files."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, files_to_delete: list):
+        super().__init__()
+        self.files_to_delete = files_to_delete
+
+    def compose(self):
+        file_list = "\n".join(f"  - {f}" for f in self.files_to_delete)
+        with Container(id="dep_picker_dialog"):
+            yield Label(
+                f"Delete these files?\n{file_list}\n\nThis cannot be undone.",
+                id="dep_picker_title",
+            )
+            with Horizontal(id="detail_buttons"):
+                yield Button("Delete", variant="error", id="btn_confirm_delete")
+                yield Button("Cancel", variant="default", id="btn_cancel_delete")
+
+    @on(Button.Pressed, "#btn_confirm_delete")
+    def confirm_delete(self):
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#btn_cancel_delete")
+    def cancel_delete(self):
+        self.dismiss(False)
+
+    def action_cancel(self):
+        self.dismiss(False)
+
+
 class DepPickerItem(Static):
     """A selectable dependency item in the picker."""
 
@@ -940,19 +974,27 @@ class TaskDetailScreen(ModalScreen):
         with Container(id="detail_dialog"):
             yield Label(f"\U0001f4c4 {display_title}", id="detail_title")
 
+            is_done = meta.get("status", "") == "Done"
             with Container(id="meta_editable"):
-                yield CycleField("Priority", ["low", "medium", "high"],
-                                 meta.get("priority", "medium"), "priority",
-                                 id="cf_priority")
-                yield CycleField("Effort", ["low", "medium", "high"],
-                                 meta.get("effort", "medium"), "effort",
-                                 id="cf_effort")
-                yield CycleField("Status", ["Ready", "Editing", "Implementing", "Postponed", "Done"],
-                                 meta.get("status", "Ready"), "status",
-                                 id="cf_status")
-                yield CycleField("Type", _load_task_types(),
-                                 meta.get("issue_type", "feature"), "issue_type",
-                                 id="cf_issue_type")
+                if is_done:
+                    yield ReadOnlyField(f"[b]Priority:[/b] {meta.get('priority', 'medium')}", classes="meta-ro")
+                    yield ReadOnlyField(f"[b]Effort:[/b] {meta.get('effort', 'medium')}", classes="meta-ro")
+                    yield ReadOnlyField(f"[b]Status:[/b] Done", classes="meta-ro")
+                    yield ReadOnlyField(f"[b]Type:[/b] {meta.get('issue_type', 'feature')}", classes="meta-ro")
+                else:
+                    yield CycleField("Priority", ["low", "medium", "high"],
+                                     meta.get("priority", "medium"), "priority",
+                                     id="cf_priority")
+                    yield CycleField("Effort", ["low", "medium", "high"],
+                                     meta.get("effort", "medium"), "effort",
+                                     id="cf_effort")
+                    status_options = ["Ready", "Editing", "Implementing", "Postponed"]
+                    yield CycleField("Status", status_options,
+                                     meta.get("status", "Ready"), "status",
+                                     id="cf_status")
+                    yield CycleField("Type", _load_task_types(),
+                                     meta.get("issue_type", "feature"), "issue_type",
+                                     id="cf_issue_type")
 
             if meta.get("labels"):
                 yield ReadOnlyField(f"[b]Labels:[/b] {', '.join(meta['labels'])}", classes="meta-ro")
@@ -993,24 +1035,37 @@ class TaskDetailScreen(ModalScreen):
                 yield Markdown(self.task_data.content)
 
             with Horizontal(id="detail_buttons"):
-                yield Button("Pick", variant="warning", id="btn_pick")
+                yield Button("Pick", variant="warning", id="btn_pick", disabled=is_done)
                 yield Button("Save Changes", variant="success", id="btn_save",
                              disabled=True)
                 is_modified = self.manager.is_modified(self.task_data) if self.manager else False
                 yield Button("Revert", variant="error", id="btn_revert",
-                             disabled=not is_modified)
-                yield Button("Edit (System Editor)", variant="primary", id="btn_edit")
+                             disabled=is_done or not is_modified)
+                yield Button("Edit", variant="primary", id="btn_edit", disabled=is_done)
+                is_child = self.task_data.filepath.parent.name.startswith("t")
+                can_delete = (not is_done
+                              and self.task_data.metadata.get("status", "") != "Implementing"
+                              and not is_child)
+                yield Button("Delete", variant="error", id="btn_delete",
+                             disabled=not can_delete)
                 yield Button("Close", variant="default", id="btn_close")
 
     @on(CycleField.Changed)
     def on_cycle_changed(self, event: CycleField.Changed):
         self._current_values[event.field.field_key] = event.value
         self._update_save_button()
+        self._update_delete_button()
 
     def _update_save_button(self):
         is_dirty = self._current_values != self._original_values
         btn_save = self.query_one("#btn_save", Button)
         btn_save.disabled = not is_dirty
+
+    def _update_delete_button(self):
+        is_child = self.task_data.filepath.parent.name.startswith("t")
+        status = self._current_values.get("status", "")
+        btn_delete = self.query_one("#btn_delete", Button)
+        btn_delete.disabled = (status == "Implementing" or is_child)
 
     @on(Button.Pressed, "#btn_save")
     def save_changes(self):
@@ -1058,6 +1113,10 @@ class TaskDetailScreen(ModalScreen):
     @on(Button.Pressed, "#btn_edit")
     def edit_task(self):
         self.dismiss("edit")
+
+    @on(Button.Pressed, "#btn_delete")
+    def delete_task(self):
+        self.dismiss("delete")
 
     @on(Button.Pressed, "#btn_pick")
     def pick_task(self):
@@ -1144,6 +1203,7 @@ class KanbanApp(App):
     .meta-ro { height: 1; width: 100%; padding: 0 2; color: $text-muted; }
     .meta-ro.ro-focused { background: $primary 20%; border-left: thick $accent; }
     #btn_save:disabled { opacity: 50%; }
+    #btn_delete:disabled { opacity: 50%; }
     #md_view { margin: 1 0; border: solid $secondary-background; }
     .task-title-row { height: auto; }
     .task-number { color: $accent; text-style: bold; width: auto; margin: 0 1 0 0; }
@@ -1420,6 +1480,16 @@ class KanbanApp(App):
                     self.run_editor(focused.task_data.filepath)
                 elif result == "pick":
                     self.run_aitask_pick(focused.task_data.filename)
+                elif result == "delete":
+                    display_names, paths = self._collect_delete_files(focused.task_data)
+                    def on_delete_confirmed(confirmed):
+                        if confirmed:
+                            task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
+                            self._execute_delete(task_num, paths)
+                        else:
+                            self.refresh_board(refocus_filename=focused.task_data.filename)
+                    self.push_screen(DeleteConfirmScreen(display_names), on_delete_confirmed)
+                    return
                 # Refresh board to update git status indicators (asterisk, commit actions)
                 self.refresh_board(refocus_filename=focused.task_data.filename)
 
@@ -1633,6 +1703,83 @@ class KanbanApp(App):
             CommitMessageScreen(modified_tasks, self.manager),
             handle_commit_result
         )
+
+    def _collect_delete_files(self, task: Task):
+        """Collect files to delete for a task (including children and plans).
+        Returns (display_names, paths_to_delete)."""
+        display_names = []
+        paths = []
+        task_num, _ = TaskCard._parse_filename(task.filename)
+
+        # Task file itself
+        display_names.append(task.filename)
+        paths.append(task.filepath)
+
+        # Plan file for parent task: aiplans/p<N>_<name>.md
+        plan_name = "p" + task.filename[1:]
+        plan_path = Path("aiplans") / plan_name
+        if plan_path.exists():
+            display_names.append(str(plan_path))
+            paths.append(plan_path)
+
+        # Child tasks and their plans
+        children = self.manager.get_child_tasks_for_parent(task_num)
+        for child in children:
+            display_names.append(child.filename)
+            paths.append(child.filepath)
+            child_plan_name = "p" + child.filename[1:]
+            child_plan_path = Path("aiplans") / task_num.replace("t", "p", 1) / child_plan_name
+            if child_plan_path.exists():
+                display_names.append(str(child_plan_path))
+                paths.append(child_plan_path)
+
+        return display_names, paths
+
+    def _execute_delete(self, task_num: str, paths: list):
+        """Delete files via git rm and commit."""
+        try:
+            for path in paths:
+                result = subprocess.run(
+                    ["git", "rm", "-f", str(path)],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode != 0:
+                    # Fallback for untracked files
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+
+            # Remove empty child directories
+            child_task_dir = TASKS_DIR / task_num
+            if child_task_dir.is_dir():
+                try:
+                    os.rmdir(child_task_dir)
+                except OSError:
+                    pass
+            child_plan_dir = Path("aiplans") / task_num.replace("t", "p", 1)
+            if child_plan_dir.is_dir():
+                try:
+                    os.rmdir(child_plan_dir)
+                except OSError:
+                    pass
+
+            result = subprocess.run(
+                ["git", "commit", "-m", f"Delete task {task_num} and associated files"],
+                capture_output=True, text=True, timeout=15
+            )
+            if result.returncode == 0:
+                self.notify(f"Deleted task {task_num}", severity="information")
+            else:
+                error = result.stderr.strip() or result.stdout.strip()
+                self.notify(f"Delete commit failed: {error}", severity="error")
+        except subprocess.TimeoutExpired:
+            self.notify("Git operation timed out", severity="error")
+        except FileNotFoundError:
+            self.notify("git not found", severity="error")
+
+        self.manager.load_tasks()
+        self.refresh_board()
 
     def _git_commit_tasks(self, tasks: List[Task], message: str):
         """Stage and commit specific task files."""
