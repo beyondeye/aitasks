@@ -121,6 +121,10 @@ class Task:
                     self.metadata['children_to_implement'] = _normalize_task_ids(
                         self.metadata['children_to_implement']
                     )
+                if 'folded_tasks' in self.metadata:
+                    self.metadata['folded_tasks'] = _normalize_task_ids(
+                        self.metadata['folded_tasks']
+                    )
             else:
                 self.metadata = {}
                 self._original_key_order = []
@@ -690,6 +694,58 @@ class ChildrenField(Static):
         self.remove_class("ro-focused")
 
 
+class FoldedTasksField(Static):
+    """Focusable folded tasks field. Enter opens folded task detail (read-only)."""
+
+    can_focus = True
+
+    def __init__(self, folded_ids: list, manager: "TaskManager",
+                 owner_task: "Task", **kwargs):
+        super().__init__(**kwargs)
+        self.folded_ids = folded_ids
+        self.manager = manager
+        self.owner_task = owner_task
+
+    def render(self) -> str:
+        folded_str = ", ".join(str(f) for f in self.folded_ids)
+        return f"  [b]Folded Tasks:[/b] {folded_str}"
+
+    def on_key(self, event):
+        if event.key == "enter":
+            self._open_folded()
+            event.prevent_default()
+            event.stop()
+
+    def _open_folded(self):
+        if len(self.folded_ids) == 1:
+            task_id = str(self.folded_ids[0])
+            tid = task_id if task_id.startswith('t') else f"t{task_id}"
+            task = self.manager.find_task_by_id(tid)
+            if task:
+                self.app.push_screen(
+                    TaskDetailScreen(task, self.manager, read_only=True))
+        else:
+            folded_items = []
+            for fid in self.folded_ids:
+                fid_str = str(fid)
+                tid = fid_str if fid_str.startswith('t') else f"t{fid_str}"
+                task = self.manager.find_task_by_id(tid)
+                if task:
+                    _, name = TaskCard._parse_filename(task.filename)
+                    folded_items.append((fid_str, task, f"{tid} {name}"))
+                else:
+                    folded_items.append((fid_str, None, f"{tid} (not found)"))
+            self.app.push_screen(
+                FoldedTaskPickerScreen(folded_items, self.manager),
+            )
+
+    def on_focus(self):
+        self.add_class("ro-focused")
+
+    def on_blur(self):
+        self.remove_class("ro-focused")
+
+
 class ParentField(Static):
     """Focusable parent field. Enter opens parent task detail."""
 
@@ -947,6 +1003,66 @@ class ChildPickerScreen(ModalScreen):
         self.dismiss()
 
 
+class FoldedTaskPickerItem(Static):
+    """A selectable folded task item in the picker."""
+
+    can_focus = True
+
+    def __init__(self, folded_id, task, display_name, manager, **kwargs):
+        super().__init__(**kwargs)
+        self.folded_id = folded_id
+        self.folded_task = task
+        self.display_name = display_name
+        self.manager = manager
+
+    def render(self) -> str:
+        return f"  {self.display_name}"
+
+    def on_key(self, event):
+        if event.key == "enter":
+            if self.folded_task:
+                self.screen.dismiss()
+                self.app.push_screen(
+                    TaskDetailScreen(self.folded_task, self.manager,
+                                     read_only=True))
+            event.prevent_default()
+            event.stop()
+
+    def on_focus(self):
+        self.add_class("dep-item-focused")
+
+    def on_blur(self):
+        self.remove_class("dep-item-focused")
+
+
+class FoldedTaskPickerScreen(ModalScreen):
+    """Popup to select which folded task to open."""
+
+    BINDINGS = [
+        Binding("escape", "close_picker", "Close", show=False),
+    ]
+
+    def __init__(self, folded_items, manager):
+        super().__init__()
+        self.folded_items = folded_items
+        self.manager = manager
+
+    def compose(self):
+        with Container(id="dep_picker_dialog"):
+            yield Label("Select folded task to open:", id="dep_picker_title")
+            for folded_id, task, display_name in self.folded_items:
+                yield FoldedTaskPickerItem(folded_id, task, display_name,
+                                           self.manager)
+            yield Button("Cancel", variant="default", id="btn_dep_cancel")
+
+    @on(Button.Pressed, "#btn_dep_cancel")
+    def cancel(self):
+        self.dismiss()
+
+    def action_close_picker(self):
+        self.dismiss()
+
+
 class TaskDetailScreen(ModalScreen):
     """Popup to view/edit task details with metadata editing."""
 
@@ -954,10 +1070,11 @@ class TaskDetailScreen(ModalScreen):
         Binding("escape", "close_modal", "Close", show=False),
     ]
 
-    def __init__(self, task: Task, manager: TaskManager = None):
+    def __init__(self, task: Task, manager: TaskManager = None, read_only: bool = False):
         super().__init__()
         self.task_data = task
         self.manager = manager
+        self.read_only = read_only
         self._original_values = {
             "priority": task.metadata.get("priority", "medium"),
             "effort": task.metadata.get("effort", "medium"),
@@ -975,11 +1092,12 @@ class TaskDetailScreen(ModalScreen):
             yield Label(f"\U0001f4c4 {display_title}", id="detail_title")
 
             is_done = meta.get("status", "") == "Done"
+            is_done_or_ro = is_done or self.read_only
             with Container(id="meta_editable"):
-                if is_done:
+                if is_done_or_ro:
                     yield ReadOnlyField(f"[b]Priority:[/b] {meta.get('priority', 'medium')}", classes="meta-ro")
                     yield ReadOnlyField(f"[b]Effort:[/b] {meta.get('effort', 'medium')}", classes="meta-ro")
-                    yield ReadOnlyField(f"[b]Status:[/b] Done", classes="meta-ro")
+                    yield ReadOnlyField(f"[b]Status:[/b] {meta.get('status', 'Ready')}", classes="meta-ro")
                     yield ReadOnlyField(f"[b]Type:[/b] {meta.get('issue_type', 'feature')}", classes="meta-ro")
                 else:
                     yield CycleField("Priority", ["low", "medium", "high"],
@@ -1030,20 +1148,30 @@ class TaskDetailScreen(ModalScreen):
                 elif children_ids:
                     children = ", ".join(str(c) for c in children_ids)
                     yield ReadOnlyField(f"[b]Children:[/b] {children}", classes="meta-ro")
+            # Folded tasks field
+            if meta.get("folded_tasks"):
+                folded_ids = meta["folded_tasks"]
+                if folded_ids and self.manager:
+                    yield FoldedTasksField(folded_ids, self.manager,
+                                           self.task_data, classes="meta-ro")
+                elif folded_ids:
+                    folded_str = ", ".join(str(f) for f in folded_ids)
+                    yield ReadOnlyField(
+                        f"[b]Folded Tasks:[/b] {folded_str}", classes="meta-ro")
 
             with VerticalScroll(id="md_view"):
                 yield Markdown(self.task_data.content)
 
             with Horizontal(id="detail_buttons"):
-                yield Button("Pick", variant="warning", id="btn_pick", disabled=is_done)
+                yield Button("Pick", variant="warning", id="btn_pick", disabled=is_done_or_ro)
                 yield Button("Save Changes", variant="success", id="btn_save",
                              disabled=True)
                 is_modified = self.manager.is_modified(self.task_data) if self.manager else False
                 yield Button("Revert", variant="error", id="btn_revert",
-                             disabled=is_done or not is_modified)
-                yield Button("Edit", variant="primary", id="btn_edit", disabled=is_done)
+                             disabled=is_done_or_ro or not is_modified)
+                yield Button("Edit", variant="primary", id="btn_edit", disabled=is_done_or_ro)
                 is_child = self.task_data.filepath.parent.name.startswith("t")
-                can_delete = (not is_done
+                can_delete = (not is_done and not self.read_only
                               and self.task_data.metadata.get("status", "") != "Implementing"
                               and not is_child)
                 yield Button("Delete", variant="error", id="btn_delete",
