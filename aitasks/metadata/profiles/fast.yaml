@@ -6,3 +6,4 @@ run_location: locally
 create_worktree: false
 plan_preference: use_current
 post_plan_action: start_implementation
+explore_auto_continue: false
