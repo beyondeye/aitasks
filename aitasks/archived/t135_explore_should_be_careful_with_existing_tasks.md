@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitasks, claudeskills, aitasks_explore]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-16 13:42
-updated_at: 2026-02-16 15:22
+updated_at: 2026-02-16 15:27
+completed_at: 2026-02-16 15:27
 boardcol: now
 boardidx: 10
 ---
