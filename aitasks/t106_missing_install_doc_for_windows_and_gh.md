@@ -7,6 +7,8 @@ status: Ready
 labels: [aitasks, install_scripts]
 created_at: 2026-02-13 00:45
 updated_at: 2026-02-13 00:45
+boardidx: 20
+boardcol: now
 ---
 
 In the README.md in the Quick Install paragraph information in missing about a few things: 1) it is not clear that the install command (curl ....) should be run when inside WSL shell (that is opened by search WSL in the windows searchbox

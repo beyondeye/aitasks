@@ -7,7 +7,7 @@ status: Ready
 labels: [aitasks, claudeskills]
 created_at: 2026-02-04 08:20
 updated_at: 2026-02-04 08:20
-boardidx: 40
+boardidx: 30
 boardcol: next
 ---
 
