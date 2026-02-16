@@ -7,7 +7,7 @@ status: Ready
 labels: [aitasks]
 created_at: 2026-02-05 18:03
 updated_at: 2026-02-05 18:03
-boardidx: 10
+boardidx: 20
 boardcol: next
 ---
 

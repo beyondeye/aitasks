@@ -1,5 +1,6 @@
 aitask_board
 aitasks
+aitasks_explore
 bash
 claudeskills
 codexcli

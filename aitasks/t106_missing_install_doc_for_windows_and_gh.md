@@ -7,7 +7,7 @@ status: Ready
 labels: [aitasks, install_scripts]
 created_at: 2026-02-13 00:45
 updated_at: 2026-02-13 00:45
-boardidx: 20
+boardidx: 30
 boardcol: now
 ---
 
