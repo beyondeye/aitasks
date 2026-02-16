@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [docs]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-16 12:59
-updated_at: 2026-02-16 13:03
+updated_at: 2026-02-16 13:18
+completed_at: 2026-02-16 13:18
 ---
 
 Restructure the monolithic README.md (~1155 lines) into a concise landing page with detailed documentation split into a `docs/` directory.
