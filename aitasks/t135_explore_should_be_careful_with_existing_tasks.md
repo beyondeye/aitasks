@@ -7,7 +7,7 @@ status: Implementing
 labels: [aitasks, claudeskills, aitasks_explore]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-16 13:42
-updated_at: 2026-02-16 14:28
+updated_at: 2026-02-16 15:22
 boardcol: now
 boardidx: 10
 ---

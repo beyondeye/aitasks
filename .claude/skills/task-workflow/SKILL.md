@@ -18,6 +18,7 @@ This skill is invoked by other skills (e.g., aitask-pick, aitask-explore, aitask
 | `parent_task_file` | string/null | Path to parent task file if child (e.g., `aitasks/t16_implement_auth.md`), null otherwise |
 | `active_profile` | object/null | Loaded execution profile from calling skill (or null if no profile) |
 | `previous_status` | string | Task status before workflow began (for abort revert, e.g., `Ready`) |
+| `folded_tasks` | array/null | List of task IDs folded into this task (e.g., `[106, 129_5]`), or null/empty if none. Set by aitask-explore when existing tasks are folded into a new task. |
 
 ## Workflow
 
@@ -219,6 +220,7 @@ While in plan mode:
 
 - Ask the user clarifying questions about the task requirements
 - Explore the codebase to understand the relevant architecture
+- **Folded Tasks Note:** If the task has a `folded_tasks` frontmatter field, the task description already contains all relevant content from the folded tasks (their content was incorporated at creation time by aitask-explore). There is no need to read the original folded task files during planning — they exist only as references for post-implementation cleanup (deletion in Step 9).
 - **Complexity Assessment:**
   - After initial exploration, assess implementation complexity
   - If the complexity appears HIGH for a parent task, use `AskUserQuestion`:
@@ -511,6 +513,27 @@ Execute the post-implementation cleanup steps.
 
 - **Release task lock:** Execute the **Lock Release Procedure** (see below) for the task.
 
+- **Delete folded tasks (if any):**
+  - Read the `folded_tasks` frontmatter field from the archived task file at `aitasks/archived/<task_file>`
+  - If `folded_tasks` is present and non-empty, for each folded task ID:
+    - Resolve the task file:
+      ```bash
+      ls aitasks/t<folded_id>_*.md 2>/dev/null
+      ```
+    - If the file exists and its status is NOT `Implementing` or `Done`:
+      - Delete the task file and any associated plan file:
+        ```bash
+        git rm aitasks/<folded_task_file>
+        git rm aiplans/p<folded_id>_*.md 2>/dev/null || true
+        ```
+      - Release lock (best-effort):
+        ```bash
+        ./aiscripts/aitask_lock.sh --unlock <folded_task_num> 2>/dev/null || true
+        ```
+      - **Update/close folded task's issue (if linked):** Execute the **Issue Update Procedure** for the folded task. When posting a comment, note that the task was folded into t<task_id>.
+    - If the file does NOT exist (already deleted or archived): skip silently
+    - If the status IS `Implementing` or `Done`: warn the user: "Folded task t<N> has status '<status>' — skipping automatic deletion. Please handle it manually."
+
 - **Commit archived files to git:**
   ```bash
   git add aitasks/archived/<task_file> aiplans/archived/<plan_file>
@@ -630,6 +653,8 @@ This procedure is referenced from Step 9 (archival) and the Task Abort Procedure
 - **IMPORTANT:** When modifying any task file, always update the `updated_at` field in frontmatter to the current date/time using format `YYYY-MM-DD HH:MM`
 - **Child task naming:** Use format `t{parent}_{child}_description.md` where both parent and child identifiers are **numbers only**. Do not insert tasks "in-between" (e.g., no `t10_1b` between `t10_1` and `t10_2`). If you discover a missing implementation step, add it as the next available number and adjust dependencies accordingly
 - When archiving a task with an `issue` field, the workflow offers to update/close the linked issue using `aitask_issue_update.sh`. The SKILL.md workflow is platform-agnostic; the script handles platform specifics (GitHub, GitLab, etc.). It auto-detects commits and includes "Final Implementation Notes" from the archived plan file.
+- **Folded tasks:** When a task has a `folded_tasks` frontmatter field (set by aitask-explore), the listed tasks are deleted during Step 9 archival. Folded tasks are NOT set to `Implementing` during the main task's lifecycle — they remain in their original status (`Ready`/`Editing`) until deleted. This avoids complicating the Task Abort Procedure. Folded tasks are deleted (not archived) because their full content was incorporated into the new task's description at creation time.
+- **Note:** Since aitask-explore creates standalone parent tasks only, the child task archival path does not need to handle `folded_tasks`.
 
 ### Execution Profiles
 

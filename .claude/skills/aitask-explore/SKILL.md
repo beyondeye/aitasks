@@ -122,13 +122,43 @@ Explore the codebase guided by the exploration strategy set in Step 1. Use Read,
 
 4. Handle selection:
    - **"Continue exploring":** Ask the user if they want to redirect focus or continue in the same direction. Loop back to step 1 of this exploration loop.
-   - **"Create a task":** Proceed to Step 3 (Task Creation).
+   - **"Create a task":** Proceed to Step 2b (Related Task Discovery).
    - **"Abort":** Inform user "Exploration ended. No task created." and stop the workflow.
 
 **Notes:**
 - Track findings mentally throughout (no file writes during exploration)
 - Each exploration round should be meaningful — don't just do one file read, do enough to have something useful to report
 - Present findings as a concise bulleted summary after each round
+
+### Step 2b: Related Task Discovery
+
+Before creating a new task, check for existing pending tasks that overlap with the exploration findings. This prevents duplicate tasks and ensures related work is tracked.
+
+**List pending tasks:**
+
+```bash
+./aiscripts/aitask_ls.sh -v --status all --all-levels 99 2>/dev/null
+```
+
+Filter the output to include only tasks with status `Ready` or `Editing`. Exclude:
+- Tasks with children (status shows "Has children") — too complex to fold in
+- Child tasks — too complex to fold in
+- Tasks with status `Implementing`, `Postponed`, or `Done`
+
+**Assess relevance:** Read the title and brief description (first ~5 lines of body text) of each remaining task. Based on the exploration findings gathered in Step 2, identify tasks whose scope overlaps significantly with the planned new task. A task is "related" if the new task would cover the same goal, fix the same problem, or implement the same feature.
+
+**If no related tasks are found:** Inform the user: "No existing pending tasks appear related to this exploration." Proceed directly to Step 3.
+
+**If related tasks are found:** Present them to the user using `AskUserQuestion` with multiSelect:
+- Question: "These existing tasks appear related to your exploration findings. Select any that will be fully covered by the new task (they will be folded in and deleted after implementation):"
+- Header: "Related tasks"
+- Options: Each related task as a selectable option, with the task filename as label and a brief reason for the match as description. Include a "None — no tasks to fold in" option.
+
+**If user selects "None" or no tasks:** Proceed to Step 3 with no folded tasks.
+
+**If user selects one or more tasks:** Store the list of selected task IDs (e.g., `[106, 129_5]`) as the **folded_tasks** list. Read the full description of each selected task — their content will be incorporated into the new task description in Step 3. Proceed to Step 3.
+
+**Scope rule:** Only standalone parent-level tasks without children may be folded in.
 
 ### Step 3: Task Creation
 
@@ -157,11 +187,22 @@ Use `AskUserQuestion` to confirm or modify:
 - Ask the user what to change via `AskUserQuestion` or free text
 - Apply their modifications
 
+**If folded_tasks is non-empty:** Incorporate the full content of each folded task into the new task description. Read each folded task file and merge their requirements, details, and context into the task description. The new task description must be self-contained — it must contain all relevant information from the folded tasks so that at implementation time, the original folded task files never need to be read. Append a reference section at the end:
+
+```markdown
+## Folded Tasks
+
+The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
+
+- **t<N>** (`<filename>`)
+- ...
+```
+
 **Create the task:**
 
 ```bash
 ./aiscripts/aitask_create.sh --batch --commit --name "<name>" --desc-file - --priority <p> --effort <e> --type <issue_type> --labels <l> <<'TASK_DESC'
-<task description based on exploration findings>
+<task description based on exploration findings, with folded task content incorporated>
 TASK_DESC
 ```
 
@@ -169,6 +210,16 @@ TASK_DESC
   ```bash
   git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
   ```
+
+**If folded_tasks is non-empty**, set the `folded_tasks` frontmatter field:
+```bash
+# Set folded_tasks via aitask_update.sh (no --commit, we'll amend)
+./aiscripts/aitask_update.sh --batch <task_num> --folded-tasks "<comma-separated IDs>"
+
+# Amend the create commit to include the frontmatter update
+git add aitasks/t<task_num>_*.md
+git commit --amend --no-edit
+```
 
 ### Step 4: Decision Point
 
@@ -204,6 +255,7 @@ Set the following context variables from the created task, then read and follow 
 - **parent_task_file**: null
 - **active_profile**: The execution profile loaded in Step 0a (or null if no profile)
 - **previous_status**: `Ready`
+- **folded_tasks**: List of task IDs folded into this task (e.g., `[106, 129_5]`), or empty list if none
 
 ---
 
@@ -214,3 +266,5 @@ Set the following context variables from the created task, then read and follow 
 - The `explore_auto_continue` profile key controls whether to ask the user about continuing to implementation (default: `false`, always ask)
 - When handing off to task-workflow, the created task has status `Ready` — task-workflow's Step 4 will set it to `Implementing`
 - For the full Execution Profiles schema and customization guide, see `.claude/skills/task-workflow/SKILL.md`
+- **Folded tasks:** When existing pending tasks are folded into a new task (Step 2b), their full content is incorporated into the new task description at creation time. The original folded task files are never read at implementation time — they exist only as references for deletion after the new task is completed (handled by task-workflow Step 9). The `folded_tasks` frontmatter field tracks which task IDs to clean up.
+- Only standalone parent-level tasks without children can be folded in. Child tasks and parents-with-children are excluded from the related task scan.

@@ -42,6 +42,8 @@ BATCH_BOARDIDX=""
 BATCH_BOARDIDX_SET=false
 BATCH_ISSUE=""
 BATCH_ISSUE_SET=false
+BATCH_FOLDED_TASKS=""
+BATCH_FOLDED_TASKS_SET=false
 BATCH_COMMIT=false
 
 # Current values (parsed from file)
@@ -58,6 +60,7 @@ CURRENT_ASSIGNED_TO=""
 CURRENT_BOARDCOL=""
 CURRENT_BOARDIDX=""
 CURRENT_ISSUE=""
+CURRENT_FOLDED_TASKS=""
 
 # --- Helper Functions ---
 
@@ -100,6 +103,9 @@ Issue tracking options (batch mode):
 
 Assignment options (batch mode):
   --assigned-to, -a EMAIL  Email of assigned person (use "" to clear)
+
+Folded task options (batch mode):
+  --folded-tasks TASKS   Folded task IDs (comma-separated, e.g., "106,129_5"; use "" to clear)
 
 Child task options (batch mode):
   --add-child CHILD_ID   Add child to children_to_implement list
@@ -170,6 +176,7 @@ parse_args() {
             --boardcol) BATCH_BOARDCOL="$2"; BATCH_BOARDCOL_SET=true; shift 2 ;;
             --boardidx) BATCH_BOARDIDX="$2"; BATCH_BOARDIDX_SET=true; shift 2 ;;
             --issue) BATCH_ISSUE="$2"; BATCH_ISSUE_SET=true; shift 2 ;;
+            --folded-tasks) BATCH_FOLDED_TASKS="$2"; BATCH_FOLDED_TASKS_SET=true; shift 2 ;;
             --commit) BATCH_COMMIT=true; shift ;;
             --silent) BATCH_SILENT=true; shift ;;
             --help|-h) show_help; exit 0 ;;
@@ -245,6 +252,7 @@ parse_yaml_frontmatter() {
     CURRENT_BOARDCOL=""
     CURRENT_BOARDIDX=""
     CURRENT_ISSUE=""
+    CURRENT_FOLDED_TASKS=""
 
     # Read entire file content
     local file_content
@@ -306,6 +314,9 @@ parse_yaml_frontmatter() {
                 boardcol) CURRENT_BOARDCOL="$value" ;;
                 boardidx) CURRENT_BOARDIDX="$value" ;;
                 issue) CURRENT_ISSUE="$value" ;;
+                folded_tasks)
+                    CURRENT_FOLDED_TASKS=$(echo "$value" | tr -d '[]' | tr -d ' ')
+                    ;;
             esac
         fi
     done <<< "$yaml_content"
@@ -379,6 +390,7 @@ write_task_file() {
     local boardcol="${12:-}"
     local boardidx="${13:-}"
     local issue="${14:-}"
+    local folded_tasks="${15:-}"
 
     local updated_at
     updated_at=$(get_timestamp)
@@ -403,6 +415,12 @@ write_task_file() {
             local children_yaml
             children_yaml=$(format_yaml_list "$children_to_implement")
             echo "children_to_implement: $children_yaml"
+        fi
+        # Only write folded_tasks if present
+        if [[ -n "$folded_tasks" ]]; then
+            local folded_yaml
+            folded_yaml=$(format_yaml_list "$folded_tasks")
+            echo "folded_tasks: $folded_yaml"
         fi
         # Only write assigned_to if present
         if [[ -n "$assigned_to" ]]; then
@@ -623,6 +641,7 @@ handle_child_task_completion() {
     local saved_boardcol="$CURRENT_BOARDCOL"
     local saved_boardidx="$CURRENT_BOARDIDX"
     local saved_issue="$CURRENT_ISSUE"
+    local saved_folded_tasks="$CURRENT_FOLDED_TASKS"
 
     parse_yaml_frontmatter "$parent_file"
 
@@ -634,7 +653,7 @@ handle_child_task_completion() {
     write_task_file "$parent_file" "$CURRENT_PRIORITY" "$CURRENT_EFFORT" "$CURRENT_DEPS" \
         "$CURRENT_TYPE" "$CURRENT_STATUS" "$CURRENT_LABELS" "$CURRENT_CREATED_AT" \
         "$CURRENT_DESCRIPTION" "$new_children" "$CURRENT_ASSIGNED_TO" \
-        "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE"
+        "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE" "$CURRENT_FOLDED_TASKS"
 
     if [[ -z "$new_children" ]]; then
         success "All children of t$parent_num are complete! Parent can now be completed."
@@ -656,6 +675,7 @@ handle_child_task_completion() {
     CURRENT_BOARDCOL="$saved_boardcol"
     CURRENT_BOARDIDX="$saved_boardidx"
     CURRENT_ISSUE="$saved_issue"
+    CURRENT_FOLDED_TASKS="$saved_folded_tasks"
 }
 
 # Validate that parent cannot be completed with pending children
@@ -1077,11 +1097,11 @@ run_interactive_mode() {
     # Validate parent completion
     validate_parent_completion "$task_num" "$new_status" "$CURRENT_CHILDREN_TO_IMPLEMENT"
 
-    # Write updated file (preserve children_to_implement, assigned_to, board fields, issue)
+    # Write updated file (preserve children_to_implement, assigned_to, board fields, issue, folded_tasks)
     write_task_file "$final_path" "$new_priority" "$new_effort" "$new_deps" \
         "$new_type" "$new_status" "$new_labels" "$CURRENT_CREATED_AT" "$new_description" \
         "$CURRENT_CHILDREN_TO_IMPLEMENT" "$CURRENT_ASSIGNED_TO" \
-        "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE"
+        "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE" "$CURRENT_FOLDED_TASKS"
 
     # Handle child task completion
     if [[ "$new_status" == "Done" ]]; then
@@ -1151,6 +1171,7 @@ run_batch_mode() {
     [[ "$BATCH_BOARDCOL_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDIDX_SET" == true ]] && has_update=true
     [[ "$BATCH_ISSUE_SET" == true ]] && has_update=true
+    [[ "$BATCH_FOLDED_TASKS_SET" == true ]] && has_update=true
 
     if [[ "$has_update" == false ]]; then
         die "No update parameters specified. Use --help for usage."
@@ -1237,6 +1258,12 @@ run_batch_mode() {
         new_issue="$BATCH_ISSUE"
     fi
 
+    # Process folded_tasks
+    local new_folded_tasks="$CURRENT_FOLDED_TASKS"
+    if [[ "$BATCH_FOLDED_TASKS_SET" == true ]]; then
+        new_folded_tasks="$BATCH_FOLDED_TASKS"
+    fi
+
     # Validate parent completion (cannot complete parent with pending children)
     validate_parent_completion "$BATCH_TASK_NUM" "$new_status" "$new_children"
 
@@ -1258,7 +1285,8 @@ run_batch_mode() {
     # Write updated file
     write_task_file "$final_path" "$new_priority" "$new_effort" "$new_deps" \
         "$new_type" "$new_status" "$new_labels" "$CURRENT_CREATED_AT" "$new_description" \
-        "$new_children" "$new_assigned_to" "$new_boardcol" "$new_boardidx" "$new_issue"
+        "$new_children" "$new_assigned_to" "$new_boardcol" "$new_boardidx" "$new_issue" \
+        "$new_folded_tasks"
 
     # Handle child task completion (update parent if needed)
     if [[ "$new_status" == "Done" ]]; then
