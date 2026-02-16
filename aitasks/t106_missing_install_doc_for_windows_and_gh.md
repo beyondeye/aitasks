@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [aitasks, install_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-13 00:45
-updated_at: 2026-02-13 00:45
-boardidx: 30
+updated_at: 2026-02-16 18:54
 boardcol: now
+boardidx: 30
 ---
 
 In the README.md in the Quick Install paragraph information in missing about a few things: 1) it is not clear that the install command (curl ....) should be run when inside WSL shell (that is opened by search WSL in the windows searchbox
