@@ -60,6 +60,8 @@ ait setup
 
 The setup will automatically detect WSL and install dependencies via `apt`. If you already have the global `ait` shim installed (from a previous project), you can skip the `curl` step and just run `ait setup` in the new project directory — it will auto-bootstrap the installation.
 
+After setup completes, see [Authentication with Your Git Remote](../README.md#authentication-with-your-git-remote) to configure GitHub access for task locking, sync, and issue integration.
+
 ---
 
 ## Install Claude Code

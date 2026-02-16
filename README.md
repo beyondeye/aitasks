@@ -72,6 +72,8 @@ Install into your project directory:
 curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash
 ```
 
+> **Windows users:** Run this inside a WSL shell, not PowerShell. See the [Windows/WSL guide](docs/installing-windows.md).
+
 Upgrade an existing installation:
 
 ```bash
