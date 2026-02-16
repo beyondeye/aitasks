@@ -62,6 +62,11 @@ After a task is selected and confirmed, perform these checks before proceeding t
 
 If neither check triggers, proceed to Step 4 as normal.
 
+### Step 3b: refresh execution profile
+If `active_profile` was provided and is non-null, re-read the profile YAML file from `aitasks/metadata/profiles/` to ensure all settings are fresh in context. Display: "Refreshing profile: \<name\>". If the profile file cannot be read (missing or invalid), warn: "Warning: Could not refresh profile '\<name\>', proceeding without profile" and set `active_profile` to null.
+
+If `active_profile` is null (either because no profile was selected by the calling skill, or because the profile name was lost during a long conversation), re-run the profile selection logic: check for available profiles in `aitasks/metadata/profiles/*.yaml`, and if profiles exist, ask the user to select one using `AskUserQuestion` (same format as Step 0a in aitask-pick/aitask-explore). If the user selects "No profile", proceed without one. If no profile files exist, skip this step.
+
 ### Step 4: Assign Task to User
 
 - **Read stored emails:**
@@ -208,6 +213,8 @@ Otherwise, use `AskUserQuestion`:
 #### 6.1: Planning
 
 Use the `EnterPlanMode` tool to enter Claude Code's plan mode.
+
+**If entering from the "Verify plan" path in 6.0:** Start by reading the existing plan file. Then explore the current codebase to check if the plan's assumptions, file paths, and approach are still valid. Focus on identifying what changed since the plan was written. Update the plan if needed, or confirm it is still sound and exit plan mode.
 
 **For child tasks:** Include context links to related files (in priority order):
 - Parent task file: `aitasks/t<parent>_<name>.md`
