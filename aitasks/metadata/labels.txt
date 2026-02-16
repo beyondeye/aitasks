@@ -2,6 +2,8 @@ aitask_board
 aitasks
 bash
 claudeskills
+codexcli
+geminicli
 install_scripts
 scripting
 statistics
