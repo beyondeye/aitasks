@@ -26,6 +26,7 @@ Commands:
   issue-import   Import tasks from GitHub/GitLab issues
   board          Launch the task board TUI
   stats          Show task completion statistics
+  changelog      Generate changelog from commits and plans
   clear-old      Archive old completed tasks
   issue-update   Update/close linked issues
   setup          Install dependencies
