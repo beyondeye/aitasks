@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [claudeskills]
-children_to_implement: [t129_1, t129_2, t129_3, t129_4, t129_5, t129_6]
+children_to_implement: [t129_2, t129_3, t129_4, t129_5, t129_6]
 created_at: 2026-02-15 08:44
-updated_at: 2026-02-15 17:15
+updated_at: 2026-02-16 11:43
 boardcol: now
 boardidx: 10
 ---

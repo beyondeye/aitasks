@@ -3,11 +3,12 @@ priority: high
 effort: high
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [claudeskills]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-15 17:15
-updated_at: 2026-02-16 10:51
+updated_at: 2026-02-16 11:44
+completed_at: 2026-02-16 11:44
 ---
 
 ## Context
