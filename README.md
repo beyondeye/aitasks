@@ -114,6 +114,28 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 - Global `ait` shim at `~/.local/bin/ait`
 - Claude Code permissions in `.claude/settings.local.json` (see [Claude Code Permissions](docs/commands.md#claude-code-permissions))
 
+## Authentication with Your Git Remote
+
+Authenticating with your git remote enables full aitasks functionality including task locking (prevents two agents from picking the same task), push/pull sync across machines, and issue integration (`ait issue-import`, `ait issue-update`).
+
+### GitHub
+
+Authenticate the GitHub CLI:
+
+```bash
+gh auth login
+```
+
+Follow the prompts to authenticate via browser or token.
+
+### GitLab
+
+<!-- TODO: Add GitLab authentication instructions -->
+
+### Bitbucket
+
+<!-- TODO: Add Bitbucket authentication instructions -->
+
 ## Documentation
 
 - **[Command Reference](docs/commands.md)** — Complete CLI reference for all `ait` subcommands: create, list, update, board, stats, issue import/export, and more. Includes interactive and batch mode options for each command.
@@ -126,7 +148,7 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 
 - **[Development](docs/development.md)** — Architecture overview, directory layout, library script reference, atomic ID counter and locking internals, and release process. For contributors and anyone customizing the framework.
 
-- **[Windows/WSL Installation](docs/installing-windows.md)** — Step-by-step guide for installing and configuring aitasks on Windows via WSL. Covers WSL setup, Claude Code installation, GitHub authentication, and terminal options.
+- **[Windows/WSL Installation](docs/installing-windows.md)** — Step-by-step guide for installing and configuring aitasks on Windows via WSL. Covers WSL setup, Claude Code installation, and terminal options.
 
 ## License
 This project is licensed under the MIT License with the Commons Clause condition.

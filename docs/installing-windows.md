@@ -8,11 +8,10 @@ Step-by-step guide for installing and configuring aitasks on Windows via the Win
 - [Install WSL](#install-wsl)
 - [Install aitasks](#install-aitasks)
 - [Install Claude Code](#install-claude-code)
-- [GitHub Authentication](#github-authentication)
 - [Terminal Options](#terminal-options)
-  - [Warp Terminal](#warp-terminal)
   - [VS Code with WSL Extension](#vs-code-with-wsl-extension)
   - [Default WSL Terminal](#default-wsl-terminal)
+  - [Warp Terminal](#warp-terminal)
 - [Known Issues](#known-issues)
 
 ---
@@ -21,7 +20,6 @@ Step-by-step guide for installing and configuring aitasks on Windows via the Win
 
 - Windows 10 version 2004+ or Windows 11
 - Administrator access (for WSL installation)
-- A GitHub account (for issue integration features)
 
 ---
 
@@ -79,31 +77,7 @@ npm install -g @anthropic-ai/claude-code
 
 ---
 
-## GitHub Authentication
-
-For GitHub issue integration features (`ait issue-import`, `ait issue-update`), you need to authenticate the GitHub CLI:
-
-```bash
-gh auth login
-```
-
-Follow the prompts to authenticate via browser or token. This is required for:
-- Importing GitHub issues as tasks
-- Posting implementation notes to issues
-- Closing issues after task completion
-
----
-
 ## Terminal Options
-
-### Warp Terminal
-
-[Warp](https://www.warp.dev/) is recommended for the best experience. It offers built-in Claude Code integration, multi-tab support, and real-time diff viewing.
-
-**Setup with WSL:**
-1. Install Warp for Windows from [warp.dev](https://www.warp.dev/)
-2. Configure your default shell to use WSL in Warp's settings
-3. Warp will automatically connect to your WSL environment
 
 ### VS Code with WSL Extension
 
@@ -115,14 +89,19 @@ If you prefer an IDE-based workflow:
 
 ### Default WSL Terminal
 
-The default WSL terminal (Windows Terminal) also supports tabs and is sufficient for basic use. However, it may have limited support for some TUI features. If you encounter display issues with `ait board`, consider upgrading to Warp or using VS Code.
+The default WSL terminal (Windows Terminal) supports tabs and is fully functional for all aitasks features including `ait board`.
 
-**Note:** `ait setup` automatically detects terminal capabilities and will warn if your terminal has limited TUI support.
+### Warp Terminal
+
+[Warp](https://www.warp.dev/) offers built-in Claude Code integration, multi-tab support, and real-time diff viewing.
+
+**Setup with WSL:**
+1. Install Warp for Windows from [warp.dev](https://www.warp.dev/)
+2. Configure your default shell to use WSL in Warp's settings
+3. Warp will automatically connect to your WSL environment
 
 ---
 
 ## Known Issues
 
-- **`date -d` compatibility:** The `ait stats` and `ait issue-import` commands use GNU `date -d`. This works correctly in WSL (which uses GNU coreutils). On native macOS, install `coreutils` via Homebrew (`brew install coreutils`).
-- **Bash version:** WSL distributions ship with bash 5.x, which meets the bash 4+ requirement. No action needed.
 - **Legacy console:** The old Windows Console Host (conhost.exe) has limited TUI support. Use Windows Terminal, Warp, or VS Code's integrated terminal instead.
