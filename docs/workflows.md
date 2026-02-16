@@ -99,6 +99,10 @@ When working on multiple tasks in parallel, use the git worktree option in [`/ai
 - Use git worktrees when multiple developers work in parallel, or when running multiple Claude Code instances on tasks that touch overlapping files
 - Working on the current branch (without worktrees) is safe when you are a single developer giving work to multiple Claude Code instances on tasks that don't touch the same files
 
+**Parallel exploration:**
+
+`/aitask-explore` is read-only — it searches and reads code but never modifies source files. This makes it safe to run in a separate terminal tab while another Claude Code instance implements a task. Use this pattern to stay productive: explore and create new tasks while waiting for builds, tests, or ongoing implementations to complete.
+
 ---
 
 ## Multi-Tab Terminal Workflow

@@ -144,6 +144,14 @@ Explore the codebase interactively with guided investigation, then create a task
 
 **Profile key:** `explore_auto_continue` — Set to `true` to skip the "continue to implementation or save" prompt and automatically proceed to implementation.
 
+**Folded tasks:**
+
+During task creation, `/aitask-explore` scans pending tasks (`Ready`/`Editing` status) for overlap with the new task. If related tasks are found, you're prompted to select which ones to "fold in" — their content is incorporated into the new task's description, and the originals are automatically deleted when the new task is archived after implementation.
+
+Only standalone parent tasks (no children) can be folded. The `folded_tasks` frontmatter field tracks which tasks were folded in. During planning, there's no need to re-read the original folded task files — all relevant content is already in the new task.
+
+To fold tasks outside of the explore workflow, use [`/aitask-fold`](#aitask-fold) — a dedicated skill for identifying and merging related tasks.
+
 ---
 
 ## /aitask-create

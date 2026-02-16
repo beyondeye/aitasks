@@ -48,6 +48,7 @@ Detailed description of what needs to be done.
 | `children_to_implement` | `[t10_1, t10_2]` | Remaining child tasks (parent tasks only) |
 | `boardcol` | column ID | Board UI column placement |
 | `boardidx` | integer | Board UI sort index within column |
+| `folded_tasks` | `[138, 129_5]` | Task IDs folded into this task by `/aitask-explore` or `/aitask-fold` (deleted on archival) |
 
 ---
 
