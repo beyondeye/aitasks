@@ -7,3 +7,4 @@ geminicli
 install_scripts
 scripting
 statistics
+windows
