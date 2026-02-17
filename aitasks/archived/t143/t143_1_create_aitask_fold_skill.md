@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [claudeskills, aitask_fold]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-17 10:02
-updated_at: 2026-02-17 10:03
+updated_at: 2026-02-17 10:35
+completed_at: 2026-02-17 10:35
 ---
 
 ## Context
