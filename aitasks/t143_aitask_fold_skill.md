@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [claudeskills, aitask_fold]
-children_to_implement: [t143_1]
+children_to_implement: [t143_1, t143_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-16 19:19
 updated_at: 2026-02-17 10:02
