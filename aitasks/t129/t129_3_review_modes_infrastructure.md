@@ -1,12 +1,13 @@
 ---
 priority: medium
 effort: medium
-depends: [129_1]
+depends: [t129_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [claudeskills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-15 17:15
-updated_at: 2026-02-15 17:15
+updated_at: 2026-02-17 14:12
 ---
 
 ## Context
