@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [aitasks]
 folded_tasks: [113]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-13 00:18
-updated_at: 2026-02-17 10:18
+updated_at: 2026-02-17 10:19
 boardcol: now
 boardidx: 50
 ---
