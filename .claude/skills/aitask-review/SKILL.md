@@ -58,41 +58,48 @@ Use `AskUserQuestion` to determine the review scope:
 - Options:
   - "Specific paths" (description: "Enter file paths, directories, or glob patterns via Other")
   - "Recent changes" (description: "Review files changed in specific commits")
-  - "Entire codebase" (description: "Review all source files")
 
 **If "Specific paths":** The user enters paths via the "Other" free text input. Parse as space or comma-separated paths. Verify each path exists.
 
 **If "Recent changes":**
 
-1. **Fetch and filter commits in paginated batches of 10 relevant commits:**
+1. **Fetch commits using the helper script:**
 
-   Fetch commits using `git log --oneline --shortstat` and filter out administrative task-handling commits whose messages start with the `ait:` prefix (case-insensitive):
-   - `^ait: ` — all administrative commits (task creation, status changes, archival, updates, deletion, folding, changelog, version bumps, etc.)
+   ```bash
+   ./aiscripts/aitask_review_commits.sh --batch-size 10 --offset 0
+   ```
 
-   **Batch loading loop:** Keep fetching commits (increasing `--skip=<offset>`) until 10 non-filtered commits are collected for the current batch. Display each batch as a numbered list with diff stats:
+   The script filters out `ait:` administrative commits and returns a pipe-delimited list (one per line):
+   ```
+   <display_number>|<hash>|<message>|<insertions>|<deletions>
+   ```
+   The last line is `HAS_MORE|<next_offset>` or `NO_MORE_COMMITS`.
+
+   Display to the user as a numbered list:
    ```
    1. abc1234 Add feature X (+45/-12)
    2. def5678 Fix bug in Y (+3/-1)
    ...
    10. ghi9012 Refactor Z module (+120/-85)
    ```
-   The `+N/-M` shows lines added/deleted, extracted from `--shortstat` output.
-
-   Numbering continues across batches: first batch is 1-10, second is 11-20, etc.
 
 2. Use `AskUserQuestion`: "Select commits to review:"
    - "Last 5 commits" (description: "Review changes from commits 1-5")
    - "Last 10 commits" (description: "Review changes from commits 1-10")
-   - "Show 10 more commits" (description: "Load next batch of 10 relevant commits, starting from #<next_number>")
+   - If `HAS_MORE`: "Show 10 more commits" (description: "Load next batch starting from #<next_number>")
    - "Custom selection" (description: "Enter commit indices — ranges (1-5), specific (1,3,5), or mixed (1,2-4,7)")
 
-   If "Show 10 more commits": fetch the next batch of 10 non-filtered commits, append to the displayed list, and re-present the selection question. Continue until the user makes a selection or no more commits are available.
+   If "Show 10 more commits": call the script again with the next offset:
+   ```bash
+   ./aiscripts/aitask_review_commits.sh --batch-size 10 --offset <next_offset>
+   ```
+   Append results to the displayed list and re-present the selection. Continue until selection or `NO_MORE_COMMITS`.
 
 3. If "Custom selection": user enters indices via "Other" free text input.
    Parse the input supporting: ranges (e.g., `1-5`), comma-separated (e.g., `1,3,5`), and mixed (e.g., `1, 2-4, 7`).
    Indices refer to the numbered commits displayed across all loaded batches.
 
-4. Resolve selected commit indices to actual commit hashes, then get changed files:
+4. Resolve selected commit indices to actual commit hashes (from the script output), then get changed files:
    ```bash
    git diff --name-only <oldest_selected_hash>~1...<newest_selected_hash>
    ```
@@ -101,35 +108,33 @@ Use `AskUserQuestion` to determine the review scope:
    git diff-tree --no-commit-id --name-only -r <hash>
    ```
 
-**If "Entire codebase":** No filtering — review all source files in the project.
-
 #### 1b. Review Mode Selection
 
-List all `.md` files in `aitasks/metadata/reviewmodes/`:
+**Auto-detect project environment and rank review modes** using the helper script:
+
+Determine the files to analyze:
+- If "Specific paths" was selected: use those paths
+- If "Recent changes" was selected: use the changed files list resolved in Step 1a
+
 ```bash
-ls aitasks/metadata/reviewmodes/*.md 2>/dev/null
+echo "<file1>
+<file2>
+..." | ./aiscripts/aitask_review_detect_env.sh --files-stdin --reviewmodes-dir aitasks/metadata/reviewmodes
 ```
 
-Read each file's YAML frontmatter to extract `name`, `description`, and `environment` (optional list).
+The script uses modular scoring tests (project root markers, file extensions, shebang lines, directory patterns) and returns two sections separated by `---`:
 
-**Auto-detect project environment** by checking for:
-- `pyproject.toml` or `setup.py` → `python`
-- `build.gradle` or `build.gradle.kts` → `android`, `kotlin`
-- `CMakeLists.txt` → `cpp`, `cmake`
-- `package.json` → `javascript`, `typescript`
-- `*.sh` scripts in project root or `aiscripts/` → `bash`, `shell`
+- `ENV_SCORES`: detected environments ranked by confidence score (one per line: `<env>|<score>`)
+- `REVIEW_MODES`: review mode files pre-sorted by relevance (one per line: `<filename>|<name>|<description>|<score_or_universal>`)
 
-**Sort modes** for display:
-1. Environment-matching modes first (their `environment` list contains a detected environment)
-2. Universal modes next (no `environment` field — these apply to any project)
-3. Non-matching environment-specific modes last
+Modes are sorted: highest-scoring environment-specific first, then universal, then non-matching environment-specific last.
 
 **Profile check:** If the active profile has `review_default_modes` set (comma-separated list of mode names):
 - Auto-select those modes. Display: "Profile '\<name\>': using review modes: \<mode list\>"
 - Skip the AskUserQuestion below
 
-Otherwise, present via `AskUserQuestion` multiSelect: "Select review modes to apply:"
-- Each option: label = `name` from frontmatter, description = `description` from frontmatter
+Otherwise, present the modes in the script's pre-sorted order via `AskUserQuestion` multiSelect: "Select review modes to apply:"
+- Each option: label = `name` field from script output, description = `description` field from script output
 - Since `AskUserQuestion` supports max 4 options, implement pagination:
   - Show up to 3 modes per page + "Show more modes" if additional modes exist
   - On the last page, show up to 4 modes
@@ -290,7 +295,8 @@ When continuing to implementation, set the following context variables from the 
 - Review modes are loaded from `aitasks/metadata/reviewmodes/*.md` (installed via `ait setup` from t129_3)
 - The frontmatter format is: `name` (string), `description` (string), `environment` (optional list)
 - Universal modes have no `environment` field and apply to any project type
-- Environment auto-detection is best-effort — modes are sorted by relevance but all are available for selection
+- Environment auto-detection is handled by `./aiscripts/aitask_review_detect_env.sh` — uses modular scoring tests; modes are sorted by relevance but all are available for selection
+- Commit fetching for "Recent changes" is handled by `./aiscripts/aitask_review_commits.sh` — returns paginated, filtered, parseable commit lists
 - The `review_default_modes` profile key pre-selects modes (comma-separated names matching the `name` frontmatter field)
 - The `review_auto_continue` profile key controls whether to ask about continuing to implementation (default: `false`, always ask)
 - When handing off to task-workflow, the created task has status `Ready` — task-workflow's Step 4 will set it to `Implementing`
