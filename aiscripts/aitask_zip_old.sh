@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # aitask_zip_old.sh - Archive old task and plan files to tar.gz
-# Keeps the most recent archived file uncompressed for aitask-create numbering
+# Only archives files no longer relevant to active work
 
 set -e
 
@@ -23,14 +23,18 @@ VERBOSE=false
 # --- Counters ---
 TASKS_ARCHIVED=0
 PLANS_ARCHIVED=0
-KEEP_TASK=""
-KEEP_PLAN=""
+
+# --- Computed sets (populated in main) ---
+ACTIVE_PARENTS=""
+DEPENDENCY_IDS=""
+SKIPPED_ACTIVE_PARENTS=""
+SKIPPED_DEPS=""
 
 # --- Helper Functions ---
 
 verbose() {
     if $VERBOSE; then
-        echo -e "${BLUE}[verbose]${NC} $1"
+        echo -e "${BLUE}[verbose]${NC} $1" >&2
     fi
 }
 
@@ -38,7 +42,8 @@ usage() {
     cat << EOF
 Usage: $(basename "$0") [OPTIONS]
 
-Archive old task and plan files to tar.gz archives, keeping only the most recent.
+Archive old task and plan files to tar.gz archives.
+Skips files still relevant to active work (siblings of active children, dependencies).
 
 Options:
   -n, --dry-run    Show what would be archived without making changes
@@ -82,80 +87,120 @@ parse_args() {
     done
 }
 
-# --- Core Functions ---
+# --- Selection Functions ---
 
-# Find the most recent file by number prefix (e.g., t22 from t22_name.md)
-# Args: $1=directory, $2=pattern (e.g., "t*_*.md"), $3=prefix letter (e.g., "t")
-find_most_recent() {
-    local dir="$1"
-    local pattern="$2"
-    local prefix="$3"
+# Get parent numbers that still have active children (aitasks/t*/ directories)
+get_active_parent_numbers() {
+    local result=""
+    for dir in aitasks/t*/; do
+        [ -d "$dir" ] || continue
+        local num
+        num=$(basename "$dir" | sed 's/t//')
+        result="$result $num"
+    done
+    echo "$result"
+}
 
+# Get task IDs referenced by depends: fields in active task files
+get_dependency_task_ids() {
+    local result=""
     # shellcheck disable=SC2086
-    ls "$dir"/$pattern 2>/dev/null | \
-        sed "s/.*\/${prefix}\([0-9]*\)_.*/\1 &/" | \
-        sort -n | tail -1 | cut -d' ' -f2-
+    local files
+    files=$(ls aitasks/t*_*.md aitasks/t*/t*_*.md 2>/dev/null || true)
+    for f in $files; do
+        local deps_line
+        deps_line=$(grep '^depends:' "$f" 2>/dev/null || true)
+        [[ -z "$deps_line" ]] && continue
+        # Extract content between [ and ]
+        local deps_content
+        deps_content=$(echo "$deps_line" | sed 's/.*\[\(.*\)\].*/\1/')
+        [[ -z "$deps_content" || "$deps_content" == "$deps_line" ]] && continue
+        # Split by comma, strip quotes/spaces/t-prefix
+        local saved_ifs="$IFS"
+        IFS=','
+        for dep in $deps_content; do
+            dep=$(echo "$dep" | tr -d "' \"" | sed 's/^t//')
+            [[ -n "$dep" ]] && result="$result $dep"
+        done
+        IFS="$saved_ifs"
+    done
+    echo "$result"
 }
 
-# Find most recent file in a child subdirectory (e.g., t1_2 from t1_2_name.md)
-# Args: $1=subdirectory, $2=parent_num
-find_most_recent_child() {
-    local subdir="$1"
-    local parent_num="$2"
-
-    # Pattern: t<parent>_<child>_*.md
-    ls "$subdir"/t${parent_num}_*_*.md 2>/dev/null | \
-        sed "s/.*\/t${parent_num}_\([0-9]*\)_.*/\1 &/" | \
-        sort -n | tail -1 | cut -d' ' -f2-
+# Check if a parent number has active children
+is_parent_active() {
+    local num="$1"
+    echo " $ACTIVE_PARENTS " | grep -q " $num "
 }
 
-# Get list of files to archive (all except the most recent)
-# Args: $1=directory, $2=pattern, $3=file_to_keep
-get_files_to_archive() {
-    local dir="$1"
-    local pattern="$2"
-    local keep_file="$3"
-
-    if [[ -z "$keep_file" ]]; then
-        return
-    fi
-
-    local keep_basename
-    keep_basename=$(basename "$keep_file")
-
-    # shellcheck disable=SC2086
-    ls "$dir"/$pattern 2>/dev/null | grep -v "$keep_basename" || true
+# Check if a task ID is referenced as a dependency
+is_dependency() {
+    local id="$1"
+    echo " $DEPENDENCY_IDS " | grep -q " $id "
 }
 
-# Get list of files to archive from child subdirectories
-# Args: $1=base_directory (e.g., aitasks/archived), $2=prefix (t or p)
-# Returns: newline-separated list of relative paths (e.g., t1/t1_2_name.md)
-get_child_files_to_archive() {
+# Collect files to archive from an archived directory
+# Args: $1=base_dir (e.g., aitasks/archived), $2=prefix (t or p)
+# Sets: _COLLECT_RESULT (newline-separated file list)
+# Side effects: appends to SKIPPED_ACTIVE_PARENTS and SKIPPED_DEPS
+# NOTE: Must be called directly (not in command substitution) to preserve globals
+collect_files_to_archive() {
     local base_dir="$1"
     local prefix="$2"
-
     local result=""
 
-    # Scan each child subdirectory
+    # Parent-level files (e.g., aitasks/archived/t100_name.md)
+    for f in "$base_dir"/${prefix}*_*.md; do
+        [ -e "$f" ] || continue
+        local basename_f
+        basename_f=$(basename "$f")
+        # Extract parent number: t100_name.md -> 100
+        local parent_num
+        parent_num=$(echo "$basename_f" | sed "s/^${prefix}\([0-9]*\)_.*/\1/")
+
+        if is_dependency "$parent_num"; then
+            verbose "Skipping (dependency of active task): $basename_f"
+            SKIPPED_DEPS="$SKIPPED_DEPS $parent_num"
+            continue
+        fi
+
+        # Add basename (relative to base_dir)
+        if [[ -n "$result" ]]; then
+            result="${result}"$'\n'"${basename_f}"
+        else
+            result="$basename_f"
+        fi
+    done
+
+    # Child subdirectories (e.g., aitasks/archived/t129/)
     for subdir in "$base_dir"/${prefix}*/; do
         [ -d "$subdir" ] || continue
-
         local parent_num
-        parent_num=$(basename "$subdir" | sed "s/${prefix}//")
+        parent_num=$(basename "$subdir" | sed "s/^${prefix}//")
 
-        # Find the most recent file in this subdirectory
-        local keep_child
-        keep_child=$(find_most_recent_child "$subdir" "$parent_num")
+        if is_parent_active "$parent_num"; then
+            verbose "Skipping (active siblings): ${prefix}${parent_num}/"
+            SKIPPED_ACTIVE_PARENTS="$SKIPPED_ACTIVE_PARENTS $parent_num"
+            continue
+        fi
 
-        # Get files to archive (all except most recent)
+        # Check individual children for dependency references
         for f in "$subdir"/${prefix}${parent_num}_*_*.md; do
             [ -e "$f" ] || continue
-            if [[ -n "$keep_child" && "$f" == "$keep_child" ]]; then
-                verbose "Will keep child: $(basename "$f")"
+            local basename_f
+            basename_f=$(basename "$f")
+            # Extract child ID: t129_3_name.md -> 129_3
+            local child_id
+            child_id=$(echo "$basename_f" | sed "s/^${prefix}\([0-9]*_[0-9]*\)_.*/\1/")
+
+            if is_dependency "$child_id"; then
+                verbose "Skipping (dependency of active task): $basename_f"
+                SKIPPED_DEPS="$SKIPPED_DEPS $child_id"
                 continue
             fi
-            # Return relative path from base_dir
-            local rel_path="${prefix}${parent_num}/$(basename "$f")"
+
+            # Relative path from base_dir for child files
+            local rel_path="${prefix}${parent_num}/${basename_f}"
             if [[ -n "$result" ]]; then
                 result="${result}"$'\n'"${rel_path}"
             else
@@ -164,7 +209,7 @@ get_child_files_to_archive() {
         done
     done
 
-    echo "$result"
+    _COLLECT_RESULT="$result"
 }
 
 # Archive files to tar.gz (supports both flat files and subdirectory paths)
@@ -196,26 +241,14 @@ archive_files() {
     fi
 
     # Copy new files to temp directory, preserving subdirectory structure
+    # All paths are relative to base_dir (e.g., "t50_old.md" or "t10/t10_1_name.md")
     local count=0
     while IFS= read -r f; do
         [[ -z "$f" ]] && continue
 
-        local src_path
-        local dest_path
-
-        # Check if it's a relative path (contains /) or absolute
-        if [[ "$f" == */* ]]; then
-            # Relative path (e.g., t1/t1_2_name.md)
-            src_path="$base_dir/$f"
-            dest_path="$temp_dir/$f"
-
-            # Create subdirectory in temp if needed
-            mkdir -p "$(dirname "$dest_path")"
-        else
-            # Just a filename
-            src_path="$f"
-            dest_path="$temp_dir/$(basename "$f")"
-        fi
+        local src_path="$base_dir/$f"
+        local dest_path="$temp_dir/$f"
+        mkdir -p "$(dirname "$dest_path")"
 
         if [[ -f "$src_path" ]]; then
             verbose "Adding to archive: $f"
@@ -238,12 +271,7 @@ archive_files() {
     while IFS= read -r f; do
         [[ -z "$f" ]] && continue
 
-        local src_path
-        if [[ "$f" == */* ]]; then
-            src_path="$base_dir/$f"
-        else
-            src_path="$f"
-        fi
+        local src_path="$base_dir/$f"
 
         if [[ -f "$src_path" ]]; then
             verbose "Removing original: $src_path"
@@ -270,53 +298,21 @@ main() {
         info "=== DRY RUN MODE ==="
     fi
 
-    # Step 1: Find task files to archive (parent level)
-    verbose "Scanning $TASK_ARCHIVED_DIR for parent task files..."
-    KEEP_TASK=$(find_most_recent "$TASK_ARCHIVED_DIR" "t*_*.md" "t")
-    local task_files
-    task_files=$(get_files_to_archive "$TASK_ARCHIVED_DIR" "t*_*.md" "$KEEP_TASK")
+    # Compute sets for selection rules
+    ACTIVE_PARENTS=$(get_active_parent_numbers)
+    DEPENDENCY_IDS=$(get_dependency_task_ids)
+    verbose "Active parents:${ACTIVE_PARENTS:- (none)}"
+    verbose "Dependency IDs:${DEPENDENCY_IDS:- (none)}"
 
-    if [[ -n "$KEEP_TASK" ]]; then
-        verbose "Will keep uncompressed: $(basename "$KEEP_TASK")"
-    fi
+    # Collect task files to archive
+    verbose "Scanning $TASK_ARCHIVED_DIR..."
+    collect_files_to_archive "$TASK_ARCHIVED_DIR" "t"
+    local task_files="$_COLLECT_RESULT"
 
-    # Step 1b: Find child task files to archive
-    verbose "Scanning $TASK_ARCHIVED_DIR for child task files..."
-    local child_task_files
-    child_task_files=$(get_child_files_to_archive "$TASK_ARCHIVED_DIR" "t")
-
-    # Combine parent and child task files
-    if [[ -n "$child_task_files" ]]; then
-        if [[ -n "$task_files" ]]; then
-            task_files="${task_files}"$'\n'"${child_task_files}"
-        else
-            task_files="$child_task_files"
-        fi
-    fi
-
-    # Step 2: Find plan files to archive (parent level)
-    verbose "Scanning $PLAN_ARCHIVED_DIR for parent plan files..."
-    KEEP_PLAN=$(find_most_recent "$PLAN_ARCHIVED_DIR" "p*_*.md" "p")
-    local plan_files
-    plan_files=$(get_files_to_archive "$PLAN_ARCHIVED_DIR" "p*_*.md" "$KEEP_PLAN")
-
-    if [[ -n "$KEEP_PLAN" ]]; then
-        verbose "Will keep uncompressed: $(basename "$KEEP_PLAN")"
-    fi
-
-    # Step 2b: Find child plan files to archive
-    verbose "Scanning $PLAN_ARCHIVED_DIR for child plan files..."
-    local child_plan_files
-    child_plan_files=$(get_child_files_to_archive "$PLAN_ARCHIVED_DIR" "p")
-
-    # Combine parent and child plan files
-    if [[ -n "$child_plan_files" ]]; then
-        if [[ -n "$plan_files" ]]; then
-            plan_files="${plan_files}"$'\n'"${child_plan_files}"
-        else
-            plan_files="$child_plan_files"
-        fi
-    fi
+    # Collect plan files to archive
+    verbose "Scanning $PLAN_ARCHIVED_DIR..."
+    collect_files_to_archive "$PLAN_ARCHIVED_DIR" "p"
+    local plan_files="$_COLLECT_RESULT"
 
     # Count files to archive
     local task_count=0
@@ -329,15 +325,29 @@ main() {
         plan_count=$(echo "$plan_files" | wc -l)
     fi
 
-    # Step 3: Check if anything to do
+    # Check if anything to do
     if [[ $task_count -eq 0 && $plan_count -eq 0 ]]; then
-        info "No old files to archive. The archived directories only contain the most recent files (or are empty)."
+        info "No files to archive. All archived files are still relevant to active work (or directories are empty)."
         exit 0
     fi
 
-    # Step 4: Dry run - just show what would happen
+    # Deduplicate skipped lists for display
+    local unique_active_parents
+    unique_active_parents=$(echo "$SKIPPED_ACTIVE_PARENTS" | tr ' ' '\n' | sort -un | tr '\n' ' ' | sed 's/^ *//;s/ *$//')
+    local unique_deps
+    unique_deps=$(echo "$SKIPPED_DEPS" | tr ' ' '\n' | sort -u | grep -v '^$' | tr '\n' ' ' | sed 's/^ *//;s/ *$//')
+
+    # Dry run - show what would happen
     if $DRY_RUN; then
         echo ""
+
+        if [[ -n "$unique_active_parents" || -n "$unique_deps" ]]; then
+            info "Skipped (still relevant):"
+            [[ -n "$unique_active_parents" ]] && echo "  Active parents: $unique_active_parents"
+            [[ -n "$unique_deps" ]] && echo "  Dependencies: $unique_deps"
+            echo ""
+        fi
+
         info "Files that would be archived:"
         echo ""
 
@@ -346,9 +356,6 @@ main() {
             echo "$task_files" | while read -r f; do
                 [[ -n "$f" ]] && echo "  - $(basename "$f")"
             done
-            if [[ -n "$KEEP_TASK" ]]; then
-                echo "  (keeping: $(basename "$KEEP_TASK"))"
-            fi
             echo ""
         fi
 
@@ -357,65 +364,64 @@ main() {
             echo "$plan_files" | while read -r f; do
                 [[ -n "$f" ]] && echo "  - $(basename "$f")"
             done
-            if [[ -n "$KEEP_PLAN" ]]; then
-                echo "  (keeping: $(basename "$KEEP_PLAN"))"
-            fi
             echo ""
         fi
 
         exit 0
     fi
 
-    # Step 5: Archive task files
+    # Archive task files
     if [[ $task_count -gt 0 ]]; then
         info "Archiving $task_count task file(s)..."
         TASKS_ARCHIVED=$(archive_files "$TASK_ARCHIVE" "$task_files" "$TASK_ARCHIVED_DIR")
     fi
 
-    # Step 6: Archive plan files
+    # Archive plan files
     if [[ $plan_count -gt 0 ]]; then
         info "Archiving $plan_count plan file(s)..."
         PLANS_ARCHIVED=$(archive_files "$PLAN_ARCHIVE" "$plan_files" "$PLAN_ARCHIVED_DIR")
     fi
 
-    # Step 7: Git commit (unless --no-commit)
+    # Git commit (unless --no-commit)
     if ! $NO_COMMIT; then
         verbose "Committing changes to git..."
 
         git add "$TASK_ARCHIVE" "$PLAN_ARCHIVE" 2>/dev/null || true
         git add -u "$TASK_ARCHIVED_DIR/" "$PLAN_ARCHIVED_DIR/" 2>/dev/null || true
 
-        local keep_task_name=""
-        local keep_plan_name=""
-        [[ -n "$KEEP_TASK" ]] && keep_task_name=$(basename "$KEEP_TASK")
-        [[ -n "$KEEP_PLAN" ]] && keep_plan_name=$(basename "$KEEP_PLAN")
-
-        git commit -m "Archive old task and plan files
+        local commit_msg="Archive old task and plan files
 
 Archived to:
 - $TASK_ARCHIVE
-- $PLAN_ARCHIVE
+- $PLAN_ARCHIVE"
 
-Kept most recent:
-- $keep_task_name
-- $keep_plan_name" 2>/dev/null || warn "Nothing to commit (no changes detected)"
+        if [[ -n "$unique_active_parents" || -n "$unique_deps" ]]; then
+            commit_msg="$commit_msg
+
+Skipped (still relevant):"
+            [[ -n "$unique_active_parents" ]] && commit_msg="$commit_msg
+- Active parents: $unique_active_parents"
+            [[ -n "$unique_deps" ]] && commit_msg="$commit_msg
+- Dependencies: $unique_deps"
+        fi
+
+        git commit -m "$commit_msg" 2>/dev/null || warn "Nothing to commit (no changes detected)"
     else
         info "Skipping git commit (--no-commit)"
     fi
 
-    # Step 8: Summary
+    # Summary
     echo ""
     success "=== Archive Complete ==="
     echo ""
     echo "Task files archived: $TASKS_ARCHIVED"
     echo "Plan files archived: $PLANS_ARCHIVED"
-    echo ""
 
-    if [[ -n "$KEEP_TASK" ]]; then
-        echo "Kept uncompressed (task): $(basename "$KEEP_TASK")"
-    fi
-    if [[ -n "$KEEP_PLAN" ]]; then
-        echo "Kept uncompressed (plan): $(basename "$KEEP_PLAN")"
+    if [[ -n "$unique_active_parents" || -n "$unique_deps" ]]; then
+        echo ""
+        echo "Skipped (still relevant):"
+        [[ -n "$unique_active_parents" ]] && echo "  Active parents: $unique_active_parents"
+        [[ -n "$unique_deps" ]] && echo "  Dependencies: $unique_deps"
     fi
 
     echo ""
