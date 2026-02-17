@@ -1,5 +1,43 @@
 # Changelog
 
+## v0.4.0
+
+### Features
+
+- **Auto-bootstrap new projects** (t127): Running `ait setup` in a directory without an existing installation now auto-bootstraps aitasks by downloading and running the installer.
+- **Explore auto-continue** (t129_4): Added an auto-continue option in the explore workflow that proceeds to task creation without additional prompts.
+- **Profile refresh** (t129_5): Profiles are now refreshed during long conversations to ensure settings stay current in context.
+- **Rename install.sh to aitask_setup.sh** (t133): Renamed the installer to `aitask_setup.sh` with a backward-compatible wrapper for existing projects.
+- **Copy-from-project installation** (t134): New "Copy from existing project" mode in setup for installing aitasks from a local reference project instead of downloading.
+- **Atomic task locking** (t136): Added task locking to prevent multiple users or machines from working on the same task simultaneously.
+- **Task abort procedure** (t137_1): Tasks can now be cleanly aborted with automatic lock release, status revert, and worktree cleanup.
+- **Lock release procedure** (t137_3): Task locks are automatically released on both successful completion and abort.
+- **Folded task cleanup** (t137_4): Folded (merged) tasks are automatically deleted during archival of the primary task.
+- **aitask-fold command** (t139): New `/aitask-fold` command to identify and merge related tasks into a single consolidated task.
+- **aitask-explore command** (t141): New `/aitask-explore` command for interactive codebase exploration with automatic task creation.
+- **Board filtering and sorting** (t143_2): Board supports filtering by labels, sorting options, and persistent settings.
+- **Shared plan file utility** (t144_1): Extracted plan file resolution into a shared utility for reuse across scripts.
+- **Tar.gz archive fallback** (t144_2): Plan and task file resolution now falls back to searching compressed tar.gz archives.
+- **Safety-aware zip-old** (t144_3): Rewrote zip-old selection logic to preserve siblings of active tasks and task dependencies.
+- **Folded status and metadata** (t145): Added `Folded` status and `folded_into` metadata property for tracking merged tasks in the board and scripts.
+- **Board column customization** (t147): Columns can be added, edited, and deleted via the command palette or by clicking column headers.
+- **Release process documentation** (t149): Updated release process to include running `/aitask-zipold` after creating a new release.
+
+### Bug Fixes
+
+- **ait help text** (t104): Added the missing `changelog` command to the `ait` help output.
+- **ait setup fixes** (t128): Fixed VERSION file location, removed CHANGELOG.md from installs, and added auto-commit for framework files during setup.
+
+### Improvements
+
+- **Shared task workflow** (t129_1): Extracted the shared task-workflow skill from duplicated code across aitask-pick and aitask-explore.
+- **Updated calling skills** (t129_2): Updated aitask-pick and aitask-explore to use the new shared workflow.
+
+### Documentation
+
+- **Windows/WSL install docs** (t106): Added inline Windows/WSL note to README and authentication cross-reference to install documentation.
+- **Context monitoring docs** (t107): Added context monitoring section with claude-hud plugin recommendation to workflows documentation.
+
 ## v0.3.0
 
 ### Features
