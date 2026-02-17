@@ -133,6 +133,7 @@ bash -n aiscripts/*.sh   # Syntax-check all scripts
 
 1. Run `/aitask-changelog` in Claude Code to generate the changelog entry for the new version
 2. Run `./create_new_release.sh` which bumps the `VERSION` file, creates a git tag, and pushes to trigger the GitHub Actions release workflow
+3. Run `/aitask-zipold` to archive old completed task and plan files, keeping the repository clean
 
 ---
 
