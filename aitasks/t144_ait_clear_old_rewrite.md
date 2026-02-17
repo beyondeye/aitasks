@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [aitasks, bash]
-children_to_implement: [t144_1]
+children_to_implement: [t144_1, t144_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-17 09:52
 updated_at: 2026-02-17 10:48
