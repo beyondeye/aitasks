@@ -643,6 +643,159 @@ install_claude_settings() {
     fi
 }
 
+# --- Review modes setup ---
+setup_review_modes() {
+    local project_dir="$SCRIPT_DIR/.."
+    local seed_dir="$project_dir/seed/reviewmodes"
+    local dest_dir="$project_dir/aitasks/metadata/reviewmodes"
+
+    # If no seed directory, check if reviewmodes already installed
+    if [[ ! -d "$seed_dir" ]]; then
+        if [[ -d "$dest_dir" ]] && ls "$dest_dir"/*.md &>/dev/null; then
+            local count
+            count=$(ls -1 "$dest_dir"/*.md 2>/dev/null | wc -l)
+            success "Review modes already installed ($count modes in aitasks/metadata/reviewmodes/)"
+        else
+            warn "No seed/reviewmodes/ directory found — skipping review mode setup"
+            info "Review modes can be added manually to aitasks/metadata/reviewmodes/"
+        fi
+        return
+    fi
+
+    # Count available seed modes
+    local seed_files=()
+    for f in "$seed_dir"/*.md; do
+        [[ -f "$f" ]] && seed_files+=("$f")
+    done
+
+    if [[ ${#seed_files[@]} -eq 0 ]]; then
+        warn "No review mode files found in seed/reviewmodes/"
+        return
+    fi
+
+    info "Found ${#seed_files[@]} review mode templates available for installation."
+
+    # Build display list: extract name and description from YAML frontmatter
+    local display_lines=()
+    local file_map=()  # parallel array: display_line -> filepath
+
+    # Add "Install all" option first
+    display_lines+=(">>> Install all ${#seed_files[@]} review modes")
+    file_map+=("ALL")
+
+    for f in "${seed_files[@]}"; do
+        local bname name desc
+        bname="$(basename "$f")"
+        name=""
+        desc=""
+        local in_yaml=false
+        while IFS= read -r line; do
+            if [[ "$line" == "---" ]]; then
+                if [[ "$in_yaml" == true ]]; then
+                    break
+                else
+                    in_yaml=true
+                    continue
+                fi
+            fi
+            if [[ "$in_yaml" == true ]]; then
+                if [[ "$line" =~ ^name:[[:space:]]*(.*) ]]; then
+                    name="${BASH_REMATCH[1]}"
+                elif [[ "$line" =~ ^description:[[:space:]]*(.*) ]]; then
+                    desc="${BASH_REMATCH[1]}"
+                fi
+            fi
+        done < "$f"
+
+        # Fallback if frontmatter missing
+        [[ -z "$name" ]] && name="$bname"
+        [[ -z "$desc" ]] && desc="(no description)"
+
+        # Check if already installed
+        local marker=""
+        if [[ -f "$dest_dir/$bname" ]]; then
+            marker=" [installed]"
+        fi
+
+        display_lines+=("$name — $desc$marker")
+        file_map+=("$f")
+    done
+
+    # Create destination directory
+    mkdir -p "$dest_dir"
+
+    local selected_indices=()
+
+    if [[ -t 0 ]]; then
+        # Interactive: use fzf multi-select
+        local fzf_input=""
+        for line in "${display_lines[@]}"; do
+            fzf_input+="$line"$'\n'
+        done
+        # Remove trailing newline
+        fzf_input="${fzf_input%$'\n'}"
+
+        local selected
+        selected=$(echo "$fzf_input" | fzf --multi \
+            --prompt="Review modes (Tab to select, Enter to confirm): " \
+            --header="Select review modes to install" \
+            --height=15 --no-info) || true
+
+        if [[ -z "$selected" ]]; then
+            info "No review modes selected — skipping"
+            return
+        fi
+
+        # Check if "Install all" was selected
+        if echo "$selected" | grep -q "^>>> Install all"; then
+            # Select all files
+            selected_indices=("${!seed_files[@]}")
+        else
+            # Map selected display lines back to file indices
+            while IFS= read -r sel_line; do
+                for i in "${!display_lines[@]}"; do
+                    if [[ "${display_lines[$i]}" == "$sel_line" && "${file_map[$i]}" != "ALL" ]]; then
+                        selected_indices+=("$((i - 1))")  # -1 because file_map[0] is "ALL"
+                        break
+                    fi
+                done
+            done <<< "$selected"
+        fi
+    else
+        # Non-interactive: install all
+        info "(non-interactive: installing all review modes)"
+        selected_indices=("${!seed_files[@]}")
+    fi
+
+    # Copy selected files
+    local installed=0
+    local skipped=0
+    for idx in "${selected_indices[@]}"; do
+        local src="${seed_files[$idx]}"
+        local bname
+        bname="$(basename "$src")"
+        local dest="$dest_dir/$bname"
+        if [[ -f "$dest" ]]; then
+            info "  Skipping existing: $bname"
+            skipped=$((skipped + 1))
+        else
+            cp "$src" "$dest"
+            info "  Installed: $bname"
+            installed=$((installed + 1))
+        fi
+    done
+
+    if [[ $installed -gt 0 ]]; then
+        success "Installed $installed review mode(s)"
+    fi
+    if [[ $skipped -gt 0 ]]; then
+        info "Skipped $skipped existing mode(s) (preserved user customizations)"
+    fi
+    if [[ $installed -eq 0 && $skipped -eq 0 ]]; then
+        info "No review modes were installed"
+    fi
+}
+
 # --- Main ---
 main() {
     echo ""
@@ -675,6 +828,9 @@ main() {
     echo ""
 
     install_claude_settings
+    echo ""
+
+    setup_review_modes
     echo ""
 
     check_latest_version

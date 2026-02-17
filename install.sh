@@ -226,6 +226,29 @@ install_seed_task_types() {
     fi
 }
 
+# --- Install seed review modes ---
+install_seed_reviewmodes() {
+    if [[ ! -d "$INSTALL_DIR/seed/reviewmodes" ]]; then
+        warn "No seed/reviewmodes/ directory in tarball — skipping review mode installation"
+        return
+    fi
+
+    mkdir -p "$INSTALL_DIR/aitasks/metadata/reviewmodes"
+
+    for mode_file in "$INSTALL_DIR/seed/reviewmodes"/*.md; do
+        [[ -f "$mode_file" ]] || continue
+        local bname
+        bname="$(basename "$mode_file")"
+        local dest="$INSTALL_DIR/aitasks/metadata/reviewmodes/$bname"
+        if [[ -f "$dest" && "$FORCE" != true ]]; then
+            info "  Review mode exists (kept): $bname"
+        else
+            cp "$mode_file" "$dest"
+            info "  Installed review mode: $bname"
+        fi
+    done
+}
+
 # --- Install seed Claude Code permissions ---
 install_seed_claude_settings() {
     local src="$INSTALL_DIR/seed/claude_settings.local.json"
@@ -367,6 +390,9 @@ main() {
 
     info "Installing seed task types..."
     install_seed_task_types
+
+    info "Installing review modes..."
+    install_seed_reviewmodes
 
     info "Storing Claude Code permissions seed..."
     install_seed_claude_settings
