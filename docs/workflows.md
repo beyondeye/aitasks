@@ -140,6 +140,14 @@ While [`/aitask-pick`](skills.md#aitask-pick-number) is running — especially d
 
 This parallel workflow means the human never becomes a bottleneck waiting for the AI agent to finish. You are always either reviewing the agent's output, managing your task backlog, or capturing the next set of ideas.
 
+### Context Monitoring
+
+One of the key advantages of decomposing work into small connected tasks is reduced context usage — Claude Code is effectively more capable when it has more room in its context window. Monitoring context usage in real time helps you understand when a task is getting too large and should be split.
+
+**Recommended plugin:**
+
+- [**claude-hud**](https://github.com/jarrodwatts/claude-hud) — Claude Code plugin that displays real-time context window usage directly in your terminal. Shows token count, percentage filled, and alerts when context is getting large
+
 ---
 
 ## Creating Follow-Up Tasks During Implementation
