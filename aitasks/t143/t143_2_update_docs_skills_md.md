@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t143_1]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [claudeskills, aitask_fold]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-17 10:02
-updated_at: 2026-02-17 10:02
+updated_at: 2026-02-17 10:45
 ---
 
 ## Context
