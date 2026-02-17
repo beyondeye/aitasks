@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_board]
 folded_tasks: [58]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-17 11:40
-updated_at: 2026-02-17 12:03
+updated_at: 2026-02-17 12:44
+completed_at: 2026-02-17 12:44
 boardcol: now
 boardidx: 20
 ---
