@@ -27,7 +27,7 @@ In interactive mode, `ait create` walks you through metadata selection (priority
 **The iterative refinement pipeline:**
 
 1. **Capture** — Create the task with [`ait create`](commands.md#ait-create) or [`/aitask-create2`](skills.md#aitask-create2). Write whatever comes to mind, even multiple paragraphs of loosely connected ideas
-2. **Organize** — Use [`ait board`](commands.md#ait-board) to visually triage: drag tasks between kanban columns, adjust priority and effort, add labels
+2. **Organize** — Use [`ait board`](commands.md#ait-board) to visually triage: drag tasks between kanban columns, adjust priority and effort, add labels. See the [Board documentation](board.md) for detailed how-to guides
 3. **Refine** — When picked for implementation with [`/aitask-pick`](skills.md#aitask-pick-number), the planning phase explores the codebase and produces a structured implementation plan from your raw intent
 
 This pipeline means you never need to spend time writing perfect task descriptions upfront. The framework handles progressive refinement at each stage.
@@ -134,7 +134,7 @@ While [`/aitask-pick`](skills.md#aitask-pick-number) is running — especially d
 
 **What to do while waiting:**
 
-- **Triage tasks** — Open [`ait board`](commands.md#ait-board) in another tab to review priorities, move tasks between kanban columns, update metadata (priority, effort, labels), and adjust dependencies
+- **Triage tasks** — Open [`ait board`](commands.md#ait-board) in another tab to review priorities, move tasks between kanban columns, update metadata (priority, effort, labels), and adjust dependencies. See the [Board documentation](board.md) for all available operations and keyboard shortcuts
 - **Capture new ideas** — As ideas come up during the implementation (which they often do while watching the agent work), quickly switch to a tab with [`ait create`](commands.md#ait-create) and write them down. The key shortcut `n` in [`ait board`](commands.md#ait-board) also launches task creation directly
 - **Review progress** — Watch the current diff in another tab to understand what changes are being made. Warp's built-in diff viewer or a simple `git diff` in a separate tab works well for this
 

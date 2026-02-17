@@ -294,6 +294,8 @@ ait board
 
 Launches a Python-based terminal UI (built with [Textual](https://textual.textualize.io/)) that displays tasks in a kanban-style column layout. All arguments are forwarded to the Python board application.
 
+For full usage documentation — including tutorials, keyboard shortcuts, how-to guides, and configuration — see the [Kanban Board documentation](board.md).
+
 **Requirements:**
 - Python venv at `~/.aitask/venv/` with packages: `textual`, `pyyaml`, `linkify-it-py`
 - Falls back to system `python3` if venv not found (warns about missing packages)

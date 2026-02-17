@@ -40,7 +40,7 @@ AI coding agents has reached a proficiency level where, given correct specs and 
   - Parallelism: thanks to task status stored in git, and AI agents workflow that support git worktrees.
 
 - Visual Management
-TUI Board: A terminal-based visual interface (Kanban style) for visualizing and organizing tasks without leaving the terminal.
+TUI Board: A terminal-based visual interface (Kanban style) for visualizing and organizing tasks without leaving the terminal. See the [Board Documentation](docs/board.md) for full details.
 
 - Battle tested:
 Not a research experiment. actively developed and used in real projects
@@ -141,6 +141,8 @@ Follow the prompts to authenticate via browser or token.
 ## Documentation
 
 - **[Command Reference](docs/commands.md)** — Complete CLI reference for all `ait` subcommands: create, list, update, board, stats, issue import/export, and more. Includes interactive and batch mode options for each command.
+
+- **[Kanban Board](docs/board.md)** — Visual task management with the TUI board: tutorials, how-to guides for organizing/editing/creating tasks, keyboard shortcuts, column configuration, and git integration.
 
 - **[Claude Code Skills](docs/skills.md)** — Reference for `/aitask-pick`, `/aitask-explore`, `/aitask-create`, and other Claude Code skill integrations. Covers the full implementation workflow, execution profiles, and task decomposition.
 

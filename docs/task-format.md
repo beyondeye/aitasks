@@ -92,4 +92,4 @@ feature
 refactor
 ```
 
-To add a custom type, simply add a new line to the file. All scripts (`ait create`, `ait update`, `ait board`, `ait stats`) read from this file dynamically.
+To add a custom type, simply add a new line to the file. All scripts (`ait create`, `ait update`, [`ait board`](board.md), `ait stats`) read from this file dynamically.
