@@ -1,4 +1,5 @@
 aitask_board
+aitask_changelog
 aitask_fold
 aitasks
 aitasks_explore
@@ -8,6 +9,7 @@ codexcli
 geminicli
 gitremote
 install_scripts
+release_scripts
 scripting
 statistics
 windows

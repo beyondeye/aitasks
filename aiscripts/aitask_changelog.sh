@@ -71,7 +71,7 @@ check_changelog_version() {
     if [[ ! -f CHANGELOG.md ]]; then
         return 1
     fi
-    grep -qE "^## v${version}$" CHANGELOG.md
+    grep -qE "^## v${version}[[:space:]]*$" CHANGELOG.md
 }
 
 # --- Main modes ---

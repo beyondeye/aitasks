@@ -20,7 +20,9 @@ ARCHIVED_PLAN_DIR="${ARCHIVED_PLAN_DIR:-aiplans/archived}"
 # --- Temp directory for tar.gz extraction ---
 _AIT_TASK_UTILS_TMPDIR=""
 _ait_task_utils_cleanup() {
-    [[ -n "$_AIT_TASK_UTILS_TMPDIR" && -d "$_AIT_TASK_UTILS_TMPDIR" ]] && rm -rf "$_AIT_TASK_UTILS_TMPDIR"
+    if [[ -n "$_AIT_TASK_UTILS_TMPDIR" && -d "$_AIT_TASK_UTILS_TMPDIR" ]]; then
+        rm -rf "$_AIT_TASK_UTILS_TMPDIR"
+    fi
 }
 trap _ait_task_utils_cleanup EXIT
 
