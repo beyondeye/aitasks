@@ -45,3 +45,11 @@ Insert a new section following the same format as `/aitask-explore`. Content der
 ## Step 9 Reference
 
 Post-implementation: archive child task + plan, update parent's children_to_implement, check if parent is complete.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `/aitask-fold` documentation to `docs/skills.md` in three locations: TOC entry, Skill Overview table row, and a full section with usage examples, workflow overview, key capabilities, and profile key documentation. All content derived from the SKILL.md created in t143_1.
+- **Deviations from plan:** None — implementation matched the plan exactly.
+- **Issues encountered:** None.
+- **Key decisions:** Followed the same documentation format as `/aitask-explore` section for consistency. Included both invocation modes (interactive and explicit) in the usage examples. Highlighted the relationship with `/aitask-explore` (shared `folded_tasks` mechanism and `explore_auto_continue` profile key).
+- **Notes for sibling tasks:** This was the last child task of t143. The `/aitask-fold` skill is now fully documented in both SKILL.md and docs/skills.md.
