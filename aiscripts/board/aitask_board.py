@@ -423,6 +423,10 @@ class TaskCard(Static):
         if unresolved_deps:
             yield Label(f"🔗 {', '.join(unresolved_deps)}", classes="task-info")
 
+        folded_into = meta.get('folded_into')
+        if folded_into:
+            yield Label(f"\U0001f4ce folded into t{folded_into}", classes="task-info")
+
         if self.manager and not self.is_child:
             task_num, _ = self._parse_filename(self.task_data.filename)
             child_count = len(self.manager.get_child_tasks_for_parent(task_num))
@@ -738,6 +742,38 @@ class FoldedTasksField(Static):
             self.app.push_screen(
                 FoldedTaskPickerScreen(folded_items, self.manager),
             )
+
+    def on_focus(self):
+        self.add_class("ro-focused")
+
+    def on_blur(self):
+        self.remove_class("ro-focused")
+
+
+class FoldedIntoField(Static):
+    """Focusable folded_into field. Enter opens the target task detail."""
+
+    can_focus = True
+
+    def __init__(self, target_num: str, manager: "TaskManager", **kwargs):
+        super().__init__(**kwargs)
+        self.target_num = target_num
+        self.manager = manager
+
+    def render(self) -> str:
+        return f"  [b]Folded Into:[/b] t{self.target_num}"
+
+    def on_key(self, event):
+        if event.key == "enter":
+            self._open_target()
+            event.prevent_default()
+            event.stop()
+
+    def _open_target(self):
+        tid = f"t{self.target_num}" if not str(self.target_num).startswith('t') else str(self.target_num)
+        task = self.manager.find_task_by_id(tid)
+        if task:
+            self.app.push_screen(TaskDetailScreen(task, self.manager))
 
     def on_focus(self):
         self.add_class("ro-focused")
@@ -1092,7 +1128,8 @@ class TaskDetailScreen(ModalScreen):
             yield Label(f"\U0001f4c4 {display_title}", id="detail_title")
 
             is_done = meta.get("status", "") == "Done"
-            is_done_or_ro = is_done or self.read_only
+            is_folded = meta.get("status", "") == "Folded"
+            is_done_or_ro = is_done or is_folded or self.read_only
             with Container(id="meta_editable"):
                 if is_done_or_ro:
                     yield ReadOnlyField(f"[b]Priority:[/b] {meta.get('priority', 'medium')}", classes="meta-ro")
@@ -1158,6 +1195,14 @@ class TaskDetailScreen(ModalScreen):
                     folded_str = ", ".join(str(f) for f in folded_ids)
                     yield ReadOnlyField(
                         f"[b]Folded Tasks:[/b] {folded_str}", classes="meta-ro")
+            # Folded into field
+            if meta.get("folded_into"):
+                folded_into_num = str(meta["folded_into"])
+                if self.manager:
+                    yield FoldedIntoField(folded_into_num, self.manager, classes="meta-ro")
+                else:
+                    yield ReadOnlyField(
+                        f"[b]Folded Into:[/b] t{folded_into_num}", classes="meta-ro")
 
             with VerticalScroll(id="md_view"):
                 yield Markdown(self.task_data.content)
@@ -1171,7 +1216,7 @@ class TaskDetailScreen(ModalScreen):
                              disabled=is_done_or_ro or not is_modified)
                 yield Button("Edit", variant="primary", id="btn_edit", disabled=is_done_or_ro)
                 is_child = self.task_data.filepath.parent.name.startswith("t")
-                can_delete = (not is_done and not self.read_only
+                can_delete = (not is_done and not is_folded and not self.read_only
                               and self.task_data.metadata.get("status", "") != "Implementing"
                               and not is_child)
                 yield Button("Delete", variant="error", id="btn_delete",
@@ -1613,7 +1658,7 @@ class KanbanApp(App):
                     def on_delete_confirmed(confirmed):
                         if confirmed:
                             task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
-                            self._execute_delete(task_num, paths)
+                            self._execute_delete(task_num, paths, focused.task_data)
                         else:
                             self.refresh_board(refocus_filename=focused.task_data.filename)
                     self.push_screen(DeleteConfirmScreen(display_names), on_delete_confirmed)
@@ -1863,9 +1908,20 @@ class KanbanApp(App):
 
         return display_names, paths
 
-    def _execute_delete(self, task_num: str, paths: list):
+    def _execute_delete(self, task_num: str, paths: list, task: Task = None):
         """Delete files via git rm and commit."""
         try:
+            # Unfold folded tasks before deleting
+            if task:
+                folded = task.metadata.get("folded_tasks", [])
+                for fid in folded:
+                    fid_str = str(fid).lstrip("t")
+                    subprocess.run(
+                        ["./aiscripts/aitask_update.sh", "--batch", fid_str,
+                         "--status", "Ready", "--folded-into", ""],
+                        capture_output=True, text=True, timeout=10
+                    )
+
             for path in paths:
                 result = subprocess.run(
                     ["git", "rm", "-f", str(path)],

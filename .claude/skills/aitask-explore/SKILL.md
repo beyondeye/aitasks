@@ -143,7 +143,7 @@ Before creating a new task, check for existing pending tasks that overlap with t
 Filter the output to include only tasks with status `Ready` or `Editing`. Exclude:
 - Tasks with children (status shows "Has children") — too complex to fold in
 - Child tasks — too complex to fold in
-- Tasks with status `Implementing`, `Postponed`, or `Done`
+- Tasks with status `Implementing`, `Postponed`, `Done`, or `Folded`
 
 **Assess relevance:** Read the title and brief description (first ~5 lines of body text) of each remaining task. Based on the exploration findings gathered in Step 2, identify tasks whose scope overlaps significantly with the planned new task. A task is "related" if the new task would cover the same goal, fix the same problem, or implement the same feature.
 
@@ -211,13 +211,18 @@ TASK_DESC
   git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
   ```
 
-**If folded_tasks is non-empty**, set the `folded_tasks` frontmatter field:
+**If folded_tasks is non-empty**, set the `folded_tasks` frontmatter field and update each folded task:
 ```bash
 # Set folded_tasks via aitask_update.sh (no --commit, we'll amend)
 ./aiscripts/aitask_update.sh --batch <task_num> --folded-tasks "<comma-separated IDs>"
 
-# Amend the create commit to include the frontmatter update
-git add aitasks/t<task_num>_*.md
+# Update each folded task's status and folded_into reference
+for folded_id in <folded_task_ids>; do
+    ./aiscripts/aitask_update.sh --batch $folded_id --status Folded --folded-into <task_num>
+done
+
+# Amend the create commit to include all frontmatter updates
+git add aitasks/
 git commit --amend --no-edit
 ```
 
@@ -266,5 +271,5 @@ Set the following context variables from the created task, then read and follow 
 - The `explore_auto_continue` profile key controls whether to ask the user about continuing to implementation (default: `false`, always ask)
 - When handing off to task-workflow, the created task has status `Ready` — task-workflow's Step 4 will set it to `Implementing`
 - For the full Execution Profiles schema and customization guide, see `.claude/skills/task-workflow/SKILL.md`
-- **Folded tasks:** When existing pending tasks are folded into a new task (Step 2b), their full content is incorporated into the new task description at creation time. The original folded task files are never read at implementation time — they exist only as references for deletion after the new task is completed (handled by task-workflow Step 9). The `folded_tasks` frontmatter field tracks which task IDs to clean up.
+- **Folded tasks:** When existing pending tasks are folded into a new task (Step 2b), their full content is incorporated into the new task description at creation time. The original folded task files are set to status `Folded` with a `folded_into` property pointing to the new task. They exist only as references for deletion after the new task is completed (handled by task-workflow Step 9). The `folded_tasks` frontmatter field tracks which task IDs to clean up.
 - Only standalone parent-level tasks without children can be folded in. Child tasks and parents-with-children are excluded from the related task scan.

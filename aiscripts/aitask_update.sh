@@ -44,6 +44,8 @@ BATCH_ISSUE=""
 BATCH_ISSUE_SET=false
 BATCH_FOLDED_TASKS=""
 BATCH_FOLDED_TASKS_SET=false
+BATCH_FOLDED_INTO=""
+BATCH_FOLDED_INTO_SET=false
 BATCH_COMMIT=false
 
 # Current values (parsed from file)
@@ -61,6 +63,7 @@ CURRENT_BOARDCOL=""
 CURRENT_BOARDIDX=""
 CURRENT_ISSUE=""
 CURRENT_FOLDED_TASKS=""
+CURRENT_FOLDED_INTO=""
 
 # --- Helper Functions ---
 
@@ -81,7 +84,7 @@ Batch mode (for automation):
 Metadata options (batch mode):
   --priority, -p LEVEL   Priority: high, medium, low
   --effort, -e LEVEL     Effort: low, medium, high
-  --status, -s STATUS    Status: Ready, Editing, Implementing, Postponed, Done
+  --status, -s STATUS    Status: Ready, Editing, Implementing, Postponed, Done, Folded
   --type TYPE            Issue type (see aitasks/metadata/task_types.txt)
   --deps DEPS            Dependencies (comma-separated task numbers, replaces all)
 
@@ -106,6 +109,7 @@ Assignment options (batch mode):
 
 Folded task options (batch mode):
   --folded-tasks TASKS   Folded task IDs (comma-separated, e.g., "106,129_5"; use "" to clear)
+  --folded-into NUM      Task number this task was folded into (use "" to clear)
 
 Child task options (batch mode):
   --add-child CHILD_ID   Add child to children_to_implement list
@@ -177,6 +181,7 @@ parse_args() {
             --boardidx) BATCH_BOARDIDX="$2"; BATCH_BOARDIDX_SET=true; shift 2 ;;
             --issue) BATCH_ISSUE="$2"; BATCH_ISSUE_SET=true; shift 2 ;;
             --folded-tasks) BATCH_FOLDED_TASKS="$2"; BATCH_FOLDED_TASKS_SET=true; shift 2 ;;
+            --folded-into) BATCH_FOLDED_INTO="$2"; BATCH_FOLDED_INTO_SET=true; shift 2 ;;
             --commit) BATCH_COMMIT=true; shift ;;
             --silent) BATCH_SILENT=true; shift ;;
             --help|-h) show_help; exit 0 ;;
@@ -253,6 +258,7 @@ parse_yaml_frontmatter() {
     CURRENT_BOARDIDX=""
     CURRENT_ISSUE=""
     CURRENT_FOLDED_TASKS=""
+    CURRENT_FOLDED_INTO=""
 
     # Read entire file content
     local file_content
@@ -317,6 +323,7 @@ parse_yaml_frontmatter() {
                 folded_tasks)
                     CURRENT_FOLDED_TASKS=$(echo "$value" | tr -d '[]' | tr -d ' ')
                     ;;
+                folded_into) CURRENT_FOLDED_INTO="$value" ;;
             esac
         fi
     done <<< "$yaml_content"
@@ -391,6 +398,7 @@ write_task_file() {
     local boardidx="${13:-}"
     local issue="${14:-}"
     local folded_tasks="${15:-}"
+    local folded_into="${16:-}"
 
     local updated_at
     updated_at=$(get_timestamp)
@@ -421,6 +429,10 @@ write_task_file() {
             local folded_yaml
             folded_yaml=$(format_yaml_list "$folded_tasks")
             echo "folded_tasks: $folded_yaml"
+        fi
+        # Only write folded_into if present
+        if [[ -n "$folded_into" ]]; then
+            echo "folded_into: $folded_into"
         fi
         # Only write assigned_to if present
         if [[ -n "$assigned_to" ]]; then
@@ -642,6 +654,7 @@ handle_child_task_completion() {
     local saved_boardidx="$CURRENT_BOARDIDX"
     local saved_issue="$CURRENT_ISSUE"
     local saved_folded_tasks="$CURRENT_FOLDED_TASKS"
+    local saved_folded_into="$CURRENT_FOLDED_INTO"
 
     parse_yaml_frontmatter "$parent_file"
 
@@ -653,7 +666,8 @@ handle_child_task_completion() {
     write_task_file "$parent_file" "$CURRENT_PRIORITY" "$CURRENT_EFFORT" "$CURRENT_DEPS" \
         "$CURRENT_TYPE" "$CURRENT_STATUS" "$CURRENT_LABELS" "$CURRENT_CREATED_AT" \
         "$CURRENT_DESCRIPTION" "$new_children" "$CURRENT_ASSIGNED_TO" \
-        "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE" "$CURRENT_FOLDED_TASKS"
+        "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE" "$CURRENT_FOLDED_TASKS" \
+        "$CURRENT_FOLDED_INTO"
 
     if [[ -z "$new_children" ]]; then
         success "All children of t$parent_num are complete! Parent can now be completed."
@@ -676,6 +690,7 @@ handle_child_task_completion() {
     CURRENT_BOARDIDX="$saved_boardidx"
     CURRENT_ISSUE="$saved_issue"
     CURRENT_FOLDED_TASKS="$saved_folded_tasks"
+    CURRENT_FOLDED_INTO="$saved_folded_into"
 }
 
 # Validate that parent cannot be completed with pending children
@@ -757,7 +772,7 @@ interactive_update_effort() {
 
 interactive_update_status() {
     local current="$1"
-    echo -e "Ready\nEditing\nImplementing\nPostponed\nDone" | fzf --prompt="Status (current: $current): " --height=12 --no-info --header="Select new status"
+    echo -e "Ready\nEditing\nImplementing\nPostponed\nDone\nFolded" | fzf --prompt="Status (current: $current): " --height=12 --no-info --header="Select new status"
 }
 
 interactive_update_type() {
@@ -1101,7 +1116,8 @@ run_interactive_mode() {
     write_task_file "$final_path" "$new_priority" "$new_effort" "$new_deps" \
         "$new_type" "$new_status" "$new_labels" "$CURRENT_CREATED_AT" "$new_description" \
         "$CURRENT_CHILDREN_TO_IMPLEMENT" "$CURRENT_ASSIGNED_TO" \
-        "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE" "$CURRENT_FOLDED_TASKS"
+        "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE" "$CURRENT_FOLDED_TASKS" \
+        "$CURRENT_FOLDED_INTO"
 
     # Handle child task completion
     if [[ "$new_status" == "Done" ]]; then
@@ -1172,6 +1188,7 @@ run_batch_mode() {
     [[ "$BATCH_BOARDIDX_SET" == true ]] && has_update=true
     [[ "$BATCH_ISSUE_SET" == true ]] && has_update=true
     [[ "$BATCH_FOLDED_TASKS_SET" == true ]] && has_update=true
+    [[ "$BATCH_FOLDED_INTO_SET" == true ]] && has_update=true
 
     if [[ "$has_update" == false ]]; then
         die "No update parameters specified. Use --help for usage."
@@ -1194,8 +1211,8 @@ run_batch_mode() {
 
     if [[ -n "$BATCH_STATUS" ]]; then
         case "$BATCH_STATUS" in
-            Ready|Editing|Implementing|Postponed|Done) ;;
-            *) die "Invalid status: $BATCH_STATUS (must be Ready, Editing, Implementing, Postponed, or Done)" ;;
+            Ready|Editing|Implementing|Postponed|Done|Folded) ;;
+            *) die "Invalid status: $BATCH_STATUS (must be Ready, Editing, Implementing, Postponed, Done, or Folded)" ;;
         esac
     fi
 
@@ -1264,6 +1281,12 @@ run_batch_mode() {
         new_folded_tasks="$BATCH_FOLDED_TASKS"
     fi
 
+    # Process folded_into
+    local new_folded_into="$CURRENT_FOLDED_INTO"
+    if [[ "$BATCH_FOLDED_INTO_SET" == true ]]; then
+        new_folded_into="$BATCH_FOLDED_INTO"
+    fi
+
     # Validate parent completion (cannot complete parent with pending children)
     validate_parent_completion "$BATCH_TASK_NUM" "$new_status" "$new_children"
 
@@ -1286,7 +1309,7 @@ run_batch_mode() {
     write_task_file "$final_path" "$new_priority" "$new_effort" "$new_deps" \
         "$new_type" "$new_status" "$new_labels" "$CURRENT_CREATED_AT" "$new_description" \
         "$new_children" "$new_assigned_to" "$new_boardcol" "$new_boardidx" "$new_issue" \
-        "$new_folded_tasks"
+        "$new_folded_tasks" "$new_folded_into"
 
     # Handle child task completion (update parent if needed)
     if [[ "$new_status" == "Done" ]]; then

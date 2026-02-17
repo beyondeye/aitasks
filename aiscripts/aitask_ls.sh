@@ -19,7 +19,7 @@ ARGUMENTS:
 OPTIONS:
   -v            Verbose mode. Displays metadata (Status, Priority, Effort)
                 alongside the filename.
-  -s, --status  Filter by status. Values: Ready, Editing, Implementing, Postponed, Done, all
+  -s, --status  Filter by status. Values: Ready, Editing, Implementing, Postponed, Done, Folded, all
                 Default: Ready (only show Ready tasks)
   -l, --labels LABELS  Filter by labels (comma-separated). Only show tasks
                 with at least one matching label.
@@ -38,7 +38,7 @@ METADATA FORMAT:
     effort: high|medium|low
     depends: [1, 3, 5]
     issue_type: bug|feature|refactor
-    status: Editing|Implementing|Postponed|Ready|Done
+    status: Editing|Implementing|Postponed|Ready|Done|Folded
     labels: [ui, backend]
     assigned_to: email@example.com
     created_at: 2026-02-01 14:30
@@ -408,6 +408,8 @@ process_task_file() {
         display_status="Blocked (by $d_text)"
     elif [ "$has_children" -eq 1 ]; then
         display_status="Has children"
+    elif [[ "$status_text" != "Ready" ]]; then
+        display_status="$status_text"
     else
         display_status="Ready"
     fi

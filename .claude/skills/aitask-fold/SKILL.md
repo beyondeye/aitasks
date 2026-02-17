@@ -92,7 +92,7 @@ Filter the output to include only tasks that are eligible for folding:
 - Status must be `Ready` or `Editing`
 - Must not have children (status shows "Has children") — too complex to fold
 - Must not be a child task — too complex to fold
-- Exclude tasks with status `Implementing`, `Postponed`, or `Done`
+- Exclude tasks with status `Implementing`, `Postponed`, `Done`, or `Folded`
 
 If fewer than 2 eligible tasks exist, inform user "Need at least 2 eligible tasks to fold. Only \<N\> eligible task(s) found." and abort the workflow.
 
@@ -183,7 +183,15 @@ Set the folded_tasks frontmatter:
 ./aiscripts/aitask_update.sh --batch <primary_num> --folded-tasks "<comma-separated list of all folded task IDs>"
 ```
 
-#### 3e: Commit
+#### 3e: Update Folded Tasks Status
+
+For each non-primary task ID that was folded, set its status to `Folded` and add the `folded_into` reference:
+
+```bash
+./aiscripts/aitask_update.sh --batch <folded_task_num> --status Folded --folded-into <primary_num>
+```
+
+#### 3f: Commit
 
 ```bash
 git add aitasks/
@@ -237,5 +245,5 @@ Set the following context variables from the primary task, then read and follow 
 - If the primary task already has a `folded_tasks` frontmatter field (e.g., from a previous fold operation), new IDs are appended to the existing list
 - The `explore_auto_continue` profile key controls whether to ask the user about continuing to implementation (default: `false`, always ask). This is the same key used by `/aitask-explore`
 - Post-implementation cleanup (deleting folded task files, releasing locks, updating linked issues) is handled by task-workflow Step 9 — no additional cleanup logic is needed in this skill
-- The `folded_tasks` frontmatter field tracks which task IDs to clean up. Folded tasks remain in their original status (`Ready`/`Editing`) until deleted after archival — they are NOT set to `Implementing`
+- The `folded_tasks` frontmatter field tracks which task IDs to clean up. Folded tasks are set to status `Folded` with a `folded_into` property pointing to the primary task. They are deleted after archival
 - When handing off to task-workflow, the primary task has status `Ready` — task-workflow's Step 4 will set it to `Implementing`
