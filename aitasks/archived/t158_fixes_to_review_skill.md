@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [aitask_review, claudeskills, scripting]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-17 17:05
-updated_at: 2026-02-17 17:07
+updated_at: 2026-02-17 18:28
+completed_at: 2026-02-17 18:28
 ---
 
 the claude code skill aitask-review need some fine tuning: in step 1a: remove option entire codebase.
