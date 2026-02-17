@@ -651,10 +651,15 @@ setup_review_modes() {
 
     # If no seed directory, check if reviewmodes already installed
     if [[ ! -d "$seed_dir" ]]; then
-        if [[ -d "$dest_dir" ]] && ls "$dest_dir"/*.md &>/dev/null; then
+        if [[ -d "$dest_dir" ]]; then
             local count
-            count=$(ls -1 "$dest_dir"/*.md 2>/dev/null | wc -l)
-            success "Review modes already installed ($count modes in aitasks/metadata/reviewmodes/)"
+            count=$(find "$dest_dir" -name "*.md" -type f 2>/dev/null | wc -l)
+            if [[ $count -gt 0 ]]; then
+                success "Review modes already installed ($count modes in aitasks/metadata/reviewmodes/)"
+            else
+                warn "No seed/reviewmodes/ directory found — skipping review mode setup"
+                info "Review modes can be added manually to aitasks/metadata/reviewmodes/"
+            fi
         else
             warn "No seed/reviewmodes/ directory found — skipping review mode setup"
             info "Review modes can be added manually to aitasks/metadata/reviewmodes/"
@@ -662,11 +667,11 @@ setup_review_modes() {
         return
     fi
 
-    # Count available seed modes
+    # Count available seed modes (recursive scan for tree structure)
     local seed_files=()
-    for f in "$seed_dir"/*.md; do
-        [[ -f "$f" ]] && seed_files+=("$f")
-    done
+    while IFS= read -r -d '' f; do
+        seed_files+=("$f")
+    done < <(find "$seed_dir" -name "*.md" -type f -print0 2>/dev/null)
 
     if [[ ${#seed_files[@]} -eq 0 ]]; then
         warn "No review mode files found in seed/reviewmodes/"
@@ -684,8 +689,8 @@ setup_review_modes() {
     file_map+=("ALL")
 
     for f in "${seed_files[@]}"; do
-        local bname name desc
-        bname="$(basename "$f")"
+        local rel_path name desc
+        rel_path="${f#$seed_dir/}"
         name=""
         desc=""
         local in_yaml=false
@@ -708,16 +713,22 @@ setup_review_modes() {
         done < "$f"
 
         # Fallback if frontmatter missing
-        [[ -z "$name" ]] && name="$bname"
+        [[ -z "$name" ]] && name="$rel_path"
         [[ -z "$desc" ]] && desc="(no description)"
 
-        # Check if already installed
+        # Check if already installed (using relative path)
         local marker=""
-        if [[ -f "$dest_dir/$bname" ]]; then
+        if [[ -f "$dest_dir/$rel_path" ]]; then
             marker=" [installed]"
         fi
 
-        display_lines+=("$name — $desc$marker")
+        # Show category prefix for modes in subdirectories
+        local category_prefix=""
+        if [[ "$rel_path" == */* ]]; then
+            category_prefix="[$(dirname "$rel_path")] "
+        fi
+
+        display_lines+=("${category_prefix}${name} — $desc$marker")
         file_map+=("$f")
     done
 
@@ -767,23 +778,29 @@ setup_review_modes() {
         selected_indices=("${!seed_files[@]}")
     fi
 
-    # Copy selected files
+    # Copy selected files (preserving subdirectory structure)
     local installed=0
     local skipped=0
     for idx in "${selected_indices[@]}"; do
         local src="${seed_files[$idx]}"
-        local bname
-        bname="$(basename "$src")"
-        local dest="$dest_dir/$bname"
+        local rel_path="${src#$seed_dir/}"
+        local dest="$dest_dir/$rel_path"
+        mkdir -p "$(dirname "$dest")"
         if [[ -f "$dest" ]]; then
-            info "  Skipping existing: $bname"
+            info "  Skipping existing: $rel_path"
             skipped=$((skipped + 1))
         else
             cp "$src" "$dest"
-            info "  Installed: $bname"
+            info "  Installed: $rel_path"
             installed=$((installed + 1))
         fi
     done
+
+    # Copy .reviewmodesignore if present in seed and not already installed
+    if [[ -f "$seed_dir/.reviewmodesignore" && ! -f "$dest_dir/.reviewmodesignore" ]]; then
+        cp "$seed_dir/.reviewmodesignore" "$dest_dir/.reviewmodesignore"
+        info "  Installed filter file: .reviewmodesignore"
+    fi
 
     if [[ $installed -gt 0 ]]; then
         success "Installed $installed review mode(s)"

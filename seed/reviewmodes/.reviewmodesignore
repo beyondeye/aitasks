@@ -1,0 +1,9 @@
+# .reviewmodesignore - Exclude review modes from discovery
+# Uses gitignore syntax (patterns, wildcards, directory matches).
+# Matching is done via: git check-ignore --no-index
+#
+# Examples:
+#   general/performance.md    # Exclude a specific mode
+#   android/                  # Exclude an entire category
+#   *.draft.md                # Exclude all draft modes
+#   !general/security.md      # Re-include after a broader exclusion

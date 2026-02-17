@@ -125,7 +125,7 @@ echo "<file1>
 The script uses modular scoring tests (project root markers, file extensions, shebang lines, directory patterns) and returns two sections separated by `---`:
 
 - `ENV_SCORES`: detected environments ranked by confidence score (one per line: `<env>|<score>`)
-- `REVIEW_MODES`: review mode files pre-sorted by relevance (one per line: `<filename>|<name>|<description>|<score_or_universal>`)
+- `REVIEW_MODES`: review mode files pre-sorted by relevance (one per line: `<relative_path>|<name>|<description>|<score_or_universal>`, where `relative_path` is relative to the reviewmodes directory, e.g. `general/code_conventions.md`)
 
 Modes are sorted: highest-scoring environment-specific first, then universal, then non-matching environment-specific last.
 
@@ -142,7 +142,7 @@ Otherwise, present the modes in the script's pre-sorted order via `AskUserQuesti
 
 #### 1c. Load Review Instructions
 
-Read the full content of each selected review mode file. The markdown body after the YAML frontmatter contains the review instructions — these become the checklist for the automated review in Step 2.
+Read the full content of each selected review mode file from `aitasks/metadata/reviewmodes/<relative_path>` (where `<relative_path>` comes from the script output, e.g. `general/code_conventions.md`). The markdown body after the YAML frontmatter contains the review instructions — these become the checklist for the automated review in Step 2.
 
 ### Step 2: Automated Review
 
@@ -292,7 +292,8 @@ When continuing to implementation, set the following context variables from the 
 ## Notes
 
 - This skill creates tasks from code review findings — either a single standalone task or a parent with children
-- Review modes are loaded from `aitasks/metadata/reviewmodes/*.md` (installed via `ait setup` from t129_3)
+- Review modes are loaded from `aitasks/metadata/reviewmodes/` (tree structure with subdirectories, e.g. `general/`, `python/`, `shell/`; installed via `ait setup`)
+- Optional filter file: `aitasks/metadata/reviewmodes/.reviewmodesignore` uses gitignore syntax to exclude specific modes or directories
 - The frontmatter format is: `name` (string), `description` (string), `environment` (optional list)
 - Universal modes have no `environment` field and apply to any project type
 - Environment auto-detection is handled by `./aiscripts/aitask_review_detect_env.sh` — uses modular scoring tests; modes are sorted by relevance but all are available for selection

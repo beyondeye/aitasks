@@ -15,7 +15,8 @@
 #   <env>|<score>     (one per line, descending by score, only scores > 0)
 #   ---
 #   REVIEW_MODES
-#   <filename>|<name>|<description>|<score_or_universal>
+#   <relative_path>|<name>|<description>|<score_or_universal>
+#   (relative_path is relative to reviewmodes dir, e.g. "general/security.md")
 #
 # Called by:
 #   .claude/skills/aitask-review/SKILL.md (Step 1b - Review Mode Selection)
@@ -230,7 +231,8 @@ test_directory_patterns() {
 # =========================================================================
 
 # Parse YAML frontmatter from a review mode .md file
-# Output: <filename>|<name>|<description>|<env1,env2,...>
+# Output: <relative_path>|<name>|<description>|<env1,env2,...>
+# relative_path is relative to $REVIEWMODES_DIR (e.g. "general/security.md")
 # The environment field is empty for universal modes
 parse_reviewmode() {
     local file="$1"
@@ -256,7 +258,8 @@ parse_reviewmode() {
         fi
     done < "$file"
 
-    echo "$(basename "$file")|${name}|${description}|${environment}"
+    local rel_path="${file#$REVIEWMODES_DIR/}"
+    echo "${rel_path}|${name}|${description}|${environment}"
 }
 
 # =========================================================================
@@ -285,12 +288,47 @@ echo "---"
 # --- Output Section 2: REVIEW_MODES ---
 echo "REVIEW_MODES"
 
-# Parse all review mode files
+# Discover all review mode files recursively
+declare -a all_mode_files=()
+while IFS= read -r -d '' file; do
+    all_mode_files+=("$file")
+done < <(find "$REVIEWMODES_DIR" -name "*.md" -type f -print0 2>/dev/null)
+
+# Apply .reviewmodesignore filter if present
+declare -a mode_files=()
+if [[ -f "$REVIEWMODES_DIR/.reviewmodesignore" ]]; then
+    # Build relative paths for git check-ignore
+    local_rel_paths=""
+    for file in "${all_mode_files[@]}"; do
+        local_rel_paths+="${file#$REVIEWMODES_DIR/}"$'\n'
+    done
+    local_rel_paths="${local_rel_paths%$'\n'}"
+
+    # Get ignored paths using gitignore-style matching
+    ignored_output="$(printf '%s' "$local_rel_paths" | \
+        git -c "core.excludesFile=$REVIEWMODES_DIR/.reviewmodesignore" \
+            check-ignore --no-index --stdin 2>/dev/null)" || true
+
+    # Build set of ignored paths for O(1) lookup
+    declare -A ignored_set
+    while IFS= read -r ignored; do
+        [[ -n "$ignored" ]] && ignored_set["$ignored"]=1
+    done <<< "$ignored_output"
+
+    # Filter out ignored files
+    for file in "${all_mode_files[@]}"; do
+        rel_path="${file#$REVIEWMODES_DIR/}"
+        [[ -z "${ignored_set[$rel_path]:-}" ]] && mode_files+=("$file")
+    done
+else
+    mode_files=("${all_mode_files[@]}")
+fi
+
+# Parse filtered review mode files
 declare -a env_specific_modes=()
 declare -a universal_modes=()
 
-for mode_file in "$REVIEWMODES_DIR"/*.md; do
-    [[ -f "$mode_file" ]] || continue
+for mode_file in "${mode_files[@]}"; do
     mode_info=$(parse_reviewmode "$mode_file")
 
     # Extract environment field (4th pipe-delimited field)
@@ -311,11 +349,15 @@ for mode_file in "$REVIEWMODES_DIR"/*.md; do
 done
 
 # Output env-specific modes sorted by score (descending)
-printf '%s\n' "${env_specific_modes[@]}" 2>/dev/null | sort -t'|' -k1 -rn | while IFS='|' read -r score filename name description env; do
-    echo "${filename}|${name}|${description}|${score}"
-done
+if [[ ${#env_specific_modes[@]} -gt 0 ]]; then
+    printf '%s\n' "${env_specific_modes[@]}" | sort -t'|' -k1 -rn | while IFS='|' read -r score rel_path name description env; do
+        echo "${rel_path}|${name}|${description}|${score}"
+    done
+fi
 
 # Output universal modes (alphabetically by name)
-printf '%s\n' "${universal_modes[@]}" 2>/dev/null | sort -t'|' -k2 | while IFS='|' read -r filename name description env; do
-    echo "${filename}|${name}|${description}|universal"
-done
+if [[ ${#universal_modes[@]} -gt 0 ]]; then
+    printf '%s\n' "${universal_modes[@]}" | sort -t'|' -k2 | while IFS='|' read -r rel_path name description env; do
+        echo "${rel_path}|${name}|${description}|universal"
+    done
+fi

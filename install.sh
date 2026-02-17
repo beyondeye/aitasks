@@ -235,18 +235,30 @@ install_seed_reviewmodes() {
 
     mkdir -p "$INSTALL_DIR/aitasks/metadata/reviewmodes"
 
-    for mode_file in "$INSTALL_DIR/seed/reviewmodes"/*.md; do
-        [[ -f "$mode_file" ]] || continue
-        local bname
-        bname="$(basename "$mode_file")"
-        local dest="$INSTALL_DIR/aitasks/metadata/reviewmodes/$bname"
+    # Copy review mode files recursively (supports tree structure)
+    while IFS= read -r -d '' mode_file; do
+        local rel_path="${mode_file#$INSTALL_DIR/seed/reviewmodes/}"
+        local dest="$INSTALL_DIR/aitasks/metadata/reviewmodes/$rel_path"
+        mkdir -p "$(dirname "$dest")"
         if [[ -f "$dest" && "$FORCE" != true ]]; then
-            info "  Review mode exists (kept): $bname"
+            info "  Review mode exists (kept): $rel_path"
         else
             cp "$mode_file" "$dest"
-            info "  Installed review mode: $bname"
+            info "  Installed review mode: $rel_path"
         fi
-    done
+    done < <(find "$INSTALL_DIR/seed/reviewmodes" -name "*.md" -type f -print0 2>/dev/null)
+
+    # Copy .reviewmodesignore if present in seed
+    local src_ignore="$INSTALL_DIR/seed/reviewmodes/.reviewmodesignore"
+    local dest_ignore="$INSTALL_DIR/aitasks/metadata/reviewmodes/.reviewmodesignore"
+    if [[ -f "$src_ignore" ]]; then
+        if [[ -f "$dest_ignore" && "$FORCE" != true ]]; then
+            info "  Filter file exists (kept): .reviewmodesignore"
+        else
+            cp "$src_ignore" "$dest_ignore"
+            info "  Installed filter file: .reviewmodesignore"
+        fi
+    fi
 }
 
 # --- Install seed Claude Code permissions ---
