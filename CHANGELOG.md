@@ -4,39 +4,38 @@
 
 ### Features
 
-- **Auto-bootstrap new projects** (t127): Running `ait setup` in a directory without an existing installation now auto-bootstraps aitasks by downloading and running the installer.
-- **Explore auto-continue** (t129_4): Added an auto-continue option in the explore workflow that proceeds to task creation without additional prompts.
-- **Profile refresh** (t129_5): Profiles are now refreshed during long conversations to ensure settings stay current in context.
-- **Rename install.sh to aitask_setup.sh** (t133): Renamed the installer to `aitask_setup.sh` with a backward-compatible wrapper for existing projects.
-- **Copy-from-project installation** (t134): New "Copy from existing project" mode in setup for installing aitasks from a local reference project instead of downloading.
-- **Atomic task locking** (t136): Added task locking to prevent multiple users or machines from working on the same task simultaneously.
-- **Task abort procedure** (t137_1): Tasks can now be cleanly aborted with automatic lock release, status revert, and worktree cleanup.
-- **Lock release procedure** (t137_3): Task locks are automatically released on both successful completion and abort.
-- **Folded task cleanup** (t137_4): Folded (merged) tasks are automatically deleted during archival of the primary task.
-- **aitask-fold command** (t139): New `/aitask-fold` command to identify and merge related tasks into a single consolidated task.
-- **aitask-explore command** (t141): New `/aitask-explore` command for interactive codebase exploration with automatic task creation.
-- **Board filtering and sorting** (t143_2): Board supports filtering by labels, sorting options, and persistent settings.
-- **Shared plan file utility** (t144_1): Extracted plan file resolution into a shared utility for reuse across scripts.
-- **Tar.gz archive fallback** (t144_2): Plan and task file resolution now falls back to searching compressed tar.gz archives.
-- **Safety-aware zip-old** (t144_3): Rewrote zip-old selection logic to preserve siblings of active tasks and task dependencies.
-- **Folded status and metadata** (t145): Added `Folded` status and `folded_into` metadata property for tracking merged tasks in the board and scripts.
-- **Board column customization** (t147): Columns can be added, edited, and deleted via the command palette or by clicking column headers.
-- **Release process documentation** (t149): Updated release process to include running `/aitask-zipold` after creating a new release.
+- **Auto-bootstrap new projects** (t127): Running `ait setup` in a directory without aitasks now automatically bootstraps the framework, eliminating the need to manually download and run the installer.
+- **Interactive codebase exploration** (t129_2): Added `/aitask-explore` skill for investigating problems, exploring code areas, scoping ideas, or reviewing documentation — with guided follow-up questions and automatic task creation.
+- **Task deletion in board** (t137): Added a delete action to the board TUI with confirmation prompts, child task detection, and read-only display for completed tasks.
+- **Folded task navigation in board** (t142): Folded tasks are now displayed in the board task detail view with read-only navigation to view their contents.
+- **Task folding skill** (t143_1): Added `/aitask-fold` skill to identify and merge related tasks into a single task, reducing duplication and organizing work.
+- **Archive fallback for task/plan resolution** (t144_2): Task and plan file lookups now search inside tar.gz archives, so references to archived tasks still resolve correctly.
+- **Safety-aware archive selection** (t144_3): Rewrote the zip-old selection logic to preserve archived files that are siblings of active parent tasks or dependencies of active tasks.
+- **Folded status and folded_into property** (t145): Added a `Folded` status and `folded_into` metadata field so folded tasks are clearly marked and traceable to their target task.
+- **Board column customization** (t147): Board columns can now be added, edited, and deleted via a command palette (Ctrl+P) or by clicking column headers, with color selection from an 8-color palette.
 
 ### Bug Fixes
 
-- **ait help text** (t104): Added the missing `changelog` command to the `ait` help output.
-- **ait setup fixes** (t128): Fixed VERSION file location, removed CHANGELOG.md from installs, and added auto-commit for framework files during setup.
+- **Missing changelog in help** (t104): Added the `changelog` command to the `ait` help text.
+- **Setup file handling fixes** (t128): Fixed `ait setup` to relocate VERSION into `aiscripts/`, remove CHANGELOG.md from installs, and auto-commit framework files.
+- **Duplicate task prevention in explore** (t135): The `/aitask-explore` skill now discovers related existing tasks and offers to fold them instead of creating duplicates.
+- **Execution profile loss during handoff** (t141): Fixed the execution profile being lost when transitioning from task selection to implementation by adding a profile refresh step.
+- **Exit trap corrupting exit codes** (t150): Fixed an EXIT trap in bash scripts that was overwriting the intended exit code, causing `create_new_release.sh` to misreport failures.
 
 ### Improvements
 
-- **Shared task workflow** (t129_1): Extracted the shared task-workflow skill from duplicated code across aitask-pick and aitask-explore.
-- **Updated calling skills** (t129_2): Updated aitask-pick and aitask-explore to use the new shared workflow.
+- **Shared workflow extraction** (t129_1): Extracted the common implementation workflow (steps 3-9) into a reusable `task-workflow` skill, reducing duplication across skills.
+- **Renamed clear-old to zip-old** (t144_1): Renamed the `clear-old` command and script to `zip-old` across the entire codebase for clarity.
 
 ### Documentation
 
-- **Windows/WSL install docs** (t106): Added inline Windows/WSL note to README and authentication cross-reference to install documentation.
-- **Context monitoring docs** (t107): Added context monitoring section with claude-hud plugin recommendation to workflows documentation.
+- **Windows/WSL install notes** (t106): Added inline Windows/WSL guidance and authentication cross-references to the install documentation.
+- **Context monitoring docs** (t107): Documented the context monitoring workflow with a claude-hud recommendation in the workflows guide.
+- **README restructure** (t133): Restructured the README from 1155 lines into a concise landing page plus 6 focused documentation files under `docs/`.
+- **Windows docs corrections** (t134): Moved authentication section to README, fixed terminal recommendation order, and trimmed outdated known issues.
+- **Folded tasks documentation** (t140): Documented the `folded_tasks` frontmatter field, exploration workflow, and parallel exploration patterns.
+- **Fold skill documentation** (t143_2): Added complete `/aitask-fold` reference documentation to the skills guide.
+- **Post-release archival step** (t149): Added a zip-old step to the release process documentation.
 
 ## v0.3.0
 
