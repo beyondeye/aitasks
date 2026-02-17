@@ -12,7 +12,6 @@ aitasks provides Claude Code skills that automate the full task workflow. These 
 - [/aitask-create](#aitask-create)
 - [/aitask-create2](#aitask-create2)
 - [/aitask-stats](#aitask-stats)
-- [/aitask-zipold](#aitask-zipold)
 - [/aitask-changelog](#aitask-changelog)
 
 ---
@@ -27,7 +26,6 @@ aitasks provides Claude Code skills that automate the full task workflow. These 
 | `/aitask-create` | Create tasks interactively via Claude Code |
 | `/aitask-create2` | Create tasks using terminal fzf (faster alternative) |
 | `/aitask-stats` | View completion statistics |
-| `/aitask-zipold` | Archive old completed files |
 | `/aitask-changelog` | Generate changelog entries from commits and plans |
 
 ## /aitask-pick [number]
@@ -258,28 +256,6 @@ Runs `./aiscripts/aitask_stats.sh` and displays the results. Provides the same 7
 - Label + issue type trends
 
 Supports all command-line options (`-d`, `-v`, `--csv`, `-w`). For CSV export, provides guidance on opening the file in LibreOffice Calc with pivot tables and charts.
-
----
-
-## /aitask-zipold
-
-Archive old completed task and plan files to compressed tar.gz archives.
-
-**Usage:**
-```
-/aitask-zipold
-```
-
-Runs `./aiscripts/aitask_zip_old.sh` to archive old files from `aitasks/archived/` and `aiplans/archived/`.
-
-**Features:**
-- Archives old files to `old.tar.gz`, keeping the most recent uncompressed (for task numbering)
-- Supports parent and child task/plan hierarchies
-- Verifies archive integrity before deleting originals
-- Dry-run mode (`--dry-run`) for previewing
-- Auto-commits to git
-
-Supports options: `--dry-run`, `--no-commit`, `--verbose`.
 
 ---
 
