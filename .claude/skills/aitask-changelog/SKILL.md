@@ -188,7 +188,7 @@ If "Abort": End workflow.
 
 ```bash
 git add CHANGELOG.md
-git commit -m "Add changelog entry for vX.Y.Z"
+git commit -m "ait: Add changelog entry for vX.Y.Z"
 ```
 
 Inform the user: "Changelog entry for vX.Y.Z written to CHANGELOG.md. Run `./create_new_release.sh` when ready to create the release."

@@ -68,7 +68,7 @@ init_lock_branch() {
     # Create an empty tree and initial commit via git plumbing
     local empty_tree_hash commit_hash
     empty_tree_hash=$(printf '' | git mktree)
-    commit_hash=$(echo "Initialize task lock branch" | git commit-tree "$empty_tree_hash")
+    commit_hash=$(echo "ait: Initialize task lock branch" | git commit-tree "$empty_tree_hash")
 
     # Push as new branch
     if git push origin "$commit_hash:refs/heads/$BRANCH" 2>/dev/null; then
@@ -139,7 +139,7 @@ hostname: $(get_hostname)"
             printf "100644 blob %s\t%s\n" "$blob_hash" "$lock_file"
         } | git mktree )
 
-        commit_hash_new=$(echo "Lock task t$task_id for $email" | \
+        commit_hash_new=$(echo "ait: Lock task t$task_id for $email" | \
             git commit-tree "$new_tree_hash" -p "$parent_hash")
 
         # Step 5: Push — fails if another PC locked simultaneously
@@ -194,7 +194,7 @@ unlock_task() {
         # Step 3: Build new tree WITHOUT the lock file
         local new_tree_hash commit_hash_new
         new_tree_hash=$( { git ls-tree "$current_tree_hash" | grep -v "	${lock_file}$" || true; } | git mktree )
-        commit_hash_new=$(echo "Unlock task t$task_id" | \
+        commit_hash_new=$(echo "ait: Unlock task t$task_id" | \
             git commit-tree "$new_tree_hash" -p "$parent_hash")
 
         # Step 4: Push
@@ -326,7 +326,7 @@ cleanup_locks() {
 
         local new_tree_hash commit_hash_new
         new_tree_hash=$( { git ls-tree "$current_tree_hash" | grep -vE "	(${filter_pattern})$" || true; } | git mktree )
-        commit_hash_new=$(echo "Cleanup ${#stale_files[@]} stale lock(s)" | \
+        commit_hash_new=$(echo "ait: Cleanup ${#stale_files[@]} stale lock(s)" | \
             git commit-tree "$new_tree_hash" -p "$parent_hash")
 
         if git push origin "$commit_hash_new:refs/heads/$BRANCH" 2>/dev/null; then

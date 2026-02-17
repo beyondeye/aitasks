@@ -118,7 +118,7 @@ If `active_profile` is null (either because no profile was selected by the calli
 - **Commit and push the status change:**
   ```bash
   git add aitasks/
-  git commit -m "Start work on t<N>: set status to Implementing"
+  git commit -m "ait: Start work on t<N>: set status to Implementing"
   git push
   ```
 
@@ -344,7 +344,7 @@ Update the external plan file as you progress:
 
 **IMPORTANT:** Do NOT commit changes automatically after implementation. Proceed to Step 8 for user review and approval.
 
-**Note:** When committing implementation changes (in Step 8), the commit message must include `(t<task_id>)`. See Step 8 for details.
+**Note:** When committing implementation changes (in Step 8), the commit message must follow the `<issue_type>: <description> (t<task_id>)` format. See Step 8 for details.
 
 ### Step 8: User Review and Approval
 
@@ -380,7 +380,7 @@ After implementation is complete, the user MUST be given the opportunity to revi
     - **IMPORTANT for child tasks:** The plan file will be archived and serve as the primary reference for subsequent sibling tasks. Ensure the Final Implementation Notes are comprehensive enough that a fresh context can understand what was done and learn from the experience.
     - The plan file should now serve as a complete record of: the original plan, any post-review change requests (from the "Need more changes" loop), and final implementation notes
   - Stage and commit all implementation changes (including the updated plan file)
-  - **IMPORTANT — Commit message convention:** The commit message MUST include `(t<task_id>)` at the end (e.g., `Add channel settings screen (t16)` or `Fix login validation (t16_2)`). This tag is used by `aitask_issue_update.sh` to find commits associated with a task when posting to GitHub issues. Only source code implementation commits should include this tag — administrative commits (status changes, archival in Steps 4, 9, and Task Abort Procedure) must NOT include it.
+  - **IMPORTANT — Commit message convention:** The commit message MUST use the format `<issue_type>: <description> (t<task_id>)`, where `<issue_type>` is the value from the task's `issue_type` frontmatter field (one of: `feature`, `bug`, `refactor`, `documentation`). Examples: `feature: Add channel settings screen (t16)`, `bug: Fix login validation (t16_2)`, `refactor: Simplify auth module (t42)`. The `(t<task_id>)` suffix is used by `aitask_issue_update.sh` to find commits associated with a task when posting to GitHub issues. Only source code implementation commits should use this format — administrative commits (status changes, archival in Steps 4, 9, and Task Abort Procedure) use the `ait:` prefix instead and must NOT include the `(t<task_id>)` tag.
   - Proceed to Step 9
 
 - **If "Need more changes":**
@@ -498,7 +498,7 @@ Execute the post-implementation cleanup steps.
   # If parent was also archived (all children complete):
   git add aitasks/archived/<parent_task_file> 2>/dev/null || true
   git add aiplans/archived/<parent_plan_file> 2>/dev/null || true
-  git commit -m "Archive completed t<parent>_<child> task and plan files"
+  git commit -m "ait: Archive completed t<parent>_<child> task and plan files"
   ```
 
 **For parent tasks:**
@@ -545,7 +545,7 @@ Execute the post-implementation cleanup steps.
   ```bash
   git add aitasks/archived/<task_file> aiplans/archived/<plan_file>
   git add -u aitasks/ aiplans/
-  git commit -m "Archive completed <task_id> task and plan files"
+  git commit -m "ait: Archive completed <task_id> task and plan files"
   ```
 
 ### Task Abort Procedure
@@ -585,7 +585,7 @@ When abort is selected at any checkpoint after Step 4, execute these steps:
 - **Commit the revert:**
   ```bash
   git add aitasks/
-  git commit -m "Abort t<N>: revert status to <status>"
+  git commit -m "ait: Abort t<N>: revert status to <status>"
   ```
 
 - **Cleanup worktree/branch if created:**

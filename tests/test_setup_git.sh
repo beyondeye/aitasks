@@ -114,7 +114,7 @@ commit_count=$(git -C "$TMPDIR_1b" log --oneline 2>/dev/null | wc -l)
 assert_eq "Framework files auto-committed (non-interactive)" "2" "$commit_count"
 
 commit_msg=$(git -C "$TMPDIR_1b" log --format='%s' -1 2>/dev/null)
-assert_eq "Commit message correct" "Add aitask framework" "$commit_msg"
+assert_eq "Commit message correct" "ait: Add aitask framework" "$commit_msg"
 
 rm -rf "$TMPDIR_1b"
 
@@ -133,7 +133,7 @@ commit_count=$(git -C "$TMPDIR_2" log --oneline 2>/dev/null | wc -l)
 assert_eq "Exactly 1 commit" "1" "$commit_count"
 
 commit_msg=$(git -C "$TMPDIR_2" log --format='%s' -1 2>/dev/null)
-assert_eq "Commit message correct" "Add aitask framework" "$commit_msg"
+assert_eq "Commit message correct" "ait: Add aitask framework" "$commit_msg"
 
 # Verify committed files include key directories
 committed_files=$(git -C "$TMPDIR_2" show --name-only --format='' HEAD 2>/dev/null)

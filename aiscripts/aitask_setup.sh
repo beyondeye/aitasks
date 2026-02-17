@@ -324,7 +324,7 @@ setup_git_repo() {
                     (
                         cd "$project_dir"
                         git add aiscripts/ aitasks/metadata/ ait .claude/skills/ install.sh 2>/dev/null || true
-                        git commit -m "Add aitask framework"
+                        git commit -m "ait: Add aitask framework"
                     )
                     success "Framework files committed to git"
                     ;;
@@ -399,7 +399,7 @@ setup_git_repo() {
     (
         cd "$project_dir"
         git add aiscripts/ aitasks/metadata/ ait .claude/skills/ install.sh 2>/dev/null || true
-        git commit -m "Add aitask framework"
+        git commit -m "ait: Add aitask framework"
     )
     success "Initial commit created with aitask framework files"
 }
@@ -518,7 +518,7 @@ setup_draft_directory() {
 
     # Commit the change if inside a git repo
     if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
-        (cd "$project_dir" && git add .gitignore && git commit -m "Add aitasks/new/ to .gitignore (draft tasks)" 2>/dev/null) || true
+        (cd "$project_dir" && git add .gitignore && git commit -m "ait: Add aitasks/new/ to .gitignore (draft tasks)" 2>/dev/null) || true
     fi
 
     success "Draft directory configured (aitasks/new/ in .gitignore)"

@@ -105,7 +105,7 @@ init_counter_branch() {
 
     blob_hash=$(echo "$next_id" | git hash-object -w --stdin)
     tree_hash=$(printf "100644 blob %s\t%s\n" "$blob_hash" "$COUNTER_FILE" | git mktree)
-    commit_hash=$(echo "Initialize task ID counter at $next_id" | git commit-tree "$tree_hash")
+    commit_hash=$(echo "ait: Initialize task ID counter at $next_id" | git commit-tree "$tree_hash")
 
     # Push as new branch
     if git push origin "$commit_hash:refs/heads/$BRANCH" 2>/dev/null; then
@@ -159,7 +159,7 @@ claim_next_id() {
         parent_hash=$(git rev-parse "origin/$BRANCH")
         blob_hash=$(echo "$new_id" | git hash-object -w --stdin)
         tree_hash=$(printf "100644 blob %s\t%s\n" "$blob_hash" "$COUNTER_FILE" | git mktree)
-        commit_hash=$(echo "Claim task ID t$current_id, advance counter to $new_id" | \
+        commit_hash=$(echo "ait: Claim task ID t$current_id, advance counter to $new_id" | \
             git commit-tree "$tree_hash" -p "$parent_hash")
 
         # Step 5: Push - fails if another PC claimed simultaneously (non-fast-forward)

@@ -1369,13 +1369,13 @@ class CommitMessageScreen(ModalScreen):
         if len(self.tasks_to_commit) == 1:
             task = self.tasks_to_commit[0]
             task_num, task_name = TaskCard._parse_filename(task.filename)
-            default_msg = f"Update {task_num}: {task_name}"
+            default_msg = f"ait: Update {task_num}: {task_name}"
         else:
             task_nums = []
             for t in self.tasks_to_commit:
                 num, _ = TaskCard._parse_filename(t.filename)
                 task_nums.append(num)
-            default_msg = f"Update tasks: {', '.join(task_nums)}"
+            default_msg = f"ait: Update tasks: {', '.join(task_nums)}"
 
         with Container(id="commit_dialog"):
             yield Label("Git Commit", id="commit_title")
@@ -2350,7 +2350,7 @@ class KanbanApp(App):
                     pass
 
             result = subprocess.run(
-                ["git", "commit", "-m", f"Delete task {task_num} and associated files"],
+                ["git", "commit", "-m", f"ait: Delete task {task_num} and associated files"],
                 capture_output=True, text=True, timeout=15
             )
             if result.returncode == 0:

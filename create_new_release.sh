@@ -59,7 +59,7 @@ fi
 
 echo "$new_version" > aiscripts/VERSION
 git add aiscripts/VERSION
-git commit -m "Bump version to $new_version"
+git commit -m "ait: Bump version to $new_version"
 git tag "v$new_version"
 git push origin main --tags
 

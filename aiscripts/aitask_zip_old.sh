@@ -389,7 +389,7 @@ main() {
         git add "$TASK_ARCHIVE" "$PLAN_ARCHIVE" 2>/dev/null || true
         git add -u "$TASK_ARCHIVED_DIR/" "$PLAN_ARCHIVED_DIR/" 2>/dev/null || true
 
-        local commit_msg="Archive old task and plan files
+        local commit_msg="ait: Archive old task and plan files
 
 Archived to:
 - $TASK_ARCHIVE

@@ -477,7 +477,7 @@ finalize_draft() {
         [[ -n "$parent_file" ]] && git add "$parent_file" 2>/dev/null || true
         local humanized_name
         humanized_name=$(echo "$task_name" | tr '_' ' ')
-        git commit -m "Add child task ${task_id}: ${humanized_name}"
+        git commit -m "ait: Add child task ${task_id}: ${humanized_name}"
     else
         # Parent task: claim from atomic counter
         local claimed_id
@@ -534,7 +534,7 @@ finalize_draft() {
         git add "$filepath"
         local humanized_name
         humanized_name=$(echo "$task_name" | tr '_' ' ')
-        git commit -m "Add task ${task_id}: ${humanized_name}"
+        git commit -m "ait: Add task ${task_id}: ${humanized_name}"
     fi
 
     if [[ "$silent" == "true" ]]; then
@@ -1087,7 +1087,7 @@ commit_task() {
         humanized_name=$(echo "$task_name" | tr '_' ' ')
 
         git add "$filepath"
-        git commit -m "Add task t${task_num}: ${humanized_name}"
+        git commit -m "ait: Add task t${task_num}: ${humanized_name}"
 
         local commit_hash
         commit_hash=$(git rev-parse --short HEAD)
@@ -1196,7 +1196,7 @@ run_batch_mode() {
             humanized_name=$(echo "$task_name" | tr '_' ' ')
             git add "$filepath"
             git add "$parent_file" 2>/dev/null || true
-            git commit -m "Add child task ${task_id}: ${humanized_name}"
+            git commit -m "ait: Add child task ${task_id}: ${humanized_name}"
         else
             # Parent task: claim real ID from atomic counter
             local claimed_id
@@ -1222,7 +1222,7 @@ run_batch_mode() {
             local humanized_name
             humanized_name=$(echo "$task_name" | tr '_' ' ')
             git add "$filepath"
-            git commit -m "Add task ${task_id}: ${humanized_name}"
+            git commit -m "ait: Add task ${task_id}: ${humanized_name}"
         fi
     else
         # Default: create as draft in aitasks/new/ (no network needed)

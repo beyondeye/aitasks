@@ -329,7 +329,7 @@ TMPDIR_11="$(setup_test_env)"
 )
 (cd "$TMPDIR_11" && bash aiscripts/aitask_zip_old.sh 2>&1 >/dev/null)
 commit_msg_11=$(cd "$TMPDIR_11" && git log -1 --pretty=%B)
-assert_contains "Test 11: commit mentions archive" "Archive old task and plan files" "$commit_msg_11"
+assert_contains "Test 11: commit mentions archive" "ait: Archive old task and plan files" "$commit_msg_11"
 rm -rf "$TMPDIR_11"
 
 # --- Test 12: Empty child dirs cleaned up ---

@@ -557,7 +557,7 @@ interactive_import_issue() {
         local humanized_name
         humanized_name=$(echo "$task_name" | tr '_' ' ')
         git add "$created_file"
-        git commit -m "Add task ${task_id}: ${humanized_name}"
+        git commit -m "ait: Add task ${task_id}: ${humanized_name}"
         local commit_hash
         commit_hash=$(git rev-parse --short HEAD)
         success "Committed: $commit_hash"

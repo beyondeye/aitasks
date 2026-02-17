@@ -66,18 +66,8 @@ Use `AskUserQuestion` to determine the review scope:
 
 1. **Fetch and filter commits in paginated batches of 10 relevant commits:**
 
-   Fetch commits using `git log --oneline --shortstat` and filter out task-handling commits whose messages match these patterns (case-insensitive):
-   - `^Start work on t` — task status changes
-   - `^Archive completed t` — task archival
-   - `^Add task t` — task creation
-   - `^Add child task t` — child task creation
-   - `^Update tasks:` — task metadata updates
-   - `^Fold t\d+` — task folding
-   - `^Create t\d+.* child tasks` — child task planning
-   - `^Abort t` — task abort reverts
-   - `^Add changelog entry` — release changelog
-   - `^Bump version` — version bumps
-   - `^Archive old task` — bulk task archival
+   Fetch commits using `git log --oneline --shortstat` and filter out administrative task-handling commits whose messages start with the `ait:` prefix (case-insensitive):
+   - `^ait: ` — all administrative commits (task creation, status changes, archival, updates, deletion, folding, changelog, version bumps, etc.)
 
    **Batch loading loop:** Keep fetching commits (increasing `--skip=<offset>`) until 10 non-filtered commits are collected for the current batch. Display each batch as a numbered list with diff stats:
    ```

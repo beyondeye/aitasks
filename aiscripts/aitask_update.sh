@@ -1148,7 +1148,7 @@ run_interactive_mode() {
         local humanized_name
         humanized_name=$(basename "$final_path" .md | sed 's/^t[0-9]*_\([0-9]*_\)\?//' | tr '_' ' ')
         git add "$final_path"
-        git commit -m "Update task t${task_num}: ${humanized_name}"
+        git commit -m "ait: Update task t${task_num}: ${humanized_name}"
         local commit_hash
         commit_hash=$(git rev-parse --short HEAD)
         success "Committed: $commit_hash"
@@ -1321,7 +1321,7 @@ run_batch_mode() {
         local humanized_name
         humanized_name=$(basename "$final_path" .md | sed 's/^t[0-9]*_\([0-9]*_\)\?//' | tr '_' ' ')
         git add "$final_path"
-        git commit -m "Update task t${BATCH_TASK_NUM}: ${humanized_name}"
+        git commit -m "ait: Update task t${BATCH_TASK_NUM}: ${humanized_name}"
     fi
 
     # Output
