@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [aitask_board]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-17 11:56
-updated_at: 2026-02-17 14:07
+updated_at: 2026-02-17 14:30
+completed_at: 2026-02-17 14:30
 boardcol: now
 boardidx: 60
 ---
