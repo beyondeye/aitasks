@@ -1,5 +1,5 @@
 ---
-name: aitask-cleanold
+name: aitask-zipold
 description: Archive old task and plan files to tar.gz archives, keeping only the most recent.
 ---
 
@@ -8,7 +8,7 @@ description: Archive old task and plan files to tar.gz archives, keeping only th
 Run the archive script:
 
 ```bash
-./aiscripts/aitask_clear_old.sh
+./aiscripts/aitask_zip_old.sh
 ```
 
 ### Options
@@ -22,17 +22,17 @@ Run the archive script:
 
 Preview what will be archived:
 ```bash
-./aiscripts/aitask_clear_old.sh --dry-run
+./aiscripts/aitask_zip_old.sh --dry-run
 ```
 
 Archive with verbose output:
 ```bash
-./aiscripts/aitask_clear_old.sh --verbose
+./aiscripts/aitask_zip_old.sh --verbose
 ```
 
 Archive without committing:
 ```bash
-./aiscripts/aitask_clear_old.sh --no-commit
+./aiscripts/aitask_zip_old.sh --no-commit
 ```
 
 ## What It Does

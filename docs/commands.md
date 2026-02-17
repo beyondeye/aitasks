@@ -11,7 +11,7 @@
 - [ait update](#ait-update)
 - [ait board](#ait-board)
 - [ait stats](#ait-stats)
-- [ait clear-old](#ait-clear-old)
+- [ait zip-old](#ait-zip-old)
 - [ait issue-import](#ait-issue-import)
 - [ait issue-update](#ait-issue-update)
 - [ait changelog](#ait-changelog)
@@ -27,7 +27,7 @@
 | `ait update` | Update task metadata (status, priority, labels, etc.) |
 | `ait board` | Open the kanban-style TUI board |
 | `ait stats` | Show task completion statistics |
-| `ait clear-old` | Archive old completed task and plan files |
+| `ait zip-old` | Archive old completed task and plan files |
 | `ait issue-import` | Import tasks from GitHub/GitLab issues |
 | `ait issue-update` | Update or close linked GitHub/GitLab issues |
 | `ait changelog` | Gather changelog data from commits and archived plans |
@@ -336,15 +336,15 @@ ait stats -w sun           # Week starts on Sunday
 
 ---
 
-## ait clear-old
+## ait zip-old
 
 Archive old completed task and plan files to compressed tar.gz archives.
 
 ```bash
-ait clear-old                  # Archive and commit
-ait clear-old --dry-run        # Preview what would be archived
-ait clear-old --no-commit      # Archive without git commit
-ait clear-old -v               # Verbose output
+ait zip-old                    # Archive and commit
+ait zip-old --dry-run          # Preview what would be archived
+ait zip-old --no-commit        # Archive without git commit
+ait zip-old -v                 # Verbose output
 ```
 
 | Option | Description |

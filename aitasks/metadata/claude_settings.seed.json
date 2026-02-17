@@ -27,7 +27,7 @@
       "Bash(./aiscripts/aitask_ls.sh:*)",
       "Bash(./aiscripts/aitask_update.sh:*)",
       "Bash(./aiscripts/aitask_create.sh:*)",
-      "Bash(./aiscripts/aitask_clear_old.sh:*)",
+      "Bash(./aiscripts/aitask_zip_old.sh:*)",
       "Bash(./aiscripts/aitask_stats.sh:*)",
       "Bash(./aiscripts/aitask_issue_update.sh:*)",
       "Bash(./aiscripts/aitask_lock.sh:*)"

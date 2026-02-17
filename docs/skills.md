@@ -12,7 +12,7 @@ aitasks provides Claude Code skills that automate the full task workflow. These 
 - [/aitask-create](#aitask-create)
 - [/aitask-create2](#aitask-create2)
 - [/aitask-stats](#aitask-stats)
-- [/aitask-cleanold](#aitask-cleanold)
+- [/aitask-zipold](#aitask-zipold)
 - [/aitask-changelog](#aitask-changelog)
 
 ---
@@ -27,7 +27,7 @@ aitasks provides Claude Code skills that automate the full task workflow. These 
 | `/aitask-create` | Create tasks interactively via Claude Code |
 | `/aitask-create2` | Create tasks using terminal fzf (faster alternative) |
 | `/aitask-stats` | View completion statistics |
-| `/aitask-cleanold` | Archive old completed files |
+| `/aitask-zipold` | Archive old completed files |
 | `/aitask-changelog` | Generate changelog entries from commits and plans |
 
 ## /aitask-pick [number]
@@ -261,16 +261,16 @@ Supports all command-line options (`-d`, `-v`, `--csv`, `-w`). For CSV export, p
 
 ---
 
-## /aitask-cleanold
+## /aitask-zipold
 
 Archive old completed task and plan files to compressed tar.gz archives.
 
 **Usage:**
 ```
-/aitask-cleanold
+/aitask-zipold
 ```
 
-Runs `./aiscripts/aitask_clear_old.sh` to archive old files from `aitasks/archived/` and `aiplans/archived/`.
+Runs `./aiscripts/aitask_zip_old.sh` to archive old files from `aitasks/archived/` and `aiplans/archived/`.
 
 **Features:**
 - Archives old files to `old.tar.gz`, keeping the most recent uncompressed (for task numbering)

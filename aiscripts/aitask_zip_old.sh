@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# aitask_clear_old.sh - Archive old task and plan files to tar.gz
+# aitask_zip_old.sh - Archive old task and plan files to tar.gz
 # Keeps the most recent archived file uncompressed for aitask-create numbering
 
 set -e

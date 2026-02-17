@@ -229,7 +229,7 @@ assert_output_contains "Warning mentions AIT_SKIP_TERMINAL_CHECK" "AIT_SKIP_TERM
 echo "--- Syntax checks ---"
 
 for script in aitask_create.sh aitask_update.sh aitask_issue_import.sh \
-              aitask_board.sh aitask_clear_old.sh aitask_issue_update.sh; do
+              aitask_board.sh aitask_zip_old.sh aitask_issue_update.sh; do
     TOTAL=$((TOTAL + 1))
     if bash -n "$PROJECT_DIR/aiscripts/$script" 2>/dev/null; then
         PASS=$((PASS + 1))

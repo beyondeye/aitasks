@@ -27,7 +27,7 @@ Commands:
   board          Launch the task board TUI
   stats          Show task completion statistics
   changelog      Generate changelog from commits and plans
-  clear-old      Archive old completed tasks
+  zip-old        Archive old completed tasks
   issue-update   Update/close linked issues
   setup          Install dependencies
   install        Update aitasks to latest or specific version
@@ -106,7 +106,7 @@ case "${1:-help}" in
     issue-import) shift; exec "$SCRIPTS_DIR/aitask_issue_import.sh" "$@" ;;
     board)        shift; exec "$SCRIPTS_DIR/aitask_board.sh" "$@" ;;
     stats)        shift; exec "$SCRIPTS_DIR/aitask_stats.sh" "$@" ;;
-    clear-old)    shift; exec "$SCRIPTS_DIR/aitask_clear_old.sh" "$@" ;;
+    zip-old)      shift; exec "$SCRIPTS_DIR/aitask_zip_old.sh" "$@" ;;
     issue-update) shift; exec "$SCRIPTS_DIR/aitask_issue_update.sh" "$@" ;;
     setup)        shift; exec "$SCRIPTS_DIR/aitask_setup.sh" "$@" ;;
     changelog)    shift; exec "$SCRIPTS_DIR/aitask_changelog.sh" "$@" ;;
