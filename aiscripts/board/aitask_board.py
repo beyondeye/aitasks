@@ -9,7 +9,6 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
@@ -208,10 +207,10 @@ class Task:
 
 class TaskManager:
     def __init__(self):
-        self.task_datas: Dict[str, Task] = {} # Filename -> Task (parents)
-        self.child_task_datas: Dict[str, Task] = {} # Filename -> Task (children)
-        self.columns: List[Dict] = []
-        self.column_order: List[str] = []
+        self.task_datas: dict[str, Task] = {} # Filename -> Task (parents)
+        self.child_task_datas: dict[str, Task] = {} # Filename -> Task (children)
+        self.columns: list[dict] = []
+        self.column_order: list[str] = []
         self.modified_files: set = set()  # Relative paths of git-modified .md files
         self._ensure_paths()
         self.load_metadata()
@@ -263,7 +262,7 @@ class TaskManager:
                 return task
         return None
 
-    def get_child_tasks_for_parent(self, parent_num: str) -> List[Task]:
+    def get_child_tasks_for_parent(self, parent_num: str) -> list[Task]:
         """Get all child tasks for a parent like 't47'."""
         prefix = f"{parent_num}_"
         children = []
@@ -277,7 +276,7 @@ class TaskManager:
         e.g., aitasks/t47/t47_1_desc.md -> 't47'"""
         return child_task.filepath.parent.name
 
-    def get_column_tasks(self, col_id: str) -> List[Task]:
+    def get_column_tasks(self, col_id: str) -> list[Task]:
         # Filter tasks by column and sort by index
         tasks = [t for t in self.task_datas.values() if t.board_col == col_id]
         return sorted(tasks, key=lambda t: t.board_idx)
@@ -308,7 +307,7 @@ class TaskManager:
         """Check if a task file is modified vs git."""
         return str(task.filepath) in self.modified_files
 
-    def get_modified_tasks(self) -> List[Task]:
+    def get_modified_tasks(self) -> list[Task]:
         """Get all tasks (parent and child) that have git modifications."""
         modified = []
         for filename, task in self.task_datas.items():
@@ -1360,7 +1359,7 @@ class CommitMessageScreen(ModalScreen):
         Binding("escape", "cancel", "Cancel", show=False),
     ]
 
-    def __init__(self, tasks_to_commit: List[Task], manager: TaskManager):
+    def __init__(self, tasks_to_commit: list[Task], manager: TaskManager):
         super().__init__()
         self.tasks_to_commit = tasks_to_commit
         self.manager = manager
@@ -2366,7 +2365,7 @@ class KanbanApp(App):
         self.manager.load_tasks()
         self.refresh_board()
 
-    def _git_commit_tasks(self, tasks: List[Task], message: str):
+    def _git_commit_tasks(self, tasks: list[Task], message: str):
         """Stage and commit specific task files."""
         try:
             for task in tasks:
