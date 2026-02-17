@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t144_1, t144_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitasks, bash]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-17 10:48
-updated_at: 2026-02-17 11:18
+updated_at: 2026-02-17 11:51
+completed_at: 2026-02-17 11:51
 ---
 
 ## Context
