@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [aitask_review, claudeskills]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-17 18:03
-updated_at: 2026-02-17 18:31
+updated_at: 2026-02-17 19:00
+completed_at: 2026-02-17 19:00
 ---
 
 Reorganize the reviewmodes storage from a flat directory to a directory tree structure, and add a gitignore-like filter file for enabling/disabling review modes.
