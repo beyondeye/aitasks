@@ -7,7 +7,7 @@ status: Ready
 labels: [aitasks, bash, scripting]
 created_at: 2026-02-09 10:22
 updated_at: 2026-02-09 10:22
-boardidx: 40
+boardidx: 10
 boardcol: backlog
 ---
 

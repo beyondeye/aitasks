@@ -7,8 +7,8 @@ status: Ready
 labels: [aitasks, aitask_board]
 created_at: 2026-02-08 12:08
 updated_at: 2026-02-08 12:08
-boardidx: 20
-boardcol: backlog
+boardidx: 80
+boardcol: next
 ---
 
 in the aitask_board python script it is already possible to move board columns with ctr+arrow. left / right, I would like the option rename a column, change its color and ADD a column.

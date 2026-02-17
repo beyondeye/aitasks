@@ -6,6 +6,7 @@ bash
 claudeskills
 codexcli
 geminicli
+gitremote
 install_scripts
 scripting
 statistics
