@@ -1,6 +1,7 @@
 aitask_board
 aitask_changelog
 aitask_fold
+aitask_review
 aitasks
 aitasks_explore
 bash
