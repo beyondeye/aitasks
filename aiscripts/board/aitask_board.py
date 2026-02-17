@@ -18,6 +18,7 @@ from textual.screen import Screen, ModalScreen
 from textual.binding import Binding
 from textual.message import Message
 from textual import on, work
+from textual.command import Provider, Hit, Hits, DiscoveryHit
 
 # --- Configuration & Constants ---
 
@@ -345,7 +346,57 @@ class TaskManager:
                 task.board_idx = new_idx
                 task.reload_and_save_board_fields()
 
+    def add_column(self, col_id: str, title: str, color: str):
+        """Add a new column to the board configuration."""
+        self.columns.append({"id": col_id, "title": title, "color": color})
+        self.column_order.append(col_id)
+        self.save_metadata()
+
+    def update_column(self, col_id: str, new_id: str, new_title: str, new_color: str):
+        """Update id, title, and color of an existing column."""
+        for col in self.columns:
+            if col["id"] == col_id:
+                col["id"] = new_id
+                col["title"] = new_title
+                col["color"] = new_color
+                break
+        if col_id != new_id:
+            # Update column_order
+            idx = self.column_order.index(col_id) if col_id in self.column_order else -1
+            if idx >= 0:
+                self.column_order[idx] = new_id
+            # Reassign tasks from old ID to new ID
+            for task in self.get_column_tasks(col_id):
+                task.board_col = new_id
+                task.reload_and_save_board_fields()
+        self.save_metadata()
+
+    def delete_column(self, col_id: str):
+        """Delete a column and reassign its tasks to 'unordered'."""
+        for task in self.get_column_tasks(col_id):
+            task.board_col = "unordered"
+            task.board_idx = 0
+            task.reload_and_save_board_fields()
+        self.columns = [c for c in self.columns if c["id"] != col_id]
+        if col_id in self.column_order:
+            self.column_order.remove(col_id)
+        self.save_metadata()
+
+    def get_column_conf(self, col_id: str):
+        """Return the config dict for a column, or None."""
+        return next((c for c in self.columns if c["id"] == col_id), None)
+
 # --- UI Components ---
+
+class ClickableColumnHeader(Label):
+    """A column header label that opens the column edit dialog on click."""
+
+    def __init__(self, col_id: str, title: str, task_count: int):
+        super().__init__(f"{title} ({task_count})")
+        self.col_id = col_id
+
+    def on_click(self):
+        self.app.open_column_edit(self.col_id)
 
 class TaskCard(Static):
     """A widget representing a single task."""
@@ -472,13 +523,17 @@ class KanbanColumn(VerticalScroll):
 
     def compose(self):
         # Header
-        header = Label(f"{self.col_title} ({len(self.manager.get_column_tasks(self.col_id))})")
+        task_count = len(self.manager.get_column_tasks(self.col_id))
+        if self.col_id == "unordered":
+            header = Label(f"{self.col_title} ({task_count})")
+        else:
+            header = ClickableColumnHeader(self.col_id, self.col_title, task_count)
         header.styles.background = self.col_color
         header.styles.color = "black"
         header.styles.width = "100%"
         header.styles.text_align = "center"
         yield header
-        
+
         # Task Cards
         tasks = self.manager.get_column_tasks(self.col_id)
         for task in tasks:
@@ -1346,6 +1401,262 @@ class CommitMessageScreen(ModalScreen):
     def action_cancel(self):
         self.dismiss(None)
 
+# --- Column Customization Screens ---
+
+PALETTE_COLORS = [
+    ("#FF5555", "Red"),
+    ("#FFB86C", "Orange"),
+    ("#F1FA8C", "Yellow"),
+    ("#50FA7B", "Green"),
+    ("#8BE9FD", "Cyan"),
+    ("#BD93F9", "Purple"),
+    ("#FF79C6", "Pink"),
+    ("#6272A4", "Gray"),
+]
+
+
+class ColorSwatch(Static):
+    """A clickable color swatch for the palette."""
+
+    can_focus = True
+
+    class Selected(Message):
+        def __init__(self, color: str):
+            super().__init__()
+            self.color = color
+
+    def __init__(self, color: str, label: str, selected: bool = False):
+        super().__init__()
+        self.color = color
+        self.label = label
+        self.is_selected = selected
+
+    def render(self) -> str:
+        marker = "\u25cf" if self.is_selected else "\u25cb"
+        return f"[{self.color}]{marker} \u2588\u2588[/]"
+
+    def on_click(self):
+        self.post_message(self.Selected(self.color))
+
+    def on_key(self, event):
+        if event.key in ("enter", "space"):
+            self.post_message(self.Selected(self.color))
+            event.prevent_default()
+            event.stop()
+
+    def on_focus(self):
+        self.styles.border = ("round", self.color)
+
+    def on_blur(self):
+        self.styles.border = None
+
+
+class ColumnEditScreen(ModalScreen):
+    """Modal dialog for adding or editing a kanban column."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, manager: TaskManager, col_id: str = None, mode: str = "add"):
+        super().__init__()
+        self.manager = manager
+        self.col_id = col_id
+        self.mode = mode
+        self.col_conf = manager.get_column_conf(col_id) if col_id else None
+        self.selected_color = self.col_conf["color"] if self.col_conf else PALETTE_COLORS[0][0]
+
+    @staticmethod
+    def _generate_col_id(name: str, existing_ids: list) -> str:
+        """Generate a unique column ID from a display name."""
+        # Remove emojis and non-ASCII, lowercase, replace spaces/special with underscore
+        slug = re.sub(r'[^\x00-\x7F]+', '', name)  # strip non-ASCII (emojis)
+        slug = slug.strip().lower()
+        slug = re.sub(r'[^a-z0-9]+', '_', slug)  # replace non-alnum with _
+        slug = slug.strip('_')  # trim leading/trailing underscores
+        slug = slug[:20]  # limit length
+        if not slug:
+            slug = "column"
+        # Ensure uniqueness
+        base = slug
+        counter = 2
+        while slug in existing_ids:
+            slug = f"{base}_{counter}"
+            counter += 1
+        return slug
+
+    def compose(self):
+        title = "Add New Column" if self.mode == "add" else f"Edit Column: {self.col_conf['title']}"
+        with Container(id="column_edit_dialog"):
+            yield Label(title, id="column_edit_title")
+            yield Input(
+                value=self.col_conf["title"] if self.col_conf else "",
+                placeholder="Column name",
+                id="col_title_input",
+            )
+            with Horizontal(id="color_palette"):
+                yield Label("Color ", id="color_label")
+                for color, label in PALETTE_COLORS:
+                    yield ColorSwatch(color, label, selected=(color == self.selected_color))
+            with Horizontal(id="detail_buttons"):
+                yield Button("Save", variant="success", id="btn_col_save")
+                yield Button("Cancel", variant="default", id="btn_col_cancel")
+
+    @on(ColorSwatch.Selected)
+    def on_color_selected(self, event: ColorSwatch.Selected):
+        self.selected_color = event.color
+        for swatch in self.query(ColorSwatch):
+            swatch.is_selected = (swatch.color == event.color)
+            swatch.refresh()
+
+    @on(Button.Pressed, "#btn_col_save")
+    def save(self):
+        title = self.query_one("#col_title_input", Input).value.strip()
+        if not title:
+            self.app.notify("Title is required", severity="warning")
+            return
+        color = self.selected_color
+        if self.mode == "add":
+            existing_ids = [c["id"] for c in self.manager.columns]
+            col_id = self._generate_col_id(title, existing_ids)
+            self.dismiss(("add", col_id, title, color))
+        else:
+            self.dismiss(("edit", self.col_id, title, color))
+
+    @on(Button.Pressed, "#btn_col_cancel")
+    def cancel(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+
+class DeleteColumnConfirmScreen(ModalScreen):
+    """Confirmation dialog to delete a column."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, col_conf: dict, task_count: int):
+        super().__init__()
+        self.col_conf = col_conf
+        self.task_count = task_count
+
+    def compose(self):
+        msg = f"Delete column '{self.col_conf['title']}'?"
+        if self.task_count > 0:
+            msg += f"\n\n{self.task_count} task(s) will be moved to Unsorted / Inbox."
+        with Container(id="dep_picker_dialog"):
+            yield Label(msg, id="dep_picker_title")
+            with Horizontal(id="detail_buttons"):
+                yield Button("Delete", variant="error", id="btn_confirm_col_delete")
+                yield Button("Cancel", variant="default", id="btn_cancel_col_delete")
+
+    @on(Button.Pressed, "#btn_confirm_col_delete")
+    def confirm(self):
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#btn_cancel_col_delete")
+    def cancel(self):
+        self.dismiss(False)
+
+    def action_cancel(self):
+        self.dismiss(False)
+
+
+class ColumnSelectItem(Static):
+    """A selectable column item in the picker."""
+
+    can_focus = True
+
+    def __init__(self, col_conf: dict):
+        super().__init__()
+        self.col_conf = col_conf
+
+    def render(self) -> str:
+        return f"  [{self.col_conf['color']}]\u2588\u2588[/] {self.col_conf['title']} ({self.col_conf['id']})"
+
+    def on_key(self, event):
+        if event.key == "enter":
+            self.screen.dismiss(self.col_conf["id"])
+            event.prevent_default()
+            event.stop()
+
+    def on_click(self):
+        self.screen.dismiss(self.col_conf["id"])
+
+    def on_focus(self):
+        self.add_class("dep-item-focused")
+
+    def on_blur(self):
+        self.remove_class("dep-item-focused")
+
+
+class ColumnSelectScreen(ModalScreen):
+    """Select a column from the list for editing/deleting."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Close", show=False),
+    ]
+
+    def __init__(self, manager: TaskManager, action_label: str):
+        super().__init__()
+        self.manager = manager
+        self.action_label = action_label
+
+    def compose(self):
+        with Container(id="dep_picker_dialog"):
+            yield Label(f"Select column to {self.action_label.lower()}:", id="dep_picker_title")
+            for col in self.manager.columns:
+                yield ColumnSelectItem(col)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+
+# --- Command Palette Provider ---
+
+class KanbanCommandProvider(Provider):
+    """Provide column management commands to the Textual command palette."""
+
+    async def discover(self) -> Hits:
+        app = self.app
+        yield DiscoveryHit(
+            display="Add Column",
+            command=app.action_add_column,
+            help="Add a new column to the board",
+        )
+        yield DiscoveryHit(
+            display="Edit Column",
+            command=app.action_edit_column,
+            help="Edit a column's title and color",
+        )
+        yield DiscoveryHit(
+            display="Delete Column",
+            command=app.action_delete_column,
+            help="Delete a column (tasks move to Unsorted)",
+        )
+
+    async def search(self, query: str) -> Hits:
+        matcher = self.matcher(query)
+        app = self.app
+        commands = [
+            ("Add Column", app.action_add_column, "Add a new column to the board"),
+            ("Edit Column", app.action_edit_column, "Edit a column's title and color"),
+            ("Delete Column", app.action_delete_column, "Delete a column (tasks move to Unsorted)"),
+        ]
+        for display, callback, help_text in commands:
+            score = matcher.match(display)
+            if score > 0:
+                yield Hit(
+                    score=score,
+                    match_display=matcher.highlight(display),
+                    command=callback,
+                    help=help_text,
+                )
+
+
 # --- Main Application ---
 
 class KanbanApp(App):
@@ -1421,7 +1732,38 @@ class KanbanApp(App):
         padding: 0 1;
         color: $text-muted;
     }
+    #column_edit_dialog {
+        width: 60%;
+        height: auto;
+        max-height: 60%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #column_edit_title {
+        text-align: center;
+        padding: 0 0 1 0;
+        text-style: bold;
+    }
+    #color_palette {
+        height: 3;
+        width: 100%;
+    }
+    #color_label {
+        width: auto;
+        height: 3;
+        content-align: left middle;
+        padding: 0 1 0 0;
+    }
+    ColorSwatch {
+        width: auto;
+        height: 3;
+        padding: 0 1;
+        content-align: center middle;
+    }
     """
+
+    COMMANDS = App.COMMANDS | {KanbanCommandProvider}
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
@@ -1835,6 +2177,65 @@ class KanbanApp(App):
             order[idx], order[new_idx] = order[new_idx], order[idx]
             self.manager.save_metadata()
             self.refresh_board(refocus_filename=filename)
+
+    # --- Column Customization ---
+
+    def _handle_column_edit_result(self, result):
+        """Callback for ColumnEditScreen dismiss."""
+        if not result:
+            return
+        action = result[0]
+        if action == "add":
+            _, col_id, title, color = result
+            self.manager.add_column(col_id, title, color)
+            self.notify(f"Added column: {title}", severity="information")
+        elif action == "edit":
+            _, col_id, title, color = result
+            self.manager.update_column(col_id, col_id, title, color)
+            self.notify(f"Updated column: {title}", severity="information")
+        self.refresh_board()
+
+    def action_add_column(self):
+        """Open the Add Column dialog."""
+        self.push_screen(
+            ColumnEditScreen(self.manager, mode="add"),
+            self._handle_column_edit_result,
+        )
+
+    def action_edit_column(self):
+        """Open column picker, then edit dialog."""
+        def on_col_selected(col_id):
+            if col_id:
+                self.push_screen(
+                    ColumnEditScreen(self.manager, col_id=col_id, mode="edit"),
+                    self._handle_column_edit_result,
+                )
+        self.push_screen(ColumnSelectScreen(self.manager, "Edit"), on_col_selected)
+
+    def action_delete_column(self):
+        """Open column picker, then confirm deletion."""
+        def on_col_selected(col_id):
+            if not col_id:
+                return
+            col_conf = self.manager.get_column_conf(col_id)
+            task_count = len(self.manager.get_column_tasks(col_id))
+            def on_confirmed(confirmed):
+                if confirmed:
+                    self.manager.delete_column(col_id)
+                    self.notify(f"Deleted column: {col_conf['title']}", severity="information")
+                    self.refresh_board()
+            self.push_screen(
+                DeleteColumnConfirmScreen(col_conf, task_count),
+                on_confirmed,
+            )
+        self.push_screen(ColumnSelectScreen(self.manager, "Delete"), on_col_selected)
+
+    def open_column_edit(self, col_id: str):
+        """Open the edit dialog for a specific column (called from header click)."""
+        self.push_screen(
+            ColumnEditScreen(self.manager, col_id=col_id, mode="edit"),
+            self._handle_column_edit_result,
+        )
 
     # --- Git Commit ---
 
