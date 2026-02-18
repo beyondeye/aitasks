@@ -1,6 +1,8 @@
 ---
 name: Code Conventions
 description: Check naming, formatting, and pattern consistency
+reviewtype: style
+reviewlabels: [naming, formatting, organization, comments]
 ---
 
 ## Review Instructions

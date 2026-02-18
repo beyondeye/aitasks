@@ -1,6 +1,8 @@
 ---
 name: Code Duplication
 description: Find DRY violations, copy-paste code, and repeated patterns
+reviewtype: code-smell
+reviewlabels: [dry, extraction, deduplication]
 ---
 
 ## Review Instructions

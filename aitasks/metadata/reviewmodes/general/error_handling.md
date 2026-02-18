@@ -1,6 +1,8 @@
 ---
 name: Error Handling
 description: Check for missing error handling, poor messages, and resource leaks
+reviewtype: bugs
+reviewlabels: [errors, exceptions, edge-cases, resource-cleanup]
 ---
 
 ## Review Instructions

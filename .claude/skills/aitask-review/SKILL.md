@@ -294,7 +294,7 @@ When continuing to implementation, set the following context variables from the 
 - This skill creates tasks from code review findings — either a single standalone task or a parent with children
 - Review modes are loaded from `aitasks/metadata/reviewmodes/` (tree structure with subdirectories, e.g. `general/`, `python/`, `shell/`; installed via `ait setup`)
 - Optional filter file: `aitasks/metadata/reviewmodes/.reviewmodesignore` uses gitignore syntax to exclude specific modes or directories
-- The frontmatter format is: `name` (string), `description` (string), `environment` (optional list)
+- The frontmatter format is: `name` (string), `description` (string), `environment` (optional list), `reviewtype` (optional string), `reviewlabels` (optional list), `similar_to` (optional string)
 - Universal modes have no `environment` field and apply to any project type
 - Environment auto-detection is handled by `./aiscripts/aitask_review_detect_env.sh` — uses modular scoring tests; modes are sorted by relevance but all are available for selection
 - Commit fetching for "Recent changes" is handled by `./aiscripts/aitask_review_commits.sh` — returns paginated, filtered, parseable commit lists

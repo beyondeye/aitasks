@@ -1,6 +1,8 @@
 ---
 name: Security
 description: Check for injection risks, secrets exposure, and OWASP top 10 patterns
+reviewtype: security
+reviewlabels: [injection, secrets, authentication, cryptography, input-validation]
 ---
 
 ## Review Instructions

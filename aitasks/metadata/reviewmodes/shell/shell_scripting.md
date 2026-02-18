@@ -2,6 +2,8 @@
 name: Shell Scripting
 description: Check variable quoting, error handling, portability, and shellcheck patterns
 environment: [bash, shell]
+reviewtype: conventions
+reviewlabels: [quoting, portability, shellcheck, error-handling]
 ---
 
 ## Review Instructions

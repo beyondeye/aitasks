@@ -2,6 +2,8 @@
 name: Python Best Practices
 description: Check type hints, modern idioms, context managers, and pythonic patterns
 environment: [python]
+reviewtype: conventions
+reviewlabels: [type-hints, idioms, context-managers, pythonic]
 ---
 
 ## Review Instructions

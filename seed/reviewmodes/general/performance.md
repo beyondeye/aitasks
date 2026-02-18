@@ -1,6 +1,8 @@
 ---
 name: Performance
 description: Find unnecessary allocations, N+1 patterns, and missing caching
+reviewtype: performance
+reviewlabels: [memory, caching, database, algorithmic-complexity]
 ---
 
 ## Review Instructions

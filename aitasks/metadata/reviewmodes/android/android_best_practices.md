@@ -2,6 +2,8 @@
 name: Android Best Practices
 description: Check lifecycle awareness, coroutines, Compose patterns, and memory management
 environment: [android, kotlin]
+reviewtype: conventions
+reviewlabels: [lifecycle, coroutines, compose, memory]
 ---
 
 ## Review Instructions

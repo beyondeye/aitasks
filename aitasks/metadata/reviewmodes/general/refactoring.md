@@ -1,6 +1,8 @@
 ---
 name: Refactoring Opportunities
 description: Identify complex functions, tight coupling, and code smells
+reviewtype: code-smell
+reviewlabels: [complexity, coupling, code-smells]
 ---
 
 ## Review Instructions
