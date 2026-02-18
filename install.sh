@@ -226,6 +226,42 @@ install_seed_task_types() {
     fi
 }
 
+# --- Install seed review types ---
+install_seed_reviewtypes() {
+    local src="$INSTALL_DIR/seed/reviewtypes.txt"
+    local dest="$INSTALL_DIR/aitasks/metadata/reviewtypes.txt"
+
+    if [[ ! -f "$src" ]]; then
+        warn "No seed/reviewtypes.txt in tarball — skipping review types installation"
+        return
+    fi
+
+    if [[ -f "$dest" && "$FORCE" != true ]]; then
+        info "  Review types file exists (kept): reviewtypes.txt"
+    else
+        cp "$src" "$dest"
+        info "  Installed review types: reviewtypes.txt"
+    fi
+}
+
+# --- Install seed review labels ---
+install_seed_reviewlabels() {
+    local src="$INSTALL_DIR/seed/reviewlabels.txt"
+    local dest="$INSTALL_DIR/aitasks/metadata/reviewlabels.txt"
+
+    if [[ ! -f "$src" ]]; then
+        warn "No seed/reviewlabels.txt in tarball — skipping review labels installation"
+        return
+    fi
+
+    if [[ -f "$dest" && "$FORCE" != true ]]; then
+        info "  Review labels file exists (kept): reviewlabels.txt"
+    else
+        cp "$src" "$dest"
+        info "  Installed review labels: reviewlabels.txt"
+    fi
+}
+
 # --- Install seed review modes ---
 install_seed_reviewmodes() {
     if [[ ! -d "$INSTALL_DIR/seed/reviewmodes" ]]; then
@@ -451,6 +487,12 @@ main() {
 
     info "Installing seed task types..."
     install_seed_task_types
+
+    info "Installing review types..."
+    install_seed_reviewtypes
+
+    info "Installing review labels..."
+    install_seed_reviewlabels
 
     info "Installing review modes..."
     install_seed_reviewmodes
