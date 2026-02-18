@@ -1,39 +1,39 @@
 ---
-name: aitask-reviewmode-merge
-description: Compare two similar review mode files and merge, split, or keep separate.
+name: aitask-reviewguide-merge
+description: Compare two similar review guide files and merge, split, or keep separate.
 ---
 
 ## Workflow
 
 ### Step 1: Mode Selection
 
-If this skill is invoked with two arguments (e.g., `/aitask-reviewmode-merge security error`), both are fuzzy search patterns — proceed to **Step 2** to resolve both.
+If this skill is invoked with two arguments (e.g., `/aitask-reviewguide-merge security error`), both are fuzzy search patterns — proceed to **Step 2** to resolve both.
 
-If invoked with one argument (e.g., `/aitask-reviewmode-merge security`), the argument is a fuzzy search pattern — proceed to **Step 2** to resolve it, then read its `similar_to` field for the second file.
+If invoked with one argument (e.g., `/aitask-reviewguide-merge security`), the argument is a fuzzy search pattern — proceed to **Step 2** to resolve it, then read its `similar_to` field for the second file.
 
-If invoked without arguments (`/aitask-reviewmode-merge`), jump to **Step 8** (batch mode).
+If invoked without arguments (`/aitask-reviewguide-merge`), jump to **Step 8** (batch mode).
 
 ### Step 2: Resolve Input Files
 
-For each argument, use fzf to fuzzy-find in the reviewmodes directory:
+For each argument, use fzf to fuzzy-find in the reviewguides directory:
 
 ```bash
-find aitasks/metadata/reviewmodes/ -name '*.md' -not -path '*/.reviewmodesignore' | sed 's|aitasks/metadata/reviewmodes/||' | fzf --filter "<argument>" | head -4
+find aireviewguides/ -name '*.md' -not -path '*/.reviewguidesignore' | sed 's|aireviewguides/||' | fzf --filter "<argument>" | head -4
 ```
 
 - **If exactly 1 match:** Use it directly.
 - **If 2-4 matches:** Use `AskUserQuestion`:
-  - Question: "Multiple reviewmode files match '<argument>'. Which one?"
+  - Question: "Multiple reviewguide files match '<argument>'. Which one?"
   - Header: "File"
   - Options: Each match as an option (label = relative path, description = "")
-- **If 0 matches:** Inform the user: "No reviewmode files match '<argument>'." and end the workflow.
+- **If 0 matches:** Inform the user: "No reviewguide files match '<argument>'." and end the workflow.
 
 **If only one argument was provided:**
 1. Read the resolved file's frontmatter, extract the `similar_to` field.
 2. If `similar_to` is set and non-empty: use its value as the second file's relative path (exact path, no fzf needed).
 3. If `similar_to` is empty or missing: inform the user: "File '<name>' has no `similar_to` field. Provide a second file to compare against, or run without arguments for batch mode." and end the workflow.
 
-**Validation:** Confirm both resolved files exist in `aitasks/metadata/reviewmodes/`. If both arguments resolve to the same file, inform the user and end.
+**Validation:** Confirm both resolved files exist in `aireviewguides/`. If both arguments resolve to the same file, inform the user and end.
 
 Read both files' full content (frontmatter + markdown body).
 
@@ -123,22 +123,22 @@ Use `AskUserQuestion`:
 
 5. **Remove `similar_to`** from the target file's frontmatter (if present).
 
-6. **Write the updated target file** to `aitasks/metadata/reviewmodes/<target_path>`.
+6. **Write the updated target file** to `aireviewguides/<target_path>`.
 
-7. **Delete the source file** from `aitasks/metadata/reviewmodes/<source_path>`.
+7. **Delete the source file** from `aireviewguides/<source_path>`.
 
 8. **Update vocabulary files if needed:** If the merged `reviewlabels` include values not in the vocabulary file:
    ```bash
-   echo "<new_label>" >> aitasks/metadata/reviewmodes/reviewlabels.txt && sort -o aitasks/metadata/reviewmodes/reviewlabels.txt aitasks/metadata/reviewmodes/reviewlabels.txt
+   echo "<new_label>" >> aireviewguides/reviewlabels.txt && sort -o aireviewguides/reviewlabels.txt aireviewguides/reviewlabels.txt
    ```
    Same pattern for `reviewenvironments.txt` if new environment values appear.
 
-9. **Clean up `similar_to` references:** Read all other reviewmode files. If any file has `similar_to` pointing to the deleted source file, update it to point to the target file instead (or clear it if the similarity no longer holds).
+9. **Clean up `similar_to` references:** Read all other reviewguide files. If any file has `similar_to` pointing to the deleted source file, update it to point to the target file instead (or clear it if the similarity no longer holds).
 
 10. **Commit:**
     ```bash
-    git add aitasks/metadata/reviewmodes/
-    git commit -m "ait: Merge reviewmode <source_name> into <target_name>"
+    git add aireviewguides/
+    git commit -m "ait: Merge reviewguide <source_name> into <target_name>"
     ```
 
 #### If "Keep separate":
@@ -149,12 +149,12 @@ Use `AskUserQuestion`:
 
 3. Clear `similar_to` from both files' frontmatter.
 
-4. Write both updated files to `aitasks/metadata/reviewmodes/`.
+4. Write both updated files to `aireviewguides/`.
 
 5. **Commit:**
    ```bash
-   git add aitasks/metadata/reviewmodes/
-   git commit -m "ait: Deduplicate reviewmodes <file_A_name> and <file_B_name>"
+   git add aireviewguides/
+   git commit -m "ait: Deduplicate reviewguides <file_A_name> and <file_B_name>"
    ```
 
 ### Step 7: Summary
@@ -188,7 +188,7 @@ Show what was done:
 Run the scan script:
 
 ```bash
-./aiscripts/aitask_reviewmode_scan.sh --find-similar
+./aiscripts/aitask_reviewguide_scan.sh --find-similar
 ```
 
 Parse the pipe-delimited output. Each line has the format:
@@ -198,7 +198,7 @@ Parse the pipe-delimited output. Each line has the format:
 
 Build candidate pairs: for each file where `overlap_count > 0` and `most_similar_path != none`, create a pair `(file, most_similar_path, overlap_count)`. Deduplicate pairs (A→B and B→A are the same pair — keep the one with the higher overlap count, or the first encountered).
 
-If no candidate pairs found: "No similar reviewmode files found. Nothing to merge." and end the workflow.
+If no candidate pairs found: "No similar reviewguide files found. Nothing to merge." and end the workflow.
 
 ### Step 9: Optional Environment Filter
 
@@ -245,7 +245,7 @@ After completing a pair, use `AskUserQuestion`:
   - `"Next pair"` (description: `"Re-scan and select another pair to compare"`)
   - `"Done"` (description: `"Finish merge workflow"`)
 
-**If "Next pair":** Re-run `./aiscripts/aitask_reviewmode_scan.sh --find-similar` to get updated candidates (since the merge changed the landscape). Apply the same environment filter from Step 9. Return to Step 10 with the new pairs.
+**If "Next pair":** Re-run `./aiscripts/aitask_reviewguide_scan.sh --find-similar` to get updated candidates (since the merge changed the landscape). Apply the same environment filter from Step 9. Return to Step 10 with the new pairs.
 
 **If "Done":** Proceed to Step 13.
 
@@ -268,12 +268,12 @@ Show a summary of the batch session:
 - If one argument is given, the second file comes from the first file's `similar_to` frontmatter field. If `similar_to` is not set, the skill informs the user and ends.
 - The detailed comparison (Step 3) is **semantic**: bullets that express the same review concern in different words are categorized as duplicates. The LLM reads both files and makes this determination.
 - The scan script's `--find-similar` output uses reviewlabel overlap counts, not bullet-point similarity. It serves as a rough heuristic for finding candidates; the detailed comparison in Step 3 is more thorough.
-- This skill does **not** modify the `seed/` directory. All changes are written to `aitasks/metadata/` only.
+- This skill does **not** modify the `seed/` directory. All changes are written to `aireviewguides/` only.
 - When merging, keep the target file's `reviewtype`. If the source had a different type, note it in the output but do not change the target's type.
-- When merging `reviewlabels`, take the union of both files' labels (sorted). If new labels are created, add them to `aitasks/metadata/reviewmodes/reviewlabels.txt` (sorted).
+- When merging `reviewlabels`, take the union of both files' labels (sorted). If new labels are created, add them to `aireviewguides/reviewlabels.txt` (sorted).
 - When merging `environment`, take the union. If one file is universal (no environment) and the other is environment-specific, keep the environment field from the specific one.
-- After deleting a source file, check all other reviewmode files for `similar_to` references pointing to the deleted file and update them to point to the target or clear them.
-- Commit messages use the `ait:` prefix: `ait: Merge reviewmode <source> into <target>` or `ait: Deduplicate reviewmodes <A> and <B>`.
+- After deleting a source file, check all other reviewguide files for `similar_to` references pointing to the deleted file and update them to point to the target or clear them.
+- Commit messages use the `ait:` prefix: `ait: Merge reviewguide <source> into <target>` or `ait: Deduplicate reviewguides <A> and <B>`.
 - In batch mode, re-run `--find-similar` after each merge to get updated pair candidates, since merging changes the label landscape.
 - The `AskUserQuestion` tool supports a maximum of 4 options. Pagination uses 3 items per page + "Show more" or "Skip all".
 - The "split" operation (extracting common content into a new third file) is not supported in this version. It can be added later if needed.

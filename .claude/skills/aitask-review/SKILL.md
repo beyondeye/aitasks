@@ -1,6 +1,6 @@
 ---
 name: aitask-review
-description: Review code using configurable review modes, then create tasks from findings.
+description: Review code using configurable review guides, then create tasks from findings.
 ---
 
 ## Workflow
@@ -108,9 +108,9 @@ Use `AskUserQuestion` to determine the review scope:
    git diff-tree --no-commit-id --name-only -r <hash>
    ```
 
-#### 1b. Review Mode Selection
+#### 1b. Review Guide Selection
 
-**Auto-detect project environment and rank review modes** using the helper script:
+**Auto-detect project environment and rank review guides** using the helper script:
 
 Determine the files to analyze:
 - If "Specific paths" was selected: use those paths
@@ -119,21 +119,21 @@ Determine the files to analyze:
 ```bash
 echo "<file1>
 <file2>
-..." | ./aiscripts/aitask_review_detect_env.sh --files-stdin --reviewmodes-dir aitasks/metadata/reviewmodes
+..." | ./aiscripts/aitask_review_detect_env.sh --files-stdin --reviewguides-dir aireviewguides
 ```
 
 The script uses modular scoring tests (project root markers, file extensions, shebang lines, directory patterns) and returns two sections separated by `---`:
 
 - `ENV_SCORES`: detected environments ranked by confidence score (one per line: `<env>|<score>`)
-- `REVIEW_MODES`: review mode files pre-sorted by relevance (one per line: `<relative_path>|<name>|<description>|<score_or_universal>`, where `relative_path` is relative to the reviewmodes directory, e.g. `general/code_conventions.md`)
+- `REVIEW_GUIDES`: review guide files pre-sorted by relevance (one per line: `<relative_path>|<name>|<description>|<score_or_universal>`, where `relative_path` is relative to the reviewguides directory, e.g. `general/code_conventions.md`)
 
 Modes are sorted: highest-scoring environment-specific first, then universal, then non-matching environment-specific last.
 
 **Profile check:** If the active profile has `review_default_modes` set (comma-separated list of mode names):
-- Auto-select those modes. Display: "Profile '\<name\>': using review modes: \<mode list\>"
+- Auto-select those modes. Display: "Profile '\<name\>': using review guides: \<mode list\>"
 - Skip the AskUserQuestion below
 
-Otherwise, present the modes in the script's pre-sorted order via `AskUserQuestion` multiSelect: "Select review modes to apply:"
+Otherwise, present the modes in the script's pre-sorted order via `AskUserQuestion` multiSelect: "Select review guides to apply:"
 - Each option: label = `name` field from script output, description = `description` field from script output
 - Since `AskUserQuestion` supports max 4 options, implement pagination:
   - Show up to 3 modes per page + "Show more modes" if additional modes exist
@@ -142,11 +142,11 @@ Otherwise, present the modes in the script's pre-sorted order via `AskUserQuesti
 
 #### 1c. Load Review Instructions
 
-Read the full content of each selected review mode file from `aitasks/metadata/reviewmodes/<relative_path>` (where `<relative_path>` comes from the script output, e.g. `general/code_conventions.md`). The markdown body after the YAML frontmatter contains the review instructions — these become the checklist for the automated review in Step 2.
+Read the full content of each selected review guide file from `aireviewguides/<relative_path>` (where `<relative_path>` comes from the script output, e.g. `general/code_conventions.md`). The markdown body after the YAML frontmatter contains the review instructions — these become the checklist for the automated review in Step 2.
 
 ### Step 2: Automated Review
 
-For each selected review mode:
+For each selected review guide:
 
 1. Read its review instructions (the markdown body after frontmatter)
 2. Systematically explore the target paths following those instructions:
@@ -155,7 +155,7 @@ For each selected review mode:
    - Use Grep to search for patterns mentioned in the review instructions
    - Use Task (Explore agents) for broader or deeper investigation when needed
 3. Record each finding with:
-   - **Mode:** The review mode name (e.g., "Code Conventions")
+   - **Mode:** The review guide name (e.g., "Code Conventions")
    - **Severity:** `high`, `medium`, or `low`
    - **Location:** `file_path:line_number`
    - **Description:** What the issue is
@@ -168,9 +168,9 @@ For each selected review mode:
 
 ### Step 3: Findings Presentation
 
-**If no findings:** Inform user "No issues found across the selected review modes." and end the workflow.
+**If no findings:** Inform user "No issues found across the selected review guides." and end the workflow.
 
-**If findings exist:** Group findings by review mode, then by severity (high → medium → low). Present as markdown:
+**If findings exist:** Group findings by review guide, then by severity (high → medium → low). Present as markdown:
 
 ```
 ## Review Findings
@@ -203,7 +203,7 @@ If the user selects no findings: inform "No findings selected. Ending review." a
 
 Use `AskUserQuestion`: "How should the selected findings become tasks?"
 - "Single task" (description: "One task with all selected findings in description")
-- "Group by review mode" (description: "One task per review mode that had selected findings")
+- "Group by review guide" (description: "One task per review guide that had selected findings")
 - "Separate tasks" (description: "One task per individual finding")
 
 **Determine priority from findings:** Use the highest severity among selected findings — high severity → `high` priority, medium → `medium`, low → `low`.
@@ -292,10 +292,10 @@ When continuing to implementation, set the following context variables from the 
 ## Notes
 
 - This skill creates tasks from code review findings — either a single standalone task or a parent with children
-- Review modes are loaded from `aitasks/metadata/reviewmodes/` (tree structure with subdirectories, e.g. `general/`, `python/`, `shell/`; installed via `ait setup`)
-- Optional filter file: `aitasks/metadata/reviewmodes/.reviewmodesignore` uses gitignore syntax to exclude specific modes or directories
+- Review guides are loaded from `aireviewguides/` (tree structure with subdirectories, e.g. `general/`, `python/`, `shell/`; installed via `ait setup`)
+- Optional filter file: `aireviewguides/.reviewguidesignore` uses gitignore syntax to exclude specific modes or directories
 - The frontmatter format is: `name` (string), `description` (string), `environment` (optional list), `reviewtype` (optional string), `reviewlabels` (optional list), `similar_to` (optional string)
-- Metadata vocabulary files (in `aitasks/metadata/reviewmodes/`): `reviewtypes.txt` (classification type), `reviewlabels.txt` (topic labels), `reviewenvironments.txt` (language/framework environments). Use `/aitask-reviewmode-classify` to assign or update metadata on reviewmode files.
+- Metadata vocabulary files (in `aireviewguides/`): `reviewtypes.txt` (classification type), `reviewlabels.txt` (topic labels), `reviewenvironments.txt` (language/framework environments). Use `/aitask-reviewguide-classify` to assign or update metadata on reviewguide files.
 - Universal modes have no `environment` field and apply to any project type. Environment-specific modes have `environment` values from `reviewenvironments.txt`.
 - Environment auto-detection is handled by `./aiscripts/aitask_review_detect_env.sh` — uses modular scoring tests; modes are sorted by relevance but all are available for selection
 - Commit fetching for "Recent changes" is handled by `./aiscripts/aitask_review_commits.sh` — returns paginated, filtered, parseable commit lists
