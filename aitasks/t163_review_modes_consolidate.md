@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [aitask_review, claudeskills]
-children_to_implement: [t163_4, t163_5]
+children_to_implement: [t163_5]
 created_at: 2026-02-18 00:17
-updated_at: 2026-02-18 16:04
+updated_at: 2026-02-18 18:59
 boardcol: now
 boardidx: 10
 ---
