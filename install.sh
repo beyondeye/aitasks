@@ -228,11 +228,11 @@ install_seed_task_types() {
 
 # --- Install seed review types ---
 install_seed_reviewtypes() {
-    local src="$INSTALL_DIR/seed/reviewmodes/reviewtypes.txt"
-    local dest="$INSTALL_DIR/aitasks/metadata/reviewmodes/reviewtypes.txt"
+    local src="$INSTALL_DIR/seed/reviewguides/reviewtypes.txt"
+    local dest="$INSTALL_DIR/aireviewguides/reviewtypes.txt"
 
     if [[ ! -f "$src" ]]; then
-        warn "No seed/reviewmodes/reviewtypes.txt in tarball — skipping review types installation"
+        warn "No seed/reviewguides/reviewtypes.txt in tarball — skipping review types installation"
         return
     fi
 
@@ -246,11 +246,11 @@ install_seed_reviewtypes() {
 
 # --- Install seed review labels ---
 install_seed_reviewlabels() {
-    local src="$INSTALL_DIR/seed/reviewmodes/reviewlabels.txt"
-    local dest="$INSTALL_DIR/aitasks/metadata/reviewmodes/reviewlabels.txt"
+    local src="$INSTALL_DIR/seed/reviewguides/reviewlabels.txt"
+    local dest="$INSTALL_DIR/aireviewguides/reviewlabels.txt"
 
     if [[ ! -f "$src" ]]; then
-        warn "No seed/reviewmodes/reviewlabels.txt in tarball — skipping review labels installation"
+        warn "No seed/reviewguides/reviewlabels.txt in tarball — skipping review labels installation"
         return
     fi
 
@@ -264,11 +264,11 @@ install_seed_reviewlabels() {
 
 # --- Install seed review environments ---
 install_seed_reviewenvironments() {
-    local src="$INSTALL_DIR/seed/reviewmodes/reviewenvironments.txt"
-    local dest="$INSTALL_DIR/aitasks/metadata/reviewmodes/reviewenvironments.txt"
+    local src="$INSTALL_DIR/seed/reviewguides/reviewenvironments.txt"
+    local dest="$INSTALL_DIR/aireviewguides/reviewenvironments.txt"
 
     if [[ ! -f "$src" ]]; then
-        warn "No seed/reviewmodes/reviewenvironments.txt in tarball — skipping review environments installation"
+        warn "No seed/reviewguides/reviewenvironments.txt in tarball — skipping review environments installation"
         return
     fi
 
@@ -280,37 +280,37 @@ install_seed_reviewenvironments() {
     fi
 }
 
-# --- Install seed review modes ---
-install_seed_reviewmodes() {
-    if [[ ! -d "$INSTALL_DIR/seed/reviewmodes" ]]; then
-        warn "No seed/reviewmodes/ directory in tarball — skipping review mode installation"
+# --- Install seed review guides ---
+install_seed_reviewguides() {
+    if [[ ! -d "$INSTALL_DIR/seed/reviewguides" ]]; then
+        warn "No seed/reviewguides/ directory in tarball — skipping review guide installation"
         return
     fi
 
-    mkdir -p "$INSTALL_DIR/aitasks/metadata/reviewmodes"
+    mkdir -p "$INSTALL_DIR/aireviewguides"
 
-    # Copy review mode files recursively (supports tree structure)
+    # Copy review guide files recursively (supports tree structure)
     while IFS= read -r -d '' mode_file; do
-        local rel_path="${mode_file#$INSTALL_DIR/seed/reviewmodes/}"
-        local dest="$INSTALL_DIR/aitasks/metadata/reviewmodes/$rel_path"
+        local rel_path="${mode_file#$INSTALL_DIR/seed/reviewguides/}"
+        local dest="$INSTALL_DIR/aireviewguides/$rel_path"
         mkdir -p "$(dirname "$dest")"
         if [[ -f "$dest" && "$FORCE" != true ]]; then
-            info "  Review mode exists (kept): $rel_path"
+            info "  Review guide exists (kept): $rel_path"
         else
             cp "$mode_file" "$dest"
-            info "  Installed review mode: $rel_path"
+            info "  Installed review guide: $rel_path"
         fi
-    done < <(find "$INSTALL_DIR/seed/reviewmodes" -name "*.md" -type f -print0 2>/dev/null)
+    done < <(find "$INSTALL_DIR/seed/reviewguides" -name "*.md" -type f -print0 2>/dev/null)
 
-    # Copy .reviewmodesignore if present in seed
-    local src_ignore="$INSTALL_DIR/seed/reviewmodes/.reviewmodesignore"
-    local dest_ignore="$INSTALL_DIR/aitasks/metadata/reviewmodes/.reviewmodesignore"
+    # Copy .reviewguidesignore if present in seed
+    local src_ignore="$INSTALL_DIR/seed/reviewguides/.reviewguidesignore"
+    local dest_ignore="$INSTALL_DIR/aireviewguides/.reviewguidesignore"
     if [[ -f "$src_ignore" ]]; then
         if [[ -f "$dest_ignore" && "$FORCE" != true ]]; then
-            info "  Filter file exists (kept): .reviewmodesignore"
+            info "  Filter file exists (kept): .reviewguidesignore"
         else
             cp "$src_ignore" "$dest_ignore"
-            info "  Installed filter file: .reviewmodesignore"
+            info "  Installed filter file: .reviewguidesignore"
         fi
     fi
 }
@@ -515,8 +515,8 @@ main() {
     info "Installing review environments..."
     install_seed_reviewenvironments
 
-    info "Installing review modes..."
-    install_seed_reviewmodes
+    info "Installing review guides..."
+    install_seed_reviewguides
 
     info "Storing Claude Code permissions seed..."
     install_seed_claude_settings

@@ -1,4 +1,4 @@
-# .reviewmodesignore - Exclude review modes from discovery
+# .reviewguidesignore - Exclude review guides from discovery
 # Uses gitignore syntax (patterns, wildcards, directory matches).
 # Matching is done via: git check-ignore --no-index
 #

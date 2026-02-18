@@ -685,26 +685,26 @@ install_claude_settings() {
     fi
 }
 
-# --- Review modes setup ---
-setup_review_modes() {
+# --- Review guides setup ---
+setup_review_guides() {
     local project_dir="$SCRIPT_DIR/.."
-    local seed_dir="$project_dir/seed/reviewmodes"
-    local dest_dir="$project_dir/aitasks/metadata/reviewmodes"
+    local seed_dir="$project_dir/seed/reviewguides"
+    local dest_dir="$project_dir/aireviewguides"
 
-    # If no seed directory, check if reviewmodes already installed
+    # If no seed directory, check if review guides already installed
     if [[ ! -d "$seed_dir" ]]; then
         if [[ -d "$dest_dir" ]]; then
             local count
             count=$(find "$dest_dir" -name "*.md" -type f 2>/dev/null | wc -l)
             if [[ $count -gt 0 ]]; then
-                success "Review modes already installed ($count modes in aitasks/metadata/reviewmodes/)"
+                success "Review guides already installed ($count guides in aireviewguides/)"
             else
-                warn "No seed/reviewmodes/ directory found — skipping review mode setup"
-                info "Review modes can be added manually to aitasks/metadata/reviewmodes/"
+                warn "No seed/reviewguides/ directory found — skipping review guide setup"
+                info "Review guides can be added manually to aireviewguides/"
             fi
         else
-            warn "No seed/reviewmodes/ directory found — skipping review mode setup"
-            info "Review modes can be added manually to aitasks/metadata/reviewmodes/"
+            warn "No seed/reviewguides/ directory found — skipping review guide setup"
+            info "Review guides can be added manually to aireviewguides/"
         fi
         return
     fi
@@ -716,18 +716,18 @@ setup_review_modes() {
     done < <(find "$seed_dir" -name "*.md" -type f -print0 2>/dev/null)
 
     if [[ ${#seed_files[@]} -eq 0 ]]; then
-        warn "No review mode files found in seed/reviewmodes/"
+        warn "No review guide files found in seed/reviewguides/"
         return
     fi
 
-    info "Found ${#seed_files[@]} review mode templates available for installation."
+    info "Found ${#seed_files[@]} review guide templates available for installation."
 
     # Build display list: extract name and description from YAML frontmatter
     local display_lines=()
     local file_map=()  # parallel array: display_line -> filepath
 
     # Add "Install all" option first
-    display_lines+=(">>> Install all ${#seed_files[@]} review modes")
+    display_lines+=(">>> Install all ${#seed_files[@]} review guides")
     file_map+=("ALL")
 
     for f in "${seed_files[@]}"; do
@@ -790,12 +790,12 @@ setup_review_modes() {
 
         local selected
         selected=$(echo "$fzf_input" | fzf --multi \
-            --prompt="Review modes (Tab to select, Enter to confirm): " \
-            --header="Select review modes to install" \
+            --prompt="Review guides (Tab to select, Enter to confirm): " \
+            --header="Select review guides to install" \
             --height=15 --no-info) || true
 
         if [[ -z "$selected" ]]; then
-            info "No review modes selected — skipping"
+            info "No review guides selected — skipping"
             return
         fi
 
@@ -816,7 +816,7 @@ setup_review_modes() {
         fi
     else
         # Non-interactive: install all
-        info "(non-interactive: installing all review modes)"
+        info "(non-interactive: installing all review guides)"
         selected_indices=("${!seed_files[@]}")
     fi
 
@@ -838,20 +838,20 @@ setup_review_modes() {
         fi
     done
 
-    # Copy .reviewmodesignore if present in seed and not already installed
-    if [[ -f "$seed_dir/.reviewmodesignore" && ! -f "$dest_dir/.reviewmodesignore" ]]; then
-        cp "$seed_dir/.reviewmodesignore" "$dest_dir/.reviewmodesignore"
-        info "  Installed filter file: .reviewmodesignore"
+    # Copy .reviewguidesignore if present in seed and not already installed
+    if [[ -f "$seed_dir/.reviewguidesignore" && ! -f "$dest_dir/.reviewguidesignore" ]]; then
+        cp "$seed_dir/.reviewguidesignore" "$dest_dir/.reviewguidesignore"
+        info "  Installed filter file: .reviewguidesignore"
     fi
 
     if [[ $installed -gt 0 ]]; then
-        success "Installed $installed review mode(s)"
+        success "Installed $installed review guide(s)"
     fi
     if [[ $skipped -gt 0 ]]; then
-        info "Skipped $skipped existing mode(s) (preserved user customizations)"
+        info "Skipped $skipped existing guide(s) (preserved user customizations)"
     fi
     if [[ $installed -eq 0 && $skipped -eq 0 ]]; then
-        info "No review modes were installed"
+        info "No review guides were installed"
     fi
 }
 
@@ -972,7 +972,7 @@ main() {
     install_claude_settings
     echo ""
 
-    setup_review_modes
+    setup_review_guides
     echo ""
 
     commit_framework_files
