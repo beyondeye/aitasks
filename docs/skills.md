@@ -10,7 +10,6 @@ aitasks provides Claude Code skills that automate the full task workflow. These 
 - [/aitask-explore](#aitask-explore)
 - [/aitask-fold](#aitask-fold)
 - [/aitask-create](#aitask-create)
-- [/aitask-create2](#aitask-create2)
 - [/aitask-stats](#aitask-stats)
 - [/aitask-changelog](#aitask-changelog)
 
@@ -24,7 +23,6 @@ aitasks provides Claude Code skills that automate the full task workflow. These 
 | `/aitask-explore` | Explore the codebase interactively, then create a task from findings |
 | `/aitask-fold` | Identify and merge related tasks into a single task |
 | `/aitask-create` | Create tasks interactively via Claude Code |
-| `/aitask-create2` | Create tasks using terminal fzf (faster alternative) |
 | `/aitask-stats` | View completion statistics |
 | `/aitask-changelog` | Generate changelog entries from commits and plans |
 
@@ -201,38 +199,7 @@ Create a new task file with automatic numbering and proper metadata via Claude C
 5. **Definition** — Iterative content collection with file reference insertion via Glob search
 6. **Create & commit** — Writes task file with YAML frontmatter and commits to git
 
-This is the Claude Code-native alternative — metadata collection happens through Claude's UI rather than terminal fzf. Use `/aitask-create2` for a faster terminal-native experience.
-
----
-
-## /aitask-create2
-
-Create a new task file using the terminal-native fzf interface — a faster alternative to `/aitask-create`.
-
-**Usage:**
-```
-/aitask-create2
-```
-
-Launches `./aiscripts/aitask_create.sh` directly in the terminal. All prompts use fzf for fast, keyboard-driven selection:
-
-- Parent task selection with fzf
-- Priority, effort, issue type, status via fzf menus
-- Labels with iterative fzf selection (existing + new)
-- Dependencies via fzf multi-select with sibling tasks listed first
-- Task name with auto-sanitization
-- Description entry with fzf file walker for inserting file references (includes preview)
-- Post-creation: view, edit in $EDITOR, or finish
-- Optional git commit
-
-**Batch mode** (for automation by AI agents):
-
-```bash
-./aiscripts/aitask_create.sh --batch --parent 10 --name "subtask" --desc "Description"
-./aiscripts/aitask_create.sh --batch --parent 10 --name "parallel" --desc "Work" --no-sibling-dep
-```
-
-Preferred when speed matters — fzf selections are faster than Claude Code's `AskUserQuestion` prompts.
+This is the Claude Code-native alternative — metadata collection happens through Claude's UI rather than terminal fzf.
 
 ---
 

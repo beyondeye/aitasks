@@ -1,6 +1,7 @@
 ---
 name: aitask-create2
 description: Create a new aitask file interactively using bash/fzf (faster alternative to aitask-create)
+user-invocable: false
 ---
 
 Run the interactive task creation script:
