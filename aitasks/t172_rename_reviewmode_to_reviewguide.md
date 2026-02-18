@@ -5,9 +5,9 @@ depends: []
 issue_type: refactor
 status: Ready
 labels: [aitask_review, claudeskills]
-children_to_implement: [t172_3, t172_4, t172_5]
+children_to_implement: [t172_4, t172_5]
 created_at: 2026-02-18 22:00
-updated_at: 2026-02-18 22:58
+updated_at: 2026-02-18 23:08
 ---
 
 Rename all references in the repository from "reviewmode" to "reviewguide" and restructure the directory layout. This is a comprehensive refactoring touching ~50 files and ~330 occurrences.
