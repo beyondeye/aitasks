@@ -472,7 +472,29 @@ The script outputs structured lines. Parse each line and handle accordingly:
 
 - `ISSUE:<task_num>:<issue_url>` — Execute the **Issue Update Procedure** (see below) for the task
 - `PARENT_ISSUE:<task_num>:<issue_url>` — Execute the **Issue Update Procedure** for the parent task
-- `FOLDED_ISSUE:<task_num>:<issue_url>` — Execute the **Issue Update Procedure** for the folded task. When posting a comment, note that the task was folded into t<task_id>
+- `FOLDED_ISSUE:<folded_task_num>:<issue_url>` — The folded task's file has been deleted, so the standard Issue Update Procedure cannot be used (it requires the task file). Instead, handle inline:
+  - Use `AskUserQuestion`:
+    - Question: "Folded task t<folded_task_num> had a linked issue: <issue_url>. Update/close it?"
+    - Header: "Issue"
+    - Options:
+      - "Close with notes" (description: "Post implementation notes from primary task and close")
+      - "Comment only" (description: "Post implementation notes but leave open")
+      - "Close silently" (description: "Close without posting a comment")
+      - "Skip" (description: "Don't touch the issue")
+  - If "Close with notes":
+    ```bash
+    ./aiscripts/aitask_issue_update.sh --issue-url "<issue_url>" --close <task_id>
+    ```
+  - If "Comment only":
+    ```bash
+    ./aiscripts/aitask_issue_update.sh --issue-url "<issue_url>" <task_id>
+    ```
+  - If "Close silently":
+    ```bash
+    ./aiscripts/aitask_issue_update.sh --issue-url "<issue_url>" --close --no-comment <task_id>
+    ```
+  - If "Skip": do nothing
+  - Note: Uses the primary `task_id` (not `folded_task_num`) so the comment references the primary task's commits and plan file
 - `FOLDED_WARNING:<task_num>:<status>` — Warn the user: "Folded task t<N> has status '<status>' — skipping automatic deletion. Please handle it manually."
 - `PARENT_ARCHIVED:<path>` — Inform user: "All child tasks complete! Parent task also archived."
 - `COMMITTED:<hash>` — Archival commit was created

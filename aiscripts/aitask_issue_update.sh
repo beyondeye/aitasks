@@ -17,6 +17,7 @@ COMMITS_OVERRIDE=""
 CLOSE_ISSUE=false
 NO_COMMENT=false
 DRY_RUN=false
+ISSUE_URL_OVERRIDE=""
 
 # --- Helper Functions ---
 
@@ -192,19 +193,22 @@ build_comment_body() {
 run_update() {
     source_check_cli
 
-    # Step 1: Resolve task file
-    local task_file
-    task_file=$(resolve_task_file "$TASK_NUM")
-    info "Task file: $task_file"
-
-    # Step 2: Extract issue URL from task metadata
+    # Step 1-2: Get issue URL (from override or task file)
     local issue_url
-    issue_url=$(extract_issue_url "$task_file")
+    if [[ -n "$ISSUE_URL_OVERRIDE" ]]; then
+        issue_url="$ISSUE_URL_OVERRIDE"
+        info "Issue URL (override): $issue_url"
+    else
+        local task_file
+        task_file=$(resolve_task_file "$TASK_NUM")
+        info "Task file: $task_file"
 
-    if [[ -z "$issue_url" ]]; then
-        die "Task t${TASK_NUM} has no 'issue' field in its frontmatter"
+        issue_url=$(extract_issue_url "$task_file")
+        if [[ -z "$issue_url" ]]; then
+            die "Task t${TASK_NUM} has no 'issue' field in its frontmatter"
+        fi
+        info "Issue URL: $issue_url"
     fi
-    info "Issue URL: $issue_url"
 
     # Step 3: Extract issue number from URL
     local issue_number
@@ -295,6 +299,8 @@ Required:
 
 Options:
   --source, -S PLATFORM   Source platform: github (default)
+  --issue-url URL          Provide issue URL directly (skip task file lookup)
+                           Useful when the task file has been deleted (e.g., folded tasks)
   --commits RANGE          Override auto-detected commits
                            Formats: "abc123,def456" or "abc123..def456" or "abc123"
   --close                  Close the issue after posting the comment
@@ -328,6 +334,9 @@ Examples:
 
   # Close without a comment
   ./aitask_issue_update.sh --close --no-comment 83
+
+  # Close a folded task's issue using the primary task for context
+  ./aitask_issue_update.sh --issue-url "https://github.com/owner/repo/issues/42" --close 106
 EOF
 }
 
@@ -336,6 +345,7 @@ parse_args() {
         case "$1" in
             --source|-S) SOURCE="$2"; shift 2 ;;
             --commits) COMMITS_OVERRIDE="$2"; shift 2 ;;
+            --issue-url) ISSUE_URL_OVERRIDE="$2"; shift 2 ;;
             --close) CLOSE_ISSUE=true; shift ;;
             --comment-only) shift ;;  # Default behavior
             --no-comment) NO_COMMENT=true; shift ;;
