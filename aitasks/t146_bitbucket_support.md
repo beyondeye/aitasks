@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: ['136']
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [claudeskills, gitremote, scripting]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-17 11:32
-updated_at: 2026-02-18 12:10
-boardidx: 30
+updated_at: 2026-02-18 12:15
 boardcol: now
+boardidx: 30
 ---
 
 See `aidocs/gitremoteproviderintegration.md` for the full checklist of files and sections to update when adding a new git remote provider.
