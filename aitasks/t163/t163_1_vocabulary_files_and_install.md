@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_review, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-18 15:10
-updated_at: 2026-02-18 15:10
+updated_at: 2026-02-18 15:25
 ---
 
 ## Context
