@@ -8,15 +8,15 @@ Branch: main
 Base branch: main
 ---
 
-# Plan: Review Modes Infrastructure (t129_3)
+# Plan: Review Guides Infrastructure (t129_3)
 
 ## Context
 
-This task creates the review modes system for the future `/aitask-review` skill (t129_4). Review modes are markdown files with YAML frontmatter that define code review instructions. They are stored as seed templates in `seed/reviewmodes/` and installed to `aitasks/metadata/reviewmodes/` via `install.sh` and `ait setup`.
+This task creates the review guides system for the future `/aitask-review` skill (t129_4). Review guides are markdown files with YAML frontmatter that define code review instructions. They are stored as seed templates in `seed/reviewguides/` and installed to `aireviewguides/` via `install.sh` and `ait setup`.
 
 ## Files to Create
 
-### 9 seed review mode files in `seed/reviewmodes/`
+### 9 seed review guide files in `seed/reviewguides/`
 
 Each file follows this format:
 ```yaml
@@ -44,7 +44,7 @@ Files (60-120 lines each):
 
 ## Files to Modify
 
-### 1. `install.sh` — Add `install_seed_reviewmodes()`
+### 1. `install.sh` — Add `install_seed_reviewguides()`
 
 - [x] Insert function after `install_seed_task_types()` (line 227)
 - [x] Add call in `main()` after line 369, before `install_seed_claude_settings`
@@ -56,8 +56,8 @@ Files (60-120 lines each):
 
 ## Implementation Steps
 
-- [x] Step 1: Create `seed/reviewmodes/` directory and all 9 seed files
-- [x] Step 2: Add `install_seed_reviewmodes()` to `install.sh`
+- [x] Step 1: Create `seed/reviewguides/` directory and all 9 seed files
+- [x] Step 2: Add `install_seed_reviewguides()` to `install.sh`
 - [x] Step 3: Add `setup_review_modes()` to `aiscripts/aitask_setup.sh`
 - [x] Step 4: Test by running `ait setup`
 
@@ -66,12 +66,12 @@ Files (60-120 lines each):
 1. All 9 seed files have valid YAML frontmatter with `name` and `description`
 2. `environment` field format correct for language-specific modes
 3. `ait setup` shows fzf multi-select with names/descriptions
-4. Selected modes copied to `aitasks/metadata/reviewmodes/`
+4. Selected modes copied to `aireviewguides/`
 5. Re-running setup skips existing files
 
 ## Final Implementation Notes
-- **Actual work done:** Created 9 seed review mode files in `seed/reviewmodes/` with detailed, actionable review instructions. Added `install_seed_reviewmodes()` to `install.sh` (+26 lines) following the exact `install_seed_profiles()` pattern. Added `setup_review_modes()` to `aiscripts/aitask_setup.sh` (+156 lines) with fzf multi-select, YAML frontmatter extraction, idempotency, and non-interactive fallback.
+- **Actual work done:** Created 9 seed review guide files in `seed/reviewguides/` with detailed, actionable review instructions. Added `install_seed_reviewguides()` to `install.sh` (+26 lines) following the exact `install_seed_profiles()` pattern. Added `setup_review_modes()` to `aiscripts/aitask_setup.sh` (+156 lines) with fzf multi-select, YAML frontmatter extraction, idempotency, and non-interactive fallback.
 - **Deviations from plan:** None — implementation matched the plan exactly.
 - **Issues encountered:** The `((installed++))` arithmetic syntax returns exit code 1 when incrementing from 0 (since 0 is falsy), which causes `set -e` to terminate the script. Fixed by using `installed=$((installed + 1))` instead. This is a common bash pitfall.
 - **Key decisions:** (1) YAML frontmatter extraction uses a simple while-read loop matching `^name:` and `^description:` — no external YAML parser needed. (2) fzf display includes `[installed]` markers for already-installed modes. (3) Non-interactive mode installs all modes silently, matching the pattern from other setup functions.
-- **Notes for sibling tasks:** The review modes are now at `aitasks/metadata/reviewmodes/*.md`. The t129_4 (`aitask-review`) skill should read files from this directory, extract frontmatter for mode selection, and use the markdown body as review instructions for Claude. The frontmatter format is: `name` (string), `description` (string), `environment` (optional list). Universal modes have no `environment` field.
+- **Notes for sibling tasks:** The review guides are now at `aireviewguides/*.md`. The t129_4 (`aitask-review`) skill should read files from this directory, extract frontmatter for mode selection, and use the markdown body as review instructions for Claude. The frontmatter format is: `name` (string), `description` (string), `environment` (optional list). Universal modes have no `environment` field.

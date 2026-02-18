@@ -12,15 +12,15 @@ completed_at: 2026-02-17 14:33
 ---
 
 ## Context
-This task creates the review modes infrastructure for the `/aitask-review` skill. Review modes are configurable markdown files with YAML frontmatter that define code review instructions. They are stored in `aitasks/metadata/reviewmodes/` and seed templates are provided in `seed/reviewmodes/` for installation via `ait setup`.
+This task creates the review guides infrastructure for the `/aitask-review` skill. Review guides are configurable markdown files with YAML frontmatter that define code review instructions. They are stored in `aireviewguides/` and seed templates are provided in `seed/reviewguides/` for installation via `ait setup`.
 
-This is part of the dynamic task skill initiative (t129). The review modes system provides the foundation that the `/aitask-review` skill (t129_4) will consume.
+This is part of the dynamic task skill initiative (t129). The review guides system provides the foundation that the `/aitask-review` skill (t129_4) will consume.
 
 ## Key Files to Create/Modify
 
-1. **Create** `seed/reviewmodes/` directory with 9 template review mode files
-2. **Create** `aitasks/metadata/reviewmodes/` directory (populated during `ait setup`)
-3. **Modify** `aiscripts/aitask_setup.sh` — add review mode selection/installation step
+1. **Create** `seed/reviewguides/` directory with 9 template review guide files
+2. **Create** `aireviewguides/` directory (populated during `ait setup`)
+3. **Modify** `aiscripts/aitask_setup.sh` — add review guide selection/installation step
 
 ## Reference Files for Patterns
 
@@ -31,9 +31,9 @@ This is part of the dynamic task skill initiative (t129). The review modes syste
 
 ## Implementation Plan
 
-### Step 1: Define the review mode file format
+### Step 1: Define the review guide file format
 
-Each review mode is a markdown file with YAML frontmatter:
+Each review guide is a markdown file with YAML frontmatter:
 ```yaml
 ---
 name: Code Conventions
@@ -53,7 +53,7 @@ Frontmatter fields:
 - `description` (required): Short description of what this mode reviews
 - `environment` (optional): List of environments/languages (e.g., `[python]`, `[android, kotlin]`). When omitted, the mode is universal
 
-### Step 2: Create seed review mode templates in `seed/reviewmodes/`
+### Step 2: Create seed review guide templates in `seed/reviewguides/`
 
 Create 9 files:
 
@@ -69,16 +69,16 @@ Create 9 files:
 
 Each file should have detailed, actionable review instructions that Claude can follow during automated review. Include specific things to look for, patterns that indicate problems, and what the fix should look like.
 
-### Step 3: Add review mode installation to `ait setup`
+### Step 3: Add review guide installation to `ait setup`
 
 Add a new function to `aiscripts/aitask_setup.sh` (after existing setup steps):
 
-1. Check if `seed/reviewmodes/` directory exists
-2. List all seed review mode files
+1. Check if `seed/reviewguides/` directory exists
+2. List all seed review guide files
 3. Extract name and description from each file's YAML frontmatter
-4. Present to user via fzf multi-select: "Select review modes to install (Tab to select, Enter to confirm):"
+4. Present to user via fzf multi-select: "Select review guides to install (Tab to select, Enter to confirm):"
    - Include an "Install all" option at the top
-5. Create `aitasks/metadata/reviewmodes/` directory if it doesn't exist
+5. Create `aireviewguides/` directory if it doesn't exist
 6. Copy selected files, skipping any that already exist (preserve user customizations)
 7. Report how many were installed
 
@@ -92,6 +92,6 @@ Add a new function to `aiscripts/aitask_setup.sh` (after existing setup steps):
 
 1. Verify all 9 seed files have valid YAML frontmatter with required name and description fields
 2. Verify environment field format is correct (list in square brackets)
-3. Run the setup function and verify review modes are copied to `aitasks/metadata/reviewmodes/`
+3. Run the setup function and verify review guides are copied to `aireviewguides/`
 4. Run setup again and verify existing files are NOT overwritten
-5. Verify the metadata/reviewmodes/ directory only contains .md files
+5. Verify the metadata/reviewguides/ directory only contains .md files

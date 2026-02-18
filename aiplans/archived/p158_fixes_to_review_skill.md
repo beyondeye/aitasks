@@ -49,11 +49,11 @@ Replaces inline env detection from SKILL.md Step 1b lines 115-125 with a modular
 
 **Interface:**
 ```
-./aiscripts/aitask_review_detect_env.sh [--files-stdin | --files FILE...] [--reviewmodes-dir DIR]
+./aiscripts/aitask_review_detect_env.sh [--files-stdin | --files FILE...] [--reviewguides-dir DIR]
 ```
 - `--files-stdin`: read file list from stdin (one per line)
 - `--files FILE...`: list of files as arguments
-- `--reviewmodes-dir DIR` (default: `aitasks/metadata/reviewmodes`)
+- `--reviewguides-dir DIR` (default: `aitasks/metadata/reviewguides`)
 
 **Architecture — Modular Independent Tests:**
 
@@ -83,7 +83,7 @@ Each test is a function named `test_*` that updates an associative array `ENV_SC
    - Files under `aiscripts/` or `*.sh` at root → bash+shell +2
    - Files under `src/main/kotlin/` or `src/main/java/` → android+kotlin +2
 
-**Reviewmode parsing:** Pure bash YAML frontmatter parser extracts `name`, `description`, `environment` from each `.md` file.
+**Reviewguide parsing:** Pure bash YAML frontmatter parser extracts `name`, `description`, `environment` from each `.md` file.
 
 **Output format (two sections):**
 ```
@@ -125,7 +125,7 @@ Replace lines 67-102 (the entire "Recent changes" inline logic) with:
 - Keep the commit hash resolution and changed files logic (steps 3-4) unchanged
 
 **4c. Step 1b — Replace inline env detection with script call:**
-Replace lines 108-126 (the "List reviewmodes" + "Auto-detect" section) with:
+Replace lines 108-126 (the "List reviewguides" + "Auto-detect" section) with:
 - Determine files to analyze (from Step 1a's changed files or user-selected paths)
 - Call `./aiscripts/aitask_review_detect_env.sh --files-stdin`
 - Use the script's sorted `REVIEW_MODES` output for the `AskUserQuestion` pagination
@@ -149,7 +149,7 @@ Replace lines 108-126 (the "List reviewmodes" + "Auto-detect" section) with:
    echo "aiscripts/aitask_lock.sh
    aiscripts/aitask_ls.sh" | ./aiscripts/aitask_review_detect_env.sh --files-stdin
    ```
-   Verify: bash/shell scored high, review modes sorted correctly
+   Verify: bash/shell scored high, review guides sorted correctly
 
 3. **Test with no files:**
    ```bash
@@ -166,7 +166,7 @@ Replace lines 108-126 (the "List reviewmodes" + "Auto-detect" section) with:
   2. Created `aiscripts/aitask_review_detect_env.sh` (~230 lines) — modular env scoring with 4 independent test functions
   3. Updated `aitasks/metadata/claude_settings.seed.json` — added both scripts to whitelist
   4. Updated `.claude/skills/aitask-review/SKILL.md` — removed "Entire codebase" option, replaced inline logic with script calls
-  5. Also created task t159 for the reviewmodes directory tree restructuring (separate future task)
+  5. Also created task t159 for the reviewguides directory tree restructuring (separate future task)
 - **Deviations from plan:** None — implementation followed the plan exactly
 - **Issues encountered:** None
 - **Key decisions:**

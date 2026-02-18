@@ -13,7 +13,7 @@ completed_at: 2026-02-18 22:00
 
 ## Context
 
-This is child task 5 of the review modes consolidation (t163). Create a new Claude Code skill for comparing and merging/splitting similar reviewmode files. Has both single-pair and batch modes. Uses the scan script (t163_3) for finding merge candidates.
+This is child task 5 of the review guides consolidation (t163). Create a new Claude Code skill for comparing and merging/splitting similar reviewguide files. Has both single-pair and batch modes. Uses the scan script (t163_3) for finding merge candidates.
 
 ## Dependencies
 
@@ -22,38 +22,38 @@ This is child task 5 of the review modes consolidation (t163). Create a new Clau
 
 ## Key Files to Create
 
-- `.claude/skills/aitask-reviewmode-merge/SKILL.md` — **new file**
+- `.claude/skills/aitask-reviewguide-merge/SKILL.md` — **new file**
 
 ## Reference Files for Patterns
 
 - `.claude/skills/aitask-fold/SKILL.md` — Best pattern reference for a skill that compares and consolidates content
-- `.claude/skills/aitask-reviewmode-classify/SKILL.md` — Sibling skill created in t163_4
-- `aiscripts/aitask_reviewmode_scan.sh` — Helper script for `--find-similar` mode
-- `aitasks/metadata/reviewmodes/reviewtypes.txt` — Controlled vocabulary
-- `aitasks/metadata/reviewmodes/reviewlabels.txt` — Controlled vocabulary
+- `.claude/skills/aitask-reviewguide-classify/SKILL.md` — Sibling skill created in t163_4
+- `aiscripts/aitask_reviewguide_scan.sh` — Helper script for `--find-similar` mode
+- `aireviewguides/reviewtypes.txt` — Controlled vocabulary
+- `aireviewguides/reviewlabels.txt` — Controlled vocabulary
 
 ## Implementation Plan
 
-### Skill file: `.claude/skills/aitask-reviewmode-merge/SKILL.md`
+### Skill file: `.claude/skills/aitask-reviewguide-merge/SKILL.md`
 
 **Frontmatter:**
 ```yaml
 ---
-name: aitask-reviewmode-merge
-description: Compare two similar review mode files and merge, split, or keep separate.
+name: aitask-reviewguide-merge
+description: Compare two similar review guide files and merge, split, or keep separate.
 ---
 ```
 
 ### Single-pair mode (invoked with arguments)
 
-`/aitask-reviewmode-merge <file1> [file2]`
+`/aitask-reviewguide-merge <file1> [file2]`
 
-Arguments are paths relative to `aitasks/metadata/reviewmodes/`. If only one file given, reads `similar_to` from its frontmatter for the second file. If no arguments, jump to Batch mode.
+Arguments are paths relative to `aireviewguides/`. If only one file given, reads `similar_to` from its frontmatter for the second file. If no arguments, jump to Batch mode.
 
 #### Step 1: Resolve input files
 - Parse arguments
 - If one argument: read its frontmatter, get `similar_to` field. If empty, ask user for second file.
-- Validate both files exist in `aitasks/metadata/reviewmodes/`
+- Validate both files exist in `aireviewguides/`
 - Read full content of both files (frontmatter + body)
 
 #### Step 2: Detailed comparison
@@ -111,23 +111,23 @@ Note: "Split" (extracting common parts into a new file) is a complex operation. 
 2. Update target's `reviewlabels` to union of both files' labels
 3. If environments differ, union the `environment` lists
 4. Remove `similar_to` from the target file
-5. Delete the other file from both `aitasks/metadata/reviewmodes/` and `seed/reviewmodes/`
+5. Delete the other file from both `aireviewguides/` and `seed/reviewguides/`
 6. If new reviewlabels created, add to both vocabulary files (sorted)
-7. Copy updated target to `seed/reviewmodes/`
-8. Commit: "ait: Merge reviewmode <source_name> into <target_name>"
+7. Copy updated target to `seed/reviewguides/`
+8. Commit: "ait: Merge reviewguide <source_name> into <target_name>"
 
 **If "Keep separate":**
 1. Remove exact duplicate bullets from whichever file has fewer unique items
 2. Clear `similar_to` from both files
 3. Sync to seed directory
-4. Commit: "ait: Deduplicate reviewmodes <file_A> and <file_B>"
+4. Commit: "ait: Deduplicate reviewguides <file_A> and <file_B>"
 
 ### Batch mode (invoked without arguments)
 
-`/aitask-reviewmode-merge` (no arguments)
+`/aitask-reviewguide-merge` (no arguments)
 
 #### Step 1: Find merge candidates
-Run: `./aiscripts/aitask_reviewmode_scan.sh --find-similar`
+Run: `./aiscripts/aitask_reviewguide_scan.sh --find-similar`
 
 Parse the output to extract pairs and their overlap counts.
 

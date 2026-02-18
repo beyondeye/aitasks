@@ -12,9 +12,9 @@ completed_at: 2026-02-17 15:32
 ---
 
 ## Context
-This task creates the `/aitask-review` Claude Code skill — a Claude-driven code review workflow that uses configurable review modes (from t129_3) to perform targeted reviews, present findings, and create tasks from selected issues.
+This task creates the `/aitask-review` Claude Code skill — a Claude-driven code review workflow that uses configurable review guides (from t129_3) to perform targeted reviews, present findings, and create tasks from selected issues.
 
-This is part of the dynamic task skill initiative (t129). The review modes infrastructure (t129_3) must be complete before this task. The shared workflow (task-workflow skill from t129_1) handles the implementation pipeline after task creation.
+This is part of the dynamic task skill initiative (t129). The review guides infrastructure (t129_3) must be complete before this task. The shared workflow (task-workflow skill from t129_1) handles the implementation pipeline after task creation.
 
 ## Key Files to Create
 
@@ -27,7 +27,7 @@ This is part of the dynamic task skill initiative (t129). The review modes infra
 - `.claude/skills/aitask-pick/SKILL.md` — pattern for profile loading, AskUserQuestion, pagination
 - `.claude/skills/aitask-explore/SKILL.md` — pattern for the sister skill (explore), similar structure
 - `.claude/skills/task-workflow/SKILL.md` — the shared workflow to hand off to after task creation
-- `aitasks/metadata/reviewmodes/*.md` — review mode files to load and present to user
+- `aireviewguides/*.md` — review guide files to load and present to user
 - `aitasks/metadata/profiles/*.yaml` — execution profile format
 - `aiscripts/aitask_create.sh` — use `--batch --commit` to create tasks
 
@@ -48,7 +48,7 @@ This is part of the dynamic task skill initiative (t129). The review modes infra
   - "Specific paths" (enter paths via "Other")
   - "Entire codebase" (review everything)
 
-1b. Load review modes from `aitasks/metadata/reviewmodes/`:
+1b. Load review guides from `aireviewguides/`:
 - List all .md files in the directory
 - Read each file's YAML frontmatter (name, description, environment)
 - Auto-detect project environment by checking for:
@@ -58,21 +58,21 @@ This is part of the dynamic task skill initiative (t129). The review modes infra
   - package.json → javascript/typescript
   - *.sh scripts in project → bash/shell
 - Sort modes: environment-matching first, then universal, then non-matching
-- Present via AskUserQuestion multiSelect: "Select review modes to apply:"
+- Present via AskUserQuestion multiSelect: "Select review guides to apply:"
   - Each option: label = name from frontmatter, description = description from frontmatter
 - Profile check: if `review_default_modes` set, pre-select those modes
 
-1c. Read the full content of each selected review mode file — these become the review instructions.
+1c. Read the full content of each selected review guide file — these become the review instructions.
 
 **Step 2: Automated Review**
-- For each selected review mode:
+- For each selected review guide:
   - Read its review instructions (the markdown body after frontmatter)
   - Systematically explore the specified target paths following the instructions
-  - Record findings with: review mode name, severity (high/medium/low), location (file:line), description, suggested fix
+  - Record findings with: review guide name, severity (high/medium/low), location (file:line), description, suggested fix
 - Use Glob, Grep, Read tools and Explore agents for thorough review
 
 **Step 3: Findings Presentation**
-- Present findings grouped by review mode and severity
+- Present findings grouped by review guide and severity
 - Format: markdown table or bulleted list with file:line references
 - Use AskUserQuestion multiSelect: "Select findings to address:"
 - If no findings found: inform user and end workflow
@@ -81,7 +81,7 @@ This is part of the dynamic task skill initiative (t129). The review modes infra
 - AskUserQuestion: "How should the selected findings become tasks?"
   - "Single task with all findings" → create one task with all findings in description
   - "Separate task per finding" → create multiple standalone tasks
-  - "Group by review mode" → create one task per review mode that had findings
+  - "Group by review guide" → create one task per review guide that had findings
 - For single task: use aitask_create.sh --batch --commit
 - For multiple tasks: create a parent task first, then children:
   - Parent: "Code review: <target area>"
@@ -96,8 +96,8 @@ This is part of the dynamic task skill initiative (t129). The review modes infra
 ## Verification Steps
 
 1. Read the created SKILL.md and verify it follows the aitask-pick pattern
-2. Verify review mode loading reads from correct directory
+2. Verify review guide loading reads from correct directory
 3. Verify environment auto-detection logic covers common project types
 4. Verify task creation uses correct aitask_create.sh flags
 5. Verify handoff to task-workflow uses correct context variables
-6. Manual testing: install review modes, run /aitask-review on a known codebase area
+6. Manual testing: install review guides, run /aitask-review on a known codebase area

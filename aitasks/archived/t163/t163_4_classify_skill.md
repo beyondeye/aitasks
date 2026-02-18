@@ -13,7 +13,7 @@ completed_at: 2026-02-18 18:59
 
 ## Context
 
-This is child task 4 of the review modes consolidation (t163). Create a new Claude Code skill that classifies reviewmode files by analyzing their content and assigning metadata (reviewtype, reviewlabels). Has both single-file and batch modes. Uses the scan script (t163_3) for comparison.
+This is child task 4 of the review guides consolidation (t163). Create a new Claude Code skill that classifies reviewguide files by analyzing their content and assigning metadata (reviewtype, reviewlabels). Has both single-file and batch modes. Uses the scan script (t163_3) for comparison.
 
 ## Dependencies
 
@@ -21,38 +21,38 @@ This is child task 4 of the review modes consolidation (t163). Create a new Clau
 
 ## Key Files to Create
 
-- `.claude/skills/aitask-reviewmode-classify/SKILL.md` — **new file**
+- `.claude/skills/aitask-reviewguide-classify/SKILL.md` — **new file**
 
 ## Reference Files for Patterns
 
 - `.claude/skills/aitask-fold/SKILL.md` — Best pattern reference for a skill with argument parsing, AskUserQuestion usage, and multi-step workflow
-- `.claude/skills/aitask-review/SKILL.md` — Shows how reviewmodes are used, for context
+- `.claude/skills/aitask-review/SKILL.md` — Shows how reviewguides are used, for context
 - `aitasks/metadata/reviewtypes.txt` — Controlled vocabulary for reviewtype field
 - `aitasks/metadata/reviewlabels.txt` — Controlled vocabulary for reviewlabels field
-- `aiscripts/aitask_reviewmode_scan.sh` — Helper script for `--missing-meta` (batch mode) and `--compare` (single-file mode)
+- `aiscripts/aitask_reviewguide_scan.sh` — Helper script for `--missing-meta` (batch mode) and `--compare` (single-file mode)
 
 ## Implementation Plan
 
-### Skill file: `.claude/skills/aitask-reviewmode-classify/SKILL.md`
+### Skill file: `.claude/skills/aitask-reviewguide-classify/SKILL.md`
 
 **Frontmatter:**
 ```yaml
 ---
-name: aitask-reviewmode-classify
-description: Classify a review mode file by assigning metadata and finding similar existing modes.
+name: aitask-reviewguide-classify
+description: Classify a review guide file by assigning metadata and finding similar existing modes.
 ---
 ```
 
 ### Single-file mode (invoked with argument)
 
-`/aitask-reviewmode-classify <relative_path>`
+`/aitask-reviewguide-classify <relative_path>`
 
-The argument is a path relative to `aitasks/metadata/reviewmodes/` (e.g., `general/code_conventions.md`).
+The argument is a path relative to `aireviewguides/` (e.g., `general/code_conventions.md`).
 
 #### Step 1: Validate input
 - Parse the argument to get the target file path
 - If no argument provided, jump to Batch mode below
-- Verify the file exists at `aitasks/metadata/reviewmodes/<path>`
+- Verify the file exists at `aireviewguides/<path>`
 - Read the file's full content (frontmatter + body)
 - Parse existing frontmatter fields
 
@@ -68,8 +68,8 @@ The argument is a path relative to `aitasks/metadata/reviewmodes/` (e.g., `gener
 - **Validate `environment`:** If file is in a language-specific subdirectory (not `general/`), verify it has an `environment` field. Suggest one if missing.
 
 #### Step 4: Compare to existing files
-- Run: `./aiscripts/aitask_reviewmode_scan.sh --compare <relative_path>`
-- Parse the output to get similarity scores against all other reviewmode files
+- Run: `./aiscripts/aitask_reviewguide_scan.sh --compare <relative_path>`
+- Parse the output to get similarity scores against all other reviewguide files
 - Identify the most similar file
 - If the top score >= 5, set `similar_to` to that file's relative path
 
@@ -102,19 +102,19 @@ If applying:
 1. Update the file's YAML frontmatter with `reviewtype`, `reviewlabels`, and optionally `similar_to`
 2. If new reviewtype was added: append to both `aitasks/metadata/reviewtypes.txt` and `seed/reviewtypes.txt`, re-sort
 3. If new reviewlabels were added: append to both `aitasks/metadata/reviewlabels.txt` and `seed/reviewlabels.txt`, re-sort
-4. Copy the updated file to `seed/reviewmodes/` at the matching relative path
+4. Copy the updated file to `seed/reviewguides/` at the matching relative path
 5. Commit all changes
 
 #### Step 7: Suggest next action
 If `similar_to` was set:
-- Inform: "This file is similar to `<similar_to>`. Consider running `/aitask-reviewmode-merge <file> <similar_file>` to compare and potentially consolidate."
+- Inform: "This file is similar to `<similar_to>`. Consider running `/aitask-reviewguide-merge <file> <similar_file>` to compare and potentially consolidate."
 
 ### Batch mode (invoked without arguments)
 
-`/aitask-reviewmode-classify` (no arguments)
+`/aitask-reviewguide-classify` (no arguments)
 
 #### Step 1: Scan for incomplete files
-Run: `./aiscripts/aitask_reviewmode_scan.sh --missing-meta`
+Run: `./aiscripts/aitask_reviewguide_scan.sh --missing-meta`
 
 If no files are missing metadata, inform user and exit.
 
@@ -138,7 +138,7 @@ For each file missing metadata:
 
 #### Step 5: Final commit (if not autocommit)
 If "No, single commit at end" was selected:
-- Commit all staged changes with message: "ait: Classify <N> reviewmode files"
+- Commit all staged changes with message: "ait: Classify <N> reviewguide files"
 
 #### Step 6: Summary
 Show which files were updated and any `similar_to` relationships discovered.

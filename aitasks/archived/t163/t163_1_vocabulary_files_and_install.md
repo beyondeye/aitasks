@@ -13,7 +13,7 @@ completed_at: 2026-02-18 15:27
 
 ## Context
 
-This is child task 1 of the review modes consolidation (t163). Review mode files in `aitasks/metadata/reviewmodes/` need richer metadata. Before adding metadata to files, we need controlled vocabulary files that define the allowed values for new frontmatter fields `reviewtype` and `reviewlabels`.
+This is child task 1 of the review guides consolidation (t163). Review guide files in `aireviewguides/` need richer metadata. Before adding metadata to files, we need controlled vocabulary files that define the allowed values for new frontmatter fields `reviewtype` and `reviewlabels`.
 
 This follows the existing pattern of `seed/task_types.txt` → `aitasks/metadata/task_types.txt`.
 
@@ -44,7 +44,7 @@ security
 style
 ```
 
-One value per line, sorted alphabetically. These categorize what kind of checks a review mode performs.
+One value per line, sorted alphabetically. These categorize what kind of checks a review guide performs.
 
 ### 2. Create `seed/reviewlabels.txt`
 
@@ -85,7 +85,7 @@ shellcheck
 type-hints
 ```
 
-One value per line, sorted alphabetically. These are sub-categorization tags for reviewmode files.
+One value per line, sorted alphabetically. These are sub-categorization tags for reviewguide files.
 
 ### 3. Copy seed files to metadata
 

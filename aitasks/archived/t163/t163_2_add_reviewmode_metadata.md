@@ -13,7 +13,7 @@ completed_at: 2026-02-18 15:49
 
 ## Context
 
-This is child task 2 of the review modes consolidation (t163). After vocabulary files are created (t163_1), we need to add `reviewtype` and `reviewlabels` frontmatter fields to all 9 existing reviewmode files, and update the aitask-review skill documentation.
+This is child task 2 of the review guides consolidation (t163). After vocabulary files are created (t163_1), we need to add `reviewtype` and `reviewlabels` frontmatter fields to all 9 existing reviewguide files, and update the aitask-review skill documentation.
 
 ## Dependencies
 
@@ -21,17 +21,17 @@ This is child task 2 of the review modes consolidation (t163). After vocabulary 
 
 ## Key Files to Modify
 
-**Reviewmode files (18 total — 9 production + 9 seed mirrors):**
-- `aitasks/metadata/reviewmodes/general/code_conventions.md`
-- `aitasks/metadata/reviewmodes/general/code_duplication.md`
-- `aitasks/metadata/reviewmodes/general/error_handling.md`
-- `aitasks/metadata/reviewmodes/general/performance.md`
-- `aitasks/metadata/reviewmodes/general/refactoring.md`
-- `aitasks/metadata/reviewmodes/general/security.md`
-- `aitasks/metadata/reviewmodes/python/python_best_practices.md`
-- `aitasks/metadata/reviewmodes/android/android_best_practices.md`
-- `aitasks/metadata/reviewmodes/shell/shell_scripting.md`
-- Same 9 files in `seed/reviewmodes/` (must mirror exactly)
+**Reviewguide files (18 total — 9 production + 9 seed mirrors):**
+- `aireviewguides/general/code_conventions.md`
+- `aireviewguides/general/code_duplication.md`
+- `aireviewguides/general/error_handling.md`
+- `aireviewguides/general/performance.md`
+- `aireviewguides/general/refactoring.md`
+- `aireviewguides/general/security.md`
+- `aireviewguides/python/python_best_practices.md`
+- `aireviewguides/android/android_best_practices.md`
+- `aireviewguides/shell/shell_scripting.md`
+- Same 9 files in `seed/reviewguides/` (must mirror exactly)
 
 **Documentation:**
 - `.claude/skills/aitask-review/SKILL.md` — update Notes section line 297
@@ -40,11 +40,11 @@ This is child task 2 of the review modes consolidation (t163). After vocabulary 
 
 - `aitasks/metadata/reviewtypes.txt` — allowed values for `reviewtype`
 - `aitasks/metadata/reviewlabels.txt` — allowed values for `reviewlabels`
-- Current reviewmode files already have frontmatter with `name`, `description`, optional `environment`
+- Current reviewguide files already have frontmatter with `name`, `description`, optional `environment`
 
 ## Implementation Plan
 
-### 1. Add frontmatter to all 9 reviewmode files
+### 1. Add frontmatter to all 9 reviewguide files
 
 For each file, add `reviewtype` and `reviewlabels` fields to the existing YAML frontmatter. Do NOT modify the markdown body.
 
@@ -85,7 +85,7 @@ reviewlabels: [type-hints, idioms, context-managers, pythonic]
 
 ### 2. Mirror changes to seed directory
 
-Copy each updated file from `aitasks/metadata/reviewmodes/` to `seed/reviewmodes/` at the matching path.
+Copy each updated file from `aireviewguides/` to `seed/reviewguides/` at the matching path.
 
 ### 3. Update aitask-review documentation
 
@@ -102,11 +102,11 @@ to:
 
 1. Confirm `aitask_review_detect_env.sh` still works (new fields are safely ignored by its parser):
    ```bash
-   echo "aiscripts/aitask_ls.sh" | ./aiscripts/aitask_review_detect_env.sh --files-stdin --reviewmodes-dir aitasks/metadata/reviewmodes
+   echo "aiscripts/aitask_ls.sh" | ./aiscripts/aitask_review_detect_env.sh --files-stdin --reviewguides-dir aitasks/metadata/reviewguides
    ```
 2. Verify seed mirrors production:
    ```bash
-   diff -r aitasks/metadata/reviewmodes/ seed/reviewmodes/
+   diff -r aireviewguides/ seed/reviewguides/
    ```
 3. Verify all reviewtype values exist in `aitasks/metadata/reviewtypes.txt`
 4. Verify all reviewlabel values exist in `aitasks/metadata/reviewlabels.txt`

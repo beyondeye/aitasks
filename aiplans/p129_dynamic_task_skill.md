@@ -15,10 +15,10 @@ Split into **6 child tasks**:
 
 1. **t129_1**: Extract shared workflow from aitask-pick (foundation — must be done first)
 2. **t129_2**: Create `/aitask-explore` skill (user-driven exploration → task creation)
-3. **t129_3**: Review modes infrastructure (seed templates, metadata directory, `ait setup` integration)
-4. **t129_4**: Create `/aitask-review` skill (Claude-driven code review using review modes)
+3. **t129_3**: Review guides infrastructure (seed templates, metadata directory, `ait setup` integration)
+4. **t129_4**: Create `/aitask-review` skill (Claude-driven code review using review guides)
 5. **t129_5**: Document `/aitask-explore` in README.md (motivation, workflow, sample usage)
-6. **t129_6**: Document `/aitask-review` in README.md (motivation, workflow, review modes, sample usage)
+6. **t129_6**: Document `/aitask-review` in README.md (motivation, workflow, review guides, sample usage)
 
 **Dependencies**: t129_1 must be done first. t129_2 and t129_3 are independent (both depend only on t129_1). t129_4 depends on t129_3. t129_5 depends on t129_2. t129_6 depends on t129_4.
 
@@ -158,19 +158,19 @@ When "Continue to implementation" is selected:
 
 ---
 
-## Child Task 3: Review Modes Infrastructure
+## Child Task 3: Review Guides Infrastructure
 
 ### Goal
-Create the review modes system: file format definition, seed templates, metadata directory, and `ait setup` integration. This provides the foundation that the `/aitask-review` skill will consume.
+Create the review guides system: file format definition, seed templates, metadata directory, and `ait setup` integration. This provides the foundation that the `/aitask-review` skill will consume.
 
 ### Files to Create/Modify
-- **Create**: `seed/reviewmodes/` directory with template review mode files (9 files)
-- **Create**: `aitasks/metadata/reviewmodes/` directory (populated during `ait setup`)
-- **Modify**: `aiscripts/aitask_setup.sh` — add review mode selection/installation step
+- **Create**: `seed/reviewguides/` directory with template review guide files (9 files)
+- **Create**: `aireviewguides/` directory (populated during `ait setup`)
+- **Modify**: `aiscripts/aitask_setup.sh` — add review guide selection/installation step
 
-### Review Mode File Format
+### Review Guide File Format
 
-Each review mode is a markdown file in `aitasks/metadata/reviewmodes/`:
+Each review guide is a markdown file in `aireviewguides/`:
 
 ```yaml
 ---
@@ -198,9 +198,9 @@ environment: [python]  # optional; list of environments this mode targets
 - `description` (required): Short description of what this mode reviews
 - `environment` (optional): List of environments/languages this mode is relevant for (e.g., `[python]`, `[android, kotlin]`, `[cpp, cmake]`). When omitted, the mode is universal (shown for all projects)
 
-### Seed Review Mode Templates
+### Seed Review Guide Templates
 
-Create the following seed templates in `seed/reviewmodes/`:
+Create the following seed templates in `seed/reviewguides/`:
 
 | File | Name | Environment | Focus |
 |------|------|-------------|-------|
@@ -218,31 +218,31 @@ Create the following seed templates in `seed/reviewmodes/`:
 
 Add a new step to `aiscripts/aitask_setup.sh` (after existing steps):
 
-1. List all seed review mode files from `seed/reviewmodes/`
+1. List all seed review guide files from `seed/reviewguides/`
 2. Show user the list with names, descriptions, and environments
 3. Let user select which to install (multi-select with fzf, or "Install all")
-4. Copy selected files to `aitasks/metadata/reviewmodes/`
+4. Copy selected files to `aireviewguides/`
 5. Skip files that already exist in the target directory (preserve user customizations)
 
 ### Verification
-- Verify seed review mode files have valid YAML frontmatter
-- Run `ait setup` and verify the review mode installation step works
+- Verify seed review guide files have valid YAML frontmatter
+- Run `ait setup` and verify the review guide installation step works
 - Verify existing files are not overwritten during setup
-- Verify the metadata/reviewmodes/ directory is correctly populated
+- Verify the metadata/reviewguides/ directory is correctly populated
 
 ---
 
 ## Child Task 4: Create `/aitask-review` Skill
 
 ### Goal
-Create the Claude-driven code review skill that uses the review modes from child task 3 to perform targeted reviews, present findings, and create tasks.
+Create the Claude-driven code review skill that uses the review guides from child task 3 to perform targeted reviews, present findings, and create tasks.
 
 ### Files to Create
 - **Create**: `.claude/skills/aitask-review/SKILL.md`
 
 ### Prerequisites
-- Child task 3 (review modes infrastructure) must be complete
-- Review mode files must exist in `aitasks/metadata/reviewmodes/`
+- Child task 3 (review guides infrastructure) must be complete
+- Review guide files must exist in `aireviewguides/`
 
 ### Workflow Design
 
@@ -254,7 +254,7 @@ Step 1: Review Setup
   1a. Ask user for target paths/modules (AskUserQuestion with free text)
       - E.g., "src/auth/", "the API layer", "everything"
 
-  1b. Load installed review modes from aitasks/metadata/reviewmodes/
+  1b. Load installed review guides from aireviewguides/
       - Read each .md file's frontmatter (name, description, environment)
       - Optionally auto-detect project environment:
         - Check for pyproject.toml/setup.py → python
@@ -264,24 +264,24 @@ Step 1: Review Setup
         - Check for *.sh scripts → bash/shell
       - Filter modes: show environment-matching modes first, then universal,
         then non-matching (labeled as "other environments")
-      - AskUserQuestion multiSelect: "Select review modes to apply:"
+      - AskUserQuestion multiSelect: "Select review guides to apply:"
         - Each option: label = name, description = description from frontmatter
 
-  1c. Read the full content of each selected review mode file
+  1c. Read the full content of each selected review guide file
       - These become the review instructions that Claude follows in Step 2
 
 Step 2: Automated Review
   - Claude systematically explores the specified target paths
-  - For EACH selected review mode, follow its review instructions
+  - For EACH selected review guide, follow its review instructions
   - Compile findings with:
-    - Review mode (which mode generated this finding)
+    - Review guide (which mode generated this finding)
     - Severity (high/medium/low)
     - Location (file:line)
     - Description (what's wrong and why)
     - Suggested fix (brief)
 
 Step 3: Findings Presentation
-  - Present findings grouped by review mode and severity
+  - Present findings grouped by review guide and severity
   - Ask user to select which findings to address (AskUserQuestion multiSelect)
   - If no findings: inform user and end
 
@@ -291,7 +291,7 @@ Step 4: Task Creation
     - Options:
       - "Single task with all findings" → create one task
       - "Separate task per finding" → create multiple tasks
-      - "Group by review mode" → create one task per mode
+      - "Group by review guide" → create one task per mode
   - Create task(s) using aitask_create.sh --batch --commit
   - If multiple tasks created, offer to make them children of a parent task
 
@@ -306,7 +306,7 @@ Step 5: Decision Point
 ### Profile Keys
 Reuses existing keys plus:
 - `review_auto_continue: true` — auto-continue to implementation after review
-- `review_default_modes: "code_conventions,security"` — pre-select review modes by filename (without .md)
+- `review_default_modes: "code_conventions,security"` — pre-select review guides by filename (without .md)
 
 ### Integration with Shared Workflow
 Same as aitask-explore: set context variables and read shared workflow.
@@ -317,12 +317,12 @@ For multiple tasks created as children:
 - If user picks one to implement, use `/aitask-pick <parent>_<child>` pattern
 
 ### Verification
-- Test with seed review modes installed
+- Test with seed review guides installed
 - Test environment auto-detection and filtering
 - Test single-task and multi-task creation paths
 - Test "save for later" path
-- Test review mode selection with multiSelect
-- Test that custom review modes in metadata/reviewmodes/ are picked up
+- Test review guide selection with multiSelect
+- Test that custom review guides in metadata/reviewguides/ are picked up
 
 ---
 
@@ -367,11 +367,11 @@ Add comprehensive documentation for the `/aitask-review` skill to `README.md`, c
 3. **Add `/aitask-review` section** in Claude Code Integration (after `/aitask-explore`), following the existing documentation pattern:
    - **Usage block** with invocation syntax
    - **Motivation paragraph** — Explain the value of automated code review: discovering code conventions violations, duplication, refactoring opportunities, and security issues without manual inspection; turning findings into actionable tasks
-   - **Workflow overview** — Numbered steps: profile → review setup (target paths, review mode selection) → automated review → findings presentation → task creation (single/split/by-mode) → decision point
-   - **Review modes system** — Document the review mode file format (YAML frontmatter with name, description, environment), the `aitasks/metadata/reviewmodes/` directory, seed templates, environment auto-detection, and how to create custom review modes
-   - **Seed review modes** — List all provided seed templates with descriptions
-   - **Key capabilities** — Bullet list: configurable review modes, environment-aware filtering, targeted or broad reviews, severity-based findings, flexible task creation, parent/child structure for multi-task output, seamless handoff to implementation, custom review mode authoring
-4. **Add a new "Typical Workflows" subsection**: "Code Review Workflow" — Describe the scenario where a developer wants to improve code quality in a specific module. Include a concrete example: reviewing the auth module using "Security Review" and "Code Conventions" modes, selecting findings, creating tasks, and optionally starting implementation immediately. Also describe how to create a project-specific review mode.
+   - **Workflow overview** — Numbered steps: profile → review setup (target paths, review guide selection) → automated review → findings presentation → task creation (single/split/by-mode) → decision point
+   - **Review guides system** — Document the review guide file format (YAML frontmatter with name, description, environment), the `aireviewguides/` directory, seed templates, environment auto-detection, and how to create custom review guides
+   - **Seed review guides** — List all provided seed templates with descriptions
+   - **Key capabilities** — Bullet list: configurable review guides, environment-aware filtering, targeted or broad reviews, severity-based findings, flexible task creation, parent/child structure for multi-task output, seamless handoff to implementation, custom review guide authoring
+4. **Add a new "Typical Workflows" subsection**: "Code Review Workflow" — Describe the scenario where a developer wants to improve code quality in a specific module. Include a concrete example: reviewing the auth module using "Security Review" and "Code Conventions" modes, selecting findings, creating tasks, and optionally starting implementation immediately. Also describe how to create a project-specific review guide.
 
 ### Verification
 - Verify markdown renders correctly (headings, tables, code blocks)

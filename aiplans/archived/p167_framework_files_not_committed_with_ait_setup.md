@@ -20,7 +20,7 @@ When running `ait setup` in a new project directory (with git already configured
 
 ### 1. Restructured `aitask_setup.sh`
 - [x] Split `setup_git_repo()` into `ensure_git_repo()` (git init only) and `commit_framework_files()` (commits everything at the end)
-- [x] `commit_framework_files()` runs after ALL setup steps, picking up review modes, .gitignore, etc.
+- [x] `commit_framework_files()` runs after ALL setup steps, picking up review guides, .gitignore, etc.
 - [x] Updated `main()` to use new function names and ordering
 
 ### 2. Added `commit_installed_files()` to `install.sh`
@@ -30,7 +30,7 @@ When running `ait setup` in a new project directory (with git already configured
 
 ### 3. Updated tests (`tests/test_setup_git.sh`)
 - [x] Updated Tests 1-5 to use `ensure_git_repo` + `commit_framework_files`
-- [x] Added Test 10: late-stage files (review modes, .gitignore)
+- [x] Added Test 10: late-stage files (review guides, .gitignore)
 - [x] Added Test 11: idempotency
 - [x] Added Test 12: missing install.sh handling
 - [x] Added Test 13: ensure_git_repo does NOT commit

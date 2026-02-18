@@ -13,36 +13,36 @@ completed_at: 2026-02-18 16:04
 
 ## Context
 
-This is child task 3 of the review modes consolidation (t163). Create a bash helper script that scans reviewmode files for metadata completeness and finds similar files. This script is used by the classify skill (t163_4) and merge skill (t163_5) but is also useful standalone.
+This is child task 3 of the review guides consolidation (t163). Create a bash helper script that scans reviewguide files for metadata completeness and finds similar files. This script is used by the classify skill (t163_4) and merge skill (t163_5) but is also useful standalone.
 
 ## Dependencies
 
-- Depends on t163_2 (reviewmode files must have the new metadata fields)
+- Depends on t163_2 (reviewguide files must have the new metadata fields)
 
 ## Key Files to Create
 
-- `aiscripts/aitask_reviewmode_scan.sh` — **new file**
+- `aiscripts/aitask_reviewguide_scan.sh` — **new file**
 
 ## Reference Files for Patterns
 
-- `aiscripts/aitask_review_detect_env.sh` — Primary reference. Reuse its `.reviewmodesignore` filtering pattern (lines 297-325) and frontmatter parsing approach (lines 237-263). Also source `lib/terminal_compat.sh`.
-- `aitasks/metadata/reviewmodes/.reviewmodesignore` — gitignore-style filter to honor
+- `aiscripts/aitask_review_detect_env.sh` — Primary reference. Reuse its `.reviewguidesignore` filtering pattern (lines 297-325) and frontmatter parsing approach (lines 237-263). Also source `lib/terminal_compat.sh`.
+- `aireviewguides/.reviewguidesignore` — gitignore-style filter to honor
 - `aitasks/metadata/reviewtypes.txt` — valid reviewtype values
 - `aitasks/metadata/reviewlabels.txt` — valid reviewlabel values
 
 ## Implementation Plan
 
-### Script: `aiscripts/aitask_reviewmode_scan.sh`
+### Script: `aiscripts/aitask_reviewguide_scan.sh`
 
 **Usage:**
 ```bash
-./aiscripts/aitask_reviewmode_scan.sh [--missing-meta] [--environment ENV] [--reviewmodes-dir DIR] [--find-similar] [--compare FILE]
+./aiscripts/aitask_reviewguide_scan.sh [--missing-meta] [--environment ENV] [--reviewguides-dir DIR] [--find-similar] [--compare FILE]
 ```
 
 **Options:**
 - `--missing-meta` — Only show files missing `reviewlabels` or `reviewtype` (default: show all)
 - `--environment ENV` — Filter to files matching this environment (or `general` for universal modes)
-- `--reviewmodes-dir DIR` — Path to reviewmodes directory (default: `aitasks/metadata/reviewmodes`)
+- `--reviewguides-dir DIR` — Path to reviewguides directory (default: `aitasks/metadata/reviewguides`)
 - `--find-similar` — For each file, find the most similar other file by reviewlabel overlap
 - `--compare FILE` — Compare one specific file against all others, output similarity scores
 
@@ -72,20 +72,20 @@ Score = (shared_labels_count * 2) + (type_match ? 3 : 0) + (env_overlap ? 2 : 0)
    source "$SCRIPT_DIR/lib/terminal_compat.sh"
    ```
 
-3. **Discover files** — Use `find "$REVIEWMODES_DIR" -name "*.md" -type f -print0`
+3. **Discover files** — Use `find "$REVIEWGUIDES_DIR" -name "*.md" -type f -print0`
 
-4. **Apply .reviewmodesignore filter** — Reuse the exact pattern from `aitask_review_detect_env.sh` lines 297-325:
+4. **Apply .reviewguidesignore filter** — Reuse the exact pattern from `aitask_review_detect_env.sh` lines 297-325:
    ```bash
-   if [[ -f "$REVIEWMODES_DIR/.reviewmodesignore" ]]; then
+   if [[ -f "$REVIEWGUIDES_DIR/.reviewguidesignore" ]]; then
        # Build relative paths, use git check-ignore --no-index
        # Build ignored_set associative array for O(1) lookup
        # Filter out ignored files
    fi
    ```
 
-5. **Parse frontmatter** — Extended version of `parse_reviewmode()` that also extracts `reviewtype` and `reviewlabels`:
+5. **Parse frontmatter** — Extended version of `parse_reviewguide()` that also extracts `reviewtype` and `reviewlabels`:
    ```bash
-   parse_reviewmode() {
+   parse_reviewguide() {
        local file="$1"
        local in_yaml=false
        local name="" description="" environment="" reviewtype="" reviewlabels=""
@@ -110,7 +110,7 @@ Score = (shared_labels_count * 2) + (type_match ? 3 : 0) + (env_overlap ? 2 : 0)
            fi
        done < "$file"
        
-       local rel_path="${file#$REVIEWMODES_DIR/}"
+       local rel_path="${file#$REVIEWGUIDES_DIR/}"
        echo "${rel_path}|${name}|${reviewtype:-MISSING}|${reviewlabels:-MISSING}|${environment:-universal}"
    }
    ```
@@ -139,31 +139,31 @@ set -euo pipefail
 # Source lib
 # Defaults
 # Argument parsing
-# File discovery + .reviewmodesignore filter
+# File discovery + .reviewguidesignore filter
 # Parse all files
 # Apply mode-specific output (default / --missing-meta / --find-similar / --compare)
 ```
 
 ## Verification Steps
 
-1. Run without arguments — should list all 9 reviewmode files with metadata:
+1. Run without arguments — should list all 9 reviewguide files with metadata:
    ```bash
-   ./aiscripts/aitask_reviewmode_scan.sh
+   ./aiscripts/aitask_reviewguide_scan.sh
    ```
 2. Run with `--missing-meta` — should return empty (all files already have metadata from t163_2):
    ```bash
-   ./aiscripts/aitask_reviewmode_scan.sh --missing-meta
+   ./aiscripts/aitask_reviewguide_scan.sh --missing-meta
    ```
 3. Run with `--environment bash` — should show only `shell/shell_scripting.md`:
    ```bash
-   ./aiscripts/aitask_reviewmode_scan.sh --environment bash
+   ./aiscripts/aitask_reviewguide_scan.sh --environment bash
    ```
 4. Run with `--find-similar` — should show similarity pairs:
    ```bash
-   ./aiscripts/aitask_reviewmode_scan.sh --find-similar
+   ./aiscripts/aitask_reviewguide_scan.sh --find-similar
    ```
 5. Run with `--compare` on a specific file:
    ```bash
-   ./aiscripts/aitask_reviewmode_scan.sh --compare general/security.md
+   ./aiscripts/aitask_reviewguide_scan.sh --compare general/security.md
    ```
-6. Run shellcheck: `shellcheck aiscripts/aitask_reviewmode_scan.sh`
+6. Run shellcheck: `shellcheck aiscripts/aitask_reviewguide_scan.sh`

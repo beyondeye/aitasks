@@ -9,7 +9,7 @@ Base branch: main
 
 ## Context
 
-Child task 1 of review modes consolidation (t163). Creates controlled vocabulary files for `reviewtype` and `reviewlabels` metadata fields that will be added to reviewmode files in subsequent sibling tasks. Follows the existing pattern of `seed/task_types.txt` → `aitasks/metadata/task_types.txt`.
+Child task 1 of review guides consolidation (t163). Creates controlled vocabulary files for `reviewtype` and `reviewlabels` metadata fields that will be added to reviewguide files in subsequent sibling tasks. Follows the existing pattern of `seed/task_types.txt` → `aitasks/metadata/task_types.txt`.
 
 ## Plan
 
@@ -43,7 +43,7 @@ Add two new functions after `install_seed_task_types()` (after line 227), follow
 - `install_seed_reviewtypes()` — copies `seed/reviewtypes.txt` → `aitasks/metadata/reviewtypes.txt`
 - `install_seed_reviewlabels()` — copies `seed/reviewlabels.txt` → `aitasks/metadata/reviewlabels.txt`
 
-Call them in the main install flow after `install_seed_task_types` (line 453), before `install_seed_reviewmodes` (line 456):
+Call them in the main install flow after `install_seed_task_types` (line 453), before `install_seed_reviewguides` (line 456):
 
 ```bash
 info "Installing review types..."
@@ -73,5 +73,5 @@ install_seed_reviewlabels
 - **Actual work done:** Created 4 vocabulary files (seed + metadata copies for reviewtypes and reviewlabels) and added 2 install functions + 2 calls in install.sh. Added `deprecations` to reviewtypes per user request (not in original task spec).
 - **Deviations from plan:** Added `deprecations` review type (user requested during planning). Original task had 6 types, now 7.
 - **Issues encountered:** None. All shellcheck warnings are pre-existing (lines 276, 444).
-- **Key decisions:** Placed install functions between `install_seed_task_types` and `install_seed_reviewmodes` for logical ordering. Install calls follow same order.
-- **Notes for sibling tasks:** The vocabulary files are now at `aitasks/metadata/reviewtypes.txt` (7 values) and `aitasks/metadata/reviewlabels.txt` (34 values). Sibling t163_2 should use these to validate `reviewtype` and `reviewlabels` frontmatter fields when adding metadata to reviewmode files.
+- **Key decisions:** Placed install functions between `install_seed_task_types` and `install_seed_reviewguides` for logical ordering. Install calls follow same order.
+- **Notes for sibling tasks:** The vocabulary files are now at `aitasks/metadata/reviewtypes.txt` (7 values) and `aitasks/metadata/reviewlabels.txt` (34 values). Sibling t163_2 should use these to validate `reviewtype` and `reviewlabels` frontmatter fields when adding metadata to reviewguide files.
