@@ -16,7 +16,7 @@ Run the changelog data gathering script:
 Parse the output to identify:
 - The base tag (last release) from the `BASE_TAG:` line
 - Each task section (`=== TASK tNN ===` to `=== END ===`) containing:
-  - `ISSUE_TYPE:` — feature, bug, or refactor
+  - `ISSUE_TYPE:` — task type (feature, bug, refactor, documentation, performance, style, test, chore)
   - `TITLE:` — human-readable task name
   - `PLAN_FILE:` — path to the archived plan file (may be empty)
   - `COMMITS:` — source code commits for this task
@@ -48,12 +48,17 @@ Group the summaries by `ISSUE_TYPE`:
 - `feature` entries under `### Features`
 - `bug` entries under `### Bug Fixes`
 - `refactor` entries under `### Improvements`
+- `documentation` entries under `### Documentation`
+- `performance` entries under `### Performance`
+- `style` entries under `### Style Changes`
+- `test` entries under `### Tests`
+- `chore` entries under `### Maintenance`
 
 Only include section headers that have entries.
 
 ### Step 3: Draft Changelog Entry
 
-Compose the changelog entry in this format:
+Compose the changelog entry in this format (only include sections that have entries):
 
 ```markdown
 ## vX.Y.Z
@@ -67,6 +72,26 @@ Compose the changelog entry in this format:
 - **<Human-readable task name>** (tNN): <1-2 sentence summary>
 
 ### Improvements
+
+- **<Human-readable task name>** (tNN): <1-2 sentence summary>
+
+### Documentation
+
+- **<Human-readable task name>** (tNN): <1-2 sentence summary>
+
+### Performance
+
+- **<Human-readable task name>** (tNN): <1-2 sentence summary>
+
+### Style Changes
+
+- **<Human-readable task name>** (tNN): <1-2 sentence summary>
+
+### Tests
+
+- **<Human-readable task name>** (tNN): <1-2 sentence summary>
+
+### Maintenance
 
 - **<Human-readable task name>** (tNN): <1-2 sentence summary>
 ```

@@ -118,7 +118,7 @@ Create new task files with YAML frontmatter metadata. Supports standalone and pa
 1. **Parent selection** — Choose "None - create standalone task" or select an existing task as parent from a fzf list of all tasks (shown with status/priority/effort metadata)
 2. **Priority** — Select via fzf: high, medium, low
 3. **Effort** — Select via fzf: low, medium, high
-4. **Issue type** — Select via fzf from `aitasks/metadata/task_types.txt` (bug, documentation, feature, refactor)
+4. **Issue type** — Select via fzf from `aitasks/metadata/task_types.txt` (bug, chore, documentation, feature, performance, refactor, style, test)
 5. **Status** — Select via fzf: Ready, Editing, Implementing, Postponed
 6. **Labels** — Iterative loop: pick from existing labels in `aitasks/metadata/labels.txt`, add a new label (auto-sanitized to lowercase alphanumeric + hyphens/underscores), or finish. New labels are persisted to the labels file for future use
 7. **Dependencies** — fzf multi-select from all open tasks. For child tasks, sibling tasks appear at the top of the list. Select "None" or press Enter with nothing selected to skip

@@ -37,7 +37,7 @@ Detailed description of what needs to be done.
 | `priority` | `high`, `medium`, `low` | Task priority for sorting |
 | `effort` | `low`, `medium`, `high` | Estimated implementation effort |
 | `depends` | `[1, 4]` | List of task numbers this depends on |
-| `issue_type` | `bug`, `feature`, `refactor`, `documentation` | Type of work (from `task_types.txt`) |
+| `issue_type` | `bug`, `chore`, `documentation`, `feature`, `performance`, `refactor`, `style`, `test` | Type of work (from `task_types.txt`) |
 | `status` | `Ready`, `Editing`, `Implementing`, `Postponed`, `Done` | Current status |
 | `labels` | `[ui, backend]` | Categorization labels |
 | `created_at` | `YYYY-MM-DD HH:MM` | Creation timestamp |
@@ -87,9 +87,13 @@ Valid issue types are defined in `aitasks/metadata/task_types.txt` (one type per
 
 ```
 bug
+chore
 documentation
 feature
+performance
 refactor
+style
+test
 ```
 
 To add a custom type, simply add a new line to the file. All scripts (`ait create`, `ait update`, [`ait board`](board.md), `ait stats`) read from this file dynamically.

@@ -53,6 +53,11 @@ get_type_display_name() {
         feature) echo "Features" ;;
         bug) echo "Bug Fixes" ;;
         refactor) echo "Refactors" ;;
+        documentation) echo "Documentation" ;;
+        performance) echo "Performance" ;;
+        style) echo "Style Changes" ;;
+        test) echo "Tests" ;;
+        chore) echo "Chores" ;;
         *) echo "$1" | sed 's/^./\U&/' ;;
     esac
 }

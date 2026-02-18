@@ -126,13 +126,25 @@ github_map_labels() {
     echo "$result"
 }
 
-# Input: JSON labels array. Output: "bug", "refactor", or "feature"
+# Input: JSON labels array. Output: detected issue type (defaults to "feature")
 github_detect_type() {
     local labels_json="$1"
-    if echo "$labels_json" | jq -r '.[].name' 2>/dev/null | grep -qi "^bug$"; then
+    local label_names
+    label_names=$(echo "$labels_json" | jq -r '.[].name' 2>/dev/null)
+    if echo "$label_names" | grep -qi "^bug$"; then
         echo "bug"
-    elif echo "$labels_json" | jq -r '.[].name' 2>/dev/null | grep -qiE "^(refactor|refactoring|tech-debt|cleanup)$"; then
+    elif echo "$label_names" | grep -qiE "^(refactor|refactoring|tech-debt|cleanup)$"; then
         echo "refactor"
+    elif echo "$label_names" | grep -qiE "^(test|testing|tests)$"; then
+        echo "test"
+    elif echo "$label_names" | grep -qiE "^(style|styling|formatting|lint|linting)$"; then
+        echo "style"
+    elif echo "$label_names" | grep -qiE "^(chore|maintenance|housekeeping|deps|dependencies)$"; then
+        echo "chore"
+    elif echo "$label_names" | grep -qiE "^(documentation|docs)$"; then
+        echo "documentation"
+    elif echo "$label_names" | grep -qiE "^(performance|perf|optimization)$"; then
+        echo "performance"
     else
         echo "feature"
     fi

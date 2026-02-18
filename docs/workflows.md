@@ -64,7 +64,7 @@ The framework fully supports GitHub issue-based development through the [`ait is
 
 **The full cycle:**
 
-1. **Import** — Run [`ait issue-import`](commands.md#ait-issue-import) to fetch open GitHub issues and create task files. In interactive mode, you can browse issues with fzf, preview their content, and select which ones to import. GitHub labels are mapped to aitask labels, and the issue type (bug, feature, refactor) is auto-detected from labels. A link to the original issue is stored in the task's `issue` metadata field
+1. **Import** — Run [`ait issue-import`](commands.md#ait-issue-import) to fetch open GitHub issues and create task files. In interactive mode, you can browse issues with fzf, preview their content, and select which ones to import. GitHub labels are mapped to aitask labels, and the issue type is auto-detected from labels (bug, chore, documentation, feature, performance, refactor, style, test). A link to the original issue is stored in the task's `issue` metadata field
 
 2. **Implement** — Pick the imported task with [`/aitask-pick`](skills.md#aitask-pick-number) and go through the normal implementation workflow (planning, coding, review)
 

@@ -101,7 +101,7 @@ setup_draft_project() {
         chmod +x aiscripts/aitask_create.sh aiscripts/aitask_claim_id.sh aiscripts/aitask_update.sh aiscripts/aitask_ls.sh
 
         # Create task types file
-        printf 'bug\nfeature\nrefactor\n' > aitasks/metadata/task_types.txt
+        printf 'bug\nchore\ndocumentation\nfeature\nperformance\nrefactor\nstyle\ntest\n' > aitasks/metadata/task_types.txt
 
         # Add .gitignore for drafts
         echo "aitasks/new/" > .gitignore
