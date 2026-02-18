@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: [t172_1]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [aitask_review]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-18 22:02
-updated_at: 2026-02-18 22:02
+updated_at: 2026-02-18 22:52
 ---
 
 ## Context
