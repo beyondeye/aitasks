@@ -68,12 +68,43 @@ detect_os() {
     esac
 }
 
+# --- Git platform detection (inline — task_utils.sh not available during setup) ---
+_detect_git_platform() {
+    local remote_url
+    remote_url=$(git remote get-url origin 2>/dev/null || echo "")
+    if [[ "$remote_url" == *"gitlab"* ]]; then
+        echo "gitlab"
+    elif [[ "$remote_url" == *"github"* ]]; then
+        echo "github"
+    else
+        echo ""
+    fi
+}
+
 # --- CLI tools installation ---
 install_cli_tools() {
     local os="$1"
-    local tools=(fzf gh jq git)
-    local missing=()
 
+    # Detect git platform to install the right CLI tool
+    local platform
+    platform=$(_detect_git_platform)
+
+    # Build tools list: always fzf, jq, git; platform-specific CLI
+    local tools=(fzf jq git)
+    case "$platform" in
+        gitlab)
+            tools+=(glab)
+            info "Detected GitLab remote — will install glab CLI"
+            ;;
+        github|"")
+            tools+=(gh)
+            if [[ -z "$platform" ]]; then
+                info "Could not detect git remote platform — defaulting to GitHub CLI (gh)"
+            fi
+            ;;
+    esac
+
+    local missing=()
     for tool in "${tools[@]}"; do
         if ! command -v "$tool" &>/dev/null; then
             missing+=("$tool")
@@ -81,7 +112,7 @@ install_cli_tools() {
     done
 
     if [[ ${#missing[@]} -eq 0 ]]; then
-        success "All CLI tools already installed (fzf, gh, jq, git)"
+        success "All CLI tools already installed (${tools[*]})"
         return
     fi
 
@@ -101,12 +132,13 @@ install_cli_tools() {
             ;;
 
         debian|wsl)
-            # gh needs special repo setup on Debian/Ubuntu
             local apt_pkgs=()
             local need_gh=false
+            local need_glab=false
             for tool in "${missing[@]}"; do
                 case "$tool" in
                     gh) need_gh=true ;;
+                    glab) need_glab=true ;;
                     *)  apt_pkgs+=("$tool") ;;
                 esac
             done
@@ -122,6 +154,23 @@ install_cli_tools() {
                        | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
                     && sudo apt-get update -qq
                 apt_pkgs+=("gh")
+            fi
+
+            if $need_glab; then
+                info "Installing GitLab CLI from release package..."
+                local deb_arch
+                deb_arch=$(dpkg --print-architecture)
+                local glab_ver
+                glab_ver=$(curl -s "https://gitlab.com/api/v4/projects/34675721/releases" | jq -r '.[0].tag_name' 2>/dev/null | sed 's/^v//')
+                if [[ -n "$glab_ver" && "$glab_ver" != "null" ]]; then
+                    local deb_file="glab_${glab_ver}_Linux_${deb_arch}.deb"
+                    curl -sLO "https://gitlab.com/gitlab-org/cli/-/releases/v${glab_ver}/downloads/${deb_file}" \
+                        && sudo dpkg -i "$deb_file" \
+                        && rm -f "$deb_file" \
+                        || warn "Failed to install glab .deb package. Install manually: https://gitlab.com/gitlab-org/cli/-/releases"
+                else
+                    warn "Could not determine latest glab version. Install manually: https://gitlab.com/gitlab-org/cli/-/releases"
+                fi
             fi
 
             # Also ensure python3 and python3-venv are installed

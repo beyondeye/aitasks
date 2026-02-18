@@ -17,6 +17,36 @@ ARCHIVED_DIR="${ARCHIVED_DIR:-aitasks/archived}"
 PLAN_DIR="${PLAN_DIR:-aiplans}"
 ARCHIVED_PLAN_DIR="${ARCHIVED_PLAN_DIR:-aiplans/archived}"
 
+# --- Platform Detection ---
+
+# Detect git remote platform from origin URL
+# Output: "github", "gitlab", or "" (unknown)
+detect_platform() {
+    local remote_url
+    remote_url=$(git remote get-url origin 2>/dev/null || echo "")
+    if [[ "$remote_url" == *"gitlab"* ]]; then
+        echo "gitlab"
+    elif [[ "$remote_url" == *"github"* ]]; then
+        echo "github"
+    else
+        echo ""
+    fi
+}
+
+# Detect platform from an issue/web URL
+# Input: URL string
+# Output: "github", "gitlab", or "" (unknown)
+detect_platform_from_url() {
+    local url="$1"
+    if [[ "$url" == *"gitlab"* ]]; then
+        echo "gitlab"
+    elif [[ "$url" == *"github"* ]]; then
+        echo "github"
+    else
+        echo ""
+    fi
+}
+
 # --- Temp directory for tar.gz extraction ---
 _AIT_TASK_UTILS_TMPDIR=""
 _ait_task_utils_cleanup() {

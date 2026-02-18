@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# aitask_issue_update.sh - Update GitHub issues linked to AI tasks
+# aitask_issue_update.sh - Update GitHub/GitLab issues linked to AI tasks
 # Posts implementation notes and commit references as issue comments
 # Optionally closes the issue
 
@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/task_utils.sh"
 
 # Command options
-SOURCE="github"
+SOURCE=""  # Auto-detected from issue URL or git remote if not set via --source
 TASK_NUM=""
 COMMITS_OVERRIDE=""
 CLOSE_ISSUE=false
@@ -73,13 +73,57 @@ github_close_issue() {
     fi
 }
 
+# --- GitLab Backend ---
+
+gitlab_check_cli() {
+    command -v glab &>/dev/null || die "glab CLI is required for GitLab. Install: https://gitlab.com/gitlab-org/cli"
+    glab auth status &>/dev/null || die "glab CLI is not authenticated. Run: glab auth login"
+}
+
+# Extract issue number from full GitLab URL
+# Input: "https://gitlab.com/group/project/-/issues/123"
+# Output: "123"
+gitlab_extract_issue_number() {
+    local url="$1"
+    echo "$url" | grep -oE '[0-9]+$'
+}
+
+# Get current issue state (normalized to OPEN/CLOSED)
+gitlab_get_issue_status() {
+    local issue_num="$1"
+    local state
+    state=$(glab issue view "$issue_num" -F json | jq -r '.state')
+    case "$state" in
+        opened) echo "OPEN" ;;
+        closed) echo "CLOSED" ;;
+        *) echo "$state" ;;
+    esac
+}
+
+# Post a comment (note) on an issue
+gitlab_add_comment() {
+    local issue_num="$1"
+    local body="$2"
+    glab issue note "$issue_num" -m "$body"
+}
+
+# Close an issue with optional comment
+# Note: glab issue close doesn't support --comment, so we post note first
+gitlab_close_issue() {
+    local issue_num="$1"
+    local comment="$2"
+    if [[ -n "$comment" ]]; then
+        glab issue note "$issue_num" -m "$comment"
+    fi
+    glab issue close "$issue_num"
+}
+
 # --- Dispatcher Functions ---
-# PLATFORM-EXTENSION-POINT: Add new platform cases to each dispatcher
 
 source_check_cli() {
     case "$SOURCE" in
         github) github_check_cli ;;
-        # gitlab) gitlab_check_cli ;;  # PLATFORM-EXTENSION-POINT
+        gitlab) gitlab_check_cli ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -88,6 +132,7 @@ source_extract_issue_number() {
     local url="$1"
     case "$SOURCE" in
         github) github_extract_issue_number "$url" ;;
+        gitlab) gitlab_extract_issue_number "$url" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -96,6 +141,7 @@ source_get_issue_status() {
     local issue_num="$1"
     case "$SOURCE" in
         github) github_get_issue_status "$issue_num" ;;
+        gitlab) gitlab_get_issue_status "$issue_num" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -105,6 +151,7 @@ source_add_comment() {
     local body="$2"
     case "$SOURCE" in
         github) github_add_comment "$issue_num" "$body" ;;
+        gitlab) gitlab_add_comment "$issue_num" "$body" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -114,6 +161,7 @@ source_close_issue() {
     local comment="$2"
     case "$SOURCE" in
         github) github_close_issue "$issue_num" "$comment" ;;
+        gitlab) gitlab_close_issue "$issue_num" "$comment" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -191,8 +239,6 @@ build_comment_body() {
 
 # Main execution function
 run_update() {
-    source_check_cli
-
     # Step 1-2: Get issue URL (from override or task file)
     local issue_url
     if [[ -n "$ISSUE_URL_OVERRIDE" ]]; then
@@ -209,6 +255,19 @@ run_update() {
         fi
         info "Issue URL: $issue_url"
     fi
+
+    # Auto-detect source platform from issue URL if not explicitly set
+    if [[ -z "$SOURCE" ]]; then
+        SOURCE=$(detect_platform_from_url "$issue_url")
+        if [[ -z "$SOURCE" ]]; then
+            SOURCE=$(detect_platform)
+        fi
+        if [[ -z "$SOURCE" ]]; then
+            die "Could not auto-detect source platform. Use --source github|gitlab"
+        fi
+    fi
+
+    source_check_cli
 
     # Step 3: Extract issue number from URL
     local issue_number
@@ -292,13 +351,13 @@ show_help() {
     cat << 'EOF'
 Usage: aitask_issue_update.sh [OPTIONS] TASK_NUM
 
-Update a GitHub issue linked to an AI task with implementation notes and commits.
+Update a GitHub/GitLab issue linked to an AI task with implementation notes and commits.
 
 Required:
   TASK_NUM                Task number (e.g., 53 or 53_6 for child task)
 
 Options:
-  --source, -S PLATFORM   Source platform: github (default)
+  --source, -S PLATFORM   Source platform: github, gitlab (auto-detected from issue URL)
   --issue-url URL          Provide issue URL directly (skip task file lookup)
                            Useful when the task file has been deleted (e.g., folded tasks)
   --commits RANGE          Override auto-detected commits
@@ -309,7 +368,9 @@ Options:
   --dry-run                Show what would be done without doing it
   --help, -h               Show help
 
-The script reads the task's 'issue' metadata field to find the GitHub issue URL.
+The script reads the task's 'issue' metadata field to find the issue URL.
+The source platform is auto-detected from the issue URL (github.com → GitHub,
+gitlab.com → GitLab). Use --source to override auto-detection.
 Commits are auto-detected from git history by searching for the task ID in commit
 messages. Use --commits to override the auto-detection.
 
@@ -371,12 +432,14 @@ parse_args() {
         die "Task number is required. Use --help for usage."
     fi
 
-    # Validate source platform
-    case "$SOURCE" in
-        github) ;;
-        # gitlab) ;;  # PLATFORM-EXTENSION-POINT
-        *) die "Unknown source platform: $SOURCE (supported: github)" ;;
-    esac
+    # Validate source platform (empty means auto-detect later in run_update)
+    if [[ -n "$SOURCE" ]]; then
+        case "$SOURCE" in
+            github) ;;
+            gitlab) ;;
+            *) die "Unknown source platform: $SOURCE (supported: github, gitlab)" ;;
+        esac
+    fi
 
     # Validate --no-comment requires --close
     if [[ "$NO_COMMENT" == true && "$CLOSE_ISSUE" != true ]]; then

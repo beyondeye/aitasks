@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# aitask_issue_import.sh - Import GitHub issues as AI task files
-# Uses gh CLI to fetch issue data and aitask_create.sh to create tasks
+# aitask_issue_import.sh - Import GitHub/GitLab issues as AI task files
+# Uses gh/glab CLI to fetch issue data and aitask_create.sh to create tasks
 
 set -e
 
@@ -11,10 +11,12 @@ LABELS_FILE="aitasks/metadata/labels.txt"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+# shellcheck source=lib/task_utils.sh
+source "$SCRIPT_DIR/lib/task_utils.sh"
 
 # Batch mode variables
 BATCH_MODE=false
-SOURCE="github"
+SOURCE=""  # Auto-detected from git remote if not set via --source
 BATCH_ISSUE_NUM=""
 BATCH_ISSUE_RANGE=""
 BATCH_ALL=false
@@ -156,13 +158,81 @@ github_preview_issue() {
     gh issue view "$issue_num" --comments=false
 }
 
+# --- GitLab Backend ---
+
+gitlab_check_cli() {
+    command -v glab &>/dev/null || die "glab CLI is required for GitLab. Install: https://gitlab.com/gitlab-org/cli"
+    command -v jq &>/dev/null || die "jq is required. Install via your package manager."
+    glab auth status &>/dev/null || die "glab CLI is not authenticated. Run: glab auth login"
+}
+
+# Returns JSON normalized to GitHub-compatible format
+# Fields: title, body, labels[{name}], url, comments[{author{login},body,createdAt}], createdAt, updatedAt
+gitlab_fetch_issue() {
+    local issue_num="$1"
+    local issue_json notes_json
+
+    # Fetch issue data
+    issue_json=$(glab issue view "$issue_num" -F json)
+
+    # Fetch notes (comments), filtering out system notes
+    notes_json=$(glab api "projects/:fullpath/issues/$issue_num/notes?sort=asc&per_page=100" 2>/dev/null || echo "[]")
+
+    # Normalize to GitHub-compatible JSON structure
+    echo "$issue_json" | jq --argjson notes "$notes_json" '{
+        title: .title,
+        body: (.description // ""),
+        labels: [.labels[] | {name: .}],
+        url: .web_url,
+        comments: [$notes[] | select(.system != true) | {
+            author: {login: .author.username},
+            body: .body,
+            createdAt: .created_at
+        }],
+        createdAt: .created_at,
+        updatedAt: .updated_at
+    }'
+}
+
+# Format comments — reuses github_format_comments since JSON is already normalized
+gitlab_format_comments() {
+    github_format_comments "$@"
+}
+
+# Returns JSON array normalized to GitHub-compatible format
+# Fields: [{number, title, labels[{name}], url}]
+gitlab_list_issues() {
+    glab issue list --all --output json | jq '[.[] | {
+        number: .iid,
+        title: .title,
+        labels: [.labels[] | {name: .}],
+        url: .web_url
+    }]'
+}
+
+# Input: JSON labels array [{name:"..."}] (already normalized). Output: comma-separated lowercase sanitized labels
+gitlab_map_labels() {
+    github_map_labels "$@"
+}
+
+# Input: JSON labels array (already normalized). Output: detected issue type
+gitlab_detect_type() {
+    github_detect_type "$@"
+}
+
+# Prints issue preview to stdout
+gitlab_preview_issue() {
+    local issue_num="$1"
+    glab issue view "$issue_num"
+}
+
 # --- Dispatcher Functions ---
 # PLATFORM-EXTENSION-POINT: Add new platform cases to each dispatcher
 
 source_check_cli() {
     case "$SOURCE" in
         github) github_check_cli ;;
-        # gitlab) gitlab_check_cli ;;  # PLATFORM-EXTENSION-POINT
+        gitlab) gitlab_check_cli ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -171,6 +241,7 @@ source_fetch_issue() {
     local issue_num="$1"
     case "$SOURCE" in
         github) github_fetch_issue "$issue_num" ;;
+        gitlab) gitlab_fetch_issue "$issue_num" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -178,6 +249,7 @@ source_fetch_issue() {
 source_list_issues() {
     case "$SOURCE" in
         github) github_list_issues ;;
+        gitlab) gitlab_list_issues ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -186,6 +258,7 @@ source_map_labels() {
     local labels_json="$1"
     case "$SOURCE" in
         github) github_map_labels "$labels_json" ;;
+        gitlab) gitlab_map_labels "$labels_json" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -194,6 +267,7 @@ source_detect_type() {
     local labels_json="$1"
     case "$SOURCE" in
         github) github_detect_type "$labels_json" ;;
+        gitlab) gitlab_detect_type "$labels_json" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -202,6 +276,7 @@ source_preview_issue() {
     local issue_num="$1"
     case "$SOURCE" in
         github) github_preview_issue "$issue_num" ;;
+        gitlab) gitlab_preview_issue "$issue_num" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -210,7 +285,7 @@ source_format_comments() {
     local comments_json="$1"
     case "$SOURCE" in
         github) github_format_comments "$comments_json" ;;
-        # PLATFORM-EXTENSION-POINT
+        gitlab) gitlab_format_comments "$comments_json" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -691,7 +766,7 @@ Batch mode required flags (one of):
 
 Batch mode options:
   --batch                  Enable batch mode (required for non-interactive)
-  --source, -S PLATFORM    Source platform: github (default)
+  --source, -S PLATFORM    Source platform: github, gitlab (auto-detected from git remote)
   --priority, -p LEVEL     Override priority: high, medium (default), low
   --effort, -e LEVEL       Override effort: low, medium (default), high
   --type, -t TYPE          Override issue type (see aitasks/metadata/task_types.txt, default: auto-detect)
@@ -749,11 +824,19 @@ parse_args() {
         esac
     done
 
+    # Auto-detect source platform if not explicitly set
+    if [[ -z "$SOURCE" ]]; then
+        SOURCE=$(detect_platform)
+        if [[ -z "$SOURCE" ]]; then
+            die "Could not auto-detect source platform from git remote. Use --source github|gitlab"
+        fi
+    fi
+
     # Validate source platform
     case "$SOURCE" in
         github) ;;
-        # gitlab) ;;  # PLATFORM-EXTENSION-POINT
-        *) die "Unknown source platform: $SOURCE (supported: github)" ;;
+        gitlab) ;;
+        *) die "Unknown source platform: $SOURCE (supported: github, gitlab)" ;;
     esac
 }
 
