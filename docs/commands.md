@@ -370,14 +370,14 @@ ait zip-old -v                 # Verbose output
 
 ## ait issue-import
 
-Import GitHub issues as AI task files. Supports interactive selection with fzf or batch automation.
+Import GitHub/GitLab issues as AI task files. Supports interactive selection with fzf or batch automation. The source platform is auto-detected from the git remote URL (`github.com` → GitHub, `gitlab.com` → GitLab). Use `--source` to override.
 
-**Interactive mode** (default — requires fzf and gh CLI):
+**Interactive mode** (default — requires fzf and gh/glab CLI):
 
 1. **Import mode selection** — Choose via fzf: "Specific issue number", "Fetch open issues and choose", "Issue number range", "All open issues"
 2. **Issue selection** — Depends on mode:
    - *Specific issue*: enter issue number manually
-   - *Fetch & choose*: fetches all open issues via `gh issue list`, presents in fzf with multi-select (Tab to select multiple) and preview pane showing issue body/labels
+   - *Fetch & choose*: fetches all open issues via `gh issue list` (or `glab issue list` for GitLab), presents in fzf with multi-select (Tab to select multiple) and preview pane showing issue body/labels
    - *Range*: enter start and end issue numbers
    - *All open*: fetches all open issues with confirmation prompt showing count
 3. **Duplicate check** — Searches active and archived tasks for matching issue URL. If found, warns and offers Skip/Import anyway
@@ -404,7 +404,7 @@ ait issue-import --batch --all --parent 53 --skip-duplicates
 | `--issue, -i NUM` | Import a specific issue number |
 | `--range START-END` | Import issues in a number range (e.g., 5-10) |
 | `--all` | Import all open issues |
-| `--source, -S PLATFORM` | Source platform: github (default) |
+| `--source, -S PLATFORM` | Source platform: `github`, `gitlab` (auto-detected from git remote) |
 | `--priority, -p LEVEL` | Override priority: high, medium (default), low |
 | `--effort, -e LEVEL` | Override effort: low, medium (default), high |
 | `--type, -t TYPE` | Override issue type (default: auto-detect from labels) |
@@ -419,9 +419,10 @@ ait issue-import --batch --all --parent 53 --skip-duplicates
 | `--no-comments` | Don't include issue comments in task description |
 
 **Key features:**
-- Platform-extensible dispatcher architecture (GitHub backend implemented; add new platforms by implementing backend functions)
-- GitHub label → aitask label mapping (lowercase, special chars sanitized)
-- Auto issue type detection from GitHub labels (`bug`, `refactor`, `tech-debt`, `cleanup`)
+- Platform-extensible dispatcher architecture (GitHub and GitLab backends implemented; add new platforms by implementing backend functions)
+- Auto-detection of source platform from git remote URL (override with `--source`)
+- Issue label → aitask label mapping (lowercase, special chars sanitized)
+- Auto issue type detection from issue labels (`bug`, `refactor`, `tech-debt`, `cleanup`)
 - Duplicate detection across active and archived task directories
 - Issue comments included in task description by default (disable with `--no-comments`)
 - Issue timestamps (created/updated) embedded in task description
@@ -430,7 +431,7 @@ ait issue-import --batch --all --parent 53 --skip-duplicates
 
 ## ait issue-update
 
-Post implementation notes and commit references to a GitHub issue linked to a task. Optionally closes the issue. No interactive mode — fully CLI-driven.
+Post implementation notes and commit references to a GitHub/GitLab issue linked to a task. Optionally closes the issue. No interactive mode — fully CLI-driven. The source platform is auto-detected from the issue URL in the task's frontmatter. Use `--source` to override.
 
 ```bash
 ait issue-update 83                           # Post comment on linked issue
@@ -443,7 +444,7 @@ ait issue-update --close --no-comment 83      # Close silently
 | Option | Description |
 |--------|-------------|
 | `TASK_NUM` | Task number (required): `53`, `53_6`, or `t53_6` |
-| `--source, -S PLATFORM` | Source platform: github (default) |
+| `--source, -S PLATFORM` | Source platform: `github`, `gitlab` (auto-detected from issue URL) |
 | `--commits RANGE` | Override auto-detected commits. Formats: comma-separated (`abc,def`), range (`abc..def`), or single hash |
 | `--close` | Close the issue after posting the comment |
 | `--comment-only` | Post comment only, don't close (default behavior) |
@@ -452,7 +453,7 @@ ait issue-update --close --no-comment 83      # Close silently
 
 **How it works:**
 
-1. Reads the `issue` field from the task file's YAML frontmatter to find the GitHub issue URL
+1. Reads the `issue` field from the task file's YAML frontmatter to find the issue URL (auto-detects GitHub/GitLab from the URL)
 2. Resolves the archived plan file and extracts the "Final Implementation Notes" section
 3. Auto-detects associated commits by searching git log for `(t<task_id>)` in commit messages (only source code commits use this parenthesized pattern)
 4. Builds a markdown comment with: task reference header, link to plan file, implementation notes, and commit list
@@ -463,6 +464,7 @@ ait issue-update --close --no-comment 83      # Close silently
 - Commit override with flexible formats: comma-separated hashes, hash range, or single hash
 - Plan file resolution across active and archived directories
 - Dry-run mode for previewing the comment before posting
+- Auto-detection of source platform from issue URL (override with `--source`)
 - Platform-extensible dispatcher (same architecture as issue-import)
 
 ---

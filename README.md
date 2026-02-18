@@ -111,7 +111,7 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 
 **Global dependencies** (installed once per machine via `ait setup`):
 
-- CLI tools: `fzf`, `gh`, `jq`, `git`
+- CLI tools: `fzf`, `gh` (for GitHub) or `glab` (for GitLab), `jq`, `git`
 - Python venv at `~/.aitask/venv/` with `textual`, `pyyaml`, `linkify-it-py`
 - Global `ait` shim at `~/.local/bin/ait`
 - Claude Code permissions in `.claude/settings.local.json` (see [Claude Code Permissions](docs/commands.md#claude-code-permissions))
@@ -132,7 +132,14 @@ Follow the prompts to authenticate via browser or token.
 
 ### GitLab
 
-<!-- TODO: Add GitLab authentication instructions -->
+Authenticate the GitLab CLI:
+
+```bash
+glab auth login
+```
+
+Follow the prompts to authenticate via browser or token. This also configures
+git credentials for pushing to GitLab remotes.
 
 ### Bitbucket
 
