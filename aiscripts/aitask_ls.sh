@@ -29,10 +29,9 @@ OPTIONS:
   -h, --help    Show this help message.
 
 METADATA FORMAT:
-  The file can have YAML front matter (lines between --- markers) or
-  legacy single-line format. Missing properties default to 'Medium'.
+  The file uses YAML front matter (lines between --- markers).
+  Missing properties default to 'Medium'.
 
-  YAML Format:
     ---
     priority: high|medium|low
     effort: high|medium|low
@@ -44,10 +43,6 @@ METADATA FORMAT:
     created_at: 2026-02-01 14:30
     updated_at: 2026-02-01 15:45
     ---
-
-  Legacy Format (still supported):
-    --- priority:high effort:low depends:1,4
-    --- pri:hi eff:lo dep:1,4
 EOF
 }
 
@@ -266,42 +261,6 @@ parse_yaml_frontmatter() {
     done < "$file_path"
 }
 
-parse_legacy_format() {
-    local first_line="$1"
-    local line_lower
-    line_lower=$(echo "$first_line" | tr '[:upper:]' '[:lower:]')
-
-    # Priority
-    if [[ "$line_lower" =~ (priority|pri):( *[^ ]*) ]]; then
-        local val
-        val=$(echo "${BASH_REMATCH[2]}" | tr -d ',')
-        case "$val" in
-            high|hi)   p_score=1; p_text="High" ;;
-            medium|med) p_score=2; p_text="Medium" ;;
-            low|lo)    p_score=3; p_text="Low" ;;
-        esac
-    fi
-
-    # Effort
-    if [[ "$line_lower" =~ (effort|eff):( *[^ ]*) ]]; then
-        local val
-        val=$(echo "${BASH_REMATCH[2]}" | tr -d ',')
-        case "$val" in
-            low|lo)    e_score=1; e_text="Low" ;;
-            medium|med) e_score=2; e_text="Medium" ;;
-            high|hi)   e_score=3; e_text="High" ;;
-        esac
-    fi
-
-    # Dependencies
-    if [[ "$line_lower" =~ (depends|dep):([^ ]*) ]]; then
-        d_text=$(echo "${BASH_REMATCH[2]}" | tr -d ' ')
-    fi
-
-    # Legacy format defaults to Ready status
-    status_text="Ready"
-}
-
 calculate_blocked_status() {
     blocked=0
     local blocking_info=""
@@ -344,17 +303,8 @@ parse_task_metadata() {
     assigned_to_text=""
     issue_text=""
 
-    local first_line
-    first_line=$(head -n 1 "$file_path")
-
-    # Check if it's YAML front matter (just "---" on first line)
-    if [[ "$first_line" == "---" ]]; then
-        # Multi-line YAML front matter
-        parse_yaml_frontmatter "$file_path"
-    elif [[ "$first_line" == ---* ]]; then
-        # Legacy single-line format
-        parse_legacy_format "$first_line"
-    fi
+    # Parse YAML front matter
+    parse_yaml_frontmatter "$file_path"
 
     # Calculate blocked status from dependencies
     calculate_blocked_status
