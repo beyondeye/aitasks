@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [claudeskills, scripting, aitask_board]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-17 23:05
-updated_at: 2026-02-17 23:05
+updated_at: 2026-02-18 09:54
 ---
 
 add missing default task types from conductor task types: feat: New feature
