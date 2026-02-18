@@ -413,45 +413,13 @@ SHIM
     }
 }
 
-# --- Git repository setup ---
-setup_git_repo() {
+# --- Ensure git repository exists (init only, no commit) ---
+ensure_git_repo() {
     local project_dir="$SCRIPT_DIR/.."
 
     # Check if we're inside a git repo
     if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
         success "Git repository already initialized"
-
-        # Check if framework files are untracked (fresh install into existing repo)
-        local untracked
-        untracked="$(cd "$project_dir" && git ls-files --others --exclude-standard \
-            aiscripts/ aitasks/metadata/ ait .claude/skills/ install.sh 2>/dev/null)" || true
-
-        if [[ -n "$untracked" ]]; then
-            info "Framework files are not yet committed to git:"
-            echo "$untracked" | head -20 | sed 's/^/  /'
-            if [[ -t 0 ]]; then
-                printf "  Commit framework files to git? [Y/n] "
-                read -r answer
-            else
-                info "(non-interactive: auto-accepting default)"
-                answer="Y"
-            fi
-            case "${answer:-Y}" in
-                [Yy]*|"")
-                    (
-                        cd "$project_dir"
-                        git add aiscripts/ aitasks/metadata/ ait .claude/skills/ install.sh 2>/dev/null || true
-                        git commit -m "ait: Add aitask framework"
-                    )
-                    success "Framework files committed to git"
-                    ;;
-                *)
-                    info "Skipped committing framework files."
-                    info "You can manually commit later with 'git add' and 'git commit'."
-                    ;;
-            esac
-        fi
-
         return
     fi
 
@@ -474,51 +442,8 @@ setup_git_repo() {
             warn "Git repository not initialized."
             info "Note: aitask framework is designed to be tracked in git."
             info "You can run 'git init' later and commit the aitask files."
-            return
             ;;
     esac
-
-    # Offer to make an initial commit of the framework files
-    info "Would you like to commit the aitask framework files to git?"
-    info "This will add:"
-    info "  aiscripts/     - aitask scripts and tools"
-    info "  aitasks/metadata/ - task metadata and configuration"
-    info "  ait            - CLI dispatcher"
-    info "  .claude/skills/ - Claude Code skills"
-    if [[ -t 0 ]]; then
-        printf "  Commit these files? [Y/n] "
-        read -r answer
-    else
-        info "(non-interactive: auto-accepting default)"
-        answer="Y"
-    fi
-    case "${answer:-Y}" in
-        [Yy]*|"")
-            ;;
-        *)
-            warn "Skipped initial commit."
-            info "The aitask framework is designed to be part of your project repository."
-            info "You can manually commit these files later with 'git add' and 'git commit'."
-            printf "  Are you sure you want to skip? [y/N] "
-            read -r answer2
-            case "${answer2:-N}" in
-                [Yy]*)
-                    info "OK, skipping initial commit."
-                    return
-                    ;;
-                *)
-                    info "OK, proceeding with commit."
-                    ;;
-            esac
-            ;;
-    esac
-
-    (
-        cd "$project_dir"
-        git add aiscripts/ aitasks/metadata/ ait .claude/skills/ install.sh 2>/dev/null || true
-        git commit -m "ait: Add aitask framework"
-    )
-    success "Initial commit created with aitask framework files"
 }
 
 # --- Task ID counter setup ---
@@ -930,6 +855,89 @@ setup_review_modes() {
     fi
 }
 
+# --- Commit all framework files to git ---
+# Runs at the END of setup, after all steps have created their files.
+# This ensures review modes, .gitignore, and other late-stage files are included.
+commit_framework_files() {
+    local project_dir="$SCRIPT_DIR/.."
+
+    # Bail if not in a git repo
+    if ! git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        return
+    fi
+
+    # Build the list of framework paths to check (only those that exist)
+    local paths_to_add=()
+    local check_paths=(
+        "aiscripts/"
+        "aitasks/metadata/"
+        "ait"
+        ".claude/skills/"
+        ".gitignore"
+    )
+
+    for p in "${check_paths[@]}"; do
+        if [[ -e "$project_dir/$p" ]]; then
+            paths_to_add+=("$p")
+        fi
+    done
+
+    # Also check for install.sh (may not exist in tarball installs)
+    if [[ -f "$project_dir/install.sh" ]]; then
+        paths_to_add+=("install.sh")
+    fi
+
+    if [[ ${#paths_to_add[@]} -eq 0 ]]; then
+        return
+    fi
+
+    # Check for untracked or modified framework files
+    local untracked modified all_changes
+    untracked="$(cd "$project_dir" && git ls-files --others --exclude-standard \
+        "${paths_to_add[@]}" 2>/dev/null)" || true
+    modified="$(cd "$project_dir" && git ls-files --modified \
+        "${paths_to_add[@]}" 2>/dev/null)" || true
+    all_changes="${untracked}${modified}"
+
+    if [[ -z "$all_changes" ]]; then
+        success "All framework files already committed to git"
+        return
+    fi
+
+    info "Framework files not yet committed to git:"
+    echo "$all_changes" | head -20 | sed 's/^/  /'
+    local total_count
+    total_count=$(echo "$all_changes" | wc -l)
+    if [[ $total_count -gt 20 ]]; then
+        info "  ... and $((total_count - 20)) more files"
+    fi
+
+    if [[ -t 0 ]]; then
+        printf "  Commit framework files to git? [Y/n] "
+        read -r answer
+    else
+        info "(non-interactive: auto-accepting default)"
+        answer="Y"
+    fi
+    case "${answer:-Y}" in
+        [Yy]*|"")
+            (
+                cd "$project_dir"
+                git add "${paths_to_add[@]}" 2>/dev/null || true
+                # Only commit if there are staged changes
+                if ! git diff --cached --quiet 2>/dev/null; then
+                    git commit -m "ait: Add aitask framework"
+                fi
+            )
+            success "Framework files committed to git"
+            ;;
+        *)
+            info "Skipped committing framework files."
+            info "You can manually commit later with 'git add' and 'git commit'."
+            ;;
+    esac
+}
+
 # --- Main ---
 main() {
     echo ""
@@ -943,7 +951,7 @@ main() {
     install_cli_tools "$OS"
     echo ""
 
-    setup_git_repo
+    ensure_git_repo
     echo ""
 
     setup_draft_directory
@@ -965,6 +973,9 @@ main() {
     echo ""
 
     setup_review_modes
+    echo ""
+
+    commit_framework_files
     echo ""
 
     check_latest_version

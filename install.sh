@@ -360,6 +360,55 @@ set_permissions() {
     find "$INSTALL_DIR/aiscripts/lib" -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
 }
 
+# --- Commit installed files to git (safety net) ---
+# Runs after extraction — commits framework files if in a git repo.
+# No interactive prompt (stdin may not be a terminal when piped).
+# Non-fatal: warns on failure instead of aborting.
+commit_installed_files() {
+    # Only act if we're in a git repo
+    if ! git -C "$INSTALL_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
+        return
+    fi
+
+    # Build list of paths to commit (only those that exist)
+    local paths_to_add=()
+    local check_paths=(
+        "aiscripts/"
+        "aitasks/metadata/"
+        "ait"
+        ".claude/skills/"
+    )
+
+    for p in "${check_paths[@]}"; do
+        if [[ -e "$INSTALL_DIR/$p" ]]; then
+            paths_to_add+=("$p")
+        fi
+    done
+
+    if [[ ${#paths_to_add[@]} -eq 0 ]]; then
+        return
+    fi
+
+    # Check if there are untracked framework files
+    local untracked
+    untracked="$(cd "$INSTALL_DIR" && git ls-files --others --exclude-standard \
+        "${paths_to_add[@]}" 2>/dev/null)" || true
+
+    if [[ -z "$untracked" ]]; then
+        return
+    fi
+
+    info "Committing framework files to git..."
+    (
+        cd "$INSTALL_DIR"
+        git add "${paths_to_add[@]}" 2>/dev/null || true
+        if ! git diff --cached --quiet 2>/dev/null; then
+            git commit -m "ait: Add aitask framework"
+        fi
+    ) && success "Framework files committed to git" \
+      || warn "Could not commit framework files (non-fatal). Run 'ait setup' to retry."
+}
+
 # --- Main ---
 main() {
     echo ""
@@ -414,6 +463,8 @@ main() {
 
     info "Setting permissions..."
     set_permissions
+
+    commit_installed_files
 
     echo ""
     echo "=== aitasks installed successfully ==="
