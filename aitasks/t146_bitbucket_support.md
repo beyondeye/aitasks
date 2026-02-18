@@ -7,7 +7,7 @@ status: Ready
 labels: [claudeskills, gitremote, scripting]
 created_at: 2026-02-17 11:32
 updated_at: 2026-02-17 11:32
-boardidx: 50
+boardidx: 30
 boardcol: now
 ---
 
