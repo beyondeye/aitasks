@@ -5,7 +5,7 @@ depends: []
 issue_type: refactor
 status: Ready
 labels: [aitask_review, claudeskills]
-children_to_implement: [t172_1, t172_2]
+children_to_implement: [t172_1, t172_2, t172_3]
 created_at: 2026-02-18 22:00
 updated_at: 2026-02-18 22:40
 ---
