@@ -64,7 +64,7 @@ ait setup
 **Guided setup flow:**
 
 1. **OS detection** — Automatically detects: macOS, Arch Linux, Debian/Ubuntu, Fedora/RHEL, WSL
-2. **CLI tools** — Installs missing tools (`fzf`, `gh`, `jq`, `git`) via the platform's package manager (pacman, apt, dnf, brew). On macOS, also installs bash 5.x and coreutils
+2. **CLI tools** — Installs missing tools (`fzf`, `gh`/`glab`/`bkt`, `jq`, `git`) via the platform's package manager (pacman, apt, dnf, brew). Auto-detects git remote platform to install the right CLI tool (`gh` for GitHub, `glab` for GitLab, `bkt` for Bitbucket). On macOS, also installs bash 5.x and coreutils
 3. **Git repo** — Checks for an existing git repository; offers to initialize one and commit framework files if not found
 4. **Draft directory** — Creates `aitasks/new/` for local draft tasks and adds it to `.gitignore` so drafts stay local-only
 5. **Task ID counter** — Initializes the `aitask-ids` counter branch on the remote for atomic task numbering. This prevents duplicate task IDs when multiple PCs create tasks against the same repo
@@ -370,7 +370,7 @@ ait zip-old -v                 # Verbose output
 
 ## ait issue-import
 
-Import GitHub/GitLab issues as AI task files. Supports interactive selection with fzf or batch automation. The source platform is auto-detected from the git remote URL (`github.com` → GitHub, `gitlab.com` → GitLab). Use `--source` to override.
+Import GitHub/GitLab/Bitbucket issues as AI task files. Supports interactive selection with fzf or batch automation. The source platform is auto-detected from the git remote URL (`github.com` → GitHub, `gitlab.com` → GitLab, `bitbucket.org` → Bitbucket). Use `--source` to override.
 
 **Interactive mode** (default — requires fzf and gh/glab CLI):
 
@@ -404,7 +404,7 @@ ait issue-import --batch --all --parent 53 --skip-duplicates
 | `--issue, -i NUM` | Import a specific issue number |
 | `--range START-END` | Import issues in a number range (e.g., 5-10) |
 | `--all` | Import all open issues |
-| `--source, -S PLATFORM` | Source platform: `github`, `gitlab` (auto-detected from git remote) |
+| `--source, -S PLATFORM` | Source platform: `github`, `gitlab`, `bitbucket` (auto-detected from git remote) |
 | `--priority, -p LEVEL` | Override priority: high, medium (default), low |
 | `--effort, -e LEVEL` | Override effort: low, medium (default), high |
 | `--type, -t TYPE` | Override issue type (default: auto-detect from labels) |
@@ -419,7 +419,7 @@ ait issue-import --batch --all --parent 53 --skip-duplicates
 | `--no-comments` | Don't include issue comments in task description |
 
 **Key features:**
-- Platform-extensible dispatcher architecture (GitHub and GitLab backends implemented; add new platforms by implementing backend functions)
+- Platform-extensible dispatcher architecture (GitHub, GitLab, and Bitbucket backends implemented; add new platforms by implementing backend functions)
 - Auto-detection of source platform from git remote URL (override with `--source`)
 - Issue label → aitask label mapping (lowercase, special chars sanitized)
 - Auto issue type detection from issue labels (`bug`, `refactor`, `tech-debt`, `cleanup`)
@@ -431,7 +431,7 @@ ait issue-import --batch --all --parent 53 --skip-duplicates
 
 ## ait issue-update
 
-Post implementation notes and commit references to a GitHub/GitLab issue linked to a task. Optionally closes the issue. No interactive mode — fully CLI-driven. The source platform is auto-detected from the issue URL in the task's frontmatter. Use `--source` to override.
+Post implementation notes and commit references to a GitHub/GitLab/Bitbucket issue linked to a task. Optionally closes the issue. No interactive mode — fully CLI-driven. The source platform is auto-detected from the issue URL in the task's frontmatter. Use `--source` to override.
 
 ```bash
 ait issue-update 83                           # Post comment on linked issue
@@ -444,7 +444,7 @@ ait issue-update --close --no-comment 83      # Close silently
 | Option | Description |
 |--------|-------------|
 | `TASK_NUM` | Task number (required): `53`, `53_6`, or `t53_6` |
-| `--source, -S PLATFORM` | Source platform: `github`, `gitlab` (auto-detected from issue URL) |
+| `--source, -S PLATFORM` | Source platform: `github`, `gitlab`, `bitbucket` (auto-detected from issue URL) |
 | `--commits RANGE` | Override auto-detected commits. Formats: comma-separated (`abc,def`), range (`abc..def`), or single hash |
 | `--close` | Close the issue after posting the comment |
 | `--comment-only` | Post comment only, don't close (default behavior) |
@@ -453,7 +453,7 @@ ait issue-update --close --no-comment 83      # Close silently
 
 **How it works:**
 
-1. Reads the `issue` field from the task file's YAML frontmatter to find the issue URL (auto-detects GitHub/GitLab from the URL)
+1. Reads the `issue` field from the task file's YAML frontmatter to find the issue URL (auto-detects GitHub/GitLab/Bitbucket from the URL)
 2. Resolves the archived plan file and extracts the "Final Implementation Notes" section
 3. Auto-detects associated commits by searching git log for `(t<task_id>)` in commit messages (only source code commits use this parenthesized pattern)
 4. Builds a markdown comment with: task reference header, link to plan file, implementation notes, and commit list

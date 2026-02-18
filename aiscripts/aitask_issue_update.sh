@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# aitask_issue_update.sh - Update GitHub/GitLab issues linked to AI tasks
+# aitask_issue_update.sh - Update GitHub/GitLab/Bitbucket issues linked to AI tasks
 # Posts implementation notes and commit references as issue comments
 # Optionally closes the issue
 
@@ -118,12 +118,60 @@ gitlab_close_issue() {
     glab issue close "$issue_num"
 }
 
+# --- Bitbucket Backend ---
+
+bitbucket_check_cli() {
+    command -v bkt &>/dev/null || die "bkt CLI is required for Bitbucket. Install: https://github.com/avivsinai/bitbucket-cli"
+    bkt auth status &>/dev/null || die "bkt CLI is not authenticated. Run: bkt auth login https://bitbucket.org --kind cloud --web"
+}
+
+# Extract issue number from full Bitbucket URL
+# Input: "https://bitbucket.org/workspace/repo/issues/123/optional-slug"
+# Output: "123"
+# Note: Bitbucket URLs can have a trailing slug after the number
+bitbucket_extract_issue_number() {
+    local url="$1"
+    echo "$url" | grep -oE '/issues/[0-9]+' | grep -oE '[0-9]+'
+}
+
+# Get current issue state (normalized to OPEN/CLOSED)
+# Bitbucket states: new, open → OPEN; resolved, on hold, invalid, duplicate, wontfix, closed → CLOSED
+bitbucket_get_issue_status() {
+    local issue_num="$1"
+    local state
+    state=$(bkt issue view "$issue_num" --json | jq -r '.state')
+    case "$state" in
+        new|open) echo "OPEN" ;;
+        resolved|on\ hold|invalid|duplicate|wontfix|closed) echo "CLOSED" ;;
+        *) echo "OPEN" ;;  # Default to OPEN for unknown states
+    esac
+}
+
+# Post a comment on an issue
+bitbucket_add_comment() {
+    local issue_num="$1"
+    local body="$2"
+    bkt issue comment "$issue_num" -b "$body"
+}
+
+# Close an issue with optional comment
+# Note: bkt issue close doesn't support --comment, so we post comment first
+bitbucket_close_issue() {
+    local issue_num="$1"
+    local comment="$2"
+    if [[ -n "$comment" ]]; then
+        bkt issue comment "$issue_num" -b "$comment"
+    fi
+    bkt issue close "$issue_num"
+}
+
 # --- Dispatcher Functions ---
 
 source_check_cli() {
     case "$SOURCE" in
         github) github_check_cli ;;
         gitlab) gitlab_check_cli ;;
+        bitbucket) bitbucket_check_cli ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -133,6 +181,7 @@ source_extract_issue_number() {
     case "$SOURCE" in
         github) github_extract_issue_number "$url" ;;
         gitlab) gitlab_extract_issue_number "$url" ;;
+        bitbucket) bitbucket_extract_issue_number "$url" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -142,6 +191,7 @@ source_get_issue_status() {
     case "$SOURCE" in
         github) github_get_issue_status "$issue_num" ;;
         gitlab) gitlab_get_issue_status "$issue_num" ;;
+        bitbucket) bitbucket_get_issue_status "$issue_num" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -152,6 +202,7 @@ source_add_comment() {
     case "$SOURCE" in
         github) github_add_comment "$issue_num" "$body" ;;
         gitlab) gitlab_add_comment "$issue_num" "$body" ;;
+        bitbucket) bitbucket_add_comment "$issue_num" "$body" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -162,6 +213,7 @@ source_close_issue() {
     case "$SOURCE" in
         github) github_close_issue "$issue_num" "$comment" ;;
         gitlab) gitlab_close_issue "$issue_num" "$comment" ;;
+        bitbucket) bitbucket_close_issue "$issue_num" "$comment" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -263,7 +315,7 @@ run_update() {
             SOURCE=$(detect_platform)
         fi
         if [[ -z "$SOURCE" ]]; then
-            die "Could not auto-detect source platform. Use --source github|gitlab"
+            die "Could not auto-detect source platform. Use --source github|gitlab|bitbucket"
         fi
     fi
 
@@ -351,13 +403,13 @@ show_help() {
     cat << 'EOF'
 Usage: aitask_issue_update.sh [OPTIONS] TASK_NUM
 
-Update a GitHub/GitLab issue linked to an AI task with implementation notes and commits.
+Update a GitHub/GitLab/Bitbucket issue linked to an AI task with implementation notes and commits.
 
 Required:
   TASK_NUM                Task number (e.g., 53 or 53_6 for child task)
 
 Options:
-  --source, -S PLATFORM   Source platform: github, gitlab (auto-detected from issue URL)
+  --source, -S PLATFORM   Source platform: github, gitlab, bitbucket (auto-detected from issue URL)
   --issue-url URL          Provide issue URL directly (skip task file lookup)
                            Useful when the task file has been deleted (e.g., folded tasks)
   --commits RANGE          Override auto-detected commits
@@ -370,7 +422,7 @@ Options:
 
 The script reads the task's 'issue' metadata field to find the issue URL.
 The source platform is auto-detected from the issue URL (github.com → GitHub,
-gitlab.com → GitLab). Use --source to override auto-detection.
+gitlab.com → GitLab, bitbucket.org → Bitbucket). Use --source to override auto-detection.
 Commits are auto-detected from git history by searching for the task ID in commit
 messages. Use --commits to override the auto-detection.
 
@@ -437,7 +489,8 @@ parse_args() {
         case "$SOURCE" in
             github) ;;
             gitlab) ;;
-            *) die "Unknown source platform: $SOURCE (supported: github, gitlab)" ;;
+            bitbucket) ;;
+            *) die "Unknown source platform: $SOURCE (supported: github, gitlab, bitbucket)" ;;
         esac
     fi
 

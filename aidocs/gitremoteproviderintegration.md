@@ -112,16 +112,16 @@ All backends must normalize their API responses to match this GitHub-compatible 
 
 ### Field Mapping Examples
 
-| Normalized field | GitHub (`gh`) | GitLab (`glab`) |
-|-----------------|---------------|-----------------|
-| `.body` | `.body` | `.description` |
-| `.url` | `.url` | `.web_url` |
-| `.labels[].name` | `.labels[].name` (objects) | `.labels[]` (strings, wrap in `{name: .}`) |
-| `.createdAt` | `.createdAt` | `.created_at` |
-| `.updatedAt` | `.updatedAt` | `.updated_at` |
-| `.comments[].author.login` | `.comments[].author.login` | `.notes[].author.username` (filter `system != true`) |
-| `.number` (list) | `.number` | `.iid` |
-| Issue state | `OPEN`/`CLOSED` | `opened`/`closed` (normalize to uppercase) |
+| Normalized field | GitHub (`gh`) | GitLab (`glab`) | Bitbucket (`bkt`) |
+|-----------------|---------------|-----------------|-------------------|
+| `.body` | `.body` | `.description` | `.body` (pre-normalized by `bkt`) |
+| `.url` | `.url` | `.web_url` | `.url` (pre-normalized by `bkt`) |
+| `.labels[].name` | `.labels[].name` (objects) | `.labels[]` (strings, wrap in `{name: .}`) | No labels — synthesize from `.kind` |
+| `.createdAt` | `.createdAt` | `.created_at` | `.created_on` |
+| `.updatedAt` | `.updatedAt` | `.updated_at` | `.updated_on` |
+| `.comments[].author.login` | `.comments[].author.login` | `.notes[].author.username` (filter `system != true`) | `.comments[].author` (string, wrap in `{login: .}`) |
+| `.number` (list) | `.number` | `.iid` | `.id` |
+| Issue state | `OPEN`/`CLOSED` | `opened`/`closed` (normalize to uppercase) | `new`/`open`/`resolved`/`on hold`/`invalid`/`duplicate`/`wontfix` (7 states → `OPEN`/`CLOSED`) |
 
 ## Auto-Detection Flow
 
@@ -144,3 +144,8 @@ All backends must normalize their API responses to match this GitHub-compatible 
 - **Issue numbers**: Some platforms use `iid` (project-scoped) vs `id` (global). Use the project-scoped number.
 - **Pagination**: When listing issues, ensure pagination is handled (some CLIs have `--paginate` flags, others need manual page iteration).
 - **System notes**: Some platforms include system-generated notes (e.g., "changed status") in the notes/comments API. Filter these out (e.g., GitLab: `select(.system != true)`).
+- **No labels**: Bitbucket Cloud has no labels — uses `component` (single string, must be pre-defined) and `kind` (bug/enhancement/proposal/task) instead. Synthesize a labels array from these fields.
+- **Issue URL slugs**: Bitbucket issue URLs may include a trailing slug after the number (e.g., `/issues/42/my-issue-title`). Use `/issues/[0-9]+` pattern extraction, not `[0-9]+$`.
+- **Multiple open states**: Bitbucket has 7 issue states (`new`, `open`, `resolved`, `on hold`, `invalid`, `duplicate`, `wontfix`). The default `bkt issue list` only returns `open` state, not `new` — use `--state new` + `--state open` or `--state all` to get all non-closed issues.
+- **CLI context**: `bkt` requires an active context (`bkt context create ... --set-active`) before most commands work. This is different from `gh`/`glab` which auto-detect the repository.
+- **Issue tracking availability**: Bitbucket issue tracking is Cloud-only (Data Center uses Jira).

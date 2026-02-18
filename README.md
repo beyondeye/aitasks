@@ -111,7 +111,7 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 
 **Global dependencies** (installed once per machine via `ait setup`):
 
-- CLI tools: `fzf`, `gh` (for GitHub) or `glab` (for GitLab), `jq`, `git`
+- CLI tools: `fzf`, `gh` (for GitHub), `glab` (for GitLab), or `bkt` (for Bitbucket), `jq`, `git`
 - Python venv at `~/.aitask/venv/` with `textual`, `pyyaml`, `linkify-it-py`
 - Global `ait` shim at `~/.local/bin/ait`
 - Claude Code permissions in `.claude/settings.local.json` (see [Claude Code Permissions](docs/commands.md#claude-code-permissions))
@@ -143,7 +143,28 @@ git credentials for pushing to GitLab remotes.
 
 ### Bitbucket
 
-<!-- TODO: Add Bitbucket authentication instructions -->
+Authenticate the Bitbucket CLI:
+
+```bash
+bkt auth login https://bitbucket.org --kind cloud --web
+```
+
+Follow the browser prompts to authenticate with your Atlassian account. For token-based
+authentication (e.g., in CI environments):
+
+```bash
+bkt auth login https://bitbucket.org --kind cloud --username <email> --token <app-password>
+```
+
+Create an app password at: Settings > Personal Bitbucket settings > App passwords.
+Enable the "Issues: read" and "Issues: write" permissions.
+
+Note: `bkt` requires a context to be configured. After authentication, create one:
+
+```bash
+bkt context create myproject --host "https://api.bitbucket.org/2.0" \
+    --workspace <your-workspace> --repo <your-repo> --set-active
+```
 
 ## Documentation
 

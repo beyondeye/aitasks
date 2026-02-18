@@ -20,12 +20,14 @@ ARCHIVED_PLAN_DIR="${ARCHIVED_PLAN_DIR:-aiplans/archived}"
 # --- Platform Detection ---
 
 # Detect git remote platform from origin URL
-# Output: "github", "gitlab", or "" (unknown)
+# Output: "github", "gitlab", "bitbucket", or "" (unknown)
 detect_platform() {
     local remote_url
     remote_url=$(git remote get-url origin 2>/dev/null || echo "")
     if [[ "$remote_url" == *"gitlab"* ]]; then
         echo "gitlab"
+    elif [[ "$remote_url" == *"bitbucket"* ]]; then
+        echo "bitbucket"
     elif [[ "$remote_url" == *"github"* ]]; then
         echo "github"
     else
@@ -35,11 +37,13 @@ detect_platform() {
 
 # Detect platform from an issue/web URL
 # Input: URL string
-# Output: "github", "gitlab", or "" (unknown)
+# Output: "github", "gitlab", "bitbucket", or "" (unknown)
 detect_platform_from_url() {
     local url="$1"
     if [[ "$url" == *"gitlab"* ]]; then
         echo "gitlab"
+    elif [[ "$url" == *"bitbucket"* ]]; then
+        echo "bitbucket"
     elif [[ "$url" == *"github"* ]]; then
         echo "github"
     else

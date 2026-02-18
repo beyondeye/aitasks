@@ -74,6 +74,8 @@ _detect_git_platform() {
     remote_url=$(git remote get-url origin 2>/dev/null || echo "")
     if [[ "$remote_url" == *"gitlab"* ]]; then
         echo "gitlab"
+    elif [[ "$remote_url" == *"bitbucket"* ]]; then
+        echo "bitbucket"
     elif [[ "$remote_url" == *"github"* ]]; then
         echo "github"
     else
@@ -95,6 +97,10 @@ install_cli_tools() {
         gitlab)
             tools+=(glab)
             info "Detected GitLab remote — will install glab CLI"
+            ;;
+        bitbucket)
+            tools+=(bkt)
+            info "Detected Bitbucket remote — will install bkt CLI"
             ;;
         github|"")
             tools+=(gh)
@@ -122,23 +128,44 @@ install_cli_tools() {
         arch)
             # Map tool names to Arch package names
             local pkgs=()
+            local need_bkt_arch=false
             for tool in "${missing[@]}"; do
                 case "$tool" in
                     gh) pkgs+=("github-cli") ;;
+                    bkt) need_bkt_arch=true ;;
                     *)  pkgs+=("$tool") ;;
                 esac
             done
-            sudo pacman -S --needed --noconfirm "${pkgs[@]}"
+            if [[ ${#pkgs[@]} -gt 0 ]]; then
+                sudo pacman -S --needed --noconfirm "${pkgs[@]}"
+            fi
+            if $need_bkt_arch; then
+                info "Installing Bitbucket CLI from GitHub release..."
+                local bkt_ver bkt_url
+                bkt_ver=$(curl -s "https://api.github.com/repos/avivsinai/bitbucket-cli/releases/latest" | jq -r '.tag_name' 2>/dev/null | sed 's/^v//')
+                if [[ -n "$bkt_ver" && "$bkt_ver" != "null" ]]; then
+                    bkt_url="https://github.com/avivsinai/bitbucket-cli/releases/download/v${bkt_ver}/bkt_${bkt_ver}_linux_x86_64.tar.gz"
+                    curl -sLO "$bkt_url" \
+                        && tar -xzf "bkt_${bkt_ver}_linux_x86_64.tar.gz" bkt \
+                        && install -m 755 bkt "$HOME/.local/bin/bkt" \
+                        && rm -f bkt "bkt_${bkt_ver}_linux_x86_64.tar.gz" \
+                        || warn "Failed to install bkt. Install manually: https://github.com/avivsinai/bitbucket-cli/releases"
+                else
+                    warn "Could not determine latest bkt version. Install manually: https://github.com/avivsinai/bitbucket-cli/releases"
+                fi
+            fi
             ;;
 
         debian|wsl)
             local apt_pkgs=()
             local need_gh=false
             local need_glab=false
+            local need_bkt_deb=false
             for tool in "${missing[@]}"; do
                 case "$tool" in
                     gh) need_gh=true ;;
                     glab) need_glab=true ;;
+                    bkt) need_bkt_deb=true ;;
                     *)  apt_pkgs+=("$tool") ;;
                 esac
             done
@@ -173,6 +200,23 @@ install_cli_tools() {
                 fi
             fi
 
+            if $need_bkt_deb; then
+                info "Installing Bitbucket CLI from release package..."
+                local deb_arch
+                deb_arch=$(dpkg --print-architecture)
+                local bkt_ver
+                bkt_ver=$(curl -s "https://api.github.com/repos/avivsinai/bitbucket-cli/releases/latest" | jq -r '.tag_name' 2>/dev/null | sed 's/^v//')
+                if [[ -n "$bkt_ver" && "$bkt_ver" != "null" ]]; then
+                    local deb_file="bkt_${bkt_ver}_${deb_arch}.deb"
+                    curl -sLO "https://github.com/avivsinai/bitbucket-cli/releases/download/v${bkt_ver}/${deb_file}" \
+                        && sudo dpkg -i "$deb_file" \
+                        && rm -f "$deb_file" \
+                        || warn "Failed to install bkt .deb package. Install manually: https://github.com/avivsinai/bitbucket-cli/releases"
+                else
+                    warn "Could not determine latest bkt version. Install manually: https://github.com/avivsinai/bitbucket-cli/releases"
+                fi
+            fi
+
             # Also ensure python3 and python3-venv are installed
             apt_pkgs+=("python3" "python3-venv")
 
@@ -181,10 +225,31 @@ install_cli_tools() {
 
         fedora)
             local dnf_pkgs=()
+            local need_bkt_fedora=false
             for tool in "${missing[@]}"; do
-                dnf_pkgs+=("$tool")
+                case "$tool" in
+                    bkt) need_bkt_fedora=true ;;
+                    *)   dnf_pkgs+=("$tool") ;;
+                esac
             done
-            sudo dnf install -y -q "${dnf_pkgs[@]}"
+            if [[ ${#dnf_pkgs[@]} -gt 0 ]]; then
+                sudo dnf install -y -q "${dnf_pkgs[@]}"
+            fi
+            if $need_bkt_fedora; then
+                info "Installing Bitbucket CLI from GitHub release..."
+                local bkt_ver bkt_url
+                bkt_ver=$(curl -s "https://api.github.com/repos/avivsinai/bitbucket-cli/releases/latest" | jq -r '.tag_name' 2>/dev/null | sed 's/^v//')
+                if [[ -n "$bkt_ver" && "$bkt_ver" != "null" ]]; then
+                    bkt_url="https://github.com/avivsinai/bitbucket-cli/releases/download/v${bkt_ver}/bkt_${bkt_ver}_linux_x86_64.tar.gz"
+                    curl -sLO "$bkt_url" \
+                        && tar -xzf "bkt_${bkt_ver}_linux_x86_64.tar.gz" bkt \
+                        && sudo install -m 755 bkt /usr/local/bin/bkt \
+                        && rm -f bkt "bkt_${bkt_ver}_linux_x86_64.tar.gz" \
+                        || warn "Failed to install bkt. Install manually: https://github.com/avivsinai/bitbucket-cli/releases"
+                else
+                    warn "Could not determine latest bkt version. Install manually: https://github.com/avivsinai/bitbucket-cli/releases"
+                fi
+            fi
             ;;
 
         macos)
@@ -194,7 +259,10 @@ install_cli_tools() {
 
             local brew_pkgs=()
             for tool in "${missing[@]}"; do
-                brew_pkgs+=("$tool")
+                case "$tool" in
+                    bkt) brew_pkgs+=("avivsinai/tap/bitbucket-cli") ;;
+                    *)   brew_pkgs+=("$tool") ;;
+                esac
             done
 
             # Also install bash 5.x (macOS ships 3.2) and coreutils for gdate

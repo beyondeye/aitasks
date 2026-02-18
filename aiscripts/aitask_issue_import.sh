@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# aitask_issue_import.sh - Import GitHub/GitLab issues as AI task files
-# Uses gh/glab CLI to fetch issue data and aitask_create.sh to create tasks
+# aitask_issue_import.sh - Import GitHub/GitLab/Bitbucket issues as AI task files
+# Uses gh/glab/bkt CLI to fetch issue data and aitask_create.sh to create tasks
 
 set -e
 
@@ -226,6 +226,96 @@ gitlab_preview_issue() {
     glab issue view "$issue_num"
 }
 
+# --- Bitbucket Backend ---
+
+bitbucket_check_cli() {
+    command -v bkt &>/dev/null || die "bkt CLI is required for Bitbucket. Install: https://github.com/avivsinai/bitbucket-cli"
+    command -v jq &>/dev/null || die "jq is required. Install via your package manager."
+    bkt auth status &>/dev/null || die "bkt CLI is not authenticated. Run: bkt auth login https://bitbucket.org --kind cloud --web"
+}
+
+# Returns JSON normalized to GitHub-compatible format
+# bkt --json already provides flat .body and .url fields; we normalize
+# .comments[].author from string to {login: string} and synthesize labels from .kind
+bitbucket_fetch_issue() {
+    local issue_num="$1"
+    local issue_json
+
+    # Fetch issue with comments
+    issue_json=$(bkt issue view "$issue_num" --comments --json)
+
+    # Normalize to GitHub-compatible JSON structure
+    echo "$issue_json" | jq '{
+        title: .title,
+        body: (.body // ""),
+        labels: ([
+            (if .kind != null and .kind != "" then {name: .kind} else empty end)
+        ]),
+        url: .url,
+        comments: [(.comments // [])[] | {
+            author: {login: .author},
+            body: .body,
+            createdAt: .created_on
+        }],
+        createdAt: .created_on,
+        updatedAt: .updated_on
+    }'
+}
+
+# Format comments — reuses github_format_comments since JSON is already normalized
+bitbucket_format_comments() {
+    github_format_comments "$@"
+}
+
+# Returns JSON array normalized to GitHub-compatible format
+# bkt wraps the list in {"issues": [...]} envelope; also need --state new
+# since default --state open misses newly created issues
+bitbucket_list_issues() {
+    local all_issues new_issues open_issues
+    # Fetch both new and open issues (Bitbucket treats these as separate states)
+    new_issues=$(bkt issue list --state new --limit 500 --json | jq '.issues // []')
+    open_issues=$(bkt issue list --state open --limit 500 --json | jq '.issues // []')
+    # Merge and normalize
+    jq -n --argjson new "$new_issues" --argjson open "$open_issues" '
+        ($new + $open) | [.[] | {
+            number: .id,
+            title: .title,
+            labels: ([
+                (if .kind != null and .kind != "" then {name: .kind} else empty end)
+            ]),
+            url: .url
+        }]'
+}
+
+# Input: JSON labels array [{name:"..."}] (already normalized). Output: comma-separated lowercase sanitized labels
+bitbucket_map_labels() {
+    github_map_labels "$@"
+}
+
+# Input: JSON labels array. Output: detected issue type
+# Bitbucket uses "kind" values: bug, enhancement, proposal, task
+bitbucket_detect_type() {
+    local labels_json="$1"
+    local label_names
+    label_names=$(echo "$labels_json" | jq -r '.[].name' 2>/dev/null)
+    if echo "$label_names" | grep -qi "^bug$"; then
+        echo "bug"
+    elif echo "$label_names" | grep -qi "^task$"; then
+        echo "chore"
+    elif echo "$label_names" | grep -qiE "^(enhancement|proposal)$"; then
+        echo "feature"
+    else
+        # Fallback to GitHub detection for any other labels
+        github_detect_type "$labels_json"
+    fi
+}
+
+# Prints issue preview to stdout
+bitbucket_preview_issue() {
+    local issue_num="$1"
+    bkt issue view "$issue_num"
+}
+
 # --- Dispatcher Functions ---
 # PLATFORM-EXTENSION-POINT: Add new platform cases to each dispatcher
 
@@ -233,6 +323,7 @@ source_check_cli() {
     case "$SOURCE" in
         github) github_check_cli ;;
         gitlab) gitlab_check_cli ;;
+        bitbucket) bitbucket_check_cli ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -242,6 +333,7 @@ source_fetch_issue() {
     case "$SOURCE" in
         github) github_fetch_issue "$issue_num" ;;
         gitlab) gitlab_fetch_issue "$issue_num" ;;
+        bitbucket) bitbucket_fetch_issue "$issue_num" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -250,6 +342,7 @@ source_list_issues() {
     case "$SOURCE" in
         github) github_list_issues ;;
         gitlab) gitlab_list_issues ;;
+        bitbucket) bitbucket_list_issues ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -259,6 +352,7 @@ source_map_labels() {
     case "$SOURCE" in
         github) github_map_labels "$labels_json" ;;
         gitlab) gitlab_map_labels "$labels_json" ;;
+        bitbucket) bitbucket_map_labels "$labels_json" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -268,6 +362,7 @@ source_detect_type() {
     case "$SOURCE" in
         github) github_detect_type "$labels_json" ;;
         gitlab) gitlab_detect_type "$labels_json" ;;
+        bitbucket) bitbucket_detect_type "$labels_json" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -277,6 +372,7 @@ source_preview_issue() {
     case "$SOURCE" in
         github) github_preview_issue "$issue_num" ;;
         gitlab) gitlab_preview_issue "$issue_num" ;;
+        bitbucket) bitbucket_preview_issue "$issue_num" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -286,6 +382,7 @@ source_format_comments() {
     case "$SOURCE" in
         github) github_format_comments "$comments_json" ;;
         gitlab) gitlab_format_comments "$comments_json" ;;
+        bitbucket) bitbucket_format_comments "$comments_json" ;;
         *) die "Unknown source: $SOURCE" ;;
     esac
 }
@@ -766,7 +863,7 @@ Batch mode required flags (one of):
 
 Batch mode options:
   --batch                  Enable batch mode (required for non-interactive)
-  --source, -S PLATFORM    Source platform: github, gitlab (auto-detected from git remote)
+  --source, -S PLATFORM    Source platform: github, gitlab, bitbucket (auto-detected from git remote)
   --priority, -p LEVEL     Override priority: high, medium (default), low
   --effort, -e LEVEL       Override effort: low, medium (default), high
   --type, -t TYPE          Override issue type (see aitasks/metadata/task_types.txt, default: auto-detect)
@@ -828,7 +925,7 @@ parse_args() {
     if [[ -z "$SOURCE" ]]; then
         SOURCE=$(detect_platform)
         if [[ -z "$SOURCE" ]]; then
-            die "Could not auto-detect source platform from git remote. Use --source github|gitlab"
+            die "Could not auto-detect source platform from git remote. Use --source github|gitlab|bitbucket"
         fi
     fi
 
@@ -836,7 +933,8 @@ parse_args() {
     case "$SOURCE" in
         github) ;;
         gitlab) ;;
-        *) die "Unknown source platform: $SOURCE (supported: github, gitlab)" ;;
+        bitbucket) ;;
+        *) die "Unknown source platform: $SOURCE (supported: github, gitlab, bitbucket)" ;;
     esac
 }
 
