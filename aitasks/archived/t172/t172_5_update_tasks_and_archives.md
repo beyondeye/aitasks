@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: [t172_1]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [aitask_review]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-18 22:05
-updated_at: 2026-02-18 23:24
+updated_at: 2026-02-18 23:32
+completed_at: 2026-02-18 23:32
 ---
 
 ## Context
