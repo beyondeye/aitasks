@@ -436,117 +436,52 @@ Execute the post-implementation cleanup steps.
   git branch -d aitask/<task_name>
   ```
 
-**For child tasks:**
+**For child tasks — verify plan completeness before archival:**
 
-- **Verify plan completeness before archival:**
-  - Read the plan file from `aiplans/p<parent>/<child_plan>`
-  - Verify it contains a "Final Implementation Notes" section with comprehensive details
-  - If missing or incomplete, add/update it now — the archived plan will serve as the primary reference for subsequent sibling tasks
-  - Ensure the notes include: actual work done, issues encountered and resolutions, and any information useful for sibling tasks
+- Read the plan file from `aiplans/p<parent>/<child_plan>`
+- Verify it contains a "Final Implementation Notes" section with comprehensive details
+- If missing or incomplete, add/update it now — the archived plan will serve as the primary reference for subsequent sibling tasks
+- Ensure the notes include: actual work done, issues encountered and resolutions, and any information useful for sibling tasks
 
-- **Update parent's children_to_implement:**
-  ```bash
-  ./aiscripts/aitask_update.sh --batch <parent_num> --remove-child t<parent>_<child>
-  ```
+**Run the archive script:**
 
-- **Archive the child task file:**
-  ```bash
-  mkdir -p aitasks/archived/t<parent>
-  sed -i 's/^status: .*/status: Done/' aitasks/t<parent>/<child_file>
-  sed -i 's/^updated_at: .*/updated_at: '"$(date '+%Y-%m-%d %H:%M')"'/' aitasks/t<parent>/<child_file>
-  sed -i '/^updated_at:/a completed_at: '"$(date '+%Y-%m-%d %H:%M')"'' aitasks/t<parent>/<child_file>
-  mv aitasks/t<parent>/<child_file> aitasks/archived/t<parent>/
-  ```
+All archival operations (metadata updates, file moves, lock releases, folded task cleanup, git staging, and commit) are handled by a single script call:
 
-- **Archive the child plan file:**
-  ```bash
-  mkdir -p aiplans/archived/p<parent>
-  mv aiplans/p<parent>/<child_plan> aiplans/archived/p<parent>/
-  ```
+For parent tasks:
+```bash
+./aiscripts/aitask_archive.sh <task_num>
+```
 
-- **Update/close associated issue (if linked):** Execute the **Issue Update Procedure** (see below) for the child task, reading the `issue` field from `aitasks/archived/t<parent>/<child_file>`.
+For child tasks:
+```bash
+./aiscripts/aitask_archive.sh <parent>_<child>
+```
 
-- **Check if all children complete:**
-  - Read parent task's children_to_implement
-  - If empty:
-    - Inform user: "All child tasks complete! Archiving parent task as well."
-    - Remove the now-empty child directories:
-      ```bash
-      rmdir aitasks/t<parent>/ 2>/dev/null || true
-      rmdir aiplans/p<parent>/ 2>/dev/null || true
-      ```
-    - **Archive the parent task file:**
-      ```bash
-      sed -i 's/^status: .*/status: Done/' aitasks/<parent_task_file>
-      sed -i 's/^updated_at: .*/updated_at: '"$(date '+%Y-%m-%d %H:%M')"'/' aitasks/<parent_task_file>
-      sed -i '/^updated_at:/a completed_at: '"$(date '+%Y-%m-%d %H:%M')"'' aitasks/<parent_task_file>
-      mv aitasks/<parent_task_file> aitasks/archived/<parent_task_file>
-      ```
-    - **Archive the parent plan file (if it exists):**
-      ```bash
-      mv aiplans/<parent_plan_file> aiplans/archived/<parent_plan_file> 2>/dev/null || true
-      ```
-    - **Update/close parent's associated issue (if linked):** Execute the **Issue Update Procedure** (see below) for the parent task, reading the `issue` field from `aitasks/archived/<parent_task_file>`.
+The script automatically handles:
+- Updating task metadata (status → Done, updated_at, completed_at)
+- Creating archive directories and moving task/plan files
+- For child tasks: removing child from parent's children_to_implement
+- For child tasks: archiving parent too if all children are complete
+- Releasing task locks (and parent locks if parent was also archived)
+- For parent tasks: deleting folded tasks (if any, where status is not Implementing/Done)
+- Git staging and committing all changes
 
-- **Release task lock:** Execute the **Lock Release Procedure** (see below) for the child task. If the parent was also archived (all children complete), also execute it for the parent task.
+**Parse the script output and handle interactive follow-ups:**
 
-- **Commit archived files to git:**
-  ```bash
-  git add aitasks/archived/t<parent>/<child_file> aiplans/archived/p<parent>/<child_plan>
-  git add -u aitasks/t<parent>/ aiplans/p<parent>/
-  git add -u aitasks/ aiplans/
-  # If parent was also archived (all children complete):
-  git add aitasks/archived/<parent_task_file> 2>/dev/null || true
-  git add aiplans/archived/<parent_plan_file> 2>/dev/null || true
-  git commit -m "ait: Archive completed t<parent>_<child> task and plan files"
-  ```
+The script outputs structured lines. Parse each line and handle accordingly:
 
-**For parent tasks:**
+- `ISSUE:<task_num>:<issue_url>` — Execute the **Issue Update Procedure** (see below) for the task
+- `PARENT_ISSUE:<task_num>:<issue_url>` — Execute the **Issue Update Procedure** for the parent task
+- `FOLDED_ISSUE:<task_num>:<issue_url>` — Execute the **Issue Update Procedure** for the folded task. When posting a comment, note that the task was folded into t<task_id>
+- `FOLDED_WARNING:<task_num>:<status>` — Warn the user: "Folded task t<N> has status '<status>' — skipping automatic deletion. Please handle it manually."
+- `PARENT_ARCHIVED:<path>` — Inform user: "All child tasks complete! Parent task also archived."
+- `COMMITTED:<hash>` — Archival commit was created
 
-- **Archive the task file:**
-  ```bash
-  sed -i 's/^status: .*/status: Done/' aitasks/<task_file>
-  sed -i 's/^updated_at: .*/updated_at: '"$(date '+%Y-%m-%d %H:%M')"'/' aitasks/<task_file>
-  sed -i '/^updated_at:/a completed_at: '"$(date '+%Y-%m-%d %H:%M')"'' aitasks/<task_file>
-  mv aitasks/<task_file> aitasks/archived/<task_file>
-  ```
+**Push after archival:**
 
-- **Archive the plan file:**
-  ```bash
-  mv aiplans/<plan_file> aiplans/archived/<plan_file>
-  ```
-
-- **Update/close associated issue (if linked):** Execute the **Issue Update Procedure** (see below) for the task, reading the `issue` field from `aitasks/archived/<task_file>`.
-
-- **Release task lock:** Execute the **Lock Release Procedure** (see below) for the task.
-
-- **Delete folded tasks (if any):**
-  - Read the `folded_tasks` frontmatter field from the archived task file at `aitasks/archived/<task_file>`
-  - If `folded_tasks` is present and non-empty, for each folded task ID:
-    - Resolve the task file:
-      ```bash
-      ls aitasks/t<folded_id>_*.md 2>/dev/null
-      ```
-    - If the file exists and its status is NOT `Implementing` or `Done`:
-      - Delete the task file and any associated plan file:
-        ```bash
-        git rm aitasks/<folded_task_file>
-        git rm aiplans/p<folded_id>_*.md 2>/dev/null || true
-        ```
-      - Release lock (best-effort):
-        ```bash
-        ./aiscripts/aitask_lock.sh --unlock <folded_task_num> 2>/dev/null || true
-        ```
-      - **Update/close folded task's issue (if linked):** Execute the **Issue Update Procedure** for the folded task. When posting a comment, note that the task was folded into t<task_id>.
-    - If the file does NOT exist (already deleted or archived): skip silently
-    - If the status IS `Implementing` or `Done`: warn the user: "Folded task t<N> has status '<status>' — skipping automatic deletion. Please handle it manually."
-
-- **Commit archived files to git:**
-  ```bash
-  git add aitasks/archived/<task_file> aiplans/archived/<plan_file>
-  git add -u aitasks/ aiplans/
-  git commit -m "ait: Archive completed <task_id> task and plan files"
-  ```
+```bash
+git push
+```
 
 ### Task Abort Procedure
 
@@ -630,11 +565,11 @@ This procedure is referenced from Step 9 wherever a task is being archived. It h
 
 ### Lock Release Procedure
 
-This procedure is referenced from Step 9 (archival) and the Task Abort Procedure wherever a task lock may need to be released. It ensures atomic locks acquired in Step 4 are always cleaned up, regardless of how the workflow ends.
+This procedure is referenced from the Task Abort Procedure wherever a task lock may need to be released. (Step 9 archival lock releases are handled automatically by `aitask_archive.sh`.)
 
-**When to execute:** After Step 4 has been reached (i.e., a lock may have been acquired). This includes:
-- Step 9 (successful archival of child or parent tasks)
+**When to execute:** After Step 4 has been reached (i.e., a lock may have been acquired). This applies to:
 - Task Abort Procedure (task aborted after Step 4)
+- Note: Step 9 lock releases are handled by `aitask_archive.sh` and do NOT need this procedure
 
 **Procedure:**
 
