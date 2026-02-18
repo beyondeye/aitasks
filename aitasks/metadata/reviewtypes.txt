@@ -1,7 +1,0 @@
-bugs
-code-smell
-conventions
-deprecations
-performance
-security
-style

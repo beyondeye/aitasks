@@ -27,8 +27,8 @@ This is child task 5 of the review modes consolidation (t163). Create a new Clau
 - `.claude/skills/aitask-fold/SKILL.md` — Best pattern reference for a skill that compares and consolidates content
 - `.claude/skills/aitask-reviewmode-classify/SKILL.md` — Sibling skill created in t163_4
 - `aiscripts/aitask_reviewmode_scan.sh` — Helper script for `--find-similar` mode
-- `aitasks/metadata/reviewtypes.txt` — Controlled vocabulary
-- `aitasks/metadata/reviewlabels.txt` — Controlled vocabulary
+- `aitasks/metadata/reviewmodes/reviewtypes.txt` — Controlled vocabulary
+- `aitasks/metadata/reviewmodes/reviewlabels.txt` — Controlled vocabulary
 
 ## Implementation Plan
 

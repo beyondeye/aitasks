@@ -295,7 +295,8 @@ When continuing to implementation, set the following context variables from the 
 - Review modes are loaded from `aitasks/metadata/reviewmodes/` (tree structure with subdirectories, e.g. `general/`, `python/`, `shell/`; installed via `ait setup`)
 - Optional filter file: `aitasks/metadata/reviewmodes/.reviewmodesignore` uses gitignore syntax to exclude specific modes or directories
 - The frontmatter format is: `name` (string), `description` (string), `environment` (optional list), `reviewtype` (optional string), `reviewlabels` (optional list), `similar_to` (optional string)
-- Universal modes have no `environment` field and apply to any project type
+- Metadata vocabulary files (in `aitasks/metadata/reviewmodes/`): `reviewtypes.txt` (classification type), `reviewlabels.txt` (topic labels), `reviewenvironments.txt` (language/framework environments). Use `/aitask-reviewmode-classify` to assign or update metadata on reviewmode files.
+- Universal modes have no `environment` field and apply to any project type. Environment-specific modes have `environment` values from `reviewenvironments.txt`.
 - Environment auto-detection is handled by `./aiscripts/aitask_review_detect_env.sh` — uses modular scoring tests; modes are sorted by relevance but all are available for selection
 - Commit fetching for "Recent changes" is handled by `./aiscripts/aitask_review_commits.sh` — returns paginated, filtered, parseable commit lists
 - The `review_default_modes` profile key pre-selects modes (comma-separated names matching the `name` frontmatter field)

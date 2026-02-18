@@ -228,11 +228,11 @@ install_seed_task_types() {
 
 # --- Install seed review types ---
 install_seed_reviewtypes() {
-    local src="$INSTALL_DIR/seed/reviewtypes.txt"
-    local dest="$INSTALL_DIR/aitasks/metadata/reviewtypes.txt"
+    local src="$INSTALL_DIR/seed/reviewmodes/reviewtypes.txt"
+    local dest="$INSTALL_DIR/aitasks/metadata/reviewmodes/reviewtypes.txt"
 
     if [[ ! -f "$src" ]]; then
-        warn "No seed/reviewtypes.txt in tarball — skipping review types installation"
+        warn "No seed/reviewmodes/reviewtypes.txt in tarball — skipping review types installation"
         return
     fi
 
@@ -246,11 +246,11 @@ install_seed_reviewtypes() {
 
 # --- Install seed review labels ---
 install_seed_reviewlabels() {
-    local src="$INSTALL_DIR/seed/reviewlabels.txt"
-    local dest="$INSTALL_DIR/aitasks/metadata/reviewlabels.txt"
+    local src="$INSTALL_DIR/seed/reviewmodes/reviewlabels.txt"
+    local dest="$INSTALL_DIR/aitasks/metadata/reviewmodes/reviewlabels.txt"
 
     if [[ ! -f "$src" ]]; then
-        warn "No seed/reviewlabels.txt in tarball — skipping review labels installation"
+        warn "No seed/reviewmodes/reviewlabels.txt in tarball — skipping review labels installation"
         return
     fi
 
@@ -259,6 +259,24 @@ install_seed_reviewlabels() {
     else
         cp "$src" "$dest"
         info "  Installed review labels: reviewlabels.txt"
+    fi
+}
+
+# --- Install seed review environments ---
+install_seed_reviewenvironments() {
+    local src="$INSTALL_DIR/seed/reviewmodes/reviewenvironments.txt"
+    local dest="$INSTALL_DIR/aitasks/metadata/reviewmodes/reviewenvironments.txt"
+
+    if [[ ! -f "$src" ]]; then
+        warn "No seed/reviewmodes/reviewenvironments.txt in tarball — skipping review environments installation"
+        return
+    fi
+
+    if [[ -f "$dest" && "$FORCE" != true ]]; then
+        info "  Review environments file exists (kept): reviewenvironments.txt"
+    else
+        cp "$src" "$dest"
+        info "  Installed review environments: reviewenvironments.txt"
     fi
 }
 
@@ -493,6 +511,9 @@ main() {
 
     info "Installing review labels..."
     install_seed_reviewlabels
+
+    info "Installing review environments..."
+    install_seed_reviewenvironments
 
     info "Installing review modes..."
     install_seed_reviewmodes

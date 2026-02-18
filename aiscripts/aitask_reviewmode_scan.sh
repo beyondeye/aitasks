@@ -7,7 +7,7 @@
 #   aitask_reviewmode_scan.sh [OPTIONS]
 #
 # Options:
-#   --missing-meta         Only show files missing reviewlabels or reviewtype
+#   --missing-meta         Only show files missing reviewlabels, reviewtype, or environment (non-general)
 #   --environment ENV      Filter to files matching this environment (or "general" for universal)
 #   --reviewmodes-dir DIR  Path to reviewmodes directory (default: aitasks/metadata/reviewmodes)
 #   --find-similar         For each file, find the most similar other file by reviewlabel overlap
@@ -66,7 +66,7 @@ while [[ $# -gt 0 ]]; do
             echo "Scan reviewmode files for metadata completeness and find similar files."
             echo ""
             echo "Options:"
-            echo "  --missing-meta         Only show files missing reviewlabels or reviewtype"
+            echo "  --missing-meta         Only show files missing reviewlabels, reviewtype, or environment (non-general)"
             echo "  --environment ENV      Filter to files matching environment (or 'general' for universal)"
             echo "  --reviewmodes-dir DIR  Review modes directory (default: aitasks/metadata/reviewmodes)"
             echo "  --find-similar         For each file, find the most similar other file"
@@ -288,7 +288,7 @@ case "$MODE" in
     missing-meta)
         for line in "${parsed_lines[@]}"; do
             IFS='|' read -r _path _name rtype rlabels _env <<< "$line"
-            if [[ "$rtype" == "MISSING" || "$rlabels" == "MISSING" ]]; then
+            if [[ "$rtype" == "MISSING" || "$rlabels" == "MISSING" || ( "$_env" == "universal" && "$_path" != general/* ) ]]; then
                 echo "$line"
             fi
         done
