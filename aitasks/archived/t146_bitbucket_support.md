@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: ['136']
 issue_type: feature
-status: Implementing
+status: Done
 labels: [claudeskills, gitremote, scripting]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-17 11:32
-updated_at: 2026-02-18 12:15
+updated_at: 2026-02-18 13:08
+completed_at: 2026-02-18 13:08
 boardcol: now
 boardidx: 30
 ---
