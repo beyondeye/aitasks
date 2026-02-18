@@ -291,17 +291,17 @@ TMPDIR_10="$(setup_fake_project)"
 (cd "$TMPDIR_10" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" \
     && echo "init" > "$TMPDIR_10/readme.txt" && git add readme.txt && git commit -m "init" --quiet)
 
-# Simulate late-stage files (review modes, .gitignore)
-mkdir -p "$TMPDIR_10/aitasks/metadata/reviewmodes"
-echo "# review mode" > "$TMPDIR_10/aitasks/metadata/reviewmodes/test_mode.md"
+# Simulate late-stage files (review guides, .gitignore)
+mkdir -p "$TMPDIR_10/aireviewguides"
+echo "# review guide" > "$TMPDIR_10/aireviewguides/test_mode.md"
 echo "aitasks/new/" > "$TMPDIR_10/.gitignore"
 
 SCRIPT_DIR="$TMPDIR_10/aiscripts"
 commit_framework_files </dev/null >/dev/null 2>&1
 
-# Verify review modes are committed
+# Verify review guides are committed
 committed_files=$(git -C "$TMPDIR_10" show --name-only --format='' HEAD 2>/dev/null)
-assert_contains "Review modes committed" "reviewmodes/test_mode.md" "$committed_files"
+assert_contains "Review guides committed" "aireviewguides/test_mode.md" "$committed_files"
 assert_contains ".gitignore committed" ".gitignore" "$committed_files"
 
 commit_msg=$(git -C "$TMPDIR_10" log --format='%s' -1 2>/dev/null)

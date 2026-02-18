@@ -429,6 +429,7 @@ commit_installed_files() {
     local check_paths=(
         "aiscripts/"
         "aitasks/metadata/"
+        "aireviewguides/"
         "ait"
         ".claude/skills/"
     )

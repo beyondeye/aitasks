@@ -129,9 +129,9 @@ SCRIPT_DIR="$TEST_DIR/aiscripts"
 # Run setup_draft_directory (creates .gitignore entry + aitasks/new/)
 setup_draft_directory </dev/null >/dev/null 2>&1
 
-# Simulate review modes installation
-mkdir -p "$TEST_DIR/aitasks/metadata/reviewmodes"
-echo "# test review mode" > "$TEST_DIR/aitasks/metadata/reviewmodes/test_mode.md"
+# Simulate review guides installation
+mkdir -p "$TEST_DIR/aireviewguides"
+echo "# test review guide" > "$TEST_DIR/aireviewguides/test_mode.md"
 
 # Run commit_framework_files (this is the key function being tested)
 output=$(commit_framework_files 2>&1 </dev/null)
@@ -141,9 +141,9 @@ untracked=$(cd "$TEST_DIR" && git ls-files --others --exclude-standard \
     aiscripts/ aitasks/metadata/ ait .claude/skills/ .gitignore 2>/dev/null)
 assert_eq "B1: No untracked framework files after commit_framework_files" "" "$untracked"
 
-# Verify review mode was committed
+# Verify review guide was committed
 tracked_files=$(git -C "$TEST_DIR" ls-files 2>/dev/null)
-assert_contains "B2: Review mode file is tracked" "reviewmodes/test_mode.md" "$tracked_files"
+assert_contains "B2: Review guide file is tracked" "aireviewguides/test_mode.md" "$tracked_files"
 
 echo ""
 

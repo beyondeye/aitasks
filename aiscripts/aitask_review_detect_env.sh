@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
-# aitask_review_detect_env.sh - Auto-detect project environment and rank review modes
-# Uses modular independent tests to score environments, then maps scores to review modes.
+# aitask_review_detect_env.sh - Auto-detect project environment and rank review guides
+# Uses modular independent tests to score environments, then maps scores to review guides.
 #
 # Usage:
-#   aitask_review_detect_env.sh [--files-stdin | --files FILE...] [--reviewmodes-dir DIR]
+#   aitask_review_detect_env.sh [--files-stdin | --files FILE...] [--reviewguides-dir DIR]
 #
 # Options:
 #   --files-stdin        Read file list from stdin (one per line)
 #   --files FILE...      List of files as positional arguments (terminated by next flag or end)
-#   --reviewmodes-dir D  Path to reviewmodes directory (default: aitasks/metadata/reviewmodes)
+#   --reviewguides-dir D  Path to reviewguides directory (default: aireviewguides)
 #
 # Output format (two sections separated by ---):
 #   ENV_SCORES
 #   <env>|<score>     (one per line, descending by score, only scores > 0)
 #   ---
-#   REVIEW_MODES
+#   REVIEW_GUIDES
 #   <relative_path>|<name>|<description>|<score_or_universal>
-#   (relative_path is relative to reviewmodes dir, e.g. "general/security.md")
+#   (relative_path is relative to reviewguides dir, e.g. "general/security.md")
 #
 # Called by:
-#   .claude/skills/aitask-review/SKILL.md (Step 1b - Review Mode Selection)
+#   .claude/skills/aitask-review/SKILL.md (Step 1b - Review Guide Selection)
 
 set -euo pipefail
 
@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 
 # --- Defaults ---
-REVIEWMODES_DIR="aitasks/metadata/reviewmodes"
+REVIEWGUIDES_DIR="aireviewguides"
 FILES=()
 READ_STDIN=false
 
@@ -46,19 +46,19 @@ while [[ $# -gt 0 ]]; do
                 shift
             done
             ;;
-        --reviewmodes-dir)
-            REVIEWMODES_DIR="${2:?--reviewmodes-dir requires a path}"
+        --reviewguides-dir)
+            REVIEWGUIDES_DIR="${2:?--reviewguides-dir requires a path}"
             shift 2
             ;;
         --help|-h)
-            echo "Usage: aitask_review_detect_env.sh [--files-stdin | --files FILE...] [--reviewmodes-dir DIR]"
+            echo "Usage: aitask_review_detect_env.sh [--files-stdin | --files FILE...] [--reviewguides-dir DIR]"
             echo ""
-            echo "Auto-detect project environments and rank review modes by relevance."
+            echo "Auto-detect project environments and rank review guides by relevance."
             echo ""
             echo "Options:"
             echo "  --files-stdin        Read file list from stdin (one per line)"
             echo "  --files FILE...      List of files as arguments"
-            echo "  --reviewmodes-dir D  Review modes directory (default: aitasks/metadata/reviewmodes)"
+            echo "  --reviewguides-dir D  Review guides directory (default: aireviewguides)"
             exit 0
             ;;
         *)
@@ -227,14 +227,14 @@ test_directory_patterns() {
 }
 
 # =========================================================================
-# Review mode parsing
+# Review guide parsing
 # =========================================================================
 
-# Parse YAML frontmatter from a review mode .md file
+# Parse YAML frontmatter from a review guide .md file
 # Output: <relative_path>|<name>|<description>|<env1,env2,...>
-# relative_path is relative to $REVIEWMODES_DIR (e.g. "general/security.md")
+# relative_path is relative to $REVIEWGUIDES_DIR (e.g. "general/security.md")
 # The environment field is empty for universal modes
-parse_reviewmode() {
+parse_reviewguide() {
     local file="$1"
     local in_yaml=false
     local name="" description="" environment=""
@@ -258,7 +258,7 @@ parse_reviewmode() {
         fi
     done < "$file"
 
-    local rel_path="${file#$REVIEWMODES_DIR/}"
+    local rel_path="${file#$REVIEWGUIDES_DIR/}"
     echo "${rel_path}|${name}|${description}|${environment}"
 }
 
@@ -286,27 +286,27 @@ done
 echo "---"
 
 # --- Output Section 2: REVIEW_MODES ---
-echo "REVIEW_MODES"
+echo "REVIEW_GUIDES"
 
-# Discover all review mode files recursively
+# Discover all review guide files recursively
 declare -a all_mode_files=()
 while IFS= read -r -d '' file; do
     all_mode_files+=("$file")
-done < <(find "$REVIEWMODES_DIR" -name "*.md" -type f -print0 2>/dev/null)
+done < <(find "$REVIEWGUIDES_DIR" -name "*.md" -type f -print0 2>/dev/null)
 
-# Apply .reviewmodesignore filter if present
+# Apply .reviewguidesignore filter if present
 declare -a mode_files=()
-if [[ -f "$REVIEWMODES_DIR/.reviewmodesignore" ]]; then
+if [[ -f "$REVIEWGUIDES_DIR/.reviewguidesignore" ]]; then
     # Build relative paths for git check-ignore
     local_rel_paths=""
     for file in "${all_mode_files[@]}"; do
-        local_rel_paths+="${file#$REVIEWMODES_DIR/}"$'\n'
+        local_rel_paths+="${file#$REVIEWGUIDES_DIR/}"$'\n'
     done
     local_rel_paths="${local_rel_paths%$'\n'}"
 
     # Get ignored paths using gitignore-style matching
     ignored_output="$(printf '%s' "$local_rel_paths" | \
-        git -c "core.excludesFile=$REVIEWMODES_DIR/.reviewmodesignore" \
+        git -c "core.excludesFile=$REVIEWGUIDES_DIR/.reviewguidesignore" \
             check-ignore --no-index --stdin 2>/dev/null)" || true
 
     # Build set of ignored paths for O(1) lookup
@@ -317,19 +317,19 @@ if [[ -f "$REVIEWMODES_DIR/.reviewmodesignore" ]]; then
 
     # Filter out ignored files
     for file in "${all_mode_files[@]}"; do
-        rel_path="${file#$REVIEWMODES_DIR/}"
+        rel_path="${file#$REVIEWGUIDES_DIR/}"
         [[ -z "${ignored_set[$rel_path]:-}" ]] && mode_files+=("$file")
     done
 else
     mode_files=("${all_mode_files[@]}")
 fi
 
-# Parse filtered review mode files
+# Parse filtered review guide files
 declare -a env_specific_modes=()
 declare -a universal_modes=()
 
 for mode_file in "${mode_files[@]}"; do
-    mode_info=$(parse_reviewmode "$mode_file")
+    mode_info=$(parse_reviewguide "$mode_file")
 
     # Extract environment field (4th pipe-delimited field)
     mode_env="${mode_info##*|}"

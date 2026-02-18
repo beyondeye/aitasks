@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# aitask_reviewmode_scan.sh - Scan reviewmode files for metadata and similarity
-# Scans reviewmode files for metadata completeness and finds similar files.
+# aitask_reviewguide_scan.sh - Scan reviewguide files for metadata and similarity
+# Scans reviewguide files for metadata completeness and finds similar files.
 # Used by the classify skill and merge skill, also useful standalone.
 #
 # Usage:
-#   aitask_reviewmode_scan.sh [OPTIONS]
+#   aitask_reviewguide_scan.sh [OPTIONS]
 #
 # Options:
 #   --missing-meta         Only show files missing reviewlabels, reviewtype, or environment (non-general)
 #   --environment ENV      Filter to files matching this environment (or "general" for universal)
-#   --reviewmodes-dir DIR  Path to reviewmodes directory (default: aitasks/metadata/reviewmodes)
+#   --reviewguides-dir DIR  Path to reviewguides directory (default: aireviewguides)
 #   --find-similar         For each file, find the most similar other file by reviewlabel overlap
 #   --compare FILE         Compare one file against all others, output similarity scores
 #
@@ -31,7 +31,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 
 # --- Defaults ---
-REVIEWMODES_DIR="aitasks/metadata/reviewmodes"
+REVIEWGUIDES_DIR="aireviewguides"
 MODE="default"
 ENVIRONMENT_FILTER=""
 COMPARE_FILE=""
@@ -47,8 +47,8 @@ while [[ $# -gt 0 ]]; do
             ENVIRONMENT_FILTER="${2:?--environment requires a value}"
             shift 2
             ;;
-        --reviewmodes-dir)
-            REVIEWMODES_DIR="${2:?--reviewmodes-dir requires a path}"
+        --reviewguides-dir)
+            REVIEWGUIDES_DIR="${2:?--reviewguides-dir requires a path}"
             shift 2
             ;;
         --find-similar)
@@ -61,14 +61,14 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --help|-h)
-            echo "Usage: aitask_reviewmode_scan.sh [--missing-meta] [--environment ENV] [--reviewmodes-dir DIR] [--find-similar] [--compare FILE]"
+            echo "Usage: aitask_reviewguide_scan.sh [--missing-meta] [--environment ENV] [--reviewguides-dir DIR] [--find-similar] [--compare FILE]"
             echo ""
-            echo "Scan reviewmode files for metadata completeness and find similar files."
+            echo "Scan reviewguide files for metadata completeness and find similar files."
             echo ""
             echo "Options:"
             echo "  --missing-meta         Only show files missing reviewlabels, reviewtype, or environment (non-general)"
             echo "  --environment ENV      Filter to files matching environment (or 'general' for universal)"
-            echo "  --reviewmodes-dir DIR  Review modes directory (default: aitasks/metadata/reviewmodes)"
+            echo "  --reviewguides-dir DIR  Review guides directory (default: aireviewguides)"
             echo "  --find-similar         For each file, find the most similar other file"
             echo "  --compare FILE         Compare one file against all others (relative path)"
             exit 0
@@ -79,35 +79,34 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Validate reviewmodes directory exists
-[[ -d "$REVIEWMODES_DIR" ]] || die "Reviewmodes directory not found: $REVIEWMODES_DIR"
+# Validate reviewguides directory exists
+[[ -d "$REVIEWGUIDES_DIR" ]] || die "Reviewguides directory not found: $REVIEWGUIDES_DIR"
 
 # Validate --compare file exists
 if [[ "$MODE" == "compare" ]]; then
-    [[ -f "$REVIEWMODES_DIR/$COMPARE_FILE" ]] || die "Compare file not found: $REVIEWMODES_DIR/$COMPARE_FILE"
+    [[ -f "$REVIEWGUIDES_DIR/$COMPARE_FILE" ]] || die "Compare file not found: $REVIEWGUIDES_DIR/$COMPARE_FILE"
 fi
 
 # =========================================================================
-# File discovery + .reviewmodesignore filter
-# =========================================================================
+# File discovery + .reviewguidesignore filter# =========================================================================
 
 declare -a all_mode_files=()
 while IFS= read -r -d '' file; do
     all_mode_files+=("$file")
-done < <(find "$REVIEWMODES_DIR" -name "*.md" -type f -print0 2>/dev/null)
+done < <(find "$REVIEWGUIDES_DIR" -name "*.md" -type f -print0 2>/dev/null)
 
 declare -a mode_files=()
-if [[ -f "$REVIEWMODES_DIR/.reviewmodesignore" ]]; then
+if [[ -f "$REVIEWGUIDES_DIR/.reviewguidesignore" ]]; then
     # Build relative paths for git check-ignore
     local_rel_paths=""
     for file in "${all_mode_files[@]}"; do
-        local_rel_paths+="${file#"$REVIEWMODES_DIR"/}"$'\n'
+        local_rel_paths+="${file#"$REVIEWGUIDES_DIR"/}"$'\n'
     done
     local_rel_paths="${local_rel_paths%$'\n'}"
 
     # Get ignored paths using gitignore-style matching
     ignored_output="$(printf '%s' "$local_rel_paths" | \
-        git -c "core.excludesFile=$REVIEWMODES_DIR/.reviewmodesignore" \
+        git -c "core.excludesFile=$REVIEWGUIDES_DIR/.reviewguidesignore" \
             check-ignore --no-index --stdin 2>/dev/null)" || true
 
     # Build set of ignored paths for O(1) lookup
@@ -118,7 +117,7 @@ if [[ -f "$REVIEWMODES_DIR/.reviewmodesignore" ]]; then
 
     # Filter out ignored files
     for file in "${all_mode_files[@]}"; do
-        rel_path="${file#"$REVIEWMODES_DIR"/}"
+        rel_path="${file#"$REVIEWGUIDES_DIR"/}"
         [[ -z "${ignored_set[$rel_path]:-}" ]] && mode_files+=("$file")
     done
 else
@@ -126,7 +125,7 @@ else
 fi
 
 if [[ ${#mode_files[@]} -eq 0 ]]; then
-    warn "No reviewmode files found in $REVIEWMODES_DIR"
+    warn "No reviewguide files found in $REVIEWGUIDES_DIR"
     exit 0
 fi
 
@@ -134,9 +133,9 @@ fi
 # Frontmatter parsing
 # =========================================================================
 
-# Parse YAML frontmatter from a review mode .md file
+# Parse YAML frontmatter from a review guide .md file
 # Output: <relative_path>|<name>|<reviewtype_or_MISSING>|<reviewlabels_csv_or_MISSING>|<environment_csv_or_universal>
-parse_reviewmode() {
+parse_reviewguide() {
     local file="$1"
     local in_yaml=false
     local name="" environment="" reviewtype="" reviewlabels=""
@@ -162,7 +161,7 @@ parse_reviewmode() {
         fi
     done < "$file"
 
-    local rel_path="${file#"$REVIEWMODES_DIR"/}"
+    local rel_path="${file#"$REVIEWGUIDES_DIR"/}"
     echo "${rel_path}|${name}|${reviewtype:-MISSING}|${reviewlabels:-MISSING}|${environment:-universal}"
 }
 
@@ -172,7 +171,7 @@ parse_reviewmode() {
 
 declare -a parsed_lines=()
 for file in "${mode_files[@]}"; do
-    parsed_lines+=("$(parse_reviewmode "$file")")
+    parsed_lines+=("$(parse_reviewguide "$file")")
 done
 
 # =========================================================================
