@@ -3,10 +3,9 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [aitask_review, claudeskills]
 children_to_implement: [t163_1, t163_2, t163_3, t163_4, t163_5]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-18 00:17
 updated_at: 2026-02-18 15:12
 ---
