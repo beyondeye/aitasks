@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t163_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_review, bash_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-18 15:11
-updated_at: 2026-02-18 15:11
+updated_at: 2026-02-18 15:50
 ---
 
 ## Context
