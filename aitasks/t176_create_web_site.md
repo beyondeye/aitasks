@@ -5,9 +5,9 @@ depends: []
 issue_type: documentation
 status: Ready
 labels: [web_site]
-children_to_implement: [t176_4, t176_5]
+children_to_implement: [t176_5]
 created_at: 2026-02-19 10:26
-updated_at: 2026-02-19 12:33
+updated_at: 2026-02-19 12:52
 ---
 
 create a hugo website that automatically deploy on github pages with a git workflow that at release copy the current docs and website to ghpages branches where the hugo website is and automatic build with hugo and deploy to ghpages the static web site
