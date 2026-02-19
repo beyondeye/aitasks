@@ -35,11 +35,12 @@ Git worktrees, atomic task locking, and branch management enable multiple develo
 {{% blocks/section color="light" %}}
 ## Quick Install
 
+Run these commands in your project directory:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash
+ait setup
 ```
 
-Then run `ait setup` in your project directory to initialize.
-
-See the [documentation](docs/) for detailed setup and usage guides.
+See the [Installation guide](docs/installation/) for detailed setup instructions.
 {{% /blocks/section %}}

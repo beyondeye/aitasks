@@ -42,7 +42,7 @@ AI coding agents has reached a proficiency level where, given correct specs and 
   - Parallelism: thanks to task status stored in git, and AI agents workflow that support git worktrees.
 
 - Visual Management
-TUI Board: A terminal-based visual interface (Kanban style) for visualizing and organizing tasks without leaving the terminal. See the [Board Documentation](website/content/docs/board/_index.md) for full details.
+TUI Board: A terminal-based visual interface (Kanban style) for visualizing and organizing tasks without leaving the terminal. See the [Board Documentation](https://beyondeye.github.io/aitasks/docs/board/) for full details.
 
 - Battle tested:
 Not a research experiment. actively developed and used in real projects
@@ -59,7 +59,7 @@ Not a research experiment. actively developed and used in real projects
 | Ubuntu/Debian | Fully supported | Includes Pop!_OS, Linux Mint, Elementary |
 | Fedora/RHEL | Fully supported | Includes CentOS, Rocky, Alma |
 | macOS | Partial | `date -d` and bash 3.2 limitations (see [Known Issues](#known-issues)) |
-| Windows (WSL) | Fully supported | Via WSL with Ubuntu/Debian (see [Windows guide](website/content/docs/installation/windows-wsl.md)) |
+| Windows (WSL) | Fully supported | Via WSL with Ubuntu/Debian (see [Windows guide](https://beyondeye.github.io/aitasks/docs/installation/windows-wsl/)) |
 
 ## Known Issues
 
@@ -74,7 +74,7 @@ Install into your project directory:
 curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash
 ```
 
-> **Windows users:** Run this inside a WSL shell, not PowerShell. See the [Windows/WSL guide](website/content/docs/installation/windows-wsl.md).
+> **Windows users:** Run this inside a WSL shell, not PowerShell. See the [Windows/WSL guide](https://beyondeye.github.io/aitasks/docs/installation/windows-wsl/).
 
 Upgrade an existing installation:
 
@@ -88,7 +88,7 @@ Or for fresh installs without an existing `ait` dispatcher:
 curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash -s -- --force
 ```
 
-After installing, run `ait setup` to install dependencies and configure Claude Code permissions. See [`ait setup`](website/content/docs/commands/setup-install.md) for details.
+After installing, run `ait setup` to install dependencies and configure Claude Code permissions. See [`ait setup`](https://beyondeye.github.io/aitasks/docs/commands/setup-install/) for details.
 
 **Already have the global `ait` shim?** If you've previously run `ait setup` on another project, the global shim at `~/.local/bin/ait` is already installed. You can bootstrap aitasks in any new project directory by simply running:
 
@@ -99,7 +99,7 @@ ait setup
 
 The shim detects that no aitasks project exists, downloads the latest release, installs it, and then runs the full setup — all in one command.
 
-**Windows/WSL users:** See the [Windows/WSL Installation Guide](website/content/docs/installation/windows-wsl.md) for step-by-step instructions including WSL setup, Claude Code installation, and terminal configuration.
+**Windows/WSL users:** See the [Windows/WSL Installation Guide](https://beyondeye.github.io/aitasks/docs/installation/windows-wsl/) for step-by-step instructions including WSL setup, Claude Code installation, and terminal configuration.
 
 ## What Gets Installed
 
@@ -116,25 +116,25 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 - CLI tools: `fzf`, `gh` (for GitHub), `glab` (for GitLab), or `bkt` (for Bitbucket), `jq`, `git`
 - Python venv at `~/.aitask/venv/` with `textual`, `pyyaml`, `linkify-it-py`
 - Global `ait` shim at `~/.local/bin/ait`
-- Claude Code permissions in `.claude/settings.local.json` (see [Claude Code Permissions](website/content/docs/commands/setup-install.md#claude-code-permissions))
+- Claude Code permissions in `.claude/settings.local.json` (see [Claude Code Permissions](https://beyondeye.github.io/aitasks/docs/commands/setup-install/#claude-code-permissions))
 
 ## Documentation
 
 **[Documentation Website](https://beyondeye.github.io/aitasks/)** — Browse the full documentation online.
 
-- **[Installation](website/content/docs/installation/_index.md)** — Quick install, platform support, setup, and git remote authentication.
+- **[Installation](https://beyondeye.github.io/aitasks/docs/installation/)** — Quick install, platform support, setup, and git remote authentication.
 
-- **[Getting Started](website/content/docs/getting-started.md)** — First-time walkthrough from install to completing your first task.
+- **[Getting Started](https://beyondeye.github.io/aitasks/docs/getting-started/)** — First-time walkthrough from install to completing your first task.
 
-- **[Kanban Board](website/content/docs/board/_index.md)** — Visual task management with the TUI board: tutorials, how-to guides, keyboard shortcuts, and configuration.
+- **[Kanban Board](https://beyondeye.github.io/aitasks/docs/board/)** — Visual task management with the TUI board: tutorials, how-to guides, keyboard shortcuts, and configuration.
 
-- **[Workflow Guides](website/content/docs/workflows/_index.md)** — End-to-end guides for common usage patterns: capturing ideas fast, complex task decomposition, parallel development, and more.
+- **[Workflow Guides](https://beyondeye.github.io/aitasks/docs/workflows/)** — End-to-end guides for common usage patterns: capturing ideas fast, complex task decomposition, parallel development, and more.
 
-- **[Claude Code Skills](website/content/docs/skills/_index.md)** — Reference for `/aitask-pick`, `/aitask-explore`, `/aitask-create`, and other skill integrations.
+- **[Claude Code Skills](https://beyondeye.github.io/aitasks/docs/skills/)** — Reference for `/aitask-pick`, `/aitask-explore`, `/aitask-create`, and other skill integrations.
 
-- **[Command Reference](website/content/docs/commands/_index.md)** — Complete CLI reference for all `ait` subcommands.
+- **[Command Reference](https://beyondeye.github.io/aitasks/docs/commands/)** — Complete CLI reference for all `ait` subcommands.
 
-- **[Development Guide](website/content/docs/development/_index.md)** — Architecture overview, directory layout, library scripts, and release process.
+- **[Development Guide](https://beyondeye.github.io/aitasks/docs/development/)** — Architecture overview, directory layout, library scripts, and release process.
 
 ## License
 This project is licensed under the MIT License with the Commons Clause condition.
