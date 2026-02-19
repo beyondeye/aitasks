@@ -1,12 +1,13 @@
 ---
 priority: low
 effort: low
-depends: [176_2, 176_4]
+depends: [t176_2, t176_4]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [web_site]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-19 11:05
-updated_at: 2026-02-19 11:05
+updated_at: 2026-02-19 13:33
 ---
 
 ## Context
