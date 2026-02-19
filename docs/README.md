@@ -18,7 +18,7 @@ All updates should be made there.
 | [Board Reference](../website/content/docs/board/reference.md) | `board/reference.md` | Keyboard shortcuts, configuration, technical details |
 | [Workflows](../website/content/docs/workflows/_index.md) | `workflows/_index.md` | End-to-end workflow guides |
 | [Capturing Ideas](../website/content/docs/workflows/capturing-ideas.md) | `workflows/capturing-ideas.md` | Quickly capture task ideas without breaking your flow |
-| [GitHub Issues](../website/content/docs/workflows/github-issues.md) | `workflows/github-issues.md` | Round-trip workflow between GitHub issues and aitasks |
+| [Issue Tracker](../website/content/docs/workflows/issue-tracker.md) | `workflows/issue-tracker.md` | Round-trip workflow between issue trackers (GitHub/GitLab/Bitbucket) and aitasks |
 | [Task Decomposition](../website/content/docs/workflows/task-decomposition.md) | `workflows/task-decomposition.md` | Breaking complex tasks into manageable child subtasks |
 | [Task Consolidation](../website/content/docs/workflows/task-consolidation.md) | `workflows/task-consolidation.md` | Merging overlapping or duplicate tasks into a single task |
 | [Follow-Up Tasks](../website/content/docs/workflows/follow-up-tasks.md) | `workflows/follow-up-tasks.md` | Creating rich follow-up tasks during implementation |

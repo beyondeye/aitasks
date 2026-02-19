@@ -40,7 +40,7 @@ Detailed description of what needs to be done.
 | `updated_at` | `YYYY-MM-DD HH:MM` | Last modification timestamp |
 | `completed_at` | `YYYY-MM-DD HH:MM` | Completion timestamp (set on archival) |
 | `assigned_to` | email address | Developer working on the task |
-| `issue` | URL | Linked GitHub/GitLab issue |
+| `issue` | URL | Linked GitHub/GitLab/Bitbucket issue |
 | `children_to_implement` | `[t10_1, t10_2]` | Remaining child tasks (parent tasks only) |
 | `boardcol` | column ID | Board UI column placement |
 | `boardidx` | integer | Board UI sort index within column |

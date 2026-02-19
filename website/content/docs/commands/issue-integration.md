@@ -20,10 +20,10 @@ Import GitHub/GitLab/Bitbucket issues as AI task files. Supports interactive sel
 3. **Duplicate check** — Searches active and archived tasks for matching issue URL. If found, warns and offers Skip/Import anyway
 4. **Issue preview** — Shows title and first 30 lines of body (truncated warning if longer). Confirm Import/Skip via fzf
 5. **Task name** — Auto-generated from issue title (lowercase, sanitized). Editable with free text entry
-6. **Labels** — Two-phase: first review each GitHub label individually (keep/skip via fzf), then iterative add loop (select from existing labels in `labels.txt`, add new label, or done)
+6. **Labels** — Two-phase: first review each issue label individually (keep/skip via fzf), then iterative add loop (select from existing labels in `labels.txt`, add new label, or done)
 7. **Priority** — fzf selection: high, medium, low
 8. **Effort** — fzf selection: low, medium, high
-9. **Issue type** — Auto-detected from GitHub labels: `bug` → bug, `refactor`/`tech-debt`/`cleanup` → refactor, otherwise → feature
+9. **Issue type** — Auto-detected from issue labels: `bug` → bug, `refactor`/`tech-debt`/`cleanup` → refactor, otherwise → feature
 10. **Create & commit** — Creates task file via `aitask_create.sh`, then prompts Y/n to commit to git
 
 **Batch mode** (for automation and scripting):

@@ -57,7 +57,7 @@ Each task card displays a summary of the task information:
 From top to bottom, a card shows:
 
 - **Task number and title** — e.g., "t47 playlists support". The number appears in cyan. If the file has uncommitted git changes, an orange asterisk (*) appears after the number.
-- **Info line** — Shows effort level (e.g., "💪 medium"), labels (e.g., "🏷️ ui,backend"), and issue platform indicator (e.g., "GH" in blue for GitHub issues).
+- **Info line** — Shows effort level (e.g., "💪 medium"), labels (e.g., "🏷️ ui,backend"), and issue platform indicator ("GH" for GitHub, "GL" for GitLab, "BB" for Bitbucket).
 - **Status line** — Shows either "🚫 blocked" (if the task has unresolved dependencies) or "📋 Ready" (or other status). If assigned, shows "👤 name".
 - **Dependency links** — If blocked, shows "🔗 t12, t15" linking to blocking tasks.
 - **Folded indicator** — Shows "📎 folded into t42" if this task was merged into another.

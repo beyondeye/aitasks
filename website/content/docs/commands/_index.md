@@ -15,8 +15,8 @@ description: "Complete CLI reference for all ait subcommands"
 | [`ait board`](board-stats/#ait-board) | Open the kanban-style TUI board |
 | [`ait stats`](board-stats/#ait-stats) | Show task completion statistics |
 | [`ait zip-old`](issue-integration/#ait-zip-old) | Archive old completed task and plan files |
-| [`ait issue-import`](issue-integration/#ait-issue-import) | Import tasks from GitHub/GitLab issues |
-| [`ait issue-update`](issue-integration/#ait-issue-update) | Update or close linked GitHub/GitLab issues |
+| [`ait issue-import`](issue-integration/#ait-issue-import) | Import tasks from GitHub/GitLab/Bitbucket issues |
+| [`ait issue-update`](issue-integration/#ait-issue-update) | Update or close linked GitHub/GitLab/Bitbucket issues |
 | [`ait changelog`](issue-integration/#ait-changelog) | Gather changelog data from commits and archived plans |
 
 ## Usage Examples
@@ -31,7 +31,7 @@ ait ls -v 15                            # List top 15 tasks (verbose)
 ait ls -v -l ui,frontend 10             # Filter by labels
 ait update --batch 42 --status Done     # Mark task done
 ait board                               # Open TUI board
-ait issue-import                        # Import GitHub issues
+ait issue-import                        # Import issues from issue tracker
 ait stats                               # Show completion stats
 ait install                              # Update to latest version
 ait install 0.2.1                        # Install specific version
