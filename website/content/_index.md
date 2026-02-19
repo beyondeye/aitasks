@@ -5,7 +5,7 @@ linkTitle: "aitasks"
 
 {{< blocks/cover title="" image_anchor="top" height="med" color="primary" >}}
 <div class="mx-auto">
-  <img src="imgs/aitasks_logo_dark_theme.png" alt="aitasks logo" style="max-width: 300px; margin-bottom: 1rem;">
+  <img src="imgs/logo_with_text.webp" alt="aitasks logo" style="max-width: 300px; margin-bottom: 1rem;">
   <p class="lead mt-2">AI-powered task management for Claude Code</p>
   <a class="btn btn-lg btn-primary me-3 mb-4" href="docs/">
     Documentation
