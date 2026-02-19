@@ -94,21 +94,13 @@ If no argument is provided, proceed with Step 1 as normal.
 
 ### Step 0c: Sync with Remote (Best-effort)
 
-Before listing tasks, do a best-effort pull to ensure the local task list is up to date (prevents picking a task that another PC already started):
+Before listing tasks, do a best-effort sync to ensure the local task list is up to date (prevents picking a task that another PC already started) and clean up stale locks:
 
 ```bash
-git pull --ff-only --quiet 2>/dev/null || true
+./aiscripts/aitask_own.sh --sync
 ```
 
-This is non-blocking — if it fails (e.g., no network, merge conflicts), continue silently.
-
-Also run best-effort stale lock cleanup to remove locks for tasks that have already been archived:
-
-```bash
-./aiscripts/aitask_lock.sh --cleanup 2>/dev/null || true
-```
-
-This prevents false "locked" status for completed tasks. If the lock branch doesn't exist yet, this silently does nothing.
+This is non-blocking — if it fails (e.g., no network, merge conflicts), it continues silently.
 
 ### Step 1: Label Filtering (Optional)
 

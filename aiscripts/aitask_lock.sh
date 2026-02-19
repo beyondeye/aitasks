@@ -13,6 +13,7 @@
 #   aitask_lock.sh --cleanup                         Remove stale locks for archived tasks
 #
 # Called by:
+#   aiscripts/aitask_own.sh (lock acquisition and cleanup)
 #   .claude/skills/aitask-pick/SKILL.md (during task pick workflow)
 
 set -euo pipefail

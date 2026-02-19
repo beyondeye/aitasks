@@ -34,19 +34,13 @@ Store the selected profile in memory for use throughout remaining steps.
 
 ### Step 0c: Sync with Remote (Best-effort)
 
-Do a best-effort pull to ensure the local state is up to date:
+Do a best-effort sync to ensure the local state is up to date and clean up stale locks:
 
 ```bash
-git pull --ff-only --quiet 2>/dev/null || true
+./aiscripts/aitask_own.sh --sync
 ```
 
-This is non-blocking — if it fails (e.g., no network, merge conflicts), continue silently.
-
-Also run best-effort stale lock cleanup:
-
-```bash
-./aiscripts/aitask_lock.sh --cleanup 2>/dev/null || true
-```
+This is non-blocking — if it fails (e.g., no network, merge conflicts), it continues silently.
 
 ### Step 1: Review Setup
 

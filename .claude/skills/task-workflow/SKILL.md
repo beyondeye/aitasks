@@ -90,37 +90,23 @@ If `active_profile` is null (either because no profile was selected by the calli
 - **If "Enter new email" selected:**
   - Ask user to type their email via `AskUserQuestion` with free text (use the "Other" option)
 
-- **If email provided (new or selected):**
-  - Store new email to file:
-    ```bash
-    echo "user@example.com" >> aitasks/metadata/emails.txt
-    sort -u aitasks/metadata/emails.txt -o aitasks/metadata/emails.txt
-    ```
+- **Claim task ownership (lock, update status, commit, push):**
 
-- **Acquire atomic lock (prevents race condition):**
+  If email was provided (new or selected):
   ```bash
-  ./aiscripts/aitask_lock.sh --lock <task_num> --email "<email>"
+  ./aiscripts/aitask_own.sh <task_num> --email "<email>"
+  ```
+  If no email (user selected "Skip"):
+  ```bash
+  ./aiscripts/aitask_own.sh <task_num>
   ```
 
-  - If the lock command **succeeds**: proceed to update local task status below.
-  - If the lock command **fails with "already locked by ..."**: inform the user that the task was just claimed by another user/PC, display who locked it, and return to the calling skill's task selection to pick a different task. Do NOT update local status.
-  - If the lock command **fails for infrastructure reasons** (branch not initialized, no network): warn the user but continue without locking — this preserves backward compatibility for repos that haven't run `ait setup` since the lock feature was added. Display: "Warning: Could not acquire lock (lock branch may not be initialized). Proceeding without lock."
+  **Parse the script output:**
+  - `OWNED:<task_id>` — Success. Proceed to Step 5.
+  - `LOCK_FAILED:<owner>` — Task was just claimed by another user/PC. Inform the user who locked it and return to the calling skill's task selection to pick a different task. Do NOT proceed.
+  - `LOCK_INFRA_MISSING` — Lock infrastructure not initialized. Inform user to run `ait setup` and abort.
 
-- **Update task status to "Implementing" and set assigned_to:**
-  ```bash
-  ./aiscripts/aitask_update.sh --batch <task_num> --status Implementing --assigned-to "<email>"
-  ```
-  Or if no email (user selected "Skip"):
-  ```bash
-  ./aiscripts/aitask_update.sh --batch <task_num> --status Implementing
-  ```
-
-- **Commit and push the status change:**
-  ```bash
-  git add aitasks/
-  git commit -m "ait: Start work on t<N>: set status to Implementing"
-  git push
-  ```
+  **Note:** The script handles email storage, lock acquisition, task metadata update (`status` → Implementing, `assigned_to`), and git add/commit/push internally. If the script fails entirely (non-zero exit without structured output), display the error and abort.
 
 - **Store previous status for potential abort** (remember the `previous_status` from context)
 
