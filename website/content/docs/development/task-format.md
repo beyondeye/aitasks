@@ -34,7 +34,7 @@ Detailed description of what needs to be done.
 | `effort` | `low`, `medium`, `high` | Estimated implementation effort |
 | `depends` | `[1, 4]` | List of task numbers this depends on |
 | `issue_type` | `bug`, `chore`, `documentation`, `feature`, `performance`, `refactor`, `style`, `test` | Type of work (from `task_types.txt`) |
-| `status` | `Ready`, `Editing`, `Implementing`, `Postponed`, `Done` | Current status |
+| `status` | `Ready`, `Editing`, `Implementing`, `Postponed`, `Done`, `Folded` | Current status |
 | `labels` | `[ui, backend]` | Categorization labels |
 | `created_at` | `YYYY-MM-DD HH:MM` | Creation timestamp |
 | `updated_at` | `YYYY-MM-DD HH:MM` | Last modification timestamp |
@@ -45,6 +45,7 @@ Detailed description of what needs to be done.
 | `boardcol` | column ID | Board UI column placement |
 | `boardidx` | integer | Board UI sort index within column |
 | `folded_tasks` | `[138, 129_5]` | Task IDs folded into this task by `/aitask-explore` or `/aitask-fold` (deleted on archival) |
+| `folded_into` | task number | Task this was folded into (set by `/aitask-fold` or `/aitask-explore`) |
 
 ---
 
@@ -52,12 +53,14 @@ Detailed description of what needs to be done.
 
 ```
 Ready → Editing → Implementing → Done → Archived
+                              ↘ Folded (merged into another task)
 ```
 
 - **Ready** — Task is defined and available for implementation
 - **Editing** — Task is being refined (description, requirements)
 - **Implementing** — Active development in progress (assigned to someone)
 - **Postponed** — Deferred for later
+- **Folded** — Task was merged into another task via `/aitask-fold` or `/aitask-explore`; deleted on archival of the primary task
 - **Done** — Implementation complete, pending archival
 - **Archived** — Task and plan files moved to `archived/` directories
 
