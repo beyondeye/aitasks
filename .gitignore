@@ -1,3 +1,9 @@
 # Draft tasks (local, not committed)
 aitasks/new/
 aiscripts/board/__pycache__/
+
+# Hugo generated files
+website/public/
+website/resources/
+website/node_modules/
+website/.hugo_build.lock
