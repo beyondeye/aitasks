@@ -24,6 +24,7 @@ All updates should be made there.
 | [Parallel Development](../website/content/docs/workflows/parallel-development.md) | `workflows/parallel-development.md` | Working on multiple tasks simultaneously |
 | [Terminal Setup](../website/content/docs/workflows/terminal-setup.md) | `workflows/terminal-setup.md` | Multi-tab terminal workflow and monitoring |
 | [Code Review](../website/content/docs/workflows/code-review.md) | `workflows/code-review.md` | Systematic code review using review guides |
+| [Exploration-Driven](../website/content/docs/workflows/exploration-driven.md) | `workflows/exploration-driven.md` | Start with codebase exploration, create tasks from findings |
 | [Skills Overview](../website/content/docs/skills/_index.md) | `skills/_index.md` | Claude Code skill reference |
 | [/aitask-pick](../website/content/docs/skills/aitask-pick.md) | `skills/aitask-pick.md` | Select and implement the next task |
 | [/aitask-explore](../website/content/docs/skills/aitask-explore.md) | `skills/aitask-explore.md` | Explore codebase interactively, then create a task |
