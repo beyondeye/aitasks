@@ -42,3 +42,4 @@ All updates should be made there.
 | [Issue Integration](../website/content/docs/commands/issue-integration.md) | `commands/issue-integration.md` | ait issue-import, ait issue-update, ait changelog, ait zip-old |
 | [Development Guide](../website/content/docs/development/_index.md) | `development/_index.md` | Architecture, internals, release process |
 | [Task Format](../website/content/docs/development/task-format.md) | `development/task-format.md` | YAML frontmatter schema and conventions |
+| [Review Guide Format](../website/content/docs/development/review-guide-format.md) | `development/review-guide-format.md` | File format, vocabulary files, and matching algorithms |

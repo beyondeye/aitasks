@@ -26,6 +26,7 @@ ait <subcommand> [args]  →  aiscripts/aitask_<subcommand>.sh [args]
 | `aitasks/archived/` | Completed task files and child directories |
 | `aiplans/archived/` | Completed plan files and child directories |
 | `aitasks/metadata/` | Configuration: `labels.txt`, `task_types.txt`, `emails.txt`, `profiles/` |
+| `aireviewguides/` | Review guide files, vocabulary metadata, and environment subdirectories |
 | `website/content/docs/` | Project documentation (single source of truth) |
 
 ---
