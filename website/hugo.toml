@@ -18,6 +18,7 @@ enableGitInfo = true
 [params]
   github_repo = "https://github.com/beyondeye/aitasks"
   github_project_repo = "https://github.com/beyondeye/aitasks"
+  github_subdir = "website"
   offlineSearch = true
 
 [params.ui]
