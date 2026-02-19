@@ -11,20 +11,6 @@ The `ait board` command launches an interactive terminal-based kanban board for 
 
 ## Tutorial
 
-### Prerequisites
-
-The board requires Python 3 with the following packages:
-
-- `textual` — TUI framework
-- `pyyaml` — YAML frontmatter parsing
-- `linkify-it-py` — URL detection in markdown rendering
-
-Running `ait setup` installs all dependencies into a shared virtual environment at `~/.aitask/venv/`. If you prefer a manual installation:
-
-```bash
-pip install textual pyyaml linkify-it-py
-```
-
 ### Launching the Board
 
 ```bash
