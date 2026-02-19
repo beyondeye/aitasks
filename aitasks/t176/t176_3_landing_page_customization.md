@@ -1,12 +1,13 @@
 ---
 priority: medium
 effort: medium
-depends: [176_1]
+depends: [t176_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [web_site]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-19 11:04
-updated_at: 2026-02-19 11:04
+updated_at: 2026-02-19 12:04
 ---
 
 ## Context
