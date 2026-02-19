@@ -1,5 +1,7 @@
 # aitasks
 
+[![Documentation](https://img.shields.io/badge/docs-website-blue)](https://beyondeye.github.io/aitasks/)
+
 AI-powered task management framework for Claude Code projects.
 
 A file-based task management system that integrates with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) via skills. Tasks are markdown files with YAML frontmatter, organized in a kanban-style workflow. Includes a Python TUI board, GitHub issue integration, and completion statistics.
@@ -40,7 +42,7 @@ AI coding agents has reached a proficiency level where, given correct specs and 
   - Parallelism: thanks to task status stored in git, and AI agents workflow that support git worktrees.
 
 - Visual Management
-TUI Board: A terminal-based visual interface (Kanban style) for visualizing and organizing tasks without leaving the terminal. See the [Board Documentation](docs/board.md) for full details.
+TUI Board: A terminal-based visual interface (Kanban style) for visualizing and organizing tasks without leaving the terminal. See the [Board Documentation](website/content/docs/board/_index.md) for full details.
 
 - Battle tested:
 Not a research experiment. actively developed and used in real projects
@@ -57,7 +59,7 @@ Not a research experiment. actively developed and used in real projects
 | Ubuntu/Debian | Fully supported | Includes Pop!_OS, Linux Mint, Elementary |
 | Fedora/RHEL | Fully supported | Includes CentOS, Rocky, Alma |
 | macOS | Partial | `date -d` and bash 3.2 limitations (see [Known Issues](#known-issues)) |
-| Windows (WSL) | Fully supported | Via WSL with Ubuntu/Debian (see [Windows guide](docs/installing-windows.md)) |
+| Windows (WSL) | Fully supported | Via WSL with Ubuntu/Debian (see [Windows guide](website/content/docs/installation/windows-wsl.md)) |
 
 ## Known Issues
 
@@ -72,7 +74,7 @@ Install into your project directory:
 curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash
 ```
 
-> **Windows users:** Run this inside a WSL shell, not PowerShell. See the [Windows/WSL guide](docs/installing-windows.md).
+> **Windows users:** Run this inside a WSL shell, not PowerShell. See the [Windows/WSL guide](website/content/docs/installation/windows-wsl.md).
 
 Upgrade an existing installation:
 
@@ -86,7 +88,7 @@ Or for fresh installs without an existing `ait` dispatcher:
 curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash -s -- --force
 ```
 
-After installing, run `ait setup` to install dependencies and configure Claude Code permissions. See [`ait setup`](docs/commands.md#ait-setup) for details.
+After installing, run `ait setup` to install dependencies and configure Claude Code permissions. See [`ait setup`](website/content/docs/commands/setup-install.md) for details.
 
 **Already have the global `ait` shim?** If you've previously run `ait setup` on another project, the global shim at `~/.local/bin/ait` is already installed. You can bootstrap aitasks in any new project directory by simply running:
 
@@ -97,7 +99,7 @@ ait setup
 
 The shim detects that no aitasks project exists, downloads the latest release, installs it, and then runs the full setup — all in one command.
 
-**Windows/WSL users:** See the [Windows/WSL Installation Guide](docs/installing-windows.md) for step-by-step instructions including WSL setup, Claude Code installation, and terminal configuration.
+**Windows/WSL users:** See the [Windows/WSL Installation Guide](website/content/docs/installation/windows-wsl.md) for step-by-step instructions including WSL setup, Claude Code installation, and terminal configuration.
 
 ## What Gets Installed
 
@@ -114,73 +116,25 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 - CLI tools: `fzf`, `gh` (for GitHub), `glab` (for GitLab), or `bkt` (for Bitbucket), `jq`, `git`
 - Python venv at `~/.aitask/venv/` with `textual`, `pyyaml`, `linkify-it-py`
 - Global `ait` shim at `~/.local/bin/ait`
-- Claude Code permissions in `.claude/settings.local.json` (see [Claude Code Permissions](docs/commands.md#claude-code-permissions))
-
-## Authentication with Your Git Remote
-
-Authenticating with your git remote enables full aitasks functionality including task locking (prevents two agents from picking the same task), push/pull sync across machines, and issue integration (`ait issue-import`, `ait issue-update`).
-
-### GitHub
-
-Authenticate the GitHub CLI:
-
-```bash
-gh auth login
-```
-
-Follow the prompts to authenticate via browser or token.
-
-### GitLab
-
-Authenticate the GitLab CLI:
-
-```bash
-glab auth login
-```
-
-Follow the prompts to authenticate via browser or token. This also configures
-git credentials for pushing to GitLab remotes.
-
-### Bitbucket
-
-Authenticate the Bitbucket CLI:
-
-```bash
-bkt auth login https://bitbucket.org --kind cloud --web
-```
-
-Follow the browser prompts to authenticate with your Atlassian account. For token-based
-authentication (e.g., in CI environments):
-
-```bash
-bkt auth login https://bitbucket.org --kind cloud --username <email> --token <app-password>
-```
-
-Create an app password at: Settings > Personal Bitbucket settings > App passwords.
-Enable the "Issues: read" and "Issues: write" permissions.
-
-Note: `bkt` requires a context to be configured. After authentication, create one:
-
-```bash
-bkt context create myproject --host "https://api.bitbucket.org/2.0" \
-    --workspace <your-workspace> --repo <your-repo> --set-active
-```
+- Claude Code permissions in `.claude/settings.local.json` (see [Claude Code Permissions](website/content/docs/commands/setup-install.md#claude-code-permissions))
 
 ## Documentation
 
-- **[Command Reference](docs/commands.md)** — Complete CLI reference for all `ait` subcommands: create, list, update, board, stats, issue import/export, and more. Includes interactive and batch mode options for each command.
+**[Documentation Website](https://beyondeye.github.io/aitasks/)** — Browse the full documentation online.
 
-- **[Kanban Board](docs/board.md)** — Visual task management with the TUI board: tutorials, how-to guides for organizing/editing/creating tasks, keyboard shortcuts, column configuration, and git integration.
+- **[Installation](website/content/docs/installation/_index.md)** — Quick install, platform support, setup, and git remote authentication.
 
-- **[Claude Code Skills](docs/skills.md)** — Reference for `/aitask-pick`, `/aitask-explore`, `/aitask-create`, and other Claude Code skill integrations. Covers the full implementation workflow, execution profiles, and task decomposition.
+- **[Getting Started](website/content/docs/getting-started.md)** — First-time walkthrough from install to completing your first task.
 
-- **[Typical Workflows](docs/workflows.md)** — End-to-end guides for common usage patterns: capturing ideas fast, complex task decomposition, GitHub issue development cycle, parallel development with worktrees, multi-tab terminal setup, and creating follow-up tasks during implementation.
+- **[Kanban Board](website/content/docs/board/_index.md)** — Visual task management with the TUI board: tutorials, how-to guides, keyboard shortcuts, and configuration.
 
-- **[Task File Format](docs/task-format.md)** — YAML frontmatter schema, status workflow, parent/child hierarchies, and customizing task types. Read this to understand how task files are structured and what metadata fields are available.
+- **[Workflow Guides](website/content/docs/workflows/_index.md)** — End-to-end guides for common usage patterns: capturing ideas fast, complex task decomposition, parallel development, and more.
 
-- **[Development](docs/development.md)** — Architecture overview, directory layout, library script reference, atomic ID counter and locking internals, and release process. For contributors and anyone customizing the framework.
+- **[Claude Code Skills](website/content/docs/skills/_index.md)** — Reference for `/aitask-pick`, `/aitask-explore`, `/aitask-create`, and other skill integrations.
 
-- **[Windows/WSL Installation](docs/installing-windows.md)** — Step-by-step guide for installing and configuring aitasks on Windows via WSL. Covers WSL setup, Claude Code installation, and terminal options.
+- **[Command Reference](website/content/docs/commands/_index.md)** — Complete CLI reference for all `ait` subcommands.
+
+- **[Development Guide](website/content/docs/development/_index.md)** — Architecture overview, directory layout, library scripts, and release process.
 
 ## License
 This project is licensed under the MIT License with the Commons Clause condition.

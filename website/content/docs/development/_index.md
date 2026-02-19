@@ -1,24 +1,8 @@
 ---
 title: "Development Guide"
 linkTitle: "Development"
-weight: 60
+weight: 70
 description: "Architecture, internals, and release process"
----
-
-## Table of Contents
-
-- [Architecture](#architecture)
-- [Directory Layout](#directory-layout)
-- [Library Scripts](#library-scripts)
-  - [lib/task_utils.sh](#libtask_utilssh)
-  - [lib/terminal_compat.sh](#libterminal_compatsh)
-- [Atomic Task ID Counter](#atomic-task-id-counter)
-- [Atomic Task Locking](#atomic-task-locking)
-- [Modifying Scripts](#modifying-scripts)
-- [Testing Changes](#testing-changes)
-- [Release Process](#release-process)
-- [Keeping Documentation in Sync](#keeping-documentation-in-sync)
-
 ---
 
 ## Architecture
@@ -42,7 +26,7 @@ ait <subcommand> [args]  →  aiscripts/aitask_<subcommand>.sh [args]
 | `aitasks/archived/` | Completed task files and child directories |
 | `aiplans/archived/` | Completed plan files and child directories |
 | `aitasks/metadata/` | Configuration: `labels.txt`, `task_types.txt`, `emails.txt`, `profiles/` |
-| `docs/` | Project documentation (commands, skills, workflows, etc.) |
+| `website/content/docs/` | Project documentation (single source of truth) |
 
 ---
 
@@ -144,11 +128,11 @@ bash -n aiscripts/*.sh   # Syntax-check all scripts
 
 ## Keeping Documentation in Sync
 
-Project documentation lives in the `docs/` directory with the main `README.md` serving as a landing page with links to each section. When adding new features:
+Project documentation lives in `website/content/docs/` — the Hugo/Docsy website is the single source of truth. When adding new features:
 
-1. **New CLI commands** — Add to `docs/commands.md` and update the command summary table
-2. **New Claude Code skills** — Add to `docs/skills.md` and update the skill overview table
-3. **New workflows** — Add to `docs/workflows.md`
-4. **Architectural changes** — Update `docs/development.md`
+1. **New CLI commands** — Add to the appropriate file under `website/content/docs/commands/`
+2. **New Claude Code skills** — Add a new file under `website/content/docs/skills/`
+3. **New workflows** — Add to `website/content/docs/workflows.md`
+4. **Architectural changes** — Update `website/content/docs/development/_index.md`
 
-The `README.md` links to each docs file with a brief summary. If you add a new docs file, add a corresponding link in the Documentation section of README.md.
+The `README.md` links to each docs file with a brief summary. If you add a new docs section, add a corresponding link in the Documentation section of README.md.

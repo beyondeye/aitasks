@@ -1,20 +1,11 @@
-# Windows/WSL Installation Guide
+---
+title: "Windows & WSL Installation"
+linkTitle: "Windows/WSL"
+weight: 20
+description: "Guide for installing and running aitasks on Windows via WSL"
+---
 
 Step-by-step guide for installing and configuring aitasks on Windows via the Windows Subsystem for Linux (WSL).
-
-## Table of Contents
-
-- [Prerequisites](#prerequisites)
-- [Install WSL](#install-wsl)
-- [Install aitasks](#install-aitasks)
-- [Install Claude Code](#install-claude-code)
-- [Terminal Options](#terminal-options)
-  - [VS Code with WSL Extension](#vs-code-with-wsl-extension)
-  - [Default WSL Terminal](#default-wsl-terminal)
-  - [Warp Terminal](#warp-terminal)
-- [Known Issues](#known-issues)
-
----
 
 ## Prerequisites
 
@@ -60,7 +51,7 @@ ait setup
 
 The setup will automatically detect WSL and install dependencies via `apt`. If you already have the global `ait` shim installed (from a previous project), you can skip the `curl` step and just run `ait setup` in the new project directory — it will auto-bootstrap the installation.
 
-After setup completes, see [Authentication with Your Git Remote](../README.md#authentication-with-your-git-remote) to configure GitHub access for task locking, sync, and issue integration.
+After setup completes, see [Authentication with Your Git Remote](../#authentication-with-your-git-remote) to configure GitHub access for task locking, sync, and issue integration.
 
 ---
 

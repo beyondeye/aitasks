@@ -1,12 +1,8 @@
-# Task File Format
-
-## Table of Contents
-
-- [File Structure](#file-structure)
-- [Status Workflow](#status-workflow)
-- [Parent-Child Hierarchies](#parent-child-hierarchies)
-- [Customizing Task Types](#customizing-task-types)
-
+---
+title: "Task File Format"
+linkTitle: "Task Format"
+weight: 10
+description: "YAML frontmatter schema and conventions for task files"
 ---
 
 ## File Structure
@@ -96,4 +92,4 @@ style
 test
 ```
 
-To add a custom type, simply add a new line to the file. All scripts (`ait create`, `ait update`, [`ait board`](board.md), `ait stats`) read from this file dynamically.
+To add a custom type, simply add a new line to the file. All scripts (`ait create`, `ait update`, [`ait board`](../../board/), `ait stats`) read from this file dynamically.

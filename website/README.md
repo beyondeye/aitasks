@@ -1,8 +1,8 @@
-# Website Local Development
+# aitasks Website
 
-This guide explains how to set up your local machine to work on the aitasks documentation website, which is built with [Hugo](https://gohugo.io/) and the [Docsy](https://www.docsy.dev/) theme.
+This directory contains the Hugo/Docsy website for aitasks.
 
-The website source lives in the `website/` directory of the repository.
+**Live site:** https://beyondeye.github.io/aitasks/
 
 ## Required Tools
 
@@ -82,7 +82,7 @@ sass --version  # Should show >= 1.97
 node --version  # Should show >= 18
 ```
 
-## Running the Site Locally
+## Local Development
 
 First, ensure Node.js dependencies are installed:
 ```bash
@@ -110,6 +110,20 @@ cd website
 hugo mod tidy
 hugo mod get -u
 ```
+
+## Adding Content
+
+- Documentation pages go in `content/docs/`
+- Each page needs Docsy frontmatter (`title`, `linkTitle`, `weight`, `description`)
+- Pages in subdirectories use `_index.md` as the section landing page
+- `weight` controls ordering in the sidebar navigation (lower = higher)
+- See existing pages for examples
+
+## Deployment
+
+Automatic on push of version tags (`v*`) via GitHub Actions. See `.github/workflows/hugo.yml`.
+
+The site is deployed to https://beyondeye.github.io/aitasks/
 
 ## Common Issues
 
