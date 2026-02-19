@@ -86,15 +86,15 @@ Behind the scenes, the script writes the new version to `aiscripts/VERSION`, cre
 
 ### 3. GitHub Actions publish
 
-Two workflows trigger automatically on the tag push:
+Two workflows run automatically:
 
-**Release workflow** (`.github/workflows/release.yml`):
+**Release workflow** (`.github/workflows/release.yml`) — triggers on tag push:
 - Verifies `aiscripts/VERSION` matches the tag (safety check)
 - Builds a distributable tarball containing `ait`, `CHANGELOG.md`, `aiscripts/`, `skills/`, and `seed/`
 - Extracts the v0.4.0 changelog section from `CHANGELOG.md` and uses it as the GitHub Release notes
 - If no changelog section is found, falls back to GitHub's auto-generated release notes
 
-**Documentation workflow** (`.github/workflows/hugo.yml`):
+**Documentation workflow** (`.github/workflows/hugo.yml`) — triggers after the Release workflow completes:
 - Rebuilds and deploys the project documentation website to GitHub Pages
 
 ## Where the Data Comes From
