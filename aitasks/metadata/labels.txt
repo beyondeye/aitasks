@@ -4,6 +4,7 @@ aitask_explore
 aitask_fold
 aitask_pick
 aitask_review
+aitask_reviewguide
 bash_scripts
 claudeskills
 codexcli
