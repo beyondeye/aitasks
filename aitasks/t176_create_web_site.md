@@ -3,10 +3,9 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Ready
 labels: [web_site]
 children_to_implement: [t176_1, t176_2, t176_3, t176_4, t176_5]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-19 10:26
 updated_at: 2026-02-19 11:05
 ---

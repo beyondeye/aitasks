@@ -1,7 +1,7 @@
 ---
 priority: low
 effort: low
-depends: []
+depends: [176_2, 176_4]
 issue_type: documentation
 status: Ready
 labels: [web_site]

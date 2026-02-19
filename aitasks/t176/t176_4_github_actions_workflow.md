@@ -1,7 +1,7 @@
 ---
 priority: high
 effort: low
-depends: []
+depends: [176_1]
 issue_type: feature
 status: Ready
 labels: [web_site]
