@@ -1,5 +1,67 @@
 # Changelog
 
+## v0.5.0
+
+### Features
+
+- **Review modes infrastructure** (t129_3): Added 9 seed review guide templates and an interactive setup wizard for installing review guides into projects.
+- **Code review skill** (t129_4): Added the `/aitask-review` skill for performing structured code reviews with configurable review guides, multiple target selection modes, and automatic task creation from findings.
+- **GitLab support** (t136): Added full GitLab support for importing issues as tasks and updating issues with task status, with automatic platform detection from git remotes.
+- **Bitbucket support** (t146): Added full Bitbucket support for importing issues as tasks and updating issues with task status.
+- **Additional task types** (t162): Added `chore`, `style`, and `test` task types with full support across the CLI, board, stats, and documentation.
+- **Review vocabulary files** (t163_1): Added review types and labels vocabulary files for standardized review guide classification.
+- **Review guide metadata** (t163_2): Added `reviewtype` and `reviewlabels` metadata fields to all review guide files for better categorization.
+- **Review guide scan script** (t163_3): Added a scan script for analyzing review guide metadata completeness and finding similar guides.
+- **Review guide classify skill** (t163_4): Added the `/aitask-reviewguide-classify` skill for assigning metadata to review guide files and finding similar existing guides.
+- **Review guide merge skill** (t163_5): Added the `/aitask-reviewguide-merge` skill for comparing and merging similar review guides, with both single-pair and batch modes.
+- **Review guide import skill** (t169): Added the `/aitask-reviewguide-import` skill for importing external content (files, URLs, or GitHub directories) as review guides.
+- **New environment detection** (t175): Added environment detection for C#, Dart, Flutter, iOS, and Swift projects.
+- **Hugo documentation site** (t176_1): Created a Hugo documentation website with the Docsy theme for hosting project documentation.
+- **Documentation migration** (t176_2): Migrated all existing documentation to the new Hugo website with proper cross-links and navigation.
+- **Landing page** (t176_3): Added a branded landing page with feature highlights, quick install instructions, and project logo.
+- **Site deployment workflow** (t176_4): Added automated Hugo site deployment to GitHub Pages on release tag pushes.
+- **Implementing children visibility** (t180): Parent task cards in the board now show which child tasks are currently being implemented.
+
+### Bug Fixes
+
+- **Internal skill visibility** (t164): Fixed the `/aitask-create2` skill being incorrectly listed as user-invocable when it's an internal-only skill.
+- **Folded task issue updates** (t165): Fixed folded tasks with linked issues not getting updated during archival.
+- **Setup commit handling** (t167): Fixed framework files not being committed to git during initial project setup.
+
+### Improvements
+
+- **Remove aitask-zipold skill** (t151): Removed the redundant `/aitask-zipold` skill in favor of the `ait zip-old` CLI command.
+- **Standardized commit messages** (t157): Standardized commit message prefixes across all scripts and skills to use the `<type>: <description> (tNN)` format.
+- **Review skill helper scripts** (t158): Extracted review skill logic into reusable helper scripts for commit fetching and environment detection.
+- **Review guides directory structure** (t159): Reorganized review guide files from a flat directory into a categorized tree structure with subdirectories and gitignore-based filtering.
+- **Board typing modernization** (t160): Replaced deprecated `typing.List` and `typing.Dict` imports with built-in `list` and `dict` in the board TUI.
+- **Remove legacy metadata format** (t168): Removed support for the legacy single-line task metadata format, keeping only YAML frontmatter.
+- **Reviewmode to reviewguide rename** (t172_1, t172_2, t172_3, t172_4, t172_5): Renamed all "reviewmode" references to "reviewguide" across directories, scripts, skills, and documentation for consistent terminology.
+
+### Documentation
+
+- **Exploration-driven development guide** (t129_5): Added a workflow guide for exploration-driven development with use cases and a concrete walkthrough.
+- **Code review walkthrough** (t129_6): Added a walkthrough and practical tips to the code review workflow guide.
+- **Board TUI documentation** (t148): Added comprehensive documentation for the `ait board` TUI covering tutorials, how-to guides, and feature reference.
+- **Board docs cross-references** (t161): Added cross-references to board documentation across all relevant doc files.
+- **Code review skills documentation** (t171): Added documentation pages for all four code review skills and the code review workflow.
+- **Review guide format reference** (t174): Added a reference page documenting the review guide file format, directory structure, and environment detection algorithms.
+- **Documentation restructure** (t176_5): Restructured all documentation into Hugo subpages with a new hierarchy, navigation, and getting started guide.
+- **Website fixes** (t181): Fixed documentation navigation links, added an overview page, and corrected various website content issues.
+- **Task folding workflow** (t182): Added a task consolidation (folding) workflow guide and updated related documentation.
+- **Multi-platform references** (t183): Updated documentation to reference GitHub, GitLab, and Bitbucket where multi-platform support exists.
+- **Board prerequisites cleanup** (t184): Removed the manual prerequisites section from board documentation since dependencies are handled automatically.
+- **Releases workflow** (t185): Added a releases workflow documentation page covering the full release pipeline.
+
+### Performance
+
+- **Post-implementation speedup** (t166): Consolidated post-implementation archival operations into a single script for faster task completion.
+- **Task startup improvement** (t173): Consolidated task ownership operations into a single script for faster task startup.
+
+### Maintenance
+
+- **Google style guides** (t179): Added 8 Google style guide review templates for C++, C#, Dart, Go, HTML/CSS, JavaScript, and TypeScript.
+
 ## v0.4.0
 
 ### Features
