@@ -461,10 +461,21 @@ class TaskCard(Static):
                 if dep_task and dep_task.metadata.get('status') != 'Done':
                     unresolved_deps.append(dep_id)
 
+        # Determine implementing children for parent tasks
+        implementing_children = []
+        total_children = 0
+        if self.manager and not self.is_child:
+            task_num_for_children, _ = self._parse_filename(self.task_data.filename)
+            children = self.manager.get_child_tasks_for_parent(task_num_for_children)
+            total_children = len(children)
+            implementing_children = [
+                c for c in children if c.metadata.get('status') == 'Implementing'
+            ]
+
         status_parts = []
         if unresolved_deps:
             status_parts.append("🚫 blocked")
-        elif status:
+        elif status and not implementing_children:
             status_parts.append(f"📋 {status}")
         if assigned_to: status_parts.append(f"👤 {assigned_to}")
         if status_parts:
@@ -478,10 +489,19 @@ class TaskCard(Static):
             yield Label(f"\U0001f4ce folded into t{folded_into}", classes="task-info")
 
         if self.manager and not self.is_child:
-            task_num, _ = self._parse_filename(self.task_data.filename)
-            child_count = len(self.manager.get_child_tasks_for_parent(task_num))
-            if child_count > 0:
-                yield Label(f"\U0001f476 {child_count} children", classes="task-info")
+            if implementing_children:
+                for child in implementing_children:
+                    child_num, _ = self._parse_filename(child.filename)
+                    child_email = child.metadata.get('assigned_to', '')
+                    child_label = f"\u26a1 {child_num}"
+                    if child_email:
+                        child_label += f" \U0001f464 {child_email}"
+                    yield Label(child_label, classes="task-info")
+                remaining = total_children - len(implementing_children)
+                if remaining > 0:
+                    yield Label(f"\U0001f476 {remaining} more children", classes="task-info")
+            elif total_children > 0:
+                yield Label(f"\U0001f476 {total_children} children", classes="task-info")
 
     def _priority_border_color(self):
         priority = self.task_data.metadata.get('priority', 'normal')
