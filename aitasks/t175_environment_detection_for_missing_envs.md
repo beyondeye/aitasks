@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_review, bash_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-19 08:27
-updated_at: 2026-02-19 08:27
+updated_at: 2026-02-19 10:49
 ---
 
 I have added several default environments to aireviewguides/reviewenvironemnts.txt that are not supported by the aitask_review_detect_env.sh script. I want add support for all remaining enviroments to the script
