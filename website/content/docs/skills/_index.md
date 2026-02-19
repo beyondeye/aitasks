@@ -17,6 +17,10 @@ aitasks provides Claude Code skills that automate the full task workflow. These 
 | [`/aitask-create`](aitask-create/) | Create tasks interactively via Claude Code |
 | [`/aitask-stats`](aitask-stats/) | View completion statistics |
 | [`/aitask-changelog`](aitask-changelog/) | Generate changelog entries from commits and plans |
+| [`/aitask-review`](aitask-review/) | Review code using configurable review guides, then create tasks from findings |
+| [`/aitask-reviewguide-classify`](aitask-reviewguide-classify/) | Classify a review guide by assigning metadata and finding similar guides |
+| [`/aitask-reviewguide-merge`](aitask-reviewguide-merge/) | Compare two similar review guides and merge, split, or keep separate |
+| [`/aitask-reviewguide-import`](aitask-reviewguide-import/) | Import external content as a review guide with proper metadata |
 
 ---
 

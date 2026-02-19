@@ -23,6 +23,7 @@ All updates should be made there.
 | [Follow-Up Tasks](../website/content/docs/workflows/follow-up-tasks.md) | `workflows/follow-up-tasks.md` | Creating rich follow-up tasks during implementation |
 | [Parallel Development](../website/content/docs/workflows/parallel-development.md) | `workflows/parallel-development.md` | Working on multiple tasks simultaneously |
 | [Terminal Setup](../website/content/docs/workflows/terminal-setup.md) | `workflows/terminal-setup.md` | Multi-tab terminal workflow and monitoring |
+| [Code Review](../website/content/docs/workflows/code-review.md) | `workflows/code-review.md` | Systematic code review using review guides |
 | [Skills Overview](../website/content/docs/skills/_index.md) | `skills/_index.md` | Claude Code skill reference |
 | [/aitask-pick](../website/content/docs/skills/aitask-pick.md) | `skills/aitask-pick.md` | Select and implement the next task |
 | [/aitask-explore](../website/content/docs/skills/aitask-explore.md) | `skills/aitask-explore.md` | Explore codebase interactively, then create a task |
@@ -30,6 +31,10 @@ All updates should be made there.
 | [/aitask-fold](../website/content/docs/skills/aitask-fold.md) | `skills/aitask-fold.md` | Identify and merge related tasks |
 | [/aitask-stats](../website/content/docs/skills/aitask-stats.md) | `skills/aitask-stats.md` | View task completion statistics |
 | [/aitask-changelog](../website/content/docs/skills/aitask-changelog.md) | `skills/aitask-changelog.md` | Generate a changelog entry |
+| [/aitask-review](../website/content/docs/skills/aitask-review.md) | `skills/aitask-review.md` | Review code using configurable review guides |
+| [/aitask-reviewguide-classify](../website/content/docs/skills/aitask-reviewguide-classify.md) | `skills/aitask-reviewguide-classify.md` | Classify a review guide by assigning metadata |
+| [/aitask-reviewguide-merge](../website/content/docs/skills/aitask-reviewguide-merge.md) | `skills/aitask-reviewguide-merge.md` | Compare and merge similar review guides |
+| [/aitask-reviewguide-import](../website/content/docs/skills/aitask-reviewguide-import.md) | `skills/aitask-reviewguide-import.md` | Import external content as a review guide |
 | [Commands Overview](../website/content/docs/commands/_index.md) | `commands/_index.md` | CLI command reference |
 | [Setup & Install](../website/content/docs/commands/setup-install.md) | `commands/setup-install.md` | ait setup and ait install commands |
 | [Task Management](../website/content/docs/commands/task-management.md) | `commands/task-management.md` | ait create, ait ls, and ait update commands |
