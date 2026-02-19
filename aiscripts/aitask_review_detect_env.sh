@@ -141,6 +141,28 @@ test_project_root_files() {
     if [[ -f "go.mod" ]]; then
         add_score "go" "$weight"
     fi
+
+    # C#
+    if compgen -G "*.csproj" >/dev/null 2>&1 || compgen -G "*.sln" >/dev/null 2>&1; then
+        add_score "c-sharp" "$weight"
+    fi
+
+    # Dart / Flutter
+    if [[ -f "pubspec.yaml" ]]; then
+        add_score "dart" "$weight"
+        if grep -q 'flutter:' "pubspec.yaml" 2>/dev/null || grep -q 'flutter_' "pubspec.yaml" 2>/dev/null; then
+            add_score "flutter" "$weight"
+        fi
+    fi
+
+    # Swift / iOS
+    if compgen -G "*.xcodeproj" >/dev/null 2>&1 || compgen -G "*.xcworkspace" >/dev/null 2>&1; then
+        add_score "ios" "$weight"
+        add_score "swift" "$weight"
+    fi
+    if [[ -f "Package.swift" ]]; then
+        add_score "swift" "$weight"
+    fi
 }
 
 # --- Test 2: File extensions in the provided file list (weight: 1 per file) ---
@@ -167,6 +189,14 @@ test_file_extensions() {
             cmake)             add_score "cmake" "$weight" ;;
             rs)                add_score "rust" "$weight" ;;
             go)                add_score "go" "$weight" ;;
+            cs)                add_score "c-sharp" "$weight" ;;
+            dart)              add_score "dart" "$weight" ;;
+            swift)
+                add_score "swift" "$weight"
+                if compgen -G "*.xcodeproj" >/dev/null 2>&1 || compgen -G "*.xcworkspace" >/dev/null 2>&1; then
+                    add_score "ios" "$weight"
+                fi
+                ;;
         esac
     done
 }
@@ -203,6 +233,9 @@ test_directory_patterns() {
     local found_aiscripts=false
     local found_android_src=false
     local found_root_sh=false
+    local found_ios_dir=false
+    local found_flutter_lib=false
+    local found_csharp_dir=false
 
     for f in "${FILES[@]}"; do
         # aiscripts/ directory or .sh files at project root
@@ -222,6 +255,26 @@ test_directory_patterns() {
             add_score "android" "$weight"
             add_score "kotlin" "$weight"
             found_android_src=true
+        fi
+
+        # iOS directories (xcodeproj contents, ios/ folder, Pods/)
+        if [[ "$f" == *.xcodeproj/* || "$f" == ios/* || "$f" == Pods/* ]] && [[ "$found_ios_dir" == false ]]; then
+            add_score "ios" "$weight"
+            add_score "swift" "$weight"
+            found_ios_dir=true
+        fi
+
+        # Flutter (lib/*.dart files suggest Flutter project structure)
+        if [[ "$f" == lib/*.dart || "$f" == lib/**/*.dart ]] && [[ "$found_flutter_lib" == false ]]; then
+            add_score "flutter" "$weight"
+            add_score "dart" "$weight"
+            found_flutter_lib=true
+        fi
+
+        # C# (.NET project directories)
+        if [[ "$f" == Properties/* || "$f" == obj/* ]] && [[ "$found_csharp_dir" == false ]]; then
+            add_score "c-sharp" "$weight"
+            found_csharp_dir=true
         fi
     done
 }

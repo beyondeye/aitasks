@@ -38,3 +38,9 @@ No changes needed.
 ### Verification
 
 Run the script with test inputs for each new environment.
+
+## Final Implementation Notes
+- **Actual work done:** Added detection for c-sharp, dart, flutter, ios, and swift across 3 of 4 test functions (root files, extensions, directory patterns). Shebang test was not modified as these languages don't use shebangs. Created a comprehensive test suite with 90 tests covering all 17 environments.
+- **Deviations from plan:** Added `tests/test_detect_env.sh` test suite (not in original plan, requested by user during review).
+- **Issues encountered:** None significant. The `compgen -G` pattern works well for glob matching in root file detection.
+- **Key decisions:** Used `compgen -G` for glob matching (consistent with no existing pattern in the script but necessary for .csproj/.sln/.xcodeproj detection). Flutter detection uses `grep` on `pubspec.yaml` for `flutter:` and `flutter_` patterns. Swift/iOS distinction: Package.swift alone = server-side Swift only, Xcode project = iOS + Swift.
