@@ -87,7 +87,13 @@ Also fix other repo file links scattered throughout README.md:
 
 ### Change Request 1 (2026-02-19)
 - **Requested by user:** Add "next page" navigation links to each main documentation page
-- **Changes made:** (pending — will be a separate commit)
+- **Changes made:** Added `**Next:** [Page Title](relref)` links with horizontal rule separator at the bottom of 7 main doc pages: Overview → Installation → Getting Started → Board → Workflows → Skills → Commands → Development
+- **Files affected:** `website/content/docs/overview.md`, `website/content/docs/installation/_index.md`, `website/content/docs/getting-started.md`, `website/content/docs/board/_index.md`, `website/content/docs/workflows/_index.md`, `website/content/docs/skills/_index.md`, `website/content/docs/commands/_index.md`
+
+### Change Request 2 (2026-02-19)
+- **Requested by user:** Clarify Quick Install instructions on website homepage — both commands should run in the project directory
+- **Changes made:** Updated `website/content/_index.md` to say "Run these commands in your project directory:" and show both `curl` and `ait setup` together
+- **Files affected:** `website/content/_index.md`
 
 ## Step 9 Reference
 

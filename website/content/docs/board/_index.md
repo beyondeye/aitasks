@@ -85,3 +85,7 @@ The card's **border color** indicates priority:
 ### Opening Task Details
 
 Press **Enter** on any focused card to open the task detail dialog. This modal shows the full task metadata and markdown content. See [How to Edit Task Metadata](how-to/#how-to-edit-task-metadata) for details on what you can do in this dialog.
+
+---
+
+**Next:** [Workflow Guides]({{< relref "workflows" >}})

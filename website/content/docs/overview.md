@@ -47,3 +47,7 @@ AI coding agents have reached a proficiency level where, given correct specs and
 - **Claude Code optimized.**
 
 - **Fully customizable workflow:** All the scripts and workflow skills live in your project repo — modify them for your needs. You can still merge new features and capabilities as they are added to the framework, with the included AI agent-based framework update skill.
+
+---
+
+**Next:** [Installation]({{< relref "installation" >}})

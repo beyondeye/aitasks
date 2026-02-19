@@ -37,3 +37,7 @@ ait install                              # Update to latest version
 ait install 0.2.1                        # Install specific version
 ait --version                           # Show installed version
 ```
+
+---
+
+**Next:** [Development Guide]({{< relref "development" >}})

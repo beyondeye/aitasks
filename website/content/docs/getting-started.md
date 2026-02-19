@@ -70,3 +70,7 @@ As you work, explore these features:
 - [Workflow Guides](../workflows/) — Common patterns like capturing ideas fast, task decomposition, and parallel development
 - [Claude Code Skills](../skills/) — All available slash commands (`/aitask-pick`, `/aitask-explore`, `/aitask-fold`, etc.)
 - [Command Reference](../commands/) — Full CLI reference for all `ait` subcommands
+
+---
+
+**Next:** [Kanban Board]({{< relref "board" >}})

@@ -17,3 +17,7 @@ aitasks provides Claude Code skills that automate the full task workflow. These 
 | [`/aitask-create`](aitask-create/) | Create tasks interactively via Claude Code |
 | [`/aitask-stats`](aitask-stats/) | View completion statistics |
 | [`/aitask-changelog`](aitask-changelog/) | Generate changelog entries from commits and plans |
+
+---
+
+**Next:** [Command Reference]({{< relref "commands" >}})
