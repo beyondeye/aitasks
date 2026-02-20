@@ -4,7 +4,7 @@ This file provides guidance when working with code in this repository.
 
 ## Project Overview
 
-**aitasks** (v0.5.0) is a file-based task management framework for AI coding agents, primarily Claude Code. Tasks are markdown files with YAML frontmatter stored in git — no backend infrastructure required. The `ait` CLI dispatcher routes to shell scripts in `aiscripts/`.
+**aitasks**  is a file-based task management framework for AI coding agents, primarily Claude Code. Tasks are markdown files with YAML frontmatter stored in git — no backend infrastructure required. The `ait` CLI dispatcher routes to shell scripts in `aiscripts/`.
 
 
 ### Testing
