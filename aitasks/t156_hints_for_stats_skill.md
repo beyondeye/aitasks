@@ -8,7 +8,7 @@ labels: [statistics, claudeskills]
 created_at: 2026-02-17 14:44
 updated_at: 2026-02-17 14:44
 boardcol: next
-boardidx: 70
+boardidx: 60
 ---
 
 when running the aitask-stats skill, currently in the skill definition there is only the explanation of what the aistats-skill can extract data. update the skill with the following instructions: after running the aitask-stats skill present the user with some usefull break downs see for example the following possible sample output Highlights
