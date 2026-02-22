@@ -73,6 +73,17 @@ ait_is_wsl() {
     [[ -f /proc/version ]] && grep -qi microsoft /proc/version 2>/dev/null
 }
 
+# --- Portable sed -i wrapper ---
+# macOS BSD sed requires 'sed -i "" expr', GNU sed requires 'sed -i expr'.
+# Usage: sed_inplace "s/foo/bar/" file
+sed_inplace() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        sed -i '' "$@"
+    else
+        sed -i "$@"
+    fi
+}
+
 # --- Print terminal warning with fix suggestions ---
 # Call from interactive scripts after batch-mode has been ruled out.
 # Always returns 0 (warns but never blocks).

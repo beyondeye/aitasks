@@ -270,6 +270,6 @@ extract_final_implementation_notes() {
         fi
     done < "$plan_path"
 
-    # Trim leading/trailing blank lines
-    echo "$content" | sed '/./,$!d' | sed -e :a -e '/^[[:space:]]*$/{ $d; N; ba; }'
+    # Trim leading/trailing blank lines (awk for portability — BSD sed can't handle grouped multi-line commands)
+    echo "$content" | sed '/./,$!d' | awk '{lines[NR]=$0} /[^[:space:]]/{last=NR} END{for(i=1;i<=last;i++) print lines[i]}'
 }

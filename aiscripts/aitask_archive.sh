@@ -111,11 +111,11 @@ archive_metadata_update() {
         return
     fi
 
-    sed -i "s/^status: .*/status: Done/" "$file_path"
-    sed -i "s/^updated_at: .*/updated_at: $timestamp/" "$file_path"
+    sed_inplace "s/^status: .*/status: Done/" "$file_path"
+    sed_inplace "s/^updated_at: .*/updated_at: $timestamp/" "$file_path"
     # Add completed_at after updated_at (only if not already present)
     if ! grep -q "^completed_at:" "$file_path"; then
-        sed -i "/^updated_at:/a completed_at: $timestamp" "$file_path"
+        awk -v ts="$timestamp" '/^updated_at:/{print; print "completed_at: " ts; next}1' "$file_path" > "$file_path.tmp" && mv "$file_path.tmp" "$file_path"
     fi
 }
 

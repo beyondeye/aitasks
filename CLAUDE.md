@@ -20,6 +20,7 @@ bash tests/test_setup_git.sh
 bash tests/test_resolve_tar_gz.sh
 bash tests/test_t167_integration.sh
 bash tests/test_global_shim.sh
+bash tests/test_sed_compat.sh
 ```
 No test runner — each file is self-contained with `assert_eq`/`assert_contains` helpers and prints PASS/FAIL summary.
 
@@ -86,6 +87,7 @@ Most scripts support both **interactive** (uses `fzf`) and **batch** (CLI flags 
 - Guard against double-sourcing with `_AIT_*_LOADED` variables
 - Platform detection: `detect_platform()` returns `github|gitlab|bitbucket` from git remote URL
 - Task/plan resolution functions live in `task_utils.sh` (resolves task IDs to file paths, extracts frontmatter)
+- **sed portability:** macOS ships BSD sed, not GNU sed. Use `sed_inplace()` from `terminal_compat.sh` instead of `sed -i`. Avoid GNU-only features (`\U`, `/pattern/a text`). See `aidocs/sed_macos_issues.md` for details.
 
 ## Commit Message Format
 ```

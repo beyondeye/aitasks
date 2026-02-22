@@ -58,7 +58,7 @@ get_type_display_name() {
         style) echo "Style Changes" ;;
         test) echo "Tests" ;;
         chore) echo "Chores" ;;
-        *) echo "$1" | sed 's/^./\U&/' ;;
+        *) local _w="$1"; echo "${_w^}" ;;
     esac
 }
 
@@ -677,7 +677,7 @@ print_label_type_trends() {
             local w1=${label_type_week_counts["$label:$issue_type:1"]:-0}
             local w0=${label_type_week_counts["$label:$issue_type:0"]:-0}
 
-            local type_display=$(echo "$issue_type" | sed 's/^./\U&/')
+            local type_display="${issue_type^}"
 
             printf "| %-12s | %-7s | %-5d | %-3d | %-3d | %-3d | %-9d |\n" "$label" "$type_display" "$total" "$w3" "$w2" "$w1" "$w0"
         done < <(get_valid_task_types)

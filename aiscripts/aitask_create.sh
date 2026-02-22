@@ -272,7 +272,7 @@ update_parent_children_inline() {
         content=$(echo "$content" | sed "s/^children_to_implement:.*$/children_to_implement: $children_yaml/")
     else
         # Add after labels line (before created_at)
-        content=$(echo "$content" | sed "/^labels:/a children_to_implement: $children_yaml")
+        content=$(echo "$content" | awk -v line="children_to_implement: $children_yaml" '/^labels:/{print; print line; next}1')
     fi
 
     # Update timestamp
