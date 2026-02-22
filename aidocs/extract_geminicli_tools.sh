@@ -19,9 +19,9 @@ PROMPT_EOF
 mkdir -p "${ROOT_DIR}/aidocs"
 
 cd "${ROOT_DIR}"
-gemini 
-  --yolo 
-  --prompt "${PROMPT}"
+gemini \
+  --yolo \
+  -p "${PROMPT}"
 
 if [[ -f "${OUTPUT_FILE}" ]]; then
   echo "Generated: ${OUTPUT_FILE}"
