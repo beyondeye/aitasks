@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_reviewguide, bash_scripts]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-19 11:58
-updated_at: 2026-02-22 13:10
+updated_at: 2026-02-22 13:23
+completed_at: 2026-02-22 13:23
 boardcol: now
 boardidx: 50
 ---

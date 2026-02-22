@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: ['189']
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [aitasks, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-22 09:28
-updated_at: 2026-02-22 09:28
-boardidx: 30
+updated_at: 2026-02-22 13:23
 boardcol: now
+boardidx: 30
 ---
 
 Refactor `aitask-explore` area/file selection (Step 1 in `.claude/skills/aitask-explore/SKILL.md`) to optionally use the new `user-file-select` skill alongside the existing exploration intent flow.
