@@ -20,5 +20,8 @@
     "now",
     "next",
     "backlog"
-  ]
+  ],
+  "settings": {
+    "auto_refresh_minutes": 1
+  }
 }
