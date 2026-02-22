@@ -1,5 +1,6 @@
 aitask_board
 aitask_changelog
+aitask_explain
 aitask_explore
 aitask_fold
 aitask_pick
