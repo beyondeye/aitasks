@@ -1,8 +1,8 @@
-# sed macOS Compatibility Guide
+# macOS Shell Compatibility Guide
 
 ## Problem
 
-macOS ships with BSD sed, not GNU sed. Several sed features commonly used on Linux do not work on macOS without modification. This was identified and fixed in task t209.
+macOS ships with BSD versions of `sed` and `grep`, not the GNU versions found on Linux. Several features commonly used on Linux do not work on macOS without modification.
 
 ## Incompatible Features
 
@@ -58,6 +58,26 @@ awk -v line="new_line_text" '/^pattern:/{print; print line; next}1' "$file" > "$
 # For piped content (no in-place needed):
 content=$(echo "$content" | awk -v line="new_line_text" '/^pattern:/{print; print line; next}1')
 ```
+
+## grep macOS Incompatibilities
+
+macOS `grep` does not support PCRE (`-P` flag). This is a common pitfall when writing portable bash scripts.
+
+| Feature | GNU grep | BSD grep (macOS) | Portable Alternative |
+|---------|----------|-------------------|---------------------|
+| PCRE mode | `grep -P 'pattern'` | Not supported | Use `grep -E` (extended regex) or `awk` |
+| `\K` (reset match start) | `grep -oP '\*\*\K[^*]+'` | Not supported | `grep -o '\*\*[^*]*\*\*' \| sed 's/\*\*//g'` |
+| Lookahead `(?=...)` | `grep -P 'foo(?=bar)'` | Not supported | `grep -o 'foobar' \| sed 's/bar$//'` |
+| Lookbehind `(?<=...)` | `grep -P '(?<=foo)bar'` | Not supported | `grep -o 'foobar' \| sed 's/^foo//'` |
+| Non-greedy `*?`, `+?` | `grep -oP 'a.*?b'` | Not supported | Use `awk` or `sed` for non-greedy matching |
+
+**Rule of thumb:** Never use `grep -P` or `grep -oP` in portable scripts. Use `grep -E` (extended regex) for alternation and quantifiers, and pipe through `sed` when you need to trim match boundaries.
+
+### Files Fixed in t186
+
+| File | Issue | Fix Applied |
+|------|-------|-------------|
+| `website/new_release_post.sh` | `grep -oP '\*\*\K[^*]+(?=\*\*)'` | `grep -o '\*\*[^*]*\*\*' \| sed 's/\*\*//g'` |
 
 ## Files Fixed in t209
 

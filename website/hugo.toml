@@ -33,5 +33,5 @@ enableGitInfo = true
   style = "tango"
 
 [outputs]
-  home = ["HTML"]
-  section = ["HTML"]
+  home = ["HTML", "RSS"]
+  section = ["HTML", "RSS"]

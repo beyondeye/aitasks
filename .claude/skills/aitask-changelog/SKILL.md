@@ -209,14 +209,80 @@ If "Abort": End workflow.
 ...
 ```
 
+### Step 7b: Generate Humanized Changelog Entry
+
+After writing CHANGELOG.md, generate an **informal, blog-style** version of the same changelog for `CHANGELOG_HUMANIZED.md`. This content is used automatically by `website/new_release_post.sh` to create release blog posts.
+
+**Writing guidelines:**
+- Write in an informal, conversational tone — as if explaining to a developer friend
+- Highlight the **3-5 most notable features** (not every change)
+- Each feature gets a `## Heading` and 2-3 sentences explaining **what it means for the user**
+- Start with a brief intro paragraph (e.g., "v0.6.0 is out, and it's packed with new features.")
+- Do NOT list every bug fix or minor improvement — those are in the full changelog
+- Do NOT mention internal file paths, function names, or architecture details
+- Use second person ("you") and active voice
+- End with a horizontal rule (this will be used as a separator in the blog post)
+
+**Format:**
+
+```markdown
+## vX.Y.Z
+
+<Intro paragraph — 1-2 sentences setting the tone>
+
+## <Feature 1 Name>
+
+<2-3 sentences explaining the feature from the user's perspective>
+
+## <Feature 2 Name>
+
+<2-3 sentences explaining the feature from the user's perspective>
+
+## <Feature 3 Name>
+
+<2-3 sentences explaining the feature from the user's perspective>
+
+---
+```
+
+Present the humanized draft to the user for review.
+
+Use `AskUserQuestion`:
+- Question: "Review the humanized changelog entry for the release blog post. How would you like to proceed?"
+- Header: "Blog"
+- Options:
+  - "Write to CHANGELOG_HUMANIZED.md" (description: "Save the blog-style entry")
+  - "Edit entry" (description: "Make changes before saving")
+  - "Skip" (description: "Don't create a humanized entry for this release")
+
+If "Edit entry": Ask what to change, make edits, and loop back to the review question.
+If "Skip": Proceed to Step 8 without writing CHANGELOG_HUMANIZED.md.
+
+### Step 7c: Write CHANGELOG_HUMANIZED.md
+
+**If CHANGELOG_HUMANIZED.md exists:**
+- Read the current content
+- Insert the new version section after the first line (the `# Releases` header)
+- Add a blank line between the header and the new section
+
+**If CHANGELOG_HUMANIZED.md does not exist:**
+- Create it with:
+```markdown
+# Releases
+
+## vX.Y.Z
+
+<humanized content>
+```
+
 ### Step 8: Commit
 
 ```bash
-git add CHANGELOG.md
+git add CHANGELOG.md CHANGELOG_HUMANIZED.md
 git commit -m "ait: Add changelog entry for vX.Y.Z"
 ```
 
-Inform the user: "Changelog entry for vX.Y.Z written to CHANGELOG.md. Run `./create_new_release.sh` when ready to create the release."
+Inform the user: "Changelog entry for vX.Y.Z written to CHANGELOG.md and CHANGELOG_HUMANIZED.md. Run `./create_new_release.sh` when ready to create the release."
 
 ## Notes
 

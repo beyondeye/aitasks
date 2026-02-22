@@ -58,7 +58,16 @@ if [[ "$confirm" != [yY] ]]; then
 fi
 
 echo "$new_version" > aiscripts/VERSION
+
+# Generate blog post from changelog (auto mode, non-fatal)
+if [[ -x ./website/new_release_post.sh ]]; then
+  echo ""
+  echo "Generating release blog post..."
+  ./website/new_release_post.sh --auto "$new_version" || echo -e "\033[1;33mWARNING:\033[0m Blog post generation failed (non-fatal)."
+fi
+
 git add aiscripts/VERSION
+git add website/content/blog/ 2>/dev/null || true
 git commit -m "ait: Bump version to $new_version"
 git tag "v$new_version"
 git push origin main --tags

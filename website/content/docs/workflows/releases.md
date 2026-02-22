@@ -14,6 +14,7 @@ Documenting what changed in a new release is one of the most tedious tasks in so
 1. **Generate changelog** — Run [`/aitask-changelog`](../../skills/aitask-changelog/) in Claude Code to gather commit and plan data, then generate a categorized changelog entry
 2. **Create release** — Run `./create_new_release.sh` to bump the version, create a git tag, and push
 3. **Publish** — GitHub Actions automatically builds a release tarball and publishes release notes extracted from the changelog
+4. **Blog post** — Run `./website/new_release_post.sh` to scaffold a blog post, then write an informal summary of the release highlights
 
 ## Walkthrough: Releasing v0.4.0
 
@@ -117,6 +118,17 @@ Commit messages with task IDs          Archived plan files
 ```
 
 Each component feeds the next: [`/aitask-pick`](../../skills/aitask-pick/) enforces the commit message convention (`<issue_type>: <description> (tNN)`), the archival step saves plan files with implementation notes, and [`ait changelog --gather`](../../commands/issue-integration/#ait-changelog) harvests both to produce the raw material for release notes.
+
+## Blog Release Post
+
+After publishing a release, create a blog post to announce it on the [documentation site](/blog/):
+
+1. **Generate scaffold** — Run `./website/new_release_post.sh` (it auto-detects the latest version)
+2. **Write the summary** — Edit the generated file in `website/content/blog/`. The changelog is embedded as a comment for reference. Write 3-5 paragraphs highlighting the most notable features in informal language
+3. **Update landing page** — Edit `website/content/_index.md` to update the "Latest Releases" section with the new version (keep only the 3 most recent)
+4. **Commit and deploy** — The blog post deploys with the next Hugo site build
+
+The script can also be invoked with a specific version: `./website/new_release_post.sh 0.5.0`
 
 ## Tips
 
