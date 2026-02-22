@@ -7,8 +7,6 @@ description: Explain files in the project: functionality, usage examples, and co
 
 ### Step 1: File Selection
 
-> **Note:** File selection is kept simple here (direct path input). A future `user-file-select` skill will provide fuzzy keyword/name/functionality search with ranked results and range-based selection (e.g., `1,3-5,7`). That skill will later refactor file selection in both aitask-explain and aitask-explore.
-
 **Check for existing runs first:**
 
 ```bash
@@ -26,7 +24,8 @@ Use `AskUserQuestion`:
 - Header: "Files"
 - Options:
   - "Use existing analysis" (description: "Reuse data from a previous aitask-explain run")
-  - "Specify new files" (description: "Enter file or directory paths to analyze from scratch")
+  - "Search for files" (description: "Find files by keywords, names, or functionality")
+  - "Enter paths directly" (description: "Type file/directory paths manually")
 
 **If "Use existing analysis":**
 - If multiple runs exist, use `AskUserQuestion` to select which run (show timestamp + covered files summary for each)
@@ -42,11 +41,20 @@ Use `AskUserQuestion`:
 **If no arguments and no existing runs:**
 
 Use `AskUserQuestion`:
+- Question: "How would you like to select files?"
+- Header: "Files"
+- Options:
+  - "Search for files" (description: "Find files by keywords, names, or functionality")
+  - "Enter paths directly" (description: "Type file/directory paths manually")
+
+**If "Search for files":** Read and follow `.claude/skills/user-file-select/SKILL.md` to get file paths. Once file paths are returned, proceed to "Proceed with files" below.
+
+**If "Enter paths directly":**
+
+Use `AskUserQuestion`:
 - Question: "Which files or directories would you like explained? (enter paths separated by spaces)"
 - Header: "Files"
 - Options: free text only (use "Other")
-
-**If "Specify new files":** same as above, ask user to specify files or directories via `AskUserQuestion` free text ("Other").
 
 **Proceed with files:**
 
