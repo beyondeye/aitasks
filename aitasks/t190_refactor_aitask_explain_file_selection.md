@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: ['189']
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [aitasks, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-22 09:27
-updated_at: 2026-02-22 09:27
-boardidx: 20
+updated_at: 2026-02-22 13:11
 boardcol: now
+boardidx: 20
 ---
 
 Refactor `aitask-explain` file selection (Step 1 in `.claude/skills/aitask-explain/SKILL.md`) to use the new `user-file-select` skill instead of the current simple free-text path input.
