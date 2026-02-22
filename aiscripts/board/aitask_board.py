@@ -212,6 +212,7 @@ class TaskManager:
         self.columns: list[dict] = []
         self.column_order: list[str] = []
         self.modified_files: set = set()  # Relative paths of git-modified .md files
+        self.settings: dict = {}
         self._ensure_paths()
         self.load_metadata()
         self.load_tasks()
@@ -226,15 +227,29 @@ class TaskManager:
                 data = json.load(f)
                 self.columns = data.get("columns", DEFAULT_COLUMNS)
                 self.column_order = data.get("column_order", DEFAULT_ORDER)
+                self.settings = data.get("settings", {"auto_refresh_minutes": 5})
         else:
             self.columns = DEFAULT_COLUMNS
             self.column_order = DEFAULT_ORDER
+            self.settings = {"auto_refresh_minutes": 5}
             self.save_metadata()
 
     def save_metadata(self):
-        data = {"columns": self.columns, "column_order": self.column_order}
+        data = {
+            "columns": self.columns,
+            "column_order": self.column_order,
+            "settings": self.settings,
+        }
         with open(METADATA_FILE, "w") as f:
             json.dump(data, f, indent=2)
+
+    @property
+    def auto_refresh_minutes(self) -> int:
+        return self.settings.get("auto_refresh_minutes", 5)
+
+    @auto_refresh_minutes.setter
+    def auto_refresh_minutes(self, value: int):
+        self.settings["auto_refresh_minutes"] = value
 
     def load_tasks(self):
         self.task_datas.clear()
@@ -1584,6 +1599,52 @@ class DeleteColumnConfirmScreen(ModalScreen):
         self.dismiss(False)
 
 
+DEFAULT_REFRESH_OPTIONS = ["0", "1", "2", "5", "10", "15", "30"]
+
+
+class SettingsScreen(ModalScreen):
+    """Modal dialog for editing board settings."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, manager: TaskManager):
+        super().__init__()
+        self.manager = manager
+
+    def compose(self):
+        current_minutes = str(self.manager.auto_refresh_minutes)
+        if current_minutes not in DEFAULT_REFRESH_OPTIONS:
+            current_minutes = "5"
+        with Container(id="settings_dialog"):
+            yield Label("Board Settings", id="settings_title")
+            yield CycleField(
+                "Auto-refresh (min)",
+                DEFAULT_REFRESH_OPTIONS,
+                current_minutes,
+                "auto_refresh_minutes",
+                id="cf_auto_refresh",
+            )
+            yield Label("  [dim]0 = disabled[/dim]", classes="settings-hint")
+            with Horizontal(id="detail_buttons"):
+                yield Button("Save", variant="success", id="btn_settings_save")
+                yield Button("Cancel", variant="default", id="btn_settings_cancel")
+
+    @on(Button.Pressed, "#btn_settings_save")
+    def save_settings(self):
+        refresh_field = self.query_one("#cf_auto_refresh", CycleField)
+        new_minutes = int(refresh_field.current_value)
+        self.dismiss({"auto_refresh_minutes": new_minutes})
+
+    @on(Button.Pressed, "#btn_settings_cancel")
+    def cancel(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+
 class ColumnSelectItem(Static):
     """A selectable column item in the picker."""
 
@@ -1656,6 +1717,11 @@ class KanbanCommandProvider(Provider):
             command=app.action_delete_column,
             help="Delete a column (tasks move to Unsorted)",
         )
+        yield DiscoveryHit(
+            display="Settings",
+            command=app.action_open_settings,
+            help="Configure board settings (auto-refresh interval)",
+        )
 
     async def search(self, query: str) -> Hits:
         matcher = self.matcher(query)
@@ -1664,6 +1730,7 @@ class KanbanCommandProvider(Provider):
             ("Add Column", app.action_add_column, "Add a new column to the board"),
             ("Edit Column", app.action_edit_column, "Edit a column's title and color"),
             ("Delete Column", app.action_delete_column, "Delete a column (tasks move to Unsorted)"),
+            ("Settings", app.action_open_settings, "Configure board settings (auto-refresh interval)"),
         ]
         for display, callback, help_text in commands:
             score = matcher.match(display)
@@ -1780,7 +1847,26 @@ class KanbanApp(App):
         padding: 0 1;
         content-align: center middle;
     }
+    #settings_dialog {
+        width: 50%;
+        height: auto;
+        max-height: 40%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #settings_title {
+        text-align: center;
+        padding: 0 0 1 0;
+        text-style: bold;
+    }
+    .settings-hint {
+        height: 1;
+        padding: 0 2;
+    }
     """
+
+    TITLE = "aitasks board"
 
     COMMANDS = App.COMMANDS | {KanbanCommandProvider}
 
@@ -1810,6 +1896,8 @@ class KanbanApp(App):
         # Column Movement
         Binding("ctrl+right", "move_col_right", "Move Col >"),
         Binding("ctrl+left", "move_col_left", "< Move Col"),
+        # Settings
+        Binding("S", "open_settings", "Settings"),
     ]
 
     def __init__(self):
@@ -1817,6 +1905,7 @@ class KanbanApp(App):
         self.manager = TaskManager()
         self.search_filter = ""
         self.expanded_tasks: set = set()
+        self._auto_refresh_timer = None
 
     def check_action(self, action: str, parameters) -> bool | None:
         """Control visibility of conditional actions in the footer bar."""
@@ -1854,6 +1943,37 @@ class KanbanApp(App):
 
     def on_mount(self):
         self.refresh_board()
+        self._start_auto_refresh_timer()
+        self._update_subtitle()
+
+    def _start_auto_refresh_timer(self):
+        """Start or restart the auto-refresh timer based on current settings."""
+        self._stop_auto_refresh_timer()
+        minutes = self.manager.auto_refresh_minutes
+        if minutes > 0:
+            self._auto_refresh_timer = self.set_interval(
+                minutes * 60, self._auto_refresh_tick, name="auto_refresh"
+            )
+
+    def _stop_auto_refresh_timer(self):
+        """Stop the current auto-refresh timer if one is running."""
+        if self._auto_refresh_timer is not None:
+            self._auto_refresh_timer.stop()
+            self._auto_refresh_timer = None
+
+    def _auto_refresh_tick(self):
+        """Called by the timer. Refresh only if no modal is active."""
+        if self._modal_is_active():
+            return
+        self.action_refresh_board()
+
+    def _update_subtitle(self):
+        """Update app subtitle to show auto-refresh status."""
+        minutes = self.manager.auto_refresh_minutes
+        if minutes > 0:
+            self.sub_title = f"Auto-refresh: {minutes}min"
+        else:
+            self.sub_title = "Auto-refresh: off"
 
     def action_refresh_board(self):
         """Reload task files from disk and refresh the board."""
@@ -2255,6 +2375,31 @@ class KanbanApp(App):
             ColumnEditScreen(self.manager, col_id=col_id, mode="edit"),
             self._handle_column_edit_result,
         )
+
+    # --- Settings ---
+
+    def action_open_settings(self):
+        """Open the settings dialog."""
+        if self._modal_is_active():
+            return
+        self.push_screen(
+            SettingsScreen(self.manager),
+            self._handle_settings_result,
+        )
+
+    def _handle_settings_result(self, result):
+        """Callback for SettingsScreen dismiss."""
+        if result is None:
+            return
+        self.manager.settings.update(result)
+        self.manager.save_metadata()
+        self._start_auto_refresh_timer()
+        self._update_subtitle()
+        minutes = result["auto_refresh_minutes"]
+        if minutes > 0:
+            self.notify(f"Auto-refresh: {minutes}min", severity="information")
+        else:
+            self.notify("Auto-refresh: disabled", severity="information")
 
     # --- Git Commit ---
 
