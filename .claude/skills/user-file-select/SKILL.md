@@ -122,26 +122,27 @@ Proceed to Step 4.
 ### Step 4: User Selection
 
 Use `AskUserQuestion`:
-- Question: "Select files by entering indices. Supports: individual (1,4,5), ranges (3-5), mixed (1,3-5,7), or 'all'."
+- Question: "Select files by entering indices in parentheses. Supports: individual (1,4,5), ranges (3-5), mixed (1,3-5,7), or (all)."
 - Header: "Select files"
 - Options: use "Other" for free text input
 
 Parse the selection string:
 
 1. Trim whitespace
-2. If input is "all" (case-insensitive): select all files from the list
-3. Otherwise, split by comma to get tokens
-4. For each token (trimmed):
+2. Strip surrounding parentheses: if the input starts with `(` and ends with `)`, remove them (e.g., `(1,3-5)` → `1,3-5`)
+3. If input is "all" (case-insensitive): select all files from the list
+4. Otherwise, split by comma to get tokens
+5. For each token (trimmed):
    - If it contains a hyphen (e.g., "3-5"): parse as range, expand to individual indices
    - Otherwise: parse as a single integer index
-5. Validate all indices are within bounds (1 to N where N is the result count)
-6. Deduplicate indices
-7. Sort indices in ascending order
-8. Map indices to file paths from the result list
+6. Validate all indices are within bounds (1 to N where N is the result count)
+7. Deduplicate indices
+8. Sort indices in ascending order
+9. Map indices to file paths from the result list
 
 **Validation errors:**
 - If any index is out of range: warn user and re-prompt ("Index X is out of range (1-N). Please try again.")
-- If input cannot be parsed: warn user and re-prompt ("Could not parse 'input'. Use format like 1,3-5,7 or 'all'.")
+- If input cannot be parsed: warn user and re-prompt ("Could not parse 'input'. Use format like (1,3-5,7) or (all).")
 
 Proceed to Step 5 with the selected file paths.
 
