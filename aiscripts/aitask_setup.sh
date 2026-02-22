@@ -308,6 +308,47 @@ setup_python_venv() {
     success "Python venv ready at $VENV_DIR"
 }
 
+# --- Ensure ~/.local/bin is in shell profile PATH ---
+# Appends PATH export to the user's shell profile if not already present.
+# Idempotent: skips if PATH already contains the directory or profile already has the entry.
+ensure_path_in_profile() {
+    local dir_to_add="$1"
+
+    # Already in PATH — nothing to do
+    if [[ ":$PATH:" == *":$dir_to_add:"* ]]; then
+        return
+    fi
+
+    # Determine target shell profile
+    local profile_file=""
+    local kernel
+    kernel="$(uname -s)"
+
+    if [[ "${SHELL:-}" == */zsh ]] || [[ "$kernel" == "Darwin" ]]; then
+        profile_file="$HOME/.zshrc"
+    elif [[ "${SHELL:-}" == */bash ]]; then
+        profile_file="$HOME/.bashrc"
+    else
+        profile_file="$HOME/.profile"
+    fi
+
+    # Idempotency: check if a .local/bin PATH entry already exists
+    if [[ -f "$profile_file" ]] && grep -qF '.local/bin' "$profile_file"; then
+        info "$profile_file already contains a .local/bin PATH entry"
+        return
+    fi
+
+    # Append the PATH line
+    {
+        echo ""
+        echo "# Added by aitasks installer"
+        echo 'export PATH="$HOME/.local/bin:$PATH"'
+    } >> "$profile_file"
+
+    info "Added $dir_to_add to PATH in $profile_file"
+    warn "Restart your shell or run: source $profile_file"
+}
+
 # --- Global shim installation ---
 install_global_shim() {
     # Non-blocking: if anything fails, warn and continue
@@ -400,14 +441,8 @@ SHIM
 
         chmod +x "$SHIM_DIR/ait"
 
-        # Check if SHIM_DIR is in PATH
-        if [[ ":$PATH:" != *":$SHIM_DIR:"* ]]; then
-            warn "$SHIM_DIR is not in your PATH."
-            warn "Add this to your shell profile (~/.bashrc or ~/.zshrc):"
-            warn "  export PATH=\"\$HOME/.local/bin:\$PATH\""
-        else
-            success "Global shim installed at $SHIM_DIR/ait"
-        fi
+        success "Global shim installed at $SHIM_DIR/ait"
+        ensure_path_in_profile "$SHIM_DIR"
     } || {
         warn "Could not install global shim at $SHIM_DIR/ait (non-fatal)"
     }

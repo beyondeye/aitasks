@@ -529,12 +529,23 @@ main() {
     info "Setting permissions..."
     set_permissions
 
+    info "Installing global shim..."
+    # Source the setup script (without running main) to reuse install_global_shim()
+    # shellcheck source=aiscripts/aitask_setup.sh
+    source "$INSTALL_DIR/aiscripts/aitask_setup.sh" --source-only
+    install_global_shim
+
     commit_installed_files
 
     echo ""
     echo "=== aitasks installed successfully ==="
     echo ""
-    info "Next step: run 'ait setup' to install dependencies and configure Claude Code permissions."
+    if [[ ":$PATH:" == *":$HOME/.local/bin:"* ]]; then
+        info "Next step: run 'ait setup' to install dependencies and configure Claude Code permissions."
+    else
+        info "Next step: restart your shell (or run 'source ~/.zshrc'), then run 'ait setup'."
+        info "Or run immediately with: ./ait setup"
+    fi
     echo ""
     echo "Quick start:"
     echo "  ait setup      # Install dependencies and configure permissions"

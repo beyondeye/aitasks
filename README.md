@@ -88,7 +88,7 @@ Or for fresh installs without an existing `ait` dispatcher:
 curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash -s -- --force
 ```
 
-After installing, run `ait setup` to install dependencies and configure Claude Code permissions. See [`ait setup`](https://beyondeye.github.io/aitasks/docs/commands/setup-install/) for details.
+After installing, restart your shell (or run `source ~/.zshrc`) so the global `ait` shim is available, then run `ait setup` to install dependencies and configure Claude Code permissions. Alternatively, run `./ait setup` immediately without restarting. See [`ait setup`](https://beyondeye.github.io/aitasks/docs/commands/setup-install/) for details.
 
 **Already have the global `ait` shim?** If you've previously run `ait setup` on another project, the global shim at `~/.local/bin/ait` is already installed. You can bootstrap aitasks in any new project directory by simply running:
 
