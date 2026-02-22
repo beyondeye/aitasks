@@ -191,6 +191,8 @@ test_file_extensions() {
             go)                add_score "go" "$weight" ;;
             cs)                add_score "c-sharp" "$weight" ;;
             dart)              add_score "dart" "$weight" ;;
+            html|htm)          add_score "html-css" "$weight" ;;
+            css|scss|sass|less) add_score "html-css" "$weight" ;;
             swift)
                 add_score "swift" "$weight"
                 if compgen -G "*.xcodeproj" >/dev/null 2>&1 || compgen -G "*.xcworkspace" >/dev/null 2>&1; then
@@ -236,6 +238,7 @@ test_directory_patterns() {
     local found_ios_dir=false
     local found_flutter_lib=false
     local found_csharp_dir=false
+    local found_html_css_dir=false
 
     for f in "${FILES[@]}"; do
         # aiscripts/ directory or .sh files at project root
@@ -275,6 +278,17 @@ test_directory_patterns() {
         if [[ "$f" == Properties/* || "$f" == obj/* ]] && [[ "$found_csharp_dir" == false ]]; then
             add_score "c-sharp" "$weight"
             found_csharp_dir=true
+        fi
+
+        # HTML/CSS (template dirs, static dirs, style dirs)
+        if [[ "$found_html_css_dir" == false ]]; then
+            if [[ "$f" == templates/*.html || "$f" == templates/**/*.html \
+               || "$f" == public/*.html || "$f" == public/**/*.html \
+               || "$f" == static/*.html || "$f" == static/**/*.html \
+               || "$f" == styles/* || "$f" == css/* || "$f" == stylesheets/* ]]; then
+                add_score "html-css" "$weight"
+                found_html_css_dir=true
+            fi
         fi
     done
 }

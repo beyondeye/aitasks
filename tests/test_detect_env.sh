@@ -542,6 +542,73 @@ scores=$(extract_scores "$output")
 assert_env_min_score "iOS: full project high score" "ios" 5 "$scores"
 
 # =========================================================================
+# HTML / CSS
+# =========================================================================
+echo "--- HTML / CSS ---"
+
+# .html file extension
+output=$(run_detect $'index.html\nabout.html\n')
+scores=$(extract_scores "$output")
+assert_env_detected "HTML/CSS: .html file extensions" "html-css" "$scores"
+
+# .htm file extension
+output=$(run_detect $'page.htm\n')
+scores=$(extract_scores "$output")
+assert_env_detected "HTML/CSS: .htm file extension" "html-css" "$scores"
+
+# .css file extension
+output=$(run_detect $'styles/main.css\n')
+scores=$(extract_scores "$output")
+assert_env_detected "HTML/CSS: .css file extension" "html-css" "$scores"
+
+# .scss file extension (preprocessor)
+output=$(run_detect $'src/styles/app.scss\n')
+scores=$(extract_scores "$output")
+assert_env_detected "HTML/CSS: .scss file extension" "html-css" "$scores"
+
+# .sass file extension (preprocessor)
+output=$(run_detect $'src/styles/app.sass\n')
+scores=$(extract_scores "$output")
+assert_env_detected "HTML/CSS: .sass file extension" "html-css" "$scores"
+
+# .less file extension (preprocessor)
+output=$(run_detect $'theme.less\n')
+scores=$(extract_scores "$output")
+assert_env_detected "HTML/CSS: .less file extension" "html-css" "$scores"
+
+# templates/ directory pattern
+output=$(run_detect $'templates/base.html\n')
+scores=$(extract_scores "$output")
+assert_env_detected "HTML/CSS: templates/ directory pattern" "html-css" "$scores"
+
+# public/ directory pattern
+output=$(run_detect $'public/index.html\n')
+scores=$(extract_scores "$output")
+assert_env_detected "HTML/CSS: public/ directory pattern" "html-css" "$scores"
+
+# styles/ directory pattern
+output=$(run_detect $'styles/reset.css\n')
+scores=$(extract_scores "$output")
+assert_env_detected "HTML/CSS: styles/ directory pattern" "html-css" "$scores"
+
+# css/ directory pattern
+output=$(run_detect $'css/main.css\n')
+scores=$(extract_scores "$output")
+assert_env_detected "HTML/CSS: css/ directory pattern" "html-css" "$scores"
+
+# Combined extensions for higher score
+output=$(run_detect $'index.html\nabout.html\nstyle.css\ntemplates/base.html\n')
+scores=$(extract_scores "$output")
+assert_env_min_score "HTML/CSS: combined extensions + dir" "html-css" 5 "$scores"
+
+# HTML/CSS should not trigger other languages
+output=$(run_detect $'index.html\nstyle.css\n')
+scores=$(extract_scores "$output")
+assert_env_not_detected "HTML/CSS: no python" "python" "$scores"
+assert_env_not_detected "HTML/CSS: no java" "java" "$scores"
+assert_env_not_detected "HTML/CSS: no rust" "rust" "$scores"
+
+# =========================================================================
 # CROSS-ENVIRONMENT / ISOLATION TESTS
 # =========================================================================
 echo "--- Cross-environment / Isolation ---"
