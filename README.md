@@ -68,6 +68,8 @@ Not a research experiment. actively developed and used in real projects
 
 ## Quick Install
 
+> **macOS prerequisite:** [Homebrew](https://brew.sh) is required. Install it first if you haven't — `ait setup` uses it to install bash 5, Python 3, coreutils, and CLI tools.
+
 Install into your project directory:
 
 ```bash

@@ -9,6 +9,8 @@ This guide walks you through aitasks from installation to completing your first 
 
 ## 1. Install aitasks
 
+> **macOS:** [Homebrew](https://brew.sh) must be installed before running `ait setup`.
+
 In your project directory:
 
 ```bash

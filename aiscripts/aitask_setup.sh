@@ -282,6 +282,135 @@ install_cli_tools() {
     success "CLI tools installed"
 }
 
+# --- Bash version verification ---
+# Must work under Bash 3.2 (macOS default)
+check_bash_version() {
+    local required_major=4
+    local current_major="${BASH_VERSINFO[0]}"
+    local current_minor="${BASH_VERSINFO[1]}"
+
+    if [[ "$current_major" -ge "$required_major" ]]; then
+        success "Bash $BASH_VERSION meets minimum (4.0+)"
+        return 0
+    fi
+
+    warn "Current Bash version is $BASH_VERSION (aitask requires 4.0+)"
+
+    if [[ "$OS" = "macos" ]]; then
+        # Look for brew-installed bash
+        local brew_bash=""
+        if [[ -x "/opt/homebrew/bin/bash" ]]; then
+            brew_bash="/opt/homebrew/bin/bash"
+        elif [[ -x "/usr/local/bin/bash" ]]; then
+            brew_bash="/usr/local/bin/bash"
+        fi
+
+        if [[ -n "$brew_bash" ]]; then
+            local brew_ver
+            brew_ver="$("$brew_bash" -c 'echo $BASH_VERSION')"
+            info "Homebrew Bash $brew_ver is available at: $brew_bash"
+            info ""
+            info "To use it, ensure it appears before /bin/bash in your PATH."
+            local brew_prefix
+            brew_prefix="$(dirname "$brew_bash")"
+            info "  Add to your ~/.zshrc or ~/.bash_profile:"
+            info "    export PATH=\"$brew_prefix:\$PATH\""
+            info ""
+            info "  To make it your default shell:"
+            info "    sudo bash -c 'echo $brew_bash >> /etc/shells'"
+            info "    chsh -s $brew_bash"
+        else
+            warn "Homebrew bash not found at expected paths."
+            if command -v brew &>/dev/null; then
+                info "Installing Bash via Homebrew..."
+                brew install bash
+                # Re-check after install
+                if [[ -x "/opt/homebrew/bin/bash" ]]; then
+                    brew_bash="/opt/homebrew/bin/bash"
+                elif [[ -x "/usr/local/bin/bash" ]]; then
+                    brew_bash="/usr/local/bin/bash"
+                fi
+                if [[ -n "$brew_bash" ]]; then
+                    local brew_ver
+                    brew_ver="$("$brew_bash" -c 'echo $BASH_VERSION')"
+                    success "Installed Bash $brew_ver at $brew_bash"
+                    info "Update your PATH as described above to use it."
+                fi
+            fi
+        fi
+        warn "Some aitask commands (stats, board, review) require Bash 4.0+."
+    else
+        warn "Please upgrade Bash to 4.0+ using your package manager."
+    fi
+}
+
+# --- Python version verification ---
+# Must work under Bash 3.2 (macOS default)
+# Sets PYTHON_VERSION_OK=1 if version >= 3.9, 0 otherwise.
+# On macOS, offers to install/upgrade via Homebrew.
+PYTHON_VERSION_OK=0
+check_python_version() {
+    local python_cmd="$1"
+    PYTHON_VERSION_OK=0
+
+    local py_version
+    py_version="$("$python_cmd" -c 'import sys; print("{}.{}.{}".format(*sys.version_info[:3]))' 2>/dev/null)" || {
+        warn "Could not determine Python version from $python_cmd"
+        return
+    }
+
+    local py_major py_minor
+    py_major="$(echo "$py_version" | cut -d. -f1)"
+    py_minor="$(echo "$py_version" | cut -d. -f2)"
+
+    if [[ "$py_major" -gt 3 ]] || \
+       { [[ "$py_major" -eq 3 ]] && [[ "$py_minor" -ge 9 ]]; }; then
+        success "Python $py_version meets minimum (3.9+)"
+        PYTHON_VERSION_OK=1
+        return
+    fi
+
+    warn "Python $py_version is too old (aitask board requires 3.9+)"
+
+    if [[ "$OS" = "macos" ]] && command -v brew &>/dev/null; then
+        if [[ -t 0 ]]; then
+            printf "  Install/upgrade Python 3 via Homebrew? [Y/n] "
+            read -r answer
+        else
+            info "(non-interactive: auto-accepting)"
+            answer="Y"
+        fi
+        case "${answer:-Y}" in
+            [Yy]*|"")
+                brew install python@3 2>/dev/null || brew upgrade python@3 2>/dev/null || true
+                hash -r  # refresh PATH cache
+                # Re-check version after upgrade
+                if command -v python3 &>/dev/null; then
+                    local new_ver
+                    new_ver="$(python3 -c 'import sys; print("{}.{}.{}".format(*sys.version_info[:3]))' 2>/dev/null)" || true
+                    if [[ -n "$new_ver" ]]; then
+                        local new_major new_minor
+                        new_major="$(echo "$new_ver" | cut -d. -f1)"
+                        new_minor="$(echo "$new_ver" | cut -d. -f2)"
+                        if [[ "$new_major" -gt 3 ]] || \
+                           { [[ "$new_major" -eq 3 ]] && [[ "$new_minor" -ge 9 ]]; }; then
+                            success "Python upgraded to $new_ver"
+                            PYTHON_VERSION_OK=1
+                            return
+                        fi
+                    fi
+                fi
+                warn "Python upgrade did not result in 3.9+. The board TUI may not work."
+                ;;
+            *)
+                warn "Skipped Python upgrade. The board TUI requires Python 3.9+."
+                ;;
+        esac
+    else
+        warn "Please upgrade Python to 3.9+ using your package manager."
+    fi
+}
+
 # --- Python venv setup ---
 setup_python_venv() {
     local python_cmd=""
@@ -290,15 +419,52 @@ setup_python_venv() {
     elif command -v python &>/dev/null; then
         python_cmd="python"
     else
-        die "Python 3 not found. Install python3 and try again."
+        # On macOS, try to install Python via Homebrew
+        if [[ "$OS" = "macos" ]] && command -v brew &>/dev/null; then
+            info "Python 3 not found. Installing via Homebrew..."
+            brew install python@3
+            hash -r
+            if command -v python3 &>/dev/null; then
+                python_cmd="python3"
+            else
+                die "Python 3 installation failed. Install python3 and try again."
+            fi
+        else
+            die "Python 3 not found. Install python3 and try again."
+        fi
     fi
 
-    if [[ ! -d "$VENV_DIR" ]]; then
+    # Verify version meets minimum (3.9+ for Textual)
+    check_python_version "$python_cmd"
+
+    # Re-detect python after possible upgrade
+    if [[ "$PYTHON_VERSION_OK" -eq 0 ]] && command -v python3 &>/dev/null; then
+        python_cmd="python3"
+    fi
+
+    if [[ -d "$VENV_DIR" ]]; then
+        # Check if existing venv Python is adequate
+        local venv_ver=""
+        venv_ver="$("$VENV_DIR/bin/python" -c 'import sys; print("{}.{}".format(*sys.version_info[:2]))' 2>/dev/null)" || venv_ver=""
+        if [[ -n "$venv_ver" ]]; then
+            local venv_major venv_minor
+            venv_major="$(echo "$venv_ver" | cut -d. -f1)"
+            venv_minor="$(echo "$venv_ver" | cut -d. -f2)"
+            if [[ "$venv_major" -eq 3 ]] && [[ "$venv_minor" -ge 9 ]]; then
+                info "Python virtual environment already exists at $VENV_DIR (Python $venv_ver)"
+            else
+                warn "Existing venv uses Python $venv_ver (< 3.9). Recreating..."
+                rm -rf "$VENV_DIR"
+                mkdir -p "$(dirname "$VENV_DIR")"
+                "$python_cmd" -m venv "$VENV_DIR"
+            fi
+        else
+            info "Python virtual environment already exists at $VENV_DIR"
+        fi
+    else
         info "Creating Python virtual environment at $VENV_DIR..."
         mkdir -p "$(dirname "$VENV_DIR")"
         "$python_cmd" -m venv "$VENV_DIR"
-    else
-        info "Python virtual environment already exists at $VENV_DIR"
     fi
 
     info "Installing/upgrading Python dependencies..."
@@ -987,6 +1153,9 @@ main() {
     install_cli_tools "$OS"
     echo ""
 
+    check_bash_version
+    echo ""
+
     ensure_git_repo
     echo ""
 
@@ -1020,7 +1189,11 @@ main() {
     success "Setup complete!"
     echo ""
     info "Summary:"
+    info "  Bash: $BASH_VERSION ($(command -v bash))"
     info "  Python venv: $VENV_DIR"
+    if [[ -x "$VENV_DIR/bin/python" ]]; then
+        info "  Python: $("$VENV_DIR/bin/python" -c 'import sys; print("{}.{}.{}".format(*sys.version_info[:3]))' 2>/dev/null || echo unknown)"
+    fi
     info "  Global shim: $SHIM_DIR/ait"
     if [[ -f "$VERSION_FILE" ]]; then
         info "  Version: $(cat "$VERSION_FILE")"
