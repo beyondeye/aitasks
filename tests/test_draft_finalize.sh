@@ -15,6 +15,9 @@ TOTAL=0
 
 assert_eq() {
     local desc="$1" expected="$2" actual="$3"
+    # Trim leading/trailing whitespace (macOS wc -l pads with spaces)
+    expected="$(echo "$expected" | xargs)"
+    actual="$(echo "$actual" | xargs)"
     TOTAL=$((TOTAL + 1))
     if [[ "$expected" == "$actual" ]]; then
         PASS=$((PASS + 1))

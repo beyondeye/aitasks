@@ -104,6 +104,50 @@ portable_date -d "$TODAY - 3 days" +%Y-%m-%d
 
 **Note:** Plain `date` calls without `-d` (e.g., `date '+%Y-%m-%d'`) work fine on macOS and don't need the wrapper.
 
+## `wc -l` Output Whitespace
+
+macOS BSD `wc -l` pads output with leading spaces, while GNU `wc -l` does not:
+
+```bash
+# macOS:  echo "hello" | wc -l  →  "       1"
+# Linux:  echo "hello" | wc -l  →  "1"
+```
+
+**When it's safe (no fix needed):** Bash strips leading whitespace in arithmetic contexts. All of these work correctly on both platforms:
+
+```bash
+count=$(echo "$files" | wc -l)
+if [[ "$count" -gt 1 ]]; then ...    # ✓ -gt is arithmetic
+if [[ $count -gt 0 ]]; then ...      # ✓ -gt is arithmetic
+total=$((count + 1))                  # ✓ $(()) is arithmetic
+echo "Found $count files"            # ✓ cosmetic only (extra spaces harmless)
+```
+
+**When it breaks:** Exact string comparisons fail:
+
+```bash
+count=$(echo "$files" | wc -l)
+if [[ "$count" == "1" ]]; then ...    # ✗ "       1" != "1"
+assert_eq "1" "$count"                # ✗ same problem
+```
+
+**Portable fix:** Strip whitespace when the value will be used in string comparisons:
+
+```bash
+count=$(echo "$files" | wc -l | tr -d ' ')     # explicit trim
+count=$(echo "$files" | wc -l | xargs)          # xargs trims whitespace
+```
+
+Or handle it in the comparison helper (as done in test `assert_eq` functions):
+
+```bash
+assert_eq() {
+    local expected="$(echo "$2" | xargs)"   # trim whitespace
+    local actual="$(echo "$3" | xargs)"
+    [[ "$expected" == "$actual" ]]
+}
+```
+
 ## Shebang Convention
 
 Always use `#!/usr/bin/env bash`, never `#!/bin/bash`. macOS system bash is 3.2 which lacks `declare -A`, `local -n`, `${var^}`. The `env bash` form picks up brew-installed bash 5.x from PATH.

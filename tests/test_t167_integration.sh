@@ -7,7 +7,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-TEST_DIR="/home/ddt/Work/TESTS/test_t167"
+TEST_DIR="$(mktemp -d)/test_t167"
 
 PASS=0
 FAIL=0
@@ -17,6 +17,9 @@ TOTAL=0
 
 assert_eq() {
     local desc="$1" expected="$2" actual="$3"
+    # Trim leading/trailing whitespace (macOS wc -l pads with spaces)
+    expected="$(echo "$expected" | xargs)"
+    actual="$(echo "$actual" | xargs)"
     TOTAL=$((TOTAL + 1))
     if [[ "$expected" == "$actual" ]]; then
         PASS=$((PASS + 1))

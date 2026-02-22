@@ -125,10 +125,16 @@ echo "--- Test 4: Setup non-interactive (no project, no network) ---"
 TMPDIR_4="$(mktemp -d)"
 SHIM_PATH_4="$(generate_test_shim "$TMPDIR_4/shimbin")"
 
+# Create a fake curl/wget that always fails, to simulate no network
+mkdir -p "$TMPDIR_4/fakebin"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$TMPDIR_4/fakebin/curl"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$TMPDIR_4/fakebin/wget"
+chmod +x "$TMPDIR_4/fakebin/curl" "$TMPDIR_4/fakebin/wget"
+
 # Run shim with "setup" non-interactively (stdin from /dev/null)
-# Confirmation is skipped (non-interactive), download will fail since we
-# don't mock the network — shim should exit 1
-output=$(cd "$TMPDIR_4" && "$SHIM_PATH_4" setup </dev/null 2>&1)
+# Confirmation is skipped (non-interactive), download will fail via
+# fake curl/wget — shim should exit 1
+output=$(cd "$TMPDIR_4" && PATH="$TMPDIR_4/fakebin:$PATH" "$SHIM_PATH_4" setup </dev/null 2>&1)
 rc=$?
 
 assert_eq "Exit code is 1 (download fails)" "1" "$rc"

@@ -90,6 +90,7 @@ Most scripts support both **interactive** (uses `fzf`) and **batch** (CLI flags 
 - Task/plan resolution functions live in `task_utils.sh` (resolves task IDs to file paths, extracts frontmatter)
 - **sed portability:** macOS ships BSD sed, not GNU sed. Use `sed_inplace()` from `terminal_compat.sh` instead of `sed -i`. Avoid GNU-only features (`\U`, `/pattern/a text`). See `aidocs/sed_macos_issues.md` for details.
 - **grep portability:** macOS `grep` does not support `-P` (PCRE). Avoid `grep -oP`, `\K`, and lookahead/lookbehind `(?=...)`. Use `grep -o 'pattern' | sed 's/...//'` or `grep -oE` (extended regex) instead. See `aidocs/sed_macos_issues.md` for related portability notes.
+- **wc -l portability:** macOS `wc -l` pads output with leading spaces (`"       1"` vs `"1"`). This is safe in arithmetic contexts (`-gt`, `-le`, `$(())`), but breaks exact string comparisons (`== "1"`). Strip with `| tr -d ' '` when comparing as strings. See `aidocs/sed_macos_issues.md` for details.
 
 ## Commit Message Format
 ```
