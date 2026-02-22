@@ -65,7 +65,10 @@
       "WebFetch(domain:blog.fsck.com)",
       "Bash(./aiscripts/aitask_explain_extract_raw_data.sh:*)",
       "Bash(./aiscripts/aitask_explain_runs.sh:*)",
-      "Bash(python3 aiscripts/aitask_explain_process_raw_data.py:*)"
+      "Bash(python3 aiscripts/aitask_explain_process_raw_data.py:*)",
+      "Bash(./ait explain-runs:*)",
+      "Bash(/home/ddt/Work/aitasks/aiscripts/aitask_own.sh:*)",
+      "Bash(./aiscripts/aitask_find_files.sh:*)"
     ]
   }
 }
