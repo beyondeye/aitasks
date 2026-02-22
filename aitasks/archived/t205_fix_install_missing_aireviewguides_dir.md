@@ -3,7 +3,7 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [installer]
 created_at: 2026-02-22 16:12
 updated_at: 2026-02-22 16:12
