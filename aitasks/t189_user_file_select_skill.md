@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitasks, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-22 09:27
-updated_at: 2026-02-22 09:27
-boardidx: 10
+updated_at: 2026-02-22 11:39
 boardcol: now
+boardidx: 10
 ---
 
 Create a new Claude Code skill `.claude/skills/user-file-select/SKILL.md` that provides a reusable, interactive file selection mechanism for other skills.
