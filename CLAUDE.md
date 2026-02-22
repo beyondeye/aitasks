@@ -82,6 +82,7 @@ Most scripts support both **interactive** (uses `fzf`) and **batch** (CLI flags 
 
 ## Shell Conventions
 
+- **Shebang:** Always use `#!/usr/bin/env bash`, never `#!/bin/bash`. macOS system bash is 3.2 which lacks features like `declare -A` and `${var^}`; `env bash` picks up the brew-installed bash 5.x from PATH.
 - All scripts use `set -euo pipefail`
 - Error helpers: `die()` (fatal), `warn()`, `info()` from `terminal_compat.sh`
 - Guard against double-sourcing with `_AIT_*_LOADED` variables
