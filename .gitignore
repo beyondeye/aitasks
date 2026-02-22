@@ -2,6 +2,9 @@
 aitasks/new/
 aiscripts/board/__pycache__/
 
+# aitask-explain generated data (temporary, per-run)
+aiexplains/
+
 # Hugo generated files
 website/public/
 website/resources/
