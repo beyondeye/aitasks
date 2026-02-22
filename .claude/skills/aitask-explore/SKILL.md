@@ -67,9 +67,13 @@ The user can also provide free text via the "Other" option.
 
 #### Option: Explore codebase area
 
-- **Follow-up question** (AskUserQuestion): "Which module or directory should we focus on?"
+- **Follow-up question** (AskUserQuestion): "How would you like to specify the area?"
   - Header: "Area"
-  - Options: free text only (use "Other")
+  - Options:
+    - "Search for files" (description: "Find files by keywords, names, or functionality using file search")
+    - "Describe the area" (description: "Type a module name, directory, or description")
+- **If "Search for files":** Read and follow `.claude/skills/user-file-select/SKILL.md` to get specific files, then use those file paths as the focus area for exploration.
+- **If "Describe the area":** Ask (AskUserQuestion): "Which module or directory should we focus on?" with Header: "Area" and free text only (use "Other"). This preserves the original behavior.
 - **Exploration strategy:** Map file structure and key classes in the area, trace dependencies (what it imports, what depends on it), identify architectural patterns and conventions used.
 - **Task defaults:** `issue_type: feature`, `priority: medium`
 
