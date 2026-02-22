@@ -27,6 +27,7 @@ Commands:
   board          Launch the task board TUI
   stats          Show task completion statistics
   changelog      Generate changelog from commits and plans
+  explain-runs   Manage aiexplain run directories
   zip-old        Archive old completed tasks
   issue-update   Update/close linked issues
   setup          Install dependencies
@@ -110,6 +111,7 @@ case "${1:-help}" in
     issue-update) shift; exec "$SCRIPTS_DIR/aitask_issue_update.sh" "$@" ;;
     setup)        shift; exec "$SCRIPTS_DIR/aitask_setup.sh" "$@" ;;
     changelog)    shift; exec "$SCRIPTS_DIR/aitask_changelog.sh" "$@" ;;
+    explain-runs) shift; exec "$SCRIPTS_DIR/aitask_explain_runs.sh" "$@" ;;
     help|--help|-h) show_usage ;;
     --version|-v)   show_version ;;
     *)

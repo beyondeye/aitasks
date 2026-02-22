@@ -18,6 +18,7 @@ description: "Complete CLI reference for all ait subcommands"
 | [`ait issue-import`](issue-integration/#ait-issue-import) | Import tasks from GitHub/GitLab/Bitbucket issues |
 | [`ait issue-update`](issue-integration/#ait-issue-update) | Update or close linked GitHub/GitLab/Bitbucket issues |
 | [`ait changelog`](issue-integration/#ait-changelog) | Gather changelog data from commits and archived plans |
+| [`ait explain-runs`](explain/#ait-explain-runs) | Manage aiexplain run directories (list, delete, cleanup) |
 
 ## Usage Examples
 
@@ -33,6 +34,8 @@ ait update --batch 42 --status Done     # Mark task done
 ait board                               # Open TUI board
 ait issue-import                        # Import issues from issue tracker
 ait stats                               # Show completion stats
+ait explain-runs --list                   # List all explain runs
+ait explain-runs --delete-all             # Delete all runs
 ait install                              # Update to latest version
 ait install 0.2.1                        # Install specific version
 ait --version                           # Show installed version
