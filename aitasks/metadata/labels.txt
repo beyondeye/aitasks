@@ -8,6 +8,7 @@ aitask_review
 aitask_reviewguide
 bash_scripts
 claudeskills
+codebrowser
 codexcli
 geminicli
 gitremote
