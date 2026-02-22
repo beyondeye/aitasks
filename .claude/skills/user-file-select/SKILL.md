@@ -1,6 +1,7 @@
 ---
 name: user-file-select
 description: Interactive file selection with keyword search, fuzzy name matching, and functionality search. Reusable by other skills.
+user-invocable: false
 ---
 
 ## Arguments
