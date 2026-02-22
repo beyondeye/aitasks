@@ -80,6 +80,44 @@ For untracked files, read their content directly.
 6. **Suggested priority**: `medium` by default, `high` if it looks like a critical fix
 7. **Suggested effort**: Assess from diff size (`low` for <50 lines, `medium` for 50-200, `high` for 200+)
 
+### Step 1b: Check for Recent Claude Plans
+
+Check if there are recent Claude Code plan files that may be relevant to the current changes. These plans contain detailed context about intent and approach that can improve the wrap documentation.
+
+1. **Scan for recent plans:**
+   ```bash
+   ls -t ~/.claude/plans/*.md 2>/dev/null | head -5
+   ```
+
+2. **Extract preview info** for each file:
+   - Read the first ~20 lines to get the YAML frontmatter and title/heading
+   - Extract the `Task:` field from frontmatter if present (shows which task it was for)
+   - Extract the first `# ` heading as the plan title
+   - Get the file modification time for display
+
+3. **Filter out aitask-wrap plans** — skip any plan that has `Created by: aitask-wrap` in its frontmatter (these are retroactive plans from previous wrap operations, not useful as source context)
+
+4. **If no candidate plans found** — skip silently, proceed to Step 2
+
+5. **If candidates found** — use `AskUserQuestion` with `multiSelect: true`:
+   - Question: "Found recent Claude Code plans. Select any that are relevant to the current changes (or skip):"
+   - Header: "Plans"
+   - Options (up to 3 most recent candidates + 1 skip):
+     - Each plan: label = plan title or first heading (truncated), description = `Task: <task_field>` if present, otherwise file modification timestamp
+     - "None — skip" (description: "Don't use any existing plan, analyze from scratch")
+
+6. **If user selects one or more plans:**
+   - Read the full content of each selected plan
+   - Store them as `selected_plans` for use in subsequent steps
+   - Display: "Plans loaded: \<title1\>, \<title2\>, ..."
+
+7. **If only "None — skip" selected (or no plans selected):** proceed normally (no plan context)
+
+**Integration with other steps:**
+- **Step 1 (Analyze Changes):** When `selected_plans` is available, use the plan content(s) to enhance the analysis — especially the "Probable user intent" field. The plans explain _why_ the changes were made, so use them to produce a more accurate analysis.
+- **Step 2 (Present Analysis):** When plans were selected, add a `**Source plans:**` line to the display showing the plan title(s) and filenames.
+- **Step 4b (Create Plan File):** When plans were selected, change the frontmatter `Created by` to `aitask-wrap (retroactive documentation, based on Claude plan(s))`, add a `Source plans:` frontmatter field listing the filenames, and replace the "Probable User Intent" section with a "Plan Context" section that incorporates the original plan content(s) (condensed/reformatted as needed).
+
 ### Step 2: Present Analysis and Confirm
 
 Display the analysis in a structured format:
