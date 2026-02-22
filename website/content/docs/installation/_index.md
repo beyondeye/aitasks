@@ -49,7 +49,7 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 | Arch Linux | Fully supported | Primary development platform |
 | Ubuntu/Debian | Fully supported | Includes Pop!_OS, Linux Mint, Elementary |
 | Fedora/RHEL | Fully supported | Includes CentOS, Rocky, Alma |
-| macOS | Partial | `date -d` and bash 3.2 limitations (see [Known Issues](#known-issues)) |
+| macOS | Fully supported | Requires [Homebrew](https://brew.sh); `ait setup` installs bash 5, coreutils, and other dependencies |
 | Windows (WSL) | Fully supported | Via WSL with Ubuntu/Debian (see [Windows guide](windows-wsl/)) |
 
 ## What Gets Installed
@@ -68,11 +68,6 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 - Python venv at `~/.aitask/venv/` with `textual`, `pyyaml`, `linkify-it-py`
 - Global `ait` shim at `~/.local/bin/ait`
 - Claude Code permissions in `.claude/settings.local.json` (see [Claude Code Permissions](../commands/setup-install/#claude-code-permissions))
-
-## Known Issues
-
-- **macOS `date -d`**: The `ait stats` and `ait issue-import` commands use GNU `date -d` which is not available with macOS BSD date. Install `coreutils` via Homebrew (`brew install coreutils`) to get `gdate` as a workaround.
-- **macOS bash**: The system bash on macOS is v3.2; aitasks requires bash 4+. Running `ait setup` on macOS installs bash 5 via Homebrew.
 
 ## Authentication with Your Git Remote
 

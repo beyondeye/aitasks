@@ -156,7 +156,8 @@ acquire_lock() {
     # Distinguish "already locked by another user" from infrastructure failure
     if echo "$lock_output" | grep -q "already locked by"; then
         local owner
-        owner=$(echo "$lock_output" | grep -oP 'already locked by \K[^ ]+' || echo "unknown")
+        owner=$(echo "$lock_output" | grep -o 'already locked by [^ ]*' | sed 's/already locked by //')
+        [[ -z "$owner" ]] && owner="unknown"
         echo "LOCK_FAILED:$owner"
         return 1
     fi

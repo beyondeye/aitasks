@@ -923,7 +923,7 @@ interactive_update_description_direct() {
     if [[ "$choice" == "Open in editor" ]]; then
         # Create temp file with current description
         local tmpfile
-        tmpfile=$(mktemp --suffix=.md)
+        tmpfile=$(mktemp "${TMPDIR:-/tmp}/aitask_XXXXXX.md")
 
         # Write content
         printf '%s' "$current" > "$tmpfile"

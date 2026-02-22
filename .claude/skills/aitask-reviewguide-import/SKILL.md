@@ -38,7 +38,7 @@ Classify the source argument:
   - URL format: `https://github.com/{owner}/{repo}/blob/{branch}/{path}`
 - Fetch the file content using `gh`:
   ```bash
-  gh api repos/{owner}/{repo}/contents/{path}?ref={branch} --jq '.content' | base64 -d
+  gh api repos/{owner}/{repo}/contents/{path}?ref={branch} --jq '.content' | base64 -d  # Linux; use base64 -D on macOS
   ```
 - If the `gh` command fails, fall back to converting the blob URL to a raw URL:
   - Replace `github.com` with `raw.githubusercontent.com`
@@ -300,7 +300,7 @@ This step is reached from Step 1c when the source is a GitHub directory containi
 - Imported files should NOT be added to `.reviewguidesignore` — they are production reviewguide files intended to be used in reviews
 - This skill does **not** modify the `seed/` directory. All files are written to `aireviewguides/` only.
 - The content transformation (Step 3) is the core value of this skill: converting arbitrary documentation into actionable, bullet-point review checklists that follow the established format and tone of existing guides
-- When fetching GitHub content via `gh api`, the response is base64-encoded. Decode with `base64 -d`. If `gh` is not available or fails, fall back to `WebFetch` with the raw URL
+- When fetching GitHub content via `gh api`, the response is base64-encoded. Decode with `base64 -d` (Linux) or `base64 -D` (macOS). If `gh` is not available or fails, fall back to `WebFetch` with the raw URL
 - Vocabulary files in `aireviewguides/`: `reviewtypes.txt`, `reviewlabels.txt`, `reviewenvironments.txt`. New values are only added to the `aireviewguides/` copies — not to `seed/`
 - Commit messages use the `ait:` prefix: `ait: Import reviewguide <filename>`
 - Files in `general/` are universal — they should NOT have an `environment` field. Files in other subdirectories should have an `environment` field

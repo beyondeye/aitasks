@@ -300,6 +300,42 @@ result=$(portable_date -d "2026-01-01 - 1 days" +%Y-%m-%d)
 assert_eq "portable_date subtract across month" "2025-12-31" "$result"
 
 # ============================================================
+# Test 13: grep -o + sed pipe (replaces grep -oP with \K) (t213)
+# ============================================================
+echo "--- grep -o + sed pipe: extract owner from lock message ---"
+
+# Simulates the pattern from aitask_own.sh:159
+lock_output="Error: already locked by alice@test.com on host laptop1"
+owner=$(echo "$lock_output" | grep -o 'already locked by [^ ]*' | sed 's/already locked by //' || echo "unknown")
+assert_eq "extract owner from lock message" "alice@test.com" "$owner"
+
+# Test with different formats
+lock_output="Error: already locked by bob@example.org"
+owner=$(echo "$lock_output" | grep -o 'already locked by [^ ]*' | sed 's/already locked by //' || echo "unknown")
+assert_eq "extract owner email only" "bob@example.org" "$owner"
+
+# Test fallback when no match (matches actual aitask_own.sh pattern)
+lock_output="Error: some other failure message"
+owner=$(echo "$lock_output" | grep -o 'already locked by [^ ]*' | sed 's/already locked by //' || true)
+[[ -z "$owner" ]] && owner="unknown"
+assert_eq "fallback to unknown on no match" "unknown" "$owner"
+
+# ============================================================
+# Test 14: mktemp with template pattern (replaces --suffix) (t213)
+# ============================================================
+echo "--- mktemp: template pattern without --suffix ---"
+
+tmpfile=$(mktemp "${TMPDIR:-/tmp}/aitask_XXXXXX.md")
+TOTAL=$((TOTAL + 1))
+if [[ -f "$tmpfile" && "$tmpfile" == *.md ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: mktemp template pattern (got: '$tmpfile')"
+fi
+rm -f "$tmpfile"
+
+# ============================================================
 # Summary
 # ============================================================
 echo ""

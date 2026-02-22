@@ -148,6 +148,42 @@ assert_eq() {
 }
 ```
 
+## `mktemp` Portability
+
+macOS BSD `mktemp` does not support the `--suffix` option (GNU coreutils extension).
+
+```bash
+# GNU only (fails on macOS):
+tmpfile=$(mktemp --suffix=.md)
+
+# Portable (works on both):
+tmpfile=$(mktemp "${TMPDIR:-/tmp}/prefix_XXXXXX.ext")
+```
+
+**Note:** `TMPDIR` is set on macOS (typically `/var/folders/...`), so using `"${TMPDIR:-/tmp}"` respects the platform's temp directory. The `XXXXXX` template is required on both platforms. Plain `mktemp` (no arguments) and `mktemp -d` work identically on both.
+
+## `base64` Portability
+
+macOS and Linux use different flags for base64 decoding:
+
+| Platform | Decode flag | Long form |
+|----------|-------------|-----------|
+| Linux (GNU coreutils) | `base64 -d` | `base64 --decode` |
+| macOS (BSD) | `base64 -D` | Not supported |
+
+Modern macOS (10.15+) accepts both `-d` and `-D`, but older versions only accept `-D`. The long form `--decode` is not available on macOS BSD `base64`.
+
+**In scripts:** Use a conditional or avoid `base64` if possible:
+```bash
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    decoded=$(echo "$encoded" | base64 -D)
+else
+    decoded=$(echo "$encoded" | base64 -d)
+fi
+```
+
+**In skill files / AI instructions:** Document both flags side by side: `base64 -d` (Linux) or `base64 -D` (macOS).
+
 ## Shebang Convention
 
 Always use `#!/usr/bin/env bash`, never `#!/bin/bash`. macOS system bash is 3.2 which lacks `declare -A`, `local -n`, `${var^}`. The `env bash` form picks up brew-installed bash 5.x from PATH.
@@ -169,3 +205,10 @@ Always use `#!/usr/bin/env bash`, never `#!/bin/bash`. macOS system bash is 3.2 
 | `aiscripts/aitask_create.sh` | 275 | GNU `a` in pipe | `awk` in pipe |
 | `aiscripts/aitask_stats.sh` | 61, 680 | `\U` uppercase | `${var^}` |
 | `aiscripts/lib/task_utils.sh` | 274 | Grouped `{ $d; N; ba; }` across `-e` | `awk` for trailing blank line trim |
+
+## Files Fixed in t213
+
+| File | Line | Issue | Fix Applied |
+|------|------|-------|-------------|
+| `aiscripts/aitask_own.sh` | 159 | `grep -oP` with `\K` (PCRE) | `grep -o` + `sed` pipe |
+| `aiscripts/aitask_update.sh` | 926 | `mktemp --suffix=.md` (GNU-only) | Template pattern `mktemp "${TMPDIR:-/tmp}/aitask_XXXXXX.md"` |
