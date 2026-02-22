@@ -102,7 +102,7 @@ as found in `.claude/skills/`.
 The framework also supports opencode, codex cli and gemini cli, which have their own slightly modified versions
 of skills and commands:
 - **Gemini CLI**: `.gemini/commands/` and `.gemini/skills/`
-- **Codex CLI**: `agents/skills/` and `codex/prompts/`
+- **Codex CLI**: `.agents/skills/` and `.codex/prompts/`
 - **OpenCode**: `.opencode/skills/<name>/SKILL.md` and `.opencode/commands/`
 
 > **Read the sections below only if you need to implement or update skills/commands for a specific tool.**
@@ -117,8 +117,8 @@ of skills and commands:
 - Adapt from the Claude Code version; Gemini CLI uses a similar markdown-based skill format.
 
 ### Codex CLI
-- Skills: `agents/skills/`
-- Prompts: `codex/prompts/`
+- Skills: `.agents/skills/`
+- Prompts: `.codex/prompts/`
 - Adapt from the Claude Code version; Codex CLI uses its own prompt/agent structure.
 
 ### OpenCode
