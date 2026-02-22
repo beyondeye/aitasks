@@ -100,6 +100,32 @@ The internal script `aiscripts/aitask_lock.sh` prevents race conditions when two
 
 ---
 
+## Development Dependencies
+
+### ShellCheck
+
+[ShellCheck](https://www.shellcheck.net/) is required for linting shell scripts during development.
+
+| Platform | Command |
+|----------|---------|
+| macOS (Homebrew) | `brew install shellcheck` |
+| Ubuntu / Debian | `sudo apt install shellcheck` |
+| Arch Linux | `sudo pacman -S shellcheck` |
+
+### Hugo (for website development)
+
+The documentation website uses [Hugo](https://gohugo.io/) with the Docsy theme. Hugo **extended edition** is required along with Go, Dart Sass, and Node.js.
+
+| Platform | Command |
+|----------|---------|
+| macOS (Homebrew) | `brew install hugo go sass/sass/sass node` |
+| Ubuntu / Debian | See [detailed instructions](https://github.com/beyondeye/aitasks/blob/main/website/README.md#ubuntu--debian) (Hugo requires manual `.deb` install for extended edition) |
+| Arch Linux | `sudo pacman -S hugo go dart-sass nodejs npm` |
+
+After installing, run `cd website && npm install` for Node.js dependencies. See [`website/README.md`](https://github.com/beyondeye/aitasks/blob/main/website/README.md) for full setup, verification, and troubleshooting.
+
+---
+
 ## Modifying Scripts
 
 All framework scripts live in `aiscripts/`. The `ait` dispatcher forwards subcommands to the corresponding `aitask_*.sh` script. Claude Code skills are defined in `.claude/skills/`.
@@ -111,10 +137,11 @@ All framework scripts live in `aiscripts/`. The `ait` dispatcher forwards subcom
 Run individual commands to verify:
 
 ```bash
-./ait --version          # Check dispatcher works
-./ait ls -v 5            # List tasks
-./ait setup              # Re-run dependency setup
-bash -n aiscripts/*.sh   # Syntax-check all scripts
+./ait --version                    # Check dispatcher works
+./ait ls -v 5                      # List tasks
+./ait setup                        # Re-run dependency setup
+bash -n aiscripts/*.sh             # Syntax-check all scripts
+shellcheck aiscripts/aitask_*.sh   # Lint all scripts
 ```
 
 ---
