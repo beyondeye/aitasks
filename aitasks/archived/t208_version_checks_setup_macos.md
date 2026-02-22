@@ -3,7 +3,7 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [bash_scripts, install_scripts, web_site]
 created_at: 2026-02-22 18:22
 updated_at: 2026-02-22 18:22
