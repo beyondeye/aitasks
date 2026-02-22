@@ -13,6 +13,7 @@ aitasks provides Claude Code skills that automate the full task workflow. These 
 |-------|-------------|
 | [`/aitask-pick`](aitask-pick/) | The central skill — select and implement the next task (planning, branching, implementation, archival) |
 | [`/aitask-explore`](aitask-explore/) | Explore the codebase interactively, then create a task from findings |
+| [`/aitask-explain`](aitask-explain/) | Explain files: functionality, usage examples, and code evolution traced through aitasks |
 | [`/aitask-fold`](aitask-fold/) | Identify and merge related tasks into a single task |
 | [`/aitask-create`](aitask-create/) | Create tasks interactively via Claude Code |
 | [`/aitask-wrap`](aitask-wrap/) | Wrap uncommitted changes into an aitask with retroactive documentation |
