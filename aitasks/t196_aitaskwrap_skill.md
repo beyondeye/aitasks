@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Ready
 labels: []
-children_to_implement: [t196_1]
+children_to_implement: [t196_1, t196_2]
 created_at: 2026-02-22 11:32
 updated_at: 2026-02-22 11:33
 ---
