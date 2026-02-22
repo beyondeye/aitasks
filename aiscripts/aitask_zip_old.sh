@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # aitask_zip_old.sh - Archive old task and plan files to tar.gz
 # Only archives files no longer relevant to active work

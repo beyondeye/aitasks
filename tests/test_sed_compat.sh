@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # test_sed_compat.sh - Tests for macOS/BSD sed compatibility fixes (t209)
 # Run: bash tests/test_sed_compat.sh
 
@@ -252,6 +252,52 @@ fi
 count=$(grep -c "^completed_at:" "$TMPDIR_TEST/task.md")
 assert_eq "full sim: completed_at not duplicated" "1" "$count"
 cleanup_tmpdir
+
+# ============================================================
+# Test 9: portable_date basic formatting
+# ============================================================
+echo "--- portable_date: basic formatting ---"
+
+result=$(portable_date -d "2026-01-15" +%Y-%m-%d)
+assert_eq "portable_date formats date" "2026-01-15" "$result"
+
+# ============================================================
+# Test 10: portable_date epoch conversion
+# ============================================================
+echo "--- portable_date: epoch conversion ---"
+
+epoch=$(portable_date -d "2026-01-01" +%s)
+TOTAL=$((TOTAL + 1))
+if [[ "$epoch" =~ ^[0-9]+$ ]] && [[ "$epoch" -gt 0 ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: portable_date epoch conversion (got: '$epoch')"
+fi
+
+# ============================================================
+# Test 11: portable_date day-of-week
+# ============================================================
+echo "--- portable_date: day of week ---"
+
+# 2026-01-05 is a Monday
+dow=$(portable_date -d "2026-01-05" +%u)
+assert_eq "portable_date Monday=1" "1" "$dow"
+
+# 2026-01-11 is a Sunday
+dow=$(portable_date -d "2026-01-11" +%u)
+assert_eq "portable_date Sunday=7" "7" "$dow"
+
+# ============================================================
+# Test 12: portable_date arithmetic
+# ============================================================
+echo "--- portable_date: date arithmetic ---"
+
+result=$(portable_date -d "2026-01-10 - 3 days" +%Y-%m-%d)
+assert_eq "portable_date subtract 3 days" "2026-01-07" "$result"
+
+result=$(portable_date -d "2026-01-01 - 1 days" +%Y-%m-%d)
+assert_eq "portable_date subtract across month" "2025-12-31" "$result"
 
 # ============================================================
 # Summary

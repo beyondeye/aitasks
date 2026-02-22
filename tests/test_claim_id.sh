@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # test_claim_id.sh - Automated tests for aitask_claim_id.sh
 # Run: bash tests/test_claim_id.sh
 

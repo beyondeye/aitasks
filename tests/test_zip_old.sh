@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # test_zip_old.sh - Automated tests for aitask_zip_old.sh
 # Run: bash tests/test_zip_old.sh
 

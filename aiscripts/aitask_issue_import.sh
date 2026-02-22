@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # aitask_issue_import.sh - Import GitHub/GitLab/Bitbucket issues as AI task files
 # Uses gh/glab/bkt CLI to fetch issue data and aitask_create.sh to create tasks
@@ -44,7 +44,7 @@ sanitize_name() {
 # Convert UTC timestamp to local timezone
 utc_to_local() {
     local utc_ts="$1"
-    date -d "$utc_ts" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$utc_ts"
+    portable_date -d "$utc_ts" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$utc_ts"
 }
 
 ensure_labels_file() {

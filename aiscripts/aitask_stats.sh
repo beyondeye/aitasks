@@ -1,6 +1,10 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # aitask_stats.sh - Calculate and display AI task completion statistics
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/terminal_compat.sh
+source "$SCRIPT_DIR/lib/terminal_compat.sh"
 
 TASK_DIR="aitasks"
 ARCHIVE_DIR="$TASK_DIR/archived"
@@ -154,18 +158,18 @@ calc_avg() {
 
 # --- Date Functions ---
 TODAY=$(date +%Y-%m-%d)
-TODAY_EPOCH=$(date -d "$TODAY" +%s)
+TODAY_EPOCH=$(portable_date -d "$TODAY" +%s)
 
 # Get week start date (Monday) for a given date
 get_week_start() {
     local date="$1"
-    local dow=$(date -d "$date" +%u 2>/dev/null)  # 1=Mon, 7=Sun
+    local dow=$(portable_date -d "$date" +%u 2>/dev/null)  # 1=Mon, 7=Sun
     if [[ -z "$dow" ]]; then
         echo ""
         return
     fi
     local offset=$(( (dow - WEEK_START_DOW + 7) % 7 ))
-    date -d "$date - $offset days" +%Y-%m-%d
+    portable_date -d "$date - $offset days" +%Y-%m-%d
 }
 
 # Get week offset from current week (0 = this week, 1 = last week, etc.)
@@ -179,8 +183,8 @@ get_week_offset() {
         return
     fi
 
-    local completed_epoch=$(date -d "$completed_week_start" +%s 2>/dev/null)
-    local current_epoch=$(date -d "$current_week_start" +%s 2>/dev/null)
+    local completed_epoch=$(portable_date -d "$completed_week_start" +%s 2>/dev/null)
+    local current_epoch=$(portable_date -d "$current_week_start" +%s 2>/dev/null)
 
     if [[ -z "$completed_epoch" || -z "$current_epoch" ]]; then
         echo "-1"
@@ -195,7 +199,7 @@ get_week_offset() {
 is_within_days() {
     local date="$1"
     local n_days="$2"
-    local date_epoch=$(date -d "$date" +%s 2>/dev/null)
+    local date_epoch=$(portable_date -d "$date" +%s 2>/dev/null)
 
     if [[ -z "$date_epoch" ]]; then
         return 1
@@ -306,7 +310,7 @@ process_task() {
     local completed_date="${completed_at:0:10}"
 
     # Validate date format
-    if ! date -d "$completed_date" +%s &>/dev/null; then
+    if ! portable_date -d "$completed_date" +%s &>/dev/null; then
         return
     fi
 
@@ -316,7 +320,7 @@ process_task() {
     local task_id=$(get_task_id "$filename")
 
     # Day of week (1=Mon, 7=Sun)
-    local dow=$(date -d "$completed_date" +%u 2>/dev/null)
+    local dow=$(portable_date -d "$completed_date" +%u 2>/dev/null)
     local day_name="${DAY_NAMES[$dow]}"
 
     # Week offset
@@ -464,8 +468,8 @@ print_daily() {
     fi
 
     for ((i=0; i<DAYS; i++)); do
-        local date=$(date -d "$TODAY - $i days" +%Y-%m-%d)
-        local dow=$(date -d "$date" +%u)
+        local date=$(portable_date -d "$TODAY - $i days" +%Y-%m-%d)
+        local dow=$(portable_date -d "$date" +%u)
         local day_name="${DAY_NAMES[$dow]}"
         local count=${daily_counts["$date"]:-0}
         local tasks=${daily_tasks["$date"]:-""}
@@ -488,8 +492,8 @@ print_dow_averages() {
     # Calculate occurrences of each weekday in the last 30 days
     declare -A dow_occurrences_30d
     for ((i=0; i<30; i++)); do
-        local check_date=$(date -d "$TODAY - $i days" +%Y-%m-%d)
-        local dow=$(date -d "$check_date" +%u)
+        local check_date=$(portable_date -d "$TODAY - $i days" +%Y-%m-%d)
+        local dow=$(portable_date -d "$check_date" +%u)
         ((dow_occurrences_30d[$dow]++))
     done
 
@@ -503,7 +507,7 @@ print_dow_averages() {
 
     local total_days=1
     if [[ -n "$first_date" ]]; then
-        local first_epoch=$(date -d "$first_date" +%s)
+        local first_epoch=$(portable_date -d "$first_date" +%s)
         total_days=$(( (TODAY_EPOCH - first_epoch) / 86400 + 1 ))
     fi
     local total_weeks=$(( (total_days + 6) / 7 ))
@@ -576,8 +580,8 @@ print_label_dow() {
     # Calculate occurrences of each weekday in the last 30 days
     declare -A dow_occurrences_30d
     for ((i=0; i<30; i++)); do
-        local check_date=$(date -d "$TODAY - $i days" +%Y-%m-%d)
-        local dow=$(date -d "$check_date" +%u)
+        local check_date=$(portable_date -d "$TODAY - $i days" +%Y-%m-%d)
+        local dow=$(portable_date -d "$check_date" +%u)
         ((dow_occurrences_30d[$dow]++))
     done
 

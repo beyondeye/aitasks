@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # test_setup_git.sh - Automated tests for setup_git_repo function
 # Run: bash tests/test_setup_git.sh
 

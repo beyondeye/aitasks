@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # test_find_files.sh - Automated tests for aitask_find_files.sh
 # Run: bash tests/test_find_files.sh
 #

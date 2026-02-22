@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # test_resolve_tar_gz.sh - Automated tests for tar.gz fallback in resolve functions
 # Run: bash tests/test_resolve_tar_gz.sh
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # aitask_issue_update.sh - Update GitHub/GitLab/Bitbucket issues linked to AI tasks
 # Posts implementation notes and commit references as issue comments

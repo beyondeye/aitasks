@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # test_terminal_compat.sh - Automated tests for terminal capability detection
 # Run: bash tests/test_terminal_compat.sh
 

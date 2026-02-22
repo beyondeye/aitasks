@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # test_task_lock.sh - Automated tests for aitask_lock.sh
 # Run: bash tests/test_task_lock.sh
 

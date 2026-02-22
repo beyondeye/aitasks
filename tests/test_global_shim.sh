@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # test_global_shim.sh - Tests for the global shim's auto-bootstrap behavior
 # Run: bash tests/test_global_shim.sh
 

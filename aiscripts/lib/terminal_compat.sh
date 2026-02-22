@@ -84,6 +84,17 @@ sed_inplace() {
     fi
 }
 
+# --- Portable date wrapper ---
+# macOS BSD date does not support 'date -d'. Use gdate (from brew coreutils) on macOS.
+# Usage: portable_date -d "2026-01-01" +%s  (same args as GNU date)
+portable_date() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        gdate "$@"
+    else
+        date "$@"
+    fi
+}
+
 # --- Print terminal warning with fix suggestions ---
 # Call from interactive scripts after batch-mode has been ruled out.
 # Always returns 0 (warns but never blocks).

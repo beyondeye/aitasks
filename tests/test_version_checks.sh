@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # test_version_checks.sh - Tests for bash/python version check functions
 # Run: bash tests/test_version_checks.sh
 

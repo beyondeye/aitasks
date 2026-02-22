@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # aitask_create.sh - Interactive AI task creation with fzf
 # Creates task files in aitasks/ directory with YAML front matter

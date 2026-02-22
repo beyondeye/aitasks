@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # test_detect_env.sh - Automated tests for aitask_review_detect_env.sh
 # Run: bash tests/test_detect_env.sh
 #

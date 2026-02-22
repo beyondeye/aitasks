@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # aitask_update.sh - Update existing AI tasks
 # Supports interactive mode (fzf) and batch mode (CLI parameters)

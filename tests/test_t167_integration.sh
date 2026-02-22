@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # test_t167_integration.sh - Integration test for framework file commit fix (t167)
 # Tests the full install.sh + ait setup workflow using a real test directory.
 # Run: bash tests/test_t167_integration.sh

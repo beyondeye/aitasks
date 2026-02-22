@@ -79,6 +79,43 @@ macOS `grep` does not support PCRE (`-P` flag). This is a common pitfall when wr
 |------|-------|-------------|
 | `website/new_release_post.sh` | `grep -oP '\*\*\K[^*]+(?=\*\*)'` | `grep -o '\*\*[^*]*\*\*' \| sed 's/\*\*//g'` |
 
+## The `portable_date()` Helper
+
+macOS BSD `date` does not support `date -d` (GNU coreutils). The `ait setup` script installs `coreutils` via brew (which provides `gdate`). Use the `portable_date()` wrapper from `terminal_compat.sh`:
+
+```bash
+portable_date() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        gdate "$@"
+    else
+        date "$@"
+    fi
+}
+```
+
+**Usage:** Drop-in replacement for `date` when using `-d`:
+```bash
+# Instead of: date -d "$date" +%s
+portable_date -d "$date" +%s
+
+# Instead of: date -d "$TODAY - 3 days" +%Y-%m-%d
+portable_date -d "$TODAY - 3 days" +%Y-%m-%d
+```
+
+**Note:** Plain `date` calls without `-d` (e.g., `date '+%Y-%m-%d'`) work fine on macOS and don't need the wrapper.
+
+## Shebang Convention
+
+Always use `#!/usr/bin/env bash`, never `#!/bin/bash`. macOS system bash is 3.2 which lacks `declare -A`, `local -n`, `${var^}`. The `env bash` form picks up brew-installed bash 5.x from PATH.
+
+## Files Fixed in t211
+
+| File | Issue | Fix Applied |
+|------|-------|-------------|
+| 20 scripts (aiscripts/ + tests/) | `#!/bin/bash` shebang | Changed to `#!/usr/bin/env bash` |
+| `aiscripts/aitask_stats.sh` | 15x `date -d` | `portable_date -d` |
+| `aiscripts/aitask_issue_import.sh` | 1x `date -d` | `portable_date -d` |
+
 ## Files Fixed in t209
 
 | File | Lines | Issue | Fix Applied |

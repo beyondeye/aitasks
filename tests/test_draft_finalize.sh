@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # test_draft_finalize.sh - Automated tests for the draft + finalize workflow in aitask_create.sh
 # Run: bash tests/test_draft_finalize.sh
 
