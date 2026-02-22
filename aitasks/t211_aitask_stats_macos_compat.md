@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [macos, bash_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-22 22:32
-updated_at: 2026-02-22 22:32
+updated_at: 2026-02-22 22:40
 ---
 
 `aitask_stats.sh` has multiple macOS incompatibilities beyond the sed issues fixed in t209:
