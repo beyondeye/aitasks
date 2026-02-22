@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: []
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-22 14:27
-updated_at: 2026-02-22 14:27
+updated_at: 2026-02-22 14:42
 ---
 
 # Fix extract_geminicli_tools.sh launching interactive mode instead of batch
