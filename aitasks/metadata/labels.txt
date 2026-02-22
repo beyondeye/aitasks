@@ -6,6 +6,7 @@ aitask_fold
 aitask_pick
 aitask_review
 aitask_reviewguide
+aitask_wrap
 bash_scripts
 claudeskills
 codebrowser
