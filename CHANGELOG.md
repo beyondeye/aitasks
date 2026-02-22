@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.6.0
+
+### Features
+
+- **Code explanation skill** (t91): Added the `/aitask-explain` skill for generating code explanations with evolution tracking, including data extraction, processing pipeline, and run management.
+- **HTML/CSS environment detection** (t178): Added automatic detection of HTML/CSS projects (including SCSS, Sass, and Less) for review guide matching.
+- **File selection skill** (t189): Added a reusable `user-file-select` skill with keyword search, fuzzy name matching, and functionality search for use by other skills.
+- **Board auto-refresh** (t193): Added periodic auto-refresh and a settings screen to the board TUI with configurable refresh intervals.
+- **Wrap skill** (t196_1): Added the `/aitask-wrap` skill for retroactively documenting uncommitted changes as tracked tasks with implementation plans.
+
+### Bug Fixes
+
+- **Hugo site deployment** (t188): Fixed the documentation site not rebuilding automatically when a new release is published.
+- **Internal skill visibility** (t201): Fixed the `user-file-select` skill being incorrectly listed as user-invocable.
+- **File selection digit conflict** (t202): Fixed digit input conflicts in user-file-select when selecting files via AskUserQuestion.
+- **Gemini CLI batch mode** (t203): Fixed the Gemini CLI tools extraction script launching interactive mode instead of batch mode.
+- **Install missing directory** (t205): Fixed installation failure caused by a missing `aireviewguides` directory.
+- **Install PATH on macOS** (t206): Fixed `ait` command not being found after curl-pipe installation on macOS due to missing PATH configuration.
+
+### Improvements
+
+- **Explain file selection** (t190): Integrated user-file-select into aitask-explain for better file discovery.
+- **Explore area selection** (t191): Integrated user-file-select into aitask-explore for better codebase area selection.
+
+### Documentation
+
+- **Explain runs command** (t192): Added the `explain-runs` command to the ait dispatcher and website documentation.
+- **Explain skill docs** (t194): Added skill reference and workflow guide for the aitask-explain skill.
+- **Wrap skill docs** (t196_2): Added skill reference page and retroactive tracking workflow guide for aitask-wrap.
+- **Wrap usage guide** (t196_3): Added detailed walkthroughs and usage scenarios to the retroactive tracking workflow guide.
+- **CLI tool extraction** (t197): Added extraction scripts and reference documentation for Codex CLI and Gemini CLI tools.
+- **Settings screen docs** (t198): Added documentation for the board auto-refresh and settings screen features.
+
 ## v0.5.0
 
 ### Features
