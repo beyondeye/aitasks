@@ -221,3 +221,24 @@ If a task has an `issue` field in its frontmatter (a URL to a GitHub, GitLab, or
 1. Open the task detail dialog (**Enter**)
 2. Navigate to the "Issue" field (it shows the URL with "(Enter to open)" hint)
 3. Press **Enter** to open the URL in your default web browser
+
+### How to Configure Auto-Refresh
+
+The board can periodically reload task files from disk so that changes made externally (e.g., by an AI agent or on another machine) appear automatically without pressing **r**.
+
+**Opening the settings dialog:**
+
+- Press **S** (Shift+s) from the board, or
+- Open the command palette (**Ctrl+Backslash**) and select "Settings"
+
+**Changing the auto-refresh interval:**
+
+1. In the settings dialog, use **Left/Right** arrows on the "Auto-refresh (min)" field to cycle through the available intervals: **0**, **1**, **2**, **5**, **10**, **15**, **30** minutes
+2. Select **0** to disable auto-refresh entirely
+3. Click "Save" to apply
+
+Changes take effect immediately — the timer is restarted (or stopped) as soon as you save. The setting is persisted to `aitasks/metadata/board_config.json`, so it survives restarts.
+
+The default interval is **5 minutes**.
+
+> **Note:** Auto-refresh is skipped when a modal dialog is open (e.g., task detail, column editor). The refresh will occur at the next interval after the modal is closed. You can always press **r** to refresh manually at any time.

@@ -20,6 +20,7 @@ description: "Keyboard shortcuts, configuration, and technical details"
 | `Right` | Navigate to next column | Board |
 | `Enter` | Open task detail dialog | Board (focused card) |
 | `r` | Refresh board from disk | Board |
+| `S` | Open board settings dialog | Board |
 
 #### Task Operations
 
@@ -100,7 +101,10 @@ Columns are stored in `aitasks/metadata/board_config.json`:
     {"id": "next", "title": "Next Week", "color": "#50FA7B"},
     {"id": "backlog", "title": "Backlog", "color": "#BD93F9"}
   ],
-  "column_order": ["now", "next", "backlog"]
+  "column_order": ["now", "next", "backlog"],
+  "settings": {
+    "auto_refresh_minutes": 5
+  }
 }
 ```
 
@@ -108,6 +112,7 @@ Columns are stored in `aitasks/metadata/board_config.json`:
 - **title** — Display name (can include emojis)
 - **color** — Hex color code for the column header and border
 - **column_order** — Controls left-to-right display order
+- **settings.auto_refresh_minutes** — Interval in minutes for periodic board refresh (0 to disable, default 5)
 
 The "Unsorted / Inbox" column is a special dynamic column (ID: `unordered`) that appears automatically when tasks exist without a `boardcol` assignment.
 
@@ -171,6 +176,7 @@ These fields are always written last in the frontmatter and are updated using a 
 | **Remove Dep Confirm** | `Enter` on missing dependency | Offer to remove stale dependency reference |
 | **Child Picker** | `Enter` on Children field (multiple children) | Select which child task to open |
 | **Folded Task Picker** | `Enter` on Folded Tasks field (multiple) | Select which folded task to view (read-only) |
+| **Settings** | `S` key / command palette "Settings" | Configure board settings (auto-refresh interval) |
 
 ### Git Integration Details
 
@@ -198,7 +204,7 @@ Runs `git checkout -- <filepath>` to discard local changes and restore the last 
 
 | File | Format | Purpose |
 |------|--------|---------|
-| `aitasks/metadata/board_config.json` | JSON | Board column definitions and order |
+| `aitasks/metadata/board_config.json` | JSON | Board column definitions, order, and settings (auto-refresh) |
 | `aitasks/metadata/task_types.txt` | Text (one per line) | Valid issue types for the Type cycle field |
 
 Both files are auto-created with defaults if they don't exist.
