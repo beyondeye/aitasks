@@ -14,6 +14,7 @@ codexcli
 geminicli
 gitremote
 install_scripts
+macos
 release_scripts
 statistics
 task_workflow
