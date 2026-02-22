@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: ['189']
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [aitasks, claudeskills]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-22 09:27
-updated_at: 2026-02-22 13:11
+updated_at: 2026-02-22 13:22
+completed_at: 2026-02-22 13:22
 boardcol: now
 boardidx: 20
 ---
