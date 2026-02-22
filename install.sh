@@ -182,6 +182,7 @@ create_data_dirs() {
     mkdir -p "$INSTALL_DIR/aitasks/metadata/profiles"
     mkdir -p "$INSTALL_DIR/aitasks/archived"
     mkdir -p "$INSTALL_DIR/aiplans/archived"
+    mkdir -p "$INSTALL_DIR/aireviewguides"
 }
 
 # --- Install seed profiles ---
