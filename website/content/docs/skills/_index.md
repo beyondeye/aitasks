@@ -15,6 +15,7 @@ aitasks provides Claude Code skills that automate the full task workflow. These 
 | [`/aitask-explore`](aitask-explore/) | Explore the codebase interactively, then create a task from findings |
 | [`/aitask-fold`](aitask-fold/) | Identify and merge related tasks into a single task |
 | [`/aitask-create`](aitask-create/) | Create tasks interactively via Claude Code |
+| [`/aitask-wrap`](aitask-wrap/) | Wrap uncommitted changes into an aitask with retroactive documentation |
 | [`/aitask-stats`](aitask-stats/) | View completion statistics |
 | [`/aitask-changelog`](aitask-changelog/) | Generate changelog entries from commits and plans |
 | [`/aitask-review`](aitask-review/) | Review code using configurable review guides, then create tasks from findings |
