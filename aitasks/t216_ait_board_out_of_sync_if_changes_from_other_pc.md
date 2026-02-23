@@ -5,9 +5,10 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [aitask_board]
+children_to_implement: [t216_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-23 08:58
-updated_at: 2026-02-23 14:38
+updated_at: 2026-02-23 15:51
 boardcol: now
 boardidx: 40
 ---
