@@ -7,7 +7,7 @@ status: Ready
 labels: [web_site]
 created_at: 2026-02-20 00:18
 updated_at: 2026-02-20 00:18
-boardidx: 80
+boardidx: 50
 boardcol: now
 ---
 
