@@ -12,6 +12,7 @@ The aitasks framework supports multiple developers (or multiple AI agent instanc
 - **Status tracking via git:** When [`/aitask-pick`](../../skills/aitask-pick/) starts work on a task, it sets the status to "Implementing", records the developer's email in `assigned_to`, and commits + pushes the change. This makes the assignment visible to anyone who pulls the latest state
 - **Atomic task locking:** The atomic lock system prevents two PCs from picking the same task simultaneously. Locks are stored on a separate `aitask-locks` git branch using compare-and-swap semantics
 - **Atomic ID counter:** The atomic ID counter on the `aitask-ids` branch ensures globally unique task numbers even when multiple PCs create tasks against the same repo
+- **Task data branch (optional):** When enabled, task/plan files live on a separate `aitask-data` branch accessed via a worktree at `.aitask-data/`. This keeps task management commits off the main branch and allows independent sync via `./ait git push`/`./ait git pull`
 
 ## Git Worktrees for Isolation
 

@@ -354,7 +354,7 @@ Read `issue_action` from profile (default: `close_with_notes`).
 
 **Push:**
 ```bash
-git push
+./ait git push
 ```
 
 Display: "Task t\<task_id\> completed and archived."
@@ -381,8 +381,8 @@ Triggered by errors after Step 5 (task was claimed). Not triggered by user inter
 
 5. Commit:
    ```bash
-   git add aitasks/
-   git commit -m "ait: Abort t<N>: revert status to <status>"
+   ./ait git add aitasks/
+   ./ait git commit -m "ait: Abort t<N>: revert status to <status>"
    ```
 
 6. Display: "Task t\<N\> aborted and reverted to '\<status\>'."

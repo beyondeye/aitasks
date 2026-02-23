@@ -100,6 +100,19 @@ The internal script `aiscripts/aitask_lock.sh` prevents race conditions when two
 
 ---
 
+## Task Data Branch
+
+When enabled via `ait setup`, task and plan files can live on a separate orphan branch `aitask-data` instead of the main code branch. This separates task management commits from implementation commits, reducing noise in `git log` and avoiding merge conflicts when multiple PCs update tasks independently.
+
+- An orphan git branch `aitask-data` holds all files under `aitasks/` and `aiplans/`
+- A permanent git worktree at `.aitask-data/` provides filesystem access to the branch
+- Symlinks `aitasks → .aitask-data/aitasks` and `aiplans → .aitask-data/aiplans` keep all existing paths working transparently
+- The CLI command `ait git` routes git operations to the correct branch: in branch mode it runs `git -C .aitask-data`, in legacy mode it passes through to plain `git`
+- Shell scripts use `task_git()` from `task_utils.sh` internally; the Python TUI board uses its own `_task_git_cmd()` helper — both auto-detect the active mode
+- Initialized via `ait setup` alongside the atomic ID counter and task locking
+
+---
+
 ## Development Dependencies
 
 ### ShellCheck

@@ -188,8 +188,8 @@ For each non-primary task ID that was folded, set its status to `Folded` and add
 #### 3f: Commit
 
 ```bash
-git add aitasks/
-git commit -m "ait: Fold tasks into t<primary_id>: merge t<id1>, t<id2>, ..."
+./ait git add aitasks/
+./ait git commit -m "ait: Fold tasks into t<primary_id>: merge t<id1>, t<id2>, ..."
 ```
 
 ### Step 4: Decision Point

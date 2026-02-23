@@ -180,15 +180,19 @@ These fields are always written last in the frontmatter and are updated using a 
 
 ### Git Integration Details
 
+The board auto-detects whether task data lives on a separate `aitask-data` branch (via the `.aitask-data/` worktree) or on the current branch (legacy mode). All git operations are routed through a worktree-aware helper, so the board works transparently in both modes.
+
 **Modified file detection:**
 
-The board queries `git status --porcelain -- aitasks/` on startup and after each refresh to identify modified `.md` files. Modified tasks show an orange asterisk (*) next to their task number.
+The board queries `git status --porcelain -- aitasks/` on startup and after each refresh to identify modified `.md` files. Modified tasks show an orange asterisk (*) next to their task number. In branch mode, this targets the `aitask-data` worktree automatically.
 
 **Commit workflow:**
 
 1. Selected files are staged with `git add <filepath>`
 2. A commit is created with the user-provided message
 3. The board refreshes git status after commit
+
+In branch mode, commits target the `aitask-data` branch, not the main code branch.
 
 **Revert workflow:**
 

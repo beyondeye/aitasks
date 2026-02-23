@@ -100,6 +100,16 @@ Most scripts support both **interactive** (uses `fzf`) and **batch** (CLI flags 
 ```
 Types match `issue_type` values: `bug`, `feature`, `chore`, `documentation`, `performance`, `refactor`, `style`, `test`. Also `ait` for framework-internal changes.
 
+## Git Operations on Task/Plan Files
+
+When committing changes to files in `aitasks/` or `aiplans/`, use `./ait git`
+instead of plain `git`. This ensures correct branch targeting when task data
+lives on a separate branch.
+- `./ait git add aitasks/t42_foo.md`
+- `./ait git commit -m "ait: Update task t42"`
+- `./ait git push`
+
+In legacy mode (no separate branch), `ait git` passes through to plain `git`.
 
 ## WORKING ON SKILLS / CUSTOM COMMANDS
 

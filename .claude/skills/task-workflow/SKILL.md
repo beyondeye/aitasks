@@ -228,8 +228,8 @@ While in plan mode:
       - Commit all child task files and plan files together:
         ```bash
         mkdir -p aiplans/p<parent>
-        git add aitasks/t<parent>/ aiplans/p<parent>/
-        git commit -m "ait: Create t<parent> child tasks and plans"
+        ./ait git add aitasks/t<parent>/ aiplans/p<parent>/
+        ./ait git commit -m "ait: Create t<parent> child tasks and plans"
         ```
     - **Child task checkpoint (ALWAYS interactive — ignores `post_plan_action` profile setting):**
       Use `AskUserQuestion`:
@@ -498,7 +498,7 @@ The script outputs structured lines. Parse each line and handle accordingly:
 **Push after archival:**
 
 ```bash
-git push
+./ait git push
 ```
 
 ### Task Abort Procedure
@@ -537,8 +537,8 @@ When abort is selected at any checkpoint after Step 4, execute these steps:
 
 - **Commit the revert:**
   ```bash
-  git add aitasks/
-  git commit -m "ait: Abort t<N>: revert status to <status>"
+  ./ait git add aitasks/
+  ./ait git commit -m "ait: Abort t<N>: revert status to <status>"
   ```
 
 - **Cleanup worktree/branch if created:**

@@ -260,16 +260,18 @@ Created by: aitask-wrap (retroactive documentation)
 
 #### 4c: Stage and Commit Code Changes
 
-Stage the selected files and the plan file, then commit:
+Stage and commit the code changes and plan file separately (code lives on main, plan lives on the task data branch):
 
 ```bash
-git add <selected_files> aiplans/p<N>_<name>.md
+git add <selected_files>
 git commit -m "<issue_type>: <description> (t<N>)"
+./ait git add aiplans/p<N>_<name>.md
+./ait git commit -m "ait: Add plan p<N> for wrapped task"
 ```
 
 Where `<description>` is a concise commit message derived from the task summary.
 
-**Important:** The commit message MUST use the `<issue_type>: <description> (t<N>)` format. This is required for `aitask_issue_update.sh` to find commits associated with a task.
+**Important:** The code commit message MUST use the `<issue_type>: <description> (t<N>)` format. This is required for `aitask_issue_update.sh` to find commits associated with a task.
 
 #### 4d: Archive Task
 
@@ -286,6 +288,7 @@ Parse the script output and handle structured lines:
 
 ```bash
 git push
+./ait git push
 ```
 
 ### Step 5: Summary

@@ -220,8 +220,8 @@ for folded_id in <folded_task_ids>; do
 done
 
 # Amend the create commit to include all frontmatter updates
-git add aitasks/
-git commit --amend --no-edit
+./ait git add aitasks/
+./ait git commit --amend --no-edit
 ```
 
 ### Step 4: Decision Point
