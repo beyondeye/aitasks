@@ -5,9 +5,9 @@ depends: []
 issue_type: refactor
 status: Ready
 labels: []
-children_to_implement: [t221_4, t221_5, t221_6]
+children_to_implement: [t221_5, t221_6]
 created_at: 2026-02-23 10:08
-updated_at: 2026-02-23 12:36
+updated_at: 2026-02-23 12:45
 boardidx: 70
 ---
 
