@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitasks, bash, scripting]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-09 10:22
-updated_at: 2026-02-23 10:11
+updated_at: 2026-02-23 10:26
+completed_at: 2026-02-23 10:26
 boardcol: backlog
 boardidx: 10
 ---
