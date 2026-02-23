@@ -19,7 +19,7 @@ Explore the codebase interactively with guided investigation, then create a task
 1. **Profile selection** — Same profile system as `/aitask-pick`
 2. **Exploration setup** — Choose an exploration mode:
    - **Investigate a problem** — Debug an issue, trace a symptom, find a root cause. Creates bug tasks by default
-   - **Explore codebase area** — Understand a module, map its structure and dependencies
+   - **Explore codebase area** — Understand a module, map its structure and dependencies. Offers two ways to specify the target: search for files interactively (by keyword, name, or functionality) or describe the area in free text
    - **Scope an idea** — Discover what code is affected by a proposed change
    - **Explore documentation** — Find documentation gaps, outdated docs, or missing help text
 3. **Iterative exploration** — Claude explores the codebase using the selected strategy. After each round, presents findings and offers to continue exploring, create a task, or abort
@@ -34,6 +34,18 @@ Explore the codebase interactively with guided investigation, then create a task
 - **Seamless handoff** — When continuing to implementation, the full exploration context flows into the planning phase
 
 **Profile key:** `explore_auto_continue` — Set to `true` to skip the "continue to implementation or save" prompt and automatically proceed to implementation.
+
+## File Selection
+
+The **Explore codebase area** mode provides an interactive file search interface powered by the internal `user-file-select` skill. When you choose "Search for files", you can find files by:
+
+- **Keyword search** — Search file contents for specific terms or patterns
+- **Name search** — Fuzzy-match against file names across the project
+- **Functionality search** — Describe what the code does and let Claude find matching files
+
+Alternatively, you can choose "Describe the area" to type a module name, directory, or free-text description directly — preserving the original behavior for users who already know where to look.
+
+The same file search interface is also available in [`/aitask-explain`](../aitask-explain/).
 
 ## Folded Tasks
 
