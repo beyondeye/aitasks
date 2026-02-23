@@ -15,6 +15,7 @@ NC='\033[0m'
 
 # --- Common logging helpers ---
 die()     { echo -e "${RED}Error: $1${NC}" >&2; exit 1; }
+die_code() { local code="$1"; shift; echo -e "${RED}Error: $1${NC}" >&2; exit "$code"; }
 info()    { echo -e "${BLUE}$1${NC}"; }
 success() { echo -e "${GREEN}$1${NC}"; }
 warn()    { echo -e "${YELLOW}Warning: $1${NC}" >&2; }

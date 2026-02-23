@@ -154,7 +154,15 @@ If neither check triggers, proceed to Step 5.
 
 - **Parse the script output:**
   - `OWNED:<task_id>` — Success. Display: "Task t\<N\> claimed (email: \<email\>)". Proceed to Step 6.
-  - `LOCK_FAILED:<owner>` — Display error: "Task t\<N\> is locked by \<owner\>. Pick a different task." Abort.
+  - `FORCE_UNLOCKED:<previous_owner>` + `OWNED:<task_id>` — Force-unlock succeeded. Display: "Force-unlocked stale lock held by \<previous_owner\>. Task t\<N\> claimed." Proceed to Step 6.
+  - `LOCK_FAILED:<owner>` — Read `force_unlock_stale` from profile (default: `false`):
+    - If `true`: Display "Profile: force-unlocking stale lock held by \<owner\>". Re-run with `--force`:
+      ```bash
+      ./aiscripts/aitask_own.sh <task_num> --force --email "<email>"
+      ```
+      Parse output again. If `FORCE_UNLOCKED` + `OWNED`: proceed. Otherwise: abort.
+    - If `false`: Display error: "Task t\<N\> is locked by \<owner\>. Pick a different task." Abort.
+  - `LOCK_ERROR:<message>` — Display error: "Lock system error: \<message\>. Run `./aiscripts/aitask_lock_diag.sh` for troubleshooting." Abort.
   - `LOCK_INFRA_MISSING` — Display error: "Lock infrastructure not initialized. Run `ait setup`." Abort.
 
   If the script fails entirely (non-zero exit without structured output), display the error and abort.
@@ -423,6 +431,7 @@ The remote skill uses the standard profile format from `aitasks/metadata/profile
 
 | Key | Type | Default | Values | Purpose |
 |-----|------|---------|--------|---------|
+| `force_unlock_stale` | bool | `false` | `true`, `false` | Step 5: Auto force-unlock stale locks |
 | `done_task_action` | string | `archive` | `"archive"`, `"skip"` | Step 4: Done task handling |
 | `orphan_parent_action` | string | `archive` | `"archive"`, `"skip"` | Step 4: Orphan parent handling |
 | `complexity_action` | string | `single_task` | `"single_task"` | Always single task (no child creation in remote) |

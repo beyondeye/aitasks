@@ -10,13 +10,16 @@
 #
 # Usage:
 #   ./aiscripts/aitask_own.sh <task_id> [--email <email>]   # Full ownership
+#   ./aiscripts/aitask_own.sh <task_id> --force --email <e>  # Force-unlock stale lock
 #   ./aiscripts/aitask_own.sh --sync                         # Sync-only mode
 #
 # Output format (structured lines for LLM parsing):
-#   OWNED:<task_id>          Task successfully claimed
-#   LOCK_FAILED:<owner>      Lock held by another user (exit 1)
-#   LOCK_INFRA_MISSING       Lock infrastructure not initialized (exit 1)
-#   SYNCED                   Sync-only mode completed
+#   OWNED:<task_id>              Task successfully claimed
+#   LOCK_FAILED:<owner>          Lock held by another user (exit 1)
+#   LOCK_INFRA_MISSING           Lock infrastructure not initialized (exit 1)
+#   LOCK_ERROR:<message>         Lock system error (exit 1)
+#   FORCE_UNLOCKED:<prev_owner>  Stale lock force-unlocked, then re-locked
+#   SYNCED                       Sync-only mode completed
 #
 # Called by:
 #   .claude/skills/task-workflow/SKILL.md (Step 4)
@@ -36,6 +39,7 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 TASK_ID=""
 EMAIL=""
 SYNC_ONLY=false
+FORCE=false
 EMAILS_FILE="aitasks/metadata/emails.txt"
 
 # --- Help ---
@@ -55,15 +59,18 @@ Arguments:
 Options:
   --email EMAIL   Email of the person claiming the task. If provided and new,
                   it is stored to aitasks/metadata/emails.txt (deduplicated).
+  --force         Force-unlock a stale lock before claiming. Requires --email.
   --sync          Sync-only mode: git pull + stale lock cleanup, then exit.
                   No task_id required.
   --help, -h      Show this help
 
 Output format (one structured line to stdout):
-  OWNED:<task_id>          Task successfully claimed
-  LOCK_FAILED:<owner>      Lock held by another user (exit 1)
-  LOCK_INFRA_MISSING       Lock infrastructure not initialized (exit 1)
-  SYNCED                   Sync-only mode completed
+  OWNED:<task_id>              Task successfully claimed
+  LOCK_FAILED:<owner>          Lock held by another user (exit 1)
+  LOCK_INFRA_MISSING           Lock infrastructure not initialized (exit 1)
+  LOCK_ERROR:<message>         Lock system error (exit 1)
+  FORCE_UNLOCKED:<prev_owner>  Stale lock force-unlocked, then re-locked
+  SYNCED                       Sync-only mode completed
 
 Full ownership mode performs these steps in order:
   1. git pull --ff-only (best-effort sync with remote)
@@ -88,6 +95,10 @@ parse_args() {
             --email)
                 EMAIL="${2:?Missing email address after --email}"
                 shift 2
+                ;;
+            --force)
+                FORCE=true
+                shift
                 ;;
             --sync)
                 SYNC_ONLY=true
@@ -137,7 +148,8 @@ store_email() {
 }
 
 # --- Acquire lock ---
-# Returns: 0=success, 1=lock held by other (LOCK_FAILED printed), 2=infra missing (LOCK_INFRA_MISSING printed)
+# Returns: 0=success, 1=lock held by other (LOCK_FAILED printed),
+#          2=infra missing (LOCK_INFRA_MISSING printed), 3=other error (LOCK_ERROR printed)
 acquire_lock() {
     local task_id="$1"
     local email="$2"
@@ -150,22 +162,50 @@ acquire_lock() {
     local lock_output lock_exit=0
     lock_output=$("$SCRIPT_DIR/aitask_lock.sh" --lock "$task_id" --email "$email" 2>&1) || lock_exit=$?
 
-    if [[ $lock_exit -eq 0 ]]; then
+    [[ $lock_exit -eq 0 ]] && return 0
+
+    case $lock_exit in
+        1)  # Already locked by another user
+            local owner
+            owner=$(echo "$lock_output" | grep -o 'already locked by [^ ]*' | sed 's/already locked by //')
+            [[ -z "$owner" ]] && owner="unknown"
+            echo "LOCK_FAILED:$owner"
+            return 1 ;;
+        10) echo "LOCK_INFRA_MISSING"; return 2 ;;
+        11) echo "LOCK_ERROR:fetch_failed"; return 3 ;;
+        12) echo "LOCK_ERROR:race_exhaustion"; return 3 ;;
+        *)  echo "LOCK_ERROR:unknown"; return 3 ;;
+    esac
+}
+
+# --- Force-acquire lock (unlock then re-lock) ---
+# Returns: 0=success (FORCE_UNLOCKED printed), 3=error (LOCK_ERROR printed)
+force_acquire_lock() {
+    local task_id="$1"
+    local email="$2"
+
+    if [[ -z "$email" ]]; then
         return 0
     fi
 
-    # Distinguish "already locked by another user" from infrastructure failure
-    if echo "$lock_output" | grep -q "already locked by"; then
-        local owner
-        owner=$(echo "$lock_output" | grep -o 'already locked by [^ ]*' | sed 's/already locked by //')
-        [[ -z "$owner" ]] && owner="unknown"
-        echo "LOCK_FAILED:$owner"
-        return 1
-    fi
+    # Check who currently holds the lock
+    local check_output previous_owner
+    check_output=$("$SCRIPT_DIR/aitask_lock.sh" --check "$task_id" 2>&1) || true
+    previous_owner=$(echo "$check_output" | grep '^locked_by:' | sed 's/locked_by: *//')
+    [[ -z "$previous_owner" ]] && previous_owner="unknown"
 
-    # All other failures are infrastructure issues
-    echo "LOCK_INFRA_MISSING"
-    return 2
+    # Force unlock then re-lock
+    "$SCRIPT_DIR/aitask_lock.sh" --unlock "$task_id" 2>/dev/null || true
+
+    local lock_output lock_exit=0
+    lock_output=$("$SCRIPT_DIR/aitask_lock.sh" --lock "$task_id" --email "$email" 2>&1) || lock_exit=$?
+
+    if [[ $lock_exit -eq 0 ]]; then
+        echo "FORCE_UNLOCKED:$previous_owner"
+        return 0
+    fi
+    echo "LOCK_ERROR:force_lock_failed"
+    return 3
 }
 
 # --- Update task status ---
@@ -219,13 +259,21 @@ main() {
     local lock_result=0
     acquire_lock "$TASK_ID" "$EMAIL" || lock_result=$?
 
-    if [[ $lock_result -eq 1 ]]; then
+    if [[ $lock_result -eq 1 && "$FORCE" == true ]]; then
+        local force_result=0
+        force_acquire_lock "$TASK_ID" "$EMAIL" || force_result=$?
+        if [[ $force_result -ne 0 ]]; then
+            exit 1
+        fi
+    elif [[ $lock_result -eq 1 ]]; then
         # LOCK_FAILED already printed by acquire_lock
         exit 1
-    fi
-    if [[ $lock_result -eq 2 ]]; then
+    elif [[ $lock_result -eq 2 ]]; then
         # LOCK_INFRA_MISSING already printed by acquire_lock
         die "Run 'ait setup' to initialize lock infrastructure."
+    elif [[ $lock_result -eq 3 ]]; then
+        # LOCK_ERROR already printed by acquire_lock
+        exit 1
     fi
 
     # Step 4: Update task metadata

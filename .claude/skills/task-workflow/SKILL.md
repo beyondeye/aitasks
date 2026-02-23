@@ -103,7 +103,29 @@ If `active_profile` is null (either because no profile was selected by the calli
 
   **Parse the script output:**
   - `OWNED:<task_id>` — Success. Proceed to Step 5.
-  - `LOCK_FAILED:<owner>` — Task was just claimed by another user/PC. Inform the user who locked it and return to the calling skill's task selection to pick a different task. Do NOT proceed.
+  - `FORCE_UNLOCKED:<previous_owner>` + `OWNED:<task_id>` — Force-unlock succeeded. Inform user: "Force-unlocked stale lock held by \<previous_owner\>." Proceed to Step 5.
+  - `LOCK_FAILED:<owner>` — Task is locked by another user/PC. Run `aitask_lock.sh --check <task_num>` to get lock details (locked_by, locked_at, hostname). Use `AskUserQuestion`:
+    - Question: "Task t\<N\> is locked by \<owner\> (since \<locked_at\>, hostname: \<hostname\>). Force unlock?"
+    - Header: "Lock"
+    - Options:
+      - "Force unlock and claim" (description: "Override the stale lock and claim this task")
+      - "Pick a different task" (description: "Leave the lock intact and select another task")
+    - If "Force unlock and claim": Re-run ownership with `--force`:
+      ```bash
+      ./aiscripts/aitask_own.sh <task_num> --force --email "<email>"
+      ```
+      Parse the output again. If `FORCE_UNLOCKED` + `OWNED`: proceed. Otherwise: abort.
+    - If "Pick a different task": Return to the calling skill's task selection. Do NOT proceed.
+  - `LOCK_ERROR:<message>` — Lock system error (fetch failure, race exhaustion, etc.). Display the error and suggest running `./aiscripts/aitask_lock_diag.sh` for troubleshooting. Use `AskUserQuestion`:
+    - Question: "Lock system error: \<message\>. How to proceed?"
+    - Header: "Lock error"
+    - Options:
+      - "Retry" (description: "Try acquiring the lock again")
+      - "Continue without lock" (description: "Proceed without locking (risky if multiple users)")
+      - "Abort" (description: "Stop the workflow")
+    - If "Retry": Re-run `aitask_own.sh` (same command). Parse output again.
+    - If "Continue without lock": Skip lock acquisition, proceed to Step 5 (task status will be updated but no lock held).
+    - If "Abort": End the workflow.
   - `LOCK_INFRA_MISSING` — Lock infrastructure not initialized. Inform user to run `ait setup` and abort.
 
   **Note:** The script handles email storage, lock acquisition, task metadata update (`status` → Implementing, `assigned_to`), and git add/commit/push internally. If the script fails entirely (non-zero exit without structured output), display the error and abort.

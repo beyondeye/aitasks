@@ -41,7 +41,7 @@ debug() {
 # Check that a git remote named 'origin' exists
 require_remote() {
     if ! git remote get-url origin &>/dev/null; then
-        die "No git remote 'origin' configured. Cannot use atomic task locks."
+        die_code 10 "No git remote 'origin' configured. Cannot use atomic task locks."
     fi
 }
 
@@ -98,7 +98,7 @@ lock_task() {
         # Step 1: Fetch latest lock branch
         debug "Fetching branch '$BRANCH' from origin..."
         if ! git fetch origin "$BRANCH" --quiet 2>/dev/null; then
-            die "Failed to fetch '$BRANCH' from origin. Run 'ait setup' to initialize."
+            die_code 11 "Failed to fetch '$BRANCH' from origin. Run 'ait setup' to initialize."
         fi
         debug "Fetch successful"
 
@@ -159,7 +159,7 @@ hostname: $(get_hostname)"
         fi
     done
 
-    die "Failed to lock task t$task_id after $MAX_RETRIES attempts."
+    die_code 12 "Failed to lock task t$task_id after $MAX_RETRIES attempts."
 }
 
 # --- Unlock: atomically release a task lock ---
@@ -179,7 +179,7 @@ unlock_task() {
 
         # Step 1: Fetch latest
         if ! git fetch origin "$BRANCH" --quiet 2>/dev/null; then
-            die "Failed to fetch '$BRANCH'. Run 'ait setup' to initialize."
+            die_code 11 "Failed to fetch '$BRANCH'. Run 'ait setup' to initialize."
         fi
 
         local parent_hash current_tree_hash
@@ -213,7 +213,7 @@ unlock_task() {
         fi
     done
 
-    die "Failed to unlock task t$task_id after $MAX_RETRIES attempts."
+    die_code 12 "Failed to unlock task t$task_id after $MAX_RETRIES attempts."
 }
 
 # --- Check: is a task locked? ---
