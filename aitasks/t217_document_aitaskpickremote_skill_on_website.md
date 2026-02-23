@@ -7,7 +7,7 @@ status: Ready
 labels: [website, claudeskills, documentation]
 created_at: 2026-02-23 09:04
 updated_at: 2026-02-23 09:15
-boardidx: 40
+boardidx: 50
 boardcol: now
 ---
 

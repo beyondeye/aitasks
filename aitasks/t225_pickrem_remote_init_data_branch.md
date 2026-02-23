@@ -7,7 +7,7 @@ status: Ready
 labels: []
 created_at: 2026-02-23 13:03
 updated_at: 2026-02-23 13:03
-boardidx: 80
+boardidx: 10
 boardcol: now
 ---
 
