@@ -17,6 +17,56 @@ ARCHIVED_DIR="${ARCHIVED_DIR:-aitasks/archived}"
 PLAN_DIR="${PLAN_DIR:-aiplans}"
 ARCHIVED_PLAN_DIR="${ARCHIVED_PLAN_DIR:-aiplans/archived}"
 
+# --- Task Data Worktree Detection ---
+# Detects if task data lives in a separate worktree (.aitask-data/)
+# or on the current branch (legacy mode). All scripts use task_git()
+# for git operations on task/plan files.
+
+_AIT_DATA_WORKTREE=""
+
+# Detect whether task data lives in a separate worktree
+# Sets _AIT_DATA_WORKTREE to ".aitask-data" (branch mode) or "." (legacy mode)
+_ait_detect_data_worktree() {
+    if [[ -n "$_AIT_DATA_WORKTREE" ]]; then return; fi
+    if [[ -d ".aitask-data/.git" || -f ".aitask-data/.git" ]]; then
+        _AIT_DATA_WORKTREE=".aitask-data"
+    else
+        _AIT_DATA_WORKTREE="."
+    fi
+}
+
+# Run git commands targeting the task data worktree
+# In branch mode: git -C .aitask-data <args>
+# In legacy mode: git <args>
+task_git() {
+    _ait_detect_data_worktree
+    if [[ "$_AIT_DATA_WORKTREE" != "." ]]; then
+        git -C "$_AIT_DATA_WORKTREE" "$@"
+    else
+        git "$@"
+    fi
+}
+
+# Sync task data from remote (independent of code sync in branch mode)
+task_sync() {
+    _ait_detect_data_worktree
+    if [[ "$_AIT_DATA_WORKTREE" != "." ]]; then
+        git -C "$_AIT_DATA_WORKTREE" pull --ff-only --quiet 2>/dev/null || true
+    else
+        git pull --ff-only --quiet 2>/dev/null || true
+    fi
+}
+
+# Push task data to remote (independent of code push in branch mode)
+task_push() {
+    _ait_detect_data_worktree
+    if [[ "$_AIT_DATA_WORKTREE" != "." ]]; then
+        git -C "$_AIT_DATA_WORKTREE" push --quiet 2>/dev/null || true
+    else
+        git push --quiet 2>/dev/null || true
+    fi
+}
+
 # --- Platform Detection ---
 
 # Detect git remote platform from origin URL
