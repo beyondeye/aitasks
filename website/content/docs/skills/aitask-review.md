@@ -12,6 +12,8 @@ Review code using configurable review guides, then create tasks from findings. T
 /aitask-review          # Interactive: choose scope and review guides
 ```
 
+> **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
+
 ## Workflow Overview
 
 1. **Define review scope** — Choose what to review: specific file paths, directories, or glob patterns; or select from recent commits (non-administrative commits are listed with pagination)

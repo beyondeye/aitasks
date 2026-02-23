@@ -12,6 +12,8 @@ Retroactively wraps uncommitted changes into the aitasks framework. When you've 
 /aitask-wrap
 ```
 
+> **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
+
 ## Workflow Overview
 
 1. **Detect changes** — Scans for uncommitted changes (staged, unstaged, and untracked). Aborts if nothing to wrap

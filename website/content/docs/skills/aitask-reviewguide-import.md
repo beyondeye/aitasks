@@ -15,6 +15,8 @@ Import external content — a local file, a URL, or a GitHub repository director
 /aitask-reviewguide-import https://github.com/org/repo/tree/main/docs/guides/    # GitHub directory (batch)
 ```
 
+> **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
+
 ## Workflow Overview
 
 1. **Fetch content** — Detects source type (local file, GitHub file, GitHub directory, generic URL) and retrieves the content. GitHub files are fetched via the `gh` CLI API

@@ -12,6 +12,8 @@ Generate a changelog entry by analyzing commits and archived plans since the las
 /aitask-changelog
 ```
 
+> **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
+
 ## Workflow
 
 1. **Gather release data** — Runs `ait changelog --gather` to collect all tasks since the last release tag, with their issue types, plan files, commits, and implementation notes

@@ -13,6 +13,8 @@ Identify and merge related tasks into a single task, then optionally execute it.
 /aitask-fold 106,108,112        # Explicit: fold specific tasks by ID
 ```
 
+> **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
+
 ## Workflow Overview
 
 1. **Profile selection** — Same profile system as `/aitask-pick`

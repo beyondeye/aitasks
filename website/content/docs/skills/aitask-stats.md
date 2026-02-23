@@ -12,6 +12,8 @@ View task completion statistics via Claude Code.
 /aitask-stats
 ```
 
+> **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
+
 Runs `./aiscripts/aitask_stats.sh` and displays the results. Provides the same 7 types of statistics as `ait stats`:
 
 - Summary counts (7-day, 30-day, all-time)

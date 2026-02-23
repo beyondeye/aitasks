@@ -13,6 +13,8 @@ Classify a review guide file by assigning metadata and finding similar existing 
 /aitask-reviewguide-classify              # Batch: find and classify all incomplete guides
 ```
 
+> **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
+
 ## Workflow Overview
 
 **Single-file mode** (with argument):

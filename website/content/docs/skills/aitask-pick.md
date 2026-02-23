@@ -14,6 +14,8 @@ The central skill of the aitasks framework and the core of the development workf
 /aitask-pick 10_2       # Directly select child task t10_2
 ```
 
+> **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
+
 ## Workflow Overview
 
 1. **Profile selection** — Loads an execution profile from `aitasks/metadata/profiles/` to pre-answer workflow questions and reduce prompts. See [Execution Profiles](#execution-profiles) below

@@ -7,6 +7,8 @@ description: "Reference for all Claude Code slash-command skills"
 
 aitasks provides Claude Code skills that automate the full task workflow. These skills are invoked as slash commands within Claude Code.
 
+> **Important: Run from the project root directory.** All skills use relative paths (e.g., `./aiscripts/aitask_ls.sh`) that must match the permission entries in `.claude/settings.local.json`. If you start Claude Code from a subdirectory instead of the project root (the directory containing `ait` and `aiscripts/`), these paths won't match and Claude Code will prompt for permission on **every command**. Always `cd` to the project root before launching Claude Code.
+
 ## Skill Overview
 
 | Skill | Description |

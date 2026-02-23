@@ -14,6 +14,8 @@ Explain files in the project by providing detailed analysis of their functionali
 /aitask-explain src/lib/            # Direct: explain all git-tracked files in a directory
 ```
 
+> **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
+
 ## Workflow Overview
 
 1. **File selection** — Choose files via three methods: reuse data from a previous explain run, search the project using the file-select interface, or enter file/directory paths directly. Directories are automatically expanded to all git-tracked text files within them

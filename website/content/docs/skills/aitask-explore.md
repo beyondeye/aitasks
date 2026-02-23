@@ -12,6 +12,8 @@ Explore the codebase interactively with guided investigation, then create a task
 /aitask-explore
 ```
 
+> **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
+
 ## Workflow Overview
 
 1. **Profile selection** — Same profile system as `/aitask-pick`

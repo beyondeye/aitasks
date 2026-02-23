@@ -12,6 +12,8 @@ Create a new task file with automatic numbering and proper metadata via Claude C
 /aitask-create
 ```
 
+> **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
+
 ## Workflow
 
 Claude Code guides you through task creation using `AskUserQuestion` prompts:

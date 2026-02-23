@@ -14,6 +14,8 @@ Compare two similar review guide files and decide whether to merge them, dedupli
 /aitask-reviewguide-merge                 # Batch: find and process all similar pairs
 ```
 
+> **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
+
 ## Workflow Overview
 
 **Single-pair mode** (with arguments):
