@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: []
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-23 11:14
-updated_at: 2026-02-23 11:16
+updated_at: 2026-02-23 11:35
+completed_at: 2026-02-23 11:35
 ---
 
 ## Context
