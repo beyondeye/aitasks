@@ -244,3 +244,9 @@ shellcheck aiscripts/aitask_lock.sh aiscripts/aitask_own.sh aiscripts/aitask_loc
 ```
 
 **After t221 lands:** Also verify diagnostic script works in branch mode (with `.aitask-data/` worktree).
+
+## Final Implementation Notes
+- **Actual work done:** All 8 planned changes implemented as specified — die_code() helper, structured exit codes (10/11/12), --force flag with force_acquire_lock(), diagnostic script with 12 checks, updated task-workflow and pickrem skill definitions, remote.yaml force_unlock_stale setting, and two new test files.
+- **Deviations from plan:** The diagnostic script uses `set -uo pipefail` instead of `set -euo pipefail` because with `-e`, failed checks (e.g., git rev-parse on a missing branch) would abort the script before reaching the summary. Since this is a diagnostic tool, all checks need to run regardless of individual failures.
+- **Issues encountered:** Initial test_lock_diag.sh failed because the diagnostic script exited early on the first failed check (tree parse fails when lock branch doesn't exist, causing `set -e` to abort). Fixed by removing `-e` from the script's set flags.
+- **Key decisions:** (1) Exit code 1 for "already locked" was left unchanged since `die()` already exits 1 — only infrastructure/network/race errors got new codes. (2) force_acquire_lock() checks current lock owner before unlocking so it can report who held the stale lock. (3) The diagnostic script is standalone (not registered in the `ait` dispatcher) as specified in the plan.
