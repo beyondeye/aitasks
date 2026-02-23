@@ -24,6 +24,23 @@ This skill is a fully autonomous version of `aitask-pick` + `task-workflow` desi
 
 ## Workflow
 
+### Step 0: Initialize Data Branch (if needed)
+
+Ensure the aitask-data worktree and symlinks are set up:
+
+```bash
+./aiscripts/aitask_init_data.sh
+```
+
+This is a no-op for legacy repos and already-initialized repos. Required for
+Claude Code Web where `ait setup` has not been run.
+
+Parse stdout:
+- `INITIALIZED` — Display: "Data branch initialized." Proceed.
+- `ALREADY_INIT` / `LEGACY_MODE` / `NO_DATA_BRANCH` — Proceed silently.
+
+If the command fails (non-zero exit), display the error and abort.
+
 ### Step 1: Load Execution Profile
 
 Check for available execution profiles:
