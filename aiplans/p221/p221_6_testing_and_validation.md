@@ -16,16 +16,26 @@ t221 moved aitasks/aiplans to a separate git branch. Siblings t221_1-t221_5 adde
 
 ### Step 1: Create `tests/test_task_git.sh`
 
-- [ ] Unit tests for `task_git()`, `task_sync()`, `task_push()`, `_ait_detect_data_worktree()`, and `ait git`
-- [ ] 11 test cases covering legacy/branch detection, passthrough, worktree targeting, sync, push, caching
+- [x] Unit tests for `task_git()`, `task_sync()`, `task_push()`, `_ait_detect_data_worktree()`, and `ait git`
+- [x] 11 test cases covering legacy/branch detection, passthrough, worktree targeting, sync, push, caching
+- Created in commit `47c86fd`
 
 ### Step 2: Create `tests/test_data_branch_migration.sh`
 
-- [ ] End-to-end integration tests with full project setup and migration
-- [ ] 7 test cases covering symlinks, ait git routing, script operations in branch mode
+- [x] End-to-end integration tests with full project setup and migration
+- [x] 7 test cases covering symlinks, ait git routing, script operations in branch mode
+- Created in commit `47c86fd`
 
 ### Step 3: Run all tests + shellcheck
 
-- [ ] New tests pass
-- [ ] Existing tests pass (no regressions)
-- [ ] Shellcheck clean on modified scripts
+- [x] New tests pass (test_task_git: 17/17, test_data_branch_migration: 21/21)
+- [x] Existing tests pass — all 11 test suites pass with 0 failures (374 total assertions)
+- [x] Shellcheck: only info/style-level findings (SC1091, SC2086, SC2001) — no errors or warnings; consistent with existing codebase patterns
+
+## Final Implementation Notes
+
+- **Actual work done:** Both test files (`tests/test_task_git.sh` with 11 test cases / 17 assertions, `tests/test_data_branch_migration.sh` with 7 test cases / 21 assertions) were created in a prior session (commit `47c86fd`). This session verified all tests pass and no regressions exist across all 13 test suites (412 total assertions).
+- **Deviations from plan:** None — the test files match the plan's specification exactly.
+- **Issues encountered:** None — all tests passed on first run.
+- **Key decisions:** Tests use isolated temp git repos with `setup_local_repo()`, `setup_repo_with_remote()`, and `setup_migrated_project()` helper functions to avoid affecting the real repo. The migration test copies actual project scripts to simulate a realistic environment.
+- **Notes for sibling tasks:** This is the final child task (t221_6). All t221 siblings are now complete. The shellcheck info findings (SC2086 unquoted variables in `ls` glob patterns, SC2001 sed style suggestions) are pre-existing and consistent across the codebase — not introduced by this task.
