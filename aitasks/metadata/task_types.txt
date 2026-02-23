@@ -1,8 +1,0 @@
-bug
-chore
-documentation
-feature
-performance
-refactor
-style
-test

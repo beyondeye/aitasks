@@ -10,3 +10,8 @@ website/public/
 website/resources/
 website/node_modules/
 website/.hugo_build.lock
+
+# Task data (lives on aitask-data branch, accessed via symlinks)
+.aitask-data/
+aitasks/
+aiplans/
