@@ -159,11 +159,21 @@ setup_sync_repos() {
 
 ## Verification
 
-- [ ] `shellcheck aiscripts/aitask_sync.sh`
-- [ ] `bash tests/test_sync.sh` — all PASS
-- [ ] `./ait sync --help` shows usage
-- [ ] `./ait sync --batch` in real repo → expected output
-- [ ] `./ait sync` interactive → progress messages
+- [x] `shellcheck aiscripts/aitask_sync.sh` — clean (no warnings)
+- [x] `bash tests/test_sync.sh` — 27/27 PASS
+- [x] `./ait sync --help` shows usage
+- [x] `./ait sync --batch` in real repo → PUSHED
+- [ ] `./ait sync` interactive → progress messages (manual test)
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `aiscripts/aitask_sync.sh` (batch + interactive modes), added to `ait` dispatcher (3 locations), and created `tests/test_sync.sh` (11 test cases, 27 assertions). All verification checks pass.
+- **Deviations from plan:** The `_git_with_timeout()` portable timeout wrapper had to be rewritten. The original plan used `timeout task_git "$@"` but `timeout` cannot execute shell functions — only external commands. Fixed by building the raw `git` command args (with `-C` flag for data worktree mode) and passing them directly to `timeout git ...`.
+- **Issues encountered:** All tests initially failed with NO_NETWORK because of the timeout/shell-function bug above. After fixing `_git_with_timeout`, all 27 tests pass.
+- **Key decisions:** Used the same structured output pattern as `aitask_own.sh` (KEY:VALUE on stdout). Interactive conflict resolution opens `$EDITOR` per conflicted file. Push retries once on rejection (handles remote advancing during rebase).
+- **Notes for sibling tasks:**
+  - t216_2 (board integration): The batch protocol is exactly as specified in the task description — `SYNCED`, `PUSHED`, `PULLED`, `NOTHING`, `CONFLICT:<files>`, `NO_NETWORK`, `NO_REMOTE`, `ERROR:<msg>`. Parse the first line of stdout.
+  - t216_4 (macOS portability): The `_git_with_timeout()` fallback (background process watchdog) for when `timeout` is not available needs testing. No `sed`, `grep -P`, `wc -l` string comparison, `mktemp --suffix`, or `base64` used — script should be portable. Only concern is the `timeout` fallback branch and potentially `kill -0` behavior.
 
 ## Post-Implementation (Step 9)
 

@@ -5,9 +5,9 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [aitask_board]
-children_to_implement: [t216_1, t216_2, t216_3, t216_4]
+children_to_implement: [t216_2, t216_3, t216_4]
 created_at: 2026-02-23 08:58
-updated_at: 2026-02-23 15:52
+updated_at: 2026-02-23 22:09
 boardcol: now
 boardidx: 10
 ---
