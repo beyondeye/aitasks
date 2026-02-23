@@ -30,6 +30,7 @@ Commands:
   explain-runs   Manage aiexplain run directories
   zip-old        Archive old completed tasks
   issue-update   Update/close linked issues
+  sync           Sync task data with remote (push/pull)
   git            Run git commands against task data (worktree-aware)
   setup          Install dependencies
   install        Update aitasks to latest or specific version
@@ -96,7 +97,7 @@ check_for_updates() {
 
 # Check for updates (skip for meta-commands, install, and git passthrough)
 case "${1:-help}" in
-    help|--help|-h|--version|-v|install|setup|git) ;;
+    help|--help|-h|--version|-v|install|setup|git|sync) ;;
     *) check_for_updates ;;
 esac
 
@@ -113,6 +114,7 @@ case "${1:-help}" in
     setup)        shift; exec "$SCRIPTS_DIR/aitask_setup.sh" "$@" ;;
     changelog)    shift; exec "$SCRIPTS_DIR/aitask_changelog.sh" "$@" ;;
     explain-runs) shift; exec "$SCRIPTS_DIR/aitask_explain_runs.sh" "$@" ;;
+    sync)         shift; exec "$SCRIPTS_DIR/aitask_sync.sh" "$@" ;;
     git)          shift; source "$SCRIPTS_DIR/lib/task_utils.sh"; task_git "$@" ;;
     help|--help|-h) show_usage ;;
     --version|-v)   show_version ;;
