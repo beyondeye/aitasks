@@ -33,6 +33,18 @@ Explain files in the project by providing detailed analysis of their functionali
 - **Directory expansion** — Passing a directory path expands to all git-tracked text files within it, making it easy to explain entire modules at once
 - **Interactive drill-down** — After the initial explanation, ask targeted questions about specific code sections. The skill uses the line-range-to-commit mapping from `reference.yaml` to provide historically-grounded answers
 
+## File Selection
+
+When no file paths are provided as arguments, the skill offers three file selection methods. If previous analysis runs exist, you can choose **Use existing analysis** to reuse cached reference data. Otherwise (or in addition), you can:
+
+- **Search for files** — An interactive search interface (powered by `user-file-select`) with three modes:
+  - **Keyword search** — Search file contents for specific terms or patterns
+  - **Name search** — Fuzzy-match against file names across the project
+  - **Functionality search** — Describe what the code does and let Claude find matching files
+- **Enter paths directly** — Type file or directory paths manually
+
+The same file search interface is also available in [`/aitask-explore`](../aitask-explore/).
+
 ## Run Management
 
 Run data is stored under `aiexplains/` with one timestamped directory per run. Each directory contains `files.txt` (analyzed files), `reference.yaml` (structured reference data), and `tasks/` + `plans/` subdirectories with extracted aitask and aiplan files.

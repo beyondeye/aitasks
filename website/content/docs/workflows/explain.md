@@ -37,6 +37,8 @@ You need to understand `aiscripts/lib/task_utils.sh`, a core library that has be
 
 Select "Enter paths directly" and provide `aiscripts/lib/task_utils.sh`.
 
+> **Tip:** You can also choose "Search for files" to find files by keyword, name, or functionality — useful when you don't know the exact path. See [File Selection](../../skills/aitask-explain/#file-selection) for details.
+
 **2. Select analysis modes**
 
 Choose all three modes: Functionality, Usage examples, and Code evolution. This gives a comprehensive understanding in one pass.
