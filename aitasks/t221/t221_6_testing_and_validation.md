@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: [t221_5]
+depends: [t221_1, t221_2, t221_3, t221_4, t221_5]
 issue_type: test
 status: Ready
 labels: []

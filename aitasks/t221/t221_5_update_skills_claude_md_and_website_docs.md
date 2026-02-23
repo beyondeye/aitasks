@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: [t221_4]
+depends: [t221_2]
 issue_type: refactor
 status: Ready
 labels: []

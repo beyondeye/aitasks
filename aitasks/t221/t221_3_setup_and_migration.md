@@ -1,12 +1,12 @@
 ---
 priority: high
 effort: high
-depends: [t221_2]
+depends: [t221_1]
 issue_type: refactor
 status: Ready
 labels: []
 created_at: 2026-02-23 11:14
-updated_at: 2026-02-23 11:14
+updated_at: 2026-02-23 11:15
 ---
 
 ## Context
