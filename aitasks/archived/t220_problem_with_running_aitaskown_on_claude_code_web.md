@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitakspickrem, aitask_pick]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-23 09:50
-updated_at: 2026-02-23 14:51
+updated_at: 2026-02-23 15:04
+completed_at: 2026-02-23 15:04
 boardcol: now
 boardidx: 20
 ---
