@@ -1640,6 +1640,15 @@ class SettingsScreen(ModalScreen):
                 id="cf_auto_refresh",
             )
             yield Label("  [dim]0 = disabled[/dim]", classes="settings-hint")
+            current_sync = "yes" if self.manager.settings.get("sync_on_refresh", False) else "no"
+            yield CycleField(
+                "Sync on refresh",
+                ["no", "yes"],
+                current_sync,
+                "sync_on_refresh",
+                id="cf_sync_on_refresh",
+            )
+            yield Label("  [dim]Push/pull task data on each auto-refresh[/dim]", classes="settings-hint")
             with Horizontal(id="detail_buttons"):
                 yield Button("Save", variant="success", id="btn_settings_save")
                 yield Button("Cancel", variant="default", id="btn_settings_cancel")
@@ -1648,7 +1657,9 @@ class SettingsScreen(ModalScreen):
     def save_settings(self):
         refresh_field = self.query_one("#cf_auto_refresh", CycleField)
         new_minutes = int(refresh_field.current_value)
-        self.dismiss({"auto_refresh_minutes": new_minutes})
+        sync_field = self.query_one("#cf_sync_on_refresh", CycleField)
+        new_sync = sync_field.current_value == "yes"
+        self.dismiss({"auto_refresh_minutes": new_minutes, "sync_on_refresh": new_sync})
 
     @on(Button.Pressed, "#btn_settings_cancel")
     def cancel(self):
@@ -1656,6 +1667,40 @@ class SettingsScreen(ModalScreen):
 
     def action_cancel(self):
         self.dismiss(None)
+
+
+class SyncConflictScreen(ModalScreen):
+    """Modal dialog shown when ait sync detects merge conflicts."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(self, conflicted_files: list[str]):
+        super().__init__()
+        self.conflicted_files = conflicted_files
+
+    def compose(self):
+        file_list = "\n".join(f"  - {f}" for f in self.conflicted_files)
+        with Container(id="dep_picker_dialog"):
+            yield Label("Sync Conflict Detected", id="dep_picker_title")
+            yield Label(
+                f"Conflicts between local and remote task data:\n\n{file_list}\n\n"
+                "Open interactive terminal to resolve?",
+                id="commit_files",
+            )
+            with Horizontal(id="detail_buttons"):
+                yield Button("Resolve Interactively", variant="warning", id="btn_sync_resolve")
+                yield Button("Dismiss", variant="default", id="btn_sync_dismiss")
+
+    @on(Button.Pressed, "#btn_sync_resolve")
+    def resolve(self):
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#btn_sync_dismiss")
+    def dismiss_dialog(self):
+        self.dismiss(False)
+
+    def action_cancel(self):
+        self.dismiss(False)
 
 
 class ColumnSelectItem(Static):
@@ -1735,6 +1780,11 @@ class KanbanCommandProvider(Provider):
             command=app.action_open_settings,
             help="Configure board settings (auto-refresh interval)",
         )
+        yield DiscoveryHit(
+            display="Sync with Remote",
+            command=app.action_sync_remote,
+            help="Push local changes and pull remote changes",
+        )
 
     async def search(self, query: str) -> Hits:
         matcher = self.matcher(query)
@@ -1744,6 +1794,7 @@ class KanbanCommandProvider(Provider):
             ("Edit Column", app.action_edit_column, "Edit a column's title and color"),
             ("Delete Column", app.action_delete_column, "Delete a column (tasks move to Unsorted)"),
             ("Settings", app.action_open_settings, "Configure board settings (auto-refresh interval)"),
+            ("Sync with Remote", app.action_sync_remote, "Push local changes and pull remote changes"),
         ]
         for display, callback, help_text in commands:
             score = matcher.match(display)
@@ -1899,6 +1950,7 @@ class KanbanApp(App):
         Binding("shift+down", "move_task_down", "Task Down"),
         Binding("enter", "view_details", "View/Edit"),
         Binding("r", "refresh_board", "Refresh"),
+        Binding("s", "sync_remote", "Sync"),
         # Git Commit (shown conditionally via check_action)
         Binding("c", "commit_selected", "Commit"),
         Binding("C", "commit_all", "Commit All"),
@@ -1910,7 +1962,7 @@ class KanbanApp(App):
         Binding("ctrl+right", "move_col_right", "Move Col >"),
         Binding("ctrl+left", "move_col_left", "< Move Col"),
         # Settings
-        Binding("S", "open_settings", "Settings"),
+        Binding("O", "open_settings", "Options"),
     ]
 
     def __init__(self):
@@ -1978,13 +2030,18 @@ class KanbanApp(App):
         """Called by the timer. Refresh only if no modal is active."""
         if self._modal_is_active():
             return
-        self.action_refresh_board()
+        if self.manager.settings.get("sync_on_refresh", False) and DATA_WORKTREE.exists():
+            self._run_sync(show_notification=False)
+        else:
+            self.action_refresh_board()
 
     def _update_subtitle(self):
         """Update app subtitle to show auto-refresh status."""
         minutes = self.manager.auto_refresh_minutes
+        sync = self.manager.settings.get("sync_on_refresh", False)
         if minutes > 0:
-            self.sub_title = f"Auto-refresh: {minutes}min"
+            suffix = " + sync" if sync else ""
+            self.sub_title = f"Auto-refresh: {minutes}min{suffix}"
         else:
             self.sub_title = "Auto-refresh: off"
 
@@ -2186,6 +2243,75 @@ class KanbanApp(App):
             if shutil.which(term):
                 return term
         return None
+
+    def action_sync_remote(self):
+        """Manually trigger a sync with remote."""
+        if self._modal_is_active():
+            return
+        self._run_sync(show_notification=True)
+
+    @work(exclusive=True)
+    async def _run_sync(self, show_notification: bool = True):
+        """Run ait sync --batch in background and handle the result."""
+        try:
+            result = subprocess.run(
+                ["./aiscripts/aitask_sync.sh", "--batch"],
+                capture_output=True, text=True, timeout=30,
+            )
+            output = result.stdout.strip().splitlines()
+            status_line = output[0] if output else ""
+        except subprocess.TimeoutExpired:
+            if show_notification:
+                self.notify("Sync timed out", severity="warning")
+            return
+        except FileNotFoundError:
+            self.notify("Sync script not found", severity="error")
+            return
+
+        if status_line.startswith("CONFLICT:"):
+            files = status_line[len("CONFLICT:"):].split(",")
+            self.app.call_from_thread(self._show_conflict_dialog, files)
+            return
+        elif status_line == "NO_NETWORK":
+            if show_notification:
+                self.notify("Sync: No network", severity="warning")
+        elif status_line == "NO_REMOTE":
+            if show_notification:
+                self.notify("Sync: No remote configured", severity="warning")
+        elif status_line == "NOTHING":
+            if show_notification:
+                self.notify("Already up to date", severity="information")
+        elif status_line in ("PUSHED", "PULLED", "SYNCED"):
+            if show_notification:
+                self.notify(f"Sync: {status_line.capitalize()}", severity="information")
+        elif status_line.startswith("ERROR:"):
+            msg = status_line[len("ERROR:"):]
+            self.notify(f"Sync error: {msg}", severity="error")
+
+        self.manager.load_tasks()
+        self.refresh_board()
+
+    def _show_conflict_dialog(self, files: list[str]):
+        """Show the conflict resolution dialog (must be called on main thread)."""
+        def on_result(resolve):
+            if resolve:
+                self._run_interactive_sync()
+            else:
+                self.manager.load_tasks()
+                self.refresh_board()
+        self.push_screen(SyncConflictScreen(files), on_result)
+
+    @work(exclusive=True)
+    async def _run_interactive_sync(self):
+        """Launch interactive ait sync in a terminal."""
+        terminal = self._find_terminal()
+        if terminal:
+            subprocess.Popen([terminal, "--", "./ait", "sync"])
+        else:
+            with self.suspend():
+                subprocess.call(["./ait", "sync"])
+            self.manager.load_tasks()
+            self.refresh_board()
 
     @work(exclusive=True)
     async def run_aitask_pick(self, filename):
