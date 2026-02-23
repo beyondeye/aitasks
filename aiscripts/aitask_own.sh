@@ -30,6 +30,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+source "$SCRIPT_DIR/lib/task_utils.sh"
 
 # --- Configuration ---
 TASK_ID=""
@@ -117,7 +118,7 @@ parse_args() {
 
 # --- Sync with remote (best-effort) ---
 sync_remote() {
-    git pull --ff-only --quiet 2>/dev/null || true
+    task_sync
     "$SCRIPT_DIR/aitask_lock.sh" --cleanup 2>/dev/null || true
 }
 
@@ -183,19 +184,17 @@ update_task_status() {
 commit_and_push() {
     local task_id="$1"
 
-    git add aitasks/
+    task_git add aitasks/
 
     # Only commit if there are staged changes (idempotent re-run safety)
-    if git diff --cached --quiet; then
+    if task_git diff --cached --quiet; then
         info "No changes to commit (task may already be in Implementing status)"
     else
-        git commit -m "ait: Start work on t${task_id}: set status to Implementing" --quiet
+        task_git commit -m "ait: Start work on t${task_id}: set status to Implementing" --quiet
     fi
 
     # Push is best-effort — network failure should not block the workflow
-    if ! git push --quiet 2>/dev/null; then
-        warn "git push failed (network issue?). Changes committed locally. Push manually later."
-    fi
+    task_push
 }
 
 # --- Main ---

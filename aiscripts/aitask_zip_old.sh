@@ -8,6 +8,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+source "$SCRIPT_DIR/lib/task_utils.sh"
 
 # --- Constants ---
 TASK_ARCHIVED_DIR="aitasks/archived"
@@ -386,8 +387,8 @@ main() {
     if ! $NO_COMMIT; then
         verbose "Committing changes to git..."
 
-        git add "$TASK_ARCHIVE" "$PLAN_ARCHIVE" 2>/dev/null || true
-        git add -u "$TASK_ARCHIVED_DIR/" "$PLAN_ARCHIVED_DIR/" 2>/dev/null || true
+        task_git add "$TASK_ARCHIVE" "$PLAN_ARCHIVE" 2>/dev/null || true
+        task_git add -u "$TASK_ARCHIVED_DIR/" "$PLAN_ARCHIVED_DIR/" 2>/dev/null || true
 
         local commit_msg="ait: Archive old task and plan files
 
@@ -405,7 +406,7 @@ Skipped (still relevant):"
 - Dependencies: $unique_deps"
         fi
 
-        git commit -m "$commit_msg" 2>/dev/null || warn "Nothing to commit (no changes detected)"
+        task_git commit -m "$commit_msg" 2>/dev/null || warn "Nothing to commit (no changes detected)"
     else
         info "Skipping git commit (--no-commit)"
     fi

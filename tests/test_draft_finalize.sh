@@ -101,6 +101,7 @@ setup_draft_project() {
         cp "$PROJECT_DIR/aiscripts/aitask_update.sh" aiscripts/
         cp "$PROJECT_DIR/aiscripts/aitask_ls.sh" aiscripts/
         cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
+        cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
         chmod +x aiscripts/aitask_create.sh aiscripts/aitask_claim_id.sh aiscripts/aitask_update.sh aiscripts/aitask_ls.sh
 
         # Create task types file

@@ -134,6 +134,7 @@ setup_test_env() {
         mkdir -p aiscripts/lib
         cp "$PROJECT_DIR/aiscripts/aitask_zip_old.sh" aiscripts/
         cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
+        cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
 
         # Initial commit
         git add -A

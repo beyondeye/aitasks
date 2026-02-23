@@ -233,18 +233,18 @@ archive_parent() {
 
     # Git staging and commit
     if [[ "$DRY_RUN" != true ]]; then
-        git add "$ARCHIVED_DIR/$task_basename"
+        task_git add "$ARCHIVED_DIR/$task_basename"
         if [[ -n "$plan_file" ]]; then
             local plan_basename
             plan_basename=$(basename "$plan_file")
-            git add "$ARCHIVED_PLAN_DIR/$plan_basename" 2>/dev/null || true
+            task_git add "$ARCHIVED_PLAN_DIR/$plan_basename" 2>/dev/null || true
         fi
-        git add -u "$TASK_DIR/" "$PLAN_DIR/" 2>/dev/null || true
+        task_git add -u "$TASK_DIR/" "$PLAN_DIR/" 2>/dev/null || true
 
         if [[ "$NO_COMMIT" != true ]]; then
-            git commit -m "ait: Archive completed t${task_num} task and plan files" --quiet
+            task_git commit -m "ait: Archive completed t${task_num} task and plan files" --quiet
             local commit_hash
-            commit_hash=$(git rev-parse --short HEAD)
+            commit_hash=$(task_git rev-parse --short HEAD)
             echo "COMMITTED:$commit_hash"
         fi
     fi
@@ -304,9 +304,9 @@ handle_folded_tasks() {
         fi
 
         # Delete folded task file and plan
-        git rm "$folded_file" --quiet
+        task_git rm "$folded_file" --quiet
         # shellcheck disable=SC2086
-        git rm "$PLAN_DIR"/p${folded_id}_*.md --quiet 2>/dev/null || true
+        task_git rm "$PLAN_DIR"/p${folded_id}_*.md --quiet 2>/dev/null || true
         echo "FOLDED_DELETED:$folded_id:$folded_file"
 
         # Release lock for folded task
@@ -417,27 +417,27 @@ archive_child() {
     # Git staging and commit
     if [[ "$DRY_RUN" != true ]]; then
         # Stage archived child files
-        git add "$child_archive_dir/$child_task_basename"
+        task_git add "$child_archive_dir/$child_task_basename"
         if [[ -n "${child_plan_file:-}" ]]; then
             local child_plan_basename
             child_plan_basename=$(basename "$child_plan_file")
-            git add "$ARCHIVED_PLAN_DIR/p${parent_num}/$child_plan_basename" 2>/dev/null || true
+            task_git add "$ARCHIVED_PLAN_DIR/p${parent_num}/$child_plan_basename" 2>/dev/null || true
         fi
 
         # Stage updates to active directories
-        git add -u "$TASK_DIR/t${parent_num}/" 2>/dev/null || true
-        git add -u "$PLAN_DIR/p${parent_num}/" 2>/dev/null || true
-        git add -u "$TASK_DIR/" "$PLAN_DIR/" 2>/dev/null || true
+        task_git add -u "$TASK_DIR/t${parent_num}/" 2>/dev/null || true
+        task_git add -u "$PLAN_DIR/p${parent_num}/" 2>/dev/null || true
+        task_git add -u "$TASK_DIR/" "$PLAN_DIR/" 2>/dev/null || true
 
         # Stage parent archival if applicable
         if [[ "$parent_archived" == true ]]; then
-            git add "$ARCHIVED_DIR/$parent_task_basename" 2>/dev/null || true
+            task_git add "$ARCHIVED_DIR/$parent_task_basename" 2>/dev/null || true
             local parent_plan_file
             parent_plan_file=$(resolve_plan_file "$parent_num")
             if [[ -n "$parent_plan_file" ]]; then
                 local parent_plan_basename
                 parent_plan_basename=$(basename "$parent_plan_file")
-                git add "$ARCHIVED_PLAN_DIR/$parent_plan_basename" 2>/dev/null || true
+                task_git add "$ARCHIVED_PLAN_DIR/$parent_plan_basename" 2>/dev/null || true
             fi
         fi
 
@@ -446,9 +446,9 @@ archive_child() {
             if [[ "$parent_archived" == true ]]; then
                 commit_msg="ait: Archive completed t${task_id} and parent t${parent_num} task and plan files"
             fi
-            git commit -m "$commit_msg" --quiet
+            task_git commit -m "$commit_msg" --quiet
             local commit_hash
-            commit_hash=$(git rev-parse --short HEAD)
+            commit_hash=$(task_git rev-parse --short HEAD)
             echo "COMMITTED:$commit_hash"
         fi
     fi

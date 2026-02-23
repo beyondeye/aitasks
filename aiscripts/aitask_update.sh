@@ -8,6 +8,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+source "$SCRIPT_DIR/lib/task_utils.sh"
 
 TASK_DIR="aitasks"
 LABELS_FILE="aitasks/metadata/labels.txt"
@@ -1147,10 +1148,10 @@ run_interactive_mode() {
     if [[ "$commit_choice" != "n" && "$commit_choice" != "N" ]]; then
         local humanized_name
         humanized_name=$(basename "$final_path" .md | sed 's/^t[0-9]*_\([0-9]*_\)\?//' | tr '_' ' ')
-        git add "$final_path"
-        git commit -m "ait: Update task t${task_num}: ${humanized_name}"
+        task_git add "$final_path"
+        task_git commit -m "ait: Update task t${task_num}: ${humanized_name}"
         local commit_hash
-        commit_hash=$(git rev-parse --short HEAD)
+        commit_hash=$(task_git rev-parse --short HEAD)
         success "Committed: $commit_hash"
     fi
 }
@@ -1320,8 +1321,8 @@ run_batch_mode() {
     if [[ "$BATCH_COMMIT" == true ]]; then
         local humanized_name
         humanized_name=$(basename "$final_path" .md | sed 's/^t[0-9]*_\([0-9]*_\)\?//' | tr '_' ' ')
-        git add "$final_path"
-        git commit -m "ait: Update task t${BATCH_TASK_NUM}: ${humanized_name}"
+        task_git add "$final_path"
+        task_git commit -m "ait: Update task t${BATCH_TASK_NUM}: ${humanized_name}"
     fi
 
     # Output
