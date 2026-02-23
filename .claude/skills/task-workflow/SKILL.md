@@ -168,7 +168,7 @@ ls aiplans/p<taskid>_*.md 2>/dev/null
 
 **If a plan file exists**, read it.
 
-**Profile check:** If the active profile has `plan_preference` set:
+**Profile check:** If the active profile has `plan_preference` set (or `plan_preference_child` for child tasks — `plan_preference_child` takes priority when the current task is a child task):
 - If `"use_current"`: Skip to the **Checkpoint** at the end of Step 6. Display: "Profile '\<name\>': using existing plan"
 - If `"verify"`: Enter verification mode (step 6.1). Display: "Profile '\<name\>': verifying existing plan"
 - If `"create_new"`: Proceed with step 6.1 as normal. Display: "Profile '\<name\>': creating plan from scratch"
@@ -220,8 +220,26 @@ While in plan mode:
       ./aiscripts/aitask_update.sh --batch <parent_num> --status Ready --assigned-to ""
       ```
       The `aitask_ls.sh` script will automatically display the parent as "Has children" because it has pending `children_to_implement`. Do NOT manually set the parent status to "Blocked".
-    - After creation, ask which child to start with
-    - Restart the pick process with `/aitask-pick <parent>_1`
+    - **Write implementation plans for ALL child tasks** before proceeding:
+      - For each child task created, write a plan file to `aiplans/p<parent>/p<parent>_<child>_<name>.md`
+      - Use the child plan file naming and metadata header conventions from the **Save Plan to External File** section below
+      - Each plan should leverage the codebase exploration already done during the parent planning phase
+      - Plans do not need to go through `EnterPlanMode`/`ExitPlanMode` — write them directly as files since the overall parent plan was already approved
+      - Commit all child task files and plan files together:
+        ```bash
+        mkdir -p aiplans/p<parent>
+        git add aitasks/t<parent>/ aiplans/p<parent>/
+        git commit -m "ait: Create t<parent> child tasks and plans"
+        ```
+    - **Child task checkpoint (ALWAYS interactive — ignores `post_plan_action` profile setting):**
+      Use `AskUserQuestion`:
+      - Question: "Created <N> child tasks with implementation plans. How would you like to proceed?"
+      - Header: "Children"
+      - Options:
+        - "Start first child" (description: "Continue to pick and implement the first child task")
+        - "Stop here" (description: "All child tasks and plans are written — end this session and pick children later in fresh contexts")
+      - **If "Start first child":** Restart the pick process with `/aitask-pick <parent>_1`
+      - **If "Stop here":** End the workflow. Display: "Child tasks and plans written to `aiplans/p<parent>/`. Pick individual children later with `/aitask-pick <parent>_<N>`."
 - Create a detailed implementation plan
 - Include a reference to **Step 9 (Post-Implementation)** in the plan for the cleanup, archival, and merge steps
 - Use `ExitPlanMode` when ready for user approval
@@ -615,6 +633,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `create_worktree` | bool | no | `true` = create worktree; `false` = current branch | Step 5 |
 | `base_branch` | string | no | Branch name (e.g., `"main"`) | Step 5 |
 | `plan_preference` | string | no | `"use_current"`, `"verify"`, or `"create_new"` | Step 6.0 |
+| `plan_preference_child` | string | no | Same values as `plan_preference`; overrides `plan_preference` for child tasks. Defaults to `plan_preference` if omitted | Step 6.0 |
 | `post_plan_action` | string | no | `"start_implementation"` = skip to impl; omit = ask | Step 6 checkpoint |
 
 Only `name` and `description` are required. Omitting any other key means the corresponding question is asked interactively.
