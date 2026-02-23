@@ -1,0 +1,432 @@
+---
+name: aitask-pick-remote
+description: Pick and implement a task in remote/non-interactive mode. All decisions from execution profile - no AskUserQuestion calls.
+---
+
+Base directory for this skill: /home/ddt/Work/aitasks/.claude/skills/aitask-pick-remote
+
+## Overview
+
+This skill is a fully autonomous version of `aitask-pick` + `task-workflow` designed for environments where `AskUserQuestion` does not work (e.g., Claude Code Web). It combines task selection and implementation into a single self-contained workflow with **zero interactive prompts**. All decisions are driven by an execution profile.
+
+**Key differences from `aitask-pick`:**
+- Task ID is a **required** argument (no interactive browsing/selection)
+- No `AskUserQuestion` calls anywhere in the workflow
+- No worktree/branch management (always works on current branch)
+- Auto-commits after implementation (no user review loop)
+- Profile is required and auto-selected (not prompted)
+
+## Arguments
+
+**Required:** Task ID (first positional argument)
+- Format 1: Parent task number (e.g., `42`)
+- Format 2: Child task ID (e.g., `42_2`)
+
+**IMPORTANT:** This skill will NOT work without a task ID argument. If invoked without one, display an error and abort.
+
+## Workflow
+
+### Step 1: Load Execution Profile
+
+Check for available execution profiles:
+
+```bash
+ls aitasks/metadata/profiles/*.yaml 2>/dev/null
+```
+
+**If no profiles found:** Display error: "Remote workflow requires an execution profile. Create one at `aitasks/metadata/profiles/remote.yaml`." Abort.
+
+**Profile auto-selection (no prompt):**
+- If a profile named `remote` exists: use it
+- If exactly one profile exists: use it
+- If multiple profiles exist but none named `remote`: use the first one alphabetically
+
+Display: "Remote mode: Using profile '\<name\>' (\<description\>)"
+
+Read and store all profile fields in memory for use throughout remaining steps.
+
+**Error handling:** If the selected profile file has invalid YAML, display error "Profile '\<filename\>' has invalid format" and abort.
+
+### Step 2: Resolve Task File
+
+Parse the task ID argument:
+
+**Format 1: Parent task (e.g., `42`):**
+- Find the matching task file:
+  ```bash
+  ls aitasks/t<number>_*.md 2>/dev/null
+  ```
+- If not found: display error "Task t\<N\> not found" and abort.
+- Check if it has children:
+  ```bash
+  ls aitasks/t<number>/ 2>/dev/null
+  ```
+  - If it has children: display error "Task t\<N\> has child subtasks. Specify a child task ID (e.g., `\<N\>_1`) instead." Abort.
+  - If no children: proceed with this task
+
+**Format 2: Child task (e.g., `42_2`):**
+- Parse as child task ID (parent=42, child=2)
+- Find the matching child task file:
+  ```bash
+  ls aitasks/t<parent>/t<parent>_<child>_*.md 2>/dev/null
+  ```
+- If not found: display error "Child task t\<parent\>_\<child\> not found" and abort.
+- Set this as the selected task
+- Read the task file and parent task file for context
+- **Gather sibling context:**
+  - Archived sibling plan files from `aiplans/archived/p<parent>/` (primary reference for completed siblings)
+  - Archived sibling task files from `aitasks/archived/t<parent>/` (fallback for siblings without archived plans)
+  - Pending sibling task files from `aitasks/t<parent>/` and their plans from `aiplans/p<parent>/`
+
+Display: "Selected task: \<task_filename\>" with a brief 1-2 sentence summary.
+
+Set context variables:
+- **task_file**: Path to the selected task file
+- **task_id**: Task identifier (e.g., `42` or `42_2`)
+- **task_name**: Filename stem (e.g., `t42_implement_auth` or `t42_2_add_login`)
+- **is_child**: `true` if child task, `false` otherwise
+- **parent_id**: Parent task number if child, null otherwise
+- **parent_task_file**: Path to parent task file if child, null otherwise
+- **previous_status**: The task's current status (before modification)
+
+### Step 3: Sync with Remote (Best-effort)
+
+```bash
+./aiscripts/aitask_own.sh --sync
+```
+
+Non-blocking — if it fails (e.g., no network, merge conflicts), continue silently.
+
+### Step 4: Task Status Checks
+
+**Check 1 — Done but unarchived task:**
+- Read the task file's frontmatter `status` field
+- If status is `Done`:
+  - Read `done_task_action` from profile (default: `archive`)
+  - If `archive`: display "Profile: auto-archiving Done task t\<N\>". Skip to **Step 10** (Archive).
+  - If `skip`: display "Task t\<N\> has status Done, skipping per profile." End workflow.
+
+**Check 2 — Orphaned parent task:**
+- Check if the task file's frontmatter contains `children_to_implement: []` (empty list)
+- If empty, check for archived children:
+  ```bash
+  ls aitasks/archived/t<number>/ 2>/dev/null
+  ```
+- If archived children exist:
+  - Read `orphan_parent_action` from profile (default: `archive`)
+  - If `archive`: display "Profile: auto-archiving orphaned parent t\<N\>". Skip to **Step 10** (Archive).
+  - If `skip`: display "Orphaned parent t\<N\>, skipping per profile." End workflow.
+
+If neither check triggers, proceed to Step 5.
+
+### Step 5: Assign Task
+
+- Read `default_email` from profile:
+  - If `"first"`: read `aitasks/metadata/emails.txt` and use the first email address. If file is empty or missing, proceed without email.
+  - If a literal email address: use that directly.
+  - If not set in profile: proceed without email.
+
+- Claim task ownership:
+
+  If email was resolved:
+  ```bash
+  ./aiscripts/aitask_own.sh <task_num> --email "<email>"
+  ```
+  If no email:
+  ```bash
+  ./aiscripts/aitask_own.sh <task_num>
+  ```
+
+- **Parse the script output:**
+  - `OWNED:<task_id>` — Success. Display: "Task t\<N\> claimed (email: \<email\>)". Proceed to Step 6.
+  - `LOCK_FAILED:<owner>` — Display error: "Task t\<N\> is locked by \<owner\>. Pick a different task." Abort.
+  - `LOCK_INFRA_MISSING` — Display error: "Lock infrastructure not initialized. Run `ait setup`." Abort.
+
+  If the script fails entirely (non-zero exit without structured output), display the error and abort.
+
+### Step 6: Environment Setup
+
+Remote mode always works on the current branch. No worktree or branch management.
+
+Display: "Working on current branch (remote mode)"
+
+### Step 7: Create Implementation Plan
+
+#### 7.0: Check for Existing Plan
+
+Check if a plan file already exists:
+- For parent tasks: `aiplans/p<taskid>_*.md`
+- For child tasks: `aiplans/p<parent>/p<parent>_<child>_*.md`
+
+```bash
+ls aiplans/p<taskid>_*.md 2>/dev/null
+```
+
+**If a plan file exists**, read it.
+
+- Read `plan_preference` from profile (default: `use_current`):
+  - `use_current`: Display "Profile: using existing plan". Skip to **Step 7 Checkpoint**.
+  - `verify`: Display "Profile: verifying existing plan". Enter plan mode (Step 7.1), starting by reading and verifying the existing plan.
+  - `create_new`: Display "Profile: creating plan from scratch". Enter plan mode (Step 7.1).
+
+**If no plan file exists**, proceed to Step 7.1.
+
+#### 7.1: Planning
+
+Use the `EnterPlanMode` tool to enter Claude Code's plan mode.
+
+**If entering from the "verify" path:** Start by reading the existing plan file. Explore the current codebase to check if the plan's assumptions, file paths, and approach are still valid. Update the plan if needed.
+
+**For child tasks:** Include context links (in priority order):
+- Parent task file: `aitasks/t<parent>_<name>.md`
+- Archived sibling plan files: `aiplans/archived/p<parent>/p<parent>_*_*.md`
+- Archived sibling task files (fallback): `aitasks/archived/t<parent>/t<parent>_*_*.md`
+- Pending sibling task files: `aitasks/t<parent>/t<parent>_*_*.md`
+- Pending sibling plan files: `aiplans/p<parent>/p<parent>_*_*.md`
+
+While in plan mode:
+
+- Explore the codebase to understand the relevant architecture
+- **Folded Tasks Note:** If the task has a `folded_tasks` frontmatter field, the task description already contains all relevant content from the folded tasks. No need to read the original folded task files.
+- **Complexity:** Always implement as a single task (do NOT break into child subtasks — child creation requires interactive prompts not available in remote mode)
+- **Testing requirement:** When the task involves code changes (not documentation/config-only tasks), the implementation plan MUST include a "Verification" section specifying:
+  - What automated tests to write or update
+  - What existing tests to run
+  - Expected outcomes
+  - For non-code tasks (documentation, config, skill files), a simple verification step (e.g., lint check, visual review of output) is sufficient
+- Create a detailed implementation plan
+- Include a reference to **Step 10 (Archive)** for post-implementation cleanup
+- Use `ExitPlanMode` when ready for user approval
+
+#### Save Plan to External File
+
+After the user approves the plan via `ExitPlanMode`, save it.
+
+**File naming convention:**
+
+For parent tasks:
+- Location: `aiplans/`
+- Filename: Replace `t` prefix with `p`
+- Example: `t16_implement_auth.md` → `aiplans/p16_implement_auth.md`
+
+For child tasks:
+- Location: `aiplans/p<parent>/`
+- Filename: Replace `t` prefix with `p`
+- Example: `t16_2_add_login.md` → `aiplans/p16/p16_2_add_login.md`
+
+**Required metadata header for parent tasks:**
+```markdown
+---
+Task: t16_implement_auth.md
+Branch: (current branch, remote mode)
+---
+```
+
+**Required metadata header for child tasks:**
+```markdown
+---
+Task: t16_2_add_login.md
+Parent Task: aitasks/t16_implement_auth.md
+Sibling Tasks: aitasks/t16/t16_1_*.md, aitasks/t16/t16_3_*.md
+Archived Sibling Plans: aiplans/archived/p16/p16_*_*.md
+Branch: (current branch, remote mode)
+---
+```
+
+#### Step 7 Checkpoint
+
+Read `post_plan_action` from profile (default: `start_implementation`).
+
+- `start_implementation`: Display "Profile: proceeding to implementation". Proceed to Step 8.
+- If not set: proceed to Step 8 (default behavior for remote is always to continue).
+
+### Step 8: Implement
+
+Follow the approved plan, working in the current directory.
+
+Update the external plan file as you progress:
+- Mark steps as completed
+- Note any deviations or changes from the original plan
+- Record issues encountered during implementation
+
+**Testing (when applicable):**
+- After implementation is complete, run all relevant automated tests if the task involves code changes
+- If tests fail, attempt to fix the issues before proceeding to Step 9
+- If tests cannot be fixed after reasonable attempts, trigger the **Abort Procedure** instead of committing broken code
+- If no tests are applicable (documentation, config, skill file tasks), proceed directly to Step 9
+
+### Step 9: Auto-Commit
+
+Read `review_action` from profile (default: `commit`).
+
+1. **Show change summary:**
+   ```bash
+   git status
+   git diff --stat
+   ```
+
+2. **Check for changes:**
+   ```bash
+   git status --porcelain
+   ```
+   If no changes detected, display warning "No changes detected after implementation" and skip to Step 10.
+
+3. **Consolidate the plan file:**
+   - Read the current plan file from `aiplans/`
+   - Review `git diff --stat` against the plan
+   - Add or update a "Final Implementation Notes" section:
+     ```markdown
+     ## Final Implementation Notes
+     - **Actual work done:** <summary of what was actually implemented vs planned>
+     - **Deviations from plan:** <any changes from the original approach and why>
+     - **Issues encountered:** <problems found and how they were resolved>
+     - **Key decisions:** <technical decisions made during implementation>
+     - **Test results:** <summary of automated tests run and their outcomes>
+     - **Notes for sibling tasks:** <patterns, gotchas, shared code> (include if child task)
+     ```
+   - **IMPORTANT for child tasks:** The plan file will be archived and serve as the primary reference for subsequent sibling tasks. Ensure the Final Implementation Notes are comprehensive.
+
+4. **Stage and commit:**
+   - Stage all implementation changes including the updated plan file
+   - **Commit message format:** `<issue_type>: <description> (t<task_id>)` where `<issue_type>` is from the task's frontmatter. Examples: `feature: Add channel settings (t16)`, `bug: Fix login validation (t16_2)`
+   - Display: "Changes committed: \<commit_hash\>"
+
+5. Proceed to Step 10.
+
+### Step 10: Archive and Push
+
+**For child tasks — verify plan completeness:**
+- Read the plan file
+- Verify it contains a "Final Implementation Notes" section with comprehensive details
+- If missing or incomplete, add/update it now
+
+**Run the archive script:**
+
+For parent tasks:
+```bash
+./aiscripts/aitask_archive.sh <task_num>
+```
+
+For child tasks:
+```bash
+./aiscripts/aitask_archive.sh <parent>_<child>
+```
+
+**Parse structured output and handle without prompts:**
+
+Read `issue_action` from profile (default: `close_with_notes`).
+
+- `ISSUE:<task_num>:<issue_url>` — Handle based on `issue_action`:
+  - `close_with_notes`:
+    ```bash
+    ./aiscripts/aitask_issue_update.sh --close <task_num>
+    ```
+  - `comment_only`:
+    ```bash
+    ./aiscripts/aitask_issue_update.sh <task_num>
+    ```
+  - `close_silent`:
+    ```bash
+    ./aiscripts/aitask_issue_update.sh --close --no-comment <task_num>
+    ```
+  - `skip`: do nothing
+
+- `PARENT_ISSUE:<task_num>:<url>` — Same handling as `ISSUE` using `issue_action`
+
+- `FOLDED_ISSUE:<folded_task_num>:<issue_url>` — Same handling, but use the primary `task_id` for the script call:
+  - `close_with_notes`:
+    ```bash
+    ./aiscripts/aitask_issue_update.sh --issue-url "<issue_url>" --close <task_id>
+    ```
+  - `comment_only`:
+    ```bash
+    ./aiscripts/aitask_issue_update.sh --issue-url "<issue_url>" <task_id>
+    ```
+  - `close_silent`:
+    ```bash
+    ./aiscripts/aitask_issue_update.sh --issue-url "<issue_url>" --close --no-comment <task_id>
+    ```
+  - `skip`: do nothing
+
+- `FOLDED_WARNING:<task_num>:<status>` — Display warning: "Folded task t\<N\> has status '\<status\>' — skipping deletion."
+
+- `PARENT_ARCHIVED:<path>` — Display: "All child tasks complete! Parent task also archived."
+
+- `COMMITTED:<hash>` — Display: "Archival committed: \<hash\>"
+
+**Push:**
+```bash
+git push
+```
+
+Display: "Task t\<task_id\> completed and archived."
+
+### Abort Procedure
+
+Triggered by errors after Step 5 (task was claimed). Not triggered by user interaction.
+
+1. Read `abort_plan_action` from profile (default: `keep`):
+   - `keep`: leave plan file in `aiplans/`
+   - `delete`: remove plan file
+
+2. Read `abort_revert_status` from profile (default: `Ready`)
+
+3. Release lock:
+   ```bash
+   ./aiscripts/aitask_lock.sh --unlock <task_num> 2>/dev/null || true
+   ```
+
+4. Revert status:
+   ```bash
+   ./aiscripts/aitask_update.sh --batch <task_num> --status <status> --assigned-to ""
+   ```
+
+5. Commit:
+   ```bash
+   git add aitasks/
+   git commit -m "ait: Abort t<N>: revert status to <status>"
+   ```
+
+6. Display: "Task t\<N\> aborted and reverted to '\<status\>'."
+
+---
+
+## Extended Profile Schema
+
+The remote skill uses the standard profile format from `aitasks/metadata/profiles/` with additional fields. Fields from the standard schema that are recognized:
+
+| Key | Type | Default | Values | Purpose |
+|-----|------|---------|--------|---------|
+| `name` | string | (required) | Display name | Shown during profile load |
+| `description` | string | (required) | Description text | Shown during profile load |
+| `skip_task_confirmation` | bool | `true` | (hardcoded, not used) | Always skipped in remote mode |
+| `default_email` | string | — | `"first"` or email address | Step 5 email assignment |
+| `plan_preference` | string | `use_current` | `"use_current"`, `"verify"`, `"create_new"` | Step 7.0 existing plan handling |
+| `post_plan_action` | string | `start_implementation` | `"start_implementation"` | Step 7 checkpoint |
+
+**Remote-specific fields** (only recognized by this skill):
+
+| Key | Type | Default | Values | Purpose |
+|-----|------|---------|--------|---------|
+| `done_task_action` | string | `archive` | `"archive"`, `"skip"` | Step 4: Done task handling |
+| `orphan_parent_action` | string | `archive` | `"archive"`, `"skip"` | Step 4: Orphan parent handling |
+| `complexity_action` | string | `single_task` | `"single_task"` | Always single task (no child creation in remote) |
+| `review_action` | string | `commit` | `"commit"` | Step 9: Auto-commit behavior |
+| `issue_action` | string | `close_with_notes` | `"skip"`, `"close_with_notes"`, `"comment_only"`, `"close_silent"` | Step 10: Issue handling |
+| `abort_plan_action` | string | `keep` | `"keep"`, `"delete"` | Abort: Plan file action |
+| `abort_revert_status` | string | `Ready` | `"Ready"`, `"Editing"` | Abort: Revert status |
+
+Fields from the standard schema that are **ignored** (not applicable in remote mode): `run_location`, `create_worktree`, `base_branch`.
+
+---
+
+## Notes
+
+- This skill has **zero `AskUserQuestion` calls** — designed for environments where that tool does not work (e.g., Claude Code Web)
+- `EnterPlanMode`/`ExitPlanMode` are still used for plan creation (they are NOT `AskUserQuestion`)
+- Parent tasks with pending children must be addressed by specifying a child task ID directly
+- No worktree or branch management — always works on the current branch in the current directory
+- All profile fields have sensible defaults — the profile only needs `name` and `description` to function, though providing all fields is recommended
+- The commit message format follows the project convention: `<issue_type>: <description> (t<task_id>)` for implementation commits, `ait:` prefix for administrative commits (archival, abort)
+- For the standard interactive workflow, use `aitask-pick` instead
+- Profile files are stored in `aitasks/metadata/profiles/` in YAML format

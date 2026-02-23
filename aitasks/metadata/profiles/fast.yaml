@@ -2,7 +2,6 @@ name: fast
 description: Minimal prompts - skip confirmations, jump to implementation
 skip_task_confirmation: true
 default_email: first
-run_location: locally
 create_worktree: false
 plan_preference: use_current
 post_plan_action: start_implementation

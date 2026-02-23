@@ -112,24 +112,16 @@ If `active_profile` is null (either because no profile was selected by the calli
 
 ### Step 5: Environment and Branch Setup
 
-- **Profile check:** If the active profile has `run_location` set:
-  - Use the value directly (`"locally"` or `"remotely"`). Display: "Profile '\<name\>': running \<value\>"
+> **Note:** For fully autonomous remote workflows (Claude Code Web), use the `aitask-pick-remote` skill instead — it skips all environment setup and always works on the current branch.
+
+- **Profile check:** If the active profile has `create_worktree` set:
+  - If `true`: Create worktree. Display: "Profile '\<name\>': creating worktree"
+  - If `false`: Work on current branch. Display: "Profile '\<name\>': working on current branch"
   - Skip the AskUserQuestion below
 
   Otherwise, use `AskUserQuestion` to ask:
-  - "Are you running Claude Code locally or remotely?"
-  - Options: "Locally" / "Remotely"
-
-- If running **locally**:
-
-  - **Profile check:** If the active profile has `create_worktree` set:
-    - If `true`: Create worktree. Display: "Profile '\<name\>': creating worktree"
-    - If `false`: Work on current branch. Display: "Profile '\<name\>': working on current branch"
-    - Skip the AskUserQuestion below
-
-    Otherwise, use `AskUserQuestion` to ask:
-    - "Do you want to create a separate branch and worktree for this task?"
-    - Options: "No, work on current branch" (default, first option) / "Yes, create worktree (recommended for complex features or when working in parallel on multiple features)"
+  - "Do you want to create a separate branch and worktree for this task?"
+  - Options: "No, work on current branch" (default, first option) / "Yes, create worktree (recommended for complex features or when working in parallel on multiple features)"
 
 **If Yes:**
 
@@ -159,7 +151,7 @@ If `active_profile` is null (either because no profile was selected by the calli
 
 - Work in the `aiwork/<task_name>/` directory for implementation
 
-**If No or running remotely:**
+**If No:**
 - Work directly on the current branch in the current directory
 
 ### Step 6: Create Implementation Plan
@@ -620,13 +612,14 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `description` | string | yes | Description shown below profile name during selection | Step 0a |
 | `skip_task_confirmation` | bool | no | `true` = auto-confirm task; omit or `false` = ask | Step 0b |
 | `default_email` | string | no | `"first"` = first from emails.txt; or a literal email address; omit = ask | Step 4 |
-| `run_location` | string | no | `"locally"` or `"remotely"` | Step 5.1 |
-| `create_worktree` | bool | no | `true` = create worktree; `false` = current branch | Step 5.2 |
-| `base_branch` | string | no | Branch name (e.g., `"main"`) | Step 5.3 |
+| `create_worktree` | bool | no | `true` = create worktree; `false` = current branch | Step 5 |
+| `base_branch` | string | no | Branch name (e.g., `"main"`) | Step 5 |
 | `plan_preference` | string | no | `"use_current"`, `"verify"`, or `"create_new"` | Step 6.0 |
 | `post_plan_action` | string | no | `"start_implementation"` = skip to impl; omit = ask | Step 6 checkpoint |
 
 Only `name` and `description` are required. Omitting any other key means the corresponding question is asked interactively.
+
+> **Remote-specific profile fields** (e.g., `done_task_action`, `review_action`, `issue_action`) are documented in the `aitask-pick-remote` skill. They are only recognized by that skill and ignored by this workflow.
 
 #### Customizing Execution Profiles
 
@@ -642,7 +635,6 @@ name: worktree
 description: Like fast but creates a worktree on main for each task
 skip_task_confirmation: true
 default_email: first
-run_location: locally
 create_worktree: true
 base_branch: main
 plan_preference: use_current
