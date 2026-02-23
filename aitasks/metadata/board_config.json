@@ -22,6 +22,6 @@
     "backlog"
   ],
   "settings": {
-    "auto_refresh_minutes": 1
+    "auto_refresh_minutes": 5
   }
 }
