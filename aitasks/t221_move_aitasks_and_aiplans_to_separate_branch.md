@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: []
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-23 10:08
-updated_at: 2026-02-23 10:08
+updated_at: 2026-02-23 10:10
 ---
 
 Currently aitasks and aiplans directory are part of the main branch. this make running all skills and bash scripts that work with aitasks and aiplans data simpler. but this is causing several problems 1) when working on multiple PCs we need to call git pull to get the updated lists of aitasks, we possible merge conflicts and need to rebase when the changes to tasks are actually independent from changes to actual code 2) all the commits when updating tasks, creating tesks in the main branch are "noise" when trying to look at the actual code commits with implementation of tasks: we solved this but adding the ait: prefix to commit messages but still this is a little bit messy.
