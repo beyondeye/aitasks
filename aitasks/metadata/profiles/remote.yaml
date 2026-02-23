@@ -1,0 +1,13 @@
+name: remote
+description: Fully autonomous workflow for Claude Code Web - no interactive prompts
+skip_task_confirmation: true
+default_email: first
+plan_preference: use_current
+post_plan_action: start_implementation
+done_task_action: archive
+orphan_parent_action: archive
+complexity_action: single_task
+review_action: commit
+issue_action: close_with_notes
+abort_plan_action: keep
+abort_revert_status: Ready
