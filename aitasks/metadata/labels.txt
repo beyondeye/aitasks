@@ -19,6 +19,8 @@ install_scripts
 macos
 release_scripts
 remove_support
+script-performance
 statistics
+stats_ui
 task_workflow
 web_site
