@@ -475,6 +475,7 @@ finalize_draft() {
         local parent_file
         parent_file=$(get_parent_task_file "$parent_num")
         [[ -n "$parent_file" ]] && git add "$parent_file" 2>/dev/null || true
+        git add "$LABELS_FILE" 2>/dev/null || true
         local humanized_name
         humanized_name=$(echo "$task_name" | tr '_' ' ')
         git commit -m "ait: Add child task ${task_id}: ${humanized_name}"
@@ -532,6 +533,7 @@ finalize_draft() {
 
         # Git commit
         git add "$filepath"
+        git add "$LABELS_FILE" 2>/dev/null || true
         local humanized_name
         humanized_name=$(echo "$task_name" | tr '_' ' ')
         git commit -m "ait: Add task ${task_id}: ${humanized_name}"
@@ -1087,6 +1089,7 @@ commit_task() {
         humanized_name=$(echo "$task_name" | tr '_' ' ')
 
         git add "$filepath"
+        git add "$LABELS_FILE" 2>/dev/null || true
         git commit -m "ait: Add task t${task_num}: ${humanized_name}"
 
         local commit_hash
@@ -1196,6 +1199,7 @@ run_batch_mode() {
             humanized_name=$(echo "$task_name" | tr '_' ' ')
             git add "$filepath"
             git add "$parent_file" 2>/dev/null || true
+            git add "$LABELS_FILE" 2>/dev/null || true
             git commit -m "ait: Add child task ${task_id}: ${humanized_name}"
         else
             # Parent task: claim real ID from atomic counter
@@ -1222,6 +1226,7 @@ run_batch_mode() {
             local humanized_name
             humanized_name=$(echo "$task_name" | tr '_' ' ')
             git add "$filepath"
+            git add "$LABELS_FILE" 2>/dev/null || true
             git commit -m "ait: Add task ${task_id}: ${humanized_name}"
         fi
     else
