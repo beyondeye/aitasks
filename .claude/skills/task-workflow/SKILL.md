@@ -112,7 +112,7 @@ If `active_profile` is null (either because no profile was selected by the calli
 
 ### Step 5: Environment and Branch Setup
 
-> **Note:** For fully autonomous remote workflows (Claude Code Web), use the `aitask-pick-remote` skill instead — it skips all environment setup and always works on the current branch.
+> **Note:** For fully autonomous remote workflows (Claude Code Web), use the `aitask-pickrem` skill instead — it skips all environment setup and always works on the current branch.
 
 - **Profile check:** If the active profile has `create_worktree` set:
   - If `true`: Create worktree. Display: "Profile '\<name\>': creating worktree"
@@ -619,7 +619,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 
 Only `name` and `description` are required. Omitting any other key means the corresponding question is asked interactively.
 
-> **Remote-specific profile fields** (e.g., `done_task_action`, `review_action`, `issue_action`) are documented in the `aitask-pick-remote` skill. They are only recognized by that skill and ignored by this workflow.
+> **Remote-specific profile fields** (e.g., `done_task_action`, `review_action`, `issue_action`) are documented in the `aitask-pickrem` skill. They are only recognized by that skill and ignored by this workflow.
 
 #### Customizing Execution Profiles
 

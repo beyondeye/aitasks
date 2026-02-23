@@ -1,9 +1,7 @@
 ---
-name: aitask-pick-remote
+name: aitask-pickrem
 description: Pick and implement a task in remote/non-interactive mode. All decisions from execution profile - no AskUserQuestion calls.
 ---
-
-Base directory for this skill: /home/ddt/Work/aitasks/.claude/skills/aitask-pick-remote
 
 ## Overview
 
