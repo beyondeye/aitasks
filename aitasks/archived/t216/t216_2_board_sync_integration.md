@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: [t216_1, t216_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_board]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-23 15:51
-updated_at: 2026-02-23 22:11
+updated_at: 2026-02-23 22:40
+completed_at: 2026-02-23 22:40
 ---
 
 ## Context
