@@ -26,6 +26,17 @@ from textual.command import Provider, Hit, Hits, DiscoveryHit
 TASKS_DIR = Path("aitasks")
 METADATA_FILE = TASKS_DIR / "metadata" / "board_config.json"
 TASK_TYPES_FILE = TASKS_DIR / "metadata" / "task_types.txt"
+DATA_WORKTREE = Path(".aitask-data")
+
+def _task_git_cmd() -> list[str]:
+    """Return git command prefix for task data operations.
+    In branch mode: ["git", "-C", ".aitask-data"]
+    In legacy mode: ["git"]
+    """
+    if DATA_WORKTREE.exists() and (DATA_WORKTREE / ".git").exists():
+        return ["git", "-C", str(DATA_WORKTREE)]
+    return ["git"]
+
 def _load_task_types() -> list:
     """Load valid task types from task_types.txt, with fallback defaults."""
     try:
@@ -303,7 +314,7 @@ class TaskManager:
         self.modified_files.clear()
         try:
             result = subprocess.run(
-                ["git", "status", "--porcelain", "--", "aitasks/"],
+                [*_task_git_cmd(), "status", "--porcelain", "--", "aitasks/"],
                 capture_output=True, text=True, timeout=5
             )
             if result.returncode == 0:
@@ -1357,7 +1368,7 @@ class TaskDetailScreen(ModalScreen):
         """Revert task file to last committed version in git."""
         try:
             result = subprocess.run(
-                ["git", "checkout", "--", str(self.task_data.filepath)],
+                [*_task_git_cmd(), "checkout", "--", str(self.task_data.filepath)],
                 capture_output=True, text=True, timeout=10
             )
             if result.returncode == 0:
@@ -2491,7 +2502,7 @@ class KanbanApp(App):
 
             for path in paths:
                 result = subprocess.run(
-                    ["git", "rm", "-f", str(path)],
+                    [*_task_git_cmd(), "rm", "-f", str(path)],
                     capture_output=True, text=True, timeout=10
                 )
                 if result.returncode != 0:
@@ -2516,7 +2527,7 @@ class KanbanApp(App):
                     pass
 
             result = subprocess.run(
-                ["git", "commit", "-m", f"ait: Delete task {task_num} and associated files"],
+                [*_task_git_cmd(), "commit", "-m", f"ait: Delete task {task_num} and associated files"],
                 capture_output=True, text=True, timeout=15
             )
             if result.returncode == 0:
@@ -2537,11 +2548,11 @@ class KanbanApp(App):
         try:
             for task in tasks:
                 subprocess.run(
-                    ["git", "add", str(task.filepath)],
+                    [*_task_git_cmd(), "add", str(task.filepath)],
                     capture_output=True, text=True, timeout=10
                 )
             result = subprocess.run(
-                ["git", "commit", "-m", message],
+                [*_task_git_cmd(), "commit", "-m", message],
                 capture_output=True, text=True, timeout=15
             )
             if result.returncode == 0:
