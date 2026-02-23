@@ -731,6 +731,259 @@ setup_lock_branch() {
     esac
 }
 
+# --- CLAUDE.md auto-update for ait git instructions ---
+update_claudemd_git_section() {
+    local project_dir="$1"
+    local claudemd="$project_dir/CLAUDE.md"
+    local section_header="## Git Operations on Task/Plan Files"
+
+    # Skip if section already present
+    if [[ -f "$claudemd" ]] && grep -qF "$section_header" "$claudemd"; then
+        return
+    fi
+
+    local section_content
+    section_content="$(cat <<'SECTION'
+## Git Operations on Task/Plan Files
+
+When committing changes to files in `aitasks/` or `aiplans/`, always use
+`./ait git` instead of plain `git`. This ensures correct branch targeting
+when task data lives on a separate branch.
+
+- `./ait git add aitasks/t42_foo.md`
+- `./ait git commit -m "ait: Update task t42"`
+- `./ait git push`
+
+In legacy mode (no separate branch), `./ait git` passes through to plain `git`.
+SECTION
+)"
+
+    if [[ -f "$claudemd" ]]; then
+        {
+            echo ""
+            echo "$section_content"
+        } >> "$claudemd"
+        info "  Appended 'Git Operations on Task/Plan Files' section to CLAUDE.md"
+    else
+        echo "$section_content" > "$claudemd"
+        info "  Created CLAUDE.md with 'Git Operations on Task/Plan Files' section"
+    fi
+}
+
+# --- Task data branch setup (aitask-data orphan branch + worktree + symlinks) ---
+setup_data_branch() {
+    local project_dir="$SCRIPT_DIR/.."
+
+    # Only setup if we have a git repo
+    if ! git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        return
+    fi
+
+    # Already configured — worktree exists
+    if [[ -d "$project_dir/.aitask-data/.git" || -f "$project_dir/.aitask-data/.git" ]]; then
+        success "Task data branch already configured (.aitask-data/ worktree exists)"
+        return
+    fi
+
+    # Detect migration scenario: aitasks/ exists as a real directory (not symlink)
+    local needs_migration=false
+    if [[ -d "$project_dir/aitasks" && ! -L "$project_dir/aitasks" ]]; then
+        needs_migration=true
+    fi
+
+    local has_remote=false
+    if git -C "$project_dir" remote get-url origin &>/dev/null; then
+        has_remote=true
+    fi
+
+    if [[ "$needs_migration" == true ]]; then
+        info "Detected existing task data on main branch."
+        info "Setting up a separate 'aitask-data' branch will:"
+        info "  - Move task/plan files to an independent branch"
+        info "  - Create symlinks so all paths remain unchanged"
+        info "  - Enable independent sync of task data across PCs"
+    else
+        info "Setting up separate task data branch..."
+        info "This creates an 'aitask-data' orphan branch with a permanent"
+        info "worktree at .aitask-data/ and symlinks for seamless access."
+    fi
+
+    if [[ -t 0 ]]; then
+        printf "  Use a separate branch for task data? [Y/n] "
+        read -r answer
+    else
+        info "(non-interactive: auto-accepting default)"
+        answer="Y"
+    fi
+
+    case "${answer:-Y}" in
+        [Yy]*|"")
+            ;;
+        *)
+            warn "Skipped task data branch setup."
+            info "You can set this up later by re-running: ait setup"
+            return
+            ;;
+    esac
+
+    # --- Step 1: Get or create aitask-data branch ---
+    local branch_exists=false
+
+    # Check remote first (if available)
+    if [[ "$has_remote" == true ]]; then
+        if git -C "$project_dir" ls-remote --heads origin "aitask-data" 2>/dev/null | grep -q "aitask-data"; then
+            info "Found aitask-data branch on remote — fetching..."
+            git -C "$project_dir" fetch origin aitask-data 2>/dev/null || true
+            branch_exists=true
+        fi
+    fi
+
+    # Check local
+    if [[ "$branch_exists" == false ]] && git -C "$project_dir" show-ref --verify refs/heads/aitask-data &>/dev/null; then
+        branch_exists=true
+    fi
+
+    # Create if not found
+    if [[ "$branch_exists" == false ]]; then
+        info "Creating aitask-data orphan branch..."
+        local empty_tree_hash commit_hash
+        empty_tree_hash=$(git -C "$project_dir" mktree < /dev/null)
+        commit_hash=$(echo "ait: Initialize aitask-data branch" | git -C "$project_dir" commit-tree "$empty_tree_hash")
+        git -C "$project_dir" update-ref refs/heads/aitask-data "$commit_hash"
+
+        if [[ "$has_remote" == true ]]; then
+            git -C "$project_dir" push -u origin aitask-data 2>/dev/null || warn "Could not push aitask-data branch to remote"
+        fi
+    fi
+
+    # --- Step 2: Create worktree ---
+    info "Creating .aitask-data/ worktree..."
+    (cd "$project_dir" && git worktree add .aitask-data aitask-data 2>/dev/null) || {
+        warn "Failed to create worktree. You may need to run: git worktree add .aitask-data aitask-data"
+        return
+    }
+
+    # --- Step 3: Populate data ---
+    if [[ "$needs_migration" == true ]]; then
+        info "Migrating task data to aitask-data branch..."
+        mkdir -p "$project_dir/.aitask-data/aitasks" "$project_dir/.aitask-data/aiplans"
+        # Copy all existing data (preserving structure, including drafts)
+        cp -a "$project_dir/aitasks/." "$project_dir/.aitask-data/aitasks/" 2>/dev/null || true
+        if [[ -d "$project_dir/aiplans" ]]; then
+            cp -a "$project_dir/aiplans/." "$project_dir/.aitask-data/aiplans/" 2>/dev/null || true
+        fi
+    else
+        info "Creating task data directory structure..."
+        mkdir -p "$project_dir/.aitask-data/aitasks/metadata"
+        mkdir -p "$project_dir/.aitask-data/aitasks/archived"
+        mkdir -p "$project_dir/.aitask-data/aiplans/archived"
+
+        # Copy seed metadata if available
+        if [[ -d "$project_dir/seed" ]]; then
+            cp "$project_dir/seed/task_types.txt" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
+            if [[ -d "$project_dir/seed/profiles" ]]; then
+                mkdir -p "$project_dir/.aitask-data/aitasks/metadata/profiles"
+                cp "$project_dir/seed/profiles/"*.yaml "$project_dir/.aitask-data/aitasks/metadata/profiles/" 2>/dev/null || true
+            fi
+        fi
+    fi
+
+    # Add aitasks/new/ to data branch .gitignore
+    local data_gitignore="$project_dir/.aitask-data/.gitignore"
+    if [[ ! -f "$data_gitignore" ]] || ! grep -qxF "aitasks/new/" "$data_gitignore" 2>/dev/null; then
+        {
+            echo "# Draft tasks (local, not committed)"
+            echo "aitasks/new/"
+        } >> "$data_gitignore"
+    fi
+
+    # --- Step 4: Commit and push on data branch ---
+    (
+        cd "$project_dir/.aitask-data"
+        git add .
+        if ! git diff --cached --quiet 2>/dev/null; then
+            if [[ "$needs_migration" == true ]]; then
+                git commit -m "ait: Migrate task data from main branch"
+            else
+                git commit -m "ait: Initialize task data structure"
+            fi
+            if [[ "$has_remote" == true ]]; then
+                git push 2>/dev/null || warn "Could not push data branch to remote"
+            fi
+        fi
+    )
+
+    # --- Step 5: Clean up main (migration only) ---
+    if [[ "$needs_migration" == true ]]; then
+        info "Removing task data from main branch..."
+        (
+            cd "$project_dir"
+            git rm -r --quiet aitasks/ 2>/dev/null || true
+            git rm -r --quiet aiplans/ 2>/dev/null || true
+            # Remove any remaining untracked files/dirs
+            rm -rf aitasks/ aiplans/
+        )
+    fi
+
+    # --- Step 6: Create symlinks ---
+    (
+        cd "$project_dir"
+        if [[ ! -L "aitasks" ]]; then
+            ln -sf .aitask-data/aitasks aitasks
+        fi
+        if [[ ! -L "aiplans" ]]; then
+            ln -sf .aitask-data/aiplans aiplans
+        fi
+    )
+
+    # --- Step 7: Update .gitignore on main ---
+    local gitignore="$project_dir/.gitignore"
+    local gitignore_changed=false
+
+    if [[ ! -f "$gitignore" ]] || ! grep -qxF ".aitask-data/" "$gitignore" 2>/dev/null; then
+        {
+            echo ""
+            echo "# Task data (lives on aitask-data branch, accessed via symlinks)"
+            echo ".aitask-data/"
+            echo "aitasks/"
+            echo "aiplans/"
+        } >> "$gitignore"
+        gitignore_changed=true
+    fi
+
+    # --- Step 8: Update CLAUDE.md ---
+    update_claudemd_git_section "$project_dir"
+
+    # --- Step 9: Commit on main ---
+    (
+        cd "$project_dir"
+        local files_to_add=()
+        if [[ "$gitignore_changed" == true ]]; then
+            files_to_add+=(".gitignore")
+        fi
+        if [[ -f "CLAUDE.md" ]]; then
+            files_to_add+=("CLAUDE.md")
+        fi
+        if [[ ${#files_to_add[@]} -gt 0 ]]; then
+            git add "${files_to_add[@]}" 2>/dev/null || true
+        fi
+        if ! git diff --cached --quiet 2>/dev/null; then
+            if [[ "$needs_migration" == true ]]; then
+                git commit -m "ait: Migrate task data to aitask-data branch"
+            else
+                git commit -m "ait: Configure task data branch with worktree and symlinks"
+            fi
+        fi
+    )
+
+    success "Task data branch configured successfully"
+    info "  Worktree: .aitask-data/"
+    info "  Symlinks: aitasks/ → .aitask-data/aitasks/, aiplans/ → .aitask-data/aiplans/"
+    if [[ "$needs_migration" == true ]]; then
+        info "  Migration: task/plan data moved from main to aitask-data branch"
+    fi
+}
+
 # --- Draft directory and gitignore setup ---
 setup_draft_directory() {
     local project_dir="$SCRIPT_DIR/.."
@@ -1166,6 +1419,9 @@ main() {
     echo ""
 
     setup_lock_branch
+    echo ""
+
+    setup_data_branch
     echo ""
 
     setup_python_venv

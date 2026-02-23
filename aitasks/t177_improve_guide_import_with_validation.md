@@ -7,7 +7,7 @@ status: Ready
 labels: [claudeskills, aitask_reviewguide]
 created_at: 2026-02-19 11:38
 updated_at: 2026-02-19 11:38
-boardidx: 40
+boardidx: 10
 boardcol: now
 ---
 
