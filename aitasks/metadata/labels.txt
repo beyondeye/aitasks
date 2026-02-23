@@ -17,6 +17,7 @@ gitremote
 install_scripts
 macos
 release_scripts
+remove_support
 statistics
 task_workflow
 web_site
