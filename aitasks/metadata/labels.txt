@@ -18,6 +18,7 @@ gitremote
 install_scripts
 macos
 release_scripts
+remote
 remove_support
 script-performance
 statistics
