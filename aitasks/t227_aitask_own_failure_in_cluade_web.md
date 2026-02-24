@@ -5,7 +5,7 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [aitakspickrem, remote]
-children_to_implement: [t227_1, t227_2, t227_3, t227_4, t227_5]
+children_to_implement: [t227_1, t227_2, t227_3, t227_4, t227_5, t227_6]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-23 15:33
 updated_at: 2026-02-24 16:52
