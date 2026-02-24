@@ -3,11 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [aitask_board]
-children_to_implement: [t216_4]
 created_at: 2026-02-23 08:58
-updated_at: 2026-02-24 08:27
+updated_at: 2026-02-24 12:13
+completed_at: 2026-02-24 12:13
 boardcol: now
 boardidx: 10
 ---
