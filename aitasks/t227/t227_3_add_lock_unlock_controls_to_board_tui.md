@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t227_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-24 16:52
-updated_at: 2026-02-24 16:52
+updated_at: 2026-02-24 22:09
 ---
 
 Add lock status display and Lock/Unlock buttons to the board TUI task detail screen. Also reorganize the buttons into two rows and add lock indicators on kanban cards.
