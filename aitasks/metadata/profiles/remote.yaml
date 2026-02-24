@@ -1,7 +1,7 @@
 name: remote
 description: Fully autonomous workflow for Claude Code Web - no interactive prompts
 skip_task_confirmation: true
-default_email: first
+default_email: userconfig
 force_unlock_stale: true
 plan_preference: use_current
 post_plan_action: start_implementation
