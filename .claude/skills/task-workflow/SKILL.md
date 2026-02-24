@@ -110,6 +110,31 @@ If `active_profile` is null (either because no profile was selected by the calli
   - If "No": Proceed without updating
   - **Skip this check** if: the final email matches userconfig, or email was resolved from userconfig itself, or no email was selected ("Skip")
 
+- **Lock pre-check (read-only):**
+
+  Before claiming ownership, check if the task is already locked:
+
+  ```bash
+  ./aiscripts/aitask_lock.sh --check <task_num> 2>/dev/null
+  ```
+
+  **If exit code 0 (locked):** Parse the output for `locked_by`, `locked_at`, and `hostname`.
+
+  - **If `locked_by` matches the resolved email** (same user): Display: "Task already locked by you — refreshing lock." Proceed to **Claim task ownership** below.
+
+  - **If `locked_by` differs from the resolved email** (different user): Use `AskUserQuestion`:
+    - Question: "Task t\<N\> is already locked by \<locked_by\> (since \<locked_at\>, hostname: \<hostname\>). How to proceed?"
+    - Header: "Lock"
+    - Options:
+      - "Force unlock and claim" (description: "Override the existing lock and claim this task")
+      - "Proceed anyway" (description: "Attempt to claim without force-unlocking — may fail if lock is enforced")
+      - "Pick a different task" (description: "Leave the lock intact and select another task")
+    - If "Force unlock and claim": Add `--force` flag to the `aitask_own.sh` call below.
+    - If "Proceed anyway": Proceed to **Claim task ownership** below (normal `aitask_own.sh` call — the script's own `LOCK_FAILED` handling will apply if the lock blocks it).
+    - If "Pick a different task": Return to the calling skill's task selection. Do NOT proceed.
+
+  **If exit code 1 (not locked) or command fails:** Proceed normally to **Claim task ownership**.
+
 - **Claim task ownership (lock, update status, commit, push):**
 
   If email was provided (new or selected):
@@ -119,6 +144,11 @@ If `active_profile` is null (either because no profile was selected by the calli
   If no email (user selected "Skip"):
   ```bash
   ./aiscripts/aitask_own.sh <task_num>
+  ```
+
+  **If `--force` was set by the lock pre-check above**, add `--force` to the command:
+  ```bash
+  ./aiscripts/aitask_own.sh <task_num> --force --email "<email>"
   ```
 
   **Parse the script output:**
