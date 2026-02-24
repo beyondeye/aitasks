@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitakspickrem, remote]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-24 16:52
-updated_at: 2026-02-24 21:30
+updated_at: 2026-02-24 18:56
+completed_at: 2026-02-24 18:56
 ---
 
 Create a stripped-down, fully autonomous task implementation skill for Claude Code Web at `.claude/skills/aitask-pickweb/SKILL.md`. Zero interactive prompts. No cross-branch operations (no locking, no status updates to aitask-data, no archival).
