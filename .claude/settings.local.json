@@ -68,7 +68,10 @@
       "Bash(python3 aiscripts/aitask_explain_process_raw_data.py:*)",
       "Bash(./ait explain-runs:*)",
       "Bash(/home/ddt/Work/aitasks/aiscripts/aitask_own.sh:*)",
-      "Bash(./aiscripts/aitask_find_files.sh:*)"
+      "Bash(./aiscripts/aitask_find_files.sh:*)",
+      "Bash(./ait git:*)",
+      "Bash(./aiscripts/aitask_init_data.sh:*)",
+      "Bash(./aiscripts/aitask_web_merge.sh:*)"
     ]
   }
 }
