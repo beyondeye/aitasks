@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [aitask_board]
-children_to_implement: [t228_1, t228_2]
+children_to_implement: [t228_1, t228_2, t228_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-24 08:13
 updated_at: 2026-02-24 09:14
