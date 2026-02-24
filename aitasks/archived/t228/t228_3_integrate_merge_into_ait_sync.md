@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: [t228_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_board]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-24 09:14
-updated_at: 2026-02-24 10:31
+updated_at: 2026-02-24 10:59
+completed_at: 2026-02-24 10:59
 ---
 
 ## Integrate merge script into ait sync rebase flow
