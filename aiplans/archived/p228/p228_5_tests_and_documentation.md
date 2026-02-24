@@ -47,3 +47,11 @@ Bash wrapper for python3 -m pytest with PYTHONPATH setup.
 1. `bash tests/run_all_python_tests.sh`
 2. `bash tests/test_aitask_merge.sh`
 3. `bash tests/test_sync.sh`
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `tests/test_aitask_merge.py` (25 unit tests in 3 classes: TestConflictParser, TestMergeRules, TestBodyMerge) testing all public functions of `aitask_merge.py` directly. Created `tests/run_all_python_tests.sh` bash wrapper that sets PYTHONPATH and falls back from pytest to unittest. Updated `website/content/docs/commands/sync.md` with AUTOMERGED batch status, auto-merge rules reference table, exit code documentation, and updated How It Works section.
+- **Deviations from plan:** Dropped the originally planned `tests/test_sync_merge.sh` — the existing `tests/test_sync.sh` (Tests 12-14) and `tests/test_aitask_merge.sh` (10 tests, 43 assertions) already provide comprehensive bash integration coverage. Added 2 extra test cases beyond the original plan: `test_updated_at_keeps_local_when_newer` (symmetric case) and `test_status_implementing_wins_local` (local side has Implementing). Total: 25 Python tests vs 23 planned.
+- **Issues encountered:** None. All tests passed on first run. pytest not installed in environment — unittest discovery fallback works cleanly.
+- **Key decisions:** Used `unittest` as the test framework (no external deps). Test runner script uses pytest if available, falls back to unittest. PYTHONDONTWRITEBYTECODE=1 set in runner to match the pattern established in t228_3.
+- **Notes for sibling tasks:** This is the final child task (t228_5). All sibling tasks complete. The full test coverage is now: 25 Python unit tests (functions), 43 bash merge CLI tests, 34 bash sync tests (including 3 auto-merge integration tests). The `run_all_python_tests.sh` runner is generic and will discover any future `test_*.py` files added to `tests/`.
