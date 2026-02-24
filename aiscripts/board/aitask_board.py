@@ -32,6 +32,8 @@ TASKS_DIR = Path("aitasks")
 METADATA_FILE = TASKS_DIR / "metadata" / "board_config.json"
 TASK_TYPES_FILE = TASKS_DIR / "metadata" / "task_types.txt"
 DATA_WORKTREE = Path(".aitask-data")
+USERCONFIG_FILE = TASKS_DIR / "metadata" / "userconfig.yaml"
+EMAILS_FILE = TASKS_DIR / "metadata" / "emails.txt"
 
 def _task_git_cmd() -> list[str]:
     """Return git command prefix for task data operations.
@@ -74,6 +76,26 @@ def _issue_indicator(url: str) -> str:
     elif "bitbucket" in host:
         return "[blue]BB[/blue]"
     return "[blue]Issue[/blue]"
+
+def _get_user_email() -> str:
+    """Read the current user's email from userconfig.yaml, falling back to emails.txt."""
+    try:
+        if USERCONFIG_FILE.exists():
+            for line in USERCONFIG_FILE.read_text().splitlines():
+                if line.startswith("email:"):
+                    email = line.split(":", 1)[1].strip()
+                    if email:
+                        return email
+    except OSError:
+        pass
+    try:
+        if EMAILS_FILE.exists():
+            for line in EMAILS_FILE.read_text().splitlines():
+                if line.strip():
+                    return line.strip()
+    except OSError:
+        pass
+    return ""
 
 
 # --- Data Models & Logic ---
@@ -158,6 +180,7 @@ class TaskManager:
         self.columns: list[dict] = []
         self.column_order: list[str] = []
         self.modified_files: set = set()  # Relative paths of git-modified .md files
+        self.lock_map: dict[str, dict] = {}  # task_id -> {locked_by, locked_at, hostname}
         self.settings: dict = {}
         self._ensure_paths()
         self.load_metadata()
@@ -262,6 +285,29 @@ class TaskManager:
                     if filepath.endswith('.md'):
                         self.modified_files.add(filepath)
         except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+    def refresh_lock_map(self):
+        """Query aitask_lock.sh --list to build a map of locked tasks."""
+        self.lock_map.clear()
+        try:
+            result = subprocess.run(
+                ["./aiscripts/aitask_lock.sh", "--list"],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                for line in result.stdout.splitlines():
+                    m = re.match(
+                        r'^t(\S+): locked by (.+?) on (.+?) since (.+)$',
+                        line.strip()
+                    )
+                    if m:
+                        self.lock_map[m.group(1)] = {
+                            "locked_by": m.group(2),
+                            "hostname": m.group(3),
+                            "locked_at": m.group(4),
+                        }
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
 
     def is_modified(self, task: Task) -> bool:
@@ -411,6 +457,13 @@ class TaskCard(Static):
 
         if info:
             yield Label(" | ".join(info), classes="task-info")
+
+        # Lock indicator on its own line
+        if self.manager:
+            lock_id = task_num.lstrip("t")
+            if lock_id in self.manager.lock_map:
+                lock_info = self.manager.lock_map[lock_id]
+                yield Label(f"\U0001f512 {lock_info['locked_by']}", classes="task-info")
 
         unresolved_deps = []
         if self.manager:
@@ -1141,6 +1194,89 @@ class FoldedTaskPickerScreen(ModalScreen):
         self.dismiss()
 
 
+class LockEmailScreen(ModalScreen):
+    """Modal dialog to enter email for locking a task."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, task_id: str, default_email: str = ""):
+        super().__init__()
+        self.task_id = task_id
+        self.default_email = default_email
+
+    def compose(self):
+        with Container(id="dep_picker_dialog"):
+            yield Label(f"Lock task t{self.task_id}", id="dep_picker_title")
+            yield Label("Enter email for lock ownership:")
+            yield Input(
+                value=self.default_email,
+                placeholder="user@example.com",
+                id="lock_email_input",
+            )
+            with Horizontal(id="detail_buttons"):
+                yield Button("Lock", variant="warning", id="btn_confirm_lock")
+                yield Button("Cancel", variant="default", id="btn_cancel_lock")
+
+    @on(Button.Pressed, "#btn_confirm_lock")
+    def confirm_lock(self):
+        email = self.query_one("#lock_email_input", Input).value.strip()
+        if email:
+            self.dismiss(email)
+        else:
+            self.app.notify("Email is required", severity="warning")
+
+    @on(Button.Pressed, "#btn_cancel_lock")
+    def cancel_lock(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+
+class UnlockConfirmScreen(ModalScreen):
+    """Confirmation dialog to unlock a task locked by another user."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, task_id: str, locked_by: str, locked_at: str, hostname: str):
+        super().__init__()
+        self.task_id = task_id
+        self.locked_by = locked_by
+        self.locked_at = locked_at
+        self.hostname = hostname
+
+    def compose(self):
+        with Container(id="dep_picker_dialog"):
+            yield Label(
+                f"Task t{self.task_id} is locked by another user",
+                id="dep_picker_title",
+            )
+            yield Label(
+                f"Locked by: {self.locked_by}\n"
+                f"Hostname: {self.hostname}\n"
+                f"Since: {self.locked_at}\n\n"
+                f"Force unlock?"
+            )
+            with Horizontal(id="detail_buttons"):
+                yield Button("Force Unlock", variant="error", id="btn_confirm_unlock")
+                yield Button("Cancel", variant="default", id="btn_cancel_unlock")
+
+    @on(Button.Pressed, "#btn_confirm_unlock")
+    def confirm_unlock(self):
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#btn_cancel_unlock")
+    def cancel_unlock(self):
+        self.dismiss(False)
+
+    def action_cancel(self):
+        self.dismiss(False)
+
+
 class TaskDetailScreen(ModalScreen):
     """Popup to view/edit task details with metadata editing."""
 
@@ -1153,6 +1289,7 @@ class TaskDetailScreen(ModalScreen):
         self.task_data = task
         self.manager = manager
         self.read_only = read_only
+        self._lock_info = None
         self._original_values = {
             "priority": task.metadata.get("priority", "medium"),
             "effort": task.metadata.get("effort", "medium"),
@@ -1246,24 +1383,58 @@ class TaskDetailScreen(ModalScreen):
                     yield ReadOnlyField(
                         f"[b]Folded Into:[/b] t{folded_into_num}", classes="meta-ro")
 
+            # Lock status
+            if self.manager:
+                task_num, _ = TaskCard._parse_filename(self.task_data.filename)
+                lock_id = task_num.lstrip("t")
+                self._lock_info = self.manager.lock_map.get(lock_id)
+            if self._lock_info:
+                locked_by = self._lock_info["locked_by"]
+                locked_at = self._lock_info["locked_at"]
+                hostname = self._lock_info.get("hostname", "")
+                stale_marker = ""
+                try:
+                    lock_time = datetime.strptime(locked_at, "%Y-%m-%d %H:%M")
+                    hours_ago = (datetime.now() - lock_time).total_seconds() / 3600
+                    if hours_ago > 24:
+                        stale_marker = " [yellow](may be stale)[/yellow]"
+                except (ValueError, TypeError):
+                    pass
+                host_str = f" on {hostname}" if hostname else ""
+                yield ReadOnlyField(
+                    f"[b]\U0001f512 Locked:[/b] {locked_by}{host_str} since {locked_at}{stale_marker}",
+                    classes="meta-ro")
+            else:
+                yield ReadOnlyField(
+                    "[b]\U0001f513 Lock:[/b] [dim]Unlocked[/dim]",
+                    classes="meta-ro")
+
             with VerticalScroll(id="md_view"):
                 yield Markdown(self.task_data.content)
 
-            with Horizontal(id="detail_buttons"):
-                yield Button("Pick", variant="warning", id="btn_pick", disabled=is_done_or_ro)
-                yield Button("Save Changes", variant="success", id="btn_save",
-                             disabled=True)
-                is_modified = self.manager.is_modified(self.task_data) if self.manager else False
-                yield Button("Revert", variant="error", id="btn_revert",
-                             disabled=is_done_or_ro or not is_modified)
-                yield Button("Edit", variant="primary", id="btn_edit", disabled=is_done_or_ro)
-                is_child = self.task_data.filepath.parent.name.startswith("t")
-                can_delete = (not is_done and not is_folded and not self.read_only
-                              and self.task_data.metadata.get("status", "") != "Implementing"
-                              and not is_child)
-                yield Button("Delete", variant="error", id="btn_delete",
-                             disabled=not can_delete)
-                yield Button("Close", variant="default", id="btn_close")
+            # Button rows
+            is_locked = self._lock_info is not None
+            with Container(id="detail_buttons_area"):
+                with Horizontal(id="detail_buttons_workflow"):
+                    yield Button("Pick", variant="warning", id="btn_pick", disabled=is_done_or_ro)
+                    yield Button("\U0001f512 Lock", variant="primary", id="btn_lock",
+                                 disabled=is_done_or_ro or is_locked)
+                    yield Button("\U0001f513 Unlock", variant="warning", id="btn_unlock",
+                                 disabled=not is_locked)
+                    yield Button("Close", variant="default", id="btn_close")
+                with Horizontal(id="detail_buttons_file"):
+                    yield Button("Save Changes", variant="success", id="btn_save",
+                                 disabled=True)
+                    is_modified = self.manager.is_modified(self.task_data) if self.manager else False
+                    yield Button("Revert", variant="error", id="btn_revert",
+                                 disabled=is_done_or_ro or not is_modified)
+                    yield Button("Edit", variant="primary", id="btn_edit", disabled=is_done_or_ro)
+                    is_child = self.task_data.filepath.parent.name.startswith("t")
+                    can_delete = (not is_done and not is_folded and not self.read_only
+                                  and self.task_data.metadata.get("status", "") != "Implementing"
+                                  and not is_child)
+                    yield Button("Delete", variant="error", id="btn_delete",
+                                 disabled=not can_delete)
 
     @on(CycleField.Changed)
     def on_cycle_changed(self, event: CycleField.Changed):
@@ -1336,6 +1507,72 @@ class TaskDetailScreen(ModalScreen):
     @on(Button.Pressed, "#btn_pick")
     def pick_task(self):
         self.dismiss("pick")
+
+    @on(Button.Pressed, "#btn_lock")
+    def lock_task(self):
+        """Lock this task via aitask_lock.sh."""
+        task_num, _ = TaskCard._parse_filename(self.task_data.filename)
+        task_id = task_num.lstrip("t")
+        default_email = _get_user_email()
+
+        def on_email(email):
+            if email is None:
+                return
+            try:
+                result = subprocess.run(
+                    ["./aiscripts/aitask_lock.sh", "--lock", task_id, "--email", email],
+                    capture_output=True, text=True, timeout=15
+                )
+                if result.returncode == 0:
+                    self.app.notify(f"Locked t{task_id}", severity="information")
+                    self.dismiss("locked")
+                else:
+                    error = result.stderr.strip() or result.stdout.strip()
+                    self.app.notify(f"Lock failed: {error}", severity="error")
+            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                self.app.notify(f"Lock failed: {e}", severity="error")
+
+        self.app.push_screen(LockEmailScreen(task_id, default_email), on_email)
+
+    @on(Button.Pressed, "#btn_unlock")
+    def unlock_task(self):
+        """Unlock this task via aitask_lock.sh."""
+        task_num, _ = TaskCard._parse_filename(self.task_data.filename)
+        task_id = task_num.lstrip("t")
+
+        def do_unlock():
+            try:
+                result = subprocess.run(
+                    ["./aiscripts/aitask_lock.sh", "--unlock", task_id],
+                    capture_output=True, text=True, timeout=15
+                )
+                if result.returncode == 0:
+                    self.app.notify(f"Unlocked t{task_id}", severity="information")
+                    self.dismiss("unlocked")
+                else:
+                    error = result.stderr.strip() or result.stdout.strip()
+                    self.app.notify(f"Unlock failed: {error}", severity="error")
+            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                self.app.notify(f"Unlock failed: {e}", severity="error")
+
+        if self._lock_info:
+            my_email = _get_user_email()
+            locked_by = self._lock_info["locked_by"]
+            if my_email and locked_by != my_email:
+                def on_confirm(confirmed):
+                    if confirmed:
+                        do_unlock()
+                self.app.push_screen(
+                    UnlockConfirmScreen(
+                        task_id, locked_by,
+                        self._lock_info.get("locked_at", "?"),
+                        self._lock_info.get("hostname", "?"),
+                    ),
+                    on_confirm,
+                )
+                return
+
+        do_unlock()
 
     def action_close_modal(self):
         self.dismiss()
@@ -1771,6 +2008,19 @@ class KanbanApp(App):
         height: 3;
         align: center middle;
     }
+    #detail_buttons_area {
+        dock: bottom;
+        height: auto;
+        max-height: 7;
+    }
+    #detail_buttons_workflow {
+        height: 3;
+        align: center middle;
+    }
+    #detail_buttons_file {
+        height: 3;
+        align: center middle;
+    }
     #meta_editable { height: auto; padding: 0 1; }
     CycleField { height: 1; width: 100%; padding: 0 1; }
     CycleField.cycle-focused { background: $primary 20%; border-left: thick $accent; }
@@ -1994,6 +2244,7 @@ class KanbanApp(App):
 
     def refresh_board(self, refocus_filename: str = ""):
         self.manager.refresh_git_status()
+        self.manager.refresh_lock_map()
         container = self.query_one("#board_container")
         container.remove_children()
 
