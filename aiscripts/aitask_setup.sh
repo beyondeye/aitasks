@@ -881,6 +881,7 @@ setup_data_branch() {
         # Copy seed metadata if available
         if [[ -d "$project_dir/seed" ]]; then
             cp "$project_dir/seed/task_types.txt" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
+            cp "$project_dir/seed/project_config.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             if [[ -d "$project_dir/seed/profiles" ]]; then
                 mkdir -p "$project_dir/.aitask-data/aitasks/metadata/profiles"
                 cp "$project_dir/seed/profiles/"*.yaml "$project_dir/.aitask-data/aitasks/metadata/profiles/" 2>/dev/null || true

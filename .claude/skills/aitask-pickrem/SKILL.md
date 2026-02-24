@@ -283,7 +283,16 @@ Update the external plan file as you progress:
 - After implementation is complete, run all relevant automated tests if the task involves code changes
 - If tests fail, attempt to fix the issues before proceeding to Step 9
 - If tests cannot be fixed after reasonable attempts, trigger the **Abort Procedure** instead of committing broken code
-- If no tests are applicable (documentation, config, skill file tasks), proceed directly to Step 9
+- If no tests are applicable (documentation, config, skill file tasks), proceed directly to build verification
+
+**Build verification (if configured):**
+- Read `aitasks/metadata/project_config.yaml` and check the `verify_build` field
+- **If `verify_build` is absent, null, or empty (or file doesn't exist):** Display "No verify_build configured — skipping build verification." and skip.
+- **If configured:** Run the command(s). If a single string, run it. If a list, run sequentially (stop on first failure).
+- **If the build fails:**
+  1. Analyze the error output and compare against the changes introduced by this task
+  2. **If caused by this task's changes:** Go back to fix the build errors. After fixing, re-run. Repeat until the build passes.
+  3. **If NOT related to this task's changes** (pre-existing issue): Log the build failure in the plan file's "Final Implementation Notes" and proceed. Do not attempt to fix pre-existing issues.
 
 ### Step 9: Auto-Commit
 

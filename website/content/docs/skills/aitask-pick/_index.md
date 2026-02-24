@@ -88,3 +88,7 @@ post_plan_action: start_implementation
 ```
 
 Profiles are preserved during `install.sh --force` upgrades (existing files are not overwritten).
+
+## Build Verification
+
+The workflow can optionally verify the build after implementation. See [Build Verification](build-verification/) for configuration details.

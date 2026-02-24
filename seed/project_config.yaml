@@ -1,0 +1,52 @@
+# Project-level configuration (git-tracked, shared across team)
+#
+# This file configures project-specific settings used by the aitask workflow.
+# It is copied from seed/ during `ait setup` — edit it to match your project.
+#
+# For per-user settings (email, etc.), use aitasks/metadata/userconfig.yaml instead.
+# For workflow behavior (skip prompts, etc.), use execution profiles in aitasks/metadata/profiles/.
+#
+# ──────────────────────────────────────────────────────────────────────
+# verify_build — Shell command(s) to verify the build after merging.
+#
+# Used by post-implementation steps in task-workflow, aitask-pickrem, and
+# aitask-pickweb to verify the build still passes after implementation.
+#
+# Options:
+#   - Omit or leave empty: build verification is skipped
+#   - Single string: one command
+#   - List of strings: run each sequentially, stop on first failure
+#
+# If the build fails due to this task's changes, the agent automatically
+# goes back to fix and re-runs. Pre-existing failures are logged and skipped.
+#
+# Examples by project type:
+#
+#   # Android (Kotlin/Java with Gradle):
+#   verify_build: "JAVA_HOME=/opt/android-studio/jbr ./gradlew assembleDebug"
+#
+#   # Rust:
+#   verify_build: "cargo build"
+#
+#   # Python:
+#   verify_build: "python -m py_compile main.py"
+#
+#   # Node.js / TypeScript:
+#   verify_build: "npm run build"
+#
+#   # Go:
+#   verify_build: "go build ./..."
+#
+#   # C++ with CMake:
+#   verify_build:
+#     - "cmake -B build"
+#     - "cmake --build build"
+#
+#   # Multi-step (install + build + test):
+#   verify_build:
+#     - "npm install"
+#     - "npm run build"
+#     - "npm test"
+# ──────────────────────────────────────────────────────────────────────
+
+verify_build:

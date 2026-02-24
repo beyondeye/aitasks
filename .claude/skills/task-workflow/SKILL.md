@@ -462,10 +462,15 @@ Execute the post-implementation cleanup steps.
 
 - **Handle merge conflicts:** Ask user for guidance if needed.
 
-- **Verify build:**
-  ```bash
-  JAVA_HOME=/opt/android-studio/jbr ./gradlew assembleDebug
-  ```
+- **Verify build (if configured):**
+  - Read `aitasks/metadata/project_config.yaml` and check the `verify_build` field
+  - **If `verify_build` is absent, null, or empty (or file doesn't exist):** Display "No verify_build configured — skipping build verification." and skip this step.
+  - **If `verify_build` is a single command string:** Run it.
+  - **If `verify_build` is a list of commands:** Run each sequentially (stop on first failure).
+  - **If the build fails:**
+    1. Analyze the error output and compare against the changes introduced by this task (`git diff` against the base)
+    2. **If the failure is caused by this task's changes:** Go back to the implementation to fix the build errors. After fixing, re-run the build command(s). Repeat until the build passes.
+    3. **If the failure is NOT related to this task's changes** (pre-existing issue, environment problem, etc.): Log the build failure details in the plan file's "Final Implementation Notes" section under a "Build verification" entry and proceed with the workflow. Do not attempt to fix pre-existing issues.
 
 - **Clean up branch and worktree:**
   ```bash
@@ -657,6 +662,16 @@ This procedure is referenced from the Task Abort Procedure wherever a task lock 
 - When archiving a task with an `issue` field, the workflow offers to update/close the linked issue using `aitask_issue_update.sh`. The SKILL.md workflow is platform-agnostic; the script handles platform specifics (GitHub, GitLab, etc.). It auto-detects commits and includes "Final Implementation Notes" from the archived plan file.
 - **Folded tasks:** When a task has a `folded_tasks` frontmatter field (set by aitask-explore or aitask-fold), the listed tasks are deleted during Step 9 archival. Folded tasks have status `Folded` with a `folded_into` property pointing to the primary task. They are deleted (not archived) because their full content was incorporated into the primary task's description at creation/fold time.
 - **Note:** Since aitask-explore creates standalone parent tasks only, the child task archival path does not need to handle `folded_tasks`.
+
+### Project Configuration
+
+Project-level settings are stored in `aitasks/metadata/project_config.yaml` (git-tracked, shared across team). This is separate from execution profiles (workflow behavior) and `userconfig.yaml` (per-user, gitignored).
+
+| Key | Type | Default | Description | Used in |
+|-----|------|---------|-------------|---------|
+| `verify_build` | string or list | (none — skip) | Shell command(s) to verify the build after implementation | Step 9 |
+
+If the file does not exist or a field is absent, the corresponding feature is skipped.
 
 ### Execution Profiles
 
