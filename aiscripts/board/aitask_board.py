@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import re
 import sys
-import copy
 import yaml
 import json
 import glob
@@ -20,6 +19,12 @@ from textual.binding import Binding
 from textual.message import Message
 from textual import on, work
 from textual.command import Provider, Hit, Hits, DiscoveryHit
+
+from task_yaml import (
+    _TaskSafeLoader, _FlowListDumper, _normalize_task_ids,
+    FRONTMATTER_RE, BOARD_KEYS,
+    parse_frontmatter, serialize_frontmatter,
+)
 
 # --- Configuration & Constants ---
 
@@ -58,37 +63,6 @@ DEFAULT_COLUMNS = [
 ]
 DEFAULT_ORDER = ["now", "next", "backlog"]
 
-# --- YAML Loader & Task ID Normalization ---
-
-class _TaskSafeLoader(yaml.SafeLoader):
-    """Custom YAML loader that preserves digit_digit patterns as strings.
-
-    PyYAML (YAML 1.1) treats underscores as digit separators, so '85_2'
-    becomes integer 852.  We add a higher-priority string resolver for
-    the \\d+_\\d+ pattern to prevent this coercion.
-    """
-    pass
-
-_TaskSafeLoader.yaml_implicit_resolvers = copy.deepcopy(
-    yaml.SafeLoader.yaml_implicit_resolvers
-)
-for _ch in list('0123456789'):
-    _resolvers = _TaskSafeLoader.yaml_implicit_resolvers.get(_ch, [])
-    _resolvers.insert(0, ('tag:yaml.org,2002:str', re.compile(r'^\d+_\d+$')))
-    _TaskSafeLoader.yaml_implicit_resolvers[_ch] = _resolvers
-
-
-def _normalize_task_ids(ids_list):
-    """Normalize task IDs: ensure child task refs (with underscore) have 't' prefix.
-
-    Plain numbers (parent refs like 16, 77) are left as-is.
-    Entries already prefixed (t85_2) pass through unchanged.
-    """
-    if not ids_list:
-        return ids_list
-    return [f"t{s}" if re.match(r'^\d+_\d+$', s := str(item)) else s
-            for item in ids_list]
-
 def _issue_indicator(url: str) -> str:
     """Return a short colored indicator based on issue URL platform."""
     from urllib.parse import urlparse
@@ -105,7 +79,7 @@ def _issue_indicator(url: str) -> str:
 # --- Data Models & Logic ---
 
 class Task:
-    _BOARD_KEYS = ("boardcol", "boardidx")
+    _BOARD_KEYS = BOARD_KEYS
 
     def __init__(self, filepath: Path):
         self.filepath = filepath
@@ -115,29 +89,14 @@ class Task:
         self._original_key_order: list = []
         self.load()
 
-    _FRONTMATTER_RE = re.compile(r'\A---\n(.*?)\n---\n(.*)', re.DOTALL)
-
     def load(self):
         try:
             with open(self.filepath, "r", encoding="utf-8") as f:
                 raw = f.read()
 
-            m = self._FRONTMATTER_RE.match(raw)
-            if m:
-                self.metadata = yaml.load(m.group(1), Loader=_TaskSafeLoader) or {}
-                self._original_key_order = list(self.metadata.keys())
-                self.content = m.group(2)
-                # Normalize child task ID references to always have 't' prefix
-                if 'depends' in self.metadata:
-                    self.metadata['depends'] = _normalize_task_ids(self.metadata['depends'])
-                if 'children_to_implement' in self.metadata:
-                    self.metadata['children_to_implement'] = _normalize_task_ids(
-                        self.metadata['children_to_implement']
-                    )
-                if 'folded_tasks' in self.metadata:
-                    self.metadata['folded_tasks'] = _normalize_task_ids(
-                        self.metadata['folded_tasks']
-                    )
+            result = parse_frontmatter(raw)
+            if result:
+                self.metadata, self.content, self._original_key_order = result
             else:
                 self.metadata = {}
                 self._original_key_order = []
@@ -147,36 +106,10 @@ class Task:
             self._original_key_order = []
             self.content = str(e)
 
-    class _FlowListDumper(yaml.SafeDumper):
-        """Dumper that writes lists in flow style [a, b] but dicts in block style."""
-        pass
-
-    _FlowListDumper.add_representer(list, lambda dumper, data:
-        dumper.represent_sequence('tag:yaml.org,2002:seq', data, flow_style=True))
-
-    def _ordered_metadata(self) -> dict:
-        """Return metadata with original key order preserved, board keys last."""
-        ordered = {}
-        # Original keys first (excluding board keys if they were not originally present)
-        for key in self._original_key_order:
-            if key in self.metadata:
-                ordered[key] = self.metadata[key]
-        # Any new non-board keys
-        for key in self.metadata:
-            if key not in ordered and key not in self._BOARD_KEYS:
-                ordered[key] = self.metadata[key]
-        # Board keys always last
-        for key in self._BOARD_KEYS:
-            if key in self.metadata:
-                ordered[key] = self.metadata[key]
-        return ordered
-
     def save(self):
-        frontmatter = yaml.dump(self._ordered_metadata(), Dumper=self._FlowListDumper,
-                                default_flow_style=False, sort_keys=False)
-        new_content = f"---\n{frontmatter}---\n{self.content}"
+        content = serialize_frontmatter(self.metadata, self.content, self._original_key_order)
         with open(self.filepath, "w", encoding="utf-8") as f:
-            f.write(new_content)
+            f.write(content)
 
     def _update_timestamp(self):
         """Update the updated_at metadata field to current time."""
