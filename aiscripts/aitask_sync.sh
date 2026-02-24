@@ -15,6 +15,7 @@
 #   PULLED                     Remote changes pulled, nothing to push
 #   NOTHING                    Already up-to-date
 #   CONFLICT:<file1>,<file2>   Merge conflicts detected (rebase aborted)
+#   AUTOMERGED                 Conflicts detected but all auto-resolved
 #   NO_NETWORK                 Fetch/push timed out or failed
 #   NO_REMOTE                  No remote configured
 #   ERROR:<message>            Unexpected error
@@ -30,6 +31,19 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 # --- Configuration ---
 BATCH_MODE=false
 NETWORK_TIMEOUT=10
+
+# --- Auto-merge support (best-effort) ---
+_MERGE_PYTHON=""
+_MERGE_SCRIPT="$SCRIPT_DIR/board/aitask_merge.py"
+_init_merge_python() {
+    local venv_py="$HOME/.aitask/venv/bin/python"
+    if [[ -x "$venv_py" ]]; then
+        _MERGE_PYTHON="$venv_py"
+    elif command -v python3 &>/dev/null; then
+        _MERGE_PYTHON="python3"
+    fi
+}
+_init_merge_python
 
 # --- Help ---
 show_help() {
@@ -54,6 +68,7 @@ Batch output protocol (single line on stdout):
   PULLED                     Remote changes pulled, nothing to push
   NOTHING                    Already up-to-date
   CONFLICT:<file1>,<file2>   Merge conflicts (rebase aborted in batch)
+  AUTOMERGED                 Conflicts detected but all auto-resolved
   NO_NETWORK                 Fetch/push timed out or failed
   NO_REMOTE                  No remote configured
   ERROR:<message>            Unexpected error
@@ -185,13 +200,77 @@ count_remote_ahead() {
     task_git rev-list --count "HEAD..@{u}" 2>/dev/null || echo "0"
 }
 
+# --- Auto-merge conflicted task/plan files ---
+# try_auto_merge <conflicted_files_newline_separated>
+# Attempts auto-merge for each task/plan file using Python merge script.
+# Outputs remaining unresolved files (newline-separated) to stdout.
+# Returns 0 if ALL resolved, 1 if any remain unresolved.
+try_auto_merge() {
+    local conflicted="$1"
+    local unresolved=""
+    local resolved_count=0
+
+    if [[ -z "$_MERGE_PYTHON" ]] || [[ ! -f "$_MERGE_SCRIPT" ]]; then
+        echo "$conflicted"
+        return 1
+    fi
+
+    while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+        case "$f" in
+            aitasks/*.md|aiplans/*.md)
+                local file_path merge_exit=0
+                file_path="$(_resolve_conflict_path "$f")"
+                PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SCRIPT_DIR/board" "$_MERGE_PYTHON" "$_MERGE_SCRIPT" "$file_path" --batch --rebase 2>/dev/null || merge_exit=$?
+                if [[ $merge_exit -eq 0 ]]; then
+                    task_git add "$f" 2>/dev/null || true
+                    resolved_count=$((resolved_count + 1))
+                    iinfo "Auto-merged: $f"
+                else
+                    unresolved="${unresolved}${unresolved:+$'\n'}$f"
+                fi
+                ;;
+            *)
+                unresolved="${unresolved}${unresolved:+$'\n'}$f"
+                ;;
+        esac
+    done <<< "$conflicted"
+
+    if [[ -z "$unresolved" ]]; then
+        iinfo "Auto-merged $resolved_count file(s)"
+        return 0
+    else
+        [[ $resolved_count -gt 0 ]] && iinfo "Auto-merged $resolved_count file(s), remaining conflicts need manual resolution"
+        echo "$unresolved"
+        return 1
+    fi
+}
+
+# --- Rebase advancement helper ---
+# Try rebase --continue, fall back to --skip for empty patches (when
+# auto-merge result matches the current HEAD exactly, git sees "nothing to commit").
+_rebase_advance() {
+    if GIT_EDITOR=true task_git rebase --continue &>/dev/null; then
+        return 0
+    fi
+    # If no unresolved files remain, this is an empty patch — skip it
+    local unresolved
+    unresolved=$(task_git diff --name-only --diff-filter=U 2>/dev/null || true)
+    if [[ -z "$unresolved" ]] && task_git rebase --skip &>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
 # --- Pull with rebase ---
+# Returns: 0 = normal pull, 1 = failure, 2 = automerged
+_PULL_AUTOMERGED=false
 do_pull_rebase() {
     local remote_count="$1"
     iinfo "Pulling $remote_count new commits (rebase)..."
 
     local pull_exit=0
-    task_git pull --rebase --quiet 2>/dev/null || pull_exit=$?
+    task_git pull --rebase --quiet &>/dev/null || pull_exit=$?
 
     if [[ $pull_exit -ne 0 ]]; then
         # Check if it's a conflict
@@ -199,25 +278,77 @@ do_pull_rebase() {
         conflicted=$(task_git diff --name-only --diff-filter=U 2>/dev/null || true)
 
         if [[ -n "$conflicted" ]]; then
+            # Try auto-merge first
+            local remaining=""
+            local merge_rc=1
+            remaining=$(try_auto_merge "$conflicted") && merge_rc=0 || merge_rc=$?
+
+            if [[ $merge_rc -eq 0 ]]; then
+                # All conflicts auto-resolved — advance rebase (may loop for multi-commit)
+                local continue_ok=true
+                while true; do
+                    if _rebase_advance; then
+                        break  # rebase complete
+                    fi
+                    # Check for new conflicts from next commit
+                    local new_conflicted
+                    new_conflicted=$(task_git diff --name-only --diff-filter=U 2>/dev/null || true)
+                    if [[ -n "$new_conflicted" ]]; then
+                        local new_remaining=""
+                        local new_merge_rc=1
+                        new_remaining=$(try_auto_merge "$new_conflicted") && new_merge_rc=0 || new_merge_rc=$?
+                        if [[ $new_merge_rc -ne 0 ]]; then
+                            # Can't auto-merge this round
+                            if [[ "$BATCH_MODE" == true ]]; then
+                                task_git rebase --abort 2>/dev/null || true
+                                local conflict_list
+                                conflict_list=$(echo "$new_remaining" | tr '\n' ',' | sed 's/,$//')
+                                batch_out "CONFLICT:${conflict_list}"
+                                exit 0
+                            else
+                                warn "Auto-merged earlier commits, but new conflicts in:"
+                                echo "$new_remaining" | while IFS= read -r f; do echo "  - $f"; done
+                                remaining="$new_remaining"
+                                continue_ok=false
+                                break
+                            fi
+                        fi
+                        # new conflicts also auto-merged, loop to advance rebase
+                    else
+                        # rebase advance failed for non-conflict reason
+                        task_git rebase --abort 2>/dev/null || true
+                        batch_out "ERROR:rebase_continue_failed"
+                        return 1
+                    fi
+                done
+
+                if [[ "$continue_ok" == true ]]; then
+                    _PULL_AUTOMERGED=true
+                    isuccess "All conflicts auto-merged successfully"
+                    return 0
+                fi
+                # If continue_ok=false, fall through to interactive handling with $remaining
+            fi
+
+            # Some files unresolved (or auto-merge unavailable)
             if [[ "$BATCH_MODE" == true ]]; then
                 task_git rebase --abort 2>/dev/null || true
                 local conflict_list
-                conflict_list=$(echo "$conflicted" | tr '\n' ',' | sed 's/,$//')
+                conflict_list=$(echo "$remaining" | tr '\n' ',' | sed 's/,$//')
                 batch_out "CONFLICT:${conflict_list}"
                 exit 0
             else
-                # Interactive conflict resolution
-                warn "Merge conflicts detected in:"
-                echo "$conflicted" | while IFS= read -r f; do
-                    echo "  - $f"
-                done
+                # Interactive conflict resolution with remaining files only
+                warn "Remaining conflicts in:"
+                echo "$remaining" | while IFS= read -r f; do echo "  - $f"; done
 
                 local editor="${EDITOR:-nano}"
                 echo ""
                 info "Opening each conflicted file in $editor for resolution..."
 
                 local all_resolved=true
-                echo "$conflicted" | while IFS= read -r f; do
+                echo "$remaining" | while IFS= read -r f; do
+                    [[ -z "$f" ]] && continue
                     echo ""
                     info "Editing: $f"
                     if $editor "$(_resolve_conflict_path "$f")"; then
@@ -229,7 +360,7 @@ do_pull_rebase() {
                 done
 
                 if [[ "$all_resolved" == true ]]; then
-                    if ! task_git rebase --continue 2>/dev/null; then
+                    if ! _rebase_advance; then
                         warn "Rebase continue failed. Aborting rebase."
                         task_git rebase --abort 2>/dev/null || true
                         return 1
@@ -342,7 +473,10 @@ main() {
     fi
 
     # Step 9: Output result
-    if [[ "$did_push" == true && "$did_pull" == true ]]; then
+    if [[ "$_PULL_AUTOMERGED" == true ]]; then
+        batch_out "AUTOMERGED"
+        isuccess "Sync complete: conflicts auto-merged"
+    elif [[ "$did_push" == true && "$did_pull" == true ]]; then
         batch_out "SYNCED"
         isuccess "Sync complete: pushed and pulled changes"
     elif [[ "$did_push" == true ]]; then

@@ -364,6 +364,202 @@ if command -v shellcheck &>/dev/null; then
     fi
 fi
 
+# --- Test 12: AUTOMERGED — frontmatter-only conflict auto-resolved (batch) ---
+echo "--- Test 12: AUTOMERGED - frontmatter-only conflict auto-resolved ---"
+
+TMPDIR_12="$(setup_sync_repos)"
+
+# Create a richer task file with multiple frontmatter fields
+(
+    cd "$TMPDIR_12/local"
+    cat > aitasks/t1_sample.md <<'TASKEOF'
+---
+priority: high
+status: Ready
+boardcol: backlog
+labels: [ui]
+updated_at: 2026-01-01 10:00
+---
+Task body stays the same
+TASKEOF
+    git add -A
+    git commit -m "setup rich task" --quiet
+    git push --quiet 2>/dev/null
+)
+
+# Sync pc2
+(cd "$TMPDIR_12/pc2" && git pull --quiet 2>/dev/null)
+
+# pc2: change boardcol
+(
+    cd "$TMPDIR_12/pc2"
+    cat > aitasks/t1_sample.md <<'TASKEOF'
+---
+priority: high
+status: Ready
+boardcol: now
+labels: [ui]
+updated_at: 2026-01-01 10:00
+---
+Task body stays the same
+TASKEOF
+    git add -A
+    git commit -m "pc2: change boardcol" --quiet
+    git push --quiet 2>/dev/null
+)
+
+# local: change labels (different field, same body)
+(
+    cd "$TMPDIR_12/local"
+    cat > aitasks/t1_sample.md <<'TASKEOF'
+---
+priority: high
+status: Ready
+boardcol: backlog
+labels: [api, ui]
+updated_at: 2026-01-01 10:00
+---
+Task body stays the same
+TASKEOF
+    git add -A
+    git commit -m "local: change labels" --quiet
+)
+
+output=$(cd "$TMPDIR_12/local" && ./ait sync --batch 2>/dev/null)
+assert_eq "Frontmatter-only conflict returns AUTOMERGED" "AUTOMERGED" "$output"
+
+# Verify merged content
+merged=$(cat "$TMPDIR_12/local/aitasks/t1_sample.md")
+assert_contains "Merged file keeps local boardcol" "boardcol: backlog" "$merged"
+assert_contains "Merged file has merged labels" "api" "$merged"
+assert_contains "Merged file has merged labels" "ui" "$merged"
+
+rm -rf "$TMPDIR_12"
+
+# --- Test 13: AUTOMERGED — priority uses remote default in batch ---
+echo "--- Test 13: AUTOMERGED - priority uses remote default in batch ---"
+
+TMPDIR_13="$(setup_sync_repos)"
+
+# Create task with priority field
+(
+    cd "$TMPDIR_13/local"
+    cat > aitasks/t1_sample.md <<'TASKEOF'
+---
+priority: high
+status: Ready
+updated_at: 2026-01-01 10:00
+---
+Same body
+TASKEOF
+    git add -A
+    git commit -m "setup priority task" --quiet
+    git push --quiet 2>/dev/null
+)
+
+# Sync pc2
+(cd "$TMPDIR_13/pc2" && git pull --quiet 2>/dev/null)
+
+# pc2: change priority to low
+(
+    cd "$TMPDIR_13/pc2"
+    cat > aitasks/t1_sample.md <<'TASKEOF'
+---
+priority: low
+status: Ready
+updated_at: 2026-01-01 10:00
+---
+Same body
+TASKEOF
+    git add -A
+    git commit -m "pc2: priority low" --quiet
+    git push --quiet 2>/dev/null
+)
+
+# local: change priority to medium
+(
+    cd "$TMPDIR_13/local"
+    cat > aitasks/t1_sample.md <<'TASKEOF'
+---
+priority: medium
+status: Ready
+updated_at: 2026-01-01 10:00
+---
+Same body
+TASKEOF
+    git add -A
+    git commit -m "local: priority medium" --quiet
+)
+
+output=$(cd "$TMPDIR_13/local" && ./ait sync --batch 2>/dev/null)
+assert_eq "Priority conflict returns AUTOMERGED" "AUTOMERGED" "$output"
+
+# Verify remote value was kept (batch default)
+merged=$(cat "$TMPDIR_13/local/aitasks/t1_sample.md")
+assert_contains "Priority uses remote value in batch" "priority: low" "$merged"
+
+rm -rf "$TMPDIR_13"
+
+# --- Test 14: CONFLICT preserved when body differs ---
+echo "--- Test 14: CONFLICT preserved when body differs (partial merge) ---"
+
+TMPDIR_14="$(setup_sync_repos)"
+
+# Create task
+(
+    cd "$TMPDIR_14/local"
+    cat > aitasks/t1_sample.md <<'TASKEOF'
+---
+priority: high
+status: Ready
+updated_at: 2026-01-01 10:00
+---
+Original body
+TASKEOF
+    git add -A
+    git commit -m "setup body task" --quiet
+    git push --quiet 2>/dev/null
+)
+
+# Sync pc2
+(cd "$TMPDIR_14/pc2" && git pull --quiet 2>/dev/null)
+
+# pc2: change body
+(
+    cd "$TMPDIR_14/pc2"
+    cat > aitasks/t1_sample.md <<'TASKEOF'
+---
+priority: high
+status: Ready
+updated_at: 2026-01-01 10:00
+---
+Modified by pc2
+TASKEOF
+    git add -A
+    git commit -m "pc2: change body" --quiet
+    git push --quiet 2>/dev/null
+)
+
+# local: change body differently
+(
+    cd "$TMPDIR_14/local"
+    cat > aitasks/t1_sample.md <<'TASKEOF'
+---
+priority: high
+status: Ready
+updated_at: 2026-01-01 10:00
+---
+Modified locally
+TASKEOF
+    git add -A
+    git commit -m "local: change body" --quiet
+)
+
+output=$(cd "$TMPDIR_14/local" && ./ait sync --batch 2>/dev/null)
+assert_contains "Body conflict returns CONFLICT" "CONFLICT:" "$output"
+
+rm -rf "$TMPDIR_14"
+
 # --- Summary ---
 echo ""
 echo "==============================="

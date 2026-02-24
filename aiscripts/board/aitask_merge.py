@@ -250,6 +250,11 @@ def main() -> int:
         "--batch", action="store_true",
         help="Batch mode: no interactive prompts, use deterministic defaults",
     )
+    parser.add_argument(
+        "--rebase", action="store_true",
+        help="Swap LOCAL/REMOTE sides (during git rebase, conflict marker "
+             "sides are inverted: LOCAL=upstream, REMOTE=our commits)",
+    )
     args = parser.parse_args()
 
     filepath = Path(args.file)
@@ -266,6 +271,12 @@ def main() -> int:
         return 1
 
     local_content, remote_content = result
+
+    # During git rebase, conflict marker sides are inverted:
+    # LOCAL (<<<) = upstream/remote, REMOTE (>>>) = our local commits.
+    # Swap to restore the intuitive meaning for merge rules.
+    if args.rebase:
+        local_content, remote_content = remote_content, local_content
 
     # 2. Parse frontmatter from both sides
     local_parsed = parse_frontmatter(local_content)
