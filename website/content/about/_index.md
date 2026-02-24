@@ -92,12 +92,13 @@ Contributions welcome. Whether it's a bug report, feature request, or pull reque
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
-**aitasks** is released under the **MIT License** with a **[Commons Clause](https://commonsclause.com/)** restriction.
+**aitasks** is released under the **Apache License 2.0** with a **[Commons Clause](https://commonsclause.com/)** restriction.
 
 | You can | You cannot |
 |---------|------------|
 | Use, copy, and modify freely | Sell aitasks itself as a standalone product |
 | Use **aitasks** to power your commercial products | Offer a paid hosted aitasks service |
+| Use with explicit patent protection from contributors | |
 | Distribute and sublicense | |
 
 See the full [LICENSE](https://github.com/beyondeye/aitasks/blob/main/LICENSE) on GitHub.

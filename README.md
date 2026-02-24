@@ -148,10 +148,10 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 - **[Development Guide](https://beyondeye.github.io/aitasks/docs/development/)** — Architecture overview, directory layout, library scripts, and release process.
 
 ## 📄 License
-This project is licensed under the MIT License with the Commons Clause condition.
+This project is licensed under the Apache License 2.0 with the Commons Clause condition.
 
 What this means:
-✅ You can: Use, copy, and modify the code for free.
+✅ You can: Use, copy, and modify the code for free, with an explicit patent grant from contributors.
 
 ✅ You can: Use aitasks as a library to power your own commercial products or SaaS applications.
 
