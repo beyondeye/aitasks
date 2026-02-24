@@ -2221,6 +2221,9 @@ class KanbanApp(App):
         elif status_line == "NOTHING":
             if show_notification:
                 self.notify("Already up to date", severity="information")
+        elif status_line == "AUTOMERGED":
+            if show_notification:
+                self.notify("Sync: Auto-merged conflicts", severity="information")
         elif status_line in ("PUSHED", "PULLED", "SYNCED"):
             if show_notification:
                 self.notify(f"Sync: {status_line.capitalize()}", severity="information")
