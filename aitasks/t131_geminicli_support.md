@@ -21,3 +21,5 @@ this is a complex tasks so it will be probably better to split it into multiple 
 
 IMPORTANT TASK UPDATE: in geminicli skills cannot be invoked as custom commands like in claude code, to instead of writing wrapper gemini skills for aitask claudecode skills
 need instead to write geminicli wrapper custom commands
+
+note: the current note about geminicli plan mode in conductor docs: need to check if this is also relevant for aitasks framework: https://github.com/gemini-cli-extensions/conductor/commit/3bc0f18413b8bfb71b1d8000fcdae21c0874896a
