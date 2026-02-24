@@ -7,7 +7,7 @@ status: Ready
 labels: [claudeskills, bash_scripts]
 created_at: 2026-02-24 11:59
 updated_at: 2026-02-24 11:59
-boardidx: 90
+boardidx: 40
 boardcol: now
 ---
 
