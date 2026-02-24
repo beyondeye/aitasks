@@ -33,3 +33,11 @@ The `CONFLICT:` output from sync now only contains truly unresolvable files (aut
 ## Scope
 
 This is a minimal change — just one `elif` branch. The heavy lifting is in t228_3.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added 3 lines to `aiscripts/board/aitask_board.py` — a new `elif` branch in `_run_sync()` (line 2224) to handle the `AUTOMERGED` status with an informational notification. Placed between the `NOTHING` and `PUSHED/PULLED/SYNCED` checks.
+- **Deviations from plan:** The plan suggested placing it before `CONFLICT:` or noted order doesn't matter. Placed it after `NOTHING` and before `PUSHED/PULLED/SYNCED` for logical grouping (all success-like statuses together). The plan referenced line 2278 but the actual method was at line 2194 (line numbers shifted since the plan was written during t228_3).
+- **Issues encountered:** None. Straightforward 3-line addition.
+- **Key decisions:** Used `severity="information"` (not `"warning"`) since auto-merge is a success case — conflicts were resolved automatically.
+- **Notes for sibling tasks:** The board now handles all sync batch output statuses: `CONFLICT:*`, `NO_NETWORK`, `NO_REMOTE`, `NOTHING`, `AUTOMERGED`, `PUSHED/PULLED/SYNCED`, and `ERROR:*`. No further board changes needed for t228_5 (tests and documentation).
