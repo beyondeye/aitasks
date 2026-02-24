@@ -1,2 +1,5 @@
 # Draft tasks (local, not committed)
 aitasks/new/
+
+# Per-user config (local, not shared)
+aitasks/metadata/userconfig.yaml
