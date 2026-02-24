@@ -69,26 +69,46 @@ If `active_profile` is null (either because no profile was selected by the calli
 
 ### Step 4: Assign Task to User
 
-- **Read stored emails:**
-  ```bash
-  cat aitasks/metadata/emails.txt 2>/dev/null | sort -u
-  ```
+- **Email resolution (priority order):**
 
-- **Profile check:** If the active profile has `default_email` set:
-  - If value is `"first"`: Read `aitasks/metadata/emails.txt` and use the first email address. Display: "Profile '\<name\>': using email \<email\>". If emails.txt is empty or missing, fall through to the AskUserQuestion below.
-  - If value is a literal email address: Use that email directly. Display: "Profile '\<name\>': using email \<email\>"
-  - Skip the AskUserQuestion below
+  1. **Check task metadata:** Read the `assigned_to` field from the task file's frontmatter.
+  2. **Check userconfig:** Read `aitasks/metadata/userconfig.yaml` and extract the `email:` field (if file exists).
+  3. **Mismatch check:** If both `assigned_to` and userconfig email are non-empty and DIFFERENT, use `AskUserQuestion`:
+     - Question: "Task is assigned to \<assigned_to\> but your userconfig email is \<userconfig_email\>. Which email to use?"
+     - Header: "Email"
+     - Options:
+       - "Keep \<assigned_to\>" (description: "Continue with the existing assignment")
+       - "Use \<userconfig_email\>" (description: "Override with your local email")
+     - Use the selected email and proceed to the **Claim task ownership** step below.
+  4. **If `assigned_to` is non-empty** (and matches userconfig, or userconfig is empty): use `assigned_to`. Display: "Using email from task metadata: \<email\>". Skip to **Claim task ownership**.
+  5. **Profile check:** If the active profile has `default_email` set:
+     - If value is `"userconfig"`: Use the userconfig email (from step 2). If userconfig is empty/missing, fall back to reading `aitasks/metadata/emails.txt` (first email). Display: "Profile '\<name\>': using email \<email\> (from userconfig)". If both are empty, fall through to the AskUserQuestion below.
+     - If value is `"first"`: Read `aitasks/metadata/emails.txt` and use the first email address. Display: "Profile '\<name\>': using email \<email\>". If emails.txt is empty or missing, fall through to the AskUserQuestion below.
+     - If value is a literal email address: Use that email directly. Display: "Profile '\<name\>': using email \<email\>"
+     - Skip the AskUserQuestion below
 
-  Otherwise, **ask for email using `AskUserQuestion`:**
-  - Question: "Enter your email to track who is working on this task (optional):"
-  - Header: "Email"
-  - Options:
-    - List each stored email from emails.txt (if any exist)
-    - "Enter new email" (description: "Add a new email address")
-    - "Skip" (description: "Don't assign this task to anyone")
+  6. **Otherwise, ask for email using `AskUserQuestion`:**
+     - Read stored emails: `cat aitasks/metadata/emails.txt 2>/dev/null | sort -u`
+     - Question: "Enter your email to track who is working on this task (optional):"
+     - Header: "Email"
+     - Options:
+       - List each stored email from emails.txt (if any exist)
+       - "Enter new email" (description: "Add a new email address")
+       - "Skip" (description: "Don't assign this task to anyone")
 
-- **If "Enter new email" selected:**
-  - Ask user to type their email via `AskUserQuestion` with free text (use the "Other" option)
+  - **If "Enter new email" selected:**
+    - Ask user to type their email via `AskUserQuestion` with free text (use the "Other" option)
+
+- **Userconfig sync check:** After email is resolved, if the final email differs from the userconfig email (or userconfig doesn't exist):
+  - Use `AskUserQuestion`:
+    - Question: "The selected email (\<email\>) differs from your userconfig (\<userconfig_email\>). Update userconfig.yaml?"
+    - Header: "Userconfig"
+    - Options:
+      - "Yes, update userconfig" (description: "Save this email to userconfig.yaml for future use")
+      - "No, keep current userconfig" (description: "Use this email for now but don't change userconfig")
+  - If "Yes": Write `email: <email>` to `aitasks/metadata/userconfig.yaml` (create file if needed with comment header `# Local user configuration (gitignored, not shared)`)
+  - If "No": Proceed without updating
+  - **Skip this check** if: the final email matches userconfig, or email was resolved from userconfig itself, or no email was selected ("Skip")
 
 - **Claim task ownership (lock, update status, commit, push):**
 
@@ -642,7 +662,7 @@ This procedure is referenced from the Task Abort Procedure wherever a task lock 
 
 Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer workflow questions to reduce interactive prompts. Two profiles ship by default:
 - **default** — All questions asked normally (empty profile, serves as template)
-- **fast** — Skip confirmations, use first stored email, work locally on current branch, reuse existing plans
+- **fast** — Skip confirmations, use userconfig email, work locally on current branch, reuse existing plans
 
 #### Profile Schema Reference
 
@@ -651,7 +671,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `name` | string | yes | Display name shown during profile selection | Step 0a |
 | `description` | string | yes | Description shown below profile name during selection | Step 0a |
 | `skip_task_confirmation` | bool | no | `true` = auto-confirm task; omit or `false` = ask | Step 0b |
-| `default_email` | string | no | `"first"` = first from emails.txt; or a literal email address; omit = ask | Step 4 |
+| `default_email` | string | no | `"userconfig"` = from userconfig.yaml (falls back to first from emails.txt); `"first"` = first from emails.txt; or a literal email address; omit = ask. Note: `assigned_to` from task metadata always takes priority regardless of this setting (see Step 4 email resolution). | Step 4 |
 | `create_worktree` | bool | no | `true` = create worktree; `false` = current branch | Step 5 |
 | `base_branch` | string | no | Branch name (e.g., `"main"`) | Step 5 |
 | `plan_preference` | string | no | `"use_current"`, `"verify"`, or `"create_new"` | Step 6.0 |

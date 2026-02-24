@@ -136,10 +136,17 @@ If neither check triggers, proceed to Step 5.
 
 ### Step 5: Assign Task
 
-- Read `default_email` from profile:
-  - If `"first"`: read `aitasks/metadata/emails.txt` and use the first email address. If file is empty or missing, proceed without email.
-  - If a literal email address: use that directly.
-  - If not set in profile: proceed without email.
+- **Email resolution (priority order, non-interactive):**
+
+  1. **Check task metadata:** Read the `assigned_to` field from the task file's frontmatter.
+  2. **Check userconfig:** Read `aitasks/metadata/userconfig.yaml` and extract the `email:` field (if file exists).
+  3. **Mismatch check (non-interactive):** If both `assigned_to` and userconfig email are non-empty and DIFFERENT: prefer `assigned_to`. Display warning: "Warning: assigned_to (\<email1\>) differs from userconfig (\<email2\>). Using assigned_to."
+  4. **If `assigned_to` is non-empty** (and matches userconfig, or userconfig is empty): use `assigned_to`. Display: "Using email from task metadata: \<email\>"
+  5. **Profile check:** Read `default_email` from profile:
+     - If `"userconfig"`: Use the userconfig email (from step 2). If empty/missing, fall back to first email from `aitasks/metadata/emails.txt`. If both empty, proceed without email.
+     - If `"first"`: read `aitasks/metadata/emails.txt` and use the first email address. If file is empty or missing, proceed without email.
+     - If a literal email address: use that directly.
+     - If not set in profile: proceed without email.
 
 - Claim task ownership:
 

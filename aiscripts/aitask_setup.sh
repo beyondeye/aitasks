@@ -897,6 +897,15 @@ setup_data_branch() {
         } >> "$data_gitignore"
     fi
 
+    # Add userconfig.yaml to data branch .gitignore (per-user, not shared)
+    if ! grep -qxF "aitasks/metadata/userconfig.yaml" "$data_gitignore" 2>/dev/null; then
+        {
+            echo ""
+            echo "# Per-user config (local, not shared)"
+            echo "aitasks/metadata/userconfig.yaml"
+        } >> "$data_gitignore"
+    fi
+
     # --- Step 4: Commit and push on data branch ---
     (
         cd "$project_dir/.aitask-data"
@@ -1393,6 +1402,72 @@ commit_framework_files() {
     esac
 }
 
+# --- Per-user config (userconfig.yaml) ---
+setup_userconfig() {
+    local project_dir
+    project_dir="$(pwd)"
+
+    # Determine where aitasks/metadata lives
+    local metadata_dir
+    if [[ -d "$project_dir/.aitask-data/aitasks/metadata" ]]; then
+        metadata_dir="$project_dir/.aitask-data/aitasks/metadata"
+    elif [[ -d "$project_dir/aitasks/metadata" ]]; then
+        metadata_dir="$project_dir/aitasks/metadata"
+    else
+        warn "No aitasks/metadata directory found — skipping userconfig setup"
+        return
+    fi
+
+    local config_file="$metadata_dir/userconfig.yaml"
+
+    if [[ -f "$config_file" ]]; then
+        local existing_email
+        existing_email=$(grep '^email:' "$config_file" 2>/dev/null | sed 's/^email: *//')
+        success "Per-user config already exists (email: ${existing_email:-<not set>})"
+        return
+    fi
+
+    info "Setting up per-user config (userconfig.yaml)..."
+    info "This file is gitignored and stores your local identity."
+
+    # Try to get a default from git config
+    local default_email
+    default_email=$(git config user.email 2>/dev/null || echo "")
+
+    local email=""
+    if [[ -t 0 ]]; then
+        if [[ -n "$default_email" ]]; then
+            printf "  Your email [%s]: " "$default_email"
+        else
+            printf "  Your email: "
+        fi
+        read -r email
+        email="${email:-$default_email}"
+    else
+        # Non-interactive: use git config email if available
+        email="$default_email"
+        if [[ -n "$email" ]]; then
+            info "(non-interactive: using git config email: $email)"
+        else
+            info "(non-interactive: no email available, skipping userconfig)"
+            return
+        fi
+    fi
+
+    if [[ -z "$email" ]]; then
+        info "No email provided — skipping userconfig creation."
+        info "You can create it manually later: aitasks/metadata/userconfig.yaml"
+        return
+    fi
+
+    {
+        echo "# Local user configuration (gitignored, not shared)"
+        echo "email: $email"
+    } > "$config_file"
+
+    success "Created userconfig.yaml (email: $email)"
+}
+
 # --- Main ---
 main() {
     echo ""
@@ -1422,6 +1497,9 @@ main() {
     echo ""
 
     setup_data_branch
+    echo ""
+
+    setup_userconfig
     echo ""
 
     setup_python_venv

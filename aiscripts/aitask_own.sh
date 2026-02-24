@@ -250,6 +250,20 @@ main() {
         return 0
     fi
 
+    # Step 1b: Resolve email from task metadata or userconfig if not provided
+    if [[ -z "$EMAIL" ]]; then
+        # Try assigned_to from the task file's frontmatter
+        local task_file
+        task_file=$(resolve_task_file "$TASK_ID" 2>/dev/null) || true
+        if [[ -n "$task_file" && -f "$task_file" ]]; then
+            EMAIL=$(grep '^assigned_to:' "$task_file" 2>/dev/null | sed 's/assigned_to: *//' || true)
+        fi
+        # Fall back to userconfig.yaml
+        if [[ -z "$EMAIL" ]]; then
+            EMAIL=$(get_user_email)
+        fi
+    fi
+
     # Step 2: Store email if provided
     if [[ -n "$EMAIL" ]]; then
         store_email "$EMAIL"

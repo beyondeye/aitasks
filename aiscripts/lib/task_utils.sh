@@ -67,6 +67,17 @@ task_push() {
     fi
 }
 
+# --- Per-user Config ---
+
+# Read the current user's email from the local (gitignored) userconfig.yaml
+# Output: email string, or empty if file missing / field not found
+get_user_email() {
+    local config="${TASK_DIR:-aitasks}/metadata/userconfig.yaml"
+    if [[ -f "$config" ]]; then
+        grep '^email:' "$config" | sed 's/^email: *//'
+    fi
+}
+
 # --- Platform Detection ---
 
 # Detect git remote platform from origin URL
