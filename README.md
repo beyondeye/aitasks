@@ -101,7 +101,7 @@ curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh |
 ait setup
 ```
 
-**Already have the global `ait` shim?** If you've previously run `ait setup` on another project, the global shim at `~/.local/bin/ait` is already installed. You can bootstrap aitasks in any new project directory by simply running:
+**Already have the global `ait` shim?** If you've previously run `install.sh` on another project, the global shim at `~/.local/bin/ait` is already installed. You can bootstrap aitasks in any new project directory by simply running:
 
 ```bash
 cd /path/to/new-project
@@ -122,7 +122,7 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 - `aitasks/` — Task data directory (auto-created)
 - `aiplans/` — Implementation plans directory (auto-created)
 
-**Global dependencies** (installed once per machine via `ait setup`):
+**Global dependencies** (installed once per machine via `install.sh` and `ait setup`):
 
 - CLI tools: `fzf`, `gh` (for GitHub), `glab` (for GitLab), or `bkt` (for Bitbucket), `jq`, `git`
 - Python venv at `~/.aitask/venv/` with `textual`, `pyyaml`, `linkify-it-py`
