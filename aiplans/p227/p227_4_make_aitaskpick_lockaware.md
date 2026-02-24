@@ -40,5 +40,12 @@ With locking now a separate pre-pick operation, `aitask-pick` should detect pre-
 - Read modified SKILL.md and verify lock pre-check logic
 - Verify all three user paths: force unlock, proceed anyway, pick different
 
+## Final Implementation Notes
+- **Actual work done:** Added 30 lines to `.claude/skills/task-workflow/SKILL.md` Step 4: a "Lock pre-check (read-only)" section that runs `aitask_lock.sh --check` before `aitask_own.sh`, and a `--force` flag passthrough in the claim section.
+- **Deviations from plan:** None — implementation matches the plan exactly.
+- **Issues encountered:** None.
+- **Key decisions:** The pre-check uses exit codes (0=locked, 1=free) rather than parsing output first, which is more robust. The `--force` flag is passed through to `aitask_own.sh` rather than calling unlock separately, keeping the ownership claim atomic. The existing `LOCK_FAILED` / `LOCK_ERROR` handling in `aitask_own.sh` output parsing remains as fallback for race conditions.
+- **Notes for sibling tasks:** The lock pre-check is now part of the standard task-workflow. The `aitask-pickrem` skill does NOT use this workflow's Step 4 directly (it has its own `force_unlock_stale` profile setting), so no changes needed there.
+
 ## Post-Implementation (Step 9)
 Archive this child task.
