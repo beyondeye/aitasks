@@ -11,12 +11,12 @@ Base branch: main
 
 ## Context
 
-After `aitask-pickweb` completes on Claude Web, the implementation exists on a remote branch with `.task-data-updated/` containing plan and completion marker. This skill runs locally to merge code to main and archive task data to aitask-data.
+After `aitask-pickweb` completes on Claude Web, the implementation exists on a remote branch with `.aitask-data-updated/` containing plan and completion marker. This skill runs locally to merge code to main and archive task data to aitask-data.
 
 ## Implementation Steps
 
 ### Step 1: Create helper script `aiscripts/aitask_web_merge.sh`
-- Scans remote branches for `.task-data-updated/completed_*.json`
+- Scans remote branches for `.aitask-data-updated/completed_*.json`
 - Outputs structured list of candidate branches with metadata
 - Uses `git ls-tree` and `git show` to read markers without checkout
 
@@ -31,7 +31,7 @@ After `aitask-pickweb` completes on Claude Web, the implementation exists on a r
 3. AskUserQuestion with pagination for branch selection
 4. For selected branch:
    - `git merge <branch> --no-ff`
-   - `git rm -rf .task-data-updated/ && git commit --amend --no-edit`
+   - `git rm -rf .aitask-data-updated/ && git commit --amend --no-edit`
    - Read plan from branch via `git show`
    - Copy plan to aitask-data
    - Run `aitask_archive.sh`
@@ -47,9 +47,9 @@ After `aitask-pickweb` completes on Claude Web, the implementation exists on a r
 - **Reference:** `aiscripts/aitask_archive.sh`, `aiscripts/lib/task_utils.sh`
 
 ## Verification
-- Test branch detection with mock branch containing `.task-data-updated/completed_*.json`
+- Test branch detection with mock branch containing `.aitask-data-updated/completed_*.json`
 - Verify archive handles parent and child tasks
-- Verify no `.task-data-updated/` artifacts on main after merge
+- Verify no `.aitask-data-updated/` artifacts on main after merge
 
 ## Post-Implementation (Step 9)
 Archive this child task.

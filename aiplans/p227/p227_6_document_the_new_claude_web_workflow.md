@@ -18,7 +18,7 @@ Several new workflow patterns introduced by t227 children need documentation.
 ### Step 1: Create aidocs/claude_web_workflow.md
 - Standard workflow: lock (board) → pick → implement → archive
 - Claude Web workflow: lock (board) → pickweb → implement → web-merge
-- `.task-data-updated/` directory format and purpose
+- `.aitask-data-updated/` directory format and purpose
 - Step-by-step instructions
 - Troubleshooting section
 

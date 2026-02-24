@@ -11,7 +11,7 @@ Base branch: main
 
 ## Context
 
-Claude Code Web is sandboxed to a single branch. This skill strips out all cross-branch operations from `aitask-pickrem` and stores task data locally in `.task-data-updated/`.
+Claude Code Web is sandboxed to a single branch. This skill strips out all cross-branch operations from `aitask-pickrem` and stores task data locally in `.aitask-data-updated/`.
 
 ## Implementation Steps
 
@@ -19,7 +19,7 @@ Claude Code Web is sandboxed to a single branch. This skill strips out all cross
 - Create `.claude/skills/aitask-pickweb/SKILL.md`
 - Base on `.claude/skills/aitask-pickrem/SKILL.md` (456 lines)
 - Strip out: Steps 3 (sync), 5 (assign/lock), 9 (auto-commit to ait git), 10 (archive)
-- Replace with: read-only lock check, `.task-data-updated/` plan storage, completion marker
+- Replace with: read-only lock check, `.aitask-data-updated/` plan storage, completion marker
 
 ### Step 2: Define the workflow
 Key differences from pickrem:
@@ -29,9 +29,9 @@ Key differences from pickrem:
 4. Step 3: Read-only lock check via `aitask_lock.sh --check` (informational only)
 5. Step 4: Task status checks — same as pickrem (handle Done/orphaned tasks per profile)
 6. **NO Step 5** (no assign/lock/status update)
-7. Step 6: Create plan at `.task-data-updated/plan_t<task_id>.md`
+7. Step 6: Create plan at `.aitask-data-updated/plan_t<task_id>.md`
 8. Step 7: Implement
-9. Step 8: Write completion marker `.task-data-updated/completed_t<task_id>.json`
+9. Step 8: Write completion marker `.aitask-data-updated/completed_t<task_id>.json`
 10. Step 9: Commit all changes to current branch (regular `git`, not `./ait git`)
 11. **NO Step 10** (no archive, no ait git push)
 
@@ -40,7 +40,7 @@ Key differences from pickrem:
 {
   "task_id": "42",
   "task_file": "aitasks/t42_implement_auth.md",
-  "plan_file": ".task-data-updated/plan_t42.md",
+  "plan_file": ".aitask-data-updated/plan_t42.md",
   "is_child": false,
   "parent_id": null,
   "issue_type": "feature",
@@ -64,7 +64,7 @@ Key differences from pickrem:
 ## Verification
 - Review SKILL.md for completeness
 - Verify NO calls to: `aitask_own.sh`, `aitask_update.sh`, `aitask_archive.sh`, `./ait git`
-- Verify it DOES contain: `aitask_init_data.sh`, `aitask_lock.sh --check`, `.task-data-updated/` plan and completion marker
+- Verify it DOES contain: `aitask_init_data.sh`, `aitask_lock.sh --check`, `.aitask-data-updated/` plan and completion marker
 
 ## Post-Implementation (Step 9)
 Archive this child task. If all children complete, parent t227 auto-archives.

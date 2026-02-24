@@ -6,7 +6,7 @@ issue_type: documentation
 status: Ready
 labels: [documentation, remote]
 created_at: 2026-02-24 16:52
-updated_at: 2026-02-24 16:52
+updated_at: 2026-02-24 21:30
 ---
 
 Document the new Claude Web workflow, the updated locking model, and create a Claude Web execution profile.
@@ -25,7 +25,7 @@ Several new workflow patterns have been introduced by the t227 child tasks. Thes
 ### 1. Create `aidocs/claude_web_workflow.md`
 - Standard workflow: lock (board) -> pick -> implement -> archive
 - Claude Web workflow: lock (board) -> pickweb -> implement on branch -> web-merge
-- Explanation of `.task-data-updated/` directory purpose and format
+- Explanation of `.aitask-data-updated/` directory purpose and format
 - Step-by-step instructions for running tasks on Claude Web
 - Troubleshooting: merge failures, conflict handling
 
