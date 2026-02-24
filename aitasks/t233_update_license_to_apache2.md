@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [legal]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-24 14:13
-updated_at: 2026-02-24 14:13
+updated_at: 2026-02-24 14:17
 ---
 
 I would like to update the license of the project from mit + commons clause to apache 2.0 plus commons clause. starting from the github repository and then in all places in the website documentation where the license is mentioned:  the following is the text for the license file
