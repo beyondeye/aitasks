@@ -16,6 +16,7 @@ development
 geminicli
 gitremote
 install_scripts
+legal
 macos
 release_scripts
 remote
