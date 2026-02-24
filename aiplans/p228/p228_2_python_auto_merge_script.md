@@ -163,3 +163,11 @@ def prompt_field_choice(field: str, local_val, remote_val, newer_side: str) -> s
 - Key order merging: union of both sides preserving order, with local order taking priority
 - The script writes the merged file in-place (replacing the conflicted version)
 - `diff3` conflict style support ensures compatibility with various git configs
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `aiscripts/board/aitask_merge.py` (230 LOC) implementing all planned merge rules and CLI interface. Created `tests/test_aitask_merge.sh` with 10 test cases (43 assertions) covering all merge rules and edge cases.
+- **Deviations from plan:** The conflict marker parser was rewritten from a regex-based approach to a line-by-line state machine. The original regex approach using non-greedy `(.*?)` with `re.MULTILINE | re.DOTALL` had a bug where the LOCAL capture group matched an empty string. The line-by-line parser is more robust and handles all conflict styles (2-way, diff3) correctly. Also simplified `merge_frontmatter` signature — removed separate `local_updated`/`remote_updated` params since timestamps are extracted from the metadata dicts internally.
+- **Issues encountered:** Python regex non-greedy quantifier `(.*?)` combined with `re.MULTILINE | re.DOTALL` produces incorrect results when anchored patterns like `^={7}` follow — the regex engine finds unexpected zero-length matches. Solved by switching to a line-by-line parser.
+- **Key decisions:** Used `str` comparison for `updated_at` timestamps (ISO format sorts correctly as strings). Interactive prompt defaults to REMOTE value on empty/EOF input. List union fields (`labels`, `depends`) convert all values to strings for dedup via `set()`.
+- **Notes for sibling tasks:** The script is ready for integration by t228_3 (`aitask_sync.sh`). Call pattern: `python3 aiscripts/board/aitask_merge.py <file> --batch` — check exit code (0=resolved, 1=skip, 2=partial) and parse stdout (`RESOLVED`, `PARTIAL:<fields>`, `SKIPPED`). The script must be run from `aiscripts/board/` directory (or have it on `PYTHONPATH`) for the `task_yaml` import to work. Test suite: `bash tests/test_aitask_merge.sh`.
