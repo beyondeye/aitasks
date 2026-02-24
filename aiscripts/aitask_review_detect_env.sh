@@ -163,6 +163,11 @@ test_project_root_files() {
     if [[ -f "Package.swift" ]]; then
         add_score "swift" "$weight"
     fi
+
+    # AI Agent configuration (CLAUDE.md, AGENTS.md)
+    if [[ -f "CLAUDE.md" || -f "AGENTS.md" ]]; then
+        add_score "aiagents" "$weight"
+    fi
 }
 
 # --- Test 2: File extensions in the provided file list (weight: 1 per file) ---
@@ -172,6 +177,12 @@ test_file_extensions() {
     [[ -f "build.gradle" || -f "build.gradle.kts" ]] && has_gradle=true
 
     for f in "${FILES[@]}"; do
+        # AI Agent skill/config files (exact basename match)
+        local basename="${f##*/}"
+        if [[ "$basename" == "SKILL.md" || "$basename" == "AGENTS.md" || "$basename" == "CLAUDE.md" ]]; then
+            add_score "aiagents" "$weight"
+        fi
+
         case "${f##*.}" in
             py)                 add_score "python" "$weight" ;;
             sh)                 add_score "bash" "$weight"; add_score "shell" "$weight" ;;
@@ -239,6 +250,7 @@ test_directory_patterns() {
     local found_flutter_lib=false
     local found_csharp_dir=false
     local found_html_css_dir=false
+    local found_aiagents_dir=false
 
     for f in "${FILES[@]}"; do
         # aiscripts/ directory or .sh files at project root
@@ -278,6 +290,17 @@ test_directory_patterns() {
         if [[ "$f" == Properties/* || "$f" == obj/* ]] && [[ "$found_csharp_dir" == false ]]; then
             add_score "c-sharp" "$weight"
             found_csharp_dir=true
+        fi
+
+        # AI Agent config directories (.claude/, .gemini/, .opencode/, .codex/, .agents/)
+        if [[ "$found_aiagents_dir" == false ]]; then
+            if [[ "$f" == .claude/skills/* || "$f" == .claude/commands/* \
+               || "$f" == .gemini/skills/* || "$f" == .gemini/commands/* \
+               || "$f" == .opencode/skills/* || "$f" == .opencode/commands/* \
+               || "$f" == .codex/prompts/* || "$f" == .agents/skills/* ]]; then
+                add_score "aiagents" "$weight"
+                found_aiagents_dir=true
+            fi
         fi
 
         # HTML/CSS (template dirs, static dirs, style dirs)
