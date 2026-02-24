@@ -1,12 +1,13 @@
 ---
 priority: medium
 effort: low
-depends: [t216_3, 216_1]
+depends: [t216_3, t216_1]
 issue_type: test
-status: Ready
+status: Implementing
 labels: [aitask_board]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-23 15:51
-updated_at: 2026-02-23 15:51
+updated_at: 2026-02-24 12:10
 ---
 
 ## Context
