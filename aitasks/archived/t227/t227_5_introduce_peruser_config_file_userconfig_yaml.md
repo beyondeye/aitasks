@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: [t227_4]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [core]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-24 16:52
-updated_at: 2026-02-24 17:06
+updated_at: 2026-02-24 18:35
+completed_at: 2026-02-24 18:35
 ---
 
 Introduce a per-user, gitignored config file `aitasks/metadata/userconfig.yaml` to replace the broken "first email from emails.txt" pattern in multi-user setups.
