@@ -62,6 +62,7 @@ From top to bottom, a card shows:
 - **Dependency links** — If blocked, shows "🔗 t12, t15" linking to blocking tasks.
 - **Folded indicator** — Shows "📎 folded into t42" if this task was merged into another.
 - **Children count** — Shows "👶 3 children" for parent tasks with subtasks.
+- **Lock indicator** — Shows "🔒 user@example.com" if the task is currently locked by someone (see [How to Lock and Unlock Tasks](how-to/#how-to-lock-and-unlock-tasks)).
 
 The card's **border color** indicates priority:
 - **Red** — High priority
@@ -70,7 +71,7 @@ The card's **border color** indicates priority:
 
 ### Opening Task Details
 
-Press **Enter** on any focused card to open the task detail dialog. This modal shows the full task metadata and markdown content. See [How to Edit Task Metadata](how-to/#how-to-edit-task-metadata) for details on what you can do in this dialog.
+Press **Enter** on any focused card to open the task detail dialog. This modal shows the full task metadata, lock status, and markdown content. From here you can edit metadata, lock or unlock the task, pick it for implementation, and more. See [How to Edit Task Metadata](how-to/#how-to-edit-task-metadata) and [How to Lock and Unlock Tasks](how-to/#how-to-lock-and-unlock-tasks) for details.
 
 ### Syncing Across Machines
 

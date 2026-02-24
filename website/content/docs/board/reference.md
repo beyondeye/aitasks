@@ -61,6 +61,7 @@ description: "Keyboard shortcuts, configuration, and technical details"
 ┌─────────────────────────────────┐  ← Border color = priority
 │ t47 *  playlists support        │  ← Task number (cyan), * if modified (orange), title (bold)
 │ 💪 medium | 🏷️ ui,api | GH     │  ← Effort, labels, issue indicator
+│ 🔒 alice@example.com            │  ← Lock indicator (if locked)
 │ 🚫 blocked | 👤 alice           │  ← Status/blocked, assigned to
 │ 🔗 t12, t15                     │  ← Blocking dependency links
 │ 📎 folded into t42              │  ← Folded indicator (if applicable)
@@ -165,11 +166,31 @@ Two metadata fields are managed internally by the board:
 
 These fields are always written last in the frontmatter and are updated using a reload-and-save mechanism that prevents overwriting other metadata fields changed externally.
 
+### Lock Status Display
+
+Lock information is not stored in task files -- it is fetched from the remote `aitask-locks` branch via `aitask_lock.sh --list` and maintained in memory as a lock map. The board refreshes the lock map on startup, on every manual/auto refresh, and after lock/unlock operations.
+
+| Display Location | Locked | Unlocked |
+|------------------|--------|----------|
+| **Task card** | `🔒 user@example.com` (additional line) | No lock line shown |
+| **Task detail** | `🔒 Locked: user@co on hostname since timestamp` | `🔓 Lock: Unlocked` (dimmed) |
+
+Locks older than 24 hours show a `(may be stale)` warning in the detail view.
+
+**Button states in detail dialog:**
+
+| Button | Enabled when | Disabled when |
+|--------|-------------|---------------|
+| 🔒 Lock | Task is unlocked AND status is not Done/Folded AND not read-only | Task is already locked, or Done/Folded/read-only |
+| 🔓 Unlock | Task is locked | Task is not locked |
+
+For details on the underlying lock mechanism, see the [`ait lock` command reference]({{< relref "/docs/commands/lock" >}}).
+
 ### Modal Dialogs Reference
 
 | Dialog | Trigger | Purpose |
 |--------|---------|---------|
-| **Task Detail** | `Enter` on card / double-click | View/edit task metadata and content; access Pick, Save, Revert, Edit, Delete, Close buttons |
+| **Task Detail** | `Enter` on card / double-click | View/edit task metadata, lock status, and content; access Pick, Lock, Unlock, Save, Revert, Edit, Delete, Close buttons |
 | **Column Edit** | Command palette "Add/Edit Column" / click column header | Set column title and color |
 | **Column Select** | Command palette "Edit/Delete Column" | Pick which column to edit or delete |
 | **Delete Column Confirm** | After selecting column to delete | Confirm column deletion; warns about task count |
@@ -179,6 +200,8 @@ These fields are always written last in the frontmatter and are updated using a 
 | **Remove Dep Confirm** | `Enter` on missing dependency | Offer to remove stale dependency reference |
 | **Child Picker** | `Enter` on Children field (multiple children) | Select which child task to open |
 | **Folded Task Picker** | `Enter` on Folded Tasks field (multiple) | Select which folded task to view (read-only) |
+| **Lock Email** | "🔒 Lock" button in task detail | Enter email for lock ownership; confirms to acquire lock via `aitask_lock.sh` |
+| **Unlock Confirm** | "🔓 Unlock" button (when lock belongs to different user) | Shows lock details (who, where, when); offers "Force Unlock" or "Cancel" |
 | **Sync Conflict** | Sync detects merge conflicts | Shows conflicted files; offers "Resolve Interactively" (opens terminal) or "Dismiss" |
 | **Settings** | `O` key / command palette "Options" | Configure board settings (auto-refresh interval, sync on refresh) |
 
