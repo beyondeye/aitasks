@@ -3,10 +3,11 @@ priority: high
 effort: high
 depends: [t228_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_board]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-24 09:14
-updated_at: 2026-02-24 09:14
+updated_at: 2026-02-24 09:34
 ---
 
 ## Create Python auto-merge script for task metadata conflicts
