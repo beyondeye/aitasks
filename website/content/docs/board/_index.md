@@ -72,6 +72,10 @@ The card's **border color** indicates priority:
 
 Press **Enter** on any focused card to open the task detail dialog. This modal shows the full task metadata and markdown content. See [How to Edit Task Metadata](how-to/#how-to-edit-task-metadata) for details on what you can do in this dialog.
 
+### Syncing Across Machines
+
+If you work on tasks from multiple machines, the board can sync task data with a remote repository. Press **s** to sync manually, or enable automatic sync in the options dialog (**O**) so the board syncs on each auto-refresh. See [How to Sync with Remote](how-to/#how-to-sync-with-remote) for details.
+
 ---
 
 **Next:** [Workflow Guides]({{< relref "workflows" >}})

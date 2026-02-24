@@ -228,8 +228,8 @@ The board can periodically reload task files from disk so that changes made exte
 
 **Opening the settings dialog:**
 
-- Press **S** (Shift+s) from the board, or
-- Open the command palette (**Ctrl+Backslash**) and select "Settings"
+- Press **O** from the board, or
+- Open the command palette (**Ctrl+Backslash**) and select "Options"
 
 **Changing the auto-refresh interval:**
 
@@ -242,3 +242,33 @@ Changes take effect immediately — the timer is restarted (or stopped) as soon 
 The default interval is **5 minutes**.
 
 > **Note:** Auto-refresh is skipped when a modal dialog is open (e.g., task detail, column editor). The refresh will occur at the next interval after the modal is closed. You can always press **r** to refresh manually at any time.
+
+### How to Sync with Remote
+
+When working across multiple machines, task files can get out of sync. The board integrates with `ait sync` to push local changes and pull remote changes automatically.
+
+**Manual sync:**
+
+1. Press **s** from the board, or open the command palette (**Ctrl+Backslash**) and select "Sync with Remote"
+2. A notification appears showing the result: "Synced (pushed N, pulled M)", "Pushed N commits", "Pulled M commits", "Already up-to-date", or an error message
+
+**Enabling auto-sync:**
+
+1. Press **O** to open the options/settings dialog
+2. Toggle "Sync on refresh" to **yes**
+3. Click "Save"
+
+When enabled, the board runs `ait sync` silently on each auto-refresh interval instead of just reloading from disk. The subtitle bar shows "+ sync" to indicate auto-sync is active.
+
+> **Note:** Auto-sync requires the data branch mode (`.aitask-data` worktree). If task data lives on the main branch (legacy mode), the sync option is not available.
+
+**Handling conflicts:**
+
+If the sync detects merge conflicts (e.g., the same task was edited on two machines), a conflict dialog appears listing the affected files. You have two options:
+
+- **Resolve Interactively** — Opens `ait sync` in a terminal where you can edit each conflicted file in `$EDITOR` and complete the rebase
+- **Dismiss** — Closes the dialog without resolving; the conflicts remain for the next sync attempt
+
+**No network:**
+
+If the remote is unreachable (timeout after 10 seconds), the board shows a warning notification and continues working with local data. No partial state is left behind.

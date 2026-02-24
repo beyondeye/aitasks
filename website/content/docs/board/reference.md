@@ -20,7 +20,8 @@ description: "Keyboard shortcuts, configuration, and technical details"
 | `Right` | Navigate to next column | Board |
 | `Enter` | Open task detail dialog | Board (focused card) |
 | `r` | Refresh board from disk | Board |
-| `S` | Open board settings dialog | Board |
+| `s` | Sync task data with remote | Board |
+| `O` | Open board options/settings dialog | Board |
 
 #### Task Operations
 
@@ -103,7 +104,8 @@ Columns are stored in `aitasks/metadata/board_config.json`:
   ],
   "column_order": ["now", "next", "backlog"],
   "settings": {
-    "auto_refresh_minutes": 5
+    "auto_refresh_minutes": 5,
+    "sync_on_refresh": false
   }
 }
 ```
@@ -113,6 +115,7 @@ Columns are stored in `aitasks/metadata/board_config.json`:
 - **color** — Hex color code for the column header and border
 - **column_order** — Controls left-to-right display order
 - **settings.auto_refresh_minutes** — Interval in minutes for periodic board refresh (0 to disable, default 5)
+- **settings.sync_on_refresh** — Enable automatic sync with remote on each auto-refresh interval (default false). Requires `.aitask-data` worktree (data branch mode). When enabled, the board subtitle shows "+ sync"
 
 The "Unsorted / Inbox" column is a special dynamic column (ID: `unordered`) that appears automatically when tasks exist without a `boardcol` assignment.
 
@@ -176,7 +179,8 @@ These fields are always written last in the frontmatter and are updated using a 
 | **Remove Dep Confirm** | `Enter` on missing dependency | Offer to remove stale dependency reference |
 | **Child Picker** | `Enter` on Children field (multiple children) | Select which child task to open |
 | **Folded Task Picker** | `Enter` on Folded Tasks field (multiple) | Select which folded task to view (read-only) |
-| **Settings** | `S` key / command palette "Settings" | Configure board settings (auto-refresh interval) |
+| **Sync Conflict** | Sync detects merge conflicts | Shows conflicted files; offers "Resolve Interactively" (opens terminal) or "Dismiss" |
+| **Settings** | `O` key / command palette "Options" | Configure board settings (auto-refresh interval, sync on refresh) |
 
 ### Git Integration Details
 
