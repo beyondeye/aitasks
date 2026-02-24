@@ -5,9 +5,9 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [aitakspickrem, remote]
-children_to_implement: [t227_2, t227_3, t227_4, t227_6]
+children_to_implement: [t227_3, t227_4, t227_6]
 created_at: 2026-02-23 15:33
-updated_at: 2026-02-24 18:56
+updated_at: 2026-02-24 22:06
 boardcol: now
 boardidx: 10
 ---

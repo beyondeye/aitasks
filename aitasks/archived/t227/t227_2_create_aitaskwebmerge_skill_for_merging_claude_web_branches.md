@@ -3,11 +3,12 @@ priority: high
 effort: high
 depends: [t227_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitakspickrem, remote]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-24 16:52
-updated_at: 2026-02-24 19:14
+updated_at: 2026-02-24 22:06
+completed_at: 2026-02-24 22:06
 ---
 
 Create a local interactive skill at `.claude/skills/aitask-web-merge/SKILL.md` that detects branches with completed Claude Web task executions, separates code from task metadata, merges code to main, and archives task data to aitask-data.
