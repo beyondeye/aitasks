@@ -9,7 +9,7 @@ A sandboxed version of [`/aitask-pickrem`](../aitask-pickrem/) designed specific
 
 All task metadata (plans, completion markers) is stored in `.aitask-data-updated/` on the current working branch. After the Claude Web session completes, run [`/aitask-web-merge`](../aitask-web-merge/) locally to merge code to main and archive the task.
 
-> **Claude Code Web branch restrictions:** Claude Web can only push to the implementation branch — not to `aitask-locks`, `aitask-data`, or `main`. This means task locking, status updates, and archival cannot happen during the Web session. It is recommended (but not required) to pre-lock the task from your local machine using `ait board` or `ait own` before starting a Claude Web session, to prevent another agent from picking the same task.
+> **Claude Code Web branch restrictions:** Claude Web can only push to the implementation branch — not to `aitask-locks`, `aitask-data`, or `main`. This means task locking, status updates, and archival cannot happen during the Web session. It is recommended (but not required) to pre-lock the task from your local machine using `ait board` or `ait lock <task_id>` before starting a Claude Web session, to prevent another agent from picking the same task.
 
 **Usage:**
 ```
@@ -77,11 +77,11 @@ After the Claude Web session completes, run [`/aitask-web-merge`](../aitask-web-
 ```
 Local machine          Claude Code Web           Local machine
 ─────────────          ───────────────           ─────────────
-1. ait own 42          2. /aitask-pickweb 42     3. /aitask-web-merge
+1. ait lock 42         2. /aitask-pickweb 42     3. /aitask-web-merge
    (lock task)            (implement + commit)      (merge + archive)
 ```
 
-1. **(Recommended)** Pre-lock the task from your local machine using `ait board` or `ait own <task_id>` to prevent concurrent work
+1. **(Recommended)** Pre-lock the task from your local machine using `ait board` or `ait lock <task_id>` to prevent concurrent work
 2. Run `/aitask-pickweb <task_id>` in Claude Code Web to implement the task
 3. After the Web session completes, run `/aitask-web-merge` locally to merge code to main and archive the task
 

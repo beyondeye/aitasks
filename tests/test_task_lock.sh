@@ -83,6 +83,7 @@ setup_paired_repos() {
         mkdir -p aiscripts/lib
         cp "$PROJECT_DIR/aiscripts/aitask_lock.sh" aiscripts/
         cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
+        cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
         chmod +x aiscripts/aitask_lock.sh
 
         git add -A
@@ -109,6 +110,7 @@ clone_second_local() {
         mkdir -p aiscripts/lib
         cp "$PROJECT_DIR/aiscripts/aitask_lock.sh" aiscripts/
         cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
+        cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
         chmod +x aiscripts/aitask_lock.sh
     )
 
@@ -321,6 +323,105 @@ rm -rf "$TMPDIR_13"
 echo "--- Test 14: Syntax check ---"
 
 assert_exit_zero "Syntax check passes" bash -n "$PROJECT_DIR/aiscripts/aitask_lock.sh"
+
+# --- Test 15: Auto-detect email from userconfig.yaml ---
+echo "--- Test 15: Auto-detect email from userconfig.yaml ---"
+
+TMPDIR_15="$(setup_paired_repos)"
+(cd "$TMPDIR_15/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+
+# Create userconfig.yaml with email
+(
+    cd "$TMPDIR_15/local"
+    mkdir -p aitasks/metadata
+    echo "email: autouser@test.com" > aitasks/metadata/userconfig.yaml
+)
+
+# Lock without --email flag — should auto-detect from userconfig
+assert_exit_zero "Auto-detect email lock succeeds" bash -c "cd '$TMPDIR_15/local' && ./aiscripts/aitask_lock.sh --lock 50"
+
+# Verify lock was acquired with the correct email
+check_output_15=$(cd "$TMPDIR_15/local" && ./aiscripts/aitask_lock.sh --check 50 2>/dev/null)
+assert_contains "Auto-detect used userconfig email" "locked_by: autouser@test.com" "$check_output_15"
+
+rm -rf "$TMPDIR_15"
+
+# --- Test 16: Auto-detect email from emails.txt fallback ---
+echo "--- Test 16: Auto-detect email from emails.txt fallback ---"
+
+TMPDIR_16="$(setup_paired_repos)"
+(cd "$TMPDIR_16/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+
+# Create only emails.txt (no userconfig.yaml)
+(
+    cd "$TMPDIR_16/local"
+    mkdir -p aitasks/metadata
+    echo "fallback@test.com" > aitasks/metadata/emails.txt
+)
+
+# Lock without --email flag — should fall back to emails.txt
+assert_exit_zero "Fallback email lock succeeds" bash -c "cd '$TMPDIR_16/local' && ./aiscripts/aitask_lock.sh --lock 51"
+
+# Verify lock was acquired with the fallback email
+check_output_16=$(cd "$TMPDIR_16/local" && ./aiscripts/aitask_lock.sh --check 51 2>/dev/null)
+assert_contains "Fallback used emails.txt email" "locked_by: fallback@test.com" "$check_output_16"
+
+rm -rf "$TMPDIR_16"
+
+# --- Test 17: Fail gracefully when no email source ---
+echo "--- Test 17: Fail gracefully when no email source ---"
+
+TMPDIR_17="$(setup_paired_repos)"
+(cd "$TMPDIR_17/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+
+# No userconfig.yaml, no emails.txt — should fail
+(
+    cd "$TMPDIR_17/local"
+    rm -f aitasks/metadata/userconfig.yaml aitasks/metadata/emails.txt 2>/dev/null
+)
+
+output17=$(cd "$TMPDIR_17/local" && ./aiscripts/aitask_lock.sh --lock 52 2>&1 || true)
+assert_exit_nonzero "No email source fails" bash -c "cd '$TMPDIR_17/local' && ./aiscripts/aitask_lock.sh --lock 52"
+assert_contains "Error mentions no email" "No email provided" "$output17"
+
+rm -rf "$TMPDIR_17"
+
+# --- Test 18: Bare task ID shortcut ---
+echo "--- Test 18: Bare task ID shortcut ---"
+
+TMPDIR_18="$(setup_paired_repos)"
+(cd "$TMPDIR_18/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+
+# Create userconfig for auto-detect
+(
+    cd "$TMPDIR_18/local"
+    mkdir -p aitasks/metadata
+    echo "email: bare@test.com" > aitasks/metadata/userconfig.yaml
+)
+
+# Use bare task ID (no --lock prefix)
+assert_exit_zero "Bare task ID lock succeeds" bash -c "cd '$TMPDIR_18/local' && ./aiscripts/aitask_lock.sh 50"
+
+# Verify lock was acquired
+check_output_18=$(cd "$TMPDIR_18/local" && ./aiscripts/aitask_lock.sh --check 50 2>/dev/null)
+assert_contains "Bare ID used correct email" "locked_by: bare@test.com" "$check_output_18"
+
+rm -rf "$TMPDIR_18"
+
+# --- Test 19: Bare task ID with explicit --email ---
+echo "--- Test 19: Bare task ID with explicit --email ---"
+
+TMPDIR_19="$(setup_paired_repos)"
+(cd "$TMPDIR_19/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+
+# Use bare task ID with --email
+assert_exit_zero "Bare ID with --email succeeds" bash -c "cd '$TMPDIR_19/local' && ./aiscripts/aitask_lock.sh 50 --email explicit@test.com"
+
+# Verify lock used the explicit email
+check_output_19=$(cd "$TMPDIR_19/local" && ./aiscripts/aitask_lock.sh --check 50 2>/dev/null)
+assert_contains "Bare ID used explicit email" "locked_by: explicit@test.com" "$check_output_19"
+
+rm -rf "$TMPDIR_19"
 
 # --- Summary ---
 echo ""

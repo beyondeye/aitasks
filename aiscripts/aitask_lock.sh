@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# aitask_lock.sh - Internal script for atomic task lock management
+# aitask_lock.sh - Atomic task lock management
 # Uses a separate git orphan branch 'aitask-locks' with per-task lock files.
 # Atomicity is achieved via git push rejection on non-fast-forward updates
 # (compare-and-swap semantics).
 #
-# Usage (internal - not exposed via ait dispatcher):
-#   aitask_lock.sh --init                            Initialize the aitask-locks branch
-#   aitask_lock.sh --lock <task_id> --email <email>  Acquire lock atomically
-#   aitask_lock.sh --unlock <task_id>                Release lock atomically
-#   aitask_lock.sh --check <task_id>                 Check if locked (exit 0=locked, 1=free)
-#   aitask_lock.sh --list                            List all currently locked tasks
-#   aitask_lock.sh --cleanup                         Remove stale locks for archived tasks
+# Public usage (via ait dispatcher):
+#   ait lock <task_id>                     Lock task (auto-detects email)
+#   ait lock <task_id> --email <email>     Lock task with explicit email
+#   ait lock --unlock <task_id>            Release lock
+#   ait lock --check <task_id>             Check if locked (exit 0=locked, 1=free)
+#   ait lock --list                        List all active locks
+#   ait lock --init                        Initialize the aitask-locks branch
+#   ait lock --cleanup                     Remove stale locks for archived tasks
 #
-# Called by:
+# Also called internally by:
 #   aiscripts/aitask_own.sh (lock acquisition and cleanup)
 #   .claude/skills/aitask-pick/SKILL.md (during task pick workflow)
 
@@ -21,6 +22,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+# shellcheck source=lib/task_utils.sh
+source "$SCRIPT_DIR/lib/task_utils.sh"
 
 BRANCH="aitask-locks"
 MAX_RETRIES=5
@@ -346,25 +349,70 @@ cleanup_locks() {
     warn "Failed to push stale lock cleanup after $MAX_RETRIES attempts"
 }
 
+# --- Email auto-detection ---
+
+# Auto-detect user email: userconfig.yaml -> emails.txt
+# Mirrors the board TUI's _get_user_email() logic
+get_user_email_with_fallback() {
+    local email
+    email=$(get_user_email)
+    if [[ -n "$email" ]]; then
+        echo "$email"
+        return
+    fi
+    local emails_file="${TASK_DIR:-aitasks}/metadata/emails.txt"
+    if [[ -f "$emails_file" ]]; then
+        head -1 "$emails_file" | tr -d '[:space:]'
+    fi
+}
+
+# Resolve email for --lock: use explicit arg or auto-detect
+# Usage: resolve_lock_email [--email <email>]
+# Remaining args after resolution are left in LOCK_EXTRA_ARGS
+resolve_lock_email() {
+    if [[ "${1:-}" == "--email" ]]; then
+        echo "${2:?Missing email address after --email}"
+        return
+    fi
+    local email
+    email=$(get_user_email_with_fallback)
+    if [[ -z "$email" ]]; then
+        die "No email provided and none found in userconfig.yaml or emails.txt. Use --email <email> or configure aitasks/metadata/userconfig.yaml"
+    fi
+    debug "Auto-detected email: $email"
+    echo "$email"
+}
+
 # --- Main ---
 
 show_help() {
     cat <<'EOF'
-Usage: aitask_lock.sh [--debug] <command> [args]
+Usage: ait lock [--debug] <command> [args]
 
-Internal script for atomic task lock management.
+Atomic task lock management. Prevents two users from working on the same
+task simultaneously. Locks are stored on a separate git branch (aitask-locks).
 
 Commands:
-  --init                            Initialize the aitask-locks branch on remote
-  --lock <task_id> --email <email>  Acquire lock atomically
-  --unlock <task_id>                Release lock atomically
-  --check <task_id>                 Check if locked (exit 0=locked, 1=free)
-  --list                            List all currently locked tasks
-  --cleanup                         Remove stale locks for archived tasks
+  <task_id>                        Lock a task (auto-detects email from userconfig)
+  --lock <task_id> [--email EMAIL] Lock a task (explicit syntax)
+  --unlock <task_id>               Release a task lock
+  --check <task_id>                Check if locked (exit 0=locked, 1=free)
+  --list                           List all currently locked tasks
+  --init                           Initialize the aitask-locks branch on remote
+  --cleanup                        Remove stale locks for archived tasks
 
 Options:
-  --debug   Enable verbose debug output
-  --help    Show this help message
+  --email EMAIL  Override email for locking (default: auto-detect from
+                 aitasks/metadata/userconfig.yaml or emails.txt)
+  --debug        Enable verbose debug output
+  --help         Show this help message
+
+Examples:
+  ait lock 42                      # Lock task t42 (auto-detect email)
+  ait lock 42 --email user@co.com  # Lock with explicit email
+  ait lock --unlock 42             # Unlock task t42
+  ait lock --check 42              # Check if t42 is locked
+  ait lock --list                  # Show all locks
 EOF
 }
 
@@ -380,11 +428,9 @@ case "${1:-}" in
         ;;
     --lock|lock)
         shift
-        LOCK_TASK_ID="${1:?Usage: aitask_lock.sh --lock <task_id> --email <email>}"
+        LOCK_TASK_ID="${1:?Usage: ait lock <task_id> [--email <email>]}"
         shift
-        [[ "${1:-}" == "--email" ]] || die "Missing --email flag. Usage: aitask_lock.sh --lock <task_id> --email <email>"
-        shift
-        LOCK_EMAIL="${1:?Missing email address}"
+        LOCK_EMAIL=$(resolve_lock_email "$@")
         lock_task "$LOCK_TASK_ID" "$LOCK_EMAIL"
         ;;
     --unlock|unlock)
@@ -410,6 +456,14 @@ case "${1:-}" in
         die "No command specified. Use --help for usage."
         ;;
     *)
-        die "Unknown option: $1. Use --help for usage."
+        # Bare task ID: treat as --lock shortcut (e.g., "ait lock 42")
+        if [[ "$1" =~ ^t?[0-9]+(_[0-9]+)?$ ]]; then
+            LOCK_TASK_ID="${1#t}"
+            shift
+            LOCK_EMAIL=$(resolve_lock_email "$@")
+            lock_task "$LOCK_TASK_ID" "$LOCK_EMAIL"
+        else
+            die "Unknown option: $1. Use --help for usage."
+        fi
         ;;
 esac
