@@ -7,7 +7,7 @@ status: Implementing
 labels: [core]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-24 16:52
-updated_at: 2026-02-24 16:58
+updated_at: 2026-02-24 17:06
 ---
 
 Introduce a per-user, gitignored config file `aitasks/metadata/userconfig.yaml` to replace the broken "first email from emails.txt" pattern in multi-user setups.
