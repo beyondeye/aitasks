@@ -24,3 +24,31 @@ operations to operation in the current branch, the only one available to claude 
 An addiional question if I should make a custom tailored skill aitask-pickrem that works specifically for claude-web or should I have an additional aitask-pickrem for environment with less limitations, that is sandobxed environemnt perhaps
 set up by the user with some additional access permissions (for example to the task-data branch and the task-lock branch) perhaps I should keep the current implementation of aitask-pickrem for such environment and define a new skill 
 aitask-pickremx for super restricted remote environment like claude code web
+
+## Resolution Summary
+
+This task was decomposed into 6 child tasks, all completed:
+
+### Child Task Outcomes
+
+- **t227_1 — aitask-pickweb skill**: Created a sandboxed version of aitask-pickrem for Claude Code Web. Zero interactive prompts, stores plans and completion markers in `.aitask-data-updated/` on the current branch. No cross-branch operations.
+- **t227_2 — aitask-web-merge skill**: Created a local skill to merge completed Claude Web branches to main. Scans for completion markers, merges code (excluding `.aitask-data-updated/`), copies plans to aitask-data, archives tasks, and cleans up remote branches.
+- **t227_3 — Board lock/unlock controls**: Added lock/unlock buttons to the board TUI task detail screen, lock indicator on kanban cards, and lock status display. Users can now pre-lock tasks before Claude Web sessions.
+- **t227_4 — Lock-aware aitask-pick**: Added a read-only lock pre-check to the standard aitask-pick workflow. Warns users when a task is locked by someone else and offers force-unlock, proceed, or pick-different options.
+- **t227_5 — Per-user config (userconfig.yaml)**: Introduced `aitasks/metadata/userconfig.yaml` (gitignored) with `email:` field. Updated execution profiles from `default_email: first` to `userconfig`. Added `get_user_email()` shell helper and `ait setup` integration.
+- **t227_6 — Documentation**: Created website workflow guide for Claude Code Web, website skill page for aitask-web-merge, and this summary.
+
+### t220 Verification Findings
+
+Task t220 conclusively implemented stale lock handling:
+- Structured exit codes in `aitask_lock.sh` (10=infra missing, 11=network error, 12=race exhaustion)
+- `die_code()` helper in `terminal_compat.sh`
+- `--force` flag and `force_acquire_lock()` in `aitask_own.sh`
+- Diagnostic script `aitask_lock_diag.sh` (12 checks)
+- `force_unlock_stale: true` profile setting for automated workflows
+
+### Key Design Decisions
+
+- **Two separate skills** (pickweb + web-merge) rather than modifying aitask-pickrem. pickrem retains full branch access for environments with more permissions; pickweb is purpose-built for Claude Web's restrictions.
+- **No separate claude-web.yaml profile**: The existing `remote.yaml` profile serves both pickrem and pickweb — pickweb ignores unrecognized fields.
+- **Completion marker pattern**: `.aitask-data-updated/completed_t<task_id>.json` is the contract between pickweb and web-merge for detecting completed branches.
