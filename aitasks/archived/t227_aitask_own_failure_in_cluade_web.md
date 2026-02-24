@@ -3,11 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [aitakspickrem, remote]
-children_to_implement: [t227_6]
 created_at: 2026-02-23 15:33
-updated_at: 2026-02-24 22:47
+updated_at: 2026-02-25 00:18
+completed_at: 2026-02-25 00:18
 boardcol: now
 boardidx: 10
 ---

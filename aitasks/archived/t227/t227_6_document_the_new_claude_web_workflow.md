@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: [t227_5]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [documentation, remote]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-24 16:52
-updated_at: 2026-02-24 23:57
+updated_at: 2026-02-25 00:18
+completed_at: 2026-02-25 00:18
 ---
 
 Document the new Claude Web workflow, the updated locking model, and create a Claude Web execution profile.
