@@ -555,6 +555,13 @@ class TaskCard(Static):
     def on_click(self, event):
         self.focus()
         if event.chain == 2:
+            # Collapsed parent with children → expand instead of opening details
+            if not self.is_child:
+                task_num, _ = TaskCard._parse_filename(self.task_data.filename)
+                children = self.manager.get_child_tasks_for_parent(task_num)
+                if children and self.task_data.filename not in self.app.expanded_tasks:
+                    self.app.action_toggle_children()
+                    return
             self.app.action_view_details()
 
 class KanbanColumn(VerticalScroll):
