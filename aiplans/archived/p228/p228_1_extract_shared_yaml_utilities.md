@@ -72,3 +72,11 @@ Add new helper functions:
 - `_FlowListDumper` is currently nested inside `Task` class — moving it to module level is safe since it has no instance dependencies
 - `parse_frontmatter` returns `None` (not a tuple) when no frontmatter found, to distinguish from empty frontmatter
 - Board keys constant (`_BOARD_KEYS = ("boardcol", "boardidx")`) is defined in `task_yaml.py` as `BOARD_KEYS`
+
+## Final Implementation Notes
+
+- **Actual work done:** Extracted all YAML utilities from `aitask_board.py` into `task_yaml.py` as planned. Created `parse_frontmatter()` and `serialize_frontmatter()` helper functions that encapsulate the full load/save logic. Updated `Task.load()` and `Task.save()` to delegate to these new functions. Removed `_ordered_metadata()` method (absorbed into `serialize_frontmatter`). Removed unused `copy` import.
+- **Deviations from plan:** None significant. The plan's `Task.load()` pseudocode showed `{}, raw, []` for no-frontmatter case; actual implementation kept the existing try/except error handling wrapper around it.
+- **Issues encountered:** None. Exact roundtrip match confirmed on real task files.
+- **Key decisions:** `parse_frontmatter()` returns `None` (not a tuple) when no frontmatter found, matching the plan. `BOARD_KEYS` is a module-level constant in `task_yaml.py`; `Task._BOARD_KEYS` is aliased to it for backward compatibility within the board.
+- **Notes for sibling tasks:** The `task_yaml` module is ready for import by `aitask_merge.py` (t228_2). Import pattern: `from task_yaml import parse_frontmatter, serialize_frontmatter, _TaskSafeLoader, _FlowListDumper, BOARD_KEYS`. The module lives in `aiscripts/board/` — sibling scripts in the same directory can import directly. Scripts outside that directory will need `sys.path` adjustment or package-style imports.
