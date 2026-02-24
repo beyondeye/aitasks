@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t228_3]
 issue_type: test
-status: Ready
+status: Implementing
 labels: [aitask_board]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-24 09:14
-updated_at: 2026-02-24 09:14
+updated_at: 2026-02-24 11:38
 ---
 
 ## Add tests for merge script and update documentation
