@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: [t227_3]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitakspick]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-24 16:52
-updated_at: 2026-02-24 22:35
+updated_at: 2026-02-24 22:47
+completed_at: 2026-02-24 22:47
 ---
 
 Make `aitask-pick` lock-aware by adding a lock pre-check in `task-workflow/SKILL.md` Step 4, before attempting `aitask_own.sh`.
