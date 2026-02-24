@@ -12,12 +12,22 @@ Base branch: main
 
 Modify `aiscripts/aitask_sync.sh` to call `aitask_merge.py` during `do_pull_rebase()` for each conflicted task/plan file, enabling auto-resolution of metadata conflicts.
 
+## Verification Notes (from plan verification)
+
+1. **PYTHONPATH required:** `aitask_merge.py` does `from task_yaml import ...` — must set `PYTHONPATH="$SCRIPT_DIR/board"` when invoking
+2. **Multi-commit rebase loop:** `rebase --continue` can trigger new conflicts for subsequent commits — need a loop
+3. **`GIT_EDITOR=true`:** Needed for `git rebase --continue` to avoid editor popup
+4. **Existing Test 5 (CONFLICT):** Has body differences → merge returns PARTIAL (exit 2) → stays CONFLICT. No regression.
+
 ## Steps
 
-### 1. Add Python Detection (top of script, after sourcing libs)
+### 1. Update batch output protocol comment (top of file)
+
+Add `AUTOMERGED` to the documented statuses.
+
+### 2. Add Python detection + merge support variables (after sourcing libs)
 
 ```bash
-# Auto-merge support (best-effort — falls back gracefully if unavailable)
 _MERGE_PYTHON=""
 _MERGE_SCRIPT="$SCRIPT_DIR/board/aitask_merge.py"
 _init_merge_python() {
@@ -31,111 +41,31 @@ _init_merge_python() {
 _init_merge_python
 ```
 
-### 2. Add `try_auto_merge()` Function
+### 3. Add `try_auto_merge()` function
 
-```bash
-# try_auto_merge <conflicted_files_newline_separated>
-# Attempts auto-merge for each task/plan file using Python merge script.
-# Outputs remaining unresolved files (newline-separated) to stdout.
-# Returns 0 if ALL resolved, 1 if any remain unresolved.
-try_auto_merge() {
-    local conflicted="$1"
-    local unresolved=""
-    local resolved_count=0
-    local batch_flag=""
-    [[ "$BATCH_MODE" == true ]] && batch_flag="--batch"
+Always uses `--batch` flag for the merge script (sync handles interactivity itself). Sets `PYTHONPATH="$SCRIPT_DIR/board"` for the `task_yaml` import.
 
-    if [[ -z "$_MERGE_PYTHON" ]] || [[ ! -f "$_MERGE_SCRIPT" ]]; then
-        echo "$conflicted"
-        return 1
-    fi
+### 4. Modify `do_pull_rebase()` with auto-merge-first flow
 
-    while IFS= read -r f; do
-        [[ -z "$f" ]] && continue
-        case "$f" in
-            aitasks/*.md|aiplans/*.md)
-                local file_path merge_exit=0
-                file_path="$(_resolve_conflict_path "$f")"
-                "$_MERGE_PYTHON" "$_MERGE_SCRIPT" "$file_path" $batch_flag 2>/dev/null || merge_exit=$?
-                if [[ $merge_exit -eq 0 ]]; then
-                    task_git add "$f" 2>/dev/null || true
-                    resolved_count=$((resolved_count + 1))
-                    iinfo "Auto-merged: $f"
-                else
-                    unresolved="${unresolved}${unresolved:+$'\n'}$f"
-                fi
-                ;;
-            *)
-                unresolved="${unresolved}${unresolved:+$'\n'}$f"
-                ;;
-        esac
-    done <<< "$conflicted"
+- Try auto-merge before aborting or opening editor
+- Loop on `rebase --continue` for multi-commit rebases
+- Use `GIT_EDITOR=true` for rebase continue
+- Fall through to interactive editor for remaining unresolved files
 
-    if [[ -z "$unresolved" ]]; then
-        iinfo "Auto-merged $resolved_count file(s)"
-        return 0
-    else
-        [[ $resolved_count -gt 0 ]] && iinfo "Auto-merged $resolved_count file(s), $(($(echo "$unresolved" | wc -l))) remain"
-        echo "$unresolved"
-        return 1
-    fi
-}
-```
+### 5. Update help text
 
-### 3. Modify `do_pull_rebase()` (lines 196-242)
+Add `AUTOMERGED` to `show_help()`.
 
-Replace the conflict handling block. New flow:
+### 6. Add auto-merge tests
 
-```
-if [[ $pull_exit -ne 0 ]]; then
-    conflicted=$(task_git diff --name-only --diff-filter=U 2>/dev/null || true)
+- Test 12: AUTOMERGED — frontmatter-only conflict (boardcol + labels)
+- Test 13: AUTOMERGED — priority/effort uses remote default in batch
+- Test 14: CONFLICT preserved when body differs (partial merge)
 
-    if [[ -n "$conflicted" ]]; then
-        # Try auto-merge first
-        local remaining
-        remaining=$(try_auto_merge "$conflicted") || true
-        local merge_rc=$?
+## Final Implementation Notes
 
-        if [[ $merge_rc -eq 0 ]]; then
-            # All conflicts auto-resolved
-            if task_git rebase --continue 2>/dev/null; then
-                if [[ "$BATCH_MODE" == true ]]; then
-                    batch_out "AUTOMERGED"
-                else
-                    info "All conflicts auto-merged successfully"
-                fi
-                return 0
-            else
-                # Rebase continue failed (shouldn't happen if merge was clean)
-                task_git rebase --abort 2>/dev/null || true
-                batch_out "ERROR:rebase_continue_after_automerge"
-                return 1
-            fi
-        else
-            # Some files unresolved — fall through to existing logic
-            if [[ "$BATCH_MODE" == true ]]; then
-                task_git rebase --abort 2>/dev/null || true
-                local conflict_list
-                conflict_list=$(echo "$remaining" | tr '\n' ',' | sed 's/,$//')
-                batch_out "CONFLICT:${conflict_list}"
-                exit 0
-            else
-                # Interactive: open editor for remaining unresolved files only
-                warn "Remaining conflicts in:"
-                echo "$remaining" | while IFS= read -r f; do echo "  - $f"; done
-                # ... (existing editor loop, but using $remaining instead of $conflicted)
-            fi
-        fi
-    fi
-fi
-```
-
-### 4. Update Batch Output Protocol Comment
-
-Add `AUTOMERGED` to the documented statuses at the top of the script.
-
-## Key Considerations
-
-- `try_auto_merge` is best-effort: if Python is unavailable, it returns 1 and passes all files through as unresolved
-- The `GIT_EDITOR=true` trick may be needed for `git rebase --continue` when all conflicts are resolved (to skip the editor for the commit message)
-- Must handle the case where `git rebase --continue` triggers another conflict (sequential commits during rebase)
+- **Actual work done:** Modified `aiscripts/aitask_sync.sh` (+144 lines) to call `aitask_merge.py` during rebase conflict resolution. Added `--rebase` flag to `aiscripts/board/aitask_merge.py` (+11 lines) to swap LOCAL/REMOTE sides during rebase (git inverts them). Added 3 new tests to `tests/test_sync.sh` (+196 lines). All 34 sync tests pass, all 43 merge tests pass, shellcheck clean.
+- **Deviations from plan:** Three significant discoveries during implementation: (1) During `git rebase`, conflict marker sides are inverted — LOCAL=upstream, REMOTE=our commits. Added `--rebase` flag to merge script to swap sides. (2) After auto-merge resolves to content identical to HEAD, `git rebase --continue` fails with "nothing to commit". Added `_rebase_advance()` helper that falls back to `rebase --skip`. (3) Python's `__pycache__` bytecode creation during merge script execution interferes with `git rebase --continue` in test environments (dirty working tree). Added `PYTHONDONTWRITEBYTECODE=1` to the merge invocation.
+- **Issues encountered:** The `__pycache__` interference was the most subtle bug — `git rebase --continue` fails when Python bytecode files are created in a tracked `__pycache__` directory during conflict resolution. In production repos this isn't an issue (`.gitignore` excludes `__pycache__`), but the defensive `PYTHONDONTWRITEBYTECODE=1` prevents it everywhere.
+- **Key decisions:** (1) `AUTOMERGED` batch output takes priority over `SYNCED`/`PULLED` — it replaces the normal status to signal that auto-merge occurred. (2) The merge script always runs with `--batch` flag from sync (sync handles interactivity itself). (3) `git pull --rebase` stdout is now suppressed (`&>/dev/null`) to prevent git conflict messages from leaking into batch output.
+- **Notes for sibling tasks:** The `--rebase` flag is important for t228_4 (board TUI integration) if the board also uses rebase for sync. The `PYTHONDONTWRITEBYTECODE=1` pattern should be used whenever running Python scripts during git operations. The `_rebase_advance()` helper (continue → skip fallback) is reusable. Test setup via `setup_sync_repos()` copies `__pycache__/` — if future tests have similar issues, consider adding `.gitignore` to the test repos.
