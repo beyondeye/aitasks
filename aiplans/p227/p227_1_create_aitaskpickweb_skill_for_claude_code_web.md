@@ -15,27 +15,31 @@ Claude Code Web is sandboxed to a single branch. This skill strips out all cross
 
 ## Implementation Steps
 
-### Step 1: Create skill directory and SKILL.md
-- Create `.claude/skills/aitask-pickweb/SKILL.md`
-- Base on `.claude/skills/aitask-pickrem/SKILL.md` (456 lines)
-- Strip out: Steps 3 (sync), 5 (assign/lock), 9 (auto-commit to ait git), 10 (archive)
-- Replace with: read-only lock check, `.aitask-data-updated/` plan storage, completion marker
+### Step 0: Rename `.task-data-updated/` → `.aitask-data-updated/` in siblings [DONE]
+- Updated all references in t227_1, t227_2, t227_6 task files and their plan files
+- Committed: `ait: Rename .task-data-updated to .aitask-data-updated in t227 siblings`
 
-### Step 2: Define the workflow
+### Step 1: Create skill directory and SKILL.md [DONE]
+- Created `.claude/skills/aitask-pickweb/SKILL.md`
+- Based on `.claude/skills/aitask-pickrem/SKILL.md` (464 lines)
+- Stripped: Steps 3 (sync), 5 (assign/lock), 9 (auto-commit via ait git), 10 (archive)
+- Replaced with: read-only lock check, `.aitask-data-updated/` plan storage, completion marker
+
+### Step 2: Define the workflow [DONE]
 Key differences from pickrem:
 1. Step 0: `aitask_init_data.sh` — same as pickrem (read-only)
 2. Step 1: Load profile — same as pickrem
 3. Step 2: Resolve task — same as pickrem
 4. Step 3: Read-only lock check via `aitask_lock.sh --check` (informational only)
-5. Step 4: Task status checks — same as pickrem (handle Done/orphaned tasks per profile)
-6. **NO Step 5** (no assign/lock/status update)
-7. Step 6: Create plan at `.aitask-data-updated/plan_t<task_id>.md`
-8. Step 7: Implement
-9. Step 8: Write completion marker `.aitask-data-updated/completed_t<task_id>.json`
-10. Step 9: Commit all changes to current branch (regular `git`, not `./ait git`)
-11. **NO Step 10** (no archive, no ait git push)
+5. Step 4: Task status checks — simplified (abort instead of archive for Done/orphaned)
+6. **NO assign/lock/status update step**
+7. Step 5: Create plan at `.aitask-data-updated/plan_t<task_id>.md`
+8. Step 6: Implement
+9. Step 7: Auto-commit with regular `git` (not `./ait git`)
+10. Step 8: Write completion marker `.aitask-data-updated/completed_t<task_id>.json`
+11. **NO archive, NO push**
 
-### Step 3: Define completion marker format
+### Step 3: Define completion marker format [DONE]
 ```json
 {
   "task_id": "42",
@@ -49,22 +53,31 @@ Key differences from pickrem:
 }
 ```
 
-### Step 4: Register skill
-- Update `.claude/settings.local.json` to include `aitask-pickweb` skill
+### Step 4: Register skill [DONE]
+- Skill auto-discovered by Claude Code (no settings.local.json change needed)
 
-### Step 5: Abort procedure
+### Step 5: Abort procedure [DONE]
 - Simply display error and stop
 - No status revert, no lock release (nothing was modified on aitask-data)
+- Optionally clean up `.aitask-data-updated/` files
 
 ## Key Files
-- **Create:** `.claude/skills/aitask-pickweb/SKILL.md`
-- **Modify:** `.claude/settings.local.json`
+- **Created:** `.claude/skills/aitask-pickweb/SKILL.md`
+- **Modified:** 3 task files + 3 plan files (rename `.task-data-updated/` → `.aitask-data-updated/`)
 - **Reference:** `.claude/skills/aitask-pickrem/SKILL.md`, `aiscripts/aitask_lock.sh` (line 221), `aiscripts/aitask_init_data.sh`
 
 ## Verification
 - Review SKILL.md for completeness
 - Verify NO calls to: `aitask_own.sh`, `aitask_update.sh`, `aitask_archive.sh`, `./ait git`
 - Verify it DOES contain: `aitask_init_data.sh`, `aitask_lock.sh --check`, `.aitask-data-updated/` plan and completion marker
+- Grep siblings to confirm no remaining `.task-data-updated/` references
+
+## Final Implementation Notes
+- **Actual work done:** Created `.claude/skills/aitask-pickweb/SKILL.md` (a ~350-line skill definition) by adapting `aitask-pickrem`. Renamed `.task-data-updated/` to `.aitask-data-updated/` across all sibling task files (t227_1, t227_2, t227_6) and their plan files (p227_1, p227_2, p227_6).
+- **Deviations from plan:** Added Step 0 to rename the directory across siblings before creating the skill. Task status checks (Step 4) were simplified to abort instead of archive for Done/orphaned tasks, since archival requires cross-branch access. The step numbering was reorganized: pickrem Steps 5-10 became pickweb Steps 3-8 with the removal of assign/lock and archive steps.
+- **Issues encountered:** None.
+- **Key decisions:** The skill recognizes only `plan_preference` and `post_plan_action` profile fields. All lock/ownership/archive-related profile fields are documented as ignored. Done/orphaned tasks abort with a message pointing to `aitask-web-merge` for local handling.
+- **Notes for sibling tasks:** The `.aitask-data-updated/` directory is the contract between pickweb and web-merge (t227_2). The completion marker format at `.aitask-data-updated/completed_t<task_id>.json` is what web-merge scans for. The plan file at `.aitask-data-updated/plan_t<task_id>.md` must be copied to `aiplans/` by web-merge before archival.
 
 ## Post-Implementation (Step 9)
 Archive this child task. If all children complete, parent t227 auto-archives.
