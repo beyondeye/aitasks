@@ -72,7 +72,8 @@
       "Bash(./ait git:*)",
       "Bash(./aiscripts/aitask_init_data.sh:*)",
       "Bash(./aiscripts/aitask_web_merge.sh:*)",
-      "Bash(./aiscripts/aitask_scan_profiles.sh:*)"
+      "Bash(./aiscripts/aitask_scan_profiles.sh:*)",
+      "Bash(source aiscripts/lib/repo_fetch.sh:*)"
     ]
   }
 }

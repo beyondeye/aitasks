@@ -1,6 +1,6 @@
 ---
 name: aitask-reviewguide-import
-description: Import external content (file, URL, or GitHub directory) as a reviewguide with proper metadata.
+description: Import external content (file, URL, or repository directory) as a reviewguide with proper metadata.
 ---
 
 ## Workflow
@@ -10,11 +10,11 @@ description: Import external content (file, URL, or GitHub directory) as a revie
 If this skill is invoked with an argument (e.g., `/aitask-reviewguide-import https://github.com/org/repo/blob/main/docs/style.md`), use the argument as the source. Proceed to **Step 1b**.
 
 If invoked without arguments (`/aitask-reviewguide-import`), use `AskUserQuestion`:
-- Question: "Enter the source to import (file path, URL, or GitHub directory URL):"
+- Question: "Enter the source to import (file path, URL, or repository directory URL):"
 - Header: "Source"
 - Options:
   - "Enter file path" (description: "Local file path, e.g., docs/coding-standards.md")
-  - "Enter URL" (description: "URL to a markdown file, GitHub file, or GitHub directory")
+  - "Enter URL" (description: "URL to a markdown file or repository file/directory (GitHub, GitLab, Bitbucket)")
 
 The user enters the actual path or URL via the "Other" free text input or by selecting an option and providing details.
 
@@ -23,9 +23,9 @@ The user enters the actual path or URL via the "Other" free text input or by sel
 Classify the source argument:
 
 - **Local file:** Starts with `/`, `~`, or `./`, OR does not contain `://` and exists as a local file
-- **GitHub single file:** Contains `github.com` and `/blob/`
-- **GitHub directory:** Contains `github.com` and `/tree/`
-- **Generic URL:** Contains `://` but does not match the GitHub patterns above
+- **Repository single file:** Contains `github.com` and `/blob/`, OR `gitlab.com` and `/-/blob/`, OR `bitbucket.org` and `/src/` where the last path segment has a file extension (contains `.`)
+- **Repository directory:** Contains `github.com` and `/tree/`, OR `gitlab.com` and `/-/tree/`, OR `bitbucket.org` and `/src/` where the last path segment has no file extension
+- **Generic URL:** Contains `://` but does not match the repository patterns above
 
 #### 1c: Fetch Content
 
@@ -33,26 +33,24 @@ Classify the source argument:
 - Read the file directly using the Read tool
 - Store the file path as the `source_url` value
 
-**GitHub single file:**
-- Parse the URL to extract `owner`, `repo`, `branch`, and `path`:
-  - URL format: `https://github.com/{owner}/{repo}/blob/{branch}/{path}`
-- Fetch the file content using `gh`:
+**Repository single file:**
+- Fetch the file content using the `repo_fetch.sh` helper library:
   ```bash
-  gh api repos/{owner}/{repo}/contents/{path}?ref={branch} --jq '.content' | base64 -d  # Linux; use base64 -D on macOS
+  source aiscripts/lib/repo_fetch.sh && repo_fetch_file "URL"
   ```
-- If the `gh` command fails, fall back to converting the blob URL to a raw URL:
-  - Replace `github.com` with `raw.githubusercontent.com`
-  - Remove `/blob` from the path
-  - Fetch with `WebFetch`
-- Store the original GitHub URL as the `source_url` value
+  This handles GitHub, GitLab, and Bitbucket URLs internally, using platform CLI tools (`gh`, `glab`) with automatic fallback to `curl` on raw URLs.
+- If the Bash command fails, fall back to `WebFetch` with the platform-specific raw URL:
+  - GitHub: replace `github.com` with `raw.githubusercontent.com` and remove `/blob`
+  - GitLab: replace `/blob/` with `/-/raw/` (or `/-/blob/` with `/-/raw/`)
+  - Bitbucket: replace `/src/` with `/raw/`
+- Store the original URL as the `source_url` value
 
-**GitHub directory:**
-- Parse the URL to extract `owner`, `repo`, `branch`, and `path`:
-  - URL format: `https://github.com/{owner}/{repo}/tree/{branch}/{path}`
-- List directory contents:
+**Repository directory:**
+- List markdown files using the `repo_fetch.sh` helper library:
   ```bash
-  gh api "repos/{owner}/{repo}/contents/{path}?ref={branch}" --jq '.[] | select(.name | endswith(".md")) | .name'
+  source aiscripts/lib/repo_fetch.sh && repo_list_md_files "URL"
   ```
+  This handles GitHub, GitLab, and Bitbucket directory listings internally. Requires `jq`. GitHub requires `gh` CLI; GitLab and Bitbucket fall back to public REST APIs via `curl`.
 - If markdown files are found, proceed to **Step 7** (Batch Mode)
 - If no markdown files found, inform the user: "No markdown files found in the directory." and end the workflow
 
@@ -252,9 +250,9 @@ Use `AskUserQuestion`:
    **Sections:** <N sections>, <M total bullets>
    ```
 
-### Step 7: Batch Mode (for GitHub directories)
+### Step 7: Batch Mode (for repository directories)
 
-This step is reached from Step 1c when the source is a GitHub directory containing multiple markdown files.
+This step is reached from Step 1c when the source is a repository directory containing multiple markdown files.
 
 1. **Show available files:**
    Display the list of markdown files found in the directory.
@@ -273,13 +271,13 @@ This step is reached from Step 1c when the source is a GitHub directory containi
    **If "Show more files" selected:** Increment offset, loop back.
 
 3. **Process each selected file:**
-   For each file, fetch its content via `gh api` and run Steps 2-6. Each file uses the same GitHub directory URL as its `source_url` base, with the specific filename appended.
+   For each file, fetch its content using `source aiscripts/lib/repo_fetch.sh && repo_fetch_file "URL"` (construct the file URL from the directory URL by replacing `/tree/` or `/-/tree/` or `/src/` directory path with the corresponding file path pattern for the platform) and run Steps 2-6. Each file uses the same repository directory URL as its `source_url` base, with the specific filename appended.
 
 4. **Show batch summary:**
    ```
    ## Batch Import Complete
 
-   **Source directory:** <github_directory_url>
+   **Source directory:** <repository_directory_url>
    **Files imported:** <N>/<total>
 
    | # | File | Target Path | Type | Similar To |
@@ -295,12 +293,12 @@ This step is reached from Step 1c when the source is a GitHub directory containi
 
 ## Notes
 
-- The argument to this skill is a **source location**: a local file path, a URL to a markdown file, a GitHub blob URL, or a GitHub tree URL (directory)
+- The argument to this skill is a **source location**: a local file path, a URL to a markdown file, or a repository file/directory URL (GitHub, GitLab, Bitbucket)
 - The `source_url` frontmatter field is for reference only. The `aitask-review` skill does NOT read this field — it only uses the markdown body after the frontmatter for review instructions. Do NOT attempt to fetch or read from the `source_url` during reviews.
 - Imported files should NOT be added to `.reviewguidesignore` — they are production reviewguide files intended to be used in reviews
 - This skill does **not** modify the `seed/` directory. All files are written to `aireviewguides/` only.
 - The content transformation (Step 3) is the core value of this skill: converting arbitrary documentation into actionable, bullet-point review checklists that follow the established format and tone of existing guides
-- When fetching GitHub content via `gh api`, the response is base64-encoded. Decode with `base64 -d` (Linux) or `base64 -D` (macOS). If `gh` is not available or fails, fall back to `WebFetch` with the raw URL
+- Repository content fetching uses `aiscripts/lib/repo_fetch.sh` which handles GitHub (`gh`), GitLab (`glab`), and Bitbucket (`curl`) with automatic fallbacks. If the Bash command fails, fall back to `WebFetch` with the platform-specific raw URL. Only `github.com`, `gitlab.com`, and `bitbucket.org` are supported (no self-hosted instances)
 - Vocabulary files in `aireviewguides/`: `reviewtypes.txt`, `reviewlabels.txt`, `reviewenvironments.txt`. New values are only added to the `aireviewguides/` copies — not to `seed/`
 - Commit messages use the `ait:` prefix: `ait: Import reviewguide <filename>`
 - Files in `general/` are universal — they should NOT have an `environment` field. Files in other subdirectories should have an `environment` field

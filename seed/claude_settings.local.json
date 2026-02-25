@@ -34,7 +34,8 @@
       "Bash(./aiscripts/aitask_changelog.sh:*)",
       "Bash(./aiscripts/aitask_archive.sh:*)",
       "Bash(./aiscripts/aitask_pick_own.sh:*)",
-      "Bash(./aiscripts/aitask_scan_profiles.sh:*)"
+      "Bash(./aiscripts/aitask_scan_profiles.sh:*)",
+      "Bash(source aiscripts/lib/repo_fetch.sh:*)"
     ]
   }
 }
