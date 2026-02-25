@@ -1,12 +1,13 @@
 ---
 priority: medium
 effort: medium
-depends: [195_3, 195_5]
+depends: [t195_3, t195_5]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codebrowser]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-25 12:18
-updated_at: 2026-02-25 12:18
+updated_at: 2026-02-25 22:52
 ---
 
 ## Context
