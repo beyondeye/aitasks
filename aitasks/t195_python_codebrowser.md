@@ -5,9 +5,10 @@ depends: ['191']
 issue_type: feature
 status: Implementing
 labels: [aitask_explain, codebrowser]
+children_to_implement: [t195_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-22 11:19
-updated_at: 2026-02-25 10:52
+updated_at: 2026-02-25 12:18
 boardcol: now
 boardidx: 20
 ---
