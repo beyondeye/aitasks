@@ -19,21 +19,31 @@ show_usage() {
     cat <<'EOF'
 Usage: ait <command> [options]
 
-Commands:
+TUI:
+  board          Launch the task board TUI
+  codebrowser    Launch the code browser TUI
+
+Task Management:
   create         Create a new task file
   ls             List and prioritize tasks
   update         Update task metadata
-  issue-import   Import tasks from GitHub/GitLab issues
-  board          Launch the task board TUI
-  codebrowser    Launch the code browser TUI
-  stats          Show task completion statistics
-  changelog      Generate changelog from commits and plans
-  explain-runs   Manage aiexplain run directories
-  zip-old        Archive old completed tasks
-  issue-update   Update/close linked issues
-  lock           Lock/unlock tasks to prevent concurrent work
   sync           Sync task data with remote (push/pull)
   git            Run git commands against task data (worktree-aware)
+  lock           Lock/unlock tasks to prevent concurrent work
+
+Integration:
+  issue-import   Import tasks from GitHub/GitLab issues
+  issue-update   Update/close linked issues
+
+Reporting:
+  stats          Show task completion statistics
+  changelog      Generate changelog from commits and plans
+
+Tools:
+  explain-runs   Manage aiexplain run directories
+  zip-old        Archive old completed tasks
+
+Infrastructure:
   setup          Install dependencies
   install        Update aitasks to latest or specific version
 
