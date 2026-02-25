@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [portability, shell]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-25 12:13
-updated_at: 2026-02-25 12:13
+updated_at: 2026-02-25 12:16
 ---
 
 ## Context
