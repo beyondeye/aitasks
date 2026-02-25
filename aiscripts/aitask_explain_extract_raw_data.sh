@@ -14,7 +14,7 @@ MODE=""
 MAX_COMMITS=50
 CLEANUP_DIR=""
 INPUT_PATHS=()
-AIEXPLAINS_DIR="aiexplains"
+AIEXPLAINS_DIR="${AIEXPLAINS_DIR:-aiexplains}"
 
 # --- Functions ---
 
