@@ -316,9 +316,20 @@ Read `review_action` from profile (default: `commit`).
      ```
    - **IMPORTANT for child tasks:** The plan file will be archived and serve as the primary reference for subsequent sibling tasks. Ensure the Final Implementation Notes are comprehensive.
 
-4. **Stage and commit:**
-   - Stage all implementation changes including the updated plan file
-   - **Commit message format:** `<issue_type>: <description> (t<task_id>)` where `<issue_type>` is from the task's frontmatter. Examples: `feature: Add channel settings (t16)`, `bug: Fix login validation (t16_2)`
+4. **Commit code changes and plan file separately:**
+   - **Code commit:**
+     ```bash
+     git add <changed_code_files>
+     git commit -m "<issue_type>: <description> (t<task_id>)"
+     ```
+     Only include implementation files — never `aitasks/` or `aiplans/` paths. Skip if no code changes. The `<issue_type>` comes from the task's frontmatter. Examples: `feature: Add channel settings (t16)`, `bug: Fix login validation (t16_2)`.
+   - **Plan file commit:**
+     ```bash
+     ./ait git add aiplans/<plan_file>
+     ./ait git commit -m "ait: Update plan for t<task_id>"
+     ```
+     Skip if plan file was not modified.
+   - **Never mix** code files and `aitasks/`/`aiplans/` files in the same `git add` or commit.
    - Display: "Changes committed: \<commit_hash\>"
 
 5. Proceed to Step 10.

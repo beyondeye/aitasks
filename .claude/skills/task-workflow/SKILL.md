@@ -450,8 +450,23 @@ After implementation is complete, the user MUST be given the opportunity to revi
       ```
     - **IMPORTANT for child tasks:** The plan file will be archived and serve as the primary reference for subsequent sibling tasks. Ensure the Final Implementation Notes are comprehensive enough that a fresh context can understand what was done and learn from the experience.
     - The plan file should now serve as a complete record of: the original plan, any post-review change requests (from the "Need more changes" loop), and final implementation notes
-  - Stage and commit all implementation changes (including the updated plan file)
-  - **IMPORTANT — Commit message convention:** The commit message MUST use the format `<issue_type>: <description> (t<task_id>)`, where `<issue_type>` is the value from the task's `issue_type` frontmatter field (one of: `bug`, `chore`, `documentation`, `feature`, `performance`, `refactor`, `style`, `test`). Examples: `feature: Add channel settings screen (t16)`, `bug: Fix login validation (t16_2)`, `refactor: Simplify auth module (t42)`. The `(t<task_id>)` suffix is used by `aitask_issue_update.sh` to find commits associated with a task when posting to GitHub issues. Only source code implementation commits should use this format — administrative commits (status changes, archival in Steps 4, 9, and Task Abort Procedure) use the `ait:` prefix instead and must NOT include the `(t<task_id>)` tag.
+  - **Commit code changes and plan file separately** (code uses regular `git`, plan uses `./ait git`):
+    1. **Code commit** — Stage and commit source code changes:
+       ```bash
+       git add <changed_code_files>
+       git commit -m "<issue_type>: <description> (t<task_id>)"
+       ```
+       Only include implementation files — never include `aitasks/` or `aiplans/` paths. Skip this commit if there are no code changes.
+    2. **Plan file commit** — Stage and commit the updated plan file:
+       ```bash
+       ./ait git add aiplans/<plan_file>
+       ./ait git commit -m "ait: Update plan for t<task_id>"
+       ```
+       Skip if the plan file was not modified.
+  - **IMPORTANT — Commit message conventions:**
+    - **Code commits** MUST use `<issue_type>: <description> (t<task_id>)` format, where `<issue_type>` comes from the task's `issue_type` frontmatter (one of: `bug`, `chore`, `documentation`, `feature`, `performance`, `refactor`, `style`, `test`). The `(t<task_id>)` suffix is used by `aitask_issue_update.sh` to find commits. Examples: `feature: Add channel settings screen (t16)`, `bug: Fix login validation (t16_2)`.
+    - **Plan/task file commits** use the `ait:` prefix (e.g., `ait: Update plan for t16`). Administrative commits (status changes, archival) also use `ait:` and must NOT include the `(t<task_id>)` tag.
+    - **Never mix** code files and `aitasks/`/`aiplans/` files in the same `git add` or commit. Code uses regular `git`; task/plan files use `./ait git`. This separation is required when task data lives on a separate branch, and is safe in legacy mode where `./ait git` passes through to plain `git`.
   - Proceed to Step 9
 
 - **If "Need more changes":**
@@ -617,7 +632,7 @@ When abort is selected at any checkpoint after Step 4, execute these steps:
 
 - **Commit the revert:**
   ```bash
-  ./ait git add aitasks/
+  ./ait git add aitasks/ aiplans/
   ./ait git commit -m "ait: Abort t<N>: revert status to <status>"
   ```
 
