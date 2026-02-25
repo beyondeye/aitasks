@@ -3,12 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Ready
 labels: [claudeskills, aitask_reviewguide, portability]
 children_to_implement: [t214_1, t214_2, t214_3, t214_4]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-23 00:12
-updated_at: 2026-02-25 12:13
+updated_at: 2026-02-25 12:14
 boardcol: now
 boardidx: 10
 ---
