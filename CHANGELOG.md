@@ -1,5 +1,61 @@
 # Changelog
 
+## v0.7.0
+
+### Features
+
+- **Configurable build verification** (t51): Build verification is now configurable via `project_config.yaml`, allowing each project to define custom build/test commands that run automatically during task implementation.
+- **Wrap skill reuses Claude plans** (t207): `/aitask-wrap` now detects and reuses existing Claude Code plan files, avoiding duplicate planning when wrapping uncommitted changes.
+- **macOS version checks in setup** (t208): `ait setup` now validates tool versions (bash, git, Hugo, etc.) and warns about missing or outdated dependencies on macOS.
+- **Remote task execution** (t215): New `/aitask-pickrem` skill enables fully autonomous task implementation in non-interactive environments (CI, SSH, remote servers) with zero user prompts.
+- **Remote sync** (t216_1, t216_2, t216_3): New `ait sync` command synchronizes task and plan files with the remote repository. The board TUI supports sync via the `S` keybinding with conflict resolution dialogs.
+- **Remote data branch initialization** (t225): `/aitask-pickrem` now automatically initializes the data branch on first run, removing a manual setup step.
+- **Claude Code Web workflow** (t227_1, t227_2, t227_3, t227_4, t227_5, t227_6): New `/aitask-pickweb` and `/aitask-web-merge` skills enable task implementation directly in Claude Code Web. Added task locking with board TUI lock/unlock controls and lock-aware picking. Introduced `userconfig.yaml` for per-user settings.
+- **Auto-merge for sync conflicts** (t228_1, t228_2, t228_3, t228_4, t228_5): New auto-merge engine intelligently resolves YAML frontmatter conflicts in task files during sync, with field-specific merge rules. Integrated into `ait sync` and the board TUI.
+- **Double-click to expand parent tasks** (t229): Double-clicking a collapsed parent task in the board now expands it to show child tasks instead of opening the detail view.
+- **AI agent config file detection** (t234): Environment detection now recognizes AI agent configuration directories (`.claude/`, `.gemini/`, `.codex/`, etc.) when scanning projects.
+- **Public `ait lock` command** (t238): Exposed task locking as a public CLI command with email auto-detection and bare task-ID shortcut syntax.
+
+### Bug Fixes
+
+- **Labels included in task commits** (t68): Task creation now correctly includes `labels.txt` changes in git commits, fixing cases where label modifications were silently dropped.
+- **sed portability on macOS** (t209): Fixed 7 GNU-specific `sed` usages across 4 scripts that caused failures on macOS. Added `sed_inplace()` helper for portable in-place editing.
+- **Stats command macOS compatibility** (t211): Fixed `aitask stats` on macOS by replacing 16 GNU `date -d` calls with a portable date wrapper.
+- **Test suite macOS portability** (t212): Fixed test portability issues on macOS including whitespace handling and hardcoded paths.
+- **Task ownership on Claude Web** (t220): Fixed task claiming on Claude Code Web with structured exit codes, `--force` flag for stale locks, and a diagnostic script.
+- **Child task auto-implementation prevented** (t224): Child task creation no longer triggers automatic implementation, preventing unintended workflow execution.
+- **`ait git` permission whitelist** (t226): Added `./ait git` to the default permission whitelist so it works without manual approval.
+- **README redesign** (t231): Redesigned README with themed logo, badges, emoji section titles, and updated installation instructions.
+
+### Improvements
+
+- **Shortened remote skill name** (t219): Renamed `aitask-pickremote` to `aitask-pickrem` for consistency.
+- **Task data branch support** (t221_1, t221_2, t221_3, t221_4, t221_5): Introduced `./ait git` command and `task_git()` shell helper to route task/plan file operations through a dedicated data branch, enabling parallel development workflows. Updated all scripts, the board TUI, skills, and documentation.
+- **Shared YAML utilities** (t228_1): Extracted YAML frontmatter parsing from the board TUI into a shared `task_yaml.py` module for reuse by other Python tools.
+- **Renamed own script** (t240): Renamed `aitask_own.sh` to `aitask_pick_own.sh` for clearer naming.
+- **Optimized profile scanning** (t241): Added `aitask_scan_profiles.sh` helper to optimize how execution profiles are selected during task implementation.
+
+### Documentation
+
+- **Release blog and RSS feed** (t186): Added a blog section with release posts, RSS feed, and automated blog post generation to the documentation site.
+- **Redesigned About page** (t187): Redesigned the About page with hero cover, origin story, project stats badges, and contributor profiles.
+- **Explore skill file selection docs** (t199): Updated explore skill documentation to cover the new file selection modes.
+- **Explain skill file selection docs** (t200): Added file selection documentation to the explain skill page.
+- **Project root directory guidance** (t204): Added guidance across 12 skill pages about running Claude from the project root directory.
+- **Development dependencies** (t210): Documented ShellCheck and Hugo as development dependencies with platform-specific install instructions.
+- **macOS fully supported** (t213): Comprehensive macOS compatibility audit — fixed remaining portability issues and updated docs to mark macOS as fully supported.
+- **Workflow cross-references** (t232): Added workflow cross-references to all skill documentation pages and standardized section naming.
+- **Apache 2.0 license** (t233): Changed the project license from MIT to Apache License 2.0.
+- **Remote execution docs** (t235): Created comprehensive documentation for the `/aitask-pickrem` skill.
+- **Claude Web docs** (t236): Created documentation for `/aitask-pickweb` with comparison tables and workflow diagrams.
+- **Board lock documentation** (t237): Documented the board's lock/unlock feature including pre-lock workflow and multi-agent coordination guides.
+- **Board screenshot images** (t242): Added board SVG screenshots to the documentation site with click-to-zoom functionality.
+
+### Tests
+
+- **Task git and migration tests** (t221_6): Created test suites for the task git helper and data branch migration, verified no regressions across all test suites.
+- **Auto-merge unit tests** (t228_5): Added 25 Python unit tests for the auto-merge script covering conflict parsing, merge rules, and body merging.
+
 ## v0.6.0
 
 ### Features
