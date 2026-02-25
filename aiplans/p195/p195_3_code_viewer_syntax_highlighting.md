@@ -47,3 +47,10 @@ Start with Option A; fall back to B if splitting loses style information.
 - Select .md → Markdown highlighting
 - Line numbers correct and right-aligned
 - Scrolling works for long files
+
+## Final Implementation Notes
+- **Actual work done:** All steps implemented as planned. Created `code_viewer.py` with `CodeViewer(VerticalScroll)` widget using `Syntax.highlight()` + `Text.split('\n')` + Rich `Table` pipeline. Updated `codebrowser_app.py` with imports, file info bar, wired file selection handler, updated CSS and focus toggle.
+- **Deviations from plan:** Option A (Syntax.highlight + split) worked perfectly — no need for fallback Option B. Added `_rebuild_display()` as a separate method (not in original plan step list but mentioned in verification notes) for clean separation and future extensibility by t195_5/t195_6/t195_9. Also stored `_highlighted_lines` as instance variable for reuse.
+- **Issues encountered:** None. Smoke test confirmed `Syntax.highlight()` returns `Text`, `Text.split('\n')` preserves style spans with correct offsets, and `Syntax.guess_lexer()` detects languages from file extensions.
+- **Key decisions:** Used per-line Table approach (not direct `Syntax` pass to `Static.update()` or `TextArea`) because downstream tasks need per-line access for annotation gutter, cursor highlighting, and viewport windowing. Removed `padding: 1` from `#code_pane` CSS to avoid awkward spacing with docked info bar.
+- **Notes for sibling tasks:** `CodeViewer._rebuild_display()` is the method to extend for adding columns (t195_5 annotation gutter) or per-row styling (t195_6 cursor). `_highlighted_lines` is stored as an instance list and can be accessed without re-highlighting. Direct imports used (not relative) — same pattern as `file_tree.py`. The `scroll_home(animate=False)` call in `_rebuild_display()` resets scroll position when loading a new file.
