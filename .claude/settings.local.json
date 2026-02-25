@@ -73,6 +73,7 @@
       "Bash(./aiscripts/aitask_init_data.sh:*)",
       "Bash(./aiscripts/aitask_web_merge.sh:*)",
       "Bash(./aiscripts/aitask_scan_profiles.sh:*)",
+      "Bash(./aiscripts/aitask_query_files.sh:*)",
       "Bash(source aiscripts/lib/repo_fetch.sh:*)"
     ]
   }

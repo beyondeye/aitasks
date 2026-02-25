@@ -31,8 +31,9 @@ After a task is selected and confirmed, perform these checks before proceeding t
 - If status is `Done`:
   - Check if a plan file exists:
     ```bash
-    ls aiplans/p<taskid>_*.md 2>/dev/null
+    ./aiscripts/aitask_query_files.sh plan-file <taskid>
     ```
+    Parse the output: `PLAN_FILE:<path>` means found, `NOT_FOUND` means not found.
   - Use `AskUserQuestion`:
     - Question: "This task has status 'Done' but hasn't been archived yet. Would you like to archive it now?"
     - Header: "Archive"
@@ -46,8 +47,9 @@ After a task is selected and confirmed, perform these checks before proceeding t
 - Check if the task file's frontmatter contains `children_to_implement: []` (empty list)
 - If empty, check for archived children:
   ```bash
-  ls aitasks/archived/t<number>/ 2>/dev/null
+  ./aiscripts/aitask_query_files.sh archived-children <number>
   ```
+  Parse the output: `ARCHIVED_CHILD:<path>` lines mean archived children exist, `NO_ARCHIVED_CHILDREN` means none.
 - If archived children exist, this is an orphaned parent task:
   - Use `AskUserQuestion`:
     - Question: "This parent task has all children completed and archived, but the parent itself was not archived. Would you like to archive it now?"
@@ -235,8 +237,9 @@ Check if a plan file already exists at the expected path:
 - For child tasks: `aiplans/p<parent>/p<parent>_<child>_<name>.md`
 
 ```bash
-ls aiplans/p<taskid>_*.md 2>/dev/null
+./aiscripts/aitask_query_files.sh plan-file <taskid>
 ```
+Parse the output: `PLAN_FILE:<path>` means found, `NOT_FOUND` means not found.
 
 **If a plan file exists**, read it.
 

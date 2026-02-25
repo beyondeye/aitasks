@@ -32,18 +32,17 @@ Parse the output lines. Each valid profile appears as `PROFILE|<filename>|<name>
 
 ### Step 0b: Check for Direct Task Selection (Optional Argument)
 
+**IMPORTANT:** Step 0a (profile selection) MUST complete before Step 0b begins. Step 0b's behavior depends on the profile (e.g., `skip_task_confirmation`). Do NOT parallelize these steps.
+
 If this skill is invoked with a numeric argument:
 
 **Format 1: Parent task (e.g., `/aitask-pick 16`):**
 - Parse the argument as the task number
-- Find the matching task file:
+- Find the matching task file and check for children in a single call:
   ```bash
-  ls aitasks/t<number>_*.md 2>/dev/null
+  ./aiscripts/aitask_query_files.sh resolve <number>
   ```
-- If found, check if it's a parent task (has children directory):
-  ```bash
-  ls aitasks/t<number>/ 2>/dev/null
-  ```
+  Parse the output: if first line is `NOT_FOUND`, the task file does not exist (fall through to error). If first line is `TASK_FILE:<path>`, use that path. If second line is `HAS_CHILDREN:<count>`, the task has children — proceed to **Step 2d**. If `NO_CHILDREN`, proceed normally.
   - If it has children → proceed to **Step 2d** (Child Task Selection)
   - If no children:
     - **Show task summary and confirm:**
@@ -64,13 +63,17 @@ If this skill is invoked with a numeric argument:
 - Parse as child task ID (parent=16, child=2)
 - Find the matching child task file:
   ```bash
-  ls aitasks/t<parent>/t<parent>_<child>_*.md 2>/dev/null
+  ./aiscripts/aitask_query_files.sh child-file <parent> <child>
   ```
+  Parse the output: `CHILD_FILE:<path>` means found (use that path), `NOT_FOUND` means not found.
 - If found:
   - Set this as the selected task
   - Read the task file and parent task for context
-  - **Gather archived sibling context:** Read archived sibling plan files from `aiplans/archived/p<parent>/` as the primary context source for completed siblings (these contain full implementation records). Only fall back to reading archived sibling task files from `aitasks/archived/t<parent>/` for siblings that have no corresponding archived plan.
-  - Also read pending sibling task files from `aitasks/t<parent>/` and their plans from `aiplans/p<parent>/` if they exist.
+  - **Gather archived sibling context** in a single call:
+    ```bash
+    ./aiscripts/aitask_query_files.sh sibling-context <parent>
+    ```
+    Parse the output: lines prefixed `ARCHIVED_PLAN:` are archived sibling plan files (primary context source for completed siblings). Lines prefixed `ARCHIVED_TASK:` are fallback for siblings without archived plans. Lines prefixed `PENDING_SIBLING:` are pending sibling task files. Lines prefixed `PENDING_PLAN:` are pending sibling plans. If output is `NO_CONTEXT`, there are no sibling context files. Read the files listed in the output.
   - **Show task summary and confirm:**
     - Generate a brief 1-2 sentence summary of the child task description, mentioning the parent task name for context
     - **Profile check:** If the active profile has `skip_task_confirmation` set to `true`:
@@ -140,8 +143,9 @@ For each task returned by the script:
 - Read the corresponding task file from `aitasks/<filename>`
 - Check if it has children:
   ```bash
-  ls aitasks/t<number>/ 2>/dev/null
+  ./aiscripts/aitask_query_files.sh has-children <number>
   ```
+  Parse the output: `HAS_CHILDREN:<count>` means it has children (include the count), `NO_CHILDREN` means none.
 - Generate a brief summary including child count if applicable
 - Present each task in this format:
 
@@ -194,8 +198,11 @@ If the selected task is a parent task with children in `aitasks/t<N>/`:
 
 - If child selected:
   - Set child as the working task
-  - Include links to parent and pending sibling task files in the context
-  - **Include archived sibling context:** Read archived sibling plan files from `aiplans/archived/p<parent>/` as primary reference for completed siblings (these contain full implementation records with post-implementation feedback). Only include archived sibling task files from `aitasks/archived/t<parent>/` for siblings without a corresponding archived plan.
+  - **Gather sibling context** (archived + pending) in a single call:
+    ```bash
+    ./aiscripts/aitask_query_files.sh sibling-context <parent>
+    ```
+    Parse the output and read files listed. `ARCHIVED_PLAN:` files are the primary reference for completed siblings. `ARCHIVED_TASK:` files are fallback. `PENDING_SIBLING:` and `PENDING_PLAN:` are pending sibling context. Include parent task file in context as well.
   - Proceed to Step 3
 
 ### Step 3: Hand Off to Shared Workflow
