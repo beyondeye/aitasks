@@ -68,7 +68,11 @@ detect_os() {
     esac
 }
 
-# --- Git platform detection (inline — task_utils.sh not available during setup) ---
+# --- Git platform detection (inline — duplicates detect_platform() from task_utils.sh) ---
+# This is intentionally inlined rather than sourced because:
+# 1. setup.sh defines its own die/info/warn/success helpers with "[ait]" prefix formatting
+#    that would conflict with terminal_compat.sh's definitions (task_utils.sh depends on it)
+# 2. setup.sh must be self-contained — it runs before the framework is fully initialized
 _detect_git_platform() {
     local remote_url
     remote_url=$(git remote get-url origin 2>/dev/null || echo "")
@@ -140,6 +144,7 @@ install_cli_tools() {
                 sudo pacman -S --needed --noconfirm "${pkgs[@]}"
             fi
             if $need_bkt_arch; then
+                # NOTE: bkt (bitbucket-cli) is hosted on GitHub — these api.github.com URLs are intentional
                 info "Installing Bitbucket CLI from GitHub release..."
                 local bkt_ver bkt_url
                 bkt_ver=$(curl -s "https://api.github.com/repos/avivsinai/bitbucket-cli/releases/latest" | jq -r '.tag_name' 2>/dev/null | sed 's/^v//')
@@ -201,6 +206,7 @@ install_cli_tools() {
             fi
 
             if $need_bkt_deb; then
+                # NOTE: bkt (bitbucket-cli) is hosted on GitHub — these api.github.com URLs are intentional
                 info "Installing Bitbucket CLI from release package..."
                 local deb_arch
                 deb_arch=$(dpkg --print-architecture)
@@ -236,6 +242,7 @@ install_cli_tools() {
                 sudo dnf install -y -q "${dnf_pkgs[@]}"
             fi
             if $need_bkt_fedora; then
+                # NOTE: bkt (bitbucket-cli) is hosted on GitHub — these api.github.com URLs are intentional
                 info "Installing Bitbucket CLI from GitHub release..."
                 local bkt_ver bkt_url
                 bkt_ver=$(curl -s "https://api.github.com/repos/avivsinai/bitbucket-cli/releases/latest" | jq -r '.tag_name' 2>/dev/null | sed 's/^v//')
