@@ -68,6 +68,7 @@ fi
 
 git add aiscripts/VERSION
 git add website/content/blog/ 2>/dev/null || true
+git add website/content/_index.md 2>/dev/null || true
 git commit -m "ait: Bump version to $new_version"
 git tag "v$new_version"
 git push origin main --tags

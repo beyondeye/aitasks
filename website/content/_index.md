@@ -38,9 +38,9 @@ Git worktrees, atomic task locking, and branch management enable multiple develo
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.7.0: Run Tasks from Anywhere, Claude Code Web Support, and Full macOS Compatibility](blog/v070-run-tasks-from-anywhere-claude-code-web-support-full-macos-compatibility/)** -- Feb 25, 2026
 - **[v0.6.0: Code Explanations, Wrap Skill, and Auto-Refresh Board](blog/v060-explain-wrap-file-select-autorefresh/)** -- Feb 22, 2026
 - **[v0.5.0: Code Review, Multi-Platform Support, and Documentation Site](blog/v050-code-review-multi-platform-docs-site/)** -- Feb 20, 2026
-- **[v0.4.0: Auto-Bootstrap, Explore Skill, and Task Folding](blog/v040-auto-bootstrap-explore-fold-board/)** -- Feb 17, 2026
 
 [All releases &rarr;](blog/)
 

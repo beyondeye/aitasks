@@ -26,6 +26,75 @@ die() { echo -e "${RED}ERROR:${NC} $1" >&2; exit 1; }
 info() { echo -e "${GREEN}$1${NC}"; }
 warn() { echo -e "${YELLOW}$1${NC}"; }
 
+# Format YYYY-MM-DD as "Mon DD, YYYY" (e.g., "Feb 25, 2026")
+# Portable: works on both macOS BSD date and GNU date
+format_display_date() {
+    local input_date="$1"
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        date -j -f "%Y-%m-%d" "$input_date" "+%b %-d, %Y" 2>/dev/null || echo "$input_date"
+    else
+        date -d "$input_date" "+%b %-d, %Y" 2>/dev/null || echo "$input_date"
+    fi
+}
+
+# Update the "Latest Releases" section in _index.md
+# Inserts the new release at the top and keeps only 3 entries
+update_landing_page() {
+    local title="$1"
+    local slug="$2"
+    local release_date="$3"
+    local index_file="$SCRIPT_DIR/content/_index.md"
+
+    if [[ ! -f "$index_file" ]]; then
+        warn "Landing page not found: $index_file (skipping update)"
+        return 0
+    fi
+
+    local display_date
+    display_date=$(format_display_date "$release_date")
+
+    local new_entry="- **[${title}](blog/${slug}/)** -- ${display_date}"
+
+    # Check for duplicate
+    if grep -qF "blog/${slug}/" "$index_file"; then
+        info "Landing page already has entry for $slug (skipping)"
+        return 0
+    fi
+
+    # Verify there are existing release entries to anchor on
+    if ! grep -q '^- \*\*\[v' "$index_file"; then
+        warn "No existing release entries found in $index_file (skipping)"
+        return 0
+    fi
+
+    local tmp_file
+    tmp_file=$(mktemp "${TMPDIR:-/tmp}/ait_index_XXXXXX")
+
+    awk -v new_entry="$new_entry" '
+    BEGIN { entry_count = 0; inserted = 0 }
+    /^- \*\*\[v/ {
+        if (!inserted) {
+            print new_entry
+            inserted = 1
+            entry_count = 1
+        }
+        entry_count++
+        if (entry_count <= 3) { print }
+        next
+    }
+    { print }
+    ' "$index_file" > "$tmp_file"
+
+    if [[ ! -s "$tmp_file" ]]; then
+        warn "Landing page update produced empty output (skipping)"
+        rm -f "$tmp_file"
+        return 0
+    fi
+
+    mv "$tmp_file" "$index_file"
+    info "Updated landing page with $title"
+}
+
 # --- Parse arguments ---
 AUTO_MODE=false
 VERSION=""
@@ -227,6 +296,10 @@ FOOTER
     } > "$OUTPUT_FILE"
 
     info "Created blog post: $OUTPUT_FILE"
+
+    # Update the "Latest Releases" section on the landing page
+    update_landing_page "$TITLE" "$SLUG" "$RELEASE_DATE"
+
     echo "$OUTPUT_FILE"
 else
     # Scaffold mode: create a template for manual editing
@@ -266,5 +339,6 @@ SCAFFOLD
     echo "  1. Edit $OUTPUT_FILE"
     echo "  2. Write informal feature summaries (the changelog is in a comment for reference)"
     echo "  3. Update the 'Latest Releases' section in website/content/_index.md"
+    echo "     (This is done automatically when using --auto mode)"
     echo "  4. Preview: cd website && hugo server"
 fi

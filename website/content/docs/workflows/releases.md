@@ -125,8 +125,8 @@ After publishing a release, create a blog post to announce it on the [documentat
 
 1. **Generate scaffold** — Run `./website/new_release_post.sh` (it auto-detects the latest version)
 2. **Write the summary** — Edit the generated file in `website/content/blog/`. The changelog is embedded as a comment for reference. Write 3-5 paragraphs highlighting the most notable features in informal language
-3. **Update landing page** — Edit `website/content/_index.md` to update the "Latest Releases" section with the new version (keep only the 3 most recent)
-4. **Commit and deploy** — The blog post deploys with the next Hugo site build
+3. **Landing page auto-updated** — When using `--auto` mode (called by `create_new_release.sh`), the "Latest Releases" section in `website/content/_index.md` is automatically updated with the new version, keeping only the 3 most recent entries
+4. **Commit and deploy** — The blog post and landing page changes deploy with the next Hugo site build
 
 The script can also be invoked with a specific version: `./website/new_release_post.sh 0.5.0`
 
