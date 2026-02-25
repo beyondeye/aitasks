@@ -51,5 +51,11 @@ All `./aiscripts/aitask_own.sh` → `./aiscripts/aitask_pick_own.sh`:
 4. `bash tests/test_lock_force.sh` — run the ownership test
 5. `bash tests/test_sed_compat.sh` — run sed compat test (has a comment ref)
 
+## Final Implementation Notes
+- **Actual work done:** Renamed `aiscripts/aitask_own.sh` → `aiscripts/aitask_pick_own.sh` via `git mv`, then updated all 14 files containing references (7 skill files, 2 settings files, 2 test files, 1 script comment, 2 documentation files).
+- **Deviations from plan:** None — straightforward find-and-replace across all identified files.
+- **Issues encountered:** None.
+- **Key decisions:** Used `replace_all` for each file to ensure no references were missed.
+
 ## Step 9 Reference
 Post-implementation: archive task and plan per task-workflow Step 9.
