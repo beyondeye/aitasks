@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_pick]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-25 13:09
-updated_at: 2026-02-25 13:09
+updated_at: 2026-02-25 14:29
 ---
 
 I am currently running a task with sibling tasks and claude code stops asking user consent: ❯ /aitask-pick 214_3
