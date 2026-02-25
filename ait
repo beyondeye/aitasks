@@ -25,6 +25,7 @@ Commands:
   update         Update task metadata
   issue-import   Import tasks from GitHub/GitLab issues
   board          Launch the task board TUI
+  codebrowser    Launch the code browser TUI
   stats          Show task completion statistics
   changelog      Generate changelog from commits and plans
   explain-runs   Manage aiexplain run directories
@@ -109,6 +110,7 @@ case "${1:-help}" in
     install)      shift; exec "$SCRIPTS_DIR/aitask_install.sh" "$@" ;;
     issue-import) shift; exec "$SCRIPTS_DIR/aitask_issue_import.sh" "$@" ;;
     board)        shift; exec "$SCRIPTS_DIR/aitask_board.sh" "$@" ;;
+    codebrowser)  shift; exec "$SCRIPTS_DIR/aitask_codebrowser.sh" "$@" ;;
     stats)        shift; exec "$SCRIPTS_DIR/aitask_stats.sh" "$@" ;;
     zip-old)      shift; exec "$SCRIPTS_DIR/aitask_zip_old.sh" "$@" ;;
     issue-update) shift; exec "$SCRIPTS_DIR/aitask_issue_update.sh" "$@" ;;
