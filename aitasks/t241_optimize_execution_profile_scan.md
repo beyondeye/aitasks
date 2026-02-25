@@ -14,3 +14,12 @@ we use execution profiles across multiple skill (for example aitask-pick) to red
 the llm first list all avaiable execution profiles, then READ EACH OF THEM, this only for being able to present the user with the question Select an execution profile (pre-configured answers to reduce prompts):
 
 I would like to optimize this with a helper bash script called aitask_pick_scan_execution_profiles, that directly return a list of avaiable profiles that we can skip all this llm operations and actually read in the llm context only the chosen execution profile. check for all skill that use execution profiles and rewrite the step for choosing the execution profile in this new way
+
+skill that will probably benefit from this optimization: - .claude/skills/aitask-pick/SKILL.md (1 ref: --sync)                                                                                                                                                                                     
+- .claude/skills/task-workflow/SKILL.md                                                                                                                                                              
+- .claude/skills/aitask-pickrem/SKILL.md                                                                                                                                                                        
+- .claude/skills/aitask-pickweb/SKILL.md                                                                                                                                                                   
+- .claude/skills/aitask-explore/SKILL.md                                                                                                                                                                                  
+- .claude/skills/aitask-fold/SKILL.md                                                                                                                                                                                   
+- .claude/skills/aitask-review/SKILL.md 
+probably more
