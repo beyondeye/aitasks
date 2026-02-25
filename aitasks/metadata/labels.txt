@@ -22,6 +22,7 @@ release_scripts
 remote
 remove_support
 script-performance
+skill_optiomizations
 statistics
 stats_ui
 task_workflow
