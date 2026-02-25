@@ -5,9 +5,9 @@ depends: ['191']
 issue_type: feature
 status: Ready
 labels: [aitask_explain, codebrowser]
-children_to_implement: [t195_2, t195_3, t195_4, t195_5, t195_6, t195_7, t195_8, t195_9, t195_10, t195_11]
+children_to_implement: [t195_3, t195_4, t195_5, t195_6, t195_7, t195_8, t195_9, t195_10, t195_11]
 created_at: 2026-02-22 11:19
-updated_at: 2026-02-25 12:47
+updated_at: 2026-02-25 16:15
 boardcol: now
 boardidx: 20
 ---

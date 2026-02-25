@@ -40,3 +40,10 @@ Base branch: main
 - `.git/`, `__pycache__`, `node_modules/`, hidden files excluded
 - Only git-tracked files visible
 - Selecting a file triggers handler (Textual log)
+
+## Final Implementation Notes
+- **Actual work done:** Created `file_tree.py` with `ProjectFileTree(DirectoryTree)` subclass and `get_project_root()` helper. Updated `codebrowser_app.py` to replace placeholder container with the file tree widget, added `FileSelected` handler, updated CSS and focus toggle.
+- **Deviations from plan:** Used direct import (`from file_tree import ...`) instead of relative import (`from .file_tree import ...`) because the launcher script runs `codebrowser_app.py` directly (not as a module), which doesn't support relative imports. Removed unused `subprocess` import from `codebrowser_app.py` since git operations are handled in `file_tree.py`.
+- **Issues encountered:** Initial implementation used relative import which caused `ImportError: attempted relative import with no known parent package` when launched via `ait codebrowser`. Fixed by switching to direct import (Python adds script directory to sys.path automatically).
+- **Key decisions:** Filtering uses pre-built sets (`_tracked_files`, `_tracked_dirs`) populated from `git ls-files` at construction time for O(1) lookups. Hidden files (starting with `.`) are excluded from the tree even if git-tracked (e.g., `.claude/` is hidden).
+- **Notes for sibling tasks:** `ProjectFileTree` is imported from `file_tree` (not `.file_tree`). The `on_directory_tree_file_selected` handler currently only logs — t195_3 should wire it to update the code viewer pane. The `action_toggle_focus` now targets `#file_tree` (the widget ID) not a wrapper container. Use direct imports (not relative) for all codebrowser modules since the launcher runs scripts directly.
