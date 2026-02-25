@@ -3,6 +3,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Container
 from textual.widgets import Header, Footer, Static, DirectoryTree
 
+from code_viewer import CodeViewer
 from file_tree import ProjectFileTree, get_project_root
 
 
@@ -16,7 +17,18 @@ class CodeBrowserApp(App):
     #code_pane {
         width: 1fr;
         background: $surface;
-        padding: 1;
+    }
+    #file_info_bar {
+        height: 1;
+        dock: top;
+        background: $surface-lighten-1;
+        padding: 0 1;
+    }
+    #code_viewer {
+        height: 1fr;
+    }
+    #code_display {
+        width: auto;
     }
     """
 
@@ -37,19 +49,23 @@ class CodeBrowserApp(App):
                 with Container(id="file_tree"):
                     yield Static("Error: not inside a git repository")
             with Container(id="code_pane"):
-                yield Static("Select a file to view")
+                yield Static("No file selected", id="file_info_bar")
+                yield CodeViewer(id="code_viewer")
         yield Footer()
 
     def on_directory_tree_file_selected(
         self, event: DirectoryTree.FileSelected
     ) -> None:
-        self.log(f"File selected: {event.path}")
+        code_viewer = self.query_one("#code_viewer", CodeViewer)
+        code_viewer.load_file(event.path)
+        info_bar = self.query_one("#file_info_bar", Static)
+        info_bar.update(f" {event.path.name} — {code_viewer._total_lines} lines")
 
     def action_toggle_focus(self) -> None:
         file_tree = self.query_one("#file_tree")
-        code_pane = self.query_one("#code_pane")
+        code_viewer = self.query_one("#code_viewer")
         if file_tree.has_focus_within:
-            code_pane.focus()
+            code_viewer.focus()
         else:
             file_tree.focus()
 
