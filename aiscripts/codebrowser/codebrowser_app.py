@@ -43,6 +43,7 @@ class CodeBrowserApp(App):
         Binding("q", "quit", "Quit"),
         Binding("tab", "toggle_focus", "Toggle Focus"),
         Binding("r", "refresh_explain", "Refresh annotations"),
+        Binding("t", "toggle_annotations", "Toggle annotations"),
     ]
 
     def __init__(self, *args, **kwargs):
@@ -106,6 +107,7 @@ class CodeBrowserApp(App):
                 )
                 ts = run_info.timestamp if run_info else "unknown"
                 info_bar.update(f"{line_info} | Annotations: {ts}")
+                self._update_code_annotations()
             else:
                 # Generate for the file's directory
                 all_data = await asyncio.to_thread(
@@ -117,10 +119,25 @@ class CodeBrowserApp(App):
                 )
                 ts = run_info.timestamp if run_info else "unknown"
                 info_bar.update(f"{line_info} | Annotations: {ts}")
+                self._update_code_annotations()
         except Exception as e:
             info_bar.update(f"{line_info} | Annotations: error ({e})")
         finally:
             self._generating = False
+
+    def _update_code_annotations(self) -> None:
+        """Pass current explain data annotations to the code viewer."""
+        if not self._current_file_path or not self._current_explain_data:
+            return
+        code_viewer = self.query_one("#code_viewer", CodeViewer)
+        rel_path = str(self._current_file_path.relative_to(self._project_root))
+        file_data = self._current_explain_data.get(rel_path)
+        code_viewer.set_annotations(file_data.annotations if file_data else [])
+
+    def action_toggle_annotations(self) -> None:
+        """Toggle annotation gutter visibility."""
+        code_viewer = self.query_one("#code_viewer", CodeViewer)
+        code_viewer.toggle_annotations()
 
     def action_refresh_explain(self) -> None:
         """Refresh explain data for the current file's directory."""
@@ -149,6 +166,7 @@ class CodeBrowserApp(App):
             )
             ts = run_info.timestamp if run_info else "unknown"
             info_bar.update(f"{line_info} | Annotations: {ts}")
+            self._update_code_annotations()
         except Exception as e:
             info_bar.update(f"{line_info} | Annotations: error ({e})")
         finally:
