@@ -3,11 +3,10 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [aitasks]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-04 11:16
-updated_at: 2026-02-25 10:54
+updated_at: 2026-02-25 12:07
 boardcol: next
 boardidx: 20
 ---
