@@ -46,9 +46,17 @@ Follow `aiscripts/aitask_board.sh` pattern:
 - Help text: `codebrowser    Launch the code browser TUI`
 - Case: `codebrowser) shift; exec "$SCRIPTS_DIR/aitask_codebrowser.sh" "$@" ;;`
 
-### 6. Add `aiexplain/` to `.gitignore`
+### 6. Add `aiscripts/codebrowser/__pycache__/` to `.gitignore`
+No separate `aiexplain/` directory — codebrowser uses `aiexplains/` (already gitignored, managed by `aitask_explain_runs`).
 
 ## Verification
 - `./ait codebrowser` launches, shows two panes, exits on `q`
 - `./ait` shows codebrowser in help
 - Tab toggles focus between panes
+
+## Final Implementation Notes
+- **Actual work done:** All 6 steps implemented as planned. Created `aiscripts/codebrowser/` with `__init__.py`, `annotation_data.py`, `codebrowser_app.py`; created `aiscripts/aitask_codebrowser.sh` launcher; added `codebrowser` command to `ait` dispatcher; added `__pycache__` to `.gitignore`.
+- **Deviations from plan:** Step 6 changed from adding `aiexplain/` to `.gitignore` to adding only `aiscripts/codebrowser/__pycache__/`. Per user feedback, codebrowser will use the existing `aiexplains/` directory (already gitignored and managed by `aitask_explain_runs`) instead of a separate `aiexplain/` directory.
+- **Issues encountered:** None. All verification steps passed — TUI launches with two-pane layout, shows placeholder text, footer displays quit binding.
+- **Key decisions:** Used `$surface` and `$primary` theme variables for consistent styling with the board TUI. Left pane width set to 35 columns with thick primary-colored border separator.
+- **Notes for sibling tasks:** The `codebrowser_app.py` is the main file to extend. Subsequent tasks should add widgets inside the `#file_tree_pane` and `#code_pane` containers. The `toggle_focus` action will need updating once real focusable widgets replace the Static placeholders. `annotation_data.py` dataclasses are ready for use by t195_4 (explain data generation) and t195_5 (task annotation overlay). Explain data should be stored under `aiexplains/` not a separate directory.
