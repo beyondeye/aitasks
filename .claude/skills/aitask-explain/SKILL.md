@@ -15,7 +15,11 @@ ls -d aiexplains/*/files.txt 2>/dev/null
 
 If existing runs are found, read `files.txt` from each run to build a summary.
 
-**If invoked with arguments (file/directory paths):** use those directly, skip to "Proceed with files" below.
+**If invoked with arguments (file/directory paths):** parse each argument:
+- If argument matches `<path>:<start_line>-<end_line>` (e.g., `src/app.py:10-50`): extract the file path and store the line range as focus context for Step 4
+- If argument is a plain path (no colon+range suffix): use as-is (no range)
+
+Skip to "Proceed with files" below.
 
 **If no arguments and existing runs exist:**
 
@@ -85,6 +89,8 @@ Run the shell script to gather raw data and produce the YAML reference:
 - For "Code evolution" mode: also read extracted task/plan files from `<run_dir>/tasks/` and `<run_dir>/plans/`
 
 ### Step 4: Analysis and Explanation
+
+**If a line range was specified in Step 1:** Focus analysis primarily on the specified line range. Read the full file for context, but center the explanation on the specified lines. For Code Evolution mode, prioritize commits that touched the specified range.
 
 Based on selected modes, provide analysis:
 

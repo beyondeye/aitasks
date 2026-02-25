@@ -1,4 +1,7 @@
 import asyncio
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
 from textual.app import App, ComposeResult
@@ -111,6 +114,7 @@ class CodeBrowserApp(App):
         Binding("r", "refresh_explain", "Refresh annotations"),
         Binding("t", "toggle_annotations", "Toggle annotations"),
         Binding("g", "go_to_line", "Go to line"),
+        Binding("e", "launch_claude", "Explain in Claude"),
     ]
 
     def __init__(self, *args, **kwargs):
@@ -278,6 +282,50 @@ class CodeBrowserApp(App):
             code_viewer.focus()
         else:
             file_tree.focus()
+
+    def _find_terminal(self) -> str | None:
+        """Find an available terminal emulator, or return None."""
+        terminal = os.environ.get("TERMINAL")
+        if terminal and shutil.which(terminal):
+            return terminal
+        for term in [
+            "alacritty", "kitty", "ghostty", "foot",
+            "x-terminal-emulator", "xdg-terminal-exec", "gnome-terminal",
+            "konsole", "xfce4-terminal", "lxterminal", "mate-terminal", "xterm",
+        ]:
+            if shutil.which(term):
+                return term
+        return None
+
+    @work(exclusive=True)
+    async def action_launch_claude(self) -> None:
+        """Launch Claude Code with the explain skill for the current file."""
+        if not self._current_file_path:
+            self.notify("No file selected", severity="warning")
+            return
+        if not shutil.which("claude"):
+            self.notify("Claude CLI not found in PATH", severity="error")
+            return
+
+        rel_path = self._current_file_path.relative_to(self._project_root)
+        code_viewer = self.query_one("#code_viewer", CodeViewer)
+        selected = code_viewer.get_selected_range()
+
+        if selected:
+            arg = f"{rel_path}:{selected[0]}-{selected[1]}"
+            self.notify(
+                f"Launching Claude for {rel_path} (lines {selected[0]}-{selected[1]})..."
+            )
+        else:
+            arg = str(rel_path)
+            self.notify(f"Launching Claude for {rel_path}...")
+
+        terminal = self._find_terminal()
+        if terminal:
+            subprocess.Popen([terminal, "--", "claude", f"/aitask-explain {arg}"])
+        else:
+            with self.suspend():
+                subprocess.call(["claude", f"/aitask-explain {arg}"])
 
 
 if __name__ == "__main__":
