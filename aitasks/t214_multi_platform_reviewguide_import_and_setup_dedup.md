@@ -5,7 +5,7 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [claudeskills, aitask_reviewguide, portability]
-children_to_implement: [t214_1]
+children_to_implement: [t214_1, t214_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-23 00:12
 updated_at: 2026-02-25 12:13
