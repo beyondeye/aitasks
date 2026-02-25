@@ -5,7 +5,7 @@ depends: ['191']
 issue_type: feature
 status: Implementing
 labels: [aitask_explain, codebrowser]
-children_to_implement: [t195_1, t195_2, t195_3, t195_4, t195_5, t195_6, t195_7, t195_8]
+children_to_implement: [t195_1, t195_2, t195_3, t195_4, t195_5, t195_6, t195_7, t195_8, t195_9]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-22 11:19
 updated_at: 2026-02-25 12:19
