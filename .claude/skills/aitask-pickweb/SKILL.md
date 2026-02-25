@@ -10,7 +10,7 @@ This skill is a sandboxed version of `aitask-pickrem` designed specifically for 
 All task metadata (plans, completion markers) is stored in `.aitask-data-updated/` on the current working branch. A separate local skill (`aitask-web-merge`) handles merging code to main and archiving task data after the Claude Web session completes.
 
 **Key differences from `aitask-pickrem`:**
-- NO lock acquisition (`aitask_own.sh`) — read-only lock check only
+- NO lock acquisition (`aitask_pick_own.sh`) — read-only lock check only
 - NO status updates (`aitask_update.sh`) — task status stays as-is
 - NO archival (`aitask_archive.sh`) — completion marker written instead
 - NO `./ait git` — uses regular `git` for commits
@@ -355,7 +355,7 @@ This skill uses the same profile format as `aitask-pickrem` from `aitasks/metada
 
 - This skill has **zero `AskUserQuestion` calls** — designed for Claude Code Web
 - `EnterPlanMode`/`ExitPlanMode` are still used for plan creation (they are NOT `AskUserQuestion`)
-- NO calls to: `aitask_own.sh`, `aitask_update.sh`, `aitask_archive.sh`, `./ait git`
+- NO calls to: `aitask_pick_own.sh`, `aitask_update.sh`, `aitask_archive.sh`, `./ait git`
 - DOES use: `aitask_init_data.sh`, `aitask_lock.sh --check`, `.aitask-data-updated/` for plans and markers
 - The completion marker at `.aitask-data-updated/completed_t<task_id>.json` is the signal for `aitask-web-merge` to detect and process this branch
 - Parent tasks with pending children must be addressed by specifying a child task ID directly

@@ -107,7 +107,7 @@ Set context variables:
 ### Step 3: Sync with Remote (Best-effort)
 
 ```bash
-./aiscripts/aitask_own.sh --sync
+./aiscripts/aitask_pick_own.sh --sync
 ```
 
 Non-blocking — if it fails (e.g., no network, merge conflicts), continue silently.
@@ -152,11 +152,11 @@ If neither check triggers, proceed to Step 5.
 
   If email was resolved:
   ```bash
-  ./aiscripts/aitask_own.sh <task_num> --email "<email>"
+  ./aiscripts/aitask_pick_own.sh <task_num> --email "<email>"
   ```
   If no email:
   ```bash
-  ./aiscripts/aitask_own.sh <task_num>
+  ./aiscripts/aitask_pick_own.sh <task_num>
   ```
 
 - **Parse the script output:**
@@ -165,7 +165,7 @@ If neither check triggers, proceed to Step 5.
   - `LOCK_FAILED:<owner>` — Read `force_unlock_stale` from profile (default: `false`):
     - If `true`: Display "Profile: force-unlocking stale lock held by \<owner\>". Re-run with `--force`:
       ```bash
-      ./aiscripts/aitask_own.sh <task_num> --force --email "<email>"
+      ./aiscripts/aitask_pick_own.sh <task_num> --force --email "<email>"
       ```
       Parse output again. If `FORCE_UNLOCKED` + `OWNED`: proceed. Otherwise: abort.
     - If `false`: Display error: "Task t\<N\> is locked by \<owner\>. Pick a different task." Abort.

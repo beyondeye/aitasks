@@ -210,5 +210,5 @@ Always use `#!/usr/bin/env bash`, never `#!/bin/bash`. macOS system bash is 3.2 
 
 | File | Line | Issue | Fix Applied |
 |------|------|-------|-------------|
-| `aiscripts/aitask_own.sh` | 159 | `grep -oP` with `\K` (PCRE) | `grep -o` + `sed` pipe |
+| `aiscripts/aitask_pick_own.sh` | 159 | `grep -oP` with `\K` (PCRE) | `grep -o` + `sed` pipe |
 | `aiscripts/aitask_update.sh` | 926 | `mktemp --suffix=.md` (GNU-only) | Template pattern `mktemp "${TMPDIR:-/tmp}/aitask_XXXXXX.md"` |

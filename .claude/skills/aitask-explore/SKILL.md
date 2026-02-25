@@ -37,7 +37,7 @@ Store the selected profile in memory for use throughout remaining steps.
 Do a best-effort sync to ensure the local state is up to date and clean up stale locks:
 
 ```bash
-./aiscripts/aitask_own.sh --sync
+./aiscripts/aitask_pick_own.sh --sync
 ```
 
 This is non-blocking — if it fails (e.g., no network, merge conflicts), it continues silently.

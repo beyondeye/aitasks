@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# aitask_own.sh - Claim ownership of a task (sync, lock, update status, commit, push)
+# aitask_pick_own.sh - Claim ownership of a task (sync, lock, update status, commit, push)
 #
 # Consolidates Step 4 of the task-workflow skill into a single script call.
 # The calling LLM handles email selection interactively, then passes the
@@ -9,9 +9,9 @@
 # replacing the manual git pull + lock cleanup commands in calling skills.
 #
 # Usage:
-#   ./aiscripts/aitask_own.sh <task_id> [--email <email>]   # Full ownership
-#   ./aiscripts/aitask_own.sh <task_id> --force --email <e>  # Force-unlock stale lock
-#   ./aiscripts/aitask_own.sh --sync                         # Sync-only mode
+#   ./aiscripts/aitask_pick_own.sh <task_id> [--email <email>]   # Full ownership
+#   ./aiscripts/aitask_pick_own.sh <task_id> --force --email <e>  # Force-unlock stale lock
+#   ./aiscripts/aitask_pick_own.sh --sync                         # Sync-only mode
 #
 # Output format (structured lines for LLM parsing):
 #   OWNED:<task_id>              Task successfully claimed
@@ -45,8 +45,8 @@ EMAILS_FILE="aitasks/metadata/emails.txt"
 # --- Help ---
 show_help() {
     cat <<'EOF'
-Usage: aitask_own.sh [options] <task_id>
-       aitask_own.sh --sync
+Usage: aitask_pick_own.sh [options] <task_id>
+       aitask_pick_own.sh --sync
 
 Claim ownership of a task: sync remote, acquire lock, set status to
 Implementing, commit and push. In sync-only mode, just pull and clean
@@ -81,10 +81,10 @@ Full ownership mode performs these steps in order:
   6. git add + commit + push (push is best-effort)
 
 Examples:
-  ./aiscripts/aitask_own.sh 166 --email "user@example.com"
-  ./aiscripts/aitask_own.sh t16_2 --email "user@example.com"
-  ./aiscripts/aitask_own.sh 166          # No email (skip lock)
-  ./aiscripts/aitask_own.sh --sync       # Sync-only mode
+  ./aiscripts/aitask_pick_own.sh 166 --email "user@example.com"
+  ./aiscripts/aitask_pick_own.sh t16_2 --email "user@example.com"
+  ./aiscripts/aitask_pick_own.sh 166          # No email (skip lock)
+  ./aiscripts/aitask_pick_own.sh --sync       # Sync-only mode
 EOF
 }
 

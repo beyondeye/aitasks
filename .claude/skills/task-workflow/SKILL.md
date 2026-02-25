@@ -129,8 +129,8 @@ If `active_profile` is null (either because no profile was selected by the calli
       - "Force unlock and claim" (description: "Override the existing lock and claim this task")
       - "Proceed anyway" (description: "Attempt to claim without force-unlocking — may fail if lock is enforced")
       - "Pick a different task" (description: "Leave the lock intact and select another task")
-    - If "Force unlock and claim": Add `--force` flag to the `aitask_own.sh` call below.
-    - If "Proceed anyway": Proceed to **Claim task ownership** below (normal `aitask_own.sh` call — the script's own `LOCK_FAILED` handling will apply if the lock blocks it).
+    - If "Force unlock and claim": Add `--force` flag to the `aitask_pick_own.sh` call below.
+    - If "Proceed anyway": Proceed to **Claim task ownership** below (normal `aitask_pick_own.sh` call — the script's own `LOCK_FAILED` handling will apply if the lock blocks it).
     - If "Pick a different task": Return to the calling skill's task selection. Do NOT proceed.
 
   **If exit code 1 (not locked) or command fails:** Proceed normally to **Claim task ownership**.
@@ -139,16 +139,16 @@ If `active_profile` is null (either because no profile was selected by the calli
 
   If email was provided (new or selected):
   ```bash
-  ./aiscripts/aitask_own.sh <task_num> --email "<email>"
+  ./aiscripts/aitask_pick_own.sh <task_num> --email "<email>"
   ```
   If no email (user selected "Skip"):
   ```bash
-  ./aiscripts/aitask_own.sh <task_num>
+  ./aiscripts/aitask_pick_own.sh <task_num>
   ```
 
   **If `--force` was set by the lock pre-check above**, add `--force` to the command:
   ```bash
-  ./aiscripts/aitask_own.sh <task_num> --force --email "<email>"
+  ./aiscripts/aitask_pick_own.sh <task_num> --force --email "<email>"
   ```
 
   **Parse the script output:**
@@ -162,7 +162,7 @@ If `active_profile` is null (either because no profile was selected by the calli
       - "Pick a different task" (description: "Leave the lock intact and select another task")
     - If "Force unlock and claim": Re-run ownership with `--force`:
       ```bash
-      ./aiscripts/aitask_own.sh <task_num> --force --email "<email>"
+      ./aiscripts/aitask_pick_own.sh <task_num> --force --email "<email>"
       ```
       Parse the output again. If `FORCE_UNLOCKED` + `OWNED`: proceed. Otherwise: abort.
     - If "Pick a different task": Return to the calling skill's task selection. Do NOT proceed.
@@ -173,7 +173,7 @@ If `active_profile` is null (either because no profile was selected by the calli
       - "Retry" (description: "Try acquiring the lock again")
       - "Continue without lock" (description: "Proceed without locking (risky if multiple users)")
       - "Abort" (description: "Stop the workflow")
-    - If "Retry": Re-run `aitask_own.sh` (same command). Parse output again.
+    - If "Retry": Re-run `aitask_pick_own.sh` (same command). Parse output again.
     - If "Continue without lock": Skip lock acquisition, proceed to Step 5 (task status will be updated but no lock held).
     - If "Abort": End the workflow.
   - `LOCK_INFRA_MISSING` — Lock infrastructure not initialized. Inform user to run `ait setup` and abort.

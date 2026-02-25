@@ -33,7 +33,7 @@
       "Bash(./aiscripts/aitask_issue_update.sh:*)",
       "Bash(./aiscripts/aitask_changelog.sh:*)",
       "Bash(./aiscripts/aitask_archive.sh:*)",
-      "Bash(./aiscripts/aitask_own.sh:*)"
+      "Bash(./aiscripts/aitask_pick_own.sh:*)"
     ]
   }
 }

@@ -304,7 +304,7 @@ assert_eq "portable_date subtract across month" "2025-12-31" "$result"
 # ============================================================
 echo "--- grep -o + sed pipe: extract owner from lock message ---"
 
-# Simulates the pattern from aitask_own.sh:159
+# Simulates the pattern from aitask_pick_own.sh:159
 lock_output="Error: already locked by alice@test.com on host laptop1"
 owner=$(echo "$lock_output" | grep -o 'already locked by [^ ]*' | sed 's/already locked by //' || echo "unknown")
 assert_eq "extract owner from lock message" "alice@test.com" "$owner"
@@ -314,7 +314,7 @@ lock_output="Error: already locked by bob@example.org"
 owner=$(echo "$lock_output" | grep -o 'already locked by [^ ]*' | sed 's/already locked by //' || echo "unknown")
 assert_eq "extract owner email only" "bob@example.org" "$owner"
 
-# Test fallback when no match (matches actual aitask_own.sh pattern)
+# Test fallback when no match (matches actual aitask_pick_own.sh pattern)
 lock_output="Error: some other failure message"
 owner=$(echo "$lock_output" | grep -o 'already locked by [^ ]*' | sed 's/already locked by //' || true)
 [[ -z "$owner" ]] && owner="unknown"

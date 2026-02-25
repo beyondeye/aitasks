@@ -25,7 +25,7 @@ A task ID argument is **required** — there is no interactive task browsing.
 
 | Aspect | /aitask-pickrem | /aitask-pickweb |
 |--------|-----------------|-----------------|
-| Lock handling | Acquires lock via `aitask_own.sh` | Read-only lock check only (informational) |
+| Lock handling | Acquires lock via `aitask_pick_own.sh` | Read-only lock check only (informational) |
 | Status updates | Updates task status to Implementing | No status changes |
 | Archival | Full archival via `aitask_archive.sh` | Writes completion marker instead |
 | Git operations | Uses `./ait git` (cross-branch) | Uses regular `git` (current branch only) |

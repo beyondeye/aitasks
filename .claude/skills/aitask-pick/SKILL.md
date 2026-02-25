@@ -97,7 +97,7 @@ If no argument is provided, proceed with Step 1 as normal.
 Before listing tasks, do a best-effort sync to ensure the local task list is up to date (prevents picking a task that another PC already started) and clean up stale locks:
 
 ```bash
-./aiscripts/aitask_own.sh --sync
+./aiscripts/aitask_pick_own.sh --sync
 ```
 
 This is non-blocking — if it fails (e.g., no network, merge conflicts), it continues silently.
