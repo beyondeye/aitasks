@@ -1,0 +1,47 @@
+{{- if not (.Page.Store.Get "static-img-init") }}
+{{- .Page.Store.Set "static-img-init" true }}
+<style>
+.static-img-zoom { cursor: zoom-in; }
+.static-img-zoom img { transition: opacity 0.2s; }
+.static-img-zoom img:hover { opacity: 0.85; }
+.static-img-overlay {
+  display: none; position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,0.8); align-items: center; justify-content: center;
+  cursor: zoom-out;
+}
+.static-img-overlay.active { display: flex; }
+.static-img-overlay img {
+  max-width: 92vw; max-height: 92vh; border-radius: 4px;
+  box-shadow: 0 4px 32px rgba(0,0,0,0.5);
+}
+.static-img-close {
+  position: fixed; top: 16px; right: 20px; z-index: 10000;
+  color: #fff; font-size: 32px; cursor: pointer; line-height: 1;
+  background: rgba(0,0,0,0.5); border: none; border-radius: 50%;
+  width: 40px; height: 40px; display: flex; align-items: center;
+  justify-content: center;
+}
+.static-img-close:hover { background: rgba(255,255,255,0.2); }
+</style>
+<div class="static-img-overlay" id="static-img-overlay" onclick="this.classList.remove('active')">
+  <button class="static-img-close" onclick="event.stopPropagation();this.parentElement.classList.remove('active')" aria-label="Close">&times;</button>
+  <img id="static-img-overlay-img" src="" alt="">
+</div>
+<script>
+function staticImgZoom(src, alt) {
+  var o = document.getElementById('static-img-overlay');
+  var i = document.getElementById('static-img-overlay-img');
+  i.src = src; i.alt = alt || '';
+  o.classList.add('active');
+}
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    document.getElementById('static-img-overlay').classList.remove('active');
+  }
+});
+</script>
+{{- end }}
+<figure class="static-img-zoom{{ with .Get "class" }} {{ . }}{{ end }}" onclick="staticImgZoom('{{ .Get "src" | relURL }}', '{{ with .Get "alt" }}{{ . }}{{ end }}')">
+  <img src="{{ .Get "src" | relURL }}" alt="{{ with .Get "alt" }}{{ . }}{{ end }}">
+  {{ with .Get "caption" }}<figcaption><p>{{ . }}</p></figcaption>{{ end }}
+</figure>

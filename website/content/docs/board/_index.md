@@ -7,7 +7,7 @@ description: "TUI Kanban board for visualizing and managing tasks"
 
 The `ait board` command launches an interactive terminal-based kanban board for managing your tasks visually. Built with [Textual](https://textual.textualize.io/), it provides a full-featured TUI with columns, task cards, inline metadata editing, git integration, and keyboard-driven navigation.
 
-<!-- SCREENSHOT: Full board overview showing multiple columns with task cards -->
+{{< static-img src="imgs/aitasks_board_main_view.svg" alt="Board overview showing kanban columns with task cards" caption="The ait board kanban view with task cards organized into columns" >}}
 
 ## Tutorial
 

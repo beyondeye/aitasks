@@ -25,7 +25,7 @@ Task positions are stored in the `boardidx` field of each task file's frontmatte
 
 ### How to Customize Columns
 
-<!-- SCREENSHOT: Column edit dialog with title input and color palette -->
+{{< static-img src="imgs/aitasks_board_customize_column.svg" alt="Column edit dialog with title input and color palette" caption="The column edit dialog lets you set a title and choose a color" >}}
 
 **Adding a new column:**
 
@@ -65,7 +65,7 @@ The "Unsorted / Inbox" column cannot be reordered — it always appears on the f
 
 ### How to Edit Task Metadata
 
-<!-- SCREENSHOT: Task detail dialog showing editable cycle fields -->
+{{< static-img src="imgs/aitasks_board_task_detail.svg" alt="Task detail dialog showing editable metadata fields" caption="The task detail dialog with cycleable priority, effort, status, and type fields" >}}
 
 1. Focus a task card and press **Enter** to open the detail dialog
 2. Use **Up/Down** arrows to navigate between fields
@@ -111,7 +111,7 @@ When you edit task metadata from the board, the changes are saved to disk but no
 2. The commit dialog shows all modified files and a combined message
 3. Click "Commit"
 
-<!-- SCREENSHOT: Commit message dialog -->
+{{< static-img src="imgs/aitasks_board_commit.svg" alt="Commit message dialog showing files to commit and message input" caption="The commit dialog with pre-filled message and list of modified files" >}}
 
 > **Note:** The "Commit" and "Commit All" keybindings only appear in the footer when applicable — i.e., when the focused task is modified or when any tasks are modified, respectively.
 
