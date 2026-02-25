@@ -3,11 +3,12 @@ priority: high
 effort: high
 depends: [t195_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [codebrowser]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-25 12:18
-updated_at: 2026-02-25 22:14
+updated_at: 2026-02-25 22:36
+completed_at: 2026-02-25 22:36
 ---
 
 ## Context
