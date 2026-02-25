@@ -4,12 +4,61 @@ from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Container
-from textual.widgets import Header, Footer, Static, DirectoryTree
-from textual import work
+from textual.screen import ModalScreen
+from textual.widgets import Button, Header, Footer, Input, Label, Static, DirectoryTree
+from textual import on, work
 
 from code_viewer import CodeViewer
 from explain_manager import ExplainManager
 from file_tree import ProjectFileTree, get_project_root
+
+
+class GoToLineScreen(ModalScreen):
+    """Modal dialog to jump to a specific line number."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, max_line: int):
+        super().__init__()
+        self.max_line = max_line
+
+    def compose(self):
+        with Container(id="goto_dialog"):
+            yield Label(f"Go to line (1\u2013{self.max_line}):")
+            yield Input(placeholder="Line number", id="goto_input")
+            with Horizontal(id="goto_buttons"):
+                yield Button("Go", variant="primary", id="btn_goto")
+                yield Button("Cancel", variant="default", id="btn_goto_cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#goto_input", Input).focus()
+
+    @on(Button.Pressed, "#btn_goto")
+    def do_goto(self) -> None:
+        self._submit()
+
+    @on(Button.Pressed, "#btn_goto_cancel")
+    def cancel(self) -> None:
+        self.dismiss(None)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self._submit()
+
+    def _submit(self) -> None:
+        raw = self.query_one("#goto_input", Input).value.strip()
+        if not raw:
+            return
+        try:
+            line = int(raw)
+        except ValueError:
+            return
+        line = max(1, min(line, self.max_line))
+        self.dismiss(line)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class CodeBrowserApp(App):
@@ -35,6 +84,23 @@ class CodeBrowserApp(App):
     #code_display {
         width: auto;
     }
+    GoToLineScreen {
+        align: center middle;
+    }
+    #goto_dialog {
+        width: 40;
+        height: auto;
+        padding: 1 2;
+        background: $surface;
+        border: thick $primary;
+    }
+    #goto_buttons {
+        margin-top: 1;
+        height: auto;
+    }
+    #goto_buttons Button {
+        margin-right: 1;
+    }
     """
 
     TITLE = "aitasks codebrowser"
@@ -44,6 +110,7 @@ class CodeBrowserApp(App):
         Binding("tab", "toggle_focus", "Toggle Focus"),
         Binding("r", "refresh_explain", "Refresh annotations"),
         Binding("t", "toggle_annotations", "Toggle annotations"),
+        Binding("g", "go_to_line", "Go to line"),
     ]
 
     def __init__(self, *args, **kwargs):
@@ -53,6 +120,8 @@ class CodeBrowserApp(App):
         self._current_explain_data: dict | None = None
         self._current_file_path: Path | None = None
         self._generating: bool = False
+        self._cursor_info: str = ""
+        self._annotation_info: str = ""
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -69,6 +138,18 @@ class CodeBrowserApp(App):
                 yield CodeViewer(id="code_viewer")
         yield Footer()
 
+    def _update_info_bar(self) -> None:
+        """Rebuild and display the info bar from current state."""
+        if not self._current_file_path:
+            return
+        code_viewer = self.query_one("#code_viewer", CodeViewer)
+        parts = [f" {self._current_file_path.name} — {code_viewer._total_lines} lines"]
+        if self._cursor_info:
+            parts.append(self._cursor_info)
+        if self._annotation_info:
+            parts.append(self._annotation_info)
+        self.query_one("#file_info_bar", Static).update(" | ".join(parts))
+
     def on_directory_tree_file_selected(
         self, event: DirectoryTree.FileSelected
     ) -> None:
@@ -76,11 +157,30 @@ class CodeBrowserApp(App):
         code_viewer = self.query_one("#code_viewer", CodeViewer)
         code_viewer.load_file(event.path)
 
-        info_bar = self.query_one("#file_info_bar", Static)
-        info_bar.update(f" {event.path.name} — {code_viewer._total_lines} lines")
+        self._cursor_info = ""
+        self._annotation_info = ""
+        self._update_info_bar()
 
         if self.explain_manager:
             self._load_explain_data(event.path)
+
+    def on_code_viewer_cursor_moved(self, event: CodeViewer.CursorMoved) -> None:
+        """Update info bar when cursor moves."""
+        self._cursor_info = f"Line {event.line}/{event.total}"
+        self._update_info_bar()
+
+    def action_go_to_line(self) -> None:
+        """Open go-to-line modal."""
+        code_viewer = self.query_one("#code_viewer", CodeViewer)
+        if code_viewer._total_lines == 0:
+            return
+
+        def on_line(line: int | None) -> None:
+            if line is not None:
+                code_viewer.move_cursor(line - 1)
+                code_viewer.focus()
+
+        self.push_screen(GoToLineScreen(code_viewer._total_lines), on_line)
 
     @work(exclusive=True)
     async def _load_explain_data(self, file_path: Path) -> None:
@@ -89,13 +189,10 @@ class CodeBrowserApp(App):
             return
 
         self._generating = True
-        info_bar = self.query_one("#file_info_bar", Static)
-        code_viewer = self.query_one("#code_viewer", CodeViewer)
-        line_info = f" {file_path.name} — {code_viewer._total_lines} lines"
-        info_bar.update(f"{line_info} | Annotations: (generating...)")
+        self._annotation_info = "Annotations: (generating...)"
+        self._update_info_bar()
 
         try:
-            # Check cache first
             cached = await asyncio.to_thread(
                 self.explain_manager.get_cached_data, file_path
             )
@@ -106,10 +203,10 @@ class CodeBrowserApp(App):
                     self.explain_manager.get_run_info, file_path
                 )
                 ts = run_info.timestamp if run_info else "unknown"
-                info_bar.update(f"{line_info} | Annotations: {ts}")
+                self._annotation_info = f"Annotations: {ts}"
+                self._update_info_bar()
                 self._update_code_annotations()
             else:
-                # Generate for the file's directory
                 all_data = await asyncio.to_thread(
                     self.explain_manager.generate_explain_data, file_path.parent
                 )
@@ -118,10 +215,12 @@ class CodeBrowserApp(App):
                     self.explain_manager.get_run_info, file_path
                 )
                 ts = run_info.timestamp if run_info else "unknown"
-                info_bar.update(f"{line_info} | Annotations: {ts}")
+                self._annotation_info = f"Annotations: {ts}"
+                self._update_info_bar()
                 self._update_code_annotations()
         except Exception as e:
-            info_bar.update(f"{line_info} | Annotations: error ({e})")
+            self._annotation_info = f"Annotations: error ({e})"
+            self._update_info_bar()
         finally:
             self._generating = False
 
@@ -151,10 +250,8 @@ class CodeBrowserApp(App):
             return
 
         self._generating = True
-        info_bar = self.query_one("#file_info_bar", Static)
-        code_viewer = self.query_one("#code_viewer", CodeViewer)
-        line_info = f" {file_path.name} — {code_viewer._total_lines} lines"
-        info_bar.update(f"{line_info} | Annotations: (refreshing...)")
+        self._annotation_info = "Annotations: (refreshing...)"
+        self._update_info_bar()
 
         try:
             all_data = await asyncio.to_thread(
@@ -165,10 +262,12 @@ class CodeBrowserApp(App):
                 self.explain_manager.get_run_info, file_path
             )
             ts = run_info.timestamp if run_info else "unknown"
-            info_bar.update(f"{line_info} | Annotations: {ts}")
+            self._annotation_info = f"Annotations: {ts}"
+            self._update_info_bar()
             self._update_code_annotations()
         except Exception as e:
-            info_bar.update(f"{line_info} | Annotations: error ({e})")
+            self._annotation_info = f"Annotations: error ({e})"
+            self._update_info_bar()
         finally:
             self._generating = False
 
