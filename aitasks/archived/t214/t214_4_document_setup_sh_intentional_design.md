@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: [t214_3]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [portability, shell]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-25 12:13
-updated_at: 2026-02-25 14:34
+updated_at: 2026-02-25 14:43
+completed_at: 2026-02-25 14:43
 ---
 
 ## Context

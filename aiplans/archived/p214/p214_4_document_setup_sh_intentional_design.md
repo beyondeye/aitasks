@@ -40,5 +40,12 @@ Find the 3 occurrences of `api.github.com/repos/avivsinai/bitbucket-cli` (Arch, 
 shellcheck aiscripts/aitask_setup.sh
 ```
 
+## Final Implementation Notes
+- **Actual work done:** Exactly as planned — expanded the inline detection comment (line 71→lines 71-75) and added 3 bkt GitHub API comments (before lines 148, 209, 246 in the updated file)
+- **Deviations from plan:** None
+- **Issues encountered:** None. Shellcheck passed with only pre-existing info/style findings (SC2015, SC2034, SC2016, SC2129, SC2295) — none related to this task's changes
+- **Key decisions:** Used em-dash (—) in comments for consistency with existing comment style in the file
+- **Notes for sibling tasks:** This was the final child task (t214_4). All siblings are complete.
+
 ## Post-Implementation (Step 9)
 Archive task and plan. Push changes.
