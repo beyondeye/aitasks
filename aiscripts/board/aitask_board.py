@@ -1277,6 +1277,46 @@ class UnlockConfirmScreen(ModalScreen):
         self.dismiss(False)
 
 
+class ResetTaskConfirmScreen(ModalScreen):
+    """Confirmation dialog to reset task status and assignment after unlock."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, task_id: str, assigned_to: str):
+        super().__init__()
+        self.task_id = task_id
+        self.assigned_to = assigned_to
+
+    def compose(self):
+        with Container(id="dep_picker_dialog"):
+            yield Label(
+                f"Reset task t{self.task_id}?",
+                id="dep_picker_title",
+            )
+            yield Label(
+                f"This task is currently:\n"
+                f"  Status: Implementing\n"
+                f"  Assigned to: {self.assigned_to}\n\n"
+                f"Reset status to Ready and clear assignment?"
+            )
+            with Horizontal(id="detail_buttons"):
+                yield Button("Reset to Ready", variant="warning", id="btn_confirm_reset")
+                yield Button("Keep current", variant="default", id="btn_cancel_reset")
+
+    @on(Button.Pressed, "#btn_confirm_reset")
+    def confirm_reset(self):
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#btn_cancel_reset")
+    def cancel_reset(self):
+        self.dismiss(False)
+
+    def action_cancel(self):
+        self.dismiss(False)
+
+
 class TaskDetailScreen(ModalScreen):
     """Popup to view/edit task details with metadata editing."""
 
@@ -1548,6 +1588,21 @@ class TaskDetailScreen(ModalScreen):
                 )
                 if result.returncode == 0:
                     self.app.notify(f"Unlocked t{task_id}", severity="information")
+                    meta = self.task_data.metadata
+                    if meta.get("status") == "Implementing" and meta.get("assigned_to"):
+                        assigned_to = meta["assigned_to"]
+                        def on_reset_confirmed(confirmed):
+                            if confirmed:
+                                self.task_data.load()
+                                self.task_data.metadata["status"] = "Ready"
+                                self.task_data.metadata["assigned_to"] = ""
+                                self.task_data.save_with_timestamp()
+                            self.dismiss("unlocked")
+                        self.app.push_screen(
+                            ResetTaskConfirmScreen(task_id, assigned_to),
+                            on_reset_confirmed,
+                        )
+                        return
                     self.dismiss("unlocked")
                 else:
                     error = result.stderr.strip() or result.stdout.strip()
