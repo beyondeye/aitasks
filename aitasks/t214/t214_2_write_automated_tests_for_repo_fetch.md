@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: [t214_1]
 issue_type: test
-status: Ready
+status: Implementing
 labels: [portability, shell, testing]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-25 12:13
-updated_at: 2026-02-25 12:13
+updated_at: 2026-02-25 13:00
 ---
 
 ## Context
