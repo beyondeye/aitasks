@@ -61,5 +61,9 @@ SKIP_NETWORK=1 bash tests/test_repo_fetch.sh     # offline only
 shellcheck tests/test_repo_fetch.sh
 ```
 
-## Post-Implementation (Step 9)
-Archive task and plan. Push changes.
+## Final Implementation Notes
+- **Actual work done:** No new code written. The test file `tests/test_repo_fetch.sh` was already created during sibling task t214_1 (see `aiplans/archived/p214/p214_1_create_repo_fetch_helper_library.md` — "t214_2 (tests): Already integrated into this task"). Verification confirmed all 42 tests pass (36 offline + 6 network) and shellcheck is clean (only SC1091 info about dynamic source, same as other test files).
+- **Deviations from plan:** The entire implementation was completed by t214_1, so no steps in this plan needed execution. t214_2 effectively became a verification-only task.
+- **Issues encountered:** None — all tests pass cleanly.
+- **Key decisions:** Accepted the test file as-is since it covers all 17 test cases from the t214_2 spec plus 2 additional edge cases (Bitbucket root directory, trailing slash).
+- **Notes for sibling tasks:** The test file at `tests/test_repo_fetch.sh` covers the full `repo_fetch.sh` API. If t214_3 modifies `repo_fetch.sh` (e.g., adding new functions), corresponding tests should be added to this file.
