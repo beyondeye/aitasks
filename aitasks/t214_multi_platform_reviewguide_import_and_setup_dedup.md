@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [claudeskills, aitask_reviewguide, portability]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-23 00:12
-updated_at: 2026-02-23 00:12
-boardidx: 10
+updated_at: 2026-02-25 10:50
 boardcol: now
+boardidx: 10
 ---
 
 ## Problem
