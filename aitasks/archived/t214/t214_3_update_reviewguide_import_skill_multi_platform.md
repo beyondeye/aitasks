@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: [t214_2]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [claudeskills, aitask_reviewguide, portability]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-25 12:13
-updated_at: 2026-02-25 13:10
+updated_at: 2026-02-25 14:28
+completed_at: 2026-02-25 14:28
 ---
 
 ## Context

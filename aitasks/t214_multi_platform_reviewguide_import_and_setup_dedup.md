@@ -5,9 +5,9 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [claudeskills, aitask_reviewguide, portability]
-children_to_implement: [t214_3, t214_4]
+children_to_implement: [t214_4]
 created_at: 2026-02-23 00:12
-updated_at: 2026-02-25 13:01
+updated_at: 2026-02-25 14:28
 boardcol: now
 boardidx: 10
 ---
