@@ -230,179 +230,14 @@ If `active_profile` is null (either because no profile was selected by the calli
 
 ### Step 6: Create Implementation Plan
 
-#### 6.0: Check for Existing Plan
-
-Check if a plan file already exists at the expected path:
-- For parent tasks: `aiplans/p<taskid>_<name>.md`
-- For child tasks: `aiplans/p<parent>/p<parent>_<child>_<name>.md`
-
-```bash
-./aiscripts/aitask_query_files.sh plan-file <taskid>
-```
-Parse the output: `PLAN_FILE:<path>` means found, `NOT_FOUND` means not found.
-
-**If a plan file exists**, read it.
-
-**Profile check:** If the active profile has `plan_preference` set (or `plan_preference_child` for child tasks — `plan_preference_child` takes priority when the current task is a child task):
-- If `"use_current"`: Skip to the **Checkpoint** at the end of Step 6. Display: "Profile '\<name\>': using existing plan"
-- If `"verify"`: Enter verification mode (step 6.1). Display: "Profile '\<name\>': verifying existing plan"
-- If `"create_new"`: Proceed with step 6.1 as normal. Display: "Profile '\<name\>': creating plan from scratch"
-- Skip the AskUserQuestion below
-
-Otherwise, use `AskUserQuestion`:
-- Question: "An existing implementation plan was found at `<plan_path>`. How would you like to proceed?"
-- Header: "Plan"
-- Options:
-  - "Use current plan" (description: "Skip planning and proceed with the existing plan as-is")
-  - "Verify plan" (description: "Check if code has changed, verify the plan is still sound or if there are better alternatives")
-  - "Create plan from scratch" (description: "Discard existing plan and start fresh")
-
-**If "Use current plan":** Skip to the **Checkpoint** at the end of Step 6.
-**If "Verify plan":** Enter plan mode (step 6.1), but start by reading the existing plan and verifying it against the current codebase. Update the plan if needed.
-**If "Create plan from scratch":** Proceed with step 6.1 as normal, ignoring the existing plan.
-
-**If no plan file exists**, proceed with step 6.1 as normal.
-
-#### 6.1: Planning
-
-Use the `EnterPlanMode` tool to enter Claude Code's plan mode.
-
-**If entering from the "Verify plan" path in 6.0:** Start by reading the existing plan file. Then explore the current codebase to check if the plan's assumptions, file paths, and approach are still valid. Focus on identifying what changed since the plan was written. Update the plan if needed, or confirm it is still sound and exit plan mode.
-
-**For child tasks:** Include context links to related files (in priority order):
-- Parent task file: `aitasks/t<parent>_<name>.md`
-- Archived sibling plan files (primary reference for completed siblings): `aiplans/archived/p<parent>/p<parent>_*_*.md` — these contain the most up-to-date and detailed implementation records including post-implementation feedback
-- Archived sibling task files (fallback, only for siblings without an archived plan): `aitasks/archived/t<parent>/t<parent>_*_*.md`
-- Pending sibling task files: `aitasks/t<parent>/t<parent>_*_*.md`
-- Pending sibling plan files: `aiplans/p<parent>/p<parent>_*_*.md`
-
-While in plan mode:
-
-- Ask the user clarifying questions about the task requirements
-- Explore the codebase to understand the relevant architecture
-- **Folded Tasks Note:** If the task has a `folded_tasks` frontmatter field, the task description already contains all relevant content from the folded tasks (their content was incorporated at creation time by aitask-explore). There is no need to read the original folded task files during planning — they exist only as references for post-implementation cleanup (deletion in Step 9).
-- **Complexity Assessment:**
-  - After initial exploration, assess implementation complexity
-  - If the complexity appears HIGH for a parent task, use `AskUserQuestion`:
-    - Question: "This task appears complex. Would you like to break it into child subtasks?"
-    - Options: "Yes, create child tasks" / "No, implement as single task"
-  - **If creating child tasks:**
-    - Ask how many subtasks and get brief descriptions for each
-    - Use `aitask_create.sh --batch --parent <N>` to create each child
-    - **IMPORTANT:** Each child task file MUST include detailed context (see Child Task Documentation Requirements below)
-    - **IMPORTANT:** Revert the parent task status back to "Ready" since only the child task being worked on should be "Implementing":
-      ```bash
-      ./aiscripts/aitask_update.sh --batch <parent_num> --status Ready --assigned-to ""
-      ```
-      The `aitask_ls.sh` script will automatically display the parent as "Has children" because it has pending `children_to_implement`. Do NOT manually set the parent status to "Blocked".
-    - **Write implementation plans for ALL child tasks** before proceeding:
-      - For each child task created, write a plan file to `aiplans/p<parent>/p<parent>_<child>_<name>.md`
-      - Use the child plan file naming and metadata header conventions from the **Save Plan to External File** section below
-      - Each plan should leverage the codebase exploration already done during the parent planning phase
-      - Plans do not need to go through `EnterPlanMode`/`ExitPlanMode` — write them directly as files since the overall parent plan was already approved
-      - Commit all child task files and plan files together:
-        ```bash
-        mkdir -p aiplans/p<parent>
-        ./ait git add aitasks/t<parent>/ aiplans/p<parent>/
-        ./ait git commit -m "ait: Create t<parent> child tasks and plans"
-        ```
-    - **Child task checkpoint (ALWAYS interactive — ignores `post_plan_action` profile setting):**
-      Use `AskUserQuestion`:
-      - Question: "Created <N> child tasks with implementation plans. How would you like to proceed?"
-      - Header: "Children"
-      - Options:
-        - "Start first child" (description: "Continue to pick and implement the first child task")
-        - "Stop here" (description: "All child tasks and plans are written — end this session and pick children later in fresh contexts")
-      - **If "Start first child":** Restart the pick process with `/aitask-pick <parent>_1`
-      - **If "Stop here":** End the workflow. Display: "Child tasks and plans written to `aiplans/p<parent>/`. Pick individual children later with `/aitask-pick <parent>_<N>`."
-- Create a detailed implementation plan
-- Include a reference to **Step 9 (Post-Implementation)** in the plan for the cleanup, archival, and merge steps
-- Use `ExitPlanMode` when ready for user approval
-
-#### Child Task Documentation Requirements
-
-When creating child tasks, each task file MUST include detailed context that enables independent execution in a fresh Claude Code context. The assumption is that child tasks will NOT be executed in the current context, so ALL information currently available should be stored in the child task definition.
-
-**Required sections for each child task:**
-
-1. **Context Section**
-   - Why this task is needed
-   - How it fits into the parent task's goal
-   - Relevant background from the exploration phase that led to this specific child task
-
-2. **Key Files to Modify**
-   - Full paths to files that need changes
-   - Brief description of what changes are needed in each file
-
-3. **Reference Files for Patterns**
-   - Existing files that demonstrate similar patterns to follow
-   - Specific line numbers or function names when helpful
-
-4. **Implementation Plan**
-   - Step-by-step instructions
-   - Code snippets where helpful
-   - Dependencies between steps
-
-5. **Verification Steps**
-   - How to build/compile
-   - How to test the changes
-   - Expected outcomes
-
-#### Save Plan to External File
-
-Immediately after the user approves the plan via `ExitPlanMode`, save it to an external file.
-
-**File naming convention:**
-
-For parent tasks:
-- Location: `aiplans/`
-- Filename: Replace `t` prefix with `p`
-- Example: `t16_implement_auth.md` → `aiplans/p16_implement_auth.md`
-
-For child tasks:
-- Location: `aiplans/p<parent>/`
-- Filename: Replace `t` prefix with `p`
-- Example: `t16_2_add_login.md` → `aiplans/p16/p16_2_add_login.md`
-
-**Required metadata header for parent tasks:**
-```markdown
----
-Task: t16_implement_auth.md
-Worktree: aiwork/t16_implement_auth
-Branch: aitask/t16_implement_auth
-Base branch: main
----
-```
-
-**Required metadata header for child tasks:**
-```markdown
----
-Task: t16_2_add_login.md
-Parent Task: aitasks/t16_implement_auth.md
-Sibling Tasks: aitasks/t16/t16_1_*.md, aitasks/t16/t16_3_*.md
-Archived Sibling Plans: aiplans/archived/p16/p16_*_*.md
-Worktree: aiwork/t16_2_add_login
-Branch: aitask/t16_2_add_login
-Base branch: main
----
-```
-
-**Checkpoint (after plan is saved):**
-
-**Profile check:** If the active profile has `post_plan_action` set to `"start_implementation"`:
-- Display: "Profile '\<name\>': proceeding to implementation"
-- Skip the AskUserQuestion below and proceed directly to Step 7
-
-Otherwise, use `AskUserQuestion`:
-- Question: "Plan saved to `<plan_path>`. How would you like to proceed?"
-- Header: "Proceed"
-- Options:
-  - "Start implementation" (description: "Begin implementing the approved plan")
-  - "Revise plan" (description: "Re-enter plan mode to make changes")
-  - "Abort task" (description: "Stop and revert task status")
-
-If "Revise plan": Return to the beginning of Step 6.
-If "Abort": Execute the **Task Abort Procedure** (see below).
+> **Full planning workflow:** Read `planning.md` for the complete Step 6 procedure including:
+> - 6.0: Check for Existing Plan (profile-aware)
+> - 6.1: Planning (EnterPlanMode, child tasks, complexity assessment)
+> - Child Task Documentation Requirements
+> - Save Plan to External File (naming conventions, metadata headers)
+> - Checkpoint (post-plan action)
+>
+> After the checkpoint in `planning.md`, proceed to Step 7.
 
 ### Step 7: Implement
 
@@ -487,7 +322,7 @@ After implementation is complete, the user MUST be given the opportunity to revi
   - Return to the beginning of Step 8
 
 - **If "Abort":**
-  - Execute the **Task Abort Procedure** (see below)
+  - Execute the **Task Abort Procedure** (see `procedures.md`)
 
 ### Step 9: Post-Implementation
 
@@ -561,8 +396,8 @@ The script automatically handles:
 
 The script outputs structured lines. Parse each line and handle accordingly:
 
-- `ISSUE:<task_num>:<issue_url>` — Execute the **Issue Update Procedure** (see below) for the task
-- `PARENT_ISSUE:<task_num>:<issue_url>` — Execute the **Issue Update Procedure** for the parent task
+- `ISSUE:<task_num>:<issue_url>` — Execute the **Issue Update Procedure** (see `procedures.md`) for the task
+- `PARENT_ISSUE:<task_num>:<issue_url>` — Execute the **Issue Update Procedure** (see `procedures.md`) for the parent task
 - `FOLDED_ISSUE:<folded_task_num>:<issue_url>` — The folded task's file has been deleted, so the standard Issue Update Procedure cannot be used (it requires the task file). Instead, handle inline:
   - Use `AskUserQuestion`:
     - Question: "Folded task t<folded_task_num> had a linked issue: <issue_url>. Update/close it?"
@@ -596,106 +431,13 @@ The script outputs structured lines. Parse each line and handle accordingly:
 ./ait git push
 ```
 
-### Task Abort Procedure
+### Procedures
 
-This procedure is referenced from Step 6 (plan checkpoint) and Step 8 (user review) wherever the user selects "Abort task". It handles lock release, status revert, email clearing, and worktree cleanup.
+The following procedures are in `procedures.md` — read on demand when referenced:
 
-When abort is selected at any checkpoint after Step 4, execute these steps:
-
-- **Ask about plan file (if one was created):**
-  Use `AskUserQuestion`:
-  - Question: "A plan file was created. What should happen to it?"
-  - Header: "Plan file"
-  - Options:
-    - "Keep for future reference" (description: "Plan file remains in aiplans/")
-    - "Delete the plan file" (description: "Remove the plan file")
-
-  If "Delete":
-  ```bash
-  rm aiplans/<plan_file> 2>/dev/null || true
-  ```
-
-- **Ask for revert status:**
-  Use `AskUserQuestion`:
-  - Question: "What status should the task be set to?"
-  - Header: "Status"
-  - Options:
-    - "Ready" (description: "Task available for others to pick up")
-    - "Editing" (description: "Task needs modifications before ready")
-
-- **Release task lock:** Execute the **Lock Release Procedure** (see below) for the task.
-
-- **Revert task status and clear assignment:**
-  ```bash
-  ./aiscripts/aitask_update.sh --batch <task_num> --status <selected_status> --assigned-to ""
-  ```
-
-- **Commit the revert:**
-  ```bash
-  ./ait git add aitasks/ aiplans/
-  ./ait git commit -m "ait: Abort t<N>: revert status to <status>"
-  ```
-
-- **Cleanup worktree/branch if created:**
-  If a worktree was created in Step 5:
-  ```bash
-  git worktree remove aiwork/<task_name> --force 2>/dev/null || true
-  rm -rf aiwork/<task_name> 2>/dev/null || true
-  git branch -d aitask/<task_name> 2>/dev/null || true
-  ```
-
-- **Inform user:**
-  "Task t<N> has been reverted to '<status>' and is available for others."
-
-### Issue Update Procedure
-
-This procedure is referenced from Step 9 wherever a task is being archived. It handles updating/closing a linked issue via `aitask_issue_update.sh` (platform-agnostic — the script handles GitHub, GitLab, etc.).
-
-- Read the `issue` field from the task file's frontmatter (path specified by the caller)
-- If the `issue` field is present and non-empty:
-  - Use `AskUserQuestion`:
-    - Question: "Task has a linked issue: <issue_url>. Update/close it?"
-    - Header: "Issue"
-    - Options:
-      - "Close with notes" (description: "Post implementation notes + commits as comment and close")
-      - "Comment only" (description: "Post implementation notes but leave open")
-      - "Close silently" (description: "Close without posting a comment")
-      - "Skip" (description: "Don't touch the issue")
-  - If "Close with notes":
-    ```bash
-    ./aiscripts/aitask_issue_update.sh --close <task_num>
-    ```
-  - If "Comment only":
-    ```bash
-    ./aiscripts/aitask_issue_update.sh <task_num>
-    ```
-  - If "Close silently":
-    ```bash
-    ./aiscripts/aitask_issue_update.sh --close --no-comment <task_num>
-    ```
-  - If "Skip": do nothing
-- If no `issue` field: skip silently
-
-### Lock Release Procedure
-
-This procedure is referenced from the Task Abort Procedure wherever a task lock may need to be released. (Step 9 archival lock releases are handled automatically by `aitask_archive.sh`.)
-
-**When to execute:** After Step 4 has been reached (i.e., a lock may have been acquired). This applies to:
-- Task Abort Procedure (task aborted after Step 4)
-- Note: Step 9 lock releases are handled by `aitask_archive.sh` and do NOT need this procedure
-
-**Procedure:**
-
-- Release the task lock (best-effort, idempotent):
-  ```bash
-  ./aiscripts/aitask_lock.sh --unlock <task_num> 2>/dev/null || true
-  ```
-  This is safe to call even if no lock was acquired (e.g., lock branch not initialized, or lock acquisition was skipped due to infrastructure issues). It succeeds silently in all these cases.
-
-- **For child tasks where the parent is also being archived** (all children complete): also release the parent lock:
-  ```bash
-  ./aiscripts/aitask_lock.sh --unlock <parent_task_num> 2>/dev/null || true
-  ```
+- **Task Abort Procedure** — Lock release, status revert, worktree cleanup. Referenced from Step 6 checkpoint and Step 8.
+- **Issue Update Procedure** — Update/close linked issues during archival. Referenced from Step 9.
+- **Lock Release Procedure** — Release task locks. Referenced from Task Abort Procedure.
 
 ---
 
@@ -723,50 +465,6 @@ If the file does not exist or a field is absent, the corresponding feature is sk
 
 ### Execution Profiles
 
-Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer workflow questions to reduce interactive prompts. Two profiles ship by default:
-- **default** — All questions asked normally (empty profile, serves as template)
-- **fast** — Skip confirmations, use userconfig email, work locally on current branch, reuse existing plans
+> **Full reference:** See `profiles.md` for the complete profile schema, available keys, and customization guide.
 
-#### Profile Schema Reference
-
-| Key | Type | Required | Values | Step |
-|-----|------|----------|--------|------|
-| `name` | string | yes | Display name shown during profile selection | Step 0a |
-| `description` | string | yes | Description shown below profile name during selection | Step 0a |
-| `skip_task_confirmation` | bool | no | `true` = auto-confirm task; omit or `false` = ask | Step 0b |
-| `default_email` | string | no | `"userconfig"` = from userconfig.yaml (falls back to first from emails.txt); `"first"` = first from emails.txt; or a literal email address; omit = ask. Note: `assigned_to` from task metadata always takes priority regardless of this setting (see Step 4 email resolution). | Step 4 |
-| `create_worktree` | bool | no | `true` = create worktree; `false` = current branch | Step 5 |
-| `base_branch` | string | no | Branch name (e.g., `"main"`) | Step 5 |
-| `plan_preference` | string | no | `"use_current"`, `"verify"`, or `"create_new"` | Step 6.0 |
-| `plan_preference_child` | string | no | Same values as `plan_preference`; overrides `plan_preference` for child tasks. Defaults to `plan_preference` if omitted | Step 6.0 |
-| `post_plan_action` | string | no | `"start_implementation"` = skip to impl; omit = ask | Step 6 checkpoint |
-
-Only `name` and `description` are required. Omitting any other key means the corresponding question is asked interactively.
-
-> **Remote-specific profile fields** (e.g., `done_task_action`, `review_action`, `issue_action`) are documented in the `aitask-pickrem` skill. They are only recognized by that skill and ignored by this workflow.
-
-#### Customizing Execution Profiles
-
-**To create a custom profile:**
-1. Copy an existing profile: `cp aitasks/metadata/profiles/fast.yaml aitasks/metadata/profiles/my-profile.yaml`
-2. Edit `name` and `description` (both required — `description` is shown during profile selection)
-3. Add, remove, or change setting keys as needed
-4. Any key you omit will cause that question to be asked interactively
-
-**Example — worktree-based workflow:**
-```yaml
-name: worktree
-description: Like fast but creates a worktree on main for each task
-skip_task_confirmation: true
-default_email: first
-create_worktree: true
-base_branch: main
-plan_preference: use_current
-post_plan_action: start_implementation
-```
-
-**Notes:**
-- Profiles are partial — only include keys you want to pre-configure
-- The `description` field is shown next to the profile name when selecting a profile
-- Profiles are preserved during `install.sh --force` upgrades (existing files are not overwritten)
-- Plan approval (ExitPlanMode) is always mandatory and cannot be skipped by profiles
+Profiles are YAML files in `aitasks/metadata/profiles/` that pre-answer workflow questions. Default profiles: **default** (all questions asked) and **fast** (skip confirmations).

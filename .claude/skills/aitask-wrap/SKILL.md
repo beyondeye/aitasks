@@ -280,7 +280,7 @@ Where `<description>` is a concise commit message derived from the task summary.
 ```
 
 Parse the script output and handle structured lines:
-- `ISSUE:<task_num>:<issue_url>` — unlikely for wrap (no linked issue), but handle per task-workflow Issue Update Procedure if present
+- `ISSUE:<task_num>:<issue_url>` — unlikely for wrap (no linked issue), but handle per task-workflow Issue Update Procedure (see `../task-workflow/procedures.md`) if present
 - `COMMITTED:<hash>` — archival commit was created
 - Other lines — display as informational
 
