@@ -5,7 +5,7 @@ weight: 10
 description: "Configure build verification for post-implementation checks"
 ---
 
-After implementation, the workflow can optionally run a build verification command to catch regressions introduced by the task's changes. This is configured via `aitasks/metadata/project_config.yaml` and applies to all three workflow skills: `/aitask-pick`, `/aitask-pickrem`, and `/aitask-pickweb`.
+After implementation, the skill can optionally run a build verification command to catch regressions introduced by the task's changes. This is configured via `aitasks/metadata/project_config.yaml` and applies to all three implementation skills: `/aitask-pick`, `/aitask-pickrem`, and `/aitask-pickweb`.
 
 ## Configuration
 
@@ -33,7 +33,7 @@ The `project_config.yaml` file is:
 
 If the build fails, the agent analyzes whether the failure is caused by the task's own changes:
 - **Task-related failure:** The agent automatically goes back to fix the errors and re-runs the build. This repeats until the build passes.
-- **Pre-existing failure:** The agent logs the build failure details in the plan file's "Final Implementation Notes" and proceeds with the workflow without attempting to fix unrelated issues.
+- **Pre-existing failure:** The agent logs the build failure details in the plan file's "Final Implementation Notes" and proceeds without attempting to fix unrelated issues.
 
 ## Common Examples
 

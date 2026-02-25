@@ -2,10 +2,10 @@
 title: "/aitask-pick"
 linkTitle: "/aitask-pick"
 weight: 10
-description: "Select and implement the next task — the central development workflow skill"
+description: "Select and implement the next task — the central development skill"
 ---
 
-The central skill of the aitasks framework and the core of the development workflow. This is a full development workflow skill that manages the complete task lifecycle from selection through implementation, review, and archival.
+The central skill of the aitasks framework. This is a full development lifecycle skill that manages the complete task lifecycle from selection through implementation, review, and archival.
 
 **Usage:**
 ```
@@ -16,9 +16,9 @@ The central skill of the aitasks framework and the core of the development workf
 
 > **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
 
-## Workflow Overview
+## Step-by-Step
 
-1. **Profile selection** — Loads an execution profile from `aitasks/metadata/profiles/` to pre-answer workflow questions and reduce prompts. See [Execution Profiles](#execution-profiles) below
+1. **Profile selection** — Loads an execution profile from `aitasks/metadata/profiles/` to pre-answer skill questions and reduce prompts. See [Execution Profiles](#execution-profiles) below
 2. **Task selection** — Shows a prioritized list of tasks (sorted by priority, effort, blocked status) with pagination, or jumps directly to a task when a number argument is provided
 3. **Child task handling** — When a parent task with children is selected, drills down to show child subtasks. Gathers context from archived sibling plan files so each child task benefits from previous siblings' implementation experience
 4. **Status checks** — Detects edge cases: tasks marked Done but not yet archived, and orphaned parent tasks where all children are complete. Offers to archive them directly
@@ -91,4 +91,8 @@ Profiles are preserved during `install.sh --force` upgrades (existing files are 
 
 ## Build Verification
 
-The workflow can optionally verify the build after implementation. See [Build Verification](build-verification/) for configuration details.
+The skill can optionally verify the build after implementation. See [Build Verification](build-verification/) for configuration details.
+
+## Workflows
+
+For workflow guides covering specific use cases, see [Task Decomposition](../../workflows/task-decomposition/) and [Parallel Development](../../workflows/parallel-development/).

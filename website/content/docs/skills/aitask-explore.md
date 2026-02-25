@@ -14,7 +14,7 @@ Explore the codebase interactively with guided investigation, then create a task
 
 > **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
 
-## Workflow Overview
+## Step-by-Step
 
 1. **Profile selection** — Same profile system as `/aitask-pick`
 2. **Exploration setup** — Choose an exploration mode:
@@ -24,7 +24,7 @@ Explore the codebase interactively with guided investigation, then create a task
    - **Explore documentation** — Find documentation gaps, outdated docs, or missing help text
 3. **Iterative exploration** — Claude explores the codebase using the selected strategy. After each round, presents findings and offers to continue exploring, create a task, or abort
 4. **Task creation** — Summarizes all findings and creates a task file with metadata pre-filled based on the exploration type
-5. **Optional handoff** — After task creation, choose to continue directly to implementation (via the standard `/aitask-pick` workflow) or save the task for later
+5. **Optional handoff** — After task creation, choose to continue directly to implementation (via the standard `/aitask-pick` skill) or save the task for later
 
 ## Key Capabilities
 
@@ -53,4 +53,8 @@ During task creation, `/aitask-explore` scans pending tasks (`Ready`/`Editing` s
 
 Only standalone parent tasks (no children) can be folded. The `folded_tasks` frontmatter field tracks which tasks were folded in. During planning, there's no need to re-read the original folded task files — all relevant content is already in the new task.
 
-To fold tasks outside of the explore workflow, use [`/aitask-fold`](../aitask-fold/) — a dedicated skill for identifying and merging related tasks.
+To fold tasks outside of the explore skill, use [`/aitask-fold`](../aitask-fold/) — a dedicated skill for identifying and merging related tasks.
+
+## Workflows
+
+For a full workflow guide covering exploration modes and use cases, see [Exploration-Driven Development](../../workflows/exploration-driven/).

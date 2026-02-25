@@ -5,7 +5,7 @@ weight: 45
 description: "Wrap uncommitted changes into an aitask with retroactive documentation and traceability"
 ---
 
-Retroactively wraps uncommitted changes into the aitasks framework. When you've made changes outside the normal task workflow — quick fixes, debugging improvements, config tweaks — this skill analyzes the diff, creates a task and plan file documenting the changes, commits everything with proper format, and archives it in one flow.
+Retroactively wraps uncommitted changes into the aitasks framework. When you've made changes outside the normal task flow — quick fixes, debugging improvements, config tweaks — this skill analyzes the diff, creates a task and plan file documenting the changes, commits everything with proper format, and archives it in one flow.
 
 **Usage:**
 ```
@@ -14,7 +14,7 @@ Retroactively wraps uncommitted changes into the aitasks framework. When you've 
 
 > **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
 
-## Workflow Overview
+## Step-by-Step
 
 1. **Detect changes** — Scans for uncommitted changes (staged, unstaged, and untracked). Aborts if nothing to wrap
 2. **Select files** — Choose to include all changes or select specific files
@@ -39,4 +39,8 @@ Retroactively wraps uncommitted changes into the aitasks framework. When you've 
 | Planning work before starting implementation | [`/aitask-create`](../aitask-create/) |
 | Want to explore the codebase first, then create a task | [`/aitask-explore`](../aitask-explore/) |
 
-Use `/aitask-wrap` when you've accumulated uncommitted changes that weren't tracked through the normal workflow — quick fixes applied directly, debugging sessions that turned into real improvements, config or dependency changes made outside the framework, or pair programming sessions where changes accumulated without task tracking.
+Use `/aitask-wrap` when you've accumulated uncommitted changes that weren't tracked through the normal task flow — quick fixes applied directly, debugging sessions that turned into real improvements, config or dependency changes made outside the framework, or pair programming sessions where changes accumulated without task tracking.
+
+## Workflows
+
+For a full workflow guide covering walkthroughs and use cases, see [Retroactive Change Tracking](../../workflows/retroactive-tracking/).

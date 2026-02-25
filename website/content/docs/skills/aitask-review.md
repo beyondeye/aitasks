@@ -14,14 +14,14 @@ Review code using configurable review guides, then create tasks from findings. T
 
 > **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
 
-## Workflow Overview
+## Step-by-Step
 
 1. **Define review scope** — Choose what to review: specific file paths, directories, or glob patterns; or select from recent commits (non-administrative commits are listed with pagination)
 2. **Select review guides** — The skill auto-detects relevant guides from `aireviewguides/` by analyzing target files (language, framework, project markers) and ranking guides by relevance. Guides are presented for multi-select with environment-specific matches first, then universal guides
 3. **Systematic review** — For each selected guide, Claude reads the guide's review instructions and examines the target code, recording findings with severity (high/medium/low), location, description, and suggested fix
 4. **Present findings** — Results are grouped by review guide and severity. Select which findings to act on (individual selection or "select all")
 5. **Create tasks** — Three modes: a single task combining all findings, one task per review guide, or one task per finding. For multiple tasks, a parent + children structure is created automatically
-6. **Handoff** — Choose to continue directly to implementation (via the standard `/aitask-pick` workflow) or save the task(s) for later
+6. **Handoff** — Choose to continue directly to implementation (via the standard `/aitask-pick` skill) or save the task(s) for later
 
 ## Key Capabilities
 
@@ -47,3 +47,7 @@ To manage review guides, see the companion skills:
 - [`/aitask-reviewguide-import`](../aitask-reviewguide-import/) — Import external coding standards and best practices as review guides
 - [`/aitask-reviewguide-classify`](../aitask-reviewguide-classify/) — Assign metadata to guides for better auto-detection and similarity matching
 - [`/aitask-reviewguide-merge`](../aitask-reviewguide-merge/) — Consolidate overlapping guides to avoid duplicate review checks
+
+## Workflows
+
+For a full workflow guide covering the review cycle and guide management, see [Code Review](../../workflows/code-review/).

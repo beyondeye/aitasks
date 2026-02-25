@@ -16,7 +16,7 @@ Explain files in the project by providing detailed analysis of their functionali
 
 > **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
 
-## Workflow Overview
+## Step-by-Step
 
 1. **File selection** — Choose files via three methods: reuse data from a previous explain run, search the project using the file-select interface, or enter file/directory paths directly. Directories are automatically expanded to all git-tracked text files within them
 2. **Mode selection** — Choose one or more analysis modes (multi-select): Functionality (what the code does), Usage examples (how it is used in the project), Code evolution (how it changed over time, traced through commits and aitasks)
@@ -62,5 +62,7 @@ Run data is stored under `aiexplains/` with one timestamped directory per run. E
 # Delete all runs
 ./aiscripts/aitask_explain_runs.sh --delete-all
 ```
+
+## Workflows
 
 For a full workflow guide covering use cases and the cognitive debt framing, see [Understanding Code with Explain](../../workflows/explain/).

@@ -5,7 +5,7 @@ weight: 11
 description: "Pick and implement a task in remote/non-interactive mode — zero prompts, profile-driven"
 ---
 
-A mostly autonomous version of [`/aitask-pick`](../aitask-pick/) designed for non-interactive environments. It combines task selection and implementation into a single workflow with **zero `AskUserQuestion` calls** — all decisions are driven by an execution profile. The only interactive step is **plan approval**, which still requires the user to review and confirm the implementation plan via `ExitPlanMode`.
+A mostly autonomous version of [`/aitask-pick`](../aitask-pick/) designed for non-interactive environments. It combines task selection and implementation into a single flow with **zero `AskUserQuestion` calls** — all decisions are driven by an execution profile. The only interactive step is **plan approval**, which still requires the user to review and confirm the implementation plan via `ExitPlanMode`.
 
 > **Note:** This skill requires write access to the task data branch, so it is suited for local Claude Code or CI-like environments. For **Claude Code Web** (which cannot write to branches other than the code branch), use [`/aitask-pickweb`](../aitask-pickweb/) instead.
 
@@ -29,7 +29,7 @@ A task ID argument is **required** — there is no interactive task browsing.
 | Review loop | User reviews before committing | Auto-commits after implementation |
 | Profile | Optional, user selects if multiple exist | Required, auto-selected |
 
-## Workflow Overview
+## Step-by-Step
 
 1. **Initialize data branch** — Ensures aitask-data worktree and symlinks are ready (required when `ait setup` hasn't been run). No-op for legacy repos
 2. **Load execution profile** — Auto-selects a profile (prefers one named `remote`; falls back to first available). Profile is required — aborts if none found
@@ -102,4 +102,8 @@ All fields have sensible defaults — a profile only needs `name` and `descripti
 
 ## Build Verification
 
-The workflow can optionally verify the build after implementation. See [Build Verification](../aitask-pick/build-verification/) for configuration details.
+The skill can optionally verify the build after implementation. See [Build Verification](../aitask-pick/build-verification/) for configuration details.
+
+## Workflows
+
+For a full workflow guide, see [Parallel Development](../../workflows/parallel-development/).

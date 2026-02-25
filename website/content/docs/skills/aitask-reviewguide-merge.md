@@ -16,7 +16,7 @@ Compare two similar review guide files and decide whether to merge them, dedupli
 
 > **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
 
-## Workflow Overview
+## Step-by-Step
 
 **Single-pair mode** (with arguments):
 
@@ -29,7 +29,7 @@ Compare two similar review guide files and decide whether to merge them, dedupli
 
 1. **Find merge candidates** — Scans all guides for `similar_to` relationships and overlap counts
 2. **Optional environment filter** — Narrow candidates to a specific environment (e.g., only Python guides)
-3. **Iterate** — Presents candidate pairs sorted by overlap (highest first) with pagination. Each pair goes through the single-pair workflow
+3. **Iterate** — Presents candidate pairs sorted by overlap (highest first) with pagination. Each pair goes through the single-pair process
 4. **Summary** — Reports pairs processed, files merged, files kept separate, and files deleted
 
 ## Key Capabilities
@@ -38,3 +38,7 @@ Compare two similar review guide files and decide whether to merge them, dedupli
 - **Non-destructive keep-separate** — When keeping guides separate, removes only exact duplicates and clears the `similar_to` field so they won't be flagged again
 - **Reference integrity** — After deleting a merged source file, updates `similar_to` in any other guide that referenced the deleted file
 - **Feeds from classify** — The `similar_to` relationships that drive merge candidates are established by [`/aitask-reviewguide-classify`](../aitask-reviewguide-classify/)
+
+## Workflows
+
+For the full review workflow including guide management, see [Code Review](../../workflows/code-review/).

@@ -14,7 +14,7 @@ Create a new task file with automatic numbering and proper metadata via Claude C
 
 > **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
 
-## Workflow
+## Step-by-Step
 
 Claude Code guides you through task creation using `AskUserQuestion` prompts:
 
@@ -26,3 +26,7 @@ Claude Code guides you through task creation using `AskUserQuestion` prompts:
 6. **Create & commit** — Writes task file with YAML frontmatter and commits to git
 
 This is the Claude Code-native alternative — metadata collection happens through Claude's UI rather than terminal fzf.
+
+## Workflows
+
+For workflow guides, see [Capturing Ideas](../../workflows/capturing-ideas/) and [Follow-Up Tasks](../../workflows/follow-up-tasks/).

@@ -15,7 +15,7 @@ Classify a review guide file by assigning metadata and finding similar existing 
 
 > **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
 
-## Workflow Overview
+## Step-by-Step
 
 **Single-file mode** (with argument):
 
@@ -27,7 +27,7 @@ Classify a review guide file by assigning metadata and finding similar existing 
 **Batch mode** (no argument):
 
 1. **Scan for incomplete** — Finds all guides missing `reviewtype`, `reviewlabels`, or `environment` (for non-general guides)
-2. **Iterate** — Processes each incomplete file through the single-file workflow (Steps 2-4 above)
+2. **Iterate** — Processes each incomplete file through the single-file process (Steps 2-4 above)
 3. **Summary** — Reports files classified, new vocabulary values added, and `similar_to` relationships discovered
 
 ## Key Capabilities
@@ -38,3 +38,7 @@ Classify a review guide file by assigning metadata and finding similar existing 
 - **Batch autocommit** — In batch mode, choose between autocommitting after each file or a single commit at the end
 
 When `similar_to` is set, consider running [`/aitask-reviewguide-merge`](../aitask-reviewguide-merge/) to consolidate overlapping guides.
+
+## Workflows
+
+For the full review workflow including guide management, see [Code Review](../../workflows/code-review/).

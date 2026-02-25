@@ -2,10 +2,10 @@
 title: "/aitask-pickweb"
 linkTitle: "/aitask-pickweb"
 weight: 12
-description: "Pick and implement a task on Claude Code Web — sandboxed workflow with local metadata storage"
+description: "Pick and implement a task on Claude Code Web — sandboxed skill with local metadata storage"
 ---
 
-A sandboxed version of [`/aitask-pickrem`](../aitask-pickrem/) designed specifically for **Claude Code Web**, where the environment has no push access to `aitask-locks`, `aitask-data`, or `main` branches. It combines task selection and implementation into a single workflow with **zero `AskUserQuestion` calls** — all decisions are driven by an execution profile. The only interactive step is **plan approval**, which still requires the user to review and confirm the implementation plan via `ExitPlanMode`.
+A sandboxed version of [`/aitask-pickrem`](../aitask-pickrem/) designed specifically for **Claude Code Web**, where the environment has no push access to `aitask-locks`, `aitask-data`, or `main` branches. It combines task selection and implementation into a single flow with **zero `AskUserQuestion` calls** — all decisions are driven by an execution profile. The only interactive step is **plan approval**, which still requires the user to review and confirm the implementation plan via `ExitPlanMode`.
 
 All task metadata (plans, completion markers) is stored in `.aitask-data-updated/` on the current working branch. After the Claude Web session completes, run [`/aitask-web-merge`](../aitask-web-merge/) locally to merge code to main and archive the task.
 
@@ -43,9 +43,9 @@ A task ID argument is **required** — there is no interactive task browsing.
 | Review loop | User reviews before committing | Auto-commits after implementation |
 | Profile | Optional, user selects if multiple exist | Required, auto-selected |
 | Branch access | Full access to all branches | Implementation branch only |
-| Archival | Full archival workflow | Completion marker + `/aitask-web-merge` |
+| Archival | Full archival process | Completion marker + `/aitask-web-merge` |
 
-## Workflow Overview
+## Step-by-Step
 
 1. **Initialize data branch** — Ensures aitask-data worktree and symlinks are ready (required when `ait setup` hasn't been run). No-op for legacy repos
 2. **Load execution profile** — Auto-selects a profile (prefers one named `remote`; falls back to first available). Profile is required — aborts if none found
@@ -102,4 +102,8 @@ See [`/aitask-pick` Execution Profiles](../aitask-pick/#execution-profiles) for 
 
 ## Build Verification
 
-The workflow can optionally verify the build after implementation. See [Build Verification](../aitask-pick/build-verification/) for configuration details.
+The skill can optionally verify the build after implementation. See [Build Verification](../aitask-pick/build-verification/) for configuration details.
+
+## Workflows
+
+For the full end-to-end workflow guide, see [Claude Code Web](../../workflows/claude-web/).

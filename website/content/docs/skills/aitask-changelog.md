@@ -14,7 +14,7 @@ Generate a changelog entry by analyzing commits and archived plans since the las
 
 > **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
 
-## Workflow
+## Step-by-Step
 
 1. **Gather release data** — Runs `ait changelog --gather` to collect all tasks since the last release tag, with their issue types, plan files, commits, and implementation notes
 2. **Summarize plans** — Reads each task's archived plan file and generates concise user-facing summaries (what changed from the user's perspective, not internal details)
@@ -31,3 +31,7 @@ Generate a changelog entry by analyzing commits and archived plans since the las
 - Version validation prevents duplicate or regressive version numbers
 - Overlap detection handles incremental changelog updates when some tasks were already documented
 - Supports both new CHANGELOG.md creation and insertion into existing files
+
+## Workflows
+
+For a full workflow guide covering the release pipeline, see [Releases](../../workflows/releases/).

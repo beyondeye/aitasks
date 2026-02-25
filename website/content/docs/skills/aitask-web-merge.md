@@ -16,7 +16,7 @@ No arguments needed — the skill scans all remote branches automatically.
 
 > **Note:** Must be run from the project root directory on your local machine (not on Claude Code Web). See [Skills overview](..) for details.
 
-## How It Works
+## Step-by-Step
 
 The skill follows a **scan → select → merge → archive → push → cleanup** flow:
 
@@ -73,4 +73,3 @@ See [Claude Code Web workflow](../../workflows/claude-web/) for the full end-to-
 ## See Also
 
 - [`/aitask-pickweb`](../aitask-pickweb/) — Web-side implementation skill
-- [Claude Code Web workflow](../../workflows/claude-web/) — End-to-end workflow guide

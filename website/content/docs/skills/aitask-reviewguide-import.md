@@ -17,7 +17,7 @@ Import external content — a local file, a URL, or a GitHub repository director
 
 > **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
 
-## Workflow Overview
+## Step-by-Step
 
 1. **Fetch content** — Detects source type (local file, GitHub file, GitHub directory, generic URL) and retrieves the content. GitHub files are fetched via the `gh` CLI API
 2. **Analyze** — Identifies the document type (coding standards, best practices, security, etc.) and categorizes sections as review-relevant (actionable checks) or non-relevant (workflows, setup, org processes). Non-relevant sections are skipped
@@ -37,3 +37,7 @@ Import external content — a local file, a URL, or a GitHub repository director
 - **Batch import** — Import an entire directory of guidelines from a GitHub repository in a single session
 
 After importing, consider running [`/aitask-reviewguide-classify`](../aitask-reviewguide-classify/) for fine-tuning metadata, or [`/aitask-reviewguide-merge`](../aitask-reviewguide-merge/) if similar guides were detected.
+
+## Workflows
+
+For the full review workflow including guide management, see [Code Review](../../workflows/code-review/).
