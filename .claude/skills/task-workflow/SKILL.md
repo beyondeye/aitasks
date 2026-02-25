@@ -65,7 +65,7 @@ If neither check triggers, proceed to Step 4 as normal.
 ### Step 3b: refresh execution profile
 If `active_profile` was provided and is non-null, re-read the profile YAML file from `aitasks/metadata/profiles/` to ensure all settings are fresh in context. Display: "Refreshing profile: \<name\>". If the profile file cannot be read (missing or invalid), warn: "Warning: Could not refresh profile '\<name\>', proceeding without profile" and set `active_profile` to null.
 
-If `active_profile` is null (either because no profile was selected by the calling skill, or because the profile name was lost during a long conversation), re-run the profile selection logic: check for available profiles in `aitasks/metadata/profiles/*.yaml`, and if profiles exist, ask the user to select one using `AskUserQuestion` (same format as Step 0a in aitask-pick/aitask-explore). If the user selects "No profile", proceed without one. If no profile files exist, skip this step.
+If `active_profile` is null (either because no profile was selected by the calling skill, or because the profile name was lost during a long conversation), re-run the profile selection logic: run `./aiscripts/aitask_scan_profiles.sh` and parse the output. If `NO_PROFILES`, skip this step. If profiles exist, present them via `AskUserQuestion` (same format as Step 0a in aitask-pick/aitask-explore) and read the chosen profile file. If the user selects "No profile", proceed without one.
 
 ### Step 4: Assign Task to User
 

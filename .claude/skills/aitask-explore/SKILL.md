@@ -7,19 +7,19 @@ description: Explore the codebase interactively, then create a task for implemen
 
 ### Step 0a: Select Execution Profile
 
-Check for available execution profiles:
+Scan available execution profiles:
 
 ```bash
-ls aitasks/metadata/profiles/*.yaml 2>/dev/null
+./aiscripts/aitask_scan_profiles.sh
 ```
 
-**If no profiles found:** Skip this step (no profile active, all questions asked normally).
+Parse the output lines. Each valid profile appears as `PROFILE|<filename>|<name>|<description>`. Lines starting with `INVALID|<filename>` indicate profiles with bad YAML — warn the user ("Profile '\<filename\>' has invalid format, skipping").
 
-**If exactly one profile found:** Auto-load it and inform user: "Using execution profile: \<name\> (\<description\>)".
+**If output is `NO_PROFILES`:** Skip this step (no profile active, all questions asked normally).
 
-**If multiple profiles found:**
+**If exactly one `PROFILE` line:** Auto-load it and inform user: "Using execution profile: \<name\> (\<description\>)". Read the full profile: `cat aitasks/metadata/profiles/<filename>`
 
-Read each profile's `name` and `description` fields. Use `AskUserQuestion`:
+**If multiple `PROFILE` lines:** Use `AskUserQuestion`:
 - Question: "Select an execution profile (pre-configured answers to reduce prompts):"
 - Header: "Profile"
 - Options:
@@ -28,9 +28,7 @@ Read each profile's `name` and `description` fields. Use `AskUserQuestion`:
 
 **If "No profile" selected:** Proceed with all questions asked normally (no active profile).
 
-Store the selected profile in memory for use throughout remaining steps.
-
-**Error handling:** If a profile file has invalid YAML, warn the user ("Profile '\<filename\>' has invalid format, skipping") and exclude it from the selection list.
+**After selection:** Read the chosen profile file: `cat aitasks/metadata/profiles/<filename>`. Store the profile in memory for use throughout remaining steps.
 
 ### Step 0c: Sync with Remote (Best-effort)
 

@@ -46,24 +46,17 @@ If the command fails (non-zero exit), display the error and abort.
 
 ### Step 1: Load Execution Profile
 
-Check for available execution profiles:
+Auto-select an execution profile:
 
 ```bash
-ls aitasks/metadata/profiles/*.yaml 2>/dev/null
+./aiscripts/aitask_scan_profiles.sh --auto
 ```
 
-**If no profiles found:** Display error: "Web workflow requires an execution profile. Create one at `aitasks/metadata/profiles/remote.yaml`." Abort.
+**If output is `NO_PROFILES`:** Display error: "Web workflow requires an execution profile. Create one at `aitasks/metadata/profiles/remote.yaml`." Abort.
 
-**Profile auto-selection (no prompt):**
-- If a profile named `remote` exists: use it
-- If exactly one profile exists: use it
-- If multiple profiles exist but none named `remote`: use the first one alphabetically
+**If output starts with `AUTO_SELECTED|`:** Parse the line as `AUTO_SELECTED|<filename>|<name>|<description>`. Display: "Web mode: Using profile '\<name\>' (\<description\>)". Read the full profile: `cat aitasks/metadata/profiles/<filename>`. Store all profile fields in memory for use throughout remaining steps.
 
-Display: "Web mode: Using profile '\<name\>' (\<description\>)"
-
-Read and store all profile fields in memory for use throughout remaining steps.
-
-**Error handling:** If the selected profile file has invalid YAML, display error "Profile '\<filename\>' has invalid format" and abort.
+**Error handling:** If `INVALID|<filename>` lines appear on stderr, display error "Profile '\<filename\>' has invalid format" and abort if no valid profiles remain.
 
 ### Step 2: Resolve Task File
 
