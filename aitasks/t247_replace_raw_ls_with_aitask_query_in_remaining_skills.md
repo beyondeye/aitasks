@@ -1,13 +1,13 @@
 ---
 priority: medium
 effort: low
-depends: [246]
+depends: ['246']
 issue_type: chore
-status: Implementing
+status: Ready
 labels: [aitask_pick]
-assigned_to: dario-e@beyond-eye.com
+assigned_to: ''
 created_at: 2026-02-25 14:48
-updated_at: 2026-02-25 15:40
+updated_at: 2026-02-25 15:41
 ---
 
 Replace raw ls commands with aitask_query_files.sh calls in the remaining 4 skill files that still use them.
