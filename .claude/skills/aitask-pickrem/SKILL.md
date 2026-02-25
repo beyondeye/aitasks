@@ -60,31 +60,27 @@ Auto-select an execution profile:
 Parse the task ID argument:
 
 **Format 1: Parent task (e.g., `42`):**
-- Find the matching task file:
+- Find the matching task file and check for children in a single call:
   ```bash
-  ls aitasks/t<number>_*.md 2>/dev/null
+  ./aiscripts/aitask_query_files.sh resolve <number>
   ```
-- If not found: display error "Task t\<N\> not found" and abort.
-- Check if it has children:
-  ```bash
-  ls aitasks/t<number>/ 2>/dev/null
-  ```
-  - If it has children: display error "Task t\<N\> has child subtasks. Specify a child task ID (e.g., `\<N\>_1`) instead." Abort.
-  - If no children: proceed with this task
+  Parse the output: if first line is `NOT_FOUND`, display error "Task t\<N\> not found" and abort. If first line is `TASK_FILE:<path>`, use that path. If second line is `HAS_CHILDREN:<count>`, display error "Task t\<N\> has child subtasks. Specify a child task ID (e.g., `\<N\>_1`) instead." Abort. If `NO_CHILDREN`, proceed with this task.
 
 **Format 2: Child task (e.g., `42_2`):**
 - Parse as child task ID (parent=42, child=2)
 - Find the matching child task file:
   ```bash
-  ls aitasks/t<parent>/t<parent>_<child>_*.md 2>/dev/null
+  ./aiscripts/aitask_query_files.sh child-file <parent> <child>
   ```
+  Parse the output: `CHILD_FILE:<path>` means found (use that path), `NOT_FOUND` means not found.
 - If not found: display error "Child task t\<parent\>_\<child\> not found" and abort.
 - Set this as the selected task
 - Read the task file and parent task file for context
-- **Gather sibling context:**
-  - Archived sibling plan files from `aiplans/archived/p<parent>/` (primary reference for completed siblings)
-  - Archived sibling task files from `aitasks/archived/t<parent>/` (fallback for siblings without archived plans)
-  - Pending sibling task files from `aitasks/t<parent>/` and their plans from `aiplans/p<parent>/`
+- **Gather sibling context** in a single call:
+  ```bash
+  ./aiscripts/aitask_query_files.sh sibling-context <parent>
+  ```
+  Parse the output: lines prefixed `ARCHIVED_PLAN:` are archived sibling plan files (primary context source for completed siblings). Lines prefixed `ARCHIVED_TASK:` are fallback for siblings without archived plans. Lines prefixed `PENDING_SIBLING:` are pending sibling task files. Lines prefixed `PENDING_PLAN:` are pending sibling plans. If output is `NO_CONTEXT`, there are no sibling context files. Read the files listed in the output.
 
 Display: "Selected task: \<task_filename\>" with a brief 1-2 sentence summary.
 
@@ -118,8 +114,9 @@ Non-blocking — if it fails (e.g., no network, merge conflicts), continue silen
 - Check if the task file's frontmatter contains `children_to_implement: []` (empty list)
 - If empty, check for archived children:
   ```bash
-  ls aitasks/archived/t<number>/ 2>/dev/null
+  ./aiscripts/aitask_query_files.sh archived-children <number>
   ```
+  Parse the output: `ARCHIVED_CHILD:<path>` lines mean archived children exist, `NO_ARCHIVED_CHILDREN` means none.
 - If archived children exist:
   - Read `orphan_parent_action` from profile (default: `archive`)
   - If `archive`: display "Profile: auto-archiving orphaned parent t\<N\>". Skip to **Step 10** (Archive).
@@ -182,8 +179,9 @@ Check if a plan file already exists:
 - For child tasks: `aiplans/p<parent>/p<parent>_<child>_*.md`
 
 ```bash
-ls aiplans/p<taskid>_*.md 2>/dev/null
+./aiscripts/aitask_query_files.sh plan-file <taskid>
 ```
+Parse the output: `PLAN_FILE:<path>` means found, `NOT_FOUND` means not found.
 
 **If a plan file exists**, read it.
 

@@ -14,6 +14,7 @@
 #   ./aiscripts/aitask_query_files.sh sibling-context <parent>
 #   ./aiscripts/aitask_query_files.sh plan-file <taskid>
 #   ./aiscripts/aitask_query_files.sh archived-children <N>
+#   ./aiscripts/aitask_query_files.sh active-children <N>
 #   ./aiscripts/aitask_query_files.sh resolve <N>
 
 set -euo pipefail
@@ -36,6 +37,8 @@ Subcommands:
   task-file <N>                Find active task file for number N
   has-children <N>             Check if task N has child task files
   child-file <parent> <child>  Find a specific child task file
+  active-children <N>          List active (pending) child task files with paths
+  all-children <N>             List all children (active + archived) with paths
   sibling-context <parent>     List all sibling context files (archived + pending)
   plan-file <taskid>           Find active plan file (supports "16" or "16_2")
   archived-children <N>        List archived children of task N
@@ -46,6 +49,9 @@ Output format (structured lines):
   HAS_CHILDREN:<count>       Task has <count> child files
   NO_CHILDREN                Task has no children directory/files
   CHILD_FILE:<path>          Child task file found
+  CHILD:<path>               Active child task file (from active-children)
+  CHILD:<path>               Child task file (from all-children, active)
+  ARCHIVED_CHILD:<path>      Child task file (from all-children, archived)
   NOT_FOUND                  No matching file found
   ARCHIVED_PLAN:<path>       Archived sibling plan file
   ARCHIVED_TASK:<path>       Archived sibling task file
@@ -62,6 +68,8 @@ Examples:
   ./aiscripts/aitask_query_files.sh task-file 16
   ./aiscripts/aitask_query_files.sh resolve 16
   ./aiscripts/aitask_query_files.sh child-file 16 2
+  ./aiscripts/aitask_query_files.sh active-children 16
+  ./aiscripts/aitask_query_files.sh all-children 16
   ./aiscripts/aitask_query_files.sh sibling-context 16
   ./aiscripts/aitask_query_files.sh plan-file 16_2
   ./aiscripts/aitask_query_files.sh archived-children 16
@@ -142,6 +150,64 @@ cmd_child_file() {
         echo "CHILD_FILE:$files"
     else
         echo "NOT_FOUND"
+    fi
+}
+
+cmd_active_children() {
+    [[ $# -lt 1 ]] && die "active-children requires a task number argument"
+    local num
+    num=$(strip_prefix "$1")
+    validate_num "$num" "task number"
+
+    local child_dir="$TASK_DIR/t${num}"
+    if [[ -d "$child_dir" ]]; then
+        local found=false
+        local f
+        for f in "$child_dir"/t"${num}"_*_*.md; do
+            [[ -e "$f" ]] || continue
+            echo "CHILD:$f"
+            found=true
+        done
+        if [[ "$found" == false ]]; then
+            echo "NO_CHILDREN"
+        fi
+    else
+        echo "NO_CHILDREN"
+    fi
+}
+
+cmd_all_children() {
+    [[ $# -lt 1 ]] && die "all-children requires a task number argument"
+    local num
+    num=$(strip_prefix "$1")
+    validate_num "$num" "task number"
+
+    local found=false
+
+    # Active children
+    local child_dir="$TASK_DIR/t${num}"
+    if [[ -d "$child_dir" ]]; then
+        local f
+        for f in "$child_dir"/t"${num}"_*_*.md; do
+            [[ -e "$f" ]] || continue
+            echo "CHILD:$f"
+            found=true
+        done
+    fi
+
+    # Archived children
+    local archive_dir="$ARCHIVED_DIR/t${num}"
+    if [[ -d "$archive_dir" ]]; then
+        local f
+        for f in "$archive_dir"/t"${num}"_*_*.md; do
+            [[ -e "$f" ]] || continue
+            echo "ARCHIVED_CHILD:$f"
+            found=true
+        done
+    fi
+
+    if [[ "$found" == false ]]; then
+        echo "NO_CHILDREN"
     fi
 }
 
@@ -290,6 +356,14 @@ main() {
         child-file)
             shift
             cmd_child_file "$@"
+            ;;
+        active-children)
+            shift
+            cmd_active_children "$@"
+            ;;
+        all-children)
+            shift
+            cmd_all_children "$@"
             ;;
         sibling-context)
             shift

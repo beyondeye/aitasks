@@ -234,6 +234,56 @@ out=$("$QUERY" resolve 999)
 assert_eq "resolve 999 not found" "NOT_FOUND" "$out"
 
 # ============================================================
+# Tests: active-children
+# ============================================================
+
+echo "--- active-children ---"
+
+out=$("$QUERY" active-children 16)
+assert_contains "active-children 16 has child 1" "CHILD:" "$out"
+assert_contains "active-children 16 child 1 path" "t16_1_setup_oauth.md" "$out"
+assert_contains "active-children 16 child 2 path" "t16_2_add_login.md" "$out"
+assert_contains "active-children 16 child 3 path" "t16_3_add_logout.md" "$out"
+assert_line_count "active-children 16 returns 3 lines" 3 "$out"
+
+out=$("$QUERY" active-children 42)
+assert_eq "active-children 42 no children" "NO_CHILDREN" "$out"
+
+out=$("$QUERY" active-children 999)
+assert_eq "active-children 999 no dir" "NO_CHILDREN" "$out"
+
+out=$("$QUERY" active-children 99)
+assert_eq "active-children 99 empty dir" "NO_CHILDREN" "$out"
+
+# ============================================================
+# Tests: all-children
+# ============================================================
+
+echo "--- all-children ---"
+
+# Task 10 has archived children (t10_1, t10_2) and active child (t10_3)
+out=$("$QUERY" all-children 10)
+assert_contains "all-children 10 has active child" "CHILD:" "$out"
+assert_contains "all-children 10 active child path" "t10_3_third_task.md" "$out"
+assert_contains "all-children 10 has archived child" "ARCHIVED_CHILD:" "$out"
+assert_contains "all-children 10 archived child 1" "t10_1_first_task.md" "$out"
+assert_contains "all-children 10 archived child 2" "t10_2_second_task.md" "$out"
+assert_line_count "all-children 10 returns 3 lines" 3 "$out"
+
+# Task 16 has only active children
+out=$("$QUERY" all-children 16)
+assert_contains "all-children 16 has active children" "CHILD:" "$out"
+assert_not_contains "all-children 16 no archived" "ARCHIVED_CHILD:" "$out"
+assert_line_count "all-children 16 returns 3 lines" 3 "$out"
+
+# Task with no children at all
+out=$("$QUERY" all-children 42)
+assert_eq "all-children 42 no children" "NO_CHILDREN" "$out"
+
+out=$("$QUERY" all-children 999)
+assert_eq "all-children 999 no dir" "NO_CHILDREN" "$out"
+
+# ============================================================
 # Tests: input validation
 # ============================================================
 
@@ -244,6 +294,8 @@ assert_contains "invalid input rejected" "Invalid" "$out"
 
 out=$("$QUERY" --help 2>&1)
 assert_contains "help shows usage" "Usage:" "$out"
+assert_contains "help shows active-children" "active-children" "$out"
+assert_contains "help shows all-children" "all-children" "$out"
 
 # ============================================================
 # Summary

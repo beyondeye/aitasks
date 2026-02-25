@@ -21,11 +21,11 @@ Use `AskUserQuestion`:
 
 **If parent task selected:**
 - Store the parent task number
-- Get the next child number by scanning the parent's subdirectory:
+- Get the next child number by querying all children (active + archived):
   ```bash
-  ls aitasks/t<parent>/t<parent>_*_*.md 2>/dev/null | grep -oE "t<parent>_[0-9]+" | sed "s/t<parent>_//" | sort -n | tail -1
+  ./aiscripts/aitask_query_files.sh all-children <parent>
   ```
-  Add 1 to get the next child number (or 1 if no children exist).
+  Parse the output: `CHILD:<path>` lines are active children, `ARCHIVED_CHILD:<path>` lines are archived children. Extract child numbers from all paths (e.g., `t10_2_name.md` → `2`), find the highest, and add 1. If output is `NO_CHILDREN`, next child number is 1.
 - Display: "Next child task will be: t<parent>_<child>"
 
 **If standalone task:**
@@ -70,8 +70,9 @@ First, list existing active tasks (and siblings if creating a child):
 
 For child tasks, also list siblings:
 ```bash
-ls aitasks/t<parent>/t<parent>_*_*.md 2>/dev/null
+./aiscripts/aitask_query_files.sh active-children <parent>
 ```
+Parse the output: `CHILD:<path>` lines list active sibling task files. If output is `NO_CHILDREN`, there are no existing siblings.
 
 Then use `AskUserQuestion`:
 - Question: "Does this task depend on any existing tasks? Select all that apply, or choose 'None' for no dependencies."

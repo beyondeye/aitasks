@@ -40,16 +40,17 @@ If this skill is invoked with arguments (e.g., `/aitask-fold 106,108,112` or `/a
   For each parsed ID:
   - Find the task file:
     ```bash
-    ls aitasks/t<id>_*.md 2>/dev/null
+    ./aiscripts/aitask_query_files.sh task-file <id>
     ```
-  - If the file is not found: warn "t\<id\>: file not found — skipping" and exclude.
+    Parse the output: `TASK_FILE:<path>` means found (use that path), `NOT_FOUND` means not found.
+  - If not found: warn "t\<id\>: file not found — skipping" and exclude.
   - If found, read the task file's frontmatter and check eligibility:
     - **Status check:** Must be `Ready` or `Editing`. If not, warn "t\<id\>: status is \<status\> — skipping" and exclude.
     - **Children check:** Must not have children:
       ```bash
-      ls aitasks/t<id>/ 2>/dev/null
+      ./aiscripts/aitask_query_files.sh has-children <id>
       ```
-      If children directory exists and contains files, warn "t\<id\>: has children — skipping" and exclude.
+      Parse the output: `HAS_CHILDREN:<count>` means it has children — warn "t\<id\>: has children — skipping" and exclude. `NO_CHILDREN` means eligible.
     - **Child task check:** Must not be a child task itself (the filename must match `t<number>_*.md` with a single number, not `t<parent>_<child>_*.md`). If it's a child task, warn "t\<id\>: is a child task — skipping" and exclude.
 
 - **Check remaining count:** If fewer than 2 valid tasks remain after filtering, inform user "Need at least 2 eligible tasks to fold. Only \<N\> valid task(s) found." and abort the workflow.
