@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: ['191']
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_explain, codebrowser]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-22 11:19
-updated_at: 2026-02-22 11:19
+updated_at: 2026-02-25 10:52
 boardcol: now
 boardidx: 20
 ---
