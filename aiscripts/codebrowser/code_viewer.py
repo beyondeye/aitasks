@@ -42,6 +42,8 @@ class CodeViewer(VerticalScroll):
         Binding("escape", "clear_selection", "Clear selection", show=False),
     ]
 
+    MAX_LINE_WIDTH = 500
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._file_path: Path | None = None
@@ -59,24 +61,51 @@ class CodeViewer(VerticalScroll):
     def compose(self):
         yield Static("Select a file to view", id="code_display")
 
-    def load_file(self, file_path: Path) -> None:
-        """Load and display a file with syntax highlighting."""
-        try:
-            content = file_path.read_text(errors="replace")
-        except OSError as e:
-            self.query_one("#code_display", Static).update(
-                f"Error reading file: {e}"
-            )
-            return
-
-        self._file_path = file_path
-        self._lines = content.splitlines()
-        self._total_lines = len(self._lines)
+    def _reset_state(self) -> None:
+        """Reset viewer state for a new file load."""
         self._annotations = []
         self._cursor_line = 0
         self._selection_start = None
         self._selection_end = None
         self._selection_active = False
+
+    def _show_message(self, message: str) -> None:
+        """Show a placeholder message instead of code content."""
+        self._lines = []
+        self._total_lines = 0
+        self._highlighted_lines = []
+        self._reset_state()
+        self.query_one("#code_display", Static).update(message)
+
+    def load_file(self, file_path: Path) -> None:
+        """Load and display a file with syntax highlighting."""
+        self._file_path = file_path
+
+        # Read file — detect binary content
+        try:
+            content = file_path.read_text()
+        except UnicodeDecodeError:
+            self._show_message("Binary file — cannot display")
+            return
+        except OSError as e:
+            self._show_message(f"Error reading file: {e}")
+            return
+
+        if "\x00" in content:
+            self._show_message("Binary file — cannot display")
+            return
+
+        # Empty file
+        if not content:
+            self._show_message("(empty file)")
+            return
+
+        # Normalize tabs to spaces
+        content = content.expandtabs(4)
+
+        self._lines = content.splitlines()
+        self._total_lines = len(self._lines)
+        self._reset_state()
 
         lexer = Syntax.guess_lexer(str(file_path), code=content)
         syntax = Syntax(content, lexer, theme="monokai")
@@ -137,6 +166,10 @@ class CodeViewer(VerticalScroll):
                 row_style = CURSOR_STYLE
             elif sel_min is not None and sel_min <= i <= sel_max:
                 row_style = SELECTION_STYLE
+            if len(line) > self.MAX_LINE_WIDTH:
+                line = line.copy()
+                line.truncate(self.MAX_LINE_WIDTH)
+                line.append("…", style="dim")
             table.add_row(
                 Text(str(i + 1), style="dim"), line, ann_text, style=row_style
             )
@@ -222,11 +255,14 @@ class CodeViewer(VerticalScroll):
     # -- Mouse handlers -------------------------------------------------------
 
     def on_mouse_down(self, event) -> None:
-        """Left-click moves cursor to clicked line and starts drag tracking."""
+        """Left-click moves cursor to clicked line and starts drag tracking.
+
+        Before capture_mouse(), event.y is in content coordinates (includes
+        scroll offset), so no scroll_y adjustment is needed.
+        """
         if event.button != 1 or self._total_lines == 0:
             return
-        line = int(self.scroll_y) + event.y
-        line = max(0, min(line, self._total_lines - 1))
+        line = max(0, min(event.y, self._total_lines - 1))
         self._cursor_line = line
         self._selection_start = line
         self._selection_end = line
@@ -237,11 +273,23 @@ class CodeViewer(VerticalScroll):
         self.post_message(self.CursorMoved(line + 1, self._total_lines))
 
     def on_mouse_move(self, event) -> None:
-        """Extend selection while dragging with left button held."""
+        """Extend selection while dragging with left button held.
+
+        After capture_mouse(), event.y is in viewport coordinates (relative to
+        the widget's visible area), so scroll_y must be added for the content
+        line. For edge scrolling (mouse outside viewport), use cursor ± 1 to
+        avoid a feedback loop with _scroll_cursor_visible().
+        """
         if not self._mouse_dragging:
             return
-        line = int(self.scroll_y) + event.y
-        line = max(0, min(line, self._total_lines - 1))
+        viewport_height = max(1, self.size.height)
+        if event.y < 0:
+            line = max(0, self._cursor_line - 1)
+        elif event.y >= viewport_height:
+            line = min(self._total_lines - 1, self._cursor_line + 1)
+        else:
+            line = int(self.scroll_y) + event.y
+            line = max(0, min(line, self._total_lines - 1))
         if line == self._cursor_line:
             return
         self._cursor_line = line

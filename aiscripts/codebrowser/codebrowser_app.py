@@ -86,6 +86,7 @@ class CodeBrowserApp(App):
     }
     #code_display {
         width: auto;
+        overflow-x: hidden;
     }
     GoToLineScreen {
         align: center middle;
