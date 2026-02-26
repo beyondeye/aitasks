@@ -5,7 +5,7 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [bash_scripts, aitask_explain]
-children_to_implement: [t255_1]
+children_to_implement: [t255_1, t255_2]
 created_at: 2026-02-26 09:19
 updated_at: 2026-02-26 11:15
 ---
