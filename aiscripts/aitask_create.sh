@@ -905,8 +905,20 @@ sanitize_name() {
 }
 
 get_task_name() {
-    local name
+    local name predesc=""
     read -erp "Task name (short, will be sanitized): " name
+
+    # Detect if user accidentally entered a description as the task name
+    if [[ ${#name} -gt 50 ]]; then
+        warn "You entered a long text (${#name} chars). Is this part of the task description?"
+        local choice
+        choice=$(echo -e "Yes, it's a description\nNo, it's the task name" | fzf --prompt="Long input: " --height=5 --no-info)
+        if [[ "$choice" == "Yes, it's a description" ]]; then
+            echo "No problem, I'll keep it for the description. What should be the actual task name?" >&2
+            predesc="$name"
+            read -erp "Task name (short, will be sanitized): " name
+        fi
+    fi
 
     local sanitized
     sanitized=$(sanitize_name "$name")
@@ -914,13 +926,19 @@ get_task_name() {
     # Default to unnamed_task if empty
     [[ -z "$sanitized" ]] && sanitized="unnamed_task"
 
+    # Output: line 1 = sanitized name, line 2 = predesc text (empty if none)
     echo "$sanitized"
+    echo "$predesc"
 }
 
 # --- Step 4-5: Task Definition Loop ---
 
 get_task_definition() {
-    local task_desc=""
+    local task_desc="${1:-}"
+
+    if [[ -n "$task_desc" ]]; then
+        info "Pre-populated description with your earlier text. You can add more or finish." >&2
+    fi
 
     while true; do
         # Step 4: Get description block
@@ -1372,8 +1390,10 @@ main() {
     echo ""
 
     # Step 3: Get task name
-    local task_name
-    task_name=$(get_task_name)
+    local name_result task_name predesc_text
+    name_result=$(get_task_name)
+    task_name=$(head -1 <<< "$name_result")
+    predesc_text=$(sed '1d' <<< "$name_result")
 
     info "Draft filename: draft_*_${task_name}.md"
     echo ""
@@ -1381,7 +1401,7 @@ main() {
     # Step 4-5: Get task definition
     info "Enter task definition..."
     local task_desc
-    task_desc=$(get_task_definition)
+    task_desc=$(get_task_definition "$predesc_text")
 
     if [[ -z "$task_desc" ]]; then
         die "Task definition cannot be empty"
