@@ -18,6 +18,7 @@ The task is appended to the end of the target column. Column order follows the c
 
 1. Focus the task card
 2. Press **Shift+Up** to swap it with the task above, or **Shift+Down** to swap it with the task below
+3. Press **Ctrl+Up** to jump the task to the top of the column, or **Ctrl+Down** to jump it to the bottom
 
 Task positions are stored in the `boardidx` field of each task file's frontmatter. After any move, indices are automatically normalized to 10, 20, 30, etc. to prevent drift.
 

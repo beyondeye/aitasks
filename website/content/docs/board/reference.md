@@ -31,6 +31,8 @@ description: "Keyboard shortcuts, configuration, and technical details"
 | `Shift+Left` | Move task to previous column | Board (parent cards only) |
 | `Shift+Up` | Swap task with one above | Board (parent cards only) |
 | `Shift+Down` | Swap task with one below | Board (parent cards only) |
+| `Ctrl+Up` | Move task to top of column | Board (parent cards only) |
+| `Ctrl+Down` | Move task to bottom of column | Board (parent cards only) |
 | `n` | Create a new task | Board |
 | `x` | Toggle expand/collapse child tasks | Board (parent or child card) |
 | `c` | Commit focused modified task | Board (shown when task is modified) |

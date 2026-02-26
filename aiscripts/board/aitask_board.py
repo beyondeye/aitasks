@@ -2193,6 +2193,8 @@ class KanbanApp(App):
         Binding("shift+left", "move_task_left", "< Task"),
         Binding("shift+up", "move_task_up", "Task Up"),
         Binding("shift+down", "move_task_down", "Task Down"),
+        Binding("ctrl+up", "move_task_top", "Task Top", show=False),
+        Binding("ctrl+down", "move_task_bottom", "Task Btm", show=False),
         Binding("enter", "view_details", "View/Edit"),
         Binding("r", "refresh_board", "Refresh"),
         Binding("s", "sync_remote", "Sync"),
@@ -2235,7 +2237,8 @@ class KanbanApp(App):
             task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
             if not self.manager.get_child_tasks_for_parent(task_num):
                 return None
-        elif action in ("move_task_right", "move_task_left", "move_task_up", "move_task_down"):
+        elif action in ("move_task_right", "move_task_left", "move_task_up", "move_task_down",
+                        "move_task_top", "move_task_bottom"):
             focused = self._focused_card()
             if focused and focused.is_child:
                 return None  # Hide movement actions for child cards
@@ -2252,7 +2255,7 @@ class KanbanApp(App):
         yield footer
 
     def on_mount(self):
-        self.refresh_board()
+        self.refresh_board(refresh_locks=True)
         self._start_auto_refresh_timer()
         self._update_subtitle()
 
@@ -2295,11 +2298,12 @@ class KanbanApp(App):
         focused = self._focused_card()
         refocus = focused.task_data.filename if focused else ""
         self.manager.load_tasks()
-        self.refresh_board(refocus_filename=refocus)
+        self.refresh_board(refocus_filename=refocus, refresh_locks=True)
 
-    def refresh_board(self, refocus_filename: str = ""):
+    def refresh_board(self, refocus_filename: str = "", refresh_locks: bool = False):
         self.manager.refresh_git_status()
-        self.manager.refresh_lock_map()
+        if refresh_locks:
+            self.manager.refresh_lock_map()
         container = self.query_one("#board_container")
         container.remove_children()
 
@@ -2461,7 +2465,9 @@ class KanbanApp(App):
                     self.push_screen(DeleteConfirmScreen(display_names), on_delete_confirmed)
                     return
                 # Refresh board to update git status indicators (asterisk, commit actions)
-                self.refresh_board(refocus_filename=focused.task_data.filename)
+                # Include lock refresh when returning from lock/unlock operations
+                needs_locks = result in ("locked", "unlocked")
+                self.refresh_board(refocus_filename=focused.task_data.filename, refresh_locks=needs_locks)
 
             self.push_screen(TaskDetailScreen(focused.task_data, self.manager), check_edit)
 
@@ -2538,7 +2544,7 @@ class KanbanApp(App):
             self.notify(f"Sync error: {msg}", severity="error")
 
         self.manager.load_tasks()
-        self.refresh_board()
+        self.refresh_board(refresh_locks=True)
 
     def _show_conflict_dialog(self, files: list[str]):
         """Show the conflict resolution dialog (must be called on main thread)."""
@@ -2560,7 +2566,7 @@ class KanbanApp(App):
             with self.suspend():
                 subprocess.call(["./ait", "sync"])
             self.manager.load_tasks()
-            self.refresh_board()
+            self.refresh_board(refresh_locks=True)
 
     @work(exclusive=True)
     async def run_aitask_pick(self, filename):
@@ -2677,6 +2683,38 @@ class KanbanApp(App):
             self.manager.swap_tasks(filename, target_task.filename)
             self.manager.normalize_indices(col_id)
             self.refresh_board(refocus_filename=filename)
+
+    def action_move_task_top(self):
+        self._move_task_to_extreme(-1)
+
+    def action_move_task_bottom(self):
+        self._move_task_to_extreme(1)
+
+    def _move_task_to_extreme(self, direction):
+        """Move focused task to top (direction=-1) or bottom (direction=1) of its column."""
+        focused = self._focused_card()
+        if not focused or focused.is_child:
+            return
+        filename = focused.task_data.filename
+        col_id = focused.task_data.board_col
+        tasks = self.manager.get_column_tasks(col_id)
+        if len(tasks) <= 1:
+            return
+        try:
+            current_idx = next(i for i, t in enumerate(tasks) if t.filename == filename)
+        except StopIteration:
+            return
+        if direction == -1 and current_idx == 0:
+            return
+        if direction == 1 and current_idx == len(tasks) - 1:
+            return
+        if direction == -1:
+            focused.task_data.board_idx = tasks[0].board_idx - 10
+        else:
+            focused.task_data.board_idx = tasks[-1].board_idx + 10
+        focused.task_data.reload_and_save_board_fields()
+        self.manager.normalize_indices(col_id)
+        self.refresh_board(refocus_filename=filename)
 
     # --- Column Reordering ---
 
