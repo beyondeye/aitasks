@@ -114,3 +114,11 @@ self.cleanup_stale_runs()
 ### Step 9: Post-Implementation
 
 Archive task following the standard workflow.
+
+## Final Implementation Notes
+
+- **Actual work done:** All 5 planned changes implemented exactly as specified: (1) fixed `_find_run_dir()` glob from `{dir_key}__*` to `{dir_key}__[0-9]*`, (2) updated `generate_explain_data()` to pass `--source-key` and use `_find_run_dir()` instead of rename logic, (3) removed `_find_newest_timestamp_dir()` entirely, (4) added `cleanup_stale_runs()` method, (5) added cleanup call in `__init__()`.
+- **Deviations from plan:** None — implementation matched the plan exactly. The `cleanup_stale_runs()` method was placed where `_find_newest_timestamp_dir()` used to be (between `generate_explain_data()` and `parse_reference_yaml()`), which is a natural location.
+- **Issues encountered:** None. All line numbers and code references in the plan were accurate against the current codebase.
+- **Key decisions:** The `dir_key` computation was moved before the subprocess call in `generate_explain_data()` since it's now needed as the `--source-key` argument. The old code computed it after the subprocess call.
+- **Notes for sibling tasks:** The Python-side rename logic is now fully removed — the extract script (modified in t258_2) handles all directory naming via `--source-key`. The `cleanup_stale_runs()` method in Python mirrors the logic in `aitask_explain_cleanup.sh` (from t258_1) but is scoped to `aiexplains/codebrowser/` only. The glob fix `[0-9]*` is important for any code that does key-based lookups in the codebrowser directory — keys with `__` separators (like `aiscripts__board`) are now properly isolated from their prefixes.
