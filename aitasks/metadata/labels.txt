@@ -16,6 +16,7 @@ codebrowser
 codexcli
 development
 geminicli
+git-integration
 gitremote
 install_scripts
 legal
