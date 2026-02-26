@@ -5,9 +5,9 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [codebrowser]
-children_to_implement: [t258_4, t258_5]
+children_to_implement: [t258_5]
 created_at: 2026-02-26 12:19
-updated_at: 2026-02-26 16:14
+updated_at: 2026-02-26 16:40
 boardcol: now
 boardidx: 20
 ---
