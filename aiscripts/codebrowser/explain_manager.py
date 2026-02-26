@@ -25,6 +25,7 @@ class ExplainManager:
         self._root = project_root
         self._cb_dir = project_root / CODEBROWSER_DIR
         os.makedirs(self._cb_dir, exist_ok=True)
+        self.cleanup_stale_runs()
 
     def _dir_to_key(self, directory: Path) -> str:
         """Convert a directory path (relative to project root) to a cache key."""
@@ -35,7 +36,7 @@ class ExplainManager:
 
     def _find_run_dir(self, dir_key: str) -> Path | None:
         """Find the most recent run directory for a given directory key."""
-        pattern = str(self._cb_dir / f"{dir_key}__*")
+        pattern = str(self._cb_dir / f"{dir_key}__[0-9]*")
         matches = sorted(glob.glob(pattern))
         if not matches:
             return None
@@ -80,51 +81,57 @@ class ExplainManager:
         if not direct_files:
             return {}
 
-        # Run extract script with env override
+        # Run extract script with env override and source-key for auto-naming
+        dir_key = self._dir_to_key(rel_dir)
         env = os.environ.copy()
         env["AIEXPLAINS_DIR"] = CODEBROWSER_DIR
         subprocess.run(
-            [EXTRACT_SCRIPT, "--gather"] + direct_files,
+            [EXTRACT_SCRIPT, "--gather", "--source-key", dir_key] + direct_files,
             env=env, check=True, capture_output=True,
             cwd=str(self._root),
         )
 
-        # Find the newly created timestamp directory
-        # The script creates CODEBROWSER_DIR/<timestamp>/ with just a timestamp name
-        dir_key = self._dir_to_key(rel_dir)
-        newest = self._find_newest_timestamp_dir()
-        if newest is None:
+        run_dir = self._find_run_dir(dir_key)
+        if run_dir is None:
             return {}
 
-        # Rename to include directory key
-        timestamp = newest.name
-        target = self._cb_dir / f"{dir_key}__{timestamp}"
-        newest.rename(target)
-
-        ref_yaml = target / "reference.yaml"
+        ref_yaml = run_dir / "reference.yaml"
         if not ref_yaml.exists():
             return {}
 
         return self.parse_reference_yaml(ref_yaml)
 
-    def _find_newest_timestamp_dir(self) -> Path | None:
-        """Find the newest timestamp-only directory in the codebrowser dir.
+    def cleanup_stale_runs(self) -> int:
+        """Remove stale run directories, keeping only the newest per dir_key."""
+        if not self._cb_dir.exists():
+            return 0
 
-        These are directories created by the extract script that haven't been
-        renamed yet (just a bare timestamp like 20260225_143052).
-        """
-        candidates = []
+        groups: dict[str, list[Path]] = {}
         for entry in self._cb_dir.iterdir():
             if not entry.is_dir():
                 continue
             name = entry.name
-            # Timestamp-only dirs have format YYYYMMDD_HHMMSS (15 chars)
-            # Dir-key prefixed dirs have __ before the timestamp
+            # Parse <key>__<YYYYMMDD_HHMMSS>
+            if "__" in name:
+                last_sep = name.rfind("__")
+                ts_part = name[last_sep + 2:]
+                if len(ts_part) == 15 and ts_part[8] == "_" and ts_part.replace("_", "").isdigit():
+                    key = name[:last_sep]
+                    groups.setdefault(key, []).append(entry)
+                    continue
+            # Bare timestamp
             if len(name) == 15 and name[8] == "_" and name.replace("_", "").isdigit():
-                candidates.append(entry)
-        if not candidates:
-            return None
-        return max(candidates, key=lambda p: p.name)
+                groups.setdefault("_bare_timestamp_", []).append(entry)
+
+        removed = 0
+        for key, dirs in groups.items():
+            if len(dirs) <= 1:
+                continue
+            dirs.sort(key=lambda p: p.name)
+            for stale_dir in dirs[:-1]:
+                shutil.rmtree(stale_dir)
+                removed += 1
+        return removed
 
     def parse_reference_yaml(self, yaml_path: Path) -> dict[str, FileExplainData]:
         """Parse a reference.yaml file into per-file FileExplainData."""
