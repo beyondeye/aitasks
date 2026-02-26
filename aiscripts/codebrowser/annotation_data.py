@@ -20,6 +20,15 @@ class FileExplainData:
 
 
 @dataclass
+class TaskDetailContent:
+    task_id: str
+    plan_content: str = ""
+    task_content: str = ""
+    has_plan: bool = False
+    has_task: bool = False
+
+
+@dataclass
 class ExplainRunInfo:
     run_dir: str
     directory_key: str

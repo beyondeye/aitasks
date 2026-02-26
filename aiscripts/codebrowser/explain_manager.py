@@ -7,24 +7,31 @@ pipeline, directing output to aiexplains/codebrowser/ with directory-based namin
 
 import glob
 import os
+import re
 import shutil
 import subprocess
+from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 
 import yaml
 
-from annotation_data import AnnotationRange, ExplainRunInfo, FileExplainData
+from annotation_data import AnnotationRange, ExplainRunInfo, FileExplainData, TaskDetailContent
 
 CODEBROWSER_DIR = "aiexplains/codebrowser"
 EXTRACT_SCRIPT = "./aiscripts/aitask_explain_extract_raw_data.sh"
 
 
 class ExplainManager:
+    TASK_CONTENT_CACHE_MAX = 100
+    TASKS_INDEX_CACHE_MAX = 20
+
     def __init__(self, project_root: Path):
         self._root = project_root
         self._cb_dir = project_root / CODEBROWSER_DIR
         os.makedirs(self._cb_dir, exist_ok=True)
+        self._task_content_cache: OrderedDict[str, TaskDetailContent] = OrderedDict()
+        self._tasks_index_cache: OrderedDict[str, list[dict]] = OrderedDict()
         self.cleanup_stale_runs()
 
     def _dir_to_key(self, directory: Path) -> str:
@@ -251,3 +258,105 @@ class ExplainManager:
             timestamp=timestamp,
             file_count=file_count,
         )
+
+    @staticmethod
+    def _lru_get(cache: OrderedDict, key: str):
+        """Get from LRU cache, promoting to most-recently-used. Returns None on miss."""
+        if key in cache:
+            cache.move_to_end(key)
+            return cache[key]
+        return None
+
+    @staticmethod
+    def _lru_put(cache: OrderedDict, key: str, value, max_size: int) -> None:
+        """Insert into LRU cache, evicting oldest entry if over max_size."""
+        cache[key] = value
+        cache.move_to_end(key)
+        while len(cache) > max_size:
+            cache.popitem(last=False)
+
+    @staticmethod
+    def _strip_frontmatter(content: str) -> str:
+        """Remove YAML frontmatter (--- ... ---) from markdown content."""
+        if not content.startswith("---"):
+            return content
+        match = re.match(r"^---\s*\n.*?\n---\s*\n?", content, re.DOTALL)
+        if match:
+            return content[match.end():]
+        return content
+
+    def _get_tasks_index(self, run_dir: Path) -> list[dict]:
+        """Get the tasks index from reference.yaml, with LRU caching."""
+        cache_key = run_dir.name
+        cached = self._lru_get(self._tasks_index_cache, cache_key)
+        if cached is not None:
+            return cached
+
+        ref_yaml = run_dir / "reference.yaml"
+        if not ref_yaml.exists():
+            return []
+
+        with open(ref_yaml) as f:
+            data = yaml.safe_load(f)
+
+        tasks_list = data.get("tasks", []) if data else []
+        self._lru_put(self._tasks_index_cache, cache_key, tasks_list,
+                       self.TASKS_INDEX_CACHE_MAX)
+        return tasks_list
+
+    def get_task_detail(self, file_path: Path, task_id: str) -> TaskDetailContent | None:
+        """Get plan/task markdown content for a task_id from the explain run covering file_path."""
+        rel_path = file_path.relative_to(self._root)
+        directory = rel_path.parent
+        dir_key = self._dir_to_key(directory)
+
+        run_dir = self._find_run_dir(dir_key)
+        if run_dir is None:
+            return None
+
+        # Check LRU cache
+        cache_key = f"{run_dir.name}:{task_id}"
+        cached = self._lru_get(self._task_content_cache, cache_key)
+        if cached is not None:
+            return cached
+
+        # Find task in the tasks index
+        tasks_index = self._get_tasks_index(run_dir)
+        entry = None
+        for t in tasks_index:
+            if str(t.get("id", "")) == str(task_id):
+                entry = t
+                break
+
+        if entry is None:
+            return None
+
+        detail = TaskDetailContent(task_id=task_id)
+
+        # Read plan file
+        plan_rel = entry.get("plan_file", "")
+        if plan_rel:
+            plan_path = run_dir / plan_rel
+            if plan_path.exists():
+                try:
+                    raw = plan_path.read_text()
+                    detail.plan_content = self._strip_frontmatter(raw)
+                    detail.has_plan = True
+                except OSError:
+                    pass
+
+        # Read task file
+        task_rel = entry.get("task_file", "")
+        if task_rel:
+            task_path = run_dir / task_rel
+            if task_path.exists():
+                try:
+                    raw = task_path.read_text()
+                    detail.task_content = self._strip_frontmatter(raw)
+                    detail.has_task = True
+                except OSError:
+                    pass
+
+        self._lru_put(self._task_content_cache, cache_key, detail,
+                       self.TASK_CONTENT_CACHE_MAX)
+        return detail

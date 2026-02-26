@@ -12,6 +12,7 @@ from textual.widgets import Button, Header, Footer, Input, Label, Static, Direct
 from textual import on, work
 
 from code_viewer import CodeViewer
+from detail_pane import DetailPane
 from explain_manager import ExplainManager
 from file_tree import ProjectFileTree, get_project_root
 
@@ -88,6 +89,12 @@ class CodeBrowserApp(App):
         width: auto;
         overflow-x: hidden;
     }
+    #detail_pane {
+        width: 30;
+    }
+    #detail_pane.hidden {
+        display: none;
+    }
     GoToLineScreen {
         align: center middle;
     }
@@ -116,7 +123,12 @@ class CodeBrowserApp(App):
         Binding("t", "toggle_annotations", "Toggle annotations"),
         Binding("g", "go_to_line", "Go to line"),
         Binding("e", "launch_claude", "Explain in Claude"),
+        Binding("d", "toggle_detail", "Toggle detail"),
+        Binding("D", "expand_detail", "Expand detail"),
     ]
+
+    DETAIL_DEFAULT_WIDTH = 30
+    CODE_MIN_WIDTH = 80
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -127,6 +139,8 @@ class CodeBrowserApp(App):
         self._generating: bool = False
         self._cursor_info: str = ""
         self._annotation_info: str = ""
+        self._detail_visible: bool = False
+        self._detail_expanded: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -141,10 +155,11 @@ class CodeBrowserApp(App):
             with Container(id="code_pane"):
                 yield Static("No file selected", id="file_info_bar")
                 yield CodeViewer(id="code_viewer")
+            yield DetailPane(id="detail_pane", classes="hidden")
         yield Footer()
 
     def on_resize(self, event) -> None:
-        """Adjust file tree width for terminal size."""
+        """Adjust file tree and detail pane widths for terminal size."""
         width = event.size.width
         try:
             file_tree = self.query_one("#file_tree")
@@ -156,6 +171,42 @@ class CodeBrowserApp(App):
             file_tree.styles.width = 28
         else:
             file_tree.styles.width = 22
+        if self._detail_visible:
+            self._apply_detail_width()
+
+    def _apply_detail_width(self) -> None:
+        """Set detail pane width respecting code-first priority."""
+        if not self._detail_visible:
+            return
+        try:
+            detail = self.query_one("#detail_pane", DetailPane)
+            file_tree = self.query_one("#file_tree")
+        except Exception:
+            return
+
+        total_width = self.size.width
+        tree_width = 35
+        if file_tree.styles.width and file_tree.styles.width.value:
+            tree_width = int(file_tree.styles.width.value)
+        # Available width after tree and border gaps
+        available = total_width - tree_width - 2
+
+        if self._detail_expanded:
+            desired_detail = total_width // 2
+        else:
+            desired_detail = self.DETAIL_DEFAULT_WIDTH
+
+        # Code gets priority: reduce detail if code would be < minimum
+        if available - desired_detail < self.CODE_MIN_WIDTH:
+            desired_detail = max(0, available - self.CODE_MIN_WIDTH)
+
+        if desired_detail < 15:
+            # Too narrow to be useful — hide temporarily
+            detail.styles.width = 0
+            detail.add_class("hidden")
+        else:
+            detail.styles.width = desired_detail
+            detail.remove_class("hidden")
 
     def _update_info_bar(self) -> None:
         """Rebuild and display the info bar from current state."""
@@ -180,11 +231,16 @@ class CodeBrowserApp(App):
         self._annotation_info = ""
         self._update_info_bar()
 
+        try:
+            self.query_one("#detail_pane", DetailPane).clear()
+        except Exception:
+            pass
+
         if self.explain_manager:
             self._load_explain_data(event.path)
 
     def on_code_viewer_cursor_moved(self, event: CodeViewer.CursorMoved) -> None:
-        """Update info bar when cursor moves."""
+        """Update info bar and detail pane when cursor moves."""
         code_viewer = self.query_one("#code_viewer", CodeViewer)
         sel = code_viewer.get_selected_range()
         if sel:
@@ -192,6 +248,8 @@ class CodeBrowserApp(App):
         else:
             self._cursor_info = f"Line {event.line}/{event.total}"
         self._update_info_bar()
+        if self._detail_visible:
+            self._update_detail_pane(event.line, sel)
 
     def action_go_to_line(self) -> None:
         """Open go-to-line modal."""
@@ -302,11 +360,101 @@ class CodeBrowserApp(App):
         finally:
             self._generating = False
 
+    def _update_detail_pane(self, cursor_line: int, selection: tuple[int, int] | None) -> None:
+        """Look up task IDs for the current line and update the detail pane."""
+        try:
+            detail = self.query_one("#detail_pane", DetailPane)
+        except Exception:
+            return
+
+        if not self._current_explain_data or not self._current_file_path:
+            detail.clear()
+            return
+
+        rel_path = str(self._current_file_path.relative_to(self._project_root))
+        file_data = self._current_explain_data.get(rel_path)
+        if not file_data or not file_data.annotations:
+            detail.clear()
+            return
+
+        # Collect task_ids for the cursor line (or selection range)
+        if selection:
+            line_start, line_end = selection
+        else:
+            line_start = line_end = cursor_line
+
+        task_ids: list[str] = []
+        for ann in file_data.annotations:
+            if ann.start_line <= line_end and ann.end_line >= line_start:
+                for tid in ann.task_ids:
+                    if tid not in task_ids:
+                        task_ids.append(tid)
+
+        if not task_ids:
+            detail.clear()
+            return
+
+        if len(task_ids) > 1:
+            detail.show_multiple_tasks(task_ids)
+            return
+
+        # Single task — resolve and show content
+        if self.explain_manager:
+            self._load_task_detail(task_ids[0])
+
+    @work(exclusive=True, group="detail_load")
+    async def _load_task_detail(self, task_id: str) -> None:
+        """Load task detail content in a worker thread."""
+        if not self.explain_manager or not self._current_file_path:
+            return
+        detail_content = await asyncio.to_thread(
+            self.explain_manager.get_task_detail,
+            self._current_file_path, task_id,
+        )
+        try:
+            detail = self.query_one("#detail_pane", DetailPane)
+        except Exception:
+            return
+        detail.update_content(detail_content)
+
+    def action_toggle_detail(self) -> None:
+        """Toggle detail pane visibility."""
+        try:
+            detail = self.query_one("#detail_pane", DetailPane)
+        except Exception:
+            return
+        self._detail_visible = not self._detail_visible
+        if self._detail_visible:
+            detail.remove_class("hidden")
+            self._apply_detail_width()
+            # Trigger content update for current cursor position
+            code_viewer = self.query_one("#code_viewer", CodeViewer)
+            sel = code_viewer.get_selected_range()
+            self._update_detail_pane(code_viewer._cursor_line + 1, sel)
+        else:
+            detail.add_class("hidden")
+            self._detail_expanded = False
+
+    def action_expand_detail(self) -> None:
+        """Toggle detail pane between default width and half screen."""
+        if not self._detail_visible:
+            return
+        self._detail_expanded = not self._detail_expanded
+        self._apply_detail_width()
+
     def action_toggle_focus(self) -> None:
         file_tree = self.query_one("#file_tree")
         code_viewer = self.query_one("#code_viewer")
         if file_tree.has_focus_within:
             code_viewer.focus()
+        elif code_viewer.has_focus_within:
+            if self._detail_visible:
+                try:
+                    self.query_one("#detail_pane", DetailPane).focus()
+                except Exception:
+                    file_tree.focus()
+            else:
+                file_tree.focus()
         else:
             file_tree.focus()
 
