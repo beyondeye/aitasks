@@ -150,6 +150,14 @@ bash tests/test_explain_binary.sh
 
 All 11 tests should PASS.
 
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all 7 steps as planned. Added `is_binary()` helper to shell script, modified `process_file()` to emit `BINARY_FILE` marker and skip blame for binary files, updated Python processor (`parse_raw_data()`, main loop, `write_yaml()`) to handle binary flag, and wrote comprehensive tests.
+- **Deviations from plan:** Test file ended up with 15 assertions instead of the planned 11, due to some tests covering multiple assertions (e.g., mixed mode tests assert both binary and text properties). Also needed `grep -qF --` (with `--` separator) in test helpers to handle patterns starting with `-`.
+- **Issues encountered:** Initial test sourced the shell script which triggered `main()` execution — fixed by defining `is_binary()` directly in the test. Also hit `grep` interpreting `"- start:"` as an option flag — fixed by adding `--` before the pattern.
+- **Key decisions:** Binary files still get their full `COMMIT_TIMELINE` extracted (useful for knowing when images were added/changed). Only `BLAME_LINES` section is skipped. The `binary: true` field is only emitted for binary files (not `binary: false` for text) to keep YAML compact and backward-compatible.
+- **Notes for sibling tasks (t255_2):** The `binary: true` field appears right after `path:` in reference.yaml. When `binary: true`, `line_ranges:` section is empty (no entries). `commits:` section is always populated. The `FileExplainData` consumer should check for this field and skip annotation building. Old reference.yaml files (without `binary:` field) are backward-compatible — all files default to non-binary.
+
 ## Post-implementation
 
 Refer to Step 9 of the task-workflow (archival, merge, cleanup).
