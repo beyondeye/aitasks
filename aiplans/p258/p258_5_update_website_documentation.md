@@ -50,3 +50,10 @@ Base branch: main
 ### Step 9: Post-Implementation
 
 Archive task following the standard workflow.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-02-26 17:30)
+- **Requested by user:** Update the main commands index page (`docs/commands/_index.md`) with the latest list of commands, and reorganize them into groups matching the documentation structure
+- **Changes made:** Reorganized the flat command table into grouped sections (Task Management, TUI, Integration, Reporting, Tools, Infrastructure) matching the documentation page structure. Added missing commands: `ait git`, `ait codebrowser`, `ait explain-cleanup`. Updated usage examples with new commands (`codebrowser`, `git`, `explain-cleanup`, `--cleanup-stale`).
+- **Files affected:** `website/content/docs/commands/_index.md`
