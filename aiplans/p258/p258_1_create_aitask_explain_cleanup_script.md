@@ -62,3 +62,11 @@ Add `"Bash(./aiscripts/aitask_explain_cleanup.sh:*)"` to:
 ### Step 9: Post-Implementation
 
 Archive task following the standard workflow.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `aiscripts/aitask_explain_cleanup.sh` with all planned features (--target, --all, --dry-run, --quiet modes). Added `explain-cleanup` command to `ait` dispatcher and usage help. Added whitelist entries to both `seed/claude_settings.local.json` and `.claude/settings.local.json`.
+- **Deviations from plan:** The `cleanup_directory()` function uses a global `_cleanup_result` variable instead of echoing the count to stdout. This was necessary because `info()` from `terminal_compat.sh` writes to stdout, which would pollute the return value when captured via `$(...)`. Also added `./ait explain-cleanup:*` to the local settings whitelist for dispatcher-based invocation.
+- **Issues encountered:** Initial version had `info()` stdout output being captured by command substitution, causing "unbound variable" errors. Fixed by switching to a `_cleanup_result` global variable pattern.
+- **Key decisions:** Used associative arrays (`declare -A`) for grouping by key — requires bash 4+, but the project already requires this (env bash shebang picks up brew bash 5.x on macOS). The `--all` mode processes top-level aiexplains/ separately (skipping the codebrowser subdir) to avoid cross-contamination of keys.
+- **Notes for sibling tasks:** The `extract_key_and_timestamp()` function defines the canonical naming pattern: `<key>__<YYYYMMDD_HHMMSS>`. Sibling t258_2 (auto-naming for aitask-explain) should use this same pattern. The `_dir_to_key()` convention from `explain_manager.py` (replace `/` with `__`) is already compatible. The cleanup script is at `aiscripts/aitask_explain_cleanup.sh` and can be invoked as `./ait explain-cleanup --all --quiet` for integration into other scripts/TUI startup.
