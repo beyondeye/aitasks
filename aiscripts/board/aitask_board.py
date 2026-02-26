@@ -112,6 +112,7 @@ class Task:
         self.load()
 
     def load(self):
+        """Load task from disk. Returns True on success, False on failure."""
         try:
             with open(self.filepath, "r", encoding="utf-8") as f:
                 raw = f.read()
@@ -123,10 +124,12 @@ class Task:
                 self.metadata = {}
                 self._original_key_order = []
                 self.content = raw
+            return True
         except Exception as e:
             self.metadata = {}
             self._original_key_order = []
             self.content = str(e)
+            return False
 
     def save(self):
         content = serialize_frontmatter(self.metadata, self.content, self._original_key_order)
@@ -147,10 +150,12 @@ class Task:
 
         Prevents overwriting external changes to non-board fields (e.g. status
         set by Claude Code) during board layout operations.
+        Skips save if file no longer exists (e.g. archived/deleted).
         """
         current_boardcol = self.metadata.get("boardcol")
         current_boardidx = self.metadata.get("boardidx")
-        self.load()
+        if not self.load():
+            return  # File gone (archived/deleted) — do NOT recreate it
         if current_boardcol is not None:
             self.metadata["boardcol"] = current_boardcol
         if current_boardidx is not None:
@@ -220,11 +225,17 @@ class TaskManager:
     def auto_refresh_minutes(self, value: int):
         self.settings["auto_refresh_minutes"] = value
 
+    def _is_phantom_stub(self, task):
+        """Check if a task file is a phantom stub (only board layout keys)."""
+        return not task.metadata or set(task.metadata.keys()) <= set(BOARD_KEYS)
+
     def load_tasks(self):
         self.task_datas.clear()
         for f in glob.glob(str(TASKS_DIR / "*.md")):
             path = Path(f)
             task = Task(path)
+            if self._is_phantom_stub(task):
+                continue
             self.task_datas[path.name] = task
         self.load_child_tasks()
 
@@ -233,6 +244,8 @@ class TaskManager:
         for f in glob.glob(str(TASKS_DIR / "t*" / "t*_*.md")):
             path = Path(f)
             task = Task(path)
+            if self._is_phantom_stub(task):
+                continue
             self.child_task_datas[path.name] = task
 
     def find_task_by_id(self, task_id: str):
@@ -825,7 +838,8 @@ class DependsField(Static):
 
 def _remove_dep_from_task(task, dep_num):
     """Remove a dependency number from a task's metadata and save."""
-    task.load()  # Reload from disk to pick up external changes
+    if not task.load():  # Reload from disk to pick up external changes
+        return  # File gone (archived/deleted)
     deps = task.metadata.get("depends", [])
     task.metadata["depends"] = [d for d in deps if d != dep_num]
     task.save_with_timestamp()
@@ -1596,7 +1610,9 @@ class TaskDetailScreen(ModalScreen):
         if not changed_fields:
             return
         # Reload from disk to pick up external changes (e.g. Claude Code)
-        self.task_data.load()
+        if not self.task_data.load():
+            self.app.notify("Task file no longer exists", severity="error")
+            return
         # Apply only the changed fields
         for key, value in changed_fields.items():
             self.task_data.metadata[key] = value
@@ -1686,7 +1702,10 @@ class TaskDetailScreen(ModalScreen):
                         assigned_to = meta["assigned_to"]
                         def on_reset_confirmed(confirmed):
                             if confirmed:
-                                self.task_data.load()
+                                if not self.task_data.load():
+                                    self.app.notify("Task file no longer exists", severity="error")
+                                    self.dismiss("unlocked")
+                                    return
                                 self.task_data.metadata["status"] = "Ready"
                                 self.task_data.metadata["assigned_to"] = ""
                                 self.task_data.save_with_timestamp()
