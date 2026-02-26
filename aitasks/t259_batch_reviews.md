@@ -3,11 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [aitask_review]
-assigned_to: dario-e@beyond-eye.com
+children_to_implement: [t259_1]
 created_at: 2026-02-26 12:45
-updated_at: 2026-02-26 17:27
+updated_at: 2026-02-26 18:42
 boardidx: 40
 ---
 
