@@ -34,7 +34,7 @@ While [`/aitask-pick`](../../skills/aitask-pick/) is running — especially duri
 
 **What to do while waiting:**
 
-- **Triage tasks** — Open [`ait board`](../../commands/board-stats/#ait-board) in another tab to review priorities, move tasks between kanban columns, update metadata (priority, effort, labels), and adjust dependencies. See the [Board documentation](../../board/) for all available operations and keyboard shortcuts
+- **Triage tasks** — Open [`ait board`](../../commands/board-stats/#ait-board) in another tab to review priorities, move tasks between kanban columns, update metadata (priority, effort, labels), and adjust dependencies. See the [Board documentation](../../tuis/board/) for all available operations and keyboard shortcuts
 - **Capture new ideas** — As ideas come up during the implementation (which they often do while watching the agent work), quickly switch to a tab with [`ait create`](../../commands/task-management/#ait-create) and write them down. The key shortcut `n` in [`ait board`](../../commands/board-stats/#ait-board) also launches task creation directly
 - **Review progress** — Watch the current diff in another tab to understand what changes are being made. Warp's built-in diff viewer or a simple `git diff` in a separate tab works well for this
 

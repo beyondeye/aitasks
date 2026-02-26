@@ -1,7 +1,7 @@
 ---
 title: "Kanban Board"
 linkTitle: "Board"
-weight: 30
+weight: 10
 description: "TUI Kanban board for visualizing and managing tasks"
 ---
 
@@ -79,4 +79,4 @@ If you work on tasks from multiple machines, the board can sync task data with a
 
 ---
 
-**Next:** [Workflow Guides]({{< relref "workflows" >}})
+**Next:** [Workflow Guides]({{< relref "/docs/workflows" >}})

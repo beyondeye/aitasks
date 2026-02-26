@@ -1,8 +1,8 @@
 ---
-title: "Board & Stats"
-linkTitle: "Board & Stats"
+title: "Board, Code Browser & Stats"
+linkTitle: "Board, Browser & Stats"
 weight: 30
-description: "ait board and ait stats commands"
+description: "ait board, ait codebrowser, and ait stats commands"
 ---
 
 ## ait board
@@ -15,10 +15,29 @@ ait board
 
 Launches a Python-based terminal UI (built with [Textual](https://textual.textualize.io/)) that displays tasks in a kanban-style column layout. All arguments are forwarded to the Python board application.
 
-For full usage documentation — including tutorials, keyboard shortcuts, how-to guides, and configuration — see the [Kanban Board documentation](../../board/).
+For full usage documentation — including tutorials, keyboard shortcuts, how-to guides, and configuration — see the [Kanban Board documentation](../../tuis/board/).
 
 **Requirements:**
 - Python venv at `~/.aitask/venv/` with packages: `textual`, `pyyaml`, `linkify-it-py`
+- Falls back to system `python3` if venv not found (warns about missing packages)
+- Checks terminal capabilities and warns on legacy terminals (e.g., WSL default console)
+
+---
+
+## ait codebrowser
+
+Open the code browser TUI for file exploration with task annotations.
+
+```bash
+ait codebrowser
+```
+
+Launches a Python-based terminal UI (built with [Textual](https://textual.textualize.io/)) that provides a file tree, syntax-highlighted code viewer, and annotation gutter showing which aitasks contributed to each section of code. All arguments are forwarded to the Python codebrowser application.
+
+For full usage documentation — including tutorials, keyboard shortcuts, how-to guides, and annotation details — see the [Code Browser documentation](../../tuis/codebrowser/).
+
+**Requirements:**
+- Python venv at `~/.aitask/venv/` with packages: `textual`, `pyyaml`
 - Falls back to system `python3` if venv not found (warns about missing packages)
 - Checks terminal capabilities and warns on legacy terminals (e.g., WSL default console)
 

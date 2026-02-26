@@ -88,6 +88,12 @@ The `reference.yaml` file is the key artifact. It contains per-file data: a comm
 
 Run directories use the naming convention `<dir_key>__<timestamp>` (e.g., `aiscripts__lib__20260226_155403`), where `dir_key` identifies the source directory. When new analysis data is generated, stale runs for the same source directory are automatically cleaned up — only the newest run is kept. This also happens at codebrowser TUI startup.
 
+## Visual Exploration with the Code Browser
+
+The [code browser TUI]({{< relref "/docs/tuis/codebrowser" >}}) (`ait codebrowser`) provides a visual companion to `/aitask-explain`. Instead of a conversational session, the code browser renders explain annotations as a color-coded gutter alongside the source code, showing which aitasks contributed to each section at a glance.
+
+The recommended workflow is: use the code browser to visually scan a file's task annotations, identify sections you want to understand deeper, then press **e** to launch a full `/aitask-explain` session targeting those specific lines. The detail pane (**d**) also shows plan or task content inline for quick context without leaving the browser.
+
 ## Tips
 
 - **Start with code evolution** — If you only pick one mode, start with code evolution. It provides the most unique value compared to what you could learn by just reading the file. Functionality and usage can often be inferred from the code itself; the "why" behind changes cannot

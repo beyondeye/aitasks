@@ -45,7 +45,7 @@ Each run is stored as `aiexplains/<dir_key>__<timestamp>/` and contains:
 - `reference.yaml` — structured line-to-commit-to-task mapping
 - `tasks/` and `plans/` — extracted task and plan files for context
 
-Codebrowser runs are stored under `aiexplains/codebrowser/<dir_key>__<timestamp>/` with the same structure.
+Codebrowser runs are stored under `aiexplains/codebrowser/<dir_key>__<timestamp>/` with the same structure. See the [Code Browser documentation]({{< relref "/docs/tuis/codebrowser" >}}) for details on how annotations are displayed.
 
 **Safety:**
 - The `--delete` option validates that the target path is under `aiexplains/` before removing

@@ -14,7 +14,7 @@ This is conceptually the opposite of [task decomposition](../task-decomposition/
 - **Duplicate discoveries** — Two exploration sessions found the same bug or improvement opportunity
 - **Overlapping scope** — Tasks that touch the same files and would be more efficient to implement together
 - **Related ideas captured separately** — Multiple task ideas that address the same area of the codebase
-- **Triage reveals redundancy** — During review on the [board](../../board/), you realize two "different" tasks are really the same work
+- **Triage reveals redundancy** — During review on the [board](../../tuis/board/), you realize two "different" tasks are really the same work
 
 ## How It Works
 
@@ -31,7 +31,7 @@ This is conceptually the opposite of [task decomposition](../task-decomposition/
 
 ## Typical Consolidation Flow
 
-1. Notice overlapping tasks during triage (on the [board](../../board/) or via `ait ls`)
+1. Notice overlapping tasks during triage (on the [board](../../tuis/board/) or via `ait ls`)
 2. Run `/aitask-fold` (interactive) or `/aitask-fold 106,108,112` (explicit)
 3. Select the primary task — the one with the best description or broadest scope
 4. Review the merged result, then continue to implementation or save for later

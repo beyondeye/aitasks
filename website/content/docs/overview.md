@@ -40,7 +40,7 @@ AI coding agents have reached a proficiency level where, given correct specs and
   - **Parallelism:** Thanks to task status stored in git, and AI agent workflows that support git worktrees.
 
 - **Visual Management**
-  - **TUI Board:** A terminal-based visual interface (Kanban style) for visualizing and organizing tasks without leaving the terminal. See the [Board Documentation]({{< relref "board" >}}) for full details.
+  - **TUI Applications:** Terminal-based visual interfaces for task management ([Kanban Board]({{< relref "tuis/board" >}})) and code understanding ([Code Browser]({{< relref "tuis/codebrowser" >}})), without leaving the terminal.
 
 - **Battle tested:** Not a research experiment. Actively developed and used in real projects.
 

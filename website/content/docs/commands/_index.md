@@ -21,7 +21,7 @@ description: "Complete CLI reference for all ait subcommands"
 | Command | Description |
 |---------|-------------|
 | [`ait board`](board-stats/#ait-board) | Open the kanban-style TUI board |
-| [`ait codebrowser`](board-stats/) | Launch the code browser TUI |
+| [`ait codebrowser`](board-stats/#ait-codebrowser) | Launch the code browser TUI |
 
 ### Integration
 

@@ -16,7 +16,7 @@ In interactive mode, `ait create` walks you through metadata selection (priority
 **The iterative refinement pipeline:**
 
 1. **Capture** — Create the task with [`ait create`](../../commands/task-management/#ait-create) or [`/aitask-create`](../../skills/aitask-create/). Write whatever comes to mind, even multiple paragraphs of loosely connected ideas
-2. **Organize** — Use [`ait board`](../../commands/board-stats/#ait-board) to visually triage: drag tasks between kanban columns, adjust priority and effort, add labels. See the [Board documentation](../../board/) for detailed how-to guides
+2. **Organize** — Use [`ait board`](../../commands/board-stats/#ait-board) to visually triage: drag tasks between kanban columns, adjust priority and effort, add labels. See the [Board documentation](../../tuis/board/) for detailed how-to guides
 3. **Refine** — When picked for implementation with [`/aitask-pick`](../../skills/aitask-pick/), the planning phase explores the codebase and produces a structured implementation plan from your raw intent
 
 This pipeline means you never need to spend time writing perfect task descriptions upfront. The framework handles progressive refinement at each stage.

@@ -95,4 +95,4 @@ style
 test
 ```
 
-To add a custom type, simply add a new line to the file. All scripts (`ait create`, `ait update`, [`ait board`](../../board/), `ait stats`) read from this file dynamically.
+To add a custom type, simply add a new line to the file. All scripts (`ait create`, `ait update`, [`ait board`](../../tuis/board/), `ait stats`) read from this file dynamically.

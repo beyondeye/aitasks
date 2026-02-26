@@ -45,7 +45,7 @@ Open the kanban board to see your tasks visually:
 ait board
 ```
 
-Use arrow keys to navigate, **Shift+arrows** to move tasks between columns, and **Enter** to view task details. See the [Board documentation](../board/) for the full guide.
+Use arrow keys to navigate, **Shift+arrows** to move tasks between columns, and **Enter** to view task details. See the [Board documentation](../tuis/board/) for the full guide.
 
 ## 4. Pick and Implement a Task
 
@@ -75,4 +75,4 @@ As you work, explore these features:
 
 ---
 
-**Next:** [Kanban Board]({{< relref "board" >}})
+**Next:** [TUI Applications]({{< relref "tuis" >}})

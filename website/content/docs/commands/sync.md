@@ -46,7 +46,7 @@ In batch mode (`--batch`), the script outputs a single structured line on stdout
 | `NO_REMOTE` | No git remote configured for the repository |
 | `ERROR:<message>` | Unexpected error with details |
 
-This protocol is used by the [board TUI](../../board/) for background sync integration.
+This protocol is used by the [board TUI](../../tuis/board/) for background sync integration.
 
 ### How It Works
 

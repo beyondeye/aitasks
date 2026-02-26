@@ -68,6 +68,10 @@ Stale runs (older runs for the same source directory) are automatically cleaned 
 ./aiscripts/aitask_explain_runs.sh --cleanup-stale
 ```
 
+## Visual Browsing
+
+The [code browser TUI]({{< relref "/docs/tuis/codebrowser" >}}) (`ait codebrowser`) provides a visual interface for browsing files with explain annotations rendered as a color-coded gutter. Press `e` in the code browser to launch a full `/aitask-explain` session for the current file and selected lines.
+
 ## Workflows
 
 For a full workflow guide covering use cases and the cognitive debt framing, see [Understanding Code with Explain](../../workflows/explain/).

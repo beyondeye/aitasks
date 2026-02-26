@@ -39,7 +39,7 @@ When locking a task without `--email`, the command resolves the email in this or
 1. `aitasks/metadata/userconfig.yaml` -- the `email:` field
 2. `aitasks/metadata/emails.txt` -- the first line
 
-This matches the behavior of the [board TUI](../../board/) lock button.
+This matches the behavior of the [board TUI](../../tuis/board/) lock button.
 
 ### How It Works
 
