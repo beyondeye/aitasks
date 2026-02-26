@@ -29,3 +29,4 @@ statistics
 stats_ui
 task_workflow
 web_site
+workflows
