@@ -3,11 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [codebrowser]
-children_to_implement: [t258_5]
 created_at: 2026-02-26 12:19
-updated_at: 2026-02-26 16:40
+updated_at: 2026-02-26 17:21
+completed_at: 2026-02-26 17:21
 boardcol: now
 boardidx: 20
 ---
