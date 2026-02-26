@@ -122,3 +122,11 @@ Add `--source-key KEY` to the options section and examples.
 ### Step 9: Post-Implementation
 
 Archive task following the standard workflow.
+
+## Final Implementation Notes
+
+- **Actual work done:** All planned steps implemented: `dir_to_key()` and `compute_common_parent()` helper functions, `--source-key` flag in argument parsing, auto-rename of run directories before `RUN_DIR:` output, cleanup integration at end of `gather()`, updated help text with new option and examples. Additionally created `tests/test_extract_auto_naming.sh` with 18 tests (unit + integration).
+- **Deviations from plan:** Used bash parameter expansion `${trimmed//\//__}` instead of `sed 's|/|__|g'` for `dir_to_key()` — shellcheck SC2001 recommended this. The plan's draft had two conflicting `echo` lines in `dir_to_key()` (one using `tr` incorrectly, one using `sed`); only the correct approach was implemented. Removed unused `first_dir` variable from `compute_common_parent()`.
+- **Issues encountered:** Cleanup integration doesn't work when `AIEXPLAINS_DIR` points outside the default `aiexplains/` directory because `aitask_explain_cleanup.sh` has a hardcoded safety check against `AIEXPLAINS_DIR="aiexplains"`. This is by design (safety) and only affects non-standard configurations — production use with default or `aiexplains/codebrowser` paths works correctly.
+- **Key decisions:** Placed the rename and cleanup AFTER Python processing (`reference.yaml` generation) so all data is complete before the directory is renamed. This ensures the Python script operates on a stable directory path.
+- **Notes for sibling tasks:** The auto-naming produces directories like `aiscripts__lib__20260226_155403` which matches the `<key>__<YYYYMMDD_HHMMSS>` pattern expected by `aitask_explain_cleanup.sh`. The `dir_to_key()` bash function mirrors `explain_manager.py:_dir_to_key()` exactly. Sibling t258_3 (update explain_manager.py) can now simplify its `_find_run_dir()` since the shell script handles naming — the Python manager no longer needs to rename directories post-hoc.
