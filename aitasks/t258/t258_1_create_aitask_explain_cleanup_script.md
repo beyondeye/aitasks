@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codebrowser]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-26 15:01
-updated_at: 2026-02-26 15:01
+updated_at: 2026-02-26 15:11
 ---
 
 ## Context

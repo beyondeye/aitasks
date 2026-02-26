@@ -3,10 +3,9 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Ready
 labels: [codebrowser]
 children_to_implement: [t258_1, t258_2, t258_3, t258_4, t258_5]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-26 12:19
 updated_at: 2026-02-26 15:02
 ---
