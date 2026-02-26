@@ -30,6 +30,7 @@
       "Bash(./aiscripts/aitask_create.sh:*)",
       "Bash(./aiscripts/aitask_explain_extract_raw_data.sh:*)",
       "Bash(./aiscripts/aitask_explain_runs.sh:*)",
+      "Bash(./aiscripts/aitask_explain_cleanup.sh:*)",
       "Bash(./aiscripts/aitask_find_files.sh:*)",
       "Bash(./aiscripts/aitask_init_data.sh:*)",
       "Bash(./aiscripts/aitask_issue_update.sh:*)",

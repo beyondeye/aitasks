@@ -40,7 +40,8 @@ Reporting:
   changelog      Generate changelog from commits and plans
 
 Tools:
-  explain-runs   Manage aiexplain run directories
+  explain-runs     Manage aiexplain run directories
+  explain-cleanup  Remove stale aiexplain run directories
   zip-old        Archive old completed tasks
 
 Infrastructure:
@@ -126,7 +127,8 @@ case "${1:-help}" in
     issue-update) shift; exec "$SCRIPTS_DIR/aitask_issue_update.sh" "$@" ;;
     setup)        shift; exec "$SCRIPTS_DIR/aitask_setup.sh" "$@" ;;
     changelog)    shift; exec "$SCRIPTS_DIR/aitask_changelog.sh" "$@" ;;
-    explain-runs) shift; exec "$SCRIPTS_DIR/aitask_explain_runs.sh" "$@" ;;
+    explain-runs)    shift; exec "$SCRIPTS_DIR/aitask_explain_runs.sh" "$@" ;;
+    explain-cleanup) shift; exec "$SCRIPTS_DIR/aitask_explain_cleanup.sh" "$@" ;;
     lock)         shift; exec "$SCRIPTS_DIR/aitask_lock.sh" "$@" ;;
     sync)         shift; exec "$SCRIPTS_DIR/aitask_sync.sh" "$@" ;;
     git)          shift; source "$SCRIPTS_DIR/lib/task_utils.sh"; task_git "$@" ;;
