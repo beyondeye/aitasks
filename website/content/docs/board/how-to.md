@@ -12,7 +12,7 @@ description: "Step-by-step guides for common board operations"
 1. Focus the task card using arrow keys
 2. Press **Shift+Right** to move it to the next column, or **Shift+Left** to move it to the previous column
 
-The task is appended to the end of the target column. Column order follows the configured order, with "Unsorted / Inbox" on the far left.
+The task is appended to the end of the target column. Column order follows the configured order, with "Unsorted / Inbox" on the far left. Collapsed columns are skipped when moving tasks.
 
 **Reordering tasks within a column:**
 
@@ -40,7 +40,7 @@ A unique column ID is auto-generated from the title (lowercased, non-ASCII strip
 
 **Editing an existing column:**
 
-- **Option A:** Click the column header directly to open the edit dialog
+- **Option A:** Click the `✎` (pencil) button in the column header to open the edit dialog
 - **Option B:** Open the command palette (**Ctrl+Backslash**), select "Edit Column", then pick the column to edit
 
 You can change the title and color. The column ID is preserved.
@@ -63,6 +63,40 @@ To change the position of a column on the board:
 3. Press **Ctrl+Left** to move it one position to the left
 
 The "Unsorted / Inbox" column cannot be reordered — it always appears on the far left when it contains tasks.
+
+### How to Collapse and Expand Columns
+
+Collapsing columns saves screen space by reducing them to a narrow strip showing only the column title and task count. Tasks in collapsed columns are not rendered, which also improves performance for boards with many tasks.
+
+**Collapsing a column (mouse):**
+
+1. Click the `▼` arrow button in the column header
+2. The column shrinks to a narrow strip showing the title and task count
+
+**Collapsing a column (keyboard):**
+
+1. Focus any task card in the column you want to collapse
+2. Press **X** (Shift+X) to collapse the column
+
+**Collapsing a column (command palette):**
+
+1. Open the command palette with **Ctrl+Backslash**
+2. Select "Collapse Column"
+3. Pick the column to collapse
+
+**Expanding a collapsed column (mouse):**
+
+1. Click the `▶` arrow button in the collapsed column header
+
+**Expanding a collapsed column (command palette):**
+
+1. Open the command palette with **Ctrl+Backslash**
+2. Select "Expand Column"
+3. Pick the column to expand
+
+Collapse/expand state is saved in `board_config.json` and persists across board restarts.
+
+> **Note:** Arrow-key navigation can reach collapsed columns (they show a focusable placeholder). Task movement (**Shift+Left/Right**) skips collapsed columns. Press **X** (Shift+X) on a collapsed column's placeholder to expand it.
 
 ### How to Edit Task Metadata
 

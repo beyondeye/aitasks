@@ -27,8 +27,8 @@ description: "Keyboard shortcuts, configuration, and technical details"
 
 | Key | Action | Context |
 |-----|--------|---------|
-| `Shift+Right` | Move task to next column | Board (parent cards only) |
-| `Shift+Left` | Move task to previous column | Board (parent cards only) |
+| `Shift+Right` | Move task to next column (skips collapsed) | Board (parent cards only) |
+| `Shift+Left` | Move task to previous column (skips collapsed) | Board (parent cards only) |
 | `Shift+Up` | Swap task with one above | Board (parent cards only) |
 | `Shift+Down` | Swap task with one below | Board (parent cards only) |
 | `Ctrl+Up` | Move task to top of column | Board (parent cards only) |
@@ -44,7 +44,10 @@ description: "Keyboard shortcuts, configuration, and technical details"
 |-----|--------|---------|
 | `Ctrl+Right` | Move column one position right | Board |
 | `Ctrl+Left` | Move column one position left | Board |
+| `X` (Shift+X) | Toggle collapse/expand for focused card's column | Board (focused card) |
 | `Ctrl+Backslash` | Open command palette | Global |
+| Click `▼` / `▶` | Toggle column collapse/expand | Column header |
+| Click `✎` | Open column edit dialog | Column header |
 
 #### Modal Navigation
 
@@ -119,6 +122,7 @@ Columns are stored in `aitasks/metadata/board_config.json`:
 - **column_order** — Controls left-to-right display order
 - **settings.auto_refresh_minutes** — Interval in minutes for periodic board refresh (0 to disable, default 5)
 - **settings.sync_on_refresh** — Enable automatic sync with remote on each auto-refresh interval (default false). Requires `.aitask-data` worktree (data branch mode). When enabled, the board subtitle shows "+ sync"
+- **settings.collapsed_columns** — List of column IDs that are currently collapsed (default: empty). Collapsed columns show only their title and task count in a narrow strip. Tasks in collapsed columns are not rendered, which improves performance for boards with many tasks
 
 The "Unsorted / Inbox" column is a special dynamic column (ID: `unordered`) that appears automatically when tasks exist without a `boardcol` assignment.
 
@@ -193,8 +197,8 @@ For details on the underlying lock mechanism, see the [`ait lock` command refere
 | Dialog | Trigger | Purpose |
 |--------|---------|---------|
 | **Task Detail** | `Enter` on card / double-click | View/edit task metadata, lock status, and content; access Pick, Lock, Unlock, Save, Revert, Edit, Delete, Close buttons |
-| **Column Edit** | Command palette "Add/Edit Column" / click column header | Set column title and color |
-| **Column Select** | Command palette "Edit/Delete Column" | Pick which column to edit or delete |
+| **Column Edit** | Command palette "Add/Edit Column" / click `✎` in column header | Set column title and color |
+| **Column Select** | Command palette "Edit/Delete/Collapse/Expand Column" | Pick which column to act on |
 | **Delete Column Confirm** | After selecting column to delete | Confirm column deletion; warns about task count |
 | **Commit Message** | `c` or `C` key | Enter commit message for modified task(s) |
 | **Delete Confirm** | "Delete" button in task detail | Confirm task deletion; lists all files to be removed |

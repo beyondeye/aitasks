@@ -377,6 +377,28 @@ class TaskManager:
                 task.reload_and_save_board_fields()
         self.save_metadata()
 
+    @property
+    def collapsed_columns(self) -> list[str]:
+        """Return list of currently collapsed column IDs."""
+        return self.settings.get("collapsed_columns", [])
+
+    @collapsed_columns.setter
+    def collapsed_columns(self, value: list[str]):
+        self.settings["collapsed_columns"] = value
+
+    def toggle_column_collapsed(self, col_id: str):
+        """Toggle collapse state for a column and persist."""
+        collapsed = list(self.collapsed_columns)
+        if col_id in collapsed:
+            collapsed.remove(col_id)
+        else:
+            collapsed.append(col_id)
+        self.collapsed_columns = collapsed
+        self.save_metadata()
+
+    def is_column_collapsed(self, col_id: str) -> bool:
+        return col_id in self.collapsed_columns
+
     def delete_column(self, col_id: str):
         """Delete a column and reassign its tasks to 'unordered'."""
         for task in self.get_column_tasks(col_id):
@@ -386,6 +408,11 @@ class TaskManager:
         self.columns = [c for c in self.columns if c["id"] != col_id]
         if col_id in self.column_order:
             self.column_order.remove(col_id)
+        # Clean up collapsed state
+        collapsed = list(self.collapsed_columns)
+        if col_id in collapsed:
+            collapsed.remove(col_id)
+            self.collapsed_columns = collapsed
         self.save_metadata()
 
     def get_column_conf(self, col_id: str):
@@ -394,15 +421,73 @@ class TaskManager:
 
 # --- UI Components ---
 
-class ClickableColumnHeader(Label):
-    """A column header label that opens the column edit dialog on click."""
+class CollapseToggleButton(Static):
+    """A small button to toggle column collapse/expand."""
 
-    def __init__(self, col_id: str, title: str, task_count: int):
-        super().__init__(f"{title} ({task_count})")
+    can_focus = False
+
+    def __init__(self, col_id: str, is_collapsed: bool):
+        indicator = "\u25b6" if is_collapsed else "\u25bc"  # ▶ or ▼
+        super().__init__(indicator, classes="col-header-btn")
         self.col_id = col_id
 
-    def on_click(self):
+    def on_click(self, event):
+        event.stop()
+        self.app.toggle_column_collapse(self.col_id)
+
+
+class ColumnEditButton(Static):
+    """A small button to open the column edit dialog."""
+
+    can_focus = False
+
+    def __init__(self, col_id: str):
+        super().__init__("\u270e", classes="col-header-edit-btn")  # ✎
+        self.col_id = col_id
+
+    def on_click(self, event):
+        event.stop()
         self.app.open_column_edit(self.col_id)
+
+
+class CollapsedColumnPlaceholder(Static):
+    """A focusable placeholder inside collapsed columns, enabling keyboard expand."""
+
+    can_focus = True
+
+    def __init__(self, col_id: str):
+        super().__init__("···", classes="collapsed-placeholder")
+        self.column_id = col_id
+
+    def on_focus(self):
+        self.styles.background = "#444444"
+
+    def on_blur(self):
+        self.styles.background = None
+
+
+class ColumnHeader(Static):
+    """A composite column header with title, collapse toggle, and edit button."""
+
+    def __init__(self, col_id: str, title: str, task_count: int, is_collapsed: bool, editable: bool = True):
+        super().__init__()
+        self.col_id = col_id
+        self.col_title = title
+        self.task_count = task_count
+        self.is_collapsed = is_collapsed
+        self.editable = editable
+
+    def compose(self):
+        if self.is_collapsed:
+            yield Label(self.col_title, classes="col-header-title")
+            yield Label(f"({self.task_count})", classes="col-header-count")
+            yield CollapseToggleButton(self.col_id, is_collapsed=True)
+        else:
+            with Horizontal(classes="col-header-row"):
+                yield CollapseToggleButton(self.col_id, is_collapsed=False)
+                yield Label(f"{self.col_title} ({self.task_count})", classes="col-header-title-expanded")
+                if self.editable:
+                    yield ColumnEditButton(self.col_id)
 
 class TaskCard(Static):
     """A widget representing a single task."""
@@ -553,43 +638,51 @@ class TaskCard(Static):
 class KanbanColumn(VerticalScroll):
     """A vertical column of tasks."""
 
-    def __init__(self, col_id: str, title: str, color: str, manager: TaskManager, expanded_tasks: set = None):
+    def __init__(self, col_id: str, title: str, color: str, manager: TaskManager,
+                 expanded_tasks: set = None, collapsed: bool = False):
         super().__init__()
         self.col_id = col_id
         self.col_title = title
         self.col_color = color
         self.manager = manager
         self.expanded_tasks = expanded_tasks or set()
+        self.collapsed = collapsed
 
     def compose(self):
         # Header
         task_count = len(self.manager.get_column_tasks(self.col_id))
-        if self.col_id == "unordered":
-            header = Label(f"{self.col_title} ({task_count})")
-        else:
-            header = ClickableColumnHeader(self.col_id, self.col_title, task_count)
+        editable = self.col_id != "unordered"
+        header = ColumnHeader(self.col_id, self.col_title, task_count,
+                              is_collapsed=self.collapsed, editable=editable)
         header.styles.background = self.col_color
         header.styles.color = "black"
         header.styles.width = "100%"
         header.styles.text_align = "center"
         yield header
 
-        # Task Cards
-        tasks = self.manager.get_column_tasks(self.col_id)
-        for task in tasks:
-            yield TaskCard(task, self.manager, column_id=self.col_id)
-            # Render children if parent is expanded
-            if task.filename in self.expanded_tasks:
-                task_num, _ = TaskCard._parse_filename(task.filename)
-                children = self.manager.get_child_tasks_for_parent(task_num)
-                for child in children:
-                    with Horizontal(classes="child-wrapper"):
-                        yield Static("↳", classes="child-connector")
-                        yield TaskCard(child, self.manager, is_child=True, column_id=self.col_id)
+        # Task Cards — only render when not collapsed
+        if self.collapsed:
+            yield CollapsedColumnPlaceholder(self.col_id)
+        else:
+            tasks = self.manager.get_column_tasks(self.col_id)
+            for task in tasks:
+                yield TaskCard(task, self.manager, column_id=self.col_id)
+                # Render children if parent is expanded
+                if task.filename in self.expanded_tasks:
+                    task_num, _ = TaskCard._parse_filename(task.filename)
+                    children = self.manager.get_child_tasks_for_parent(task_num)
+                    for child in children:
+                        with Horizontal(classes="child-wrapper"):
+                            yield Static("↳", classes="child-connector")
+                            yield TaskCard(child, self.manager, is_child=True, column_id=self.col_id)
 
     def on_mount(self):
-        self.styles.width = 40
-        self.styles.min_width = 30
+        if self.collapsed:
+            self.styles.width = 12
+            self.styles.min_width = 10
+        else:
+            self.styles.width = 40
+            self.styles.min_width = 30
         self.styles.border = ("round", self.col_color)
         self.styles.margin = (0, 1)
 
@@ -1964,21 +2057,22 @@ class ColumnSelectItem(Static):
 
 
 class ColumnSelectScreen(ModalScreen):
-    """Select a column from the list for editing/deleting."""
+    """Select a column from the list for editing/deleting/collapsing/expanding."""
 
     BINDINGS = [
         Binding("escape", "cancel", "Close", show=False),
     ]
 
-    def __init__(self, manager: TaskManager, action_label: str):
+    def __init__(self, manager: TaskManager, action_label: str, columns: list[dict] = None):
         super().__init__()
         self.manager = manager
         self.action_label = action_label
+        self.columns_list = columns if columns is not None else manager.columns
 
     def compose(self):
         with Container(id="dep_picker_dialog"):
             yield Label(f"Select column to {self.action_label.lower()}:", id="dep_picker_title")
-            for col in self.manager.columns:
+            for col in self.columns_list:
                 yield ColumnSelectItem(col)
 
     def action_cancel(self):
@@ -2008,6 +2102,16 @@ class KanbanCommandProvider(Provider):
             help="Delete a column (tasks move to Unsorted)",
         )
         yield DiscoveryHit(
+            display="Collapse Column",
+            command=app.action_collapse_column,
+            help="Collapse a column to minimize its width",
+        )
+        yield DiscoveryHit(
+            display="Expand Column",
+            command=app.action_expand_column,
+            help="Expand a collapsed column to full width",
+        )
+        yield DiscoveryHit(
             display="Settings",
             command=app.action_open_settings,
             help="Configure board settings (auto-refresh interval)",
@@ -2025,6 +2129,8 @@ class KanbanCommandProvider(Provider):
             ("Add Column", app.action_add_column, "Add a new column to the board"),
             ("Edit Column", app.action_edit_column, "Edit a column's title and color"),
             ("Delete Column", app.action_delete_column, "Delete a column (tasks move to Unsorted)"),
+            ("Collapse Column", app.action_collapse_column, "Collapse a column to minimize its width"),
+            ("Expand Column", app.action_expand_column, "Expand a collapsed column to full width"),
             ("Settings", app.action_open_settings, "Configure board settings (auto-refresh interval)"),
             ("Sync with Remote", app.action_sync_remote, "Push local changes and pull remote changes"),
         ]
@@ -2093,6 +2199,14 @@ class KanbanApp(App):
     .child-wrapper TaskCard { width: 1fr; }
     .child-connector { width: auto; height: auto; padding: 0; margin: 1 0 0 0; color: $text-muted; }
     Input { dock: top; margin: 0 0 1 0; }
+    .col-header-btn { width: auto; height: 1; padding: 0 1; }
+    .col-header-edit-btn { width: auto; height: 1; padding: 0 1; background: black; color: white; }
+    .col-header-row { height: auto; width: 100%; }
+    .col-header-title { text-align: center; width: 100%; }
+    .col-header-title-expanded { width: 1fr; text-align: center; }
+    .col-header-count { text-align: center; width: 100%; color: $text-muted; }
+    .collapsed-placeholder { height: 1; width: 100%; text-align: center; color: $text-muted; }
+    .collapsed-placeholder:focus { background: $primary 30%; }
     #dep_picker_dialog {
         width: 60%;
         height: auto;
@@ -2208,6 +2322,8 @@ class KanbanApp(App):
         # Column Movement
         Binding("ctrl+right", "move_col_right", "Move Col >"),
         Binding("ctrl+left", "move_col_left", "< Move Col"),
+        # Column Collapse
+        Binding("X", "toggle_column_collapsed", "Collapse Col", show=False),
         # Settings
         Binding("O", "open_settings", "Options"),
     ]
@@ -2310,13 +2426,21 @@ class KanbanApp(App):
         # 1. Unordered/Backlog Column (Dynamic)
         unordered_tasks = self.manager.get_column_tasks("unordered")
         if unordered_tasks:
-            container.mount(KanbanColumn("unordered", "Unsorted / Inbox", "gray", self.manager, self.expanded_tasks))
+            is_collapsed = self.manager.is_column_collapsed("unordered")
+            container.mount(KanbanColumn(
+                "unordered", "Unsorted / Inbox", "gray", self.manager,
+                self.expanded_tasks, collapsed=is_collapsed,
+            ))
 
         # 2. Configured Columns
         for col_id in self.manager.column_order:
             conf = next((c for c in self.manager.columns if c["id"] == col_id), None)
             if conf:
-                container.mount(KanbanColumn(conf["id"], conf["title"], conf["color"], self.manager, self.expanded_tasks))
+                is_collapsed = self.manager.is_column_collapsed(col_id)
+                container.mount(KanbanColumn(
+                    conf["id"], conf["title"], conf["color"], self.manager,
+                    self.expanded_tasks, collapsed=is_collapsed,
+                ))
 
         self.apply_filter()
 
@@ -2362,6 +2486,11 @@ class KanbanApp(App):
         cards = list(self.query(TaskCard))
         if cards:
             cards[0].focus()
+            return
+        # Fall back to first collapsed column placeholder
+        placeholders = list(self.query(CollapsedColumnPlaceholder))
+        if placeholders:
+            placeholders[0].focus()
 
     def _focused_card(self):
         """Return the currently focused TaskCard, or None."""
@@ -2385,6 +2514,9 @@ class KanbanApp(App):
             return
         focused = self._focused_card()
         if not focused:
+            # If on a collapsed placeholder, up/down is a no-op
+            if self._focused_collapsed_placeholder():
+                return
             self.action_focus_board()
             return
         cards = self._get_column_cards(focused.column_id)
@@ -2398,6 +2530,8 @@ class KanbanApp(App):
             return
         focused = self._focused_card()
         if not focused:
+            if self._focused_collapsed_placeholder():
+                return
             self.action_focus_board()
             return
         cards = self._get_column_cards(focused.column_id)
@@ -2421,24 +2555,41 @@ class KanbanApp(App):
             return
         self._nav_lateral(1)
 
-    def _nav_lateral(self, direction: int):
+    def _get_focused_col_id(self):
+        """Return the column ID of the currently focused element (card or placeholder)."""
         focused = self._focused_card()
-        if not focused:
+        if focused:
+            return focused.column_id
+        placeholder = self._focused_collapsed_placeholder()
+        if placeholder:
+            return placeholder.column_id
+        return None
+
+    def _nav_lateral(self, direction: int):
+        cur_col = self._get_focused_col_id()
+        if not cur_col:
             self.action_focus_board()
             return
         col_ids = self._get_visible_col_ids()
-        cur_col = focused.column_id
         if cur_col not in col_ids:
             return
         cur_idx = col_ids.index(cur_col)
-        # Skip over empty columns to find the next column with tasks
+        focused = self._focused_card()
+        # Find the next column with focusable content
         new_idx = cur_idx + direction
         while 0 <= new_idx < len(col_ids):
-            target_cards = self._get_column_cards(col_ids[new_idx])
+            target_col_id = col_ids[new_idx]
+            # Check for collapsed column placeholder
+            placeholders = [p for p in self.query(CollapsedColumnPlaceholder)
+                           if p.column_id == target_col_id]
+            if placeholders:
+                placeholders[0].focus()
+                return
+            target_cards = self._get_column_cards(target_col_id)
             if target_cards:
                 # Try to land on the same vertical position
                 old_cards = self._get_column_cards(cur_col)
-                old_pos = next((i for i, c in enumerate(old_cards) if c is focused), 0)
+                old_pos = next((i for i, c in enumerate(old_cards) if c is focused), 0) if focused else 0
                 target_pos = min(old_pos, len(target_cards) - 1)
                 target_cards[target_pos].focus()
                 return
@@ -2648,7 +2799,14 @@ class KanbanApp(App):
         if current_col_id not in cols: return
 
         idx = cols.index(current_col_id)
+        # Skip over collapsed columns
         new_idx = idx + direction
+        while 0 <= new_idx < len(cols):
+            if not self.manager.is_column_collapsed(cols[new_idx]):
+                break
+            new_idx += direction
+        else:
+            return
 
         if 0 <= new_idx < len(cols):
             new_col = cols[new_idx]
@@ -2800,6 +2958,92 @@ class KanbanApp(App):
         self.push_screen(
             ColumnEditScreen(self.manager, col_id=col_id, mode="edit"),
             self._handle_column_edit_result,
+        )
+
+    # --- Column Collapse/Expand ---
+
+    def toggle_column_collapse(self, col_id: str):
+        """Toggle collapse/expand state for a column."""
+        is_now_collapsed = not self.manager.is_column_collapsed(col_id)
+        self.manager.toggle_column_collapsed(col_id)
+        focused = self._focused_card()
+        refocus = ""
+        if focused and focused.column_id == col_id and is_now_collapsed:
+            # Card is in the column being collapsed — no refocus target
+            pass
+        elif focused:
+            refocus = focused.task_data.filename
+        self.refresh_board(refocus_filename=refocus)
+
+    def _focused_collapsed_placeholder(self):
+        """Return the focused CollapsedColumnPlaceholder, or None."""
+        results = self.query("CollapsedColumnPlaceholder:focus")
+        return results.first() if results else None
+
+    def action_toggle_column_collapsed(self):
+        """Toggle collapse for the column of the currently focused task (Shift+X)."""
+        if self._modal_is_active():
+            return
+        focused = self._focused_card()
+        if focused:
+            self.toggle_column_collapse(focused.column_id)
+            return
+        # Check if a collapsed column placeholder is focused
+        placeholder = self._focused_collapsed_placeholder()
+        if placeholder:
+            self.toggle_column_collapse(placeholder.column_id)
+            return
+        self.notify("No task selected", severity="warning")
+
+    def action_collapse_column(self):
+        """Open column picker to collapse a column (command palette)."""
+        if self._modal_is_active():
+            return
+        expanded_cols = [c for c in self.manager.columns
+                         if not self.manager.is_column_collapsed(c["id"])]
+        # Include unordered if it has tasks and is not collapsed
+        unordered_tasks = self.manager.get_column_tasks("unordered")
+        if unordered_tasks and not self.manager.is_column_collapsed("unordered"):
+            expanded_cols.insert(0, {"id": "unordered", "title": "Unsorted / Inbox", "color": "gray"})
+        if not expanded_cols:
+            self.notify("No columns to collapse", severity="warning")
+            return
+
+        def on_col_selected(col_id):
+            if col_id:
+                self.toggle_column_collapse(col_id)
+                conf = self.manager.get_column_conf(col_id)
+                title = conf["title"] if conf else col_id
+                self.notify(f"Collapsed: {title}", severity="information")
+
+        self.push_screen(
+            ColumnSelectScreen(self.manager, "Collapse", columns=expanded_cols),
+            on_col_selected,
+        )
+
+    def action_expand_column(self):
+        """Open column picker to expand a collapsed column (command palette)."""
+        if self._modal_is_active():
+            return
+        collapsed_cols = [c for c in self.manager.columns
+                          if self.manager.is_column_collapsed(c["id"])]
+        # Include unordered if collapsed
+        if self.manager.is_column_collapsed("unordered"):
+            collapsed_cols.insert(0, {"id": "unordered", "title": "Unsorted / Inbox", "color": "gray"})
+        if not collapsed_cols:
+            self.notify("No columns to expand", severity="warning")
+            return
+
+        def on_col_selected(col_id):
+            if col_id:
+                self.toggle_column_collapse(col_id)
+                conf = self.manager.get_column_conf(col_id)
+                title = conf["title"] if conf else col_id
+                self.notify(f"Expanded: {title}", severity="information")
+
+        self.push_screen(
+            ColumnSelectScreen(self.manager, "Expand", columns=collapsed_cols),
+            on_col_selected,
         )
 
     # --- Settings ---
