@@ -143,6 +143,20 @@ class CodeBrowserApp(App):
                 yield CodeViewer(id="code_viewer")
         yield Footer()
 
+    def on_resize(self, event) -> None:
+        """Adjust file tree width for terminal size."""
+        width = event.size.width
+        try:
+            file_tree = self.query_one("#file_tree")
+        except Exception:
+            return
+        if width >= 120:
+            file_tree.styles.width = 35
+        elif width >= 80:
+            file_tree.styles.width = 28
+        else:
+            file_tree.styles.width = 22
+
     def _update_info_bar(self) -> None:
         """Rebuild and display the info bar from current state."""
         if not self._current_file_path:

@@ -199,9 +199,26 @@ class CodeViewer(VerticalScroll):
                     gutter[idx - vp_start] = Text(label, style=color)
         return gutter
 
+    def _annotation_col_width(self) -> int:
+        """Return annotation column width, adjusted for narrow terminals."""
+        try:
+            app_width = self.app.size.width
+        except Exception:
+            return 12
+        if app_width < 80:
+            return 10
+        return 12
+
     def _rebuild_display(self) -> None:
         """Build and render the line-number + code + annotation table."""
         t0 = time.perf_counter()
+
+        # Calculate column widths dynamically based on available space
+        LINE_NUM_WIDTH = 5
+        available = self.size.width if self.size.width > 0 else 120
+        show_ann = self._show_annotations and self._annotations
+        ann_width = self._annotation_col_width() if show_ann else 0
+        code_max_width = max(20, available - LINE_NUM_WIDTH - ann_width - 2)
 
         table = Table(
             show_header=False,
@@ -209,9 +226,9 @@ class CodeViewer(VerticalScroll):
             box=None,
             pad_edge=False,
         )
-        table.add_column(style="dim", justify="right", width=5, no_wrap=True)
-        table.add_column(no_wrap=True)
-        table.add_column(width=12, no_wrap=True, justify="left")
+        table.add_column(style="dim", justify="right", width=LINE_NUM_WIDTH, no_wrap=True)
+        table.add_column(no_wrap=True, width=code_max_width)
+        table.add_column(width=ann_width, no_wrap=True, justify="left")
 
         # Determine line range to render
         if self._viewport_mode:
@@ -245,9 +262,10 @@ class CodeViewer(VerticalScroll):
                 row_style = CURSOR_STYLE
             elif sel_min is not None and sel_min <= file_idx <= sel_max:
                 row_style = SELECTION_STYLE
-            if len(line) > self.MAX_LINE_WIDTH:
+            effective_max = min(self.MAX_LINE_WIDTH, code_max_width)
+            if len(line) > effective_max:
                 line = line.copy()
-                line.truncate(self.MAX_LINE_WIDTH)
+                line.truncate(effective_max)
                 line.append("\u2026", style="dim")
             table.add_row(
                 Text(str(file_idx + 1), style="dim"), line, ann_text, style=row_style
@@ -267,6 +285,11 @@ class CodeViewer(VerticalScroll):
         elapsed = time.perf_counter() - t0
         if elapsed > 0.05:
             self.log(f"_rebuild_display: {elapsed*1000:.1f}ms ({self._total_lines} lines, viewport={self._viewport_mode})")
+
+    def on_resize(self, event) -> None:
+        """Rebuild display when widget size changes so column widths adapt."""
+        if self._total_lines > 0:
+            self._rebuild_display()
 
     def _selection_bounds(self) -> tuple[int | None, int | None]:
         """Return (min, max) of selection range, or (None, None)."""
