@@ -257,6 +257,7 @@ class CodeBrowserApp(App):
         file_data = self._current_explain_data.get(rel_path)
         if file_data and file_data.is_binary:
             code_viewer.set_annotations([])
+            code_viewer.show_binary_info(file_data.commit_timeline)
             n = len(file_data.commit_timeline)
             self._annotation_info += f" (binary, {n} commit{'s' if n != 1 else ''})"
             self._update_info_bar()

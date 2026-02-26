@@ -90,6 +90,38 @@ class CodeViewer(VerticalScroll):
         self._reset_state()
         self.query_one("#code_display", Static).update(message)
 
+    def show_binary_info(self, commit_timeline: list[dict]) -> None:
+        """Show binary file info with commit timeline."""
+        self._lines = []
+        self._total_lines = 0
+        self._highlighted_lines = []
+        self._reset_state()
+
+        content = Text()
+        content.append("Binary file — cannot display text content\n\n", style="dim italic")
+
+        if commit_timeline:
+            content.append(
+                f"Commit history ({len(commit_timeline)} commit"
+                f"{'s' if len(commit_timeline) != 1 else ''}):\n\n",
+                style="bold",
+            )
+            for commit in commit_timeline:
+                short_hash = commit.get("hash", "???????")[:7]
+                message = commit.get("message", "(no message)")
+                tasks = commit.get("tasks", [])
+                task_str = ", ".join(f"t{t}" for t in tasks) if tasks else ""
+
+                content.append(f"  {short_hash}", style="cyan")
+                content.append(f"  {message}", style="")
+                if task_str:
+                    content.append(f"  [{task_str}]", style="green")
+                content.append("\n")
+        else:
+            content.append("No commit history available.\n", style="dim")
+
+        self.query_one("#code_display", Static).update(content)
+
     def load_file(self, file_path: Path) -> None:
         """Load and display a file with syntax highlighting."""
         self._file_path = file_path

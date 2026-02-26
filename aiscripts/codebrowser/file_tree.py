@@ -51,7 +51,7 @@ class ProjectFileTree(DirectoryTree):
         root = Path(self.path)
         result = []
         for path in paths:
-            if path.name.startswith(".") or path.name in EXCLUDED_NAMES:
+            if path.name in EXCLUDED_NAMES:
                 continue
             try:
                 rel = str(path.relative_to(root))

@@ -68,14 +68,24 @@ class ExplainManager:
         rel_dir = directory.relative_to(self._root) if directory != self._root else Path(".")
 
         # List direct children only (filter out files in subdirectories)
-        result = subprocess.run(
-            ["git", "ls-files", str(rel_dir) + "/"],
-            capture_output=True, text=True, cwd=str(self._root),
-        )
+        rel_dir_str = str(rel_dir)
+        if rel_dir_str == ".":
+            # Root directory: list all files, filter to those with no subdirectory
+            result = subprocess.run(
+                ["git", "ls-files"],
+                capture_output=True, text=True, cwd=str(self._root),
+            )
+            dir_match = ""
+        else:
+            result = subprocess.run(
+                ["git", "ls-files", rel_dir_str + "/"],
+                capture_output=True, text=True, cwd=str(self._root),
+            )
+            dir_match = rel_dir_str
         all_files = [f for f in result.stdout.strip().split("\n") if f]
         direct_files = [
             f for f in all_files
-            if os.path.dirname(f) == str(rel_dir)
+            if os.path.dirname(f) == dir_match
         ]
 
         if not direct_files:
