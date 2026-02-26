@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [aitask_review]
-children_to_implement: [t259_1, t259_2, t259_3]
+children_to_implement: [t259_1, t259_2, t259_3, t259_4]
 created_at: 2026-02-26 12:45
-updated_at: 2026-02-26 18:42
+updated_at: 2026-02-26 18:43
 boardidx: 40
 ---
 
