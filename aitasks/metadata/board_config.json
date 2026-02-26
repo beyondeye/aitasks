@@ -22,6 +22,9 @@
     "backlog"
   ],
   "settings": {
-    "auto_refresh_minutes": 5
+    "auto_refresh_minutes": 5,
+    "collapsed_columns": [
+      "backlog"
+    ]
   }
 }
