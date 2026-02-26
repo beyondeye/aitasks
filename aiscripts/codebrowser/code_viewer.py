@@ -1,5 +1,6 @@
 """Code viewer widget with syntax highlighting, line numbers, and annotation gutter."""
 
+import time
 from pathlib import Path
 
 from textual.binding import Binding
@@ -40,6 +41,8 @@ class CodeViewer(VerticalScroll):
         Binding("shift+up", "select_up", "Select up", show=False),
         Binding("shift+down", "select_down", "Select down", show=False),
         Binding("escape", "clear_selection", "Clear selection", show=False),
+        Binding("pagedown", "page_down", "Page down", show=False),
+        Binding("pageup", "page_up", "Page up", show=False),
     ]
 
     MAX_LINE_WIDTH = 500
@@ -57,6 +60,14 @@ class CodeViewer(VerticalScroll):
         self._selection_end: int | None = None
         self._selection_active: bool = False
         self._mouse_dragging: bool = False
+        self._edge_scroll_timer = None
+        self._edge_scroll_direction: int = 0  # +1 down, -1 up, 0 none
+        # Viewport windowing (for large files)
+        self._viewport_mode: bool = False
+        self._viewport_start: int = 0
+        self._viewport_size: int = 200
+        self._viewport_threshold: int = 2000
+        self._viewport_margin: int = 30
 
     def compose(self):
         yield Static("Select a file to view", id="code_display")
@@ -68,6 +79,8 @@ class CodeViewer(VerticalScroll):
         self._selection_start = None
         self._selection_end = None
         self._selection_active = False
+        self._viewport_mode = False
+        self._viewport_start = 0
 
     def _show_message(self, message: str) -> None:
         """Show a placeholder message instead of code content."""
@@ -106,6 +119,7 @@ class CodeViewer(VerticalScroll):
         self._lines = content.splitlines()
         self._total_lines = len(self._lines)
         self._reset_state()
+        self._viewport_mode = self._total_lines > self._viewport_threshold
 
         lexer = Syntax.guess_lexer(str(file_path), code=content)
         syntax = Syntax(content, lexer, theme="monokai")
@@ -126,22 +140,59 @@ class CodeViewer(VerticalScroll):
         self._show_annotations = not self._show_annotations
         self._rebuild_display()
 
-    def _build_annotation_gutter(self) -> list[Text]:
-        """Build per-line annotation text from AnnotationRange data."""
-        gutter = [Text("") for _ in range(len(self._highlighted_lines))]
+    def _ensure_viewport_contains_cursor(self) -> bool:
+        """Shift viewport window so the cursor stays within the margin.
+
+        Returns True if the viewport was moved (caller should rebuild display).
+        """
+        if not self._viewport_mode:
+            return False
+        old_start = self._viewport_start
+        if self._cursor_line < self._viewport_start + self._viewport_margin:
+            self._viewport_start = max(0, self._cursor_line - self._viewport_margin)
+        elif self._cursor_line >= self._viewport_start + self._viewport_size - self._viewport_margin:
+            self._viewport_start = min(
+                max(0, self._total_lines - self._viewport_size),
+                self._cursor_line - self._viewport_size + self._viewport_margin + 1,
+            )
+        self._viewport_start = max(0, self._viewport_start)
+        return self._viewport_start != old_start
+
+    @property
+    def viewport_info(self) -> str:
+        """Return viewport position string for the info bar, or empty string."""
+        if not self._viewport_mode:
+            return ""
+        vp_end = min(self._viewport_start + self._viewport_size, self._total_lines)
+        return f"(viewport {self._viewport_start + 1}\u2013{vp_end})"
+
+    def _build_annotation_gutter(
+        self, vp_start: int = 0, vp_end: int | None = None,
+    ) -> list[Text]:
+        """Build per-line annotation text from AnnotationRange data.
+
+        When *vp_start*/*vp_end* are given the returned list covers only
+        lines ``[vp_start, vp_end)`` (0-indexed).
+        """
+        if vp_end is None:
+            vp_end = len(self._highlighted_lines)
+        size = vp_end - vp_start
+        gutter = [Text("") for _ in range(size)]
         for ann in self._annotations:
             label = ",".join(f"t{tid}" for tid in ann.task_ids)
             color = ANNOTATION_COLORS[
                 hash(ann.task_ids[0]) % len(ANNOTATION_COLORS)
             ] if ann.task_ids else "dim"
             for line_num in range(ann.start_line, ann.end_line + 1):
-                idx = line_num - 1
-                if 0 <= idx < len(gutter):
-                    gutter[idx] = Text(label, style=color)
+                idx = line_num - 1  # 0-indexed file line
+                if vp_start <= idx < vp_end:
+                    gutter[idx - vp_start] = Text(label, style=color)
         return gutter
 
     def _rebuild_display(self) -> None:
         """Build and render the line-number + code + annotation table."""
+        t0 = time.perf_counter()
+
         table = Table(
             show_header=False,
             show_edge=False,
@@ -152,29 +203,60 @@ class CodeViewer(VerticalScroll):
         table.add_column(no_wrap=True)
         table.add_column(width=12, no_wrap=True, justify="left")
 
-        if self._show_annotations and self._annotations:
-            gutter = self._build_annotation_gutter()
+        # Determine line range to render
+        if self._viewport_mode:
+            vp_start = self._viewport_start
+            vp_end = min(vp_start + self._viewport_size, self._total_lines)
         else:
-            gutter = [Text("") for _ in range(len(self._highlighted_lines))]
+            vp_start = 0
+            vp_end = self._total_lines
+
+        if self._show_annotations and self._annotations:
+            gutter = self._build_annotation_gutter(vp_start, vp_end)
+        else:
+            gutter = [Text("") for _ in range(vp_end - vp_start)]
 
         sel_min, sel_max = self._selection_bounds()
 
-        for i, line in enumerate(self._highlighted_lines):
-            ann_text = gutter[i] if i < len(gutter) else Text("")
+        # Top indicator for viewport mode
+        if self._viewport_mode and vp_start > 0:
+            table.add_row(
+                Text("", style="dim"),
+                Text(f"\u00b7\u00b7\u00b7 {vp_start} lines above \u00b7\u00b7\u00b7", style="dim italic"),
+                Text(""),
+            )
+
+        for file_idx in range(vp_start, vp_end):
+            gutter_idx = file_idx - vp_start
+            line = self._highlighted_lines[file_idx]
+            ann_text = gutter[gutter_idx] if gutter_idx < len(gutter) else Text("")
             row_style = None
-            if i == self._cursor_line:
+            if file_idx == self._cursor_line:
                 row_style = CURSOR_STYLE
-            elif sel_min is not None and sel_min <= i <= sel_max:
+            elif sel_min is not None and sel_min <= file_idx <= sel_max:
                 row_style = SELECTION_STYLE
             if len(line) > self.MAX_LINE_WIDTH:
                 line = line.copy()
                 line.truncate(self.MAX_LINE_WIDTH)
-                line.append("…", style="dim")
+                line.append("\u2026", style="dim")
             table.add_row(
-                Text(str(i + 1), style="dim"), line, ann_text, style=row_style
+                Text(str(file_idx + 1), style="dim"), line, ann_text, style=row_style
+            )
+
+        # Bottom indicator for viewport mode
+        if self._viewport_mode and vp_end < self._total_lines:
+            lines_below = self._total_lines - vp_end
+            table.add_row(
+                Text("", style="dim"),
+                Text(f"\u00b7\u00b7\u00b7 {lines_below} lines below \u00b7\u00b7\u00b7", style="dim italic"),
+                Text(""),
             )
 
         self.query_one("#code_display", Static).update(table)
+
+        elapsed = time.perf_counter() - t0
+        if elapsed > 0.05:
+            self.log(f"_rebuild_display: {elapsed*1000:.1f}ms ({self._total_lines} lines, viewport={self._viewport_mode})")
 
     def _selection_bounds(self) -> tuple[int | None, int | None]:
         """Return (min, max) of selection range, or (None, None)."""
@@ -187,13 +269,23 @@ class CodeViewer(VerticalScroll):
     def _scroll_cursor_visible(self) -> None:
         """Scroll only if the cursor line is outside the visible viewport."""
         margin = 2
+        # In viewport mode, use cursor position relative to the rendered table
+        cursor_row = self._cursor_line
+        if self._viewport_mode:
+            # Account for the "lines above" indicator row
+            cursor_row = self._cursor_line - self._viewport_start
+            if self._viewport_start > 0:
+                cursor_row += 1
+            # Clamp to valid table range (cursor may temporarily drift outside viewport during drag)
+            max_row = self._viewport_content_height() - 1
+            cursor_row = max(0, min(cursor_row, max_row))
         top = self.scroll_y
         bottom = top + self.size.height - 1
-        if self._cursor_line < top + margin:
-            self.scroll_to(y=max(0, self._cursor_line - margin), animate=False)
-        elif self._cursor_line > bottom - margin:
+        if cursor_row < top + margin:
+            self.scroll_to(y=max(0, cursor_row - margin), animate=False)
+        elif cursor_row > bottom - margin:
             self.scroll_to(
-                y=self._cursor_line - self.size.height + 1 + margin, animate=False
+                y=cursor_row - self.size.height + 1 + margin, animate=False
             )
 
     def move_cursor(self, line: int) -> None:
@@ -204,6 +296,7 @@ class CodeViewer(VerticalScroll):
         line = max(0, min(line, self._total_lines - 1))
         self._cursor_line = line
         self._selection_active = False
+        self._ensure_viewport_contains_cursor()
         self._rebuild_display()
         self._scroll_cursor_visible()
         self.post_message(self.CursorMoved(line + 1, self._total_lines))
@@ -219,6 +312,7 @@ class CodeViewer(VerticalScroll):
         new_line = max(0, min(self._cursor_line + direction, self._total_lines - 1))
         self._cursor_line = new_line
         self._selection_end = new_line
+        self._ensure_viewport_contains_cursor()
         self._rebuild_display()
         self._scroll_cursor_visible()
         self.post_message(self.CursorMoved(new_line + 1, self._total_lines))
@@ -252,17 +346,108 @@ class CodeViewer(VerticalScroll):
     def action_clear_selection(self) -> None:
         self.clear_selection()
 
+    def action_page_down(self) -> None:
+        """Move cursor down by a screen-height of lines."""
+        self.move_cursor(self._cursor_line + max(1, self.size.height - 2))
+
+    def action_page_up(self) -> None:
+        """Move cursor up by a screen-height of lines."""
+        self.move_cursor(self._cursor_line - max(1, self.size.height - 2))
+
+    def _viewport_content_height(self) -> int:
+        """Return the number of rendered rows in viewport mode (data + indicators)."""
+        vp_end = min(self._viewport_start + self._viewport_size, self._total_lines)
+        rows = vp_end - self._viewport_start
+        if self._viewport_start > 0:
+            rows += 1  # "lines above" indicator
+        if vp_end < self._total_lines:
+            rows += 1  # "lines below" indicator
+        return rows
+
+    # -- Edge scroll (constant-speed scrolling during mouse drag) ------------
+
+    def _start_edge_scroll(self, direction: int) -> None:
+        """Start constant-speed edge scrolling in the given direction."""
+        if self._edge_scroll_direction == direction:
+            return
+        self._stop_edge_scroll()
+        self._edge_scroll_direction = direction
+        self._edge_scroll_timer = self.set_interval(1 / 20, self._edge_scroll_tick)
+
+    def _stop_edge_scroll(self) -> None:
+        """Stop edge scrolling."""
+        if self._edge_scroll_timer is not None:
+            self._edge_scroll_timer.stop()
+            self._edge_scroll_timer = None
+        self._edge_scroll_direction = 0
+
+    def _edge_scroll_tick(self) -> None:
+        """Timer callback: move cursor by 1 line at constant rate."""
+        if not self._mouse_dragging or self._edge_scroll_direction == 0:
+            self._stop_edge_scroll()
+            return
+        line = self._cursor_line + self._edge_scroll_direction
+        line = max(0, min(line, self._total_lines - 1))
+        if line == self._cursor_line:
+            self._stop_edge_scroll()
+            return
+        self._cursor_line = line
+        self._selection_end = line
+        # During edge scroll, position viewport so cursor is at the edge
+        if self._viewport_mode:
+            if self._edge_scroll_direction > 0:
+                desired = max(0, line - self._viewport_size + 3)
+            else:
+                desired = max(0, line - 2)
+            self._viewport_start = min(
+                desired, max(0, self._total_lines - self._viewport_size)
+            )
+        self._rebuild_display()
+        self._scroll_cursor_visible()
+        self.post_message(self.CursorMoved(line + 1, self._total_lines))
+
     # -- Mouse handlers -------------------------------------------------------
+
+    def on_mouse_scroll_down(self, event) -> None:
+        """In viewport mode, shift viewport when scrolling past the bottom."""
+        if not self._viewport_mode:
+            return
+        vp_end = min(self._viewport_start + self._viewport_size, self._total_lines)
+        if vp_end >= self._total_lines:
+            return
+        max_scroll = max(0, self._viewport_content_height() - self.size.height)
+        if self.scroll_y >= max_scroll - 1:
+            shift = min(3, self._total_lines - vp_end)
+            self._viewport_start += shift
+            self._rebuild_display()
+
+    def on_mouse_scroll_up(self, event) -> None:
+        """In viewport mode, shift viewport when scrolling past the top."""
+        if not self._viewport_mode or self._viewport_start <= 0:
+            return
+        if self.scroll_y <= 1:
+            shift = min(3, self._viewport_start)
+            self._viewport_start -= shift
+            self._rebuild_display()
+            self.scroll_to(y=shift, animate=False)
 
     def on_mouse_down(self, event) -> None:
         """Left-click moves cursor to clicked line and starts drag tracking.
 
         Before capture_mouse(), event.y is in content coordinates (includes
-        scroll offset), so no scroll_y adjustment is needed.
+        scroll offset), so no scroll_y adjustment is needed.  In viewport mode,
+        the rendered table starts at _viewport_start so we add the offset.
         """
         if event.button != 1 or self._total_lines == 0:
             return
-        line = max(0, min(event.y, self._total_lines - 1))
+        row = event.y
+        if self._viewport_mode:
+            # Skip the "lines above" indicator row
+            if self._viewport_start > 0:
+                row = max(0, row - 1)
+            line = max(0, min(row + self._viewport_start, self._total_lines - 1))
+        else:
+            line = max(0, min(row, self._total_lines - 1))
         self._cursor_line = line
         self._selection_start = line
         self._selection_end = line
@@ -277,18 +462,28 @@ class CodeViewer(VerticalScroll):
 
         After capture_mouse(), event.y is in viewport coordinates (relative to
         the widget's visible area), so scroll_y must be added for the content
-        line. For edge scrolling (mouse outside viewport), use cursor ± 1 to
-        avoid a feedback loop with _scroll_cursor_visible().
+        line.  When mouse is outside the visible area, start constant-speed
+        edge scrolling via a timer (stops when mouse returns inside).
         """
         if not self._mouse_dragging:
             return
         viewport_height = max(1, self.size.height)
         if event.y < 0:
-            line = max(0, self._cursor_line - 1)
+            self._start_edge_scroll(-1)
+            return
         elif event.y >= viewport_height:
-            line = min(self._total_lines - 1, self._cursor_line + 1)
+            self._start_edge_scroll(1)
+            return
         else:
-            line = int(self.scroll_y) + event.y
+            self._stop_edge_scroll()
+            row = int(self.scroll_y) + event.y
+            if self._viewport_mode:
+                # Skip the "lines above" indicator row
+                if self._viewport_start > 0:
+                    row = max(0, row - 1)
+                line = row + self._viewport_start
+            else:
+                line = row
             line = max(0, min(line, self._total_lines - 1))
         if line == self._cursor_line:
             return
@@ -303,10 +498,13 @@ class CodeViewer(VerticalScroll):
         if not self._mouse_dragging:
             return
         self._mouse_dragging = False
+        self._stop_edge_scroll()
         self.release_mouse()
+        # Snap viewport to final cursor position (may have drifted during throttled drag)
+        self._ensure_viewport_contains_cursor()
         if self._selection_start == self._selection_end:
             # Single click (no drag) — clear selection, just keep cursor
             self._selection_start = None
             self._selection_end = None
             self._selection_active = False
-            self._rebuild_display()
+        self._rebuild_display()

@@ -171,7 +171,12 @@ class CodeBrowserApp(App):
 
     def on_code_viewer_cursor_moved(self, event: CodeViewer.CursorMoved) -> None:
         """Update info bar when cursor moves."""
-        self._cursor_info = f"Line {event.line}/{event.total}"
+        code_viewer = self.query_one("#code_viewer", CodeViewer)
+        sel = code_viewer.get_selected_range()
+        if sel:
+            self._cursor_info = f"Line {event.line}/{event.total} | Sel {sel[0]}\u2013{sel[1]}"
+        else:
+            self._cursor_info = f"Line {event.line}/{event.total}"
         self._update_info_bar()
 
     def action_go_to_line(self) -> None:
