@@ -13,6 +13,7 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 MODE=""
 MAX_COMMITS=50
 CLEANUP_DIR=""
+SOURCE_KEY=""
 INPUT_PATHS=()
 AIEXPLAINS_DIR="${AIEXPLAINS_DIR:-aiexplains}"
 
@@ -59,6 +60,50 @@ extract_task_id_from_message() {
     if [[ -n "$match" ]]; then
         echo "$match" | sed 's/[()]//g; s/^t//'
     fi
+}
+
+# Convert a directory path to a cache key (mirrors Python _dir_to_key)
+dir_to_key() {
+    local dir="$1"
+    if [[ "$dir" == "." || -z "$dir" ]]; then
+        echo "_root_"
+    else
+        local trimmed="${dir%/}"
+        echo "${trimmed//\//__}"
+    fi
+}
+
+# Compute common parent directory from INPUT_PATHS array
+compute_common_parent() {
+    local common=""
+    for path in "${INPUT_PATHS[@]}"; do
+        local dir
+        if [[ -d "$path" ]]; then
+            dir="${path%/}"
+        elif [[ -f "$path" ]]; then
+            dir=$(dirname "$path")
+        else
+            continue
+        fi
+        if [[ -z "$common" ]]; then
+            common="$dir"
+        else
+            # Find common prefix by comparing path segments
+            IFS='/' read -ra parts_a <<< "$common"
+            IFS='/' read -ra parts_b <<< "$dir"
+            local result="" i=0
+            while [[ $i -lt ${#parts_a[@]} && $i -lt ${#parts_b[@]} ]]; do
+                if [[ "${parts_a[$i]}" == "${parts_b[$i]}" ]]; then
+                    result="${result:+$result/}${parts_a[$i]}"
+                else
+                    break
+                fi
+                i=$((i + 1))
+            done
+            common="$result"
+        fi
+    done
+    echo "${common:-.}"
 }
 
 # Process a single file: gather commit timeline and blame data
@@ -194,6 +239,28 @@ gather() {
     info "Processing raw data into YAML..."
     python3 "${SCRIPT_DIR}/aitask_explain_process_raw_data.py" "$raw_data_file" "$reference_yaml"
 
+    # Compute directory key for naming
+    local dir_key
+    if [[ -n "$SOURCE_KEY" ]]; then
+        dir_key="$SOURCE_KEY"
+    else
+        local common_parent
+        common_parent=$(compute_common_parent)
+        dir_key=$(dir_to_key "$common_parent")
+    fi
+
+    # Rename run directory to include dir_key
+    local named_dir="${AIEXPLAINS_DIR}/${dir_key}__${run_id}"
+    if [[ "$run_dir" != "$named_dir" ]]; then
+        mv "$run_dir" "$named_dir"
+        run_dir="$named_dir"
+    fi
+
+    # Auto-cleanup stale runs for this AIEXPLAINS_DIR
+    if [[ -x "$SCRIPT_DIR/aitask_explain_cleanup.sh" ]]; then
+        "$SCRIPT_DIR/aitask_explain_cleanup.sh" --quiet --target "$AIEXPLAINS_DIR" 2>/dev/null || true
+    fi
+
     echo "RUN_DIR: ${run_dir}"
 }
 
@@ -233,6 +300,7 @@ Modes:
   --cleanup RUN_DIR          Remove a specific run directory
 
 Options:
+  --source-key KEY           Explicit directory key for run naming (default: auto-derived)
   --max-commits N            Limit commits per file (default: 50)
   --help, -h                 Show help
 
@@ -246,12 +314,20 @@ Output:
 
   Prints "RUN_DIR: <path>" to stdout for the skill to capture.
 
+Output naming:
+  Run directories are named <dir_key>__<timestamp> where dir_key is auto-derived
+  from the common parent of input paths (e.g., aiscripts__lib__20260226_120000).
+  Use --source-key to override the auto-derived key.
+
 Examples:
-  # Analyze a single file
+  # Analyze a single file (dir named aiscripts__lib__<timestamp>)
   ./aiscripts/aitask_explain_extract_raw_data.sh --gather aiscripts/lib/task_utils.sh
 
-  # Analyze a directory
+  # Analyze a directory (dir named aiscripts__lib__<timestamp>)
   ./aiscripts/aitask_explain_extract_raw_data.sh --gather aiscripts/lib/
+
+  # Analyze with explicit source key (dir named myproject__<timestamp>)
+  ./aiscripts/aitask_explain_extract_raw_data.sh --gather --source-key myproject aiscripts/
 
   # Analyze with commit limit
   ./aiscripts/aitask_explain_extract_raw_data.sh --gather aiscripts/ --max-commits 20
@@ -277,6 +353,11 @@ parse_args() {
                 MODE="cleanup"
                 [[ $# -ge 2 ]] || die "--cleanup requires a directory argument"
                 CLEANUP_DIR="$2"
+                shift 2
+                ;;
+            --source-key)
+                [[ $# -ge 2 ]] || die "--source-key requires a key argument"
+                SOURCE_KEY="$2"
                 shift 2
                 ;;
             --max-commits)
