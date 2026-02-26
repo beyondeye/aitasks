@@ -22,14 +22,53 @@ list_runs() {
     fi
 
     local found=false
+
+    # Scan top-level runs (exclude codebrowser subdirectory)
+    local has_toplevel=false
     for files_txt in "$AIEXPLAINS_DIR"/*/files.txt; do
         [[ -f "$files_txt" ]] || continue
+        local run_dir
+        run_dir=$(dirname "$files_txt")
+        # Skip codebrowser directory
+        [[ "$(basename "$run_dir")" == "codebrowser" ]] && continue
+        if [[ "$has_toplevel" == false ]]; then
+            echo "=== Top-level runs ==="
+            echo ""
+            has_toplevel=true
+        fi
+        found=true
+        local run_name
+        run_name=$(basename "$run_dir")
+        local display_name="$run_name"
+        if [[ "$run_name" =~ ^(.+)__([0-9]{8}_[0-9]{6})$ ]]; then
+            display_name="${BASH_REMATCH[1]} @ ${BASH_REMATCH[2]}"
+        fi
+        echo "=== RUN: ${display_name} ==="
+        echo "FILES:"
+        cat "$files_txt"
+        echo "=== END RUN ==="
+        echo ""
+    done
+
+    # Scan codebrowser runs
+    local has_codebrowser=false
+    for files_txt in "$AIEXPLAINS_DIR"/codebrowser/*/files.txt; do
+        [[ -f "$files_txt" ]] || continue
+        if [[ "$has_codebrowser" == false ]]; then
+            echo "=== Codebrowser runs ==="
+            echo ""
+            has_codebrowser=true
+        fi
         found=true
         local run_dir
         run_dir=$(dirname "$files_txt")
         local run_name
         run_name=$(basename "$run_dir")
-        echo "=== RUN: ${run_name} ==="
+        local display_name="$run_name"
+        if [[ "$run_name" =~ ^(.+)__([0-9]{8}_[0-9]{6})$ ]]; then
+            display_name="${BASH_REMATCH[1]} @ ${BASH_REMATCH[2]}"
+        fi
+        echo "=== RUN: ${display_name} ==="
         echo "FILES:"
         cat "$files_txt"
         echo "=== END RUN ==="
@@ -102,17 +141,27 @@ interactive() {
 
     # Build list of runs with file summaries
     local runs=()
-    for files_txt in "$AIEXPLAINS_DIR"/*/files.txt; do
+    for files_txt in "$AIEXPLAINS_DIR"/*/files.txt "$AIEXPLAINS_DIR"/codebrowser/*/files.txt; do
         [[ -f "$files_txt" ]] || continue
         local run_dir
         run_dir=$(dirname "$files_txt")
+        # Skip codebrowser directory itself (not a run)
+        [[ "$(basename "$run_dir")" == "codebrowser" ]] && continue
         local run_name
         run_name=$(basename "$run_dir")
+        local display_name="$run_name"
+        if [[ "$run_name" =~ ^(.+)__([0-9]{8}_[0-9]{6})$ ]]; then
+            display_name="${BASH_REMATCH[1]} @ ${BASH_REMATCH[2]}"
+        fi
         local file_count
         file_count=$(wc -l < "$files_txt")
         local first_files
         first_files=$(head -3 "$files_txt" | tr '\n' ', ' | sed 's/,$//')
-        runs+=("${run_name} (${file_count} files: ${first_files})")
+        # Include relative path for disambiguation
+        local rel_path
+        rel_path=$(dirname "$files_txt")
+        rel_path="${rel_path#"$AIEXPLAINS_DIR"/}"
+        runs+=("${rel_path} | ${display_name} (${file_count} files: ${first_files})")
     done
 
     if [[ ${#runs[@]} -eq 0 ]]; then
@@ -138,10 +187,13 @@ interactive() {
             info "Cancelled"
         fi
     else
-        local run_name
-        run_name=$(echo "$selected" | cut -d' ' -f1)
-        local run_path="${AIEXPLAINS_DIR}/${run_name}"
-        echo -n "Delete run ${run_name}? [y/N] "
+        # Extract rel_path (before " | ") to reconstruct full path
+        local rel_path
+        rel_path="${selected%% | *}"
+        local run_path="${AIEXPLAINS_DIR}/${rel_path}"
+        local display
+        display=$(echo "$selected" | sed 's/^[^ ]* | //' | cut -d' ' -f1-3)
+        echo -n "Delete run ${display}? [y/N] "
         read -r confirm
         if [[ "$confirm" =~ ^[Yy] ]]; then
             delete_run "$run_path"
@@ -164,19 +216,23 @@ Modes:
   --list                     List all runs with their files
   --delete RUN_DIR           Delete a specific run directory
   --delete-all               Delete all runs
+  --cleanup-stale            Remove stale runs (keeps newest per source directory)
 
 Options:
   --help, -h                 Show help
 
 Examples:
-  # List all runs
+  # List all runs (top-level and codebrowser)
   ./aiscripts/aitask_explain_runs.sh --list
 
   # Delete a specific run
-  ./aiscripts/aitask_explain_runs.sh --delete aiexplains/20260221_143052
+  ./aiscripts/aitask_explain_runs.sh --delete aiexplains/aiscripts__lib__20260226_155403
 
   # Delete all runs
   ./aiscripts/aitask_explain_runs.sh --delete-all
+
+  # Remove stale runs (delegates to aitask_explain_cleanup.sh --all)
+  ./aiscripts/aitask_explain_runs.sh --cleanup-stale
 
   # Interactive selection
   ./aiscripts/aitask_explain_runs.sh
@@ -198,6 +254,10 @@ parse_args() {
                 ;;
             --delete-all)
                 MODE="delete-all"
+                shift
+                ;;
+            --cleanup-stale)
+                MODE="cleanup-stale"
                 shift
                 ;;
             --help|-h)
@@ -222,6 +282,7 @@ main() {
         list) list_runs ;;
         delete) delete_run "$DELETE_TARGET" ;;
         delete-all) delete_all ;;
+        cleanup-stale) exec "$SCRIPT_DIR/aitask_explain_cleanup.sh" --all ;;
         interactive) interactive ;;
     esac
 }

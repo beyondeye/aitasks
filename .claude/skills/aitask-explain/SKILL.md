@@ -85,6 +85,7 @@ Run the shell script to gather raw data and produce the YAML reference:
 ```
 
 - Parse the `RUN_DIR: <path>` line from output to get the run-specific directory
+- The script automatically cleans up stale runs (older runs for the same source directory) after gathering
 - Store the `run_dir` path for cleanup in Step 6
 - Read `<run_dir>/reference.yaml` to understand the structure
 - For "Code evolution" mode: also read extracted task/plan files from `<run_dir>/tasks/` and `<run_dir>/plans/`
@@ -184,13 +185,15 @@ Where `<run_dir>` is the path captured in Step 3 (e.g., `aiexplains/20260221_143
 - Inform user: "Analysis data preserved at `<run_dir>`. Use `/aitask-explain` again and select 'Use existing analysis' to reuse it."
 - To manage existing runs later: `./aiscripts/aitask_explain_runs.sh`
 
+**Note:** Stale run cleanup (removing older runs for the same source directory) happens automatically during Step 3 gathering. Manual cleanup via Step 6 removes the current run entirely. To trigger a manual stale cleanup: `./aiscripts/aitask_explain_runs.sh --cleanup-stale`
+
 ---
 
 ## Notes
 
 - This skill uses `aitask_explain_extract_raw_data.sh` for raw data extraction (git log, git blame, task/plan file copying)
 - Raw data is processed by `aitask_explain_process_raw_data.py` into a structured `reference.yaml` file
-- Each run creates an isolated directory under `aiexplains/<timestamp>/` to prevent conflicts
+- Each run creates an isolated directory under `aiexplains/<dir_key>__<timestamp>/` where `dir_key` is derived from the common parent directory of analyzed files (e.g., `aiscripts__lib__20260226_155403`)
 - The `reference.yaml` maps lines → commits → task IDs, enabling targeted "code evolution" explanations
 - Commit timeline is ordered **newest first** (most recent changes have lowest timeline numbers)
 - Task/plan files are copied with ID-only names (e.g., `t16.md`, `p16.md`) for simpler referencing
