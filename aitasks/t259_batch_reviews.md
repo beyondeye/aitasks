@@ -1,12 +1,12 @@
 ---
 priority: high
-effort: high
+effort: medium
 depends: []
 issue_type: feature
 status: Ready
 labels: [aitask_review]
 created_at: 2026-02-26 12:45
-updated_at: 2026-02-26 12:45
+updated_at: 2026-02-26 17:17
 boardidx: 40
 ---
 
