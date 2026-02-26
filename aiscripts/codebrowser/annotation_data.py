@@ -16,6 +16,7 @@ class FileExplainData:
     annotations: list[AnnotationRange] = field(default_factory=list)
     commit_timeline: list[dict] = field(default_factory=list)
     generated_at: str = ""
+    is_binary: bool = False
 
 
 @dataclass

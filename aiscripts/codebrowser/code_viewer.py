@@ -177,11 +177,21 @@ class CodeViewer(VerticalScroll):
         if vp_end is None:
             vp_end = len(self._highlighted_lines)
         size = vp_end - vp_start
+
+        # Build task_id -> color_index lookup for deterministic unique colors
+        unique_task_ids: set[str] = set()
+        for ann in self._annotations:
+            unique_task_ids.update(ann.task_ids)
+        task_color = {
+            tid: i % len(ANNOTATION_COLORS)
+            for i, tid in enumerate(sorted(unique_task_ids))
+        }
+
         gutter = [Text("") for _ in range(size)]
         for ann in self._annotations:
             label = ",".join(f"t{tid}" for tid in ann.task_ids)
             color = ANNOTATION_COLORS[
-                hash(ann.task_ids[0]) % len(ANNOTATION_COLORS)
+                task_color[ann.task_ids[0]]
             ] if ann.task_ids else "dim"
             for line_num in range(ann.start_line, ann.end_line + 1):
                 idx = line_num - 1  # 0-indexed file line

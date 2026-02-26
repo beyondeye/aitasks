@@ -149,32 +149,36 @@ class ExplainManager:
         result = {}
         for file_entry in data["files"]:
             file_path = file_entry["path"]
+            is_binary = file_entry.get("binary", False)
+
             annotations = []
-            for lr in file_entry.get("line_ranges", []):
-                annotations.append(AnnotationRange(
-                    start_line=lr["start"],
-                    end_line=lr["end"],
-                    task_ids=[str(t) for t in lr.get("tasks", [])],
-                    commit_hashes=[],
-                    commit_messages=[],
-                ))
-
-            # Build commit hash/message lists from commit timeline
             commit_map = {}
-            for commit in file_entry.get("commits", []):
-                commit_map[commit["num"]] = commit
 
-            # Enrich annotations with commit details
-            for ann in annotations:
+            if not is_binary:
                 for lr in file_entry.get("line_ranges", []):
-                    if lr["start"] == ann.start_line and lr["end"] == ann.end_line:
-                        for cnum in lr.get("commits", []):
-                            if cnum in commit_map:
-                                c = commit_map[cnum]
-                                if c["hash"] not in ann.commit_hashes:
-                                    ann.commit_hashes.append(c["hash"])
-                                    ann.commit_messages.append(c.get("message", ""))
-                        break
+                    annotations.append(AnnotationRange(
+                        start_line=lr["start"],
+                        end_line=lr["end"],
+                        task_ids=[str(t) for t in lr.get("tasks", [])],
+                        commit_hashes=[],
+                        commit_messages=[],
+                    ))
+
+                # Build commit hash/message lists from commit timeline
+                for commit in file_entry.get("commits", []):
+                    commit_map[commit["num"]] = commit
+
+                # Enrich annotations with commit details
+                for ann in annotations:
+                    for lr in file_entry.get("line_ranges", []):
+                        if lr["start"] == ann.start_line and lr["end"] == ann.end_line:
+                            for cnum in lr.get("commits", []):
+                                if cnum in commit_map:
+                                    c = commit_map[cnum]
+                                    if c["hash"] not in ann.commit_hashes:
+                                        ann.commit_hashes.append(c["hash"])
+                                        ann.commit_messages.append(c.get("message", ""))
+                            break
 
             commit_timeline = file_entry.get("commits", [])
             result[file_path] = FileExplainData(
@@ -182,6 +186,7 @@ class ExplainManager:
                 annotations=annotations,
                 commit_timeline=commit_timeline,
                 generated_at=generated_at,
+                is_binary=is_binary,
             )
 
         return result

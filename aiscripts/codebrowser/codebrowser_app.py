@@ -241,6 +241,12 @@ class CodeBrowserApp(App):
         code_viewer = self.query_one("#code_viewer", CodeViewer)
         rel_path = str(self._current_file_path.relative_to(self._project_root))
         file_data = self._current_explain_data.get(rel_path)
+        if file_data and file_data.is_binary:
+            code_viewer.set_annotations([])
+            n = len(file_data.commit_timeline)
+            self._annotation_info += f" (binary, {n} commit{'s' if n != 1 else ''})"
+            self._update_info_bar()
+            return
         code_viewer.set_annotations(file_data.annotations if file_data else [])
 
     def action_toggle_annotations(self) -> None:

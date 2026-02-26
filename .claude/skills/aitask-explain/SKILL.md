@@ -63,6 +63,7 @@ Use `AskUserQuestion`:
 **Proceed with files:**
 
 - **Directory expansion**: If any path is a directory, the shell script expands it to all git-tracked text files within it using `git ls-files <directory>`
+- **Binary file detection**: Binary files (images, compiled assets, etc.) are automatically detected by the extraction pipeline and marked with `binary: true` in `reference.yaml`. They have commit timelines but no line-level annotations. No special handling is needed at file selection — binary files are processed alongside text files.
 - Validate all resolved files exist and are tracked by git
 
 ### Step 2: Mode Selection
@@ -97,7 +98,8 @@ Based on selected modes, provide analysis:
 #### Functionality Mode
 
 - Read the target file(s) in full
-- Provide a structured explanation covering:
+- **For binary files** (marked `binary: true` in `reference.yaml`): describe the file's role based on its path, filename, and extension. Search the codebase with `Grep` for references to the file to understand how it's used. Do not attempt line-level code analysis.
+- **For text files**: Provide a structured explanation covering:
   - **Purpose**: What problem does this code solve
   - **Key components**: Main functions, classes, data structures
   - **Data flow**: How data moves through the code
@@ -122,7 +124,8 @@ Based on selected modes, provide analysis:
 - Read `<run_dir>/reference.yaml` for the line-range-to-commit-to-task mapping
 - Read relevant extracted plans from `<run_dir>/plans/` for implementation notes and context
 - Read relevant extracted tasks from `<run_dir>/tasks/` for original task descriptions
-- Present a **newest-first narrative** of how the code evolved:
+- **For binary files** (marked `binary: true` in `reference.yaml`): present only the commit timeline (no `line_ranges` data exists). Show when the file was added, modified, or replaced, and which tasks/commits touched it.
+- **For text files**: Present a **newest-first narrative** of how the code evolved:
   - What each significant commit/task changed
   - **Why** changes were made (extracted from plan "Final Implementation Notes")
   - How the code's architecture evolved over time
@@ -194,3 +197,4 @@ Where `<run_dir>` is the path captured in Step 3 (e.g., `aiexplains/20260221_143
 - Existing runs can be reused to avoid expensive re-analysis of unchanged code
 - Run management (list, delete) is available via `./aiscripts/aitask_explain_runs.sh`
 - Accepts both individual files and directories; directories are expanded to git-tracked text files
+- Binary files (images, compiled assets, etc.) are auto-detected by the extraction pipeline and marked `binary: true` in `reference.yaml`. They have commit timelines but empty `line_ranges`. The codebrowser shows "Binary file — cannot display" for content with "(binary, N commits)" in the annotation info bar.

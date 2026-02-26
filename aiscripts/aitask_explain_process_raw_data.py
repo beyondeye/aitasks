@@ -211,8 +211,9 @@ def yaml_escape(s):
     if s is None:
         return 'null'
     s = str(s)
-    # If string contains special chars, quote it
-    if any(c in s for c in ':|{}[],&*#?!>%@`"\'') or s.startswith('-') or s.startswith(' '):
+    # If string contains special chars or underscores (YAML interprets
+    # "228_2" as integer 2282 — underscore as numeric separator), quote it
+    if any(c in s for c in ':|{}[],&*#?!>%@`"\' _') or s.startswith('-'):
         # Use double quotes with escaping
         return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
     if not s:
