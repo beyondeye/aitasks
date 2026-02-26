@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: medium
-depends: [t259_6]
+depends: [t259_5, t259_6]
 issue_type: feature
 status: Ready
 labels: [aitask_review, ui]
 created_at: 2026-02-26 18:44
-updated_at: 2026-02-26 18:44
+updated_at: 2026-02-26 18:46
 ---
 
 ## Context
