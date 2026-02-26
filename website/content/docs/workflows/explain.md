@@ -86,10 +86,12 @@ Claude reads reference.yaml + task/plan files -> structured explanation
 
 The `reference.yaml` file is the key artifact. It contains per-file data: a commit timeline (newest first) and a list of line ranges, each annotated with which commits and task IDs contributed to those lines. This enables the skill to answer questions like "which task added lines 50-80?" by looking up the line range in the reference data.
 
+Run directories use the naming convention `<dir_key>__<timestamp>` (e.g., `aiscripts__lib__20260226_155403`), where `dir_key` identifies the source directory. When new analysis data is generated, stale runs for the same source directory are automatically cleaned up — only the newest run is kept. This also happens at codebrowser TUI startup.
+
 ## Tips
 
 - **Start with code evolution** — If you only pick one mode, start with code evolution. It provides the most unique value compared to what you could learn by just reading the file. Functionality and usage can often be inferred from the code itself; the "why" behind changes cannot
 - **Reuse runs across sessions** — Keep the analysis data when prompted. Subsequent sessions can reuse the cached reference data, avoiding the cost of re-running git analysis. Refresh only when the file has changed significantly
 - **Combine with review** — Use `/aitask-explain` to understand why code exists, then use [`/aitask-review`](../../skills/aitask-review/) to evaluate whether it should change. Understanding context first makes review findings more actionable
 - **Explain directories for module-level understanding** — Pass a directory path to explain all files in a module at once. The shared commit and task context across files often reveals architectural decisions that are invisible when looking at individual files
-- **Manage disk usage** — Run `./aiscripts/aitask_explain_runs.sh` periodically to list and clean up old analysis data. Each run copies task and plan files, which can accumulate if left unmanaged
+- **Manage disk usage** — Stale runs are cleaned up automatically when new data is generated, but you can also run `./aiscripts/aitask_explain_runs.sh --cleanup-stale` to manually remove older runs for the same source directory. Use `./aiscripts/aitask_explain_runs.sh --list` to see all current runs, or the interactive mode to selectively delete individual runs
