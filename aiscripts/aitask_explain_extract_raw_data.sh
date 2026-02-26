@@ -42,6 +42,13 @@ expand_path() {
     fi
 }
 
+# Check if a file is binary using MIME encoding detection
+# Returns 0 (true) if binary, 1 (false) if text
+is_binary() {
+    local filepath="$1"
+    file -b --mime-encoding "$filepath" 2>/dev/null | grep -q 'binary'
+}
+
 # Extract task ID from a commit message (parenthesized pattern only)
 # Input: commit message
 # Output: task ID (e.g., "16" or "16_2") or empty
@@ -62,7 +69,15 @@ process_file() {
     echo "=== FILE: ${filepath} ===" >> "$raw_data_file"
     echo "" >> "$raw_data_file"
 
-    # --- Commit Timeline (newest first) ---
+    # Detect binary file
+    local file_is_binary=false
+    if is_binary "$filepath"; then
+        file_is_binary=true
+        echo "BINARY_FILE" >> "$raw_data_file"
+        echo "" >> "$raw_data_file"
+    fi
+
+    # --- Commit Timeline (newest first) --- always extracted
     echo "COMMIT_TIMELINE:" >> "$raw_data_file"
     local timeline_num=0
     while IFS='|' read -r full_hash short_hash date author message; do
@@ -75,20 +90,22 @@ process_file() {
 
     echo "" >> "$raw_data_file"
 
-    # --- Blame Lines ---
-    echo "BLAME_LINES:" >> "$raw_data_file"
-    # Parse git blame porcelain output: extract line_num and commit hash
-    local current_hash=""
-    while IFS= read -r blame_line; do
-        # Boundary lines start with a 40-char hex hash
-        if [[ "$blame_line" =~ ^([0-9a-f]{40})[[:space:]]([0-9]+)[[:space:]]([0-9]+) ]]; then
-            current_hash="${BASH_REMATCH[1]}"
-            local final_line="${BASH_REMATCH[3]}"
-            echo "${final_line}|${current_hash}" >> "$raw_data_file"
-        fi
-    done < <(git blame --porcelain "$filepath" 2>/dev/null || true)
+    # --- Blame Lines (skipped for binary files) ---
+    if [[ "$file_is_binary" == "false" ]]; then
+        echo "BLAME_LINES:" >> "$raw_data_file"
+        # Parse git blame porcelain output: extract line_num and commit hash
+        local current_hash=""
+        while IFS= read -r blame_line; do
+            # Boundary lines start with a 40-char hex hash
+            if [[ "$blame_line" =~ ^([0-9a-f]{40})[[:space:]]([0-9]+)[[:space:]]([0-9]+) ]]; then
+                current_hash="${BASH_REMATCH[1]}"
+                local final_line="${BASH_REMATCH[3]}"
+                echo "${final_line}|${current_hash}" >> "$raw_data_file"
+            fi
+        done < <(git blame --porcelain "$filepath" 2>/dev/null || true)
+        echo "" >> "$raw_data_file"
+    fi
 
-    echo "" >> "$raw_data_file"
     echo "=== END FILE ===" >> "$raw_data_file"
     echo "" >> "$raw_data_file"
 }

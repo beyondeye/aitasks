@@ -39,6 +39,7 @@ def parse_raw_data(raw_data_path):
             file_path = m.group(1)
             commits = []
             blame_lines = []
+            is_binary = False
             section = None
             i += 1
 
@@ -47,6 +48,8 @@ def parse_raw_data(raw_data_path):
                 if line == '=== END FILE ===':
                     i += 1
                     break
+                elif line == 'BINARY_FILE':
+                    is_binary = True
                 elif line == 'COMMIT_TIMELINE:':
                     section = 'timeline'
                 elif line == 'BLAME_LINES:':
@@ -85,6 +88,7 @@ def parse_raw_data(raw_data_path):
                 'path': file_path,
                 'commits': commits,
                 'blame_lines': blame_lines,
+                'binary': is_binary,
             })
             continue
 
@@ -225,6 +229,8 @@ def write_yaml(files_data, task_index, output_path):
         f.write('files:\n')
         for file_data in files_data:
             f.write(f'  - path: {yaml_escape(file_data["path"])}\n')
+            if file_data.get('binary', False):
+                f.write('    binary: true\n')
 
             # Commits
             f.write('    commits:\n')
@@ -272,14 +278,18 @@ def main():
     # Process each file: aggregate blame lines into ranges
     files_data = []
     for file_info in files:
-        line_ranges = aggregate_blame_to_ranges(
-            file_info['blame_lines'],
-            file_info['commits'],
-        )
+        if file_info.get('binary', False):
+            line_ranges = []
+        else:
+            line_ranges = aggregate_blame_to_ranges(
+                file_info['blame_lines'],
+                file_info['commits'],
+            )
         files_data.append({
             'path': file_info['path'],
             'commits': file_info['commits'],
             'line_ranges': line_ranges,
+            'binary': file_info.get('binary', False),
         })
 
     # Write YAML output
