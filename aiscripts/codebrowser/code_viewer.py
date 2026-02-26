@@ -54,6 +54,7 @@ class CodeViewer(VerticalScroll):
         self._selection_start: int | None = None
         self._selection_end: int | None = None
         self._selection_active: bool = False
+        self._mouse_dragging: bool = False
 
     def compose(self):
         yield Static("Select a file to view", id="code_display")
@@ -217,3 +218,47 @@ class CodeViewer(VerticalScroll):
 
     def action_clear_selection(self) -> None:
         self.clear_selection()
+
+    # -- Mouse handlers -------------------------------------------------------
+
+    def on_mouse_down(self, event) -> None:
+        """Left-click moves cursor to clicked line and starts drag tracking."""
+        if event.button != 1 or self._total_lines == 0:
+            return
+        line = int(self.scroll_y) + event.y
+        line = max(0, min(line, self._total_lines - 1))
+        self._cursor_line = line
+        self._selection_start = line
+        self._selection_end = line
+        self._selection_active = True
+        self._mouse_dragging = True
+        self.capture_mouse()
+        self._rebuild_display()
+        self.post_message(self.CursorMoved(line + 1, self._total_lines))
+
+    def on_mouse_move(self, event) -> None:
+        """Extend selection while dragging with left button held."""
+        if not self._mouse_dragging:
+            return
+        line = int(self.scroll_y) + event.y
+        line = max(0, min(line, self._total_lines - 1))
+        if line == self._cursor_line:
+            return
+        self._cursor_line = line
+        self._selection_end = line
+        self._rebuild_display()
+        self._scroll_cursor_visible()
+        self.post_message(self.CursorMoved(line + 1, self._total_lines))
+
+    def on_mouse_up(self, event) -> None:
+        """Finalize click or drag selection."""
+        if not self._mouse_dragging:
+            return
+        self._mouse_dragging = False
+        self.release_mouse()
+        if self._selection_start == self._selection_end:
+            # Single click (no drag) — clear selection, just keep cursor
+            self._selection_start = None
+            self._selection_end = None
+            self._selection_active = False
+            self._rebuild_display()
