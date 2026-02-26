@@ -1,5 +1,65 @@
 # Changelog
 
+## v0.7.1
+
+### Features
+
+- **Code browser TUI** (t195_1): Added a new code browser TUI application with a two-pane layout for browsing project files alongside syntax-highlighted code.
+- **File tree browser** (t195_2): The code browser displays a file tree of git-tracked files, filtering out hidden files and build artifacts.
+- **Syntax highlighting** (t195_3): Code viewer automatically detects file languages and renders syntax highlighting with line numbers.
+- **Explain data auto-generation** (t195_4): The code browser integrates with the explain data pipeline to display task history and annotations for each line of code.
+- **Task annotation overlay** (t195_5): A gutter column shows which tasks modified each line of code, with color-coded task IDs for quick visual reference.
+- **Cursor navigation and selection** (t195_6): Added keyboard navigation and text selection with smart viewport scrolling in the code browser.
+- **Claude Code explain integration** (t195_7): Select code ranges in the code browser and launch the explain skill directly with context about the selected code.
+- **Multi-platform repo fetch library** (t214_1): Built a repository file fetching library supporting GitHub, GitLab, and Bitbucket with automatic platform detection and graceful fallbacks.
+- **Board unlock resets assignment** (t248): Unlocking a task in the board now prompts to reset the task status back to "Ready" and clear the assignment.
+- **Click-to-select in code browser** (t250): Added mouse support for clicking to move the cursor and click-dragging to select code ranges.
+- **Task detail pane** (t251): Added a detail pane showing task and plan content for the task that annotated the current line, with automatic updates as you navigate.
+- **Foolproofing task name input** (t253): When creating a task, entering a long description in the name field prompts to use it as the description instead.
+- **Binary file support in code browser** (t255_2): The code browser now recognizes binary files and displays their commit history instead of attempting to show unreadable content.
+- **Explain cleanup command** (t258_1): Added a cleanup command to remove old explain run directories, keeping only the newest version of each source directory's data.
+- **Explain auto-naming** (t258_2): Explain runs are now automatically named based on the source directory for easier organization and cleanup.
+- **Updated peripheral scripts** (t258_4): Updated related scripts and documentation to work with the new explain run naming scheme and automatic cleanup.
+
+### Bug Fixes
+
+- **Multi-platform reviewguide import** (t214_3): The review guide import workflow now supports repositories on GitHub, GitLab, and Bitbucket instead of only GitHub.
+- **Separate git operations for code and plans** (t239): Fixed workflow to use separate git commands for code changes and plan files, preventing failed commits when task data lives on a separate branch.
+- **Eliminated permission prompts for child tasks** (t246): Consolidated file queries to eliminate repeated permission prompts when Claude Code discovers child tasks.
+- **Dotfiles visible in code browser** (t252): Fixed the file tree to show git-tracked dotfiles like `.claude/` while still hiding `.git/` and untracked hidden files.
+- **Binary file handling in extraction** (t255_1): Fixed the explain data extraction pipeline to detect and skip binary files instead of producing corrupt output.
+- **Responsive code browser layout** (t256): Made the code browser layout responsive so all columns remain visible on smaller terminal widths.
+- **Simplified explain manager** (t258_3): Removed duplicate directory naming logic from the Python explain manager, now that the shell script handles it.
+- **Phantom tasks in board** (t264): Fixed a bug where archived tasks would reappear as corrupted stubs in the board after being moved to the archive.
+
+### Improvements
+
+- **Refactored task workflow skill** (t244): Split the large task-workflow skill into multiple files for better maintainability while keeping the core workflow accessible.
+
+### Documentation
+
+- **Documented setup.sh design** (t214_4): Documented why certain code in setup.sh is intentionally duplicated rather than sourced, making maintenance clearer.
+- **Automated latest releases on website** (t243): The website landing page now automatically shows the three latest releases, eliminating manual updates after each release.
+- **Reorganized ait help output** (t245): Reorganized the `ait` command help output into logical categories (TUI, Task Management, Integration, Reporting, Tools, Infrastructure) for improved discoverability.
+- **Updated task querying docs** (t254): Updated documentation to describe how to query and update existing tasks during implementation.
+- **Updated explain skill docs** (t258_5): Updated all documentation to reflect automatic explain run cleanup and the new directory naming convention.
+- **Code browser documentation** (t267): Added code browser TUI tutorials and keyboard reference, and reorganized the website to group both board and code browser under a new "TUIs" section.
+
+### Performance
+
+- **Large file viewport windowing** (t195_9): Optimized rendering for large files (2000+ lines) by displaying only a 200-line viewport window, enabling smooth navigation in very large codebases.
+- **Optimized board lock refresh** (t261): Lock status now refreshes only when needed (on mount, manual refresh, or after sync) instead of on every board operation. Also added Ctrl+Up/Ctrl+Down shortcuts to move tasks to column top/bottom.
+- **Column collapse/expand** (t262): Added column collapse/expand to the board so you can hide columns to reduce clutter, with keyboard shortcut and command palette support.
+
+### Tests
+
+- **Code viewer rendering hardening** (t195_8): Improved handling of edge cases including binary files, very long lines, empty files, and fixed mouse drag selection when scrolled.
+
+### Maintenance
+
+- **Replaced raw ls in skills** (t247): Replaced remaining raw `ls` commands in skills with a structured query script, preventing permission prompts and improving reliability.
+- **Verified seed whitelist** (t249): Ensured all scripts referenced by skill workflows are whitelisted in the seed configuration, preventing permission prompts in new installations.
+
 ## v0.7.0
 
 ### Features
