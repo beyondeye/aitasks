@@ -59,3 +59,11 @@ fi
 ### Step 9: Post-Implementation
 
 Archive task following the standard workflow.
+
+## Final Implementation Notes
+
+- **Actual work done:** All planned changes implemented: (1) Added `--cleanup-stale` mode to `parse_args()` and `main()` in `aitask_explain_runs.sh`, delegating to `aitask_explain_cleanup.sh --all`. (2) Updated `list_runs()` to scan both top-level and codebrowser runs with section headers and dir_key display parsing. (3) Updated `interactive()` to include codebrowser runs, parse dir_key for display, and use rel_path for correct delete path reconstruction. (4) Updated help text with new mode and examples. (5) Updated SKILL.md: naming convention docs, auto-cleanup note after Step 3, and stale cleanup note in Step 6.
+- **Deviations from plan:** The `interactive()` function required more changes than planned — the fzf selection format was updated to `rel_path | display_name (...)` to disambiguate between top-level and codebrowser runs with the same name. The delete logic was updated to extract `rel_path` from the new format using `${selected%% | *}` parameter expansion. Also used shellcheck-recommended parameter expansion instead of `sed` for the rel_path extraction (SC2001 fix).
+- **Issues encountered:** None. Shellcheck passed with only SC1091 (expected — external source not followed).
+- **Key decisions:** Used `rel_path` (relative path under `$AIEXPLAINS_DIR`) as the primary key in interactive mode rather than just `run_name`, since codebrowser runs live at `codebrowser/<name>` and top-level runs at `<name>`. This prevents path confusion when deleting.
+- **Notes for sibling tasks:** The `--list` output now clearly shows section headers for top-level vs codebrowser runs. The `--cleanup-stale` mode is a simple delegation to the cleanup script from t258_1. The SKILL.md updates reflect the `<dir_key>__<timestamp>` naming pattern established in t258_2.
