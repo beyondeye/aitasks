@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [bash_scripts, aitask_explain]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-26 11:15
-updated_at: 2026-02-26 11:15
+updated_at: 2026-02-26 11:26
 ---
 
 Fix binary file detection in the aiexplains extraction and processing pipeline (producer side).
