@@ -21,6 +21,7 @@ gitremote
 install_scripts
 legal
 macos
+model_selection
 release_scripts
 remote
 remove_support
