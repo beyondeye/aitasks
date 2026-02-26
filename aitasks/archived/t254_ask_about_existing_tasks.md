@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [workflows]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-26 08:49
-updated_at: 2026-02-26 10:06
+updated_at: 2026-02-26 10:19
+completed_at: 2026-02-26 10:19
 ---
 
 there is an interesting workflow that is possible is to ask about exsitng tasks during a claude code session, for example while implementing some task, not only to ask create a follow up task for the current one but we can also ask if there already other related tasks defined for some issue we discovered, and claude can tell if the existing task addresss the issue or automatically tell it to update to address the issue. this are very interesting worflows. we should update one of esting workflow guides in the website documentation, probably in the followup tasks workflow
