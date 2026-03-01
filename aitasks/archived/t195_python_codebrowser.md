@@ -3,11 +3,11 @@ priority: medium
 effort: high
 depends: ['191']
 issue_type: feature
-status: Ready
+status: Done
 labels: [aitask_explain, codebrowser]
-children_to_implement: [t195_10]
 created_at: 2026-02-22 11:19
-updated_at: 2026-03-01 11:39
+updated_at: 2026-03-01 12:24
+completed_at: 2026-03-01 12:24
 boardcol: now
 boardidx: 30
 ---
