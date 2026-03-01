@@ -3,12 +3,11 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Done
+status: Implementing
 labels: [modelwrapper]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-27 08:06
 updated_at: 2026-03-01 12:35
-completed_at: 2026-03-01 12:35
 boardcol: now
 boardidx: 10
 ---
