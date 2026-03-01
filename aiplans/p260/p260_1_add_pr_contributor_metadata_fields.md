@@ -125,6 +125,14 @@ After the issue display line, add:
 5. Tests: `bash tests/test_draft_finalize.sh`
 6. Lint: `shellcheck aiscripts/aitask_create.sh aiscripts/aitask_update.sh aiscripts/aitask_ls.sh aiscripts/lib/task_utils.sh`
 
+## Final Implementation Notes
+
+- **Actual work done:** All four files modified as planned. Three extraction functions added to task_utils.sh, batch variables + argument parsing + YAML output added to aitask_create.sh (all three create functions and their call sites), batch/current variables + parsing + resolution + write_task_file expanded in aitask_update.sh (including the `has_update` validation check), and global vars + parsing + reset + verbose display added to aitask_ls.sh.
+- **Deviations from plan:** One additional change was needed in aitask_update.sh — the `has_update` validation check (around line 1219) needed to include `BATCH_PULL_REQUEST_SET`, `BATCH_CONTRIBUTOR_SET`, and `BATCH_CONTRIBUTOR_EMAIL_SET` flags, otherwise the script would reject update commands using only the new fields.
+- **Issues encountered:** None significant. The `shift 2` pattern was already used consistently (the plan snippet showed `shift` without the `2`, but the actual code pattern was `shift 2`).
+- **Key decisions:** Fields are written after `issue:` in YAML output. Fields are omitted entirely when empty (consistent with `issue:` pattern). The `contributor_email` field is not displayed in `ait ls -v` to avoid overly long output lines — only `PR:` and `Contributor:` are shown.
+- **Notes for sibling tasks:** The new fields follow the exact same pattern as `issue:`. For t260_2 (board TUI), the Python board script will need to parse these fields from frontmatter — look for how `issue` is handled there. For t260_3 (PR import script), the `--pull-request`, `--contributor`, and `--contributor-email` flags are now available on both `aitask_create.sh` and `aitask_update.sh`. A new test file `tests/test_pr_contributor_metadata.sh` (30 assertions, 12 tests) covers create/update/ls/extraction functions and can be used as regression check.
+
 ## Step 9 Reference
 
 Post-implementation: archive child task via `./aiscripts/aitask_archive.sh 260_1`
