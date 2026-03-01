@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: [t268_3]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [modelwrapper, board]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-01 09:00
-updated_at: 2026-03-01 14:53
+updated_at: 2026-03-01 15:23
+completed_at: 2026-03-01 15:23
 ---
 
 ## Context
