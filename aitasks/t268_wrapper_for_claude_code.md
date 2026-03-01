@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [modelwrapper]
-children_to_implement: [t268_5, t268_6, t268_7, t268_8]
+children_to_implement: [t268_6, t268_7, t268_8]
 created_at: 2026-02-27 08:06
-updated_at: 2026-03-01 15:23
+updated_at: 2026-03-01 15:49
 boardcol: now
 boardidx: 10
 ---

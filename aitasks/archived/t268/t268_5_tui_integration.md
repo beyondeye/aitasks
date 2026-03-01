@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: [t268_1, t268_4]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [modelwrapper, board, codebrowser]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-01 09:00
-updated_at: 2026-03-01 15:29
+updated_at: 2026-03-01 15:49
+completed_at: 2026-03-01 15:49
 ---
 
 ## Context
