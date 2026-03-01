@@ -316,6 +316,47 @@ install_seed_reviewguides() {
     fi
 }
 
+# --- Install seed code agent configuration ---
+install_seed_codeagent_config() {
+    local src="$INSTALL_DIR/seed/codeagent_config.json"
+    local dest="$INSTALL_DIR/aitasks/metadata/codeagent_config.json"
+
+    if [[ ! -f "$src" ]]; then
+        warn "No seed/codeagent_config.json in tarball — skipping"
+        return
+    fi
+
+    if [[ -f "$dest" && "$FORCE" != true ]]; then
+        info "  Code agent config exists (kept): codeagent_config.json"
+    else
+        cp "$src" "$dest"
+        info "  Installed code agent config: codeagent_config.json"
+    fi
+}
+
+# --- Install seed model configuration files ---
+install_seed_models() {
+    local found=false
+
+    for src in "$INSTALL_DIR/seed"/models_*.json; do
+        [[ -f "$src" ]] || continue
+        found=true
+        local bname
+        bname="$(basename "$src")"
+        local dest="$INSTALL_DIR/aitasks/metadata/$bname"
+        if [[ -f "$dest" && "$FORCE" != true ]]; then
+            info "  Model config exists (kept): $bname"
+        else
+            cp "$src" "$dest"
+            info "  Installed model config: $bname"
+        fi
+    done
+
+    if [[ "$found" == false ]]; then
+        warn "No seed/models_*.json files in tarball — skipping model installation"
+    fi
+}
+
 # --- Install seed Claude Code permissions ---
 install_seed_claude_settings() {
     local src="$INSTALL_DIR/seed/claude_settings.local.json"
@@ -519,6 +560,12 @@ main() {
 
     info "Installing review guides..."
     install_seed_reviewguides
+
+    info "Installing code agent configuration..."
+    install_seed_codeagent_config
+
+    info "Installing model configuration files..."
+    install_seed_models
 
     info "Storing Claude Code permissions seed..."
     install_seed_claude_settings

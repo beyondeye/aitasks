@@ -1,0 +1,28 @@
+{
+  "models": [
+    {
+      "name": "gpt5_3codex",
+      "cli_id": "gpt-5.3-codex",
+      "notes": "Most capable agentic coding model",
+      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+    },
+    {
+      "name": "gpt5_3codex_spark",
+      "cli_id": "gpt-5.3-codex-spark",
+      "notes": "Ultra-fast, 1000+ tokens/sec, research preview",
+      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+    },
+    {
+      "name": "gpt5_2codex",
+      "cli_id": "gpt-5.2-codex",
+      "notes": "Advanced coding for real-world engineering",
+      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+    },
+    {
+      "name": "gpt5_1codex_max",
+      "cli_id": "gpt-5.1-codex-max",
+      "notes": "Optimized for long-horizon agentic tasks",
+      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+    }
+  ]
+}

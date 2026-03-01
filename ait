@@ -40,6 +40,7 @@ Reporting:
   changelog      Generate changelog from commits and plans
 
 Tools:
+  codeagent      Manage code agent and model configuration
   explain-runs     Manage aiexplain run directories
   explain-cleanup  Remove stale aiexplain run directories
   zip-old        Archive old completed tasks
@@ -110,7 +111,7 @@ check_for_updates() {
 
 # Check for updates (skip for meta-commands, install, and git passthrough)
 case "${1:-help}" in
-    help|--help|-h|--version|-v|install|setup|git|sync|lock) ;;
+    help|--help|-h|--version|-v|install|setup|git|sync|lock|codeagent) ;;
     *) check_for_updates ;;
 esac
 
@@ -131,6 +132,7 @@ case "${1:-help}" in
     explain-cleanup) shift; exec "$SCRIPTS_DIR/aitask_explain_cleanup.sh" "$@" ;;
     lock)         shift; exec "$SCRIPTS_DIR/aitask_lock.sh" "$@" ;;
     sync)         shift; exec "$SCRIPTS_DIR/aitask_sync.sh" "$@" ;;
+    codeagent)    shift; exec "$SCRIPTS_DIR/aitask_codeagent.sh" "$@" ;;
     git)          shift; source "$SCRIPTS_DIR/lib/task_utils.sh"; task_git "$@" ;;
     help|--help|-h) show_usage ;;
     --version|-v)   show_version ;;

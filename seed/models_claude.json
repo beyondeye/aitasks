@@ -1,0 +1,34 @@
+{
+  "models": [
+    {
+      "name": "opus4_6",
+      "cli_id": "claude-opus-4-6",
+      "notes": "Latest Opus, best for complex reasoning",
+      "verified": { "task-pick": 80, "explain": 80, "batch-review": 0 }
+    },
+    {
+      "name": "sonnet4_6",
+      "cli_id": "claude-sonnet-4-6",
+      "notes": "Latest Sonnet, efficient for daily coding",
+      "verified": { "task-pick": 80, "explain": 80, "batch-review": 0 }
+    },
+    {
+      "name": "haiku4_5",
+      "cli_id": "claude-haiku-4-5-20251001",
+      "notes": "Fast and efficient for simple tasks",
+      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+    },
+    {
+      "name": "opus4_5",
+      "cli_id": "claude-opus-4-5",
+      "notes": "Previous generation Opus",
+      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+    },
+    {
+      "name": "sonnet4_5",
+      "cli_id": "claude-sonnet-4-5",
+      "notes": "Previous generation Sonnet",
+      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+    }
+  ]
+}
