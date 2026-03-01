@@ -46,3 +46,10 @@ Document `--no-recurse` in the script's usage section.
 - Without flag → recursive (unchanged)
 - Root directory with `--no-recurse` → top-level files only
 - Codebrowser uses `--no-recurse` correctly
+
+## Final Implementation Notes
+- **Actual work done:** All 5 steps implemented as planned, plus automated tests (`tests/test_no_recurse.sh`) with 5 test scenarios and 9 assertions. Added `--no-recurse` flag to argument parser and `expand_path()` in the shell script. Simplified `explain_manager.py` by removing Python-side `git ls-files` + `os.path.dirname` filtering, replaced with `--no-recurse --gather <dir>` call.
+- **Deviations from plan:** Added trailing slash stripping (`path="${path%/}"`) at the top of `expand_path()` — without this, paths like `aiscripts/` would produce a double-slash prefix (`aiscripts//`) that broke the relative path extraction. Also added `--source-key` to the Python call (was already present in the original code, retained for proper cache directory naming).
+- **Issues encountered:** Initial testing failed because `expand_path("aiscripts/")` with trailing slash caused `${f#"$path"/}` to try matching `aiscripts//` which never matched, so all files were filtered out. Fixed by stripping trailing slash at function entry.
+- **Key decisions:** Existing codebrowser explain cache remains fully compatible — no cache clearing needed. The `reference.yaml` format is unchanged; only the file selection logic moved from Python to shell.
+- **Notes for sibling tasks:** The `--no-recurse` flag is now available for t195_10 (explain generation optimization). When passing directories to the extract script, always use `--no-recurse` for codebrowser scenarios. The trailing slash stripping in `expand_path()` is a general improvement that benefits all callers.
