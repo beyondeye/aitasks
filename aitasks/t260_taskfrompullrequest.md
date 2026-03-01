@@ -5,10 +5,10 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [bash_scripts, git-integration]
-children_to_implement: [t260_1]
+children_to_implement: [t260_1, t260_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-26 15:04
-updated_at: 2026-03-01 15:28
+updated_at: 2026-03-01 15:29
 boardcol: now
 boardidx: 20
 ---
