@@ -11,6 +11,9 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for
+
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
 from textual.widgets import Header, Footer, Static, Label, Markdown, Input, Button
@@ -30,6 +33,8 @@ from task_yaml import (
 
 TASKS_DIR = Path("aitasks")
 METADATA_FILE = TASKS_DIR / "metadata" / "board_config.json"
+_PROJECT_KEYS = {"columns", "column_order"}
+_USER_KEYS = {"settings"}
 TASK_TYPES_FILE = TASKS_DIR / "metadata" / "task_types.txt"
 DATA_WORKTREE = Path(".aitask-data")
 USERCONFIG_FILE = TASKS_DIR / "metadata" / "userconfig.yaml"
@@ -196,16 +201,16 @@ class TaskManager:
         METADATA_FILE.parent.mkdir(exist_ok=True)
 
     def load_metadata(self):
-        if METADATA_FILE.exists():
-            with open(METADATA_FILE, "r") as f:
-                data = json.load(f)
-                self.columns = data.get("columns", DEFAULT_COLUMNS)
-                self.column_order = data.get("column_order", DEFAULT_ORDER)
-                self.settings = data.get("settings", {"auto_refresh_minutes": 5})
-        else:
-            self.columns = DEFAULT_COLUMNS
-            self.column_order = DEFAULT_ORDER
-            self.settings = {"auto_refresh_minutes": 5}
+        defaults = {
+            "columns": DEFAULT_COLUMNS,
+            "column_order": DEFAULT_ORDER,
+            "settings": {"auto_refresh_minutes": 5},
+        }
+        config = load_layered_config(str(METADATA_FILE), defaults=defaults)
+        self.columns = config.get("columns", DEFAULT_COLUMNS)
+        self.column_order = config.get("column_order", DEFAULT_ORDER)
+        self.settings = config.get("settings", {"auto_refresh_minutes": 5})
+        if not METADATA_FILE.exists():
             self.save_metadata()
 
     def save_metadata(self):
@@ -214,8 +219,10 @@ class TaskManager:
             "column_order": self.column_order,
             "settings": self.settings,
         }
-        with open(METADATA_FILE, "w") as f:
-            json.dump(data, f, indent=2)
+        project_data, user_data = split_config(data, project_keys=_PROJECT_KEYS, user_keys=_USER_KEYS)
+        save_project_config(str(METADATA_FILE), project_data)
+        if user_data:
+            save_local_config(str(local_path_for(str(METADATA_FILE))), user_data)
 
     @property
     def auto_refresh_minutes(self) -> int:
