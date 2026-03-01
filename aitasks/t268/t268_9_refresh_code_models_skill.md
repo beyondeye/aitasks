@@ -1,12 +1,13 @@
 ---
 priority: medium
 effort: medium
-depends: [268_1]
+depends: [t268_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [modelwrapper]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-01 11:52
-updated_at: 2026-03-01 11:52
+updated_at: 2026-03-01 12:39
 ---
 
 ## Context
