@@ -3,3 +3,6 @@ aitasks/new/
 
 # Per-user config (local, not shared)
 aitasks/metadata/userconfig.yaml
+
+# Per-user overrides (*.local.json files, not shared)
+aitasks/metadata/*.local.json
