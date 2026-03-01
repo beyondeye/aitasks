@@ -1,0 +1,34 @@
+{
+  "models": [
+    {
+      "name": "gemini3_1pro",
+      "cli_id": "gemini-3.1-pro-preview",
+      "notes": "Latest Gemini, advanced reasoning and agentic",
+      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+    },
+    {
+      "name": "gemini3pro",
+      "cli_id": "gemini-3-pro",
+      "notes": "Strong reasoning, widely available",
+      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+    },
+    {
+      "name": "gemini3flash",
+      "cli_id": "gemini-3-flash-preview",
+      "notes": "Latest flash, high performance at lower cost",
+      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+    },
+    {
+      "name": "gemini2_5pro",
+      "cli_id": "gemini-2.5-pro",
+      "notes": "Stable, best for complex tasks",
+      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+    },
+    {
+      "name": "gemini2_5flash",
+      "cli_id": "gemini-2.5-flash",
+      "notes": "Stable, budget-friendly reasoning",
+      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+    }
+  ]
+}

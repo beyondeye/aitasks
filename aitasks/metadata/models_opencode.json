@@ -1,0 +1,22 @@
+{
+  "models": [
+    {
+      "name": "kimi_k2_5",
+      "cli_id": "kimi-k2.5",
+      "notes": "Moonshot AI, strong coding and agentic tasks",
+      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+    },
+    {
+      "name": "sonnet4_6",
+      "cli_id": "sonnet-4-6",
+      "notes": "Claude Sonnet via Anthropic provider",
+      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+    },
+    {
+      "name": "deepseek_reasoner",
+      "cli_id": "deepseek-reasoner",
+      "notes": "DeepSeek reasoning model via DeepSeek provider",
+      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+    }
+  ]
+}

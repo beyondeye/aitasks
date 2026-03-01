@@ -1,0 +1,8 @@
+{
+  "defaults": {
+    "task-pick": "claude/opus4_6",
+    "explain": "claude/sonnet4_6",
+    "batch-review": "claude/sonnet4_6",
+    "raw": "claude/sonnet4_6"
+  }
+}
