@@ -7,6 +7,8 @@ status: Ready
 labels: [aitask_reviewguide]
 created_at: 2026-03-01 08:03
 updated_at: 2026-03-01 08:03
+boardidx: 90
+boardcol: now
 ---
 
 claude code recently introduced batch mode: it works this way:

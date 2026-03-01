@@ -7,7 +7,7 @@ status: Ready
 labels: [claudeskills]
 created_at: 2026-02-16 12:38
 updated_at: 2026-02-16 12:38
-boardidx: 10
+boardidx: 20
 boardcol: next
 ---
 

@@ -1,12 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [268]
+depends: ['268']
 issue_type: feature
 status: Ready
 labels: [codebrowser]
 created_at: 2026-02-26 18:00
 updated_at: 2026-02-26 18:00
+boardidx: 70
+boardcol: now
 ---
 
 we want to add a settings screen for the codebroswer tui.
