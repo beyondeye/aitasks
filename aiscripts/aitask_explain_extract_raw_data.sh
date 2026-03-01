@@ -14,6 +14,7 @@ MODE=""
 MAX_COMMITS=50
 CLEANUP_DIR=""
 SOURCE_KEY=""
+NO_RECURSE=false
 INPUT_PATHS=()
 AIEXPLAINS_DIR="${AIEXPLAINS_DIR:-aiexplains}"
 
@@ -23,9 +24,21 @@ AIEXPLAINS_DIR="${AIEXPLAINS_DIR:-aiexplains}"
 # If path is a file, output it directly; if a directory, list tracked files
 expand_path() {
     local path="$1"
+    # Strip trailing slash for consistent prefix matching
+    path="${path%/}"
     if [[ -d "$path" ]]; then
-        # List all git-tracked files in the directory
+        # List git-tracked files in the directory
         git ls-files "$path" | while IFS= read -r f; do
+            if [[ "$NO_RECURSE" == "true" ]]; then
+                # Get path relative to the directory
+                local rel="${f#"$path"/}"
+                # For root directory (path="."), rel == f
+                if [[ "$path" == "." ]]; then
+                    rel="$f"
+                fi
+                # Skip if still contains / (means it's in a subdirectory)
+                [[ "$rel" == */* ]] && continue
+            fi
             # Skip binary files by checking if file contains null bytes
             if file -b --mime-encoding "$f" 2>/dev/null | grep -qv 'binary'; then
                 echo "$f"
@@ -300,6 +313,7 @@ Modes:
   --cleanup RUN_DIR          Remove a specific run directory
 
 Options:
+  --no-recurse               Only list direct children of directories (not recursive)
   --source-key KEY           Explicit directory key for run naming (default: auto-derived)
   --max-commits N            Limit commits per file (default: 50)
   --help, -h                 Show help
@@ -354,6 +368,10 @@ parse_args() {
                 [[ $# -ge 2 ]] || die "--cleanup requires a directory argument"
                 CLEANUP_DIR="$2"
                 shift 2
+                ;;
+            --no-recurse)
+                NO_RECURSE=true
+                shift
                 ;;
             --source-key)
                 [[ $# -ge 2 ]] || die "--source-key requires a key argument"

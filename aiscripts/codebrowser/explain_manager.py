@@ -71,39 +71,16 @@ class ExplainManager:
         """Generate explain data for direct children of a directory.
 
         Returns dict of file_path -> FileExplainData for all files in the directory.
+        Uses --no-recurse flag so the shell script handles depth filtering.
         """
         rel_dir = directory.relative_to(self._root) if directory != self._root else Path(".")
-
-        # List direct children only (filter out files in subdirectories)
-        rel_dir_str = str(rel_dir)
-        if rel_dir_str == ".":
-            # Root directory: list all files, filter to those with no subdirectory
-            result = subprocess.run(
-                ["git", "ls-files"],
-                capture_output=True, text=True, cwd=str(self._root),
-            )
-            dir_match = ""
-        else:
-            result = subprocess.run(
-                ["git", "ls-files", rel_dir_str + "/"],
-                capture_output=True, text=True, cwd=str(self._root),
-            )
-            dir_match = rel_dir_str
-        all_files = [f for f in result.stdout.strip().split("\n") if f]
-        direct_files = [
-            f for f in all_files
-            if os.path.dirname(f) == dir_match
-        ]
-
-        if not direct_files:
-            return {}
-
-        # Run extract script with env override and source-key for auto-naming
         dir_key = self._dir_to_key(rel_dir)
+        rel_dir_str = str(rel_dir)
+
         env = os.environ.copy()
         env["AIEXPLAINS_DIR"] = CODEBROWSER_DIR
         subprocess.run(
-            [EXTRACT_SCRIPT, "--gather", "--source-key", dir_key] + direct_files,
+            [EXTRACT_SCRIPT, "--no-recurse", "--gather", "--source-key", dir_key, rel_dir_str],
             env=env, check=True, capture_output=True,
             cwd=str(self._root),
         )
