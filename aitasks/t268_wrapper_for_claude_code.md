@@ -18,3 +18,6 @@ also there should be a list of supported models for each tui tool and for each o
 by the way there is an issue with board_config.json: it currently in aitasks/metadata so it is a "PER_PROJECT" configuation not a "PER-USER" configuration, with should add an addition board_config.json PER-USER (and similarly for other TUI) and the actual configuration for the specific user will the per project config as default config and additional per user config with overrides) the peruser  config must be store in some place taht is gitignored.
 
 affter this refactoring we need also to add proper documentation of tui configurations: per project and per user, and aiagent configurations. ask me questons if you need clarifications
+
+Now that I think about it is better to encapsulate about the information about available models, inside the bash script aitask_codeagent, with a command line parameter for returning the list of available agents/model combinations instead of storing this information in a different place.
+in any case the agent need to be able to handle to full of possible agent/model combination and it needs to translate our local naming convention to the naming convention needed when calling in practive codexli, claude code, or gemini cli with a -model parameter
