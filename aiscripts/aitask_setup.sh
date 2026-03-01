@@ -916,6 +916,15 @@ setup_data_branch() {
         } >> "$data_gitignore"
     fi
 
+    # Add *.local.json to data branch .gitignore (per-user overrides, not shared)
+    if ! grep -qF "*.local.json" "$data_gitignore" 2>/dev/null; then
+        {
+            echo ""
+            echo "# Per-user overrides (*.local.json files, not shared)"
+            echo "aitasks/metadata/*.local.json"
+        } >> "$data_gitignore"
+    fi
+
     # --- Step 4: Commit and push on data branch ---
     (
         cd "$project_dir/.aitask-data"
