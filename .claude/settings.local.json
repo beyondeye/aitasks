@@ -76,7 +76,12 @@
       "Bash(./aiscripts/aitask_web_merge.sh:*)",
       "Bash(./aiscripts/aitask_scan_profiles.sh:*)",
       "Bash(./aiscripts/aitask_query_files.sh:*)",
-      "Bash(source aiscripts/lib/repo_fetch.sh:*)"
+      "Bash(source aiscripts/lib/repo_fetch.sh:*)",
+      "Bash(./ait codeagent:*)",
+      "WebFetch(domain:platform.claude.com)",
+      "WebFetch(domain:ai.google.dev)",
+      "WebFetch(domain:platform.openai.com)",
+      "WebFetch(domain:opencode.ai)"
     ]
   }
 }
