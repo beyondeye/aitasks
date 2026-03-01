@@ -3,11 +3,12 @@ priority: high
 effort: low
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [bash_scripts]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-01 15:28
-updated_at: 2026-03-01 18:18
+updated_at: 2026-03-01 18:41
+completed_at: 2026-03-01 18:41
 ---
 
 ## Context
