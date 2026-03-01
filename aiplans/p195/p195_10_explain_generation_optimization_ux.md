@@ -40,3 +40,10 @@ Base branch: main
 - Spinner visible during generation
 - "(outdated)" shows when data is stale
 - `--max-commits 30` is faster
+
+## Final Implementation Notes
+- **Actual work done:** All 5 planned steps implemented as specified. Added `--max-commits 30` parameter, cache staleness detection via `git log` comparison, generation queue with pre-caching on directory expansion, progress timer with elapsed time display (0.5s interval), and staleness indicator in info bar.
+- **Deviations from plan:** Used `--max-commits` CLI flag instead of `MAX_COMMITS` env var — the extract script already supported this flag. Used `set_interval(0.5)` timer for progress updates instead of a Textual LoadingIndicator widget (simpler, less widget overhead). Did not use `Worker.cancel()` for the queue — instead used a cooperative check (`is_generating()`) in the pre-cache worker to defer when busy.
+- **Issues encountered:** None significant. The `DirectoryTree.DirectorySelected` event fires correctly for pre-caching. The `@work(exclusive=False, group="precache")` decorator allows pre-cache to run alongside the main exclusive generation worker.
+- **Key decisions:** Generation queue is lightweight (set-based) rather than a full asyncio.Queue, since pre-cache is fire-and-forget. Git timestamp results cached per dir_key and invalidated on generation/refresh. "Generated in X.Xs" message shown briefly (2s) then switches to normal timestamp.
+- **Notes for sibling tasks:** This is the final child task for t195. All codebrowser features are now complete: file tree, code viewer with syntax highlighting, explain data generation, annotation overlay, cursor navigation, Claude Code integration, rendering hardening, viewport windowing, and now generation optimization/UX.
