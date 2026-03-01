@@ -3,13 +3,14 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [modelvrapper]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-27 08:06
-updated_at: 2026-03-01 08:12
-boardidx: 10
+updated_at: 2026-03-01 12:10
+completed_at: 2026-03-01 12:10
 boardcol: now
+boardidx: 10
 ---
 
 we are currently in several TUIs open claude code by calling it directly. in some upcoming features we are also going to run claude in batch mode. calling it directly is a problem because we want in the near future integrate with opencode/geminicli/codexcli. there is also the issue of llm model selection: all llmclis support model selection as start option and there are use cases for thet for example in t259 batch reviews. we currenlty don't have infrastructure for model configuration for different operations and operations (task pick in ait board, or claude explain in codebrowser tui, or in the future configuration of which llmcli to run for batched reviews in t260. we have started thinking on how to address this issue in t265 and t266, but since this issue is common to many components in this task we want to define properly the architecture and the infrastructure for it
