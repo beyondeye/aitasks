@@ -124,7 +124,7 @@ class CodeBrowserApp(App):
         Binding("r", "refresh_explain", "Refresh annotations"),
         Binding("t", "toggle_annotations", "Toggle annotations"),
         Binding("g", "go_to_line", "Go to line"),
-        Binding("e", "launch_claude", "Explain in Claude"),
+        Binding("e", "launch_agent", "Explain"),
         Binding("d", "toggle_detail", "Toggle detail"),
         Binding("D", "expand_detail", "Expand detail"),
     ]
@@ -550,14 +550,44 @@ class CodeBrowserApp(App):
                 return term
         return None
 
+    def _resolve_agent_binary(self, operation: str) -> tuple[str, str] | None:
+        """Resolve agent name and binary for an operation via codeagent wrapper."""
+        codeagent = self._project_root / "aiscripts" / "aitask_codeagent.sh"
+        if not codeagent.exists():
+            return None
+        try:
+            result = subprocess.run(
+                [str(codeagent), "resolve", operation],
+                capture_output=True, text=True, timeout=5,
+                cwd=str(self._project_root),
+            )
+            if result.returncode != 0:
+                return None
+            info = {}
+            for line in result.stdout.strip().splitlines():
+                if ":" in line:
+                    key, _, val = line.partition(":")
+                    info[key] = val
+            binary = info.get("BINARY", "")
+            agent = info.get("AGENT", "unknown")
+            return (agent, binary) if binary else None
+        except (subprocess.TimeoutExpired, OSError):
+            return None
+
     @work(exclusive=True)
-    async def action_launch_claude(self) -> None:
-        """Launch Claude Code with the explain skill for the current file."""
+    async def action_launch_agent(self) -> None:
+        """Launch the configured code agent with the explain skill for the current file."""
         if not self._current_file_path:
             self.notify("No file selected", severity="warning")
             return
-        if not shutil.which("claude"):
-            self.notify("Claude CLI not found in PATH", severity="error")
+
+        resolved = self._resolve_agent_binary("explain")
+        if not resolved:
+            self.notify("Could not resolve code agent configuration", severity="error")
+            return
+        agent_name, binary = resolved
+        if not shutil.which(binary):
+            self.notify(f"{agent_name} CLI ({binary}) not found in PATH", severity="error")
             return
 
         rel_path = self._current_file_path.relative_to(self._project_root)
@@ -567,18 +597,21 @@ class CodeBrowserApp(App):
         if selected:
             arg = f"{rel_path}:{selected[0]}-{selected[1]}"
             self.notify(
-                f"Launching Claude for {rel_path} (lines {selected[0]}-{selected[1]})..."
+                f"Launching {agent_name} for {rel_path} (lines {selected[0]}-{selected[1]})..."
             )
         else:
             arg = str(rel_path)
-            self.notify(f"Launching Claude for {rel_path}...")
+            self.notify(f"Launching {agent_name} for {rel_path}...")
 
+        wrapper = str(self._project_root / "aiscripts" / "aitask_codeagent.sh")
         terminal = self._find_terminal()
         if terminal:
-            subprocess.Popen([terminal, "--", "claude", f"/aitask-explain {arg}"])
+            subprocess.Popen([terminal, "--", wrapper, "invoke", "explain", arg],
+                             cwd=str(self._project_root))
         else:
             with self.suspend():
-                subprocess.call(["claude", f"/aitask-explain {arg}"])
+                subprocess.call([wrapper, "invoke", "explain", arg],
+                                cwd=str(self._project_root))
 
 
 if __name__ == "__main__":

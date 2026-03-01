@@ -39,6 +39,7 @@ TASK_TYPES_FILE = TASKS_DIR / "metadata" / "task_types.txt"
 DATA_WORKTREE = Path(".aitask-data")
 USERCONFIG_FILE = TASKS_DIR / "metadata" / "userconfig.yaml"
 EMAILS_FILE = TASKS_DIR / "metadata" / "emails.txt"
+CODEAGENT_SCRIPT = Path("aiscripts") / "aitask_codeagent.sh"
 
 def _task_git_cmd() -> list[str]:
     """Return git command prefix for task data operations.
@@ -2747,17 +2748,18 @@ class KanbanApp(App):
 
     @work(exclusive=True)
     async def run_aitask_pick(self, filename):
-        """Launch claude with /aitask-pick for the task."""
+        """Launch code agent with /aitask-pick for the task."""
         task_num, _ = TaskCard._parse_filename(filename)
         if not task_num:
             return
         num = task_num.lstrip("t")
+        wrapper = str(CODEAGENT_SCRIPT)
         terminal = self._find_terminal()
         if terminal:
-            subprocess.Popen([terminal, "--", "claude", f"/aitask-pick {num}"])
+            subprocess.Popen([terminal, "--", wrapper, "invoke", "task-pick", num])
         else:
             with self.suspend():
-                subprocess.call(["claude", f"/aitask-pick {num}"])
+                subprocess.call([wrapper, "invoke", "task-pick", num])
             self.manager.load_tasks()
             self.refresh_board(refocus_filename=filename)
 
