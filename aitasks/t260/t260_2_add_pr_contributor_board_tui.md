@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t260_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [python_tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-01 15:29
-updated_at: 2026-03-01 15:29
+updated_at: 2026-03-01 18:44
 ---
 
 ## Context
