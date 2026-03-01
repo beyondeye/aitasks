@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: [t268_3]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [modelwrapper, tui]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-01 09:00
-updated_at: 2026-03-01 18:17
+updated_at: 2026-03-01 18:52
+completed_at: 2026-03-01 18:52
 ---
 
 ## Context
