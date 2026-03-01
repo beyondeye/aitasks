@@ -3,19 +3,19 @@
     {
       "name": "opus4_6",
       "cli_id": "claude-opus-4-6",
-      "notes": "Latest Opus, best for complex reasoning",
+      "notes": "Most intelligent model for agents and coding, 128K output, adaptive thinking",
       "verified": { "task-pick": 80, "explain": 80, "batch-review": 0 }
     },
     {
       "name": "sonnet4_6",
       "cli_id": "claude-sonnet-4-6",
-      "notes": "Latest Sonnet, efficient for daily coding",
+      "notes": "Best speed/intelligence balance, adaptive thinking, 1M context beta",
       "verified": { "task-pick": 80, "explain": 80, "batch-review": 0 }
     },
     {
       "name": "haiku4_5",
       "cli_id": "claude-haiku-4-5-20251001",
-      "notes": "Fast and efficient for simple tasks",
+      "notes": "Fastest model with near-frontier intelligence, extended thinking",
       "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
     },
     {
