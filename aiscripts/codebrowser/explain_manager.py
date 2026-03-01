@@ -32,6 +32,9 @@ class ExplainManager:
         os.makedirs(self._cb_dir, exist_ok=True)
         self._task_content_cache: OrderedDict[str, TaskDetailContent] = OrderedDict()
         self._tasks_index_cache: OrderedDict[str, list[dict]] = OrderedDict()
+        self._active_generation: str | None = None  # dir_key currently generating
+        self._pending_precache: set[str] = set()  # dir_keys queued for pre-caching
+        self._git_ts_cache: dict[str, float] = {}  # dir_key -> last commit timestamp
         self.cleanup_stale_runs()
 
     def _dir_to_key(self, directory: Path) -> str:
@@ -67,7 +70,9 @@ class ExplainManager:
         all_data = self.parse_reference_yaml(ref_yaml)
         return all_data.get(str(rel_path))
 
-    def generate_explain_data(self, directory: Path) -> dict[str, FileExplainData]:
+    def generate_explain_data(
+        self, directory: Path, max_commits: int = 30
+    ) -> dict[str, FileExplainData]:
         """Generate explain data for direct children of a directory.
 
         Returns dict of file_path -> FileExplainData for all files in the directory.
@@ -77,13 +82,24 @@ class ExplainManager:
         dir_key = self._dir_to_key(rel_dir)
         rel_dir_str = str(rel_dir)
 
-        env = os.environ.copy()
-        env["AIEXPLAINS_DIR"] = CODEBROWSER_DIR
-        subprocess.run(
-            [EXTRACT_SCRIPT, "--no-recurse", "--gather", "--source-key", dir_key, rel_dir_str],
-            env=env, check=True, capture_output=True,
-            cwd=str(self._root),
-        )
+        self._active_generation = dir_key
+        try:
+            env = os.environ.copy()
+            env["AIEXPLAINS_DIR"] = CODEBROWSER_DIR
+            cmd = [
+                EXTRACT_SCRIPT, "--no-recurse", "--gather",
+                "--source-key", dir_key,
+                "--max-commits", str(max_commits),
+                rel_dir_str,
+            ]
+            subprocess.run(
+                cmd, env=env, check=True, capture_output=True,
+                cwd=str(self._root),
+            )
+        finally:
+            self._active_generation = None
+            # Invalidate git timestamp cache for this directory (fresh data)
+            self._git_ts_cache.pop(dir_key, None)
 
         run_dir = self._find_run_dir(dir_key)
         if run_dir is None:
@@ -229,12 +245,114 @@ class ExplainManager:
         if files_txt.exists():
             file_count = sum(1 for line in files_txt.read_text().splitlines() if line.strip())
 
+        stale = self._check_stale(dir_key, run_dir)
+
         return ExplainRunInfo(
             run_dir=str(run_dir),
             directory_key=dir_key,
             timestamp=timestamp,
             file_count=file_count,
+            is_stale=stale,
         )
+
+    def _parse_run_timestamp(self, run_dir: Path) -> float:
+        """Parse the unix timestamp from a run directory name suffix."""
+        ts_str = run_dir.name[-15:] if len(run_dir.name) >= 15 else ""
+        if len(ts_str) == 15 and ts_str[8] == "_":
+            try:
+                dt = datetime.strptime(ts_str, "%Y%m%d_%H%M%S")
+                return dt.timestamp()
+            except ValueError:
+                pass
+        return 0.0
+
+    def _get_git_last_commit_ts(self, dir_key: str) -> float:
+        """Get the unix timestamp of the last commit touching a directory.
+
+        Results are cached per dir_key to avoid repeated subprocess calls.
+        """
+        if dir_key in self._git_ts_cache:
+            return self._git_ts_cache[dir_key]
+
+        # Convert dir_key back to path
+        if dir_key == "_root_":
+            dir_path = "."
+        else:
+            dir_path = dir_key.replace("__", "/")
+
+        try:
+            result = subprocess.run(
+                ["git", "log", "-1", "--format=%ct", "--", dir_path],
+                capture_output=True, text=True, cwd=str(self._root),
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                ts = float(result.stdout.strip())
+                self._git_ts_cache[dir_key] = ts
+                return ts
+        except (ValueError, OSError):
+            pass
+
+        self._git_ts_cache[dir_key] = 0.0
+        return 0.0
+
+    def _check_stale(self, dir_key: str, run_dir: Path) -> bool:
+        """Check if cached data is stale (newer commits exist since generation)."""
+        run_ts = self._parse_run_timestamp(run_dir)
+        if run_ts == 0.0:
+            return False
+        git_ts = self._get_git_last_commit_ts(dir_key)
+        if git_ts == 0.0:
+            return False
+        return git_ts > run_ts
+
+    def has_cached_data(self, directory: Path) -> bool:
+        """Check if cached explain data exists for a directory (without parsing)."""
+        rel_dir = directory.relative_to(self._root) if directory != self._root else Path(".")
+        dir_key = self._dir_to_key(rel_dir)
+        return self._find_run_dir(dir_key) is not None
+
+    def is_generating(self, directory: Path | None = None) -> bool:
+        """Check if a generation is currently active, optionally for a specific directory."""
+        if directory is None:
+            return self._active_generation is not None
+        rel_dir = directory.relative_to(self._root) if directory != self._root else Path(".")
+        return self._active_generation == self._dir_to_key(rel_dir)
+
+    def request_precache(self, directory: Path) -> bool:
+        """Queue a directory for pre-caching. Returns True if queued, False if skipped."""
+        rel_dir = directory.relative_to(self._root) if directory != self._root else Path(".")
+        dir_key = self._dir_to_key(rel_dir)
+
+        # Skip if already cached
+        if self._find_run_dir(dir_key) is not None:
+            return False
+        # Skip if currently generating this directory
+        if self._active_generation == dir_key:
+            return False
+        # Skip if already queued
+        if dir_key in self._pending_precache:
+            return False
+
+        self._pending_precache.add(dir_key)
+        return True
+
+    def pop_precache(self) -> Path | None:
+        """Pop the next directory from the pre-cache queue, or None if empty."""
+        if not self._pending_precache:
+            return None
+        dir_key = self._pending_precache.pop()
+        # Convert dir_key back to Path
+        if dir_key == "_root_":
+            return self._root
+        return self._root / dir_key.replace("__", "/")
+
+    def clear_precache(self) -> None:
+        """Clear the pre-cache queue."""
+        self._pending_precache.clear()
+
+    def invalidate_git_cache(self) -> None:
+        """Clear the git timestamp cache (call after known file modifications)."""
+        self._git_ts_cache.clear()
 
     @staticmethod
     def _lru_get(cache: OrderedDict, key: str):

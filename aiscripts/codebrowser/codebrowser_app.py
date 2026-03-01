@@ -2,12 +2,14 @@ import asyncio
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Container
 from textual.screen import ModalScreen
+from textual.timer import Timer
 from textual.widgets import Button, Header, Footer, Input, Label, Static, DirectoryTree
 from textual import on, work
 
@@ -137,6 +139,8 @@ class CodeBrowserApp(App):
         self._current_explain_data: dict | None = None
         self._current_file_path: Path | None = None
         self._generating: bool = False
+        self._gen_start_time: float = 0.0
+        self._gen_timer: Timer | None = None
         self._cursor_info: str = ""
         self._annotation_info: str = ""
         self._detail_visible: bool = False
@@ -239,6 +243,35 @@ class CodeBrowserApp(App):
         if self.explain_manager:
             self._load_explain_data(event.path)
 
+    def on_directory_tree_directory_selected(
+        self, event: DirectoryTree.DirectorySelected
+    ) -> None:
+        """Pre-cache explain data when a directory is expanded."""
+        if not self.explain_manager:
+            return
+        if self.explain_manager.request_precache(event.path):
+            self._run_precache()
+
+    @work(exclusive=False, group="precache")
+    async def _run_precache(self) -> None:
+        """Process the pre-cache queue in the background (silent, no info bar updates)."""
+        if not self.explain_manager:
+            return
+        while True:
+            directory = self.explain_manager.pop_precache()
+            if directory is None:
+                break
+            if self.explain_manager.is_generating():
+                # Another generation is active; re-queue and stop
+                self.explain_manager.request_precache(directory)
+                break
+            try:
+                await asyncio.to_thread(
+                    self.explain_manager.generate_explain_data, directory
+                )
+            except Exception:
+                pass  # Pre-cache failures are silent
+
     def on_code_viewer_cursor_moved(self, event: CodeViewer.CursorMoved) -> None:
         """Update info bar and detail pane when cursor moves."""
         code_viewer = self.query_one("#code_viewer", CodeViewer)
@@ -264,6 +297,34 @@ class CodeBrowserApp(App):
 
         self.push_screen(GoToLineScreen(code_viewer._total_lines), on_line)
 
+    def _start_gen_timer(self) -> None:
+        """Start the generation progress timer."""
+        self._gen_start_time = time.monotonic()
+        self._stop_gen_timer()
+        self._gen_timer = self.set_interval(0.5, self._tick_gen_progress)
+
+    def _stop_gen_timer(self) -> None:
+        """Stop the generation progress timer."""
+        if self._gen_timer is not None:
+            self._gen_timer.stop()
+            self._gen_timer = None
+
+    def _tick_gen_progress(self) -> None:
+        """Update the info bar with elapsed generation time."""
+        if not self._generating:
+            self._stop_gen_timer()
+            return
+        elapsed = time.monotonic() - self._gen_start_time
+        self._annotation_info = f"Annotations: Generating... ({elapsed:.1f}s)"
+        self._update_info_bar()
+
+    def _format_annotation_info(self, run_info) -> str:
+        """Format annotation info with staleness indicator."""
+        ts = run_info.timestamp if run_info else "unknown"
+        if run_info and run_info.is_stale:
+            return f"Annotations: {ts} (outdated - r to refresh)"
+        return f"Annotations: {ts}"
+
     @work(exclusive=True)
     async def _load_explain_data(self, file_path: Path) -> None:
         """Load explain data for a file, generating if not cached."""
@@ -271,8 +332,9 @@ class CodeBrowserApp(App):
             return
 
         self._generating = True
-        self._annotation_info = "Annotations: (generating...)"
+        self._annotation_info = "Annotations: Generating... (0.0s)"
         self._update_info_bar()
+        self._start_gen_timer()
 
         try:
             cached = await asyncio.to_thread(
@@ -284,8 +346,8 @@ class CodeBrowserApp(App):
                 run_info = await asyncio.to_thread(
                     self.explain_manager.get_run_info, file_path
                 )
-                ts = run_info.timestamp if run_info else "unknown"
-                self._annotation_info = f"Annotations: {ts}"
+                elapsed = time.monotonic() - self._gen_start_time
+                self._annotation_info = self._format_annotation_info(run_info)
                 self._update_info_bar()
                 self._update_code_annotations()
             else:
@@ -296,15 +358,26 @@ class CodeBrowserApp(App):
                 run_info = await asyncio.to_thread(
                     self.explain_manager.get_run_info, file_path
                 )
-                ts = run_info.timestamp if run_info else "unknown"
-                self._annotation_info = f"Annotations: {ts}"
+                elapsed = time.monotonic() - self._gen_start_time
+                # Briefly show generation time
+                self._annotation_info = f"Annotations: Generated in {elapsed:.1f}s"
                 self._update_info_bar()
                 self._update_code_annotations()
+                # After 2 seconds, switch to normal timestamp display
+                self.set_timer(2.0, lambda: self._show_final_annotation(run_info))
         except Exception as e:
             self._annotation_info = f"Annotations: error ({e})"
             self._update_info_bar()
         finally:
             self._generating = False
+            self._stop_gen_timer()
+
+    def _show_final_annotation(self, run_info) -> None:
+        """Switch from 'Generated in Xs' to normal timestamp display."""
+        if self._generating:
+            return  # Don't overwrite if a new generation started
+        self._annotation_info = self._format_annotation_info(run_info)
+        self._update_info_bar()
 
     def _update_code_annotations(self) -> None:
         """Pass current explain data annotations to the code viewer."""
@@ -339,10 +412,13 @@ class CodeBrowserApp(App):
             return
 
         self._generating = True
-        self._annotation_info = "Annotations: (refreshing...)"
+        self._annotation_info = "Annotations: Refreshing... (0.0s)"
         self._update_info_bar()
+        self._start_gen_timer()
 
         try:
+            # Invalidate git cache so staleness re-checks after refresh
+            self.explain_manager.invalidate_git_cache()
             all_data = await asyncio.to_thread(
                 self.explain_manager.refresh_data, file_path.parent
             )
@@ -350,15 +426,17 @@ class CodeBrowserApp(App):
             run_info = await asyncio.to_thread(
                 self.explain_manager.get_run_info, file_path
             )
-            ts = run_info.timestamp if run_info else "unknown"
-            self._annotation_info = f"Annotations: {ts}"
+            elapsed = time.monotonic() - self._gen_start_time
+            self._annotation_info = f"Annotations: Refreshed in {elapsed:.1f}s"
             self._update_info_bar()
             self._update_code_annotations()
+            self.set_timer(2.0, lambda: self._show_final_annotation(run_info))
         except Exception as e:
             self._annotation_info = f"Annotations: error ({e})"
             self._update_info_bar()
         finally:
             self._generating = False
+            self._stop_gen_timer()
 
     def _update_detail_pane(self, cursor_line: int, selection: tuple[int, int] | None) -> None:
         """Look up task IDs for the current line and update the detail pane."""

@@ -34,3 +34,4 @@ class ExplainRunInfo:
     directory_key: str
     timestamp: str
     file_count: int = 0
+    is_stale: bool = False
