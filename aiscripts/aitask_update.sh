@@ -43,6 +43,12 @@ BATCH_BOARDIDX=""
 BATCH_BOARDIDX_SET=false
 BATCH_ISSUE=""
 BATCH_ISSUE_SET=false
+BATCH_PULL_REQUEST=""
+BATCH_PULL_REQUEST_SET=false
+BATCH_CONTRIBUTOR=""
+BATCH_CONTRIBUTOR_SET=false
+BATCH_CONTRIBUTOR_EMAIL=""
+BATCH_CONTRIBUTOR_EMAIL_SET=false
 BATCH_FOLDED_TASKS=""
 BATCH_FOLDED_TASKS_SET=false
 BATCH_FOLDED_INTO=""
@@ -63,6 +69,9 @@ CURRENT_ASSIGNED_TO=""
 CURRENT_BOARDCOL=""
 CURRENT_BOARDIDX=""
 CURRENT_ISSUE=""
+CURRENT_PULL_REQUEST=""
+CURRENT_CONTRIBUTOR=""
+CURRENT_CONTRIBUTOR_EMAIL=""
 CURRENT_FOLDED_TASKS=""
 CURRENT_FOLDED_INTO=""
 
@@ -181,6 +190,9 @@ parse_args() {
             --boardcol) BATCH_BOARDCOL="$2"; BATCH_BOARDCOL_SET=true; shift 2 ;;
             --boardidx) BATCH_BOARDIDX="$2"; BATCH_BOARDIDX_SET=true; shift 2 ;;
             --issue) BATCH_ISSUE="$2"; BATCH_ISSUE_SET=true; shift 2 ;;
+            --pull-request) BATCH_PULL_REQUEST="$2"; BATCH_PULL_REQUEST_SET=true; shift 2 ;;
+            --contributor) BATCH_CONTRIBUTOR="$2"; BATCH_CONTRIBUTOR_SET=true; shift 2 ;;
+            --contributor-email) BATCH_CONTRIBUTOR_EMAIL="$2"; BATCH_CONTRIBUTOR_EMAIL_SET=true; shift 2 ;;
             --folded-tasks) BATCH_FOLDED_TASKS="$2"; BATCH_FOLDED_TASKS_SET=true; shift 2 ;;
             --folded-into) BATCH_FOLDED_INTO="$2"; BATCH_FOLDED_INTO_SET=true; shift 2 ;;
             --commit) BATCH_COMMIT=true; shift ;;
@@ -321,6 +333,9 @@ parse_yaml_frontmatter() {
                 boardcol) CURRENT_BOARDCOL="$value" ;;
                 boardidx) CURRENT_BOARDIDX="$value" ;;
                 issue) CURRENT_ISSUE="$value" ;;
+                pull_request) CURRENT_PULL_REQUEST="$value" ;;
+                contributor) CURRENT_CONTRIBUTOR="$value" ;;
+                contributor_email) CURRENT_CONTRIBUTOR_EMAIL="$value" ;;
                 folded_tasks)
                     CURRENT_FOLDED_TASKS=$(echo "$value" | tr -d '[]' | tr -d ' ')
                     ;;
@@ -400,6 +415,9 @@ write_task_file() {
     local issue="${14:-}"
     local folded_tasks="${15:-}"
     local folded_into="${16:-}"
+    local pull_request="${17:-}"
+    local contributor="${18:-}"
+    local contributor_email="${19:-}"
 
     local updated_at
     updated_at=$(get_timestamp)
@@ -442,6 +460,15 @@ write_task_file() {
         # Only write issue if present
         if [[ -n "$issue" ]]; then
             echo "issue: $issue"
+        fi
+        if [[ -n "$pull_request" ]]; then
+            echo "pull_request: $pull_request"
+        fi
+        if [[ -n "$contributor" ]]; then
+            echo "contributor: $contributor"
+        fi
+        if [[ -n "$contributor_email" ]]; then
+            echo "contributor_email: $contributor_email"
         fi
         echo "created_at: $created_at"
         echo "updated_at: $updated_at"
@@ -668,7 +695,8 @@ handle_child_task_completion() {
         "$CURRENT_TYPE" "$CURRENT_STATUS" "$CURRENT_LABELS" "$CURRENT_CREATED_AT" \
         "$CURRENT_DESCRIPTION" "$new_children" "$CURRENT_ASSIGNED_TO" \
         "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE" "$CURRENT_FOLDED_TASKS" \
-        "$CURRENT_FOLDED_INTO"
+        "$CURRENT_FOLDED_INTO" "$CURRENT_PULL_REQUEST" "$CURRENT_CONTRIBUTOR" \
+        "$CURRENT_CONTRIBUTOR_EMAIL"
 
     if [[ -z "$new_children" ]]; then
         success "All children of t$parent_num are complete! Parent can now be completed."
@@ -1118,7 +1146,8 @@ run_interactive_mode() {
         "$new_type" "$new_status" "$new_labels" "$CURRENT_CREATED_AT" "$new_description" \
         "$CURRENT_CHILDREN_TO_IMPLEMENT" "$CURRENT_ASSIGNED_TO" \
         "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE" "$CURRENT_FOLDED_TASKS" \
-        "$CURRENT_FOLDED_INTO"
+        "$CURRENT_FOLDED_INTO" "$CURRENT_PULL_REQUEST" "$CURRENT_CONTRIBUTOR" \
+        "$CURRENT_CONTRIBUTOR_EMAIL"
 
     # Handle child task completion
     if [[ "$new_status" == "Done" ]]; then
@@ -1188,6 +1217,9 @@ run_batch_mode() {
     [[ "$BATCH_BOARDCOL_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDIDX_SET" == true ]] && has_update=true
     [[ "$BATCH_ISSUE_SET" == true ]] && has_update=true
+    [[ "$BATCH_PULL_REQUEST_SET" == true ]] && has_update=true
+    [[ "$BATCH_CONTRIBUTOR_SET" == true ]] && has_update=true
+    [[ "$BATCH_CONTRIBUTOR_EMAIL_SET" == true ]] && has_update=true
     [[ "$BATCH_FOLDED_TASKS_SET" == true ]] && has_update=true
     [[ "$BATCH_FOLDED_INTO_SET" == true ]] && has_update=true
 
@@ -1276,6 +1308,24 @@ run_batch_mode() {
         new_issue="$BATCH_ISSUE"
     fi
 
+    # Process pull_request
+    local new_pull_request="$CURRENT_PULL_REQUEST"
+    if [[ "$BATCH_PULL_REQUEST_SET" == true ]]; then
+        new_pull_request="$BATCH_PULL_REQUEST"
+    fi
+
+    # Process contributor
+    local new_contributor="$CURRENT_CONTRIBUTOR"
+    if [[ "$BATCH_CONTRIBUTOR_SET" == true ]]; then
+        new_contributor="$BATCH_CONTRIBUTOR"
+    fi
+
+    # Process contributor_email
+    local new_contributor_email="$CURRENT_CONTRIBUTOR_EMAIL"
+    if [[ "$BATCH_CONTRIBUTOR_EMAIL_SET" == true ]]; then
+        new_contributor_email="$BATCH_CONTRIBUTOR_EMAIL"
+    fi
+
     # Process folded_tasks
     local new_folded_tasks="$CURRENT_FOLDED_TASKS"
     if [[ "$BATCH_FOLDED_TASKS_SET" == true ]]; then
@@ -1310,7 +1360,8 @@ run_batch_mode() {
     write_task_file "$final_path" "$new_priority" "$new_effort" "$new_deps" \
         "$new_type" "$new_status" "$new_labels" "$CURRENT_CREATED_AT" "$new_description" \
         "$new_children" "$new_assigned_to" "$new_boardcol" "$new_boardidx" "$new_issue" \
-        "$new_folded_tasks" "$new_folded_into"
+        "$new_folded_tasks" "$new_folded_into" "$new_pull_request" "$new_contributor" \
+        "$new_contributor_email"
 
     # Handle child task completion (update parent if needed)
     if [[ "$new_status" == "Done" ]]; then

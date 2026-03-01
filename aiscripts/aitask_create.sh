@@ -31,6 +31,9 @@ BATCH_PARENT=""
 BATCH_NO_SIBLING_DEP=false
 BATCH_ASSIGNED_TO=""
 BATCH_ISSUE=""
+BATCH_PULL_REQUEST=""
+BATCH_CONTRIBUTOR=""
+BATCH_CONTRIBUTOR_EMAIL=""
 
 # Draft/finalize mode variables
 BATCH_FINALIZE=""
@@ -118,6 +121,9 @@ parse_args() {
             --no-sibling-dep) BATCH_NO_SIBLING_DEP=true; shift ;;
             --assigned-to|-a) BATCH_ASSIGNED_TO="$2"; shift 2 ;;
             --issue) BATCH_ISSUE="$2"; shift 2 ;;
+            --pull-request) BATCH_PULL_REQUEST="$2"; shift 2 ;;
+            --contributor) BATCH_CONTRIBUTOR="$2"; shift 2 ;;
+            --contributor-email) BATCH_CONTRIBUTOR_EMAIL="$2"; shift 2 ;;
             --commit) BATCH_COMMIT=true; shift ;;
             --finalize) BATCH_FINALIZE="$2"; shift 2 ;;
             --finalize-all) BATCH_FINALIZE_ALL=true; shift ;;
@@ -298,6 +304,9 @@ create_child_task_file() {
     local status="$9"
     local labels="${10}"
     local issue="${11:-}"
+    local pull_request="${12:-}"
+    local contributor="${13:-}"
+    local contributor_email="${14:-}"
 
     local child_dir="$TASK_DIR/t${parent_num}"
     mkdir -p "$child_dir"
@@ -327,6 +336,15 @@ create_child_task_file() {
         # Only write issue if present
         if [[ -n "$issue" ]]; then
             echo "issue: $issue"
+        fi
+        if [[ -n "$pull_request" ]]; then
+            echo "pull_request: $pull_request"
+        fi
+        if [[ -n "$contributor" ]]; then
+            echo "contributor: $contributor"
+        fi
+        if [[ -n "$contributor_email" ]]; then
+            echo "contributor_email: $contributor_email"
         fi
         echo "created_at: $timestamp"
         echo "updated_at: $timestamp"
@@ -361,6 +379,9 @@ create_draft_file() {
     local assigned_to="${9:-}"
     local issue="${10:-}"
     local parent_num="${11:-}"
+    local pull_request="${12:-}"
+    local contributor="${13:-}"
+    local contributor_email="${14:-}"
 
     mkdir -p "$DRAFT_DIR"
 
@@ -391,6 +412,15 @@ create_draft_file() {
         fi
         if [[ -n "$issue" ]]; then
             echo "issue: $issue"
+        fi
+        if [[ -n "$pull_request" ]]; then
+            echo "pull_request: $pull_request"
+        fi
+        if [[ -n "$contributor" ]]; then
+            echo "contributor: $contributor"
+        fi
+        if [[ -n "$contributor_email" ]]; then
+            echo "contributor_email: $contributor_email"
         fi
         if [[ -n "$parent_num" ]]; then
             echo "parent: $parent_num"
@@ -1054,6 +1084,9 @@ create_task_file() {
     local labels="$9"
     local assigned_to="${10:-}"
     local issue="${11:-}"
+    local pull_request="${12:-}"
+    local contributor="${13:-}"
+    local contributor_email="${14:-}"
 
     local filename="t${task_num}_${task_name}.md"
     local filepath="$TASK_DIR/$filename"
@@ -1083,6 +1116,15 @@ create_task_file() {
         # Only write issue if present
         if [[ -n "$issue" ]]; then
             echo "issue: $issue"
+        fi
+        if [[ -n "$pull_request" ]]; then
+            echo "pull_request: $pull_request"
+        fi
+        if [[ -n "$contributor" ]]; then
+            echo "contributor: $contributor"
+        fi
+        if [[ -n "$contributor_email" ]]; then
+            echo "contributor_email: $contributor_email"
         fi
         echo "created_at: $timestamp"
         echo "updated_at: $timestamp"
@@ -1209,7 +1251,8 @@ run_batch_mode() {
 
             filepath=$(create_child_task_file "$BATCH_PARENT" "$child_num" "$task_name" \
                 "$BATCH_PRIORITY" "$BATCH_EFFORT" "$BATCH_DEPS" "$BATCH_DESC" \
-                "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" "$BATCH_ISSUE")
+                "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" "$BATCH_ISSUE" \
+                "$BATCH_PULL_REQUEST" "$BATCH_CONTRIBUTOR" "$BATCH_CONTRIBUTOR_EMAIL")
 
             task_id="t${BATCH_PARENT}_${child_num}"
             update_parent_children_to_implement "$BATCH_PARENT" "$task_id"
@@ -1234,7 +1277,8 @@ run_batch_mode() {
             rm -f "$claim_stderr" 2>/dev/null
 
             filepath=$(create_task_file "$claimed_id" "$task_name" "$BATCH_PRIORITY" "$BATCH_EFFORT" \
-                "$BATCH_DEPS" "$BATCH_DESC" "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" "$BATCH_ASSIGNED_TO" "$BATCH_ISSUE")
+                "$BATCH_DEPS" "$BATCH_DESC" "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" "$BATCH_ASSIGNED_TO" "$BATCH_ISSUE" \
+                "$BATCH_PULL_REQUEST" "$BATCH_CONTRIBUTOR" "$BATCH_CONTRIBUTOR_EMAIL")
 
             if [[ -n "$BATCH_ASSIGNED_TO" ]]; then
                 add_email_to_file "$BATCH_ASSIGNED_TO"
@@ -1252,7 +1296,8 @@ run_batch_mode() {
         # Default: create as draft in aitasks/new/ (no network needed)
         filepath=$(create_draft_file "$task_name" "$BATCH_PRIORITY" "$BATCH_EFFORT" \
             "$BATCH_DEPS" "$BATCH_DESC" "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" \
-            "$BATCH_ASSIGNED_TO" "$BATCH_ISSUE" "$BATCH_PARENT")
+            "$BATCH_ASSIGNED_TO" "$BATCH_ISSUE" "$BATCH_PARENT" \
+            "$BATCH_PULL_REQUEST" "$BATCH_CONTRIBUTOR" "$BATCH_CONTRIBUTOR_EMAIL")
     fi
 
     # Output
@@ -1411,7 +1456,8 @@ main() {
     local filepath
     filepath=$(create_draft_file "$task_name" "$priority" "$effort" "$deps" \
         "$task_desc" "$issue_type" "$status" "$labels" "" "" \
-        "$([[ "$is_child_task" == true ]] && echo "$parent_num" || echo "")")
+        "$([[ "$is_child_task" == true ]] && echo "$parent_num" || echo "")" \
+        "" "" "")
 
     success "Draft created: $filepath"
     echo ""

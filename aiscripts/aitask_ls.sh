@@ -167,6 +167,8 @@ children_to_implement_text=""
 has_children=0
 assigned_to_text=""
 issue_text=""
+pull_request_text=""
+contributor_text=""
 
 normalize_task_ids() {
     # Normalize child task IDs: ensure entries with underscore have 't' prefix
@@ -256,6 +258,12 @@ parse_yaml_frontmatter() {
                 issue)
                     issue_text="$value"
                     ;;
+                pull_request)
+                    pull_request_text="$value"
+                    ;;
+                contributor)
+                    contributor_text="$value"
+                    ;;
             esac
         fi
     done < "$file_path"
@@ -302,6 +310,8 @@ parse_task_metadata() {
     has_children=0
     assigned_to_text=""
     issue_text=""
+    pull_request_text=""
+    contributor_text=""
 
     # Parse YAML front matter
     parse_yaml_frontmatter "$file_path"
@@ -375,7 +385,15 @@ process_task_file() {
         if [[ -n "$issue_text" ]]; then
             issue_info=", Issue: $issue_text"
         fi
-        display="${indent_prefix}$filename [Status: $display_status, Priority: $p_text, Effort: $e_text${assigned_info}${issue_info}]"
+        local pr_info=""
+        if [[ -n "$pull_request_text" ]]; then
+            pr_info=", PR: $pull_request_text"
+        fi
+        local contributor_info=""
+        if [[ -n "$contributor_text" ]]; then
+            contributor_info=", Contributor: $contributor_text"
+        fi
+        display="${indent_prefix}$filename [Status: $display_status, Priority: $p_text, Effort: $e_text${assigned_info}${issue_info}${pr_info}${contributor_info}]"
     else
         display="${indent_prefix}$filename"
     fi

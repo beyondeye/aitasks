@@ -304,6 +304,87 @@ extract_issue_url() {
     echo ""
 }
 
+# Extract the pull request URL from a task file's YAML frontmatter
+# Input: task file path
+# Output: pull request URL or empty string
+extract_pr_url() {
+    local file_path="$1"
+    local in_yaml=false
+
+    while IFS= read -r line; do
+        if [[ "$line" == "---" ]]; then
+            if [[ "$in_yaml" == true ]]; then
+                break
+            else
+                in_yaml=true
+                continue
+            fi
+        fi
+        if [[ "$in_yaml" == true && "$line" =~ ^pull_request:[[:space:]]*(.*) ]]; then
+            local url="${BASH_REMATCH[1]}"
+            url=$(echo "$url" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            echo "$url"
+            return
+        fi
+    done < "$file_path"
+
+    echo ""
+}
+
+# Extract the contributor username from a task file's YAML frontmatter
+# Input: task file path
+# Output: contributor username or empty string
+extract_contributor() {
+    local file_path="$1"
+    local in_yaml=false
+
+    while IFS= read -r line; do
+        if [[ "$line" == "---" ]]; then
+            if [[ "$in_yaml" == true ]]; then
+                break
+            else
+                in_yaml=true
+                continue
+            fi
+        fi
+        if [[ "$in_yaml" == true && "$line" =~ ^contributor:[[:space:]]*(.*) ]]; then
+            local val="${BASH_REMATCH[1]}"
+            val=$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            echo "$val"
+            return
+        fi
+    done < "$file_path"
+
+    echo ""
+}
+
+# Extract the contributor email from a task file's YAML frontmatter
+# Input: task file path
+# Output: contributor email or empty string
+extract_contributor_email() {
+    local file_path="$1"
+    local in_yaml=false
+
+    while IFS= read -r line; do
+        if [[ "$line" == "---" ]]; then
+            if [[ "$in_yaml" == true ]]; then
+                break
+            else
+                in_yaml=true
+                continue
+            fi
+        fi
+        if [[ "$in_yaml" == true && "$line" =~ ^contributor_email:[[:space:]]*(.*) ]]; then
+            local val="${BASH_REMATCH[1]}"
+            val=$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            echo "$val"
+            return
+        fi
+    done < "$file_path"
+
+    echo ""
+}
+
 # Extract "Final Implementation Notes" section from a plan file
 # Input: plan file path
 # Output: the section content
