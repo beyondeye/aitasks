@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: medium
-depends: [t260_6]
+depends: [t260_6, t260_8]
 issue_type: documentation
 status: Ready
 labels: [documentation]
 created_at: 2026-03-01 15:34
-updated_at: 2026-03-01 15:34
+updated_at: 2026-03-01 18:11
 ---
 
 ## Context
