@@ -149,6 +149,28 @@ pr-close)   shift; exec "$SCRIPTS_DIR/aitask_pr_close.sh" "$@" ;;
 4. `shellcheck aiscripts/aitask_pr_close.sh`
 5. End-to-end: `/aitask-pick` → implement → archive → verify PR close prompt
 
+## Final Implementation Notes
+
+- **Actual work done:** All 5 steps implemented as planned. Created `aiscripts/aitask_pr_close.sh` (~380 lines), added PR/FOLDED_PR/PARENT_PR output lines to `aitask_archive.sh` (4 locations parallel to ISSUE lines + help text update), added PR:/PARENT_PR:/FOLDED_PR: handling to `task-workflow/SKILL.md` Step 9, added PR Close/Decline Procedure to `procedures.md`, and registered `pr-close` command in `ait` dispatcher.
+- **Deviations from plan:**
+  - Used `set -e` instead of `set -euo pipefail` for `aitask_pr_close.sh` (matching `aitask_issue_update.sh` pattern — pipefail causes issues with pipe chains that may legitimately return empty).
+  - Fixed the original plan's claim that `--close` is default behavior — implemented as comment-only by default (matching `aitask_issue_update.sh`). The `--close` flag explicitly triggers close/decline.
+  - Added `PARENT_PR:` output in archive script for parent auto-archival path (original plan missed this; the verified plan caught it).
+  - Added `PR:` output in archive script's child task archival path (original plan also missed this).
+  - Comment body includes contributor attribution (`@username`) when `contributor` metadata is present, using `extract_contributor()` from task_utils.sh.
+  - Each platform backend includes full `_check_cli()`, `_extract_pr_number()`, `_get_pr_status()`, `_add_comment()`, and `_close_pr()` functions (not just close).
+- **Issues encountered:** None. The `aitask_issue_update.sh` pattern translated cleanly to PRs.
+- **Key decisions:**
+  - Default behavior is comment-only (not close) — consistent with issue_update.sh and the procedures.md calling conventions.
+  - `--pr-url` flag allows overriding task file lookup (needed for folded tasks whose files are deleted).
+  - Bitbucket uses `bkt pr decline` (not close) — Bitbucket's terminology for rejecting a PR.
+  - `detect_commits()` replicates the same logic from `aitask_issue_update.sh` rather than importing it, since both scripts are standalone executables.
+  - GitLab backend posts a note before closing since `glab mr close` doesn't support `--comment`.
+- **Notes for sibling tasks:**
+  - For t260_6 (contributor attribution in commits): The `extract_contributor()` and `extract_contributor_email()` functions are available in `task_utils.sh` and can be used to set commit author during implementation.
+  - For t260_7 (documentation): The PR close workflow is: archive outputs `PR:` line → skill presents AskUserQuestion → skill calls `./ait pr-close` with appropriate flags. Document the `ait pr-close` CLI and its integration with the archive workflow.
+  - For t260_8 (board integration): No board changes needed for PR close — this is a post-archival operation, not a board feature.
+
 ## Step 9 Reference
 
 Post-implementation: archive child task via `./aiscripts/aitask_archive.sh 260_5`
