@@ -216,6 +216,7 @@ At this point, a task has been selected and confirmed. Set the following context
 - **parent_id**: The parent task number if `is_child` is true (e.g., `16`), otherwise null
 - **parent_task_file**: Path to the parent task file if `is_child` is true (e.g., `aitasks/t16_implement_auth.md`), otherwise null
 - **active_profile**: The execution profile loaded in Step 0a (or null if no profile)
+- **active_profile_filename**: The `<filename>` value from the scanner output for the selected profile (e.g., `fast.yaml` or `local/fast.yaml`), or null if no profile
 - **previous_status**: `Ready` (the status the task had before being picked)
 
 ---

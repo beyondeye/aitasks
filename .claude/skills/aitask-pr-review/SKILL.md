@@ -327,6 +327,7 @@ Set the following context variables from the created task, then read and follow 
 - **parent_id**: null
 - **parent_task_file**: null
 - **active_profile**: The execution profile loaded in Step 0a (or null if no profile)
+- **active_profile_filename**: The `<filename>` value from the scanner output for the selected profile (e.g., `fast.yaml` or `local/fast.yaml`), or null if no profile
 - **previous_status**: `Ready`
 - **folded_tasks**: List of task IDs folded into this task (e.g., `[106, 129_5]`), or empty list if none
 

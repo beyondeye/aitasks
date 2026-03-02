@@ -17,6 +17,7 @@ This skill is invoked by other skills (e.g., aitask-pick, aitask-explore, aitask
 | `parent_id` | string/null | Parent task number if child (e.g., `16`), null otherwise |
 | `parent_task_file` | string/null | Path to parent task file if child (e.g., `aitasks/t16_implement_auth.md`), null otherwise |
 | `active_profile` | object/null | Loaded execution profile from calling skill (or null if no profile) |
+| `active_profile_filename` | string/null | Scanner-returned filename for the profile (e.g., `fast.yaml` or `local/fast.yaml`), null if no profile |
 | `previous_status` | string | Task status before workflow began (for abort revert, e.g., `Ready`) |
 | `folded_tasks` | array/null | List of task IDs folded into this task (e.g., `[106, 129_5]`), or null/empty if none. Set by aitask-explore when existing tasks are folded into a new task. |
 
@@ -65,7 +66,7 @@ After a task is selected and confirmed, perform these checks before proceeding t
 If neither check triggers, proceed to Step 4 as normal.
 
 ### Step 3b: refresh execution profile
-If `active_profile` was provided and is non-null, re-read the profile YAML file from `aitasks/metadata/profiles/` to ensure all settings are fresh in context. Display: "Refreshing profile: \<name\>". If the profile file cannot be read (missing or invalid), warn: "Warning: Could not refresh profile '\<name\>', proceeding without profile" and set `active_profile` to null.
+If `active_profile` was provided and is non-null, re-read the profile YAML file using the stored filename: `cat aitasks/metadata/profiles/<active_profile_filename>`. Display: "Refreshing profile: \<name\>". If the file cannot be read (missing or invalid), warn: "Warning: Could not refresh profile '\<name\>', proceeding without profile" and set `active_profile` to null.
 
 If `active_profile` is null (either because no profile was selected by the calling skill, or because the profile name was lost during a long conversation), re-run the profile selection logic: run `./aiscripts/aitask_scan_profiles.sh` and parse the output. If `NO_PROFILES`, skip this step. If profiles exist, present them via `AskUserQuestion` (same format as Step 0a in aitask-pick/aitask-explore) and read the chosen profile file. If the user selects "No profile", proceed without one.
 

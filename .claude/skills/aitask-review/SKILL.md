@@ -276,6 +276,7 @@ When continuing to implementation, set the following context variables from the 
 - **parent_id**: Parent task number if child (e.g., `42`), null otherwise
 - **parent_task_file**: Path to parent task file if child (e.g., `aitasks/t42_codebase_code_review.md`), null otherwise
 - **active_profile**: The execution profile loaded in Step 0a (or null if no profile)
+- **active_profile_filename**: The `<filename>` value from the scanner output for the selected profile (e.g., `fast.yaml` or `local/fast.yaml`), or null if no profile
 - **previous_status**: `Ready`
 - **folded_tasks**: Empty list (review does not fold tasks)
 
