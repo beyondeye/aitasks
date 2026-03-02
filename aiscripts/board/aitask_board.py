@@ -83,6 +83,18 @@ def _issue_indicator(url: str) -> str:
         return "[blue]BB[/blue]"
     return "[blue]Issue[/blue]"
 
+def _pr_indicator(url: str) -> str:
+    """Return a short colored indicator based on pull request URL platform."""
+    from urllib.parse import urlparse
+    host = urlparse(url).hostname or ""
+    if "github" in host:
+        return "[green]PR:GH[/green]"
+    elif "gitlab" in host:
+        return "[#e24329]MR:GL[/e24329]"
+    elif "bitbucket" in host:
+        return "[blue]PR:BB[/blue]"
+    return "[green]PR[/green]"
+
 def _get_user_email() -> str:
     """Read the current user's email from userconfig.yaml, falling back to emails.txt."""
     try:
@@ -560,6 +572,12 @@ class TaskCard(Static):
         issue = meta.get('issue', '')
         if issue:
             info.append(_issue_indicator(issue))
+        pr_url = meta.get('pull_request', '')
+        if pr_url:
+            info.append(_pr_indicator(pr_url))
+        contributor = meta.get('contributor', '')
+        if contributor:
+            info.append(f"[dim]@{contributor}[/dim]")
 
         if info:
             yield Label(" | ".join(info), classes="task-info")
@@ -1049,6 +1067,33 @@ class IssueField(Static):
         self.remove_class("ro-focused")
 
 
+class PullRequestField(Static):
+    """Focusable pull request URL field. Press Enter to open in browser."""
+
+    can_focus = True
+
+    def __init__(self, url: str, **kwargs):
+        super().__init__(**kwargs)
+        self.url = url
+
+    def render(self) -> str:
+        indicator = _pr_indicator(self.url)
+        return f"  [b]Pull Request:[/b] {indicator} {self.url}  [dim](Enter to open)[/dim]"
+
+    def on_key(self, event):
+        if event.key == "enter":
+            import webbrowser
+            webbrowser.open(self.url)
+            event.prevent_default()
+            event.stop()
+
+    def on_focus(self):
+        self.add_class("ro-focused")
+
+    def on_blur(self):
+        self.remove_class("ro-focused")
+
+
 class RemoveDepConfirmScreen(ModalScreen):
     """Confirmation dialog to remove a missing dependency."""
 
@@ -1498,6 +1543,13 @@ class TaskDetailScreen(ModalScreen):
                 yield ReadOnlyField(f"[b]Assigned to:[/b] {meta['assigned_to']}", classes="meta-ro")
             if meta.get("issue"):
                 yield IssueField(meta["issue"], classes="meta-ro")
+            if meta.get("pull_request"):
+                yield PullRequestField(meta["pull_request"], classes="meta-ro")
+            if meta.get("contributor"):
+                contributor_text = meta["contributor"]
+                if meta.get("contributor_email"):
+                    contributor_text += f" ({meta['contributor_email']})"
+                yield ReadOnlyField(f"  [b]Contributor:[/b] @{contributor_text}", classes="meta-ro")
             dates = []
             if meta.get("created_at"):
                 dates.append(f"[b]Created:[/b] {meta['created_at']}")
