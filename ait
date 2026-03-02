@@ -36,6 +36,7 @@ Integration:
   issue-import   Import tasks from GitHub/GitLab issues
   pr-import      Import tasks from GitHub/GitLab pull requests
   issue-update   Update/close linked issues
+  pr-close       Close/decline linked pull requests
 
 Reporting:
   stats          Show task completion statistics
@@ -130,6 +131,7 @@ case "${1:-help}" in
     stats)        shift; exec "$SCRIPTS_DIR/aitask_stats.sh" "$@" ;;
     zip-old)      shift; exec "$SCRIPTS_DIR/aitask_zip_old.sh" "$@" ;;
     issue-update) shift; exec "$SCRIPTS_DIR/aitask_issue_update.sh" "$@" ;;
+    pr-close)     shift; exec "$SCRIPTS_DIR/aitask_pr_close.sh" "$@" ;;
     setup)        shift; exec "$SCRIPTS_DIR/aitask_setup.sh" "$@" ;;
     changelog)    shift; exec "$SCRIPTS_DIR/aitask_changelog.sh" "$@" ;;
     explain-runs)    shift; exec "$SCRIPTS_DIR/aitask_explain_runs.sh" "$@" ;;

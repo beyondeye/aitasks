@@ -441,6 +441,31 @@ The script outputs structured lines. Parse each line and handle accordingly:
     ```
   - If "Skip": do nothing
   - Note: Uses the primary `task_id` (not `folded_task_num`) so the comment references the primary task's commits and plan file
+- `PR:<task_num>:<pr_url>` — Execute the **PR Close/Decline Procedure** (see `procedures.md`) for the task
+- `PARENT_PR:<task_num>:<pr_url>` — Execute the **PR Close/Decline Procedure** (see `procedures.md`) for the parent task
+- `FOLDED_PR:<folded_task_num>:<pr_url>` — The folded task's file has been deleted, so the standard PR Close/Decline Procedure cannot be used. Instead, handle inline:
+  - Use `AskUserQuestion`:
+    - Question: "Folded task t<folded_task_num> had a linked PR: <pr_url>. Close/decline it?"
+    - Header: "PR"
+    - Options:
+      - "Close with notes" (description: "Post implementation notes from primary task and close/decline")
+      - "Comment only" (description: "Post implementation notes but leave open")
+      - "Close silently" (description: "Close/decline without posting a comment")
+      - "Skip" (description: "Don't touch the PR")
+  - If "Close with notes":
+    ```bash
+    ./aiscripts/aitask_pr_close.sh --pr-url "<pr_url>" --close <task_id>
+    ```
+  - If "Comment only":
+    ```bash
+    ./aiscripts/aitask_pr_close.sh --pr-url "<pr_url>" <task_id>
+    ```
+  - If "Close silently":
+    ```bash
+    ./aiscripts/aitask_pr_close.sh --pr-url "<pr_url>" --close --no-comment <task_id>
+    ```
+  - If "Skip": do nothing
+  - Note: Uses the primary `task_id` (not `folded_task_num`) so the comment references the primary task's commits and plan file
 - `FOLDED_WARNING:<task_num>:<status>` — Warn the user: "Folded task t<N> has status '<status>' — skipping automatic deletion. Please handle it manually."
 - `PARENT_ARCHIVED:<path>` — Inform user: "All child tasks complete! Parent task also archived."
 - `COMMITTED:<hash>` — Archival commit was created
@@ -457,6 +482,7 @@ The following procedures are in `procedures.md` — read on demand when referenc
 
 - **Task Abort Procedure** — Lock release, status revert, worktree cleanup. Referenced from Step 6 checkpoint and Step 8.
 - **Issue Update Procedure** — Update/close linked issues during archival. Referenced from Step 9.
+- **PR Close/Decline Procedure** — Close/decline linked pull requests during archival. Referenced from Step 9.
 - **Lock Release Procedure** — Release task locks. Referenced from Task Abort Procedure.
 
 ---

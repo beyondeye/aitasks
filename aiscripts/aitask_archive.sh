@@ -50,10 +50,13 @@ Output format (structured lines for skill parsing):
   ARCHIVED_TASK:<path>              Archived task file
   ARCHIVED_PLAN:<path>              Archived plan file
   ISSUE:<task_num>:<issue_url>      Task has linked issue needing user action
+  PR:<task_num>:<pr_url>            Task has linked PR needing user action
   PARENT_ARCHIVED:<path>            Parent task also archived (all children done)
   PARENT_ISSUE:<task_num>:<url>     Parent has linked issue needing user action
+  PARENT_PR:<task_num>:<url>        Parent has linked PR needing user action
   FOLDED_DELETED:<task_num>:<path>  Folded task was deleted
   FOLDED_ISSUE:<task_num>:<url>     Deleted folded task had linked issue
+  FOLDED_PR:<task_num>:<url>        Deleted folded task had linked PR
   FOLDED_WARNING:<task_num>:<status> Folded task skipped (active status)
   COMMITTED:<hash>                  Git commit hash
 
@@ -210,6 +213,13 @@ archive_parent() {
         echo "ISSUE:$task_num:$issue_url"
     fi
 
+    # Check for linked PR before archival (output for skill)
+    local pr_url
+    pr_url=$(extract_pr_url "$task_file")
+    if [[ -n "$pr_url" ]]; then
+        echo "PR:$task_num:$pr_url"
+    fi
+
     # Handle folded tasks (before moving, so we can read from original path)
     handle_folded_tasks "$task_num" "$task_file"
 
@@ -298,6 +308,13 @@ handle_folded_tasks() {
             echo "FOLDED_ISSUE:$folded_id:$folded_issue"
         fi
 
+        # Check for linked PR before deletion
+        local folded_pr_url
+        folded_pr_url=$(extract_pr_url "$folded_file")
+        if [[ -n "$folded_pr_url" ]]; then
+            echo "FOLDED_PR:$folded_id:$folded_pr_url"
+        fi
+
         if [[ "$DRY_RUN" == true ]]; then
             info "[dry-run] Would delete folded task: $folded_file"
             continue
@@ -344,6 +361,13 @@ archive_child() {
         echo "ISSUE:$task_id:$child_issue"
     fi
 
+    # Check for linked PR on child
+    local child_pr
+    child_pr=$(extract_pr_url "$child_task_file")
+    if [[ -n "$child_pr" ]]; then
+        echo "PR:$task_id:$child_pr"
+    fi
+
     # Update parent's children_to_implement
     if [[ "$DRY_RUN" == true ]]; then
         info "[dry-run] Would remove t${task_id} from parent's children_to_implement"
@@ -384,6 +408,13 @@ archive_child() {
         parent_issue=$(extract_issue_url "$parent_task_file")
         if [[ -n "$parent_issue" ]]; then
             echo "PARENT_ISSUE:$parent_num:$parent_issue"
+        fi
+
+        # Check for linked PR on parent
+        local parent_pr
+        parent_pr=$(extract_pr_url "$parent_task_file")
+        if [[ -n "$parent_pr" ]]; then
+            echo "PARENT_PR:$parent_num:$parent_pr"
         fi
 
         # Remove empty child directories
