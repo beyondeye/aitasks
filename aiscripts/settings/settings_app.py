@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -60,6 +61,15 @@ MODEL_FILES = {
 }
 PROFILES_DIR = METADATA_DIR / "profiles"
 LOCAL_PROFILES_DIR = PROFILES_DIR / "local"
+_DATA_WORKTREE = Path(".aitask-data")
+
+
+def _task_git_cmd() -> list[str]:
+    """Return git command prefix for task data operations."""
+    if _DATA_WORKTREE.exists() and (_DATA_WORKTREE / ".git").exists():
+        return ["git", "-C", str(_DATA_WORKTREE)]
+    return ["git"]
+
 
 _BOARD_PROJECT_KEYS = {"columns", "column_order"}
 _BOARD_USER_KEYS = {"settings"}
@@ -856,6 +866,48 @@ class DeleteProfileConfirmScreen(ModalScreen):
         self.dismiss(False)
 
 
+class SaveProfileConfirmScreen(ModalScreen):
+    """Confirmation dialog before saving a profile."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(self, profile_name: str, filename: str):
+        super().__init__()
+        self.profile_name = profile_name
+        self.filename = filename
+
+    def compose(self) -> ComposeResult:
+        with Container(id="edit_dialog"):
+            yield Label(
+                f"Save profile [bold]{self.profile_name}[/bold]?",
+                id="edit_title",
+            )
+            with Horizontal(id="edit_buttons"):
+                yield Button("Save", variant="success", id="btn_save_profile_ok")
+                yield Button(
+                    "Save and Commit", variant="primary",
+                    id="btn_save_profile_commit",
+                )
+                yield Button(
+                    "Cancel", variant="default", id="btn_save_profile_cancel",
+                )
+
+    @on(Button.Pressed, "#btn_save_profile_ok")
+    def do_save(self):
+        self.dismiss("save")
+
+    @on(Button.Pressed, "#btn_save_profile_commit")
+    def do_save_commit(self):
+        self.dismiss("save_commit")
+
+    @on(Button.Pressed, "#btn_save_profile_cancel")
+    def do_cancel(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+
 # ---------------------------------------------------------------------------
 # Main App
 # ---------------------------------------------------------------------------
@@ -1519,7 +1571,13 @@ class SettingsApp(App):
         if btn_id.startswith("btn_profile_save__"):
             safe_fn = btn_id.replace("btn_profile_save__", "")
             filename = self._profile_id_map.get(safe_fn, safe_fn)
-            self._save_profile(filename)
+            data = self.config_mgr.profiles.get(filename, {})
+            profile_name = data.get("name", filename)
+            self.push_screen(
+                SaveProfileConfirmScreen(profile_name, filename),
+                callback=lambda result, fn=filename:
+                    self._handle_save_profile(result, fn),
+            )
         elif btn_id.startswith("btn_profile_delete__"):
             safe_fn = btn_id.replace("btn_profile_delete__", "")
             filename = self._profile_id_map.get(safe_fn, safe_fn)
@@ -1576,6 +1634,42 @@ class SettingsApp(App):
         layer = self.config_mgr.profile_layers.get(filename, "project")
         self.config_mgr.save_profile(filename, data, layer=layer)
         self.notify(f"Profile '{filename}' saved")
+
+    def _handle_save_profile(self, result: str | None, filename: str):
+        if result is None:
+            return
+        self._save_profile(filename)
+        if result == "save_commit":
+            self._commit_profile(filename)
+
+    def _commit_profile(self, filename: str):
+        layer = self.config_mgr.profile_layers.get(filename, "project")
+        if layer == "user":
+            path = LOCAL_PROFILES_DIR / filename
+        else:
+            path = PROFILES_DIR / filename
+        data = self.config_mgr.profiles.get(filename, {})
+        name = data.get("name", filename)
+        git_cmd = _task_git_cmd()
+        try:
+            subprocess.run(
+                [*git_cmd, "add", str(path)],
+                capture_output=True, timeout=5,
+            )
+            result = subprocess.run(
+                [*git_cmd, "commit", "-m",
+                 f"ait: Updated execution profile {name}"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0:
+                self.notify(f"Committed profile '{name}'")
+            else:
+                self.notify(
+                    f"Commit failed: {result.stderr.strip()}",
+                    severity="error",
+                )
+        except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+            self.notify(f"Git error: {exc}", severity="error")
 
     def _revert_profile(self, filename: str):
         """Revert a profile to its on-disk state, discarding unsaved changes."""
