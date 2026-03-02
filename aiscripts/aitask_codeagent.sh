@@ -38,7 +38,7 @@ require_jq() {
     command -v jq &>/dev/null || die "jq is required. Install via your package manager."
 }
 
-# Validate and parse an agent string like "claude/opus4_6"
+# Validate and parse an agent string like "claudecode/opus4_6"
 # Sets PARSED_AGENT and PARSED_MODEL
 parse_agent_string() {
     local agent_string="$1"

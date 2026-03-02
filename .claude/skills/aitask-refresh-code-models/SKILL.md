@@ -13,7 +13,7 @@ Read all model config files and the project defaults:
 2. Read each file to get the current model list per agent
 3. Read `aitasks/metadata/codeagent_config.json` to identify which models are configured as defaults for each operation (these will be marked "IN USE" in the change report)
 
-Extract the agent name from each filename: `models_claude.json` → `claude`, `models_gemini.json` → `gemini`, etc.
+Extract the agent name from each filename: `models_claudecode.json` → `claudecode`, `models_geminicli.json` → `geminicli`, etc.
 
 ### Step 2: Select Agents to Update
 
@@ -133,7 +133,7 @@ Stage and commit the changes using the appropriate git commands:
 
 **Metadata files** (task data branch):
 ```bash
-./ait git add aitasks/metadata/models_claude.json aitasks/metadata/models_gemini.json aitasks/metadata/models_codex.json aitasks/metadata/models_opencode.json
+./ait git add aitasks/metadata/models_claudecode.json aitasks/metadata/models_geminicli.json aitasks/metadata/models_codex.json aitasks/metadata/models_opencode.json
 ./ait git commit -m "ait: Refresh code agent model configurations"
 ```
 
@@ -141,7 +141,7 @@ Only include files that were actually modified — skip unchanged agent files.
 
 **Seed files** (main branch, only if `seed/` exists and files were updated):
 ```bash
-git add seed/models_claude.json seed/models_gemini.json seed/models_codex.json seed/models_opencode.json
+git add seed/models_claudecode.json seed/models_geminicli.json seed/models_codex.json seed/models_opencode.json
 git commit -m "ait: Sync refreshed models to seed templates"
 ```
 

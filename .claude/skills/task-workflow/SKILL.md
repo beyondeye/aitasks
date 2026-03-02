@@ -192,13 +192,13 @@ If `active_profile` is null (either because no profile was selected by the calli
   1. **Check `AITASK_AGENT_STRING` env var** — if set (by the codeagent wrapper), use its value directly.
 
   2. **If not set, self-detect:**
-     - Identify which code agent CLI you are running in: `claude`, `gemini`, `codex`, or `opencode`
+     - Identify which code agent CLI you are running in: `claudecode`, `geminicli`, `codex`, or `opencode`
      - Identify your current model ID from your system context (e.g., for Claude Code: the "exact model ID" from the system message, like `claude-opus-4-6`)
      - Read the corresponding model config file: `aitasks/metadata/models_<agent>.json`
      - Find the model entry whose `cli_id` matches your model ID
      - Extract the `name` field from that entry (e.g., `opus4_6`)
-     - Construct the agent string as `<agent>/<name>` (e.g., `claude/opus4_6`)
-     - If no matching entry is found, use `<agent>/<model_id>` as fallback (e.g., `claude/claude-opus-4-6`) — the raw model ID from the system context
+     - Construct the agent string as `<agent>/<name>` (e.g., `claudecode/opus4_6`)
+     - If no matching entry is found, use `<agent>/<model_id>` as fallback (e.g., `claudecode/claude-opus-4-6`) — the raw model ID from the system context
 
   3. **Write to frontmatter:**
      ```bash
