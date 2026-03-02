@@ -59,6 +59,7 @@ MODEL_FILES = {
     "opencode": METADATA_DIR / "models_opencode.json",
 }
 PROFILES_DIR = METADATA_DIR / "profiles"
+LOCAL_PROFILES_DIR = PROFILES_DIR / "local"
 
 _BOARD_PROJECT_KEYS = {"columns", "column_order"}
 _BOARD_USER_KEYS = {"settings"}
@@ -252,6 +253,7 @@ class ConfigManager:
         self.board_local: dict = {}
         self.models: dict[str, dict] = {}
         self.profiles: dict[str, dict] = {}
+        self.profile_layers: dict[str, str] = {}  # filename -> "project" | "user"
         self.load_all()
 
     def load_all(self):
@@ -282,13 +284,29 @@ class ConfigManager:
 
     def load_profiles(self):
         self.profiles = {}
+        self.profile_layers = {}
+        # Project profiles first
         if PROFILES_DIR.is_dir():
             for f in sorted(PROFILES_DIR.glob("*.yaml")):
+                if f.parent.name == "local":
+                    continue  # skip local/ subdir
                 try:
                     with open(f, "r", encoding="utf-8") as fh:
                         data = yaml.safe_load(fh)
                     if isinstance(data, dict):
                         self.profiles[f.name] = data
+                        self.profile_layers[f.name] = "project"
+                except Exception:
+                    pass
+        # User (local) profiles — override project profiles with same name
+        if LOCAL_PROFILES_DIR.is_dir():
+            for f in sorted(LOCAL_PROFILES_DIR.glob("*.yaml")):
+                try:
+                    with open(f, "r", encoding="utf-8") as fh:
+                        data = yaml.safe_load(fh)
+                    if isinstance(data, dict):
+                        self.profiles[f.name] = data
+                        self.profile_layers[f.name] = "user"
                 except Exception:
                     pass
 
@@ -310,11 +328,29 @@ class ConfigManager:
         if user_data:
             save_local_config(str(local_path_for(str(BOARD_CONFIG))), user_data)
 
-    def save_profile(self, filename: str, data: dict):
-        path = PROFILES_DIR / filename
+    def save_profile(self, filename: str, data: dict, layer: str = "project"):
+        if layer == "user":
+            LOCAL_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+            path = LOCAL_PROFILES_DIR / filename
+        else:
+            PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+            path = PROFILES_DIR / filename
         with open(path, "w", encoding="utf-8") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
         self.profiles[filename] = data
+        self.profile_layers[filename] = layer
+
+    def delete_profile(self, filename: str):
+        """Delete a profile file from disk (handles both layers)."""
+        layer = self.profile_layers.get(filename, "project")
+        if layer == "user":
+            path = LOCAL_PROFILES_DIR / filename
+        else:
+            path = PROFILES_DIR / filename
+        if path.is_file():
+            path.unlink()
+        self.profiles.pop(filename, None)
+        self.profile_layers.pop(filename, None)
 
 
 # ---------------------------------------------------------------------------
@@ -747,6 +783,16 @@ class NewProfileScreen(ModalScreen):
             yield Label("Create New Profile", id="edit_title")
             yield Label("Profile filename (without .yaml):", classes="edit-label")
             yield Input(placeholder="my-profile", id="new_profile_name")
+            yield Label("Profile scope:", classes="edit-label")
+            yield CycleField(
+                "Scope", ["project", "user"], "project",
+                "profile_scope", id="cf_profile_scope",
+            )
+            yield Label(
+                "[dim]project = git-tracked, shared  |  "
+                "user = local-only, gitignored[/dim]",
+                classes="section-hint",
+            )
             base_options = list(self.existing_profiles) + ["(empty)"]
             yield Label("Base on existing profile:", classes="edit-label")
             yield CycleField(
@@ -762,11 +808,12 @@ class NewProfileScreen(ModalScreen):
     def do_create(self):
         name = self.query_one("#new_profile_name", Input).value.strip()
         base = self.query_one("#cf_base_profile", CycleField).current_value
+        scope = self.query_one("#cf_profile_scope", CycleField).current_value
         if not name:
             return
         if not name.endswith(".yaml"):
             name = name + ".yaml"
-        self.dismiss({"filename": name, "base": base})
+        self.dismiss({"filename": name, "base": base, "layer": scope})
 
     @on(Button.Pressed, "#btn_new_profile_cancel")
     def do_cancel(self):
@@ -1295,7 +1342,11 @@ class SettingsApp(App):
         container.mount(Label(
             "[dim]Profiles pre-answer workflow questions to reduce interactive prompts.\n"
             "Used by: aitask-pick, aitask-explore, aitask-pickrem, "
-            "aitask-pickweb, task-workflow[/dim]",
+            "aitask-pickweb, task-workflow\n\n"
+            "Project-scoped profiles are git-tracked and shared with all users — "
+            "changes affect everyone.\n"
+            "User-scoped profiles (in profiles/local/) are gitignored and override "
+            "project profiles with the same name.[/dim]",
             classes="section-hint",
         ))
         container.mount(Label(
@@ -1345,11 +1396,18 @@ class SettingsApp(App):
         safe_fn = _safe_id(current_selection)
         self._profile_id_map[safe_fn] = current_selection
         profile_name = data.get("name", current_selection)
+        layer = self.config_mgr.profile_layers.get(current_selection, "project")
+        if layer == "user":
+            file_display = f"local/{current_selection}"
+            scope_hint = "[dim](user-scoped, local only)[/dim]"
+        else:
+            file_display = current_selection
+            scope_hint = "[dim](project-scoped, shared with team)[/dim]"
 
         container.mount(Label(""))
         container.mount(Label(
             f"Editing: [bold]{profile_name}[/bold] "
-            f"[dim]({current_selection})[/dim]",
+            f"[dim]({file_display})[/dim]  {scope_hint}",
             classes="profile-header",
         ))
 
@@ -1413,6 +1471,10 @@ class SettingsApp(App):
             id=f"btn_profile_save__{safe_fn}",
         ))
         hbox.mount(Button(
+            f"Revert {profile_name}", variant="warning",
+            id=f"btn_profile_revert__{safe_fn}",
+        ))
+        hbox.mount(Button(
             f"Delete {profile_name}", variant="error",
             id=f"btn_profile_delete__{safe_fn}",
         ))
@@ -1468,6 +1530,10 @@ class SettingsApp(App):
                 callback=lambda confirmed, fn=filename:
                     self._handle_delete_profile(confirmed, fn),
             )
+        elif btn_id.startswith("btn_profile_revert__"):
+            safe_fn = btn_id.replace("btn_profile_revert__", "")
+            filename = self._profile_id_map.get(safe_fn, safe_fn)
+            self._revert_profile(filename)
         elif btn_id == "btn_profile_add_new":
             existing = sorted(self.config_mgr.profiles.keys())
             self.push_screen(
@@ -1507,8 +1573,30 @@ class SettingsApp(App):
                 except Exception:
                     pass
 
-        self.config_mgr.save_profile(filename, data)
+        layer = self.config_mgr.profile_layers.get(filename, "project")
+        self.config_mgr.save_profile(filename, data, layer=layer)
         self.notify(f"Profile '{filename}' saved")
+
+    def _revert_profile(self, filename: str):
+        """Revert a profile to its on-disk state, discarding unsaved changes."""
+        layer = self.config_mgr.profile_layers.get(filename, "project")
+        if layer == "user":
+            path = LOCAL_PROFILES_DIR / filename
+        else:
+            path = PROFILES_DIR / filename
+        if not path.is_file():
+            self.notify(f"Profile file not found: {filename}", severity="error")
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = yaml.safe_load(fh)
+            if isinstance(data, dict):
+                self.config_mgr.profiles[filename] = data
+        except Exception as exc:
+            self.notify(f"Failed to reload {filename}: {exc}", severity="error")
+            return
+        self._populate_profiles_tab()
+        self.notify(f"Reverted '{filename}' to saved state")
 
     def _handle_new_profile(self, result):
         if result is None:
@@ -1521,6 +1609,7 @@ class SettingsApp(App):
 
         filename = result["filename"]
         base = result["base"]
+        layer = result.get("layer", "project")
 
         if filename in self.config_mgr.profiles:
             self.notify(f"Profile '{filename}' already exists", severity="error")
@@ -1535,22 +1624,16 @@ class SettingsApp(App):
         new_data["name"] = filename.replace(".yaml", "")
         new_data["description"] = ""
 
-        PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-        self.config_mgr.save_profile(filename, new_data)
+        self.config_mgr.save_profile(filename, new_data, layer=layer)
         self._selected_profile = filename
         self.config_mgr.load_profiles()
         self._populate_profiles_tab()
-        self.notify(f"Created profile '{filename}' (based on {base})")
+        self.notify(f"Created {layer} profile '{filename}' (based on {base})")
 
     def _handle_delete_profile(self, confirmed: bool, filename: str):
         if not confirmed:
             return
-
-        path = PROFILES_DIR / filename
-        if path.is_file():
-            path.unlink()
-
-        self.config_mgr.profiles.pop(filename, None)
+        self.config_mgr.delete_profile(filename)
         remaining = sorted(self.config_mgr.profiles.keys())
         self._selected_profile = remaining[0] if remaining else None
         self._populate_profiles_tab()

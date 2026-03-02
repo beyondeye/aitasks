@@ -270,6 +270,72 @@ else
     echo "FAIL: --help should exit 0"
 fi
 
+# --- Test 15: Local profile overrides project ---
+echo "--- Test 15: Local profile overrides project ---"
+
+TMPDIR_15="$(create_profiles_dir)"
+cat > "$TMPDIR_15/profiles/fast.yaml" <<'EOF'
+name: fast-project
+description: Project version
+EOF
+mkdir -p "$TMPDIR_15/profiles/local"
+cat > "$TMPDIR_15/profiles/local/fast.yaml" <<'EOF'
+name: fast-user
+description: User version
+EOF
+output=$(PROFILES_DIR="$TMPDIR_15/profiles" LOCAL_PROFILES_DIR="$TMPDIR_15/profiles/local" bash "$SCAN_SCRIPT" 2>&1)
+assert_eq "Local overrides project" "PROFILE|local/fast.yaml|fast-user|User version" "$output"
+rm -rf "$TMPDIR_15"
+
+# --- Test 16: Mixed project and local profiles ---
+echo "--- Test 16: Mixed project and local profiles ---"
+
+TMPDIR_16="$(create_profiles_dir)"
+cat > "$TMPDIR_16/profiles/default.yaml" <<'EOF'
+name: default
+description: Project profile
+EOF
+mkdir -p "$TMPDIR_16/profiles/local"
+cat > "$TMPDIR_16/profiles/local/custom.yaml" <<'EOF'
+name: custom
+description: User profile
+EOF
+output=$(PROFILES_DIR="$TMPDIR_16/profiles" LOCAL_PROFILES_DIR="$TMPDIR_16/profiles/local" bash "$SCAN_SCRIPT" 2>&1)
+assert_line_count "Two profiles = 2 lines" 2 "$output"
+assert_contains "User profile listed with local/ prefix" "PROFILE|local/custom.yaml|custom|User profile" "$output"
+assert_contains "Default profile listed" "PROFILE|default.yaml|default|Project profile" "$output"
+rm -rf "$TMPDIR_16"
+
+# --- Test 17: Local-only profile ---
+echo "--- Test 17: Local-only profile ---"
+
+TMPDIR_17="$(create_profiles_dir)"
+mkdir -p "$TMPDIR_17/profiles/local"
+cat > "$TMPDIR_17/profiles/local/myprofile.yaml" <<'EOF'
+name: myprofile
+description: User-only profile
+EOF
+output=$(PROFILES_DIR="$TMPDIR_17/profiles" LOCAL_PROFILES_DIR="$TMPDIR_17/profiles/local" bash "$SCAN_SCRIPT" 2>&1)
+assert_eq "Local-only profile with local/ prefix" "PROFILE|local/myprofile.yaml|myprofile|User-only profile" "$output"
+rm -rf "$TMPDIR_17"
+
+# --- Test 18: --auto with local override ---
+echo "--- Test 18: --auto with local override ---"
+
+TMPDIR_18="$(create_profiles_dir)"
+cat > "$TMPDIR_18/profiles/remote.yaml" <<'EOF'
+name: remote
+description: Project remote
+EOF
+mkdir -p "$TMPDIR_18/profiles/local"
+cat > "$TMPDIR_18/profiles/local/remote.yaml" <<'EOF'
+name: remote
+description: User remote
+EOF
+output=$(PROFILES_DIR="$TMPDIR_18/profiles" LOCAL_PROFILES_DIR="$TMPDIR_18/profiles/local" bash "$SCAN_SCRIPT" --auto 2>&1)
+assert_eq "Auto selects local remote" "AUTO_SELECTED|local/remote.yaml|remote|User remote" "$output"
+rm -rf "$TMPDIR_18"
+
 # --- Summary ---
 echo ""
 echo "==============================="

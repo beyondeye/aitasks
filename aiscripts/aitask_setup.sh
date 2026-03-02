@@ -925,6 +925,15 @@ setup_data_branch() {
         } >> "$data_gitignore"
     fi
 
+    # Add profiles/local/ to data branch .gitignore (per-user profiles, not shared)
+    if ! grep -qF "profiles/local/" "$data_gitignore" 2>/dev/null; then
+        {
+            echo ""
+            echo "# Per-user execution profiles (local, not shared)"
+            echo "aitasks/metadata/profiles/local/"
+        } >> "$data_gitignore"
+    fi
+
     # --- Step 4: Commit and push on data branch ---
     (
         cd "$project_dir/.aitask-data"
