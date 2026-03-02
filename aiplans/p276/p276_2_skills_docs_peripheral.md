@@ -52,5 +52,12 @@ Propagate the `claude` → `claudecode` and `gemini` → `geminicli` agent ident
 - Grep for stale references across the entire repo
 - Verify no false positives (LLM model references like "Claude" in prose should be kept)
 
+## Final Implementation Notes
+- **Actual work done:** Updated agent identifier examples in 3 files: `.claude/skills/task-workflow/SKILL.md` (agent detection section, 3 string changes), `.claude/skills/aitask-refresh-code-models/SKILL.md` (filename examples and git add commands, 3 locations), and `aiscripts/aitask_codeagent.sh` (1 missed comment from t276_1).
+- **Deviations from plan:** Steps 3-6 were unnecessary — no other skill files, CLAUDE.md, website content, or other tool config directories (`.gemini/`, `.opencode/`, `.codex/`) contained stale agent identifier references. The `.gemini/skills/`, `.opencode/skills/`, `.agents/skills/`, `.codex/prompts/` directories don't exist yet. Step 2 line 50-53 (research query examples) didn't need changes — they reference LLM products, not CLI agent names.
+- **Issues encountered:** None. All changes were straightforward string replacements.
+- **Key decisions:** The `models_<agent>.json` pattern in task-workflow SKILL.md line 197 was kept as-is since the `<agent>` placeholder correctly resolves to the new names (`claudecode`, `geminicli`).
+- **Notes for sibling tasks:** This was the final child task — no remaining siblings.
+
 ## Step 9 (Post-Implementation)
 After implementation: review, commit, archive, push per task-workflow.
