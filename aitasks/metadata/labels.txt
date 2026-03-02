@@ -13,6 +13,7 @@ ait_dispatcher
 ait_settings
 bash_scripts
 claudeskills
+codeagent
 codebrowser
 codexcli
 development
