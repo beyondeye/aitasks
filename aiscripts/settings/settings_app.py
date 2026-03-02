@@ -90,10 +90,18 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
 
 _UNSET = "(unset)"
 
+# Tab shortcut keys -> TabPane IDs
+_TAB_SHORTCUTS = {
+    "a": "tab_agent",
+    "b": "tab_board",
+    "m": "tab_models",
+    "p": "tab_profiles",
+}
+
 
 def _safe_id(name: str) -> str:
     """Sanitize a string for use as a Textual widget ID."""
-    return name.replace(".", "_").replace(" ", "_")
+    return name.replace(".", "_").replace(" ", "_").replace("-", "_")
 
 
 # ---------------------------------------------------------------------------
@@ -245,18 +253,27 @@ class ConfigRow(Static):
     can_focus = True
 
     def __init__(self, key: str, value: str, config_layer: str = "project",
-                 row_key: str = "", id: str | None = None):
+                 row_key: str = "", id: str | None = None,
+                 subordinate: bool = False):
         super().__init__(id=id)
         self.key = key
         self.value = value
         self.config_layer = config_layer
         self.row_key = row_key or key
+        self.subordinate = subordinate
 
     def render(self) -> str:
         if self.config_layer == "user":
             badge = "[#FFB86C][USER][/]"
         else:
             badge = "[#50FA7B][PROJECT][/]"
+
+        if self.subordinate:
+            # Indented subordinate row (user override under project)
+            has_override = self.value not in ("(inherits project)", "(not set)", "")
+            clear_hint = "  [dim](d to remove)[/dim]" if has_override else ""
+            return f"      \u2514 {badge}  {self.value}{clear_hint}"
+
         return f"  {badge}  [bold]{self.key}:[/bold]  {self.value}"
 
     def on_focus(self):
@@ -266,44 +283,260 @@ class ConfigRow(Static):
         self.remove_class("row-focused")
 
 
+class FuzzyOption(Static):
+    """A single option row in FuzzySelect."""
+
+    def __init__(self, value: str, display: str, description: str = "",
+                 id: str | None = None):
+        super().__init__(id=id)
+        self.option_value = value
+        self.display_text = display
+        self.description = description
+        self.highlighted = False
+
+    def render(self) -> str:
+        prefix = " >> " if self.highlighted else "    "
+        if self.highlighted:
+            text = f"{prefix}[bold reverse]{self.display_text}[/]"
+        else:
+            text = f"{prefix}{self.display_text}"
+        if self.description:
+            text += f"  [dim]{self.description}[/dim]"
+        return text
+
+
+class FuzzySelect(Container):
+    """Autocomplete picker: Input at top, filtered option list below."""
+
+    class Selected(Message):
+        """Posted when user selects an option (Enter)."""
+        def __init__(self, value: str):
+            super().__init__()
+            self.value = value
+
+    class Cancelled(Message):
+        """Posted when user presses Escape."""
+        pass
+
+    def __init__(self, options: list[dict], placeholder: str = "Type to filter...",
+                 id: str | None = None):
+        """
+        options: list of {"value": str, "display": str, "description": str}
+        """
+        super().__init__(id=id)
+        self.all_options = options
+        self.filtered: list[dict] = list(options)
+        self.highlight_index = 0
+        self._placeholder = placeholder
+
+    @property
+    def _input_id(self) -> str:
+        return f"{self.id or 'fuzzy'}_input"
+
+    @property
+    def _list_id(self) -> str:
+        return f"{self.id or 'fuzzy'}_list"
+
+    def compose(self) -> ComposeResult:
+        yield Input(placeholder=self._placeholder, id=self._input_id)
+        yield VerticalScroll(id=self._list_id)
+
+    def on_mount(self):
+        self._render_options()
+        try:
+            self.query_one(f"#{self._input_id}", Input).focus()
+        except Exception:
+            pass
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        query = event.value.lower()
+        self.filtered = [
+            opt for opt in self.all_options
+            if query in opt["display"].lower()
+            or query in opt.get("description", "").lower()
+        ]
+        self.highlight_index = 0
+        self._render_options()
+
+    def _render_options(self):
+        container = self.query_one(f"#{self._list_id}", VerticalScroll)
+        container.remove_children()
+        for i, opt in enumerate(self.filtered):
+            fo = FuzzyOption(
+                value=opt["value"],
+                display=opt["display"],
+                description=opt.get("description", ""),
+            )
+            fo.highlighted = (i == self.highlight_index)
+            container.mount(fo)
+
+    def on_key(self, event):
+        if event.key == "up":
+            if self.highlight_index > 0:
+                self.highlight_index -= 1
+                self._update_highlight()
+            event.prevent_default()
+            event.stop()
+        elif event.key == "down":
+            if self.highlight_index < len(self.filtered) - 1:
+                self.highlight_index += 1
+                self._update_highlight()
+            event.prevent_default()
+            event.stop()
+        elif event.key == "escape":
+            self.post_message(self.Cancelled())
+            event.prevent_default()
+            event.stop()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if self.filtered:
+            selected = self.filtered[self.highlight_index]
+            self.post_message(self.Selected(selected["value"]))
+
+    def _update_highlight(self):
+        """Update which option shows as highlighted."""
+        options = list(self.query(FuzzyOption))
+        for i, fo in enumerate(options):
+            fo.highlighted = (i == self.highlight_index)
+            fo.refresh()
+        # Scroll highlighted item into view
+        if options and 0 <= self.highlight_index < len(options):
+            options[self.highlight_index].scroll_visible()
+
+
 # ---------------------------------------------------------------------------
 # Modal Screens
 # ---------------------------------------------------------------------------
-class EditValueScreen(ModalScreen):
-    """Modal for editing a single config value."""
+class AgentModelPickerScreen(ModalScreen):
+    """Two-step picker: code agent -> model name."""
 
-    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+    BINDINGS = [Binding("escape", "go_back", "Back/Cancel", show=False)]
 
-    def __init__(self, key: str, current_value: str, layer: str = "project"):
+    def __init__(self, operation: str, current_agent: str = "",
+                 current_model: str = ""):
         super().__init__()
-        self.key = key
-        self.current_value = current_value
-        self.initial_layer = layer
+        self.operation = operation
+        self.current_agent = current_agent
+        self.current_model = current_model
+        self.selected_agent: str | None = None
+        self._step = 1
 
     def compose(self) -> ComposeResult:
-        with Container(id="edit_dialog"):
-            yield Label(f"Edit: [bold]{self.key}[/bold]", id="edit_title")
-            yield Label("Value:", classes="edit-label")
-            yield Input(value=self.current_value, id="edit_input")
-            yield Label("Save to:", classes="edit-label")
-            yield CycleField("Layer", ["project", "user"], self.initial_layer,
-                             "layer", id="cf_layer")
-            with Horizontal(id="edit_buttons"):
-                yield Button("Save", variant="success", id="btn_edit_save")
-                yield Button("Cancel", variant="default", id="btn_edit_cancel")
+        with Container(id="picker_dialog"):
+            yield Label(
+                f"Select model for: [bold]{self.operation}[/bold]",
+                id="picker_title",
+            )
+            yield Label("Step 1: Choose code agent", id="picker_step_label")
+            agent_options = [
+                {"value": a, "display": a, "description": ""}
+                for a in sorted(MODEL_FILES.keys())
+            ]
+            yield FuzzySelect(
+                agent_options,
+                placeholder="Type agent name...",
+                id="agent_picker",
+            )
 
-    @on(Button.Pressed, "#btn_edit_save")
-    def do_save(self):
-        value = self.query_one("#edit_input", Input).value
-        layer = self.query_one("#cf_layer", CycleField).current_value
-        self.dismiss({"key": self.key, "value": value, "layer": layer})
+    def action_go_back(self):
+        if self._step == 2:
+            self._show_step1()
+        else:
+            self.dismiss(None)
 
-    @on(Button.Pressed, "#btn_edit_cancel")
-    def do_cancel(self):
-        self.dismiss(None)
+    def on_fuzzy_select_selected(self, event: FuzzySelect.Selected) -> None:
+        if self._step == 1:
+            self.selected_agent = event.value
+            self._show_step2()
+        elif self._step == 2:
+            if not event.value:
+                return  # "(no models found)" guard
+            self.dismiss({
+                "key": self.operation,
+                "value": f"{self.selected_agent}/{event.value}",
+            })
 
-    def action_cancel(self):
-        self.dismiss(None)
+    def on_fuzzy_select_cancelled(self, event: FuzzySelect.Cancelled) -> None:
+        if self._step == 2:
+            self._show_step1()
+        else:
+            self.dismiss(None)
+
+    def _show_step1(self):
+        """Re-show agent selection."""
+        self._step = 1
+        self.query_one("#picker_step_label", Label).update(
+            "Step 1: Choose code agent"
+        )
+        # Remove model picker
+        try:
+            self.query_one("#model_picker", FuzzySelect).remove()
+        except Exception:
+            pass
+        # Re-show or recreate agent picker
+        try:
+            ap = self.query_one("#agent_picker", FuzzySelect)
+            ap.display = True
+        except Exception:
+            agent_options = [
+                {"value": a, "display": a, "description": ""}
+                for a in sorted(MODEL_FILES.keys())
+            ]
+            container = self.query_one("#picker_dialog", Container)
+            fs = FuzzySelect(
+                agent_options,
+                placeholder="Type agent name...",
+                id="agent_picker",
+            )
+            container.mount(fs)
+
+    def _show_step2(self):
+        """Switch to model selection for the chosen agent."""
+        self._step = 2
+        agent = self.selected_agent
+        self.query_one("#picker_step_label", Label).update(
+            f"Step 2: Choose model for [bold]{agent}[/bold]  "
+            "[dim](Esc to go back)[/dim]"
+        )
+        # Hide agent picker
+        try:
+            self.query_one("#agent_picker", FuzzySelect).display = False
+        except Exception:
+            pass
+
+        # Build model options from model file
+        model_path = MODEL_FILES.get(agent, Path("nonexistent"))
+        model_data = _load_json(model_path)
+        models = model_data.get("models", []) if model_data else []
+        model_options = []
+        for m in models:
+            name = m.get("name", "?")
+            notes = m.get("notes", "")
+            verified = m.get("verified", {})
+            op_score = verified.get(self.operation, 0)
+            score_str = f"[verified:{op_score}]" if op_score else ""
+            desc = f"{notes} {score_str}".strip()
+            model_options.append({
+                "value": name,
+                "display": name,
+                "description": desc,
+            })
+
+        if not model_options:
+            model_options = [
+                {"value": "", "display": "(no models found)", "description": ""}
+            ]
+
+        container = self.query_one("#picker_dialog", Container)
+        fs = FuzzySelect(
+            model_options,
+            placeholder="Type model name...",
+            id="model_picker",
+        )
+        container.mount(fs)
+
+    # FuzzySelect.Selected and Cancelled are handled by
+    # on_fuzzy_select_selected / on_fuzzy_select_cancelled above
 
 
 class ImportScreen(ModalScreen):
@@ -409,10 +642,10 @@ class SettingsApp(App):
     .profile-sep { color: $text-muted; padding: 0 1; }
 
     /* Modal dialogs */
-    #edit_dialog, #import_dialog {
-        width: 60%;
+    #edit_dialog, #import_dialog, #picker_dialog {
+        width: 65%;
         height: auto;
-        max-height: 60%;
+        max-height: 70%;
         background: $surface;
         border: thick $accent;
         padding: 1 2;
@@ -420,10 +653,16 @@ class SettingsApp(App):
     .edit-label { padding: 1 0 0 1; }
     #edit_buttons { padding: 1 0 0 0; height: auto; }
     #edit_buttons Button { margin: 0 1; }
+    #picker_step_label { padding: 0 0 1 1; color: $accent; }
 
     /* Buttons in tabs */
     .tab-buttons { padding: 1 0 0 0; height: auto; }
     .tab-buttons Button { margin: 0 1; }
+
+    /* FuzzySelect */
+    FuzzySelect { height: auto; max-height: 20; }
+    FuzzySelect VerticalScroll { height: auto; max-height: 15; }
+    FuzzyOption { height: 1; width: 100%; padding: 0 1; }
     """
 
     TITLE = "aitasks settings"
@@ -439,6 +678,8 @@ class SettingsApp(App):
         super().__init__()
         self.config_mgr = ConfigManager()
         self._profile_id_map: dict[str, str] = {}  # safe_id -> filename
+        self._editing_layer: str = "project"  # track which layer is being edited
+        self._repop_counter: int = 0  # ensures unique widget IDs across repopulations
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -460,47 +701,89 @@ class SettingsApp(App):
         self._populate_profiles_tab()
 
     # -------------------------------------------------------------------
-    # Agent Defaults tab
+    # Navigation helpers
     # -------------------------------------------------------------------
-    def _populate_agent_tab(self):
-        container = self.query_one("#agent_content", VerticalScroll)
-        container.remove_children()
+    def _nav_vertical(self, direction: str) -> None:
+        """Move focus between focusable widgets in the active tab."""
+        try:
+            tabbed = self.query_one(TabbedContent)
+            active_pane_id = tabbed.active
+            pane = self.query_one(f"#{active_pane_id}", TabPane)
+        except Exception:
+            return
+        focusable = [w for w in pane.query("*") if w.can_focus and w.display]
+        if not focusable:
+            return
+        focused = self.focused
+        if focused in focusable:
+            idx = focusable.index(focused)
+            if direction == "up" and idx > 0:
+                focusable[idx - 1].focus()
+            elif direction == "down" and idx < len(focusable) - 1:
+                focusable[idx + 1].focus()
+        else:
+            if direction == "down":
+                focusable[0].focus()
+            else:
+                focusable[-1].focus()
 
-        container.mount(Label("Code Agent Default Models", classes="section-header"))
-        container.mount(Label("[dim]Press Enter on a row to edit. "
-                              "Left/Right arrows unavailable here — use Enter.[/dim]",
-                              classes="section-hint"))
-
-        defaults = self.config_mgr.codeagent.get("defaults", {})
-        local_defaults = self.config_mgr.codeagent_local.get("defaults", {})
-
-        for key, value in defaults.items():
-            layer = "user" if key in local_defaults else "project"
-            row = ConfigRow(key, str(value), config_layer=layer, row_key=key,
-                            id=f"agent_row_{key}")
-            container.mount(row)
-
-    def on_config_row_key(self, event) -> None:
-        """Handle key press on ConfigRow for editing (agent tab)."""
-        # This is handled via on_key on the app level
-        pass
-
+    # -------------------------------------------------------------------
+    # Key handling
+    # -------------------------------------------------------------------
     def on_key(self, event) -> None:
-        if event.key == "enter":
-            focused = self.focused
-            if isinstance(focused, ConfigRow) and focused.id and focused.id.startswith("agent_row_"):
+        # Guard: don't intercept keys when a modal is active
+        if isinstance(self.screen, ModalScreen):
+            return
+
+        focused = self.focused
+
+        # Guard: skip all custom handling when an Input has focus
+        if isinstance(focused, Input):
+            return
+
+        # Tab switching: a/b/m/p
+        if event.key in _TAB_SHORTCUTS:
+            try:
+                tabbed = self.query_one(TabbedContent)
+                tabbed.active = _TAB_SHORTCUTS[event.key]
+            except Exception:
+                pass
+            event.prevent_default()
+            event.stop()
+            return
+
+        # Up/Down navigation within active tab
+        if event.key in ("up", "down"):
+            self._nav_vertical(event.key)
+            event.prevent_default()
+            event.stop()
+            return
+
+        # Enter: open editors for ConfigRow widgets
+        if event.key == "enter" and isinstance(focused, ConfigRow):
+            fid = focused.id or ""
+
+            # Agent Defaults rows (project or user)
+            if fid.startswith("agent_proj_") or fid.startswith("agent_user_"):
                 key = focused.row_key
-                value = focused.value
-                layer = focused.config_layer
+                current_val = focused.value
+                current_agent, current_model = "", ""
+                if "/" in current_val and current_val != "(inherits project)":
+                    current_agent, current_model = current_val.split("/", 1)
+                self._editing_layer = (
+                    "project" if fid.startswith("agent_proj_") else "user"
+                )
                 self.push_screen(
-                    EditValueScreen(key, value, layer),
-                    callback=self._handle_agent_edit,
+                    AgentModelPickerScreen(key, current_agent, current_model),
+                    callback=self._handle_agent_pick,
                 )
                 event.prevent_default()
                 event.stop()
-            elif isinstance(focused, ConfigRow) and focused.id and focused.id.startswith("profile_str_"):
-                # Profile string editing
-                parts = focused.id.split("__", 1)
+                return
+
+            # Profile string editing
+            if fid.startswith("profile_str_"):
+                parts = fid.split("__", 1)
                 if len(parts) == 2:
                     safe_fn = parts[1]
                     profile_filename = self._profile_id_map.get(safe_fn, safe_fn)
@@ -508,28 +791,91 @@ class SettingsApp(App):
                     value = focused.value
                     self.push_screen(
                         EditStringScreen(key, value),
-                        callback=lambda result, pf=profile_filename: self._handle_profile_string_edit(result, pf),
+                        callback=lambda result, pf=profile_filename:
+                            self._handle_profile_string_edit(result, pf),
                     )
                     event.prevent_default()
                     event.stop()
+                    return
 
-    def _handle_agent_edit(self, result):
+        # d/Delete: clear user override on agent user rows
+        if event.key in ("d", "delete") and isinstance(focused, ConfigRow):
+            fid = focused.id or ""
+            if fid.startswith("agent_user_"):
+                key = focused.row_key
+                self._clear_user_override(key)
+                event.prevent_default()
+                event.stop()
+                return
+
+    # -------------------------------------------------------------------
+    # Agent Defaults tab
+    # -------------------------------------------------------------------
+    def _populate_agent_tab(self):
+        container = self.query_one("#agent_content", VerticalScroll)
+        container.remove_children()
+
+        # Increment counter to ensure unique widget IDs (remove_children is async)
+        self._repop_counter += 1
+        rc = self._repop_counter
+
+        container.mount(Label("Code Agent Default Models", classes="section-header"))
+        container.mount(Label(
+            "[dim]Each operation shows the shared [#50FA7B]project[/] setting "
+            "and your local [#FFB86C]user[/] preference below it.[/dim]",
+            classes="section-hint",
+        ))
+        container.mount(Label(
+            "[dim]Enter: edit  |  d: remove local preference  |  "
+            "\u2191\u2193: navigate  |  a/b/m/p: switch tabs[/dim]",
+            classes="section-hint",
+        ))
+
+        project_defaults = self.config_mgr.codeagent_project.get("defaults", {})
+        local_defaults = self.config_mgr.codeagent_local.get("defaults", {})
+
+        # Collect all operation keys (union, preserving order)
+        all_keys = list(dict.fromkeys(
+            list(project_defaults.keys()) + list(local_defaults.keys())
+        ))
+
+        for key in all_keys:
+            sk = _safe_id(key)
+
+            # Project row
+            proj_val = project_defaults.get(key, "(not set)")
+            container.mount(ConfigRow(
+                key, str(proj_val), config_layer="project", row_key=key,
+                id=f"agent_proj_{sk}_{rc}",
+            ))
+
+            # User row (subordinate, indented under project row)
+            if key in local_defaults:
+                user_val = str(local_defaults[key])
+            else:
+                user_val = "(inherits project)"
+            container.mount(ConfigRow(
+                key, user_val, config_layer="user", row_key=key,
+                id=f"agent_user_{sk}_{rc}",
+                subordinate=True,
+            ))
+
+    def _handle_agent_pick(self, result):
         if result is None:
             return
         key = result["key"]
         value = result["value"]
-        layer = result["layer"]
+        layer = self._editing_layer
 
         if layer == "user":
-            # Add to local overrides
             local_data = dict(self.config_mgr.codeagent_local)
             if "defaults" not in local_data:
                 local_data["defaults"] = {}
             local_data["defaults"][key] = value
-            # Keep project data unchanged
-            self.config_mgr.save_codeagent(self.config_mgr.codeagent_project, local_data)
+            self.config_mgr.save_codeagent(
+                self.config_mgr.codeagent_project, local_data,
+            )
         else:
-            # Save to project, remove from local if present
             project_data = dict(self.config_mgr.codeagent_project)
             if "defaults" not in project_data:
                 project_data["defaults"] = {}
@@ -544,6 +890,22 @@ class SettingsApp(App):
         self.config_mgr.load_all()
         self._populate_agent_tab()
         self.notify(f"Saved {key} = {value} ({layer})")
+
+    def _clear_user_override(self, key: str):
+        """Remove a user-level override for an operation."""
+        local_data = dict(self.config_mgr.codeagent_local)
+        if "defaults" in local_data and key in local_data["defaults"]:
+            del local_data["defaults"][key]
+            if not local_data["defaults"]:
+                del local_data["defaults"]
+            self.config_mgr.save_codeagent(
+                self.config_mgr.codeagent_project, local_data,
+            )
+            self.config_mgr.load_all()
+            self._populate_agent_tab()
+            self.notify(f"Cleared user override for {key}")
+        else:
+            self.notify(f"No user override to clear for {key}", severity="warning")
 
     # -------------------------------------------------------------------
     # Board tab
