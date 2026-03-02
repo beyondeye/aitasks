@@ -82,6 +82,14 @@ if meta.get("contributor"):
 4. Test Enter key on PullRequestField — should open URL
 5. Test tasks WITHOUT PR metadata — no regressions
 
+## Final Implementation Notes
+
+- **Actual work done:** All four steps implemented as planned in `aiscripts/board/aitask_board.py`. Added `_pr_indicator()` function (line 86), `PullRequestField` widget (after `IssueField`), PR badge + contributor display in `TaskCard.compose()`, and PR/contributor fields in `TaskDetailScreen.compose()`.
+- **Deviations from plan:** Used `urlparse().hostname` pattern (matching `_issue_indicator()`) instead of simple string matching with `url_lower`. Used `render()` method pattern (matching `IssueField`) instead of passing formatted text to `super().__init__()`. Added `on_focus`/`on_blur` methods and `event.prevent_default()`/`event.stop()` to `PullRequestField` to match `IssueField` exactly.
+- **Issues encountered:** None. The YAML parser (`task_yaml.py`) already preserves all fields — no changes needed there.
+- **Key decisions:** `_pr_indicator()` uses green for GitHub/generic PRs, orange (#e24329) for GitLab MRs, blue for Bitbucket PRs. Contributor is shown as `@username` on cards and `@username (email)` in detail dialog. Used `ReadOnlyField` for contributor (no click action needed) vs dedicated `PullRequestField` for URLs.
+- **Notes for sibling tasks:** The board now fully supports `pull_request`, `contributor`, and `contributor_email` metadata. For t260_3 (PR import script), tasks created with these fields will display correctly in the board. No further board changes needed unless filtering by PR/contributor is desired (covered by t260_8).
+
 ## Step 9 Reference
 
 Post-implementation: archive child task via `./aiscripts/aitask_archive.sh 260_2`
