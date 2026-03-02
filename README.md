@@ -157,5 +157,4 @@ What this means:
 
 ❌ You cannot: Sell aitasks itself, or a derivative version of it, as a standalone product or service (e.g., selling a "Pro" version of the library or a managed aitasks hosting service) without prior written consent.
 
-For the full legal text, please see the LICENSE file.
-See [LICENSE](LICENSE) for details.
+For the full legal text, please see the [LICENSE](LICENSE) file.
