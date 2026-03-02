@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: []
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-02 19:52
-updated_at: 2026-03-02 19:52
+updated_at: 2026-03-02 19:55
 ---
 
 Rename agent identifiers from claude/gemini to claudecode/geminicli in all core scripts, config files, and tests.
