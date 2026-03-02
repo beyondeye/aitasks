@@ -6,3 +6,6 @@ aitasks/metadata/userconfig.yaml
 
 # Per-user overrides (*.local.json files, not shared)
 aitasks/metadata/*.local.json
+
+# Per-user execution profiles (local, not shared)
+aitasks/metadata/profiles/local/
