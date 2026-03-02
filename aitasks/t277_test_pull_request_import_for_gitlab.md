@@ -3,10 +3,9 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: []
 children_to_implement: [t277_1, t277_2, t277_3]
-assigned_to: dario-e@beyond-eye.com
 implemented_with: claude/opus4_6
 created_at: 2026-03-02 11:32
 updated_at: 2026-03-02 15:46
