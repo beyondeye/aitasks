@@ -10,6 +10,7 @@ aitask_review
 aitask_reviewguide
 aitask_wrap
 ait_dispatcher
+ait_settings
 bash_scripts
 claudeskills
 codebrowser
@@ -31,5 +32,6 @@ skill_optiomizations
 statistics
 stats_ui
 task_workflow
+tui
 web_site
 workflows
