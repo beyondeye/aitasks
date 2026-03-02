@@ -76,3 +76,10 @@ bash -n aiscripts/aitask_issue_update.sh
 ./aiscripts/aitask_pr_close.sh --dry-run --pr-url "https://gitlab.com/beyondeye/testrepo_gitlab/-/merge_requests/1" 277
 ./aiscripts/aitask_issue_update.sh --dry-run --issue-url "https://gitlab.com/beyondeye/testrepo_gitlab/-/issues/1" 277
 ```
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `GITLAB_REPO_SLUG` variable, `gitlab_extract_repo_from_url()`/`gitlab_extract_repo_from_issue_url()` extraction functions, and `glab_repo_flag()` helper to both scripts. Updated all `glab` commands in GitLab backend functions to use `$(glab_repo_flag)`. Total: 24 insertions per file (2 files modified).
+- **Deviations from plan:** Used `$(glab_repo_flag)` helper pattern (same as t277_1's `glab_repo_args()`) instead of directly inserting `-R "$GITLAB_REPO_SLUG"`. This is safer because `glab_repo_flag()` returns empty when the slug is empty, avoiding passing empty `-R ""` to non-GitLab flows.
+- **Issues encountered:** None — the plan was accurate and all line numbers matched.
+- **Notes for sibling tasks:** Both scripts now support cross-repo GitLab operations. t277_3 can use the dry-run commands above to verify end-to-end: `--dry-run --pr-url "https://gitlab.com/beyondeye/testrepo_gitlab/-/merge_requests/1" 277` and `--dry-run --issue-url "https://gitlab.com/beyondeye/testrepo_gitlab/-/issues/1" 277`. The repo slug extraction assumes `gitlab.com` domain — self-hosted GitLab instances are not yet supported (same limitation as t277_1).
