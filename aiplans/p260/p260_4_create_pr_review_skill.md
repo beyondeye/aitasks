@@ -121,6 +121,24 @@ Add to `.claude/settings.local.json` if needed for skill discovery.
 4. Test folding related tasks
 5. Test profile-based auto-continue
 
+## Final Implementation Notes
+
+- **Actual work done:** Created `.claude/skills/aitask-pr-review/SKILL.md` (single file, ~290 lines) implementing all 11 steps from the plan. The skill follows the aitask-explore pattern closely with PR-specific adaptations for data fetching, analysis, and task creation with PR metadata.
+- **Deviations from plan:**
+  - Step 12 (Register skill in settings.local.json) was removed — Claude Code auto-discovers skills from `.claude/skills/` directories, no manual registration needed. The skill appeared in the skill list immediately upon file creation.
+  - Added `--silent` flag to `--data-only` and `--list` commands for cleaner machine-parseable output (just file paths and tab-separated data respectively).
+  - Added pagination pattern to "Browse open PRs" and "Use existing PR data" options (3 per page + "Show more" slot), matching the aitask-pick pagination pattern.
+- **Issues encountered:** None. The plan was well-structured and the aitask-explore pattern translated cleanly to the PR review use case.
+- **Key decisions:**
+  - Default decision point is "Save for later" (first option) rather than "Continue to implementation" — intentionally different from aitask-explore, since PR-originated tasks typically need additional review.
+  - The skill uses `explore_auto_continue` profile key (same as aitask-explore) for profile-based auto-continue behavior.
+  - Task description template includes a structured "PR Context" section with all metadata, "Analysis Summary" with purpose/approach/concerns, and "Implementation Approach" with files and testing requirements.
+  - Folded tasks handling is identical to aitask-explore (reused the same pattern verbatim).
+- **Notes for sibling tasks:**
+  - For t260_5 (PR close/archive integration): The skill creates tasks with `pull_request:` frontmatter field containing the full PR URL, and `contributor:`/`contributor_email:` fields. These can be used during archival to close/comment on the original PR.
+  - For t260_6 (contributor attribution in commits): The `contributor_email:` field in the created task can be used to set the commit author for attribution.
+  - For t260_7 (documentation): The skill's workflow and its relationship to `ait pr-import` should be documented as part of the PR import workflow guide.
+
 ## Step 9 Reference
 
 Post-implementation: archive child task via `./aiscripts/aitask_archive.sh 260_4`

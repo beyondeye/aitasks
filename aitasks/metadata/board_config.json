@@ -2,17 +2,17 @@
   "columns": [
     {
       "id": "now",
-      "title": "Now \u26a1",
+      "title": "Now ⚡",
       "color": "#FF5555"
     },
     {
       "id": "next",
-      "title": "Next Week \ud83d\udcc5",
+      "title": "Next Week 📅",
       "color": "#50FA7B"
     },
     {
       "id": "backlog",
-      "title": "Backlog \ud83d\uddc4\ufe0f",
+      "title": "Backlog 🗄️",
       "color": "#BD93F9"
     }
   ],
@@ -20,11 +20,5 @@
     "now",
     "next",
     "backlog"
-  ],
-  "settings": {
-    "auto_refresh_minutes": 5,
-    "collapsed_columns": [
-      "backlog"
-    ]
-  }
+  ]
 }
