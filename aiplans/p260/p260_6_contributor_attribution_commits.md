@@ -79,6 +79,14 @@ EOF
 3. Create normal task (no PR metadata), implement, commit — verify no trailer
 4. Push to GitHub/GitLab and verify contributor shows in commit UI
 
+## Final Implementation Notes
+
+- **Actual work done:** Added Contributor Attribution Procedure to `procedures.md` and a reference to it from SKILL.md Step 8. The original plan proposed inlining the logic directly into SKILL.md, but during review the approach was refined to use the existing procedures pattern (matching Issue Update, PR Close/Decline procedures).
+- **Deviations from plan:** Instead of adding a large inline block to SKILL.md Step 8, the contributor attribution logic was placed in `procedures.md` as a self-contained procedure. SKILL.md only has a one-line reference. This is cleaner and consistent with how other Step 8/9 procedures are organized.
+- **Issues encountered:** None — the prerequisite functions (`extract_contributor`, `extract_contributor_email`) and metadata fields were already in place from t260_1.
+- **Key decisions:** Used procedures.md pattern instead of inline to keep SKILL.md focused and maintainable.
+- **Notes for sibling tasks:** The Contributor Attribution Procedure is now the fourth procedure in `procedures.md`. The pattern for adding new procedures is: add to ToC, add section before Lock Release, add reference in SKILL.md Procedures list.
+
 ## Step 9 Reference
 
 Post-implementation: archive child task via `./aiscripts/aitask_archive.sh 260_6`
