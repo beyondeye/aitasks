@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t277_1]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: []
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-02 15:46
-updated_at: 2026-03-02 15:46
+updated_at: 2026-03-02 16:15
 ---
 
 ## Context
