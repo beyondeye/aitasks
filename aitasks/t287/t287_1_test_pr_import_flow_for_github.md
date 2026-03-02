@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: []
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-02 16:57
-updated_at: 2026-03-02 16:57
+updated_at: 2026-03-02 17:10
 ---
 
 ## Context
