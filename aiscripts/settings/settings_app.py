@@ -711,7 +711,12 @@ class SettingsApp(App):
             pane = self.query_one(f"#{active_pane_id}", TabPane)
         except Exception:
             return
-        focusable = [w for w in pane.query("*") if w.can_focus and w.display]
+        # Exclude VerticalScroll containers — they are focusable by default
+        # but have no visual indicator and steal focus from actual widgets.
+        focusable = [
+            w for w in pane.query("*")
+            if w.can_focus and w.display and not isinstance(w, VerticalScroll)
+        ]
         if not focusable:
             return
         focused = self.focused
@@ -719,6 +724,12 @@ class SettingsApp(App):
             idx = focusable.index(focused)
             if direction == "up" and idx > 0:
                 focusable[idx - 1].focus()
+            elif direction == "up" and idx == 0:
+                # Return focus to the tab bar
+                try:
+                    tabbed.query_one("Tabs").focus()
+                except Exception:
+                    pass
             elif direction == "down" and idx < len(focusable) - 1:
                 focusable[idx + 1].focus()
         else:
@@ -924,6 +935,11 @@ class SettingsApp(App):
             color = col.get("color", "?")
             container.mount(Static(f"    {cid}: {title}  ({color})", classes="model-row"))
 
+        container.mount(Label(
+            "[dim]\u2191\u2193: navigate  |  a/b/m/p: switch tabs[/dim]",
+            classes="section-hint",
+        ))
+
         # User settings (editable)
         container.mount(Label("User Settings", classes="section-header"))
 
@@ -971,6 +987,11 @@ class SettingsApp(App):
         container = self.query_one("#models_content", VerticalScroll)
         container.remove_children()
 
+        container.mount(Label(
+            "[dim]\u2191\u2193: navigate  |  a/b/m/p: switch tabs[/dim]",
+            classes="section-hint",
+        ))
+
         if not self.config_mgr.models:
             container.mount(Label("No model files found.", classes="section-header"))
             return
@@ -1016,6 +1037,11 @@ class SettingsApp(App):
         container.remove_children()
 
         self._profile_id_map = {}
+
+        container.mount(Label(
+            "[dim]\u2191\u2193: navigate  |  a/b/m/p: switch tabs[/dim]",
+            classes="section-hint",
+        ))
 
         if not self.config_mgr.profiles:
             container.mount(Label("No profiles found in profiles/",
