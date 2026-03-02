@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [ait_settings]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claude/opus4_6
 created_at: 2026-03-02 13:34
-updated_at: 2026-03-02 13:37
+updated_at: 2026-03-02 14:21
+completed_at: 2026-03-02 14:21
 ---
 
 Two improvements for the Profiles tab in ait settings:
