@@ -70,6 +70,14 @@ Note: Board file uses older type hint style (`id: str = None`), so new methods o
 4. Click ◀/▶ arrows — verify cycling
 5. Verify keyboard still works
 
+## Final Implementation Notes
+
+- **Actual work done:** Added `_option_index_at` and `on_click` methods to `CycleField` class in `aitask_board.py`, matching the sibling t286_1 implementation.
+- **Deviations from plan:** None — implemented as specified.
+- **Issues encountered:** None.
+- **Key decisions:** Omitted type hints on return values to match the board file's existing style.
+- **Notes for sibling tasks:** Both settings and board CycleField widgets now have identical mouse click support. Both TUIs now support clicking options directly, clicking ◀/▶ arrows to cycle, and keyboard Left/Right still works.
+
 ## Step 9 Reference
 
 Post-implementation: archive child task via `./aiscripts/aitask_archive.sh 286_2`
