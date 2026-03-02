@@ -33,7 +33,7 @@ def local_path_for(project_path: str | Path) -> Path:
     """Derive the .local.json path from a project config path.
 
     board_config.json -> board_config.local.json
-    models_claude.json -> models_claude.local.json
+    models_claudecode.json -> models_claudecode.local.json
     """
     p = Path(project_path)
     return p.with_name(p.name.replace(".json", ".local.json"))

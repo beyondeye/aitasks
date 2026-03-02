@@ -112,8 +112,8 @@ class TestLocalPathFor(unittest.TestCase):
         self.assertEqual(result, Path("aitasks/metadata/board_config.local.json"))
 
     def test_models_json(self):
-        result = local_path_for("models_claude.json")
-        self.assertEqual(result, Path("models_claude.local.json"))
+        result = local_path_for("models_claudecode.json")
+        self.assertEqual(result, Path("models_claudecode.local.json"))
 
     def test_path_object(self):
         result = local_path_for(Path("/tmp/test_config.json"))
@@ -326,14 +326,14 @@ class TestExportImport(unittest.TestCase):
 
     def test_discovers_config_files(self):
         self._write_config("board_config.json", {"cols": [1]})
-        self._write_config("models_claude.json", {"models": []})
+        self._write_config("models_claudecode.json", {"models": []})
         # Non-matching file should be excluded
         (self.meta / "labels.txt").write_text("ui\nbackend\n")
 
         out = self.d / "export.json"
         bundle = export_all_configs(out, self.meta)
         self.assertIn("board_config.json", bundle["files"])
-        self.assertIn("models_claude.json", bundle["files"])
+        self.assertIn("models_claudecode.json", bundle["files"])
         self.assertNotIn("labels.txt", bundle["files"])
 
     def test_export_structure(self):
@@ -435,7 +435,7 @@ class TestExportImport(unittest.TestCase):
     def test_round_trip(self):
         self._write_config("board_config.json", {"cols": [1, 2], "s": {"r": 5}})
         self._write_config("codeagent_config.json", {"defaults": {"pick": "claude"}})
-        self._write_config("models_claude.json", [{"name": "opus"}])
+        self._write_config("models_claudecode.json", [{"name": "opus"}])
 
         out = self.d / "export.json"
         export_all_configs(out, self.meta)

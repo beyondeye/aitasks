@@ -54,9 +54,9 @@ METADATA_DIR = Path("aitasks") / "metadata"
 CODEAGENT_CONFIG = METADATA_DIR / "codeagent_config.json"
 BOARD_CONFIG = METADATA_DIR / "board_config.json"
 MODEL_FILES = {
-    "claude": METADATA_DIR / "models_claude.json",
+    "claudecode": METADATA_DIR / "models_claudecode.json",
     "codex": METADATA_DIR / "models_codex.json",
-    "gemini": METADATA_DIR / "models_gemini.json",
+    "geminicli": METADATA_DIR / "models_geminicli.json",
     "opencode": METADATA_DIR / "models_opencode.json",
 }
 PROFILES_DIR = METADATA_DIR / "profiles"

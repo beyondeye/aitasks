@@ -76,8 +76,8 @@ setup_test_env() {
     chmod +x "$tmpdir/aiscripts/aitask_codeagent.sh"
 
     # Copy model configs
-    cp "$PROJECT_DIR/aitasks/metadata/models_claude.json" "$tmpdir/aitasks/metadata/"
-    cp "$PROJECT_DIR/aitasks/metadata/models_gemini.json" "$tmpdir/aitasks/metadata/"
+    cp "$PROJECT_DIR/aitasks/metadata/models_claudecode.json" "$tmpdir/aitasks/metadata/"
+    cp "$PROJECT_DIR/aitasks/metadata/models_geminicli.json" "$tmpdir/aitasks/metadata/"
     cp "$PROJECT_DIR/aitasks/metadata/models_codex.json" "$tmpdir/aitasks/metadata/"
     cp "$PROJECT_DIR/aitasks/metadata/models_opencode.json" "$tmpdir/aitasks/metadata/"
     cp "$PROJECT_DIR/aitasks/metadata/codeagent_config.json" "$tmpdir/aitasks/metadata/"
@@ -115,14 +115,14 @@ CODEAGENT="$TMPDIR_TEST/aiscripts/aitask_codeagent.sh"
 # Test 2: list-agents outputs all 4 agents
 echo "--- Test 2: list-agents ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" list-agents 2>&1)
-assert_contains "list-agents shows claude" "AGENT:claude" "$output"
-assert_contains "list-agents shows gemini" "AGENT:gemini" "$output"
+assert_contains "list-agents shows claudecode" "AGENT:claudecode" "$output"
+assert_contains "list-agents shows geminicli" "AGENT:geminicli" "$output"
 assert_contains "list-agents shows codex" "AGENT:codex" "$output"
 assert_contains "list-agents shows opencode" "AGENT:opencode" "$output"
 
-# Test 3: list-models claude shows expected models
-echo "--- Test 3: list-models claude ---"
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" list-models claude 2>&1)
+# Test 3: list-models claudecode shows expected models
+echo "--- Test 3: list-models claudecode ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" list-models claudecode 2>&1)
 assert_contains "list-models shows opus4_6" "MODEL:opus4_6" "$output"
 assert_contains "list-models shows sonnet4_6" "MODEL:sonnet4_6" "$output"
 assert_contains "list-models shows haiku4_5" "MODEL:haiku4_5" "$output"
@@ -137,39 +137,39 @@ assert_exit_nonzero "list-models with invalid agent" bash -c "cd '$TMPDIR_TEST' 
 # Test 5: resolve task-pick returns claude/opus4_6
 echo "--- Test 5: resolve task-pick ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve task-pick 2>&1)
-assert_contains "resolve returns opus4_6 for task-pick" "AGENT_STRING:claude/opus4_6" "$output"
-assert_contains "resolve returns agent" "AGENT:claude" "$output"
+assert_contains "resolve returns opus4_6 for task-pick" "AGENT_STRING:claudecode/opus4_6" "$output"
+assert_contains "resolve returns agent" "AGENT:claudecode" "$output"
 assert_contains "resolve returns model" "MODEL:opus4_6" "$output"
 assert_contains "resolve returns cli_id" "CLI_ID:claude-opus-4-6" "$output"
 
 # Test 6: resolve with --agent-string override
 echo "--- Test 6: resolve with --agent-string override ---"
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string gemini/gemini2_5pro resolve task-pick 2>&1)
-assert_contains "override agent string" "AGENT_STRING:gemini/gemini2_5pro" "$output"
-assert_contains "override resolves gemini" "AGENT:gemini" "$output"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string geminicli/gemini2_5pro resolve task-pick 2>&1)
+assert_contains "override agent string" "AGENT_STRING:geminicli/gemini2_5pro" "$output"
+assert_contains "override resolves geminicli" "AGENT:geminicli" "$output"
 
 # Test 7: resolve with local config overrides project config
 echo "--- Test 7: resolve with local config ---"
 cat > "$TMPDIR_TEST/aitasks/metadata/codeagent_config.local.json" << 'LOCALEOF'
 {
   "defaults": {
-    "task-pick": "gemini/gemini3pro"
+    "task-pick": "geminicli/gemini3pro"
   }
 }
 LOCALEOF
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve task-pick 2>&1)
-assert_contains "local config overrides project config" "AGENT_STRING:gemini/gemini3pro" "$output"
+assert_contains "local config overrides project config" "AGENT_STRING:geminicli/gemini3pro" "$output"
 # Clean up local config
 rm "$TMPDIR_TEST/aitasks/metadata/codeagent_config.local.json"
 
 # Test 8: check valid agent string (claude should be in PATH on dev machines)
 echo "--- Test 8: check valid agent string ---"
 if command -v claude &>/dev/null; then
-    output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" check "claude/sonnet4_6" 2>&1)
+    output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" check "claudecode/sonnet4_6" 2>&1)
     assert_contains "check shows OK" "OK" "$output"
 else
     # claude not in PATH - check should fail with binary-not-found, not format error
-    output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" check "claude/sonnet4_6" 2>&1) || true
+    output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" check "claudecode/sonnet4_6" 2>&1) || true
     assert_contains "check reports binary not found" "not found" "$output"
     TOTAL=$((TOTAL + 1))
     PASS=$((PASS + 1))  # This is expected behavior
@@ -178,11 +178,11 @@ fi
 # Test 9: check with invalid format
 echo "--- Test 9: check invalid format ---"
 assert_exit_nonzero "check rejects invalid format" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' check 'not-valid-format'"
-assert_exit_nonzero "check rejects dots in model" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' check 'claude/sonnet4.6'"
+assert_exit_nonzero "check rejects dots in model" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' check 'claudecode/sonnet4.6'"
 
 # Test 10: check with unknown model
 echo "--- Test 10: check unknown model ---"
-assert_exit_nonzero "check rejects unknown model" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' check 'claude/nonexistent_model'"
+assert_exit_nonzero "check rejects unknown model" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' check 'claudecode/nonexistent_model'"
 
 # Test 11: --dry-run invoke
 echo "--- Test 11: --dry-run invoke ---"
@@ -204,7 +204,7 @@ assert_contains "help shows resolution chain" "Resolution chain" "$output"
 # Test 13: resolve explain uses sonnet
 echo "--- Test 13: resolve explain uses sonnet ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve explain 2>&1)
-assert_contains "resolve explain returns sonnet4_6" "AGENT_STRING:claude/sonnet4_6" "$output"
+assert_contains "resolve explain returns sonnet4_6" "AGENT_STRING:claudecode/sonnet4_6" "$output"
 
 # Test 14: resolve with unknown operation
 echo "--- Test 14: resolve unknown operation ---"

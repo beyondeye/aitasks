@@ -2,7 +2,7 @@
 # aitask_codeagent.sh - Unified wrapper for AI code agent invocation and model selection
 # Supports Claude Code, Gemini CLI, Codex CLI, and OpenCode with configurable model selection.
 #
-# Agent string format: <agent>/<model>  (e.g., claude/opus4_6, gemini/gemini3pro)
+# Agent string format: <agent>/<model>  (e.g., claudecode/opus4_6, geminicli/gemini3pro)
 #
 # Usage: ait codeagent <command> [options]
 # Run 'ait codeagent --help' for details.
@@ -18,8 +18,8 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 # --- Constants ---
 
 METADATA_DIR="${TASK_DIR:-aitasks}/metadata"
-DEFAULT_AGENT_STRING="claude/opus4_6"
-SUPPORTED_AGENTS=(claude gemini codex opencode)
+DEFAULT_AGENT_STRING="claudecode/opus4_6"
+SUPPORTED_AGENTS=(claudecode geminicli codex opencode)
 SUPPORTED_OPERATIONS=(task-pick explain batch-review raw)
 
 # --- Global flags (set by argument parser) ---
@@ -43,7 +43,7 @@ require_jq() {
 parse_agent_string() {
     local agent_string="$1"
     if [[ ! "$agent_string" =~ ^([a-z]+)/([a-z0-9_]+)$ ]]; then
-        die "Invalid agent string format: '$agent_string'. Expected: <agent>/<model> (e.g., claude/opus4_6)"
+        die "Invalid agent string format: '$agent_string'. Expected: <agent>/<model> (e.g., claudecode/opus4_6)"
     fi
     PARSED_AGENT="${BASH_REMATCH[1]}"
     PARSED_MODEL="${BASH_REMATCH[2]}"
@@ -60,8 +60,8 @@ parse_agent_string() {
 get_cli_binary() {
     local agent="$1"
     case "$agent" in
-        claude)   echo "claude" ;;
-        gemini)   echo "gemini" ;;
+        claudecode) echo "claude" ;;
+        geminicli)  echo "gemini" ;;
         codex)    echo "codex" ;;
         opencode) echo "opencode" ;;
         *) die "Unknown agent: '$agent'" ;;
@@ -72,8 +72,8 @@ get_cli_binary() {
 get_model_flag() {
     local agent="$1"
     case "$agent" in
-        claude)   echo "--model" ;;
-        gemini)   echo "-m" ;;
+        claudecode) echo "--model" ;;
+        geminicli)  echo "-m" ;;
         codex)    echo "-m" ;;
         opencode) echo "--model" ;;
         *) die "Unknown agent: '$agent'" ;;
@@ -252,7 +252,7 @@ build_invoke_command() {
     CMD=("$binary" "$model_flag" "$cli_id")
 
     case "$PARSED_AGENT" in
-        claude)
+        claudecode)
             case "$operation" in
                 task-pick)
                     # claude --model <id> "/aitask-pick <args>"
@@ -270,7 +270,7 @@ build_invoke_command() {
                     ;;
             esac
             ;;
-        gemini)
+        geminicli)
             case "$operation" in
                 task-pick)
                     CMD+=("/aitask-pick ${args[*]}")
@@ -342,26 +342,26 @@ Commands:
   invoke <operation> [args...]  Invoke the code agent for an operation
 
 Options:
-  --agent-string STR     Override agent string (e.g., claude/opus4_6)
+  --agent-string STR     Override agent string (e.g., claudecode/opus4_6)
   --dry-run              Print command without executing (for invoke)
   -h, --help             Show this help
 
 Operations: task-pick, explain, batch-review, raw
-Agent string format: <agent>/<model> (e.g., claude/opus4_6, gemini/gemini3pro)
+Agent string format: <agent>/<model> (e.g., claudecode/opus4_6, geminicli/gemini3pro)
 
 Resolution chain (highest priority first):
   1. --agent-string flag
   2. aitasks/metadata/codeagent_config.local.json (per-user, gitignored)
   3. aitasks/metadata/codeagent_config.json (per-project, git-tracked)
-  4. Hardcoded default: claude/opus4_6
+  4. Hardcoded default: claudecode/opus4_6
 
 Examples:
   ait codeagent list-agents
-  ait codeagent list-models claude
+  ait codeagent list-models claudecode
   ait codeagent resolve task-pick
-  ait codeagent check "claude/opus4_6"
+  ait codeagent check "claudecode/opus4_6"
   ait codeagent invoke task-pick 42
-  ait codeagent --agent-string gemini/gemini2_5pro invoke explain src/
+  ait codeagent --agent-string geminicli/gemini2_5pro invoke explain src/
   ait codeagent --dry-run invoke task-pick 42
 EOF
 }

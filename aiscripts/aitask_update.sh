@@ -121,7 +121,7 @@ Assignment options (batch mode):
   --assigned-to, -a EMAIL  Email of assigned person (use "" to clear)
 
 Agent tracking options (batch mode):
-  --implemented-with STR Agent string that implemented this task (e.g., "claude/opus4_6"; use "" to clear)
+  --implemented-with STR Agent string that implemented this task (e.g., "claudecode/opus4_6"; use "" to clear)
 
 Folded task options (batch mode):
   --folded-tasks TASKS   Folded task IDs (comma-separated, e.g., "106,129_5"; use "" to clear)
