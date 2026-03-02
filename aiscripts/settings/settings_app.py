@@ -1328,6 +1328,10 @@ class SettingsApp(App):
         container = self.query_one("#board_content", VerticalScroll)
         container.remove_children()
 
+        # Increment counter to ensure unique widget IDs (remove_children is async)
+        self._repop_counter += 1
+        rc = self._repop_counter
+
         # Columns (read-only)
         container.mount(Label("Columns [dim](read-only — edit via board TUI)[/dim]",
                               classes="section-header"))
@@ -1347,17 +1351,17 @@ class SettingsApp(App):
             current_refresh = "5"
         container.mount(CycleField("Auto-refresh (min)", DEFAULT_REFRESH_OPTIONS,
                                    current_refresh, "auto_refresh_minutes",
-                                   id="board_cf_refresh"))
+                                   id=f"board_cf_refresh_{rc}"))
         container.mount(Label("  [dim]0 = disabled[/dim]", classes="section-hint"))
 
         current_sync = "yes" if settings.get("sync_on_refresh", False) else "no"
         container.mount(CycleField("Sync on refresh", ["no", "yes"], current_sync,
-                                   "sync_on_refresh", id="board_cf_sync"))
+                                   "sync_on_refresh", id=f"board_cf_sync_{rc}"))
         container.mount(Label("  [dim]Push/pull task data on each auto-refresh[/dim]",
                               classes="section-hint"))
 
         container.mount(Button("Save Board Settings", variant="success",
-                               id="btn_board_save"))
+                               id=f"btn_board_save_{rc}"))
 
         container.mount(Label(
             "[dim]\u2191\u2193: navigate  |  \u25c0\u25b6: cycle options  "
@@ -1369,10 +1373,11 @@ class SettingsApp(App):
     def board_columns(self) -> list:
         return self.config_mgr.board.get("columns", [])
 
-    @on(Button.Pressed, "#btn_board_save")
     def save_board_settings(self):
-        refresh_field = self.query_one("#board_cf_refresh", CycleField)
-        sync_field = self.query_one("#board_cf_sync", CycleField)
+        container = self.query_one("#board_content", VerticalScroll)
+        cycle_fields = list(container.query(CycleField))
+        refresh_field = next(cf for cf in cycle_fields if cf.field_key == "auto_refresh_minutes")
+        sync_field = next(cf for cf in cycle_fields if cf.field_key == "sync_on_refresh")
 
         merged = dict(self.config_mgr.board)
         if "settings" not in merged:
@@ -1661,6 +1666,8 @@ class SettingsApp(App):
             safe_fn = btn_id.replace("btn_profile_revert__", "")
             filename = self._profile_id_map.get(safe_fn, safe_fn)
             self._revert_profile(filename)
+        elif btn_id.startswith("btn_board_save"):
+            self.save_board_settings()
         elif btn_id == "btn_profile_add_new":
             existing = sorted(self.config_mgr.profiles.keys())
             self.push_screen(
