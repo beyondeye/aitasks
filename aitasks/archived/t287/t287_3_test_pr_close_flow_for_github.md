@@ -3,11 +3,13 @@ priority: high
 effort: medium
 depends: [t287_2]
 issue_type: test
-status: Implementing
+status: Done
 labels: []
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claude/opus4_6
 created_at: 2026-03-02 16:57
-updated_at: 2026-03-02 19:43
+updated_at: 2026-03-02 19:51
+completed_at: 2026-03-02 19:51
 ---
 
 ## Context
