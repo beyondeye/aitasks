@@ -769,6 +769,38 @@ class CycleField(Static):
         self.refresh()
         self.post_message(self.Changed(self, self.current_value))
 
+    def _option_index_at(self, cx):
+        """Map content x-coordinate to option index, -1 for left arrow, -2 for right arrow."""
+        prefix_len = len(f"  {self.label}:  \u25c0 ")
+        if cx == prefix_len - 2:
+            return -1
+        pos = prefix_len
+        for i, opt in enumerate(self.options):
+            opt_width = len(opt) + 2
+            if pos <= cx < pos + opt_width:
+                return i
+            pos += opt_width
+            if i < len(self.options) - 1:
+                pos += 3
+        if cx == pos + 1:
+            return -2
+        return None
+
+    def on_click(self, event):
+        """Select option directly when clicked."""
+        content_offset = event.get_content_offset(self)
+        if content_offset is None:
+            return
+        idx = self._option_index_at(content_offset.x)
+        if idx == -1:
+            self.cycle_prev()
+        elif idx == -2:
+            self.cycle_next()
+        elif idx is not None and idx != self.current_index:
+            self.current_index = idx
+            self.refresh()
+            self.post_message(self.Changed(self, self.current_value))
+
     def on_key(self, event):
         if event.key == "left":
             self.cycle_prev()
