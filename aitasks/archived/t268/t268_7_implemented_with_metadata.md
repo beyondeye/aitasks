@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t268_5]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [modelwrapper]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claude/opus4_6
 created_at: 2026-03-01 09:00
-updated_at: 2026-03-02 11:11
+updated_at: 2026-03-02 11:13
+completed_at: 2026-03-02 11:13
 ---
 
 ## Context
