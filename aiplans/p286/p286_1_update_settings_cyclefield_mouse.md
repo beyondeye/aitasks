@@ -68,6 +68,14 @@ def on_click(self, event) -> None:
 4. Click separators/label — verify no change
 5. Verify keyboard Left/Right still works
 
+## Final Implementation Notes
+
+- **Actual work done:** Added `_option_index_at` and `on_click` methods to `CycleField` class in `settings_app.py`, exactly as planned.
+- **Deviations from plan:** None — implemented as specified.
+- **Issues encountered:** None.
+- **Key decisions:** Used Textual's `get_content_offset()` API which correctly handles padding/border offsets. Arrow clicks (◀/▶) also supported for intuitive UX.
+- **Notes for sibling tasks:** The board's `CycleField` (t286_2) is identical. Apply the same two methods. The board version uses older type hint style (`id: str = None`), so consider omitting return type hints on new methods for consistency — but either style works fine.
+
 ## Step 9 Reference
 
 Post-implementation: archive child task via `./aiscripts/aitask_archive.sh 286_1`
