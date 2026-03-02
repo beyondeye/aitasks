@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t260_3]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [skills]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claude/opus4_6
 created_at: 2026-03-01 15:31
-updated_at: 2026-03-02 12:04
+updated_at: 2026-03-02 13:36
+completed_at: 2026-03-02 13:36
 ---
 
 ## Context
