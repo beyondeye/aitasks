@@ -64,3 +64,10 @@ Archive task, push changes.
 ## Verification
 
 All verification is inline — each step produces visible output checked against expected values.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created MR #1 in `beyondeye/testrepo_gitlab` with a feature branch (`test/pr-import-test`), test file, and a comment. Ran all 4 e2e test steps: `--list` returned correct MR number+title, `--data-only` produced correct `.aitask-pr-data/1.md` with all fields populated, `--dry-run` close showed correct comment body and action. All tests passed. MR was closed and local clone cleaned up.
+- **Deviations from plan:** None — all steps executed as planned.
+- **Issues encountered:** (1) `additions: 0` / `deletions: 0` in the data file is a known GitLab API limitation (documented in t277_1). Per-file counts (`README.md +2 -0`, `test_change.md +9 -0`) are computed correctly. (2) The `## Description` header appears twice in the data file — the script adds it, and the MR body already starts with `## Description`. This is cosmetic and does not affect functionality.
+- **Notes for sibling tasks:** The full GitLab cross-repo import flow is verified end-to-end. All helper functions (`glab_repo_args()`, `glab_api_project_path()`, `gitlab_extract_repo_from_url()`, `glab_repo_flag()`) work correctly with the `-R` flag pattern. The `glab` CLI at `/usr/bin/glab` handles cross-repo operations without needing to be in a GitLab-cloned directory.
