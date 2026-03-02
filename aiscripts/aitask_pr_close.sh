@@ -20,6 +20,7 @@ CLOSE_PR=false
 NO_COMMENT=false
 DRY_RUN=false
 PR_URL_OVERRIDE=""
+GITLAB_REPO_SLUG=""  # Extracted from GitLab URL for cross-repo -R flag
 
 # --- Helper Functions ---
 
@@ -89,11 +90,24 @@ gitlab_extract_pr_number() {
     echo "$url" | grep -oE '[0-9]+$'
 }
 
+# Extract "group/project" from GitLab MR URL for -R flag
+gitlab_extract_repo_from_url() {
+    local url="$1"
+    echo "$url" | sed 's|https://gitlab.com/||; s|/-/merge_requests/.*||'
+}
+
+# Get -R flag for glab mr commands (empty if no repo slug set)
+glab_repo_flag() {
+    if [[ -n "$GITLAB_REPO_SLUG" ]]; then
+        echo "-R $GITLAB_REPO_SLUG"
+    fi
+}
+
 # Get current MR state (normalized to OPEN/CLOSED/MERGED)
 gitlab_get_pr_status() {
     local mr_num="$1"
     local state
-    state=$(glab mr view "$mr_num" -F json | jq -r '.state')
+    state=$(glab mr view "$mr_num" $(glab_repo_flag) -F json | jq -r '.state')
     case "$state" in
         opened) echo "OPEN" ;;
         closed) echo "CLOSED" ;;
@@ -106,7 +120,7 @@ gitlab_get_pr_status() {
 gitlab_add_comment() {
     local mr_num="$1"
     local body="$2"
-    glab mr note "$mr_num" -m "$body"
+    glab mr note "$mr_num" $(glab_repo_flag) -m "$body"
 }
 
 # Close a MR with optional comment
@@ -115,9 +129,9 @@ gitlab_close_pr() {
     local mr_num="$1"
     local comment="$2"
     if [[ -n "$comment" ]]; then
-        glab mr note "$mr_num" -m "$comment"
+        glab mr note "$mr_num" $(glab_repo_flag) -m "$comment"
     fi
-    glab mr close "$mr_num"
+    glab mr close "$mr_num" $(glab_repo_flag)
 }
 
 # --- Bitbucket Backend ---
@@ -322,6 +336,11 @@ run_close() {
         if [[ -z "$SOURCE" ]]; then
             die "Could not auto-detect source platform. Use --source github|gitlab|bitbucket"
         fi
+    fi
+
+    # Extract repo slug for GitLab cross-repo support
+    if [[ "$SOURCE" == "gitlab" ]]; then
+        GITLAB_REPO_SLUG=$(gitlab_extract_repo_from_url "$pr_url")
     fi
 
     source_check_cli

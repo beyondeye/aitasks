@@ -18,6 +18,7 @@ CLOSE_ISSUE=false
 NO_COMMENT=false
 DRY_RUN=false
 ISSUE_URL_OVERRIDE=""
+GITLAB_REPO_SLUG=""  # Extracted from GitLab URL for cross-repo -R flag
 
 # --- Helper Functions ---
 
@@ -88,11 +89,24 @@ gitlab_extract_issue_number() {
     echo "$url" | grep -oE '[0-9]+$'
 }
 
+# Extract "group/project" from GitLab issue URL for -R flag
+gitlab_extract_repo_from_issue_url() {
+    local url="$1"
+    echo "$url" | sed 's|https://gitlab.com/||; s|/-/issues/.*||'
+}
+
+# Get -R flag for glab issue commands (empty if no repo slug set)
+glab_repo_flag() {
+    if [[ -n "$GITLAB_REPO_SLUG" ]]; then
+        echo "-R $GITLAB_REPO_SLUG"
+    fi
+}
+
 # Get current issue state (normalized to OPEN/CLOSED)
 gitlab_get_issue_status() {
     local issue_num="$1"
     local state
-    state=$(glab issue view "$issue_num" -F json | jq -r '.state')
+    state=$(glab issue view "$issue_num" $(glab_repo_flag) -F json | jq -r '.state')
     case "$state" in
         opened) echo "OPEN" ;;
         closed) echo "CLOSED" ;;
@@ -104,7 +118,7 @@ gitlab_get_issue_status() {
 gitlab_add_comment() {
     local issue_num="$1"
     local body="$2"
-    glab issue note "$issue_num" -m "$body"
+    glab issue note "$issue_num" $(glab_repo_flag) -m "$body"
 }
 
 # Close an issue with optional comment
@@ -113,9 +127,9 @@ gitlab_close_issue() {
     local issue_num="$1"
     local comment="$2"
     if [[ -n "$comment" ]]; then
-        glab issue note "$issue_num" -m "$comment"
+        glab issue note "$issue_num" $(glab_repo_flag) -m "$comment"
     fi
-    glab issue close "$issue_num"
+    glab issue close "$issue_num" $(glab_repo_flag)
 }
 
 # --- Bitbucket Backend ---
@@ -317,6 +331,11 @@ run_update() {
         if [[ -z "$SOURCE" ]]; then
             die "Could not auto-detect source platform. Use --source github|gitlab|bitbucket"
         fi
+    fi
+
+    # Extract repo slug for GitLab cross-repo support
+    if [[ "$SOURCE" == "gitlab" ]]; then
+        GITLAB_REPO_SLUG=$(gitlab_extract_repo_from_issue_url "$issue_url")
     fi
 
     source_check_cli
