@@ -522,9 +522,39 @@ class ColumnHeader(Static):
                 if self.editable:
                     yield ColumnEditButton(self.col_id)
 
+class ViewSelector(Static):
+    """Shows the current view mode with clickable keyboard shortcuts."""
+
+    MODES = [("a", "All", "all"), ("g", "Git", "git"), ("i", "Impl", "implementing")]
+
+    def __init__(self, active_mode: str = "all", **kwargs):
+        super().__init__(**kwargs)
+        self.active_mode = active_mode
+
+    def render(self) -> str:
+        parts = []
+        for key, label, mode_id in self.MODES:
+            if self.active_mode == mode_id:
+                parts.append(f"[bold cyan]{key} {label}[/]")
+            else:
+                parts.append(f"[dim]{key} {label}[/]")
+        return " \u2502 ".join(parts)
+
+    def on_click(self, event):
+        # Rendered text (visible): "a All │ g Git │ i Impl"
+        # With CSS padding 0 1, content starts at x=1
+        x = event.x - 1  # adjust for left padding
+        if x < 6:
+            self.app._set_view_mode("all")
+        elif x < 14:
+            self.app._set_view_mode("git")
+        else:
+            self.app._set_view_mode("implementing")
+
+
 class TaskCard(Static):
     """A widget representing a single task."""
-    
+
     def __init__(self, task: Task, manager: "TaskManager" = None, is_child: bool = False, column_id: str = ""):
         super().__init__()
         self.task_data = task
@@ -2311,7 +2341,11 @@ class KanbanApp(App):
     .child-wrapper { height: auto; }
     .child-wrapper TaskCard { width: 1fr; }
     .child-connector { width: auto; height: auto; padding: 0; margin: 1 0 0 0; color: $text-muted; }
-    Input { dock: top; margin: 0 0 1 0; }
+    #filter_area { dock: top; height: auto; margin: 0 0 1 0; }
+    #view_col { width: 26; height: auto; }
+    #view_label { height: 1; padding: 0 1; color: $text-muted; }
+    #view_selector { height: 1; padding: 0 1; }
+    Input { width: 1fr; }
     .col-header-btn { width: auto; height: 1; padding: 0 1; }
     .col-header-edit-btn { width: auto; height: 1; padding: 0 1; background: black; color: white; }
     .col-header-row { height: auto; width: 100%; }
@@ -2439,12 +2473,18 @@ class KanbanApp(App):
         Binding("X", "toggle_column_collapsed", "Collapse Col", show=False),
         # Settings
         Binding("O", "open_settings", "Options"),
+        # View modes
+        Binding("a", "view_all", "All", show=False),
+        Binding("g", "view_git", "Git", show=False),
+        Binding("i", "view_implementing", "Impl", show=False),
     ]
 
     def __init__(self):
         super().__init__()
         self.manager = TaskManager()
         self.search_filter = ""
+        self.view_mode = "all"
+        self._view_auto_expanded: set = set()
         self.expanded_tasks: set = set()
         self._auto_refresh_timer = None
 
@@ -2477,7 +2517,11 @@ class KanbanApp(App):
         header = Header()
         header.can_focus = False
         yield header
-        yield Input(placeholder="Search tasks... (Tab to focus, Esc to return to board)", id="search_box")
+        with Horizontal(id="filter_area"):
+            with Container(id="view_col"):
+                yield Static("Task filter", id="view_label")
+                yield ViewSelector(self.view_mode, id="view_selector")
+            yield Input(placeholder="Search tasks... (Tab to focus, Esc to return to board)", id="search_box")
         yield HorizontalScroll(id="board_container")
         footer = Footer()
         footer.can_focus = False
@@ -2527,6 +2571,8 @@ class KanbanApp(App):
         focused = self._focused_card()
         refocus = focused.task_data.filename if focused else ""
         self.manager.load_tasks()
+        if self.view_mode == "implementing":
+            self._auto_expand_implementing()
         self.refresh_board(refocus_filename=refocus, refresh_locks=True)
 
     def refresh_board(self, refocus_filename: str = "", refresh_locks: bool = False):
@@ -2573,13 +2619,109 @@ class KanbanApp(App):
         self.apply_filter()
 
     def apply_filter(self):
-        # iterate all TaskCards and toggle visibility
+        # Compute view-mode visible set
+        visible_set = None
+        if self.view_mode == "implementing":
+            visible_set = self._implementing_visible_set()
+        elif self.view_mode == "git":
+            visible_set = self._git_visible_set()
+
         for card in self.query(TaskCard):
-            search_content = f"{card.task_data.filename} {card.task_data.metadata}".lower()
-            if self.search_filter in search_content:
-                card.styles.display = "block"
-            else:
-                card.styles.display = "none"
+            visible = True
+
+            # View mode filter
+            if visible_set is not None:
+                if card.task_data.filename not in visible_set:
+                    visible = False
+
+            # Search filter
+            if visible and self.search_filter:
+                search_content = f"{card.task_data.filename} {card.task_data.metadata}".lower()
+                if self.search_filter not in search_content:
+                    visible = False
+
+            card.styles.display = "block" if visible else "none"
+
+    def _implementing_visible_set(self) -> set:
+        """Tasks visible in implementing view."""
+        visible = set()
+
+        # Parent tasks with Implementing status
+        for filename, task in self.manager.task_datas.items():
+            if task.metadata.get('status') == 'Implementing':
+                visible.add(filename)
+
+        # Child tasks with Implementing status + their parent + all siblings
+        for filename, task in self.manager.child_task_datas.items():
+            if task.metadata.get('status') == 'Implementing':
+                visible.add(filename)
+                parent_num = self.manager.get_parent_num_for_child(task)
+                parent = self.manager.find_task_by_id(parent_num)
+                if parent:
+                    visible.add(parent.filename)
+                for sib in self.manager.get_child_tasks_for_parent(parent_num):
+                    visible.add(sib.filename)
+
+        return visible
+
+    def _git_visible_set(self) -> set:
+        """Tasks visible in git/integration view."""
+        visible = set()
+        for filename, task in self.manager.task_datas.items():
+            if task.metadata.get('issue') or task.metadata.get('pull_request'):
+                visible.add(filename)
+        for filename, task in self.manager.child_task_datas.items():
+            if task.metadata.get('issue') or task.metadata.get('pull_request'):
+                visible.add(filename)
+        return visible
+
+    # --- View Modes ---
+
+    def action_view_all(self):
+        self._set_view_mode("all")
+
+    def action_view_git(self):
+        self._set_view_mode("git")
+
+    def action_view_implementing(self):
+        self._set_view_mode("implementing")
+
+    def _set_view_mode(self, mode: str):
+        if self.view_mode == mode:
+            return
+        old_mode = self.view_mode
+        self.view_mode = mode
+
+        # Manage auto-expansion for implementing view
+        if old_mode == "implementing":
+            self.expanded_tasks -= self._view_auto_expanded
+            self._view_auto_expanded.clear()
+
+        if mode == "implementing":
+            self._auto_expand_implementing()
+
+        # Update the selector widget
+        selector = self.query_one("#view_selector", ViewSelector)
+        selector.active_mode = mode
+        selector.refresh()
+
+        # Re-render board with new expansion state, then filter
+        focused = self._focused_card()
+        refocus = focused.task_data.filename if focused else ""
+        self.refresh_board(refocus_filename=refocus)
+
+    def _auto_expand_implementing(self):
+        """Auto-expand parents that have implementing children."""
+        self._view_auto_expanded.clear()
+        for filename, task in self.manager.task_datas.items():
+            task_num, _ = TaskCard._parse_filename(filename)
+            children = self.manager.get_child_tasks_for_parent(task_num)
+            has_implementing = any(
+                c.metadata.get('status') == 'Implementing' for c in children
+            )
+            if has_implementing and filename not in self.expanded_tasks:
+                self._view_auto_expanded.add(filename)
+                self.expanded_tasks.add(filename)
 
     # --- Focus & Navigation ---
 
