@@ -5,7 +5,7 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [codeagent]
-children_to_implement: [t276_1]
+children_to_implement: [t276_1, t276_2]
 implemented_with: claudecode/claude-opus-4-6
 created_at: 2026-03-02 11:26
 updated_at: 2026-03-02 19:52
