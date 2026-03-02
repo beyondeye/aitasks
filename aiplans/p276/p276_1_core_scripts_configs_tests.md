@@ -62,8 +62,8 @@ Both `seed/codeagent_config.json` and `.aitask-data/aitasks/metadata/codeagent_c
 ```
 
 ### 7. Update tests
-- `tests/test_codeagent.sh` — file copy paths, assert strings, test agent names
-- `tests/test_config_utils.py` — `models_claude.json` filename references
+- `tests/test_codeagent.sh` — file copy paths (lines 79-82), assert strings (lines 118-121, 141, 149), test agent names
+- `tests/test_config_utils.py` — `models_claude.json` filename references (lines 115-116, 329, 336, 438)
 
 ### 8. Verify
 - `bash tests/test_codeagent.sh`
@@ -73,3 +73,10 @@ Both `seed/codeagent_config.json` and `.aitask-data/aitasks/metadata/codeagent_c
 
 ## Step 9 (Post-Implementation)
 After implementation: review, commit, archive, push per task-workflow.
+
+## Final Implementation Notes
+- **Actual work done:** Renamed all agent identifiers from claude→claudecode and gemini→geminicli in core scripts, config files, model JSON files, and tests. Also updated local `aitasks/metadata/` files (models and codeagent_config.json).
+- **Deviations from plan:** `.aitask-data/` directory exists as a submodule with its own `aitasks/metadata/` — renames there were handled via the same `git mv` commands. Local `aitasks/metadata/` files (untracked) were also renamed to stay consistent.
+- **Issues encountered:** Working directory inadvertently shifted to `.aitask-data/` during the git mv commands; this was caught and corrected. pytest is not installed on the system, so `test_config_utils.py` was not executed (changes are straightforward filename string replacements).
+- **Key decisions:** `get_cli_binary()` echo values intentionally kept as `"claude"` and `"gemini"` — these are the actual CLI binary names, not agent identifiers. The regex pattern `^([a-z]+)/([a-z0-9_]+)$` already supports the longer agent names.
+- **Notes for sibling tasks:** The `aitasks/metadata/models_*.json` files at the project root (untracked, local) have been renamed to match. All `"claude/"` agent strings in config files are now `"claudecode/"`. The `.claude/skills/aitask-refresh-code-models/SKILL.md` references `models_claude.json` filenames and needs updating in t276_2.
