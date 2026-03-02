@@ -90,6 +90,139 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
 
 _UNSET = "(unset)"
 
+# Profile field info: key -> (short_description, detailed_description)
+PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
+    "name": (
+        "Display name shown when selecting a profile",
+        "The profile name appears in the selection prompt when picking a task. "
+        "Choose a short, descriptive name (e.g., 'fast', 'worktree', 'remote')."
+    ),
+    "description": (
+        "Description shown below profile name during selection",
+        "A brief sentence explaining the profile's purpose. Shown alongside the name "
+        "in the profile selection prompt at the start of aitask-pick/aitask-explore."
+    ),
+    "skip_task_confirmation": (
+        "Auto-confirm task selection without asking",
+        "When true, skips the 'Is this the correct task?' confirmation in aitask-pick (Step 0b). "
+        "The task summary is still displayed but the workflow proceeds immediately. "
+        "When false or unset, the user must confirm before proceeding."
+    ),
+    "default_email": (
+        "Email for task assignment: userconfig, first, or literal",
+        "Controls how the email is resolved when claiming a task (Step 4):\n"
+        "  'userconfig': from aitasks/metadata/userconfig.yaml (falls back to first in emails.txt)\n"
+        "  'first': first email from aitasks/metadata/emails.txt\n"
+        "  A literal email address: uses that exact email\n"
+        "  (unset): prompts the user to select or enter an email"
+    ),
+    "create_worktree": (
+        "Create a separate git worktree for the task",
+        "When true, creates a new branch and worktree in aiwork/<task_name>/ (Step 5). "
+        "When false, works directly on the current branch. "
+        "Worktrees are useful for parallel work on multiple tasks."
+    ),
+    "base_branch": (
+        "Branch to base new task branches on (e.g., main)",
+        "Only used when create_worktree is true. Specifies the branch the new task branch "
+        "is created from. Common values: 'main', 'develop'. "
+        "When unset, the user is asked to choose."
+    ),
+    "plan_preference": (
+        "Existing plan handling: use_current / verify / create_new",
+        "Controls what happens when a plan file already exists (Step 6.0):\n"
+        "  'use_current': skip planning, use existing plan as-is\n"
+        "  'verify': enter plan mode to check if the plan is still valid\n"
+        "  'create_new': discard existing plan and start fresh\n"
+        "  (unset): ask the user interactively"
+    ),
+    "plan_preference_child": (
+        "Override plan_preference for child tasks only",
+        "Same values as plan_preference but only applies to child tasks. "
+        "Takes priority over plan_preference when the current task is a child. "
+        "Useful for e.g. always verifying child plans while reusing parent plans."
+    ),
+    "post_plan_action": (
+        "After plan approval: start_implementation = skip checkpoint",
+        "Controls what happens after the plan is approved (Step 6 checkpoint):\n"
+        "  'start_implementation': proceed directly to implementation\n"
+        "  (unset): ask the user whether to start, revise, or abort\n"
+        "Note: plan approval via ExitPlanMode is always required and cannot be skipped."
+    ),
+    "explore_auto_continue": (
+        "Auto-continue to implementation in exploration mode",
+        "Used by aitask-explore. When true, automatically continues to the implementation "
+        "phase after exploration completes. When false or unset, asks the user."
+    ),
+    "force_unlock_stale": (
+        "Auto force-unlock stale task locks without asking",
+        "When true, automatically overrides stale locks held by other users/machines (Step 4). "
+        "When false or unset, prompts the user to decide how to handle locked tasks."
+    ),
+    "done_task_action": (
+        "(Remote) Done-but-unarchived tasks: archive or skip",
+        "Only used by aitask-pickrem (remote/autonomous mode). Controls what happens "
+        "when a picked task already has status 'Done' but hasn't been archived:\n"
+        "  'archive': proceed to archive automatically\n"
+        "  'skip': leave the task as-is and end the workflow"
+    ),
+    "orphan_parent_action": (
+        "(Remote) Orphaned parent tasks: archive or skip",
+        "Only used by aitask-pickrem. Controls what happens when a parent task has "
+        "all children completed but the parent itself isn't archived:\n"
+        "  'archive': archive the parent automatically\n"
+        "  'skip': leave the parent as-is"
+    ),
+    "complexity_action": (
+        "(Remote) Complex tasks: single_task or create_children",
+        "Only used by aitask-pickrem. When a task is assessed as complex:\n"
+        "  'single_task': implement as a single task regardless of complexity\n"
+        "  'create_children': break into child subtasks automatically"
+    ),
+    "review_action": (
+        "(Remote) Review decision: commit, need_changes, or abort",
+        "Only used by aitask-pickrem. After implementation completes:\n"
+        "  'commit': auto-commit changes without review\n"
+        "  'need_changes': flag for additional changes (unusual for autonomous mode)\n"
+        "  'abort': discard changes and revert task status"
+    ),
+    "issue_action": (
+        "(Remote) Linked issue handling after archival",
+        "Only used by aitask-pickrem. When the task has a linked issue:\n"
+        "  'close_with_notes': post implementation notes and close the issue\n"
+        "  'comment_only': post notes but leave the issue open\n"
+        "  'close_silently': close without posting a comment\n"
+        "  'skip': don't touch the linked issue"
+    ),
+    "abort_plan_action": (
+        "(Remote) On abort: keep or discard plan file",
+        "Only used by aitask-pickrem. When a task is aborted:\n"
+        "  'keep': preserve the plan file for future reference\n"
+        "  'discard': delete the plan file"
+    ),
+    "abort_revert_status": (
+        "(Remote) Status to revert to on abort: Ready or Editing",
+        "Only used by aitask-pickrem. When a task is aborted, the task status "
+        "is reverted to this value:\n"
+        "  'Ready': task goes back to the Ready queue\n"
+        "  'Editing': task stays in Editing state"
+    ),
+}
+
+# Logical grouping of profile fields for display
+PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
+    ("Identity", ["name", "description"]),
+    ("Task Selection", ["skip_task_confirmation", "default_email"]),
+    ("Branch & Worktree", ["create_worktree", "base_branch"]),
+    ("Planning", ["plan_preference", "plan_preference_child", "post_plan_action"]),
+    ("Exploration", ["explore_auto_continue"]),
+    ("Lock Management", ["force_unlock_stale"]),
+    ("Remote Workflow", [
+        "done_task_action", "orphan_parent_action", "complexity_action",
+        "review_action", "issue_action", "abort_plan_action", "abort_revert_status",
+    ]),
+]
+
 # Tab shortcut keys -> TabPane IDs
 _TAB_SHORTCUTS = {
     "a": "tab_agent",
@@ -600,6 +733,82 @@ class EditStringScreen(ModalScreen):
         self.dismiss(None)
 
 
+class NewProfileScreen(ModalScreen):
+    """Modal for creating a new profile based on an existing one."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(self, existing_profiles: list[str]):
+        super().__init__()
+        self.existing_profiles = existing_profiles
+
+    def compose(self) -> ComposeResult:
+        with Container(id="edit_dialog"):
+            yield Label("Create New Profile", id="edit_title")
+            yield Label("Profile filename (without .yaml):", classes="edit-label")
+            yield Input(placeholder="my-profile", id="new_profile_name")
+            base_options = list(self.existing_profiles) + ["(empty)"]
+            yield Label("Base on existing profile:", classes="edit-label")
+            yield CycleField(
+                "Base profile", base_options,
+                base_options[0] if base_options else "(empty)",
+                "base_profile", id="cf_base_profile",
+            )
+            with Horizontal(id="edit_buttons"):
+                yield Button("Create", variant="success", id="btn_new_profile_ok")
+                yield Button("Cancel", variant="default", id="btn_new_profile_cancel")
+
+    @on(Button.Pressed, "#btn_new_profile_ok")
+    def do_create(self):
+        name = self.query_one("#new_profile_name", Input).value.strip()
+        base = self.query_one("#cf_base_profile", CycleField).current_value
+        if not name:
+            return
+        if not name.endswith(".yaml"):
+            name = name + ".yaml"
+        self.dismiss({"filename": name, "base": base})
+
+    @on(Button.Pressed, "#btn_new_profile_cancel")
+    def do_cancel(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+
+class DeleteProfileConfirmScreen(ModalScreen):
+    """Confirmation dialog to delete a profile."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(self, profile_name: str, filename: str):
+        super().__init__()
+        self.profile_name = profile_name
+        self.filename = filename
+
+    def compose(self) -> ComposeResult:
+        with Container(id="edit_dialog"):
+            yield Label(
+                f"Delete profile [bold]{self.profile_name}[/bold] "
+                f"({self.filename})?\nThis cannot be undone.",
+                id="edit_title",
+            )
+            with Horizontal(id="edit_buttons"):
+                yield Button("Delete", variant="error", id="btn_del_profile_ok")
+                yield Button("Cancel", variant="default", id="btn_del_profile_cancel")
+
+    @on(Button.Pressed, "#btn_del_profile_ok")
+    def do_delete(self):
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#btn_del_profile_cancel")
+    def do_cancel(self):
+        self.dismiss(False)
+
+    def action_cancel(self):
+        self.dismiss(False)
+
+
 # ---------------------------------------------------------------------------
 # Main App
 # ---------------------------------------------------------------------------
@@ -678,6 +887,9 @@ class SettingsApp(App):
         super().__init__()
         self.config_mgr = ConfigManager()
         self._profile_id_map: dict[str, str] = {}  # safe_id -> filename
+        self._selected_profile: str | None = None  # currently selected profile filename
+        self._expanded_field: str | None = None  # field key with expanded description
+        self._profiles_focus_target: str | None = None  # widget ID to focus after repop
         self._editing_layer: str = "project"  # track which layer is being edited
         self._repop_counter: int = 0  # ensures unique widget IDs across repopulations
 
@@ -796,7 +1008,13 @@ class SettingsApp(App):
             if fid.startswith("profile_str_"):
                 parts = fid.split("__", 1)
                 if len(parts) == 2:
-                    safe_fn = parts[1]
+                    safe_fn_with_rc = parts[1]
+                    # Strip _N repop counter suffix
+                    last_underscore = safe_fn_with_rc.rfind("_")
+                    if last_underscore > 0:
+                        safe_fn = safe_fn_with_rc[:last_underscore]
+                    else:
+                        safe_fn = safe_fn_with_rc
                     profile_filename = self._profile_id_map.get(safe_fn, safe_fn)
                     key = focused.row_key
                     value = focused.value
@@ -805,6 +1023,37 @@ class SettingsApp(App):
                         callback=lambda result, pf=profile_filename:
                             self._handle_profile_string_edit(result, pf),
                     )
+                    event.prevent_default()
+                    event.stop()
+                    return
+
+        # ?: toggle field detail on profile fields
+        if event.key == "question_mark" and (
+            isinstance(focused, CycleField) or isinstance(focused, ConfigRow)
+        ):
+            fid = focused.id or ""
+            if fid.startswith("profile_") and "__" in fid:
+                if isinstance(focused, CycleField):
+                    field_key = focused.field_key
+                elif isinstance(focused, ConfigRow):
+                    field_key = focused.row_key
+                else:
+                    field_key = None
+                if field_key and field_key in PROFILE_FIELD_INFO:
+                    if self._expanded_field == field_key:
+                        self._expanded_field = None
+                    else:
+                        self._expanded_field = field_key
+                    # Compute the new widget ID after repopulation
+                    sel = self._selected_profile or ""
+                    sf = _safe_id(sel)
+                    next_rc = self._repop_counter + 1
+                    ktype = PROFILE_SCHEMA.get(field_key, ("", None))[0]
+                    if ktype == "string":
+                        new_wid = f"profile_str_{field_key}__{sf}_{next_rc}"
+                    else:
+                        new_wid = f"profile_{field_key}__{sf}_{next_rc}"
+                    self._populate_profiles_tab(focus_widget_id=new_wid)
                     event.prevent_default()
                     event.stop()
                     return
@@ -1032,36 +1281,87 @@ class SettingsApp(App):
     # -------------------------------------------------------------------
     # Profiles tab (editable)
     # -------------------------------------------------------------------
-    def _populate_profiles_tab(self):
+    def _populate_profiles_tab(self, focus_widget_id: str | None = None):
         container = self.query_one("#profiles_content", VerticalScroll)
         container.remove_children()
 
         self._profile_id_map = {}
+        self._repop_counter += 1
+        rc = self._repop_counter
+        self._profiles_focus_target = focus_widget_id
 
+        # --- Explanation ---
+        container.mount(Label("Execution Profiles", classes="section-header"))
         container.mount(Label(
-            "[dim]\u2191\u2193: navigate  |  a/b/m/p: switch tabs[/dim]",
+            "[dim]Profiles pre-answer workflow questions to reduce interactive prompts.\n"
+            "Used by: aitask-pick, aitask-explore, aitask-pickrem, "
+            "aitask-pickweb, task-workflow[/dim]",
+            classes="section-hint",
+        ))
+        container.mount(Label(
+            "[dim]\u2191\u2193: navigate  |  \u25c0\u25b6: cycle options  "
+            "|  Enter: edit strings  |  ?: field details  "
+            "|  a/b/m/p: switch tabs[/dim]",
             classes="section-hint",
         ))
 
-        if not self.config_mgr.profiles:
-            container.mount(Label("No profiles found in profiles/",
-                                  classes="section-header"))
+        profiles = self.config_mgr.profiles
+        if not profiles:
+            container.mount(Label(
+                "[dim]No profiles found in aitasks/metadata/profiles/[/dim]",
+                classes="section-hint",
+            ))
+            container.mount(Button(
+                "Create New Profile", variant="primary",
+                id="btn_profile_add_new",
+            ))
             return
 
-        for filename, data in sorted(self.config_mgr.profiles.items()):
-            safe_fn = _safe_id(filename)
-            self._profile_id_map[safe_fn] = filename
-            profile_name = data.get("name", filename)
-            desc = data.get("description", "")
-            container.mount(Label(
-                f"{profile_name} [dim]({filename})[/dim]  {desc}",
-                classes="profile-header",
-            ))
+        # --- Profile selector ---
+        profile_filenames = sorted(profiles.keys())
+        selector_options = profile_filenames + ["+ Add new profile"]
 
-            # Render each known key as an editable widget
-            for key, (ktype, options) in PROFILE_SCHEMA.items():
+        if self._selected_profile and self._selected_profile in profiles:
+            current_selection = self._selected_profile
+        else:
+            current_selection = profile_filenames[0]
+            self._selected_profile = current_selection
+
+        container.mount(CycleField(
+            "Profile", selector_options, current_selection,
+            "profile_selector", id=f"cf_profile_selector_{rc}",
+        ))
+
+        if current_selection == "+ Add new profile":
+            container.mount(Label(
+                "[dim]Use \u25c0\u25b6 to select a profile or "
+                "choose '+ Add new profile'[/dim]",
+                classes="section-hint",
+            ))
+            return
+
+        # --- Profile detail area ---
+        data = profiles[current_selection]
+        safe_fn = _safe_id(current_selection)
+        self._profile_id_map[safe_fn] = current_selection
+        profile_name = data.get("name", current_selection)
+
+        container.mount(Label(""))
+        container.mount(Label(
+            f"Editing: [bold]{profile_name}[/bold] "
+            f"[dim]({current_selection})[/dim]",
+            classes="profile-header",
+        ))
+
+        # Render fields grouped
+        for group_label, field_keys in PROFILE_FIELD_GROUPS:
+            container.mount(Label(f"  {group_label}", classes="section-header"))
+            for key in field_keys:
+                if key not in PROFILE_SCHEMA:
+                    continue
+                ktype, options = PROFILE_SCHEMA[key]
                 current_raw = data.get(key)
-                widget_id = f"profile_{key}__{safe_fn}"
+                widget_id = f"profile_{key}__{safe_fn}_{rc}"
 
                 if ktype == "bool":
                     if current_raw is True:
@@ -1078,7 +1378,6 @@ class SettingsApp(App):
                     opts = list(options or []) + [_UNSET]
                     current = str(current_raw) if current_raw is not None else _UNSET
                     if current not in opts:
-                        # Value not in known options — treat as custom, add it
                         opts.insert(0, current)
                     container.mount(CycleField(
                         key, opts, current, key, id=widget_id,
@@ -1087,16 +1386,70 @@ class SettingsApp(App):
                     current = str(current_raw) if current_raw is not None else ""
                     row = ConfigRow(
                         key, current, config_layer="project", row_key=key,
-                        id=f"profile_str_{key}__{safe_fn}",
+                        id=f"profile_str_{key}__{safe_fn}_{rc}",
                     )
                     container.mount(row)
 
-            # Save button for this profile
-            container.mount(Button(
-                f"Save {profile_name}", variant="success",
-                id=f"btn_profile_save__{_safe_id(filename)}",
-            ))
-            container.mount(Label("", classes="profile-sep"))
+                # Field description
+                info = PROFILE_FIELD_INFO.get(key)
+                if info:
+                    if self._expanded_field == key:
+                        container.mount(Label(
+                            f"      [dim]{info[1]}[/dim]",
+                            classes="section-hint",
+                        ))
+                    else:
+                        container.mount(Label(
+                            f"      [dim]{info[0]}[/dim]",
+                            classes="section-hint",
+                        ))
+
+        # --- Action buttons ---
+        container.mount(Label(""))
+        hbox = Horizontal(classes="tab-buttons")
+        container.mount(hbox)
+        hbox.mount(Button(
+            f"Save {profile_name}", variant="success",
+            id=f"btn_profile_save__{safe_fn}",
+        ))
+        hbox.mount(Button(
+            f"Delete {profile_name}", variant="error",
+            id=f"btn_profile_delete__{safe_fn}",
+        ))
+
+        # Restore focus after repopulation
+        if self._profiles_focus_target:
+            target_id = self._profiles_focus_target
+            self._profiles_focus_target = None
+            self.call_after_refresh(self._focus_widget_by_id, target_id)
+
+    def _focus_widget_by_id(self, widget_id: str) -> None:
+        """Focus a widget by ID after refresh completes."""
+        try:
+            widget = self.query_one(f"#{widget_id}")
+            if widget.can_focus:
+                widget.focus()
+        except Exception:
+            pass
+
+    @on(CycleField.Changed)
+    def on_cycle_field_changed(self, event: CycleField.Changed):
+        if event.field.field_key != "profile_selector":
+            return
+        new_value = event.value
+        if new_value == "+ Add new profile":
+            existing = sorted(self.config_mgr.profiles.keys())
+            self.push_screen(
+                NewProfileScreen(existing),
+                callback=self._handle_new_profile,
+            )
+        else:
+            self._selected_profile = new_value
+            self._expanded_field = None
+            rc = self._repop_counter + 1  # next repop counter
+            self._populate_profiles_tab(
+                focus_widget_id=f"cf_profile_selector_{rc}",
+            )
 
     @on(Button.Pressed)
     def on_button_pressed(self, event: Button.Pressed):
@@ -1105,14 +1458,31 @@ class SettingsApp(App):
             safe_fn = btn_id.replace("btn_profile_save__", "")
             filename = self._profile_id_map.get(safe_fn, safe_fn)
             self._save_profile(filename)
+        elif btn_id.startswith("btn_profile_delete__"):
+            safe_fn = btn_id.replace("btn_profile_delete__", "")
+            filename = self._profile_id_map.get(safe_fn, safe_fn)
+            data = self.config_mgr.profiles.get(filename, {})
+            profile_name = data.get("name", filename)
+            self.push_screen(
+                DeleteProfileConfirmScreen(profile_name, filename),
+                callback=lambda confirmed, fn=filename:
+                    self._handle_delete_profile(confirmed, fn),
+            )
+        elif btn_id == "btn_profile_add_new":
+            existing = sorted(self.config_mgr.profiles.keys())
+            self.push_screen(
+                NewProfileScreen(existing),
+                callback=self._handle_new_profile,
+            )
 
     def _save_profile(self, filename: str):
         data = dict(self.config_mgr.profiles.get(filename, {}))
         safe_fn = _safe_id(filename)
+        rc = self._repop_counter
 
         for key, (ktype, options) in PROFILE_SCHEMA.items():
-            widget_id = f"profile_{key}__{safe_fn}"
-            str_widget_id = f"profile_str_{key}__{safe_fn}"
+            widget_id = f"profile_{key}__{safe_fn}_{rc}"
+            str_widget_id = f"profile_str_{key}__{safe_fn}_{rc}"
 
             if ktype in ("bool", "enum"):
                 try:
@@ -1140,14 +1510,60 @@ class SettingsApp(App):
         self.config_mgr.save_profile(filename, data)
         self.notify(f"Profile '{filename}' saved")
 
+    def _handle_new_profile(self, result):
+        if result is None:
+            # User cancelled — re-select previous profile
+            if self._selected_profile == "+ Add new profile":
+                profiles = sorted(self.config_mgr.profiles.keys())
+                self._selected_profile = profiles[0] if profiles else None
+            self._populate_profiles_tab()
+            return
+
+        filename = result["filename"]
+        base = result["base"]
+
+        if filename in self.config_mgr.profiles:
+            self.notify(f"Profile '{filename}' already exists", severity="error")
+            self._populate_profiles_tab()
+            return
+
+        if base and base != "(empty)" and base in self.config_mgr.profiles:
+            new_data = dict(self.config_mgr.profiles[base])
+        else:
+            new_data = {}
+
+        new_data["name"] = filename.replace(".yaml", "")
+        new_data["description"] = ""
+
+        PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+        self.config_mgr.save_profile(filename, new_data)
+        self._selected_profile = filename
+        self.config_mgr.load_profiles()
+        self._populate_profiles_tab()
+        self.notify(f"Created profile '{filename}' (based on {base})")
+
+    def _handle_delete_profile(self, confirmed: bool, filename: str):
+        if not confirmed:
+            return
+
+        path = PROFILES_DIR / filename
+        if path.is_file():
+            path.unlink()
+
+        self.config_mgr.profiles.pop(filename, None)
+        remaining = sorted(self.config_mgr.profiles.keys())
+        self._selected_profile = remaining[0] if remaining else None
+        self._populate_profiles_tab()
+        self.notify(f"Deleted profile '{filename}'")
+
     def _handle_profile_string_edit(self, result, profile_filename: str):
         if result is None:
             return
         key = result["key"]
         value = result["value"]
 
-        # Update the ConfigRow display immediately
-        str_widget_id = f"profile_str_{key}__{_safe_id(profile_filename)}"
+        rc = self._repop_counter
+        str_widget_id = f"profile_str_{key}__{_safe_id(profile_filename)}_{rc}"
         try:
             row = self.query_one(f"#{str_widget_id}", ConfigRow)
             row.value = value
