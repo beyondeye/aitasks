@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: [t277_1]
 issue_type: bug
-status: Implementing
+status: Done
 labels: []
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claude/opus4_6
 created_at: 2026-03-02 15:46
-updated_at: 2026-03-02 16:15
+updated_at: 2026-03-02 16:30
+completed_at: 2026-03-02 16:30
 ---
 
 ## Context
