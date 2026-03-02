@@ -465,10 +465,11 @@ class ConfigRow(Static):
 
     def __init__(self, key: str, value: str, config_layer: str = "project",
                  row_key: str = "", id: str | None = None,
-                 subordinate: bool = False):
+                 subordinate: bool = False, raw_value: str | None = None):
         super().__init__(id=id)
         self.key = key
         self.value = value
+        self.raw_value = raw_value if raw_value is not None else value
         self.config_layer = config_layer
         self.row_key = row_key or key
         self.subordinate = subordinate
@@ -725,8 +726,13 @@ class AgentModelPickerScreen(ModalScreen):
             notes = m.get("notes", "")
             verified = m.get("verified", {})
             op_score = verified.get(self.operation, 0)
-            score_str = f"[verified:{op_score}]" if op_score else ""
-            desc = f"{notes} {score_str}".strip()
+            if op_score:
+                score_str = f"[score: {op_score}]"
+            elif self.operation in verified:
+                score_str = "(not verified)"
+            else:
+                score_str = ""
+            desc = f"{notes}  {score_str}".strip() if score_str else notes
             model_options.append({
                 "value": name,
                 "display": name,
@@ -1142,7 +1148,7 @@ class SettingsApp(App):
             # Agent Defaults rows (project or user)
             if fid.startswith("agent_proj_") or fid.startswith("agent_user_"):
                 key = focused.row_key
-                current_val = focused.value
+                current_val = focused.raw_value
                 current_agent, current_model = "", ""
                 if "/" in current_val and current_val != "(inherits project)":
                     current_agent, current_model = current_val.split("/", 1)
@@ -1224,6 +1230,23 @@ class SettingsApp(App):
     # -------------------------------------------------------------------
     # Agent Defaults tab
     # -------------------------------------------------------------------
+    def _get_verified_label(self, operation: str, agent_model: str) -> str:
+        """Return a verified score label for an agent/model/operation combo."""
+        if "/" not in agent_model:
+            return ""
+        agent, model_name = agent_model.split("/", 1)
+        provider_data = self.config_mgr.models.get(agent, {})
+        for m in provider_data.get("models", []):
+            if m.get("name") == model_name:
+                verified = m.get("verified", {})
+                op_score = verified.get(operation, 0)
+                if op_score:
+                    return f" [dim][score: {op_score}][/dim]"
+                elif operation in verified:
+                    return " [dim](not verified)[/dim]"
+                return ""
+        return ""
+
     def _populate_agent_tab(self):
         container = self.query_one("#agent_content", VerticalScroll)
         container.remove_children()
@@ -1252,20 +1275,28 @@ class SettingsApp(App):
 
             # Project row
             proj_val = project_defaults.get(key, "(not set)")
+            proj_raw = str(proj_val)
+            proj_display = proj_raw
+            if proj_val and proj_val != "(not set)":
+                proj_display += self._get_verified_label(key, proj_raw)
             container.mount(ConfigRow(
-                key, str(proj_val), config_layer="project", row_key=key,
+                key, proj_display, config_layer="project", row_key=key,
                 id=f"agent_proj_{sk}_{rc}",
+                raw_value=proj_raw,
             ))
 
             # User row (subordinate, indented under project row)
             if key in local_defaults:
-                user_val = str(local_defaults[key])
+                user_raw = str(local_defaults[key])
+                user_val = user_raw + self._get_verified_label(key, user_raw)
             else:
-                user_val = "(inherits project)"
+                user_raw = "(inherits project)"
+                user_val = user_raw
             container.mount(ConfigRow(
                 key, user_val, config_layer="user", row_key=key,
                 id=f"agent_user_{sk}_{rc}",
                 subordinate=True,
+                raw_value=user_raw,
             ))
 
         container.mount(Label(
