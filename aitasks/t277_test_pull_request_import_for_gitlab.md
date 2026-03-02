@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: []
-children_to_implement: [t277_1, t277_2]
+children_to_implement: [t277_1, t277_2, t277_3]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claude/opus4_6
 created_at: 2026-03-02 11:32
