@@ -306,6 +306,7 @@ After implementation is complete, the user MUST be given the opportunity to revi
       ```
     - **IMPORTANT for child tasks:** The plan file will be archived and serve as the primary reference for subsequent sibling tasks. Ensure the Final Implementation Notes are comprehensive enough that a fresh context can understand what was done and learn from the experience.
     - The plan file should now serve as a complete record of: the original plan, any post-review change requests (from the "Need more changes" loop), and final implementation notes
+  - **Contributor attribution:** Execute the **Contributor Attribution Procedure** (see `procedures.md`) to determine the commit message format. If the task has contributor metadata, use the multi-line format from the procedure instead of the standard single-line format below.
   - **Commit code changes and plan file separately** (code uses regular `git`, plan uses `./ait git`):
     1. **Code commit** — Stage and commit source code changes:
        ```bash
@@ -484,6 +485,7 @@ The following procedures are in `procedures.md` — read on demand when referenc
 - **Task Abort Procedure** — Lock release, status revert, worktree cleanup. Referenced from Step 6 checkpoint and Step 8.
 - **Issue Update Procedure** — Update/close linked issues during archival. Referenced from Step 9.
 - **PR Close/Decline Procedure** — Close/decline linked pull requests during archival. Referenced from Step 9.
+- **Contributor Attribution Procedure** — Credit PR contributors in commit messages. Referenced from Step 8.
 - **Lock Release Procedure** — Release task locks. Referenced from Task Abort Procedure.
 
 ---

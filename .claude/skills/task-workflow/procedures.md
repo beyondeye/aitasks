@@ -8,6 +8,7 @@ the main workflow steps and should be read on demand when referenced.
 - [Task Abort Procedure](#task-abort-procedure) — Referenced from Step 6 checkpoint and Step 8
 - [Issue Update Procedure](#issue-update-procedure) — Referenced from Step 9
 - [PR Close/Decline Procedure](#pr-closedecline-procedure) — Referenced from Step 9
+- [Contributor Attribution Procedure](#contributor-attribution-procedure) — Referenced from Step 8
 - [Lock Release Procedure](#lock-release-procedure) — Referenced from Task Abort Procedure
 
 ---
@@ -119,6 +120,48 @@ When the archive script outputs `PR:<task_num>:<pr_url>` or `PARENT_PR:<task_num
   ./aiscripts/aitask_pr_close.sh --close --no-comment <task_num>
   ```
 - If "Skip": do nothing
+
+## Contributor Attribution Procedure
+
+This procedure is referenced from Step 8 wherever code changes are being committed. It checks whether the task originated from an external PR and, if so, formats the commit message to credit the original contributor.
+
+**When to execute:** Before the code commit in Step 8 ("If Commit changes"), to determine the commit message format.
+
+**Procedure:**
+
+- Read the task file's frontmatter and check for `contributor`, `contributor_email`, and `pull_request` fields.
+
+- **If both `contributor` and `contributor_email` are present**, the code commit message MUST use a multi-line format:
+  ```bash
+  git commit -m "$(cat <<'EOF'
+  <issue_type>: <description> (t<task_id>)
+
+  Based on PR: <pull_request_url>
+
+  Co-authored-by: <contributor> <<contributor_email>>
+  EOF
+  )"
+  ```
+  Example:
+  ```bash
+  git commit -m "$(cat <<'EOF'
+  feature: Add dark mode support (t42)
+
+  Based on PR: https://github.com/owner/repo/pull/15
+
+  Co-authored-by: octocat <12345+octocat@users.noreply.github.com>
+  EOF
+  )"
+  ```
+
+- **If only `contributor` is present without `contributor_email`:** Skip the `Co-authored-by` trailer (platforms require a valid email for attribution linking). Use the standard single-line commit format.
+
+- **If neither field is present:** Use the standard single-line commit format (`git commit -m "<issue_type>: <description> (t<task_id>)"`). No contributor attribution needed.
+
+**Notes:**
+- `Co-authored-by` is preferred over `--author` — the contributor inspired the work but the current implementer wrote this specific code
+- The `contributor_email` is pre-computed during PR import and stored in task metadata — no API call needed at commit time
+- Both GitHub and GitLab display `Co-authored-by` contributors in the commit UI and count them as contributions
 
 ## Lock Release Procedure
 
