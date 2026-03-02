@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t260_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [bash_scripts, git-integration]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claude/opus4_6
 created_at: 2026-03-01 15:30
-updated_at: 2026-03-02 11:16
+updated_at: 2026-03-02 12:01
+completed_at: 2026-03-02 12:01
 ---
 
 ## Context
