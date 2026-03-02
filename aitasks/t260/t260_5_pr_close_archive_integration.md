@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t260_4]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [bash_scripts, skills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-01 15:32
-updated_at: 2026-03-01 15:32
+updated_at: 2026-03-02 13:40
 ---
 
 ## Context
