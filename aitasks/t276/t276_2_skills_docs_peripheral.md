@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t276_1]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: []
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-02 19:52
-updated_at: 2026-03-02 19:52
+updated_at: 2026-03-02 20:09
 ---
 
 Update all SKILL.md files, CLAUDE.md, website docs, and peripheral scripts to use the new agent identifiers (claudecode/geminicli instead of claude/gemini).
