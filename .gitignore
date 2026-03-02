@@ -6,6 +6,9 @@ aiscripts/codebrowser/__pycache__/
 # aitask-explain generated data (temporary, per-run)
 aiexplains/
 
+# PR import intermediate data (temporary, per-run)
+.aitask-pr-data/
+
 # Hugo generated files
 website/public/
 website/resources/

@@ -34,6 +34,7 @@ Task Management:
 
 Integration:
   issue-import   Import tasks from GitHub/GitLab issues
+  pr-import      Import tasks from GitHub/GitLab pull requests
   issue-update   Update/close linked issues
 
 Reporting:
@@ -122,6 +123,7 @@ case "${1:-help}" in
     update)       shift; exec "$SCRIPTS_DIR/aitask_update.sh" "$@" ;;
     install)      shift; exec "$SCRIPTS_DIR/aitask_install.sh" "$@" ;;
     issue-import) shift; exec "$SCRIPTS_DIR/aitask_issue_import.sh" "$@" ;;
+    pr-import)    shift; exec "$SCRIPTS_DIR/aitask_pr_import.sh" "$@" ;;
     board)        shift; exec "$SCRIPTS_DIR/aitask_board.sh" "$@" ;;
     codebrowser)  shift; exec "$SCRIPTS_DIR/aitask_codebrowser.sh" "$@" ;;
     settings)     shift; exec "$SCRIPTS_DIR/aitask_settings.sh" "$@" ;;
