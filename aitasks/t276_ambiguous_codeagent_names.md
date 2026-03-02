@@ -6,6 +6,7 @@ issue_type: bug
 status: Implementing
 labels: [codeagent]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/claude-opus-4-6
 created_at: 2026-03-02 11:26
 updated_at: 2026-03-02 19:42
 ---
