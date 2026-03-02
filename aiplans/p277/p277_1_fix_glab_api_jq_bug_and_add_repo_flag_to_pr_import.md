@@ -103,3 +103,10 @@ bash -n aiscripts/aitask_pr_import.sh
 # Test list mode against real GitLab repo (requires test MR from t277_3):
 ./aiscripts/aitask_pr_import.sh --batch --source gitlab --repo beyondeye/testrepo_gitlab --list --silent
 ```
+
+## Final Implementation Notes
+
+- **Actual work done:** All 6 steps implemented as planned, plus one additional fix: `gitlab_resolve_contributor_email()` at line 291 also used the invalid `--jq` flag — fixed by piping to `jq -r` instead. Total: 32 insertions, 9 deletions in a single file.
+- **Deviations from plan:** (1) Added fix for `--jq` in `gitlab_resolve_contributor_email()` which the original plan missed. (2) Moved the TODO comment for additions/deletions above the jq call instead of inline, because bash interprets parentheses inside jq heredoc strings.
+- **Issues encountered:** Placing a `# TODO` comment with parentheses inside a jq expression caused a bash syntax error — the `()` in `gitlab_fetch_pr_files()` was interpreted as a subshell. Resolved by moving the comment above the jq call.
+- **Notes for sibling tasks:** The `glab_repo_args()` and `glab_api_project_path()` helper functions are now available in the GitLab backend section (lines 206-222). t277_2 should follow the same pattern: extract repo slug from the PR/issue URL and pass it via `-R` to `glab mr`/`glab issue` commands. For `glab api` calls, URL-encode the slash in the repo path (`group%2Fproject`). The `--jq` flag is NOT valid for `glab api` — always pipe to `jq` instead.
