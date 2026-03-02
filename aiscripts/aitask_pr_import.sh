@@ -19,6 +19,7 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 # Batch mode variables
 BATCH_MODE=false
 SOURCE=""  # Auto-detected from git remote if not set via --source
+REPO_OVERRIDE=""  # GitLab repo override for cross-repo imports (--repo)
 BATCH_PR_NUM=""
 BATCH_PR_RANGE=""
 BATCH_ALL=false
@@ -203,14 +204,32 @@ gitlab_check_cli() {
     glab auth status &>/dev/null || die "glab CLI is not authenticated. Run: glab auth login"
 }
 
+# Get -R flag arguments for glab mr commands when REPO_OVERRIDE is set
+glab_repo_args() {
+    if [[ -n "$REPO_OVERRIDE" ]]; then
+        echo "-R $REPO_OVERRIDE"
+    fi
+}
+
+# Get project path for glab api commands
+# Returns URL-encoded REPO_OVERRIDE or :fullpath for auto-detection
+glab_api_project_path() {
+    if [[ -n "$REPO_OVERRIDE" ]]; then
+        echo "${REPO_OVERRIDE//\//%2F}"
+    else
+        echo ":fullpath"
+    fi
+}
+
 # Returns JSON normalized to GitHub-compatible format
 gitlab_fetch_pr() {
     local mr_num="$1"
     local mr_json notes_json
 
-    mr_json=$(glab mr view "$mr_num" -F json)
-    notes_json=$(glab api "projects/:fullpath/merge_requests/$mr_num/notes?sort=asc&per_page=100" 2>/dev/null || echo "[]")
+    mr_json=$(glab mr view "$mr_num" $(glab_repo_args) -F json)
+    notes_json=$(glab api "projects/$(glab_api_project_path)/merge_requests/$mr_num/notes?sort=asc&per_page=100" 2>/dev/null || echo "[]")
 
+    # TODO: additions/deletions hardcoded to 0 — GitLab MR API doesn't provide totals
     echo "$mr_json" | jq --argjson notes "$notes_json" '{
         title: .title,
         body: (.description // ""),
@@ -235,18 +254,20 @@ gitlab_fetch_pr() {
 
 gitlab_fetch_pr_diff() {
     local mr_num="$1"
-    glab mr diff "$mr_num" 2>/dev/null || echo ""
+    glab mr diff "$mr_num" $(glab_repo_args) 2>/dev/null || echo ""
 }
 
 gitlab_fetch_pr_files() {
     local mr_num="$1"
-    glab api "projects/:fullpath/merge_requests/$mr_num/changes" --jq '.changes[] | "\(.new_path)\t+\(.diff | split("\n") | map(select(startswith("+"))) | length)\t-\(.diff | split("\n") | map(select(startswith("-"))) | length)"' 2>/dev/null || echo ""
+    local project_path
+    project_path=$(glab_api_project_path)
+    glab api "projects/$project_path/merge_requests/$mr_num/changes" 2>/dev/null | jq -r '.changes[] | "\(.new_path)\t+\(.diff | split("\n") | map(select(startswith("+"))) | length)\t-\(.diff | split("\n") | map(select(startswith("-"))) | length)"' 2>/dev/null || echo ""
 }
 
 gitlab_fetch_pr_reviews() {
     local mr_num="$1"
     local notes_json
-    notes_json=$(glab api "projects/:fullpath/merge_requests/$mr_num/notes?sort=asc&per_page=100" 2>/dev/null || echo "[]")
+    notes_json=$(glab api "projects/$(glab_api_project_path)/merge_requests/$mr_num/notes?sort=asc&per_page=100" 2>/dev/null || echo "[]")
     # Normalize to GitHub review format
     echo "$notes_json" | jq '[.[] | select(.system != true) | {
         user: {login: .author.username},
@@ -259,7 +280,7 @@ gitlab_fetch_pr_reviews() {
 gitlab_fetch_pr_review_comments() {
     local mr_num="$1"
     local discussions_json
-    discussions_json=$(glab api "projects/:fullpath/merge_requests/$mr_num/discussions" 2>/dev/null || echo "[]")
+    discussions_json=$(glab api "projects/$(glab_api_project_path)/merge_requests/$mr_num/discussions" 2>/dev/null || echo "[]")
     # Extract inline comments from discussions
     echo "$discussions_json" | jq '[.[] | .notes[] | select(.position != null) | {
         user: {login: .author.username},
@@ -271,7 +292,7 @@ gitlab_fetch_pr_review_comments() {
 }
 
 gitlab_list_prs() {
-    glab mr list --all --output json | jq '[.[] | {
+    glab mr list $(glab_repo_args) --all --output json | jq '[.[] | {
         number: .iid,
         title: .title,
         labels: [.labels[] | {name: .}],
@@ -288,7 +309,7 @@ gitlab_extract_pr_author() {
 gitlab_resolve_contributor_email() {
     local username="$1"
     local user_id
-    user_id=$(glab api "users?username=${username}" --jq '.[0].id' 2>/dev/null || echo "")
+    user_id=$(glab api "users?username=${username}" 2>/dev/null | jq -r '.[0].id' 2>/dev/null || echo "")
     if [[ -n "$user_id" ]]; then
         echo "${user_id}+${username}@noreply.gitlab.com"
     else
@@ -310,7 +331,7 @@ gitlab_format_comments() {
 
 gitlab_preview_pr() {
     local mr_num="$1"
-    glab mr view "$mr_num"
+    glab mr view "$mr_num" $(glab_repo_args)
 }
 
 # --- Bitbucket Backend ---
@@ -1336,6 +1357,7 @@ Batch mode required flags (one of):
 Batch mode options:
   --batch                Enable batch mode (required for non-interactive)
   --source, -S PLATFORM  Source platform: github, gitlab, bitbucket (auto-detected)
+  --repo OWNER/REPO      GitLab repo override for cross-repo imports
   --data-only            Only write intermediate data file, don't create task
   --priority, -p LEVEL   Override priority: high, medium (default), low
   --effort, -e LEVEL     Override effort: low, medium (default), high
@@ -1380,6 +1402,7 @@ parse_args() {
         case "$1" in
             --batch) BATCH_MODE=true; shift ;;
             --source|-S) SOURCE="$2"; shift 2 ;;
+            --repo) REPO_OVERRIDE="$2"; shift 2 ;;
             --pr) BATCH_PR_NUM="$2"; shift 2 ;;
             --range) BATCH_PR_RANGE="$2"; shift 2 ;;
             --all) BATCH_ALL=true; shift ;;
