@@ -3,10 +3,11 @@ priority: high
 effort: high
 depends: [t260_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [bash_scripts, git-integration]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-01 15:30
-updated_at: 2026-03-01 15:30
+updated_at: 2026-03-02 11:16
 ---
 
 ## Context
