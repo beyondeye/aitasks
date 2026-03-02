@@ -1081,6 +1081,21 @@ class SettingsApp(App):
             else:
                 focusable[-1].focus()
 
+    def _focus_first_in_tab(self, tab_id: str) -> None:
+        """Focus the first focusable widget in the given tab pane."""
+        try:
+            pane = self.query_one(f"#{tab_id}", TabPane)
+            focusable = [
+                w for w in pane.query("*")
+                if w.can_focus and w.display and not isinstance(w, VerticalScroll)
+            ]
+            if focusable:
+                focusable[0].focus()
+            else:
+                self.query_one(TabbedContent).query_one("Tabs").focus()
+        except Exception:
+            pass
+
     # -------------------------------------------------------------------
     # Key handling
     # -------------------------------------------------------------------
@@ -1099,7 +1114,14 @@ class SettingsApp(App):
         if event.key in _TAB_SHORTCUTS:
             try:
                 tabbed = self.query_one(TabbedContent)
-                tabbed.active = _TAB_SHORTCUTS[event.key]
+                new_tab_id = _TAB_SHORTCUTS[event.key]
+                tabbed.active = new_tab_id
+                # Immediately move focus to the tab bar to prevent Textual
+                # from reverting the tab switch (happens when the previously
+                # focused widget becomes hidden and the new tab has no
+                # focusable content, e.g. the Models tab).
+                tabbed.query_one("Tabs").focus()
+                self.call_after_refresh(self._focus_first_in_tab, new_tab_id)
             except Exception:
                 pass
             event.prevent_default()
@@ -1216,11 +1238,6 @@ class SettingsApp(App):
             "and your local [#FFB86C]user[/] preference below it.[/dim]",
             classes="section-hint",
         ))
-        container.mount(Label(
-            "[dim]Enter: edit  |  d: remove local preference  |  "
-            "\u2191\u2193: navigate  |  a/b/m/p: switch tabs[/dim]",
-            classes="section-hint",
-        ))
 
         project_defaults = self.config_mgr.codeagent_project.get("defaults", {})
         local_defaults = self.config_mgr.codeagent_local.get("defaults", {})
@@ -1250,6 +1267,12 @@ class SettingsApp(App):
                 id=f"agent_user_{sk}_{rc}",
                 subordinate=True,
             ))
+
+        container.mount(Label(
+            "[dim]Enter: edit  |  d: remove local preference  |  "
+            "\u2191\u2193: navigate  |  a/b/m/p: switch tabs[/dim]",
+            classes="section-hint",
+        ))
 
     def _handle_agent_pick(self, result):
         if result is None:
@@ -1315,11 +1338,6 @@ class SettingsApp(App):
             color = col.get("color", "?")
             container.mount(Static(f"    {cid}: {title}  ({color})", classes="model-row"))
 
-        container.mount(Label(
-            "[dim]\u2191\u2193: navigate  |  a/b/m/p: switch tabs[/dim]",
-            classes="section-hint",
-        ))
-
         # User settings (editable)
         container.mount(Label("User Settings", classes="section-header"))
 
@@ -1340,6 +1358,12 @@ class SettingsApp(App):
 
         container.mount(Button("Save Board Settings", variant="success",
                                id="btn_board_save"))
+
+        container.mount(Label(
+            "[dim]\u2191\u2193: navigate  |  \u25c0\u25b6: cycle options  "
+            "|  a/b/m/p: switch tabs[/dim]",
+            classes="section-hint",
+        ))
 
     @property
     def board_columns(self) -> list:
@@ -1367,13 +1391,12 @@ class SettingsApp(App):
         container = self.query_one("#models_content", VerticalScroll)
         container.remove_children()
 
-        container.mount(Label(
-            "[dim]\u2191\u2193: navigate  |  a/b/m/p: switch tabs[/dim]",
-            classes="section-hint",
-        ))
-
         if not self.config_mgr.models:
             container.mount(Label("No model files found.", classes="section-header"))
+            container.mount(Label(
+                "[dim]\u2191\u2193: navigate  |  a/b/m/p: switch tabs[/dim]",
+                classes="section-hint",
+            ))
             return
 
         for provider, data in sorted(self.config_mgr.models.items()):
@@ -1408,6 +1431,10 @@ class SettingsApp(App):
             "Edit model files directly for manual changes.[/dim]",
             classes="section-hint",
         ))
+        container.mount(Label(
+            "[dim]\u2191\u2193: navigate  |  a/b/m/p: switch tabs[/dim]",
+            classes="section-hint",
+        ))
 
     # -------------------------------------------------------------------
     # Profiles tab (editable)
@@ -1433,12 +1460,6 @@ class SettingsApp(App):
             "project profiles with the same name.[/dim]",
             classes="section-hint",
         ))
-        container.mount(Label(
-            "[dim]\u2191\u2193: navigate  |  \u25c0\u25b6: cycle options  "
-            "|  Enter: edit strings  |  ?: field details  "
-            "|  a/b/m/p: switch tabs[/dim]",
-            classes="section-hint",
-        ))
 
         profiles = self.config_mgr.profiles
         if not profiles:
@@ -1449,6 +1470,10 @@ class SettingsApp(App):
             container.mount(Button(
                 "Create New Profile", variant="primary",
                 id="btn_profile_add_new",
+            ))
+            container.mount(Label(
+                "[dim]\u2191\u2193: navigate  |  a/b/m/p: switch tabs[/dim]",
+                classes="section-hint",
             ))
             return
 
@@ -1471,6 +1496,11 @@ class SettingsApp(App):
             container.mount(Label(
                 "[dim]Use \u25c0\u25b6 to select a profile or "
                 "choose '+ Add new profile'[/dim]",
+                classes="section-hint",
+            ))
+            container.mount(Label(
+                "[dim]\u2191\u2193: navigate  |  \u25c0\u25b6: cycle options  "
+                "|  a/b/m/p: switch tabs[/dim]",
                 classes="section-hint",
             ))
             return
@@ -1561,6 +1591,13 @@ class SettingsApp(App):
         hbox.mount(Button(
             f"Delete {profile_name}", variant="error",
             id=f"btn_profile_delete__{safe_fn}",
+        ))
+
+        container.mount(Label(
+            "[dim]\u2191\u2193: navigate  |  \u25c0\u25b6: cycle options  "
+            "|  Enter: edit strings  |  ?: field details  "
+            "|  a/b/m/p: switch tabs[/dim]",
+            classes="section-hint",
         ))
 
         # Restore focus after repopulation
