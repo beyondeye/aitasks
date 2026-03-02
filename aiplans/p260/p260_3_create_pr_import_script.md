@@ -135,6 +135,27 @@ Add `.aitask-pr-data/` entry.
 4. `shellcheck aiscripts/aitask_pr_import.sh`
 5. `git check-ignore .aitask-pr-data/test.md` — verify gitignore
 
+## Final Implementation Notes
+
+- **Actual work done:** All 14 steps implemented as planned. Created `aiscripts/aitask_pr_import.sh` (1437 lines), added `pr-import)` case to `ait` dispatcher with usage text, added `.aitask-pr-data/` to `.gitignore`.
+- **Deviations from plan:**
+  - Used `set -e` instead of `set -euo pipefail` (matching `aitask_issue_import.sh` pattern — needed because fzf returns non-zero on cancel, and `pipefail` would cause failures in pipe chains).
+  - Source dispatchers use explicit `case "$SOURCE"` blocks instead of dynamic `"${PLATFORM}_func"` calls (matching the issue_import pattern for clarity and shellcheck compatibility).
+  - GitHub backend uses `gh repo view --json nameWithOwner --jq '.nameWithOwner'` to resolve `{owner}/{repo}` dynamically for API calls instead of relying on placeholder strings.
+  - Added `github_fetch_pr_files()` function to fetch per-file change stats for the "Changed Files" section.
+  - Interactive mode offers a "Data-only (intermediate file)" option in addition to "Import" and "Skip".
+  - Duplicate detection constructs platform-specific URL patterns (`/pull/N`, `/merge_requests/N`, `/pull-requests/N`) instead of using a generic search.
+- **Issues encountered:** The description building block initially used `{ ... } ; description=$(cat)` which reads from stdin instead of capturing the block output. Fixed by building the description string with concatenation and `$'\n'` newlines.
+- **Key decisions:**
+  - Reused `github_format_comments()` across all platforms (GitLab/Bitbucket normalize to GitHub JSON schema first, same as issue_import).
+  - Reviews formatted separately from regular comments with state labels (APPROVED, CHANGES REQUESTED, etc.).
+  - Inline review comments include file path and line number for code-level feedback.
+  - Bitbucket backend is minimal since `bkt` CLI has limited PR API support — file listing and reviews return empty.
+- **Notes for sibling tasks:**
+  - For t260_4 (PR review skill), the `--data-only` mode writes structured intermediate files to `.aitask-pr-data/<pr_num>.md` with YAML frontmatter. The skill can call `./ait pr-import --batch --pr N --data-only --silent` and read the resulting file.
+  - For t260_5 (PR close/archive), the `pull_request:` frontmatter field uses the full PR URL (e.g., `https://github.com/owner/repo/pull/42`), which can be parsed by `detect_platform_from_url()` in `task_utils.sh`.
+  - The `--list --silent` mode outputs `<number>\t<title>` for skill parsing; `--list` without `--silent` outputs `#<number> - <title> [@<author>]`.
+
 ## Step 9 Reference
 
 Post-implementation: archive child task via `./aiscripts/aitask_archive.sh 260_3`
