@@ -6,6 +6,7 @@ issue_type: bug
 status: Implementing
 labels: [ait_settings]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claude/opus4_6
 created_at: 2026-03-02 14:21
 updated_at: 2026-03-02 16:38
 ---
