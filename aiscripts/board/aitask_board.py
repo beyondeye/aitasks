@@ -1550,6 +1550,8 @@ class TaskDetailScreen(ModalScreen):
                 if meta.get("contributor_email"):
                     contributor_text += f" ({meta['contributor_email']})"
                 yield ReadOnlyField(f"  [b]Contributor:[/b] @{contributor_text}", classes="meta-ro")
+            if meta.get("implemented_with"):
+                yield ReadOnlyField(f"[b]Implemented with:[/b] {meta['implemented_with']}", classes="meta-ro")
             dates = []
             if meta.get("created_at"):
                 dates.append(f"[b]Created:[/b] {meta['created_at']}")

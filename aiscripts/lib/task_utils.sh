@@ -385,6 +385,33 @@ extract_contributor_email() {
     echo ""
 }
 
+# Extract the implemented_with agent string from a task file's YAML frontmatter
+# Input: task file path
+# Output: implemented_with value or empty string
+extract_implemented_with() {
+    local file_path="$1"
+    local in_yaml=false
+
+    while IFS= read -r line; do
+        if [[ "$line" == "---" ]]; then
+            if [[ "$in_yaml" == true ]]; then
+                break
+            else
+                in_yaml=true
+                continue
+            fi
+        fi
+        if [[ "$in_yaml" == true && "$line" =~ ^implemented_with:[[:space:]]*(.*) ]]; then
+            local val="${BASH_REMATCH[1]}"
+            val=$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            echo "$val"
+            return
+        fi
+    done < "$file_path"
+
+    echo ""
+}
+
 # Extract "Final Implementation Notes" section from a plan file
 # Input: plan file path
 # Output: the section content

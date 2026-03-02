@@ -320,6 +320,11 @@ cmd_invoke() {
         return
     fi
 
+    # Export agent string for skill tracking (implemented_with metadata)
+    local agent_string
+    agent_string=$(resolve_agent_string "$operation")
+    export AITASK_AGENT_STRING="$agent_string"
+
     exec "${CMD[@]}"
 }
 

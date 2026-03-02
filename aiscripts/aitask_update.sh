@@ -53,6 +53,8 @@ BATCH_FOLDED_TASKS=""
 BATCH_FOLDED_TASKS_SET=false
 BATCH_FOLDED_INTO=""
 BATCH_FOLDED_INTO_SET=false
+BATCH_IMPLEMENTED_WITH=""
+BATCH_IMPLEMENTED_WITH_SET=false
 BATCH_COMMIT=false
 
 # Current values (parsed from file)
@@ -74,6 +76,7 @@ CURRENT_CONTRIBUTOR=""
 CURRENT_CONTRIBUTOR_EMAIL=""
 CURRENT_FOLDED_TASKS=""
 CURRENT_FOLDED_INTO=""
+CURRENT_IMPLEMENTED_WITH=""
 
 # --- Helper Functions ---
 
@@ -116,6 +119,9 @@ Issue tracking options (batch mode):
 
 Assignment options (batch mode):
   --assigned-to, -a EMAIL  Email of assigned person (use "" to clear)
+
+Agent tracking options (batch mode):
+  --implemented-with STR Agent string that implemented this task (e.g., "claude/opus4_6"; use "" to clear)
 
 Folded task options (batch mode):
   --folded-tasks TASKS   Folded task IDs (comma-separated, e.g., "106,129_5"; use "" to clear)
@@ -195,6 +201,7 @@ parse_args() {
             --contributor-email) BATCH_CONTRIBUTOR_EMAIL="$2"; BATCH_CONTRIBUTOR_EMAIL_SET=true; shift 2 ;;
             --folded-tasks) BATCH_FOLDED_TASKS="$2"; BATCH_FOLDED_TASKS_SET=true; shift 2 ;;
             --folded-into) BATCH_FOLDED_INTO="$2"; BATCH_FOLDED_INTO_SET=true; shift 2 ;;
+            --implemented-with) BATCH_IMPLEMENTED_WITH="$2"; BATCH_IMPLEMENTED_WITH_SET=true; shift 2 ;;
             --commit) BATCH_COMMIT=true; shift ;;
             --silent) BATCH_SILENT=true; shift ;;
             --help|-h) show_help; exit 0 ;;
@@ -272,6 +279,7 @@ parse_yaml_frontmatter() {
     CURRENT_ISSUE=""
     CURRENT_FOLDED_TASKS=""
     CURRENT_FOLDED_INTO=""
+    CURRENT_IMPLEMENTED_WITH=""
 
     # Read entire file content
     local file_content
@@ -340,6 +348,7 @@ parse_yaml_frontmatter() {
                     CURRENT_FOLDED_TASKS=$(echo "$value" | tr -d '[]' | tr -d ' ')
                     ;;
                 folded_into) CURRENT_FOLDED_INTO="$value" ;;
+                implemented_with) CURRENT_IMPLEMENTED_WITH="$value" ;;
             esac
         fi
     done <<< "$yaml_content"
@@ -418,6 +427,7 @@ write_task_file() {
     local pull_request="${17:-}"
     local contributor="${18:-}"
     local contributor_email="${19:-}"
+    local implemented_with="${20:-}"
 
     local updated_at
     updated_at=$(get_timestamp)
@@ -469,6 +479,9 @@ write_task_file() {
         fi
         if [[ -n "$contributor_email" ]]; then
             echo "contributor_email: $contributor_email"
+        fi
+        if [[ -n "$implemented_with" ]]; then
+            echo "implemented_with: $implemented_with"
         fi
         echo "created_at: $created_at"
         echo "updated_at: $updated_at"
@@ -683,6 +696,7 @@ handle_child_task_completion() {
     local saved_issue="$CURRENT_ISSUE"
     local saved_folded_tasks="$CURRENT_FOLDED_TASKS"
     local saved_folded_into="$CURRENT_FOLDED_INTO"
+    local saved_implemented_with="$CURRENT_IMPLEMENTED_WITH"
 
     parse_yaml_frontmatter "$parent_file"
 
@@ -696,7 +710,7 @@ handle_child_task_completion() {
         "$CURRENT_DESCRIPTION" "$new_children" "$CURRENT_ASSIGNED_TO" \
         "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE" "$CURRENT_FOLDED_TASKS" \
         "$CURRENT_FOLDED_INTO" "$CURRENT_PULL_REQUEST" "$CURRENT_CONTRIBUTOR" \
-        "$CURRENT_CONTRIBUTOR_EMAIL"
+        "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH"
 
     if [[ -z "$new_children" ]]; then
         success "All children of t$parent_num are complete! Parent can now be completed."
@@ -720,6 +734,7 @@ handle_child_task_completion() {
     CURRENT_ISSUE="$saved_issue"
     CURRENT_FOLDED_TASKS="$saved_folded_tasks"
     CURRENT_FOLDED_INTO="$saved_folded_into"
+    CURRENT_IMPLEMENTED_WITH="$saved_implemented_with"
 }
 
 # Validate that parent cannot be completed with pending children
@@ -1222,6 +1237,7 @@ run_batch_mode() {
     [[ "$BATCH_CONTRIBUTOR_EMAIL_SET" == true ]] && has_update=true
     [[ "$BATCH_FOLDED_TASKS_SET" == true ]] && has_update=true
     [[ "$BATCH_FOLDED_INTO_SET" == true ]] && has_update=true
+    [[ "$BATCH_IMPLEMENTED_WITH_SET" == true ]] && has_update=true
 
     if [[ "$has_update" == false ]]; then
         die "No update parameters specified. Use --help for usage."
@@ -1338,6 +1354,12 @@ run_batch_mode() {
         new_folded_into="$BATCH_FOLDED_INTO"
     fi
 
+    # Process implemented_with
+    local new_implemented_with="$CURRENT_IMPLEMENTED_WITH"
+    if [[ "$BATCH_IMPLEMENTED_WITH_SET" == true ]]; then
+        new_implemented_with="$BATCH_IMPLEMENTED_WITH"
+    fi
+
     # Validate parent completion (cannot complete parent with pending children)
     validate_parent_completion "$BATCH_TASK_NUM" "$new_status" "$new_children"
 
@@ -1361,7 +1383,7 @@ run_batch_mode() {
         "$new_type" "$new_status" "$new_labels" "$CURRENT_CREATED_AT" "$new_description" \
         "$new_children" "$new_assigned_to" "$new_boardcol" "$new_boardidx" "$new_issue" \
         "$new_folded_tasks" "$new_folded_into" "$new_pull_request" "$new_contributor" \
-        "$new_contributor_email"
+        "$new_contributor_email" "$new_implemented_with"
 
     # Handle child task completion (update parent if needed)
     if [[ "$new_status" == "Done" ]]; then
