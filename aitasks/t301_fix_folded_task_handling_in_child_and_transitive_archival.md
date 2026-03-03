@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [ait_archive]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-03 14:14
-updated_at: 2026-03-03 14:21
+updated_at: 2026-03-03 14:23
 ---
 
 ## Context

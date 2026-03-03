@@ -3,13 +3,13 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [bash_scripts, git-integration]
-children_to_implement: [t260_8]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-02-26 15:04
-updated_at: 2026-03-03 13:51
+updated_at: 2026-03-03 14:57
+completed_at: 2026-03-03 14:57
 boardcol: now
 boardidx: 20
 ---

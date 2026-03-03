@@ -6,8 +6,9 @@ issue_type: documentation
 status: Implementing
 labels: [documentation]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-03 13:56
-updated_at: 2026-03-03 14:21
+updated_at: 2026-03-03 14:22
 ---
 
 ## Context
