@@ -22,6 +22,7 @@ description: "Complete CLI reference for all ait subcommands"
 |---------|-------------|
 | [`ait board`](board-stats/#ait-board) | Open the kanban-style TUI board |
 | [`ait codebrowser`](board-stats/#ait-codebrowser) | Launch the code browser TUI |
+| [`ait settings`](../tuis/settings/) | Open the settings TUI for configuration management |
 
 ### Integration
 
@@ -42,6 +43,7 @@ description: "Complete CLI reference for all ait subcommands"
 
 | Command | Description |
 |---------|-------------|
+| [`ait codeagent`](codeagent/) | Manage code agent and model configuration |
 | [`ait explain-runs`](explain/#ait-explain-runs) | Manage aiexplain run directories (list, delete, cleanup) |
 | [`ait explain-cleanup`](explain/#ait-explain-cleanup) | Remove stale aiexplain run directories |
 | [`ait zip-old`](issue-integration/#ait-zip-old) | Archive old completed task and plan files |
@@ -77,6 +79,10 @@ ait stats                               # Show completion stats
 ait explain-runs --list                  # List all explain runs
 ait explain-runs --cleanup-stale         # Remove stale runs
 ait explain-cleanup --dry-run --all      # Preview stale cleanup
+ait codeagent list-agents                 # Show available code agents
+ait codeagent list-models claudecode      # List Claude models
+ait codeagent resolve task-pick           # Show configured agent/model
+ait settings                              # Open settings TUI
 ait install                              # Update to latest version
 ait install 0.2.1                        # Install specific version
 ait --version                           # Show installed version
