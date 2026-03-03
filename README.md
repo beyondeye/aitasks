@@ -17,7 +17,7 @@
 
 ---
 
-A file-based task management system that integrates with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) via skills. Tasks are markdown files with YAML frontmatter, organized in a kanban-style workflow. Includes a Python TUI board, GitHub issue integration, and completion statistics.
+A file-based task management system that integrates with code-agents like [Claude Code](https://docs.anthropic.com/en/docs/claude-code) gemini-cli, opencode and codexcli via skills. Tasks are markdown files with YAML frontmatter, organized in a kanban-style workflow. Includes a Python TUI board, GitHub issue integration, and completion statistics.
 
 Built for maximizing development speed 🚀 AND human-to-agent intent transfer efficiency 💬.
 
