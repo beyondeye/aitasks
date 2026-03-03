@@ -3,14 +3,16 @@ priority: low
 effort: low
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [readme]
 assigned_to: dario-e@beyond-eye.com
 pull_request: https://github.com/beyondeye/aitasks/pull/1
 contributor: beyondeye
 contributor_email: 5619462+beyondeye@users.noreply.github.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-03 08:59
-updated_at: 2026-03-03 09:00
+updated_at: 2026-03-03 09:01
+completed_at: 2026-03-03 09:01
 ---
 
 ## PR Context
