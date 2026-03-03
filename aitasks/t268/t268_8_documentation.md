@@ -5,6 +5,7 @@ depends: [t268_5, t268_6, t268_7]
 issue_type: documentation
 status: Implementing
 labels: [modelwrapper]
+folded_tasks: [289]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-01 09:00

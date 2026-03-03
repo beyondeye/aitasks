@@ -3,11 +3,12 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [bash_scripts, git-integration]
 children_to_implement: [t260_8]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-26 15:04
-updated_at: 2026-03-03 11:59
+updated_at: 2026-03-03 12:27
 boardcol: now
 boardidx: 20
 ---
