@@ -283,9 +283,15 @@ handle_folded_tasks() {
         # Extract numeric part for lock release
         local folded_num="$folded_id"
 
-        # Resolve the folded task file
+        # Resolve the folded task file (handles both parent and child task IDs)
         local folded_file
-        folded_file=$(ls "$TASK_DIR"/t"${folded_id}"_*.md 2>/dev/null | head -1 || true)
+        if [[ "$folded_id" =~ ^([0-9]+)_([0-9]+)$ ]]; then
+            local fp="${BASH_REMATCH[1]}"
+            local fc="${BASH_REMATCH[2]}"
+            folded_file=$(ls "$TASK_DIR"/t"${fp}"/t"${fp}"_"${fc}"_*.md 2>/dev/null | head -1 || true)
+        else
+            folded_file=$(ls "$TASK_DIR"/t"${folded_id}"_*.md 2>/dev/null | head -1 || true)
+        fi
 
         if [[ -z "$folded_file" ]]; then
             # Already deleted or archived — skip silently
@@ -322,8 +328,15 @@ handle_folded_tasks() {
 
         # Delete folded task file and plan
         task_git rm "$folded_file" --quiet
+        # Delete plan file (handles both parent and child task IDs)
         # shellcheck disable=SC2086
-        task_git rm "$PLAN_DIR"/p${folded_id}_*.md --quiet 2>/dev/null || true
+        if [[ "$folded_id" =~ ^([0-9]+)_([0-9]+)$ ]]; then
+            local fp="${BASH_REMATCH[1]}"
+            local fc="${BASH_REMATCH[2]}"
+            task_git rm "$PLAN_DIR"/p"${fp}"/p"${fp}"_"${fc}"_*.md --quiet 2>/dev/null || true
+        else
+            task_git rm "$PLAN_DIR"/p${folded_id}_*.md --quiet 2>/dev/null || true
+        fi
         echo "FOLDED_DELETED:$folded_id:$folded_file"
 
         # Release lock for folded task
@@ -375,6 +388,9 @@ archive_child() {
         "$SCRIPT_DIR/aitask_update.sh" --batch "$parent_num" --remove-child "t${task_id}" --silent
     fi
 
+    # Handle folded tasks for child (if any) — must be before archive_move
+    handle_folded_tasks "$task_id" "$child_task_file"
+
     # Update child metadata
     archive_metadata_update "$child_task_file"
 
@@ -424,6 +440,9 @@ archive_child() {
         else
             info "[dry-run] Would remove empty child dirs"
         fi
+
+        # Handle folded tasks for parent (if any)
+        handle_folded_tasks "$parent_num" "$parent_task_file"
 
         # Archive parent task
         archive_metadata_update "$parent_task_file"

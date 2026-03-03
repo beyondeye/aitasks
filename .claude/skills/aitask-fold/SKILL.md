@@ -170,10 +170,19 @@ TASK_DESC
 
 **Check if the primary task already has a `folded_tasks` field.** If it does, merge (append) the new non-primary task IDs to the existing list rather than replacing.
 
+**Handle transitive folded tasks:** Before setting `folded_tasks` on the primary, check each non-primary task for its own `folded_tasks` field. If a non-primary task has `folded_tasks: [B, C]`, those transitive IDs must also be included in the primary's `folded_tasks` list, and B/C's `folded_into` must be updated to point to the primary task. This prevents orphans when a previously-folded task is re-folded.
+
+Example: If folding A (which has `folded_tasks: [B, C]`) into D, the result should be D having `folded_tasks: [A, B, C]`, and B/C getting `folded_into: D`.
+
+For each non-primary task:
+1. Read its `folded_tasks` field (if any)
+2. Collect all transitive folded task IDs
+3. Include them in the primary's full `folded_tasks` list
+
 Set the folded_tasks frontmatter:
 
 ```bash
-./aiscripts/aitask_update.sh --batch <primary_num> --folded-tasks "<comma-separated list of all folded task IDs>"
+./aiscripts/aitask_update.sh --batch <primary_num> --folded-tasks "<comma-separated list of all folded task IDs, including transitive>"
 ```
 
 #### 3e: Update Folded Tasks Status
@@ -182,6 +191,12 @@ For each non-primary task ID that was folded, set its status to `Folded` and add
 
 ```bash
 ./aiscripts/aitask_update.sh --batch <folded_task_num> --status Folded --folded-into <primary_num>
+```
+
+**For transitive folded tasks** (B, C from the example above): update their `folded_into` to point to the primary task:
+
+```bash
+./aiscripts/aitask_update.sh --batch <transitive_folded_num> --folded-into <primary_num>
 ```
 
 #### 3f: Commit

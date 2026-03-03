@@ -500,7 +500,7 @@ The following procedures are in `procedures.md` — read on demand when referenc
 - **Child task naming:** Use format `t{parent}_{child}_description.md` where both parent and child identifiers are **numbers only**. Do not insert tasks "in-between" (e.g., no `t10_1b` between `t10_1` and `t10_2`). If you discover a missing implementation step, add it as the next available number and adjust dependencies accordingly
 - When archiving a task with an `issue` field, the workflow offers to update/close the linked issue using `aitask_issue_update.sh`. The SKILL.md workflow is platform-agnostic; the script handles platform specifics (GitHub, GitLab, etc.). It auto-detects commits and includes "Final Implementation Notes" from the archived plan file.
 - **Folded tasks:** When a task has a `folded_tasks` frontmatter field (set by aitask-explore or aitask-fold), the listed tasks are deleted during Step 9 archival. Folded tasks have status `Folded` with a `folded_into` property pointing to the primary task. They are deleted (not archived) because their full content was incorporated into the primary task's description at creation/fold time.
-- **Note:** Since aitask-explore creates standalone parent tasks only, the child task archival path does not need to handle `folded_tasks`.
+- **Note:** Folded tasks are handled by `handle_folded_tasks()` in both parent and child archival paths. `/aitask-fold` and manual folding can add `folded_tasks` to any task type.
 
 ### Project Configuration
 
