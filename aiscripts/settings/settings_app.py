@@ -1623,8 +1623,12 @@ class SettingsApp(App):
         container.mount(Label("  [dim]Push/pull task data on each auto-refresh[/dim]",
                               classes="section-hint"))
 
-        container.mount(Button("Save Board Settings", variant="success",
-                               id=f"btn_board_save_{rc}"))
+        hbox = Horizontal(classes="tab-buttons")
+        container.mount(hbox)
+        hbox.mount(Button("Save Board Settings", variant="success",
+                          id=f"btn_board_save_{rc}"))
+        hbox.mount(Button("Revert Board Settings", variant="warning",
+                          id=f"btn_board_revert_{rc}"))
 
         container.mount(Label(
             "[dim]\u2191\u2193: navigate  |  \u25c0\u25b6: cycle options  "
@@ -1651,6 +1655,12 @@ class SettingsApp(App):
         self.config_mgr.save_board(merged)
         self.config_mgr.load_all()
         self.notify("Board settings saved")
+
+    def _revert_board_settings(self):
+        """Revert board settings to their on-disk state."""
+        self.config_mgr.load_all()
+        self._populate_board_tab()
+        self.notify("Board settings reverted")
 
     # -------------------------------------------------------------------
     # Models tab (read-only)
@@ -1931,6 +1941,8 @@ class SettingsApp(App):
             self._revert_profile(filename)
         elif btn_id.startswith("btn_board_save"):
             self.save_board_settings()
+        elif btn_id.startswith("btn_board_revert"):
+            self._revert_board_settings()
         elif btn_id == "btn_profile_add_new":
             existing = sorted(self.config_mgr.profiles.keys())
             self.push_screen(
