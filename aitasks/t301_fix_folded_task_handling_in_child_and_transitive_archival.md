@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [ait_archive]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-03 14:14
-updated_at: 2026-03-03 14:14
+updated_at: 2026-03-03 14:21
 ---
 
 ## Context
