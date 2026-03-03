@@ -1,12 +1,13 @@
 ---
 priority: medium
 effort: low
-depends: [268_5, 268_6, 268_7]
+depends: [t268_5, t268_6, t268_7]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [modelwrapper]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-01 09:00
-updated_at: 2026-03-01 09:00
+updated_at: 2026-03-03 11:09
 ---
 
 ## Context
