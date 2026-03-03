@@ -727,24 +727,28 @@ interactive_import_issue() {
 
     [[ -n "$labels" ]] && create_args+=(--labels "$labels")
 
+    # Ask how to save before creating
+    local save_action
+    save_action=$(printf "Finalize and commit (assign real task ID and commit)\nSave as draft (keep in aitasks/new/ for later finalization)" | \
+        fzf --prompt="How to save? " --height=8 --no-info \
+        --header="Finalize claims a real task ID and commits to git")
+
+    [[ -z "$save_action" ]] && save_action="Save as draft"
+
+    if [[ "$save_action" == "Finalize and commit"* ]]; then
+        create_args+=(--commit)
+    fi
+
     local result
     result=$(echo "$description" | "$SCRIPT_DIR/aitask_create.sh" "${create_args[@]}")
-    success "Created: $result"
-
-    # Git commit (like aitask_create.sh interactive mode)
     local created_file
-    created_file=$(echo "$result" | sed 's/^Created: //')
-    read -rp "Commit to git? [Y/n] " commit_choice < /dev/tty
-    if [[ "$commit_choice" != "n" && "$commit_choice" != "N" ]]; then
-        local task_id
-        task_id=$(basename "$created_file" .md | grep -oE '^t[0-9]+')
-        local humanized_name
-        humanized_name=$(echo "$task_name" | tr '_' ' ')
-        git add "$created_file"
-        git commit -m "ait: Add task ${task_id}: ${humanized_name}"
-        local commit_hash
-        commit_hash=$(git rev-parse --short HEAD)
-        success "Committed: $commit_hash"
+    created_file="${result#Created: }"
+
+    if [[ "$save_action" == "Finalize and commit"* ]]; then
+        success "Finalized and committed: $created_file"
+    else
+        success "Draft saved: $created_file"
+        info "Finalize later with: ait create (interactive) or --batch --finalize <file>"
     fi
 }
 
