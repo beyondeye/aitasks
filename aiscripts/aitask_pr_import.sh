@@ -1085,9 +1085,9 @@ interactive_import_pr() {
 
     # Confirm import
     local confirm
-    confirm=$(printf "Import as task (basic — title, body, metadata only)\nExtract PR data only (for /aitask-pr-review skill)\nSkip" | \
+    confirm=$(printf "Import as task (basic — title, body, metadata only)\nExtract PR data only (for /aitask-pr-import skill)\nSkip" | \
         fzf --prompt="Import this PR? " --height=10 --no-info \
-        --header="Data-only extracts to .aitask-pr-data/ for use with /aitask-pr-review")
+        --header="Data-only extracts to .aitask-pr-data/ for use with /aitask-pr-import")
     [[ "$confirm" == "Skip" || -z "$confirm" ]] && return 0
 
     local data_only=false
@@ -1109,7 +1109,7 @@ interactive_import_pr() {
     fi
 
     info ""
-    info "Note: The /aitask-pr-review code agent skill provides additional features:"
+    info "Note: The /aitask-pr-import code agent skill provides additional features:"
     info "  - AI analysis of PR purpose, quality, and concerns"
     info "  - Implementation approach recommendations"
     info "  - Codebase alignment checks and testing requirements"
@@ -1371,7 +1371,7 @@ run_interactive_mode() {
     source_check_cli
 
     info "Tip: For AI-enriched PR import with analysis, implementation planning,"
-    info "and codebase alignment, use the code agent skill: /aitask-pr-review"
+    info "and codebase alignment, use the code agent skill: /aitask-pr-import"
     info "This bash script provides basic metadata import only."
     echo ""
 

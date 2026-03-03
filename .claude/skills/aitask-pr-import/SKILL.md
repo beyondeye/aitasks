@@ -1,5 +1,5 @@
 ---
-name: aitask-pr-review
+name: aitask-pr-import
 description: Create an aitask from a pull request by analyzing PR data and generating a structured task with implementation plan.
 user-invocable: true
 ---

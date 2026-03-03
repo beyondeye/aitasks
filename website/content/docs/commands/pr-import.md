@@ -7,7 +7,7 @@ description: "ait pr-import — import pull requests as tasks or extract PR data
 
 ## ait pr-import
 
-Import GitHub/GitLab/Bitbucket pull requests as AI task files, or extract structured PR data for use with the [`/aitask-pr-review`](../../skills/aitask-pr-review/) skill. Supports interactive selection with fzf or batch automation. The source platform is auto-detected from the git remote URL (`github.com` → GitHub, `gitlab.com` → GitLab, `bitbucket.org` → Bitbucket). Use `--source` to override.
+Import GitHub/GitLab/Bitbucket pull requests as AI task files, or extract structured PR data for use with the [`/aitask-pr-import`](../../skills/aitask-pr-import/) skill. Supports interactive selection with fzf or batch automation. The source platform is auto-detected from the git remote URL (`github.com` → GitHub, `gitlab.com` → GitLab, `bitbucket.org` → Bitbucket). Use `--source` to override.
 
 **Interactive mode** (default — requires fzf and gh/glab/bkt CLI):
 
@@ -17,7 +17,7 @@ Import GitHub/GitLab/Bitbucket pull requests as AI task files, or extract struct
    - *Fetch & choose*: fetches all open PRs via `gh pr list` (or `glab mr list` for GitLab, `bkt pr list` for Bitbucket), presents in fzf with multi-select (Tab to select multiple) and preview pane showing PR details
    - *Range*: enter start and end PR numbers
    - *All open*: fetches all open PRs
-3. **PR preview** — Shows title, author, branch info, and first 30 lines of description (truncated warning if longer). Choose: "Import as task (basic)", "Extract PR data only (for /aitask-pr-review skill)", or "Skip"
+3. **PR preview** — Shows title, author, branch info, and first 30 lines of description (truncated warning if longer). Choose: "Import as task (basic)", "Extract PR data only (for /aitask-pr-import skill)", or "Skip"
 4. **Task metadata** — Edit task name (auto-generated from PR title), review/keep/add labels, select priority/effort. Issue type is auto-detected from PR labels
 5. **Create & commit** — Creates task file via `ait create`, then prompts to commit to git
 
@@ -62,7 +62,7 @@ ait pr-import --batch --pr 42 --no-diff --no-reviews  # Import without diff (fas
 - Multi-platform support: GitHub (`gh`), GitLab (`glab`), and Bitbucket Cloud (`bkt`) backends with auto-detection from git remote URL
 - Duplicate detection across active and archived task directories (matches by PR URL pattern)
 - Contributor email resolution for attribution (GitHub noreply, GitLab noreply, or Bitbucket email)
-- Intermediate data format for AI-powered analysis via [`/aitask-pr-review`](../../skills/aitask-pr-review/)
+- Intermediate data format for AI-powered analysis via [`/aitask-pr-import`](../../skills/aitask-pr-import/)
 - PR metadata stored in task frontmatter: `pull_request` (URL), `contributor` (username), `contributor_email`
 - PR label → aitask label mapping (lowercase, special chars sanitized)
 - Auto issue type detection from PR labels (`bug`, `refactor`, `tech-debt`, `cleanup`)

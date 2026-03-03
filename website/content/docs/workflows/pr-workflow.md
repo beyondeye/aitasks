@@ -26,9 +26,9 @@ Importing PRs as tasks solves this by:
 
 There are two paths for creating a task from a pull request:
 
-### Path 1: AI-Powered Review (`/aitask-pr-review`)
+### Path 1: AI-Powered Review (`/aitask-pr-import`)
 
-The [`/aitask-pr-review`](../../skills/aitask-pr-review/) skill provides a fully interactive, AI-assisted workflow:
+The [`/aitask-pr-import`](../../skills/aitask-pr-import/) skill provides a fully interactive, AI-assisted workflow:
 
 1. Select a PR (by number, browse open PRs, or use previously extracted data)
 2. AI analyzes the PR — purpose, approach, quality, concerns, codebase alignment
@@ -42,7 +42,7 @@ This is the recommended path for most PRs, especially those requiring careful an
 
 The [`ait pr-import`](../../commands/pr-import/#ait-pr-import) command provides direct import without AI analysis. It supports both interactive and batch modes:
 
-**Interactive mode** (default) — browse open PRs with fzf, preview details, select which to import, and choose between creating a basic task or extracting data for later use with `/aitask-pr-review`:
+**Interactive mode** (default) — browse open PRs with fzf, preview details, select which to import, and choose between creating a basic task or extracting data for later use with `/aitask-pr-import`:
 
 ```bash
 ait pr-import                                         # Interactive PR selection
@@ -52,11 +52,11 @@ ait pr-import                                         # Interactive PR selection
 
 ```bash
 ait pr-import --batch --pr 42                         # Import a single PR as a task
-ait pr-import --batch --pr 42 --data-only             # Extract data only (for /aitask-pr-review)
+ait pr-import --batch --pr 42 --data-only             # Extract data only (for /aitask-pr-import)
 ait pr-import --batch --all --skip-duplicates         # Import all open PRs
 ```
 
-This creates tasks with the PR title, description, and metadata — but without the AI analysis that `/aitask-pr-review` provides. Use this for bulk imports or when the PR is straightforward.
+This creates tasks with the PR title, description, and metadata — but without the AI analysis that `/aitask-pr-import` provides. Use this for bulk imports or when the PR is straightforward.
 
 Both paths store the same metadata in the task frontmatter: `pull_request` (URL), `contributor` (username), and `contributor_email` (for attribution).
 
@@ -65,7 +65,7 @@ Both paths store the same metadata in the task frontmatter: `pull_request` (URL)
 ```
 External PR
     │
-    ├─── /aitask-pr-review ──── AI analysis ──── Task + Plan
+    ├─── /aitask-pr-import ──── AI analysis ──── Task + Plan
     │                                                │
     └─── ait pr-import ────────────────────────── Task (basic)
                                                      │
@@ -124,7 +124,7 @@ These fields are preserved through the full task lifecycle and used during commi
 ait pr-import --batch --pr 42 --data-only --silent
 
 # Review with AI
-/aitask-pr-review    # Select "Use existing PR data", pick #42
+/aitask-pr-import    # Select "Use existing PR data", pick #42
 
 # After implementation and archival:
 # → Commit includes: Co-authored-by: user <id+user@users.noreply.github.com>

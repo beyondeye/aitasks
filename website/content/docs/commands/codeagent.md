@@ -211,7 +211,9 @@ Scores indicate how well a model has been tested for each operation:
 
 Scores are displayed in the [Settings TUI](../../tuis/settings/) Models tab and help when choosing which model to assign to an operation.
 
-To update model definitions (add new models, update scores), use the `/aitask-refresh-code-models` skill or edit the JSON files directly.
+#### Updating Models
+
+To add new models, update notes, or check for deprecated entries, use the [`/aitask-refresh-code-models`](../../skills/aitask-refresh-code-models/) skill. It researches the latest models from each provider's documentation and updates the JSON files with user approval. Verification scores can also be edited through the [Settings TUI](../../tuis/settings/) Models tab or by editing the JSON files directly.
 
 ### `implemented_with` Metadata
 
@@ -236,5 +238,7 @@ The code agent wrapper is integrated into both TUI applications:
 - **Board TUI** (`ait board`) -- When you pick a task from the board (press **Enter** on a task card, then select "Pick"), the board invokes `ait codeagent invoke task-pick <task_num>` instead of hardcoding a specific agent. This means the board respects your configured agent/model for the `task-pick` operation.
 
 - **Code Browser** (`ait codebrowser`) -- When you launch the explain action on a file, the code browser resolves the `explain` operation through the wrapper to determine which agent binary to use. It performs a pre-flight check to verify the binary is in PATH and shows a user-friendly error if not found.
+
+- **Settings TUI** (`ait settings`) -- The Code Agent tab provides a visual editor for operation-to-agent bindings. You can change which agent and model is assigned to each operation (`task-pick`, `explain`, `batch-review`, `raw`) without editing JSON files directly.
 
 Both TUIs delegate all agent resolution to the centralized configuration -- there is no TUI-specific agent config.

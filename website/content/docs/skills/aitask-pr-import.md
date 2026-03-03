@@ -1,6 +1,6 @@
 ---
-title: "/aitask-pr-review"
-linkTitle: "/aitask-pr-review"
+title: "/aitask-pr-import"
+linkTitle: "/aitask-pr-import"
 weight: 22
 description: "Analyze a pull request and create an aitask with implementation plan"
 ---
@@ -9,7 +9,7 @@ Analyze pull requests from GitHub, GitLab, or Bitbucket using AI-powered code re
 
 **Usage:**
 ```
-/aitask-pr-review
+/aitask-pr-import
 ```
 
 > **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
