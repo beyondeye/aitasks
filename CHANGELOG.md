@@ -1,5 +1,72 @@
 # Changelog
 
+## v0.8.0
+
+### Features
+
+- **No-recurse flag for extract script** (t195_11): Added a `--no-recurse` flag to the code extraction script, allowing single-directory processing without traversing subdirectories.
+- **PR contributor metadata fields** (t260_1): Tasks now track pull request URL, contributor name, and contributor email in frontmatter metadata.
+- **PR/contributor display in board** (t260_2): The board TUI shows PR links and contributor information for imported tasks.
+- **PR import script** (t260_3): New `ait primport` command imports pull requests from GitHub, GitLab, and Bitbucket as structured aitasks.
+- **PR review skill** (t260_4): Added a skill to create aitasks directly from pull request reviews.
+- **PR close/archive integration** (t260_5): Closing or archiving a PR-originated task now automatically closes the associated pull request.
+- **Contributor attribution** (t260_6): PR-originated task commits include contributor attribution from the original pull request author.
+- **Dynamic search placeholder** (t260_8): Board search placeholder text updates dynamically based on the active view mode.
+- **Code agent wrapper** (t268_1): New `ait codeagent` command provides a unified entry point for invoking any supported AI code agent.
+- **Per-user config overrides** (t268_2): Added `*.local.json` support for user-specific configuration that won't be committed to git.
+- **Shared config library** (t268_3): New shared config library handles layered configuration loading across all TUI applications.
+- **Code agent TUI integration** (t268_5): Board and settings TUIs now use the codeagent wrapper instead of hardcoded agent commands.
+- **Settings TUI** (t268_6): New `ait settings` command launches a centralized TUI for managing all configuration — profiles, board settings, models, and more.
+- **Implemented-with tracking** (t268_7): Task frontmatter now records which code agent was used for implementation via the `implemented_with` field.
+- **Refresh code models skill** (t268_9): New skill that researches the latest AI code agent models and updates model configuration files automatically.
+- **View mode filter** (t273): Board now supports All/Git/Implementing view modes to quickly filter tasks by status.
+- **Bitbucket Cloud support** (t278): Fixed and validated PR import and close workflows for Bitbucket Cloud repositories.
+- **Verified model scores** (t280): The settings TUI model selector now shows verification scores for tested models.
+- **User-scoped profiles and revert** (t281): Profiles tab supports user-scoped profiles and a revert button to undo unsaved changes.
+- **Profile save confirmation** (t284): Added a confirmation dialog before saving profile changes to prevent accidental overwrites.
+- **Mouse click for CycleField** (t286_1, t286_2): CycleField widgets in both settings and board TUIs now respond to mouse clicks for easier interaction.
+- **Updated project description** (t296): README now lists all supported AI code agents in the project description.
+- **Board settings revert** (t299): Added a revert button to the board settings tab in the settings TUI.
+
+### Bug Fixes
+
+- **Settings TUI navigation fixes** (t272): Fixed tab navigation, model picker display, and configuration layer indicators in the settings TUI.
+- **Keyboard hints in settings** (t275): Fixed settings TUI navigation shortcuts and added keyboard hint bars to all tabs.
+- **Agent identifier rename** (t276_1, t276_2): Renamed internal agent identifiers from `claude`/`gemini` to `claudecode`/`geminicli` for clarity across scripts, configs, skills, and docs.
+- **GitLab cross-repo imports** (t277_1): Fixed `glab api` flag handling and added `--repo` override for importing PRs from other repositories.
+- **Cross-repo PR operations** (t277_2): Added `--repo` support to PR close and issue update commands for cross-repo GitLab workflows.
+- **Settings refresh crash** (t283): Fixed a DuplicateIds crash that occurred when refreshing the settings TUI.
+- **Tab switching shortcuts** (t285): Fixed tab switching keyboard shortcuts and keyboard hint placement in the settings TUI.
+- **Missing scripts in whitelist** (t294): Added 5 missing scripts to the seed setup whitelist.
+- **PR import interactive mode** (t295): Fixed the draft/commit flow in interactive PR import and improved UX prompts.
+- **Issue import finalization** (t298): Fixed task finalization behavior when importing issues interactively.
+- **Folded task archival** (t301): Fixed handling of folded tasks during child and transitive archival operations.
+
+### Improvements
+
+- **Board config split** (t268_4): Split board configuration into separate project and user layers for cleaner config management.
+- **Profiles tab redesign** (t279): Redesigned the Profiles tab with a selector, groups, and field descriptions for better usability.
+- **Settings export/import** (t292): Hardened and finalized the settings TUI export/import functionality.
+- **Remove pr-close from dispatcher** (t297): Removed the standalone `pr-close` command, consolidating functionality into the archive workflow.
+
+### Documentation
+
+- **PR import workflow docs** (t260_7): Documented the complete PR import workflow and related commands.
+- **Code agent and settings docs** (t268_8): Added documentation for the codeagent wrapper and settings TUI.
+- **Parallel task planning guide** (t288): New guide explaining the parallel task planning workflow for complex multi-step tasks.
+- **Codeagent wrapper docs** (t290): Updated website documentation with codeagent wrapper references and cross-links.
+- **Board filtering docs** (t291): Documented view mode filtering and PR metadata display in board documentation.
+- **README license fix** (t293): Removed duplicate LICENSE reference from README.
+- **Skills page reorganization** (t300): Documented the refresh-models skill and reorganized the skills documentation page.
+
+### Performance
+
+- **Explain generation optimization** (t195_10): Improved code browser explain generation with commit limiting, cache staleness detection, pre-caching on directory expansion, and a progress timer.
+
+### Maintenance
+
+- **Profile path resolution** (t282): Updated skills to resolve local profile paths from the active profile context variable.
+
 ## v0.7.1
 
 ### Features
