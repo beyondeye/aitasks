@@ -19,6 +19,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from config_utils import (  # noqa: E402
+    EXPORT_EXTENSION,
     _load_json,
     deep_merge,
     export_all_configs,
@@ -28,6 +29,7 @@ from config_utils import (  # noqa: E402
     save_local_config,
     save_project_config,
     split_config,
+    validate_export_bundle,
 )
 
 from textual import on  # noqa: E402
@@ -100,6 +102,32 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
 }
 
 _UNSET = "(unset)"
+
+# Operation descriptions shown in the Agent Defaults tab
+OPERATION_DESCRIPTIONS: dict[str, str] = {
+    "task-pick": "Model used for picking and implementing tasks",
+    "explain": "Model used for explaining/documenting code",
+    "batch-review": "Model used for batch code review operations",
+    "raw": "Model used for direct/ad-hoc code agent invocations (passthrough mode)",
+}
+
+# Config file descriptions shown during import
+CONFIG_FILE_DESCRIPTIONS: dict[str, str] = {
+    "board_config.json": "Board columns and display settings (shared/project)",
+    "board_config.local.json": "Board user preferences (auto-refresh, sync)",
+    "codeagent_config.json": "Default AI models per operation (shared/project)",
+    "codeagent_config.local.json": "User-specific AI model overrides",
+    "models_claudecode.json": "Claude Code model list and verification scores",
+    "models_codex.json": "Codex CLI model list and verification scores",
+    "models_geminicli.json": "Gemini CLI model list and verification scores",
+    "models_opencode.json": "OpenCode model list and verification scores",
+}
+
+# Export subset categories: label -> patterns
+EXPORT_CATEGORIES: dict[str, list[str]] = {
+    "Agent defaults": ["*_config.json", "*_config.local.json"],
+    "Model configs": ["models_*.json", "models_*.local.json"],
+}
 
 # Profile field info: key -> (short_description, detailed_description)
 PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
@@ -756,29 +784,217 @@ class AgentModelPickerScreen(ModalScreen):
     # on_fuzzy_select_selected / on_fuzzy_select_cancelled above
 
 
-class ImportScreen(ModalScreen):
-    """Modal for importing config from a bundle file."""
+class ExportScreen(ModalScreen):
+    """Modal for exporting configs with directory and subset selection."""
 
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
 
     def compose(self) -> ComposeResult:
         with Container(id="import_dialog"):
-            yield Label("Import Config Bundle", id="import_title")
-            yield Label("File path:", classes="edit-label")
-            yield Input(placeholder="path/to/export.json", id="import_path")
-            yield CycleField("Overwrite existing", ["no", "yes"], "no",
-                             "overwrite", id="cf_overwrite")
+            yield Label("Export Config Bundle", id="import_title")
+            yield Label("Output directory:", classes="edit-label")
+            yield Input(value=".", placeholder="directory path", id="export_dir")
+            yield Label("Select categories to export:", classes="edit-label")
+            for cat_name in EXPORT_CATEGORIES:
+                yield CycleField(cat_name, ["yes", "no"], "yes",
+                                 cat_name, id=f"cf_exp_{cat_name.replace(' ', '_').lower()}")
             with Horizontal(id="edit_buttons"):
-                yield Button("Import", variant="success", id="btn_import_ok")
-                yield Button("Cancel", variant="default", id="btn_import_cancel")
+                yield Button("Export", variant="success", id="btn_export_ok")
+                yield Button("Cancel", variant="default", id="btn_export_cancel")
+
+    @on(Button.Pressed, "#btn_export_ok")
+    def do_export(self):
+        directory = self.query_one("#export_dir", Input).value.strip() or "."
+        patterns: list[str] = []
+        for cat_name, cat_patterns in EXPORT_CATEGORIES.items():
+            widget_id = f"cf_exp_{cat_name.replace(' ', '_').lower()}"
+            try:
+                cf = self.query_one(f"#{widget_id}", CycleField)
+                if cf.current_value == "yes":
+                    patterns.extend(cat_patterns)
+            except Exception:
+                patterns.extend(cat_patterns)
+        self.dismiss({"directory": directory, "patterns": patterns})
+
+    @on(Button.Pressed, "#btn_export_cancel")
+    def do_cancel(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+
+def _scan_export_files() -> list[dict]:
+    """Scan CWD for aitasks export bundles (.aitcfg.json and legacy .json)."""
+    found: list[dict] = []
+    seen: set[str] = set()
+    cwd = Path.cwd()
+
+    # New extension
+    for p in sorted(cwd.glob(f"*{EXPORT_EXTENSION}"), reverse=True):
+        if p.name not in seen:
+            seen.add(p.name)
+            found.append({"path": str(p), "name": p.name, "ext": "aitcfg"})
+
+    # Legacy pattern
+    for p in sorted(cwd.glob("aitasks_config_export_*.json"), reverse=True):
+        if p.name not in seen and not p.name.endswith(EXPORT_EXTENSION):
+            seen.add(p.name)
+            found.append({"path": str(p), "name": p.name, "ext": "legacy"})
+
+    return found
+
+
+class ImportScreen(ModalScreen):
+    """Two-step modal for importing config: file selection then per-file selection."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(self):
+        super().__init__()
+        self._bundle: dict | None = None
+        self._bundle_path: str = ""
+
+    def compose(self) -> ComposeResult:
+        with Container(id="import_dialog"):
+            # Step 1: File selection
+            with Container(id="import_step1"):
+                yield Label("Import Config Bundle", id="import_title")
+                discovered = _scan_export_files()
+                if discovered:
+                    yield Label("[dim]Discovered export files:[/dim]", classes="edit-label")
+                    for i, f in enumerate(discovered[:8]):
+                        tag = " [dim](legacy)[/dim]" if f["ext"] == "legacy" else ""
+                        yield Button(
+                            f"{f['name']}{tag}",
+                            variant="default",
+                            id=f"btn_discovered_{i}",
+                        )
+                    yield Label("")
+                yield Label("Or enter file path manually:", classes="edit-label")
+                yield Input(
+                    placeholder=f"path/to/export{EXPORT_EXTENSION}",
+                    id="import_path",
+                )
+                with Horizontal(id="edit_buttons"):
+                    yield Button("Next", variant="success", id="btn_import_next")
+                    yield Button("Cancel", variant="default", id="btn_import_cancel")
+
+            # Step 2: Per-file selection (hidden initially)
+            with Container(id="import_step2"):
+                yield Label("Select files to import:", id="import_step2_title")
+                yield VerticalScroll(id="import_file_list")
+                yield CycleField(
+                    "Overwrite existing", ["no", "yes"], "no",
+                    "overwrite", id="cf_overwrite",
+                )
+                with Horizontal(id="import_step2_buttons"):
+                    yield Button("Import", variant="success", id="btn_import_ok")
+                    yield Button("Back", variant="default", id="btn_import_back")
+                    yield Button("Cancel", variant="default", id="btn_import_cancel2")
+
+        # Store discovered files for button click lookup
+        self._discovered = _scan_export_files()
+
+    def on_mount(self):
+        self.query_one("#import_step2").display = False
+
+    @on(Button.Pressed)
+    def handle_button(self, event: Button.Pressed):
+        btn_id = event.button.id or ""
+        if btn_id.startswith("btn_discovered_"):
+            idx = int(btn_id.split("_")[-1])
+            if idx < len(self._discovered):
+                inp = self.query_one("#import_path", Input)
+                inp.value = self._discovered[idx]["path"]
+
+    @on(Button.Pressed, "#btn_import_next")
+    def do_next(self):
+        path = self.query_one("#import_path", Input).value.strip()
+        if not path:
+            self.notify("Please enter or select a file path", severity="warning")
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                bundle = json.load(f)
+        except FileNotFoundError:
+            self.notify(f"File not found: {path}", severity="error")
+            return
+        except json.JSONDecodeError as exc:
+            self.notify(f"Invalid JSON: {exc}", severity="error")
+            return
+
+        warnings = validate_export_bundle(bundle)
+        if any("Missing 'files'" in w for w in warnings):
+            self.notify("Invalid bundle: missing 'files' key", severity="error")
+            return
+
+        self._bundle = bundle
+        self._bundle_path = path
+        self._populate_file_list(bundle)
+        self.query_one("#import_step1").display = False
+        self.query_one("#import_step2").display = True
+
+    def _populate_file_list(self, bundle: dict):
+        container = self.query_one("#import_file_list", VerticalScroll)
+        container.remove_children()
+
+        meta = bundle.get("_export_meta", {})
+        meta_info = f"[dim]Bundle v{meta.get('version', '?')} — "
+        meta_info += f"exported {meta.get('exported_at', 'unknown')[:19]} — "
+        meta_info += f"{meta.get('file_count', '?')} files[/dim]"
+        container.mount(Label(meta_info))
+        container.mount(Label(""))
+
+        warnings = validate_export_bundle(bundle)
+        if warnings:
+            for w in warnings:
+                container.mount(Label(f"[yellow]Warning: {w}[/yellow]"))
+            container.mount(Label(""))
+
+        files = bundle.get("files", {})
+        for name, data in files.items():
+            if isinstance(data, dict) and "_error" in data:
+                container.mount(Label(f"[red]  {name} — export error, skipped[/red]"))
+                continue
+
+            desc = CONFIG_FILE_DESCRIPTIONS.get(name, "Configuration file")
+            exists = (METADATA_DIR / name).exists()
+            status = "[yellow](exists — will overwrite)[/yellow]" if exists else "[green](new)[/green]"
+
+            container.mount(CycleField(
+                name, ["yes", "no"], "yes", name,
+                id=f"cf_imp_{name.replace('.', '_')}",
+            ))
+            container.mount(Label(f"[dim]    {desc} {status}[/dim]"))
 
     @on(Button.Pressed, "#btn_import_ok")
     def do_import(self):
-        path = self.query_one("#import_path", Input).value
+        if not self._bundle:
+            return
         overwrite = self.query_one("#cf_overwrite", CycleField).current_value == "yes"
-        self.dismiss({"path": path, "overwrite": overwrite})
+        selected: list[str] = []
+        for name in self._bundle.get("files", {}):
+            widget_id = f"cf_imp_{name.replace('.', '_')}"
+            try:
+                cf = self.query_one(f"#{widget_id}", CycleField)
+                if cf.current_value == "yes":
+                    selected.append(name)
+            except Exception:
+                selected.append(name)
+        self.dismiss({
+            "path": self._bundle_path,
+            "overwrite": overwrite,
+            "selected_files": selected,
+        })
+
+    @on(Button.Pressed, "#btn_import_back")
+    def do_back(self):
+        self.query_one("#import_step1").display = True
+        self.query_one("#import_step2").display = False
 
     @on(Button.Pressed, "#btn_import_cancel")
+    @on(Button.Pressed, "#btn_import_cancel2")
     def do_cancel(self):
         self.dismiss(None)
 
@@ -1009,6 +1225,15 @@ class SettingsApp(App):
     FuzzySelect { height: auto; max-height: 20; }
     FuzzySelect VerticalScroll { height: auto; max-height: 15; }
     FuzzyOption { height: 1; width: 100%; padding: 0 1; }
+
+    /* Import step containers */
+    #import_step2 { height: auto; }
+    #import_step2_buttons { padding: 1 0 0 0; height: auto; }
+    #import_step2_buttons Button { margin: 0 1; }
+    #import_file_list { height: auto; max-height: 15; padding: 0 1; }
+
+    /* Operation descriptions */
+    .op-desc { padding: 0 0 0 5; height: 1; }
     """
 
     TITLE = "aitasks settings"
@@ -1298,6 +1523,13 @@ class SettingsApp(App):
                 subordinate=True,
                 raw_value=user_raw,
             ))
+
+            # Operation description
+            desc = OPERATION_DESCRIPTIONS.get(key, "")
+            if desc:
+                container.mount(Label(
+                    f"[dim italic]{desc}[/dim italic]", classes="op-desc",
+                ))
 
         container.mount(Label(
             "[dim]Enter: edit  |  d: remove local preference  |  "
@@ -1860,10 +2092,19 @@ class SettingsApp(App):
     # Actions: Export, Import, Reload
     # -------------------------------------------------------------------
     def action_export_configs(self):
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_path = f"aitasks_config_export_{timestamp}.json"
+        self.push_screen(ExportScreen(), callback=self._handle_export)
+
+    def _handle_export(self, result):
+        if result is None:
+            return
         try:
-            bundle = export_all_configs(out_path, str(METADATA_DIR))
+            directory = result.get("directory", ".")
+            patterns = result.get("patterns") or None
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            out_path = os.path.join(
+                directory, f"aitasks_config_export_{timestamp}{EXPORT_EXTENSION}",
+            )
+            bundle = export_all_configs(out_path, str(METADATA_DIR), patterns=patterns)
             count = bundle.get("_export_meta", {}).get("file_count", 0)
             self.notify(f"Exported {count} files to {out_path}")
         except Exception as exc:
@@ -1879,6 +2120,7 @@ class SettingsApp(App):
             written = import_all_configs(
                 result["path"], str(METADATA_DIR),
                 overwrite=result.get("overwrite", False),
+                selected_files=result.get("selected_files"),
             )
             self.config_mgr.load_all()
             self._populate_agent_tab()

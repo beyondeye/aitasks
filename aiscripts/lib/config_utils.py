@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+EXPORT_EXTENSION = ".aitcfg.json"
+
 DEFAULT_EXPORT_PATTERNS = [
     "*_config.json",
     "*_config.local.json",
@@ -218,10 +220,60 @@ def export_all_configs(
     return bundle
 
 
+def validate_export_bundle(bundle: dict) -> list[str]:
+    """Validate an export bundle structure and return warnings.
+
+    Args:
+        bundle: Parsed JSON bundle dict.
+
+    Returns:
+        List of warning/error strings. Empty list means valid.
+    """
+    from fnmatch import fnmatch
+
+    warnings: list[str] = []
+
+    if not isinstance(bundle, dict):
+        warnings.append("Bundle is not a JSON object")
+        return warnings
+
+    meta = bundle.get("_export_meta")
+    if meta is None:
+        warnings.append("Missing '_export_meta' field")
+    elif not isinstance(meta, dict):
+        warnings.append("'_export_meta' is not a dict")
+    else:
+        version = meta.get("version")
+        if version is None:
+            warnings.append("Missing version in '_export_meta'")
+        elif version != 1:
+            warnings.append(f"Unsupported bundle version: {version}")
+
+    files = bundle.get("files")
+    if files is None:
+        warnings.append("Missing 'files' field")
+        return warnings
+    if not isinstance(files, dict):
+        warnings.append("'files' is not a dict")
+        return warnings
+
+    for name, data in files.items():
+        if isinstance(data, dict) and "_error" in data:
+            continue
+        if not isinstance(data, dict):
+            warnings.append(f"File '{name}' has non-dict value ({type(data).__name__})")
+            continue
+        if not any(fnmatch(name, pat) for pat in DEFAULT_EXPORT_PATTERNS):
+            warnings.append(f"Unexpected filename '{name}' (not matching known patterns)")
+
+    return warnings
+
+
 def import_all_configs(
     input_path: str | Path,
     metadata_dir: str | Path,
     overwrite: bool = False,
+    selected_files: list[str] | None = None,
 ) -> list[str]:
     """Restore config files from an export bundle.
 
@@ -229,6 +281,8 @@ def import_all_configs(
         input_path: Path to the export JSON bundle.
         metadata_dir: Path to aitasks/metadata/ directory.
         overwrite: If True, overwrite existing files. If False, skip them.
+        selected_files: If provided, only import files in this list.
+                        If None, import all files in the bundle.
 
     Returns:
         List of filenames that were written.
@@ -254,6 +308,10 @@ def import_all_configs(
         # Security: prevent path traversal
         if os.sep in name or "/" in name or "\\" in name:
             raise ValueError(f"Invalid filename in bundle: {name!r}")
+
+        # Skip files not in selection (when selection is provided)
+        if selected_files is not None and name not in selected_files:
+            continue
 
         # Skip error entries
         if isinstance(data, dict) and "_error" in data:

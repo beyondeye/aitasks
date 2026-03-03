@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "aiscripts", "lib"))
 from config_utils import (
+    EXPORT_EXTENSION,
     deep_merge,
     export_all_configs,
     import_all_configs,
@@ -20,6 +21,7 @@ from config_utils import (
     save_local_config,
     save_project_config,
     split_config,
+    validate_export_bundle,
 )
 
 
@@ -451,6 +453,202 @@ class TestExportImport(unittest.TestCase):
             with open(dest / name) as f:
                 restored = json.load(f)
             self.assertEqual(original, restored)
+
+
+# ---------------------------------------------------------------------------
+# validate_export_bundle
+# ---------------------------------------------------------------------------
+
+
+class TestValidateExportBundle(unittest.TestCase):
+    def test_valid_bundle(self):
+        bundle = {
+            "_export_meta": {"version": 1, "exported_at": "2026-01-01", "file_count": 1},
+            "files": {"board_config.json": {"columns": []}},
+        }
+        warnings = validate_export_bundle(bundle)
+        self.assertEqual(warnings, [])
+
+    def test_missing_export_meta(self):
+        bundle = {"files": {"board_config.json": {"a": 1}}}
+        warnings = validate_export_bundle(bundle)
+        self.assertTrue(any("_export_meta" in w for w in warnings))
+
+    def test_bad_version(self):
+        bundle = {
+            "_export_meta": {"version": 99},
+            "files": {"board_config.json": {"a": 1}},
+        }
+        warnings = validate_export_bundle(bundle)
+        self.assertTrue(any("version" in w.lower() for w in warnings))
+
+    def test_missing_files_key(self):
+        bundle = {"_export_meta": {"version": 1}}
+        warnings = validate_export_bundle(bundle)
+        self.assertTrue(any("files" in w.lower() for w in warnings))
+
+    def test_non_dict_file_entry(self):
+        bundle = {
+            "_export_meta": {"version": 1},
+            "files": {"board_config.json": "not a dict"},
+        }
+        warnings = validate_export_bundle(bundle)
+        self.assertTrue(any("non-dict" in w for w in warnings))
+
+    def test_unexpected_filename(self):
+        bundle = {
+            "_export_meta": {"version": 1},
+            "files": {"weird_file.json": {"a": 1}},
+        }
+        warnings = validate_export_bundle(bundle)
+        self.assertTrue(any("Unexpected" in w for w in warnings))
+
+    def test_skips_error_entries(self):
+        bundle = {
+            "_export_meta": {"version": 1},
+            "files": {"bad_config.json": {"_error": "invalid JSON"}},
+        }
+        warnings = validate_export_bundle(bundle)
+        self.assertEqual(warnings, [])
+
+    def test_non_dict_bundle(self):
+        warnings = validate_export_bundle("not a dict")
+        self.assertTrue(any("not a JSON object" in w for w in warnings))
+
+    def test_export_meta_not_dict(self):
+        bundle = {"_export_meta": "bad", "files": {}}
+        warnings = validate_export_bundle(bundle)
+        self.assertTrue(any("not a dict" in w for w in warnings))
+
+
+# ---------------------------------------------------------------------------
+# EXPORT_EXTENSION
+# ---------------------------------------------------------------------------
+
+
+class TestExportExtension(unittest.TestCase):
+    def test_extension_value(self):
+        self.assertEqual(EXPORT_EXTENSION, ".aitcfg.json")
+
+    def test_extension_in_export_filename(self):
+        """Verify the extension can be used to build export filenames."""
+        filename = f"aitasks_config_export_20260101_120000{EXPORT_EXTENSION}"
+        self.assertTrue(filename.endswith(".aitcfg.json"))
+        self.assertIn("aitasks_config_export_", filename)
+
+
+# ---------------------------------------------------------------------------
+# import with selected_files
+# ---------------------------------------------------------------------------
+
+
+class TestSelectiveImport(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.d = Path(self.tmpdir.name)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_import_only_selected_files(self):
+        bundle = {
+            "_export_meta": {"version": 1, "file_count": 2},
+            "files": {
+                "board_config.json": {"columns": []},
+                "codeagent_config.json": {"defaults": {}},
+            },
+        }
+        bundle_path = self.d / "bundle.json"
+        with open(bundle_path, "w") as f:
+            json.dump(bundle, f)
+
+        dest = self.d / "dest"
+        dest.mkdir()
+        written = import_all_configs(
+            bundle_path, dest,
+            selected_files=["board_config.json"],
+        )
+        self.assertIn("board_config.json", written)
+        self.assertNotIn("codeagent_config.json", written)
+        self.assertTrue((dest / "board_config.json").exists())
+        self.assertFalse((dest / "codeagent_config.json").exists())
+
+    def test_import_all_when_selected_files_none(self):
+        bundle = {
+            "_export_meta": {"version": 1, "file_count": 2},
+            "files": {
+                "board_config.json": {"columns": []},
+                "codeagent_config.json": {"defaults": {}},
+            },
+        }
+        bundle_path = self.d / "bundle.json"
+        with open(bundle_path, "w") as f:
+            json.dump(bundle, f)
+
+        dest = self.d / "dest"
+        dest.mkdir()
+        written = import_all_configs(bundle_path, dest, selected_files=None)
+        self.assertEqual(len(written), 2)
+
+    def test_import_empty_selection(self):
+        bundle = {
+            "_export_meta": {"version": 1, "file_count": 1},
+            "files": {"board_config.json": {"columns": []}},
+        }
+        bundle_path = self.d / "bundle.json"
+        with open(bundle_path, "w") as f:
+            json.dump(bundle, f)
+
+        dest = self.d / "dest"
+        dest.mkdir()
+        written = import_all_configs(bundle_path, dest, selected_files=[])
+        self.assertEqual(written, [])
+
+
+# ---------------------------------------------------------------------------
+# export with pattern filtering
+# ---------------------------------------------------------------------------
+
+
+class TestExportPatternFiltering(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.d = Path(self.tmpdir.name)
+        self.meta = self.d / "metadata"
+        self.meta.mkdir()
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _write_config(self, name: str, data: dict) -> Path:
+        p = self.meta / name
+        with open(p, "w") as f:
+            json.dump(data, f)
+        return p
+
+    def test_export_only_config_patterns(self):
+        self._write_config("board_config.json", {"cols": []})
+        self._write_config("models_claudecode.json", {"models": []})
+
+        out = self.d / "export.json"
+        bundle = export_all_configs(
+            out, self.meta,
+            patterns=["*_config.json"],
+        )
+        self.assertIn("board_config.json", bundle["files"])
+        self.assertNotIn("models_claudecode.json", bundle["files"])
+
+    def test_export_only_model_patterns(self):
+        self._write_config("board_config.json", {"cols": []})
+        self._write_config("models_claudecode.json", {"models": []})
+
+        out = self.d / "export.json"
+        bundle = export_all_configs(
+            out, self.meta,
+            patterns=["models_*.json"],
+        )
+        self.assertNotIn("board_config.json", bundle["files"])
+        self.assertIn("models_claudecode.json", bundle["files"])
 
 
 if __name__ == "__main__":
