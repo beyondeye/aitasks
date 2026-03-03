@@ -128,6 +128,46 @@ The current option is highlighted with bold reverse text. Arrows (◀ ▶) on ei
 
 The search is case-insensitive and matches against both the task filename and the entire metadata dictionary. This means you can search by task number (e.g., "t47"), title words, labels, status, assigned person, or any other metadata value.
 
+> **Note:** View mode filters (described below) combine with text search using AND logic. A task must match both the active view mode and the search text to be visible.
+
+### How to Filter by View Mode
+
+The board provides three view modes that control which tasks are displayed. The active mode is shown in the View Selector widget at the top-left of the filter area, displayed as `a All │ g Git │ i Impl`. The active mode is highlighted in bold cyan; inactive modes appear dimmed.
+
+**Switching view modes (keyboard):**
+
+1. Press **a** to show all tasks (default)
+2. Press **g** to show only git-linked tasks
+3. Press **i** to show only implementing tasks
+
+**Switching view modes (mouse):**
+
+Click the desired mode label directly in the View Selector widget.
+
+**All view (`a`):**
+
+The default view. Shows every task regardless of metadata. Press **a** to return to this view from any other mode.
+
+**Git view (`g`):**
+
+Shows only tasks that have an `issue:` or `pull_request:` field in their frontmatter — i.e., tasks linked to a GitHub issue, GitLab merge request, Bitbucket pull request, or other external tracker URL. This applies to both parent and child tasks.
+
+This mode is useful for focusing on tasks that originate from or are tracked by your git platform. Tasks created by `ait pr-import` (the PR import workflow) automatically have a `pull_request:` field and will appear in this view.
+
+**Implementing view (`i`):**
+
+Shows only tasks with status "Implementing", plus contextual related tasks:
+
+- Parent tasks that have at least one implementing child are shown
+- All siblings of an implementing child task are shown (so you can see the full subtask list)
+- Parents with implementing children are **auto-expanded** — their child cards appear automatically without pressing **x**
+
+When you switch away from Implementing view, auto-expanded parents are collapsed back (unless you had manually expanded them before entering the view).
+
+**Combining with text search:**
+
+View modes combine with the search box using AND logic. For example, if you are in "Git" view and type "auth" in the search box, you see only git-linked tasks that also match "auth". Clear the search box to show all tasks matching the current view mode.
+
 ### How to Commit Changes from the Board
 
 When you edit task metadata from the board, the changes are saved to disk but not committed to git. Modified files are indicated by an orange asterisk (*) next to the task number.
@@ -225,6 +265,7 @@ The task detail dialog shows several relationship fields. Each is focusable — 
 | **Folded Tasks** | Opens the folded task's detail dialog in **read-only** mode. If multiple, shows a picker list. |
 | **Folded Into** | Opens the target task that this task was folded into. |
 | **Issue** | Opens the issue URL in your default web browser. |
+| **Pull Request** | Opens the pull request URL in your default web browser. |
 
 ### How to Pick a Task for Implementation
 
