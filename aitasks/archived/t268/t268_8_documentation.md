@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: [t268_5, t268_6, t268_7]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [modelwrapper]
 folded_tasks: [289]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-01 09:00
-updated_at: 2026-03-03 11:09
+updated_at: 2026-03-03 13:48
+completed_at: 2026-03-03 13:48
 ---
 
 ## Context

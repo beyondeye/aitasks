@@ -3,11 +3,11 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [modelwrapper]
-children_to_implement: [t268_8]
 created_at: 2026-02-27 08:06
-updated_at: 2026-03-02 11:13
+updated_at: 2026-03-03 13:48
+completed_at: 2026-03-03 13:48
 boardcol: now
 boardidx: 10
 ---
