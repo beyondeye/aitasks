@@ -2705,6 +2705,15 @@ class KanbanApp(App):
         selector.active_mode = mode
         selector.refresh()
 
+        # Update search box placeholder for active view mode
+        placeholders = {
+            "all": "Search tasks... (Tab to focus, Esc to return to board)",
+            "git": "Search tasks linked to issues/PRs (a to exit git view)",
+            "implementing": "Search tasks currently implementing (a to exit Impl view)",
+        }
+        search_box = self.query_one("#search_box", Input)
+        search_box.placeholder = placeholders.get(mode, placeholders["all"])
+
         # Re-render board with new expansion state, then filter
         focused = self._focused_card()
         refocus = focused.task_data.filename if focused else ""
