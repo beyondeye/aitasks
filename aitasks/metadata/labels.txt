@@ -22,6 +22,7 @@ git-integration
 gitremote
 install_scripts
 legal
+license
 macos
 model_selection
 modelvrapper
