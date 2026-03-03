@@ -272,9 +272,9 @@ The task detail dialog shows several relationship fields. Each is focusable — 
 From the task detail dialog:
 
 1. Click the "Pick" button
-2. The board launches `claude /aitask-pick <task_number>` in a terminal emulator (or suspends and runs it in the current terminal if no emulator is found)
+2. The board launches [`ait codeagent invoke task-pick <task_number>`]({{< relref "/docs/commands/codeagent" >}}) in a terminal emulator (or suspends and runs it in the current terminal if no emulator is found)
 
-This starts the full aitask-pick workflow: assignment, planning, implementation, and archival. The board refreshes after the pick session completes (when running in suspend mode).
+The [code agent wrapper]({{< relref "/docs/commands/codeagent" >}}) resolves which agent and model to use for the `task-pick` operation based on your configuration, so the board respects whatever agent you have configured (Claude Code, Gemini CLI, Codex, or OpenCode). This starts the full aitask-pick workflow: assignment, planning, implementation, and archival. The board refreshes after the pick session completes (when running in suspend mode).
 
 The "Pick" button is disabled for tasks with status "Done" or "Folded".
 

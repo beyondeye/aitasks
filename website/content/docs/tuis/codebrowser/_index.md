@@ -66,11 +66,13 @@ The detail pane provides context about the task annotating the current cursor li
 - As you move the cursor, the pane updates to show the **plan content** (preferred) or **task description** for the task ID on the current line.
 - When a selection spans lines annotated by multiple tasks, the pane shows a summary list of all task IDs in the selection.
 
-### Launching Claude Explain
+### Launching an Explain Session
 
-Press **e** to launch Claude Code with the [`/aitask-explain`]({{< relref "/docs/skills/aitask-explain" >}}) skill targeting the current file. If you have a line selection active, the explain session focuses on that specific line range.
+Press **e** to launch the configured code agent with the [`/aitask-explain`]({{< relref "/docs/skills/aitask-explain" >}}) skill targeting the current file. The code browser uses the [code agent wrapper]({{< relref "/docs/commands/codeagent" >}}) to resolve which agent and model to use for the `explain` operation. If you have a line selection active, the explain session focuses on that specific line range.
 
-A terminal emulator is opened automatically. If none is found, the codebrowser suspends and runs Claude in the current terminal.
+Before launching, the code browser performs a pre-flight check to verify the resolved agent binary is available in PATH. If the binary is not found, a notification appears instead of a failed launch.
+
+A terminal emulator is opened automatically. If none is found, the codebrowser suspends and runs the agent in the current terminal.
 
 This is useful when you want a deeper, conversational explanation of a code section — the codebrowser provides the visual overview, and `/aitask-explain` provides the detailed narrative.
 
@@ -80,6 +82,7 @@ This is useful when you want a deeper, conversational explanation of a code sect
 - [`/aitask-explain`]({{< relref "/docs/skills/aitask-explain" >}}) — The skill that generates annotation data and provides conversational code explanations
 - [Understanding Code with Explain]({{< relref "/docs/workflows/explain" >}}) — Workflow guide covering use cases and the cognitive debt framing
 - [`ait explain-runs` and `ait explain-cleanup`]({{< relref "/docs/commands/explain" >}}) — Commands for managing explain run data
+- [`ait codeagent`]({{< relref "/docs/commands/codeagent" >}}) — Configures which agent and model the code browser uses for explain sessions
 
 ---
 

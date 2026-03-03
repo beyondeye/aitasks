@@ -242,3 +242,10 @@ The code agent wrapper is integrated into both TUI applications:
 - **Settings TUI** (`ait settings`) -- The Code Agent tab provides a visual editor for operation-to-agent bindings. You can change which agent and model is assigned to each operation (`task-pick`, `explain`, `batch-review`, `raw`) without editing JSON files directly.
 
 Both TUIs delegate all agent resolution to the centralized configuration -- there is no TUI-specific agent config.
+
+## Related
+
+- [`/aitask-refresh-code-models`]({{< relref "/docs/skills/aitask-refresh-code-models" >}}) — Research and update model configuration files
+- [Settings TUI]({{< relref "/docs/tuis/settings" >}}) — Visual editor for code agent defaults (Agent Defaults tab) and model definitions (Models tab)
+- [Board TUI — How to Pick a Task]({{< relref "/docs/tuis/board/how-to#how-to-pick-a-task-for-implementation" >}}) — Uses the `task-pick` operation to launch the configured agent
+- [Code Browser]({{< relref "/docs/tuis/codebrowser" >}}) — Uses the `explain` operation for launching explain sessions
