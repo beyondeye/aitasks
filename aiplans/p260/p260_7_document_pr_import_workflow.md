@@ -12,80 +12,37 @@ Base branch: main
 
 ## Overview
 
-Add comprehensive documentation for the PR import feature: bash command reference pages, skill reference page, workflow guide, and index updates.
+Add documentation for the PR import feature: command reference page for `ait pr-import`, skill reference for `/aitask-pr-review`, workflow guide for creating tasks from PRs, and index updates. Note: `ait pr-close` is internal (automated by task-workflow during archival) and not documented as a user-facing command.
 
 ## Steps
 
-### 1. Create `website/content/docs/commands/pr-integration.md`
-
-Hugo frontmatter:
-```yaml
----
-title: "PR Integration"
-linkTitle: "PR Integration"
-weight: 42
-description: "Import pull requests as tasks and close/decline PRs after implementation"
----
-```
-
-Content sections:
-- `## ait pr-import` — Description, interactive mode steps, batch mode examples, options table, key features
-- `---` separator
-- `## ait pr-close` — Description, platform behavior (GitHub close, GitLab close, Bitbucket decline), options table, comment format example
-
-Follow `website/content/docs/commands/issue-integration.md` format exactly.
+### 1. Create `website/content/docs/commands/pr-import.md`
+- [x] Single command page for `ait pr-import` only
+- Follow `issue-integration.md` format
+- Interactive mode (4-step fzf flow), batch mode examples, complete options table, key features, intermediate data format
 
 ### 2. Create `website/content/docs/skills/aitask-pr-review.md`
-
-Hugo frontmatter:
-```yaml
----
-title: "/aitask-pr-review"
-linkTitle: "/aitask-pr-review"
-weight: 22
-description: "Analyze a pull request and create an aitask with implementation plan"
----
-```
-
-Content: opening paragraph, usage block, Note about project root, step-by-step flow (6 steps), key capabilities, profile info, link to workflow guide.
-
-Follow `website/content/docs/skills/aitask-explore.md` format.
+- [x] Follow `aitask-explore.md` pattern
+- Use "Step-by-step" heading (not "Workflow")
+- 6 steps: PR selection → analysis → Q&A → related task discovery → task creation → decision point
 
 ### 3. Create `website/content/docs/workflows/pr-workflow.md`
-
-Hugo frontmatter:
-```yaml
----
-title: "PR Import Workflow"
-linkTitle: "PR Import"
-weight: 35
-description: "End-to-end guide for importing pull requests as aitasks"
----
-```
-
-Content sections:
-- **Motivation** — Why import PRs as tasks, use cases, benefits
-- **Overview flow** — ASCII diagram showing the pipeline
-- **Step-by-step guide** — Import → Review → Implement → Archive
-- **New metadata fields** — Reference for `pull_request:`, `contributor:`, `contributor_email:`
-- **Contributor attribution** — Co-authored-by explanation, email formats
-- **Platform examples** — GitHub, GitLab, Bitbucket
+- [x] Motivation: why import PRs as tasks
+- Two paths: fully automated (skill) vs partially automated (batch script)
+- Automated lifecycle: contributor attribution + PR close via task-workflow
+- End-to-end flow diagram, metadata fields, platform examples
 
 ### 4. Update `website/content/docs/commands/_index.md`
-
-Add "PR Integration" category to command table with links to `pr-integration/`.
+- [x] Add `ait pr-import` to Integration category
 
 ### 5. Update `website/content/docs/skills/_index.md`
-
-Add `/aitask-pr-review` row to skill table.
+- [x] Add `/aitask-pr-review` to skill table
 
 ## Verification
 
 1. `cd website && hugo build --gc --minify` — no build errors
-2. `cd website && ./serve.sh` — check all pages render
-3. Verify sidebar navigation shows new entries
-4. Verify all cross-links work
-5. Compare command docs against actual CLI flags
+2. Verify sidebar navigation shows new entries
+3. Compare docs against actual CLI flags
 
 ## Step 9 Reference
 
