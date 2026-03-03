@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [auto-update]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-03 22:17
-updated_at: 2026-03-03 22:17
+updated_at: 2026-03-03 22:38
 ---
 
 currently I have aitask 0.8.0 in /home/ddt/Work/tempo, and when running ait I get the suggestion [ait] Update available: 0.8.0 → 0.7.1
