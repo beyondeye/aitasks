@@ -41,10 +41,15 @@ debug() {
     fi
 }
 
-# Check that a git remote named 'origin' exists
+# Check whether a git remote named 'origin' exists (non-fatal)
+has_remote() {
+    git remote get-url origin &>/dev/null
+}
+
+# Check that a git remote named 'origin' exists (fatal)
 require_remote() {
-    if ! git remote get-url origin &>/dev/null; then
-        die_code 10 "No git remote 'origin' configured. Cannot use atomic task locks."
+    if ! has_remote; then
+        die_code 10 "No git remote 'origin' configured. Cannot initialize atomic task locks."
     fi
 }
 
@@ -89,7 +94,10 @@ lock_task() {
     local email="$2"
     local lock_file="t${task_id}_lock.yaml"
 
-    require_remote
+    if ! has_remote; then
+        debug "No remote — skipping lock (single-user mode)"
+        return 0
+    fi
     debug "Attempting to lock task t$task_id for $email"
 
     local attempt=0
@@ -171,7 +179,10 @@ unlock_task() {
     local task_id="$1"
     local lock_file="t${task_id}_lock.yaml"
 
-    require_remote
+    if ! has_remote; then
+        debug "No remote — skipping unlock (single-user mode)"
+        return 0
+    fi
     debug "Attempting to unlock task t$task_id"
 
     local attempt=0
@@ -225,7 +236,9 @@ check_lock() {
     local task_id="$1"
     local lock_file="t${task_id}_lock.yaml"
 
-    require_remote
+    if ! has_remote; then
+        return 1  # Not locked (no remote = no locks possible)
+    fi
 
     if ! git fetch origin "$BRANCH" --quiet 2>/dev/null; then
         # Branch doesn't exist — not locked
@@ -247,7 +260,10 @@ check_lock() {
 # --- List: show all active locks ---
 
 list_locks() {
-    require_remote
+    if ! has_remote; then
+        info "No locks (no remote configured)"
+        return 0
+    fi
 
     if ! git fetch origin "$BRANCH" --quiet 2>/dev/null; then
         info "No locks (branch not initialized)"
@@ -282,7 +298,10 @@ list_locks() {
 # --- Cleanup: remove stale locks for archived tasks ---
 
 cleanup_locks() {
-    require_remote
+    if ! has_remote; then
+        debug "No remote — skipping lock cleanup"
+        return 0
+    fi
 
     if ! git fetch origin "$BRANCH" --quiet 2>/dev/null; then
         debug "Lock branch not found, nothing to clean up"
@@ -391,6 +410,8 @@ Usage: ait lock [--debug] <command> [args]
 
 Atomic task lock management. Prevents two users from working on the same
 task simultaneously. Locks are stored on a separate git branch (aitask-locks).
+When no git remote is configured, lock operations are silently skipped
+(single-user mode — no locking needed).
 
 Commands:
   <task_id>                        Lock a task (auto-detects email from userconfig)

@@ -521,12 +521,10 @@ finalize_draft() {
             rm -f "$claim_stderr"
 
             if [[ -t 0 ]]; then
-                # Interactive mode: warn and ask for consent
+                # Interactive mode: warn and offer local scan fallback
                 echo "" >&2
                 warn "Atomic ID counter failed: ${claim_err:-unknown error}" >&2
-                warn "*** DANGER: Local scan fallback can cause DUPLICATE task IDs ***" >&2
-                warn "*** when multiple PCs or users work on the same repository.  ***" >&2
-                warn "Run 'ait setup' to initialize the atomic counter instead." >&2
+                warn "Local scan may cause duplicate IDs if other users are active." >&2
                 echo "" >&2
                 printf "Use local scan anyway? (y/N): " >&2
                 local answer
@@ -534,7 +532,7 @@ finalize_draft() {
                 if [[ "$answer" =~ ^[Yy]$ ]]; then
                     claimed_id=$(get_next_task_number_local)
                 else
-                    die "Aborted. Run 'ait setup' to initialize the atomic counter."
+                    die "Aborted. Fix the remote counter or run 'ait setup'."
                 fi
             else
                 # Batch/non-interactive mode: fail hard

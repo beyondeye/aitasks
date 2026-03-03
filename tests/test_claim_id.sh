@@ -222,8 +222,8 @@ fi
 
 rm -rf "$TMPDIR_6"
 
-# --- Test 7: No remote = error ---
-echo "--- Test 7: No remote = error ---"
+# --- Test 7: No remote = local branch counter ---
+echo "--- Test 7: No remote = local branch counter ---"
 
 TMPDIR_7="$(mktemp -d)"
 (
@@ -231,14 +231,31 @@ TMPDIR_7="$(mktemp -d)"
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
-    mkdir -p aiscripts/lib
+    mkdir -p aitasks/archived aiscripts/lib
+    echo "---" > aitasks/t1_first.md
+    echo "---" > aitasks/t3_third.md
     cp "$PROJECT_DIR/aiscripts/aitask_claim_id.sh" aiscripts/
     cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
     chmod +x aiscripts/aitask_claim_id.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
-output7=$(cd "$TMPDIR_7" && ./aiscripts/aitask_claim_id.sh --claim 2>&1 || true)
-assert_contains "No remote gives error" "remote" "$output7"
+
+# First claim: auto-creates local branch (max=3, buffer=10, counter starts at 13, claims 13)
+claimed7a=$(cd "$TMPDIR_7" && ./aiscripts/aitask_claim_id.sh --claim 2>/dev/null)
+assert_eq "No remote: first claim returns max+buffer" "13" "$claimed7a"
+
+# Second claim: counter advances monotonically (claims 14)
+claimed7b=$(cd "$TMPDIR_7" && ./aiscripts/aitask_claim_id.sh --claim 2>/dev/null)
+assert_eq "No remote: sequential claim is monotonic" "14" "$claimed7b"
+
+# Local branch should exist
+TOTAL=$((TOTAL + 1))
+if (cd "$TMPDIR_7" && git show-ref --verify --quiet refs/heads/aitask-ids); then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: No remote: local aitask-ids branch should exist"
+fi
 
 rm -rf "$TMPDIR_7"
 
@@ -279,6 +296,115 @@ rm -rf "$TMPDIR_9"
 echo "--- Test 10: Syntax check ---"
 
 assert_exit_zero "Syntax check passes" bash -n "$PROJECT_DIR/aiscripts/aitask_claim_id.sh"
+
+# --- Test 11: No remote = init still fails ---
+echo "--- Test 11: No remote = init still fails ---"
+
+TMPDIR_11="$(mktemp -d)"
+(
+    cd "$TMPDIR_11"
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    mkdir -p aiscripts/lib
+    cp "$PROJECT_DIR/aiscripts/aitask_claim_id.sh" aiscripts/
+    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
+    chmod +x aiscripts/aitask_claim_id.sh
+    echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
+)
+assert_exit_nonzero "Init with no remote fails" bash -c "cd '$TMPDIR_11' && ./aiscripts/aitask_claim_id.sh --init"
+
+rm -rf "$TMPDIR_11"
+
+# --- Test 12: No remote = peek shows counter value ---
+echo "--- Test 12: No remote = peek shows counter value ---"
+
+TMPDIR_12="$(mktemp -d)"
+(
+    cd "$TMPDIR_12"
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    mkdir -p aitasks/archived aiscripts/lib
+    echo "---" > aitasks/t10_task.md
+    cp "$PROJECT_DIR/aiscripts/aitask_claim_id.sh" aiscripts/
+    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
+    chmod +x aiscripts/aitask_claim_id.sh
+    echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
+)
+# Peek before any claim: no local branch yet, shows max+buffer
+peek12a=$(cd "$TMPDIR_12" && ./aiscripts/aitask_claim_id.sh --peek 2>/dev/null)
+assert_eq "Peek with no remote (no branch): max+buffer=20" "20" "$peek12a"
+
+# After a claim, peek shows counter from local branch
+(cd "$TMPDIR_12" && ./aiscripts/aitask_claim_id.sh --claim >/dev/null 2>&1)
+peek12b=$(cd "$TMPDIR_12" && ./aiscripts/aitask_claim_id.sh --peek 2>/dev/null)
+assert_eq "Peek with no remote (after claim): counter=21" "21" "$peek12b"
+
+rm -rf "$TMPDIR_12"
+
+# --- Test 13: No remote, no existing tasks ---
+echo "--- Test 13: No remote, no existing tasks ---"
+
+TMPDIR_13="$(mktemp -d)"
+(
+    cd "$TMPDIR_13"
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    mkdir -p aitasks/archived aiscripts/lib
+    cp "$PROJECT_DIR/aiscripts/aitask_claim_id.sh" aiscripts/
+    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
+    chmod +x aiscripts/aitask_claim_id.sh
+    echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
+)
+# max=0, buffer=10, counter starts at 10, first claim returns 10
+claimed13=$(cd "$TMPDIR_13" && ./aiscripts/aitask_claim_id.sh --claim 2>/dev/null)
+assert_eq "No remote, no tasks: returns buffer value" "10" "$claimed13"
+
+rm -rf "$TMPDIR_13"
+
+# --- Test 14: Auto-upgrade local branch to remote ---
+echo "--- Test 14: Auto-upgrade local branch to remote ---"
+
+# Start with no remote, create some IDs
+TMPDIR_14="$(mktemp -d)"
+(
+    cd "$TMPDIR_14"
+    git init --bare --quiet remote.git
+    git init --quiet local
+    cd local
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    mkdir -p aitasks/archived aiscripts/lib
+    echo "---" > aitasks/t1_task.md
+    cp "$PROJECT_DIR/aiscripts/aitask_claim_id.sh" aiscripts/
+    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
+    chmod +x aiscripts/aitask_claim_id.sh
+    echo "init" > dummy.txt && git add -A && git commit -m "init" --quiet
+)
+
+# Claim locally (no remote) — should create local branch and return 11 (max=1, buffer=10)
+claimed14a=$(cd "$TMPDIR_14/local" && ./aiscripts/aitask_claim_id.sh --claim 2>/dev/null)
+assert_eq "Auto-upgrade: local claim returns 11" "11" "$claimed14a"
+
+# Now add a remote
+(cd "$TMPDIR_14/local" && git remote add origin "$TMPDIR_14/remote.git" && git push --quiet origin main 2>/dev/null)
+
+# Next claim should auto-push local branch to remote and use remote CAS
+claimed14b=$(cd "$TMPDIR_14/local" && ./aiscripts/aitask_claim_id.sh --claim 2>/dev/null)
+assert_eq "Auto-upgrade: remote claim returns 12" "12" "$claimed14b"
+
+# Verify branch now exists on remote
+TOTAL=$((TOTAL + 1))
+if (cd "$TMPDIR_14/local" && git ls-remote --heads origin aitask-ids 2>/dev/null | grep -q aitask-ids); then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: Auto-upgrade: aitask-ids branch should exist on remote"
+fi
+
+rm -rf "$TMPDIR_14"
 
 # --- Summary ---
 echo ""

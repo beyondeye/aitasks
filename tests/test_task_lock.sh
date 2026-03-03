@@ -423,6 +423,88 @@ assert_contains "Bare ID used explicit email" "locked_by: explicit@test.com" "$c
 
 rm -rf "$TMPDIR_19"
 
+# --- Test 20: No remote = lock is no-op ---
+echo "--- Test 20: No remote = lock is no-op ---"
+
+TMPDIR_20="$(mktemp -d)"
+(
+    cd "$TMPDIR_20"
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    mkdir -p aitasks/metadata aiscripts/lib
+    echo "email: user@test.com" > aitasks/metadata/userconfig.yaml
+    cp "$PROJECT_DIR/aiscripts/aitask_lock.sh" aiscripts/
+    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
+    cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
+    chmod +x aiscripts/aitask_lock.sh
+    echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
+)
+assert_exit_zero "Lock with no remote is no-op" bash -c "cd '$TMPDIR_20' && ./aiscripts/aitask_lock.sh --lock 1 --email user@test.com"
+
+rm -rf "$TMPDIR_20"
+
+# --- Test 21: No remote = check returns not-locked ---
+echo "--- Test 21: No remote = check returns not-locked ---"
+
+TMPDIR_21="$(mktemp -d)"
+(
+    cd "$TMPDIR_21"
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    mkdir -p aitasks/metadata aiscripts/lib
+    cp "$PROJECT_DIR/aiscripts/aitask_lock.sh" aiscripts/
+    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
+    cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
+    chmod +x aiscripts/aitask_lock.sh
+    echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
+)
+assert_exit_nonzero "Check with no remote returns not-locked" bash -c "cd '$TMPDIR_21' && ./aiscripts/aitask_lock.sh --check 1"
+
+rm -rf "$TMPDIR_21"
+
+# --- Test 22: No remote = list shows no locks ---
+echo "--- Test 22: No remote = list shows no locks ---"
+
+TMPDIR_22="$(mktemp -d)"
+(
+    cd "$TMPDIR_22"
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    mkdir -p aitasks/metadata aiscripts/lib
+    cp "$PROJECT_DIR/aiscripts/aitask_lock.sh" aiscripts/
+    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
+    cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
+    chmod +x aiscripts/aitask_lock.sh
+    echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
+)
+list_output_22=$(cd "$TMPDIR_22" && ./aiscripts/aitask_lock.sh --list 2>&1)
+assert_contains "List with no remote mentions no remote" "no remote" "$list_output_22"
+
+rm -rf "$TMPDIR_22"
+
+# --- Test 23: No remote = init still fails ---
+echo "--- Test 23: No remote = init still fails ---"
+
+TMPDIR_23="$(mktemp -d)"
+(
+    cd "$TMPDIR_23"
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    mkdir -p aitasks/metadata aiscripts/lib
+    cp "$PROJECT_DIR/aiscripts/aitask_lock.sh" aiscripts/
+    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
+    cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
+    chmod +x aiscripts/aitask_lock.sh
+    echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
+)
+assert_exit_nonzero "Init with no remote fails" bash -c "cd '$TMPDIR_23' && ./aiscripts/aitask_lock.sh --init"
+
+rm -rf "$TMPDIR_23"
+
 # --- Summary ---
 echo ""
 echo "==============================="

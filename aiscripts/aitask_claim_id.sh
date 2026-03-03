@@ -4,6 +4,10 @@
 # as a shared counter. Atomicity is achieved via git push rejection on
 # non-fast-forward updates (compare-and-swap semantics).
 #
+# When no git remote is configured, uses a local-only aitask-ids branch
+# (auto-created on first claim). When a remote is later added, the local
+# branch is automatically pushed to remote on next claim (auto-upgrade).
+#
 # Usage (internal - not exposed via ait dispatcher):
 #   aitask_claim_id.sh --init     Initialize the aitask-ids counter branch
 #   aitask_claim_id.sh --claim    Claim the next task ID (default)
@@ -70,10 +74,15 @@ debug() {
     fi
 }
 
-# Check that a git remote named 'origin' exists
+# Check whether a git remote named 'origin' exists (non-fatal)
+has_remote() {
+    git remote get-url origin &>/dev/null
+}
+
+# Check that a git remote named 'origin' exists (fatal)
 require_remote() {
-    if ! git remote get-url origin &>/dev/null; then
-        die "No git remote 'origin' configured. Cannot use atomic task ID counter."
+    if ! has_remote; then
+        die "No git remote 'origin' configured. Cannot initialize atomic task ID counter."
     fi
 }
 
@@ -115,10 +124,83 @@ init_counter_branch() {
     fi
 }
 
+# --- Local branch helpers ---
+
+# Check if local aitask-ids branch exists
+has_local_branch() {
+    git show-ref --verify --quiet "refs/heads/$BRANCH" 2>/dev/null
+}
+
+# Auto-initialize a local counter branch (no remote needed)
+init_local_branch() {
+    local max_id
+    max_id=$(scan_max_task_id)
+    local next_id=$((max_id + ID_BUFFER))
+
+    debug "Initializing local counter branch with next_id=$next_id (max=$max_id + buffer=$ID_BUFFER)"
+
+    local blob_hash tree_hash commit_hash
+    blob_hash=$(echo "$next_id" | git hash-object -w --stdin)
+    tree_hash=$(printf "100644 blob %s\t%s\n" "$blob_hash" "$COUNTER_FILE" | git mktree)
+    commit_hash=$(echo "ait: Initialize local task ID counter at $next_id" | git commit-tree "$tree_hash")
+    git update-ref "refs/heads/$BRANCH" "$commit_hash"
+
+    info "Local counter branch '$BRANCH' created with next_id=$next_id" >&2
+}
+
+# Claim next ID from local branch (no remote, no CAS needed)
+claim_local() {
+    if ! has_local_branch; then
+        init_local_branch
+    fi
+
+    local current_id
+    current_id=$(git show "$BRANCH:$COUNTER_FILE" 2>/dev/null | tr -d '[:space:]') || {
+        die "Could not read $COUNTER_FILE from local $BRANCH. Branch may be corrupted."
+    }
+
+    if ! [[ "$current_id" =~ ^[0-9]+$ ]]; then
+        die "Invalid local counter value: '$current_id' (expected a number)"
+    fi
+
+    local new_id=$((current_id + 1))
+    debug "Local claim: ID $current_id, advancing counter to $new_id"
+
+    local blob_hash tree_hash commit_hash parent_hash
+    parent_hash=$(git rev-parse "$BRANCH")
+    blob_hash=$(echo "$new_id" | git hash-object -w --stdin)
+    tree_hash=$(printf "100644 blob %s\t%s\n" "$blob_hash" "$COUNTER_FILE" | git mktree)
+    commit_hash=$(echo "ait: Claim task ID t$current_id, advance counter to $new_id" | \
+        git commit-tree "$tree_hash" -p "$parent_hash")
+    git update-ref "refs/heads/$BRANCH" "$commit_hash"
+
+    echo "$current_id"
+}
+
+# Try to push local branch to remote (auto-upgrade when remote becomes available)
+try_push_local_to_remote() {
+    if has_local_branch; then
+        debug "Attempting to push local '$BRANCH' to remote (auto-upgrade)..."
+        if git push origin "$BRANCH:refs/heads/$BRANCH" 2>/dev/null; then
+            info "Pushed local counter branch to remote (auto-upgrade)" >&2
+            git fetch origin "$BRANCH" --quiet 2>/dev/null || true
+            return 0
+        fi
+        debug "Push of local branch failed"
+    fi
+    return 1
+}
+
 # --- Claim: atomically get the next task ID ---
 
 claim_next_id() {
-    require_remote
+    # No remote: use local-only counter branch
+    if ! has_remote; then
+        debug "No remote — using local counter branch"
+        claim_local
+        return 0
+    fi
+
     debug "Starting claim (max retries: $MAX_RETRIES)"
 
     local attempt=0
@@ -130,6 +212,10 @@ claim_next_id() {
         # Step 1: Fetch latest counter
         debug "Fetching branch '$BRANCH' from origin..."
         if ! git fetch origin "$BRANCH" --quiet 2>/dev/null; then
+            # Remote branch doesn't exist — try auto-upgrade from local branch
+            if try_push_local_to_remote; then
+                continue  # Retry with the now-available remote branch
+            fi
             die "Failed to fetch '$BRANCH' from origin. Run 'ait setup' to initialize the counter."
         fi
         debug "Fetch successful"
@@ -165,6 +251,8 @@ claim_next_id() {
         # Step 5: Push - fails if another PC claimed simultaneously (non-fast-forward)
         debug "Pushing to origin..."
         if git push origin "$commit_hash:refs/heads/$BRANCH" 2>/dev/null; then
+            # Keep local branch in sync with remote
+            git update-ref "refs/heads/$BRANCH" "$commit_hash" 2>/dev/null || true
             debug "Push successful, claimed ID: $current_id"
             echo "$current_id"
             return 0
@@ -184,9 +272,25 @@ claim_next_id() {
 # --- Peek: show current counter without claiming ---
 
 peek_counter() {
-    require_remote
+    if ! has_remote; then
+        if has_local_branch; then
+            git show "$BRANCH:$COUNTER_FILE" 2>/dev/null | tr -d '[:space:]'
+        else
+            # No branch yet — show what next claim would return
+            local max_id
+            max_id=$(scan_max_task_id)
+            echo $((max_id + ID_BUFFER))
+        fi
+        return 0
+    fi
 
     if ! git fetch origin "$BRANCH" --quiet 2>/dev/null; then
+        # Fall back to local branch if remote fetch fails
+        if has_local_branch; then
+            warn "Could not fetch remote counter — showing local value" >&2
+            git show "$BRANCH:$COUNTER_FILE" 2>/dev/null | tr -d '[:space:]'
+            return 0
+        fi
         die "Failed to fetch '$BRANCH'. Run 'ait setup' to initialize."
     fi
 
@@ -205,10 +309,15 @@ Usage: aitask_claim_id.sh [--debug] [--init|--claim|--peek]
 
 Internal script for atomic task ID management.
 
+When a git remote 'origin' is configured, uses a shared counter branch
+for collision-free IDs across multiple PCs. When no remote is configured,
+uses a local counter branch (auto-created on first claim). When a remote
+is later added, the local branch is automatically pushed to remote.
+
 Options:
   --init    Initialize the aitask-ids counter branch on remote
-  --claim   Claim the next task ID atomically (default)
-  --peek    Show current counter value without claiming
+  --claim   Claim the next task ID (atomic if remote, local scan otherwise)
+  --peek    Show current/next counter value without claiming
   --debug   Enable verbose debug output
   --help    Show this help message
 EOF
