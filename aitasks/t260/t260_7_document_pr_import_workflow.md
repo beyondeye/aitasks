@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t260_6, t260_8]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-01 15:34
-updated_at: 2026-03-01 18:11
+updated_at: 2026-03-03 11:07
 ---
 
 ## Context
