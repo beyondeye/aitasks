@@ -79,6 +79,13 @@ Save to `manager.settings["integration_view_active"]` and reload on startup.
 5. Visual feedback when filter is active (placeholder, notification)
 6. Empty board handled gracefully when no integration tasks exist
 
+## Final Implementation Notes
+
+- **Actual work done:** Added dynamic search box placeholder text that updates when switching between view modes (All/Git/Implementing) in the board TUI. Also created the missing child task file required for the archival workflow.
+- **Deviations from plan:** The original plan described implementing the full integration view from scratch (filter state, keybinding, toggle action, apply_filter logic, PullRequestField). However, all of this was already implemented by t273 (view modes) and t260_2 (PullRequestField). The actual remaining work was limited to: (1) mode-specific search placeholders, (2) creating the missing child task file. Plan steps 6 (enhanced card display with full URLs) and 8 (persist filter state) were dropped per user decision.
+- **Key decisions:** View mode persistence was explicitly declined by the user. Enhanced card display (showing full URLs instead of badges) was not implemented — the existing badge indicators (GH, GL, BB, PR:GH, etc.) are sufficient.
+- **Notes for sibling tasks:** This was the last child of t260. The entire PR import workflow is now complete across all 8 children.
+
 ## Step 9 Reference
 
 Post-implementation: archive child task via `./aiscripts/aitask_archive.sh 260_8`
