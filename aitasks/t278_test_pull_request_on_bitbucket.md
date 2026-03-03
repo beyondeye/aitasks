@@ -6,6 +6,7 @@ issue_type: feature
 status: Implementing
 labels: []
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-02 11:36
 updated_at: 2026-03-03 09:57
 ---
