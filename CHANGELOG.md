@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.8.1
+
+### Bug Fixes
+
+- **Task creation and locking without git remote** (t305): Task creation and locking now work in repositories without a configured remote. The ID counter operates locally and automatically upgrades to remote-based coordination when a remote is later added.
+- **Auto-update version comparison** (t306): Fixed the auto-update check incorrectly suggesting downgrades by replacing string comparison with proper semver ordering.
+
+### Documentation
+
+- **Project root requirement clarity** (t302): Improved documentation and script messaging to clearly explain that `ait setup` and the curl installer must be run from the git repository root directory.
+
 ## v0.8.0
 
 ### Features
