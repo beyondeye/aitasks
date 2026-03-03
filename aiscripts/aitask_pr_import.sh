@@ -19,7 +19,7 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 # Batch mode variables
 BATCH_MODE=false
 SOURCE=""  # Auto-detected from git remote if not set via --source
-REPO_OVERRIDE=""  # GitLab repo override for cross-repo imports (--repo)
+REPO_OVERRIDE=""  # GitLab/Bitbucket repo override for cross-repo imports (--repo)
 BATCH_PR_NUM=""
 BATCH_PR_RANGE=""
 BATCH_ALL=false
@@ -342,43 +342,75 @@ bitbucket_check_cli() {
     bkt auth status &>/dev/null || die "bkt CLI is not authenticated. Run: bkt auth login https://bitbucket.org --kind cloud --web"
 }
 
+# Resolve workspace/repo for Bitbucket API calls
+# Uses REPO_OVERRIDE (workspace/repo) if set, otherwise reads from bkt context
+BKT_WORKSPACE=""
+BKT_REPO=""
+bitbucket_resolve_repo() {
+    if [[ -n "$REPO_OVERRIDE" ]]; then
+        BKT_WORKSPACE="${REPO_OVERRIDE%%/*}"
+        BKT_REPO="${REPO_OVERRIDE#*/}"
+    elif [[ -z "$BKT_WORKSPACE" || -z "$BKT_REPO" ]]; then
+        BKT_WORKSPACE=$(bkt context list 2>/dev/null | grep -A2 '^\*' | grep 'workspace:' | awk '{print $2}')
+        BKT_REPO=$(bkt context list 2>/dev/null | grep -A2 '^\*' | grep 'repo:' | awk '{print $2}')
+    fi
+    [[ -n "$BKT_WORKSPACE" && -n "$BKT_REPO" ]] || die "Could not resolve Bitbucket workspace/repo. Use --repo workspace/repo or set a bkt context."
+}
+
+# Get --workspace/--repo flags for bkt pr commands when REPO_OVERRIDE is set
+bkt_repo_args() {
+    if [[ -n "$REPO_OVERRIDE" ]]; then
+        echo "--workspace ${BKT_WORKSPACE} --repo ${BKT_REPO}"
+    fi
+}
+
 # Returns JSON normalized to GitHub-compatible format
+# bkt pr view --json wraps data in .pull_request; unwrap first
+# Comments and diffstat fetched separately via API
 bitbucket_fetch_pr() {
     local pr_num="$1"
-    local pr_json
+    local pr_json comments_json diffstat_json
 
-    pr_json=$(bkt pr view "$pr_num" --json)
+    bitbucket_resolve_repo
+    pr_json=$(bkt pr view "$pr_num" $(bkt_repo_args) --json)
+    comments_json=$(bkt api "/repositories/${BKT_WORKSPACE}/${BKT_REPO}/pullrequests/${pr_num}/comments" 2>/dev/null || echo '{"values":[]}')
+    diffstat_json=$(bkt api "/repositories/${BKT_WORKSPACE}/${BKT_REPO}/pullrequests/${pr_num}/diffstat" 2>/dev/null || echo '{"values":[]}')
 
-    echo "$pr_json" | jq '{
+    echo "$pr_json" | jq --argjson comments "$comments_json" --argjson diffstat "$diffstat_json" '(.pull_request // .) | {
         title: .title,
-        body: (.description // ""),
+        body: (.summary.raw // .description // ""),
         author: {login: (.author.display_name // .author.nickname // "unknown")},
         labels: [],
         url: .links.html.href,
-        comments: [(.comments // [])[] | {
-            author: {login: (.author.display_name // .author.nickname // "unknown")},
-            body: (.content.raw // .body // ""),
+        comments: [($comments.values // [])[] | {
+            author: {login: (.user.display_name // .user.nickname // "unknown")},
+            body: (.content.raw // ""),
             createdAt: .created_on
         }],
-        createdAt: .created_on,
-        updatedAt: .updated_on,
+        createdAt: (.created_on // null),
+        updatedAt: (.updated_on // null),
         headRefName: .source.branch.name,
         baseRefName: .destination.branch.name,
         state: .state,
-        additions: 0,
-        deletions: 0,
-        changedFiles: 0
+        additions: ([$diffstat.values[]?.lines_added // 0] | add // 0),
+        deletions: ([$diffstat.values[]?.lines_removed // 0] | add // 0),
+        changedFiles: ($diffstat.values | length)
     }'
 }
 
 bitbucket_fetch_pr_diff() {
     local pr_num="$1"
-    bkt pr diff "$pr_num" 2>/dev/null || echo ""
+    bitbucket_resolve_repo
+    # bkt pr diff only supports Data Center; use API for Cloud
+    bkt api "/repositories/${BKT_WORKSPACE}/${BKT_REPO}/pullrequests/${pr_num}/diff" 2>/dev/null || echo ""
 }
 
 bitbucket_fetch_pr_files() {
-    # Bitbucket CLI may not support file listing directly
-    echo ""
+    local pr_num="$1"
+    bitbucket_resolve_repo
+    local diffstat
+    diffstat=$(bkt api "/repositories/${BKT_WORKSPACE}/${BKT_REPO}/pullrequests/${pr_num}/diffstat" 2>/dev/null) || { echo ""; return; }
+    echo "$diffstat" | jq -r '.values[] | "\((.new // .old).path) +\(.lines_added) -\(.lines_removed)"' 2>/dev/null || echo ""
 }
 
 bitbucket_fetch_pr_reviews() {
@@ -391,7 +423,8 @@ bitbucket_fetch_pr_review_comments() {
 }
 
 bitbucket_list_prs() {
-    bkt pr list --json | jq '[(.values // .[])[] | {
+    bitbucket_resolve_repo
+    bkt pr list $(bkt_repo_args) --json | jq '[(.pull_requests // .values // [])[] | {
         number: .id,
         title: .title,
         labels: [],
@@ -407,8 +440,13 @@ bitbucket_extract_pr_author() {
 
 bitbucket_resolve_contributor_email() {
     local username="$1"
-    # Bitbucket has no standard noreply scheme
-    echo "${username}@bitbucket.org"
+    # If the display_name is already an email address, use it directly
+    if [[ "$username" == *@* ]]; then
+        echo "$username"
+    else
+        # Bitbucket has no standard noreply scheme
+        echo "${username}@bitbucket.org"
+    fi
 }
 
 bitbucket_map_labels() {
@@ -426,7 +464,8 @@ bitbucket_format_comments() {
 
 bitbucket_preview_pr() {
     local pr_num="$1"
-    bkt pr view "$pr_num"
+    bitbucket_resolve_repo
+    bkt pr view "$pr_num" $(bkt_repo_args)
 }
 
 # --- Dispatcher Functions ---
@@ -1376,7 +1415,7 @@ Batch mode required flags (one of):
 Batch mode options:
   --batch                Enable batch mode (required for non-interactive)
   --source, -S PLATFORM  Source platform: github, gitlab, bitbucket (auto-detected)
-  --repo OWNER/REPO      GitLab repo override for cross-repo imports
+  --repo OWNER/REPO      GitLab/Bitbucket repo override for cross-repo imports
   --data-only            Only write intermediate data file, don't create task
   --priority, -p LEVEL   Override priority: high, medium (default), low
   --effort, -e LEVEL     Override effort: low, medium (default), high

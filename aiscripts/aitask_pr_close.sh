@@ -141,6 +141,18 @@ bitbucket_check_cli() {
     bkt auth status &>/dev/null || die "bkt CLI is not authenticated. Run: bkt auth login https://bitbucket.org --kind cloud --web"
 }
 
+# Extract workspace/repo from Bitbucket PR URL
+# Input: "https://bitbucket.org/workspace/repo/pull-requests/42"
+# Sets: BKT_WORKSPACE, BKT_REPO
+BKT_WORKSPACE=""
+BKT_REPO=""
+bitbucket_extract_repo_from_url() {
+    local url="$1"
+    # Pattern: https://bitbucket.org/<workspace>/<repo>/pull-requests/<num>
+    BKT_WORKSPACE=$(echo "$url" | sed -E 's|https?://bitbucket\.org/([^/]+)/([^/]+)/.*|\1|')
+    BKT_REPO=$(echo "$url" | sed -E 's|https?://bitbucket\.org/([^/]+)/([^/]+)/.*|\2|')
+}
+
 # Extract PR number from full Bitbucket URL
 # Input: "https://bitbucket.org/workspace/repo/pull-requests/42"
 # Output: "42"
@@ -154,7 +166,8 @@ bitbucket_extract_pr_number() {
 bitbucket_get_pr_status() {
     local pr_num="$1"
     local state
-    state=$(bkt pr view "$pr_num" --json | jq -r '.state')
+    # bkt pr view --json wraps data in .pull_request
+    state=$(bkt pr view "$pr_num" --workspace "$BKT_WORKSPACE" --repo "$BKT_REPO" --json | jq -r '(.pull_request // .).state')
     case "$state" in
         OPEN) echo "OPEN" ;;
         MERGED) echo "MERGED" ;;
@@ -163,22 +176,23 @@ bitbucket_get_pr_status() {
     esac
 }
 
-# Post a comment on a PR
+# Post a comment on a PR via API (bkt pr comment only supports Data Center)
 bitbucket_add_comment() {
     local pr_num="$1"
     local body="$2"
-    bkt pr comment "$pr_num" -b "$body"
+    bkt api --method POST "/repositories/${BKT_WORKSPACE}/${BKT_REPO}/pullrequests/${pr_num}/comments" \
+        --input "$(jq -nc --arg body "$body" '{"content":{"raw":$body}}')" >/dev/null
 }
 
 # Decline a PR with optional comment
-# Bitbucket uses "decline" instead of "close"
+# Uses API for comments (Cloud support), bkt pr decline for the decline action
 bitbucket_close_pr() {
     local pr_num="$1"
     local comment="$2"
     if [[ -n "$comment" ]]; then
-        bkt pr comment "$pr_num" -b "$comment"
+        bitbucket_add_comment "$pr_num" "$comment"
     fi
-    bkt pr decline "$pr_num"
+    bkt pr decline "$pr_num" --workspace "$BKT_WORKSPACE" --repo "$BKT_REPO"
 }
 
 # --- Dispatcher Functions ---
@@ -341,6 +355,11 @@ run_close() {
     # Extract repo slug for GitLab cross-repo support
     if [[ "$SOURCE" == "gitlab" ]]; then
         GITLAB_REPO_SLUG=$(gitlab_extract_repo_from_url "$pr_url")
+    fi
+
+    # Extract workspace/repo for Bitbucket API calls
+    if [[ "$SOURCE" == "bitbucket" ]]; then
+        bitbucket_extract_repo_from_url "$pr_url"
     fi
 
     source_check_cli
