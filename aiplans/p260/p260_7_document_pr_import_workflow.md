@@ -44,6 +44,13 @@ Add documentation for the PR import feature: command reference page for `ait pr-
 2. Verify sidebar navigation shows new entries
 3. Compare docs against actual CLI flags
 
+## Final Implementation Notes
+
+- **Actual work done:** Created 3 new documentation pages (`pr-import.md`, `aitask-pr-review.md`, `pr-workflow.md`) and updated 2 index pages (`commands/_index.md`, `skills/_index.md`). All 5 steps completed as planned.
+- **Deviations from plan:** Per user feedback during review: (1) `ait pr-close` was removed from documentation as it's not user-facing — it's automated internally by task-workflow during archival. The command page was renamed from `pr-integration.md` to `pr-import.md` since it only covers one command. (2) Skill page uses "Step-by-step" heading instead of "Workflow". (3) Workflow page expanded to document both interactive and batch modes of `ait pr-import`, and explains the automated lifecycle (contributor attribution + PR close) handled by task-workflow.
+- **Key decisions:** PR import is documented as a single-command page rather than multi-command; the workflow page serves as the connective tissue explaining how the pieces (script, skill, task-workflow) fit together.
+- **Notes for sibling tasks:** The workflow page (`pr-workflow.md`) cross-links to commands and skills using relative paths like `../../commands/pr-import/#ait-pr-import`. The t260_8 task (board integration) should update the board docs similarly. Hugo build verified at 87 pages, 658ms.
+
 ## Step 9 Reference
 
 Post-implementation: archive child task via `./aiscripts/aitask_archive.sh 260_7`
