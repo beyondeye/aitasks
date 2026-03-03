@@ -1046,11 +1046,13 @@ interactive_import_pr() {
 
     # Confirm import
     local confirm
-    confirm=$(printf "Import\nData-only (intermediate file)\nSkip" | fzf --prompt="Import this PR? " --height=8 --no-info)
+    confirm=$(printf "Import as task (basic — title, body, metadata only)\nExtract PR data only (for /aitask-pr-review skill)\nSkip" | \
+        fzf --prompt="Import this PR? " --height=10 --no-info \
+        --header="Data-only extracts to .aitask-pr-data/ for use with /aitask-pr-review")
     [[ "$confirm" == "Skip" || -z "$confirm" ]] && return 0
 
     local data_only=false
-    [[ "$confirm" == "Data-only"* ]] && data_only=true
+    [[ "$confirm" == "Extract PR data"* ]] && data_only=true
 
     if [[ "$data_only" == true ]]; then
         # Data-only mode: write intermediate file
@@ -1066,6 +1068,14 @@ interactive_import_pr() {
         success "Data file written: $data_file"
         return 0
     fi
+
+    info ""
+    info "Note: The /aitask-pr-review code agent skill provides additional features:"
+    info "  - AI analysis of PR purpose, quality, and concerns"
+    info "  - Implementation approach recommendations"
+    info "  - Codebase alignment checks and testing requirements"
+    info "  - Related task discovery and folding"
+    info ""
 
     # Task name: auto-generate, let user edit
     local auto_name
@@ -1223,24 +1233,28 @@ interactive_import_pr() {
 
     [[ -n "$labels" ]] && create_args+=(--labels "$labels")
 
+    # Ask how to save before creating
+    local save_action
+    save_action=$(printf "Finalize and commit (assign real task ID and commit)\nSave as draft (keep in aitasks/new/ for later finalization)" | \
+        fzf --prompt="How to save? " --height=8 --no-info \
+        --header="Finalize claims a real task ID and commits to git")
+
+    [[ -z "$save_action" ]] && save_action="Save as draft"
+
+    if [[ "$save_action" == "Finalize and commit"* ]]; then
+        create_args+=(--commit)
+    fi
+
     local result
     result=$(echo "$description" | "$SCRIPT_DIR/aitask_create.sh" "${create_args[@]}")
-    success "Created: $result"
-
-    # Git commit
     local created_file
     created_file="${result#Created: }"
-    read -rp "Commit to git? [Y/n] " commit_choice < /dev/tty
-    if [[ "$commit_choice" != "n" && "$commit_choice" != "N" ]]; then
-        local task_id
-        task_id=$(basename "$created_file" .md | grep -oE '^t[0-9]+')
-        local humanized_name
-        humanized_name=$(echo "$task_name" | tr '_' ' ')
-        git add "$created_file"
-        git commit -m "ait: Add task ${task_id}: ${humanized_name}"
-        local commit_hash
-        commit_hash=$(git rev-parse --short HEAD)
-        success "Committed: $commit_hash"
+
+    if [[ "$save_action" == "Finalize and commit"* ]]; then
+        success "Finalized and committed: $created_file"
+    else
+        success "Draft saved: $created_file"
+        info "Finalize later with: ait create (interactive) or --batch --finalize <file>"
     fi
 }
 
@@ -1316,6 +1330,11 @@ run_interactive_mode() {
     ait_warn_if_incapable_terminal
     command -v fzf &>/dev/null || die "fzf is required for interactive mode. Install via your package manager."
     source_check_cli
+
+    info "Tip: For AI-enriched PR import with analysis, implementation planning,"
+    info "and codebase alignment, use the code agent skill: /aitask-pr-review"
+    info "This bash script provides basic metadata import only."
+    echo ""
 
     local mode
     mode=$(printf "Specific PR number\nFetch open PRs and choose\nPR number range\nAll open PRs" | \
