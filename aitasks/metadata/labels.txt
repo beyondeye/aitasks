@@ -11,6 +11,7 @@ aitask_reviewguide
 aitask_wrap
 ait_dispatcher
 ait_settings
+auto-update
 bash_scripts
 claudeskills
 codeagent
