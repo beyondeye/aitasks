@@ -3,13 +3,14 @@ priority: low
 effort: low
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [readme]
+assigned_to: dario-e@beyond-eye.com
 pull_request: https://github.com/beyondeye/aitasks/pull/1
 contributor: beyondeye
 contributor_email: 5619462+beyondeye@users.noreply.github.com
 created_at: 2026-03-03 08:59
-updated_at: 2026-03-03 08:59
+updated_at: 2026-03-03 09:00
 ---
 
 ## PR Context
