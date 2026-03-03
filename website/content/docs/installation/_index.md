@@ -9,7 +9,9 @@ description: "Install aitasks and configure your development environment"
 
 > **macOS prerequisite:** [Homebrew](https://brew.sh) is required. Install it first if you haven't — `ait setup` uses it to install bash 5, Python 3, coreutils, and CLI tools.
 
-Install into your project directory:
+> **Important: Run from your project root.** The curl command (and `ait setup`) must be run from the root directory of your project — the directory that contains the `.git` folder. aitasks stores task files, plans, and configuration inside your repository, and relies on git for task IDs, locking, syncing, and archival. Installing in a subdirectory or a non-git directory will not work correctly.
+
+Install into your project directory (the git repository root):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash
@@ -34,11 +36,11 @@ After installing, run `ait setup` to install dependencies and configure Claude C
 **Already have the global `ait` shim?** If you've previously run `ait setup` on another project, the global shim at `~/.local/bin/ait` is already installed. You can bootstrap aitasks in any new project directory by simply running:
 
 ```bash
-cd /path/to/new-project
+cd /path/to/new-project    # Must be the git repository root
 ait setup
 ```
 
-The shim detects that no aitasks project exists, downloads the latest release, installs it, and then runs the full setup — all in one command.
+The shim detects that no aitasks project exists, downloads the latest release, installs it, and then runs the full setup — all in one command. Make sure you are at the root of the git repository (where `.git/` lives), not in a subdirectory.
 
 **Windows/WSL users:** See the [Windows/WSL Installation Guide](windows-wsl/) for step-by-step instructions including WSL setup, Claude Code installation, and terminal configuration.
 

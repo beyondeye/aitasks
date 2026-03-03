@@ -103,6 +103,33 @@ confirm_install() {
     if [[ -t 0 ]]; then
         echo ""
         info "Will install aitasks framework to: $INSTALL_DIR"
+
+        # Check if this looks like a git repo root
+        if git -C "$INSTALL_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
+            local git_root
+            git_root="$(git -C "$INSTALL_DIR" rev-parse --show-toplevel 2>/dev/null)" || true
+            if [[ -n "$git_root" && "$git_root" != "$INSTALL_DIR" ]]; then
+                warn "You are inside a git repository, but not at its root."
+                info "  Git root: $git_root"
+                info "  Current:  $INSTALL_DIR"
+                info "aitasks should be installed at the git repository root."
+                printf "  Continue installing here anyway? [y/N] "
+                read -r answer
+                case "${answer:-N}" in
+                    [Yy]*) ;;
+                    *) info "Aborted. Re-run from: $git_root"; exit 0 ;;
+                esac
+                return
+            fi
+        else
+            warn "No git repository found in $INSTALL_DIR"
+            info "aitasks is tightly integrated with git — task IDs, locking, and"
+            info "sync all require a git repository. You should install aitasks at"
+            info "the root of the project where you want to manage tasks."
+            info ""
+            info "If this is a new project, 'ait setup' will offer to run 'git init'."
+        fi
+
         printf "  Install here? [Y/n] "
         read -r answer
         case "${answer:-Y}" in

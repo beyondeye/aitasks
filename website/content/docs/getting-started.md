@@ -11,11 +11,13 @@ This guide walks you through aitasks from installation to completing your first 
 
 > **macOS:** [Homebrew](https://brew.sh) must be installed before running `ait setup`.
 
-In your project directory:
+In your project directory (the root of the git repository, where `.git/` lives):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash
 ```
+
+> **Why the project root?** aitasks is tightly integrated with git — it uses git branches for task IDs, locking, and syncing. Task and plan files are committed to your repository. Always run the installer and `ait setup` from the root directory of the git repo where you want to manage tasks.
 
 Then run the setup to install dependencies and configure Claude Code permissions:
 

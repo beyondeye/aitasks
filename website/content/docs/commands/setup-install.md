@@ -9,6 +9,8 @@ description: "ait setup and ait install commands"
 
 Cross-platform dependency installer and configuration tool. This is typically the first command to run after installing aitasks.
 
+> **Run from the project root.** Both `ait setup` and the curl installer must be executed from the root of your git repository (the directory containing `.git/`). aitasks stores task files, plans, skills, and configuration inside the repo and relies on git for task IDs, locking, and multi-machine synchronization.
+
 ```bash
 ait setup
 ```
@@ -20,7 +22,7 @@ ait setup
 1. **OS detection** — Automatically detects: macOS, Arch Linux, Debian/Ubuntu, Fedora/RHEL, WSL
 2. **CLI tools** — Installs missing tools (`fzf`, `gh`/`glab`/`bkt`, `jq`, `git`) via the platform's package manager (pacman, apt, dnf, brew). Auto-detects git remote platform to install the right CLI tool (`gh` for GitHub, `glab` for GitLab, `bkt` for Bitbucket). On macOS, requires [Homebrew](https://brew.sh) and also installs bash 5.x, Python 3, and coreutils
 3. **Version checks** — Verifies Bash >= 4.0 and Python >= 3.9. On macOS, offers to install/upgrade via Homebrew if versions are too old
-4. **Git repo** — Checks for an existing git repository; offers to initialize one and commit framework files if not found
+4. **Git repo** — Verifies you are inside a git repository. If no `.git/` is found, explains that aitasks is tightly integrated with git and asks to confirm this is the correct project directory before offering to run `git init`
 5. **Draft directory** — Creates `aitasks/new/` for local draft tasks and adds it to `.gitignore` so drafts stay local-only
 6. **Task ID counter** — Initializes the `aitask-ids` counter branch on the remote for atomic task numbering. This prevents duplicate task IDs when multiple PCs create tasks against the same repo
 7. **Python venv** — Creates virtual environment at `~/.aitask/venv/` and installs `textual`, `pyyaml`, `linkify-it-py`. Recreates the venv if existing Python is too old

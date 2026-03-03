@@ -552,7 +552,12 @@ done
 if [[ "${1:-}" == "setup" ]]; then
     echo ""
     echo "[ait] No aitasks project found in $PWD or any parent directory."
+    echo ""
+    echo "[ait] aitasks must be installed at the root of a git repository."
     echo "[ait] This will install the aitasks framework into: $PWD"
+    echo ""
+    echo "[ait] Make sure this is the root directory of the project where"
+    echo "[ait] you want to manage tasks (the directory containing .git/)."
     echo ""
 
     if [[ -t 0 ]]; then
@@ -627,18 +632,64 @@ ensure_git_repo() {
 
     # Check if we're inside a git repo
     if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
-        success "Git repository already initialized"
+        local git_root abs_project_dir
+        git_root="$(git -C "$project_dir" rev-parse --show-toplevel 2>/dev/null)" || true
+        abs_project_dir="$(cd "$project_dir" && pwd)"
+
+        if [[ -n "$git_root" && "$git_root" != "$abs_project_dir" ]]; then
+            warn "aitasks is installed in a subdirectory, not the git root."
+            info "  Git root:      $git_root"
+            info "  aitasks dir:   $abs_project_dir"
+            info "aitasks should be installed at the root of your git repository"
+            info "for task IDs, locking, and sync to work correctly."
+            if [[ -t 0 ]]; then
+                printf "  Continue with setup anyway? [y/N] "
+                read -r answer
+                case "${answer:-N}" in
+                    [Yy]*) ;;
+                    *)
+                        info "Aborted. Reinstall aitasks from the git root: $git_root"
+                        exit 1
+                        ;;
+                esac
+            fi
+        else
+            success "Git repository already initialized"
+        fi
         return
     fi
 
-    # Not a git repo — offer to initialize
-    warn "No git repository found in $project_dir"
-    info "The aitask framework is designed to be part of your project's git repository."
+    # Not a git repo — provide detailed explanation and offer to initialize
+    local abs_project_dir
+    abs_project_dir="$(cd "$project_dir" && pwd)"
+
+    warn "No git repository found in $abs_project_dir"
+    echo ""
+    info "aitasks is tightly integrated with git. It uses git for:"
+    info "  - Storing task and plan files as version-controlled markdown"
+    info "  - Atomic task ID assignment (via a shared counter branch)"
+    info "  - Task locking (prevents two agents picking the same task)"
+    info "  - Multi-machine sync (push/pull task data across machines)"
+    echo ""
+    info "This directory should be the root of the project where you want"
+    info "to manage tasks — the place where '.git/' lives (or will live)."
+    echo ""
+
     if [[ -t 0 ]]; then
+        printf "  Is this the correct project directory? [Y/n] "
+        read -r dir_answer
+        case "${dir_answer:-Y}" in
+            [Yy]*|"") ;;
+            *)
+                info "Aborted. cd to the correct project directory and re-run 'ait setup'."
+                exit 1
+                ;;
+        esac
+
         printf "  Initialize a git repository here? [Y/n] "
         read -r answer
     else
-        info "(non-interactive: auto-accepting default)"
+        info "(non-interactive: auto-accepting defaults)"
         answer="Y"
     fi
     case "${answer:-Y}" in
