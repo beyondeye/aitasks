@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [bash_scripts, git-integration]
-children_to_implement: [t260_7, t260_8]
+children_to_implement: [t260_8]
 created_at: 2026-02-26 15:04
-updated_at: 2026-03-02 15:22
+updated_at: 2026-03-03 11:59
 boardcol: now
 boardidx: 20
 ---
