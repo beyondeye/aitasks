@@ -7,7 +7,7 @@ status: Ready
 labels: [aitask_reviewguide]
 created_at: 2026-03-01 08:03
 updated_at: 2026-03-01 08:03
-boardidx: 90
+boardidx: 50
 boardcol: now
 ---
 
