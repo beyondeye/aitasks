@@ -29,6 +29,7 @@ description: "Complete CLI reference for all ait subcommands"
 |---------|-------------|
 | [`ait issue-import`](issue-integration/#ait-issue-import) | Import tasks from GitHub/GitLab/Bitbucket issues |
 | [`ait issue-update`](issue-integration/#ait-issue-update) | Update or close linked GitHub/GitLab/Bitbucket issues |
+| [`ait pr-import`](pr-import/#ait-pr-import) | Import pull requests as tasks or extract PR data for AI analysis |
 
 ### Reporting
 

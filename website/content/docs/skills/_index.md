@@ -23,6 +23,7 @@ aitasks provides Claude Code skills that automate the full task lifecycle. These
 | [`/aitask-wrap`](aitask-wrap/) | Wrap uncommitted changes into an aitask with retroactive documentation |
 | [`/aitask-stats`](aitask-stats/) | View completion statistics |
 | [`/aitask-changelog`](aitask-changelog/) | Generate changelog entries from commits and plans |
+| [`/aitask-pr-review`](aitask-pr-review/) | Analyze a pull request and create an aitask with implementation plan |
 | [`/aitask-review`](aitask-review/) | Review code using configurable review guides, then create tasks from findings |
 | [`/aitask-reviewguide-classify`](aitask-reviewguide-classify/) | Classify a review guide by assigning metadata and finding similar guides |
 | [`/aitask-reviewguide-merge`](aitask-reviewguide-merge/) | Compare two similar review guides and merge, split, or keep separate |
