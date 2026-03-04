@@ -62,7 +62,7 @@ assert_file_exists() {
 # --- Setup helpers ---
 
 # Get default branch name for the system
-DEFAULT_BRANCH="$(git config --global init.defaultBranch 2>/dev/null || echo "master")"
+DEFAULT_BRANCH="$(git config --global init.defaultBranch 2>/dev/null || echo "main")"
 
 setup_repo_with_remote() {
     local tmpdir

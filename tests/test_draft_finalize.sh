@@ -377,16 +377,19 @@ TMPDIR_11="$(setup_draft_project)"
 
 draft_name11=$(ls "$TMPDIR_11/local/aitasks/new"/ 2>/dev/null | head -1)
 
-# Finalize should FAIL (no silent fallback in non-interactive mode)
+# Finalize should SUCCEED using local counter fallback (t305)
 output11=$(cd "$TMPDIR_11/local" && ./aiscripts/aitask_create.sh --batch --finalize "$draft_name11" 2>&1)
 exit_code11=$?
 
-assert_eq "Finalize fails without network" "1" "$exit_code11"
-assert_contains "Error mentions ait setup" "ait setup" "$output11"
+assert_eq "Finalize succeeds without network (local counter)" "0" "$exit_code11"
 
-# Draft should still exist (finalization failed)
-draft_remaining11=$(ls "$TMPDIR_11/local/aitasks/new"/draft_*.md 2>/dev/null | wc -l)
-assert_eq "Draft preserved on failure" "1" "$draft_remaining11"
+# Draft should be removed (finalization succeeded)
+draft_remaining11=$(ls "$TMPDIR_11/local/aitasks/new"/draft_*.md 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "Draft removed after finalize" "0" "$draft_remaining11"
+
+# Finalized task file should exist
+finalized_count11=$(ls "$TMPDIR_11/local/aitasks"/t*_no_net.md 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "Finalized task file exists" "1" "$finalized_count11"
 
 rm -rf "$TMPDIR_11"
 

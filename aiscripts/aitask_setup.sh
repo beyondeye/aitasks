@@ -647,7 +647,7 @@ ensure_git_repo() {
     if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
         local git_root abs_project_dir
         git_root="$(git -C "$project_dir" rev-parse --show-toplevel 2>/dev/null)" || true
-        abs_project_dir="$(cd "$project_dir" && pwd)"
+        abs_project_dir="$(cd "$project_dir" && pwd -P)"
 
         if [[ -n "$git_root" && "$git_root" != "$abs_project_dir" ]]; then
             warn "aitasks is installed in a subdirectory, not the git root."

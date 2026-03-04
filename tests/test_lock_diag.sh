@@ -70,6 +70,7 @@ setup_paired_repos() {
         cp "$PROJECT_DIR/aiscripts/aitask_lock.sh" aiscripts/
         cp "$PROJECT_DIR/aiscripts/aitask_lock_diag.sh" aiscripts/
         cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
+        cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
         chmod +x aiscripts/*.sh
 
         git add -A

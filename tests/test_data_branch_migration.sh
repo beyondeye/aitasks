@@ -188,7 +188,7 @@ PLAN
 }
 
 # Get default branch name for the system
-DEFAULT_BRANCH="$(git config --global init.defaultBranch 2>/dev/null || echo "master")"
+DEFAULT_BRANCH="$(git config --global init.defaultBranch 2>/dev/null || echo "main")"
 
 echo "=== Data Branch Migration End-to-End Tests ==="
 echo ""

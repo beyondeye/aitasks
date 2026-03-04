@@ -8,6 +8,24 @@ TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_DIR/.." && pwd)"
 MERGE_SCRIPT="$PROJECT_DIR/aiscripts/board/aitask_merge.py"
 
+# Prefer aitask venv python, fall back to system python3
+VENV_PYTHON="$HOME/.aitask/venv/bin/python"
+if [[ -x "$VENV_PYTHON" ]]; then
+    TEST_PYTHON="$VENV_PYTHON"
+else
+    TEST_PYTHON="python3"
+fi
+
+# Check for required Python dependency
+if ! "$TEST_PYTHON" -c "import yaml" 2>/dev/null; then
+    echo "SKIP: PyYAML not installed (run 'ait setup' or 'pip3 install pyyaml')"
+    echo ""
+    echo "==============================="
+    echo "Results: 0 passed, 0 failed, 0 total (SKIPPED)"
+    echo "==============================="
+    exit 0
+fi
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -64,7 +82,7 @@ run_merge() {
     # Run aitask_merge.py from the board directory so imports work
     local file="$1"
     shift
-    (cd "$PROJECT_DIR/aiscripts/board" && python3 aitask_merge.py "$file" "$@") 2>/dev/null
+    (cd "$PROJECT_DIR/aiscripts/board" && "$TEST_PYTHON" aitask_merge.py "$file" "$@") 2>/dev/null
 }
 
 run_merge_with_stderr() {

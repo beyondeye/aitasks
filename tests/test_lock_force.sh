@@ -172,15 +172,15 @@ fi
 
 rm -rf "$TMPDIR_3"
 
-# --- Test 4: Exit code 10 (no remote) ---
-echo "--- Test 4: Exit code 10 (no remote) ---"
+# --- Test 4: No-op when no remote (t305) ---
+echo "--- Test 4: No-op when no remote (t305) ---"
 
 TMPDIR_4="$(setup_paired_repos)"
 (cd "$TMPDIR_4/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
 # Remove origin remote
 (cd "$TMPDIR_4/local" && git remote remove origin)
 
-assert_exit_code "Lock without remote exits 10" 10 bash -c "cd '$TMPDIR_4/local' && ./aiscripts/aitask_lock.sh --lock 1 --email 'user@test.com'"
+assert_exit_code "Lock without remote no-ops (exit 0)" 0 bash -c "cd '$TMPDIR_4/local' && ./aiscripts/aitask_lock.sh --lock 1 --email 'user@test.com'"
 
 rm -rf "$TMPDIR_4"
 
@@ -209,10 +209,10 @@ echo "--- Test 6: die_code structured exit codes ---"
 TMPDIR_6="$(setup_paired_repos)"
 (cd "$TMPDIR_6/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
 
-# Exit 10: remove remote
+# No remote: lock/unlock no-op with exit 0 (t305)
 (cd "$TMPDIR_6/local" && git remote remove origin)
-assert_exit_code "require_remote gives exit 10" 10 bash -c "cd '$TMPDIR_6/local' && ./aiscripts/aitask_lock.sh --lock 1 --email 'user@test.com'"
-assert_exit_code "unlock require_remote gives exit 10" 10 bash -c "cd '$TMPDIR_6/local' && ./aiscripts/aitask_lock.sh --unlock 1"
+assert_exit_code "lock without remote no-ops" 0 bash -c "cd '$TMPDIR_6/local' && ./aiscripts/aitask_lock.sh --lock 1 --email 'user@test.com'"
+assert_exit_code "unlock without remote no-ops" 0 bash -c "cd '$TMPDIR_6/local' && ./aiscripts/aitask_lock.sh --unlock 1"
 
 rm -rf "$TMPDIR_6"
 
