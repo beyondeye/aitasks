@@ -87,6 +87,19 @@ _detect_git_platform() {
     fi
 }
 
+# Check if a code agent CLI is installed on PATH.
+# Uses `command -v` which is a shell builtin that only checks if a command
+# exists on $PATH — it does NOT execute the agent or load anything.
+_is_agent_installed() {
+    case "$1" in
+        claude)    command -v claude &>/dev/null ;;
+        gemini)    command -v gemini &>/dev/null ;;
+        codex)     command -v codex &>/dev/null ;;
+        opencode)  command -v opencode &>/dev/null ;;
+        *)         return 1 ;;
+    esac
+}
+
 # --- CLI tools installation ---
 install_cli_tools() {
     local os="$1"
@@ -1183,8 +1196,8 @@ print(json.dumps(existing, indent=2))
     fi
 }
 
-# --- Install Claude Code permission settings ---
-install_claude_settings() {
+# --- Claude Code setup (settings, permissions) ---
+setup_claude_code() {
     local project_dir="$SCRIPT_DIR/.."
     local seed_file="$project_dir/aitasks/metadata/claude_settings.seed.json"
     local dest_dir="$project_dir/.claude"
@@ -1224,6 +1237,46 @@ install_claude_settings() {
     else
         info "  Existing .claude/settings.local.json found — merging permissions..."
         merge_claude_settings "$seed_file" "$dest_file"
+    fi
+}
+
+# --- Gemini CLI setup (placeholder) ---
+setup_gemini_cli() {
+    info "Gemini CLI setup (placeholder)"
+    info "  Future: install .gemini/ skills and commands"
+}
+
+# --- Codex CLI setup (placeholder) ---
+setup_codex_cli() {
+    info "Codex CLI setup (placeholder)"
+    info "  Future: install .codex/ prompts and .agents/ skills"
+}
+
+# --- OpenCode setup (placeholder) ---
+setup_opencode() {
+    info "OpenCode setup (placeholder)"
+    info "  Future: install .opencode/ skills and commands"
+}
+
+# --- Set up all code agent integrations ---
+setup_code_agents() {
+    # Claude Code settings are always installed (core framework infrastructure)
+    setup_claude_code
+
+    # Other agents: only set up if their CLI is installed
+    if _is_agent_installed gemini; then
+        echo ""
+        setup_gemini_cli
+    fi
+
+    if _is_agent_installed codex; then
+        echo ""
+        setup_codex_cli
+    fi
+
+    if _is_agent_installed opencode; then
+        echo ""
+        setup_opencode
     fi
 }
 
@@ -1587,7 +1640,7 @@ main() {
     install_global_shim
     echo ""
 
-    install_claude_settings
+    setup_code_agents
     echo ""
 
     setup_review_guides
