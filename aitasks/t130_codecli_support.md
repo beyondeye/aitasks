@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [aitasks, codexcli]
-children_to_implement: [t130_1, t130_2]
+children_to_implement: [t130_1, t130_2, t130_3]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-02-16 10:16
