@@ -3,11 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitasks, codexcli]
-assigned_to: ''
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-16 10:16
-updated_at: 2026-02-26 16:09
+updated_at: 2026-03-04 07:11
 boardcol: now
 boardidx: 80
 ---
