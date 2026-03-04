@@ -11,13 +11,79 @@ Base branch: main
 
 ## Overview
 
-Create 14 Codex CLI wrapper SKILL.md files in `.agents/skills/`, plus seed config and instructions files. Each wrapper is a thin file (~70 lines) that references the authoritative Claude Code skill and provides a Codex-specific tool mapping.
+Create 17 Codex CLI wrapper SKILL.md files in `.agents/skills/`, a shared tool mapping file, shared aitasks agent instructions seed, Codex-specific seed files, and project-specific `.codex/` config. Also remove the `AGENTS.md` symlink.
 
-## Step 1: Create wrapper SKILL.md files
+## Architecture Decisions
 
-For each of the 14 user-invocable skills, create `.agents/skills/<name>/SKILL.md`.
+### 1. Layered Instructions Architecture
 
-### Wrapper template
+Agent instructions follow a two-layer design:
+
+- **Layer 1: Shared** — `seed/aitasks_agent_instructions.seed.md` contains aitasks conventions common to ALL agents (Task File Format, Task Hierarchy, Git Operations, Commit Message Format)
+- **Layer 2: Agent-specific** — `seed/codex_instructions.seed.md` contains only Codex CLI-specific additions (skill invocation syntax, agent identification). It references Layer 1 but does NOT duplicate its content.
+
+During `ait setup`, the setup script assembles the final instructions file by combining both layers into the agent's instructions file (e.g., `.codex/instructions.md`).
+
+**Rationale:** Single source of truth for shared content. When conventions change, only `aitasks_agent_instructions.seed.md` needs updating — all agents benefit automatically during setup.
+
+### 2. Shared Tool Mapping File
+
+Instead of duplicating the tool mapping table and Codex CLI adaptations in each of the 17 wrapper SKILL.md files, a single shared file `.agents/skills/codex_tool_mapping.md` contains:
+- The Claude Code → Codex CLI tool mapping table
+- AskUserQuestion limits (3 options vs Claude's 4, Suggest mode only)
+- Plan mode adaptation (inline planning)
+- Sub-skill reference handling
+- Agent string identification format
+
+Each wrapper references this file: "For tool mapping and Codex CLI adaptations, read `.agents/skills/codex_tool_mapping.md`."
+
+### 3. AGENTS.md Removal
+
+The `AGENTS.md` symlink to `CLAUDE.md` was removed. Each agent now gets its own instructions file via the layered architecture. The `CLAUDE.md` title was updated from `# CLAUDE.md/AGENTS.md` to `# CLAUDE.md`. The `AGENTS.md` reference in `aiscripts/aitask_review_detect_env.sh` was kept (still valid for detecting AI agent config in other projects).
+
+### 4. Project-Specific vs Seed Files
+
+- **Seed files** (`seed/`) are templates installed by `ait setup` into user projects
+- **Project files** (`.codex/`, `.agents/`) are the installed/assembled result for THIS project
+- `.codex/instructions.md` contains the full assembled content (shared + Codex-specific) with a comment noting its source files
+- `.codex/config.toml` matches `seed/codex_config.seed.toml` (no aitasks-project-specific additions needed)
+
+## Files Created
+
+### Seed Files
+- `seed/aitasks_agent_instructions.seed.md` — Shared aitasks conventions for all agents
+- `seed/codex_instructions.seed.md` — Codex-specific additions (layered, references shared file)
+- `seed/codex_config.seed.toml` — Codex sandbox + prefix rules config
+
+### Skill Wrappers (17 files)
+- `.agents/skills/codex_tool_mapping.md` — Shared tool mapping and adaptations
+- `.agents/skills/aitask-changelog/SKILL.md`
+- `.agents/skills/aitask-create/SKILL.md`
+- `.agents/skills/aitask-explain/SKILL.md`
+- `.agents/skills/aitask-explore/SKILL.md`
+- `.agents/skills/aitask-fold/SKILL.md`
+- `.agents/skills/aitask-pick/SKILL.md`
+- `.agents/skills/aitask-pickrem/SKILL.md`
+- `.agents/skills/aitask-pickweb/SKILL.md`
+- `.agents/skills/aitask-pr-import/SKILL.md`
+- `.agents/skills/aitask-refresh-code-models/SKILL.md`
+- `.agents/skills/aitask-review/SKILL.md`
+- `.agents/skills/aitask-reviewguide-classify/SKILL.md`
+- `.agents/skills/aitask-reviewguide-import/SKILL.md`
+- `.agents/skills/aitask-reviewguide-merge/SKILL.md`
+- `.agents/skills/aitask-stats/SKILL.md`
+- `.agents/skills/aitask-web-merge/SKILL.md`
+- `.agents/skills/aitask-wrap/SKILL.md`
+
+### Project-Specific Files
+- `.codex/config.toml` — Assembled Codex config for aitasks repo
+- `.codex/instructions.md` — Assembled instructions for aitasks repo
+
+### Modified Files
+- `CLAUDE.md` — Title updated (removed `/AGENTS.md`)
+- `AGENTS.md` — Symlink removed
+
+## Wrapper Template (Compact)
 
 ```markdown
 ---
@@ -31,171 +97,87 @@ This is a Codex CLI wrapper. The authoritative skill definition is:
 
 **`.claude/skills/<skill-name>/SKILL.md`**
 
-Read that file and follow its complete workflow. The instructions below
-explain how to adapt Claude Code tool references for Codex CLI.
+Read that file and follow its complete workflow. For tool mapping and
+Codex CLI adaptations, read **`.agents/skills/codex_tool_mapping.md`**.
 
 ## Arguments
 
 <skill-specific argument documentation>
-
-## Tool Mapping (Claude Code → Codex CLI)
-
-When the source skill references Claude Code tools, use these Codex CLI equivalents:
-
-| Claude Code Tool | Codex CLI Equivalent | Notes |
-|---|---|---|
-| `AskUserQuestion` | `functions.request_user_input` | Max 3 questions per call, max 3 options per question. Only works in Suggest mode. |
-| `Bash(command)` | `functions.exec_command(command)` | Direct equivalent |
-| `Read(file)` | `functions.exec_command("cat <file>")` | Use cat for file reading |
-| `Write(file, content)` | `functions.apply_patch(...)` | Use Add File patch for new files |
-| `Edit(file, ...)` | `functions.apply_patch(...)` | Use Update File patch for edits |
-| `Glob(pattern)` | `functions.exec_command("find . -name '<pattern>'")` | Use find for file discovery |
-| `Grep(pattern)` | `functions.exec_command("grep -rn '<pattern>' .")` | Use grep/rg for content search |
-| `WebFetch(url)` | `web.run` with `open` | Web content fetching |
-| `WebSearch(query)` | `web.run` with `search_query` | Web search |
-| `EnterPlanMode` | _(not available)_ | Plan inline within the conversation |
-| `ExitPlanMode` | _(not available)_ | Plan inline within the conversation |
-| `Agent(...)` | _(not available)_ | Execute the sub-steps directly |
-| `Skill(name)` | Read the referenced SKILL.md file directly | No sub-skill invocation mechanism |
-
-## Codex CLI Adaptations
-
-### AskUserQuestion Limits
-
-Codex CLI's `request_user_input` supports max 3 options per question (Claude
-allows 4) and max 3 questions per call (Claude allows 4). When the source
-skill presents 4 options:
-
-1. Combine the two least critical options into one if semantically possible
-2. Or split into two sequential prompts
-3. Or drop the least essential option
-
-`request_user_input` only works in **Suggest mode**. If running in a mode
-where user input is not available, use execution profiles or reasonable defaults.
-
-### Plan Mode
-
-Codex CLI has no separate `EnterPlanMode`/`ExitPlanMode`. When the source
-skill references plan mode, plan inline: describe your approach as part of
-the conversation output before executing.
-
-### Sub-Skill References
-
-When the source skill says "read and follow `.claude/skills/<name>/SKILL.md`",
-read that file directly and follow its instructions. There is no sub-agent
-or sub-skill invocation mechanism.
-
-### Agent String
-
-When recording `implemented_with` in task metadata, identify as
-`codex/<model_name>`. Read `aitasks/metadata/models_codex.json` to find the
-matching `name` for your model ID. Construct as `codex/<name>`.
 ```
 
-### Skill-specific Arguments sections
+## Notes for Sibling Tasks
 
-| Skill | Arguments text |
-|---|---|
-| aitask-pick | `Accepts an optional task ID: $aitask-pick 16 (parent) or $aitask-pick 16_2 (child). Without argument, follows interactive selection.` |
-| aitask-create | `No arguments. Follows interactive task creation workflow.` |
-| aitask-explore | `No arguments. Follows interactive codebase exploration workflow.` |
-| aitask-fold | `Accepts optional task IDs: $aitask-fold 106,108,112 or $aitask-fold 106 108. Without arguments, follows interactive discovery.` |
-| aitask-review | `No arguments. Follows interactive code review workflow.` |
-| aitask-stats | `Accepts optional flags: --days N, --verbose/-v, --csv [FILE]. Example: $aitask-stats --days 14 --verbose` |
-| aitask-changelog | `No arguments. Analyzes commits and archived plans since last release.` |
-| aitask-wrap | `No arguments. Analyzes uncommitted changes and wraps into a task.` |
-| aitask-explain | `Accepts optional file/directory paths: $aitask-explain src/app.py or $aitask-explain src/lib/. Supports line ranges: path:start-end` |
-| aitask-pr-import | `Accepts a PR URL or number: $aitask-pr-import 42 or $aitask-pr-import https://github.com/org/repo/pull/42` |
-| aitask-reviewguide-classify | `Accepts an optional fuzzy pattern: $aitask-reviewguide-classify security. Without argument, runs batch mode.` |
-| aitask-reviewguide-import | `Accepts an optional source: $aitask-reviewguide-import https://... or $aitask-reviewguide-import path/to/file.md. Without argument, prompts for source.` |
-| aitask-reviewguide-merge | `Accepts 0-2 fuzzy patterns: $aitask-reviewguide-merge security error. Without arguments, runs batch discovery.` |
-| aitask-refresh-code-models | `No arguments. Researches latest models via web and updates configuration.` |
+### For t130_2 (Codex Setup Install)
 
-### How to get exact descriptions
+The setup script (`aiscripts/aitask_setup.sh`) needs to:
 
-Read each `.claude/skills/<name>/SKILL.md` first 5 lines to extract the `description:` field from frontmatter.
+1. **Assemble instructions from layers:** During `ait setup`, when Codex CLI is detected:
+   - Read `seed/aitasks_agent_instructions.seed.md` (shared layer)
+   - Read `seed/codex_instructions.seed.md` (Codex layer)
+   - Combine into `.codex/instructions.md` in the target project
+   - The assembled file should have shared content first, then Codex-specific sections
 
-## Step 2: Create seed/codex_config.seed.toml
+2. **Refactor `update_claudemd_git_section()`:** The current function (line ~805 in `aitask_setup.sh`) hardcodes the "Git Operations" section as an inline string. Refactor to read from `seed/aitasks_agent_instructions.seed.md` instead (just the Git Operations section, or the entire shared content). This makes CLAUDE.md consistent with the shared seed file.
 
-```toml
-# aitask framework — Codex CLI configuration seed
-# This file is merged into .codex/config.toml during `ait setup`
-# Only aitask-specific settings are included here
+3. **Install Codex skill wrappers:** Copy `.agents/skills/` directory (including `codex_tool_mapping.md` and all 17 wrapper dirs) to the target project.
 
-# Sandbox: allow writes to workspace + network access (needed for git push, web search)
-sandbox_mode = "workspace-write"
+4. **Install Codex config:** Copy/merge `seed/codex_config.seed.toml` into `.codex/config.toml` (similar to how `merge_claude_settings` handles `.claude/settings.local.json`).
 
-[sandbox_workspace_write]
-network_access = true
+5. **Handle existing `.codex/instructions.md`:** If the target project already has Codex instructions, merge/append the aitasks content (like how CLAUDE.md gets the Git Operations section appended).
 
-# Protective rules for destructive commands
-# NOTE: Codex prefix_rules only support "prompt" or "forbidden" decisions
-# There is no "allow" decision — commands cannot be pre-approved like in Claude Code
+6. **Consider other agents:** The same layered architecture applies to Gemini CLI and OpenCode. Create corresponding layer-2 seed files:
+   - `seed/gemini_instructions.seed.md`
+   - `seed/opencode_instructions.seed.md`
+   Each references Layer 1 (`aitasks_agent_instructions.seed.md`) and adds agent-specific sections.
 
-[[rules.prefix_rules]]
-pattern = [{ token = "rm" }, { any_of = ["-rf", "-r", "-fr"] }]
-decision = "prompt"
-justification = "Recursive deletion requires approval"
+### For t130_3 (Codex Docs Update)
 
-[[rules.prefix_rules]]
-pattern = [{ token = "git" }, { token = "push" }, { token = "--force" }]
-decision = "prompt"
-justification = "Force push requires approval"
-
-[[rules.prefix_rules]]
-pattern = [{ token = "git" }, { token = "reset" }, { token = "--hard" }]
-decision = "prompt"
-justification = "Hard reset requires approval"
-```
-
-## Step 3: Create seed/codex_instructions.seed.md
-
-```markdown
-# Codex CLI Instructions for aitasks
-
-This project uses the **aitasks** framework for file-based task management.
-See `CLAUDE.md` (or `AGENTS.md`) for full project documentation including
-conventions, architecture, and commit message format.
-
-## Skills
-
-aitasks skills are available in `.agents/skills/`. Each skill is a wrapper
-that references the authoritative Claude Code skill in `.claude/skills/`.
-Read the wrapper for tool mapping guidance.
-
-Invoke skills with `$skill-name` syntax (e.g., `$aitask-pick 16`).
-
-## Key Conventions
-
-- Tasks are markdown files in `aitasks/` with YAML frontmatter
-- Plans go in `aiplans/`
-- Use `./ait git` (not plain `git`) for task/plan file operations
-- Commit format: `<type>: <description> (tNN)`
-- Shell scripts use `#!/usr/bin/env bash` and `set -euo pipefail`
-- Follow portability notes in CLAUDE.md (sed, grep, wc, mktemp, base64)
-
-## Agent Identification
-
-When recording `implemented_with` in task metadata, identify as
-`codex/<model_name>` using `aitasks/metadata/models_codex.json` for
-model name resolution.
-```
-
-## Step 4: Create .codex/config.toml (aitasks-project-specific)
-
-Same content as seed plus aitasks-project-specific settings (if any). For now, the seed content is sufficient.
-
-## Step 5: Create .codex/instructions.md (aitasks-project-specific)
-
-Same as seed instructions, since this IS the aitasks project.
+1. **Document the layered architecture** in the website/docs
+2. **Explain the seed file system:** Layer 1 (shared) + Layer 2 (agent-specific)
+3. **Document `$skill-name` invocation** for Codex CLI users
+4. **Reference the tool mapping file** `.agents/skills/codex_tool_mapping.md`
 
 ## Verification
 
-- [ ] All 14 `.agents/skills/<name>/SKILL.md` files exist
-- [ ] Each wrapper name/description matches Claude Code skill
-- [ ] `seed/codex_config.seed.toml` is valid TOML
-- [ ] `seed/codex_instructions.seed.md` references CLAUDE.md
-- [ ] `.codex/config.toml` and `.codex/instructions.md` exist
+- [x] All 17 `.agents/skills/<name>/SKILL.md` files exist
+- [x] Each wrapper's name/description matches Claude Code skill
+- [x] Shared tool mapping in `.agents/skills/codex_tool_mapping.md`
+- [x] `seed/aitasks_agent_instructions.seed.md` exists with shared content
+- [x] `seed/codex_config.seed.toml` is valid TOML
+- [x] `seed/codex_instructions.seed.md` does NOT duplicate shared content (layered)
+- [x] `.codex/config.toml` and `.codex/instructions.md` exist
+- [x] `AGENTS.md` symlink removed
+- [x] CLAUDE.md title updated
+
+## Post-Review Changes
+
+### Change Request 1 (2026-03-04 23:00)
+- **Requested by user:** Extract Tool Mapping and Codex CLI Adaptations into a shared file referenced by all wrappers instead of duplicating in each
+- **Changes made:** Created `.agents/skills/codex_tool_mapping.md` with shared content; rewrote all 17 wrappers to compact format (~17 lines each) referencing the shared file
+- **Files affected:** All 17 `.agents/skills/*/SKILL.md` files, new `.agents/skills/codex_tool_mapping.md`
+
+### Change Request 2 (2026-03-04 23:05)
+- **Requested by user:** Make `codex_instructions.seed.md` layered — only Codex-specific additions, not duplicated shared content
+- **Changes made:** Rewrote `seed/codex_instructions.seed.md` to reference `seed/aitasks_agent_instructions.seed.md` for shared content; kept only Codex-specific sections (Skills, Agent Identification)
+- **Files affected:** `seed/codex_instructions.seed.md`
+
+### Change Request 3 (2026-03-04 23:10)
+- **Requested by user:** Document architectural decisions in the plan for sibling tasks
+- **Changes made:** Added Architecture Decisions section and Notes for Sibling Tasks section to plan
+- **Files affected:** `aiplans/p130/p130_1_codex_skill_wrappers.md`
+
+### Change Request 4 (2026-03-04 23:15)
+- **Requested by user:** Simplify preamble in agent instructions to: "This project uses the aitasks framework for task management. Tasks are markdown files with YAML frontmatter stored in git."
+- **Changes made:** Updated preamble in all 3 instruction files
+- **Files affected:** `seed/aitasks_agent_instructions.seed.md`, `seed/codex_instructions.seed.md`, `.codex/instructions.md`
+
+## Final Implementation Notes
+
+- **Actual work done:** Created 17 Codex CLI skill wrappers, shared tool mapping file, layered agent instructions (shared + Codex-specific), Codex config seed, project-specific `.codex/` files. Removed `AGENTS.md` symlink and updated `CLAUDE.md` title.
+- **Deviations from plan:** Original plan specified 14 skills with inline tool mapping; expanded to 17 skills (added pickrem, pickweb, web-merge) with shared tool mapping file. Changed from monolithic to layered instructions architecture per user feedback.
+- **Issues encountered:** Initial implementation duplicated content across all wrappers and in codex_instructions.seed.md. Resolved by extracting shared content into referenced files.
+- **Key decisions:** (1) Layered instructions: Layer 1 shared + Layer 2 agent-specific. (2) Single shared `codex_tool_mapping.md` for all wrappers. (3) `AGENTS.md` symlink removed — each agent gets its own instructions file.
+- **Notes for sibling tasks:** t130_2 needs to implement assembly logic in `ait setup` (combine Layer 1 + Layer 2 into each agent's instructions file), copy `.agents/skills/` to target projects, and refactor `update_claudemd_git_section()` to use the shared seed. t130_3 needs to document the layered architecture and `$skill-name` invocation. See "Notes for Sibling Tasks" section above for full details.
 
 ## Step 9 Reference
 
