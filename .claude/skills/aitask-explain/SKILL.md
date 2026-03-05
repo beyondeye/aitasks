@@ -1,6 +1,6 @@
 ---
 name: aitask-explain
-description: Explain files in the project: functionality, usage examples, and code evolution history traced through aitasks.
+description: "Explain files in the project: functionality, usage examples, and code evolution history traced through aitasks."
 ---
 
 ## Workflow
