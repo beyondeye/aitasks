@@ -25,7 +25,7 @@ ait setup
 4. **Git repo** — Verifies you are inside a git repository. If no `.git/` is found, explains that aitasks is tightly integrated with git and asks to confirm this is the correct project directory before offering to run `git init`
 5. **Draft directory** — Creates `aitasks/new/` for local draft tasks and adds it to `.gitignore` so drafts stay local-only
 6. **Task ID counter** — Initializes the `aitask-ids` counter branch on the remote for atomic task numbering. This prevents duplicate task IDs when multiple PCs create tasks against the same repo
-7. **Python venv** — Creates virtual environment at `~/.aitask/venv/` and installs `textual`, `pyyaml`, `linkify-it-py`. Recreates the venv if existing Python is too old
+7. **Python venv** — Creates virtual environment at `~/.aitask/venv/` and installs `textual`, `pyyaml`, `linkify-it-py`. Prompts whether to also install optional `plotext` support for `ait stats --plot`. Recreates the venv if existing Python is too old
 8. **Global shim** — Installs `ait` shim at `~/.local/bin/ait` that finds the nearest project-local `ait` dispatcher by walking up the directory tree. Warns if `~/.local/bin` is not in PATH
 9. **Claude Code permissions** — Shows the recommended permission entries, then prompts Y/n to install them into `.claude/settings.local.json`. If settings already exist, merges permissions (union of allow-lists)
 10. **Version check** — Compares local version against latest GitHub release and suggests update if newer

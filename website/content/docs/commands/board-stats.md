@@ -52,6 +52,8 @@ ait stats                  # Basic stats (last 7 days)
 ait stats -d 14            # Extended daily view
 ait stats -v               # Verbose with task IDs
 ait stats --csv            # Export to CSV
+ait stats --plot           # Interactive terminal charts (plotext)
+ait stats --csv out.csv --plot  # Combine CSV export and charts
 ait stats -w sun           # Week starts on Sunday
 ```
 
@@ -61,6 +63,7 @@ ait stats -w sun           # Week starts on Sunday
 | `-w, --week-start DAY` | First day of week: mon, sun, tue, etc. (default: Monday) |
 | `-v, --verbose` | Show individual task IDs in daily breakdown |
 | `--csv [FILE]` | Export raw data to CSV (default: aitask_stats.csv) |
+| `--plot` | Show interactive terminal chart summary (optional `plotext`) |
 
 **Statistics provided:**
 
@@ -75,3 +78,5 @@ ait stats -w sun           # Week starts on Sunday
 **Data sources:** Scans archived parent tasks (`aitasks/archived/t*_*.md`), archived child tasks (`aitasks/archived/t*/`), and compressed archives (`old.tar.gz`). Uses `completed_at` field, falling back to `updated_at` for tasks with `status: Done`.
 
 **CSV export format:** `date, day_of_week, week_offset, task_id, labels, issue_type, task_type`. Open in LibreOffice Calc for custom charts and pivot tables.
+
+**Plot mode:** `--plot` uses optional `plotext` to render interactive terminal charts. Install it during `ait setup` when prompted for stats graph support.

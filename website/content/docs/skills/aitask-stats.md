@@ -24,4 +24,7 @@ Runs `./aiscripts/aitask_stats.sh` and displays the results. Provides the same 7
 - Task type weekly trends
 - Label + issue type trends
 
-Supports all command-line options (`-d`, `-v`, `--csv`, `-w`). For CSV export, provides guidance on opening the file in LibreOffice Calc with pivot tables and charts.
+Supports all command-line options (`-d`, `-v`, `--csv`, `-w`, `--plot`).
+`--plot` shows interactive terminal charts when optional `plotext` is installed
+(can be enabled via `ait setup`).
+For CSV export, provides guidance on opening the file in LibreOffice Calc with pivot tables and charts.

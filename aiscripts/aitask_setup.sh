@@ -487,9 +487,25 @@ setup_python_venv() {
         "$python_cmd" -m venv "$VENV_DIR"
     fi
 
+    local install_plotext=false
+    if [[ -t 0 ]]; then
+        info "Optional dependency: stats graph support (plotext)"
+        printf "  Install plotext for 'ait stats --plot'? [y/N] "
+        read -r answer
+        case "${answer:-N}" in
+            [Yy]*) install_plotext=true ;;
+        esac
+    fi
+
     info "Installing/upgrading Python dependencies..."
     "$VENV_DIR/bin/pip" install --quiet --upgrade pip
     "$VENV_DIR/bin/pip" install --quiet textual pyyaml linkify-it-py tomli
+    if [[ "$install_plotext" == true ]]; then
+        "$VENV_DIR/bin/pip" install --quiet plotext
+        info "Installed optional stats graph dependency: plotext"
+    else
+        info "Skipped optional stats graph dependency (plotext)"
+    fi
 
     success "Python venv ready at $VENV_DIR"
 }
