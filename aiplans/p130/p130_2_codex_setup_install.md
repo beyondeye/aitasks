@@ -303,13 +303,18 @@ setup_codex_cli() {
 
 ## Verification
 
-- [ ] `shellcheck aiscripts/aitask_setup.sh` passes
-- [ ] `shellcheck install.sh` passes
-- [ ] TOML merge works: create test config, run merge, verify output
-- [ ] Release workflow YAML is valid
-- [ ] Conditional install: user says "n" → no files copied
-- [ ] Fresh install: no `.codex/config.toml` → copied from seed
-- [ ] Existing install: `.codex/config.toml` exists → merged
+- [x] `shellcheck aiscripts/aitask_setup.sh` passes (no new warnings)
+- [x] `shellcheck install.sh` passes (no new warnings)
+- [x] Release workflow YAML updated with codex_skills/ staging
+- [x] 55 assertions across 15 automated tests pass (`tests/test_agent_instructions.sh`)
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all 7 steps from plan plus added unified marker-based instruction management (`>>>aitasks`/`<<<aitasks`), refactored `update_claudemd_git_section()` to use the new system, added `merge_codex_settings()` using venv Python with `tomllib`/`tomli` fallback, added `tomli` to venv pip deps, and created 15 automated test cases.
+- **Deviations from plan:** Significant scope expansion beyond original plan — added unified marker-based instruction management system (not in original plan), refactored existing Claude Code instruction insertion to use the same mechanism, added `codex_tool_mapping.md` to staging/install pipeline (gap fix), added `aitasks_agent_instructions.seed.md` to seed storage (gap fix), added layered instruction assembly for `.codex/instructions.md` (gap fix). `merge_codex_settings()` uses venv Python (`$VENV_DIR/bin/python`) instead of system python3 for consistency with other aitask scripts.
+- **Issues encountered:** Original plan didn't account for `codex_tool_mapping.md` standalone file (only handled `aitask-*/` dirs), didn't store the shared agent instructions seed to `aitasks/metadata/`, and didn't assemble instructions from layers.
+- **Key decisions:** (1) `>>>aitasks`/`<<<aitasks` markers for idempotent insert/replace in any agent config file. (2) `assemble_aitasks_instructions()` supports any agent type via Layer 1 (shared) + optional Layer 2 (agent-specific). (3) Claude Code path uses `"claude"` agent type (ready for future `claude_instructions.seed.md`). (4) `tomli` added to venv deps as safety for Python 3.9/3.10.
+- **Notes for sibling tasks:** t130_3 (docs update) should document the marker system and layered instruction architecture. The `>>>aitasks`/`<<<aitasks` pattern is important for users who already have existing CLAUDE.md or `.codex/instructions.md` files — aitasks content is delimited and replaceable without affecting user content.
 
 ## Step 9 Reference
 
