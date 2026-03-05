@@ -263,6 +263,8 @@ Read `post_plan_action` from profile (default: `start_implementation`).
 
 ### Step 8: Implement
 
+**Record implementing agent:** Execute the **Agent Attribution Procedure** (see `../task-workflow/procedures.md`) to record which code agent and model is implementing this task.
+
 Follow the approved plan, working in the current directory.
 
 Update the external plan file as you progress:

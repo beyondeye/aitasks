@@ -185,26 +185,6 @@ If `active_profile` is null (either because no profile was selected by the calli
 
 - **Store previous status for potential abort** (remember the `previous_status` from context)
 
-- **Record implementing agent:**
-
-  Determine the agent string to record as `implemented_with` in the task frontmatter:
-
-  1. **Check `AITASK_AGENT_STRING` env var** — if set (by the codeagent wrapper), use its value directly.
-
-  2. **If not set, self-detect:**
-     - Identify which code agent CLI you are running in: `claudecode`, `geminicli`, `codex`, or `opencode`
-     - Identify your current model ID from your system context (e.g., for Claude Code: the "exact model ID" from the system message, like `claude-opus-4-6`)
-     - Read the corresponding model config file: `aitasks/metadata/models_<agent>.json`
-     - Find the model entry whose `cli_id` matches your model ID
-     - Extract the `name` field from that entry (e.g., `opus4_6`)
-     - Construct the agent string as `<agent>/<name>` (e.g., `claudecode/opus4_6`)
-     - If no matching entry is found, use `<agent>/<model_id>` as fallback (e.g., `claudecode/claude-opus-4-6`) — the raw model ID from the system context
-
-  3. **Write to frontmatter:**
-     ```bash
-     ./aiscripts/aitask_update.sh --batch <task_num> --implemented-with "<agent_string>" --silent
-     ```
-
 ### Step 5: Environment and Branch Setup
 
 > **Note:** For fully autonomous remote workflows (Claude Code Web), use the `aitask-pickrem` skill instead — it skips all environment setup and always works on the current branch.
@@ -261,6 +241,8 @@ If `active_profile` is null (either because no profile was selected by the calli
 > After the checkpoint in `planning.md`, proceed to Step 7.
 
 ### Step 7: Implement
+
+**Record implementing agent:** Execute the **Agent Attribution Procedure** (see `procedures.md`) to record which code agent and model is implementing this task.
 
 Follow the approved plan, working in the directory specified in the plan metadata.
 
@@ -486,6 +468,7 @@ The following procedures are in `procedures.md` — read on demand when referenc
 - **Issue Update Procedure** — Update/close linked issues during archival. Referenced from Step 9.
 - **PR Close/Decline Procedure** — Close/decline linked pull requests during archival. Referenced from Step 9.
 - **Contributor Attribution Procedure** — Credit PR contributors in commit messages. Referenced from Step 8.
+- **Agent Attribution Procedure** — Record implementing code agent and model. Referenced from Step 7.
 - **Lock Release Procedure** — Release task locks. Referenced from Task Abort Procedure.
 
 ---

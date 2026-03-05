@@ -212,6 +212,8 @@ Read `post_plan_action` from profile (default: `start_implementation`).
 
 ### Step 6: Implement
 
+**Record implementing agent:** Execute the **Agent Attribution Procedure** (see `../task-workflow/procedures.md`) to detect which code agent and model is implementing this task. Since pickweb does not call `aitask_update.sh`, store the agent string in memory for inclusion in the completion marker JSON (Step 8).
+
 Follow the approved plan, working in the current directory.
 
 Update the plan file in `.aitask-data-updated/` as you progress:
@@ -294,6 +296,7 @@ mkdir -p .aitask-data-updated
   "is_child": <true|false>,
   "parent_id": <"parent_num"|null>,
   "issue_type": "<issue_type from frontmatter>",
+  "implemented_with": "<agent_string from Step 6>",
   "completed_at": "<YYYY-MM-DD HH:MM>",
   "branch": "<current branch name>"
 }

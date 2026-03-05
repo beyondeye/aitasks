@@ -228,6 +228,8 @@ git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
 
 Extract `<N>` from the filename `t<N>_<name>.md`.
 
+**Record implementing agent:** Execute the **Agent Attribution Procedure** (see `../task-workflow/procedures.md`) for task t\<N\> to record which code agent and model performed this wrap.
+
 #### 4b: Create Plan File
 
 Write the plan file to `aiplans/p<N>_<name>.md`:

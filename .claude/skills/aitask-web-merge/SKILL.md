@@ -27,7 +27,7 @@ Run the helper script to detect branches with completion markers:
 git show origin/<branch>:.aitask-data-updated/<marker>
 ```
 
-Parse the JSON to extract: `task_id`, `task_file`, `plan_file`, `is_child`, `parent_id`, `issue_type`, `completed_at`, `branch`.
+Parse the JSON to extract: `task_id`, `task_file`, `plan_file`, `is_child`, `parent_id`, `issue_type`, `implemented_with` (if present), `completed_at`, `branch`.
 
 Build a list of candidate branches with this metadata.
 
@@ -123,9 +123,15 @@ mkdir -p <target_directory>
 ./ait git commit -m "ait: Add web-completed plan for t<task_id>"
 ```
 
-### Step 5: Archive Task
+### Step 5: Apply Agent Attribution and Archive Task
 
-Run the archive script:
+**If `implemented_with` is present in the completion marker JSON:**
+
+```bash
+./aiscripts/aitask_update.sh --batch <task_id> --implemented-with "<implemented_with>" --silent
+```
+
+**Run the archive script:**
 
 ```bash
 ./aiscripts/aitask_archive.sh <task_id>

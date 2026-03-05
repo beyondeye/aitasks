@@ -9,6 +9,7 @@ the main workflow steps and should be read on demand when referenced.
 - [Issue Update Procedure](#issue-update-procedure) — Referenced from Step 9
 - [PR Close/Decline Procedure](#pr-closedecline-procedure) — Referenced from Step 9
 - [Contributor Attribution Procedure](#contributor-attribution-procedure) — Referenced from Step 8
+- [Agent Attribution Procedure](#agent-attribution-procedure) — Referenced from Step 7, aitask-wrap, aitask-pickrem, aitask-pickweb
 - [Lock Release Procedure](#lock-release-procedure) — Referenced from Task Abort Procedure
 
 ---
@@ -162,6 +163,32 @@ This procedure is referenced from Step 8 wherever code changes are being committ
 - `Co-authored-by` is preferred over `--author` — the contributor inspired the work but the current implementer wrote this specific code
 - The `contributor_email` is pre-computed during PR import and stored in task metadata — no API call needed at commit time
 - Both GitHub and GitLab display `Co-authored-by` contributors in the commit UI and count them as contributions
+
+## Agent Attribution Procedure
+
+This procedure records which code agent and LLM model is executing the task by setting the `implemented_with` field in the task's frontmatter. It is referenced from Step 7 (task-workflow), aitask-wrap (Step 4a), aitask-pickrem (Step 8), and aitask-pickweb (Step 6).
+
+**When to execute:** At the start of implementation, after plan mode has been exited. This timing is critical because some code agents (e.g., Codex CLI) run initial workflow steps in plan mode, which is read-only and cannot write metadata.
+
+**Procedure:**
+
+1. **Check `AITASK_AGENT_STRING` env var** — if set (by the codeagent wrapper), use its value directly as the agent string. Skip to step 3.
+
+2. **If not set, self-detect:**
+   - Identify which code agent CLI you are running in: `claudecode`, `geminicli`, `codex`, or `opencode`
+   - Identify your current model ID from your system context (e.g., for Claude Code: the "exact model ID" from the system message, like `claude-opus-4-6`)
+   - Read the corresponding model config file: `aitasks/metadata/models_<agent>.json`
+   - Find the model entry whose `cli_id` matches your model ID
+   - Extract the `name` field from that entry (e.g., `opus4_6`)
+   - Construct the agent string as `<agent>/<name>` (e.g., `claudecode/opus4_6`)
+   - If no matching entry is found, use `<agent>/<model_id>` as fallback (e.g., `claudecode/claude-opus-4-6`) — the raw model ID from the system context
+
+3. **Write to frontmatter:**
+   ```bash
+   ./aiscripts/aitask_update.sh --batch <task_num> --implemented-with "<agent_string>" --silent
+   ```
+
+**Variant for aitask-pickweb:** Since pickweb does not call `aitask_update.sh` (no cross-branch operations), store the agent string in the completion marker JSON instead (add an `"implemented_with"` field). The `aitask-web-merge` skill will apply it during archival.
 
 ## Lock Release Procedure
 
