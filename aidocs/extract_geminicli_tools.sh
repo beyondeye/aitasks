@@ -9,7 +9,8 @@ Write all the tools descriptions to aidocs/geminicli_tools.md with the current d
 
 Requirements:
 - Use the current working project root.
-- Include all available tools to the LLM in Gemini CLI for this session.
+- Include only built-in tools available to the LLM in Gemini CLI for this session.
+- Do NOT include skills, custom commands, or user-defined extensions — only tools.
 - For each tool, include functionality and arguments.
 - The output must be in Markdown format.
 - Save the final result only to aidocs/geminicli_tools.md.
