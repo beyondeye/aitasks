@@ -6,6 +6,7 @@ issue_type: documentation
 status: Implementing
 labels: [aitasks, codexcli, website]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt-5
 created_at: 2026-03-04 10:46
 updated_at: 2026-03-05 22:34
 ---

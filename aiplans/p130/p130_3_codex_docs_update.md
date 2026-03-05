@@ -50,10 +50,18 @@ Around line 25-26 where it mentions slash commands, add:
 
 ## Verification
 
-- [ ] Website builds: `cd website && hugo build --gc --minify`
-- [ ] Skills page shows the multi-agent callout
-- [ ] No broken links
+- [x] Website builds: `cd website && hugo build --gc --minify`
+- [x] Skills page shows the multi-agent callout
+- [x] No broken links
 
 ## Step 9 Reference
 
 After implementation, follow task-workflow Step 9 for archival and cleanup.
+
+## Final Implementation Notes
+
+- **Actual work done:** Updated three website pages to document multi-agent invocation syntax. The skills index now uses "Code Agent Skills", explains Claude `/` vs Codex `$` invocation, and includes a plan-mode prerequisite note for interactive Codex flows.
+- **Deviations from plan:** Expanded beyond the minimal callout by also updating page-level branding text and adding concise Codex command guidance in Getting Started and the homepage feature card.
+- **Issues encountered:** None. Hugo build completed successfully after edits.
+- **Key decisions:** Kept support claims accurate by stating Gemini/OpenCode availability as wrapper-dependent rather than default-installed.
+- **Notes for sibling tasks:** This task establishes wording pattern for cross-agent docs: explicit command syntax mapping (`/skill` vs `$skill`) plus plan-mode requirement wherever interactive Codex workflows are referenced.
