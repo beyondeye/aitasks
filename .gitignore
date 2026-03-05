@@ -1,5 +1,7 @@
 # Draft tasks (local, not committed)
 aitasks/new/
+aiscripts/__pycache__/
+aiscripts/**/__pycache__/
 aiscripts/board/__pycache__/
 aiscripts/codebrowser/__pycache__/
 

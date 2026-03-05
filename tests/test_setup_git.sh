@@ -36,6 +36,17 @@ assert_contains() {
     fi
 }
 
+assert_not_contains() {
+    local desc="$1" unexpected="$2" actual="$3"
+    TOTAL=$((TOTAL + 1))
+    if echo "$actual" | grep -qi "$unexpected"; then
+        FAIL=$((FAIL + 1))
+        echo "FAIL: $desc (output should NOT contain '$unexpected')"
+    else
+        PASS=$((PASS + 1))
+    fi
+}
+
 assert_dir_exists() {
     local desc="$1" dir="$2"
     TOTAL=$((TOTAL + 1))
@@ -378,6 +389,34 @@ rm -rf "$TMPDIR_13"
 source "$PROJECT_DIR/aiscripts/aitask_setup.sh" --source-only
 set +euo pipefail
 SCRIPT_DIR="$PROJECT_DIR/aiscripts"
+
+# --- Test 14: commit_framework_files skips pycache and includes codex paths ---
+echo "--- Test 14: Skips pycache and includes Codex files ---"
+
+TMPDIR_14="$(setup_fake_project)"
+(cd "$TMPDIR_14" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" \
+    && echo "init" > "$TMPDIR_14/readme.txt" && git add readme.txt && git commit -m "init" --quiet)
+
+# Create codex-related framework files and python cache artifacts.
+mkdir -p "$TMPDIR_14/.agents/skills/aitask-pick"
+echo "# wrapper" > "$TMPDIR_14/.agents/skills/aitask-pick/SKILL.md"
+mkdir -p "$TMPDIR_14/.codex"
+echo "sandbox_mode = \"workspace-write\"" > "$TMPDIR_14/.codex/config.toml"
+mkdir -p "$TMPDIR_14/aiscripts/__pycache__"
+echo "bytecode" > "$TMPDIR_14/aiscripts/__pycache__/test.cpython-314.pyc"
+
+SCRIPT_DIR="$TMPDIR_14/aiscripts"
+output=$(commit_framework_files 2>&1 </dev/null)
+
+assert_not_contains "Pycache not shown in pending framework list" "__pycache__" "$output"
+assert_not_contains "PYC not shown in pending framework list" ".pyc" "$output"
+
+committed_files=$(git -C "$TMPDIR_14" show --name-only --format='' HEAD 2>/dev/null)
+assert_contains "Codex skills directory committed" ".agents/skills/aitask-pick/SKILL.md" "$committed_files"
+assert_contains "Codex config committed" ".codex/config.toml" "$committed_files"
+assert_not_contains "Pycache not committed" "__pycache__" "$committed_files"
+
+rm -rf "$TMPDIR_14"
 
 # --- Summary ---
 echo ""

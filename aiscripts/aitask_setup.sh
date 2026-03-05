@@ -1667,6 +1667,8 @@ commit_framework_files() {
         "aireviewguides/"
         "ait"
         ".claude/skills/"
+        ".agents/"
+        ".codex/"
         ".gitignore"
     )
 
@@ -1685,23 +1687,31 @@ commit_framework_files() {
         return
     fi
 
-    # Check for untracked or modified framework files
+    # Check for untracked or modified framework files.
+    # Exclude interpreter cache artifacts even if local ignore rules are incomplete.
     local untracked modified all_changes
+    local cache_artifacts_re='(^|/)__pycache__/|\.py[co]$|\.pyd$'
     untracked="$(cd "$project_dir" && git ls-files --others --exclude-standard \
-        "${paths_to_add[@]}" 2>/dev/null)" || true
+        "${paths_to_add[@]}" 2>/dev/null | grep -Ev "$cache_artifacts_re")" || true
     modified="$(cd "$project_dir" && git ls-files --modified \
-        "${paths_to_add[@]}" 2>/dev/null)" || true
-    all_changes="${untracked}${modified}"
+        "${paths_to_add[@]}" 2>/dev/null | grep -Ev "$cache_artifacts_re")" || true
+    all_changes="$(printf "%s\n%s\n" "$untracked" "$modified" | sed '/^$/d')"
 
-    if [[ -z "$all_changes" ]]; then
+    local changed_files=()
+    while IFS= read -r changed_file; do
+        [[ -n "$changed_file" ]] || continue
+        changed_files+=("$changed_file")
+    done <<< "$all_changes"
+
+    if [[ ${#changed_files[@]} -eq 0 ]]; then
         success "All framework files already committed to git"
         return
     fi
 
     info "Framework files not yet committed to git:"
-    echo "$all_changes" | head -20 | sed 's/^/  /'
+    printf "%s\n" "${changed_files[@]}" | head -20 | sed 's/^/  /'
     local total_count
-    total_count=$(echo "$all_changes" | wc -l)
+    total_count="${#changed_files[@]}"
     if [[ $total_count -gt 20 ]]; then
         info "  ... and $((total_count - 20)) more files"
     fi
@@ -1717,7 +1727,7 @@ commit_framework_files() {
         [Yy]*|"")
             (
                 cd "$project_dir"
-                git add "${paths_to_add[@]}" 2>/dev/null || true
+                git add -- "${changed_files[@]}" 2>/dev/null || true
                 # Only commit if there are staged changes
                 if ! git diff --cached --quiet 2>/dev/null; then
                     git commit -m "ait: Add aitask framework"

@@ -135,6 +135,12 @@ setup_draft_directory </dev/null >/dev/null 2>&1
 # Simulate review guides installation
 mkdir -p "$TEST_DIR/aireviewguides"
 echo "# test review guide" > "$TEST_DIR/aireviewguides/test_mode.md"
+mkdir -p "$TEST_DIR/.agents/skills/aitask-pick"
+echo "# test wrapper" > "$TEST_DIR/.agents/skills/aitask-pick/SKILL.md"
+mkdir -p "$TEST_DIR/.codex"
+echo "sandbox_mode = \"workspace-write\"" > "$TEST_DIR/.codex/config.toml"
+mkdir -p "$TEST_DIR/aiscripts/__pycache__"
+echo "bytecode" > "$TEST_DIR/aiscripts/__pycache__/test.cpython-314.pyc"
 
 # Run commit_framework_files (this is the key function being tested)
 output=$(commit_framework_files 2>&1 </dev/null)
@@ -142,11 +148,14 @@ output=$(commit_framework_files 2>&1 </dev/null)
 # Verify late-stage files are now committed
 untracked=$(cd "$TEST_DIR" && git ls-files --others --exclude-standard \
     aiscripts/ aitasks/metadata/ ait .claude/skills/ .gitignore 2>/dev/null)
-assert_eq "B1: No untracked framework files after commit_framework_files" "" "$untracked"
+assert_contains "B1: Only pycache remains untracked after commit_framework_files" "__pycache__/test.cpython-314.pyc" "$untracked"
 
 # Verify review guide was committed
 tracked_files=$(git -C "$TEST_DIR" ls-files 2>/dev/null)
 assert_contains "B2: Review guide file is tracked" "aireviewguides/test_mode.md" "$tracked_files"
+assert_contains "B3: Codex wrapper file is tracked" ".agents/skills/aitask-pick/SKILL.md" "$tracked_files"
+assert_contains "B4: Codex config file is tracked" ".codex/config.toml" "$tracked_files"
+assert_not_contains "B5: Pycache file is not tracked" "__pycache__/test.cpython-314.pyc" "$tracked_files"
 
 echo ""
 
