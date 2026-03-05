@@ -263,6 +263,21 @@ Read `post_plan_action` from profile (default: `start_implementation`).
 
 ### Step 8: Implement
 
+**Pre-implementation ownership guard:**
+
+Before starting implementation, verify that ownership/lock was acquired (Step 5 should have done this, but this guard catches edge cases like plan mode deferral):
+
+- Read the task file's frontmatter `status` and `assigned_to` fields
+- Resolve the current user's email: use the email from Step 5 if available, otherwise from `aitasks/metadata/userconfig.yaml` or profile `default_email`
+- **If status is `Implementing` AND `assigned_to` matches the current user's email:** Ownership was already acquired in Step 5. Proceed normally.
+- **Otherwise** (status is not `Implementing`, or `assigned_to` is empty/missing, or `assigned_to` does not match the current user's email): Ownership was not properly acquired. Display: "Guard: task ownership not confirmed — acquiring ownership now."
+  - Run the ownership claim:
+    ```bash
+    ./aiscripts/aitask_pick_own.sh <task_num> --email "<email>"
+    ```
+  - Parse output: `OWNED` → proceed. Any failure (`LOCK_FAILED`, `LOCK_ERROR`, `LOCK_INFRA_MISSING`, or script error) → trigger the **Abort Procedure**.
+  - No `AskUserQuestion` calls (remote mode constraint).
+
 **Record implementing agent:** Execute the **Agent Attribution Procedure** (see `../task-workflow/procedures.md`) to record which code agent and model is implementing this task.
 
 Follow the approved plan, working in the current directory.

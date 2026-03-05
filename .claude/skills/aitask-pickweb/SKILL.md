@@ -212,6 +212,8 @@ Read `post_plan_action` from profile (default: `start_implementation`).
 
 ### Step 6: Implement
 
+**Note:** aitask-pickweb intentionally skips ownership/locking — all lock acquisition, status updates, and archival are deferred to `aitask-web-merge`, which runs locally after the Claude Web session completes. No pre-implementation ownership guard is needed here.
+
 **Record implementing agent:** Execute the **Agent Attribution Procedure** (see `../task-workflow/procedures.md`) to detect which code agent and model is implementing this task. Since pickweb does not call `aitask_update.sh`, store the agent string in memory for inclusion in the completion marker JSON (Step 8).
 
 Follow the approved plan, working in the current directory.

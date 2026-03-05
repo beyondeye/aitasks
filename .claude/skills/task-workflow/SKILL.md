@@ -242,6 +242,25 @@ If `active_profile` is null (either because no profile was selected by the calli
 
 ### Step 7: Implement
 
+**Pre-implementation ownership guard:**
+
+Before starting implementation, verify that ownership/lock was acquired (Step 4 should have done this, but this guard catches edge cases like plan mode deferral):
+
+- Read the task file's frontmatter `status` and `assigned_to` fields
+- Resolve the current user's email: use the email from Step 4 if available, otherwise read from `aitasks/metadata/userconfig.yaml`
+- **If status is `Implementing` AND `assigned_to` matches the current user's email:** Ownership was already acquired in Step 4. Proceed normally.
+- **Otherwise** (status is not `Implementing`, or `assigned_to` is empty/missing, or `assigned_to` does not match the current user's email): Ownership was not properly acquired. Display: "Guard: task ownership not confirmed — acquiring ownership now."
+  - Run the ownership claim:
+    ```bash
+    ./aiscripts/aitask_pick_own.sh <task_num> --email "<email>"
+    ```
+  - Parse output as in Step 4:
+    - `OWNED:<task_id>` — Success. Proceed.
+    - `LOCK_FAILED:<owner>` — Use `AskUserQuestion` with options: "Force unlock and claim" / "Abort task". If force unlock, re-run with `--force`. If abort, execute the **Task Abort Procedure** (see `procedures.md`).
+    - `LOCK_ERROR:<message>` — Display error. Use `AskUserQuestion`: "Retry" / "Continue without lock" / "Abort". Handle as in Step 4.
+    - `LOCK_INFRA_MISSING` — Inform user to run `ait setup` and abort.
+    - Script fails entirely — display error and abort.
+
 **Record implementing agent:** Execute the **Agent Attribution Procedure** (see `procedures.md`) to record which code agent and model is implementing this task.
 
 Follow the approved plan, working in the directory specified in the plan metadata.

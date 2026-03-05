@@ -3,6 +3,11 @@ name: aitask-pickrem
 description: Pick and implement a task in remote/non-interactive mode. All decisions from execution profile - no AskUserQuestion calls.
 ---
 
+## Prerequisites
+
+**BEFORE anything else**, read **`.agents/skills/codex_interactive_prereqs.md`**
+and follow its requirements. Do not proceed until prerequisites are satisfied.
+
 ## Source of Truth
 
 This is a Codex CLI wrapper. The authoritative skill definition is:
