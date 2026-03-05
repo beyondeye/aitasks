@@ -8,7 +8,7 @@ labels: [geminicli]
 created_at: 2026-02-16 10:31
 updated_at: 2026-02-16 10:31
 boardcol: now
-boardidx: 30
+boardidx: 40
 ---
 
 I want to add support for geminicli in aitasks framework, please refer to task 130, for details of possible issues,

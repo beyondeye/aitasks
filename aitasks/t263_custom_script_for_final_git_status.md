@@ -7,7 +7,7 @@ status: Ready
 labels: [bash_scripts, task_workflow]
 created_at: 2026-02-26 15:59
 updated_at: 2026-02-26 15:59
-boardidx: 90
+boardidx: 80
 boardcol: next
 ---
 
