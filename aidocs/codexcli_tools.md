@@ -1,95 +1,171 @@
-# Codex CLI Tooling Reference (Current Session)
+# Codex CLI Tools Reference
 
-- Generated at: 2026-02-20T12:52:10+02:00
-- Project root: `/home/ddt/Work/aitasks`
-- Codex CLI version: `codex-cli 0.104.0`
+- Generated at: **2026-03-05 12:31:28 IST +0200**
+- Codex CLI version: **codex-cli 0.110.0**
+- Project root: **`/home/ddt/Work/aitasks`**
 
-## Tool Namespace: `web`
+## Available Tools in This Session
 
-### `web.run`
-Single internet/data-access tool that supports multiple operation types in one call.
+## `web.run`
+General internet/data access tool. Accepts a single object with one or more operation fields.
+
+### `search_query`
+Functionality: Web search for text queries.
+
+Arguments (per query object):
+- `q` (string): Search query text.
+- `recency` (integer, optional): Restrict to recent days.
+- `domains` (string[], optional): Domain allowlist.
+
+### `image_query`
+Functionality: Image search.
+
+Arguments (per query object):
+- `q` (string): Image query.
+- `recency` (integer, optional): Restrict to recent days.
+- `domains` (string[], optional): Domain allowlist.
+
+### `open`
+Functionality: Open a result/reference URL and optionally jump to line number.
+
+Arguments (per open object):
+- `ref_id` (string): Search ref (e.g., `turn0search0`) or full URL.
+- `lineno` (integer, optional): Target line.
+
+### `click`
+Functionality: Follow a numbered link from an opened page.
+
+Arguments (per click object):
+- `ref_id` (string): Opened page reference.
+- `id` (integer): Link id.
+
+### `find`
+Functionality: Find text pattern in an opened page.
+
+Arguments (per find object):
+- `ref_id` (string): Opened page reference.
+- `pattern` (string): Search pattern.
+
+### `screenshot`
+Functionality: Capture PDF page screenshot.
+
+Arguments (per screenshot object):
+- `ref_id` (string): PDF reference.
+- `pageno` (integer): 0-based page index.
+
+### `sports`
+Functionality: Sports standings/schedules.
+
+Arguments (per sports object):
+- `tool` (`"sports"`)
+- `fn` (`"schedule" | "standings"`)
+- `league` (`"nba" | "wnba" | "nfl" | "nhl" | "mlb" | "epl" | "ncaamb" | "ncaawb" | "ipl"`)
+- `team` (string, optional)
+- `opponent` (string, optional)
+- `date_from` (YYYY-MM-DD, optional)
+- `date_to` (YYYY-MM-DD, optional)
+- `num_games` (integer, optional)
+- `locale` (string, optional)
+
+### `finance`
+Functionality: Market quotes.
+
+Arguments (per finance object):
+- `ticker` (string)
+- `type` (`"equity" | "fund" | "crypto" | "index"`)
+- `market` (string, optional)
+
+### `weather`
+Functionality: Weather forecast lookup.
+
+Arguments (per weather object):
+- `location` (string)
+- `start` (YYYY-MM-DD, optional)
+- `duration` (integer days, optional)
+
+### `time`
+Functionality: Local time by UTC offset.
+
+Arguments (per time object):
+- `utc_offset` (string, format like `+03:00`)
+
+### Shared/Top-level `web.run` fields
+- `response_length` (`"short" | "medium" | "long"`, optional)
+
+---
+
+## `functions.exec_command`
+Functionality: Run a shell command (optionally PTY) and return output or interactive session id.
 
 Arguments:
-- `open` (array): Open a page by `ref_id` or URL, optional `lineno`.
-- `click` (array): Click a link on an opened page using `ref_id` + numeric `id`.
-- `find` (array): Find `pattern` text in an opened page (`ref_id`).
-- `screenshot` (array): Capture PDF page image by `ref_id` + `pageno`.
-- `image_query` (array): Image search entries with `q`, optional `recency`, optional `domains`.
-- `sports` (array): Sports schedules/standings with:
-  - `tool` (`"sports"`), `fn` (`"schedule"|"standings"`), `league`
-  - optional `team`, `opponent`, `date_from`, `date_to`, `num_games`, `locale`
-- `finance` (array): Market quotes with `ticker`, `type` (`equity|fund|crypto|index`), optional `market`.
-- `weather` (array): Forecast lookups with `location`, optional `start`, optional `duration`.
-- `time` (array): Time lookup by `utc_offset`.
-- `search_query` (array): Web search entries with `q`, optional `recency`, optional `domains`.
-- `response_length` (`short|medium|long`): Controls tool response verbosity.
-
-## Tool Namespace: `functions`
-
-### `functions.exec_command`
-Run a shell command in a PTY/non-PTY execution context.
-
-Arguments:
-- `cmd` (string, required): Shell command.
-- `justification` (string, optional): Approval request text when escalation is required.
-- `login` (boolean, optional): Use login/interactive shell semantics.
-- `max_output_tokens` (number, optional): Output token cap.
-- `prefix_rule` (string[], optional): Suggested reusable approval prefix.
-- `sandbox_permissions` (string, optional): Sandbox mode override.
+- `cmd` (string): Shell command to execute.
+- `justification` (string, optional): Approval prompt text (when escalation is required).
+- `login` (boolean, optional): Run login/interactive shell semantics.
+- `max_output_tokens` (integer, optional): Output cap.
+- `prefix_rule` (string[], optional): Suggested reusable approval command prefix.
+- `sandbox_permissions` (string, optional): Sandbox mode override request.
 - `shell` (string, optional): Shell binary.
 - `tty` (boolean, optional): Allocate TTY.
 - `workdir` (string, optional): Working directory.
-- `yield_time_ms` (number, optional): Wait time before returning output.
+- `yield_time_ms` (integer, optional): Wait time before returning output.
 
-### `functions.write_stdin`
-Send input to an existing running exec session and poll output.
-
-Arguments:
-- `session_id` (number, required): Target session.
-- `chars` (string, optional): Data to write to stdin.
-- `max_output_tokens` (number, optional): Output token cap.
-- `yield_time_ms` (number, optional): Wait time before returning output.
-
-### `functions.update_plan`
-Update the internal task plan/status list.
+## `functions.write_stdin`
+Functionality: Send input to an existing exec session and fetch recent output.
 
 Arguments:
-- `explanation` (string, optional): Brief plan-update rationale.
-- `plan` (array, required): Steps, each with:
-  - `step` (string)
-  - `status` (`pending|in_progress|completed`)
+- `session_id` (integer): Existing session id.
+- `chars` (string, optional): Bytes to write.
+- `max_output_tokens` (integer, optional): Output cap.
+- `yield_time_ms` (integer, optional): Wait time before returning output.
 
-### `functions.request_user_input`
-Ask 1-3 short multiple-choice questions and wait for user response (Plan mode only).
+## `functions.update_plan`
+Functionality: Update task plan and statuses.
 
 Arguments:
-- `questions` (array, required): Question objects containing:
+- `explanation` (string, optional): Plan-level note.
+- `plan` (array): Step objects:
+  - `step` (string): Step text.
+  - `status` (`"pending" | "in_progress" | "completed"`)
+
+## `functions.request_user_input`
+Functionality: Ask 1-3 short multiple-choice questions and wait for user reply (Plan mode only).
+
+Arguments:
+- `questions` (array, 1-3 items):
   - `header` (string, <=12 chars)
   - `id` (string, snake_case)
   - `question` (string)
-  - `options` (array, 2-3): each with `label` + `description`
+  - `options` (array, 2-3 items):
+    - `label` (string)
+    - `description` (string)
 
-### `functions.view_image`
-View a local image from filesystem by absolute/local path.
-
-Arguments:
-- `path` (string, required): Image path.
-
-### `functions.apply_patch`
-Apply file edits via unified patch grammar.
-
-Input format:
-- FREEFORM patch text (not JSON), using:
-  - `*** Begin Patch`
-  - one or more file hunks (`*** Add File`, `*** Update File`, `*** Delete File`)
-  - `*** End Patch`
-
-## Tool Namespace: `multi_tool_use`
-
-### `multi_tool_use.parallel`
-Run multiple `functions.*` tool calls concurrently when tasks are parallelizable.
+## `functions.view_image`
+Functionality: View a local image file by absolute/accessible path.
 
 Arguments:
-- `tool_uses` (array, required): Each item has:
-  - `recipient_name` (string): Must be `functions.<tool_name>`
-  - `parameters` (object): Arguments for that tool
+- `path` (string): Local filesystem path.
+
+## `functions.apply_patch`
+Functionality: Apply structured patch edits to files.
+
+Arguments:
+- FREEFORM patch text in required grammar:
+  - Must start with `*** Begin Patch`
+  - One or more hunks:
+    - `*** Add File: <filename>` with `+` lines
+    - `*** Delete File: <filename>`
+    - `*** Update File: <filename>` with diff-style context and `+/-/ ` lines
+    - Optional `*** Move to: <filename>`
+  - Must end with `*** End Patch`
+
+## `multi_tool_use.parallel`
+Functionality: Execute multiple developer tools in parallel when safe.
+
+Arguments:
+- `tool_uses` (array): Each entry includes:
+  - `recipient_name` (string): Tool name in format `<tool_name>.<function_name>`
+  - `parameters` (object): Arguments for that specific tool call
+
+Notes:
+- Only developer-defined tools are allowed in this wrapper.
+- Parallel calls should be independent and safe to run concurrently.
