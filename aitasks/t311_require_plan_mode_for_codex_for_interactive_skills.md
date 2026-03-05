@@ -6,6 +6,7 @@ issue_type: bug
 status: Implementing
 labels: [codexcli, aitask_pick]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-05 10:18
 updated_at: 2026-03-05 11:12
 ---
