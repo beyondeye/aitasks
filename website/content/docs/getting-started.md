@@ -5,7 +5,7 @@ weight: 20
 description: "First-time setup and your first task workflow"
 ---
 
-This guide walks you through aitasks from installation to completing your first task with Claude Code.
+This guide walks you through aitasks from installation to completing your first task with Claude Code (or Codex CLI).
 
 ## 1. Install aitasks
 
@@ -57,6 +57,14 @@ Start Claude Code and run the pick skill:
 /aitask-pick
 ```
 
+In Codex CLI, use:
+
+```
+$aitask-pick
+```
+
+> Interactive Codex skill flows require **plan mode** because `request_user_input` is only available in plan mode.
+
 This launches the full development workflow:
 
 1. **Select** a task from the prioritized list
@@ -67,12 +75,12 @@ This launches the full development workflow:
 
 ## 5. Iterate
 
-The core loop is: **create tasks** (with `ait create` or `/aitask-create`) → **triage** (with `ait board`) → **implement** (with `/aitask-pick`).
+The core loop is: **create tasks** (with `ait create`, `/aitask-create`, or `$aitask-create`) → **triage** (with `ait board`) → **implement** (with `/aitask-pick` or `$aitask-pick`).
 
 As you work, explore these features:
 
 - [Workflow Guides](../workflows/) — Common patterns like capturing ideas fast, task decomposition, and parallel development
-- [Claude Code Skills](../skills/) — All available slash commands (`/aitask-pick`, `/aitask-explore`, `/aitask-fold`, etc.)
+- [Code Agent Skills](../skills/) — All available agent skills (`/aitask-pick` in Claude Code, `$aitask-pick` in Codex CLI, etc.)
 - [Command Reference](../commands/) — Full CLI reference for all `ait` subcommands
 
 ---
