@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.8.2
+
+### Features
+
+- **Codex CLI skill wrappers** (t130_1): Added 17 Codex CLI skill wrappers with a shared tool mapping file and a layered instructions architecture, enabling aitask skills to work natively with OpenAI's Codex CLI using `$skill-name` syntax.
+- **Codex CLI install pipeline** (t130_2): Added end-to-end install pipeline for Codex CLI support, including release packaging, `ait setup` integration, TOML config merging, and a unified marker-based instruction management system (`>>>aitasks`/`<<<aitasks`) for idempotent agent configuration across all supported CLIs.
+
+### Improvements
+
+- **Refactored agent setup** (t308): Extracted agent-specific setup into dedicated methods (`setup_claude_code()`, `setup_codex_cli()`, etc.) with automatic CLI detection, so each agent is only configured when its CLI is installed.
+
+### Tests
+
+- **macOS bash test fixes** (t307): Fixed 7 failing bash tests on macOS, including a real symlink path resolution bug in `ait setup` and stale assertions from recent behavior changes.
+
 ## v0.8.1
 
 ### Bug Fixes
