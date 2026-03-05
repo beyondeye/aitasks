@@ -35,6 +35,21 @@ jobs:
             cp -r "$skill_dir" "skills/$skill_name"
           done
 
+      - name: Build codex skills directory from .agents/skills
+        run: |
+          if [ -d .agents/skills ]; then
+            mkdir -p codex_skills
+            for skill_dir in .agents/skills/aitask-*/; do
+              [ -d "$skill_dir" ] || continue
+              skill_name="$(basename "$skill_dir")"
+              cp -r "$skill_dir" "codex_skills/$skill_name"
+            done
+            # Copy shared tool mapping file
+            if [ -f .agents/skills/codex_tool_mapping.md ]; then
+              cp .agents/skills/codex_tool_mapping.md codex_skills/codex_tool_mapping.md
+            fi
+          fi
+
       - name: Create release tarball
         run: |
           tar -czf aitasks-${{ github.ref_name }}.tar.gz \
@@ -42,7 +57,8 @@ jobs:
             CHANGELOG.md \
             aiscripts/ \
             skills/ \
-            seed/
+            seed/ \
+            codex_skills/
 
       - name: Extract changelog for this version
         id: changelog

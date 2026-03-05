@@ -398,6 +398,57 @@ install_seed_claude_settings() {
     info "  Stored Claude Code permissions seed at aitasks/metadata/claude_settings.seed.json"
 }
 
+# --- Store Codex CLI staging files ---
+install_codex_staging() {
+    if [[ ! -d "$INSTALL_DIR/codex_skills" ]]; then
+        return
+    fi
+
+    mkdir -p "$INSTALL_DIR/aitasks/metadata/codex_skills"
+
+    for skill_dir in "$INSTALL_DIR/codex_skills"/aitask-*/; do
+        [[ -d "$skill_dir" ]] || continue
+        local skill_name
+        skill_name="$(basename "$skill_dir")"
+        mkdir -p "$INSTALL_DIR/aitasks/metadata/codex_skills/$skill_name"
+        cp "$skill_dir/SKILL.md" "$INSTALL_DIR/aitasks/metadata/codex_skills/$skill_name/SKILL.md"
+    done
+
+    # Copy shared tool mapping file
+    if [[ -f "$INSTALL_DIR/codex_skills/codex_tool_mapping.md" ]]; then
+        cp "$INSTALL_DIR/codex_skills/codex_tool_mapping.md" "$INSTALL_DIR/aitasks/metadata/codex_skills/codex_tool_mapping.md"
+    fi
+
+    rm -rf "$INSTALL_DIR/codex_skills"
+    info "  Stored Codex CLI skills staging at aitasks/metadata/codex_skills/"
+}
+
+# --- Store Codex CLI config and instructions seeds ---
+install_seed_codex_config() {
+    local src dest
+
+    src="$INSTALL_DIR/seed/codex_config.seed.toml"
+    dest="$INSTALL_DIR/aitasks/metadata/codex_config.seed.toml"
+    if [[ -f "$src" ]]; then
+        cp "$src" "$dest"
+        info "  Stored Codex CLI config seed"
+    fi
+
+    src="$INSTALL_DIR/seed/codex_instructions.seed.md"
+    dest="$INSTALL_DIR/aitasks/metadata/codex_instructions.seed.md"
+    if [[ -f "$src" ]]; then
+        cp "$src" "$dest"
+        info "  Stored Codex CLI instructions seed"
+    fi
+
+    src="$INSTALL_DIR/seed/aitasks_agent_instructions.seed.md"
+    dest="$INSTALL_DIR/aitasks/metadata/aitasks_agent_instructions.seed.md"
+    if [[ -f "$src" ]]; then
+        cp "$src" "$dest"
+        info "  Stored shared agent instructions seed"
+    fi
+}
+
 # --- Show changelog between versions (upgrade only) ---
 show_upgrade_changelog() {
     local tarball_path="$1"
@@ -501,6 +552,8 @@ commit_installed_files() {
         "aireviewguides/"
         "ait"
         ".claude/skills/"
+        ".agents/skills/"
+        ".codex/"
     )
 
     for p in "${check_paths[@]}"; do
@@ -596,6 +649,12 @@ main() {
 
     info "Storing Claude Code permissions seed..."
     install_seed_claude_settings
+
+    info "Storing Codex CLI staging files..."
+    install_codex_staging
+
+    info "Storing Codex CLI config seeds..."
+    install_seed_codex_config
 
     # Clean up seed directory after all seed installers have run
     rm -rf "$INSTALL_DIR/seed"

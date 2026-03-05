@@ -489,7 +489,7 @@ setup_python_venv() {
 
     info "Installing/upgrading Python dependencies..."
     "$VENV_DIR/bin/pip" install --quiet --upgrade pip
-    "$VENV_DIR/bin/pip" install --quiet textual pyyaml linkify-it-py
+    "$VENV_DIR/bin/pip" install --quiet textual pyyaml linkify-it-py tomli
 
     success "Python venv ready at $VENV_DIR"
 }
@@ -802,42 +802,79 @@ setup_lock_branch() {
     esac
 }
 
-# --- CLAUDE.md auto-update for ait git instructions ---
-update_claudemd_git_section() {
+# --- Assemble aitasks instructions from Layer 1 (shared) + optional Layer 2 (agent-specific) ---
+# Usage: assemble_aitasks_instructions <project_dir> [agent_type]
+# agent_type: claude, codex, gemini, opencode (omit for shared-only)
+assemble_aitasks_instructions() {
     local project_dir="$1"
-    local claudemd="$project_dir/CLAUDE.md"
-    local section_header="## Git Operations on Task/Plan Files"
+    local agent_type="${2:-}"
+    local shared="$project_dir/aitasks/metadata/aitasks_agent_instructions.seed.md"
 
-    # Skip if section already present
-    if [[ -f "$claudemd" ]] && grep -qF "$section_header" "$claudemd"; then
+    if [[ ! -f "$shared" ]]; then
+        warn "Shared instructions seed not found: $shared"
+        return 1
+    fi
+
+    # Layer 1: shared content
+    cat "$shared"
+
+    # Layer 2: agent-specific additions (if requested and file exists)
+    if [[ -n "$agent_type" ]]; then
+        local specific="$project_dir/aitasks/metadata/${agent_type}_instructions.seed.md"
+        if [[ -f "$specific" ]]; then
+            echo ""
+            # Skip header lines that reference the shared file (lines before first ## heading)
+            sed -n '/^## /,$p' "$specific"
+        fi
+    fi
+}
+
+# --- Insert or replace aitasks instructions using >>>aitasks/<<<aitasks markers ---
+# Usage: insert_aitasks_instructions <target_file> <content>
+# If markers exist: replaces content between them
+# If no markers: appends marked block
+# If file doesn't exist: creates it with marked block
+insert_aitasks_instructions() {
+    local target="$1"
+    local content="$2"
+    local marker_start=">>>aitasks"
+    local marker_end="<<<aitasks"
+    local marked_block
+    marked_block="$(printf '%s\n%s\n%s' "$marker_start" "$content" "$marker_end")"
+
+    if [[ ! -f "$target" ]]; then
+        echo "$marked_block" > "$target"
         return
     fi
 
-    local section_content
-    section_content="$(cat <<'SECTION'
-## Git Operations on Task/Plan Files
-
-When committing changes to files in `aitasks/` or `aiplans/`, always use
-`./ait git` instead of plain `git`. This ensures correct branch targeting
-when task data lives on a separate branch.
-
-- `./ait git add aitasks/t42_foo.md`
-- `./ait git commit -m "ait: Update task t42"`
-- `./ait git push`
-
-In legacy mode (no separate branch), `./ait git` passes through to plain `git`.
-SECTION
-)"
-
-    if [[ -f "$claudemd" ]]; then
-        {
-            echo ""
-            echo "$section_content"
-        } >> "$claudemd"
-        info "  Appended 'Git Operations on Task/Plan Files' section to CLAUDE.md"
+    if grep -qF "$marker_start" "$target"; then
+        # Replace content between markers
+        local tmpfile
+        tmpfile="$(mktemp "${TMPDIR:-/tmp}/aitasks_insert_XXXXXX")"
+        awk -v start="$marker_start" -v end="$marker_end" -v block="$marked_block" '
+            $0 == start { print block; skip=1; next }
+            $0 == end && skip { skip=0; next }
+            !skip { print }
+        ' "$target" > "$tmpfile"
+        mv "$tmpfile" "$target"
     else
-        echo "$section_content" > "$claudemd"
-        info "  Created CLAUDE.md with 'Git Operations on Task/Plan Files' section"
+        # Append marked block
+        { echo ""; echo "$marked_block"; } >> "$target"
+    fi
+}
+
+# --- CLAUDE.md auto-update for aitasks instructions ---
+update_claudemd_git_section() {
+    local project_dir="$1"
+    local claudemd="$project_dir/CLAUDE.md"
+
+    local content
+    content="$(assemble_aitasks_instructions "$project_dir" "claude")" || return
+
+    insert_aitasks_instructions "$claudemd" "$content"
+
+    if grep -qF ">>>aitasks" "$claudemd"; then
+        info "  Updated aitasks instructions in CLAUDE.md"
     fi
 }
 
@@ -1246,10 +1283,171 @@ setup_gemini_cli() {
     info "  Future: install .gemini/ skills and commands"
 }
 
-# --- Codex CLI setup (placeholder) ---
+# --- Merge Codex CLI config.toml (add aitask-specific settings) ---
+merge_codex_settings() {
+    local seed_file="$1"
+    local dest_file="$2"
+
+    # Prefer venv Python, fall back to system python3
+    local python_cmd=""
+    if [[ -x "$VENV_DIR/bin/python" ]]; then
+        python_cmd="$VENV_DIR/bin/python"
+    elif command -v python3 &>/dev/null; then
+        python_cmd="python3"
+    else
+        warn "python3 not found. Cannot merge Codex settings automatically."
+        warn "Please manually merge $seed_file into $dest_file"
+        return
+    fi
+
+    local merged=""
+    merged="$("$python_cmd" -c "
+import sys
+
+try:
+    import tomllib
+except ImportError:
+    try:
+        import tomli as tomllib
+    except ImportError:
+        print('ERROR: No TOML parser available (need Python 3.11+ or tomli)', file=sys.stderr)
+        sys.exit(1)
+
+with open(sys.argv[1], 'rb') as f:
+    existing = tomllib.load(f)
+with open(sys.argv[2], 'rb') as f:
+    seed = tomllib.load(f)
+
+def deep_merge(base, overlay):
+    result = dict(base)
+    for key, value in overlay.items():
+        if key not in result:
+            result[key] = value
+        elif isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_merge(result[key], value)
+        elif isinstance(result[key], list) and isinstance(value, list):
+            existing_strs = [str(item) for item in result[key]]
+            for item in value:
+                if str(item) not in existing_strs:
+                    result[key].append(item)
+    return result
+
+merged = deep_merge(existing, seed)
+
+def toml_serialize(d, prefix=''):
+    lines = []
+    tables = []
+    array_tables = []
+    for k, v in d.items():
+        full_key = f'{prefix}.{k}' if prefix else k
+        if isinstance(v, dict):
+            tables.append((full_key, v))
+        elif isinstance(v, list) and v and isinstance(v[0], dict):
+            array_tables.append((full_key, v))
+        elif isinstance(v, bool):
+            lines.append(f'{k} = {str(v).lower()}')
+        elif isinstance(v, str):
+            lines.append(f'{k} = \"{v}\"')
+        elif isinstance(v, (int, float)):
+            lines.append(f'{k} = {v}')
+        elif isinstance(v, list):
+            items = ', '.join(f'\"{i}\"' if isinstance(i, str) else str(i) for i in v)
+            lines.append(f'{k} = [{items}]')
+    for line in lines:
+        print(line)
+    for full_key, table in tables:
+        print(f'\n[{full_key}]')
+        toml_serialize(table, full_key)
+    for full_key, entries in array_tables:
+        for entry in entries:
+            print(f'\n[[{full_key}]]')
+            toml_serialize(entry, full_key)
+toml_serialize(merged)
+" "$dest_file" "$seed_file")"
+
+    if [[ -n "$merged" ]]; then
+        echo "$merged" > "$dest_file"
+        info "  Merged aitask settings into .codex/config.toml"
+    else
+        warn "  Merge produced empty output — existing config unchanged"
+    fi
+}
+
+# --- Codex CLI setup (skills + config + instructions) ---
 setup_codex_cli() {
-    info "Codex CLI setup (placeholder)"
-    info "  Future: install .codex/ prompts and .agents/ skills"
+    local project_dir="$SCRIPT_DIR/.."
+    local staging_skills="$project_dir/aitasks/metadata/codex_skills"
+    local dest_skills="$project_dir/.agents/skills"
+    local dest_codex="$project_dir/.codex"
+
+    if [[ ! -d "$staging_skills" ]]; then
+        info "No Codex CLI staging files found — skipping"
+        info "  Re-run 'ait install' to get Codex CLI support files"
+        return
+    fi
+
+    local count
+    count=$(find "$staging_skills" -name "SKILL.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+
+    echo ""
+    info "Found $count Codex CLI skill wrappers ready for installation."
+    echo ""
+
+    if [[ -t 0 ]]; then
+        printf "  Install Codex CLI skills and config? [Y/n] "
+        read -r answer
+    else
+        info "(non-interactive: auto-accepting default)"
+        answer="Y"
+    fi
+    case "${answer:-Y}" in
+        [Yy]*|"") ;;
+        *)
+            info "Skipped Codex CLI skill installation."
+            return
+            ;;
+    esac
+
+    # 1. Copy skill wrappers
+    mkdir -p "$dest_skills"
+    local installed=0
+    for skill_dir in "$staging_skills"/aitask-*/; do
+        [[ -d "$skill_dir" ]] || continue
+        local skill_name
+        skill_name="$(basename "$skill_dir")"
+        mkdir -p "$dest_skills/$skill_name"
+        cp "$skill_dir/SKILL.md" "$dest_skills/$skill_name/SKILL.md"
+        installed=$((installed + 1))
+    done
+    # Copy shared tool mapping file
+    if [[ -f "$staging_skills/codex_tool_mapping.md" ]]; then
+        cp "$staging_skills/codex_tool_mapping.md" "$dest_skills/codex_tool_mapping.md"
+    fi
+    success "  Installed $installed Codex CLI skill wrappers to .agents/skills/"
+
+    # 2. Assemble and insert instructions (Layer 1 + Layer 2, with markers)
+    local content
+    content="$(assemble_aitasks_instructions "$project_dir" "codex")" || true
+    if [[ -n "$content" ]]; then
+        mkdir -p "$dest_codex"
+        local dest_instructions="$dest_codex/instructions.md"
+        insert_aitasks_instructions "$dest_instructions" "$content"
+        info "  Installed .codex/instructions.md (with aitasks markers)"
+    fi
+
+    # 3. Merge config.toml seed
+    local seed_config="$project_dir/aitasks/metadata/codex_config.seed.toml"
+    if [[ -f "$seed_config" ]]; then
+        mkdir -p "$dest_codex"
+        local dest_config="$dest_codex/config.toml"
+        if [[ ! -f "$dest_config" ]]; then
+            cp "$seed_config" "$dest_config"
+            info "  Created .codex/config.toml from seed"
+        else
+            info "  Existing .codex/config.toml found — merging aitask settings..."
+            merge_codex_settings "$seed_config" "$dest_config"
+        fi
+    fi
 }
 
 # --- OpenCode setup (placeholder) ---
