@@ -38,9 +38,9 @@ Git worktrees, atomic task locking, and branch management enable multiple develo
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.8.2: Codex CLI Support, Unified Install Pipeline, and macOS Compatibility](blog/v082-codex-cli-support-unified-install-pipeline-macos-compatibility/)** -- Mar 5, 2026
 - **[v0.8.1: Works Without a Remote, and Smarter Update Checks](blog/v081-works-without-a-remote-smarter-update-checks/)** -- Mar 3, 2026
 - **[v0.8.0: Pull Request Import Pipeline, Settings TUI, and Code Agent Wrapper](blog/v080-pull-request-import-pipeline-settings-tui-code-agent-wrapper/)** -- Mar 3, 2026
-- **[v0.7.1: Code Browser TUI, Task Annotations at a Glance, and Smarter Explain Runs](blog/v071-code-browser-tui-task-annotations-at-a-glance-smarter-explain-runs/)** -- Feb 26, 2026
 
 [All releases &rarr;](blog/)
 
