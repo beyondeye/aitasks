@@ -6,6 +6,7 @@ issue_type: bug
 status: Implementing
 labels: [codexcli, claudeskills]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt-5
 created_at: 2026-03-05 09:43
 updated_at: 2026-03-05 09:44
 ---
