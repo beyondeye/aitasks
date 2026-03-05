@@ -15,6 +15,8 @@ The central skill of the aitasks framework. This is a full development lifecycle
 ```
 
 > **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
+>
+> **Codex CLI note:** In Codex wrappers, after implementation, most of the times you will need to explicitly tell the agent to continue the workflow because `request_user_input` is only available in plan mode. Example prompts: `Good, now finish the workflow` or `Good, now continue`.
 
 ## Step-by-Step
 
@@ -27,7 +29,7 @@ The central skill of the aitasks framework. This is a full development lifecycle
 7. **Planning** — Enters Claude Code plan mode to explore the codebase and create an implementation plan. If a plan already exists, offers three options: use as-is, verify against current code, or create from scratch. Complex tasks can be decomposed into child subtasks during this phase
 8. **Implementation** — Follows the approved plan, updating the plan file with progress and any deviations
 9. **User review** — Presents a change summary for review. Supports an iterative "need more changes" loop where each round of feedback is logged in the plan file before re-presenting for approval
-10. **Post-implementation** — Archives task and plan files, updates parent task metadata for child tasks, optionally updates/closes linked issues (GitHub/GitLab/Bitbucket), and merges the branch if a worktree was used
+10. **Post-implementation** — Archives task and plan files, updates parent task metadata for child tasks, optionally updates/closes linked issues (GitHub/GitLab/Bitbucket), and merges the branch if a worktree was used. In Codex wrappers, after implementation, most of the times you will need to explicitly continue to this phase (for example: `Good, now finish the workflow` or `Good, now continue`)
 
 ## Key Capabilities
 

@@ -14,6 +14,8 @@ Identify and merge related tasks into a single task, then optionally execute it.
 ```
 
 > **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
+>
+> **Codex CLI note:** When continuing from this skill into implementation, in Codex wrappers, after implementation, most of the times you will need to explicitly tell the agent to continue the workflow because `request_user_input` is only available in plan mode. Example prompts: `Good, now finish the workflow` or `Good, now continue`.
 
 ## Step-by-Step
 
