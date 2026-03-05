@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.8.3
+
+### Bug Fixes
+
+- **Exclude Python cache from setup commits** (t309): The `ait setup` framework commit scan no longer accidentally stages `__pycache__` and `.pyc` files.
+- **Fix Codex skill YAML frontmatter** (t310): Fixed invalid YAML in the `aitask-explain` skill definition that broke Codex CLI wrapper parsing.
+- **Require plan mode for Codex interactive skills** (t311): Added plan mode prerequisites to 14 interactive Codex CLI skill wrappers, preventing runtime failures in non-plan contexts.
+- **Add agent attribution to wrap/pickrem/pickweb** (t314): Agent attribution is now recorded for tasks completed via `aitask-wrap`, `aitask-pickrem`, and `aitask-pickweb` workflows.
+- **Pre-implementation ownership guard** (t316): Task workflow and pickrem now verify task ownership (status and assigned_to) before starting implementation, preventing accidental work on tasks owned by another user.
+
+### Performance
+
+- **Migrate ait stats to Python** (t222): Rewrote the stats command in Python for better performance, with optional `plotext`-based chart rendering configurable via `ait setup`.
+
+### Documentation
+
+- **Update code agent skill docs** (t130_3): Website documentation now covers multi-agent invocation syntax, distinguishing Claude `/skill` from Codex `$skill` commands.
+- **Tool extraction scripts** (t312): Added scripts for extracting Claude Code and OpenCode tool definitions for reference documentation.
+- **Refresh tool references** (t313): Updated Codex and Gemini CLI tool description references in `aidocs/`.
+- **Document stats plot and setup flow** (t315): Clarified `--plot` usage, missing-dependency warnings, and the setup prompt for enabling plot support.
+- **Document Codex continue guidance** (t317): Added explicit continuation guidance to skill docs for Codex CLI's post-implementation flow.
+
 ## v0.8.2
 
 ### Features
