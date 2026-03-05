@@ -6,7 +6,7 @@ issue_type: documentation
 status: Ready
 labels: [aitasks, codexcli, website]
 created_at: 2026-03-04 10:46
-updated_at: 2026-03-04 10:46
+updated_at: 2026-03-05 12:00
 ---
 
 ## Context
@@ -52,6 +52,16 @@ For these, a minimal change is sufficient — e.g., adding "(or `$skill-name` in
 1. Edit `website/content/docs/skills/_index.md` — add multi-agent callout
 2. Optionally update `getting-started.md` and home page with brief mentions
 3. Verify the website builds: `cd website && hugo build --gc --minify` (if Hugo is available)
+
+## Important Note (from t311)
+
+When documenting Codex CLI skills, mention that interactive skills require
+**plan mode** to function correctly. The `request_user_input` function
+(Codex equivalent of AskUserQuestion) only works in plan mode. Also note
+that post-implementation finalization (commit, archive) must be explicitly
+triggered — Codex does not reliably surface finalization prompts
+automatically. See `.agents/skills/codex_interactive_prereqs.md` for the
+full prerequisites.
 
 ## Verification
 
