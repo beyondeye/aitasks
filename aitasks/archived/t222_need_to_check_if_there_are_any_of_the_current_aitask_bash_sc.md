@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: performance
-status: Implementing
+status: Done
 labels: [script-performance, statistics]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: codex/gpt-5
 created_at: 2026-02-23 10:19
-updated_at: 2026-03-05 15:50
+updated_at: 2026-03-05 15:51
+completed_at: 2026-03-05 15:51
 boardcol: now
 boardidx: 10
 ---
