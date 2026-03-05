@@ -7,7 +7,7 @@ status: Ready
 labels: [codeagent, ait_settings]
 created_at: 2026-03-03 16:47
 updated_at: 2026-03-03 16:47
-boardidx: 70
+boardidx: 10
 boardcol: now
 ---
 
