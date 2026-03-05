@@ -3,6 +3,11 @@ name: aitask-wrap
 description: Wrap uncommitted changes into an aitask with retroactive documentation and traceability.
 ---
 
+## Prerequisites
+
+**BEFORE anything else**, read **`.agents/skills/codex_interactive_prereqs.md`**
+and follow its requirements. Do not proceed until prerequisites are satisfied.
+
 ## Source of Truth
 
 This is a Codex CLI wrapper. The authoritative skill definition is:

@@ -3,6 +3,11 @@ name: aitask-create
 description: Create a new AI task file with automatic numbering and proper metadata.
 ---
 
+## Prerequisites
+
+**BEFORE anything else**, read **`.agents/skills/codex_interactive_prereqs.md`**
+and follow its requirements. Do not proceed until prerequisites are satisfied.
+
 ## Source of Truth
 
 This is a Codex CLI wrapper. The authoritative skill definition is:

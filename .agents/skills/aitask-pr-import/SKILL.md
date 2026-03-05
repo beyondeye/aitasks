@@ -3,6 +3,11 @@ name: aitask-pr-import
 description: Create an aitask from a pull request by analyzing PR data and generating a structured task with implementation plan.
 ---
 
+## Prerequisites
+
+**BEFORE anything else**, read **`.agents/skills/codex_interactive_prereqs.md`**
+and follow its requirements. Do not proceed until prerequisites are satisfied.
+
 ## Source of Truth
 
 This is a Codex CLI wrapper. The authoritative skill definition is:

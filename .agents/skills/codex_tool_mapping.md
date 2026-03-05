@@ -50,3 +50,29 @@ or sub-skill invocation mechanism.
 When recording `implemented_with` in task metadata, identify as
 `codex/<model_name>`. Read `aitasks/metadata/models_codex.json` to find the
 matching `name` for your model ID. Construct as `codex/<name>`.
+
+### Task-Workflow Adaptations
+
+These adaptations apply to skills that hand off to the shared task-workflow
+(`aitask-pick`, `aitask-create`, `aitask-explore`, `aitask-fold`,
+`aitask-review`, `aitask-pr-import`).
+
+**Plan file creation:** When `aitask_query_files.sh plan-file <taskid>`
+returns `NOT_FOUND`, this means **no plan file exists yet** — it does NOT
+mean "no plan needed" or "skip plan creation." Always create the plan file
+in `aiplans/` before beginning implementation. Follow the planning workflow
+in the source skill for the correct format and content.
+
+**Post-implementation finalization:** After implementation is complete, you
+MUST explicitly run all finalization steps from the task-workflow (Steps 8
+and 9). Do not assume these will be triggered automatically via
+`request_user_input`. Specifically:
+
+1. **Consolidate the plan file** — update `aiplans/` with final
+   implementation notes, deviations, and outcomes
+2. **Commit changes** — follow the commit message format:
+   `<issue_type>: <description> (t<task_id>)`
+3. **Archive the task** — run the archival workflow from the source skill
+
+If `request_user_input` fails or is unavailable during finalization, proceed
+with reasonable defaults: commit all implementation changes, then archive.

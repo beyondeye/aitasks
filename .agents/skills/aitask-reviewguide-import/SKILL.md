@@ -3,6 +3,11 @@ name: aitask-reviewguide-import
 description: Import external content (file, URL, or repository directory) as a reviewguide with proper metadata.
 ---
 
+## Prerequisites
+
+**BEFORE anything else**, read **`.agents/skills/codex_interactive_prereqs.md`**
+and follow its requirements. Do not proceed until prerequisites are satisfied.
+
 ## Source of Truth
 
 This is a Codex CLI wrapper. The authoritative skill definition is:
