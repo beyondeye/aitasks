@@ -27,6 +27,7 @@ license
 macos
 model_selection
 modelvrapper
+opencode
 release_scripts
 remote
 remove_support
