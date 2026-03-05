@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [install_scripts]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt-5
 created_at: 2026-03-05 09:28
-updated_at: 2026-03-05 09:59
+updated_at: 2026-03-05 10:16
+completed_at: 2026-03-05 10:16
 ---
 
 I have run ait setup in this repo (the aitasks repo) and at the end it suggest that the following framework file should be added to git:   aiscripts/__pycache__/aitask_explain_process_raw_data.cpython-314.pyc
