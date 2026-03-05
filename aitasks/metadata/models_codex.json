@@ -1,9 +1,19 @@
 {
   "models": [
     {
+      "name": "gpt5_4",
+      "cli_id": "gpt-5.4",
+      "notes": "Flagship model for professional work with stronger reasoning, tool use, and agentic workflows, including GPT-5.3-Codex coding capabilities",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
       "name": "gpt5_3codex",
       "cli_id": "gpt-5.3-codex",
-      "notes": "Most capable agentic coding model",
+      "notes": "Industry-leading coding model for complex software engineering; its coding capabilities now also power GPT-5.4",
       "verified": {
         "task-pick": 0,
         "explain": 0,
@@ -13,7 +23,7 @@
     {
       "name": "gpt5_3codex_spark",
       "cli_id": "gpt-5.3-codex-spark",
-      "notes": "Ultra-fast, 1000+ tokens/sec, research preview",
+      "notes": "Text-only research preview model for near-instant coding iteration; available to ChatGPT Pro users",
       "verified": {
         "task-pick": 0,
         "explain": 0,
@@ -23,7 +33,7 @@
     {
       "name": "gpt5_2codex",
       "cli_id": "gpt-5.2-codex",
-      "notes": "Advanced coding for real-world engineering",
+      "notes": "Advanced coding model for real-world engineering; succeeded by GPT-5.3-Codex",
       "verified": {
         "task-pick": 0,
         "explain": 0,
@@ -34,6 +44,16 @@
       "name": "gpt5_1codex_max",
       "cli_id": "gpt-5.1-codex-max",
       "notes": "Optimized for long-horizon agentic tasks",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "gpt5_1codex_mini",
+      "cli_id": "gpt-5.1-codex-mini",
+      "notes": "Smaller, more cost-effective, less-capable version of GPT-5.1-Codex",
       "verified": {
         "task-pick": 0,
         "explain": 0,
