@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [opencode, codeagent]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-06 01:18
-updated_at: 2026-03-06 01:18
+updated_at: 2026-03-06 09:54
 ---
 
 Expand OpenCode model list using programmatic discovery via OpenCode batch mode.
