@@ -3,11 +3,13 @@ priority: high
 effort: medium
 depends: [t319_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [opencode, codeagent]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-06 01:18
-updated_at: 2026-03-06 10:22
+updated_at: 2026-03-06 11:00
+completed_at: 2026-03-06 11:00
 ---
 
 Update release workflow, install.sh, and ait setup to package, distribute, and install OpenCode skill wrappers.
