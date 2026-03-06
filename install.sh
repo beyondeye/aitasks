@@ -423,6 +423,31 @@ install_codex_staging() {
     info "  Stored Codex CLI skills staging at aitasks/metadata/codex_skills/"
 }
 
+# --- Store OpenCode staging files ---
+install_opencode_staging() {
+    if [[ ! -d "$INSTALL_DIR/opencode_skills" ]]; then
+        return
+    fi
+
+    mkdir -p "$INSTALL_DIR/aitasks/metadata/opencode_skills"
+
+    for skill_dir in "$INSTALL_DIR/opencode_skills"/aitask-*/; do
+        [[ -d "$skill_dir" ]] || continue
+        local skill_name
+        skill_name="$(basename "$skill_dir")"
+        mkdir -p "$INSTALL_DIR/aitasks/metadata/opencode_skills/$skill_name"
+        cp "$skill_dir/SKILL.md" "$INSTALL_DIR/aitasks/metadata/opencode_skills/$skill_name/SKILL.md"
+    done
+
+    # Copy shared tool mapping file
+    if [[ -f "$INSTALL_DIR/opencode_skills/opencode_tool_mapping.md" ]]; then
+        cp "$INSTALL_DIR/opencode_skills/opencode_tool_mapping.md" "$INSTALL_DIR/aitasks/metadata/opencode_skills/opencode_tool_mapping.md"
+    fi
+
+    rm -rf "$INSTALL_DIR/opencode_skills"
+    info "  Stored OpenCode skills staging at aitasks/metadata/opencode_skills/"
+}
+
 # --- Store Codex CLI config and instructions seeds ---
 install_seed_codex_config() {
     local src dest
@@ -446,6 +471,25 @@ install_seed_codex_config() {
     if [[ -f "$src" ]]; then
         cp "$src" "$dest"
         info "  Stored shared agent instructions seed"
+    fi
+}
+
+# --- Store OpenCode config and instructions seeds ---
+install_seed_opencode_config() {
+    local src dest
+
+    src="$INSTALL_DIR/seed/opencode_config.seed.json"
+    dest="$INSTALL_DIR/aitasks/metadata/opencode_config.seed.json"
+    if [[ -f "$src" ]]; then
+        cp "$src" "$dest"
+        info "  Stored OpenCode config seed"
+    fi
+
+    src="$INSTALL_DIR/seed/opencode_instructions.seed.md"
+    dest="$INSTALL_DIR/aitasks/metadata/opencode_instructions.seed.md"
+    if [[ -f "$src" ]]; then
+        cp "$src" "$dest"
+        info "  Stored OpenCode instructions seed"
     fi
 }
 
@@ -554,6 +598,8 @@ commit_installed_files() {
         ".claude/skills/"
         ".agents/skills/"
         ".codex/"
+        ".opencode/skills/"
+        ".opencode/"
     )
 
     for p in "${check_paths[@]}"; do
@@ -655,6 +701,12 @@ main() {
 
     info "Storing Codex CLI config seeds..."
     install_seed_codex_config
+
+    info "Storing OpenCode staging files..."
+    install_opencode_staging
+
+    info "Storing OpenCode config seeds..."
+    install_seed_opencode_config
 
     # Clean up seed directory after all seed installers have run
     rm -rf "$INSTALL_DIR/seed"

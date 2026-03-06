@@ -1466,10 +1466,132 @@ setup_codex_cli() {
     fi
 }
 
-# --- OpenCode setup (placeholder) ---
+# --- Merge OpenCode opencode.json (add aitask-specific settings) ---
+merge_opencode_settings() {
+    local seed_file="$1"
+    local dest_file="$2"
+
+    # Prefer venv Python, fall back to system python3
+    local python_cmd=""
+    if [[ -x "$VENV_DIR/bin/python" ]]; then
+        python_cmd="$VENV_DIR/bin/python"
+    elif command -v python3 &>/dev/null; then
+        python_cmd="python3"
+    else
+        warn "python3 not found. Cannot merge OpenCode settings automatically."
+        warn "Please manually merge $seed_file into $dest_file"
+        return
+    fi
+
+    local merged=""
+    merged="$("$python_cmd" -c "
+import json, sys
+
+with open(sys.argv[1]) as f:
+    existing = json.load(f)
+with open(sys.argv[2]) as f:
+    seed = json.load(f)
+
+def deep_merge(base, overlay):
+    result = dict(base)
+    for key, value in overlay.items():
+        if key not in result:
+            result[key] = value
+        elif isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_merge(result[key], value)
+        elif isinstance(result[key], list) and isinstance(value, list):
+            existing_items = [str(item) for item in result[key]]
+            for item in value:
+                if str(item) not in existing_items:
+                    result[key].append(item)
+    return result
+
+merged = deep_merge(existing, seed)
+print(json.dumps(merged, indent=2))
+" "$dest_file" "$seed_file")"
+
+    if [[ -n "$merged" ]]; then
+        echo "$merged" > "$dest_file"
+        info "  Merged aitask settings into opencode.json"
+    else
+        warn "  Merge produced empty output — existing config unchanged"
+    fi
+}
+
+# --- OpenCode setup (skills + config + instructions) ---
 setup_opencode() {
-    info "OpenCode setup (placeholder)"
-    info "  Future: install .opencode/ skills and commands"
+    local project_dir="$SCRIPT_DIR/.."
+    local staging_skills="$project_dir/aitasks/metadata/opencode_skills"
+    local dest_skills="$project_dir/.opencode/skills"
+    local dest_opencode="$project_dir/.opencode"
+
+    if [[ ! -d "$staging_skills" ]]; then
+        info "No OpenCode staging files found — skipping"
+        info "  Re-run 'ait install' to get OpenCode support files"
+        return
+    fi
+
+    local count
+    count=$(find "$staging_skills" -name "SKILL.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+
+    echo ""
+    info "Found $count OpenCode skill wrappers ready for installation."
+    echo ""
+
+    if [[ -t 0 ]]; then
+        printf "  Install OpenCode skills and config? [Y/n] "
+        read -r answer
+    else
+        info "(non-interactive: auto-accepting default)"
+        answer="Y"
+    fi
+    case "${answer:-Y}" in
+        [Yy]*|"") ;;
+        *)
+            info "Skipped OpenCode skill installation."
+            return
+            ;;
+    esac
+
+    # 1. Copy skill wrappers
+    mkdir -p "$dest_skills"
+    local installed=0
+    for skill_dir in "$staging_skills"/aitask-*/; do
+        [[ -d "$skill_dir" ]] || continue
+        local skill_name
+        skill_name="$(basename "$skill_dir")"
+        mkdir -p "$dest_skills/$skill_name"
+        cp "$skill_dir/SKILL.md" "$dest_skills/$skill_name/SKILL.md"
+        installed=$((installed + 1))
+    done
+    # Copy shared tool mapping file
+    if [[ -f "$staging_skills/opencode_tool_mapping.md" ]]; then
+        cp "$staging_skills/opencode_tool_mapping.md" "$dest_skills/opencode_tool_mapping.md"
+    fi
+    success "  Installed $installed OpenCode skill wrappers to .opencode/skills/"
+
+    # 2. Assemble and insert instructions (Layer 1 + Layer 2, with markers)
+    local content
+    content="$(assemble_aitasks_instructions "$project_dir" "opencode")" || true
+    if [[ -n "$content" ]]; then
+        mkdir -p "$dest_opencode"
+        local dest_instructions="$dest_opencode/instructions.md"
+        insert_aitasks_instructions "$dest_instructions" "$content"
+        info "  Installed .opencode/instructions.md (with aitasks markers)"
+    fi
+
+    # 3. Merge opencode.json permission seed
+    local seed_config="$project_dir/aitasks/metadata/opencode_config.seed.json"
+    if [[ -f "$seed_config" ]]; then
+        local dest_config="$project_dir/opencode.json"
+        if [[ ! -f "$dest_config" ]]; then
+            cp "$seed_config" "$dest_config"
+            info "  Created opencode.json from seed"
+        else
+            info "  Existing opencode.json found — merging aitask settings..."
+            merge_opencode_settings "$seed_config" "$dest_config"
+        fi
+    fi
 }
 
 # --- Set up all code agent integrations ---

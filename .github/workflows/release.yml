@@ -50,6 +50,20 @@ jobs:
             fi
           fi
 
+      - name: Build opencode skills directory from .opencode/skills
+        run: |
+          if [ -d .opencode/skills ]; then
+            mkdir -p opencode_skills
+            for skill_dir in .opencode/skills/aitask-*/; do
+              [ -d "$skill_dir" ] || continue
+              skill_name="$(basename "$skill_dir")"
+              cp -r "$skill_dir" "opencode_skills/$skill_name"
+            done
+            if [ -f .opencode/skills/opencode_tool_mapping.md ]; then
+              cp .opencode/skills/opencode_tool_mapping.md opencode_skills/opencode_tool_mapping.md
+            fi
+          fi
+
       - name: Create release tarball
         run: |
           tar -czf aitasks-${{ github.ref_name }}.tar.gz \
@@ -58,7 +72,8 @@ jobs:
             aiscripts/ \
             skills/ \
             seed/ \
-            codex_skills/
+            codex_skills/ \
+            opencode_skills/
 
       - name: Extract changelog for this version
         id: changelog
