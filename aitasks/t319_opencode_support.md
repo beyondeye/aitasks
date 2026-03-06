@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [opencode, codeagent]
-children_to_implement: [t319_3, t319_4, t319_5]
+children_to_implement: [t319_3, t319_5]
 created_at: 2026-03-05 23:48
-updated_at: 2026-03-06 11:09
+updated_at: 2026-03-06 11:24
 boardidx: 10
 ---
 

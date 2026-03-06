@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [opencode, codeagent]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-06 01:18
-updated_at: 2026-03-06 11:06
+updated_at: 2026-03-06 11:24
+completed_at: 2026-03-06 11:24
 ---
 
 Expand OpenCode model list using programmatic discovery via OpenCode batch mode.
