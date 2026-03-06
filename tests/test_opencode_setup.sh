@@ -36,22 +36,31 @@ trap 'rm -rf "$TEST_DIR"' EXIT
 
 echo "=== Test 1: OpenCode skills packaging (release workflow sim) ==="
 mkdir -p "$TEST_DIR/opencode_skills"
+mkdir -p "$TEST_DIR/opencode_commands"
 for skill_dir in "$REPO_DIR/.opencode/skills"/aitask-*/; do
     [ -d "$skill_dir" ] || continue
     cp -r "$skill_dir" "$TEST_DIR/opencode_skills/$(basename "$skill_dir")"
 done
 [ -f "$REPO_DIR/.opencode/skills/opencode_tool_mapping.md" ] && \
     cp "$REPO_DIR/.opencode/skills/opencode_tool_mapping.md" "$TEST_DIR/opencode_skills/"
+[ -f "$REPO_DIR/.opencode/skills/opencode_planmode_prereqs.md" ] && \
+    cp "$REPO_DIR/.opencode/skills/opencode_planmode_prereqs.md" "$TEST_DIR/opencode_skills/"
+[ -d "$REPO_DIR/.opencode/commands" ] && \
+    cp -r "$REPO_DIR/.opencode/commands/." "$TEST_DIR/opencode_commands/"
 
 skill_count=$(find "$TEST_DIR/opencode_skills" -name "SKILL.md" -type f | wc -l | tr -d ' ')
+command_count=$(find "$TEST_DIR/opencode_commands" -type f -name "*.md" | wc -l | tr -d ' ')
 assert_eq "Packaged 17 skill wrappers" "17" "$skill_count"
 assert_eq "Tool mapping packaged" "true" "$([ -f "$TEST_DIR/opencode_skills/opencode_tool_mapping.md" ] && echo true || echo false)"
+assert_eq "Planmode prereqs packaged" "true" "$([ -f "$TEST_DIR/opencode_skills/opencode_planmode_prereqs.md" ] && echo true || echo false)"
+assert_eq "Packaged 17 command wrappers" "17" "$command_count"
 
 echo ""
 echo "=== Test 2: OpenCode staging (install.sh sim) ==="
 INSTALL_DIR="$TEST_DIR/install_sim"
 mkdir -p "$INSTALL_DIR/aitasks/metadata"
 cp -r "$TEST_DIR/opencode_skills" "$INSTALL_DIR/opencode_skills"
+cp -r "$TEST_DIR/opencode_commands" "$INSTALL_DIR/opencode_commands"
 
 # Inline staging logic (mirrors install_opencode_staging)
 mkdir -p "$INSTALL_DIR/aitasks/metadata/opencode_skills"
@@ -63,12 +72,22 @@ for skill_dir in "$INSTALL_DIR/opencode_skills"/aitask-*/; do
 done
 [ -f "$INSTALL_DIR/opencode_skills/opencode_tool_mapping.md" ] && \
     cp "$INSTALL_DIR/opencode_skills/opencode_tool_mapping.md" "$INSTALL_DIR/aitasks/metadata/opencode_skills/"
+[ -f "$INSTALL_DIR/opencode_skills/opencode_planmode_prereqs.md" ] && \
+    cp "$INSTALL_DIR/opencode_skills/opencode_planmode_prereqs.md" "$INSTALL_DIR/aitasks/metadata/opencode_skills/"
 rm -rf "$INSTALL_DIR/opencode_skills"
 
+mkdir -p "$INSTALL_DIR/aitasks/metadata/opencode_commands"
+cp -r "$INSTALL_DIR/opencode_commands/." "$INSTALL_DIR/aitasks/metadata/opencode_commands/"
+rm -rf "$INSTALL_DIR/opencode_commands"
+
 staged_count=$(find "$INSTALL_DIR/aitasks/metadata/opencode_skills" -name "SKILL.md" -type f | wc -l | tr -d ' ')
+staged_command_count=$(find "$INSTALL_DIR/aitasks/metadata/opencode_commands" -type f -name "*.md" | wc -l | tr -d ' ')
 assert_eq "Staged 17 wrappers to metadata" "17" "$staged_count"
 assert_eq "Tool mapping staged" "true" "$([ -f "$INSTALL_DIR/aitasks/metadata/opencode_skills/opencode_tool_mapping.md" ] && echo true || echo false)"
-assert_eq "Source cleaned up" "false" "$([ -d "$INSTALL_DIR/opencode_skills" ] && echo true || echo false)"
+assert_eq "Planmode prereqs staged" "true" "$([ -f "$INSTALL_DIR/aitasks/metadata/opencode_skills/opencode_planmode_prereqs.md" ] && echo true || echo false)"
+assert_eq "Staged 17 command wrappers" "17" "$staged_command_count"
+assert_eq "Skills source cleaned up" "false" "$([ -d "$INSTALL_DIR/opencode_skills" ] && echo true || echo false)"
+assert_eq "Commands source cleaned up" "false" "$([ -d "$INSTALL_DIR/opencode_commands" ] && echo true || echo false)"
 
 echo ""
 echo "=== Test 3: Instruction assembly (Layer 1 + Layer 2) ==="

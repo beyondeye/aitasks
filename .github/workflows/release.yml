@@ -52,6 +52,10 @@ jobs:
 
       - name: Build opencode skills directory from .opencode/skills
         run: |
+          mkdir -p opencode_commands
+          if [ -d .opencode/commands ]; then
+            cp -r .opencode/commands/. opencode_commands/
+          fi
           if [ -d .opencode/skills ]; then
             mkdir -p opencode_skills
             for skill_dir in .opencode/skills/aitask-*/; do
@@ -61,6 +65,9 @@ jobs:
             done
             if [ -f .opencode/skills/opencode_tool_mapping.md ]; then
               cp .opencode/skills/opencode_tool_mapping.md opencode_skills/opencode_tool_mapping.md
+            fi
+            if [ -f .opencode/skills/opencode_planmode_prereqs.md ]; then
+              cp .opencode/skills/opencode_planmode_prereqs.md opencode_skills/opencode_planmode_prereqs.md
             fi
           fi
 
@@ -73,7 +80,8 @@ jobs:
             skills/ \
             seed/ \
             codex_skills/ \
-            opencode_skills/
+            opencode_skills/ \
+            opencode_commands/
 
       - name: Extract changelog for this version
         id: changelog

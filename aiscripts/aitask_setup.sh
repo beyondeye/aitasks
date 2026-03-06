@@ -1402,8 +1402,10 @@ setup_codex_cli() {
         return
     fi
 
-    local count
-    count=$(find "$staging_skills" -name "SKILL.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+    local count=0
+    if [[ -d "$staging_skills" ]]; then
+        count=$(find "$staging_skills" -name "SKILL.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+    fi
 
     echo ""
     info "Found $count Codex CLI skill wrappers ready for installation."
@@ -1522,10 +1524,12 @@ print(json.dumps(merged, indent=2))
 setup_opencode() {
     local project_dir="$SCRIPT_DIR/.."
     local staging_skills="$project_dir/aitasks/metadata/opencode_skills"
+    local staging_commands="$project_dir/aitasks/metadata/opencode_commands"
     local dest_skills="$project_dir/.opencode/skills"
+    local dest_commands="$project_dir/.opencode/commands"
     local dest_opencode="$project_dir/.opencode"
 
-    if [[ ! -d "$staging_skills" ]]; then
+    if [[ ! -d "$staging_skills" && ! -d "$staging_commands" ]]; then
         info "No OpenCode staging files found — skipping"
         info "  Re-run 'ait install' to get OpenCode support files"
         return
@@ -1553,22 +1557,35 @@ setup_opencode() {
             ;;
     esac
 
-    # 1. Copy skill wrappers
-    mkdir -p "$dest_skills"
-    local installed=0
-    for skill_dir in "$staging_skills"/aitask-*/; do
-        [[ -d "$skill_dir" ]] || continue
-        local skill_name
-        skill_name="$(basename "$skill_dir")"
-        mkdir -p "$dest_skills/$skill_name"
-        cp "$skill_dir/SKILL.md" "$dest_skills/$skill_name/SKILL.md"
-        installed=$((installed + 1))
-    done
-    # Copy shared tool mapping file
-    if [[ -f "$staging_skills/opencode_tool_mapping.md" ]]; then
-        cp "$staging_skills/opencode_tool_mapping.md" "$dest_skills/opencode_tool_mapping.md"
+    # 1. Copy skill wrappers and helper docs
+    if [[ -d "$staging_skills" ]]; then
+        mkdir -p "$dest_skills"
+        local installed=0
+        for skill_dir in "$staging_skills"/aitask-*/; do
+            [[ -d "$skill_dir" ]] || continue
+            local skill_name
+            skill_name="$(basename "$skill_dir")"
+            mkdir -p "$dest_skills/$skill_name"
+            cp "$skill_dir/SKILL.md" "$dest_skills/$skill_name/SKILL.md"
+            installed=$((installed + 1))
+        done
+
+        if [[ -f "$staging_skills/opencode_tool_mapping.md" ]]; then
+            cp "$staging_skills/opencode_tool_mapping.md" "$dest_skills/opencode_tool_mapping.md"
+        fi
+        if [[ -f "$staging_skills/opencode_planmode_prereqs.md" ]]; then
+            cp "$staging_skills/opencode_planmode_prereqs.md" "$dest_skills/opencode_planmode_prereqs.md"
+        fi
+
+        success "  Installed $installed OpenCode skill wrappers to .opencode/skills/"
     fi
-    success "  Installed $installed OpenCode skill wrappers to .opencode/skills/"
+
+    # 1b. Copy command wrappers
+    if [[ -d "$staging_commands" ]]; then
+        mkdir -p "$dest_commands"
+        cp -r "$staging_commands/." "$dest_commands/"
+        success "  Installed OpenCode command wrappers to .opencode/commands/"
+    fi
 
     # 2. Assemble and insert instructions (Layer 1 + Layer 2, with markers)
     local content

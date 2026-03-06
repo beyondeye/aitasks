@@ -425,27 +425,39 @@ install_codex_staging() {
 
 # --- Store OpenCode staging files ---
 install_opencode_staging() {
-    if [[ ! -d "$INSTALL_DIR/opencode_skills" ]]; then
+    if [[ ! -d "$INSTALL_DIR/opencode_skills" && ! -d "$INSTALL_DIR/opencode_commands" ]]; then
         return
     fi
 
-    mkdir -p "$INSTALL_DIR/aitasks/metadata/opencode_skills"
+    if [[ -d "$INSTALL_DIR/opencode_skills" ]]; then
+        mkdir -p "$INSTALL_DIR/aitasks/metadata/opencode_skills"
 
-    for skill_dir in "$INSTALL_DIR/opencode_skills"/aitask-*/; do
-        [[ -d "$skill_dir" ]] || continue
-        local skill_name
-        skill_name="$(basename "$skill_dir")"
-        mkdir -p "$INSTALL_DIR/aitasks/metadata/opencode_skills/$skill_name"
-        cp "$skill_dir/SKILL.md" "$INSTALL_DIR/aitasks/metadata/opencode_skills/$skill_name/SKILL.md"
-    done
+        for skill_dir in "$INSTALL_DIR/opencode_skills"/aitask-*/; do
+            [[ -d "$skill_dir" ]] || continue
+            local skill_name
+            skill_name="$(basename "$skill_dir")"
+            mkdir -p "$INSTALL_DIR/aitasks/metadata/opencode_skills/$skill_name"
+            cp "$skill_dir/SKILL.md" "$INSTALL_DIR/aitasks/metadata/opencode_skills/$skill_name/SKILL.md"
+        done
 
-    # Copy shared tool mapping file
-    if [[ -f "$INSTALL_DIR/opencode_skills/opencode_tool_mapping.md" ]]; then
-        cp "$INSTALL_DIR/opencode_skills/opencode_tool_mapping.md" "$INSTALL_DIR/aitasks/metadata/opencode_skills/opencode_tool_mapping.md"
+        # Copy shared OpenCode helper docs
+        if [[ -f "$INSTALL_DIR/opencode_skills/opencode_tool_mapping.md" ]]; then
+            cp "$INSTALL_DIR/opencode_skills/opencode_tool_mapping.md" "$INSTALL_DIR/aitasks/metadata/opencode_skills/opencode_tool_mapping.md"
+        fi
+        if [[ -f "$INSTALL_DIR/opencode_skills/opencode_planmode_prereqs.md" ]]; then
+            cp "$INSTALL_DIR/opencode_skills/opencode_planmode_prereqs.md" "$INSTALL_DIR/aitasks/metadata/opencode_skills/opencode_planmode_prereqs.md"
+        fi
+
+        rm -rf "$INSTALL_DIR/opencode_skills"
+        info "  Stored OpenCode skills staging at aitasks/metadata/opencode_skills/"
     fi
 
-    rm -rf "$INSTALL_DIR/opencode_skills"
-    info "  Stored OpenCode skills staging at aitasks/metadata/opencode_skills/"
+    if [[ -d "$INSTALL_DIR/opencode_commands" ]]; then
+        mkdir -p "$INSTALL_DIR/aitasks/metadata/opencode_commands"
+        cp -r "$INSTALL_DIR/opencode_commands/." "$INSTALL_DIR/aitasks/metadata/opencode_commands/"
+        rm -rf "$INSTALL_DIR/opencode_commands"
+        info "  Stored OpenCode commands staging at aitasks/metadata/opencode_commands/"
+    fi
 }
 
 # --- Store Codex CLI config and instructions seeds ---
