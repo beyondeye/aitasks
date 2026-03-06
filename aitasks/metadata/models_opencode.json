@@ -1,9 +1,10 @@
 {
   "models": [
     {
-      "name": "kimi_k2_5",
-      "cli_id": "kimi-k2.5",
-      "notes": "Moonshot AI, strong coding and agentic tasks",
+      "name": "big_pickle",
+      "cli_id": "opencode/big-pickle",
+      "notes": "Big Pickle (200k context, opencode provider)",
+      "status": "active",
       "verified": {
         "task-pick": 0,
         "explain": 0,
@@ -11,9 +12,87 @@
       }
     },
     {
-      "name": "sonnet4_6",
-      "cli_id": "sonnet-4-6",
-      "notes": "Claude Sonnet via Anthropic provider",
+      "name": "claude_3_5_haiku",
+      "cli_id": "opencode/claude-3-5-haiku",
+      "notes": "Claude Haiku 3.5 (200k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "claude_haiku_4_5",
+      "cli_id": "opencode/claude-haiku-4-5",
+      "notes": "Claude Haiku 4.5 (200k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "claude_opus_4_1",
+      "cli_id": "opencode/claude-opus-4-1",
+      "notes": "Claude Opus 4.1 (200k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "claude_opus_4_5",
+      "cli_id": "opencode/claude-opus-4-5",
+      "notes": "Claude Opus 4.5 (200k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "claude_opus_4_6",
+      "cli_id": "opencode/claude-opus-4-6",
+      "notes": "Claude Opus 4.6 (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "claude_sonnet_4",
+      "cli_id": "opencode/claude-sonnet-4",
+      "notes": "Claude Sonnet 4 (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "claude_sonnet_4_5",
+      "cli_id": "opencode/claude-sonnet-4-5",
+      "notes": "Claude Sonnet 4.5 (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "claude_sonnet_4_6",
+      "cli_id": "opencode/claude-sonnet-4-6",
+      "notes": "Claude Sonnet 4.6 (1000k context, opencode provider)",
+      "status": "active",
       "verified": {
         "task-pick": 0,
         "explain": 0,
@@ -28,7 +107,371 @@
         "task-pick": 0,
         "explain": 0,
         "batch-review": 0
+      },
+      "status": "unavailable"
+    },
+    {
+      "name": "gemini_3_1_pro",
+      "cli_id": "opencode/gemini-3.1-pro",
+      "notes": "Gemini 3.1 Pro Preview (1048k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
       }
+    },
+    {
+      "name": "gemini_3_flash",
+      "cli_id": "opencode/gemini-3-flash",
+      "notes": "Gemini 3 Flash (1048k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "gemini_3_pro",
+      "cli_id": "opencode/gemini-3-pro",
+      "notes": "Gemini 3 Pro (1048k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "glm_4_6",
+      "cli_id": "opencode/glm-4.6",
+      "notes": "GLM-4.6 (204k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "glm_4_7",
+      "cli_id": "opencode/glm-4.7",
+      "notes": "GLM-4.7 (204k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "glm_5",
+      "cli_id": "opencode/glm-5",
+      "notes": "GLM-5 (204k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "gpt_5",
+      "cli_id": "opencode/gpt-5",
+      "notes": "GPT-5 (400k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "gpt_5_1",
+      "cli_id": "opencode/gpt-5.1",
+      "notes": "GPT-5.1 (400k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "gpt_5_1_codex",
+      "cli_id": "opencode/gpt-5.1-codex",
+      "notes": "GPT-5.1 Codex (400k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "gpt_5_1_codex_max",
+      "cli_id": "opencode/gpt-5.1-codex-max",
+      "notes": "GPT-5.1 Codex Max (400k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "gpt_5_1_codex_mini",
+      "cli_id": "opencode/gpt-5.1-codex-mini",
+      "notes": "GPT-5.1 Codex Mini (400k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "gpt_5_2",
+      "cli_id": "opencode/gpt-5.2",
+      "notes": "GPT-5.2 (400k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "gpt_5_2_codex",
+      "cli_id": "opencode/gpt-5.2-codex",
+      "notes": "GPT-5.2 Codex (400k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "gpt_5_3_codex",
+      "cli_id": "opencode/gpt-5.3-codex",
+      "notes": "GPT-5.3 Codex (400k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "gpt_5_3_codex_spark",
+      "cli_id": "opencode/gpt-5.3-codex-spark",
+      "notes": "GPT-5.3 Codex Spark (128k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "gpt_5_4",
+      "cli_id": "opencode/gpt-5.4",
+      "notes": "GPT-5.4 (1050k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "gpt_5_4_pro",
+      "cli_id": "opencode/gpt-5.4-pro",
+      "notes": "GPT-5.4 Pro (1050k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "gpt_5_codex",
+      "cli_id": "opencode/gpt-5-codex",
+      "notes": "GPT-5 Codex (400k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "gpt_5_nano",
+      "cli_id": "opencode/gpt-5-nano",
+      "notes": "GPT-5 Nano (400k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "kimi_k2_5",
+      "cli_id": "opencode/kimi-k2.5",
+      "notes": "Kimi K2.5 (262k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "minimax_m2_1",
+      "cli_id": "opencode/minimax-m2.1",
+      "notes": "MiniMax M2.1 (204k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "minimax_m2_5",
+      "cli_id": "opencode/minimax-m2.5",
+      "notes": "MiniMax M2.5 (204k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "minimax_m2_5_free",
+      "cli_id": "opencode/minimax-m2.5-free",
+      "notes": "MiniMax M2.5 Free (204k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "openai_codex_mini_latest",
+      "cli_id": "openai/codex-mini-latest",
+      "notes": "Codex Mini (200k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "openai_gpt_5_1_codex",
+      "cli_id": "openai/gpt-5.1-codex",
+      "notes": "GPT-5.1 Codex (400k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "openai_gpt_5_1_codex_max",
+      "cli_id": "openai/gpt-5.1-codex-max",
+      "notes": "GPT-5.1 Codex Max (400k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "openai_gpt_5_1_codex_mini",
+      "cli_id": "openai/gpt-5.1-codex-mini",
+      "notes": "GPT-5.1 Codex mini (400k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "openai_gpt_5_2",
+      "cli_id": "openai/gpt-5.2",
+      "notes": "GPT-5.2 (400k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "openai_gpt_5_2_codex",
+      "cli_id": "openai/gpt-5.2-codex",
+      "notes": "GPT-5.2 Codex (400k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "openai_gpt_5_3_codex",
+      "cli_id": "openai/gpt-5.3-codex",
+      "notes": "GPT-5.3 Codex (400k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "openai_gpt_5_3_codex_spark",
+      "cli_id": "openai/gpt-5.3-codex-spark",
+      "notes": "GPT-5.3 Codex Spark (128k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "openai_gpt_5_codex",
+      "cli_id": "openai/gpt-5-codex",
+      "notes": "GPT-5-Codex (400k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      }
+    },
+    {
+      "name": "sonnet4_6",
+      "cli_id": "sonnet-4-6",
+      "notes": "Claude Sonnet via Anthropic provider",
+      "verified": {
+        "task-pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      },
+      "status": "unavailable"
     }
   ]
 }

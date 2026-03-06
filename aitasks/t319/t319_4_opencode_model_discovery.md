@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [opencode, codeagent]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-06 01:18
-updated_at: 2026-03-06 09:54
+updated_at: 2026-03-06 11:06
 ---
 
 Expand OpenCode model list using programmatic discovery via OpenCode batch mode.
