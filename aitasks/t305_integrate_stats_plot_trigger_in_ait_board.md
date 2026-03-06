@@ -1,12 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [222]
+depends: ['222']
 issue_type: feature
 status: Ready
 labels: [board, statistics, plotting]
 created_at: 2026-03-05 15:28
 updated_at: 2026-03-05 15:28
+boardcol: next
+boardidx: 90
 ---
 
 Integrate triggering task statistics plotting from `ait board` directly.
