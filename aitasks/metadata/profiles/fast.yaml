@@ -6,4 +6,5 @@ create_worktree: false
 plan_preference: use_current
 plan_preference_child: verify
 post_plan_action: start_implementation
+post_plan_action_for_child: ask
 explore_auto_continue: false
