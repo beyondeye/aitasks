@@ -3,10 +3,11 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [opencode, codeagent]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-06 01:17
-updated_at: 2026-03-06 01:17
+updated_at: 2026-03-06 09:53
 ---
 
 Create OpenCode skill wrappers and tool mapping for all 17 aitasks skills.
