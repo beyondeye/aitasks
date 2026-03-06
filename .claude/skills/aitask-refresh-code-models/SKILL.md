@@ -43,6 +43,13 @@ Process each selected agent sequentially. For each agent:
 
 If a WebFetch URL fails (404, redirect to different content), fall back to WebSearch results. If WebSearch also returns no relevant results for an agent, report "No updates found for \<agent\>" and continue to the next agent.
 
+**OpenCode special handling:** OpenCode models are discovered exclusively via CLI — web research is NOT used. If `opencode` is selected:
+1. Check if the `opencode` binary is available: `command -v opencode`
+2. If available, run the discovery script directly: `bash aiscripts/aitask_opencode_models.sh`
+3. The script handles all discovery, merging, and updating of `aitasks/metadata/models_opencode.json`
+4. Models no longer available from connected providers are marked `"status": "unavailable"` (never deleted, verified scores preserved)
+5. If `opencode` is NOT installed, inform the user: "OpenCode binary not found — cannot refresh OpenCode models. Install OpenCode first." and skip OpenCode.
+
 #### Research Queries
 
 Use generic terms — do NOT hardcode year references:
@@ -50,7 +57,7 @@ Use generic terms — do NOT hardcode year references:
 - **Claude**: `"Anthropic Claude models API model IDs latest"`
 - **Gemini**: `"Google Gemini API models latest available"`
 - **Codex**: `"OpenAI Codex CLI models latest"`
-- **OpenCode**: `"OpenCode CLI supported models providers latest"`
+- **OpenCode**: Uses CLI discovery only (see below) — web research is NOT used for OpenCode
 
 ### Step 4: Compare Current vs. Discovered
 
