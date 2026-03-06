@@ -245,14 +245,26 @@ git commit -m "feature: Add OpenCode setup/install pipeline (t319_2)"
 
 ## Verification
 
-- [ ] `.github/workflows/release.yml` packages `opencode_skills/` in tarball
-- [ ] `install.sh` stages OpenCode wrappers and seed files
-- [ ] `./ait setup` prompts "Install OpenCode skills and config? [Y/n]" when opencode is detected
-- [ ] After setup: `.opencode/skills/` has 17 wrappers + tool mapping
-- [ ] After setup: `.opencode/instructions.md` has aitasks markers
-- [ ] After setup: `opencode.json` has merged permissions (existing settings preserved)
-- [ ] `wc -l` usage stripped with `| tr -d ' '` (macOS portability)
+- [x] `.github/workflows/release.yml` packages `opencode_skills/` in tarball
+- [x] `install.sh` stages OpenCode wrappers and seed files
+- [x] `./ait setup` prompts "Install OpenCode skills and config? [Y/n]" when opencode is detected
+- [x] After setup: `.opencode/skills/` has 17 wrappers + tool mapping
+- [x] After setup: `.opencode/instructions.md` has aitasks markers
+- [x] After setup: `opencode.json` has merged permissions (existing settings preserved)
+- [x] `wc -l` usage stripped with `| tr -d ' '` (macOS portability)
+- [x] 26 automated tests pass (`tests/test_opencode_setup.sh`)
 
-## Post-Implementation: Step 9
+## Final Implementation Notes
 
-Follow task-workflow Step 9 for archival.
+- **Actual work done:** Implemented all 4 steps as planned — release workflow, install.sh staging functions, `setup_opencode()` with `merge_opencode_settings()`, and verified `assemble_aitasks_instructions` already handles "opencode". Also added `tests/test_opencode_setup.sh` with 26 automated tests per user request.
+- **Deviations from plan:** Added a test file (`tests/test_opencode_setup.sh`) which wasn't in the original plan — user requested regression tests for the pipeline.
+- **Issues encountered:** None — the implementation closely mirrored the Codex CLI pattern. The shared `insert_aitasks_instructions()` function with `>>>aitasks`/`<<<aitasks` markers works identically for all agents (Claude, Codex, OpenCode).
+- **Key decisions:**
+  - `merge_opencode_settings()` uses Python JSON merge (simpler than the TOML merge for Codex since OpenCode uses JSON config)
+  - `opencode.json` lives at project root (not in `.opencode/`) per OpenCode convention
+  - OpenCode binary detection uses `command -v opencode` (no hardcoded paths)
+- **Notes for sibling tasks:**
+  - The `_is_agent_installed opencode` check was already in place from setup_code_agents(), just needed the placeholder replaced
+  - `commit_installed_files()` now checks `.opencode/skills/` and `.opencode/` paths
+  - The test file at `tests/test_opencode_setup.sh` can be extended if sibling tasks add more OpenCode functionality
+  - The `assemble_aitasks_instructions` function automatically uses `aitasks/metadata/opencode_instructions.seed.md` as Layer 2 — no code changes needed for new agent types
