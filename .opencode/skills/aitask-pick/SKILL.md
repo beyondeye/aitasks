@@ -3,6 +3,11 @@ name: aitask-pick
 description: Select the next AI task for implementation from the `aitasks/` directory.
 ---
 
+## Plan Mode Prerequisites
+
+**BEFORE executing the workflow**, read **`.opencode/skills/opencode_planmode_prereqs.md`**
+and follow its guidance for plan mode phases.
+
 ## Source of Truth
 
 This is an OpenCode wrapper. The authoritative skill definition is:

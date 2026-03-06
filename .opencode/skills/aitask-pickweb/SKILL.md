@@ -3,6 +3,11 @@ name: aitask-pickweb
 description: Pick and implement a task on Claude Code Web. Zero interactive prompts. No cross-branch operations — stores task data locally in .aitask-data-updated/.
 ---
 
+## Plan Mode Prerequisites
+
+**BEFORE executing the workflow**, read **`.opencode/skills/opencode_planmode_prereqs.md`**
+and follow its guidance for plan mode phases.
+
 ## Source of Truth
 
 This is an OpenCode wrapper. The authoritative skill definition is:

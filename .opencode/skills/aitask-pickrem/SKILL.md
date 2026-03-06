@@ -3,6 +3,11 @@ name: aitask-pickrem
 description: Pick and implement a task in remote/non-interactive mode. All decisions from execution profile - no AskUserQuestion calls.
 ---
 
+## Plan Mode Prerequisites
+
+**BEFORE executing the workflow**, read **`.opencode/skills/opencode_planmode_prereqs.md`**
+and follow its guidance for plan mode phases.
+
 ## Source of Truth
 
 This is an OpenCode wrapper. The authoritative skill definition is:

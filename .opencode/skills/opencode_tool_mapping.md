@@ -1,18 +1,12 @@
 # Tool Mapping (Claude Code → OpenCode)
 
-When the source skill references Claude Code tools, use these OpenCode equivalents:
+When the source skill references Claude Code tools, use these OpenCode equivalents.
+Most tools have direct equivalents (same name, lowercase) and are not listed.
+Only non-trivial differences are shown:
 
 | Claude Code Tool | OpenCode Equivalent | Notes |
 |---|---|---|
 | `AskUserQuestion` | `ask` | Uses `follow_up` array with `options`, `header`, `multiple`. No option limit. |
-| `Bash(command)` | `bash` | Direct equivalent |
-| `Read(file)` | `read` | Direct equivalent |
-| `Write(file, content)` | `write` | Direct equivalent |
-| `Edit(file, ...)` | `edit` | Uses `old_string`/`new_string`, `replace_all` |
-| `Glob(pattern)` | `glob` | Direct equivalent |
-| `Grep(pattern)` | `grep` | Direct equivalent |
-| `WebFetch(url)` | `webfetch` | Direct equivalent |
-| `WebSearch(query)` | `websearch` | Uses Exa AI |
 | `Agent(...)` | `task` | Uses `subagent_type` ("general" or "explore"), `prompt`, `description` |
 | `Skill(name)` | `skill` | Uses `name` parameter — invokes `.opencode/skills/<name>/SKILL.md` |
 | `EnterPlanMode` | _(not available)_ | Plan inline within the conversation |

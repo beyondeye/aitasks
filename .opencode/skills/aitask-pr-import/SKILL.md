@@ -3,6 +3,11 @@ name: aitask-pr-import
 description: Create an aitask from a pull request by analyzing PR data and generating a structured task with implementation plan.
 ---
 
+## Plan Mode Prerequisites
+
+**BEFORE executing the workflow**, read **`.opencode/skills/opencode_planmode_prereqs.md`**
+and follow its guidance for plan mode phases.
+
 ## Source of Truth
 
 This is an OpenCode wrapper. The authoritative skill definition is:

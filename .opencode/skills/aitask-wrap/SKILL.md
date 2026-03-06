@@ -3,6 +3,11 @@ name: aitask-wrap
 description: Wrap uncommitted changes into an aitask with retroactive documentation and traceability.
 ---
 
+## Plan Mode Prerequisites
+
+**BEFORE executing the workflow**, read **`.opencode/skills/opencode_planmode_prereqs.md`**
+and follow its guidance for plan mode phases.
+
 ## Source of Truth
 
 This is an OpenCode wrapper. The authoritative skill definition is:
