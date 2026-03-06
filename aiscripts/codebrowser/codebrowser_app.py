@@ -562,6 +562,11 @@ class CodeBrowserApp(App):
                 cwd=str(self._project_root),
             )
             if result.returncode != 0:
+                stderr = result.stderr.strip()
+                if "unavailable" in stderr.lower():
+                    # Extract the error message after "ERROR: " prefix
+                    msg = stderr.split("ERROR:")[-1].strip() if "ERROR:" in stderr else stderr
+                    self._resolve_error = msg
                 return None
             info = {}
             for line in result.stdout.strip().splitlines():
@@ -581,9 +586,11 @@ class CodeBrowserApp(App):
             self.notify("No file selected", severity="warning")
             return
 
+        self._resolve_error = None
         resolved = self._resolve_agent_binary("explain")
         if not resolved:
-            self.notify("Could not resolve code agent configuration", severity="error")
+            msg = self._resolve_error or "Could not resolve code agent configuration"
+            self.notify(msg, severity="error")
             return
         agent_name, binary = resolved
         if not shutil.which(binary):

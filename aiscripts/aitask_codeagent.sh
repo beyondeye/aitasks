@@ -99,6 +99,15 @@ get_cli_model_id() {
         die "Unknown model '$model_name' for agent '$agent'. Run 'ait codeagent list-models $agent' to see available models."
     fi
 
+    # Check model status (defaults to "active" for files without status field)
+    local model_status
+    model_status=$(jq -r --arg name "$model_name" \
+        '.models[] | select(.name == $name) | .status // "active"' "$models_file")
+
+    if [[ "$model_status" == "unavailable" ]]; then
+        die "Model '$model_name' is unavailable (not currently marked as available by connected providers). Run 'ait opencode-models' to refresh."
+    fi
+
     echo "$cli_id"
 }
 
@@ -157,7 +166,16 @@ cmd_list_agents() {
 }
 
 cmd_list_models() {
-    local filter_agent="${1:-}"
+    local active_only=false
+    local filter_agent=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --active-only) active_only=true; shift ;;
+            -*) die "Unknown flag: '$1'" ;;
+            *)  filter_agent="$1"; shift ;;
+        esac
+    done
 
     local agents_to_list=("${SUPPORTED_AGENTS[@]}")
     if [[ -n "$filter_agent" ]]; then
@@ -169,6 +187,11 @@ cmd_list_models() {
         agents_to_list=("$filter_agent")
     fi
 
+    local jq_filter='.models[]'
+    if $active_only; then
+        jq_filter='.models[] | select((.status // "active") != "unavailable")'
+    fi
+
     for agent in "${agents_to_list[@]}"; do
         local models_file="$METADATA_DIR/models_${agent}.json"
         if [[ ! -f "$models_file" ]]; then
@@ -177,7 +200,7 @@ cmd_list_models() {
         fi
 
         echo "=== $agent ==="
-        jq -r '.models[] | "MODEL:\(.name) CLI_ID:\(.cli_id) NOTES:\(.notes) VERIFIED:\(.verified | to_entries | map("\(.key)=\(.value)") | join(","))"' "$models_file"
+        jq -r "$jq_filter"' | "MODEL:\(.name) CLI_ID:\(.cli_id) STATUS:\(.status // "active") NOTES:\(.notes) VERIFIED:\(.verified | to_entries | map("\(.key)=\(.value)") | join(","))"' "$models_file"
         echo ""
     done
 }
@@ -336,7 +359,8 @@ Usage: ait codeagent <command> [options]
 
 Commands:
   list-agents            List supported code agents and CLI availability
-  list-models [AGENT]    List models for an agent (with verification scores)
+  list-models [--active-only] [AGENT]
+                         List models for an agent (with verification scores and status)
   resolve <operation>    Return configured agent string for an operation
   check <agent-string>   Validate agent string and check CLI availability
   invoke <operation> [args...]  Invoke the code agent for an operation

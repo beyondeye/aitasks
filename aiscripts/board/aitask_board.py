@@ -2996,7 +2996,9 @@ class KanbanApp(App):
             subprocess.Popen([terminal, "--", wrapper, "invoke", "task-pick", num])
         else:
             with self.suspend():
-                subprocess.call([wrapper, "invoke", "task-pick", num])
+                ret = subprocess.call([wrapper, "invoke", "task-pick", num])
+            if ret != 0:
+                self.notify("Code agent invocation failed — check model configuration", severity="error")
             self.manager.load_tasks()
             self.refresh_board(refocus_filename=filename)
 

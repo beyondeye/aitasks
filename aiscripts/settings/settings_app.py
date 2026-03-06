@@ -750,6 +750,8 @@ class AgentModelPickerScreen(ModalScreen):
         models = model_data.get("models", []) if model_data else []
         model_options = []
         for m in models:
+            if m.get("status", "active") == "unavailable":
+                continue
             name = m.get("name", "?")
             notes = m.get("notes", "")
             verified = m.get("verified", {})
@@ -1687,7 +1689,7 @@ class SettingsApp(App):
 
             # Header
             container.mount(Static(
-                f"    {'Name':<16} {'CLI ID':<30} {'Notes'}",
+                f"    {'Name':<16} {'CLI ID':<30} {'Status':<12} {'Notes'}",
                 classes="model-header",
             ))
 
@@ -1695,13 +1697,20 @@ class SettingsApp(App):
                 name = m.get("name", "?")
                 cli_id = m.get("cli_id", "?")
                 notes = m.get("notes", "")
+                status = m.get("status", "active")
                 verified = m.get("verified", {})
                 scores = ", ".join(f"{k}:{v}" for k, v in verified.items() if v)
                 score_str = f"  [dim]verified: {scores}[/dim]" if scores else ""
-                container.mount(Static(
-                    f"    {name:<16} {cli_id:<30} {notes}{score_str}",
-                    classes="model-row",
-                ))
+                if status == "unavailable":
+                    container.mount(Static(
+                        f"    [dim]{name:<16} {cli_id:<30} {'[UNAVAIL]':<12} {notes}{score_str}[/dim]",
+                        classes="model-row",
+                    ))
+                else:
+                    container.mount(Static(
+                        f"    {name:<16} {cli_id:<30} {'active':<12} {notes}{score_str}",
+                        classes="model-row",
+                    ))
 
         container.mount(Label(""))
         container.mount(Label(
