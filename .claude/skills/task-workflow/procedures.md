@@ -175,7 +175,7 @@ This procedure records which code agent and LLM model is executing the task by s
 1. **Check `AITASK_AGENT_STRING` env var** — if set (by the codeagent wrapper), use its value directly as the agent string. Skip to step 3.
 
 2. **If not set, self-detect:**
-   - Identify which code agent CLI you are running in: `claudecode`, `geminicli`, `codex`, or `opencode`
+   - Identify which code agent CLI you are running in. The agent name MUST be one of these exact strings: `claudecode`, `geminicli`, `codex`, `opencode`. **IMPORTANT:** Use `claudecode` (not `claude`), `geminicli` (not `gemini`). These are the only valid agent identifiers.
    - Identify your current model ID from your system context (e.g., for Claude Code: the "exact model ID" from the system message, like `claude-opus-4-6`)
    - Read the corresponding model config file: `aitasks/metadata/models_<agent>.json`
    - Find the model entry whose `cli_id` matches your model ID

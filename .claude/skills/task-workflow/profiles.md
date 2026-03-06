@@ -26,7 +26,8 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `base_branch` | string | no | Branch name (e.g., `"main"`) | Step 5 |
 | `plan_preference` | string | no | `"use_current"`, `"verify"`, or `"create_new"` | Step 6.0 |
 | `plan_preference_child` | string | no | Same values as `plan_preference`; overrides `plan_preference` for child tasks. Defaults to `plan_preference` if omitted | Step 6.0 |
-| `post_plan_action` | string | no | `"start_implementation"` = skip to impl; omit = ask | Step 6 checkpoint |
+| `post_plan_action` | string | no | `"start_implementation"` = skip to impl; `"ask"` = always show checkpoint; omit = ask | Step 6 checkpoint |
+| `post_plan_action_for_child` | string | no | Same values as `post_plan_action`; overrides `post_plan_action` when the current task is a child task. Defaults to `post_plan_action` if omitted | Step 6 checkpoint |
 
 Only `name` and `description` are required. Omitting any other key means the corresponding question is asked interactively.
 

@@ -172,11 +172,16 @@ Base branch: main
 
 ## Checkpoint (after plan is saved)
 
-**Override for verified child task plans:** If this is a child task AND the plan was verified (entered via the "Verify plan" path in 6.0), the checkpoint is ALWAYS interactive — ignore the `post_plan_action` profile setting. The user must confirm the verified plan before implementation proceeds. This ensures the user sees and approves the plan even when using fast profiles.
+**Determine effective post-plan action:**
 
-**Profile check:** If the active profile has `post_plan_action` set to `"start_implementation"` (and the override above does NOT apply):
+1. If `is_child` is true AND the active profile has `post_plan_action_for_child` set, use `post_plan_action_for_child` as the effective action.
+2. Otherwise, use the profile's `post_plan_action` value (if set).
+
+**Profile check:** If the effective action is `"start_implementation"`:
 - Display: "Profile '\<name\>': proceeding to implementation"
 - Skip the AskUserQuestion below and proceed directly to Step 7
+
+If the effective action is `"ask"`, or is not set (no profile / key omitted): show the interactive checkpoint below.
 
 Otherwise, use `AskUserQuestion`:
 - Question: "Plan saved to `<plan_path>`. How would you like to proceed?"
