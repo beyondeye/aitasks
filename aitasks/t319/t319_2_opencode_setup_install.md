@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: [t319_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [opencode, codeagent]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-06 01:18
-updated_at: 2026-03-06 01:18
+updated_at: 2026-03-06 10:22
 ---
 
 Update release workflow, install.sh, and ait setup to package, distribute, and install OpenCode skill wrappers.
