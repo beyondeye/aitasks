@@ -96,13 +96,32 @@ git commit -m "feature: Add OpenCode CLI discovery to model refresh skill (t319_
 
 ## Verification
 
-- [ ] `bash aiscripts/aitask_opencode_models.sh --dry-run` lists ~31 models
-- [ ] `bash aiscripts/aitask_opencode_models.sh` updates `aitasks/metadata/models_opencode.json`
-- [ ] Model naming follows convention (lowercase, underscores)
-- [ ] `ait codeagent list-models opencode` shows expanded model list
-- [ ] `seed/models_opencode.json` is NOT modified
-- [ ] Existing `verified` scores preserved when updating
+- [x] `bash aiscripts/aitask_opencode_models.sh --dry-run` lists 43 models (41 active, 2 unavailable)
+- [x] `bash aiscripts/aitask_opencode_models.sh` updates `aitasks/metadata/models_opencode.json`
+- [x] Model naming follows convention (lowercase, underscores)
+- [x] `ait codeagent list-models opencode` shows expanded model list (43 models)
+- [x] `seed/models_opencode.json` fixed with provider prefix in cli_id values
+- [x] Existing `verified` scores preserved when updating
+- [x] Shellcheck passes (only SC1091 info for non-followed source)
 
-## Post-Implementation: Step 9
+## Final Implementation Notes
 
-Follow task-workflow Step 9 for archival.
+- **Actual work done:** Created `aiscripts/aitask_opencode_models.sh` discovery script, fixed `seed/models_opencode.json` cli_id values, updated refresh skill, registered `ait opencode-models` command, created t319_5 sibling task for status field support.
+- **Deviations from plan:**
+  - Seed file was updated (original plan said NOT to modify it, but user requested fixing cli_id values)
+  - Added `status` field ("active"/"unavailable") to model JSON — not in original plan, added for handling disappeared models
+  - All models get provider prefix: opencode/Zen → `zen_` prefix (e.g., `zen_claude_opus_4_6`), openai/ → `openai_` prefix (e.g., `openai_gpt_5_codex`). This avoids confusion about model provenance.
+  - `opencode models` only lists connected providers, so discovery is installation-specific (confirmed correct for metadata tier)
+  - `--sync-seed` flag added to optionally sync metadata to seed
+  - Batch mode (`opencode run`) NOT implemented — `opencode models --verbose` provides sufficient structured data
+- **Issues encountered:**
+  - `tr '-.' '__'` failed on Linux (`-` treated as flag) — fixed with `sed 's/[-.]/_/g'`, then replaced with bash `${var//[-.]/_}` per shellcheck suggestion
+  - Duplicate model names across providers (opencode/ and openai/) — resolved by prefixing non-opencode provider names
+- **Key decisions:**
+  - cli_id includes full provider prefix (e.g., `opencode/claude-opus-4-6`) since OpenCode's `--model` flag requires `provider/model` format
+  - Models that disappear from `opencode models` output are marked `"status": "unavailable"` rather than deleted, preserving verified scores
+  - Created t319_5 child task for framework-wide status field support (aitask_codeagent.sh, TUI board, settings)
+- **Notes for sibling tasks:**
+  - t319_5 (new): Handle `status` field in aitask_codeagent.sh, board TUI, and settings TUI
+  - t319_2: The seed file now has corrected cli_id values with provider prefix — install.sh should use these
+  - t319_1: OpenCode's `--model` flag requires `provider/model` format (not just model ID) — skill wrappers should document this
