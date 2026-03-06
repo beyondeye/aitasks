@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t319_4]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [opencode, codeagent]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-06 11:09
-updated_at: 2026-03-06 11:09
+updated_at: 2026-03-06 11:42
 ---
 
 Add framework-wide support for the 'status' field in model JSON files (models_*.json).
