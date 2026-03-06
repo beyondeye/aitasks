@@ -198,6 +198,17 @@ git commit -m "feature: Add OpenCode skill wrappers and tool mapping (t319_1)"
 - [ ] `.opencode/instructions.md` assembled for aitasks repo
 - [ ] No `opencode_interactive_prereqs.md` needed (OpenCode's `ask` works in all modes)
 
+## Final Implementation Notes
+
+- **Actual work done:** Created all 17 OpenCode skill wrappers, tool mapping file, seed instruction file, seed permission config, and project-level instructions file — exactly as planned.
+- **Deviations from plan:** Removed the `<!-- Assembled from ... -->` HTML comment from `.opencode/instructions.md` per user feedback — it's unnecessary in the assembled file.
+- **Issues encountered:** None — OpenCode's near-1:1 tool mapping made the wrappers significantly simpler than Codex equivalents (no prerequisites section needed).
+- **Key decisions:** OpenCode wrappers use `/skill-name` invocation syntax (matching OpenCode's native skill invocation) instead of Codex's `$skill-name`. No `opencode_interactive_prereqs.md` needed since OpenCode's `ask` tool works in all modes.
+- **Notes for sibling tasks:**
+  - The tool mapping at `.opencode/skills/opencode_tool_mapping.md` is the central reference for all OpenCode adaptations — sibling tasks should reference it.
+  - Permission config at `seed/opencode_config.seed.json` mirrors `seed/claude_settings.local.json` — if new scripts are added, both must be updated.
+  - The `.opencode/instructions.md` was manually assembled; t319_2 (setup/install) should automate this assembly in `ait setup`.
+
 ## Post-Implementation: Step 9
 
 Follow task-workflow Step 9 for archival.
