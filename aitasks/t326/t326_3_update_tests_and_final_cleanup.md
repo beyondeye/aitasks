@@ -3,10 +3,11 @@ priority: high
 effort: high
 depends: [t326_2]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [install_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-07 22:45
-updated_at: 2026-03-07 22:45
+updated_at: 2026-03-07 23:33
 ---
 
 Update all test files from aiscripts/ to .aitask-scripts/, remove backward-compat symlink, and run full verification.
