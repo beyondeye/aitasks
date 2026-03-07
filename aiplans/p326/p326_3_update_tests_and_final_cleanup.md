@@ -103,5 +103,12 @@ git commit -m "refactor: Update tests and remove aiscripts symlink (t326_3)"
 - No stale `aiscripts/` references in source files
 - `./ait --version` and `./ait ls` work
 
+## Final Implementation Notes
+- **Actual work done:** Replaced all `aiscripts/` → `.aitask-scripts/` references across 36 test files (bash + python), 15 core scripts (comment-only usage examples + 3 functional code fixes), 1 website script, and removed the backward-compat symlink. Total: 57 files changed, ~573 lines modified.
+- **Deviations from plan:** The initial `sed 's|aiscripts/|.aitask-scripts/|g'` only caught references with a trailing slash. Many bare `aiscripts` references (e.g., `SCRIPT_DIR="$PROJECT_DIR/aiscripts"`, Python `sys.path.insert`) required a second pass with targeted patterns (`/aiscripts"` → `/.aitask-scripts"`, `/aiscripts'` → `/.aitask-scripts'`). Additionally, 15 core scripts in `.aitask-scripts/` had leftover comment-only references and 3 functional code bugs that the symlink had been masking — these were NOT in the original plan scope (expected to be done in t326_1/t326_2) but had to be fixed here since the symlink removal exposed them.
+- **Issues encountered:** (1) `aitask_setup.sh` global shim checked for `aiscripts` directory in the heredoc-generated shim script — not caught by t326_1 because it's inside a heredoc. (2) `aitask_install.sh` VERSION path still referenced `aiscripts/VERSION`. (3) `aitask_review_detect_env.sh` directory pattern detection checked for `aiscripts/*`. All three were masked by the symlink during t326_1/t326_2.
+- **Key decisions:** Left `aiscripts__` codebrowser snapshot name examples in comments (e.g., `aiscripts__lib__20260226_120000`) unchanged — these are historical snapshot directory names, not references to the scripts directory. Left `test_explain_cleanup.sh` fixture directory names (`aiscripts__20260226_*`) unchanged for the same reason.
+- **Notes for sibling tasks:** This was the final child task. The rename is now complete with zero stale references. One pre-existing test failure exists in `test_data_branch_setup.sh` (7 failing tests about CLAUDE.md generation) — tracked as t328.
+
 ## Step 9 (Post-Implementation)
 After verification, proceed to archival per the task-workflow. Since this is the last child task, the parent task (t326) will also be archived automatically.
