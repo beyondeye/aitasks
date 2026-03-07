@@ -3,11 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [geminicli]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-07 23:21
-updated_at: 2026-03-07 23:57
+updated_at: 2026-03-08 00:11
+completed_at: 2026-03-08 00:11
 ---
 
 Create foundational Gemini CLI wrapper files: tool mapping, plan mode prerequisites, and 17 skill wrappers in `.gemini/skills/`.
