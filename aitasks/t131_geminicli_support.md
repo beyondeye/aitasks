@@ -3,12 +3,11 @@ priority: medium
 effort: high
 depends: ['130']
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [geminicli]
 children_to_implement: [t131_1, t131_2, t131_3, t131_4]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-16 10:31
-updated_at: 2026-03-07 23:21
+updated_at: 2026-03-07 23:30
 boardcol: now
 boardidx: 20
 ---
