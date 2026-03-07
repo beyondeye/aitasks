@@ -80,5 +80,12 @@ For each category, use a systematic grep → edit cycle:
 - Read a few key skill files to spot-check
 - Website builds: `cd website && hugo build --gc --minify`
 
+## Final Implementation Notes
+- **Actual work done:** Replaced all `aiscripts/` → `.aitask-scripts/` references across 39 files (22 skill files, 2 root docs, 2 aidocs, 2 seed templates, 11 website docs). Total: 266 line changes, pure 1:1 substitution using `sed -i 's|aiscripts/|.aitask-scripts/|g'`.
+- **Deviations from plan:** Step 6 (Other Tool Configs) was already clean — `.opencode/`, `.codex/`, `.agents/`, `.gemini/` had zero `aiscripts/` references, so no changes needed. Also `ait-git/SKILL.md` and `task-workflow/profiles.md` were already clean. Found 4 additional website files not listed in the original plan: `aitask-stats.md`, `_index.md`, `codebrowser/reference.md`, `retroactive-tracking.md`.
+- **Issues encountered:** None. The sed pattern `s|aiscripts/|.aitask-scripts/|g` correctly handles both `./aiscripts/` (becomes `./.aitask-scripts/`) and bare `aiscripts/` (becomes `.aitask-scripts/`). No double-dot corruption detected.
+- **Key decisions:** Excluded `aiexplains/` (generated codebrowser snapshots), `.aitask-data/` (separate branch copies), `website/public/` (generated search indices), and `tests/` (handled by t326_3).
+- **Notes for sibling tasks:** The backward-compat symlink `aiscripts → .aitask-scripts` is still in place. t326_3 should: update test files, remove the symlink, and do final verification. The `aiexplains/` directory has many historical references but these are generated snapshots and should not be updated. The `.aitask-data/` branch copies will be updated naturally when tasks are picked/archived.
+
 ## Step 9 (Post-Implementation)
 After verification, proceed to archival per the task-workflow.
