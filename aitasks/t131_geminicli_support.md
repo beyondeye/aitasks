@@ -5,9 +5,10 @@ depends: ['130']
 issue_type: feature
 status: Implementing
 labels: [geminicli]
+children_to_implement: [t131_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-16 10:31
-updated_at: 2026-03-07 22:57
+updated_at: 2026-03-07 23:21
 boardcol: now
 boardidx: 20
 ---
