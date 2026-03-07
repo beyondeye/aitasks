@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [geminicli]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-07 23:21
-updated_at: 2026-03-07 23:21
+updated_at: 2026-03-07 23:57
 ---
 
 Create foundational Gemini CLI wrapper files: tool mapping, plan mode prerequisites, and 17 skill wrappers in `.gemini/skills/`.
