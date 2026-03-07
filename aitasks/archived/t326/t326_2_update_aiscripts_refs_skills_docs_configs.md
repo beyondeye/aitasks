@@ -3,11 +3,13 @@ priority: high
 effort: high
 depends: [t326_1]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [install_scripts]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-07 22:41
-updated_at: 2026-03-07 23:21
+updated_at: 2026-03-07 23:29
+completed_at: 2026-03-07 23:29
 ---
 
 Update all references from aiscripts/ to .aitask-scripts/ in skills, documentation, seed templates, and tool configs.
