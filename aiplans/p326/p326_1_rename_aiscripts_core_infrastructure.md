@@ -84,5 +84,12 @@ git commit -m "refactor: Rename aiscripts/ to .aitask-scripts/ — core infrastr
 - `./ait ls` works (requires symlink for task_utils.sh reference)
 - `shellcheck .aitask-scripts/aitask_*.sh` passes
 
+## Final Implementation Notes
+- **Actual work done:** Renamed `aiscripts/` → `.aitask-scripts/` via `git mv`, created backward-compat symlink, updated all core executable code references across 11 files (ait, install.sh, .gitignore, create_new_release.sh, release.yml, settings.local.json, aitask_setup.sh, aitask_board.py, codebrowser_app.py, explain_manager.py, settings_app.py).
+- **Deviations from plan:** None — plan was accurate. `aitask_stats.py` and `config_utils.py` confirmed to have zero `aiscripts/` references as expected.
+- **Issues encountered:** None. All shell scripts use `SCRIPT_DIR=$(dirname "${BASH_SOURCE[0]}")` pattern which auto-resolves through symlink, so no changes needed in script internals beyond the `aitask_setup.sh` check_paths array.
+- **Key decisions:** Left comment-only references in shell script headers (usage examples like `./aiscripts/aitask_archive.sh 166`) untouched — these are documentation, resolved by the symlink, and will be handled in t326_2 (docs/skills update) or t326_3 (tests/cleanup).
+- **Notes for sibling tasks:** The symlink `aiscripts → .aitask-scripts` ensures all unchanged references still work. t326_2 should update: all SKILL.md files in `.claude/skills/`, CLAUDE.md, skill files for gemini/codex/opencode, and any remaining documentation. t326_3 should update test files, remove the symlink, and do final verification. The `.claude/settings.local.json` patterns now use `.aitask-scripts` — skills referencing `./aiscripts/` in bash commands will work through the symlink but should be updated in t326_2 for consistency.
+
 ## Step 9 (Post-Implementation)
 After verification, proceed to archival per the task-workflow.
