@@ -3,11 +3,13 @@ priority: high
 effort: high
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [install_scripts]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-07 22:41
-updated_at: 2026-03-07 22:56
+updated_at: 2026-03-07 23:09
+completed_at: 2026-03-07 23:09
 ---
 
 Rename aiscripts/ directory to .aitask-scripts/ and update all core executable code references.
