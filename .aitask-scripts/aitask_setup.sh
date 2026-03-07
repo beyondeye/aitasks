@@ -1008,6 +1008,7 @@ setup_data_branch() {
             cp "$project_dir/seed/project_config.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed/codeagent_config.json" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed"/models_*.json "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
+            cp "$project_dir/seed/"*_instructions.seed.md "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             if [[ -d "$project_dir/seed/profiles" ]]; then
                 mkdir -p "$project_dir/.aitask-data/aitasks/metadata/profiles"
                 cp "$project_dir/seed/profiles/"*.yaml "$project_dir/.aitask-data/aitasks/metadata/profiles/" 2>/dev/null || true

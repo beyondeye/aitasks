@@ -90,6 +90,13 @@ assert_file_contains() {
     fi
 }
 
+# Set up the seed file in a temp directory (simulates post-setup state)
+setup_seed_file() {
+    local dir="$1"
+    mkdir -p "$dir/aitasks/metadata"
+    cp "$PROJECT_DIR/seed/aitasks_agent_instructions.seed.md" "$dir/aitasks/metadata/"
+}
+
 # Create a repo with remote for testing
 setup_repo_with_remote() {
     local tmpdir
@@ -140,6 +147,8 @@ echo "--- Test 1: Fresh setup with remote ---"
 TMPDIR_1="$(setup_repo_with_remote)"
 SCRIPT_DIR="$TMPDIR_1/local/.aitask-scripts"
 mkdir -p "$SCRIPT_DIR"
+mkdir -p "$TMPDIR_1/local/seed"
+cp "$PROJECT_DIR/seed/aitasks_agent_instructions.seed.md" "$TMPDIR_1/local/seed/"
 
 (cd "$TMPDIR_1/local" && setup_data_branch </dev/null >/dev/null 2>&1)
 
@@ -358,6 +367,7 @@ rm -rf "$TMPDIR_5"
 echo "--- Test 6: CLAUDE.md creates when missing ---"
 
 TMPDIR_6="$(mktemp -d)"
+setup_seed_file "$TMPDIR_6"
 
 update_claudemd_git_section "$TMPDIR_6"
 
@@ -371,6 +381,7 @@ rm -rf "$TMPDIR_6"
 echo "--- Test 7: CLAUDE.md appends to existing ---"
 
 TMPDIR_7="$(mktemp -d)"
+setup_seed_file "$TMPDIR_7"
 echo "# My Project" > "$TMPDIR_7/CLAUDE.md"
 echo "" >> "$TMPDIR_7/CLAUDE.md"
 echo "Some existing content." >> "$TMPDIR_7/CLAUDE.md"
@@ -387,6 +398,7 @@ rm -rf "$TMPDIR_7"
 echo "--- Test 8: CLAUDE.md idempotent ---"
 
 TMPDIR_8="$(mktemp -d)"
+setup_seed_file "$TMPDIR_8"
 echo "# Project" > "$TMPDIR_8/CLAUDE.md"
 
 update_claudemd_git_section "$TMPDIR_8" 2>/dev/null
