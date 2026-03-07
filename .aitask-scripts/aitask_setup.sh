@@ -1817,7 +1817,7 @@ commit_framework_files() {
     # Build the list of framework paths to check (only those that exist)
     local paths_to_add=()
     local check_paths=(
-        "aiscripts/"
+        ".aitask-scripts/"
         "aitasks/metadata/"
         "aireviewguides/"
         "ait"

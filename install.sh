@@ -88,11 +88,11 @@ check_prerequisites() {
 
 # --- Safety check ---
 check_existing_install() {
-    if [[ -f "$INSTALL_DIR/ait" || -d "$INSTALL_DIR/aiscripts" ]]; then
+    if [[ -f "$INSTALL_DIR/ait" || -d "$INSTALL_DIR/.aitask-scripts" ]]; then
         if $FORCE; then
             warn "Existing installation found. --force specified, overwriting framework files..."
         else
-            die "aitasks already installed in $INSTALL_DIR (found ait or aiscripts/). Use --force to overwrite."
+            die "aitasks already installed in $INSTALL_DIR (found ait or .aitask-scripts/). Use --force to overwrite."
         fi
     fi
 }
@@ -518,8 +518,8 @@ show_upgrade_changelog() {
     local current_version=""
     if [[ -f "$install_dir/VERSION" ]]; then
         current_version="$(cat "$install_dir/VERSION")"
-    elif [[ -f "$install_dir/aiscripts/VERSION" ]]; then
-        current_version="$(cat "$install_dir/aiscripts/VERSION")"
+    elif [[ -f "$install_dir/.aitask-scripts/VERSION" ]]; then
+        current_version="$(cat "$install_dir/.aitask-scripts/VERSION")"
     else
         return  # Can't determine current version, skip
     fi
@@ -528,12 +528,12 @@ show_upgrade_changelog() {
     local tmpextract
     tmpextract="$(mktemp -d)"
 
-    tar -xzf "$tarball_path" -C "$tmpextract" aiscripts/VERSION 2>/dev/null || true
+    tar -xzf "$tarball_path" -C "$tmpextract" .aitask-scripts/VERSION 2>/dev/null || true
     tar -xzf "$tarball_path" -C "$tmpextract" CHANGELOG.md 2>/dev/null || true
 
     local new_version=""
-    if [[ -f "$tmpextract/aiscripts/VERSION" ]]; then
-        new_version="$(cat "$tmpextract/aiscripts/VERSION")"
+    if [[ -f "$tmpextract/.aitask-scripts/VERSION" ]]; then
+        new_version="$(cat "$tmpextract/.aitask-scripts/VERSION")"
     fi
 
     if [[ -z "$new_version" || "$current_version" == "$new_version" ]]; then
@@ -585,9 +585,9 @@ show_upgrade_changelog() {
 # --- Set permissions ---
 set_permissions() {
     chmod +x "$INSTALL_DIR/ait"
-    chmod +x "$INSTALL_DIR"/aiscripts/*.sh
+    chmod +x "$INSTALL_DIR"/.aitask-scripts/*.sh
     # Shared libraries in lib/ (sourced, not executed, but keep +x for consistency)
-    find "$INSTALL_DIR/aiscripts/lib" -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
+    find "$INSTALL_DIR/.aitask-scripts/lib" -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
 }
 
 # --- Commit installed files to git (safety net) ---
@@ -603,7 +603,7 @@ commit_installed_files() {
     # Build list of paths to commit (only those that exist)
     local paths_to_add=()
     local check_paths=(
-        "aiscripts/"
+        ".aitask-scripts/"
         "aitasks/metadata/"
         "aireviewguides/"
         "ait"
@@ -672,7 +672,7 @@ main() {
 
     # Remove CHANGELOG.md from project (only in tarball for upgrade changelog display)
     rm -f "$INSTALL_DIR/CHANGELOG.md"
-    # Clean up legacy VERSION at root (moved to aiscripts/VERSION in v0.3.0+)
+    # Clean up legacy VERSION at root (moved to .aitask-scripts/VERSION in v0.3.0+)
     rm -f "$INSTALL_DIR/VERSION"
 
     info "Installing Claude Code skills..."
@@ -728,8 +728,8 @@ main() {
 
     info "Installing global shim..."
     # Source the setup script (without running main) to reuse install_global_shim()
-    # shellcheck source=aiscripts/aitask_setup.sh
-    source "$INSTALL_DIR/aiscripts/aitask_setup.sh" --source-only
+    # shellcheck source=.aitask-scripts/aitask_setup.sh
+    source "$INSTALL_DIR/.aitask-scripts/aitask_setup.sh" --source-only
     install_global_shim
 
     commit_installed_files

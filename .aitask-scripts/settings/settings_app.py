@@ -15,7 +15,7 @@ from pathlib import Path
 
 import yaml
 
-# Add aiscripts/lib to path for config_utils
+# Add .aitask-scripts/lib to path for config_utils
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from config_utils import (  # noqa: E402

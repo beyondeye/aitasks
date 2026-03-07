@@ -4,10 +4,10 @@ set -euo pipefail
 AIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$AIT_DIR"  # CRITICAL: ensures TASK_DIR="aitasks" works in all scripts
 
-SCRIPTS_DIR="$AIT_DIR/aiscripts"
+SCRIPTS_DIR="$AIT_DIR/.aitask-scripts"
 
 show_version() {
-    local version_file="$AIT_DIR/aiscripts/VERSION"
+    local version_file="$AIT_DIR/.aitask-scripts/VERSION"
     if [[ -f "$version_file" ]]; then
         echo "ait version $(cat "$version_file")"
     else
@@ -75,7 +75,7 @@ version_gt() {
 # --- Update check (runs at most once per day) ---
 check_for_updates() {
     local cache_file="$HOME/.aitask/update_check"
-    local version_file="$AIT_DIR/aiscripts/VERSION"
+    local version_file="$AIT_DIR/.aitask-scripts/VERSION"
     local repo="beyondeye/aitasks"
 
     # Bail if no VERSION file

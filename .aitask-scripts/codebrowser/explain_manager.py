@@ -19,7 +19,7 @@ import yaml
 from annotation_data import AnnotationRange, ExplainRunInfo, FileExplainData, TaskDetailContent
 
 CODEBROWSER_DIR = "aiexplains/codebrowser"
-EXTRACT_SCRIPT = "./aiscripts/aitask_explain_extract_raw_data.sh"
+EXTRACT_SCRIPT = "./.aitask-scripts/aitask_explain_extract_raw_data.sh"
 
 
 class ExplainManager:

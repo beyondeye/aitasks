@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-current_version=$(cat aiscripts/VERSION)
+current_version=$(cat .aitask-scripts/VERSION)
 
 echo "Current version: $current_version"
 read -rp "New version (without 'v' prefix): " new_version
@@ -25,7 +25,7 @@ fi
 
 # Check if CHANGELOG.md has an entry for this version
 if [[ -f CHANGELOG.md ]]; then
-  if ./aiscripts/aitask_changelog.sh --check-version "$new_version" 2>/dev/null; then
+  if ./.aitask-scripts/aitask_changelog.sh --check-version "$new_version" 2>/dev/null; then
     echo -e "\033[0;32mCHANGELOG.md has entry for v${new_version}. Will be used as release notes.\033[0m"
   else
     echo ""
@@ -57,7 +57,7 @@ if [[ "$confirm" != [yY] ]]; then
   exit 1
 fi
 
-echo "$new_version" > aiscripts/VERSION
+echo "$new_version" > .aitask-scripts/VERSION
 
 # Generate blog post from changelog (auto mode, non-fatal)
 if [[ -x ./website/new_release_post.sh ]]; then
@@ -66,7 +66,7 @@ if [[ -x ./website/new_release_post.sh ]]; then
   ./website/new_release_post.sh --auto "$new_version" || echo -e "\033[1;33mWARNING:\033[0m Blog post generation failed (non-fatal)."
 fi
 
-git add aiscripts/VERSION
+git add .aitask-scripts/VERSION
 git add website/content/blog/ 2>/dev/null || true
 git add website/content/_index.md 2>/dev/null || true
 git commit -m "ait: Bump version to $new_version"

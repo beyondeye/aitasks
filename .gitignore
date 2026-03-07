@@ -1,9 +1,9 @@
 # Draft tasks (local, not committed)
 aitasks/new/
-aiscripts/__pycache__/
-aiscripts/**/__pycache__/
-aiscripts/board/__pycache__/
-aiscripts/codebrowser/__pycache__/
+.aitask-scripts/__pycache__/
+.aitask-scripts/**/__pycache__/
+.aitask-scripts/board/__pycache__/
+.aitask-scripts/codebrowser/__pycache__/
 
 # aitask-explain generated data (temporary, per-run)
 aiexplains/

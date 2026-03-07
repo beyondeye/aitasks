@@ -39,7 +39,7 @@ TASK_TYPES_FILE = TASKS_DIR / "metadata" / "task_types.txt"
 DATA_WORKTREE = Path(".aitask-data")
 USERCONFIG_FILE = TASKS_DIR / "metadata" / "userconfig.yaml"
 EMAILS_FILE = TASKS_DIR / "metadata" / "emails.txt"
-CODEAGENT_SCRIPT = Path("aiscripts") / "aitask_codeagent.sh"
+CODEAGENT_SCRIPT = Path(".aitask-scripts") / "aitask_codeagent.sh"
 
 def _task_git_cmd() -> list[str]:
     """Return git command prefix for task data operations.
@@ -325,7 +325,7 @@ class TaskManager:
         self.lock_map.clear()
         try:
             result = subprocess.run(
-                ["./aiscripts/aitask_lock.sh", "--list"],
+                ["./.aitask-scripts/aitask_lock.sh", "--list"],
                 capture_output=True, text=True, timeout=10
             )
             if result.returncode == 0:
@@ -1793,7 +1793,7 @@ class TaskDetailScreen(ModalScreen):
                 return
             try:
                 result = subprocess.run(
-                    ["./aiscripts/aitask_lock.sh", "--lock", task_id, "--email", email],
+                    ["./.aitask-scripts/aitask_lock.sh", "--lock", task_id, "--email", email],
                     capture_output=True, text=True, timeout=15
                 )
                 if result.returncode == 0:
@@ -1816,7 +1816,7 @@ class TaskDetailScreen(ModalScreen):
         def do_unlock():
             try:
                 result = subprocess.run(
-                    ["./aiscripts/aitask_lock.sh", "--unlock", task_id],
+                    ["./.aitask-scripts/aitask_lock.sh", "--unlock", task_id],
                     capture_output=True, text=True, timeout=15
                 )
                 if result.returncode == 0:
@@ -2922,7 +2922,7 @@ class KanbanApp(App):
         """Run ait sync --batch in background and handle the result."""
         try:
             result = subprocess.run(
-                ["./aiscripts/aitask_sync.sh", "--batch"],
+                ["./.aitask-scripts/aitask_sync.sh", "--batch"],
                 capture_output=True, text=True, timeout=30,
             )
             output = result.stdout.strip().splitlines()
@@ -3007,10 +3007,10 @@ class KanbanApp(App):
         """Create a new task, using a terminal emulator or falling back to suspend."""
         terminal = self._find_terminal()
         if terminal:
-            subprocess.Popen([terminal, "--", "./aiscripts/aitask_create.sh"])
+            subprocess.Popen([terminal, "--", "./.aitask-scripts/aitask_create.sh"])
         else:
             with self.suspend():
-                subprocess.call(["./aiscripts/aitask_create.sh"])
+                subprocess.call(["./.aitask-scripts/aitask_create.sh"])
             self.manager.load_tasks()
             self.refresh_board()
 
@@ -3419,7 +3419,7 @@ class KanbanApp(App):
                 for fid in folded:
                     fid_str = str(fid).lstrip("t")
                     subprocess.run(
-                        ["./aiscripts/aitask_update.sh", "--batch", fid_str,
+                        ["./.aitask-scripts/aitask_update.sh", "--batch", fid_str,
                          "--status", "Ready", "--folded-into", ""],
                         capture_output=True, text=True, timeout=10
                     )

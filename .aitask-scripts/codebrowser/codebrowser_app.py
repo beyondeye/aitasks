@@ -552,7 +552,7 @@ class CodeBrowserApp(App):
 
     def _resolve_agent_binary(self, operation: str) -> tuple[str, str] | None:
         """Resolve agent name and binary for an operation via codeagent wrapper."""
-        codeagent = self._project_root / "aiscripts" / "aitask_codeagent.sh"
+        codeagent = self._project_root / ".aitask-scripts" / "aitask_codeagent.sh"
         if not codeagent.exists():
             return None
         try:
@@ -610,7 +610,7 @@ class CodeBrowserApp(App):
             arg = str(rel_path)
             self.notify(f"Launching {agent_name} for {rel_path}...")
 
-        wrapper = str(self._project_root / "aiscripts" / "aitask_codeagent.sh")
+        wrapper = str(self._project_root / ".aitask-scripts" / "aitask_codeagent.sh")
         terminal = self._find_terminal()
         if terminal:
             subprocess.Popen([terminal, "--", wrapper, "invoke", "explain", arg],
