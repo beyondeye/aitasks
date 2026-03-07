@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: ['130']
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [geminicli]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-02-16 10:31
-updated_at: 2026-02-16 10:31
+updated_at: 2026-03-07 22:57
 boardcol: now
 boardidx: 20
 ---
