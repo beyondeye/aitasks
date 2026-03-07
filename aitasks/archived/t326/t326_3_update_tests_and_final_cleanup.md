@@ -3,11 +3,13 @@ priority: high
 effort: high
 depends: [t326_2]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [install_scripts]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-07 22:45
-updated_at: 2026-03-07 23:33
+updated_at: 2026-03-07 23:52
+completed_at: 2026-03-07 23:52
 ---
 
 Update all test files from aiscripts/ to .aitask-scripts/, remove backward-compat symlink, and run full verification.
