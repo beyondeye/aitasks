@@ -5,7 +5,7 @@ depends: []
 issue_type: refactor
 status: Implementing
 labels: [install_scripts]
-children_to_implement: [t326_1]
+children_to_implement: [t326_1, t326_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-07 20:01
 updated_at: 2026-03-07 22:41
