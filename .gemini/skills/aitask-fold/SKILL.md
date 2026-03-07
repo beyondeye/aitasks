@@ -1,0 +1,22 @@
+---
+name: aitask-fold
+description: Identify and merge related tasks into a single task, then optionally execute it.
+---
+
+## Plan Mode Prerequisites
+
+**BEFORE executing the workflow**, read **`.gemini/skills/geminicli_planmode_prereqs.md`**
+and follow its guidance for plan mode phases.
+
+## Source of Truth
+
+This is a Gemini CLI wrapper. The authoritative skill definition is:
+
+**`.claude/skills/aitask-fold/SKILL.md`**
+
+Read that file and follow its complete workflow. For tool mapping and
+Gemini CLI adaptations, read **`.gemini/skills/geminicli_tool_mapping.md`**.
+
+## Arguments
+
+Accepts optional task IDs: `/aitask-fold 106,108,112` or `/aitask-fold 106 108`. Without arguments, follows interactive discovery.
