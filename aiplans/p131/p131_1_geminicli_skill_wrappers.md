@@ -87,3 +87,11 @@ Gemini CLI adaptations, read **`.gemini/skills/geminicli_tool_mapping.md`**.
 ## Post-Implementation
 
 - Refer to Step 9 (Post-Implementation) in `.claude/skills/task-workflow/SKILL.md`
+
+## Final Implementation Notes
+
+- **Actual work done:** Created all 19 files as planned — 1 tool mapping file (`geminicli_tool_mapping.md`), 1 plan mode prereqs file (`geminicli_planmode_prereqs.md`), and 17 skill wrappers in `.gemini/skills/aitask-*/SKILL.md`. Followed the OpenCode wrapper pattern exactly, adapting references from OpenCode to Gemini CLI.
+- **Deviations from plan:** None. Implementation matched the plan precisely.
+- **Issues encountered:** None.
+- **Key decisions:** Used the same plan mode prereqs structure as OpenCode (8 skills with planning phases get the prereqs section). Tool mapping covers Gemini CLI-specific tools like `run_shell_command`, `replace`, `activate_skill`, `codebase_investigator`/`generalist` for sub-agents, and `google_web_search`/`web_fetch` for external info.
+- **Notes for sibling tasks:** The `.gemini/skills/` directory is now established. t131_2 (command wrappers) should create `.gemini/commands/` following the same pattern used by `.opencode/commands/`. The tool mapping and planmode prereqs files are shared across both skills and commands. The `geminicli_tool_mapping.md` includes the agent string convention (`geminicli/<model_name>` from `models_geminicli.json`) which will be needed for proper agent attribution.
