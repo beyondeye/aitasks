@@ -64,62 +64,25 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 - `aitasks/` — Task data directory (auto-created)
 - `aiplans/` — Implementation plans directory (auto-created)
 
+**Optional: Codex CLI support** (when `ait setup` detects Codex CLI):
+
+- `.agents/skills/` — Codex CLI skill wrappers
+- `.codex/instructions.md` — aitasks instructions for Codex
+- `.codex/config.toml` — created or merged with aitask settings
+
+**Optional: OpenCode support** (when `ait setup` detects OpenCode):
+
+- `.opencode/skills/` — OpenCode skill wrappers
+- `.opencode/commands/` — OpenCode command wrappers
+- `.opencode/instructions.md` — aitasks instructions for OpenCode
+- `opencode.json` — merged with aitask settings
+
 **Global dependencies** (installed once per machine via `ait setup`):
 
 - CLI tools: `fzf`, `gh` (for GitHub), `glab` (for GitLab), or `bkt` (for Bitbucket), `jq`, `git`
 - Python venv at `~/.aitask/venv/` with `textual`, `pyyaml`, `linkify-it-py` (plus optional `plotext` when enabled for `ait stats --plot`)
 - Global `ait` shim at `~/.local/bin/ait`
 - Claude Code permissions in `.claude/settings.local.json` (see [Claude Code Permissions](../commands/setup-install/#claude-code-permissions))
-
-## Authentication with Your Git Remote
-
-Authenticating with your git remote enables full aitasks functionality including task locking (prevents two agents from picking the same task), push/pull sync across machines, and issue integration (`ait issue-import`, `ait issue-update`).
-
-### GitHub
-
-Authenticate the GitHub CLI:
-
-```bash
-gh auth login
-```
-
-Follow the prompts to authenticate via browser or token.
-
-### GitLab
-
-Authenticate the GitLab CLI:
-
-```bash
-glab auth login
-```
-
-Follow the prompts to authenticate via browser or token. This also configures
-git credentials for pushing to GitLab remotes.
-
-### Bitbucket
-
-Authenticate the Bitbucket CLI:
-
-```bash
-bkt auth login https://bitbucket.org --kind cloud --web
-```
-
-Follow the browser prompts to authenticate with your Atlassian account. For token-based
-authentication (e.g., in CI environments):
-
-```bash
-bkt auth login https://bitbucket.org --kind cloud --username <email> --token <app-password>
-```
-
-Create an app password at: Settings > Personal Bitbucket settings > App passwords.
-Enable the "Issues: read" and "Issues: write" permissions.
-
-Note: `bkt` requires a context to be configured. After authentication, create one:
-
-```bash
-bkt context create myproject --host "https://api.bitbucket.org/2.0" \
-    --workspace <your-workspace> --repo <your-repo> --set-active
-```
 
 ---
 
