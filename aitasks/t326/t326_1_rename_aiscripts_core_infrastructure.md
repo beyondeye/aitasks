@@ -3,10 +3,11 @@ priority: high
 effort: high
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [install_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-07 22:41
-updated_at: 2026-03-07 22:41
+updated_at: 2026-03-07 22:56
 ---
 
 Rename aiscripts/ directory to .aitask-scripts/ and update all core executable code references.

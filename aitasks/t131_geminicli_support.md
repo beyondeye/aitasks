@@ -11,13 +11,11 @@ boardcol: now
 boardidx: 20
 ---
 
-I want to add support for geminicli in aitasks framework, please refer to task 130, for details of possible issues,
- the task it write wrappers for all existing claude code skills and update ait setup to ask user if he want gemini cli support in the current repo and if yes install the geminicli wrappers.
+I want to add support for geminicli in aitasks framework, please refer to task 130 (codex support) and 329 (opencode supporT) for details of possible issues,
+ the task is  ot write wrappers for all existing claude code skills and update ait setup to ask user if he want gemini cli support in the current repo and if yes install the geminicli wrappers.
+ look at what was done for codex and opencode support.
 note that most existing claude code skill are used also as commands but not all, check which skill need wrappers as skills and which need wrappers as commands or both
 make sure command/skills wrappers support passing the arguments the command/skill expect
-
-IMPORTANT TASK UPDATE: in geminicli skills cannot be invoked as custom commands like in claude code, to instead of writing wrapper gemini skills for aitask claudecode skills
-need instead to write geminicli wrapper custom commands
 
 note: the current note about geminicli plan mode in conductor docs: need to check if this is also relevant for aitasks framework: https://github.com/gemini-cli-extensions/conductor/commit/3bc0f18413b8bfb71b1d8000fcdae21c0874896a
 
