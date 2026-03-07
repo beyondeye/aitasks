@@ -90,7 +90,7 @@ source_task_utils() {
     export ARCHIVED_DIR="$tmpdir/aitasks/archived"
     export PLAN_DIR="$tmpdir/aiplans"
     export ARCHIVED_PLAN_DIR="$tmpdir/aiplans/archived"
-    export SCRIPT_DIR="$PROJECT_DIR/aiscripts"
+    export SCRIPT_DIR="$PROJECT_DIR/.aitask-scripts"
 
     # Reset the guard so we can re-source with new directories
     unset _AIT_TASK_UTILS_LOADED
@@ -100,7 +100,7 @@ source_task_utils() {
     fi
     _AIT_TASK_UTILS_TMPDIR=""
 
-    source "$PROJECT_DIR/aiscripts/lib/task_utils.sh"
+    source "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh"
 }
 
 # --- Tests ---
@@ -234,8 +234,8 @@ source_task_utils "$TMPDIR_11"
 assert_exit_nonzero "Parent task not found exits non-zero" bash -c "
     export TASK_DIR='$TMPDIR_11/aitasks'
     export ARCHIVED_DIR='$TMPDIR_11/aitasks/archived'
-    export SCRIPT_DIR='$PROJECT_DIR/aiscripts'
-    source '$PROJECT_DIR/aiscripts/lib/task_utils.sh'
+    export SCRIPT_DIR='$PROJECT_DIR/.aitask-scripts'
+    source '$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh'
     resolve_task_file '999'
 "
 rm -rf "$TMPDIR_11"
@@ -261,8 +261,8 @@ marker_file=$(mktemp)
 bash -c "
     export TASK_DIR='$TMPDIR_13/aitasks'
     export ARCHIVED_DIR='$TMPDIR_13/aitasks/archived'
-    export SCRIPT_DIR='$PROJECT_DIR/aiscripts'
-    source '$PROJECT_DIR/aiscripts/lib/task_utils.sh'
+    export SCRIPT_DIR='$PROJECT_DIR/.aitask-scripts'
+    source '$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh'
     resolve_task_file '77' >/dev/null
     echo \"\$_AIT_TASK_UTILS_TMPDIR\" > '$marker_file'
 "

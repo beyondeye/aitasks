@@ -105,7 +105,7 @@ setup_mock() {
 }
 
 BASE=$(setup_mock)
-QUERY="$PROJECT_DIR/aiscripts/aitask_query_files.sh"
+QUERY="$PROJECT_DIR/.aitask-scripts/aitask_query_files.sh"
 
 # Override directory variables for testing
 export TASK_DIR="$BASE/aitasks"

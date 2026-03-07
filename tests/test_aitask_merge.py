@@ -7,7 +7,7 @@ import os
 import sys
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "aiscripts", "board"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".aitask-scripts", "board"))
 from aitask_merge import merge_body, merge_frontmatter, parse_conflict_file
 
 

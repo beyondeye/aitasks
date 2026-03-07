@@ -9,7 +9,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-FIND_SCRIPT="$PROJECT_DIR/aiscripts/aitask_find_files.sh"
+FIND_SCRIPT="$PROJECT_DIR/.aitask-scripts/aitask_find_files.sh"
 
 PASS=0
 FAIL=0
@@ -182,9 +182,9 @@ FILEEOF
 FILEEOF
 
         # Copy the script under test and its dependencies
-        mkdir -p aiscripts/lib
-        cp "$FIND_SCRIPT" aiscripts/aitask_find_files.sh
-        cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
+        mkdir -p .aitask-scripts/lib
+        cp "$FIND_SCRIPT" .aitask-scripts/aitask_find_files.sh
+        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
 
         git add -A
         git commit -m "Initial commit" --quiet
@@ -202,13 +202,13 @@ teardown_test_repo() {
 run_in_repo() {
     local repo="$1"
     shift
-    (cd "$repo" && bash aiscripts/aitask_find_files.sh "$@" 2>/dev/null)
+    (cd "$repo" && bash .aitask-scripts/aitask_find_files.sh "$@" 2>/dev/null)
 }
 
 run_in_repo_stderr() {
     local repo="$1"
     shift
-    (cd "$repo" && bash aiscripts/aitask_find_files.sh "$@" 2>&1)
+    (cd "$repo" && bash .aitask-scripts/aitask_find_files.sh "$@" 2>&1)
 }
 
 # =========================================================================

@@ -128,7 +128,7 @@ setup_local_repo() {
 }
 
 # Source the setup script to get access to functions
-source "$PROJECT_DIR/aiscripts/aitask_setup.sh" --source-only
+source "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" --source-only
 set +euo pipefail
 
 echo "=== setup_data_branch + update_claudemd_git_section Tests ==="
@@ -138,7 +138,7 @@ echo ""
 echo "--- Test 1: Fresh setup with remote ---"
 
 TMPDIR_1="$(setup_repo_with_remote)"
-SCRIPT_DIR="$TMPDIR_1/local/aiscripts"
+SCRIPT_DIR="$TMPDIR_1/local/.aitask-scripts"
 mkdir -p "$SCRIPT_DIR"
 
 (cd "$TMPDIR_1/local" && setup_data_branch </dev/null >/dev/null 2>&1)
@@ -184,7 +184,7 @@ rm -rf "$TMPDIR_1"
 echo "--- Test 2: Migration from legacy mode ---"
 
 TMPDIR_2="$(setup_repo_with_remote)"
-SCRIPT_DIR="$TMPDIR_2/local/aiscripts"
+SCRIPT_DIR="$TMPDIR_2/local/.aitask-scripts"
 mkdir -p "$SCRIPT_DIR"
 
 # Create existing task/plan data on main
@@ -256,7 +256,7 @@ rm -rf "$TMPDIR_2"
 echo "--- Test 3: Idempotent — second run skips ---"
 
 TMPDIR_3="$(setup_repo_with_remote)"
-SCRIPT_DIR="$TMPDIR_3/local/aiscripts"
+SCRIPT_DIR="$TMPDIR_3/local/.aitask-scripts"
 mkdir -p "$SCRIPT_DIR"
 
 (cd "$TMPDIR_3/local" && setup_data_branch </dev/null >/dev/null 2>&1)
@@ -281,7 +281,7 @@ rm -rf "$TMPDIR_3"
 echo "--- Test 4: Clone on new PC ---"
 
 TMPDIR_4="$(setup_repo_with_remote)"
-SCRIPT_DIR="$TMPDIR_4/local/aiscripts"
+SCRIPT_DIR="$TMPDIR_4/local/.aitask-scripts"
 mkdir -p "$SCRIPT_DIR"
 
 # First: set up data branch on "PC 1"
@@ -300,7 +300,7 @@ mkdir -p "$SCRIPT_DIR"
 git clone --quiet "$TMPDIR_4/remote.git" "$TMPDIR_4/pc2" 2>/dev/null
 (cd "$TMPDIR_4/pc2" && git config user.email "test@test.com" && git config user.name "Test")
 
-SCRIPT_DIR="$TMPDIR_4/pc2/aiscripts"
+SCRIPT_DIR="$TMPDIR_4/pc2/.aitask-scripts"
 mkdir -p "$SCRIPT_DIR"
 
 (cd "$TMPDIR_4/pc2" && setup_data_branch </dev/null >/dev/null 2>&1)
@@ -325,7 +325,7 @@ rm -rf "$TMPDIR_4"
 echo "--- Test 5: No remote (local-only) ---"
 
 TMPDIR_5="$(setup_local_repo)"
-SCRIPT_DIR="$TMPDIR_5/aiscripts"
+SCRIPT_DIR="$TMPDIR_5/.aitask-scripts"
 mkdir -p "$SCRIPT_DIR"
 
 (cd "$TMPDIR_5" && setup_data_branch </dev/null >/dev/null 2>&1)
@@ -401,7 +401,7 @@ rm -rf "$TMPDIR_8"
 echo "--- Test 9: Syntax check ---"
 
 TOTAL=$((TOTAL + 1))
-if bash -n "$PROJECT_DIR/aiscripts/aitask_setup.sh" 2>/dev/null; then
+if bash -n "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" 2>/dev/null; then
     PASS=$((PASS + 1))
 else
     FAIL=$((FAIL + 1))
@@ -411,13 +411,13 @@ fi
 # Shellcheck (if available) — only check for actual errors, not info/warning/style
 if command -v shellcheck &>/dev/null; then
     TOTAL=$((TOTAL + 1))
-    sc_errors=$(shellcheck --severity=error "$PROJECT_DIR/aiscripts/aitask_setup.sh" 2>&1 | wc -l | tr -d ' ')
+    sc_errors=$(shellcheck --severity=error "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" 2>&1 | wc -l | tr -d ' ')
     if [[ "$sc_errors" -eq 0 ]]; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))
         echo "FAIL: shellcheck found errors in aitask_setup.sh"
-        shellcheck --severity=error "$PROJECT_DIR/aiscripts/aitask_setup.sh" 2>&1 | head -20
+        shellcheck --severity=error "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" 2>&1 | head -20
     fi
 fi
 

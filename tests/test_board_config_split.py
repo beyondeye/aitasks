@@ -15,8 +15,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "aiscripts", "lib"))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "aiscripts", "board"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".aitask-scripts", "lib"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".aitask-scripts", "board"))
 from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for
 
 

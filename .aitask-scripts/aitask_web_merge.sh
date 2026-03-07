@@ -5,8 +5,8 @@
 # Outputs structured lines for the calling skill to parse and handle interactively.
 #
 # Usage:
-#   ./aiscripts/aitask_web_merge.sh              # Scan using cached remote data
-#   ./aiscripts/aitask_web_merge.sh --fetch      # Fetch first, then scan
+#   ./.aitask-scripts/aitask_web_merge.sh              # Scan using cached remote data
+#   ./.aitask-scripts/aitask_web_merge.sh --fetch      # Fetch first, then scan
 #
 # Output format (one line per completed branch):
 #   COMPLETED:<branch>:<completed_filename>
@@ -39,8 +39,8 @@ Output format:
   NONE                                       If no completions found
 
 Examples:
-  ./aiscripts/aitask_web_merge.sh --fetch    # Fetch and scan
-  ./aiscripts/aitask_web_merge.sh            # Scan cached data only
+  ./.aitask-scripts/aitask_web_merge.sh --fetch    # Fetch and scan
+  ./.aitask-scripts/aitask_web_merge.sh            # Scan cached data only
 EOF
 }
 

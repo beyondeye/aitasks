@@ -98,9 +98,9 @@ setup_local_repo() {
 
 # Source libraries for direct function testing
 # aitask_setup.sh sets SCRIPT_DIR from BASH_SOURCE — we override it after sourcing
-SCRIPT_DIR="$PROJECT_DIR/aiscripts"
-source "$PROJECT_DIR/aiscripts/lib/task_utils.sh"
-source "$PROJECT_DIR/aiscripts/aitask_setup.sh" --source-only
+SCRIPT_DIR="$PROJECT_DIR/.aitask-scripts"
+source "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh"
+source "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" --source-only
 # Restore SCRIPT_DIR — each test that needs setup_data_branch will set it explicitly
 SCRIPT_DIR="$TEST_SCRIPT_DIR"
 set +euo pipefail
@@ -170,7 +170,7 @@ rm -rf "$TMPDIR_4"
 echo "--- Test 5: task_git targets worktree (branch mode) ---"
 
 TMPDIR_5="$(setup_repo_with_remote)"
-SCRIPT_DIR="$TMPDIR_5/local/aiscripts"
+SCRIPT_DIR="$TMPDIR_5/local/.aitask-scripts"
 mkdir -p "$SCRIPT_DIR"
 
 (cd "$TMPDIR_5/local" && setup_data_branch </dev/null >/dev/null 2>&1)
@@ -192,7 +192,7 @@ TMPDIR_6="$(setup_repo_with_remote)"
 
 # Copy ait and aiscripts to test repo
 cp "$PROJECT_DIR/ait" "$TMPDIR_6/local/ait"
-cp -r "$PROJECT_DIR/aiscripts" "$TMPDIR_6/local/aiscripts"
+cp -r "$PROJECT_DIR/.aitask-scripts" "$TMPDIR_6/local/.aitask-scripts"
 chmod +x "$TMPDIR_6/local/ait"
 
 (
@@ -220,13 +220,13 @@ TMPDIR_7="$(setup_repo_with_remote)"
 
 # Copy ait and aiscripts
 cp "$PROJECT_DIR/ait" "$TMPDIR_7/local/ait"
-cp -r "$PROJECT_DIR/aiscripts" "$TMPDIR_7/local/aiscripts"
+cp -r "$PROJECT_DIR/.aitask-scripts" "$TMPDIR_7/local/.aitask-scripts"
 chmod +x "$TMPDIR_7/local/ait"
 
 (cd "$TMPDIR_7/local" && git add -A && git commit -m "add scripts" --quiet && git push --quiet 2>/dev/null)
 
 # setup_data_branch uses SCRIPT_DIR/.. to find the project root
-SCRIPT_DIR="$TMPDIR_7/local/aiscripts"
+SCRIPT_DIR="$TMPDIR_7/local/.aitask-scripts"
 (cd "$TMPDIR_7/local" && setup_data_branch </dev/null >/dev/null 2>&1)
 
 # Create a test file in the data worktree
@@ -324,7 +324,7 @@ rm -rf "$TMPDIR_10"
 echo "--- Test 11: Syntax check ---"
 
 TOTAL=$((TOTAL + 1))
-if bash -n "$PROJECT_DIR/aiscripts/lib/task_utils.sh" 2>/dev/null; then
+if bash -n "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" 2>/dev/null; then
     PASS=$((PASS + 1))
 else
     FAIL=$((FAIL + 1))
@@ -333,13 +333,13 @@ fi
 
 if command -v shellcheck &>/dev/null; then
     TOTAL=$((TOTAL + 1))
-    sc_errors=$(shellcheck --severity=error "$PROJECT_DIR/aiscripts/lib/task_utils.sh" 2>&1 | wc -l | tr -d ' ')
+    sc_errors=$(shellcheck --severity=error "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" 2>&1 | wc -l | tr -d ' ')
     if [[ "$sc_errors" -eq 0 ]]; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))
         echo "FAIL: shellcheck found errors in task_utils.sh"
-        shellcheck --severity=error "$PROJECT_DIR/aiscripts/lib/task_utils.sh" 2>&1 | head -20
+        shellcheck --severity=error "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" 2>&1 | head -20
     fi
 fi
 

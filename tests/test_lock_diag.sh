@@ -66,12 +66,12 @@ setup_paired_repos() {
         git config user.email "test@test.com"
         git config user.name "Test"
 
-        mkdir -p aitasks/archived aiscripts/lib
-        cp "$PROJECT_DIR/aiscripts/aitask_lock.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/aitask_lock_diag.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-        cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
-        chmod +x aiscripts/*.sh
+        mkdir -p aitasks/archived .aitask-scripts/lib
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_lock_diag.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+        chmod +x .aitask-scripts/*.sh
 
         git add -A
         git commit -m "Initial setup" --quiet
@@ -90,15 +90,15 @@ echo ""
 # --- Test 1: Syntax check ---
 echo "--- Test 1: Syntax check ---"
 
-assert_exit_code "aitask_lock_diag.sh syntax ok" 0 bash -n "$PROJECT_DIR/aiscripts/aitask_lock_diag.sh"
+assert_exit_code "aitask_lock_diag.sh syntax ok" 0 bash -n "$PROJECT_DIR/.aitask-scripts/aitask_lock_diag.sh"
 
 # --- Test 2: Run in paired repo with initialized lock branch ---
 echo "--- Test 2: All checks pass with initialized lock branch ---"
 
 TMPDIR_2="$(setup_paired_repos)"
-(cd "$TMPDIR_2/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 
-output2=$(cd "$TMPDIR_2/local" && ./aiscripts/aitask_lock_diag.sh 2>&1)
+output2=$(cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_lock_diag.sh 2>&1)
 exit2=$?
 
 assert_eq "Diag exits 0 with initialized locks" "0" "$exit2"
@@ -115,7 +115,7 @@ echo "--- Test 3: Failures without lock branch ---"
 TMPDIR_3="$(setup_paired_repos)"
 # Do NOT init lock branch
 
-output3=$(cd "$TMPDIR_3/local" && ./aiscripts/aitask_lock_diag.sh 2>&1)
+output3=$(cd "$TMPDIR_3/local" && ./.aitask-scripts/aitask_lock_diag.sh 2>&1)
 exit3=$?
 
 assert_eq "Diag exits 1 without lock branch" "1" "$exit3"

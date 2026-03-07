@@ -79,10 +79,10 @@ setup_paired_repos() {
         git checkout -b main --quiet 2>/dev/null || true
 
         # Copy required scripts
-        mkdir -p aiscripts/lib
-        cp "$PROJECT_DIR/aiscripts/aitask_web_merge.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-        chmod +x aiscripts/aitask_web_merge.sh
+        mkdir -p .aitask-scripts/lib
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_web_merge.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+        chmod +x .aitask-scripts/aitask_web_merge.sh
 
         # Initial commit
         echo "init" > README.md
@@ -153,7 +153,7 @@ echo ""
 # --- Test 1: No completed branches ---
 echo "--- Test 1: No completed branches ---"
 TMPDIR_1="$(setup_paired_repos)"
-output=$(cd "$TMPDIR_1/local" && ./aiscripts/aitask_web_merge.sh 2>&1)
+output=$(cd "$TMPDIR_1/local" && ./.aitask-scripts/aitask_web_merge.sh 2>&1)
 assert_eq "No branches returns NONE" "NONE" "$output"
 rm -rf "$TMPDIR_1"
 
@@ -161,7 +161,7 @@ rm -rf "$TMPDIR_1"
 echo "--- Test 2: Single completed branch ---"
 TMPDIR_2="$(setup_paired_repos)"
 create_web_branch "$TMPDIR_2/local" "claude-web/t42" "42" "aitasks/t42_implement_auth.md"
-output=$(cd "$TMPDIR_2/local" && ./aiscripts/aitask_web_merge.sh 2>&1)
+output=$(cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_web_merge.sh 2>&1)
 assert_contains "Detects completed branch" "COMPLETED:claude-web/t42:completed_t42.json" "$output"
 rm -rf "$TMPDIR_2"
 
@@ -170,7 +170,7 @@ echo "--- Test 3: Multiple completed branches ---"
 TMPDIR_3="$(setup_paired_repos)"
 create_web_branch "$TMPDIR_3/local" "claude-web/t42" "42" "aitasks/t42_implement_auth.md"
 create_web_branch "$TMPDIR_3/local" "claude-web/t50" "50" "aitasks/t50_add_logging.md"
-output=$(cd "$TMPDIR_3/local" && ./aiscripts/aitask_web_merge.sh 2>&1)
+output=$(cd "$TMPDIR_3/local" && ./.aitask-scripts/aitask_web_merge.sh 2>&1)
 assert_contains "Detects first branch" "COMPLETED:claude-web/t42:completed_t42.json" "$output"
 assert_contains "Detects second branch" "COMPLETED:claude-web/t50:completed_t50.json" "$output"
 # Count COMPLETED lines
@@ -183,7 +183,7 @@ echo "--- Test 4: Branch without marker not detected ---"
 TMPDIR_4="$(setup_paired_repos)"
 create_plain_branch "$TMPDIR_4/local" "feature/no-marker"
 create_web_branch "$TMPDIR_4/local" "claude-web/t42" "42" "aitasks/t42_implement_auth.md"
-output=$(cd "$TMPDIR_4/local" && ./aiscripts/aitask_web_merge.sh 2>&1)
+output=$(cd "$TMPDIR_4/local" && ./.aitask-scripts/aitask_web_merge.sh 2>&1)
 assert_contains "Detects web branch" "COMPLETED:claude-web/t42" "$output"
 assert_not_contains "Does not detect plain branch" "feature/no-marker" "$output"
 rm -rf "$TMPDIR_4"
@@ -202,7 +202,7 @@ TMPDIR_5="$(setup_paired_repos)"
     git push origin aitask-data --quiet 2>/dev/null
     git checkout main --quiet
 )
-output=$(cd "$TMPDIR_5/local" && ./aiscripts/aitask_web_merge.sh 2>&1)
+output=$(cd "$TMPDIR_5/local" && ./.aitask-scripts/aitask_web_merge.sh 2>&1)
 assert_eq "Infrastructure branch skipped" "NONE" "$output"
 rm -rf "$TMPDIR_5"
 
@@ -210,7 +210,7 @@ rm -rf "$TMPDIR_5"
 echo "--- Test 6: --fetch flag works ---"
 TMPDIR_6="$(setup_paired_repos)"
 create_web_branch "$TMPDIR_6/local" "claude-web/t42" "42" "aitasks/t42_implement_auth.md"
-output=$(cd "$TMPDIR_6/local" && ./aiscripts/aitask_web_merge.sh --fetch 2>&1)
+output=$(cd "$TMPDIR_6/local" && ./.aitask-scripts/aitask_web_merge.sh --fetch 2>&1)
 assert_contains "Fetch flag detects branch" "COMPLETED:claude-web/t42:completed_t42.json" "$output"
 rm -rf "$TMPDIR_6"
 
@@ -218,7 +218,7 @@ rm -rf "$TMPDIR_6"
 echo "--- Test 7: Child task marker detected ---"
 TMPDIR_7="$(setup_paired_repos)"
 create_web_branch "$TMPDIR_7/local" "claude-web/t10_2" "10_2" "aitasks/t10/t10_2_add_login.md" "true" "10"
-output=$(cd "$TMPDIR_7/local" && ./aiscripts/aitask_web_merge.sh 2>&1)
+output=$(cd "$TMPDIR_7/local" && ./.aitask-scripts/aitask_web_merge.sh 2>&1)
 assert_contains "Detects child task branch" "COMPLETED:claude-web/t10_2:completed_t10_2.json" "$output"
 rm -rf "$TMPDIR_7"
 

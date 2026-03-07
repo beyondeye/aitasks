@@ -109,9 +109,9 @@ setup_local_repo() {
 # Copy the init_data script and its dependency into a test repo
 install_script() {
     local repo_dir="$1"
-    mkdir -p "$repo_dir/aiscripts/lib"
-    cp "$PROJECT_DIR/aiscripts/aitask_init_data.sh" "$repo_dir/aiscripts/"
-    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" "$repo_dir/aiscripts/lib/"
+    mkdir -p "$repo_dir/.aitask-scripts/lib"
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_init_data.sh" "$repo_dir/.aitask-scripts/"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$repo_dir/.aitask-scripts/lib/"
 }
 
 # Create aitask-data branch with content using setup_data_branch from aitask_setup.sh
@@ -119,16 +119,16 @@ install_script() {
 create_data_branch_setup() {
     local repo_dir="$1"
     # Copy required scripts for setup
-    mkdir -p "$repo_dir/aiscripts/lib"
-    cp "$PROJECT_DIR/aiscripts/aitask_setup.sh" "$repo_dir/aiscripts/"
-    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" "$repo_dir/aiscripts/lib/"
+    mkdir -p "$repo_dir/.aitask-scripts/lib"
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" "$repo_dir/.aitask-scripts/"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$repo_dir/.aitask-scripts/lib/"
     cp -r "$PROJECT_DIR/seed" "$repo_dir/seed" 2>/dev/null || true
     (
         cd "$repo_dir"
         # Source setup.sh to get setup_data_branch function
-        SCRIPT_DIR="$repo_dir/aiscripts"
-        source "$repo_dir/aiscripts/lib/terminal_compat.sh"
-        source "$repo_dir/aiscripts/aitask_setup.sh" --source-only
+        SCRIPT_DIR="$repo_dir/.aitask-scripts"
+        source "$repo_dir/.aitask-scripts/lib/terminal_compat.sh"
+        source "$repo_dir/.aitask-scripts/aitask_setup.sh" --source-only
         setup_data_branch </dev/null >/dev/null 2>&1
     )
 }
@@ -146,7 +146,7 @@ install_script "$TMPDIR_1"
 mkdir -p "$TMPDIR_1/aitasks/metadata"
 
 pushd "$TMPDIR_1" >/dev/null
-output=$(bash aiscripts/aitask_init_data.sh 2>/dev/null)
+output=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
 assert_eq "Legacy mode output" "LEGACY_MODE" "$output"
 assert_not_symlink "aitasks/ is not a symlink" "aitasks"
 popd >/dev/null
@@ -161,7 +161,7 @@ install_script "$TMPDIR_2/local"
 create_data_branch_setup "$TMPDIR_2/local"
 
 pushd "$TMPDIR_2/local" >/dev/null
-output=$(bash aiscripts/aitask_init_data.sh 2>/dev/null)
+output=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
 assert_eq "Already init output" "ALREADY_INIT" "$output"
 assert_symlink "aitasks/ is a symlink" "aitasks"
 assert_symlink "aiplans/ is a symlink" "aiplans"
@@ -176,7 +176,7 @@ TMPDIR_3="$(setup_local_repo)"
 install_script "$TMPDIR_3"
 
 pushd "$TMPDIR_3" >/dev/null
-output=$(bash aiscripts/aitask_init_data.sh 2>/dev/null)
+output=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
 assert_eq "No data branch output" "NO_DATA_BRANCH" "$output"
 popd >/dev/null
 
@@ -199,7 +199,7 @@ branch_exists=$(git show-ref --verify refs/heads/aitask-data >/dev/null 2>&1 && 
 assert_eq "aitask-data branch exists locally" "yes" "$branch_exists"
 
 # Run init
-output=$(bash aiscripts/aitask_init_data.sh 2>/dev/null)
+output=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
 assert_eq "Initialize from local branch output" "INITIALIZED" "$output"
 assert_symlink "aitasks/ is a symlink after init" "aitasks"
 assert_symlink "aiplans/ is a symlink after init" "aiplans"
@@ -228,7 +228,7 @@ assert_eq "aitask-data NOT local in clone2" "no" "$local_branch"
 assert_eq "aitask-data IS on remote" "yes" "$remote_branch"
 
 # Run init
-output=$(bash aiscripts/aitask_init_data.sh 2>/dev/null)
+output=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
 assert_eq "Initialize from remote branch output" "INITIALIZED" "$output"
 assert_symlink "aitasks/ is a symlink in clone2" "aitasks"
 assert_symlink "aiplans/ is a symlink in clone2" "aiplans"
@@ -255,7 +255,7 @@ broken="no"
 assert_eq "aitasks/ symlink is broken" "yes" "$broken"
 
 # Run init
-output=$(bash aiscripts/aitask_init_data.sh 2>/dev/null)
+output=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
 assert_eq "Broken symlink repair output" "INITIALIZED" "$output"
 assert_symlink "aitasks/ is a symlink after repair" "aitasks"
 # Verify symlinks now work (target exists)
@@ -274,8 +274,8 @@ install_script "$TMPDIR_7/local"
 create_data_branch_setup "$TMPDIR_7/local"
 
 pushd "$TMPDIR_7/local" >/dev/null
-output1=$(bash aiscripts/aitask_init_data.sh 2>/dev/null)
-output2=$(bash aiscripts/aitask_init_data.sh 2>/dev/null)
+output1=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
+output2=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
 assert_eq "First run: ALREADY_INIT" "ALREADY_INIT" "$output1"
 assert_eq "Second run: ALREADY_INIT" "ALREADY_INIT" "$output2"
 popd >/dev/null
@@ -297,7 +297,7 @@ rm -f aitasks aiplans
 assert_dir_exists "Worktree still exists" ".aitask-data"
 
 # Run init
-output=$(bash aiscripts/aitask_init_data.sh 2>/dev/null)
+output=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
 assert_eq "Missing symlinks output" "ALREADY_INIT" "$output"
 assert_symlink "aitasks/ symlink recreated" "aitasks"
 assert_symlink "aiplans/ symlink recreated" "aiplans"
@@ -308,7 +308,7 @@ rm -rf "$TMPDIR_8"
 # --- Test 9: Help flag ---
 echo "--- Test 9: Help flag ---"
 
-output=$(bash "$PROJECT_DIR/aiscripts/aitask_init_data.sh" --help 2>/dev/null)
+output=$(bash "$PROJECT_DIR/.aitask-scripts/aitask_init_data.sh" --help 2>/dev/null)
 assert_contains "Help output mentions INITIALIZED" "INITIALIZED" "$output"
 assert_contains "Help output mentions LEGACY_MODE" "LEGACY_MODE" "$output"
 

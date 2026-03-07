@@ -6,7 +6,7 @@ set -e
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_DIR/.." && pwd)"
-MERGE_SCRIPT="$PROJECT_DIR/aiscripts/board/aitask_merge.py"
+MERGE_SCRIPT="$PROJECT_DIR/.aitask-scripts/board/aitask_merge.py"
 
 # Prefer aitask venv python, fall back to system python3
 VENV_PYTHON="$HOME/.aitask/venv/bin/python"
@@ -82,13 +82,13 @@ run_merge() {
     # Run aitask_merge.py from the board directory so imports work
     local file="$1"
     shift
-    (cd "$PROJECT_DIR/aiscripts/board" && "$TEST_PYTHON" aitask_merge.py "$file" "$@") 2>/dev/null
+    (cd "$PROJECT_DIR/.aitask-scripts/board" && "$TEST_PYTHON" aitask_merge.py "$file" "$@") 2>/dev/null
 }
 
 run_merge_with_stderr() {
     local file="$1"
     shift
-    (cd "$PROJECT_DIR/aiscripts/board" && python3 aitask_merge.py "$file" "$@") 2>&1
+    (cd "$PROJECT_DIR/.aitask-scripts/board" && python3 aitask_merge.py "$file" "$@") 2>&1
 }
 
 # --- Test 1: Full auto-resolve (batch) ---

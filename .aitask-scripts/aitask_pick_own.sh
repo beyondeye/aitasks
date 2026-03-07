@@ -9,9 +9,9 @@
 # replacing the manual git pull + lock cleanup commands in calling skills.
 #
 # Usage:
-#   ./aiscripts/aitask_pick_own.sh <task_id> [--email <email>]   # Full ownership
-#   ./aiscripts/aitask_pick_own.sh <task_id> --force --email <e>  # Force-unlock stale lock
-#   ./aiscripts/aitask_pick_own.sh --sync                         # Sync-only mode
+#   ./.aitask-scripts/aitask_pick_own.sh <task_id> [--email <email>]   # Full ownership
+#   ./.aitask-scripts/aitask_pick_own.sh <task_id> --force --email <e>  # Force-unlock stale lock
+#   ./.aitask-scripts/aitask_pick_own.sh --sync                         # Sync-only mode
 #
 # Output format (structured lines for LLM parsing):
 #   OWNED:<task_id>              Task successfully claimed
@@ -81,10 +81,10 @@ Full ownership mode performs these steps in order:
   6. git add + commit + push (push is best-effort)
 
 Examples:
-  ./aiscripts/aitask_pick_own.sh 166 --email "user@example.com"
-  ./aiscripts/aitask_pick_own.sh t16_2 --email "user@example.com"
-  ./aiscripts/aitask_pick_own.sh 166          # No email (skip lock)
-  ./aiscripts/aitask_pick_own.sh --sync       # Sync-only mode
+  ./.aitask-scripts/aitask_pick_own.sh 166 --email "user@example.com"
+  ./.aitask-scripts/aitask_pick_own.sh t16_2 --email "user@example.com"
+  ./.aitask-scripts/aitask_pick_own.sh 166          # No email (skip lock)
+  ./.aitask-scripts/aitask_pick_own.sh --sync       # Sync-only mode
 EOF
 }
 

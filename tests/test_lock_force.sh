@@ -89,15 +89,15 @@ TASK
         echo "alice@test.com" > aitasks/metadata/emails.txt
 
         # Copy the scripts we need
-        mkdir -p aiscripts/lib
-        cp "$PROJECT_DIR/aiscripts/aitask_lock.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/aitask_pick_own.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/aitask_update.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-        cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
+        mkdir -p .aitask-scripts/lib
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_pick_own.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_update.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
         # Copy the ait dispatcher for task_git support
         cp "$PROJECT_DIR/ait" . 2>/dev/null || true
-        chmod +x aiscripts/*.sh ait 2>/dev/null || true
+        chmod +x .aitask-scripts/*.sh ait 2>/dev/null || true
 
         git add -A
         git commit -m "Initial setup" --quiet
@@ -117,12 +117,12 @@ echo ""
 echo "--- Test 1: Force-lock when locked by another user ---"
 
 TMPDIR_1="$(setup_paired_repos)"
-(cd "$TMPDIR_1/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_1/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 # Lock as alice
-(cd "$TMPDIR_1/local" && ./aiscripts/aitask_lock.sh --lock 1 --email "alice@test.com" >/dev/null 2>&1)
+(cd "$TMPDIR_1/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "alice@test.com" >/dev/null 2>&1)
 
 # Force-own as bob
-output1=$(cd "$TMPDIR_1/local" && ./aiscripts/aitask_pick_own.sh 1 --force --email "bob@test.com" 2>&1)
+output1=$(cd "$TMPDIR_1/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --force --email "bob@test.com" 2>&1)
 exit1=$?
 
 assert_eq "Force-lock exits 0" "0" "$exit1"
@@ -135,12 +135,12 @@ rm -rf "$TMPDIR_1"
 echo "--- Test 2: No force when locked (LOCK_FAILED) ---"
 
 TMPDIR_2="$(setup_paired_repos)"
-(cd "$TMPDIR_2/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 # Lock as alice
-(cd "$TMPDIR_2/local" && ./aiscripts/aitask_lock.sh --lock 1 --email "alice@test.com" >/dev/null 2>&1)
+(cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "alice@test.com" >/dev/null 2>&1)
 
 # Try to own as bob without --force
-output2=$(cd "$TMPDIR_2/local" && ./aiscripts/aitask_pick_own.sh 1 --email "bob@test.com" 2>&1)
+output2=$(cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --email "bob@test.com" 2>&1)
 exit2=$?
 
 assert_eq "No-force exits non-zero" "1" "$exit2"
@@ -152,10 +152,10 @@ rm -rf "$TMPDIR_2"
 echo "--- Test 3: Force when not locked ---"
 
 TMPDIR_3="$(setup_paired_repos)"
-(cd "$TMPDIR_3/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_3/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 
 # Force-own on unlocked task
-output3=$(cd "$TMPDIR_3/local" && ./aiscripts/aitask_pick_own.sh 1 --force --email "bob@test.com" 2>&1)
+output3=$(cd "$TMPDIR_3/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --force --email "bob@test.com" 2>&1)
 exit3=$?
 
 assert_eq "Force on unlocked exits 0" "0" "$exit3"
@@ -176,11 +176,11 @@ rm -rf "$TMPDIR_3"
 echo "--- Test 4: No-op when no remote (t305) ---"
 
 TMPDIR_4="$(setup_paired_repos)"
-(cd "$TMPDIR_4/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_4/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 # Remove origin remote
 (cd "$TMPDIR_4/local" && git remote remove origin)
 
-assert_exit_code "Lock without remote no-ops (exit 0)" 0 bash -c "cd '$TMPDIR_4/local' && ./aiscripts/aitask_lock.sh --lock 1 --email 'user@test.com'"
+assert_exit_code "Lock without remote no-ops (exit 0)" 0 bash -c "cd '$TMPDIR_4/local' && ./.aitask-scripts/aitask_lock.sh --lock 1 --email 'user@test.com'"
 
 rm -rf "$TMPDIR_4"
 
@@ -190,12 +190,12 @@ echo "--- Test 5: LOCK_ERROR classification ---"
 # We test this indirectly by removing the remote after init
 # so fetch fails (exit 11) which aitask_pick_own.sh should classify as LOCK_ERROR
 TMPDIR_5="$(setup_paired_repos)"
-(cd "$TMPDIR_5/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_5/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 
 # Point origin to a non-existent remote to cause fetch failure
 (cd "$TMPDIR_5/local" && git remote set-url origin /nonexistent/path.git)
 
-output5=$(cd "$TMPDIR_5/local" && ./aiscripts/aitask_pick_own.sh 1 --email "bob@test.com" 2>&1)
+output5=$(cd "$TMPDIR_5/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --email "bob@test.com" 2>&1)
 exit5=$?
 
 assert_eq "LOCK_ERROR exits non-zero" "1" "$exit5"
@@ -207,21 +207,21 @@ rm -rf "$TMPDIR_5"
 echo "--- Test 6: die_code structured exit codes ---"
 
 TMPDIR_6="$(setup_paired_repos)"
-(cd "$TMPDIR_6/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_6/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 
 # No remote: lock/unlock no-op with exit 0 (t305)
 (cd "$TMPDIR_6/local" && git remote remove origin)
-assert_exit_code "lock without remote no-ops" 0 bash -c "cd '$TMPDIR_6/local' && ./aiscripts/aitask_lock.sh --lock 1 --email 'user@test.com'"
-assert_exit_code "unlock without remote no-ops" 0 bash -c "cd '$TMPDIR_6/local' && ./aiscripts/aitask_lock.sh --unlock 1"
+assert_exit_code "lock without remote no-ops" 0 bash -c "cd '$TMPDIR_6/local' && ./.aitask-scripts/aitask_lock.sh --lock 1 --email 'user@test.com'"
+assert_exit_code "unlock without remote no-ops" 0 bash -c "cd '$TMPDIR_6/local' && ./.aitask-scripts/aitask_lock.sh --unlock 1"
 
 rm -rf "$TMPDIR_6"
 
 # --- Test 7: Syntax check ---
 echo "--- Test 7: Syntax checks ---"
 
-assert_exit_code "aitask_lock.sh syntax ok" 0 bash -n "$PROJECT_DIR/aiscripts/aitask_lock.sh"
-assert_exit_code "aitask_pick_own.sh syntax ok" 0 bash -n "$PROJECT_DIR/aiscripts/aitask_pick_own.sh"
-assert_exit_code "terminal_compat.sh syntax ok" 0 bash -n "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh"
+assert_exit_code "aitask_lock.sh syntax ok" 0 bash -n "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh"
+assert_exit_code "aitask_pick_own.sh syntax ok" 0 bash -n "$PROJECT_DIR/.aitask-scripts/aitask_pick_own.sh"
+assert_exit_code "terminal_compat.sh syntax ok" 0 bash -n "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
 
 # --- Summary ---
 echo ""

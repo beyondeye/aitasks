@@ -7,9 +7,9 @@ set -e
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_DIR/.." && pwd)"
 # Set SCRIPT_DIR so task_utils.sh can find terminal_compat.sh
-SCRIPT_DIR="$PROJECT_DIR/aiscripts"
-source "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh"
-source "$PROJECT_DIR/aiscripts/lib/task_utils.sh"
+SCRIPT_DIR="$PROJECT_DIR/.aitask-scripts"
+source "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
+source "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh"
 
 PASS=0
 FAIL=0

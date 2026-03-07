@@ -8,7 +8,7 @@ TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_DIR/.." && pwd)"
 
 # Add board and lib modules to PYTHONPATH for imports
-export PYTHONPATH="$PROJECT_DIR/aiscripts/board:$PROJECT_DIR/aiscripts/lib${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="$PROJECT_DIR/.aitask-scripts/board:$PROJECT_DIR/.aitask-scripts/lib${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONDONTWRITEBYTECODE=1
 
 # Try pytest first, fall back to unittest

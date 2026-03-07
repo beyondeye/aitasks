@@ -7,7 +7,7 @@
 # For full setup, use: ait setup
 #
 # Usage:
-#   ./aiscripts/aitask_init_data.sh
+#   ./.aitask-scripts/aitask_init_data.sh
 #
 # Output (stdout, structured for LLM parsing):
 #   INITIALIZED       Worktree and symlinks created successfully

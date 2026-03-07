@@ -148,16 +148,16 @@ Options:
 
 Examples:
   # Dry run on all directories
-  ./aiscripts/aitask_explain_cleanup.sh --dry-run --all
+  ./.aitask-scripts/aitask_explain_cleanup.sh --dry-run --all
 
   # Clean only codebrowser runs
-  ./aiscripts/aitask_explain_cleanup.sh --target aiexplains/codebrowser
+  ./.aitask-scripts/aitask_explain_cleanup.sh --target aiexplains/codebrowser
 
   # Clean everything (both top-level and codebrowser)
-  ./aiscripts/aitask_explain_cleanup.sh --all
+  ./.aitask-scripts/aitask_explain_cleanup.sh --all
 
   # Quiet mode for automation
-  ./aiscripts/aitask_explain_cleanup.sh --all --quiet
+  ./.aitask-scripts/aitask_explain_cleanup.sh --all --quiet
 EOF
 }
 

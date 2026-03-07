@@ -243,7 +243,7 @@ test_shebang_lines() {
 # Checks if files are under known directories that indicate specific environments.
 test_directory_patterns() {
     local weight=2
-    local found_aiscripts=false
+    local found_aitask_scripts=false
     local found_android_src=false
     local found_root_sh=false
     local found_ios_dir=false
@@ -253,11 +253,11 @@ test_directory_patterns() {
     local found_aiagents_dir=false
 
     for f in "${FILES[@]}"; do
-        # aiscripts/ directory or .sh files at project root
-        if [[ "$f" == aiscripts/* ]] && [[ "$found_aiscripts" == false ]]; then
+        # .aitask-scripts/ directory or .sh files at project root
+        if [[ "$f" == .aitask-scripts/* ]] && [[ "$found_aitask_scripts" == false ]]; then
             add_score "bash" "$weight"
             add_score "shell" "$weight"
-            found_aiscripts=true
+            found_aitask_scripts=true
         fi
         if [[ "$f" == *.sh ]] && [[ "$f" != */* ]] && [[ "$found_root_sh" == false ]]; then
             add_score "bash" "$weight"

@@ -6,8 +6,8 @@ set -e
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_DIR/.." && pwd)"
-SCRIPT_DIR="$PROJECT_DIR/aiscripts"
-source "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh"
+SCRIPT_DIR="$PROJECT_DIR/.aitask-scripts"
+source "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
 
 PASS=0
 FAIL=0
@@ -68,7 +68,7 @@ trap cleanup_tmpdir EXIT
 # Binary test file (must be git-tracked)
 BINARY_FILE="imgs/aitasks_logo_dark_theme.png"
 # Text test file (must be git-tracked)
-TEXT_FILE="aiscripts/lib/terminal_compat.sh"
+TEXT_FILE=".aitask-scripts/lib/terminal_compat.sh"
 
 cd "$PROJECT_DIR"
 
@@ -113,7 +113,7 @@ fi
 echo "--- Shell extraction: binary file has BINARY_FILE marker ---"
 
 setup_tmpdir
-AIEXPLAINS_DIR="$TMPDIR_TEST" bash "$PROJECT_DIR/aiscripts/aitask_explain_extract_raw_data.sh" \
+AIEXPLAINS_DIR="$TMPDIR_TEST" bash "$PROJECT_DIR/.aitask-scripts/aitask_explain_extract_raw_data.sh" \
     --gather "$BINARY_FILE" --max-commits 5 > "$TMPDIR_TEST/gather_out.txt" 2>&1
 
 RUN_DIR=$(grep "^RUN_DIR:" "$TMPDIR_TEST/gather_out.txt" | sed 's/^RUN_DIR: //')
@@ -143,7 +143,7 @@ cleanup_tmpdir
 echo "--- Shell extraction: text file has BLAME_LINES ---"
 
 setup_tmpdir
-AIEXPLAINS_DIR="$TMPDIR_TEST" bash "$PROJECT_DIR/aiscripts/aitask_explain_extract_raw_data.sh" \
+AIEXPLAINS_DIR="$TMPDIR_TEST" bash "$PROJECT_DIR/.aitask-scripts/aitask_explain_extract_raw_data.sh" \
     --gather "$TEXT_FILE" --max-commits 5 > "$TMPDIR_TEST/gather_out.txt" 2>&1
 
 RUN_DIR=$(grep "^RUN_DIR:" "$TMPDIR_TEST/gather_out.txt" | sed 's/^RUN_DIR: //')
@@ -166,7 +166,7 @@ cleanup_tmpdir
 echo "--- Python processor: binary file has binary: true ---"
 
 setup_tmpdir
-AIEXPLAINS_DIR="$TMPDIR_TEST" bash "$PROJECT_DIR/aiscripts/aitask_explain_extract_raw_data.sh" \
+AIEXPLAINS_DIR="$TMPDIR_TEST" bash "$PROJECT_DIR/.aitask-scripts/aitask_explain_extract_raw_data.sh" \
     --gather "$BINARY_FILE" --max-commits 5 > "$TMPDIR_TEST/gather_out.txt" 2>&1
 
 RUN_DIR=$(grep "^RUN_DIR:" "$TMPDIR_TEST/gather_out.txt" | sed 's/^RUN_DIR: //')
@@ -210,7 +210,7 @@ BLAME_LINES:
 === END TASK_INDEX ===
 RAWEOF
 
-python3 "$PROJECT_DIR/aiscripts/aitask_explain_process_raw_data.py" \
+python3 "$PROJECT_DIR/.aitask-scripts/aitask_explain_process_raw_data.py" \
     "$TMPDIR_TEST/old_raw_data.txt" "$TMPDIR_TEST/old_reference.yaml"
 
 old_ref=$(cat "$TMPDIR_TEST/old_reference.yaml")
@@ -225,7 +225,7 @@ cleanup_tmpdir
 echo "--- Mixed: binary + text files in same run ---"
 
 setup_tmpdir
-AIEXPLAINS_DIR="$TMPDIR_TEST" bash "$PROJECT_DIR/aiscripts/aitask_explain_extract_raw_data.sh" \
+AIEXPLAINS_DIR="$TMPDIR_TEST" bash "$PROJECT_DIR/.aitask-scripts/aitask_explain_extract_raw_data.sh" \
     --gather "$BINARY_FILE" "$TEXT_FILE" --max-commits 5 > "$TMPDIR_TEST/gather_out.txt" 2>&1
 
 RUN_DIR=$(grep "^RUN_DIR:" "$TMPDIR_TEST/gather_out.txt" | sed 's/^RUN_DIR: //')

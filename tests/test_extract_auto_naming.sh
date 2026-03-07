@@ -7,7 +7,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-EXTRACT_SCRIPT="$PROJECT_DIR/aiscripts/aitask_explain_extract_raw_data.sh"
+EXTRACT_SCRIPT="$PROJECT_DIR/.aitask-scripts/aitask_explain_extract_raw_data.sh"
 
 PASS=0
 FAIL=0
@@ -65,11 +65,11 @@ eval "$(sed -n '/^compute_common_parent()/,/^}/p' "$EXTRACT_SCRIPT")"
 
 echo "=== dir_to_key unit tests ==="
 
-result=$(dir_to_key "aiscripts/lib")
-assert_eq "dir_to_key: simple path" "aiscripts__lib" "$result"
+result=$(dir_to_key ".aitask-scripts/lib")
+assert_eq "dir_to_key: simple path" ".aitask-scripts__lib" "$result"
 
-result=$(dir_to_key "aiscripts/lib/")
-assert_eq "dir_to_key: trailing slash stripped" "aiscripts__lib" "$result"
+result=$(dir_to_key ".aitask-scripts/lib/")
+assert_eq "dir_to_key: trailing slash stripped" ".aitask-scripts__lib" "$result"
 
 result=$(dir_to_key ".")
 assert_eq "dir_to_key: dot returns _root_" "_root_" "$result"
@@ -90,27 +90,27 @@ assert_eq "dir_to_key: deep path" "a__b__c__d" "$result"
 echo "=== compute_common_parent unit tests ==="
 
 # Single file
-INPUT_PATHS=("aiscripts/lib/task_utils.sh")
+INPUT_PATHS=(".aitask-scripts/lib/task_utils.sh")
 result=$(compute_common_parent)
-assert_eq "compute_common_parent: single file" "aiscripts/lib" "$result"
+assert_eq "compute_common_parent: single file" ".aitask-scripts/lib" "$result"
 
 # Single directory
-INPUT_PATHS=("aiscripts/lib")
+INPUT_PATHS=(".aitask-scripts/lib")
 result=$(compute_common_parent)
-assert_eq "compute_common_parent: single dir" "aiscripts/lib" "$result"
+assert_eq "compute_common_parent: single dir" ".aitask-scripts/lib" "$result"
 
 # Two files same dir
-INPUT_PATHS=("aiscripts/lib/task_utils.sh" "aiscripts/lib/terminal_compat.sh")
+INPUT_PATHS=(".aitask-scripts/lib/task_utils.sh" ".aitask-scripts/lib/terminal_compat.sh")
 result=$(compute_common_parent)
-assert_eq "compute_common_parent: two files same dir" "aiscripts/lib" "$result"
+assert_eq "compute_common_parent: two files same dir" ".aitask-scripts/lib" "$result"
 
 # Two files different dirs
-INPUT_PATHS=("aiscripts/lib/task_utils.sh" "aiscripts/codebrowser/explain_manager.py")
+INPUT_PATHS=(".aitask-scripts/lib/task_utils.sh" ".aitask-scripts/codebrowser/explain_manager.py")
 result=$(compute_common_parent)
-assert_eq "compute_common_parent: common parent of two subdirs" "aiscripts" "$result"
+assert_eq "compute_common_parent: common parent of two subdirs" ".aitask-scripts" "$result"
 
 # No common prefix
-INPUT_PATHS=("aiscripts/lib/task_utils.sh" "tests/test_claim_id.sh")
+INPUT_PATHS=(".aitask-scripts/lib/task_utils.sh" "tests/test_claim_id.sh")
 result=$(compute_common_parent)
 assert_eq "compute_common_parent: no common prefix returns dot" "." "$result"
 
@@ -124,10 +124,10 @@ TEST_AIEXPLAINS="$TMPDIR_BASE/aiexplains"
 mkdir -p "$TEST_AIEXPLAINS"
 
 # Test 1: Auto-derived key from single file
-output=$(AIEXPLAINS_DIR="$TEST_AIEXPLAINS" "$EXTRACT_SCRIPT" --gather aiscripts/lib/task_utils.sh 2>/dev/null)
+output=$(AIEXPLAINS_DIR="$TEST_AIEXPLAINS" "$EXTRACT_SCRIPT" --gather .aitask-scripts/lib/task_utils.sh 2>/dev/null)
 run_dir=$(echo "$output" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 dir_name=$(basename "$run_dir")
-assert_match "auto-naming: single file produces key__timestamp" "^aiscripts__lib__[0-9]{8}_[0-9]{6}$" "$dir_name"
+assert_match "auto-naming: single file produces key__timestamp" "^.aitask-scripts__lib__[0-9]{8}_[0-9]{6}$" "$dir_name"
 
 # Verify the directory actually exists
 TOTAL=$((TOTAL + 1))
@@ -148,16 +148,16 @@ else
 fi
 
 # Test 2: Explicit --source-key
-output=$(AIEXPLAINS_DIR="$TEST_AIEXPLAINS" "$EXTRACT_SCRIPT" --gather --source-key custom_key aiscripts/lib/task_utils.sh 2>/dev/null)
+output=$(AIEXPLAINS_DIR="$TEST_AIEXPLAINS" "$EXTRACT_SCRIPT" --gather --source-key custom_key .aitask-scripts/lib/task_utils.sh 2>/dev/null)
 run_dir=$(echo "$output" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 dir_name=$(basename "$run_dir")
 assert_match "source-key: explicit key produces key__timestamp" "^custom_key__[0-9]{8}_[0-9]{6}$" "$dir_name"
 
 # Test 3: Directory input auto-naming
-output=$(AIEXPLAINS_DIR="$TEST_AIEXPLAINS" "$EXTRACT_SCRIPT" --gather aiscripts/lib/ 2>/dev/null)
+output=$(AIEXPLAINS_DIR="$TEST_AIEXPLAINS" "$EXTRACT_SCRIPT" --gather .aitask-scripts/lib/ 2>/dev/null)
 run_dir=$(echo "$output" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 dir_name=$(basename "$run_dir")
-assert_match "auto-naming: directory input" "^aiscripts__lib__[0-9]{8}_[0-9]{6}$" "$dir_name"
+assert_match "auto-naming: directory input" "^.aitask-scripts__lib__[0-9]{8}_[0-9]{6}$" "$dir_name"
 
 # ====================================================================
 # Integration test: cleanup prunes stale runs
@@ -170,12 +170,12 @@ CLEANUP_AIEXPLAINS="$TMPDIR_BASE/aiexplains_cleanup"
 mkdir -p "$CLEANUP_AIEXPLAINS"
 
 # Run twice for the same file — second run should clean up the first
-output1=$(AIEXPLAINS_DIR="$CLEANUP_AIEXPLAINS" "$EXTRACT_SCRIPT" --gather aiscripts/lib/task_utils.sh 2>/dev/null)
+output1=$(AIEXPLAINS_DIR="$CLEANUP_AIEXPLAINS" "$EXTRACT_SCRIPT" --gather .aitask-scripts/lib/task_utils.sh 2>/dev/null)
 run_dir1=$(echo "$output1" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 
 sleep 1  # ensure different timestamp
 
-output2=$(AIEXPLAINS_DIR="$CLEANUP_AIEXPLAINS" "$EXTRACT_SCRIPT" --gather aiscripts/lib/task_utils.sh 2>/dev/null)
+output2=$(AIEXPLAINS_DIR="$CLEANUP_AIEXPLAINS" "$EXTRACT_SCRIPT" --gather .aitask-scripts/lib/task_utils.sh 2>/dev/null)
 run_dir2=$(echo "$output2" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 cleaned=$(echo "$output2" | grep '^CLEANED:' | sed 's/^CLEANED: //')
 

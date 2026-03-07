@@ -73,21 +73,21 @@ assert_dir_not_exists() {
 setup_fake_project() {
     local tmpdir
     tmpdir="$(mktemp -d)"
-    mkdir -p "$tmpdir/aiscripts"
+    mkdir -p "$tmpdir/.aitask-scripts"
     mkdir -p "$tmpdir/aitasks/metadata"
     mkdir -p "$tmpdir/.claude/skills"
     echo "#!/bin/bash" > "$tmpdir/ait"
-    echo "0.2.0" > "$tmpdir/aiscripts/VERSION"
+    echo "0.2.0" > "$tmpdir/.aitask-scripts/VERSION"
     echo "#!/bin/bash" > "$tmpdir/install.sh"
     # Create a minimal placeholder in aiscripts so git add works
-    echo "# placeholder" > "$tmpdir/aiscripts/placeholder.sh"
+    echo "# placeholder" > "$tmpdir/.aitask-scripts/placeholder.sh"
     echo "# placeholder" > "$tmpdir/aitasks/metadata/placeholder.txt"
     echo "# placeholder" > "$tmpdir/.claude/skills/placeholder.txt"
     echo "$tmpdir"
 }
 
 # Source the setup script to get access to ensure_git_repo, commit_framework_files (and helpers)
-source "$PROJECT_DIR/aiscripts/aitask_setup.sh" --source-only
+source "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" --source-only
 # Disable strict mode from sourced script — tests need to handle errors explicitly
 set +euo pipefail
 
@@ -101,7 +101,7 @@ TMPDIR_1="$(setup_fake_project)"
 (cd "$TMPDIR_1" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" && git add -A && git commit -m "init" --quiet)
 
 # Override SCRIPT_DIR so ensure_git_repo/commit_framework_files use our temp project
-SCRIPT_DIR="$TMPDIR_1/aiscripts"
+SCRIPT_DIR="$TMPDIR_1/.aitask-scripts"
 output=$(ensure_git_repo 2>&1 </dev/null)
 
 assert_contains "Already initialized prints success" "already initialized" "$output"
@@ -122,7 +122,7 @@ echo "--- Test 1b: Existing repo with untracked framework files ---"
 TMPDIR_1b="$(setup_fake_project)"
 (cd "$TMPDIR_1b" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" && echo "init" > "$TMPDIR_1b/readme.txt" && git add readme.txt && git commit -m "init" --quiet)
 
-SCRIPT_DIR="$TMPDIR_1b/aiscripts"
+SCRIPT_DIR="$TMPDIR_1b/.aitask-scripts"
 # ensure_git_repo should just report "already initialized" (no commit)
 output=$(ensure_git_repo 2>&1 </dev/null)
 assert_contains "Detects existing repo" "already initialized" "$output"
@@ -144,7 +144,7 @@ rm -rf "$TMPDIR_1b"
 echo "--- Test 2: Accept init + commit ---"
 
 TMPDIR_2="$(setup_fake_project)"
-SCRIPT_DIR="$TMPDIR_2/aiscripts"
+SCRIPT_DIR="$TMPDIR_2/.aitask-scripts"
 
 output=$(printf 'y\n' | ensure_git_repo 2>&1)
 assert_dir_exists "Git dir created" "$TMPDIR_2/.git"
@@ -163,7 +163,7 @@ assert_eq "Commit message correct" "ait: Add aitask framework" "$commit_msg"
 
 # Verify committed files include key directories
 committed_files=$(git -C "$TMPDIR_2" show --name-only --format='' HEAD 2>/dev/null)
-assert_contains "aiscripts/ committed" "aiscripts/" "$committed_files"
+assert_contains ".aitask-scripts/ committed" ".aitask-scripts/" "$committed_files"
 assert_contains "aitasks/metadata/ committed" "aitasks/metadata/" "$committed_files"
 
 rm -rf "$TMPDIR_2"
@@ -174,7 +174,7 @@ rm -rf "$TMPDIR_2"
 echo "--- Test 3: Non-interactive auto-init + auto-commit ---"
 
 TMPDIR_3="$(setup_fake_project)"
-SCRIPT_DIR="$TMPDIR_3/aiscripts"
+SCRIPT_DIR="$TMPDIR_3/.aitask-scripts"
 
 output=$(ensure_git_repo 2>&1 </dev/null)
 assert_dir_exists "Git dir created" "$TMPDIR_3/.git"
@@ -199,7 +199,7 @@ echo "--- Test 4: (skipped — merged into Test 3 non-interactive) ---"
 echo "--- Test 5: Non-interactive auto-inits git ---"
 
 TMPDIR_5="$(setup_fake_project)"
-SCRIPT_DIR="$TMPDIR_5/aiscripts"
+SCRIPT_DIR="$TMPDIR_5/.aitask-scripts"
 
 output=$(ensure_git_repo 2>&1 </dev/null)
 
@@ -212,7 +212,7 @@ rm -rf "$TMPDIR_5"
 echo "--- Test 6: Syntax check ---"
 
 TOTAL=$((TOTAL + 1))
-if bash -n "$PROJECT_DIR/aiscripts/aitask_setup.sh" 2>/dev/null; then
+if bash -n "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" 2>/dev/null; then
     PASS=$((PASS + 1))
 else
     FAIL=$((FAIL + 1))
@@ -224,7 +224,7 @@ echo "--- Test 7: setup_draft_directory ---"
 
 TMPDIR_7="$(setup_fake_project)"
 (cd "$TMPDIR_7" && git init --quiet && git config user.email "t@t.com" && git config user.name "T")
-SCRIPT_DIR="$TMPDIR_7/aiscripts"
+SCRIPT_DIR="$TMPDIR_7/.aitask-scripts"
 
 # Run setup_draft_directory
 setup_draft_directory </dev/null >/dev/null 2>&1
@@ -247,7 +247,7 @@ echo "--- Test 8: setup_draft_directory idempotent ---"
 
 TMPDIR_8="$(setup_fake_project)"
 (cd "$TMPDIR_8" && git init --quiet && git config user.email "t@t.com" && git config user.name "T")
-SCRIPT_DIR="$TMPDIR_8/aiscripts"
+SCRIPT_DIR="$TMPDIR_8/.aitask-scripts"
 
 # Run twice
 setup_draft_directory </dev/null >/dev/null 2>&1
@@ -271,18 +271,18 @@ git clone --quiet "$TMPDIR_9/remote.git" "$TMPDIR_9/local"
     cd "$TMPDIR_9/local"
     git config user.email "t@t.com"
     git config user.name "T"
-    mkdir -p aiscripts/lib aitasks
-    cp "$PROJECT_DIR/aiscripts/aitask_claim_id.sh" aiscripts/
-    cp "$PROJECT_DIR/aiscripts/aitask_setup.sh" aiscripts/
-    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-    chmod +x aiscripts/aitask_claim_id.sh aiscripts/aitask_setup.sh
+    mkdir -p .aitask-scripts/lib aitasks
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" .aitask-scripts/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+    chmod +x .aitask-scripts/aitask_claim_id.sh .aitask-scripts/aitask_setup.sh
     echo "---" > aitasks/t1_test.md
     git add -A && git commit -m "init" --quiet && git push --quiet 2>/dev/null
 )
 
 # Source setup from the temp project to get functions
-source "$TMPDIR_9/local/aiscripts/aitask_setup.sh" --source-only 2>/dev/null || true
-SCRIPT_DIR="$TMPDIR_9/local/aiscripts"
+source "$TMPDIR_9/local/.aitask-scripts/aitask_setup.sh" --source-only 2>/dev/null || true
+SCRIPT_DIR="$TMPDIR_9/local/.aitask-scripts"
 
 # Run setup_id_counter (auto-accept)
 (cd "$TMPDIR_9/local" && printf 'y\n' | setup_id_counter >/dev/null 2>&1)
@@ -294,9 +294,9 @@ assert_eq "ID counter branch created" "1" "$branch_exists"
 rm -rf "$TMPDIR_9"
 
 # Re-source the project's setup script to restore SCRIPT_DIR for remaining tests
-source "$PROJECT_DIR/aiscripts/aitask_setup.sh" --source-only
+source "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" --source-only
 set +euo pipefail
-SCRIPT_DIR="$PROJECT_DIR/aiscripts"
+SCRIPT_DIR="$PROJECT_DIR/.aitask-scripts"
 
 # --- Test 10: commit_framework_files includes late-stage files ---
 echo "--- Test 10: commit_framework_files includes late-stage files ---"
@@ -310,7 +310,7 @@ mkdir -p "$TMPDIR_10/aireviewguides"
 echo "# review guide" > "$TMPDIR_10/aireviewguides/test_mode.md"
 echo "aitasks/new/" > "$TMPDIR_10/.gitignore"
 
-SCRIPT_DIR="$TMPDIR_10/aiscripts"
+SCRIPT_DIR="$TMPDIR_10/.aitask-scripts"
 commit_framework_files </dev/null >/dev/null 2>&1
 
 # Verify review guides are committed
@@ -329,7 +329,7 @@ echo "--- Test 11: commit_framework_files is idempotent ---"
 TMPDIR_11="$(setup_fake_project)"
 (cd "$TMPDIR_11" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" && git add -A && git commit -m "init" --quiet)
 
-SCRIPT_DIR="$TMPDIR_11/aiscripts"
+SCRIPT_DIR="$TMPDIR_11/.aitask-scripts"
 commit_count_before=$(git -C "$TMPDIR_11" log --oneline 2>/dev/null | wc -l)
 output=$(commit_framework_files 2>&1 </dev/null)
 commit_count_after=$(git -C "$TMPDIR_11" log --oneline 2>/dev/null | wc -l)
@@ -348,7 +348,7 @@ rm -f "$TMPDIR_12/install.sh"
 (cd "$TMPDIR_12" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" \
     && echo "init" > "$TMPDIR_12/readme.txt" && git add readme.txt && git commit -m "init" --quiet)
 
-SCRIPT_DIR="$TMPDIR_12/aiscripts"
+SCRIPT_DIR="$TMPDIR_12/.aitask-scripts"
 output=$(commit_framework_files 2>&1 </dev/null)
 
 # Other framework files should still be committed
@@ -356,7 +356,7 @@ commit_count=$(git -C "$TMPDIR_12" log --oneline 2>/dev/null | wc -l)
 assert_eq "Framework files committed without install.sh" "2" "$commit_count"
 
 committed_files=$(git -C "$TMPDIR_12" show --name-only --format='' HEAD 2>/dev/null)
-assert_contains "aiscripts/ committed without install.sh" "aiscripts/" "$committed_files"
+assert_contains ".aitask-scripts/ committed without install.sh" ".aitask-scripts/" "$committed_files"
 
 rm -rf "$TMPDIR_12"
 
@@ -364,7 +364,7 @@ rm -rf "$TMPDIR_12"
 echo "--- Test 13: ensure_git_repo does NOT commit ---"
 
 TMPDIR_13="$(setup_fake_project)"
-SCRIPT_DIR="$TMPDIR_13/aiscripts"
+SCRIPT_DIR="$TMPDIR_13/.aitask-scripts"
 
 ensure_git_repo </dev/null >/dev/null 2>&1
 assert_dir_exists ".git created" "$TMPDIR_13/.git"
@@ -374,7 +374,7 @@ commit_count=$(git -C "$TMPDIR_13" log --oneline 2>/dev/null | wc -l || echo 0)
 assert_eq "No commits from ensure_git_repo" "0" "$commit_count"
 
 # Verify framework files are still untracked
-untracked=$(cd "$TMPDIR_13" && git ls-files --others --exclude-standard aiscripts/ ait 2>/dev/null)
+untracked=$(cd "$TMPDIR_13" && git ls-files --others --exclude-standard .aitask-scripts/ ait 2>/dev/null)
 TOTAL=$((TOTAL + 1))
 if [[ -n "$untracked" ]]; then
     PASS=$((PASS + 1))
@@ -386,9 +386,9 @@ fi
 rm -rf "$TMPDIR_13"
 
 # Re-source to restore SCRIPT_DIR
-source "$PROJECT_DIR/aiscripts/aitask_setup.sh" --source-only
+source "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" --source-only
 set +euo pipefail
-SCRIPT_DIR="$PROJECT_DIR/aiscripts"
+SCRIPT_DIR="$PROJECT_DIR/.aitask-scripts"
 
 # --- Test 14: commit_framework_files skips pycache and includes codex paths ---
 echo "--- Test 14: Skips pycache and includes Codex files ---"
@@ -402,10 +402,10 @@ mkdir -p "$TMPDIR_14/.agents/skills/aitask-pick"
 echo "# wrapper" > "$TMPDIR_14/.agents/skills/aitask-pick/SKILL.md"
 mkdir -p "$TMPDIR_14/.codex"
 echo "sandbox_mode = \"workspace-write\"" > "$TMPDIR_14/.codex/config.toml"
-mkdir -p "$TMPDIR_14/aiscripts/__pycache__"
-echo "bytecode" > "$TMPDIR_14/aiscripts/__pycache__/test.cpython-314.pyc"
+mkdir -p "$TMPDIR_14/.aitask-scripts/__pycache__"
+echo "bytecode" > "$TMPDIR_14/.aitask-scripts/__pycache__/test.cpython-314.pyc"
 
-SCRIPT_DIR="$TMPDIR_14/aiscripts"
+SCRIPT_DIR="$TMPDIR_14/.aitask-scripts"
 output=$(commit_framework_files 2>&1 </dev/null)
 
 assert_not_contains "Pycache not shown in pending framework list" "__pycache__" "$output"

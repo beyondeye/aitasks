@@ -335,19 +335,19 @@ Output naming:
 
 Examples:
   # Analyze a single file (dir named aiscripts__lib__<timestamp>)
-  ./aiscripts/aitask_explain_extract_raw_data.sh --gather aiscripts/lib/task_utils.sh
+  ./.aitask-scripts/aitask_explain_extract_raw_data.sh --gather .aitask-scripts/lib/task_utils.sh
 
   # Analyze a directory (dir named aiscripts__lib__<timestamp>)
-  ./aiscripts/aitask_explain_extract_raw_data.sh --gather aiscripts/lib/
+  ./.aitask-scripts/aitask_explain_extract_raw_data.sh --gather .aitask-scripts/lib/
 
   # Analyze with explicit source key (dir named myproject__<timestamp>)
-  ./aiscripts/aitask_explain_extract_raw_data.sh --gather --source-key myproject aiscripts/
+  ./.aitask-scripts/aitask_explain_extract_raw_data.sh --gather --source-key myproject .aitask-scripts/
 
   # Analyze with commit limit
-  ./aiscripts/aitask_explain_extract_raw_data.sh --gather aiscripts/ --max-commits 20
+  ./.aitask-scripts/aitask_explain_extract_raw_data.sh --gather .aitask-scripts/ --max-commits 20
 
   # Clean up a run
-  ./aiscripts/aitask_explain_extract_raw_data.sh --cleanup aiexplains/20260221_143052
+  ./.aitask-scripts/aitask_explain_extract_raw_data.sh --cleanup aiexplains/20260221_143052
 EOF
 }
 

@@ -6,7 +6,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-EXTRACT_SCRIPT="$PROJECT_DIR/aiscripts/aitask_explain_extract_raw_data.sh"
+EXTRACT_SCRIPT="$PROJECT_DIR/.aitask-scripts/aitask_explain_extract_raw_data.sh"
 
 PASS=0
 FAIL=0
@@ -78,7 +78,7 @@ echo "--- Test 1: --no-recurse on directory with subdirs ---"
 TEST_DIR="$TMPDIR_BASE/test1"
 mkdir -p "$TEST_DIR"
 
-output=$(AIEXPLAINS_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --no-recurse --gather aiscripts/ --max-commits 3 2>/dev/null)
+output=$(AIEXPLAINS_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --no-recurse --gather .aitask-scripts/ --max-commits 3 2>/dev/null)
 run_dir=$(echo "$output" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 files_content=$(cat "$run_dir/files.txt")
 
@@ -92,9 +92,9 @@ else
     echo "FAIL: --no-recurse should still return files ($file_count found)"
 fi
 
-# Assert no file has a path separator after 'aiscripts/'
-# (i.e., no files from aiscripts/board/, aiscripts/lib/, etc.)
-subdirs_found=$(echo "$files_content" | grep -c 'aiscripts/.*/' || true)
+# Assert no file has a path separator after '.aitask-scripts/'
+# (i.e., no files from .aitask-scripts/board/, .aitask-scripts/lib/, etc.)
+subdirs_found=$(echo "$files_content" | grep -c '.aitask-scripts/.*/' || true)
 assert_eq "--no-recurse: no subdirectory files" "0" "$subdirs_found"
 
 # ====================================================================
@@ -105,12 +105,12 @@ echo "--- Test 2: without --no-recurse (recursive, backward compat) ---"
 TEST_DIR="$TMPDIR_BASE/test2"
 mkdir -p "$TEST_DIR"
 
-output=$(AIEXPLAINS_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --gather aiscripts/ --max-commits 3 2>/dev/null)
+output=$(AIEXPLAINS_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --gather .aitask-scripts/ --max-commits 3 2>/dev/null)
 run_dir=$(echo "$output" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 files_content=$(cat "$run_dir/files.txt")
 
 # Assert some files DO have subdirectory paths
-subdirs_found=$(echo "$files_content" | grep -c 'aiscripts/.*/' || true)
+subdirs_found=$(echo "$files_content" | grep -c '.aitask-scripts/.*/' || true)
 TOTAL=$((TOTAL + 1))
 if [[ "$subdirs_found" -gt 0 ]]; then
     PASS=$((PASS + 1))
@@ -153,7 +153,7 @@ echo "--- Test 4: --no-recurse with --source-key ---"
 TEST_DIR="$TMPDIR_BASE/test4"
 mkdir -p "$TEST_DIR"
 
-output=$(AIEXPLAINS_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --no-recurse --gather --source-key test_nr_key aiscripts/ --max-commits 3 2>/dev/null)
+output=$(AIEXPLAINS_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --no-recurse --gather --source-key test_nr_key .aitask-scripts/ --max-commits 3 2>/dev/null)
 run_dir=$(echo "$output" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 dir_name=$(basename "$run_dir")
 
@@ -162,7 +162,7 @@ assert_match "--no-recurse with source-key: correct naming" "^test_nr_key__[0-9]
 
 # Assert files are non-recursive
 files_content=$(cat "$run_dir/files.txt")
-subdirs_found=$(echo "$files_content" | grep -c 'aiscripts/.*/' || true)
+subdirs_found=$(echo "$files_content" | grep -c '.aitask-scripts/.*/' || true)
 assert_eq "--no-recurse with source-key: no subdirectory files" "0" "$subdirs_found"
 
 # ====================================================================
@@ -173,14 +173,14 @@ echo "--- Test 5: --no-recurse on single file (no effect) ---"
 TEST_DIR="$TMPDIR_BASE/test5"
 mkdir -p "$TEST_DIR"
 
-output=$(AIEXPLAINS_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --no-recurse --gather aiscripts/lib/task_utils.sh --max-commits 3 2>/dev/null)
+output=$(AIEXPLAINS_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --no-recurse --gather .aitask-scripts/lib/task_utils.sh --max-commits 3 2>/dev/null)
 run_dir=$(echo "$output" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 files_content=$(cat "$run_dir/files.txt")
 
 # Assert exactly one file present and it's the right one
 file_count=$(echo "$files_content" | wc -l | tr -d ' ')
 assert_eq "--no-recurse single file: exactly 1 file" "1" "$file_count"
-assert_contains "--no-recurse single file: correct file" "aiscripts/lib/task_utils.sh" "$files_content"
+assert_contains "--no-recurse single file: correct file" ".aitask-scripts/lib/task_utils.sh" "$files_content"
 
 # ====================================================================
 # Summary

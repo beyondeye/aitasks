@@ -93,16 +93,16 @@ setup_draft_project() {
         mkdir -p aitasks/archived
         mkdir -p aitasks/metadata
         mkdir -p aitasks/new
-        mkdir -p aiscripts/lib
+        mkdir -p .aitask-scripts/lib
 
         # Copy scripts
-        cp "$PROJECT_DIR/aiscripts/aitask_create.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/aitask_claim_id.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/aitask_update.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/aitask_ls.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-        cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
-        chmod +x aiscripts/aitask_create.sh aiscripts/aitask_claim_id.sh aiscripts/aitask_update.sh aiscripts/aitask_ls.sh
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_create.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_update.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_ls.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+        chmod +x .aitask-scripts/aitask_create.sh .aitask-scripts/aitask_claim_id.sh .aitask-scripts/aitask_update.sh .aitask-scripts/aitask_ls.sh
 
         # Create task types file
         printf 'bug\nchore\ndocumentation\nfeature\nperformance\nrefactor\nstyle\ntest\n' > aitasks/metadata/task_types.txt
@@ -145,7 +145,7 @@ TASK
         git push --quiet 2>/dev/null
 
         # Initialize the aitask-ids counter branch
-        ./aiscripts/aitask_claim_id.sh --init >/dev/null 2>&1
+        ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1
     )
 
     echo "$tmpdir"
@@ -161,7 +161,7 @@ echo ""
 echo "--- Test 1: Batch creates draft ---"
 
 TMPDIR_1="$(setup_draft_project)"
-output1=$(cd "$TMPDIR_1/local" && ./aiscripts/aitask_create.sh --batch --name "test_task" --desc "A test description" 2>&1)
+output1=$(cd "$TMPDIR_1/local" && ./.aitask-scripts/aitask_create.sh --batch --name "test_task" --desc "A test description" 2>&1)
 
 # Check that a draft file was created in aitasks/new/
 draft_files1=$(ls "$TMPDIR_1/local/aitasks/new"/draft_*_test_task.md 2>/dev/null | wc -l)
@@ -173,7 +173,7 @@ rm -rf "$TMPDIR_1"
 echo "--- Test 2: Draft has correct format ---"
 
 TMPDIR_2="$(setup_draft_project)"
-(cd "$TMPDIR_2/local" && ./aiscripts/aitask_create.sh --batch --name "format_test" --desc "Test description" \
+(cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_create.sh --batch --name "format_test" --desc "Test description" \
     --priority high --effort low --type bug --labels "ui,backend" >/dev/null 2>&1)
 
 draft_file2=$(ls "$TMPDIR_2/local/aitasks/new"/draft_*_format_test.md 2>/dev/null | head -1)
@@ -193,7 +193,7 @@ rm -rf "$TMPDIR_2"
 echo "--- Test 3: Draft not in git ---"
 
 TMPDIR_3="$(setup_draft_project)"
-(cd "$TMPDIR_3/local" && ./aiscripts/aitask_create.sh --batch --name "git_test" --desc "Not tracked" >/dev/null 2>&1)
+(cd "$TMPDIR_3/local" && ./.aitask-scripts/aitask_create.sh --batch --name "git_test" --desc "Not tracked" >/dev/null 2>&1)
 
 # git status should NOT show aitasks/new/ (because it's gitignored)
 git_status3=$(cd "$TMPDIR_3/local" && git status --porcelain 2>/dev/null)
@@ -211,10 +211,10 @@ rm -rf "$TMPDIR_3"
 echo "--- Test 4: Finalize single draft ---"
 
 TMPDIR_4="$(setup_draft_project)"
-(cd "$TMPDIR_4/local" && ./aiscripts/aitask_create.sh --batch --name "finalize_me" --desc "Will be finalized" >/dev/null 2>&1)
+(cd "$TMPDIR_4/local" && ./.aitask-scripts/aitask_create.sh --batch --name "finalize_me" --desc "Will be finalized" >/dev/null 2>&1)
 
 draft_name4=$(ls "$TMPDIR_4/local/aitasks/new"/ 2>/dev/null | head -1)
-(cd "$TMPDIR_4/local" && ./aiscripts/aitask_create.sh --batch --finalize "$draft_name4" >/dev/null 2>&1)
+(cd "$TMPDIR_4/local" && ./.aitask-scripts/aitask_create.sh --batch --finalize "$draft_name4" >/dev/null 2>&1)
 
 # Draft should be gone from aitasks/new/
 draft_remaining4=$(ls "$TMPDIR_4/local/aitasks/new"/draft_*.md 2>/dev/null | wc -l)
@@ -241,10 +241,10 @@ echo "--- Test 5: Finalize claims real ID ---"
 
 TMPDIR_5="$(setup_draft_project)"
 # Counter should be at 12 (max(2) + 10 = 12)
-(cd "$TMPDIR_5/local" && ./aiscripts/aitask_create.sh --batch --name "claim_test" --desc "Test claiming" >/dev/null 2>&1)
+(cd "$TMPDIR_5/local" && ./.aitask-scripts/aitask_create.sh --batch --name "claim_test" --desc "Test claiming" >/dev/null 2>&1)
 
 draft_name5=$(ls "$TMPDIR_5/local/aitasks/new"/ 2>/dev/null | head -1)
-(cd "$TMPDIR_5/local" && ./aiscripts/aitask_create.sh --batch --finalize "$draft_name5" >/dev/null 2>&1)
+(cd "$TMPDIR_5/local" && ./.aitask-scripts/aitask_create.sh --batch --finalize "$draft_name5" >/dev/null 2>&1)
 
 # The finalized file should be t12_claim_test.md (first claim from counter starting at 12)
 assert_file_exists "Finalized as t12" "$TMPDIR_5/local/aitasks/t12_claim_test.md"
@@ -255,10 +255,10 @@ rm -rf "$TMPDIR_5"
 echo "--- Test 6: Finalize commits to git ---"
 
 TMPDIR_6="$(setup_draft_project)"
-(cd "$TMPDIR_6/local" && ./aiscripts/aitask_create.sh --batch --name "commit_test" --desc "Will be committed" >/dev/null 2>&1)
+(cd "$TMPDIR_6/local" && ./.aitask-scripts/aitask_create.sh --batch --name "commit_test" --desc "Will be committed" >/dev/null 2>&1)
 
 draft_name6=$(ls "$TMPDIR_6/local/aitasks/new"/ 2>/dev/null | head -1)
-(cd "$TMPDIR_6/local" && ./aiscripts/aitask_create.sh --batch --finalize "$draft_name6" >/dev/null 2>&1)
+(cd "$TMPDIR_6/local" && ./.aitask-scripts/aitask_create.sh --batch --finalize "$draft_name6" >/dev/null 2>&1)
 
 # Check that git log shows the commit
 last_commit6=$(cd "$TMPDIR_6/local" && git log -1 --format='%s' 2>/dev/null)
@@ -271,18 +271,18 @@ rm -rf "$TMPDIR_6"
 echo "--- Test 7: Finalize-all ---"
 
 TMPDIR_7="$(setup_draft_project)"
-(cd "$TMPDIR_7/local" && ./aiscripts/aitask_create.sh --batch --name "draft_a" --desc "Draft A" >/dev/null 2>&1)
+(cd "$TMPDIR_7/local" && ./.aitask-scripts/aitask_create.sh --batch --name "draft_a" --desc "Draft A" >/dev/null 2>&1)
 sleep 1  # Ensure different timestamps
-(cd "$TMPDIR_7/local" && ./aiscripts/aitask_create.sh --batch --name "draft_b" --desc "Draft B" >/dev/null 2>&1)
+(cd "$TMPDIR_7/local" && ./.aitask-scripts/aitask_create.sh --batch --name "draft_b" --desc "Draft B" >/dev/null 2>&1)
 sleep 1
-(cd "$TMPDIR_7/local" && ./aiscripts/aitask_create.sh --batch --name "draft_c" --desc "Draft C" >/dev/null 2>&1)
+(cd "$TMPDIR_7/local" && ./.aitask-scripts/aitask_create.sh --batch --name "draft_c" --desc "Draft C" >/dev/null 2>&1)
 
 # All should be drafts
 draft_count7_before=$(ls "$TMPDIR_7/local/aitasks/new"/draft_*.md 2>/dev/null | wc -l)
 assert_eq "3 drafts created" "3" "$draft_count7_before"
 
 # Finalize all
-(cd "$TMPDIR_7/local" && ./aiscripts/aitask_create.sh --batch --finalize-all >/dev/null 2>&1)
+(cd "$TMPDIR_7/local" && ./.aitask-scripts/aitask_create.sh --batch --finalize-all >/dev/null 2>&1)
 
 # Drafts should be gone
 draft_count7_after=$(ls "$TMPDIR_7/local/aitasks/new"/draft_*.md 2>/dev/null | wc -l)
@@ -303,7 +303,7 @@ rm -rf "$TMPDIR_7"
 echo "--- Test 8: Batch --commit auto-finalizes ---"
 
 TMPDIR_8="$(setup_draft_project)"
-output8=$(cd "$TMPDIR_8/local" && ./aiscripts/aitask_create.sh --batch --name "auto_final" --desc "Auto finalized" --commit 2>&1)
+output8=$(cd "$TMPDIR_8/local" && ./.aitask-scripts/aitask_create.sh --batch --name "auto_final" --desc "Auto finalized" --commit 2>&1)
 
 # Should NOT create a draft
 draft_count8=$(ls "$TMPDIR_8/local/aitasks/new"/draft_*.md 2>/dev/null | wc -l)
@@ -329,7 +329,7 @@ rm -rf "$TMPDIR_8"
 echo "--- Test 9: Child task draft ---"
 
 TMPDIR_9="$(setup_draft_project)"
-(cd "$TMPDIR_9/local" && ./aiscripts/aitask_create.sh --batch --parent 1 --name "child_task" --desc "A child task" >/dev/null 2>&1)
+(cd "$TMPDIR_9/local" && ./.aitask-scripts/aitask_create.sh --batch --parent 1 --name "child_task" --desc "A child task" >/dev/null 2>&1)
 
 # Draft should exist in aitasks/new/
 draft_count9=$(ls "$TMPDIR_9/local/aitasks/new"/draft_*_child_task.md 2>/dev/null | wc -l)
@@ -347,10 +347,10 @@ rm -rf "$TMPDIR_9"
 echo "--- Test 10: Child task finalize ---"
 
 TMPDIR_10="$(setup_draft_project)"
-(cd "$TMPDIR_10/local" && ./aiscripts/aitask_create.sh --batch --parent 1 --name "child_fin" --desc "A child to finalize" >/dev/null 2>&1)
+(cd "$TMPDIR_10/local" && ./.aitask-scripts/aitask_create.sh --batch --parent 1 --name "child_fin" --desc "A child to finalize" >/dev/null 2>&1)
 
 draft_name10=$(ls "$TMPDIR_10/local/aitasks/new"/ 2>/dev/null | head -1)
-(cd "$TMPDIR_10/local" && ./aiscripts/aitask_create.sh --batch --finalize "$draft_name10" >/dev/null 2>&1)
+(cd "$TMPDIR_10/local" && ./.aitask-scripts/aitask_create.sh --batch --finalize "$draft_name10" >/dev/null 2>&1)
 
 # Child should be in aitasks/t1/
 child_files10=$(ls "$TMPDIR_10/local/aitasks/t1"/t1_*_child_fin.md 2>/dev/null | wc -l)
@@ -370,7 +370,7 @@ rm -rf "$TMPDIR_10"
 echo "--- Test 11: Finalize without network fails in batch mode ---"
 
 TMPDIR_11="$(setup_draft_project)"
-(cd "$TMPDIR_11/local" && ./aiscripts/aitask_create.sh --batch --name "no_net" --desc "No network test" >/dev/null 2>&1)
+(cd "$TMPDIR_11/local" && ./.aitask-scripts/aitask_create.sh --batch --name "no_net" --desc "No network test" >/dev/null 2>&1)
 
 # Remove the remote to simulate no network
 (cd "$TMPDIR_11/local" && git remote remove origin)
@@ -378,7 +378,7 @@ TMPDIR_11="$(setup_draft_project)"
 draft_name11=$(ls "$TMPDIR_11/local/aitasks/new"/ 2>/dev/null | head -1)
 
 # Finalize should SUCCEED using local counter fallback (t305)
-output11=$(cd "$TMPDIR_11/local" && ./aiscripts/aitask_create.sh --batch --finalize "$draft_name11" 2>&1)
+output11=$(cd "$TMPDIR_11/local" && ./.aitask-scripts/aitask_create.sh --batch --finalize "$draft_name11" 2>&1)
 exit_code11=$?
 
 assert_eq "Finalize succeeds without network (local counter)" "0" "$exit_code11"
@@ -397,11 +397,11 @@ rm -rf "$TMPDIR_11"
 echo "--- Test 12: Multiple drafts coexist ---"
 
 TMPDIR_12="$(setup_draft_project)"
-(cd "$TMPDIR_12/local" && ./aiscripts/aitask_create.sh --batch --name "multi_a" --desc "Draft A" >/dev/null 2>&1)
+(cd "$TMPDIR_12/local" && ./.aitask-scripts/aitask_create.sh --batch --name "multi_a" --desc "Draft A" >/dev/null 2>&1)
 sleep 1
-(cd "$TMPDIR_12/local" && ./aiscripts/aitask_create.sh --batch --name "multi_b" --desc "Draft B" >/dev/null 2>&1)
+(cd "$TMPDIR_12/local" && ./.aitask-scripts/aitask_create.sh --batch --name "multi_b" --desc "Draft B" >/dev/null 2>&1)
 sleep 1
-(cd "$TMPDIR_12/local" && ./aiscripts/aitask_create.sh --batch --name "multi_c" --desc "Draft C" >/dev/null 2>&1)
+(cd "$TMPDIR_12/local" && ./.aitask-scripts/aitask_create.sh --batch --name "multi_c" --desc "Draft C" >/dev/null 2>&1)
 
 draft_count12=$(ls "$TMPDIR_12/local/aitasks/new"/draft_*.md 2>/dev/null | wc -l)
 assert_eq "3 drafts coexist" "3" "$draft_count12"
@@ -417,7 +417,7 @@ rm -rf "$TMPDIR_12"
 # --- Test 13: Syntax check ---
 echo "--- Test 13: Syntax check ---"
 
-assert_exit_zero "Syntax check passes" bash -n "$PROJECT_DIR/aiscripts/aitask_create.sh"
+assert_exit_zero "Syntax check passes" bash -n "$PROJECT_DIR/.aitask-scripts/aitask_create.sh"
 
 # --- Summary ---
 echo ""

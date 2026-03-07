@@ -8,14 +8,14 @@
 # All subcommands exit 0. Use output lines (not exit codes) for status.
 #
 # Usage:
-#   ./aiscripts/aitask_query_files.sh task-file <N>
-#   ./aiscripts/aitask_query_files.sh has-children <N>
-#   ./aiscripts/aitask_query_files.sh child-file <parent> <child>
-#   ./aiscripts/aitask_query_files.sh sibling-context <parent>
-#   ./aiscripts/aitask_query_files.sh plan-file <taskid>
-#   ./aiscripts/aitask_query_files.sh archived-children <N>
-#   ./aiscripts/aitask_query_files.sh active-children <N>
-#   ./aiscripts/aitask_query_files.sh resolve <N>
+#   ./.aitask-scripts/aitask_query_files.sh task-file <N>
+#   ./.aitask-scripts/aitask_query_files.sh has-children <N>
+#   ./.aitask-scripts/aitask_query_files.sh child-file <parent> <child>
+#   ./.aitask-scripts/aitask_query_files.sh sibling-context <parent>
+#   ./.aitask-scripts/aitask_query_files.sh plan-file <taskid>
+#   ./.aitask-scripts/aitask_query_files.sh archived-children <N>
+#   ./.aitask-scripts/aitask_query_files.sh active-children <N>
+#   ./.aitask-scripts/aitask_query_files.sh resolve <N>
 
 set -euo pipefail
 
@@ -65,14 +65,14 @@ Output format (structured lines):
 All subcommands exit 0. Use output lines (not exit codes) for status.
 
 Examples:
-  ./aiscripts/aitask_query_files.sh task-file 16
-  ./aiscripts/aitask_query_files.sh resolve 16
-  ./aiscripts/aitask_query_files.sh child-file 16 2
-  ./aiscripts/aitask_query_files.sh active-children 16
-  ./aiscripts/aitask_query_files.sh all-children 16
-  ./aiscripts/aitask_query_files.sh sibling-context 16
-  ./aiscripts/aitask_query_files.sh plan-file 16_2
-  ./aiscripts/aitask_query_files.sh archived-children 16
+  ./.aitask-scripts/aitask_query_files.sh task-file 16
+  ./.aitask-scripts/aitask_query_files.sh resolve 16
+  ./.aitask-scripts/aitask_query_files.sh child-file 16 2
+  ./.aitask-scripts/aitask_query_files.sh active-children 16
+  ./.aitask-scripts/aitask_query_files.sh all-children 16
+  ./.aitask-scripts/aitask_query_files.sh sibling-context 16
+  ./.aitask-scripts/aitask_query_files.sh plan-file 16_2
+  ./.aitask-scripts/aitask_query_files.sh archived-children 16
 EOF
 }
 

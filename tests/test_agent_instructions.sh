@@ -8,10 +8,10 @@ set -e
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_DIR/.." && pwd)"
-SCRIPT_DIR="$PROJECT_DIR/aiscripts"
+SCRIPT_DIR="$PROJECT_DIR/.aitask-scripts"
 
 # Source setup script in source-only mode to get function definitions
-source "$PROJECT_DIR/aiscripts/aitask_setup.sh" --source-only
+source "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" --source-only
 
 PASS=0
 FAIL=0
@@ -311,7 +311,7 @@ setup_tmpdir
 create_codex_staging "$TMPDIR_TEST"
 # Override SCRIPT_DIR for setup_codex_cli
 (
-    SCRIPT_DIR="$TMPDIR_TEST/aiscripts"
+    SCRIPT_DIR="$TMPDIR_TEST/.aitask-scripts"
     mkdir -p "$SCRIPT_DIR"
     # Non-interactive mode (stdin not a terminal)
     setup_codex_cli < /dev/null
@@ -331,7 +331,7 @@ mkdir -p "$TMPDIR_TEST/.codex"
 echo "# Custom Codex Instructions" > "$TMPDIR_TEST/.codex/instructions.md"
 echo "My custom content." >> "$TMPDIR_TEST/.codex/instructions.md"
 (
-    SCRIPT_DIR="$TMPDIR_TEST/aiscripts"
+    SCRIPT_DIR="$TMPDIR_TEST/.aitask-scripts"
     mkdir -p "$SCRIPT_DIR"
     setup_codex_cli < /dev/null
 )
@@ -356,7 +356,7 @@ OLD AITASK CONTENT
 # Custom Footer
 EOF
 (
-    SCRIPT_DIR="$TMPDIR_TEST/aiscripts"
+    SCRIPT_DIR="$TMPDIR_TEST/.aitask-scripts"
     mkdir -p "$SCRIPT_DIR"
     setup_codex_cli < /dev/null
 )

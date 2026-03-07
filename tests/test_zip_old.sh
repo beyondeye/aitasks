@@ -131,10 +131,10 @@ setup_test_env() {
         mkdir -p aiplans/archived
 
         # Copy the script and its dependencies
-        mkdir -p aiscripts/lib
-        cp "$PROJECT_DIR/aiscripts/aitask_zip_old.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-        cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
+        mkdir -p .aitask-scripts/lib
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_zip_old.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
 
         # Initial commit
         git add -A
@@ -149,12 +149,12 @@ echo ""
 
 # --- Test 1: Syntax check ---
 echo "--- Test 1: Syntax check ---"
-assert_exit_zero "Syntax check passes" bash -n "$PROJECT_DIR/aiscripts/aitask_zip_old.sh"
+assert_exit_zero "Syntax check passes" bash -n "$PROJECT_DIR/.aitask-scripts/aitask_zip_old.sh"
 
 # --- Test 2: Empty archived dirs — nothing to do ---
 echo "--- Test 2: Empty archived dirs ---"
 TMPDIR_2="$(setup_test_env)"
-output_2=$(cd "$TMPDIR_2" && bash aiscripts/aitask_zip_old.sh --dry-run 2>&1)
+output_2=$(cd "$TMPDIR_2" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
 assert_contains "Empty dirs: reports no files" "no files to archive" "$output_2"
 rm -rf "$TMPDIR_2"
 
@@ -168,7 +168,7 @@ TMPDIR_3="$(setup_test_env)"
     create_archived_file aiplans/archived/p50_old_task.md
     create_archived_file aiplans/archived/p51_another_task.md
 )
-output_3=$(cd "$TMPDIR_3" && bash aiscripts/aitask_zip_old.sh --dry-run 2>&1)
+output_3=$(cd "$TMPDIR_3" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
 assert_contains "Test 3: t50 listed" "t50_old_task.md" "$output_3"
 assert_contains "Test 3: t51 listed" "t51_another_task.md" "$output_3"
 assert_contains "Test 3: p50 listed" "p50_old_task.md" "$output_3"
@@ -191,7 +191,7 @@ TMPDIR_4="$(setup_test_env)"
     # Also add an unrelated archived file that SHOULD be archived
     create_archived_file aitasks/archived/t5_unrelated.md
 )
-output_4=$(cd "$TMPDIR_4" && bash aiscripts/aitask_zip_old.sh --dry-run 2>&1)
+output_4=$(cd "$TMPDIR_4" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
 assert_not_contains "Test 4: t10_1 NOT listed" "t10_1_done_child" "$output_4"
 assert_not_contains "Test 4: t10_2 NOT listed" "t10_2_done_child" "$output_4"
 assert_not_contains "Test 4: p10_1 NOT listed" "p10_1_done_child" "$output_4"
@@ -209,7 +209,7 @@ TMPDIR_5="$(setup_test_env)"
     create_archived_file aitasks/archived/t20/t20_1_child.md
     create_archived_file aitasks/archived/t20/t20_2_child.md
 )
-output_5=$(cd "$TMPDIR_5" && bash aiscripts/aitask_zip_old.sh --dry-run 2>&1)
+output_5=$(cd "$TMPDIR_5" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
 assert_contains "Test 5: parent listed" "t20_done_parent" "$output_5"
 assert_contains "Test 5: child 1 listed" "t20_1_child" "$output_5"
 assert_contains "Test 5: child 2 listed" "t20_2_child" "$output_5"
@@ -224,7 +224,7 @@ TMPDIR_6="$(setup_test_env)"
     create_archived_file aitasks/archived/t30/t30_1_child.md
     create_archived_file aitasks/archived/t30/t30_2_child.md
 )
-output_6=$(cd "$TMPDIR_6" && bash aiscripts/aitask_zip_old.sh --dry-run 2>&1)
+output_6=$(cd "$TMPDIR_6" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
 assert_contains "Test 6: child 1 listed" "t30_1_child" "$output_6"
 assert_contains "Test 6: child 2 listed" "t30_2_child" "$output_6"
 rm -rf "$TMPDIR_6"
@@ -242,7 +242,7 @@ TMPDIR_7="$(setup_test_env)"
     # Archived plan of inactive parent
     create_archived_file aiplans/archived/p40/p40_1_done.md
 )
-output_7=$(cd "$TMPDIR_7" && bash aiscripts/aitask_zip_old.sh --dry-run 2>&1)
+output_7=$(cd "$TMPDIR_7" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
 assert_not_contains "Test 7: p15_1 NOT listed" "p15_1_done" "$output_7"
 assert_contains "Test 7: p40_1 IS listed" "p40_1_done" "$output_7"
 rm -rf "$TMPDIR_7"
@@ -265,7 +265,7 @@ TMPDIR_8="$(setup_test_env)"
     create_archived_file aitasks/archived/t50_standalone.md
     create_archived_file aiplans/archived/p50_standalone.md
 )
-output_8=$(cd "$TMPDIR_8" && bash aiscripts/aitask_zip_old.sh --dry-run 2>&1)
+output_8=$(cd "$TMPDIR_8" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
 assert_not_contains "Test 8: t10_1 NOT listed" "t10_1_done" "$output_8"
 assert_not_contains "Test 8: p10_1 NOT listed" "p10_1_done" "$output_8"
 assert_contains "Test 8: t20_1 IS listed" "t20_1_done" "$output_8"
@@ -284,7 +284,7 @@ TMPDIR_9="$(setup_test_env)"
     create_archived_file aiplans/archived/p50_old.md
     git add -A && git commit -m "Add test files" --quiet
 )
-(cd "$TMPDIR_9" && bash aiscripts/aitask_zip_old.sh --no-commit 2>&1 >/dev/null)
+(cd "$TMPDIR_9" && bash .aitask-scripts/aitask_zip_old.sh --no-commit 2>&1 >/dev/null)
 assert_file_exists "Test 9: task tar.gz created" "$TMPDIR_9/aitasks/archived/old.tar.gz"
 assert_file_exists "Test 9: plan tar.gz created" "$TMPDIR_9/aiplans/archived/old.tar.gz"
 assert_file_not_exists "Test 9: t50 removed" "$TMPDIR_9/aitasks/archived/t50_old.md"
@@ -304,12 +304,12 @@ TMPDIR_10="$(setup_test_env)"
     create_archived_file aitasks/archived/t50_first.md
     git add -A && git commit -m "First batch" --quiet
 )
-(cd "$TMPDIR_10" && bash aiscripts/aitask_zip_old.sh --no-commit 2>&1 >/dev/null)
+(cd "$TMPDIR_10" && bash .aitask-scripts/aitask_zip_old.sh --no-commit 2>&1 >/dev/null)
 (
     cd "$TMPDIR_10"
     create_archived_file aitasks/archived/t51_second.md
 )
-(cd "$TMPDIR_10" && bash aiscripts/aitask_zip_old.sh --no-commit 2>&1 >/dev/null)
+(cd "$TMPDIR_10" && bash .aitask-scripts/aitask_zip_old.sh --no-commit 2>&1 >/dev/null)
 tar_contents_10=$(tar -tzf "$TMPDIR_10/aitasks/archived/old.tar.gz" 2>/dev/null)
 assert_contains "Test 10: tar still has first batch" "t50_first.md" "$tar_contents_10"
 assert_contains "Test 10: tar has second batch" "t51_second.md" "$tar_contents_10"
@@ -328,7 +328,7 @@ TMPDIR_11="$(setup_test_env)"
     create_archived_file aiplans/archived/p50_old.md
     git add -A && git commit -m "Setup" --quiet
 )
-(cd "$TMPDIR_11" && bash aiscripts/aitask_zip_old.sh 2>&1 >/dev/null)
+(cd "$TMPDIR_11" && bash .aitask-scripts/aitask_zip_old.sh 2>&1 >/dev/null)
 commit_msg_11=$(cd "$TMPDIR_11" && git log -1 --pretty=%B)
 assert_contains "Test 11: commit mentions archive" "ait: Archive old task and plan files" "$commit_msg_11"
 rm -rf "$TMPDIR_11"
@@ -342,7 +342,7 @@ TMPDIR_12="$(setup_test_env)"
     create_archived_file aitasks/archived/t30/t30_1_child.md
     git add -A && git commit -m "Setup" --quiet
 )
-(cd "$TMPDIR_12" && bash aiscripts/aitask_zip_old.sh --no-commit 2>&1 >/dev/null)
+(cd "$TMPDIR_12" && bash .aitask-scripts/aitask_zip_old.sh --no-commit 2>&1 >/dev/null)
 assert_dir_not_exists "Test 12: empty child dir removed" "$TMPDIR_12/aitasks/archived/t30"
 rm -rf "$TMPDIR_12"
 
@@ -354,7 +354,7 @@ TMPDIR_13="$(setup_test_env)"
     create_archived_file aitasks/archived/t50_old.md
     git add -A && git commit -m "Setup" --quiet
 )
-(cd "$TMPDIR_13" && bash aiscripts/aitask_zip_old.sh --no-commit 2>&1 >/dev/null)
+(cd "$TMPDIR_13" && bash .aitask-scripts/aitask_zip_old.sh --no-commit 2>&1 >/dev/null)
 # Check that there's no new commit (HEAD should still be "Setup")
 last_commit_13=$(cd "$TMPDIR_13" && git log -1 --pretty=%s)
 assert_eq "Test 13: no git commit made" "Setup" "$last_commit_13"
@@ -371,7 +371,7 @@ TMPDIR_14="$(setup_test_env)"
     create_archived_file aitasks/archived/t10/t10_1_done.md
     create_archived_file aitasks/archived/t50_old.md
 )
-output_14=$(cd "$TMPDIR_14" && bash aiscripts/aitask_zip_old.sh --dry-run -v 2>&1)
+output_14=$(cd "$TMPDIR_14" && bash .aitask-scripts/aitask_zip_old.sh --dry-run -v 2>&1)
 assert_contains "Test 14: shows active parents" "Active parents:" "$output_14"
 assert_contains "Test 14: shows skipping msg" "Skipping (active siblings)" "$output_14"
 rm -rf "$TMPDIR_14"
@@ -386,7 +386,7 @@ TMPDIR_15="$(setup_test_env)"
     create_archived_file aitasks/archived/t30_depended_on.md
     create_archived_file aitasks/archived/t31_not_depended.md
 )
-output_15=$(cd "$TMPDIR_15" && bash aiscripts/aitask_zip_old.sh --dry-run 2>&1)
+output_15=$(cd "$TMPDIR_15" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
 assert_not_contains "Test 15: t30 NOT listed (kept as dependency)" "t30_depended_on" "$output_15"
 assert_contains "Test 15: t31 IS listed" "t31_not_depended" "$output_15"
 rm -rf "$TMPDIR_15"
@@ -400,7 +400,7 @@ TMPDIR_16="$(setup_test_env)"
     create_archived_file aiplans/archived/p30_depended_on.md
     create_archived_file aiplans/archived/p31_not_depended.md
 )
-output_16=$(cd "$TMPDIR_16" && bash aiscripts/aitask_zip_old.sh --dry-run 2>&1)
+output_16=$(cd "$TMPDIR_16" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
 assert_not_contains "Test 16: p30 NOT listed (kept as dependency)" "p30_depended_on" "$output_16"
 assert_contains "Test 16: p31 IS listed" "p31_not_depended" "$output_16"
 rm -rf "$TMPDIR_16"
@@ -416,7 +416,7 @@ TMPDIR_17="$(setup_test_env)"
     create_archived_file aitasks/archived/t30/t30_1_not_dep.md
     create_archived_file aitasks/archived/t30/t30_2_is_dep.md
 )
-output_17=$(cd "$TMPDIR_17" && bash aiscripts/aitask_zip_old.sh --dry-run 2>&1)
+output_17=$(cd "$TMPDIR_17" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
 assert_not_contains "Test 17: t30_2 NOT listed (kept as dep)" "t30_2_is_dep" "$output_17"
 assert_contains "Test 17: t30_1 IS listed" "t30_1_not_dep" "$output_17"
 rm -rf "$TMPDIR_17"
@@ -429,7 +429,7 @@ TMPDIR_18="$(setup_test_env)"
     create_task_file aitasks/t50_active.md "[]"
     create_archived_file aitasks/archived/t30_no_dep.md
 )
-output_18=$(cd "$TMPDIR_18" && bash aiscripts/aitask_zip_old.sh --dry-run 2>&1)
+output_18=$(cd "$TMPDIR_18" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
 assert_contains "Test 18: t30 IS listed" "t30_no_dep" "$output_18"
 rm -rf "$TMPDIR_18"
 
@@ -458,7 +458,7 @@ TMPDIR_19="$(setup_test_env)"
     # Not depended on
     create_archived_file aitasks/archived/t36_nodep.md
 )
-output_19=$(cd "$TMPDIR_19" && bash aiscripts/aitask_zip_old.sh --dry-run 2>&1)
+output_19=$(cd "$TMPDIR_19" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
 assert_not_contains "Test 19: t30 kept (quoted)" "t30_dep" "$output_19"
 assert_not_contains "Test 19: t31 kept (plain)" "t31_dep" "$output_19"
 assert_not_contains "Test 19: t32 kept (t-prefix)" "t32_dep" "$output_19"

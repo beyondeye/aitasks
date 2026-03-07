@@ -85,15 +85,15 @@ setup_archive_project() {
     git config user.name "Test"
 
     # Create project structure
-    mkdir -p aitasks/archived aitasks/metadata aiplans/archived aiscripts/lib
+    mkdir -p aitasks/archived aitasks/metadata aiplans/archived .aitask-scripts/lib
 
     # Copy scripts needed by archive
-    cp "$PROJECT_DIR/aiscripts/aitask_archive.sh" aiscripts/
-    cp "$PROJECT_DIR/aiscripts/aitask_update.sh" aiscripts/
-    cp "$PROJECT_DIR/aiscripts/aitask_lock.sh" aiscripts/ 2>/dev/null || true
-    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-    cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
-    chmod +x aiscripts/*.sh
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_archive.sh" .aitask-scripts/
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_update.sh" .aitask-scripts/
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/ 2>/dev/null || true
+    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+    chmod +x .aitask-scripts/*.sh
 
     # Create task types file
     printf 'bug\nchore\ndocumentation\nfeature\nperformance\nrefactor\nstyle\ntest\n' > aitasks/metadata/task_types.txt
@@ -181,7 +181,7 @@ TASK
 
     # Run archive for child task 10_1
     local output
-    output=$(bash aiscripts/aitask_archive.sh 10_1 2>&1)
+    output=$(bash .aitask-scripts/aitask_archive.sh 10_1 2>&1)
 
     # Verify folded task was deleted
     assert_contains "Archive output contains FOLDED_DELETED" "FOLDED_DELETED:50" "$output"
@@ -254,7 +254,7 @@ TASK
 
     # Archive the last child -> should trigger parent auto-archival
     local output
-    output=$(bash aiscripts/aitask_archive.sh 20_1 2>&1)
+    output=$(bash .aitask-scripts/aitask_archive.sh 20_1 2>&1)
 
     # Verify parent was auto-archived
     assert_contains "Parent was auto-archived" "PARENT_ARCHIVED:" "$output"
@@ -321,7 +321,7 @@ TASK
 
     # Archive parent task t30
     local output
-    output=$(bash aiscripts/aitask_archive.sh 30 2>&1)
+    output=$(bash .aitask-scripts/aitask_archive.sh 30 2>&1)
 
     # Verify the folded child task was found and deleted
     assert_contains "Folded child task deleted" "FOLDED_DELETED:40_2" "$output"

@@ -6,7 +6,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-source "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh"
+source "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
 
 PASS=0
 FAIL=0
@@ -231,7 +231,7 @@ echo "--- Syntax checks ---"
 for script in aitask_create.sh aitask_update.sh aitask_issue_import.sh \
               aitask_board.sh aitask_zip_old.sh aitask_issue_update.sh; do
     TOTAL=$((TOTAL + 1))
-    if bash -n "$PROJECT_DIR/aiscripts/$script" 2>/dev/null; then
+    if bash -n "$PROJECT_DIR/.aitask-scripts/$script" 2>/dev/null; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))
@@ -241,7 +241,7 @@ done
 
 # Syntax check for the library itself
 TOTAL=$((TOTAL + 1))
-if bash -n "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" 2>/dev/null; then
+if bash -n "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" 2>/dev/null; then
     PASS=$((PASS + 1))
 else
     FAIL=$((FAIL + 1))

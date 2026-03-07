@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "aiscripts", "lib"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".aitask-scripts", "lib"))
 from config_utils import (
     EXPORT_EXTENSION,
     deep_merge,

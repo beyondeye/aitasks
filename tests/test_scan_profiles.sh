@@ -6,7 +6,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-SCAN_SCRIPT="$PROJECT_DIR/aiscripts/aitask_scan_profiles.sh"
+SCAN_SCRIPT="$PROJECT_DIR/.aitask-scripts/aitask_scan_profiles.sh"
 
 PASS=0
 FAIL=0

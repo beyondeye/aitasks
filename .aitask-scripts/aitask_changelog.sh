@@ -169,13 +169,13 @@ Output format for --gather:
 
 Examples:
   # Gather all task data since last release
-  ./aiscripts/aitask_changelog.sh --gather
+  ./.aitask-scripts/aitask_changelog.sh --gather
 
   # Check if changelog has entry for v0.2.0
-  ./aiscripts/aitask_changelog.sh --check-version 0.2.0
+  ./.aitask-scripts/aitask_changelog.sh --check-version 0.2.0
 
   # Gather from a specific tag
-  ./aiscripts/aitask_changelog.sh --gather --from-tag v0.1.1
+  ./.aitask-scripts/aitask_changelog.sh --gather --from-tag v0.1.1
 EOF
 }
 

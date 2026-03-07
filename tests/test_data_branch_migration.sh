@@ -100,23 +100,23 @@ setup_migrated_project() {
         # Create project structure with task data on main
         mkdir -p aitasks/metadata aitasks/archived aitasks/new
         mkdir -p aiplans/archived
-        mkdir -p aiscripts/lib
+        mkdir -p .aitask-scripts/lib
 
         # Copy scripts from project
         cp "$PROJECT_DIR/ait" ait
         chmod +x ait
-        cp "$PROJECT_DIR/aiscripts/aitask_create.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/aitask_ls.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/aitask_update.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/aitask_claim_id.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/aitask_setup.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-        cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
-        chmod +x aiscripts/aitask_create.sh aiscripts/aitask_ls.sh aiscripts/aitask_update.sh
-        chmod +x aiscripts/aitask_claim_id.sh aiscripts/aitask_setup.sh
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_create.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_ls.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_update.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+        chmod +x .aitask-scripts/aitask_create.sh .aitask-scripts/aitask_ls.sh .aitask-scripts/aitask_update.sh
+        chmod +x .aitask-scripts/aitask_claim_id.sh .aitask-scripts/aitask_setup.sh
 
         # Create VERSION file (needed by ait dispatcher)
-        echo "0.0.0-test" > aiscripts/VERSION
+        echo "0.0.0-test" > .aitask-scripts/VERSION
 
         # Create task types and labels
         printf 'bug\nchore\ndocumentation\nfeature\nperformance\nrefactor\nstyle\ntest\n' > aitasks/metadata/task_types.txt
@@ -172,16 +172,16 @@ PLAN
         git push --quiet 2>/dev/null
 
         # Initialize aitask-ids counter
-        ./aiscripts/aitask_claim_id.sh --init >/dev/null 2>&1
+        ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1
     )
 
     # Source setup script for setup_data_branch function
     # aitask_setup.sh sets SCRIPT_DIR from BASH_SOURCE — override after sourcing
-    source "$PROJECT_DIR/aiscripts/aitask_setup.sh" --source-only
+    source "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" --source-only
     set +euo pipefail
 
     # Run migration (SCRIPT_DIR must point to test repo's aiscripts for project_dir resolution)
-    SCRIPT_DIR="$tmpdir/local/aiscripts"
+    SCRIPT_DIR="$tmpdir/local/.aitask-scripts"
     (cd "$tmpdir/local" && setup_data_branch </dev/null >/dev/null 2>&1)
 
     echo "$tmpdir"
@@ -235,7 +235,7 @@ assert_not_contains "Commit NOT on main" "test: Modify task t1" "$main_log"
 # --- Test 4: aitask_ls.sh works after migration ---
 echo "--- Test 4: aitask_ls.sh works ---"
 
-ls_output=$(cd "$LOCAL" && ./aiscripts/aitask_ls.sh -s all 10 2>/dev/null)
+ls_output=$(cd "$LOCAL" && ./.aitask-scripts/aitask_ls.sh -s all 10 2>/dev/null)
 assert_contains "ls shows t1_existing_task" "t1_existing_task" "$ls_output"
 assert_contains "ls shows t2_second_task" "t2_second_task" "$ls_output"
 
@@ -244,7 +244,7 @@ echo "--- Test 5: aitask_create.sh --batch --commit ---"
 
 (
     cd "$LOCAL"
-    ./aiscripts/aitask_create.sh --batch --name "branch_mode_task" --desc "Created in branch mode" --commit --silent 2>/dev/null
+    ./.aitask-scripts/aitask_create.sh --batch --name "branch_mode_task" --desc "Created in branch mode" --commit --silent 2>/dev/null
 )
 
 # Find the newly created task file (ID is dynamic)
@@ -270,7 +270,7 @@ echo "--- Test 6: aitask_update.sh --batch --commit ---"
 
 (
     cd "$LOCAL"
-    ./aiscripts/aitask_update.sh --batch 1 --status Implementing --commit 2>/dev/null
+    ./.aitask-scripts/aitask_update.sh --batch 1 --status Implementing --commit 2>/dev/null
 )
 
 assert_file_contains "Task t1 status updated" "$LOCAL/aitasks/t1_existing_task.md" "status: Implementing"

@@ -13,10 +13,10 @@
 # (issue updates, folded task warnings).
 #
 # Usage:
-#   ./aiscripts/aitask_archive.sh <task_num>              # Archive parent
-#   ./aiscripts/aitask_archive.sh <parent>_<child>        # Archive child
-#   ./aiscripts/aitask_archive.sh --dry-run <task_num>    # Preview
-#   ./aiscripts/aitask_archive.sh --no-commit <task_num>  # Stage only
+#   ./.aitask-scripts/aitask_archive.sh <task_num>              # Archive parent
+#   ./.aitask-scripts/aitask_archive.sh <parent>_<child>        # Archive child
+#   ./.aitask-scripts/aitask_archive.sh --dry-run <task_num>    # Preview
+#   ./.aitask-scripts/aitask_archive.sh --no-commit <task_num>  # Stage only
 
 set -euo pipefail
 
@@ -61,9 +61,9 @@ Output format (structured lines for skill parsing):
   COMMITTED:<hash>                  Git commit hash
 
 Examples:
-  ./aiscripts/aitask_archive.sh 166          # Archive parent task t166
-  ./aiscripts/aitask_archive.sh 16_2         # Archive child task t16_2
-  ./aiscripts/aitask_archive.sh --dry-run 42 # Preview archival of t42
+  ./.aitask-scripts/aitask_archive.sh 166          # Archive parent task t166
+  ./.aitask-scripts/aitask_archive.sh 16_2         # Archive child task t16_2
+  ./.aitask-scripts/aitask_archive.sh --dry-run 42 # Preview archival of t42
 EOF
 }
 

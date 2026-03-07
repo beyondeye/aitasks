@@ -223,19 +223,19 @@ Options:
 
 Examples:
   # List all runs (top-level and codebrowser)
-  ./aiscripts/aitask_explain_runs.sh --list
+  ./.aitask-scripts/aitask_explain_runs.sh --list
 
   # Delete a specific run
-  ./aiscripts/aitask_explain_runs.sh --delete aiexplains/aiscripts__lib__20260226_155403
+  ./.aitask-scripts/aitask_explain_runs.sh --delete aiexplains/aiscripts__lib__20260226_155403
 
   # Delete all runs
-  ./aiscripts/aitask_explain_runs.sh --delete-all
+  ./.aitask-scripts/aitask_explain_runs.sh --delete-all
 
   # Remove stale runs (delegates to aitask_explain_cleanup.sh --all)
-  ./aiscripts/aitask_explain_runs.sh --cleanup-stale
+  ./.aitask-scripts/aitask_explain_runs.sh --cleanup-stale
 
   # Interactive selection
-  ./aiscripts/aitask_explain_runs.sh
+  ./.aitask-scripts/aitask_explain_runs.sh
 EOF
 }
 

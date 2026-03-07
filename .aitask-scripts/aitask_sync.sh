@@ -6,8 +6,8 @@
 # rebases, and pushes.
 #
 # Usage:
-#   ./aiscripts/aitask_sync.sh            # Interactive mode (colored output)
-#   ./aiscripts/aitask_sync.sh --batch    # Structured output for scripting
+#   ./.aitask-scripts/aitask_sync.sh            # Interactive mode (colored output)
+#   ./.aitask-scripts/aitask_sync.sh --batch    # Structured output for scripting
 #
 # Batch output protocol (single line on stdout):
 #   SYNCED                     Both push and pull completed

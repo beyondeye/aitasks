@@ -67,13 +67,13 @@ setup_test_env() {
 
     # Create minimal project structure
     mkdir -p "$tmpdir/aitasks/metadata"
-    mkdir -p "$tmpdir/aiscripts/lib"
+    mkdir -p "$tmpdir/.aitask-scripts/lib"
 
     # Copy required scripts
-    cp "$PROJECT_DIR/aiscripts/aitask_codeagent.sh" "$tmpdir/aiscripts/"
-    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" "$tmpdir/aiscripts/lib/"
-    cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" "$tmpdir/aiscripts/lib/"
-    chmod +x "$tmpdir/aiscripts/aitask_codeagent.sh"
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_codeagent.sh" "$tmpdir/.aitask-scripts/"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$tmpdir/.aitask-scripts/lib/"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" "$tmpdir/.aitask-scripts/lib/"
+    chmod +x "$tmpdir/.aitask-scripts/aitask_codeagent.sh"
 
     # Copy model configs
     cp "$PROJECT_DIR/aitasks/metadata/models_claudecode.json" "$tmpdir/aitasks/metadata/"
@@ -106,11 +106,11 @@ echo ""
 
 # Test 1: Syntax check
 echo "--- Test 1: Syntax check ---"
-assert_exit_zero "bash -n syntax check" bash -n "$PROJECT_DIR/aiscripts/aitask_codeagent.sh"
+assert_exit_zero "bash -n syntax check" bash -n "$PROJECT_DIR/.aitask-scripts/aitask_codeagent.sh"
 
 # Setup test environment
 TMPDIR_TEST="$(setup_test_env)"
-CODEAGENT="$TMPDIR_TEST/aiscripts/aitask_codeagent.sh"
+CODEAGENT="$TMPDIR_TEST/.aitask-scripts/aitask_codeagent.sh"
 
 # Test 2: list-agents outputs all 4 agents
 echo "--- Test 2: list-agents ---"

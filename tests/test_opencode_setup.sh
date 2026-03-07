@@ -92,18 +92,18 @@ assert_eq "Commands source cleaned up" "false" "$([ -d "$INSTALL_DIR/opencode_co
 echo ""
 echo "=== Test 3: Instruction assembly (Layer 1 + Layer 2) ==="
 PROJECT_DIR="$TEST_DIR/test_project"
-mkdir -p "$PROJECT_DIR/aitasks/metadata" "$PROJECT_DIR/aiscripts"
+mkdir -p "$PROJECT_DIR/aitasks/metadata" "$PROJECT_DIR/.aitask-scripts"
 cp "$REPO_DIR/seed/aitasks_agent_instructions.seed.md" "$PROJECT_DIR/aitasks/metadata/"
 cp "$REPO_DIR/seed/opencode_instructions.seed.md" "$PROJECT_DIR/aitasks/metadata/"
 
 # Extract functions from setup script
-SCRIPT_DIR="$PROJECT_DIR/aiscripts"
+SCRIPT_DIR="$PROJECT_DIR/.aitask-scripts"
 extract_fn() {
     local file="$1" fn="$2"
     awk "/^${fn}\(\)/,/^}/" "$file"
 }
-eval "$(extract_fn "$REPO_DIR/aiscripts/aitask_setup.sh" "assemble_aitasks_instructions")"
-eval "$(extract_fn "$REPO_DIR/aiscripts/aitask_setup.sh" "insert_aitasks_instructions")"
+eval "$(extract_fn "$REPO_DIR/.aitask-scripts/aitask_setup.sh" "assemble_aitasks_instructions")"
+eval "$(extract_fn "$REPO_DIR/.aitask-scripts/aitask_setup.sh" "insert_aitasks_instructions")"
 warn() { echo "WARN: $*"; }
 
 content="$(assemble_aitasks_instructions "$PROJECT_DIR" "opencode")" || true

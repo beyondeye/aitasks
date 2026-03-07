@@ -9,7 +9,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-DETECT_SCRIPT="$PROJECT_DIR/aiscripts/aitask_review_detect_env.sh"
+DETECT_SCRIPT="$PROJECT_DIR/.aitask-scripts/aitask_review_detect_env.sh"
 GUIDES_DIR="$PROJECT_DIR/aireviewguides"
 
 PASS=0
@@ -177,11 +177,11 @@ scores=$(extract_scores "$output")
 assert_env_detected "Bash: .sh file extensions" "bash" "$scores"
 assert_env_detected "Shell: .sh file extensions" "shell" "$scores"
 
-# aiscripts/ directory pattern
-output=$(run_detect $'aiscripts/build.sh\n')
+# .aitask-scripts/ directory pattern
+output=$(run_detect $'.aitask-scripts/build.sh\n')
 scores=$(extract_scores "$output")
-assert_env_detected "Bash: aiscripts/ directory" "bash" "$scores"
-assert_env_detected "Shell: aiscripts/ directory" "shell" "$scores"
+assert_env_detected "Bash: .aitask-scripts/ directory" "bash" "$scores"
+assert_env_detected "Shell: .aitask-scripts/ directory" "shell" "$scores"
 
 # Root .sh file triggers directory pattern
 output=$(run_detect $'deploy.sh\n')
@@ -624,7 +624,7 @@ scores=$(extract_scores "$output")
 assert_no_envs "Non-code files: no environments detected" "$scores"
 
 # Mixed project detects multiple environments correctly
-output=$(run_detect $'app.py\nsrc/main.ts\naiscripts/build.sh\n' "pyproject.toml" "package.json")
+output=$(run_detect $'app.py\nsrc/main.ts\n.aitask-scripts/build.sh\n' "pyproject.toml" "package.json")
 scores=$(extract_scores "$output")
 assert_env_detected "Mixed: python detected" "python" "$scores"
 assert_env_detected "Mixed: typescript detected" "typescript" "$scores"

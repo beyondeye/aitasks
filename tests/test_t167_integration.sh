@@ -77,7 +77,7 @@ TARBALL="/tmp/aitasks_test_t167.tar.gz"
     # Build tarball matching the release structure (install.sh is NOT in the tarball,
     # just like real releases — it's downloaded separately via curl)
     tar czf "$TARBALL" \
-        aiscripts/ \
+        .aitask-scripts/ \
         aitasks/metadata/labels.txt \
         aitasks/metadata/task_types.txt \
         aitasks/metadata/claude_settings.seed.json \
@@ -105,7 +105,7 @@ bash "$PROJECT_DIR/install.sh" --dir "$TEST_DIR" --local-tarball "$TARBALL" </de
 
 # Verify framework files were committed
 untracked=$(cd "$TEST_DIR" && git ls-files --others --exclude-standard \
-    aiscripts/ aitasks/metadata/ ait .claude/skills/ 2>/dev/null)
+    .aitask-scripts/ aitasks/metadata/ ait .claude/skills/ 2>/dev/null)
 assert_eq "A1: No untracked framework files after install.sh" "" "$untracked"
 
 # Verify commit message
@@ -114,7 +114,7 @@ assert_eq "A2: install.sh commit message" "ait: Add aitask framework" "$commit_m
 
 # Verify key files are tracked
 tracked_files=$(git -C "$TEST_DIR" ls-files 2>/dev/null)
-assert_contains "A3: aiscripts/ is tracked" "aiscripts/" "$tracked_files"
+assert_contains "A3: .aitask-scripts/ is tracked" ".aitask-scripts/" "$tracked_files"
 assert_contains "A4: ait is tracked" "ait" "$tracked_files"
 
 echo ""
@@ -125,9 +125,9 @@ echo ""
 echo "=== Scenario B: commit_framework_files catches late-stage files ==="
 
 # Source the setup script to get access to functions
-source "$TEST_DIR/aiscripts/aitask_setup.sh" --source-only
+source "$TEST_DIR/.aitask-scripts/aitask_setup.sh" --source-only
 set +euo pipefail
-SCRIPT_DIR="$TEST_DIR/aiscripts"
+SCRIPT_DIR="$TEST_DIR/.aitask-scripts"
 
 # Run setup_draft_directory (creates .gitignore entry + aitasks/new/)
 setup_draft_directory </dev/null >/dev/null 2>&1
@@ -139,15 +139,15 @@ mkdir -p "$TEST_DIR/.agents/skills/aitask-pick"
 echo "# test wrapper" > "$TEST_DIR/.agents/skills/aitask-pick/SKILL.md"
 mkdir -p "$TEST_DIR/.codex"
 echo "sandbox_mode = \"workspace-write\"" > "$TEST_DIR/.codex/config.toml"
-mkdir -p "$TEST_DIR/aiscripts/__pycache__"
-echo "bytecode" > "$TEST_DIR/aiscripts/__pycache__/test.cpython-314.pyc"
+mkdir -p "$TEST_DIR/.aitask-scripts/__pycache__"
+echo "bytecode" > "$TEST_DIR/.aitask-scripts/__pycache__/test.cpython-314.pyc"
 
 # Run commit_framework_files (this is the key function being tested)
 output=$(commit_framework_files 2>&1 </dev/null)
 
 # Verify late-stage files are now committed
 untracked=$(cd "$TEST_DIR" && git ls-files --others --exclude-standard \
-    aiscripts/ aitasks/metadata/ ait .claude/skills/ .gitignore 2>/dev/null)
+    .aitask-scripts/ aitasks/metadata/ ait .claude/skills/ .gitignore 2>/dev/null)
 assert_contains "B1: Only pycache remains untracked after commit_framework_files" "__pycache__/test.cpython-314.pyc" "$untracked"
 
 # Verify review guide was committed
@@ -195,9 +195,9 @@ mkdir -p "$TEST_DIR"
 bash "$PROJECT_DIR/install.sh" --dir "$TEST_DIR" --local-tarball "$TARBALL" </dev/null >/dev/null 2>&1
 
 # Source and run commit_framework_files (simulating ait setup)
-source "$TEST_DIR/aiscripts/aitask_setup.sh" --source-only
+source "$TEST_DIR/.aitask-scripts/aitask_setup.sh" --source-only
 set +euo pipefail
-SCRIPT_DIR="$TEST_DIR/aiscripts"
+SCRIPT_DIR="$TEST_DIR/.aitask-scripts"
 
 # Since install.sh already committed, commit_framework_files should find nothing
 output=$(commit_framework_files 2>&1 </dev/null)

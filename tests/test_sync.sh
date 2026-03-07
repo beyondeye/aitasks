@@ -86,7 +86,7 @@ Sample task" > aitasks/t1_sample.md
 
     # Copy project scripts into local clone
     cp "$PROJECT_DIR/ait" "$tmpdir/local/ait"
-    cp -r "$PROJECT_DIR/aiscripts" "$tmpdir/local/aiscripts"
+    cp -r "$PROJECT_DIR/.aitask-scripts" "$tmpdir/local/.aitask-scripts"
     chmod +x "$tmpdir/local/ait"
 
     echo "$tmpdir"
@@ -113,7 +113,7 @@ Sample task" > aitasks/t1_sample.md
 
     # Copy project scripts
     cp "$PROJECT_DIR/ait" "$tmpdir/ait"
-    cp -r "$PROJECT_DIR/aiscripts" "$tmpdir/aiscripts"
+    cp -r "$PROJECT_DIR/.aitask-scripts" "$tmpdir/.aitask-scripts"
     chmod +x "$tmpdir/ait"
 
     echo "$tmpdir"
@@ -333,7 +333,7 @@ rm -rf "$TMPDIR_9"
 echo "--- Test 10: --help flag ---"
 
 TOTAL=$((TOTAL + 1))
-if help_output=$(bash "$PROJECT_DIR/aiscripts/aitask_sync.sh" --help 2>&1); then
+if help_output=$(bash "$PROJECT_DIR/.aitask-scripts/aitask_sync.sh" --help 2>&1); then
     PASS=$((PASS + 1))
 else
     FAIL=$((FAIL + 1))
@@ -345,7 +345,7 @@ assert_contains "--help mentions batch" "batch" "$help_output"
 echo "--- Test 11: Syntax check ---"
 
 TOTAL=$((TOTAL + 1))
-if bash -n "$PROJECT_DIR/aiscripts/aitask_sync.sh" 2>/dev/null; then
+if bash -n "$PROJECT_DIR/.aitask-scripts/aitask_sync.sh" 2>/dev/null; then
     PASS=$((PASS + 1))
 else
     FAIL=$((FAIL + 1))
@@ -354,13 +354,13 @@ fi
 
 if command -v shellcheck &>/dev/null; then
     TOTAL=$((TOTAL + 1))
-    sc_errors=$(shellcheck --severity=error "$PROJECT_DIR/aiscripts/aitask_sync.sh" 2>&1 | wc -l | tr -d ' ')
+    sc_errors=$(shellcheck --severity=error "$PROJECT_DIR/.aitask-scripts/aitask_sync.sh" 2>&1 | wc -l | tr -d ' ')
     if [[ "$sc_errors" -eq 0 ]]; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))
         echo "FAIL: shellcheck found errors in aitask_sync.sh"
-        shellcheck --severity=error "$PROJECT_DIR/aiscripts/aitask_sync.sh" 2>&1 | head -20
+        shellcheck --severity=error "$PROJECT_DIR/.aitask-scripts/aitask_sync.sh" 2>&1 | head -20
     fi
 fi
 

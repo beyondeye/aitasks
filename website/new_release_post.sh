@@ -10,7 +10,7 @@ set -euo pipefail
 #   (default)  Create a scaffold with TODOs for manual/AI editing
 #   --auto     Create a publishable blog post from the changelog content
 #
-# If VERSION is not provided, reads from aiscripts/VERSION.
+# If VERSION is not provided, reads from .aitask-scripts/VERSION.
 # This script lives in website/ so it is NOT included in the release tarball.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -109,7 +109,7 @@ done
 
 # --- Determine version ---
 if [[ -z "$VERSION" ]]; then
-    VERSION=$(cat "$REPO_ROOT/aiscripts/VERSION" 2>/dev/null || true)
+    VERSION=$(cat "$REPO_ROOT/.aitask-scripts/VERSION" 2>/dev/null || true)
     if [[ -z "$VERSION" ]]; then
         if command -v gh &>/dev/null; then
             VERSION=$(gh release view --json tagName -q '.tagName' 2>/dev/null || true)

@@ -34,7 +34,7 @@ assert_contains() {
 }
 
 # Source setup script for function access
-source "$PROJECT_DIR/aiscripts/aitask_setup.sh" --source-only
+source "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" --source-only
 set +euo pipefail
 
 echo "=== Version Check Tests ==="

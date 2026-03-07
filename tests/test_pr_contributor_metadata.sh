@@ -63,15 +63,15 @@ setup_project() {
         git config user.email "test@test.com"
         git config user.name "Test"
 
-        mkdir -p aitasks/archived aitasks/metadata aitasks/new aiscripts/lib
+        mkdir -p aitasks/archived aitasks/metadata aitasks/new .aitask-scripts/lib
 
-        cp "$PROJECT_DIR/aiscripts/aitask_create.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/aitask_claim_id.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/aitask_update.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/aitask_ls.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-        cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
-        chmod +x aiscripts/aitask_create.sh aiscripts/aitask_claim_id.sh aiscripts/aitask_update.sh aiscripts/aitask_ls.sh
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_create.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_update.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_ls.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+        chmod +x .aitask-scripts/aitask_create.sh .aitask-scripts/aitask_claim_id.sh .aitask-scripts/aitask_update.sh .aitask-scripts/aitask_ls.sh
 
         printf 'bug\nchore\ndocumentation\nfeature\nperformance\nrefactor\nstyle\ntest\n' > aitasks/metadata/task_types.txt
         echo "aitasks/new/" > .gitignore
@@ -80,7 +80,7 @@ setup_project() {
         git commit -m "Initial setup" --quiet
         git push --quiet 2>/dev/null
 
-        ./aiscripts/aitask_claim_id.sh --init >/dev/null 2>&1
+        ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1
     )
 
     echo "$tmpdir"
@@ -96,7 +96,7 @@ echo ""
 echo "--- Test 1: Create draft with PR metadata ---"
 TMPDIR_1="$(setup_project)"
 
-(cd "$TMPDIR_1/local" && echo "PR task desc" | bash aiscripts/aitask_create.sh --batch --name "pr_test" \
+(cd "$TMPDIR_1/local" && echo "PR task desc" | bash .aitask-scripts/aitask_create.sh --batch --name "pr_test" \
     --pull-request "https://github.com/owner/repo/pull/42" \
     --contributor "octocat" \
     --contributor-email "12345+octocat@users.noreply.github.com" \
@@ -114,7 +114,7 @@ rm -rf "$TMPDIR_1"
 echo "--- Test 2: Create+commit with PR metadata ---"
 TMPDIR_2="$(setup_project)"
 
-(cd "$TMPDIR_2/local" && echo "PR task desc" | bash aiscripts/aitask_create.sh --batch --name "pr_committed" \
+(cd "$TMPDIR_2/local" && echo "PR task desc" | bash .aitask-scripts/aitask_create.sh --batch --name "pr_committed" \
     --pull-request "https://github.com/owner/repo/pull/99" \
     --contributor "contributor1" \
     --contributor-email "789+contributor1@users.noreply.github.com" \
@@ -132,7 +132,7 @@ rm -rf "$TMPDIR_2"
 echo "--- Test 3: No PR fields when not specified ---"
 TMPDIR_3="$(setup_project)"
 
-(cd "$TMPDIR_3/local" && echo "Normal task" | bash aiscripts/aitask_create.sh --batch --name "no_pr" --desc-file - >/dev/null 2>&1)
+(cd "$TMPDIR_3/local" && echo "Normal task" | bash .aitask-scripts/aitask_create.sh --batch --name "no_pr" --desc-file - >/dev/null 2>&1)
 
 draft_file_3=$(ls "$TMPDIR_3/local/aitasks/new"/draft_*_no_pr.md 2>/dev/null | head -1)
 content_3=$(cat "$draft_file_3" 2>/dev/null)
@@ -146,12 +146,12 @@ rm -rf "$TMPDIR_3"
 echo "--- Test 4: Update task with PR fields ---"
 TMPDIR_4="$(setup_project)"
 
-(cd "$TMPDIR_4/local" && echo "Test task" | bash aiscripts/aitask_create.sh --batch --name "update_pr_test" --desc-file - --commit >/dev/null 2>&1)
+(cd "$TMPDIR_4/local" && echo "Test task" | bash .aitask-scripts/aitask_create.sh --batch --name "update_pr_test" --desc-file - --commit >/dev/null 2>&1)
 
 task_file_4=$(ls "$TMPDIR_4/local/aitasks"/t*_update_pr_test.md 2>/dev/null | head -1)
 task_num_4=$(basename "$task_file_4" | sed 's/^t\([0-9]*\)_.*/\1/')
 
-(cd "$TMPDIR_4/local" && bash aiscripts/aitask_update.sh --batch "$task_num_4" \
+(cd "$TMPDIR_4/local" && bash .aitask-scripts/aitask_update.sh --batch "$task_num_4" \
     --pull-request "https://gitlab.com/group/project/-/merge_requests/5" \
     --contributor "gitlab_user" \
     --contributor-email "gitlab_user@example.com" --silent >/dev/null 2>&1)
@@ -167,7 +167,7 @@ rm -rf "$TMPDIR_4"
 echo "--- Test 5: Update preserves PR fields ---"
 TMPDIR_5="$(setup_project)"
 
-(cd "$TMPDIR_5/local" && echo "Test task" | bash aiscripts/aitask_create.sh --batch --name "preserve_pr" \
+(cd "$TMPDIR_5/local" && echo "Test task" | bash .aitask-scripts/aitask_create.sh --batch --name "preserve_pr" \
     --pull-request "https://github.com/o/r/pull/1" \
     --contributor "user1" \
     --desc-file - --commit >/dev/null 2>&1)
@@ -176,7 +176,7 @@ task_file_5=$(ls "$TMPDIR_5/local/aitasks"/t*_preserve_pr.md 2>/dev/null | head 
 task_num_5=$(basename "$task_file_5" | sed 's/^t\([0-9]*\)_.*/\1/')
 
 # Update priority only - PR fields should be preserved
-(cd "$TMPDIR_5/local" && bash aiscripts/aitask_update.sh --batch "$task_num_5" --priority high --silent >/dev/null 2>&1)
+(cd "$TMPDIR_5/local" && bash .aitask-scripts/aitask_update.sh --batch "$task_num_5" --priority high --silent >/dev/null 2>&1)
 
 content_5=$(cat "$task_file_5" 2>/dev/null)
 assert_contains "PR preserved after priority update" "pull_request: https://github.com/o/r/pull/1" "$content_5"
@@ -188,7 +188,7 @@ rm -rf "$TMPDIR_5"
 echo "--- Test 6: Clear PR field with empty string ---"
 TMPDIR_6="$(setup_project)"
 
-(cd "$TMPDIR_6/local" && echo "Test task" | bash aiscripts/aitask_create.sh --batch --name "clear_pr" \
+(cd "$TMPDIR_6/local" && echo "Test task" | bash .aitask-scripts/aitask_create.sh --batch --name "clear_pr" \
     --pull-request "https://github.com/o/r/pull/1" \
     --contributor "user1" \
     --desc-file - --commit >/dev/null 2>&1)
@@ -197,7 +197,7 @@ task_file_6=$(ls "$TMPDIR_6/local/aitasks"/t*_clear_pr.md 2>/dev/null | head -1)
 task_num_6=$(basename "$task_file_6" | sed 's/^t\([0-9]*\)_.*/\1/')
 
 # Clear pull_request by setting empty
-(cd "$TMPDIR_6/local" && bash aiscripts/aitask_update.sh --batch "$task_num_6" --pull-request "" --silent >/dev/null 2>&1)
+(cd "$TMPDIR_6/local" && bash .aitask-scripts/aitask_update.sh --batch "$task_num_6" --pull-request "" --silent >/dev/null 2>&1)
 
 content_6=$(cat "$task_file_6" 2>/dev/null)
 assert_not_contains "PR cleared" "pull_request:" "$content_6"
@@ -224,9 +224,9 @@ updated_at: 2026-01-01 10:00
 Description here
 EOF
 
-pr_7=$(cd "$TMPDIR_7/local" && unset SCRIPT_DIR && source aiscripts/lib/task_utils.sh && extract_pr_url "$tmpfile_7")
-contrib_7=$(cd "$TMPDIR_7/local" && unset SCRIPT_DIR && source aiscripts/lib/task_utils.sh && extract_contributor "$tmpfile_7")
-email_7=$(cd "$TMPDIR_7/local" && unset SCRIPT_DIR && source aiscripts/lib/task_utils.sh && extract_contributor_email "$tmpfile_7")
+pr_7=$(cd "$TMPDIR_7/local" && unset SCRIPT_DIR && source .aitask-scripts/lib/task_utils.sh && extract_pr_url "$tmpfile_7")
+contrib_7=$(cd "$TMPDIR_7/local" && unset SCRIPT_DIR && source .aitask-scripts/lib/task_utils.sh && extract_contributor "$tmpfile_7")
+email_7=$(cd "$TMPDIR_7/local" && unset SCRIPT_DIR && source .aitask-scripts/lib/task_utils.sh && extract_contributor_email "$tmpfile_7")
 
 assert_eq "extract_pr_url" "https://github.com/owner/repo/pull/42" "$pr_7"
 assert_eq "extract_contributor" "octocat" "$contrib_7"
@@ -251,9 +251,9 @@ updated_at: 2026-01-01 10:00
 No PR fields
 EOF
 
-pr_8=$(cd "$TMPDIR_8/local" && unset SCRIPT_DIR && source aiscripts/lib/task_utils.sh && extract_pr_url "$tmpfile_8")
-contrib_8=$(cd "$TMPDIR_8/local" && unset SCRIPT_DIR && source aiscripts/lib/task_utils.sh && extract_contributor "$tmpfile_8")
-email_8=$(cd "$TMPDIR_8/local" && unset SCRIPT_DIR && source aiscripts/lib/task_utils.sh && extract_contributor_email "$tmpfile_8")
+pr_8=$(cd "$TMPDIR_8/local" && unset SCRIPT_DIR && source .aitask-scripts/lib/task_utils.sh && extract_pr_url "$tmpfile_8")
+contrib_8=$(cd "$TMPDIR_8/local" && unset SCRIPT_DIR && source .aitask-scripts/lib/task_utils.sh && extract_contributor "$tmpfile_8")
+email_8=$(cd "$TMPDIR_8/local" && unset SCRIPT_DIR && source .aitask-scripts/lib/task_utils.sh && extract_contributor_email "$tmpfile_8")
 
 assert_eq "extract_pr_url empty" "" "$pr_8"
 assert_eq "extract_contributor empty" "" "$contrib_8"
@@ -266,11 +266,11 @@ rm -rf "$TMPDIR_8"
 echo "--- Test 9: Child task with PR metadata ---"
 TMPDIR_9="$(setup_project)"
 
-(cd "$TMPDIR_9/local" && echo "Parent task" | bash aiscripts/aitask_create.sh --batch --name "parent_pr" --desc-file - --commit >/dev/null 2>&1)
+(cd "$TMPDIR_9/local" && echo "Parent task" | bash .aitask-scripts/aitask_create.sh --batch --name "parent_pr" --desc-file - --commit >/dev/null 2>&1)
 parent_file_9=$(ls "$TMPDIR_9/local/aitasks"/t*_parent_pr.md 2>/dev/null | head -1)
 parent_num_9=$(basename "$parent_file_9" | sed 's/^t\([0-9]*\)_.*/\1/')
 
-(cd "$TMPDIR_9/local" && echo "Child from PR" | bash aiscripts/aitask_create.sh --batch --name "child_pr" \
+(cd "$TMPDIR_9/local" && echo "Child from PR" | bash .aitask-scripts/aitask_create.sh --batch --name "child_pr" \
     --parent "$parent_num_9" \
     --pull-request "https://github.com/o/r/pull/55" \
     --contributor "ext_user" \
@@ -289,12 +289,12 @@ rm -rf "$TMPDIR_9"
 echo "--- Test 10: ls -v shows PR and contributor ---"
 TMPDIR_10="$(setup_project)"
 
-(cd "$TMPDIR_10/local" && echo "PR visible task" | bash aiscripts/aitask_create.sh --batch --name "ls_pr_test" \
+(cd "$TMPDIR_10/local" && echo "PR visible task" | bash .aitask-scripts/aitask_create.sh --batch --name "ls_pr_test" \
     --pull-request "https://github.com/o/r/pull/77" \
     --contributor "visible_user" \
     --desc-file - --commit >/dev/null 2>&1)
 
-output_10=$(cd "$TMPDIR_10/local" && bash aiscripts/aitask_ls.sh -v 99 2>&1)
+output_10=$(cd "$TMPDIR_10/local" && bash .aitask-scripts/aitask_ls.sh -v 99 2>&1)
 assert_contains "ls shows PR" "PR: https://github.com/o/r/pull/77" "$output_10"
 assert_contains "ls shows Contributor" "Contributor: visible_user" "$output_10"
 
@@ -304,9 +304,9 @@ rm -rf "$TMPDIR_10"
 echo "--- Test 11: ls -v hides PR fields when not set ---"
 TMPDIR_11="$(setup_project)"
 
-(cd "$TMPDIR_11/local" && echo "Normal task" | bash aiscripts/aitask_create.sh --batch --name "ls_no_pr" --desc-file - --commit >/dev/null 2>&1)
+(cd "$TMPDIR_11/local" && echo "Normal task" | bash .aitask-scripts/aitask_create.sh --batch --name "ls_no_pr" --desc-file - --commit >/dev/null 2>&1)
 
-output_11=$(cd "$TMPDIR_11/local" && bash aiscripts/aitask_ls.sh -v 99 2>&1)
+output_11=$(cd "$TMPDIR_11/local" && bash .aitask-scripts/aitask_ls.sh -v 99 2>&1)
 assert_not_contains "no PR in output" "PR:" "$output_11"
 assert_not_contains "no Contributor in output" "Contributor:" "$output_11"
 
@@ -315,10 +315,10 @@ rm -rf "$TMPDIR_11"
 # --- Test 12: Syntax check ---
 echo "--- Test 12: Syntax check ---"
 TOTAL=$((TOTAL + 1))
-if bash -n "$PROJECT_DIR/aiscripts/aitask_create.sh" 2>/dev/null &&
-   bash -n "$PROJECT_DIR/aiscripts/aitask_update.sh" 2>/dev/null &&
-   bash -n "$PROJECT_DIR/aiscripts/aitask_ls.sh" 2>/dev/null &&
-   bash -n "$PROJECT_DIR/aiscripts/lib/task_utils.sh" 2>/dev/null; then
+if bash -n "$PROJECT_DIR/.aitask-scripts/aitask_create.sh" 2>/dev/null &&
+   bash -n "$PROJECT_DIR/.aitask-scripts/aitask_update.sh" 2>/dev/null &&
+   bash -n "$PROJECT_DIR/.aitask-scripts/aitask_ls.sh" 2>/dev/null &&
+   bash -n "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" 2>/dev/null; then
     PASS=$((PASS + 1))
 else
     FAIL=$((FAIL + 1))

@@ -571,7 +571,7 @@ export _AIT_SHIM_ACTIVE=1
 # Walk up to find project-local ait
 dir="$PWD"
 while [[ "$dir" != "/" ]]; do
-    if [[ -x "$dir/ait" && -d "$dir/aiscripts" ]]; then
+    if [[ -x "$dir/ait" && -d "$dir/.aitask-scripts" ]]; then
         exec "$dir/ait" "$@"
     fi
     dir="$(dirname "$dir")"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test_repo_fetch.sh - Automated tests for aiscripts/lib/repo_fetch.sh
+# test_repo_fetch.sh - Automated tests for .aitask-scripts/lib/repo_fetch.sh
 # Run: bash tests/test_repo_fetch.sh
 # Run offline only: SKIP_NETWORK=1 bash tests/test_repo_fetch.sh
 
@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Source the library under test
-source "$PROJECT_DIR/aiscripts/lib/repo_fetch.sh"
+source "$PROJECT_DIR/.aitask-scripts/lib/repo_fetch.sh"
 
 PASS=0
 FAIL=0

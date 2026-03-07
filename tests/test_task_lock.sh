@@ -80,11 +80,11 @@ setup_paired_repos() {
         mkdir -p aitasks/archived
 
         # Copy the scripts we need
-        mkdir -p aiscripts/lib
-        cp "$PROJECT_DIR/aiscripts/aitask_lock.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-        cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
-        chmod +x aiscripts/aitask_lock.sh
+        mkdir -p .aitask-scripts/lib
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+        chmod +x .aitask-scripts/aitask_lock.sh
 
         git add -A
         git commit -m "Initial setup" --quiet
@@ -107,11 +107,11 @@ clone_second_local() {
         git config user.name "Test2"
 
         # Copy scripts
-        mkdir -p aiscripts/lib
-        cp "$PROJECT_DIR/aiscripts/aitask_lock.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-        cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
-        chmod +x aiscripts/aitask_lock.sh
+        mkdir -p .aitask-scripts/lib
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+        chmod +x .aitask-scripts/aitask_lock.sh
     )
 
     echo "$local2_dir"
@@ -127,7 +127,7 @@ echo ""
 echo "--- Test 1: Init creates branch ---"
 
 TMPDIR_1="$(setup_paired_repos)"
-output=$(cd "$TMPDIR_1/local" && ./aiscripts/aitask_lock.sh --init 2>&1)
+output=$(cd "$TMPDIR_1/local" && ./.aitask-scripts/aitask_lock.sh --init 2>&1)
 
 # Branch should exist on remote
 branch_exists=$(git -C "$TMPDIR_1/local" ls-remote --heads origin aitask-locks 2>/dev/null | grep -c "aitask-locks")
@@ -141,8 +141,8 @@ rm -rf "$TMPDIR_1"
 echo "--- Test 2: Init is idempotent ---"
 
 TMPDIR_2="$(setup_paired_repos)"
-(cd "$TMPDIR_2/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
-output2=$(cd "$TMPDIR_2/local" && ./aiscripts/aitask_lock.sh --init 2>&1)
+(cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
+output2=$(cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_lock.sh --init 2>&1)
 
 assert_contains "Idempotent init says already exists" "already exists" "$output2"
 
@@ -152,8 +152,8 @@ rm -rf "$TMPDIR_2"
 echo "--- Test 3: Lock creates lock file ---"
 
 TMPDIR_3="$(setup_paired_repos)"
-(cd "$TMPDIR_3/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
-(cd "$TMPDIR_3/local" && ./aiscripts/aitask_lock.sh --lock 1 --email "user@test.com" >/dev/null 2>&1)
+(cd "$TMPDIR_3/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_3/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "user@test.com" >/dev/null 2>&1)
 
 # Verify lock file exists in branch tree
 lock_exists=$(cd "$TMPDIR_3/local" && git fetch origin aitask-locks --quiet 2>/dev/null && git ls-tree "origin/aitask-locks" 2>/dev/null | grep -c "t1_lock.yaml")
@@ -165,8 +165,8 @@ rm -rf "$TMPDIR_3"
 echo "--- Test 4: Lock file YAML content ---"
 
 TMPDIR_4="$(setup_paired_repos)"
-(cd "$TMPDIR_4/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
-(cd "$TMPDIR_4/local" && ./aiscripts/aitask_lock.sh --lock 42 --email "alice@example.com" >/dev/null 2>&1)
+(cd "$TMPDIR_4/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_4/local" && ./.aitask-scripts/aitask_lock.sh --lock 42 --email "alice@example.com" >/dev/null 2>&1)
 
 lock_content=$(cd "$TMPDIR_4/local" && git fetch origin aitask-locks --quiet 2>/dev/null && git show "origin/aitask-locks:t42_lock.yaml" 2>/dev/null)
 assert_contains "YAML has task_id" "task_id: 42" "$lock_content"
@@ -180,13 +180,13 @@ rm -rf "$TMPDIR_4"
 echo "--- Test 5: Check returns 0 for locked task ---"
 
 TMPDIR_5="$(setup_paired_repos)"
-(cd "$TMPDIR_5/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
-(cd "$TMPDIR_5/local" && ./aiscripts/aitask_lock.sh --lock 1 --email "user@test.com" >/dev/null 2>&1)
+(cd "$TMPDIR_5/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_5/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "user@test.com" >/dev/null 2>&1)
 
-assert_exit_zero "Check locked task exits 0" bash -c "cd '$TMPDIR_5/local' && ./aiscripts/aitask_lock.sh --check 1"
+assert_exit_zero "Check locked task exits 0" bash -c "cd '$TMPDIR_5/local' && ./.aitask-scripts/aitask_lock.sh --check 1"
 
 # Also verify it outputs content
-check_output=$(cd "$TMPDIR_5/local" && ./aiscripts/aitask_lock.sh --check 1 2>/dev/null)
+check_output=$(cd "$TMPDIR_5/local" && ./.aitask-scripts/aitask_lock.sh --check 1 2>/dev/null)
 assert_contains "Check outputs lock info" "locked_by: user@test.com" "$check_output"
 
 rm -rf "$TMPDIR_5"
@@ -195,9 +195,9 @@ rm -rf "$TMPDIR_5"
 echo "--- Test 6: Check returns 1 for unlocked task ---"
 
 TMPDIR_6="$(setup_paired_repos)"
-(cd "$TMPDIR_6/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_6/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 
-assert_exit_nonzero "Check unlocked task exits non-zero" bash -c "cd '$TMPDIR_6/local' && ./aiscripts/aitask_lock.sh --check 99"
+assert_exit_nonzero "Check unlocked task exits non-zero" bash -c "cd '$TMPDIR_6/local' && ./.aitask-scripts/aitask_lock.sh --check 99"
 
 rm -rf "$TMPDIR_6"
 
@@ -205,9 +205,9 @@ rm -rf "$TMPDIR_6"
 echo "--- Test 7: Unlock removes lock file ---"
 
 TMPDIR_7="$(setup_paired_repos)"
-(cd "$TMPDIR_7/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
-(cd "$TMPDIR_7/local" && ./aiscripts/aitask_lock.sh --lock 1 --email "user@test.com" >/dev/null 2>&1)
-(cd "$TMPDIR_7/local" && ./aiscripts/aitask_lock.sh --unlock 1 >/dev/null 2>&1)
+(cd "$TMPDIR_7/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_7/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "user@test.com" >/dev/null 2>&1)
+(cd "$TMPDIR_7/local" && ./.aitask-scripts/aitask_lock.sh --unlock 1 >/dev/null 2>&1)
 
 # Verify lock file is gone
 lock_gone=$(cd "$TMPDIR_7/local" && git fetch origin aitask-locks --quiet 2>/dev/null && git ls-tree "origin/aitask-locks" 2>/dev/null | grep -c "t1_lock.yaml")
@@ -219,10 +219,10 @@ rm -rf "$TMPDIR_7"
 echo "--- Test 8: Unlock is idempotent ---"
 
 TMPDIR_8="$(setup_paired_repos)"
-(cd "$TMPDIR_8/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_8/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 
 # Unlock a task that was never locked — should succeed
-assert_exit_zero "Unlock never-locked task exits 0" bash -c "cd '$TMPDIR_8/local' && ./aiscripts/aitask_lock.sh --unlock 99"
+assert_exit_zero "Unlock never-locked task exits 0" bash -c "cd '$TMPDIR_8/local' && ./.aitask-scripts/aitask_lock.sh --unlock 99"
 
 rm -rf "$TMPDIR_8"
 
@@ -230,11 +230,11 @@ rm -rf "$TMPDIR_8"
 echo "--- Test 9: Same email re-lock succeeds ---"
 
 TMPDIR_9="$(setup_paired_repos)"
-(cd "$TMPDIR_9/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
-(cd "$TMPDIR_9/local" && ./aiscripts/aitask_lock.sh --lock 1 --email "user@test.com" >/dev/null 2>&1)
+(cd "$TMPDIR_9/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_9/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "user@test.com" >/dev/null 2>&1)
 
 # Re-lock with same email should succeed
-assert_exit_zero "Re-lock with same email succeeds" bash -c "cd '$TMPDIR_9/local' && ./aiscripts/aitask_lock.sh --lock 1 --email 'user@test.com'"
+assert_exit_zero "Re-lock with same email succeeds" bash -c "cd '$TMPDIR_9/local' && ./.aitask-scripts/aitask_lock.sh --lock 1 --email 'user@test.com'"
 
 rm -rf "$TMPDIR_9"
 
@@ -242,12 +242,12 @@ rm -rf "$TMPDIR_9"
 echo "--- Test 10: Different email lock fails ---"
 
 TMPDIR_10="$(setup_paired_repos)"
-(cd "$TMPDIR_10/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
-(cd "$TMPDIR_10/local" && ./aiscripts/aitask_lock.sh --lock 1 --email "alice@test.com" >/dev/null 2>&1)
+(cd "$TMPDIR_10/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_10/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "alice@test.com" >/dev/null 2>&1)
 
 # Lock with different email should fail
-output10=$(cd "$TMPDIR_10/local" && ./aiscripts/aitask_lock.sh --lock 1 --email "bob@test.com" 2>&1 || true)
-assert_exit_nonzero "Different email lock fails" bash -c "cd '$TMPDIR_10/local' && ./aiscripts/aitask_lock.sh --lock 1 --email 'bob@test.com'"
+output10=$(cd "$TMPDIR_10/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "bob@test.com" 2>&1 || true)
+assert_exit_nonzero "Different email lock fails" bash -c "cd '$TMPDIR_10/local' && ./.aitask-scripts/aitask_lock.sh --lock 1 --email 'bob@test.com'"
 assert_contains "Error mentions existing locker" "alice@test.com" "$output10"
 
 rm -rf "$TMPDIR_10"
@@ -256,14 +256,14 @@ rm -rf "$TMPDIR_10"
 echo "--- Test 11: Race simulation ---"
 
 TMPDIR_11="$(setup_paired_repos)"
-(cd "$TMPDIR_11/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_11/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 
 local2_dir=$(clone_second_local "$TMPDIR_11")
 
 # Two PCs try to lock the same task simultaneously
-(cd "$TMPDIR_11/local" && ./aiscripts/aitask_lock.sh --lock 1 --email "pc1@test.com" 2>/dev/null) > "$TMPDIR_11/result1" 2>&1 &
+(cd "$TMPDIR_11/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "pc1@test.com" 2>/dev/null) > "$TMPDIR_11/result1" 2>&1 &
 pid1=$!
-(cd "$local2_dir" && ./aiscripts/aitask_lock.sh --lock 1 --email "pc2@test.com" 2>/dev/null) > "$TMPDIR_11/result2" 2>&1 &
+(cd "$local2_dir" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "pc2@test.com" 2>/dev/null) > "$TMPDIR_11/result2" 2>&1 &
 pid2=$!
 
 wait $pid1; exit1=$?
@@ -284,10 +284,10 @@ rm -rf "$TMPDIR_11"
 echo "--- Test 12: Cleanup removes stale locks ---"
 
 TMPDIR_12="$(setup_paired_repos)"
-(cd "$TMPDIR_12/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_12/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 
 # Lock task 1
-(cd "$TMPDIR_12/local" && ./aiscripts/aitask_lock.sh --lock 1 --email "user@test.com" >/dev/null 2>&1)
+(cd "$TMPDIR_12/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "user@test.com" >/dev/null 2>&1)
 
 # Create archived task file to mark it as stale
 (
@@ -297,7 +297,7 @@ TMPDIR_12="$(setup_paired_repos)"
 )
 
 # Run cleanup
-(cd "$TMPDIR_12/local" && ./aiscripts/aitask_lock.sh --cleanup >/dev/null 2>&1)
+(cd "$TMPDIR_12/local" && ./.aitask-scripts/aitask_lock.sh --cleanup >/dev/null 2>&1)
 
 # Verify lock was removed
 lock_after_cleanup=$(cd "$TMPDIR_12/local" && git fetch origin aitask-locks --quiet 2>/dev/null && git ls-tree "origin/aitask-locks" 2>/dev/null | grep -c "t1_lock.yaml")
@@ -309,11 +309,11 @@ rm -rf "$TMPDIR_12"
 echo "--- Test 13: List shows all locks ---"
 
 TMPDIR_13="$(setup_paired_repos)"
-(cd "$TMPDIR_13/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
-(cd "$TMPDIR_13/local" && ./aiscripts/aitask_lock.sh --lock 1 --email "alice@test.com" >/dev/null 2>&1)
-(cd "$TMPDIR_13/local" && ./aiscripts/aitask_lock.sh --lock 2 --email "bob@test.com" >/dev/null 2>&1)
+(cd "$TMPDIR_13/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_13/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "alice@test.com" >/dev/null 2>&1)
+(cd "$TMPDIR_13/local" && ./.aitask-scripts/aitask_lock.sh --lock 2 --email "bob@test.com" >/dev/null 2>&1)
 
-list_output=$(cd "$TMPDIR_13/local" && ./aiscripts/aitask_lock.sh --list 2>/dev/null)
+list_output=$(cd "$TMPDIR_13/local" && ./.aitask-scripts/aitask_lock.sh --list 2>/dev/null)
 assert_contains "List shows task 1" "t1:" "$list_output"
 assert_contains "List shows task 2" "t2:" "$list_output"
 
@@ -322,13 +322,13 @@ rm -rf "$TMPDIR_13"
 # --- Test 14: Syntax check ---
 echo "--- Test 14: Syntax check ---"
 
-assert_exit_zero "Syntax check passes" bash -n "$PROJECT_DIR/aiscripts/aitask_lock.sh"
+assert_exit_zero "Syntax check passes" bash -n "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh"
 
 # --- Test 15: Auto-detect email from userconfig.yaml ---
 echo "--- Test 15: Auto-detect email from userconfig.yaml ---"
 
 TMPDIR_15="$(setup_paired_repos)"
-(cd "$TMPDIR_15/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_15/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 
 # Create userconfig.yaml with email
 (
@@ -338,10 +338,10 @@ TMPDIR_15="$(setup_paired_repos)"
 )
 
 # Lock without --email flag — should auto-detect from userconfig
-assert_exit_zero "Auto-detect email lock succeeds" bash -c "cd '$TMPDIR_15/local' && ./aiscripts/aitask_lock.sh --lock 50"
+assert_exit_zero "Auto-detect email lock succeeds" bash -c "cd '$TMPDIR_15/local' && ./.aitask-scripts/aitask_lock.sh --lock 50"
 
 # Verify lock was acquired with the correct email
-check_output_15=$(cd "$TMPDIR_15/local" && ./aiscripts/aitask_lock.sh --check 50 2>/dev/null)
+check_output_15=$(cd "$TMPDIR_15/local" && ./.aitask-scripts/aitask_lock.sh --check 50 2>/dev/null)
 assert_contains "Auto-detect used userconfig email" "locked_by: autouser@test.com" "$check_output_15"
 
 rm -rf "$TMPDIR_15"
@@ -350,7 +350,7 @@ rm -rf "$TMPDIR_15"
 echo "--- Test 16: Auto-detect email from emails.txt fallback ---"
 
 TMPDIR_16="$(setup_paired_repos)"
-(cd "$TMPDIR_16/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_16/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 
 # Create only emails.txt (no userconfig.yaml)
 (
@@ -360,10 +360,10 @@ TMPDIR_16="$(setup_paired_repos)"
 )
 
 # Lock without --email flag — should fall back to emails.txt
-assert_exit_zero "Fallback email lock succeeds" bash -c "cd '$TMPDIR_16/local' && ./aiscripts/aitask_lock.sh --lock 51"
+assert_exit_zero "Fallback email lock succeeds" bash -c "cd '$TMPDIR_16/local' && ./.aitask-scripts/aitask_lock.sh --lock 51"
 
 # Verify lock was acquired with the fallback email
-check_output_16=$(cd "$TMPDIR_16/local" && ./aiscripts/aitask_lock.sh --check 51 2>/dev/null)
+check_output_16=$(cd "$TMPDIR_16/local" && ./.aitask-scripts/aitask_lock.sh --check 51 2>/dev/null)
 assert_contains "Fallback used emails.txt email" "locked_by: fallback@test.com" "$check_output_16"
 
 rm -rf "$TMPDIR_16"
@@ -372,7 +372,7 @@ rm -rf "$TMPDIR_16"
 echo "--- Test 17: Fail gracefully when no email source ---"
 
 TMPDIR_17="$(setup_paired_repos)"
-(cd "$TMPDIR_17/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_17/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 
 # No userconfig.yaml, no emails.txt — should fail
 (
@@ -380,8 +380,8 @@ TMPDIR_17="$(setup_paired_repos)"
     rm -f aitasks/metadata/userconfig.yaml aitasks/metadata/emails.txt 2>/dev/null
 )
 
-output17=$(cd "$TMPDIR_17/local" && ./aiscripts/aitask_lock.sh --lock 52 2>&1 || true)
-assert_exit_nonzero "No email source fails" bash -c "cd '$TMPDIR_17/local' && ./aiscripts/aitask_lock.sh --lock 52"
+output17=$(cd "$TMPDIR_17/local" && ./.aitask-scripts/aitask_lock.sh --lock 52 2>&1 || true)
+assert_exit_nonzero "No email source fails" bash -c "cd '$TMPDIR_17/local' && ./.aitask-scripts/aitask_lock.sh --lock 52"
 assert_contains "Error mentions no email" "No email provided" "$output17"
 
 rm -rf "$TMPDIR_17"
@@ -390,7 +390,7 @@ rm -rf "$TMPDIR_17"
 echo "--- Test 18: Bare task ID shortcut ---"
 
 TMPDIR_18="$(setup_paired_repos)"
-(cd "$TMPDIR_18/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_18/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 
 # Create userconfig for auto-detect
 (
@@ -400,10 +400,10 @@ TMPDIR_18="$(setup_paired_repos)"
 )
 
 # Use bare task ID (no --lock prefix)
-assert_exit_zero "Bare task ID lock succeeds" bash -c "cd '$TMPDIR_18/local' && ./aiscripts/aitask_lock.sh 50"
+assert_exit_zero "Bare task ID lock succeeds" bash -c "cd '$TMPDIR_18/local' && ./.aitask-scripts/aitask_lock.sh 50"
 
 # Verify lock was acquired
-check_output_18=$(cd "$TMPDIR_18/local" && ./aiscripts/aitask_lock.sh --check 50 2>/dev/null)
+check_output_18=$(cd "$TMPDIR_18/local" && ./.aitask-scripts/aitask_lock.sh --check 50 2>/dev/null)
 assert_contains "Bare ID used correct email" "locked_by: bare@test.com" "$check_output_18"
 
 rm -rf "$TMPDIR_18"
@@ -412,13 +412,13 @@ rm -rf "$TMPDIR_18"
 echo "--- Test 19: Bare task ID with explicit --email ---"
 
 TMPDIR_19="$(setup_paired_repos)"
-(cd "$TMPDIR_19/local" && ./aiscripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_19/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 
 # Use bare task ID with --email
-assert_exit_zero "Bare ID with --email succeeds" bash -c "cd '$TMPDIR_19/local' && ./aiscripts/aitask_lock.sh 50 --email explicit@test.com"
+assert_exit_zero "Bare ID with --email succeeds" bash -c "cd '$TMPDIR_19/local' && ./.aitask-scripts/aitask_lock.sh 50 --email explicit@test.com"
 
 # Verify lock used the explicit email
-check_output_19=$(cd "$TMPDIR_19/local" && ./aiscripts/aitask_lock.sh --check 50 2>/dev/null)
+check_output_19=$(cd "$TMPDIR_19/local" && ./.aitask-scripts/aitask_lock.sh --check 50 2>/dev/null)
 assert_contains "Bare ID used explicit email" "locked_by: explicit@test.com" "$check_output_19"
 
 rm -rf "$TMPDIR_19"
@@ -432,15 +432,15 @@ TMPDIR_20="$(mktemp -d)"
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
-    mkdir -p aitasks/metadata aiscripts/lib
+    mkdir -p aitasks/metadata .aitask-scripts/lib
     echo "email: user@test.com" > aitasks/metadata/userconfig.yaml
-    cp "$PROJECT_DIR/aiscripts/aitask_lock.sh" aiscripts/
-    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-    cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
-    chmod +x aiscripts/aitask_lock.sh
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+    chmod +x .aitask-scripts/aitask_lock.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
-assert_exit_zero "Lock with no remote is no-op" bash -c "cd '$TMPDIR_20' && ./aiscripts/aitask_lock.sh --lock 1 --email user@test.com"
+assert_exit_zero "Lock with no remote is no-op" bash -c "cd '$TMPDIR_20' && ./.aitask-scripts/aitask_lock.sh --lock 1 --email user@test.com"
 
 rm -rf "$TMPDIR_20"
 
@@ -453,14 +453,14 @@ TMPDIR_21="$(mktemp -d)"
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
-    mkdir -p aitasks/metadata aiscripts/lib
-    cp "$PROJECT_DIR/aiscripts/aitask_lock.sh" aiscripts/
-    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-    cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
-    chmod +x aiscripts/aitask_lock.sh
+    mkdir -p aitasks/metadata .aitask-scripts/lib
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+    chmod +x .aitask-scripts/aitask_lock.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
-assert_exit_nonzero "Check with no remote returns not-locked" bash -c "cd '$TMPDIR_21' && ./aiscripts/aitask_lock.sh --check 1"
+assert_exit_nonzero "Check with no remote returns not-locked" bash -c "cd '$TMPDIR_21' && ./.aitask-scripts/aitask_lock.sh --check 1"
 
 rm -rf "$TMPDIR_21"
 
@@ -473,14 +473,14 @@ TMPDIR_22="$(mktemp -d)"
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
-    mkdir -p aitasks/metadata aiscripts/lib
-    cp "$PROJECT_DIR/aiscripts/aitask_lock.sh" aiscripts/
-    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-    cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
-    chmod +x aiscripts/aitask_lock.sh
+    mkdir -p aitasks/metadata .aitask-scripts/lib
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+    chmod +x .aitask-scripts/aitask_lock.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
-list_output_22=$(cd "$TMPDIR_22" && ./aiscripts/aitask_lock.sh --list 2>&1)
+list_output_22=$(cd "$TMPDIR_22" && ./.aitask-scripts/aitask_lock.sh --list 2>&1)
 assert_contains "List with no remote mentions no remote" "no remote" "$list_output_22"
 
 rm -rf "$TMPDIR_22"
@@ -494,14 +494,14 @@ TMPDIR_23="$(mktemp -d)"
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
-    mkdir -p aitasks/metadata aiscripts/lib
-    cp "$PROJECT_DIR/aiscripts/aitask_lock.sh" aiscripts/
-    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-    cp "$PROJECT_DIR/aiscripts/lib/task_utils.sh" aiscripts/lib/
-    chmod +x aiscripts/aitask_lock.sh
+    mkdir -p aitasks/metadata .aitask-scripts/lib
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+    chmod +x .aitask-scripts/aitask_lock.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
-assert_exit_nonzero "Init with no remote fails" bash -c "cd '$TMPDIR_23' && ./aiscripts/aitask_lock.sh --init"
+assert_exit_nonzero "Init with no remote fails" bash -c "cd '$TMPDIR_23' && ./.aitask-scripts/aitask_lock.sh --init"
 
 rm -rf "$TMPDIR_23"
 

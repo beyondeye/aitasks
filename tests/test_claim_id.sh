@@ -85,10 +85,10 @@ setup_paired_repos() {
         echo "---" > aitasks/t5_fifth_task.md
 
         # Copy the scripts we need
-        mkdir -p aiscripts/lib
-        cp "$PROJECT_DIR/aiscripts/aitask_claim_id.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-        chmod +x aiscripts/aitask_claim_id.sh
+        mkdir -p .aitask-scripts/lib
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+        chmod +x .aitask-scripts/aitask_claim_id.sh
 
         git add -A
         git commit -m "Initial setup" --quiet
@@ -111,10 +111,10 @@ clone_second_local() {
         git config user.name "Test2"
 
         # Copy scripts
-        mkdir -p aiscripts/lib
-        cp "$PROJECT_DIR/aiscripts/aitask_claim_id.sh" aiscripts/
-        cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-        chmod +x aiscripts/aitask_claim_id.sh
+        mkdir -p .aitask-scripts/lib
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+        chmod +x .aitask-scripts/aitask_claim_id.sh
     )
 
     echo "$local2_dir"
@@ -130,7 +130,7 @@ echo ""
 echo "--- Test 1: Init creates branch ---"
 
 TMPDIR_1="$(setup_paired_repos)"
-output=$(cd "$TMPDIR_1/local" && ./aiscripts/aitask_claim_id.sh --init 2>&1)
+output=$(cd "$TMPDIR_1/local" && ./.aitask-scripts/aitask_claim_id.sh --init 2>&1)
 
 # Branch should exist on remote
 branch_exists=$(git -C "$TMPDIR_1/local" ls-remote --heads origin aitask-ids 2>/dev/null | grep -c "aitask-ids")
@@ -148,8 +148,8 @@ rm -rf "$TMPDIR_1"
 echo "--- Test 2: Init is idempotent ---"
 
 TMPDIR_2="$(setup_paired_repos)"
-(cd "$TMPDIR_2/local" && ./aiscripts/aitask_claim_id.sh --init >/dev/null 2>&1)
-output2=$(cd "$TMPDIR_2/local" && ./aiscripts/aitask_claim_id.sh --init 2>&1)
+(cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1)
+output2=$(cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_claim_id.sh --init 2>&1)
 
 assert_contains "Idempotent init says already exists" "already exists" "$output2"
 
@@ -159,8 +159,8 @@ rm -rf "$TMPDIR_2"
 echo "--- Test 3: Claim returns correct ID ---"
 
 TMPDIR_3="$(setup_paired_repos)"
-(cd "$TMPDIR_3/local" && ./aiscripts/aitask_claim_id.sh --init >/dev/null 2>&1)
-claimed=$(cd "$TMPDIR_3/local" && ./aiscripts/aitask_claim_id.sh --claim 2>/dev/null)
+(cd "$TMPDIR_3/local" && ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1)
+claimed=$(cd "$TMPDIR_3/local" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
 assert_eq "First claim returns 15" "15" "$claimed"
 
 rm -rf "$TMPDIR_3"
@@ -169,10 +169,10 @@ rm -rf "$TMPDIR_3"
 echo "--- Test 4: Sequential claims ---"
 
 TMPDIR_4="$(setup_paired_repos)"
-(cd "$TMPDIR_4/local" && ./aiscripts/aitask_claim_id.sh --init >/dev/null 2>&1)
-c1=$(cd "$TMPDIR_4/local" && ./aiscripts/aitask_claim_id.sh --claim 2>/dev/null)
-c2=$(cd "$TMPDIR_4/local" && ./aiscripts/aitask_claim_id.sh --claim 2>/dev/null)
-c3=$(cd "$TMPDIR_4/local" && ./aiscripts/aitask_claim_id.sh --claim 2>/dev/null)
+(cd "$TMPDIR_4/local" && ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1)
+c1=$(cd "$TMPDIR_4/local" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
+c2=$(cd "$TMPDIR_4/local" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
+c3=$(cd "$TMPDIR_4/local" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
 assert_eq "First sequential claim" "15" "$c1"
 assert_eq "Second sequential claim" "16" "$c2"
 assert_eq "Third sequential claim" "17" "$c3"
@@ -183,9 +183,9 @@ rm -rf "$TMPDIR_4"
 echo "--- Test 5: Counter file integrity ---"
 
 TMPDIR_5="$(setup_paired_repos)"
-(cd "$TMPDIR_5/local" && ./aiscripts/aitask_claim_id.sh --init >/dev/null 2>&1)
-(cd "$TMPDIR_5/local" && ./aiscripts/aitask_claim_id.sh --claim >/dev/null 2>&1)
-(cd "$TMPDIR_5/local" && ./aiscripts/aitask_claim_id.sh --claim >/dev/null 2>&1)
+(cd "$TMPDIR_5/local" && ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_5/local" && ./.aitask-scripts/aitask_claim_id.sh --claim >/dev/null 2>&1)
+(cd "$TMPDIR_5/local" && ./.aitask-scripts/aitask_claim_id.sh --claim >/dev/null 2>&1)
 
 counter_after=$(cd "$TMPDIR_5/local" && git fetch origin aitask-ids --quiet 2>/dev/null && git show origin/aitask-ids:next_id.txt 2>/dev/null | tr -d '[:space:]')
 assert_eq "Counter is 17 after 2 claims from 15" "17" "$counter_after"
@@ -196,14 +196,14 @@ rm -rf "$TMPDIR_5"
 echo "--- Test 6: Race simulation ---"
 
 TMPDIR_6="$(setup_paired_repos)"
-(cd "$TMPDIR_6/local" && ./aiscripts/aitask_claim_id.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_6/local" && ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1)
 
 local2_dir=$(clone_second_local "$TMPDIR_6")
 
 # Run claims simultaneously from two "PCs"
-(cd "$TMPDIR_6/local" && ./aiscripts/aitask_claim_id.sh --claim 2>/dev/null) > "$TMPDIR_6/result1" &
+(cd "$TMPDIR_6/local" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null) > "$TMPDIR_6/result1" &
 pid1=$!
-(cd "$local2_dir" && ./aiscripts/aitask_claim_id.sh --claim 2>/dev/null) > "$TMPDIR_6/result2" &
+(cd "$local2_dir" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null) > "$TMPDIR_6/result2" &
 pid2=$!
 
 wait $pid1
@@ -231,21 +231,21 @@ TMPDIR_7="$(mktemp -d)"
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
-    mkdir -p aitasks/archived aiscripts/lib
+    mkdir -p aitasks/archived .aitask-scripts/lib
     echo "---" > aitasks/t1_first.md
     echo "---" > aitasks/t3_third.md
-    cp "$PROJECT_DIR/aiscripts/aitask_claim_id.sh" aiscripts/
-    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-    chmod +x aiscripts/aitask_claim_id.sh
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+    chmod +x .aitask-scripts/aitask_claim_id.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
 
 # First claim: auto-creates local branch (max=3, buffer=10, counter starts at 13, claims 13)
-claimed7a=$(cd "$TMPDIR_7" && ./aiscripts/aitask_claim_id.sh --claim 2>/dev/null)
+claimed7a=$(cd "$TMPDIR_7" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
 assert_eq "No remote: first claim returns max+buffer" "13" "$claimed7a"
 
 # Second claim: counter advances monotonically (claims 14)
-claimed7b=$(cd "$TMPDIR_7" && ./aiscripts/aitask_claim_id.sh --claim 2>/dev/null)
+claimed7b=$(cd "$TMPDIR_7" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
 assert_eq "No remote: sequential claim is monotonic" "14" "$claimed7b"
 
 # Local branch should exist
@@ -268,7 +268,7 @@ TMPDIR_8="$(setup_paired_repos)"
     echo "---" > aitasks/archived/t50_archived_task.md
     git add -A && git commit -m "Add archived" --quiet && git push --quiet 2>/dev/null
 )
-output8=$(cd "$TMPDIR_8/local" && ./aiscripts/aitask_claim_id.sh --init 2>&1)
+output8=$(cd "$TMPDIR_8/local" && ./.aitask-scripts/aitask_claim_id.sh --init 2>&1)
 counter8=$(cd "$TMPDIR_8/local" && git fetch origin aitask-ids --quiet 2>/dev/null && git show origin/aitask-ids:next_id.txt 2>/dev/null | tr -d '[:space:]')
 assert_eq "Counter scans archived: max(50)+10=60" "60" "$counter8"
 
@@ -286,7 +286,7 @@ TMPDIR_9="$(setup_paired_repos)"
     rm -rf "/tmp/tartest_$$"
     git add -A && git commit -m "Add tar" --quiet && git push --quiet 2>/dev/null
 )
-output9=$(cd "$TMPDIR_9/local" && ./aiscripts/aitask_claim_id.sh --init 2>&1)
+output9=$(cd "$TMPDIR_9/local" && ./.aitask-scripts/aitask_claim_id.sh --init 2>&1)
 counter9=$(cd "$TMPDIR_9/local" && git fetch origin aitask-ids --quiet 2>/dev/null && git show origin/aitask-ids:next_id.txt 2>/dev/null | tr -d '[:space:]')
 assert_eq "Counter scans tar: max(100)+10=110" "110" "$counter9"
 
@@ -295,7 +295,7 @@ rm -rf "$TMPDIR_9"
 # --- Test 10: Syntax check ---
 echo "--- Test 10: Syntax check ---"
 
-assert_exit_zero "Syntax check passes" bash -n "$PROJECT_DIR/aiscripts/aitask_claim_id.sh"
+assert_exit_zero "Syntax check passes" bash -n "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh"
 
 # --- Test 11: No remote = init still fails ---
 echo "--- Test 11: No remote = init still fails ---"
@@ -306,13 +306,13 @@ TMPDIR_11="$(mktemp -d)"
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
-    mkdir -p aiscripts/lib
-    cp "$PROJECT_DIR/aiscripts/aitask_claim_id.sh" aiscripts/
-    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-    chmod +x aiscripts/aitask_claim_id.sh
+    mkdir -p .aitask-scripts/lib
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+    chmod +x .aitask-scripts/aitask_claim_id.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
-assert_exit_nonzero "Init with no remote fails" bash -c "cd '$TMPDIR_11' && ./aiscripts/aitask_claim_id.sh --init"
+assert_exit_nonzero "Init with no remote fails" bash -c "cd '$TMPDIR_11' && ./.aitask-scripts/aitask_claim_id.sh --init"
 
 rm -rf "$TMPDIR_11"
 
@@ -325,20 +325,20 @@ TMPDIR_12="$(mktemp -d)"
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
-    mkdir -p aitasks/archived aiscripts/lib
+    mkdir -p aitasks/archived .aitask-scripts/lib
     echo "---" > aitasks/t10_task.md
-    cp "$PROJECT_DIR/aiscripts/aitask_claim_id.sh" aiscripts/
-    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-    chmod +x aiscripts/aitask_claim_id.sh
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+    chmod +x .aitask-scripts/aitask_claim_id.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
 # Peek before any claim: no local branch yet, shows max+buffer
-peek12a=$(cd "$TMPDIR_12" && ./aiscripts/aitask_claim_id.sh --peek 2>/dev/null)
+peek12a=$(cd "$TMPDIR_12" && ./.aitask-scripts/aitask_claim_id.sh --peek 2>/dev/null)
 assert_eq "Peek with no remote (no branch): max+buffer=20" "20" "$peek12a"
 
 # After a claim, peek shows counter from local branch
-(cd "$TMPDIR_12" && ./aiscripts/aitask_claim_id.sh --claim >/dev/null 2>&1)
-peek12b=$(cd "$TMPDIR_12" && ./aiscripts/aitask_claim_id.sh --peek 2>/dev/null)
+(cd "$TMPDIR_12" && ./.aitask-scripts/aitask_claim_id.sh --claim >/dev/null 2>&1)
+peek12b=$(cd "$TMPDIR_12" && ./.aitask-scripts/aitask_claim_id.sh --peek 2>/dev/null)
 assert_eq "Peek with no remote (after claim): counter=21" "21" "$peek12b"
 
 rm -rf "$TMPDIR_12"
@@ -352,14 +352,14 @@ TMPDIR_13="$(mktemp -d)"
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
-    mkdir -p aitasks/archived aiscripts/lib
-    cp "$PROJECT_DIR/aiscripts/aitask_claim_id.sh" aiscripts/
-    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-    chmod +x aiscripts/aitask_claim_id.sh
+    mkdir -p aitasks/archived .aitask-scripts/lib
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+    chmod +x .aitask-scripts/aitask_claim_id.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
 # max=0, buffer=10, counter starts at 10, first claim returns 10
-claimed13=$(cd "$TMPDIR_13" && ./aiscripts/aitask_claim_id.sh --claim 2>/dev/null)
+claimed13=$(cd "$TMPDIR_13" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
 assert_eq "No remote, no tasks: returns buffer value" "10" "$claimed13"
 
 rm -rf "$TMPDIR_13"
@@ -376,23 +376,23 @@ TMPDIR_14="$(mktemp -d)"
     cd local
     git config user.email "test@test.com"
     git config user.name "Test"
-    mkdir -p aitasks/archived aiscripts/lib
+    mkdir -p aitasks/archived .aitask-scripts/lib
     echo "---" > aitasks/t1_task.md
-    cp "$PROJECT_DIR/aiscripts/aitask_claim_id.sh" aiscripts/
-    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" aiscripts/lib/
-    chmod +x aiscripts/aitask_claim_id.sh
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+    chmod +x .aitask-scripts/aitask_claim_id.sh
     echo "init" > dummy.txt && git add -A && git commit -m "init" --quiet
 )
 
 # Claim locally (no remote) — should create local branch and return 11 (max=1, buffer=10)
-claimed14a=$(cd "$TMPDIR_14/local" && ./aiscripts/aitask_claim_id.sh --claim 2>/dev/null)
+claimed14a=$(cd "$TMPDIR_14/local" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
 assert_eq "Auto-upgrade: local claim returns 11" "11" "$claimed14a"
 
 # Now add a remote
 (cd "$TMPDIR_14/local" && git remote add origin "$TMPDIR_14/remote.git" && git push --quiet origin main 2>/dev/null)
 
 # Next claim should auto-push local branch to remote and use remote CAS
-claimed14b=$(cd "$TMPDIR_14/local" && ./aiscripts/aitask_claim_id.sh --claim 2>/dev/null)
+claimed14b=$(cd "$TMPDIR_14/local" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
 assert_eq "Auto-upgrade: remote claim returns 12" "12" "$claimed14b"
 
 # Verify branch now exists on remote

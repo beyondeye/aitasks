@@ -3,7 +3,7 @@
 # Standalone script (not registered in ait dispatcher). Read-only — no state modification.
 #
 # Usage:
-#   ./aiscripts/aitask_lock_diag.sh
+#   ./.aitask-scripts/aitask_lock_diag.sh
 #
 # Tests all lock system prerequisites with PASS/FAIL output.
 # Useful for troubleshooting lock failures in remote/web environments.

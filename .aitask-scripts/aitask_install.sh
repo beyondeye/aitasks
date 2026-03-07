@@ -99,8 +99,8 @@ main() {
 
     # Read current version
     local current_version="unknown"
-    if [[ -f "$AIT_DIR/aiscripts/VERSION" ]]; then
-        current_version="$(cat "$AIT_DIR/aiscripts/VERSION")"
+    if [[ -f "$AIT_DIR/.aitask-scripts/VERSION" ]]; then
+        current_version="$(cat "$AIT_DIR/.aitask-scripts/VERSION")"
     fi
 
     # Check if already up to date

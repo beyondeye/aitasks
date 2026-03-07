@@ -51,7 +51,7 @@ generate_test_shim() {
     mkdir -p "$shim_dir"
 
     # Source setup script to get the function
-    SHIM_DIR="$shim_dir" source "$PROJECT_DIR/aiscripts/aitask_setup.sh" --source-only
+    SHIM_DIR="$shim_dir" source "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" --source-only
     set +euo pipefail
 
     SHIM_DIR="$shim_dir" install_global_shim >/dev/null 2>/dev/null
@@ -66,7 +66,7 @@ echo ""
 echo "--- Test 1: Syntax check of aitask_setup.sh ---"
 
 TOTAL=$((TOTAL + 1))
-if bash -n "$PROJECT_DIR/aiscripts/aitask_setup.sh" 2>/dev/null; then
+if bash -n "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" 2>/dev/null; then
     PASS=$((PASS + 1))
 else
     FAIL=$((FAIL + 1))
@@ -150,7 +150,7 @@ TMPDIR_5="$(mktemp -d)"
 SHIM_PATH_5="$(generate_test_shim "$TMPDIR_5/shimbin")"
 
 # Create a fake project with a local ait that touches a marker file
-mkdir -p "$TMPDIR_5/project/aiscripts"
+mkdir -p "$TMPDIR_5/project/.aitask-scripts"
 cat > "$TMPDIR_5/project/ait" << 'EOF'
 #!/usr/bin/env bash
 touch "$(dirname "$0")/marker_dispatched"
@@ -180,7 +180,7 @@ TMPDIR_6="$(mktemp -d)"
 SHIM_PATH_6="$(generate_test_shim "$TMPDIR_6/shimbin")"
 
 # Create a fake project
-mkdir -p "$TMPDIR_6/project/aiscripts"
+mkdir -p "$TMPDIR_6/project/.aitask-scripts"
 mkdir -p "$TMPDIR_6/project/src/deep/nested"
 cat > "$TMPDIR_6/project/ait" << 'EOF'
 #!/usr/bin/env bash

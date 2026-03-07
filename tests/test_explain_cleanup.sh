@@ -64,10 +64,10 @@ setup_test_env() {
     tmpdir="$(mktemp -d)"
 
     # Copy script and dependencies
-    mkdir -p "$tmpdir/aiscripts/lib"
-    cp "$PROJECT_DIR/aiscripts/aitask_explain_cleanup.sh" "$tmpdir/aiscripts/"
-    cp "$PROJECT_DIR/aiscripts/lib/terminal_compat.sh" "$tmpdir/aiscripts/lib/"
-    chmod +x "$tmpdir/aiscripts/aitask_explain_cleanup.sh"
+    mkdir -p "$tmpdir/.aitask-scripts/lib"
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_explain_cleanup.sh" "$tmpdir/.aitask-scripts/"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$tmpdir/.aitask-scripts/lib/"
+    chmod +x "$tmpdir/.aitask-scripts/aitask_explain_cleanup.sh"
 
     echo "$tmpdir"
 }
@@ -121,7 +121,7 @@ test_help_flag() {
     cd "$tmpdir"
 
     local output
-    output=$(./aiscripts/aitask_explain_cleanup.sh --help 2>&1)
+    output=$(./.aitask-scripts/aitask_explain_cleanup.sh --help 2>&1)
 
     assert_contains "help shows usage" "Usage:" "$output"
     assert_contains "help shows --dry-run" "dry-run" "$output"
@@ -136,7 +136,7 @@ test_no_aiexplains_dir() {
     cd "$tmpdir"
 
     local output
-    output=$(./aiscripts/aitask_explain_cleanup.sh 2>&1)
+    output=$(./.aitask-scripts/aitask_explain_cleanup.sh 2>&1)
 
     assert_contains "missing dir reports not found" "not found\|CLEANED: 0" "$output"
     assert_contains "reports zero cleaned" "CLEANED: 0" "$output"
@@ -151,7 +151,7 @@ test_empty_aiexplains_dir() {
     mkdir -p aiexplains
 
     local output
-    output=$(./aiscripts/aitask_explain_cleanup.sh 2>&1)
+    output=$(./.aitask-scripts/aitask_explain_cleanup.sh 2>&1)
 
     assert_contains "empty dir cleans nothing" "CLEANED: 0" "$output"
 
@@ -165,7 +165,7 @@ test_dry_run_no_deletion() {
     create_fixture "$tmpdir"
 
     local output
-    output=$(./aiscripts/aitask_explain_cleanup.sh --dry-run --all 2>&1)
+    output=$(./.aitask-scripts/aitask_explain_cleanup.sh --dry-run --all 2>&1)
 
     assert_contains "dry run shows Would remove" "Would remove" "$output"
     assert_contains "dry run reports count" "CLEANED:" "$output"
@@ -186,7 +186,7 @@ test_cleanup_codebrowser_keeps_newest() {
     create_fixture "$tmpdir"
 
     local output
-    output=$(./aiscripts/aitask_explain_cleanup.sh --target aiexplains/codebrowser 2>&1)
+    output=$(./.aitask-scripts/aitask_explain_cleanup.sh --target aiexplains/codebrowser 2>&1)
 
     # Newest aiscripts dir kept
     assert_dir_exists "newest aiscripts dir kept" \
@@ -223,7 +223,7 @@ test_cleanup_all_mode() {
     create_fixture "$tmpdir"
 
     local output
-    output=$(./aiscripts/aitask_explain_cleanup.sh --all 2>&1)
+    output=$(./.aitask-scripts/aitask_explain_cleanup.sh --all 2>&1)
 
     # Top-level: bare timestamps grouped under _bare_timestamp_
     # Newest: 20260226_080000, older: 20260225_100000, 20260225_120000
@@ -252,7 +252,7 @@ test_all_mode_skips_codebrowser_subdir() {
     cd "$tmpdir"
     create_fixture "$tmpdir"
 
-    ./aiscripts/aitask_explain_cleanup.sh --all --quiet 2>&1 > /dev/null
+    ./.aitask-scripts/aitask_explain_cleanup.sh --all --quiet 2>&1 > /dev/null
 
     # Codebrowser directory itself should still exist
     assert_dir_exists "codebrowser subdir not deleted" \
@@ -268,7 +268,7 @@ test_quiet_mode() {
     create_fixture "$tmpdir"
 
     local output
-    output=$(./aiscripts/aitask_explain_cleanup.sh --all --quiet 2>&1)
+    output=$(./.aitask-scripts/aitask_explain_cleanup.sh --all --quiet 2>&1)
 
     # Quiet mode should only output the CLEANED line
     local line_count
@@ -293,7 +293,7 @@ test_skips_dirs_without_marker_files() {
     # No files.txt or raw_data.txt — should be skipped
 
     local output
-    output=$(./aiscripts/aitask_explain_cleanup.sh --target aiexplains/codebrowser 2>&1)
+    output=$(./.aitask-scripts/aitask_explain_cleanup.sh --target aiexplains/codebrowser 2>&1)
 
     # The dir without marker should still exist (skipped)
     assert_dir_exists "dir without marker skipped" \
@@ -315,7 +315,7 @@ test_raw_data_txt_accepted() {
     echo "data" > aiexplains/codebrowser/src__20260226_090000/raw_data.txt
 
     local output
-    output=$(./aiscripts/aitask_explain_cleanup.sh --target aiexplains/codebrowser 2>&1)
+    output=$(./.aitask-scripts/aitask_explain_cleanup.sh --target aiexplains/codebrowser 2>&1)
 
     assert_dir_exists "newest with raw_data.txt kept" \
         "$tmpdir/aiexplains/codebrowser/src__20260226_100000"
@@ -338,7 +338,7 @@ test_unrecognized_dir_skipped() {
     echo "stuff" > aiexplains/codebrowser/aiscripts__20260226_100000/files.txt
 
     local output
-    output=$(./aiscripts/aitask_explain_cleanup.sh --target aiexplains/codebrowser 2>&1)
+    output=$(./.aitask-scripts/aitask_explain_cleanup.sh --target aiexplains/codebrowser 2>&1)
 
     assert_dir_exists "unrecognized dir not deleted" \
         "$tmpdir/aiexplains/codebrowser/some_random_dir"
@@ -360,7 +360,7 @@ test_nested_key_with_double_underscore() {
     echo "files" > aiexplains/codebrowser/aiscripts__board__20260226_090000/files.txt
 
     local output
-    output=$(./aiscripts/aitask_explain_cleanup.sh --target aiexplains/codebrowser 2>&1)
+    output=$(./.aitask-scripts/aitask_explain_cleanup.sh --target aiexplains/codebrowser 2>&1)
 
     assert_dir_exists "nested key newest kept" \
         "$tmpdir/aiexplains/codebrowser/aiscripts__board__20260226_100000"
@@ -383,7 +383,7 @@ test_single_entry_per_key_no_deletion() {
     echo "files" > aiexplains/codebrowser/tests__20260226_090000/files.txt
 
     local output
-    output=$(./aiscripts/aitask_explain_cleanup.sh --target aiexplains/codebrowser 2>&1)
+    output=$(./.aitask-scripts/aitask_explain_cleanup.sh --target aiexplains/codebrowser 2>&1)
 
     assert_dir_exists "single aiscripts entry kept" \
         "$tmpdir/aiexplains/codebrowser/aiscripts__20260226_100000"
@@ -400,7 +400,7 @@ test_unknown_option_fails() {
     cd "$tmpdir"
 
     TOTAL=$((TOTAL + 1))
-    if ./aiscripts/aitask_explain_cleanup.sh --invalid 2>/dev/null; then
+    if ./.aitask-scripts/aitask_explain_cleanup.sh --invalid 2>/dev/null; then
         FAIL=$((FAIL + 1))
         echo "FAIL: unknown option should exit non-zero"
     else

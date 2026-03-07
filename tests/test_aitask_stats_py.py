@@ -1,4 +1,4 @@
-"""Unit tests for aiscripts/aitask_stats.py."""
+"""Unit tests for .aitask-scripts/aitask_stats.py."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 def _load_stats_module():
-    script = Path(__file__).resolve().parents[1] / "aiscripts" / "aitask_stats.py"
+    script = Path(__file__).resolve().parents[1] / ".aitask-scripts" / "aitask_stats.py"
     spec = importlib.util.spec_from_file_location("aitask_stats_py", script)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
