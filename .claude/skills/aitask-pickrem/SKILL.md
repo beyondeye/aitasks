@@ -29,7 +29,7 @@ This skill is a fully autonomous version of `aitask-pick` + `task-workflow` desi
 Ensure the aitask-data worktree and symlinks are set up:
 
 ```bash
-./aiscripts/aitask_init_data.sh
+./.aitask-scripts/aitask_init_data.sh
 ```
 
 This is a no-op for legacy repos and already-initialized repos. Required for
@@ -46,7 +46,7 @@ If the command fails (non-zero exit), display the error and abort.
 Auto-select an execution profile:
 
 ```bash
-./aiscripts/aitask_scan_profiles.sh --auto
+./.aitask-scripts/aitask_scan_profiles.sh --auto
 ```
 
 **If output is `NO_PROFILES`:** Display error: "Remote workflow requires an execution profile. Create one at `aitasks/metadata/profiles/remote.yaml`." Abort.
@@ -62,7 +62,7 @@ Parse the task ID argument:
 **Format 1: Parent task (e.g., `42`):**
 - Find the matching task file and check for children in a single call:
   ```bash
-  ./aiscripts/aitask_query_files.sh resolve <number>
+  ./.aitask-scripts/aitask_query_files.sh resolve <number>
   ```
   Parse the output: if first line is `NOT_FOUND`, display error "Task t\<N\> not found" and abort. If first line is `TASK_FILE:<path>`, use that path. If second line is `HAS_CHILDREN:<count>`, display error "Task t\<N\> has child subtasks. Specify a child task ID (e.g., `\<N\>_1`) instead." Abort. If `NO_CHILDREN`, proceed with this task.
 
@@ -70,7 +70,7 @@ Parse the task ID argument:
 - Parse as child task ID (parent=42, child=2)
 - Find the matching child task file:
   ```bash
-  ./aiscripts/aitask_query_files.sh child-file <parent> <child>
+  ./.aitask-scripts/aitask_query_files.sh child-file <parent> <child>
   ```
   Parse the output: `CHILD_FILE:<path>` means found (use that path), `NOT_FOUND` means not found.
 - If not found: display error "Child task t\<parent\>_\<child\> not found" and abort.
@@ -78,7 +78,7 @@ Parse the task ID argument:
 - Read the task file and parent task file for context
 - **Gather sibling context** in a single call:
   ```bash
-  ./aiscripts/aitask_query_files.sh sibling-context <parent>
+  ./.aitask-scripts/aitask_query_files.sh sibling-context <parent>
   ```
   Parse the output: lines prefixed `ARCHIVED_PLAN:` are archived sibling plan files (primary context source for completed siblings). Lines prefixed `ARCHIVED_TASK:` are fallback for siblings without archived plans. Lines prefixed `PENDING_SIBLING:` are pending sibling task files. Lines prefixed `PENDING_PLAN:` are pending sibling plans. If output is `NO_CONTEXT`, there are no sibling context files. Read the files listed in the output.
 
@@ -96,7 +96,7 @@ Set context variables:
 ### Step 3: Sync with Remote (Best-effort)
 
 ```bash
-./aiscripts/aitask_pick_own.sh --sync
+./.aitask-scripts/aitask_pick_own.sh --sync
 ```
 
 Non-blocking — if it fails (e.g., no network, merge conflicts), continue silently.
@@ -114,7 +114,7 @@ Non-blocking — if it fails (e.g., no network, merge conflicts), continue silen
 - Check if the task file's frontmatter contains `children_to_implement: []` (empty list)
 - If empty, check for archived children:
   ```bash
-  ./aiscripts/aitask_query_files.sh archived-children <number>
+  ./.aitask-scripts/aitask_query_files.sh archived-children <number>
   ```
   Parse the output: `ARCHIVED_CHILD:<path>` lines mean archived children exist, `NO_ARCHIVED_CHILDREN` means none.
 - If archived children exist:
@@ -142,11 +142,11 @@ If neither check triggers, proceed to Step 5.
 
   If email was resolved:
   ```bash
-  ./aiscripts/aitask_pick_own.sh <task_num> --email "<email>"
+  ./.aitask-scripts/aitask_pick_own.sh <task_num> --email "<email>"
   ```
   If no email:
   ```bash
-  ./aiscripts/aitask_pick_own.sh <task_num>
+  ./.aitask-scripts/aitask_pick_own.sh <task_num>
   ```
 
 - **Parse the script output:**
@@ -155,11 +155,11 @@ If neither check triggers, proceed to Step 5.
   - `LOCK_FAILED:<owner>` — Read `force_unlock_stale` from profile (default: `false`):
     - If `true`: Display "Profile: force-unlocking stale lock held by \<owner\>". Re-run with `--force`:
       ```bash
-      ./aiscripts/aitask_pick_own.sh <task_num> --force --email "<email>"
+      ./.aitask-scripts/aitask_pick_own.sh <task_num> --force --email "<email>"
       ```
       Parse output again. If `FORCE_UNLOCKED` + `OWNED`: proceed. Otherwise: abort.
     - If `false`: Display error: "Task t\<N\> is locked by \<owner\>. Pick a different task." Abort.
-  - `LOCK_ERROR:<message>` — Display error: "Lock system error: \<message\>. Run `./aiscripts/aitask_lock_diag.sh` for troubleshooting." Abort.
+  - `LOCK_ERROR:<message>` — Display error: "Lock system error: \<message\>. Run `./.aitask-scripts/aitask_lock_diag.sh` for troubleshooting." Abort.
   - `LOCK_INFRA_MISSING` — Display error: "Lock infrastructure not initialized. Run `ait setup`." Abort.
 
   If the script fails entirely (non-zero exit without structured output), display the error and abort.
@@ -179,7 +179,7 @@ Check if a plan file already exists:
 - For child tasks: `aiplans/p<parent>/p<parent>_<child>_*.md`
 
 ```bash
-./aiscripts/aitask_query_files.sh plan-file <taskid>
+./.aitask-scripts/aitask_query_files.sh plan-file <taskid>
 ```
 Parse the output: `PLAN_FILE:<path>` means found, `NOT_FOUND` means not found.
 
@@ -273,7 +273,7 @@ Before starting implementation, verify that ownership/lock was acquired (Step 5 
 - **Otherwise** (status is not `Implementing`, or `assigned_to` is empty/missing, or `assigned_to` does not match the current user's email): Ownership was not properly acquired. Display: "Guard: task ownership not confirmed — acquiring ownership now."
   - Run the ownership claim:
     ```bash
-    ./aiscripts/aitask_pick_own.sh <task_num> --email "<email>"
+    ./.aitask-scripts/aitask_pick_own.sh <task_num> --email "<email>"
     ```
   - Parse output: `OWNED` → proceed. Any failure (`LOCK_FAILED`, `LOCK_ERROR`, `LOCK_INFRA_MISSING`, or script error) → trigger the **Abort Procedure**.
   - No `AskUserQuestion` calls (remote mode constraint).
@@ -362,12 +362,12 @@ Read `review_action` from profile (default: `commit`).
 
 For parent tasks:
 ```bash
-./aiscripts/aitask_archive.sh <task_num>
+./.aitask-scripts/aitask_archive.sh <task_num>
 ```
 
 For child tasks:
 ```bash
-./aiscripts/aitask_archive.sh <parent>_<child>
+./.aitask-scripts/aitask_archive.sh <parent>_<child>
 ```
 
 **Parse structured output and handle without prompts:**
@@ -377,15 +377,15 @@ Read `issue_action` from profile (default: `close_with_notes`).
 - `ISSUE:<task_num>:<issue_url>` — Handle based on `issue_action`:
   - `close_with_notes`:
     ```bash
-    ./aiscripts/aitask_issue_update.sh --close <task_num>
+    ./.aitask-scripts/aitask_issue_update.sh --close <task_num>
     ```
   - `comment_only`:
     ```bash
-    ./aiscripts/aitask_issue_update.sh <task_num>
+    ./.aitask-scripts/aitask_issue_update.sh <task_num>
     ```
   - `close_silent`:
     ```bash
-    ./aiscripts/aitask_issue_update.sh --close --no-comment <task_num>
+    ./.aitask-scripts/aitask_issue_update.sh --close --no-comment <task_num>
     ```
   - `skip`: do nothing
 
@@ -394,15 +394,15 @@ Read `issue_action` from profile (default: `close_with_notes`).
 - `FOLDED_ISSUE:<folded_task_num>:<issue_url>` — Same handling, but use the primary `task_id` for the script call:
   - `close_with_notes`:
     ```bash
-    ./aiscripts/aitask_issue_update.sh --issue-url "<issue_url>" --close <task_id>
+    ./.aitask-scripts/aitask_issue_update.sh --issue-url "<issue_url>" --close <task_id>
     ```
   - `comment_only`:
     ```bash
-    ./aiscripts/aitask_issue_update.sh --issue-url "<issue_url>" <task_id>
+    ./.aitask-scripts/aitask_issue_update.sh --issue-url "<issue_url>" <task_id>
     ```
   - `close_silent`:
     ```bash
-    ./aiscripts/aitask_issue_update.sh --issue-url "<issue_url>" --close --no-comment <task_id>
+    ./.aitask-scripts/aitask_issue_update.sh --issue-url "<issue_url>" --close --no-comment <task_id>
     ```
   - `skip`: do nothing
 
@@ -431,12 +431,12 @@ Triggered by errors after Step 5 (task was claimed). Not triggered by user inter
 
 3. Release lock:
    ```bash
-   ./aiscripts/aitask_lock.sh --unlock <task_num> 2>/dev/null || true
+   ./.aitask-scripts/aitask_lock.sh --unlock <task_num> 2>/dev/null || true
    ```
 
 4. Revert status:
    ```bash
-   ./aiscripts/aitask_update.sh --batch <task_num> --status <status> --assigned-to ""
+   ./.aitask-scripts/aitask_update.sh --batch <task_num> --status <status> --assigned-to ""
    ```
 
 5. Commit:

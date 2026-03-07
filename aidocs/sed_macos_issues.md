@@ -29,7 +29,7 @@ These sed features are POSIX-compatible and work on both GNU and BSD sed:
 
 ## The `sed_inplace()` Helper
 
-Located in `aiscripts/lib/terminal_compat.sh`. Detects macOS and uses the correct `sed -i` syntax:
+Located in `.aitask-scripts/lib/terminal_compat.sh`. Detects macOS and uses the correct `sed -i` syntax:
 
 ```bash
 sed_inplace() {
@@ -192,23 +192,23 @@ Always use `#!/usr/bin/env bash`, never `#!/bin/bash`. macOS system bash is 3.2 
 
 | File | Issue | Fix Applied |
 |------|-------|-------------|
-| 20 scripts (aiscripts/ + tests/) | `#!/bin/bash` shebang | Changed to `#!/usr/bin/env bash` |
-| `aiscripts/aitask_stats.sh` | 15x `date -d` | `portable_date -d` |
-| `aiscripts/aitask_issue_import.sh` | 1x `date -d` | `portable_date -d` |
+| 20 scripts (.aitask-scripts/ + tests/) | `#!/bin/bash` shebang | Changed to `#!/usr/bin/env bash` |
+| `.aitask-scripts/aitask_stats.sh` | 15x `date -d` | `portable_date -d` |
+| `.aitask-scripts/aitask_issue_import.sh` | 1x `date -d` | `portable_date -d` |
 
 ## Files Fixed in t209
 
 | File | Lines | Issue | Fix Applied |
 |------|-------|-------|-------------|
-| `aiscripts/aitask_archive.sh` | 114-115 | `sed -i` | `sed_inplace` |
-| `aiscripts/aitask_archive.sh` | 118 | `sed -i` + GNU `a` | `awk` with temp file |
-| `aiscripts/aitask_create.sh` | 275 | GNU `a` in pipe | `awk` in pipe |
-| `aiscripts/aitask_stats.sh` | 61, 680 | `\U` uppercase | `${var^}` |
-| `aiscripts/lib/task_utils.sh` | 274 | Grouped `{ $d; N; ba; }` across `-e` | `awk` for trailing blank line trim |
+| `.aitask-scripts/aitask_archive.sh` | 114-115 | `sed -i` | `sed_inplace` |
+| `.aitask-scripts/aitask_archive.sh` | 118 | `sed -i` + GNU `a` | `awk` with temp file |
+| `.aitask-scripts/aitask_create.sh` | 275 | GNU `a` in pipe | `awk` in pipe |
+| `.aitask-scripts/aitask_stats.sh` | 61, 680 | `\U` uppercase | `${var^}` |
+| `.aitask-scripts/lib/task_utils.sh` | 274 | Grouped `{ $d; N; ba; }` across `-e` | `awk` for trailing blank line trim |
 
 ## Files Fixed in t213
 
 | File | Line | Issue | Fix Applied |
 |------|------|-------|-------------|
-| `aiscripts/aitask_pick_own.sh` | 159 | `grep -oP` with `\K` (PCRE) | `grep -o` + `sed` pipe |
-| `aiscripts/aitask_update.sh` | 926 | `mktemp --suffix=.md` (GNU-only) | Template pattern `mktemp "${TMPDIR:-/tmp}/aitask_XXXXXX.md"` |
+| `.aitask-scripts/aitask_pick_own.sh` | 159 | `grep -oP` with `\K` (PCRE) | `grep -o` + `sed` pipe |
+| `.aitask-scripts/aitask_update.sh` | 926 | `mktemp --suffix=.md` (GNU-only) | Template pattern `mktemp "${TMPDIR:-/tmp}/aitask_XXXXXX.md"` |

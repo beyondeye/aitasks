@@ -83,15 +83,15 @@ Continue? [y/N] y
 Done! Release workflow triggered for v0.4.0.
 ```
 
-Behind the scenes, the script writes the new version to `aiscripts/VERSION`, creates git tag `v0.4.0`, and pushes to origin — triggering the GitHub Actions workflows.
+Behind the scenes, the script writes the new version to `.aitask-scripts/VERSION`, creates git tag `v0.4.0`, and pushes to origin — triggering the GitHub Actions workflows.
 
 ### 3. GitHub Actions publish
 
 Two workflows run automatically:
 
 **Release workflow** (`.github/workflows/release.yml`) — triggers on tag push:
-- Verifies `aiscripts/VERSION` matches the tag (safety check)
-- Builds a distributable tarball containing `ait`, `CHANGELOG.md`, `aiscripts/`, `skills/`, and `seed/`
+- Verifies `.aitask-scripts/VERSION` matches the tag (safety check)
+- Builds a distributable tarball containing `ait`, `CHANGELOG.md`, `.aitask-scripts/`, `skills/`, and `seed/`
 - Extracts the v0.4.0 changelog section from `CHANGELOG.md` and uses it as the GitHub Release notes
 - If no changelog section is found, falls back to GitHub's auto-generated release notes
 

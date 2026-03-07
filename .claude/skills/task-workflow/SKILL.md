@@ -32,7 +32,7 @@ After a task is selected and confirmed, perform these checks before proceeding t
 - If status is `Done`:
   - Check if a plan file exists:
     ```bash
-    ./aiscripts/aitask_query_files.sh plan-file <taskid>
+    ./.aitask-scripts/aitask_query_files.sh plan-file <taskid>
     ```
     Parse the output: `PLAN_FILE:<path>` means found, `NOT_FOUND` means not found.
   - Use `AskUserQuestion`:
@@ -48,7 +48,7 @@ After a task is selected and confirmed, perform these checks before proceeding t
 - Check if the task file's frontmatter contains `children_to_implement: []` (empty list)
 - If empty, check for archived children:
   ```bash
-  ./aiscripts/aitask_query_files.sh archived-children <number>
+  ./.aitask-scripts/aitask_query_files.sh archived-children <number>
   ```
   Parse the output: `ARCHIVED_CHILD:<path>` lines mean archived children exist, `NO_ARCHIVED_CHILDREN` means none.
 - If archived children exist, this is an orphaned parent task:
@@ -68,7 +68,7 @@ If neither check triggers, proceed to Step 4 as normal.
 ### Step 3b: refresh execution profile
 If `active_profile` was provided and is non-null, re-read the profile YAML file using the stored filename: `cat aitasks/metadata/profiles/<active_profile_filename>`. Display: "Refreshing profile: \<name\>". If the file cannot be read (missing or invalid), warn: "Warning: Could not refresh profile '\<name\>', proceeding without profile" and set `active_profile` to null.
 
-If `active_profile` is null (either because no profile was selected by the calling skill, or because the profile name was lost during a long conversation), re-run the profile selection logic: run `./aiscripts/aitask_scan_profiles.sh` and parse the output. If `NO_PROFILES`, skip this step. If profiles exist, present them via `AskUserQuestion` (same format as Step 0a in aitask-pick/aitask-explore) and read the chosen profile file. If the user selects "No profile", proceed without one.
+If `active_profile` is null (either because no profile was selected by the calling skill, or because the profile name was lost during a long conversation), re-run the profile selection logic: run `./.aitask-scripts/aitask_scan_profiles.sh` and parse the output. If `NO_PROFILES`, skip this step. If profiles exist, present them via `AskUserQuestion` (same format as Step 0a in aitask-pick/aitask-explore) and read the chosen profile file. If the user selects "No profile", proceed without one.
 
 ### Step 4: Assign Task to User
 
@@ -118,7 +118,7 @@ If `active_profile` is null (either because no profile was selected by the calli
   Before claiming ownership, check if the task is already locked:
 
   ```bash
-  ./aiscripts/aitask_lock.sh --check <task_num> 2>/dev/null
+  ./.aitask-scripts/aitask_lock.sh --check <task_num> 2>/dev/null
   ```
 
   **If exit code 0 (locked):** Parse the output for `locked_by`, `locked_at`, and `hostname`.
@@ -142,16 +142,16 @@ If `active_profile` is null (either because no profile was selected by the calli
 
   If email was provided (new or selected):
   ```bash
-  ./aiscripts/aitask_pick_own.sh <task_num> --email "<email>"
+  ./.aitask-scripts/aitask_pick_own.sh <task_num> --email "<email>"
   ```
   If no email (user selected "Skip"):
   ```bash
-  ./aiscripts/aitask_pick_own.sh <task_num>
+  ./.aitask-scripts/aitask_pick_own.sh <task_num>
   ```
 
   **If `--force` was set by the lock pre-check above**, add `--force` to the command:
   ```bash
-  ./aiscripts/aitask_pick_own.sh <task_num> --force --email "<email>"
+  ./.aitask-scripts/aitask_pick_own.sh <task_num> --force --email "<email>"
   ```
 
   **Parse the script output:**
@@ -165,11 +165,11 @@ If `active_profile` is null (either because no profile was selected by the calli
       - "Pick a different task" (description: "Leave the lock intact and select another task")
     - If "Force unlock and claim": Re-run ownership with `--force`:
       ```bash
-      ./aiscripts/aitask_pick_own.sh <task_num> --force --email "<email>"
+      ./.aitask-scripts/aitask_pick_own.sh <task_num> --force --email "<email>"
       ```
       Parse the output again. If `FORCE_UNLOCKED` + `OWNED`: proceed. Otherwise: abort.
     - If "Pick a different task": Return to the calling skill's task selection. Do NOT proceed.
-  - `LOCK_ERROR:<message>` — Lock system error (fetch failure, race exhaustion, etc.). Display the error and suggest running `./aiscripts/aitask_lock_diag.sh` for troubleshooting. Use `AskUserQuestion`:
+  - `LOCK_ERROR:<message>` — Lock system error (fetch failure, race exhaustion, etc.). Display the error and suggest running `./.aitask-scripts/aitask_lock_diag.sh` for troubleshooting. Use `AskUserQuestion`:
     - Question: "Lock system error: \<message\>. How to proceed?"
     - Header: "Lock error"
     - Options:
@@ -252,7 +252,7 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
 - **Otherwise** (status is not `Implementing`, or `assigned_to` is empty/missing, or `assigned_to` does not match the current user's email): Ownership was not properly acquired. Display: "Guard: task ownership not confirmed — acquiring ownership now."
   - Run the ownership claim:
     ```bash
-    ./aiscripts/aitask_pick_own.sh <task_num> --email "<email>"
+    ./.aitask-scripts/aitask_pick_own.sh <task_num> --email "<email>"
     ```
   - Parse output as in Step 4:
     - `OWNED:<task_id>` — Success. Proceed.
@@ -398,12 +398,12 @@ All archival operations (metadata updates, file moves, lock releases, folded tas
 
 For parent tasks:
 ```bash
-./aiscripts/aitask_archive.sh <task_num>
+./.aitask-scripts/aitask_archive.sh <task_num>
 ```
 
 For child tasks:
 ```bash
-./aiscripts/aitask_archive.sh <parent>_<child>
+./.aitask-scripts/aitask_archive.sh <parent>_<child>
 ```
 
 The script automatically handles:
@@ -432,15 +432,15 @@ The script outputs structured lines. Parse each line and handle accordingly:
       - "Skip" (description: "Don't touch the issue")
   - If "Close with notes":
     ```bash
-    ./aiscripts/aitask_issue_update.sh --issue-url "<issue_url>" --close <task_id>
+    ./.aitask-scripts/aitask_issue_update.sh --issue-url "<issue_url>" --close <task_id>
     ```
   - If "Comment only":
     ```bash
-    ./aiscripts/aitask_issue_update.sh --issue-url "<issue_url>" <task_id>
+    ./.aitask-scripts/aitask_issue_update.sh --issue-url "<issue_url>" <task_id>
     ```
   - If "Close silently":
     ```bash
-    ./aiscripts/aitask_issue_update.sh --issue-url "<issue_url>" --close --no-comment <task_id>
+    ./.aitask-scripts/aitask_issue_update.sh --issue-url "<issue_url>" --close --no-comment <task_id>
     ```
   - If "Skip": do nothing
   - Note: Uses the primary `task_id` (not `folded_task_num`) so the comment references the primary task's commits and plan file
@@ -457,15 +457,15 @@ The script outputs structured lines. Parse each line and handle accordingly:
       - "Skip" (description: "Don't touch the PR")
   - If "Close with notes":
     ```bash
-    ./aiscripts/aitask_pr_close.sh --pr-url "<pr_url>" --close <task_id>
+    ./.aitask-scripts/aitask_pr_close.sh --pr-url "<pr_url>" --close <task_id>
     ```
   - If "Comment only":
     ```bash
-    ./aiscripts/aitask_pr_close.sh --pr-url "<pr_url>" <task_id>
+    ./.aitask-scripts/aitask_pr_close.sh --pr-url "<pr_url>" <task_id>
     ```
   - If "Close silently":
     ```bash
-    ./aiscripts/aitask_pr_close.sh --pr-url "<pr_url>" --close --no-comment <task_id>
+    ./.aitask-scripts/aitask_pr_close.sh --pr-url "<pr_url>" --close --no-comment <task_id>
     ```
   - If "Skip": do nothing
   - Note: Uses the primary `task_id` (not `folded_task_num`) so the comment references the primary task's commits and plan file

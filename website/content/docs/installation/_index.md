@@ -59,7 +59,7 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 **Per-project files** (committed to your repo):
 
 - `ait` — CLI dispatcher script
-- `aiscripts/` — Framework scripts (task management, board, stats, etc.)
+- `.aitask-scripts/` — Framework scripts (task management, board, stats, etc.)
 - `.claude/skills/aitask-*` — Claude Code skill definitions
 - `aitasks/` — Task data directory (auto-created)
 - `aiplans/` — Implementation plans directory (auto-created)

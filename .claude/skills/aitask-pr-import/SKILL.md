@@ -11,7 +11,7 @@ user-invocable: true
 Scan available execution profiles:
 
 ```bash
-./aiscripts/aitask_scan_profiles.sh
+./.aitask-scripts/aitask_scan_profiles.sh
 ```
 
 Parse the output lines. Each valid profile appears as `PROFILE|<filename>|<name>|<description>`. Lines starting with `INVALID|<filename>` indicate profiles with bad YAML — warn the user ("Profile '\<filename\>' has invalid format, skipping").
@@ -36,7 +36,7 @@ Parse the output lines. Each valid profile appears as `PROFILE|<filename>|<name>
 Do a best-effort sync to ensure the local state is up to date and clean up stale locks:
 
 ```bash
-./aiscripts/aitask_pick_own.sh --sync
+./.aitask-scripts/aitask_pick_own.sh --sync
 ```
 
 This is non-blocking — if it fails (e.g., no network, merge conflicts), it continues silently.
@@ -59,7 +59,7 @@ Use `AskUserQuestion` to determine the PR source:
   - Options: free text only (use "Other")
 - Run:
   ```bash
-  ./aiscripts/aitask_pr_import.sh --batch --pr <num> --data-only --silent
+  ./.aitask-scripts/aitask_pr_import.sh --batch --pr <num> --data-only --silent
   ```
 - The output is the file path (e.g., `.aitask-pr-data/42.md`)
 - Read the generated intermediate file from that path
@@ -68,7 +68,7 @@ Use `AskUserQuestion` to determine the PR source:
 
 - Run:
   ```bash
-  ./aiscripts/aitask_pr_import.sh --batch --list --silent
+  ./.aitask-scripts/aitask_pr_import.sh --batch --list --silent
   ```
 - Parse the output lines. Each line is tab-separated: `<number>\t<title>`
 - If no PRs found, inform user and abort
@@ -82,7 +82,7 @@ Use `AskUserQuestion` to determine the PR source:
     - If more PRs exist: add "Show more PRs" option (description: "Show next batch (N more available)")
   - If this is the last page (no "Show more" needed), show up to 4 PRs
   - Handle selection:
-    - If user selects a PR → run `./aiscripts/aitask_pr_import.sh --batch --pr <num> --data-only --silent`, read the output path
+    - If user selects a PR → run `./.aitask-scripts/aitask_pr_import.sh --batch --pr <num> --data-only --silent`, read the output path
     - If "Show more PRs" → increment offset, loop back
 
 - Read the generated intermediate file
@@ -166,7 +166,7 @@ Before creating a new task, check for existing pending tasks that overlap with t
 **List pending tasks:**
 
 ```bash
-./aiscripts/aitask_ls.sh -v --status all --all-levels 99 2>/dev/null
+./.aitask-scripts/aitask_ls.sh -v --status all --all-levels 99 2>/dev/null
 ```
 
 Filter the output to include only tasks with status `Ready` or `Editing`. Exclude:
@@ -258,7 +258,7 @@ The following existing tasks have been folded into this task. Their requirements
 **Create the task:**
 
 ```bash
-./aiscripts/aitask_create.sh --batch --commit \
+./.aitask-scripts/aitask_create.sh --batch --commit \
     --name "<sanitized_pr_title>" \
     --desc-file - \
     --priority "<priority>" \
@@ -280,11 +280,11 @@ TASK_DESC
 **If folded_tasks is non-empty**, set the `folded_tasks` frontmatter field and update each folded task:
 ```bash
 # Set folded_tasks via aitask_update.sh (no --commit, we'll amend)
-./aiscripts/aitask_update.sh --batch <task_num> --folded-tasks "<comma-separated IDs>"
+./.aitask-scripts/aitask_update.sh --batch <task_num> --folded-tasks "<comma-separated IDs>"
 
 # Update each folded task's status and folded_into reference
 for folded_id in <folded_task_ids>; do
-    ./aiscripts/aitask_update.sh --batch $folded_id --status Folded --folded-into <task_num>
+    ./.aitask-scripts/aitask_update.sh --batch $folded_id --status Folded --folded-into <task_num>
 done
 
 # Amend the create commit to include all frontmatter updates

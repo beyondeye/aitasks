@@ -10,7 +10,7 @@ description: Review code using configurable review guides, then create tasks fro
 Scan available execution profiles:
 
 ```bash
-./aiscripts/aitask_scan_profiles.sh
+./.aitask-scripts/aitask_scan_profiles.sh
 ```
 
 Parse the output lines. Each valid profile appears as `PROFILE|<filename>|<name>|<description>`. Lines starting with `INVALID|<filename>` indicate profiles with bad YAML — warn the user ("Profile '\<filename\>' has invalid format, skipping").
@@ -35,7 +35,7 @@ Parse the output lines. Each valid profile appears as `PROFILE|<filename>|<name>
 Do a best-effort sync to ensure the local state is up to date and clean up stale locks:
 
 ```bash
-./aiscripts/aitask_pick_own.sh --sync
+./.aitask-scripts/aitask_pick_own.sh --sync
 ```
 
 This is non-blocking — if it fails (e.g., no network, merge conflicts), it continues silently.
@@ -58,7 +58,7 @@ Use `AskUserQuestion` to determine the review scope:
 1. **Fetch commits using the helper script:**
 
    ```bash
-   ./aiscripts/aitask_review_commits.sh --batch-size 10 --offset 0
+   ./.aitask-scripts/aitask_review_commits.sh --batch-size 10 --offset 0
    ```
 
    The script filters out `ait:` administrative commits and returns a pipe-delimited list (one per line):
@@ -83,7 +83,7 @@ Use `AskUserQuestion` to determine the review scope:
 
    If "Show 10 more commits": call the script again with the next offset:
    ```bash
-   ./aiscripts/aitask_review_commits.sh --batch-size 10 --offset <next_offset>
+   ./.aitask-scripts/aitask_review_commits.sh --batch-size 10 --offset <next_offset>
    ```
    Append results to the displayed list and re-present the selection. Continue until selection or `NO_MORE_COMMITS`.
 
@@ -111,7 +111,7 @@ Determine the files to analyze:
 ```bash
 echo "<file1>
 <file2>
-..." | ./aiscripts/aitask_review_detect_env.sh --files-stdin --reviewguides-dir aireviewguides
+..." | ./.aitask-scripts/aitask_review_detect_env.sh --files-stdin --reviewguides-dir aireviewguides
 ```
 
 The script uses modular scoring tests (project root markers, file extensions, shebang lines, directory patterns) and returns two sections separated by `---`:
@@ -203,7 +203,7 @@ Use `AskUserQuestion`: "How should the selected findings become tasks?"
 **For single task:**
 
 ```bash
-./aiscripts/aitask_create.sh --batch --commit --name "<sanitized_target>_code_review" \
+./.aitask-scripts/aitask_create.sh --batch --commit --name "<sanitized_target>_code_review" \
   --desc-file - --priority <p> --effort <e> --type feature --labels "review" <<'TASK_DESC'
 ## Code Review Findings
 
@@ -220,7 +220,7 @@ git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
 
 1. Create a parent task:
    ```bash
-   ./aiscripts/aitask_create.sh --batch --commit --name "<sanitized_target>_code_review" \
+   ./.aitask-scripts/aitask_create.sh --batch --commit --name "<sanitized_target>_code_review" \
      --desc-file - --priority <p> --effort medium --type feature --labels "review" <<'TASK_DESC'
    Code review of <target area>. Child tasks contain individual findings grouped by <mode/finding>.
    TASK_DESC
@@ -233,7 +233,7 @@ git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
 
 3. Create child tasks — for each group (mode or individual finding):
    ```bash
-   ./aiscripts/aitask_create.sh --batch --commit --parent <parent_num> --no-sibling-dep \
+   ./.aitask-scripts/aitask_create.sh --batch --commit --parent <parent_num> --no-sibling-dep \
      --name "<child_name>" --desc-file - --priority <p> --effort <e> --type feature --labels "review" <<'TASK_DESC'
    <findings for this group/finding with file:line, description, severity, and suggested fix>
    TASK_DESC
@@ -290,8 +290,8 @@ When continuing to implementation, set the following context variables from the 
 - The frontmatter format is: `name` (string), `description` (string), `environment` (optional list), `reviewtype` (optional string), `reviewlabels` (optional list), `similar_to` (optional string)
 - Metadata vocabulary files (in `aireviewguides/`): `reviewtypes.txt` (classification type), `reviewlabels.txt` (topic labels), `reviewenvironments.txt` (language/framework environments). Use `/aitask-reviewguide-classify` to assign or update metadata on reviewguide files.
 - Universal modes have no `environment` field and apply to any project type. Environment-specific modes have `environment` values from `reviewenvironments.txt`.
-- Environment auto-detection is handled by `./aiscripts/aitask_review_detect_env.sh` — uses modular scoring tests; modes are sorted by relevance but all are available for selection
-- Commit fetching for "Recent changes" is handled by `./aiscripts/aitask_review_commits.sh` — returns paginated, filtered, parseable commit lists
+- Environment auto-detection is handled by `./.aitask-scripts/aitask_review_detect_env.sh` — uses modular scoring tests; modes are sorted by relevance but all are available for selection
+- Commit fetching for "Recent changes" is handled by `./.aitask-scripts/aitask_review_commits.sh` — returns paginated, filtered, parseable commit lists
 - The `review_default_modes` profile key pre-selects modes (comma-separated names matching the `name` frontmatter field)
 - The `review_auto_continue` profile key controls whether to ask about continuing to implementation (default: `false`, always ask)
 - When handing off to task-workflow, the created task has status `Ready` — task-workflow's Step 4 will set it to `Implementing`

@@ -45,7 +45,7 @@ When abort is selected at any checkpoint after Step 4, execute these steps:
 
 - **Revert task status and clear assignment:**
   ```bash
-  ./aiscripts/aitask_update.sh --batch <task_num> --status <selected_status> --assigned-to ""
+  ./.aitask-scripts/aitask_update.sh --batch <task_num> --status <selected_status> --assigned-to ""
   ```
 
 - **Commit the revert:**
@@ -81,15 +81,15 @@ This procedure is referenced from Step 9 wherever a task is being archived. It h
       - "Skip" (description: "Don't touch the issue")
   - If "Close with notes":
     ```bash
-    ./aiscripts/aitask_issue_update.sh --close <task_num>
+    ./.aitask-scripts/aitask_issue_update.sh --close <task_num>
     ```
   - If "Comment only":
     ```bash
-    ./aiscripts/aitask_issue_update.sh <task_num>
+    ./.aitask-scripts/aitask_issue_update.sh <task_num>
     ```
   - If "Close silently":
     ```bash
-    ./aiscripts/aitask_issue_update.sh --close --no-comment <task_num>
+    ./.aitask-scripts/aitask_issue_update.sh --close --no-comment <task_num>
     ```
   - If "Skip": do nothing
 - If no `issue` field: skip silently
@@ -110,15 +110,15 @@ When the archive script outputs `PR:<task_num>:<pr_url>` or `PARENT_PR:<task_num
     - "Skip" (description: "Don't touch the PR")
 - If "Close/decline with notes":
   ```bash
-  ./aiscripts/aitask_pr_close.sh --close <task_num>
+  ./.aitask-scripts/aitask_pr_close.sh --close <task_num>
   ```
 - If "Comment only":
   ```bash
-  ./aiscripts/aitask_pr_close.sh <task_num>
+  ./.aitask-scripts/aitask_pr_close.sh <task_num>
   ```
 - If "Close/decline silently":
   ```bash
-  ./aiscripts/aitask_pr_close.sh --close --no-comment <task_num>
+  ./.aitask-scripts/aitask_pr_close.sh --close --no-comment <task_num>
   ```
 - If "Skip": do nothing
 
@@ -185,7 +185,7 @@ This procedure records which code agent and LLM model is executing the task by s
 
 3. **Write to frontmatter:**
    ```bash
-   ./aiscripts/aitask_update.sh --batch <task_num> --implemented-with "<agent_string>" --silent
+   ./.aitask-scripts/aitask_update.sh --batch <task_num> --implemented-with "<agent_string>" --silent
    ```
 
 **Variant for aitask-pickweb:** Since pickweb does not call `aitask_update.sh` (no cross-branch operations), store the agent string in the completion marker JSON instead (add an `"implemented_with"` field). The `aitask-web-merge` skill will apply it during archival.
@@ -202,11 +202,11 @@ This procedure is referenced from the Task Abort Procedure wherever a task lock 
 
 - Release the task lock (best-effort, idempotent):
   ```bash
-  ./aiscripts/aitask_lock.sh --unlock <task_num> 2>/dev/null || true
+  ./.aitask-scripts/aitask_lock.sh --unlock <task_num> 2>/dev/null || true
   ```
   This is safe to call even if no lock was acquired (e.g., lock branch not initialized, or lock acquisition was skipped due to infrastructure issues). It succeeds silently in all these cases.
 
 - **For child tasks where the parent is also being archived** (all children complete): also release the parent lock:
   ```bash
-  ./aiscripts/aitask_lock.sh --unlock <parent_task_num> 2>/dev/null || true
+  ./.aitask-scripts/aitask_lock.sh --unlock <parent_task_num> 2>/dev/null || true
   ```

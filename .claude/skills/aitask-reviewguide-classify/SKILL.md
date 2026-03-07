@@ -65,7 +65,7 @@ cat aireviewguides/reviewenvironments.txt
 Run the comparison against all other reviewguide files:
 
 ```bash
-./aiscripts/aitask_reviewguide_scan.sh --compare <relative_path>
+./.aitask-scripts/aitask_reviewguide_scan.sh --compare <relative_path>
 ```
 
 Parse the pipe-delimited output. Each line has the format:
@@ -144,7 +144,7 @@ Use `AskUserQuestion`:
 Run the scan for files missing metadata:
 
 ```bash
-./aiscripts/aitask_reviewguide_scan.sh --missing-meta
+./.aitask-scripts/aitask_reviewguide_scan.sh --missing-meta
 ```
 
 Parse the pipe-delimited output. Each line has the format:

@@ -10,7 +10,7 @@ description: Identify and merge related tasks into a single task, then optionall
 Scan available execution profiles:
 
 ```bash
-./aiscripts/aitask_scan_profiles.sh
+./.aitask-scripts/aitask_scan_profiles.sh
 ```
 
 Parse the output lines. Each valid profile appears as `PROFILE|<filename>|<name>|<description>`. Lines starting with `INVALID|<filename>` indicate profiles with bad YAML — warn the user ("Profile '\<filename\>' has invalid format, skipping").
@@ -40,7 +40,7 @@ If this skill is invoked with arguments (e.g., `/aitask-fold 106,108,112` or `/a
   For each parsed ID:
   - Find the task file:
     ```bash
-    ./aiscripts/aitask_query_files.sh task-file <id>
+    ./.aitask-scripts/aitask_query_files.sh task-file <id>
     ```
     Parse the output: `TASK_FILE:<path>` means found (use that path), `NOT_FOUND` means not found.
   - If not found: warn "t\<id\>: file not found — skipping" and exclude.
@@ -48,7 +48,7 @@ If this skill is invoked with arguments (e.g., `/aitask-fold 106,108,112` or `/a
     - **Status check:** Must be `Ready` or `Editing`. If not, warn "t\<id\>: status is \<status\> — skipping" and exclude.
     - **Children check:** Must not have children:
       ```bash
-      ./aiscripts/aitask_query_files.sh has-children <id>
+      ./.aitask-scripts/aitask_query_files.sh has-children <id>
       ```
       Parse the output: `HAS_CHILDREN:<count>` means it has children — warn "t\<id\>: has children — skipping" and exclude. `NO_CHILDREN` means eligible.
     - **Child task check:** Must not be a child task itself (the filename must match `t<number>_*.md` with a single number, not `t<parent>_<child>_*.md`). If it's a child task, warn "t\<id\>: is a child task — skipping" and exclude.
@@ -64,7 +64,7 @@ If no argument is provided, proceed with Step 1 as normal.
 Do a best-effort sync to ensure the local state is up to date and clean up stale locks:
 
 ```bash
-./aiscripts/aitask_pick_own.sh --sync
+./.aitask-scripts/aitask_pick_own.sh --sync
 ```
 
 This is non-blocking — if it fails (e.g., no network, merge conflicts), it continues silently.
@@ -78,7 +78,7 @@ This step is only executed when no task IDs were provided as arguments.
 List all pending tasks:
 
 ```bash
-./aiscripts/aitask_ls.sh -v --status all --all-levels 99 2>/dev/null
+./.aitask-scripts/aitask_ls.sh -v --status all --all-levels 99 2>/dev/null
 ```
 
 Filter the output to include only tasks that are eligible for folding:
@@ -161,7 +161,7 @@ Construct the updated description for the primary task:
 Update the primary task's description:
 
 ```bash
-./aiscripts/aitask_update.sh --batch <primary_num> --desc-file - <<'TASK_DESC'
+./.aitask-scripts/aitask_update.sh --batch <primary_num> --desc-file - <<'TASK_DESC'
 <merged description>
 TASK_DESC
 ```
@@ -182,7 +182,7 @@ For each non-primary task:
 Set the folded_tasks frontmatter:
 
 ```bash
-./aiscripts/aitask_update.sh --batch <primary_num> --folded-tasks "<comma-separated list of all folded task IDs, including transitive>"
+./.aitask-scripts/aitask_update.sh --batch <primary_num> --folded-tasks "<comma-separated list of all folded task IDs, including transitive>"
 ```
 
 #### 3e: Update Folded Tasks Status
@@ -190,13 +190,13 @@ Set the folded_tasks frontmatter:
 For each non-primary task ID that was folded, set its status to `Folded` and add the `folded_into` reference:
 
 ```bash
-./aiscripts/aitask_update.sh --batch <folded_task_num> --status Folded --folded-into <primary_num>
+./.aitask-scripts/aitask_update.sh --batch <folded_task_num> --status Folded --folded-into <primary_num>
 ```
 
 **For transitive folded tasks** (B, C from the example above): update their `folded_into` to point to the primary task:
 
 ```bash
-./aiscripts/aitask_update.sh --batch <transitive_folded_num> --folded-into <primary_num>
+./.aitask-scripts/aitask_update.sh --batch <transitive_folded_num> --folded-into <primary_num>
 ```
 
 #### 3f: Commit

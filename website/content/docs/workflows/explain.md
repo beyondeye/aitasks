@@ -27,7 +27,7 @@ The aitasks framework is well-positioned to address cognitive debt because every
 
 ## Walkthrough: Understanding a Refactored Module
 
-You need to understand `aiscripts/lib/task_utils.sh`, a core library that has been modified by many tasks. You don't know the history of the file or why certain patterns exist.
+You need to understand `.aitask-scripts/lib/task_utils.sh`, a core library that has been modified by many tasks. You don't know the history of the file or why certain patterns exist.
 
 **1. Launch the skill**
 
@@ -35,7 +35,7 @@ You need to understand `aiscripts/lib/task_utils.sh`, a core library that has be
 /aitask-explain
 ```
 
-Select "Enter paths directly" and provide `aiscripts/lib/task_utils.sh`.
+Select "Enter paths directly" and provide `.aitask-scripts/lib/task_utils.sh`.
 
 > **Tip:** You can also choose "Search for files" to find files by keyword, name, or functionality — useful when you don't know the exact path. See [File Selection](../../skills/aitask-explain/#file-selection) for details.
 
@@ -100,4 +100,4 @@ The recommended workflow is: use the code browser to visually scan a file's task
 - **Reuse runs across sessions** — Keep the analysis data when prompted. Subsequent sessions can reuse the cached reference data, avoiding the cost of re-running git analysis. Refresh only when the file has changed significantly
 - **Combine with review** — Use `/aitask-explain` to understand why code exists, then use [`/aitask-review`](../../skills/aitask-review/) to evaluate whether it should change. Understanding context first makes review findings more actionable
 - **Explain directories for module-level understanding** — Pass a directory path to explain all files in a module at once. The shared commit and task context across files often reveals architectural decisions that are invisible when looking at individual files
-- **Manage disk usage** — Stale runs are cleaned up automatically when new data is generated, but you can also run `./aiscripts/aitask_explain_runs.sh --cleanup-stale` to manually remove older runs for the same source directory. Use `./aiscripts/aitask_explain_runs.sh --list` to see all current runs, or the interactive mode to selectively delete individual runs
+- **Manage disk usage** — Stale runs are cleaned up automatically when new data is generated, but you can also run `./.aitask-scripts/aitask_explain_runs.sh --cleanup-stale` to manually remove older runs for the same source directory. Use `./.aitask-scripts/aitask_explain_runs.sh --list` to see all current runs, or the interactive mode to selectively delete individual runs

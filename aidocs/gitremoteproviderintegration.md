@@ -14,7 +14,7 @@ All backends produce **normalized JSON** matching the GitHub field structure, so
 
 ## Extension Checklist
 
-### 1. Platform Detection — `aiscripts/lib/task_utils.sh`
+### 1. Platform Detection — `.aitask-scripts/lib/task_utils.sh`
 
 Add URL patterns for the new provider to both detection functions:
 
@@ -23,7 +23,7 @@ Add URL patterns for the new provider to both detection functions:
 
 Add a new `elif` branch matching the provider's hostname pattern.
 
-### 2. Issue Import — `aiscripts/aitask_issue_import.sh`
+### 2. Issue Import — `.aitask-scripts/aitask_issue_import.sh`
 
 Implement **7 backend functions**:
 
@@ -41,7 +41,7 @@ Then wire up:
 - Add `<platform>)` case to **7 dispatcher functions**: `source_check_cli`, `source_fetch_issue`, `source_list_issues`, `source_map_labels`, `source_detect_type`, `source_preview_issue`, `source_format_comments`
 - Add `<platform>)` to the validation `case` in `parse_args()`
 
-### 3. Issue Update — `aiscripts/aitask_issue_update.sh`
+### 3. Issue Update — `.aitask-scripts/aitask_issue_update.sh`
 
 Implement **5 backend functions**:
 
@@ -57,7 +57,7 @@ Then wire up:
 - Add `<platform>)` case to **5 dispatcher functions**: `source_check_cli`, `source_extract_issue_number`, `source_get_issue_status`, `source_add_comment`, `source_close_issue`
 - Add `<platform>)` to the validation `case` in `parse_args()`
 
-### 4. Setup — `aiscripts/aitask_setup.sh`
+### 4. Setup — `.aitask-scripts/aitask_setup.sh`
 
 - Add the new provider's hostname to `_detect_git_platform()` (inline detection function)
 - Add CLI tool name to the `case "$platform"` block in `install_cli_tools()`

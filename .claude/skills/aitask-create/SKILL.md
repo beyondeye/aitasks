@@ -10,7 +10,7 @@ description: Create a new AI task file with automatic numbering and proper metad
 First, list existing active tasks to see if the user wants to create a child task:
 
 ```bash
-./aiscripts/aitask_ls.sh -v -s all 99
+./.aitask-scripts/aitask_ls.sh -v -s all 99
 ```
 
 Use `AskUserQuestion`:
@@ -23,7 +23,7 @@ Use `AskUserQuestion`:
 - Store the parent task number
 - Get the next child number by querying all children (active + archived):
   ```bash
-  ./aiscripts/aitask_query_files.sh all-children <parent>
+  ./.aitask-scripts/aitask_query_files.sh all-children <parent>
   ```
   Parse the output: `CHILD:<path>` lines are active children, `ARCHIVED_CHILD:<path>` lines are archived children. Extract child numbers from all paths (e.g., `t10_2_name.md` → `2`), find the highest, and add 1. If output is `NO_CHILDREN`, next child number is 1.
 - Display: "Next child task will be: t<parent>_<child>"
@@ -65,12 +65,12 @@ Use the `AskUserQuestion` tool to gather task metadata:
 **3c. Dependencies:**
 First, list existing active tasks (and siblings if creating a child):
 ```bash
-./aiscripts/aitask_ls.sh -v 99
+./.aitask-scripts/aitask_ls.sh -v 99
 ```
 
 For child tasks, also list siblings:
 ```bash
-./aiscripts/aitask_query_files.sh active-children <parent>
+./.aitask-scripts/aitask_query_files.sh active-children <parent>
 ```
 Parse the output: `CHILD:<path>` lines list active sibling task files. If output is `NO_CHILDREN`, there are no existing siblings.
 
@@ -200,7 +200,7 @@ For child tasks, the parent's `children_to_implement` is updated during finaliza
 Use the `aitask_create.sh` script to finalize the draft:
 
 ```bash
-./aiscripts/aitask_create.sh --batch --finalize draft_<timestamp>_<name>.md
+./.aitask-scripts/aitask_create.sh --batch --finalize draft_<timestamp>_<name>.md
 ```
 
 This will:
@@ -244,7 +244,7 @@ If sanitization removes all characters, use "unnamed_task" as the default name.
 If creating a child task and the parent doesn't exist, show an error and ask to select a different parent.
 
 ### Finalization Fails
-If `--finalize` fails (no network, no counter branch), inform user: "Draft saved to aitasks/new/. Finalize later with `ait create` (interactive) or `./aiscripts/aitask_create.sh --batch --finalize <file>`."
+If `--finalize` fails (no network, no counter branch), inform user: "Draft saved to aitasks/new/. Finalize later with `ait create` (interactive) or `./.aitask-scripts/aitask_create.sh --batch --finalize <file>`."
 
 ## Notes
 

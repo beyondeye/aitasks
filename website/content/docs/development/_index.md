@@ -10,15 +10,15 @@ description: "Architecture, internals, and release process"
 The framework follows a dispatcher pattern. The `ait` script in the project root routes subcommands to individual scripts:
 
 ```
-ait <subcommand> [args]  →  aiscripts/aitask_<subcommand>.sh [args]
+ait <subcommand> [args]  →  .aitask-scripts/aitask_<subcommand>.sh [args]
 ```
 
 ## Directory Layout
 
 | Directory | Purpose |
 |-----------|---------|
-| `aiscripts/` | All framework scripts (`aitask_*.sh`) |
-| `aiscripts/lib/` | Shared library scripts sourced by main scripts |
+| `.aitask-scripts/` | All framework scripts (`aitask_*.sh`) |
+| `.aitask-scripts/lib/` | Shared library scripts sourced by main scripts |
 | `.claude/skills/aitask-*` | Claude Code skill definitions (SKILL.md files) |
 | `aitasks/` | Active task files (`t<N>_name.md`) and child task directories (`t<N>/`) |
 | `aitasks/new/` | Draft task files (gitignored, local-only) |
@@ -33,7 +33,7 @@ ait <subcommand> [args]  →  aiscripts/aitask_<subcommand>.sh [args]
 
 ## Library Scripts
 
-Shared utilities in `aiscripts/lib/` are sourced by main scripts. Both libraries use a double-source guard (`[[ -n "${_VAR_LOADED:-}" ]] && return 0`) to prevent duplicate loading.
+Shared utilities in `.aitask-scripts/lib/` are sourced by main scripts. Both libraries use a double-source guard (`[[ -n "${_VAR_LOADED:-}" ]] && return 0`) to prevent duplicate loading.
 
 ### lib/task_utils.sh
 
@@ -76,7 +76,7 @@ Terminal capability detection and colored output helpers.
 
 ## Atomic Task ID Counter
 
-The internal script `aiscripts/aitask_claim_id.sh` manages a shared atomic counter for task IDs. It is not exposed via the `ait` dispatcher — it is called internally by `aitask_create.sh` during finalization and by `aitask_setup.sh` during initialization.
+The internal script `.aitask-scripts/aitask_claim_id.sh` manages a shared atomic counter for task IDs. It is not exposed via the `ait` dispatcher — it is called internally by `aitask_create.sh` during finalization and by `aitask_setup.sh` during initialization.
 
 - A separate git branch `aitask-ids` holds a single file `next_id.txt` as the shared counter
 - Atomicity is achieved via git plumbing commands (`hash-object`, `mktree`, `commit-tree`) and push rejection on non-fast-forward updates (compare-and-swap semantics)
@@ -88,7 +88,7 @@ The internal script `aiscripts/aitask_claim_id.sh` manages a shared atomic count
 
 ## Atomic Task Locking
 
-The internal script `aiscripts/aitask_lock.sh` prevents race conditions when two PCs try to pick the same task simultaneously. It is not exposed via the `ait` dispatcher — it is called internally by the `aitask-pick` skill workflow.
+The internal script `.aitask-scripts/aitask_lock.sh` prevents race conditions when two PCs try to pick the same task simultaneously. It is not exposed via the `ait` dispatcher — it is called internally by the `aitask-pick` skill workflow.
 
 - A separate git orphan branch `aitask-locks` holds per-task lock files (`t<id>_lock.yaml` in YAML format with task ID, email, timestamp, and hostname)
 - Atomicity uses the same compare-and-swap approach as the ID counter: git plumbing commands + push rejection on non-fast-forward, with random backoff up to 5 retries
@@ -141,7 +141,7 @@ After installing, run `cd website && npm install` for Node.js dependencies. See 
 
 ## Modifying Scripts
 
-All framework scripts live in `aiscripts/`. The `ait` dispatcher forwards subcommands to the corresponding `aitask_*.sh` script. Claude Code skills are defined in `.claude/skills/`.
+All framework scripts live in `.aitask-scripts/`. The `ait` dispatcher forwards subcommands to the corresponding `aitask_*.sh` script. Claude Code skills are defined in `.claude/skills/`.
 
 ---
 
@@ -153,8 +153,8 @@ Run individual commands to verify:
 ./ait --version                    # Check dispatcher works
 ./ait ls -v 5                      # List tasks
 ./ait setup                        # Re-run dependency setup
-bash -n aiscripts/*.sh             # Syntax-check all scripts
-shellcheck aiscripts/aitask_*.sh   # Lint all scripts
+bash -n .aitask-scripts/*.sh             # Syntax-check all scripts
+shellcheck .aitask-scripts/aitask_*.sh   # Lint all scripts
 ```
 
 ---

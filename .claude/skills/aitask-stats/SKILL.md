@@ -8,7 +8,7 @@ description: Calculate and display statistics of AI task completions (daily, glo
 Run the statistics script:
 
 ```bash
-./aiscripts/aitask_stats.sh [OPTIONS]
+./.aitask-scripts/aitask_stats.sh [OPTIONS]
 ```
 
 ### Options
@@ -22,22 +22,22 @@ Run the statistics script:
 
 Basic statistics (last 7 days):
 ```bash
-./aiscripts/aitask_stats.sh
+./.aitask-scripts/aitask_stats.sh
 ```
 
 Extended daily view (14 days):
 ```bash
-./aiscripts/aitask_stats.sh --days 14
+./.aitask-scripts/aitask_stats.sh --days 14
 ```
 
 Verbose output with task names:
 ```bash
-./aiscripts/aitask_stats.sh -v
+./.aitask-scripts/aitask_stats.sh -v
 ```
 
 Export to CSV for graphing in LibreOffice:
 ```bash
-./aiscripts/aitask_stats.sh --csv
+./.aitask-scripts/aitask_stats.sh --csv
 ```
 
 ## Statistics Provided

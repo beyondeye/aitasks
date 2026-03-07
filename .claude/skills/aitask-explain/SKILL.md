@@ -81,7 +81,7 @@ Use `AskUserQuestion` with `multiSelect: true`:
 Run the shell script to gather raw data and produce the YAML reference:
 
 ```bash
-./aiscripts/aitask_explain_extract_raw_data.sh --gather <path1> [path2...] --max-commits 50
+./.aitask-scripts/aitask_explain_extract_raw_data.sh --gather <path1> [path2...] --max-commits 50
 ```
 
 - Parse the `RUN_DIR: <path>` line from output to get the run-specific directory
@@ -176,16 +176,16 @@ Use `AskUserQuestion`:
 **If "Yes, delete":**
 
 ```bash
-./aiscripts/aitask_explain_extract_raw_data.sh --cleanup <run_dir>
+./.aitask-scripts/aitask_explain_extract_raw_data.sh --cleanup <run_dir>
 ```
 
 Where `<run_dir>` is the path captured in Step 3 (e.g., `aiexplains/20260221_143052`).
 
 **If "No, keep":**
 - Inform user: "Analysis data preserved at `<run_dir>`. Use `/aitask-explain` again and select 'Use existing analysis' to reuse it."
-- To manage existing runs later: `./aiscripts/aitask_explain_runs.sh`
+- To manage existing runs later: `./.aitask-scripts/aitask_explain_runs.sh`
 
-**Note:** Stale run cleanup (removing older runs for the same source directory) happens automatically during Step 3 gathering. Manual cleanup via Step 6 removes the current run entirely. To trigger a manual stale cleanup: `./aiscripts/aitask_explain_runs.sh --cleanup-stale`
+**Note:** Stale run cleanup (removing older runs for the same source directory) happens automatically during Step 3 gathering. Manual cleanup via Step 6 removes the current run entirely. To trigger a manual stale cleanup: `./.aitask-scripts/aitask_explain_runs.sh --cleanup-stale`
 
 ---
 
@@ -198,6 +198,6 @@ Where `<run_dir>` is the path captured in Step 3 (e.g., `aiexplains/20260221_143
 - Commit timeline is ordered **newest first** (most recent changes have lowest timeline numbers)
 - Task/plan files are copied with ID-only names (e.g., `t16.md`, `p16.md`) for simpler referencing
 - Existing runs can be reused to avoid expensive re-analysis of unchanged code
-- Run management (list, delete) is available via `./aiscripts/aitask_explain_runs.sh`
+- Run management (list, delete) is available via `./.aitask-scripts/aitask_explain_runs.sh`
 - Accepts both individual files and directories; directories are expanded to git-tracked text files
 - Binary files (images, compiled assets, etc.) are auto-detected by the extraction pipeline and marked `binary: true` in `reference.yaml`. They have commit timelines but empty `line_ranges`. The codebrowser shows "Binary file — cannot display" for content with "(binary, N commits)" in the annotation info bar.

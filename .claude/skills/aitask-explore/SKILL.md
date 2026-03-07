@@ -10,7 +10,7 @@ description: Explore the codebase interactively, then create a task for implemen
 Scan available execution profiles:
 
 ```bash
-./aiscripts/aitask_scan_profiles.sh
+./.aitask-scripts/aitask_scan_profiles.sh
 ```
 
 Parse the output lines. Each valid profile appears as `PROFILE|<filename>|<name>|<description>`. Lines starting with `INVALID|<filename>` indicate profiles with bad YAML — warn the user ("Profile '\<filename\>' has invalid format, skipping").
@@ -35,7 +35,7 @@ Parse the output lines. Each valid profile appears as `PROFILE|<filename>|<name>
 Do a best-effort sync to ensure the local state is up to date and clean up stale locks:
 
 ```bash
-./aiscripts/aitask_pick_own.sh --sync
+./.aitask-scripts/aitask_pick_own.sh --sync
 ```
 
 This is non-blocking — if it fails (e.g., no network, merge conflicts), it continues silently.
@@ -133,7 +133,7 @@ Before creating a new task, check for existing pending tasks that overlap with t
 **List pending tasks:**
 
 ```bash
-./aiscripts/aitask_ls.sh -v --status all --all-levels 99 2>/dev/null
+./.aitask-scripts/aitask_ls.sh -v --status all --all-levels 99 2>/dev/null
 ```
 
 Filter the output to include only tasks with status `Ready` or `Editing`. Exclude:
@@ -197,7 +197,7 @@ The following existing tasks have been folded into this task. Their requirements
 **Create the task:**
 
 ```bash
-./aiscripts/aitask_create.sh --batch --commit --name "<name>" --desc-file - --priority <p> --effort <e> --type <issue_type> --labels <l> <<'TASK_DESC'
+./.aitask-scripts/aitask_create.sh --batch --commit --name "<name>" --desc-file - --priority <p> --effort <e> --type <issue_type> --labels <l> <<'TASK_DESC'
 <task description based on exploration findings, with folded task content incorporated>
 TASK_DESC
 ```
@@ -210,11 +210,11 @@ TASK_DESC
 **If folded_tasks is non-empty**, set the `folded_tasks` frontmatter field and update each folded task:
 ```bash
 # Set folded_tasks via aitask_update.sh (no --commit, we'll amend)
-./aiscripts/aitask_update.sh --batch <task_num> --folded-tasks "<comma-separated IDs>"
+./.aitask-scripts/aitask_update.sh --batch <task_num> --folded-tasks "<comma-separated IDs>"
 
 # Update each folded task's status and folded_into reference
 for folded_id in <folded_task_ids>; do
-    ./aiscripts/aitask_update.sh --batch $folded_id --status Folded --folded-into <task_num>
+    ./.aitask-scripts/aitask_update.sh --batch $folded_id --status Folded --folded-into <task_num>
 done
 
 # Amend the create commit to include all frontmatter updates

@@ -4,7 +4,7 @@ This file provides guidance when working with code in this repository.
 
 ## Project Overview
 
-**aitasks**  is a file-based task management framework for AI coding agents, primarily Claude Code. Tasks are markdown files with YAML frontmatter stored in git — no backend infrastructure required. The `ait` CLI dispatcher routes to shell scripts in `aiscripts/`.
+**aitasks**  is a file-based task management framework for AI coding agents, primarily Claude Code. Tasks are markdown files with YAML frontmatter stored in git — no backend infrastructure required. The `ait` CLI dispatcher routes to shell scripts in `.aitask-scripts/`.
 
 
 ### Testing
@@ -26,7 +26,7 @@ No test runner — each file is self-contained with `assert_eq`/`assert_contains
 
 ### Linting
 ```bash
-shellcheck aiscripts/aitask_*.sh
+shellcheck .aitask-scripts/aitask_*.sh
 ```
 
 ### Website (Hugo/Docsy)
@@ -39,13 +39,13 @@ Requires: Hugo extended (>=0.155.3), Go (>=1.23), Dart Sass, Node.js (18+).
 ## Architecture
 
 ### Core Flow
-`ait` (bash dispatcher) → `aiscripts/aitask_*.sh` (command scripts) → `aiscripts/lib/task_utils.sh` + `terminal_compat.sh` (shared utilities)
+`ait` (bash dispatcher) → `.aitask-scripts/aitask_*.sh` (command scripts) → `.aitask-scripts/lib/task_utils.sh` + `terminal_compat.sh` (shared utilities)
 
 All scripts `cd` to the repo root via `ait` before running. Directory variables default to: `TASK_DIR=aitasks`, `PLAN_DIR=aiplans`, `ARCHIVED_DIR=aitasks/archived`, `ARCHIVED_PLAN_DIR=aiplans/archived`.
 
 ### Key Directories
-- `aiscripts/` — Shell scripts implementing all CLI commands (~18 scripts + 2 lib files)
-- `aiscripts/board/aitask_board.py` — Python TUI board (Textual framework, ~2400 LOC)
+- `.aitask-scripts/` — Shell scripts implementing all CLI commands (~18 scripts + 2 lib files)
+- `.aitask-scripts/board/aitask_board.py` — Python TUI board (Textual framework, ~2400 LOC)
 - `aitasks/` — Active task files (`t<N>.md`, child tasks in `t<N>/t<N>_M_*.md`)
 - `aitasks/archived/` — Completed tasks (may include `old.tar.gz` for space)
 - `aitasks/metadata/` — Config: `task_types.txt`, `labels.txt`, `board_config.json`, `project_config.yaml`, `profiles/`

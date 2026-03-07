@@ -16,7 +16,7 @@ This skill runs **locally** after `aitask-pickweb` completes on Claude Code Web.
 Run the helper script to detect branches with completion markers:
 
 ```bash
-./aiscripts/aitask_web_merge.sh --fetch
+./.aitask-scripts/aitask_web_merge.sh --fetch
 ```
 
 **If output is `NONE`:** Inform user "No completed Claude Web branches found." and end the workflow.
@@ -128,13 +128,13 @@ mkdir -p <target_directory>
 **If `implemented_with` is present in the completion marker JSON:**
 
 ```bash
-./aiscripts/aitask_update.sh --batch <task_id> --implemented-with "<implemented_with>" --silent
+./.aitask-scripts/aitask_update.sh --batch <task_id> --implemented-with "<implemented_with>" --silent
 ```
 
 **Run the archive script:**
 
 ```bash
-./aiscripts/aitask_archive.sh <task_id>
+./.aitask-scripts/aitask_archive.sh <task_id>
 ```
 
 **Parse structured output and handle each line:**
@@ -195,17 +195,17 @@ Use `AskUserQuestion`:
 
 If "Close with notes":
 ```bash
-./aiscripts/aitask_issue_update.sh --close <task_num>
+./.aitask-scripts/aitask_issue_update.sh --close <task_num>
 ```
 
 If "Comment only":
 ```bash
-./aiscripts/aitask_issue_update.sh <task_num>
+./.aitask-scripts/aitask_issue_update.sh <task_num>
 ```
 
 If "Close silently":
 ```bash
-./aiscripts/aitask_issue_update.sh --close --no-comment <task_num>
+./.aitask-scripts/aitask_issue_update.sh --close --no-comment <task_num>
 ```
 
 If "Skip": do nothing.

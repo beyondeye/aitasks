@@ -135,7 +135,7 @@ android/                  # Exclude an entire environment
 
 ## Environment Detection Algorithm
 
-The script `aiscripts/aitask_review_detect_env.sh` auto-detects which review guides are relevant to a set of files. It is called by `/aitask-review` during guide selection (Step 1b).
+The script `.aitask-scripts/aitask_review_detect_env.sh` auto-detects which review guides are relevant to a set of files. It is called by `/aitask-review` during guide selection (Step 1b).
 
 **Input:** A list of file paths via `--files FILE...` or `--files-stdin`.
 
@@ -190,7 +190,7 @@ Checks file paths for known directory structures. Each pattern triggers scoring 
 
 | Pattern | Environments |
 |---------|-------------|
-| `aiscripts/*` | bash, shell |
+| `.aitask-scripts/*` | bash, shell |
 | `*.sh` at project root (no `/` in path) | bash, shell |
 | `src/main/kotlin/*`, `src/main/java/*`, `app/src/*` | android, kotlin |
 | `*.xcodeproj/*`, `ios/*`, `Pods/*` | ios, swift |
@@ -229,7 +229,7 @@ general/security.md|Security|Check for injection...|universal
 
 ## Similarity Scoring Algorithm
 
-The script `aiscripts/aitask_reviewguide_scan.sh` analyzes guide metadata to find similar guides for consolidation. The `--compare FILE` mode is used by `/aitask-reviewguide-classify` (Step 5) and the `--find-similar` mode by `/aitask-reviewguide-merge`.
+The script `.aitask-scripts/aitask_reviewguide_scan.sh` analyzes guide metadata to find similar guides for consolidation. The `--compare FILE` mode is used by `/aitask-reviewguide-classify` (Step 5) and the `--find-similar` mode by `/aitask-reviewguide-merge`.
 
 ### Scoring Formula
 

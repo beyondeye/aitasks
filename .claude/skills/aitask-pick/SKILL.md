@@ -10,7 +10,7 @@ description: Select the next AI task for implementation from the `aitasks/` dire
 Scan available execution profiles:
 
 ```bash
-./aiscripts/aitask_scan_profiles.sh
+./.aitask-scripts/aitask_scan_profiles.sh
 ```
 
 Parse the output lines. Each valid profile appears as `PROFILE|<filename>|<name>|<description>`. Lines starting with `INVALID|<filename>` indicate profiles with bad YAML — warn the user ("Profile '\<filename\>' has invalid format, skipping").
@@ -40,7 +40,7 @@ If this skill is invoked with a numeric argument:
 - Parse the argument as the task number
 - Find the matching task file and check for children in a single call:
   ```bash
-  ./aiscripts/aitask_query_files.sh resolve <number>
+  ./.aitask-scripts/aitask_query_files.sh resolve <number>
   ```
   Parse the output: if first line is `NOT_FOUND`, the task file does not exist (fall through to error). If first line is `TASK_FILE:<path>`, use that path. If second line is `HAS_CHILDREN:<count>`, the task has children — proceed to **Step 2d**. If `NO_CHILDREN`, proceed normally.
   - If it has children → proceed to **Step 2d** (Child Task Selection)
@@ -63,7 +63,7 @@ If this skill is invoked with a numeric argument:
 - Parse as child task ID (parent=16, child=2)
 - Find the matching child task file:
   ```bash
-  ./aiscripts/aitask_query_files.sh child-file <parent> <child>
+  ./.aitask-scripts/aitask_query_files.sh child-file <parent> <child>
   ```
   Parse the output: `CHILD_FILE:<path>` means found (use that path), `NOT_FOUND` means not found.
 - If found:
@@ -71,7 +71,7 @@ If this skill is invoked with a numeric argument:
   - Read the task file and parent task for context
   - **Gather archived sibling context** in a single call:
     ```bash
-    ./aiscripts/aitask_query_files.sh sibling-context <parent>
+    ./.aitask-scripts/aitask_query_files.sh sibling-context <parent>
     ```
     Parse the output: lines prefixed `ARCHIVED_PLAN:` are archived sibling plan files (primary context source for completed siblings). Lines prefixed `ARCHIVED_TASK:` are fallback for siblings without archived plans. Lines prefixed `PENDING_SIBLING:` are pending sibling task files. Lines prefixed `PENDING_PLAN:` are pending sibling plans. If output is `NO_CONTEXT`, there are no sibling context files. Read the files listed in the output.
   - **Show task summary and confirm:**
@@ -98,7 +98,7 @@ If no argument is provided, proceed with Step 1 as normal.
 Before listing tasks, do a best-effort sync to ensure the local task list is up to date (prevents picking a task that another PC already started) and clean up stale locks:
 
 ```bash
-./aiscripts/aitask_pick_own.sh --sync
+./.aitask-scripts/aitask_pick_own.sh --sync
 ```
 
 This is non-blocking — if it fails (e.g., no network, merge conflicts), it continues silently.
@@ -121,12 +121,12 @@ Before retrieving tasks, ask the user if they want to filter by labels.
 Run the task selection script to get the top 15 prioritized **parent** tasks:
 
 ```bash
-./aiscripts/aitask_ls.sh -v 15
+./.aitask-scripts/aitask_ls.sh -v 15
 ```
 
 If labels were selected in Step 1:
 ```bash
-./aiscripts/aitask_ls.sh -v -l label1,label2 15
+./.aitask-scripts/aitask_ls.sh -v -l label1,label2 15
 ```
 
 **Note:** This only shows parent-level tasks, not children. Parent tasks with pending children will show as "Has children" and can be selected to drill down into child tasks.
@@ -143,7 +143,7 @@ For each task returned by the script:
 - Read the corresponding task file from `aitasks/<filename>`
 - Check if it has children:
   ```bash
-  ./aiscripts/aitask_query_files.sh has-children <number>
+  ./.aitask-scripts/aitask_query_files.sh has-children <number>
   ```
   Parse the output: `HAS_CHILDREN:<count>` means it has children (include the count), `NO_CHILDREN` means none.
 - Generate a brief summary including child count if applicable
@@ -185,7 +185,7 @@ If the selected task is a parent task with children in `aitasks/t<N>/`:
 
 - List all child tasks:
   ```bash
-  ./aiscripts/aitask_ls.sh -v --children <parent_num> 99
+  ./.aitask-scripts/aitask_ls.sh -v --children <parent_num> 99
   ```
 
 - Read each child task file for summaries
@@ -200,7 +200,7 @@ If the selected task is a parent task with children in `aitasks/t<N>/`:
   - Set child as the working task
   - **Gather sibling context** (archived + pending) in a single call:
     ```bash
-    ./aiscripts/aitask_query_files.sh sibling-context <parent>
+    ./.aitask-scripts/aitask_query_files.sh sibling-context <parent>
     ```
     Parse the output and read files listed. `ARCHIVED_PLAN:` files are the primary reference for completed siblings. `ARCHIVED_TASK:` files are fallback. `PENDING_SIBLING:` and `PENDING_PLAN:` are pending sibling context. Include parent task file in context as well.
   - Proceed to Step 3

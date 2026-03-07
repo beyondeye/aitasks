@@ -20,7 +20,7 @@ Explain files in the project by providing detailed analysis of their functionali
 
 1. **File selection** — Choose files via three methods: reuse data from a previous explain run, search the project using the file-select interface, or enter file/directory paths directly. Directories are automatically expanded to all git-tracked text files within them
 2. **Mode selection** — Choose one or more analysis modes (multi-select): Functionality (what the code does), Usage examples (how it is used in the project), Code evolution (how it changed over time, traced through commits and aitasks)
-3. **Generate reference data** — Gathers git commit history and blame data for each file, extracts associated task and plan files, and produces a structured `reference.yaml` mapping line ranges to commits to task IDs. Each run creates an isolated directory under `aiexplains/<dir_key>__<timestamp>/`, where `dir_key` identifies the source directory (e.g., `aiscripts__lib` for `aiscripts/lib/`). Stale runs for the same source directory are automatically cleaned up
+3. **Generate reference data** — Gathers git commit history and blame data for each file, extracts associated task and plan files, and produces a structured `reference.yaml` mapping line ranges to commits to task IDs. Each run creates an isolated directory under `aiexplains/<dir_key>__<timestamp>/`, where `dir_key` identifies the source directory (e.g., `aiscripts__lib` for `.aitask-scripts/lib/`). Stale runs for the same source directory are automatically cleaned up
 4. **Analysis and explanation** — Functionality covers purpose, key components, data flow, error handling, and design patterns. Usage examples searches the project for real imports, references, and call sites. Code evolution presents a newest-first narrative of how the code evolved, citing specific commits and linking to the tasks and plan notes that motivated each change
 5. **Interactive follow-up** — Ask about specific code sections (by line range, function name, or description), switch analysis modes, or analyze different files. Reference data is reused across follow-ups within the same session
 6. **Cleanup** — Choose to delete the run directory or keep it for reuse in future sessions
@@ -53,19 +53,19 @@ Stale runs (older runs for the same source directory) are automatically cleaned 
 
 ```bash
 # List all runs (top-level and codebrowser)
-./aiscripts/aitask_explain_runs.sh --list
+./.aitask-scripts/aitask_explain_runs.sh --list
 
 # Interactive deletion with fzf
-./aiscripts/aitask_explain_runs.sh
+./.aitask-scripts/aitask_explain_runs.sh
 
 # Delete a specific run
-./aiscripts/aitask_explain_runs.sh --delete aiexplains/aiscripts__lib__20260226_155403
+./.aitask-scripts/aitask_explain_runs.sh --delete aiexplains/aiscripts__lib__20260226_155403
 
 # Delete all runs
-./aiscripts/aitask_explain_runs.sh --delete-all
+./.aitask-scripts/aitask_explain_runs.sh --delete-all
 
 # Remove stale runs (keep newest per source directory)
-./aiscripts/aitask_explain_runs.sh --cleanup-stale
+./.aitask-scripts/aitask_explain_runs.sh --cleanup-stale
 ```
 
 ## Visual Browsing

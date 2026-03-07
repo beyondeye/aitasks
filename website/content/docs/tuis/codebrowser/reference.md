@@ -61,7 +61,7 @@ The codebrowser uses the same explain data pipeline as [`/aitask-explain`]({{< r
 4. `reference.yaml` is parsed to build annotation ranges (start line, end line, task IDs, commit hashes)
 5. Annotations are rendered as color-coded task IDs in the gutter column of the code viewer
 
-The `dir_key` identifies the source directory (e.g., `aiscripts__lib` for `aiscripts/lib/`). Root-level files use the key `_root_`.
+The `dir_key` identifies the source directory (e.g., `aiscripts__lib` for `.aitask-scripts/lib/`). Root-level files use the key `_root_`.
 
 ### Explain Run Management
 

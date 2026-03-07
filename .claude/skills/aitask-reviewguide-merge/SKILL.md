@@ -188,7 +188,7 @@ Show what was done:
 Run the scan script:
 
 ```bash
-./aiscripts/aitask_reviewguide_scan.sh --find-similar
+./.aitask-scripts/aitask_reviewguide_scan.sh --find-similar
 ```
 
 Parse the pipe-delimited output. Each line has the format:
@@ -245,7 +245,7 @@ After completing a pair, use `AskUserQuestion`:
   - `"Next pair"` (description: `"Re-scan and select another pair to compare"`)
   - `"Done"` (description: `"Finish merge workflow"`)
 
-**If "Next pair":** Re-run `./aiscripts/aitask_reviewguide_scan.sh --find-similar` to get updated candidates (since the merge changed the landscape). Apply the same environment filter from Step 9. Return to Step 10 with the new pairs.
+**If "Next pair":** Re-run `./.aitask-scripts/aitask_reviewguide_scan.sh --find-similar` to get updated candidates (since the merge changed the landscape). Apply the same environment filter from Step 9. Return to Step 10 with the new pairs.
 
 **If "Done":** Proceed to Step 13.
 

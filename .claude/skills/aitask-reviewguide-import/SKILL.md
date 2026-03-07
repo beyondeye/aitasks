@@ -36,7 +36,7 @@ Classify the source argument:
 **Repository single file:**
 - Fetch the file content using the `repo_fetch.sh` helper library:
   ```bash
-  source aiscripts/lib/repo_fetch.sh && repo_fetch_file "URL"
+  source .aitask-scripts/lib/repo_fetch.sh && repo_fetch_file "URL"
   ```
   This handles GitHub, GitLab, and Bitbucket URLs internally, using platform CLI tools (`gh`, `glab`) with automatic fallback to `curl` on raw URLs.
 - If the Bash command fails, fall back to `WebFetch` with the platform-specific raw URL:
@@ -48,7 +48,7 @@ Classify the source argument:
 **Repository directory:**
 - List markdown files using the `repo_fetch.sh` helper library:
   ```bash
-  source aiscripts/lib/repo_fetch.sh && repo_list_md_files "URL"
+  source .aitask-scripts/lib/repo_fetch.sh && repo_list_md_files "URL"
   ```
   This handles GitHub, GitLab, and Bitbucket directory listings internally. Requires `jq`. GitHub requires `gh` CLI; GitLab and Bitbucket fall back to public REST APIs via `curl`.
 - If markdown files are found, proceed to **Step 7** (Batch Mode)
@@ -211,7 +211,7 @@ Use `AskUserQuestion`:
 
 3. **Run similarity comparison:**
    ```bash
-   ./aiscripts/aitask_reviewguide_scan.sh --compare <relative_path>
+   ./.aitask-scripts/aitask_reviewguide_scan.sh --compare <relative_path>
    ```
    Parse the pipe-delimited output. If the top result has a score >= 5, update the file's frontmatter to add `similar_to: <most_similar_path>`.
 
@@ -271,7 +271,7 @@ This step is reached from Step 1c when the source is a repository directory cont
    **If "Show more files" selected:** Increment offset, loop back.
 
 3. **Process each selected file:**
-   For each file, fetch its content using `source aiscripts/lib/repo_fetch.sh && repo_fetch_file "URL"` (construct the file URL from the directory URL by replacing `/tree/` or `/-/tree/` or `/src/` directory path with the corresponding file path pattern for the platform) and run Steps 2-6. Each file uses the same repository directory URL as its `source_url` base, with the specific filename appended.
+   For each file, fetch its content using `source .aitask-scripts/lib/repo_fetch.sh && repo_fetch_file "URL"` (construct the file URL from the directory URL by replacing `/tree/` or `/-/tree/` or `/src/` directory path with the corresponding file path pattern for the platform) and run Steps 2-6. Each file uses the same repository directory URL as its `source_url` base, with the specific filename appended.
 
 4. **Show batch summary:**
    ```
@@ -298,7 +298,7 @@ This step is reached from Step 1c when the source is a repository directory cont
 - Imported files should NOT be added to `.reviewguidesignore` — they are production reviewguide files intended to be used in reviews
 - This skill does **not** modify the `seed/` directory. All files are written to `aireviewguides/` only.
 - The content transformation (Step 3) is the core value of this skill: converting arbitrary documentation into actionable, bullet-point review checklists that follow the established format and tone of existing guides
-- Repository content fetching uses `aiscripts/lib/repo_fetch.sh` which handles GitHub (`gh`), GitLab (`glab`), and Bitbucket (`curl`) with automatic fallbacks. If the Bash command fails, fall back to `WebFetch` with the platform-specific raw URL. Only `github.com`, `gitlab.com`, and `bitbucket.org` are supported (no self-hosted instances)
+- Repository content fetching uses `.aitask-scripts/lib/repo_fetch.sh` which handles GitHub (`gh`), GitLab (`glab`), and Bitbucket (`curl`) with automatic fallbacks. If the Bash command fails, fall back to `WebFetch` with the platform-specific raw URL. Only `github.com`, `gitlab.com`, and `bitbucket.org` are supported (no self-hosted instances)
 - Vocabulary files in `aireviewguides/`: `reviewtypes.txt`, `reviewlabels.txt`, `reviewenvironments.txt`. New values are only added to the `aireviewguides/` copies — not to `seed/`
 - Commit messages use the `ait:` prefix: `ait: Import reviewguide <filename>`
 - Files in `general/` are universal — they should NOT have an `environment` field. Files in other subdirectories should have an `environment` field

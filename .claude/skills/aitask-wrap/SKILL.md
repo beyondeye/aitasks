@@ -210,7 +210,7 @@ All steps execute sequentially without further user prompts.
 #### 4a: Create Task File
 
 ```bash
-./aiscripts/aitask_create.sh --batch --commit \
+./.aitask-scripts/aitask_create.sh --batch --commit \
   --name "<task_name>" \
   --desc-file - \
   --priority <priority> \
@@ -278,7 +278,7 @@ Where `<description>` is a concise commit message derived from the task summary.
 #### 4d: Archive Task
 
 ```bash
-./aiscripts/aitask_archive.sh <N>
+./.aitask-scripts/aitask_archive.sh <N>
 ```
 
 Parse the script output and handle structured lines:

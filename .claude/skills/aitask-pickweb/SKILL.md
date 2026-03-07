@@ -32,7 +32,7 @@ All task metadata (plans, completion markers) is stored in `.aitask-data-updated
 Ensure the aitask-data worktree and symlinks are set up:
 
 ```bash
-./aiscripts/aitask_init_data.sh
+./.aitask-scripts/aitask_init_data.sh
 ```
 
 This is a no-op for legacy repos and already-initialized repos. Required for
@@ -49,7 +49,7 @@ If the command fails (non-zero exit), display the error and abort.
 Auto-select an execution profile:
 
 ```bash
-./aiscripts/aitask_scan_profiles.sh --auto
+./.aitask-scripts/aitask_scan_profiles.sh --auto
 ```
 
 **If output is `NO_PROFILES`:** Display error: "Web workflow requires an execution profile. Create one at `aitasks/metadata/profiles/remote.yaml`." Abort.
@@ -65,7 +65,7 @@ Parse the task ID argument:
 **Format 1: Parent task (e.g., `42`):**
 - Find the matching task file and check for children in a single call:
   ```bash
-  ./aiscripts/aitask_query_files.sh resolve <number>
+  ./.aitask-scripts/aitask_query_files.sh resolve <number>
   ```
   Parse the output: if first line is `NOT_FOUND`, display error "Task t\<N\> not found" and abort. If first line is `TASK_FILE:<path>`, use that path. If second line is `HAS_CHILDREN:<count>`, display error "Task t\<N\> has child subtasks. Specify a child task ID (e.g., `\<N\>_1`) instead." Abort. If `NO_CHILDREN`, proceed with this task.
 
@@ -73,7 +73,7 @@ Parse the task ID argument:
 - Parse as child task ID (parent=42, child=2)
 - Find the matching child task file:
   ```bash
-  ./aiscripts/aitask_query_files.sh child-file <parent> <child>
+  ./.aitask-scripts/aitask_query_files.sh child-file <parent> <child>
   ```
   Parse the output: `CHILD_FILE:<path>` means found (use that path), `NOT_FOUND` means not found.
 - If not found: display error "Child task t\<parent\>_\<child\> not found" and abort.
@@ -81,7 +81,7 @@ Parse the task ID argument:
 - Read the task file and parent task file for context
 - **Gather sibling context** in a single call:
   ```bash
-  ./aiscripts/aitask_query_files.sh sibling-context <parent>
+  ./.aitask-scripts/aitask_query_files.sh sibling-context <parent>
   ```
   Parse the output: lines prefixed `ARCHIVED_PLAN:` are archived sibling plan files (primary context source for completed siblings). Lines prefixed `ARCHIVED_TASK:` are fallback for siblings without archived plans. Lines prefixed `PENDING_SIBLING:` are pending sibling task files. Lines prefixed `PENDING_PLAN:` are pending sibling plans. If output is `NO_CONTEXT`, there are no sibling context files. Read the files listed in the output.
 
@@ -101,7 +101,7 @@ Set context variables:
 Run a read-only lock check to inform the user if someone else is working on this task. This does NOT acquire a lock.
 
 ```bash
-./aiscripts/aitask_lock.sh --check <task_num>
+./.aitask-scripts/aitask_lock.sh --check <task_num>
 ```
 
 **Parse the output:**
@@ -122,7 +122,7 @@ Run a read-only lock check to inform the user if someone else is working on this
 - Check if the task file's frontmatter contains `children_to_implement: []` (empty list)
 - If empty, check for archived children:
   ```bash
-  ./aiscripts/aitask_query_files.sh archived-children <number>
+  ./.aitask-scripts/aitask_query_files.sh archived-children <number>
   ```
   Parse the output: `ARCHIVED_CHILD:<path>` lines mean archived children exist, `NO_ARCHIVED_CHILDREN` means none.
 - If archived children exist:
@@ -139,7 +139,7 @@ Check if a plan file already exists at either location:
 - Web location: `.aitask-data-updated/plan_t<task_id>.md`
 
 ```bash
-./aiscripts/aitask_query_files.sh plan-file <taskid>
+./.aitask-scripts/aitask_query_files.sh plan-file <taskid>
 ls .aitask-data-updated/plan_t<task_id>.md 2>/dev/null
 ```
 Parse the first command's output: `PLAN_FILE:<path>` means found, `NOT_FOUND` means not found.

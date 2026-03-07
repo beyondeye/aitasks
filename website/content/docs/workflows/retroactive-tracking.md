@@ -59,7 +59,7 @@ Now you have two changed files: the lock script fix and a new test file.
 /aitask-wrap
 ```
 
-Claude detects changes to `aiscripts/lib/aitask_lock.sh` and a new `tests/test_lock_race.sh`. Since both files are part of the same fix, select "Include all changes."
+Claude detects changes to `.aitask-scripts/lib/aitask_lock.sh` and a new `tests/test_lock_race.sh`. Since both files are part of the same fix, select "Include all changes."
 
 **2. Review the analysis**
 

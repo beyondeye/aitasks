@@ -41,7 +41,7 @@ If keywords were not already provided via arguments, use `AskUserQuestion`:
 Run the bash helper:
 
 ```bash
-./aiscripts/aitask_find_files.sh --keywords "<user_keywords>" --max-results 20
+./.aitask-scripts/aitask_find_files.sh --keywords "<user_keywords>" --max-results 20
 ```
 
 Parse the pipe-delimited output. Each line has the format:
@@ -62,7 +62,7 @@ If names were not already provided via arguments, use `AskUserQuestion`:
 Run the bash helper:
 
 ```bash
-./aiscripts/aitask_find_files.sh --names "<user_names>" --max-results 20
+./.aitask-scripts/aitask_find_files.sh --names "<user_names>" --max-results 20
 ```
 
 Parse the pipe-delimited output (same format as Step 2a).
@@ -102,9 +102,9 @@ Display the ranked results to the user as a numbered list.
 ```
 Found <N> matching files:
 
- 1. aiscripts/lib/task_utils.sh (score: 12)
- 2. aiscripts/aitask_changelog.sh (score: 8)
- 3. aiscripts/aitask_archive.sh (score: 6)
+ 1. .aitask-scripts/lib/task_utils.sh (score: 12)
+ 2. .aitask-scripts/aitask_changelog.sh (score: 8)
+ 3. .aitask-scripts/aitask_archive.sh (score: 6)
  ...
 ```
 
@@ -112,8 +112,8 @@ Found <N> matching files:
 ```
 Found <N> relevant files:
 
- 1. aiscripts/lib/task_utils.sh — Core task resolution and extraction utilities
- 2. aiscripts/aitask_changelog.sh — Commit parsing and task ID extraction
+ 1. .aitask-scripts/lib/task_utils.sh — Core task resolution and extraction utilities
+ 2. .aitask-scripts/aitask_changelog.sh — Commit parsing and task ID extraction
  ...
 ```
 
@@ -192,7 +192,7 @@ Use `AskUserQuestion`:
 ## Notes
 
 - This skill is designed to be invoked by other skills (aitask-explain, aitask-explore) as a reusable file selection component
-- Modes 1 and 2 (keywords, names) delegate to `aiscripts/aitask_find_files.sh` for efficient file-system searching
+- Modes 1 and 2 (keywords, names) delegate to `.aitask-scripts/aitask_find_files.sh` for efficient file-system searching
 - Mode 2 uses `fzf --filter` for true fuzzy matching (e.g., "tsk_utl" matches "task_utils.sh")
 - Mode 3 (functionality) uses Claude's own Glob, Grep, and Read tools for semantic search
 - The output is a newline-separated list of file paths relative to the project root

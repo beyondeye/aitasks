@@ -36,7 +36,7 @@ ait explain-runs --cleanup-stale                                      # Remove s
 
 **Run directory naming:**
 
-Run directories use the format `<dir_key>__<timestamp>`, where `dir_key` identifies the source directory that was analyzed (e.g., `aiscripts__lib` for `aiscripts/lib/`) and `timestamp` is `YYYYMMDD_HHMMSS`. This naming allows the cleanup tools to identify which runs correspond to the same source directory and remove older duplicates.
+Run directories use the format `<dir_key>__<timestamp>`, where `dir_key` identifies the source directory that was analyzed (e.g., `aiscripts__lib` for `.aitask-scripts/lib/`) and `timestamp` is `YYYYMMDD_HHMMSS`. This naming allows the cleanup tools to identify which runs correspond to the same source directory and remove older duplicates.
 
 **Run directory structure:**
 

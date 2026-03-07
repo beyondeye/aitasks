@@ -10,7 +10,7 @@ description: Generate a changelog entry by analyzing commits and archived plans 
 Run the changelog data gathering script:
 
 ```bash
-./aiscripts/aitask_changelog.sh --gather
+./.aitask-scripts/aitask_changelog.sh --gather
 ```
 
 Parse the output to identify:
@@ -286,7 +286,7 @@ Inform the user: "Changelog entry for vX.Y.Z written to CHANGELOG.md and CHANGEL
 
 ## Notes
 
-- This skill uses `aiscripts/aitask_changelog.sh` for data gathering (tag detection, commit parsing, plan resolution)
+- This skill uses `.aitask-scripts/aitask_changelog.sh` for data gathering (tag detection, commit parsing, plan resolution)
 - The script detects task IDs from parenthesized `(tNN)` patterns in commit messages (source code commits only)
 - Child task IDs like `(t85_10)` are also detected and resolved
 - Plan files are resolved from `aiplans/archived/` using the `pNN_name.md` naming convention

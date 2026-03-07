@@ -11,7 +11,7 @@ _Claude Code / Codex CLI / Gemini CLI / OpenCode (agent availability depends on 
 
 > **Multi-agent support:** Codex CLI wrappers are installed in `.agents/skills/`. Invoke skills with `$aitask-pick`, `$aitask-create`, etc. Run `ait setup` to install Codex wrappers when Codex is detected. Interactive Codex skills require **plan mode** because `request_user_input` is only available there.
 
-> **Important: Run from the project root directory.** All skills use relative paths (e.g., `./aiscripts/aitask_ls.sh`) that must match the permission entries in `.claude/settings.local.json`. If you start Claude Code from a subdirectory instead of the project root (the directory containing `ait` and `aiscripts/`), these paths won't match and Claude Code will prompt for permission on **every command**. Always `cd` to the project root before launching Claude Code.
+> **Important: Run from the project root directory.** All skills use relative paths (e.g., `./.aitask-scripts/aitask_ls.sh`) that must match the permission entries in `.claude/settings.local.json`. If you start Claude Code from a subdirectory instead of the project root (the directory containing `ait` and `.aitask-scripts/`), these paths won't match and Claude Code will prompt for permission on **every command**. Always `cd` to the project root before launching Claude Code.
 
 ## Skill Overview
 

@@ -45,7 +45,7 @@ If a WebFetch URL fails (404, redirect to different content), fall back to WebSe
 
 **OpenCode special handling:** OpenCode models are discovered exclusively via CLI — web research is NOT used. If `opencode` is selected:
 1. Check if the `opencode` binary is available: `command -v opencode`
-2. If available, run the discovery script directly: `bash aiscripts/aitask_opencode_models.sh`
+2. If available, run the discovery script directly: `bash .aitask-scripts/aitask_opencode_models.sh`
 3. The script handles all discovery, merging, and updating of `aitasks/metadata/models_opencode.json`
 4. Models no longer available from connected providers are marked `"status": "unavailable"` (never deleted, verified scores preserved)
 5. If `opencode` is NOT installed, inform the user: "OpenCode binary not found — cannot refresh OpenCode models. Install OpenCode first." and skip OpenCode.

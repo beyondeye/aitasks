@@ -20,7 +20,7 @@ Check if a plan file already exists at the expected path:
 - For child tasks: `aiplans/p<parent>/p<parent>_<child>_<name>.md`
 
 ```bash
-./aiscripts/aitask_query_files.sh plan-file <taskid>
+./.aitask-scripts/aitask_query_files.sh plan-file <taskid>
 ```
 Parse the output: `PLAN_FILE:<path>` means found, `NOT_FOUND` means not found.
 
@@ -75,7 +75,7 @@ While in plan mode:
     - **IMPORTANT:** Each child task file MUST include detailed context (see Child Task Documentation Requirements below)
     - **IMPORTANT:** Revert the parent task status back to "Ready" since only the child task being worked on should be "Implementing":
       ```bash
-      ./aiscripts/aitask_update.sh --batch <parent_num> --status Ready --assigned-to ""
+      ./.aitask-scripts/aitask_update.sh --batch <parent_num> --status Ready --assigned-to ""
       ```
       The `aitask_ls.sh` script will automatically display the parent as "Has children" because it has pending `children_to_implement`. Do NOT manually set the parent status to "Blocked".
     - **Write implementation plans for ALL child tasks** before proceeding:

@@ -20,7 +20,7 @@ This cycle can be repeated with different review guides to cover multiple qualit
 
 ## Walkthrough: Reviewing a Shell Script Module
 
-You've just finished adding several new helper scripts to `aiscripts/`. Before moving on, you want to check them against shell scripting best practices.
+You've just finished adding several new helper scripts to `.aitask-scripts/`. Before moving on, you want to check them against shell scripting best practices.
 
 **1. Launch the skill**
 
@@ -28,7 +28,7 @@ You've just finished adding several new helper scripts to `aiscripts/`. Before m
 /aitask-review
 ```
 
-Select "Specific paths" when prompted and enter `aiscripts/` as the target.
+Select "Specific paths" when prompted and enter `.aitask-scripts/` as the target.
 
 **2. Select review guides**
 
@@ -48,12 +48,12 @@ Claude reads each guide's review instructions and systematically examines the sc
 
 ```
 Shell Scripting (3 findings)
-  High: aiscripts/aitask_sync.sh:42 — Unquoted variable in rm command risks glob expansion
-  Medium: aiscripts/aitask_sync.sh:15 — Missing set -euo pipefail
-  Low: aiscripts/aitask_helper.sh:88 — Hardcoded /tmp path instead of mktemp
+  High: .aitask-scripts/aitask_sync.sh:42 — Unquoted variable in rm command risks glob expansion
+  Medium: .aitask-scripts/aitask_sync.sh:15 — Missing set -euo pipefail
+  Low: .aitask-scripts/aitask_helper.sh:88 — Hardcoded /tmp path instead of mktemp
 
 Error Handling (1 finding)
-  Medium: aiscripts/aitask_sync.sh:67 — Broad trap on EXIT masks specific error handling
+  Medium: .aitask-scripts/aitask_sync.sh:67 — Broad trap on EXIT masks specific error handling
 ```
 
 **4. Select and create a task**
