@@ -108,5 +108,26 @@ Support `AITASK_CONTRIBUTE_UPSTREAM_DIR` env var: when set, `list_changed_files(
 - `--dry-run` generates complete issue body
 - No GNU-only sed/grep features used
 
+## Final Implementation Notes
+
+- **Actual work done:** Created `aitask_contribute.sh` (~340 lines) with all planned functions plus `tests/test_contribute.sh` (31 tests, all passing). The script follows the project's standard patterns (parse_args, show_help, main dispatch).
+- **Deviations from plan:**
+  - Diff splitting in `build_issue_body()` uses `diff --git` boundary lines instead of `--- a/` prefix, because git can use different prefixes (`c/`, `w/`) depending on configuration. This is more robust.
+  - Downstream mode's `generate_diff()` now emits `diff --git` header lines for consistency with clone mode output.
+  - Tests were included in this task (originally planned as t321_5) per user request.
+- **Issues encountered:**
+  - `grep` treats `--area`/`--dry-run` as flags when used as search patterns — test helpers needed `grep -F --` for literal string matching.
+  - Git diff prefix varies (`a/b/` vs `c/w/`) — required flexible diff boundary detection using `diff --git` lines.
+- **Key decisions:**
+  - Used indexed arrays (`AREAS=()`) not associative arrays for bash 3.x compatibility.
+  - `fetch_upstream_file()` wraps `repo_fetch_file()` with `AITASK_CONTRIBUTE_UPSTREAM_DIR` override for testing, avoiding network calls in tests.
+  - Contributor resolution tries `gh api user` first, falls back to `git config`.
+- **Notes for sibling tasks:**
+  - `--list-areas` output format: `MODE:<clone|downstream>` first line, then `AREA|<name>|<dirs>|<description>` per area. Skill (t321_4) should parse this.
+  - `--list-changes` output: one file path per line.
+  - `--dry-run` output: full issue body to stdout. Skill should read and analyze this.
+  - `<!-- aitask-contribute-metadata contributor: X contributor_email: Y based_on_version: Z -->` is the metadata block format. Issue import (t321_2) should parse this.
+  - Tests (t321_5) are already implemented — task can be marked as done/folded.
+
 ## Step 9 Reference
 Post-implementation: archive task via task-workflow Step 9.
