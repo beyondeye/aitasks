@@ -5,7 +5,7 @@ weight: 20
 description: "First-time setup and your first task workflow"
 ---
 
-This guide walks you through aitasks from installation to completing your first task with Claude Code (or Codex CLI).
+This guide walks you through aitasks from installation to completing your first task with Claude Code, Gemini CLI, OpenCode, or Codex CLI.
 
 ## 1. Install aitasks
 
@@ -51,13 +51,13 @@ Use arrow keys to navigate, **Shift+arrows** to move tasks between columns, and 
 
 ## 4. Pick and Implement a Task
 
-Start Claude Code and run the pick skill:
+Start your code agent and run the pick skill:
 
 ```
 /aitask-pick
 ```
 
-In Codex CLI, use:
+Use the same command in Claude Code, Gemini CLI, and OpenCode. In Codex CLI, use:
 
 ```
 $aitask-pick
@@ -80,7 +80,7 @@ The core loop is: **create tasks** (with `ait create`, `/aitask-create`, or `$ai
 As you work, explore these features:
 
 - [Workflow Guides](../workflows/) — Common patterns like capturing ideas fast, task decomposition, and parallel development
-- [Code Agent Skills](../skills/) — All available agent skills (`/aitask-pick` in Claude Code, `$aitask-pick` in Codex CLI, etc.)
+- [Code Agent Skills](../skills/) — All available agent skills (`/aitask-pick` in Claude Code, Gemini CLI, and OpenCode; `$aitask-pick` in Codex CLI, etc.)
 - [Command Reference](../commands/) — Full CLI reference for all `ait` subcommands
 
 ---
