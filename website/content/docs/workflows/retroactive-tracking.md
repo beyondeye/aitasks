@@ -26,7 +26,7 @@ You fixed a shell quoting bug in `aitask_ls.sh` while working on something else.
 /aitask-wrap
 ```
 
-Claude detects the uncommitted changes and shows a summary (files changed, insertions, deletions).
+The skill detects the uncommitted changes and shows a summary (files changed, insertions, deletions).
 
 **2. Select files**
 
@@ -34,7 +34,7 @@ You're asked whether to include all changes or select specific files. Since you 
 
 **3. Review the analysis**
 
-Claude reads the diff and presents its analysis:
+The skill reads the diff and presents its analysis:
 - **Task name:** `fix_ls_quoting_bug`
 - **Issue type:** `bug`
 - **Summary:** Fixed unquoted variable expansion in `aitask_ls.sh` that caused incorrect output when task names contained spaces
@@ -59,11 +59,11 @@ Now you have two changed files: the lock script fix and a new test file.
 /aitask-wrap
 ```
 
-Claude detects changes to `.aitask-scripts/lib/aitask_lock.sh` and a new `tests/test_lock_race.sh`. Since both files are part of the same fix, select "Include all changes."
+The skill detects changes to `.aitask-scripts/lib/aitask_lock.sh` and a new `tests/test_lock_race.sh`. Since both files are part of the same fix, select "Include all changes."
 
 **2. Review the analysis**
 
-Claude reads the diff — a guard clause added to prevent concurrent lock acquisition, plus a test that simulates parallel lock attempts. The analysis:
+The skill reads the diff — a guard clause added to prevent concurrent lock acquisition, plus a test that simulates parallel lock attempts. The analysis:
 - **Task name:** `fix_lock_race_condition`
 - **Issue type:** `bug`
 - **Priority:** `high` (inferred from the fix touching a shared utility)
@@ -85,11 +85,11 @@ You updated Hugo from 0.155 to 0.158, bumped the Docsy theme module, and adjuste
 /aitask-wrap
 ```
 
-Claude detects changes in `website/go.mod`, `website/go.sum`, and `website/hugo.toml`.
+The skill detects changes in `website/go.mod`, `website/go.sum`, and `website/hugo.toml`.
 
 **2. Review the analysis**
 
-Claude recognizes the pattern — version bumps in dependency files and a config adjustment:
+The skill recognizes the pattern — version bumps in dependency files and a config adjustment:
 - **Task name:** `update_hugo_and_docsy`
 - **Issue type:** `chore`
 - **Priority:** `low`
@@ -114,13 +114,13 @@ After a two-hour pairing session, you have changes across six files — a new bo
 /aitask-wrap
 ```
 
-Claude shows 6 modified files with 120 insertions and 15 deletions. Before including everything, consider: are all changes part of the same logical feature? In this case, yes — the column filter touches the board UI, the config schema, and the CLI integration.
+The skill shows 6 modified files with 120 insertions and 15 deletions. Before including everything, consider: are all changes part of the same logical feature? In this case, yes — the column filter touches the board UI, the config schema, and the CLI integration.
 
 If the session had produced unrelated changes (say, a typo fix in a README alongside the feature), you'd want to wrap them separately — select files for the feature first, wrap that, then wrap the typo fix in a second invocation.
 
 **2. Review the analysis**
 
-With a larger diff, Claude's analysis is more detailed:
+With a larger diff, the skill's analysis is more detailed:
 - **Task name:** `add_board_column_filter`
 - **Issue type:** `feature`
 - **Priority:** `medium`
@@ -128,7 +128,7 @@ With a larger diff, Claude's analysis is more detailed:
 - **Labels:** `[ui, board]`
 - **Summary:** Added column-based filtering to the board TUI, allowing users to show/hide columns. Includes config persistence in `board_config.json` and CLI flag `--columns`.
 
-Review the suggested metadata carefully. For a multi-file feature, Claude's inferences are usually good but the task name or labels might need adjustment. You can select "Adjust metadata" to refine before proceeding.
+Review the suggested metadata carefully. For a multi-file feature, the skill's inferences are usually good but the task name or labels might need adjustment. You can select "Adjust metadata" to refine before proceeding.
 
 **3. Execute**
 
@@ -157,6 +157,6 @@ Both workflows produce the same artifacts (task file, plan file, properly format
 
 - **Wrap early** — The sooner you wrap after making changes, the fresher the context. Don't let uncommitted fixes pile up
 - **One concern per wrap** — Each invocation creates one task. If you have changes spanning unrelated concerns (a bug fix and a config tweak), wrap them separately to keep the history clean
-- **Review the auto-analysis** — Claude's suggested intent and metadata are inferences from the diff. They're usually accurate but always worth a quick check before confirming
+- **Review the auto-analysis** — The skill's suggested intent and metadata are inferences from the diff. They're usually accurate but always worth a quick check before confirming
 - **Check the archived plan** — After wrapping, the plan file is archived alongside the task. It contains a detailed record of what changed and why — useful for changelogs, code reviews, or when you need to understand a past change
 - **Mix workflows freely** — Wrap and create are complementary. A typical session might start with `/aitask-pick` for planned work, then end with `/aitask-wrap` to capture a quick fix discovered along the way

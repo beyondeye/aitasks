@@ -11,7 +11,7 @@ _Claude Code / Codex CLI / Gemini CLI / OpenCode (agent availability depends on 
 
 > **Multi-agent support:** Codex CLI and Gemini CLI wrappers are installed in `.agents/skills/`; OpenCode wrappers are installed in `.opencode/skills/`. Invoke skills with `/aitask-pick`, `/aitask-create`, etc. in Claude Code, Gemini CLI, and OpenCode, or with `$aitask-pick`, `$aitask-create`, etc. in Codex CLI. Run `ait setup` to install the wrappers detected for your agent. Interactive Codex skills require **plan mode** because `request_user_input` is only available there; OpenCode uses native `skill` and native `ask`, so this caveat does not apply there.
 
-> **Important: Run from the project root directory.** All skills use relative paths (e.g., `./.aitask-scripts/aitask_ls.sh`) that must match the permission entries in `.claude/settings.local.json`. If you start Claude Code from a subdirectory instead of the project root (the directory containing `ait` and `.aitask-scripts/`), these paths won't match and Claude Code will prompt for permission on **every command**. Always `cd` to the project root before launching Claude Code.
+> **Important: Run from the project root directory.** All skills use relative paths (e.g., `./.aitask-scripts/aitask_ls.sh`) and expect to start from the project root (the directory containing `ait` and `.aitask-scripts/`). Launching an agent from a subdirectory can break path-based permissions and wrapper assumptions, and in Claude Code it will also trigger repeated permission prompts. Always `cd` to the project root before launching your agent.
 
 ## Skill Overview
 
@@ -32,7 +32,7 @@ Create, organize, import, and wrap tasks.
 
 | Skill | Description |
 |-------|-------------|
-| [`/aitask-create`](aitask-create/) | Create tasks interactively via Claude Code |
+| [`/aitask-create`](aitask-create/) | Create tasks interactively via code agent prompts |
 | [`/aitask-explore`](aitask-explore/) | Explore the codebase interactively, then create a task from findings |
 | [`/aitask-fold`](aitask-fold/) | Identify and merge related tasks into a single task |
 | [`/aitask-pr-import`](aitask-pr-import/) | Import a pull request as an aitask with AI-powered analysis and implementation plan |

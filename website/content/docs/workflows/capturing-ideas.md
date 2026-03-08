@@ -9,7 +9,7 @@ The most important thing when a new task idea comes to mind is capturing it imme
 
 **The philosophy: capture intent now, refine later.**
 
-In interactive mode, `ait create` walks you through metadata selection (priority, effort, labels) via fast fzf menus, then lets you enter the description as consecutive text blocks. There is no need to open an external editor or craft a polished specification — Claude is perfectly capable of understanding rough, unstructured descriptions with missing details.
+In interactive mode, `ait create` walks you through metadata selection (priority, effort, labels) via fast fzf menus, then lets you enter the description as consecutive text blocks. There is no need to open an external editor or craft a polished specification — the follow-up planning workflow is designed to turn rough, unstructured descriptions into actionable implementation plans.
 
 **Recommended setup:** Keep a terminal tab with `ait create` ready to launch at all times. When an idea strikes — even mid-implementation on another task — switch to that tab, type the idea, assign basic metadata, and get back to work. The task is saved as a local draft in `aitasks/new/` (gitignored, no network needed) and can be finalized later.
 

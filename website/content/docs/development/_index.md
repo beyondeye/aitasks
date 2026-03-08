@@ -19,7 +19,7 @@ ait <subcommand> [args]  →  .aitask-scripts/aitask_<subcommand>.sh [args]
 |-----------|---------|
 | `.aitask-scripts/` | All framework scripts (`aitask_*.sh`) |
 | `.aitask-scripts/lib/` | Shared library scripts sourced by main scripts |
-| `.claude/skills/aitask-*` | Claude Code skill definitions (SKILL.md files) |
+| `.claude/skills/aitask-*` | Primary skill definitions (SKILL.md files) |
 | `aitasks/` | Active task files (`t<N>_name.md`) and child task directories (`t<N>/`) |
 | `aitasks/new/` | Draft task files (gitignored, local-only) |
 | `aiplans/` | Active plan files (`p<N>_name.md`) and child plan directories (`p<N>/`) |
@@ -141,7 +141,7 @@ After installing, run `cd website && npm install` for Node.js dependencies. See 
 
 ## Modifying Scripts
 
-All framework scripts live in `.aitask-scripts/`. The `ait` dispatcher forwards subcommands to the corresponding `aitask_*.sh` script. Claude Code skills are defined in `.claude/skills/`.
+All framework scripts live in `.aitask-scripts/`. The `ait` dispatcher forwards subcommands to the corresponding `aitask_*.sh` script. Primary skill definitions live in `.claude/skills/`, with wrappers for other agents generated from or aligned to those sources.
 
 ---
 
@@ -161,7 +161,7 @@ shellcheck .aitask-scripts/aitask_*.sh   # Lint all scripts
 
 ## Release Process
 
-1. Run `/aitask-changelog` in Claude Code to generate the changelog entry for the new version
+1. Run `/aitask-changelog` in your configured code agent session to generate the changelog entry for the new version
 2. Run `./create_new_release.sh` which bumps the `VERSION` file, creates a git tag, and pushes to trigger the GitHub Actions release workflow
 3. Run `./ait zip-old` to archive old completed task and plan files, keeping the repository clean
 
@@ -172,7 +172,7 @@ shellcheck .aitask-scripts/aitask_*.sh   # Lint all scripts
 Project documentation lives in `website/content/docs/` — the Hugo/Docsy website is the single source of truth. When adding new features:
 
 1. **New CLI commands** — Add to the appropriate file under `website/content/docs/commands/`
-2. **New Claude Code skills** — Add a new file under `website/content/docs/skills/`
+2. **New code agent skills** — Add a new file under `website/content/docs/skills/`
 3. **New workflows** — Add to `website/content/docs/workflows.md`
 4. **Architectural changes** — Update `website/content/docs/development/_index.md`
 

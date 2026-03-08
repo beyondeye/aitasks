@@ -21,8 +21,8 @@ When working on multiple tasks in parallel, use the git worktree option in [`/ai
 ## Best Practices
 
 - Run `git pull` before starting `/aitask-pick` to see the latest task status and assignments
-- Use git worktrees when multiple developers work in parallel, or when running multiple Claude Code instances on tasks that touch overlapping files
-- Working on the current branch (without worktrees) is safe when you are a single developer giving work to multiple Claude Code instances on tasks that don't touch the same files
+- Use git worktrees when multiple developers work in parallel, or when running multiple code agent sessions on tasks that touch overlapping files
+- Working on the current branch (without worktrees) is safe when you are a single developer giving work to multiple code agent sessions on tasks that don't touch the same files
 
 ## Parallel Planning
 
@@ -30,4 +30,4 @@ Complex tasks that need [child decomposition](../task-decomposition/) can have t
 
 ## Parallel Exploration
 
-`/aitask-explore` is read-only — it searches and reads code but never modifies source files. This makes it safe to run in a separate terminal tab while another Claude Code instance implements a task. Use this pattern to stay productive: explore and create new tasks while waiting for builds, tests, or ongoing implementations to complete.
+`/aitask-explore` is read-only — it searches and reads code but never modifies source files. This makes it safe to run in a separate terminal tab while another agent session implements a task. Use this pattern to stay productive: explore and create new tasks while waiting for builds, tests, or ongoing implementations to complete.

@@ -2,10 +2,10 @@
 title: "/aitask-stats"
 linkTitle: "/aitask-stats"
 weight: 50
-description: "View task completion statistics via Claude Code"
+description: "View task completion statistics via a code agent"
 ---
 
-View task completion statistics via Claude Code.
+View task completion statistics via a code agent.
 
 **Usage:**
 ```

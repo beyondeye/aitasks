@@ -16,7 +16,7 @@ description: "Keyboard shortcuts, annotation pipeline, and technical details"
 | `r` | Refresh explain annotations for current file's directory | Global |
 | `t` | Toggle annotation gutter visibility | Global |
 | `g` | Open go-to-line dialog | Global |
-| `e` | Launch Claude Code with `/aitask-explain` for current file | Global |
+| `e` | Launch the configured code agent for explain on the current file | Global |
 | `d` | Toggle detail pane visibility | Global |
 | `D` | Toggle detail pane between default and expanded width | Global |
 
@@ -86,7 +86,7 @@ See [`ait explain-runs` and `ait explain-cleanup`]({{< relref "/docs/commands/ex
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `TERMINAL` | Auto-detected | Terminal emulator for launching Claude Code (when pressing `e`) |
+| `TERMINAL` | Auto-detected | Terminal emulator for launching the configured code agent (when pressing `e`) |
 | `PYTHON` | `python3` | Python interpreter (used by launcher if shared venv is unavailable) |
 
 **Terminal auto-detection order:** `$TERMINAL`, then `alacritty`, `kitty`, `ghostty`, `foot`, `x-terminal-emulator`, `xdg-terminal-exec`, `gnome-terminal`, `konsole`, `xfce4-terminal`, `lxterminal`, `mate-terminal`, `xterm`.

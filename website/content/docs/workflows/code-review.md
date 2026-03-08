@@ -44,7 +44,7 @@ Select "Shell Scripting" and "Error Handling" — two guides keeps the review fo
 
 **3. Review findings**
 
-Claude reads each guide's review instructions and systematically examines the scripts. Findings are presented grouped by guide and severity:
+The skill reads each guide's review instructions and systematically examines the scripts. Findings are presented grouped by guide and severity:
 
 ```
 Shell Scripting (3 findings)

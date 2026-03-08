@@ -114,7 +114,7 @@ Collapse/expand state is saved in `board_config.json` and persists across board 
 
 The current option is highlighted with bold reverse text. Arrows (◀ ▶) on either side indicate that you can cycle.
 
-**Important:** The board reloads the task file from disk before saving, then applies only the fields you changed. This prevents overwriting changes made externally (e.g., by Claude Code) to other fields.
+**Important:** The board reloads the task file from disk before saving, then applies only the fields you changed. This prevents overwriting changes made externally (e.g., by another code agent session) to other fields.
 
 > **Note:** Tasks with status "Done" or "Folded" are displayed in read-only mode — the cycle fields are replaced with static text and action buttons are disabled.
 

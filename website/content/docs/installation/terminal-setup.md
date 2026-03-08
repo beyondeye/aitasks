@@ -20,7 +20,7 @@ The aitasks framework is built for terminal-centric development. Using a termina
 
 | Tab | Purpose |
 |-----|---------|
-| Tab 1 | Main Claude Code session running [`/aitask-pick`](../skills/aitask-pick/) |
+| Tab 1 | Main code agent session running [`/aitask-pick`](../skills/aitask-pick/) |
 | Tab 2 | [`ait board`](../commands/board-stats/#ait-board) for visual task management and triage |
 | Tab 3 | [`ait create`](../commands/task-management/#ait-create) ready to launch for capturing new ideas |
 | Tab 4 | Git status / diff viewer ([lazygit](https://github.com/jesseduffield/lazygit), [delta](https://github.com/dandavison/delta), or plain `git diff`) for monitoring implementation changes |
@@ -43,8 +43,8 @@ This parallel workflow means the human never becomes a bottleneck waiting for th
 
 ### Context Monitoring
 
-One of the key advantages of decomposing work into small connected tasks is reduced context usage — Claude Code is effectively more capable when it has more room in its context window. Monitoring context usage in real time helps you understand when a task is getting too large and should be split.
+One of the key advantages of decomposing work into small connected tasks is reduced context usage — whichever code agent you use will generally perform better when it has more room in its context window. Monitoring context usage in real time helps you understand when a task is getting too large and should be split.
 
 **Recommended plugin:**
 
-- [**claude-hud**](https://github.com/jarrodwatts/claude-hud) — Claude Code plugin that displays real-time context window usage directly in your terminal. Shows token count, percentage filled, and alerts when context is getting large
+- [**claude-hud**](https://github.com/jarrodwatts/claude-hud) — Claude Code plugin that displays real-time context window usage directly in your terminal. Useful if Claude Code is your primary agent. Shows token count, percentage filled, and alerts when context is getting large

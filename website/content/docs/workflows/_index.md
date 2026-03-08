@@ -5,8 +5,8 @@ weight: 40
 description: "End-to-end workflow guides for common aitasks operations"
 ---
 
-This section describes common usage patterns that combine the CLI tools and Claude Code skills into end-to-end development workflows.
+This section describes common usage patterns that combine the CLI tools and code agent skills into end-to-end development workflows.
 
 ---
 
-**Next:** [Claude Code Skills]({{< relref "skills" >}})
+**Next:** [Code Agent Skills]({{< relref "skills" >}})

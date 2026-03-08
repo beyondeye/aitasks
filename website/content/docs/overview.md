@@ -44,7 +44,7 @@ AI coding agents have reached a proficiency level where, given correct specs and
 
 - **Battle tested:** Not a research experiment. Actively developed and used in real projects.
 
-- **Multi-Agent Support:** Optimized for Claude Code, with full support for Gemini CLI, Codex CLI, and OpenCode.
+- **Multi-Agent Support:** Supports Claude Code, Gemini CLI, Codex CLI, and OpenCode with shared task workflows across agents.
 
 - **Fully customizable workflow:** All the scripts and workflow skills live in your project repo — modify them for your needs. You can still merge new features and capabilities as they are added to the framework, with the included AI agent-based framework update skill.
 

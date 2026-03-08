@@ -26,7 +26,7 @@ Once a file is open in the code viewer:
 
 ### How to Select Lines
 
-Line selection lets you highlight a range of code, which is also used as context when launching Claude Explain (**e**).
+Line selection lets you highlight a range of code, which is also used as context when launching Explain (**e**).
 
 **Keyboard selection:**
 
@@ -91,14 +91,14 @@ When your selection spans lines annotated by different tasks, the detail pane sh
 
 When no file is selected or the cursor is on a non-annotated line, the pane shows: "Move cursor to an annotated line to see task/plan details."
 
-### How to Launch Claude Explain from the Browser
+### How to Launch Explain from the Browser
 
-The codebrowser integrates directly with the [`/aitask-explain`]({{< relref "/docs/skills/aitask-explain" >}}) skill for deeper analysis.
+The codebrowser integrates directly with the [`/aitask-explain`]({{< relref "/docs/skills/aitask-explain" >}}) workflow for deeper analysis.
 
 1. Open a file and optionally select a line range (using **Shift+Up/Down** or mouse drag)
 2. Press **e**
-3. Claude Code launches with `/aitask-explain <file>` (or `/aitask-explain <file>:<start>-<end>` if lines are selected)
+3. The configured code agent launches the explain action for the current file (or the selected line range if lines are selected)
 4. A terminal emulator opens automatically. If none is found, the codebrowser suspends and runs in the current terminal
-5. After the Claude session, return to the codebrowser to continue browsing
+5. After the explain session, return to the codebrowser to continue browsing
 
-This is the recommended workflow for going deeper: use the codebrowser's visual annotations to identify interesting code sections, then press **e** to get a full narrative explanation from Claude.
+This is the recommended workflow for going deeper: use the codebrowser's visual annotations to identify interesting code sections, then press **e** to get a full narrative explanation from your configured agent.

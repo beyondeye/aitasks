@@ -11,7 +11,7 @@ For tasks that are too large or risky for a single implementation run, the aitas
 
 - During the planning phase of [`/aitask-pick`](../../skills/aitask-pick/), if a task is assessed as high complexity, the skill automatically offers to break it into child subtasks
 - You can also force decomposition by adding a line like "this is a complex task: please decompose in child tasks" in the task description
-- Each child task is created with detailed context: key files to modify, reference patterns, step-by-step implementation instructions, and verification steps. This ensures each child can be executed independently in a fresh Claude Code context
+- Each child task is created with detailed context: key files to modify, reference patterns, step-by-step implementation instructions, and verification steps. This ensures each child can be executed independently in a fresh code agent context
 
 ## Context Propagation Between Siblings
 

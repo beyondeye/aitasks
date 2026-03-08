@@ -9,7 +9,7 @@ Sometimes you don't know what the task should be. You have a vague symptom, an u
 
 **The philosophy: explore first, define the task from what you find.**
 
-This inverts the normal aitasks flow. Instead of *define task → pick task → implement*, you follow *explore → discover → define task → implement*. The exploration phase is interactive and iterative — you direct Claude's investigation, review findings after each round, and decide when you've learned enough to crystallize a task.
+This inverts the normal aitasks flow. Instead of *define task → pick task → implement*, you follow *explore → discover → define task → implement*. The exploration phase is interactive and iterative — you direct the agent's investigation, review findings after each round, and decide when you've learned enough to crystallize a task.
 
 ## When to Use Exploration-Driven Development
 
@@ -33,19 +33,19 @@ Select "Investigate a problem" when prompted. Describe the symptom: "Task listin
 
 **2. First exploration round**
 
-Claude traces the data flow in `aitask_ls.sh` — how tasks are read, sorted, and filtered. Findings: the script reads every task file to extract frontmatter, even when filtering by label. With 200+ task files, this adds up.
+The skill traces the data flow in `aitask_ls.sh` — how tasks are read, sorted, and filtered. Findings: the script reads every task file to extract frontmatter, even when filtering by label. With 200+ task files, this adds up.
 
 You're shown a summary and asked how to proceed. Select "Continue exploring" and redirect: "Check if there's any caching or if the frontmatter parsing could be optimized."
 
 **3. Second exploration round**
 
-Claude examines the frontmatter parsing function, finds it spawns a subshell per file, and identifies that `grep` + `sed` could replace the current `awk` approach. Also discovers that archived tasks are excluded early (good) but the sort happens after all files are read (potential improvement: sort during read).
+The skill examines the frontmatter parsing function, finds it spawns a subshell per file, and identifies that `grep` + `sed` could replace the current `awk` approach. Also discovers that archived tasks are excluded early (good) but the sort happens after all files are read (potential improvement: sort during read).
 
 The findings are clear enough. Select "Create a task."
 
 **4. Task creation**
 
-Claude summarizes the exploration:
+The skill summarizes the exploration:
 - Focus: Performance of `aitask_ls.sh` with large task sets
 - Key findings: per-file subshell overhead, sequential read-then-sort pattern
 - Suggested task: "Optimize aitask_ls.sh frontmatter parsing for large directories"

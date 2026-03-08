@@ -2,10 +2,10 @@
 title: "/aitask-create"
 linkTitle: "/aitask-create"
 weight: 40
-description: "Create a new task file interactively via Claude Code"
+description: "Create a new task file interactively via code agent prompts"
 ---
 
-Create a new task file with automatic numbering and proper metadata via Claude Code prompts.
+Create a new task file with automatic numbering and proper metadata via interactive code agent prompts.
 
 **Usage:**
 ```
@@ -16,7 +16,7 @@ Create a new task file with automatic numbering and proper metadata via Claude C
 
 ## Step-by-Step
 
-Claude Code guides you through task creation using `AskUserQuestion` prompts:
+The skill guides you through task creation using interactive prompts:
 
 1. **Parent selection** — Choose standalone or child of existing task
 2. **Task number** — Auto-determined from active, archived, and compressed tasks
@@ -25,7 +25,7 @@ Claude Code guides you through task creation using `AskUserQuestion` prompts:
 5. **Definition** — Iterative content collection with file reference insertion via Glob search
 6. **Create & commit** — Writes task file with YAML frontmatter and commits to git
 
-This is the Claude Code-native alternative — metadata collection happens through Claude's UI rather than terminal fzf.
+This is the code agent-native alternative — metadata collection happens through the agent UI rather than terminal fzf.
 
 ## Workflows
 

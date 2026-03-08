@@ -7,4 +7,4 @@ menu:
     weight: 20
 ---
 
-Documentation for the aitasks framework — AI-powered task management for Claude Code projects.
+Documentation for the aitasks framework — AI-powered task management for multi-agent development workflows.

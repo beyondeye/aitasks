@@ -11,7 +11,7 @@ Documenting what changed in a new release is one of the most tedious tasks in so
 
 ## The Release Pipeline
 
-1. **Generate changelog** — Run [`/aitask-changelog`](../../skills/aitask-changelog/) in Claude Code to gather commit and plan data, then generate a categorized changelog entry
+1. **Generate changelog** — Run [`/aitask-changelog`](../../skills/aitask-changelog/) in your code agent session to gather commit and plan data, then generate a categorized changelog entry
 2. **Create release** — Run `./create_new_release.sh` to bump the version, create a git tag, and push
 3. **Publish** — GitHub Actions automatically builds a release tarball and publishes release notes extracted from the changelog
 4. **Blog post** — Run `./website/new_release_post.sh` to scaffold a blog post, then write an informal summary of the release highlights
@@ -22,7 +22,7 @@ This example shows the three steps using the aitasks project's own v0.4.0 releas
 
 ### 1. Generate the changelog
 
-Run the skill in Claude Code:
+Run the skill in your code agent session:
 
 ```
 /aitask-changelog
@@ -34,7 +34,7 @@ The skill runs [`ait changelog --gather`](../../commands/issue-integration/#ait-
 - Extracts task IDs from commit messages — the `(tNN)` pattern that [`/aitask-pick`](../../skills/aitask-pick/) uses in its commit convention
 - For each task, reads the archived plan file to get the "Final Implementation Notes" section
 
-Claude then generates concise, user-facing summaries for each task and groups them by issue type. You review the draft, pick a version number (the skill suggests next patch and minor versions), and the entry is written to `CHANGELOG.md`:
+The skill then generates concise, user-facing summaries for each task and groups them by issue type. You review the draft, pick a version number (the skill suggests next patch and minor versions), and the entry is written to `CHANGELOG.md`:
 
 ```markdown
 ## v0.4.0

@@ -24,7 +24,7 @@ Explore the codebase interactively with guided investigation, then create a task
    - **Explore codebase area** — Understand a module, map its structure and dependencies. Offers two ways to specify the target: search for files interactively (by keyword, name, or functionality) or describe the area in free text
    - **Scope an idea** — Discover what code is affected by a proposed change
    - **Explore documentation** — Find documentation gaps, outdated docs, or missing help text
-3. **Iterative exploration** — Claude explores the codebase using the selected strategy. After each round, presents findings and offers to continue exploring, create a task, or abort
+3. **Iterative exploration** — The skill explores the codebase using the selected strategy. After each round, it presents findings and offers to continue exploring, create a task, or abort
 4. **Task creation** — Summarizes all findings and creates a task file with metadata pre-filled based on the exploration type
 5. **Optional handoff** — After task creation, choose to continue directly to implementation (via the standard `/aitask-pick` skill) or save the task for later
 
@@ -43,7 +43,7 @@ The **Explore codebase area** mode provides an interactive file search interface
 
 - **Keyword search** — Search file contents for specific terms or patterns
 - **Name search** — Fuzzy-match against file names across the project
-- **Functionality search** — Describe what the code does and let Claude find matching files
+- **Functionality search** — Describe what the code does and let the agent find matching files
 
 Alternatively, you can choose "Describe the area" to type a module name, directory, or free-text description directly — preserving the original behavior for users who already know where to look.
 

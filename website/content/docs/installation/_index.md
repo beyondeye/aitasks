@@ -31,7 +31,7 @@ Or for fresh installs without an existing `ait` dispatcher:
 curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash -s -- --force
 ```
 
-After installing, run `ait setup` to install dependencies and configure Claude Code permissions. See [`ait setup`](../commands/setup-install/) for details.
+After installing, run `ait setup` to install dependencies and configure supported agent integrations. See [`ait setup`](../commands/setup-install/) for details.
 
 **Already have the global `ait` shim?** If you've previously run `ait setup` on another project, the global shim at `~/.local/bin/ait` is already installed. You can bootstrap aitasks in any new project directory by simply running:
 
@@ -42,7 +42,7 @@ ait setup
 
 The shim detects that no aitasks project exists, downloads the latest release, installs it, and then runs the full setup — all in one command. Make sure you are at the root of the git repository (where `.git/` lives), not in a subdirectory.
 
-**Windows/WSL users:** See the [Windows/WSL Installation Guide](windows-wsl/) for step-by-step instructions including WSL setup, Claude Code installation, and terminal configuration.
+**Windows/WSL users:** See the [Windows/WSL Installation Guide](windows-wsl/) for step-by-step instructions including WSL setup, agent installation examples, and terminal configuration.
 
 **Agent caveats:** See [Known Agent Issues](known-issues/) for current Claude Code and Codex CLI workflow limitations.
 
@@ -62,7 +62,7 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 
 - `ait` — CLI dispatcher script
 - `.aitask-scripts/` — Framework scripts (task management, board, stats, etc.)
-- `.claude/skills/aitask-*` — Claude Code skill definitions
+- `.claude/skills/aitask-*` — Primary skill definitions (used directly by Claude Code and as the source for wrappers)
 - `aitasks/` — Task data directory (auto-created)
 - `aiplans/` — Implementation plans directory (auto-created)
 

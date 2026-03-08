@@ -49,7 +49,7 @@ The skill runs `aitask_explain_extract_raw_data.sh`, which gathers the commit hi
 
 **4. Review the explanation**
 
-Claude presents the analysis across all three modes. The functionality section describes the file's purpose, key functions, and data flow. The usage examples section shows where `task_utils.sh` is sourced and which scripts call its functions. The code evolution section provides a newest-first narrative — for example, it might show that lines 45-67 (the `resolve_task_file` function) were last modified in task t130 ("Support child task hierarchy") and that the plan notes for t130 explain why a recursive lookup was added.
+The skill presents the analysis across all three modes. The functionality section describes the file's purpose, key functions, and data flow. The usage examples section shows where `task_utils.sh` is sourced and which scripts call its functions. The code evolution section provides a newest-first narrative — for example, it might show that lines 45-67 (the `resolve_task_file` function) were last modified in task t130 ("Support child task hierarchy") and that the plan notes for t130 explain why a recursive lookup was added.
 
 **5. Drill into a specific section**
 
@@ -81,7 +81,7 @@ aitask_explain_process_raw_data.py
 reference.yaml (line_ranges -> commits -> tasks)
     |
     v
-Claude reads reference.yaml + task/plan files -> structured explanation
+The explain skill reads reference.yaml + task/plan files -> structured explanation
 ```
 
 The `reference.yaml` file is the key artifact. It contains per-file data: a commit timeline (newest first) and a list of line ranges, each annotated with which commits and task IDs contributed to those lines. This enables the skill to answer questions like "which task added lines 50-80?" by looking up the line range in the reference data.
