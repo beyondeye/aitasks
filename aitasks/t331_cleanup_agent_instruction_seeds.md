@@ -6,6 +6,7 @@ issue_type: chore
 status: Implementing
 labels: [geminicli, codex, opencode]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt-5
 created_at: 2026-03-08 12:00
 updated_at: 2026-03-08 10:06
 ---
