@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [geminicli]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-08 09:57
-updated_at: 2026-03-08 09:57
+updated_at: 2026-03-08 09:59
 ---
 
 geminicli read skills both from .gemini and from .agents
