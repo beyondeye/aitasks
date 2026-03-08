@@ -5,8 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [codeagent, ait_settings]
+children_to_implement: [t303_1]
 created_at: 2026-03-03 16:47
-updated_at: 2026-03-08 11:06
+updated_at: 2026-03-08 11:21
 boardcol: now
 boardidx: 10
 ---
