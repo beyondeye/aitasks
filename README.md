@@ -62,7 +62,7 @@ Not a research experiment. actively developed and used in real projects
 
 - Claude Code optimized.
 
-- Fully customizable workflow for each project:  all the scripts and workflow skills live in you project repo: modify it for your needs. You will still be able to merge new features and cabilities as they are added to the framework, with the included AI agent-based framework update skill.
+- Fully customizable workflow for each project: all the scripts and workflow skills live in your project repo — modify them for your needs and contribute back with ease your enhancements to the project with the included AI-based `/aitask-contribute` skill. See the [Contribute and Manage Contributions workflow](https://beyondeye.github.io/aitasks/docs/workflows/contribute-and-manage/).
 
 ## 🖥️ Platform Support
 
