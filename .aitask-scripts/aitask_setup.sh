@@ -1308,15 +1308,12 @@ setup_gemini_cli() {
         return
     fi
 
-    local count
-    count=$(find "$staging_skills" -name "SKILL.md" -type f 2>/dev/null | wc -l | tr -d ' ')
-
     echo ""
-    info "Found $count Gemini CLI skill wrappers ready for installation."
+    info "Gemini CLI helper docs and commands ready for installation."
     echo ""
 
     if [[ -t 0 ]]; then
-        printf "  Install Gemini CLI skills and commands? [Y/n] "
+        printf "  Install Gemini CLI commands and helper docs? [Y/n] "
         read -r answer
     else
         info "(non-interactive: auto-accepting default)"
@@ -1325,32 +1322,20 @@ setup_gemini_cli() {
     case "${answer:-Y}" in
         [Yy]*|"") ;;
         *)
-            info "Skipped Gemini CLI skill installation."
+            info "Skipped Gemini CLI installation."
             return
             ;;
     esac
 
-    # 1. Copy skill wrappers and helper docs
+    # 1. Copy helper docs (skill wrappers are now unified in .agents/skills/)
     if [[ -d "$staging_skills" ]]; then
         mkdir -p "$dest_skills"
-        local installed=0
-        for skill_dir in "$staging_skills"/aitask-*/; do
-            [[ -d "$skill_dir" ]] || continue
-            local skill_name
-            skill_name="$(basename "$skill_dir")"
-            mkdir -p "$dest_skills/$skill_name"
-            cp "$skill_dir/SKILL.md" "$dest_skills/$skill_name/SKILL.md"
-            installed=$((installed + 1))
+        for doc in geminicli_tool_mapping.md geminicli_planmode_prereqs.md; do
+            if [[ -f "$staging_skills/$doc" ]]; then
+                cp "$staging_skills/$doc" "$dest_skills/$doc"
+            fi
         done
-
-        if [[ -f "$staging_skills/geminicli_tool_mapping.md" ]]; then
-            cp "$staging_skills/geminicli_tool_mapping.md" "$dest_skills/geminicli_tool_mapping.md"
-        fi
-        if [[ -f "$staging_skills/geminicli_planmode_prereqs.md" ]]; then
-            cp "$staging_skills/geminicli_planmode_prereqs.md" "$dest_skills/geminicli_planmode_prereqs.md"
-        fi
-
-        success "  Installed $installed Gemini CLI skill wrappers to .gemini/skills/"
+        success "  Installed Gemini CLI helper docs to .gemini/skills/"
     fi
 
     # 1b. Copy command wrappers
@@ -1507,11 +1492,13 @@ setup_codex_cli() {
         cp "$skill_dir/SKILL.md" "$dest_skills/$skill_name/SKILL.md"
         installed=$((installed + 1))
     done
-    # Copy shared tool mapping file
-    if [[ -f "$staging_skills/codex_tool_mapping.md" ]]; then
-        cp "$staging_skills/codex_tool_mapping.md" "$dest_skills/codex_tool_mapping.md"
-    fi
-    success "  Installed $installed Codex CLI skill wrappers to .agents/skills/"
+    # Copy shared helper docs (codex + gemini)
+    for doc in codex_tool_mapping.md codex_interactive_prereqs.md geminicli_tool_mapping.md geminicli_planmode_prereqs.md; do
+        if [[ -f "$staging_skills/$doc" ]]; then
+            cp "$staging_skills/$doc" "$dest_skills/$doc"
+        fi
+    done
+    success "  Installed $installed unified skill wrappers to .agents/skills/"
 
     # 2. Assemble and insert instructions (Layer 1 + Layer 2, with markers)
     local content

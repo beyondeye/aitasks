@@ -34,23 +34,21 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TEST_DIR="$(mktemp -d)"
 trap 'rm -rf "$TEST_DIR"' EXIT
 
-echo "=== Test 1: Gemini CLI skills packaging (release workflow sim) ==="
+echo "=== Test 1: Gemini CLI packaging (release workflow sim) ==="
 mkdir -p "$TEST_DIR/gemini_skills"
 mkdir -p "$TEST_DIR/gemini_commands"
-for skill_dir in "$REPO_DIR/.gemini/skills"/aitask-*/; do
-    [ -d "$skill_dir" ] || continue
-    cp -r "$skill_dir" "$TEST_DIR/gemini_skills/$(basename "$skill_dir")"
+# Gemini skills dir now contains only helper docs (skill wrappers are unified in .agents/skills/)
+for doc in geminicli_tool_mapping.md geminicli_planmode_prereqs.md; do
+    [ -f "$REPO_DIR/.gemini/skills/$doc" ] && \
+        cp "$REPO_DIR/.gemini/skills/$doc" "$TEST_DIR/gemini_skills/"
 done
-[ -f "$REPO_DIR/.gemini/skills/geminicli_tool_mapping.md" ] && \
-    cp "$REPO_DIR/.gemini/skills/geminicli_tool_mapping.md" "$TEST_DIR/gemini_skills/"
-[ -f "$REPO_DIR/.gemini/skills/geminicli_planmode_prereqs.md" ] && \
-    cp "$REPO_DIR/.gemini/skills/geminicli_planmode_prereqs.md" "$TEST_DIR/gemini_skills/"
 [ -d "$REPO_DIR/.gemini/commands" ] && \
     cp -r "$REPO_DIR/.gemini/commands/." "$TEST_DIR/gemini_commands/"
 
+# No skill wrappers should be in gemini_skills (consolidated to .agents/skills/)
 skill_count=$(find "$TEST_DIR/gemini_skills" -name "SKILL.md" -type f | wc -l | tr -d ' ')
 command_count=$(find "$TEST_DIR/gemini_commands" -type f -name "*.md" | wc -l | tr -d ' ')
-assert_eq "Packaged 17 skill wrappers" "17" "$skill_count"
+assert_eq "No skill wrappers in gemini_skills" "0" "$skill_count"
 assert_eq "Tool mapping packaged" "true" "$([ -f "$TEST_DIR/gemini_skills/geminicli_tool_mapping.md" ] && echo true || echo false)"
 assert_eq "Planmode prereqs packaged" "true" "$([ -f "$TEST_DIR/gemini_skills/geminicli_planmode_prereqs.md" ] && echo true || echo false)"
 assert_eq "Packaged 17 command wrappers" "17" "$command_count"
@@ -62,27 +60,22 @@ mkdir -p "$INSTALL_DIR/aitasks/metadata"
 cp -r "$TEST_DIR/gemini_skills" "$INSTALL_DIR/gemini_skills"
 cp -r "$TEST_DIR/gemini_commands" "$INSTALL_DIR/gemini_commands"
 
-# Inline staging logic (mirrors install_gemini_staging)
+# Inline staging logic (mirrors install_gemini_staging — helper docs only)
 mkdir -p "$INSTALL_DIR/aitasks/metadata/geminicli_skills"
-for skill_dir in "$INSTALL_DIR/gemini_skills"/aitask-*/; do
-    [[ -d "$skill_dir" ]] || continue
-    skill_name="$(basename "$skill_dir")"
-    mkdir -p "$INSTALL_DIR/aitasks/metadata/geminicli_skills/$skill_name"
-    cp "$skill_dir/SKILL.md" "$INSTALL_DIR/aitasks/metadata/geminicli_skills/$skill_name/SKILL.md"
+for doc in geminicli_tool_mapping.md geminicli_planmode_prereqs.md; do
+    [ -f "$INSTALL_DIR/gemini_skills/$doc" ] && \
+        cp "$INSTALL_DIR/gemini_skills/$doc" "$INSTALL_DIR/aitasks/metadata/geminicli_skills/"
 done
-[ -f "$INSTALL_DIR/gemini_skills/geminicli_tool_mapping.md" ] && \
-    cp "$INSTALL_DIR/gemini_skills/geminicli_tool_mapping.md" "$INSTALL_DIR/aitasks/metadata/geminicli_skills/"
-[ -f "$INSTALL_DIR/gemini_skills/geminicli_planmode_prereqs.md" ] && \
-    cp "$INSTALL_DIR/gemini_skills/geminicli_planmode_prereqs.md" "$INSTALL_DIR/aitasks/metadata/geminicli_skills/"
 rm -rf "$INSTALL_DIR/gemini_skills"
 
 mkdir -p "$INSTALL_DIR/aitasks/metadata/geminicli_commands"
 cp -r "$INSTALL_DIR/gemini_commands/." "$INSTALL_DIR/aitasks/metadata/geminicli_commands/"
 rm -rf "$INSTALL_DIR/gemini_commands"
 
-staged_count=$(find "$INSTALL_DIR/aitasks/metadata/geminicli_skills" -name "SKILL.md" -type f | wc -l | tr -d ' ')
+# No skill wrappers staged (consolidated in codex_skills)
+staged_skill_count=$(find "$INSTALL_DIR/aitasks/metadata/geminicli_skills" -name "SKILL.md" -type f | wc -l | tr -d ' ')
 staged_command_count=$(find "$INSTALL_DIR/aitasks/metadata/geminicli_commands" -type f -name "*.md" | wc -l | tr -d ' ')
-assert_eq "Staged 17 wrappers to metadata" "17" "$staged_count"
+assert_eq "No skill wrappers staged" "0" "$staged_skill_count"
 assert_eq "Tool mapping staged" "true" "$([ -f "$INSTALL_DIR/aitasks/metadata/geminicli_skills/geminicli_tool_mapping.md" ] && echo true || echo false)"
 assert_eq "Planmode prereqs staged" "true" "$([ -f "$INSTALL_DIR/aitasks/metadata/geminicli_skills/geminicli_planmode_prereqs.md" ] && echo true || echo false)"
 assert_eq "Staged 17 command wrappers" "17" "$staged_command_count"
@@ -109,7 +102,7 @@ warn() { echo "WARN: $*"; }
 content="$(assemble_aitasks_instructions "$PROJECT_DIR" "geminicli")" || true
 assert_eq "Assembly produced content" "true" "$([ -n "$content" ] && echo true || echo false)"
 assert_contains "Layer 1 present" "Task File Format" "$content"
-assert_contains "Layer 2 geminicli present" "Skills" "$content"
+assert_contains "Layer 2 geminicli present" "Agent Identification" "$content"
 
 echo ""
 echo "=== Test 4: Marker insertion (new file) ==="

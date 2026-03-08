@@ -414,10 +414,12 @@ install_codex_staging() {
         cp "$skill_dir/SKILL.md" "$INSTALL_DIR/aitasks/metadata/codex_skills/$skill_name/SKILL.md"
     done
 
-    # Copy shared tool mapping file
-    if [[ -f "$INSTALL_DIR/codex_skills/codex_tool_mapping.md" ]]; then
-        cp "$INSTALL_DIR/codex_skills/codex_tool_mapping.md" "$INSTALL_DIR/aitasks/metadata/codex_skills/codex_tool_mapping.md"
-    fi
+    # Copy shared helper docs (codex + gemini)
+    for doc in codex_tool_mapping.md codex_interactive_prereqs.md geminicli_tool_mapping.md geminicli_planmode_prereqs.md; do
+        if [[ -f "$INSTALL_DIR/codex_skills/$doc" ]]; then
+            cp "$INSTALL_DIR/codex_skills/$doc" "$INSTALL_DIR/aitasks/metadata/codex_skills/$doc"
+        fi
+    done
 
     rm -rf "$INSTALL_DIR/codex_skills"
     info "  Stored Codex CLI skills staging at aitasks/metadata/codex_skills/"
@@ -493,26 +495,16 @@ install_gemini_staging() {
     fi
 
     if [[ -d "$INSTALL_DIR/gemini_skills" ]]; then
+        # Only stage helper docs (skill wrappers are now unified in codex_skills)
         mkdir -p "$INSTALL_DIR/aitasks/metadata/geminicli_skills"
-
-        for skill_dir in "$INSTALL_DIR/gemini_skills"/aitask-*/; do
-            [[ -d "$skill_dir" ]] || continue
-            local skill_name
-            skill_name="$(basename "$skill_dir")"
-            mkdir -p "$INSTALL_DIR/aitasks/metadata/geminicli_skills/$skill_name"
-            cp "$skill_dir/SKILL.md" "$INSTALL_DIR/aitasks/metadata/geminicli_skills/$skill_name/SKILL.md"
+        for doc in geminicli_tool_mapping.md geminicli_planmode_prereqs.md; do
+            if [[ -f "$INSTALL_DIR/gemini_skills/$doc" ]]; then
+                cp "$INSTALL_DIR/gemini_skills/$doc" "$INSTALL_DIR/aitasks/metadata/geminicli_skills/$doc"
+            fi
         done
 
-        # Copy shared Gemini CLI helper docs
-        if [[ -f "$INSTALL_DIR/gemini_skills/geminicli_tool_mapping.md" ]]; then
-            cp "$INSTALL_DIR/gemini_skills/geminicli_tool_mapping.md" "$INSTALL_DIR/aitasks/metadata/geminicli_skills/geminicli_tool_mapping.md"
-        fi
-        if [[ -f "$INSTALL_DIR/gemini_skills/geminicli_planmode_prereqs.md" ]]; then
-            cp "$INSTALL_DIR/gemini_skills/geminicli_planmode_prereqs.md" "$INSTALL_DIR/aitasks/metadata/geminicli_skills/geminicli_planmode_prereqs.md"
-        fi
-
         rm -rf "$INSTALL_DIR/gemini_skills"
-        info "  Stored Gemini CLI skills staging at aitasks/metadata/geminicli_skills/"
+        info "  Stored Gemini CLI helper docs staging at aitasks/metadata/geminicli_skills/"
     fi
 
     if [[ -d "$INSTALL_DIR/gemini_commands" ]]; then

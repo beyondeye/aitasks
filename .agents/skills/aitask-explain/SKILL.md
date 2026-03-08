@@ -5,18 +5,20 @@ description: "Explain files in the project: functionality, usage examples, and c
 
 ## Prerequisites
 
-**BEFORE anything else**, read **`.agents/skills/codex_interactive_prereqs.md`**
-and follow its requirements. Do not proceed until prerequisites are satisfied.
+**If you are Codex CLI:** Read **`.agents/skills/codex_interactive_prereqs.md`** BEFORE proceeding.
 
 ## Source of Truth
 
-This is a Codex CLI wrapper. The authoritative skill definition is:
+This is a unified skill wrapper for Codex CLI and Gemini CLI. The authoritative skill definition is:
 
 **`.claude/skills/aitask-explain/SKILL.md`**
 
-Read that file and follow its complete workflow. For tool mapping and
-Codex CLI adaptations, read **`.agents/skills/codex_tool_mapping.md`**.
+Read that file and follow its complete workflow.
+
+**If you are Codex CLI:** For tool mapping and adaptations, read **`.agents/skills/codex_tool_mapping.md`**.
+
+**If you are Gemini CLI:** For tool mapping and adaptations, read **`.agents/skills/geminicli_tool_mapping.md`**.
 
 ## Arguments
 
-Accepts optional file/directory paths: `$aitask-explain src/app.py` or `$aitask-explain src/lib/`. Supports line ranges: `path:start-end`.
+Accepts optional file/directory paths: `src/app.py` or `src/lib/`. Supports line ranges: `path:start-end`.

@@ -44,10 +44,12 @@ jobs:
               skill_name="$(basename "$skill_dir")"
               cp -r "$skill_dir" "codex_skills/$skill_name"
             done
-            # Copy shared tool mapping file
-            if [ -f .agents/skills/codex_tool_mapping.md ]; then
-              cp .agents/skills/codex_tool_mapping.md codex_skills/codex_tool_mapping.md
-            fi
+            # Copy shared helper docs (codex + gemini)
+            for doc in codex_tool_mapping.md codex_interactive_prereqs.md geminicli_tool_mapping.md geminicli_planmode_prereqs.md; do
+              if [ -f ".agents/skills/$doc" ]; then
+                cp ".agents/skills/$doc" "codex_skills/$doc"
+              fi
+            done
           fi
 
       - name: Build opencode skills directory from .opencode/skills
@@ -71,26 +73,18 @@ jobs:
             fi
           fi
 
-      - name: Build gemini skills directory from .gemini/skills
+      - name: Build gemini commands and helper docs
         run: |
           mkdir -p gemini_commands
           if [ -d .gemini/commands ]; then
             cp -r .gemini/commands/. gemini_commands/
           fi
-          if [ -d .gemini/skills ]; then
-            mkdir -p gemini_skills
-            for skill_dir in .gemini/skills/aitask-*/; do
-              [ -d "$skill_dir" ] || continue
-              skill_name="$(basename "$skill_dir")"
-              cp -r "$skill_dir" "gemini_skills/$skill_name"
-            done
-            if [ -f .gemini/skills/geminicli_tool_mapping.md ]; then
-              cp .gemini/skills/geminicli_tool_mapping.md gemini_skills/geminicli_tool_mapping.md
+          mkdir -p gemini_skills
+          for doc in geminicli_tool_mapping.md geminicli_planmode_prereqs.md; do
+            if [ -f ".gemini/skills/$doc" ]; then
+              cp ".gemini/skills/$doc" "gemini_skills/$doc"
             fi
-            if [ -f .gemini/skills/geminicli_planmode_prereqs.md ]; then
-              cp .gemini/skills/geminicli_planmode_prereqs.md gemini_skills/geminicli_planmode_prereqs.md
-            fi
-          fi
+          done
 
       - name: Create release tarball
         run: |
