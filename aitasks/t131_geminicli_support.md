@@ -5,9 +5,9 @@ depends: ['130']
 issue_type: feature
 status: Ready
 labels: [geminicli]
-children_to_implement: [t131_3, t131_4]
+children_to_implement: [t131_4]
 created_at: 2026-02-16 10:31
-updated_at: 2026-03-08 08:18
+updated_at: 2026-03-08 09:32
 boardcol: now
 boardidx: 20
 ---
