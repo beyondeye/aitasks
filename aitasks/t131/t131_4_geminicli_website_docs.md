@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t131_3]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [geminicli]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-07 23:21
-updated_at: 2026-03-07 23:21
+updated_at: 2026-03-08 15:10
 ---
 
 Update website documentation to include Gemini CLI as a supported agent.
