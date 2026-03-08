@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [geminicli]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-08 09:57
-updated_at: 2026-03-08 10:21
+updated_at: 2026-03-08 10:29
+completed_at: 2026-03-08 10:29
 ---
 
 geminicli read skills both from .gemini and from .agents
