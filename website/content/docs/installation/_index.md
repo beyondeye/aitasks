@@ -79,6 +79,12 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 - `.opencode/instructions.md` — aitasks instructions for OpenCode
 - `opencode.json` — merged with aitask settings
 
+**Optional: Gemini CLI support** (when `ait setup` detects Gemini CLI):
+
+- `.gemini/skills/` — Gemini CLI skill wrappers
+- `.gemini/commands/` — Gemini CLI command wrappers
+- `GEMINI.md` — aitasks instructions for Gemini CLI
+
 **Global dependencies** (installed once per machine via `ait setup`):
 
 - CLI tools: `fzf`, `gh` (for GitHub), `glab` (for GitLab), or `bkt` (for Bitbucket), `jq`, `git`

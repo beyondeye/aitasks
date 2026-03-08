@@ -48,7 +48,7 @@ Inspired by [Conductor](https://github.com/gemini-cli-extensions/conductor)'s re
 <!-- Update these stats at each release -->
 {{% blocks/feature icon="fa-code" title="By the Numbers" %}}
 **6 releases** since February 2026<br>
-**17 Claude Code skills** built-in<br>
+**17 AI Agent skills** built-in (Claude Code, Gemini CLI, Codex CLI, OpenCode)<br>
 **5 platforms** fully supported<br>
 **28+ CLI scripts** in the framework
 {{% /blocks/feature %}}
