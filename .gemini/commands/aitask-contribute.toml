@@ -1,0 +1,13 @@
+description = "Contribute local aitasks framework changes back to the upstream repository by opening structured GitHub issues."
+prompt = """
+
+@.gemini/skills/geminicli_tool_mapping.md
+
+@.gemini/skills/geminicli_planmode_prereqs.md
+
+Execute the following Claude Code skill workflow.
+
+Arguments: {{args}}
+
+@.claude/skills/aitask-contribute/SKILL.md
+"""
