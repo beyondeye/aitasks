@@ -78,6 +78,11 @@ While in plan mode:
       ./.aitask-scripts/aitask_update.sh --batch <parent_num> --status Ready --assigned-to ""
       ```
       The `aitask_ls.sh` script will automatically display the parent as "Has children" because it has pending `children_to_implement`. Do NOT manually set the parent status to "Blocked".
+    - **IMPORTANT:** Release the parent task lock since only child tasks should be locked during child implementation:
+      ```bash
+      ./.aitask-scripts/aitask_lock.sh --unlock <parent_num> 2>/dev/null || true
+      ```
+      Parent task locking/unlocking should be left to the user via `ait board` or `ait lock`. Only child tasks should be automatically locked when picked for implementation.
     - **Write implementation plans for ALL child tasks** before proceeding:
       - For each child task created, write a plan file to `aiplans/p<parent>/p<parent>_<child>_<name>.md`
       - Use the child plan file naming and metadata header conventions from the **Save Plan to External File** section below
