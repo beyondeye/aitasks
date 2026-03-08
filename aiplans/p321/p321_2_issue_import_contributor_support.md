@@ -89,5 +89,13 @@ The contributor flags should work in both interactive and batch import modes sin
 - Import a regular issue (no metadata) — verify no contributor fields (backward compatible)
 - `shellcheck .aitask-scripts/aitask_issue_import.sh` passes
 
+## Final Implementation Notes
+
+- **Actual work done:** Added `parse_contribute_metadata()` function and integrated it into both `import_single_issue()` (batch mode) and `interactive_import_issue()` (interactive mode). Created `tests/test_issue_import_contributor.sh` with 21 tests covering metadata parsing, edge cases, and integration.
+- **Deviations from plan:** Instead of using `$contributor_flags` as a string variable, appended flags directly to the `create_args` array — cleaner and avoids quoting issues. Also added contributor parsing to the interactive flow (`interactive_import_issue()`), not just the batch flow.
+- **Issues encountered:** None — the implementation followed the plan closely. The `case` statement ordering (contributor_email before contributor) correctly prevents substring matching.
+- **Key decisions:** Extracted the parsing function as a unit-testable standalone by duplicating it in tests (since the script can't be sourced without executing `main()`). Tests cover: full metadata, no metadata, partial metadata, whitespace handling, wrong comment format, metadata in middle of body, and syntax checks.
+- **Notes for sibling tasks:** The metadata format `<!-- aitask-contribute-metadata contributor: X contributor_email: Y based_on_version: Z -->` is now parsed by both batch and interactive import flows. The t321_5 tests are already done per t321_1's notes — this task adds issue-import-specific tests.
+
 ## Step 9 Reference
 Post-implementation: archive task via task-workflow Step 9.
