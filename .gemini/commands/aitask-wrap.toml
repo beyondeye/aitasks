@@ -1,6 +1,5 @@
----
-description: Wrap uncommitted changes into an aitask with retroactive documentation and traceability.
----
+description = "Wrap uncommitted changes into an aitask with retroactive documentation and traceability."
+prompt = """
 
 @.gemini/skills/geminicli_tool_mapping.md
 
@@ -8,6 +7,7 @@ description: Wrap uncommitted changes into an aitask with retroactive documentat
 
 Execute the following Claude Code skill workflow.
 
-Arguments: $ARGUMENTS
+Arguments: {{args}}
 
 @.claude/skills/aitask-wrap/SKILL.md
+"""

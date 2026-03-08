@@ -1,6 +1,5 @@
----
-description: Identify and merge related tasks into a single task, then optionally execute it.
----
+description = "Identify and merge related tasks into a single task, then optionally execute it."
+prompt = """
 
 @.gemini/skills/geminicli_tool_mapping.md
 
@@ -8,6 +7,7 @@ description: Identify and merge related tasks into a single task, then optionall
 
 Execute the following Claude Code skill workflow.
 
-Arguments: $ARGUMENTS
+Arguments: {{args}}
 
 @.claude/skills/aitask-fold/SKILL.md
+"""

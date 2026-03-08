@@ -1,6 +1,5 @@
----
-description: Pick and implement a task in remote/non-interactive mode. All decisions from execution profile - no interactive prompts.
----
+description = "Pick and implement a task in remote/non-interactive mode. All decisions from execution profile - no interactive prompts."
+prompt = """
 
 @.gemini/skills/geminicli_tool_mapping.md
 
@@ -8,6 +7,7 @@ description: Pick and implement a task in remote/non-interactive mode. All decis
 
 Execute the following Claude Code skill workflow. If a task number is provided, use it for direct selection.
 
-Task argument: $ARGUMENTS
+Task argument: {{args}}
 
 @.claude/skills/aitask-pickrem/SKILL.md
+"""
