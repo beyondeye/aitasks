@@ -5,9 +5,9 @@ depends: []
 issue_type: documentation
 status: Ready
 labels: [auto-update]
-children_to_implement: [t321_3, t321_5]
+children_to_implement: [t321_3]
 created_at: 2026-03-06 07:53
-updated_at: 2026-03-08 19:15
+updated_at: 2026-03-08 22:01
 boardcol: now
 boardidx: 10
 ---
