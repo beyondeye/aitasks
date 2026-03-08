@@ -44,3 +44,10 @@ cd website && hugo build --gc --minify
 ## Post-Implementation
 
 - Refer to Step 9 (Post-Implementation) in `.claude/skills/task-workflow/SKILL.md`
+
+## Final Implementation Notes
+- **Actual work done:** Added Gemini CLI to the installation page, updated the overview page to highlight multi-agent support (including Gemini CLI), and updated the about page's agent count and list.
+- **Deviations from plan:** The `getting-started.md` file already included Gemini CLI, so no changes were necessary there. This was recognized during the verification phase.
+- **Issues encountered:** None.
+- **Key decisions:** Replaced "Claude Code optimized" with "Multi-Agent Support" in the overview to reflect the broader support spectrum.
+- **Notes for sibling tasks:** Documentation updates are complete for Gemini CLI support.

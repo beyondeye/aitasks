@@ -3,11 +3,11 @@ priority: medium
 effort: high
 depends: ['130']
 issue_type: feature
-status: Ready
+status: Done
 labels: [geminicli]
-children_to_implement: [t131_4]
 created_at: 2026-02-16 10:31
-updated_at: 2026-03-08 09:32
+updated_at: 2026-03-08 15:19
+completed_at: 2026-03-08 15:19
 boardcol: now
 boardidx: 20
 ---
