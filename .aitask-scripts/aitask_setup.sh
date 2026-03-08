@@ -820,7 +820,7 @@ setup_lock_branch() {
 
 # --- Assemble aitasks instructions from Layer 1 (shared) + optional Layer 2 (agent-specific) ---
 # Usage: assemble_aitasks_instructions <project_dir> [agent_type]
-# agent_type: claude, codex, gemini, opencode (omit for shared-only)
+# agent_type: claude, codex, geminicli, opencode (omit for shared-only)
 assemble_aitasks_instructions() {
     local project_dir="$1"
     local agent_type="${2:-}"
@@ -1294,10 +1294,79 @@ setup_claude_code() {
     fi
 }
 
-# --- Gemini CLI setup (placeholder) ---
+# --- Gemini CLI setup ---
 setup_gemini_cli() {
-    info "Gemini CLI setup (placeholder)"
-    info "  Future: install .gemini/ skills and commands"
+    local project_dir="$SCRIPT_DIR/.."
+    local staging_skills="$project_dir/aitasks/metadata/geminicli_skills"
+    local staging_commands="$project_dir/aitasks/metadata/geminicli_commands"
+    local dest_skills="$project_dir/.gemini/skills"
+    local dest_commands="$project_dir/.gemini/commands"
+
+    if [[ ! -d "$staging_skills" && ! -d "$staging_commands" ]]; then
+        info "No Gemini CLI staging files found — skipping"
+        info "  Re-run 'ait install' to get Gemini CLI support files"
+        return
+    fi
+
+    local count
+    count=$(find "$staging_skills" -name "SKILL.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+
+    echo ""
+    info "Found $count Gemini CLI skill wrappers ready for installation."
+    echo ""
+
+    if [[ -t 0 ]]; then
+        printf "  Install Gemini CLI skills and commands? [Y/n] "
+        read -r answer
+    else
+        info "(non-interactive: auto-accepting default)"
+        answer="Y"
+    fi
+    case "${answer:-Y}" in
+        [Yy]*|"") ;;
+        *)
+            info "Skipped Gemini CLI skill installation."
+            return
+            ;;
+    esac
+
+    # 1. Copy skill wrappers and helper docs
+    if [[ -d "$staging_skills" ]]; then
+        mkdir -p "$dest_skills"
+        local installed=0
+        for skill_dir in "$staging_skills"/aitask-*/; do
+            [[ -d "$skill_dir" ]] || continue
+            local skill_name
+            skill_name="$(basename "$skill_dir")"
+            mkdir -p "$dest_skills/$skill_name"
+            cp "$skill_dir/SKILL.md" "$dest_skills/$skill_name/SKILL.md"
+            installed=$((installed + 1))
+        done
+
+        if [[ -f "$staging_skills/geminicli_tool_mapping.md" ]]; then
+            cp "$staging_skills/geminicli_tool_mapping.md" "$dest_skills/geminicli_tool_mapping.md"
+        fi
+        if [[ -f "$staging_skills/geminicli_planmode_prereqs.md" ]]; then
+            cp "$staging_skills/geminicli_planmode_prereqs.md" "$dest_skills/geminicli_planmode_prereqs.md"
+        fi
+
+        success "  Installed $installed Gemini CLI skill wrappers to .gemini/skills/"
+    fi
+
+    # 1b. Copy command wrappers
+    if [[ -d "$staging_commands" ]]; then
+        mkdir -p "$dest_commands"
+        cp -r "$staging_commands/." "$dest_commands/"
+        success "  Installed Gemini CLI command wrappers to .gemini/commands/"
+    fi
+
+    # 2. Assemble and insert instructions (Layer 1 + Layer 2, with markers)
+    local content
+    content="$(assemble_aitasks_instructions "$project_dir" "geminicli")" || true
+    if [[ -n "$content" ]]; then
+        insert_aitasks_instructions "$project_dir/GEMINI.md" "$content"
+        info "  Installed GEMINI.md (with aitasks markers)"
+    fi
 }
 
 # --- Merge Codex CLI config.toml (add aitask-specific settings) ---

@@ -71,6 +71,27 @@ jobs:
             fi
           fi
 
+      - name: Build gemini skills directory from .gemini/skills
+        run: |
+          mkdir -p gemini_commands
+          if [ -d .gemini/commands ]; then
+            cp -r .gemini/commands/. gemini_commands/
+          fi
+          if [ -d .gemini/skills ]; then
+            mkdir -p gemini_skills
+            for skill_dir in .gemini/skills/aitask-*/; do
+              [ -d "$skill_dir" ] || continue
+              skill_name="$(basename "$skill_dir")"
+              cp -r "$skill_dir" "gemini_skills/$skill_name"
+            done
+            if [ -f .gemini/skills/geminicli_tool_mapping.md ]; then
+              cp .gemini/skills/geminicli_tool_mapping.md gemini_skills/geminicli_tool_mapping.md
+            fi
+            if [ -f .gemini/skills/geminicli_planmode_prereqs.md ]; then
+              cp .gemini/skills/geminicli_planmode_prereqs.md gemini_skills/geminicli_planmode_prereqs.md
+            fi
+          fi
+
       - name: Create release tarball
         run: |
           tar -czf aitasks-${{ github.ref_name }}.tar.gz \
@@ -81,7 +102,9 @@ jobs:
             seed/ \
             codex_skills/ \
             opencode_skills/ \
-            opencode_commands/
+            opencode_commands/ \
+            gemini_skills/ \
+            gemini_commands/
 
       - name: Extract changelog for this version
         id: changelog
