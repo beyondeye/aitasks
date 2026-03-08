@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t319_2]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [opencode, codeagent, website]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-06 01:18
-updated_at: 2026-03-06 11:33
+updated_at: 2026-03-08 11:02
 ---
 
 Update website documentation for OpenCode support alongside Codex CLI.
