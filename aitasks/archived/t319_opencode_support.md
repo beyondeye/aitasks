@@ -3,11 +3,11 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [opencode, codeagent]
-children_to_implement: [t319_3]
 created_at: 2026-03-05 23:48
-updated_at: 2026-03-06 12:04
+updated_at: 2026-03-08 11:10
+completed_at: 2026-03-08 11:10
 boardidx: 10
 ---
 
