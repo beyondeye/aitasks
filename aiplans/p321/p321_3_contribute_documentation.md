@@ -11,49 +11,43 @@ Base branch: main
 
 ## Overview
 
-Create the website documentation page for `/aitask-contribute` and update the overview.md reference.
+Create website documentation for `/aitask-contribute` skill, a new workflow page for open-source contributions, update overview.md, and link from README.md.
 
 ## Steps
 
-### 1. Create skill documentation page
+### 1. Create skill documentation page — DONE
 
-Create `website/content/docs/skills/aitask-contribute.md` following the format of `website/content/docs/skills/aitask-pr-import.md`.
+Created `website/content/docs/skills/aitask-contribute.md` (weight: 23) following `aitask-pr-import.md` format. Covers overview, usage, 7-step workflow, and key capabilities (two modes, areas, AI analysis, grouping, attribution).
 
-Content should cover:
-- What the skill does (contribute local framework changes via structured GitHub issues)
-- Two modes: downstream project mode vs clone/fork mode
-- Available contribution areas (scripts, claude skills, gemini, codex, opencode, website)
-- The 7-step interactive workflow
-- Multi-contribution support (separate issues for distinct changes)
-- Contributor attribution flow (how Co-authored-by is preserved when issue is imported)
-- Note: this is an alternative to traditional pull requests
+### 2. Update overview.md — DONE
 
-### 2. Update overview.md
+Updated line 49 to: "modify them for your needs and contribute back with ease your enhancements to the project with the included AI-based /aitask-contribute skill" with relref link.
 
-Change line 49 in `website/content/docs/overview.md`:
+### 3. Create workflow page — DONE
 
-**From:**
-```
-...with the included AI agent-based framework update skill.
-```
+Created `website/content/docs/workflows/contribute-and-manage.md` (weight: 36). Covers three complementary features: Issue to Task, PR to Task, and Contribute Without Forking. Includes end-to-end lifecycle diagram, contributor attribution flow, and comparison table.
 
-**To:**
-```
-...with the included [/aitask-contribute]({{< relref "skills/aitask-contribute" >}}) skill.
-```
+### 4. Update README.md — DONE
+
+Updated line 65 with matching wording and link to the new workflow page.
 
 ## Key Files
 
-- **Create:** `website/content/docs/skills/aitask-contribute.md`
-- **Modify:** `website/content/docs/overview.md` (line 49)
-- **Reference:** `website/content/docs/skills/aitask-pr-import.md` (format pattern)
-- **Reference:** `.claude/skills/aitask-contribute/SKILL.md` (created in t321_4) — workflow to document
+- **Created:** `website/content/docs/skills/aitask-contribute.md`
+- **Created:** `website/content/docs/workflows/contribute-and-manage.md`
+- **Modified:** `website/content/docs/overview.md` (line 49)
+- **Modified:** `README.md` (line 65)
 
 ## Verification
 
-- `cd website && hugo build --gc --minify` succeeds
-- The overview.md link resolves correctly
-- Documentation page renders with all sections
+- `cd website && hugo build --gc --minify` — PASSED (no errors, 102 pages)
+
+## Final Implementation Notes
+- **Actual work done:** Created skill doc, workflow page (covering all 3 contribution paths with lifecycle diagram and comparison table), updated overview.md and README.md. Scope expanded beyond original plan to include workflow page and README update.
+- **Deviations from plan:** Original plan only had 2 steps (skill doc + overview.md). User requested adding: workflow page for "Contribute and Manage Contributions" covering issue-to-task, PR-to-task, and contribute-without-forking; and README.md update with link to the workflow.
+- **Issues encountered:** None. Hugo build passed on first try.
+- **Key decisions:** Weight 23 for skill doc (after pr-import at 22), weight 36 for workflow page (after pr-workflow at 35). Workflow page structured around three complementary features with an end-to-end lifecycle diagram.
+- **Notes for sibling tasks:** The aitask-contribute skill and script were developed with the aitasks GitHub repo in mind. A follow-up task should verify multi-platform support (GitLab, Bitbucket) for the underlying `aitask_contribute.sh` script, since the documentation now implies general platform support. The `gh` CLI dependency in the skill's prerequisites check is GitHub-specific.
 
 ## Step 9 Reference
 Post-implementation: archive task via task-workflow Step 9.
