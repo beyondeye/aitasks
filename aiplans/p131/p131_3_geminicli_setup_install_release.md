@@ -11,7 +11,9 @@ Base branch: main
 
 ## Overview
 
-Update 3 existing scripts and create 1 seed file to integrate Gemini CLI into the distribution pipeline.
+Update 3 existing scripts, create 1 seed file, and add automated tests to integrate Gemini CLI into the distribution pipeline.
+
+**Verified against codebase (2026-03-08):** All assumptions confirmed. Line numbers accurate within ±1-2. Note: `assemble_aitasks_instructions` comment at line 823 says "gemini" but naming convention uses "geminicli" — will update.
 
 ## Step 1: Create `seed/geminicli_instructions.seed.md`
 
@@ -129,6 +131,33 @@ Add a new step after the OpenCode bundling step (~line 72):
 ```
 
 Add `gemini_skills/` and `gemini_commands/` to the tarball command (~line 84).
+
+## Step 5: Create `tests/test_gemini_setup.sh`
+
+Mirror `tests/test_opencode_setup.sh` with Gemini CLI equivalents. 6 tests (no JSON merge — Gemini CLI has no config file):
+
+1. **Packaging** — 17 skill wrappers + tool mapping + planmode prereqs + 17 commands
+2. **Staging** — skills/commands to `aitasks/metadata/geminicli_*/`, source cleaned up
+3. **Instruction assembly** — Layer 1 + Layer 2 with agent_type `"geminicli"`
+4. **Marker insertion** — `>>>aitasks`/`<<<aitasks` markers in new file
+5. **Idempotency** — re-insert same content, unchanged
+6. **User content preservation** — existing content survives insert + update
+
+## Verification
+
+```bash
+bash -n .aitask-scripts/aitask_setup.sh
+bash -n install.sh
+bash tests/test_gemini_setup.sh
+```
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `seed/geminicli_instructions.seed.md`, replaced `setup_gemini_cli()` placeholder with full implementation (~73 lines) mirroring `setup_opencode()`, added `install_gemini_staging()` and `install_seed_gemini_config()` to `install.sh` with main flow calls, added Gemini CLI bundling step and tarball entries to release workflow, created `tests/test_gemini_setup.sh` with 26 assertions (all passing).
+- **Deviations from plan:** Added Step 5 (automated tests) during plan verification — not in original plan. Updated `assemble_aitasks_instructions` comment from "gemini" to "geminicli" at line 823.
+- **Issues encountered:** None.
+- **Key decisions:** Used agent_type `"geminicli"` (not `"gemini"`) for consistency with naming conventions (`models_geminicli.json`, `geminicli_skills/`, etc.). Instructions insert into `GEMINI.md` at project root (like Claude Code's `CLAUDE.md`) rather than `.gemini/instructions.md` (like OpenCode). No config merge step needed — Gemini CLI has no equivalent of `opencode.json` or `codex_config.toml`.
+- **Notes for sibling tasks:** The distribution pipeline is now complete for Gemini CLI. t131_4 (website docs) can reference the full pipeline when documenting Gemini CLI support. The `seed/geminicli_instructions.seed.md` file follows the same Layer 2 pattern as codex/opencode. Test file `tests/test_gemini_setup.sh` follows `tests/test_opencode_setup.sh` pattern exactly (minus JSON merge test).
 
 ## Post-Implementation
 
