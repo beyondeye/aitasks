@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: low
-depends: [3]
+depends: [4]
 issue_type: documentation
 status: Ready
 labels: [auto-update]
 created_at: 2026-03-08 09:36
-updated_at: 2026-03-08 09:36
+updated_at: 2026-03-08 09:44
 ---
 
 ## Context
