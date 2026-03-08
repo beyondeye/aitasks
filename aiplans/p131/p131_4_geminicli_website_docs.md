@@ -11,31 +11,29 @@ Base branch: main
 
 ## Overview
 
-Update the Hugo/Docsy website to document Gemini CLI as a supported agent.
+Update the Hugo/Docsy website to document Gemini CLI as a supported agent, alongside OpenCode and Codex CLI.
 
 ## Step 1: Update installation page
 
 File: `website/content/docs/installation/_index.md`
 
-Add after the "Optional: OpenCode support" section (after line 79):
+Add a new section: **"Optional: Gemini CLI support"** below the existing OpenCode support section, listing the specific directories (`.gemini/skills/`, `.gemini/commands/`) and instructions (`GEMINI.md`) created during setup.
 
-```markdown
-**Optional: Gemini CLI support** (when `ait setup` detects Gemini CLI):
+## Step 2: Update overview page
 
-- `.gemini/skills/` — Gemini CLI skill wrappers
-- `.gemini/commands/` — Gemini CLI command wrappers
-- `GEMINI.md` — aitasks instructions for Gemini CLI
-```
+File: `website/content/docs/overview.md`
 
-## Step 2: Review and update other pages
+Under "Key Features & Architecture", change the bullet point from "- **Claude Code optimized.**" to "- **Multi-Agent Support:** Optimized for Claude Code, with full support for Gemini CLI, Codex CLI, and OpenCode."
 
-Check each page that mentions Codex/OpenCode and add Gemini CLI where appropriate:
+## Step 3: Update about page
 
-- `website/content/docs/overview.md` — Check for agent listings
-- `website/content/about/_index.md` — Check for agent listings
-- `website/content/docs/commands/codeagent.md` — Already covers Gemini CLI (verify, no changes expected)
-- `website/content/docs/skills/aitask-refresh-code-models.md` — Check if mentions agents
-- `website/content/docs/tuis/settings/` — Check settings docs
+File: `website/content/about/_index.md`
+
+Update the feature bullet from "**17 Claude Code skills** built-in" to "**17 AI Agent skills** built-in (Claude Code, Gemini CLI, Codex CLI, OpenCode)".
+
+## Step 4: Verify other documentation pages
+
+Verify that other pages (like the TUIs/Settings docs) which list supported agents also include `geminicli`.
 
 ## Verification
 
