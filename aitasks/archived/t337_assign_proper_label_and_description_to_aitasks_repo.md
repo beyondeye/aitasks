@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: []
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-08 16:24
-updated_at: 2026-03-08 16:26
+updated_at: 2026-03-08 16:54
+completed_at: 2026-03-08 16:54
 ---
 
 currently the aitasks framework repo at https://github.com/beyondeye/aitasks has no description and no labels configured, I would like to define the most proper project github labels and description, based both on the actual aitasks functionality and also based on labels used by similar or related projects here is a list of related of similar project on github to check for labels to use and ideas for shor project description, in order of similarity
