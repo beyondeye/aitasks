@@ -387,6 +387,37 @@ source_format_comments() {
     esac
 }
 
+# --- Contribute Metadata Parsing ---
+
+# Parse aitask-contribute metadata from issue body HTML comment
+# Sets global: CONTRIBUTE_CONTRIBUTOR, CONTRIBUTE_EMAIL
+parse_contribute_metadata() {
+    local body="$1"
+    CONTRIBUTE_CONTRIBUTOR=""
+    CONTRIBUTE_EMAIL=""
+
+    local in_block=false
+    while IFS= read -r line; do
+        if [[ "$line" == *"<!-- aitask-contribute-metadata"* ]]; then
+            in_block=true
+            continue
+        fi
+        if [[ "$in_block" == true ]]; then
+            if [[ "$line" == *"-->"* ]]; then
+                break
+            fi
+            case "$line" in
+                *contributor_email:*)
+                    CONTRIBUTE_EMAIL=$(echo "$line" | sed 's/.*contributor_email:[[:space:]]*//' | tr -d '[:space:]')
+                    ;;
+                *contributor:*)
+                    CONTRIBUTE_CONTRIBUTOR=$(echo "$line" | sed 's/.*contributor:[[:space:]]*//' | tr -d '[:space:]')
+                    ;;
+            esac
+        fi
+    done <<< "$body"
+}
+
 # --- Duplicate Detection ---
 
 check_duplicate_import() {
@@ -485,6 +516,15 @@ import_single_issue() {
     [[ "$BATCH_NO_SIBLING_DEP" == true ]] && create_args+=(--no-sibling-dep)
     [[ "$BATCH_COMMIT" == true ]] && create_args+=(--commit)
     [[ "$BATCH_SILENT" == true ]] && create_args+=(--silent)
+
+    # Check for aitask-contribute metadata in issue body
+    parse_contribute_metadata "$body"
+    if [[ -n "$CONTRIBUTE_CONTRIBUTOR" ]]; then
+        create_args+=(--contributor "$CONTRIBUTE_CONTRIBUTOR")
+        if [[ -n "$CONTRIBUTE_EMAIL" ]]; then
+            create_args+=(--contributor-email "$CONTRIBUTE_EMAIL")
+        fi
+    fi
 
     echo "$description" | "$SCRIPT_DIR/aitask_create.sh" "${create_args[@]}"
 }
@@ -726,6 +766,15 @@ interactive_import_issue() {
         --issue "$url")
 
     [[ -n "$labels" ]] && create_args+=(--labels "$labels")
+
+    # Check for aitask-contribute metadata in issue body
+    parse_contribute_metadata "$body"
+    if [[ -n "$CONTRIBUTE_CONTRIBUTOR" ]]; then
+        create_args+=(--contributor "$CONTRIBUTE_CONTRIBUTOR")
+        if [[ -n "$CONTRIBUTE_EMAIL" ]]; then
+            create_args+=(--contributor-email "$CONTRIBUTE_EMAIL")
+        fi
+    fi
 
     # Ask how to save before creating
     local save_action
