@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [geminicli, codex, opencode]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: codex/gpt-5
 created_at: 2026-03-08 12:00
-updated_at: 2026-03-08 10:06
+updated_at: 2026-03-08 10:11
+completed_at: 2026-03-08 10:11
 ---
 
 Clean up agent-specific instruction seed files to remove redundant content. Only the Agent Identification section should remain as the agent-specific layer; other sections (shared conventions header, skills location) are either redundant with Layer 1 or unnecessary.
