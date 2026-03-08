@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [codexcli]
-children_to_implement: [t339_1, t339_2, t339_3, t339_4, t339_5]
+children_to_implement: [t339_1, t339_2, t339_3, t339_4, t339_5, t339_6]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-08 17:29
 updated_at: 2026-03-08 18:36
