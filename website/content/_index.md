@@ -23,7 +23,7 @@ Tasks are plain Markdown files with YAML frontmatter. Version-controlled, human-
 {{% /blocks/feature %}}
 
 {{% blocks/feature icon="fa-robot" title="Code Agent Integration" %}}
-Purpose-built agent skills (`/aitask-pick` in Claude Code, Gemini CLI, and OpenCode; `$aitask-pick` in Codex CLI) that guide implementation workflows. Additional agent wrappers can be installed automatically when available.
+Purpose-built agent skills that guide task implementation, issue management, repository exploration, documentation, and code review workflows.
 {{% /blocks/feature %}}
 
 {{% blocks/feature icon="fa-code-branch" title="Parallel Development" %}}
