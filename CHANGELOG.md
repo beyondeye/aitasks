@@ -1,5 +1,46 @@
 # Changelog
 
+## v0.9.0
+
+### Features
+
+- **Gemini CLI skill wrappers** (t131_1): Added 17 skill wrappers for Gemini CLI, enabling the full aitasks skill set to work natively with Gemini CLI.
+- **Gemini CLI command wrappers** (t131_2): Added 17 command wrappers for Gemini CLI, providing slash-command access to all aitasks workflows.
+- **Gemini CLI setup/install/release pipeline** (t131_3): Integrated Gemini CLI into the setup, install, and release pipelines so new projects get Gemini CLI support out of the box.
+- **OpenCode skill wrappers** (t319_1): Added 17 skill wrappers for OpenCode, bringing full aitasks skill coverage to the OpenCode agent.
+- **OpenCode setup/install pipeline** (t319_2): Integrated OpenCode into the setup and install pipelines with automated config merging and seed file deployment.
+- **OpenCode model discovery** (t319_4): Added `ait opencode-models` command to discover and catalog available OpenCode models with provider-prefixed identifiers.
+- **Model status field support** (t319_5): Models can now be marked as active or unavailable, with unavailable models dimmed in the TUI and excluded from selection.
+- **OpenCode command wrappers** (t323): Added 17 command wrappers and plan-mode prerequisites for OpenCode, completing slash-command support.
+- **Gemini CLI TOML migration and permission policies** (t335): Migrated Gemini CLI commands from Markdown to TOML format and added automatic permission policy merging during setup.
+
+### Bug Fixes
+
+- **Child task checkpoint and agent attribution** (t322): Fixed child tasks skipping the planning checkpoint and agent attribution incorrectly defaulting to "claude" instead of the actual code agent.
+- **Test data branch setup failures** (t328): Fixed missing seed file copy in `setup_data_branch()` that caused 7 test failures.
+- **Parent task locked after child creation** (t330): Parent tasks are now properly unlocked when child tasks are created, preventing the parent from remaining stuck in a locked state.
+- **Skill definition conflicts** (t332): Consolidated Gemini CLI and Codex CLI skill wrappers into a single unified set under `.agents/skills/`, eliminating file conflicts during setup.
+
+### Improvements
+
+- **Rename aiscripts to .aitask-scripts — core** (t326_1): Renamed the `aiscripts/` directory to `.aitask-scripts/` to keep framework internals hidden as a dotfile directory.
+- **Rename aiscripts to .aitask-scripts — docs and configs** (t326_2): Updated all skill files, documentation, seed templates, and website content to reference the new `.aitask-scripts/` path.
+- **Rename aiscripts to .aitask-scripts — tests and cleanup** (t326_3): Updated all test files, removed the backward-compatibility symlink, and fixed three functional bugs the symlink had been masking.
+
+### Documentation
+
+- **Gemini CLI website documentation** (t131_4): Added Gemini CLI to the installation page, updated the overview to highlight multi-agent support, and updated the about page.
+- **OpenCode documentation update** (t319_3): Updated the skills overview, getting started guide, and homepage to document OpenCode's invocation syntax and wrapper layout.
+- **Terminal setup workflow** (t327): Moved terminal setup and git authentication documentation into dedicated installation sub-pages for easier discovery.
+- **Agent known issues** (t329): Added an installation known-issues page documenting Claude Code and Codex CLI caveats.
+- **Remove OpenCode recommendation** (t333): Removed the outdated suggestion to use OpenCode as an alternative for OpenAI models from the installation docs.
+- **Homepage code agent copy** (t334): Refined the homepage feature card to describe workflow-oriented agent integration rather than invocation syntax details.
+
+### Maintenance
+
+- **OpenCode release packaging** (t324): Extended the release pipeline to bundle OpenCode command wrappers and plan-mode prerequisite files.
+- **Agent instruction seed cleanup** (t331): Trimmed Gemini CLI, Codex CLI, and OpenCode seed files to contain only agent identification, removing duplicated preamble content.
+
 ## v0.8.3
 
 ### Bug Fixes
