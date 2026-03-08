@@ -3,10 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Done
 labels: [codeagent]
+implemented_with: codex/gpt-5
 created_at: 2026-03-06 07:40
-updated_at: 2026-03-06 07:40
+updated_at: 2026-03-08 17:23
+completed_at: 2026-03-08 17:23
 boardidx: 30
 boardcol: now
 ---
