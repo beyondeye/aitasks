@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [auto-update]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-08 09:36
-updated_at: 2026-03-08 09:36
+updated_at: 2026-03-08 18:24
 ---
 
 ## Context
