@@ -490,7 +490,8 @@ install_seed_codex_config() {
 
 # --- Store Gemini CLI staging files ---
 install_gemini_staging() {
-    if [[ ! -d "$INSTALL_DIR/gemini_skills" && ! -d "$INSTALL_DIR/gemini_commands" ]]; then
+    if [[ ! -d "$INSTALL_DIR/gemini_skills" && ! -d "$INSTALL_DIR/gemini_commands" \
+          && ! -d "$INSTALL_DIR/gemini_policies" && ! -f "$INSTALL_DIR/gemini_settings.json" ]]; then
         return
     fi
 
@@ -512,6 +513,19 @@ install_gemini_staging() {
         cp -r "$INSTALL_DIR/gemini_commands/." "$INSTALL_DIR/aitasks/metadata/geminicli_commands/"
         rm -rf "$INSTALL_DIR/gemini_commands"
         info "  Stored Gemini CLI commands staging at aitasks/metadata/geminicli_commands/"
+    fi
+
+    if [[ -d "$INSTALL_DIR/gemini_policies" ]]; then
+        mkdir -p "$INSTALL_DIR/aitasks/metadata/geminicli_policies"
+        cp -r "$INSTALL_DIR/gemini_policies/." "$INSTALL_DIR/aitasks/metadata/geminicli_policies/"
+        rm -rf "$INSTALL_DIR/gemini_policies"
+        info "  Stored Gemini CLI policies staging at aitasks/metadata/geminicli_policies/"
+    fi
+
+    if [[ -f "$INSTALL_DIR/gemini_settings.json" ]]; then
+        cp "$INSTALL_DIR/gemini_settings.json" "$INSTALL_DIR/aitasks/metadata/geminicli_settings.seed.json"
+        rm -f "$INSTALL_DIR/gemini_settings.json"
+        info "  Stored Gemini CLI settings seed at aitasks/metadata/geminicli_settings.seed.json"
     fi
 }
 
@@ -543,6 +557,21 @@ install_seed_gemini_config() {
     if [[ -f "$src" ]]; then
         cp "$src" "$dest"
         info "  Stored Gemini CLI instructions seed"
+    fi
+
+    src="$INSTALL_DIR/seed/geminicli_policies"
+    dest="$INSTALL_DIR/aitasks/metadata/geminicli_policies"
+    if [[ -d "$src" && ! -d "$dest" ]]; then
+        mkdir -p "$dest"
+        cp -r "$src/." "$dest/"
+        info "  Stored Gemini CLI policies seed"
+    fi
+
+    src="$INSTALL_DIR/seed/geminicli_settings.seed.json"
+    dest="$INSTALL_DIR/aitasks/metadata/geminicli_settings.seed.json"
+    if [[ -f "$src" && ! -f "$dest" ]]; then
+        cp "$src" "$dest"
+        info "  Stored Gemini CLI settings seed"
     fi
 }
 

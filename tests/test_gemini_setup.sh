@@ -37,6 +37,7 @@ trap 'rm -rf "$TEST_DIR"' EXIT
 echo "=== Test 1: Gemini CLI packaging (release workflow sim) ==="
 mkdir -p "$TEST_DIR/gemini_skills"
 mkdir -p "$TEST_DIR/gemini_commands"
+mkdir -p "$TEST_DIR/gemini_policies"
 # Gemini skills dir now contains only helper docs (skill wrappers are unified in .agents/skills/)
 for doc in geminicli_tool_mapping.md geminicli_planmode_prereqs.md; do
     [ -f "$REPO_DIR/.gemini/skills/$doc" ] && \
@@ -44,14 +45,21 @@ for doc in geminicli_tool_mapping.md geminicli_planmode_prereqs.md; do
 done
 [ -d "$REPO_DIR/.gemini/commands" ] && \
     cp -r "$REPO_DIR/.gemini/commands/." "$TEST_DIR/gemini_commands/"
+[ -d "$REPO_DIR/.gemini/policies" ] && \
+    cp -r "$REPO_DIR/.gemini/policies/." "$TEST_DIR/gemini_policies/"
+[ -f "$REPO_DIR/.gemini/settings.json" ] && \
+    cp "$REPO_DIR/.gemini/settings.json" "$TEST_DIR/gemini_settings.json"
 
 # No skill wrappers should be in gemini_skills (consolidated to .agents/skills/)
 skill_count=$(find "$TEST_DIR/gemini_skills" -name "SKILL.md" -type f | wc -l | tr -d ' ')
-command_count=$(find "$TEST_DIR/gemini_commands" -type f -name "*.md" | wc -l | tr -d ' ')
+command_count=$(find "$TEST_DIR/gemini_commands" -type f -name "*.toml" | wc -l | tr -d ' ')
+policy_count=$(find "$TEST_DIR/gemini_policies" -type f -name "*.toml" | wc -l | tr -d ' ')
 assert_eq "No skill wrappers in gemini_skills" "0" "$skill_count"
 assert_eq "Tool mapping packaged" "true" "$([ -f "$TEST_DIR/gemini_skills/geminicli_tool_mapping.md" ] && echo true || echo false)"
 assert_eq "Planmode prereqs packaged" "true" "$([ -f "$TEST_DIR/gemini_skills/geminicli_planmode_prereqs.md" ] && echo true || echo false)"
-assert_eq "Packaged 17 command wrappers" "17" "$command_count"
+assert_eq "Packaged 17 command wrappers (toml)" "17" "$command_count"
+assert_eq "Packaged policy file" "1" "$policy_count"
+assert_eq "Packaged settings.json" "true" "$([ -f "$TEST_DIR/gemini_settings.json" ] && echo true || echo false)"
 
 echo ""
 echo "=== Test 2: Gemini CLI staging (install.sh sim) ==="
@@ -59,6 +67,9 @@ INSTALL_DIR="$TEST_DIR/install_sim"
 mkdir -p "$INSTALL_DIR/aitasks/metadata"
 cp -r "$TEST_DIR/gemini_skills" "$INSTALL_DIR/gemini_skills"
 cp -r "$TEST_DIR/gemini_commands" "$INSTALL_DIR/gemini_commands"
+cp -r "$TEST_DIR/gemini_policies" "$INSTALL_DIR/gemini_policies"
+[ -f "$TEST_DIR/gemini_settings.json" ] && \
+    cp "$TEST_DIR/gemini_settings.json" "$INSTALL_DIR/gemini_settings.json"
 
 # Inline staging logic (mirrors install_gemini_staging — helper docs only)
 mkdir -p "$INSTALL_DIR/aitasks/metadata/geminicli_skills"
@@ -72,15 +83,30 @@ mkdir -p "$INSTALL_DIR/aitasks/metadata/geminicli_commands"
 cp -r "$INSTALL_DIR/gemini_commands/." "$INSTALL_DIR/aitasks/metadata/geminicli_commands/"
 rm -rf "$INSTALL_DIR/gemini_commands"
 
+# Stage policies and settings
+mkdir -p "$INSTALL_DIR/aitasks/metadata/geminicli_policies"
+cp -r "$INSTALL_DIR/gemini_policies/." "$INSTALL_DIR/aitasks/metadata/geminicli_policies/"
+rm -rf "$INSTALL_DIR/gemini_policies"
+
+if [ -f "$INSTALL_DIR/gemini_settings.json" ]; then
+    cp "$INSTALL_DIR/gemini_settings.json" "$INSTALL_DIR/aitasks/metadata/geminicli_settings.seed.json"
+    rm -f "$INSTALL_DIR/gemini_settings.json"
+fi
+
 # No skill wrappers staged (consolidated in codex_skills)
 staged_skill_count=$(find "$INSTALL_DIR/aitasks/metadata/geminicli_skills" -name "SKILL.md" -type f | wc -l | tr -d ' ')
-staged_command_count=$(find "$INSTALL_DIR/aitasks/metadata/geminicli_commands" -type f -name "*.md" | wc -l | tr -d ' ')
+staged_command_count=$(find "$INSTALL_DIR/aitasks/metadata/geminicli_commands" -type f -name "*.toml" | wc -l | tr -d ' ')
+staged_policy_count=$(find "$INSTALL_DIR/aitasks/metadata/geminicli_policies" -type f -name "*.toml" | wc -l | tr -d ' ')
 assert_eq "No skill wrappers staged" "0" "$staged_skill_count"
 assert_eq "Tool mapping staged" "true" "$([ -f "$INSTALL_DIR/aitasks/metadata/geminicli_skills/geminicli_tool_mapping.md" ] && echo true || echo false)"
 assert_eq "Planmode prereqs staged" "true" "$([ -f "$INSTALL_DIR/aitasks/metadata/geminicli_skills/geminicli_planmode_prereqs.md" ] && echo true || echo false)"
-assert_eq "Staged 17 command wrappers" "17" "$staged_command_count"
+assert_eq "Staged 17 command wrappers (toml)" "17" "$staged_command_count"
+assert_eq "Staged policy file" "1" "$staged_policy_count"
+assert_eq "Staged settings seed" "true" "$([ -f "$INSTALL_DIR/aitasks/metadata/geminicli_settings.seed.json" ] && echo true || echo false)"
 assert_eq "Skills source cleaned up" "false" "$([ -d "$INSTALL_DIR/gemini_skills" ] && echo true || echo false)"
 assert_eq "Commands source cleaned up" "false" "$([ -d "$INSTALL_DIR/gemini_commands" ] && echo true || echo false)"
+assert_eq "Policies source cleaned up" "false" "$([ -d "$INSTALL_DIR/gemini_policies" ] && echo true || echo false)"
+assert_eq "Settings source cleaned up" "false" "$([ -f "$INSTALL_DIR/gemini_settings.json" ] && echo true || echo false)"
 
 echo ""
 echo "=== Test 3: Instruction assembly (Layer 1 + Layer 2) ==="
@@ -98,6 +124,8 @@ extract_fn() {
 eval "$(extract_fn "$REPO_DIR/.aitask-scripts/aitask_setup.sh" "assemble_aitasks_instructions")"
 eval "$(extract_fn "$REPO_DIR/.aitask-scripts/aitask_setup.sh" "insert_aitasks_instructions")"
 warn() { echo "WARN: $*"; }
+info() { echo "info: $*"; }
+success() { echo "ok: $*"; }
 
 content="$(assemble_aitasks_instructions "$PROJECT_DIR" "geminicli")" || true
 assert_eq "Assembly produced content" "true" "$([ -n "$content" ] && echo true || echo false)"
@@ -149,6 +177,97 @@ assert_contains "Updated content" "UPDATED CONTENT" "$uf2"
 assert_not_contains "Old aitasks content replaced" "Task File Format" "$uf2"
 mc3=$(grep -c '>>>aitasks' "$USER_FILE")
 assert_eq "Still one marker after update" "1" "$mc3"
+
+echo ""
+echo "=== Test 7: Policy merge (deduplicate rules) ==="
+eval "$(extract_fn "$REPO_DIR/.aitask-scripts/aitask_setup.sh" "merge_gemini_policies")"
+VENV_DIR="/nonexistent"  # force fallback to system python3
+
+MERGE_DIR="$TEST_DIR/merge_test"
+mkdir -p "$MERGE_DIR"
+cat > "$MERGE_DIR/existing.toml" <<'TOML'
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "ls"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "git add"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "custom_cmd"
+decision = "allow"
+priority = 100
+TOML
+
+cat > "$MERGE_DIR/seed.toml" <<'TOML'
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "ls"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "git add"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "cat"
+decision = "allow"
+priority = 100
+TOML
+
+merge_gemini_policies "$MERGE_DIR/seed.toml" "$MERGE_DIR/existing.toml"
+merged_content="$(cat "$MERGE_DIR/existing.toml")"
+merged_rule_count=$(grep -c '^\[\[rule\]\]' "$MERGE_DIR/existing.toml")
+assert_eq "Merged to 4 rules (3 existing + 1 new)" "4" "$merged_rule_count"
+assert_contains "Kept custom_cmd" "custom_cmd" "$merged_content"
+assert_contains "Added cat from seed" "cat" "$merged_content"
+
+echo ""
+echo "=== Test 8: Settings merge (policyPaths union) ==="
+eval "$(extract_fn "$REPO_DIR/.aitask-scripts/aitask_setup.sh" "merge_gemini_settings")"
+
+cat > "$MERGE_DIR/existing_settings.json" <<'JSON'
+{
+  "general": {
+    "defaultApprovalMode": "default"
+  },
+  "policyPaths": [
+    ".gemini/custom_policies/"
+  ]
+}
+JSON
+
+cat > "$MERGE_DIR/seed_settings.json" <<'JSON'
+{
+  "general": {
+    "defaultApprovalMode": "default"
+  },
+  "policyPaths": [
+    ".gemini/policies/"
+  ]
+}
+JSON
+
+merge_gemini_settings "$MERGE_DIR/seed_settings.json" "$MERGE_DIR/existing_settings.json"
+settings_content="$(cat "$MERGE_DIR/existing_settings.json")"
+assert_contains "Kept custom policies path" "custom_policies" "$settings_content"
+assert_contains "Added aitask policies path" ".gemini/policies/" "$settings_content"
+
+echo ""
+echo "=== Test 9: Seed files exist ==="
+assert_eq "Seed policies dir exists" "true" "$([ -d "$REPO_DIR/seed/geminicli_policies" ] && echo true || echo false)"
+assert_eq "Seed policy file exists" "true" "$([ -f "$REPO_DIR/seed/geminicli_policies/aitasks-whitelist.toml" ] && echo true || echo false)"
+assert_eq "Seed settings file exists" "true" "$([ -f "$REPO_DIR/seed/geminicli_settings.seed.json" ] && echo true || echo false)"
 
 echo ""
 echo "========================================="

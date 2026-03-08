@@ -1250,6 +1250,133 @@ print(json.dumps(existing, indent=2))
     fi
 }
 
+# Merge Gemini CLI TOML policy files (deduplicate rules by toolName+commandPrefix/commandRegex)
+merge_gemini_policies() {
+    local seed_file="$1"
+    local dest_file="$2"
+
+    local python_cmd=""
+    if [[ -x "$VENV_DIR/bin/python" ]]; then
+        python_cmd="$VENV_DIR/bin/python"
+    elif command -v python3 &>/dev/null; then
+        python_cmd="python3"
+    else
+        warn "python3 not found. Cannot merge Gemini policies automatically."
+        warn "Please manually merge $seed_file into $dest_file"
+        return
+    fi
+
+    local merged=""
+    merged="$("$python_cmd" -c "
+import sys, re
+
+def parse_toml_rules(path):
+    rules = []
+    current = {}
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line == '[[rule]]':
+                if current:
+                    rules.append(current)
+                current = {}
+            elif '=' in line:
+                key, _, val = line.partition('=')
+                key = key.strip()
+                val = val.strip().strip('\"')
+                current[key] = val
+        if current:
+            rules.append(current)
+    return rules
+
+def rule_key(r):
+    tool = r.get('toolName', '')
+    prefix = r.get('commandPrefix', '')
+    regex = r.get('commandRegex', '')
+    pattern = r.get('argsPattern', '')
+    return (tool, prefix, regex, pattern)
+
+def rule_to_toml(r):
+    lines = ['[[rule]]']
+    for key in ['toolName', 'commandPrefix', 'commandRegex', 'argsPattern', 'decision', 'priority']:
+        if key in r:
+            val = r[key]
+            if key == 'priority':
+                lines.append(f'{key} = {val}')
+            else:
+                lines.append(f'{key} = \"{val}\"')
+    return '\n'.join(lines)
+
+existing = parse_toml_rules(sys.argv[1])
+seed = parse_toml_rules(sys.argv[2])
+
+seen = set(rule_key(r) for r in existing)
+for r in seed:
+    k = rule_key(r)
+    if k not in seen:
+        existing.append(r)
+        seen.add(k)
+
+print('\n\n'.join(rule_to_toml(r) for r in existing) + '\n')
+" "$dest_file" "$seed_file")"
+
+    if [[ -n "$merged" ]]; then
+        echo "$merged" > "$dest_file"
+        info "  Merged aitask policy rules into .gemini/policies/aitasks-whitelist.toml"
+    else
+        warn "  Merge produced empty output — existing policies unchanged"
+    fi
+}
+
+# Merge Gemini CLI settings.json (ensure policyPaths contains .gemini/policies/)
+merge_gemini_settings() {
+    local seed_file="$1"
+    local dest_file="$2"
+    local merged=""
+
+    if command -v jq &>/dev/null; then
+        merged="$(jq -s '
+            .[0] as $existing |
+            .[1] as $seed |
+            $existing * $seed |
+            .policyPaths = (
+                (($existing.policyPaths // []) + (($seed.policyPaths // []) - ($existing.policyPaths // [])))
+            )
+        ' "$dest_file" "$seed_file")"
+    elif command -v python3 &>/dev/null; then
+        merged="$(python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    existing = json.load(f)
+with open(sys.argv[2]) as f:
+    seed = json.load(f)
+for key, value in seed.items():
+    if key == 'policyPaths':
+        existing_paths = existing.get('policyPaths', [])
+        for p in value:
+            if p not in existing_paths:
+                existing_paths.append(p)
+        existing['policyPaths'] = existing_paths
+    elif key not in existing:
+        existing[key] = value
+    elif isinstance(existing[key], dict) and isinstance(value, dict):
+        existing[key].update(value)
+print(json.dumps(existing, indent=2))
+" "$dest_file" "$seed_file")"
+    else
+        warn "Neither jq nor python3 found. Cannot merge settings automatically."
+        warn "Please manually merge $seed_file into $dest_file"
+        return
+    fi
+
+    if [[ -n "$merged" ]]; then
+        echo "$merged" > "$dest_file"
+        info "  Merged aitask settings into .gemini/settings.json"
+    else
+        warn "  Merge produced empty output — existing settings unchanged"
+    fi
+}
+
 # --- Claude Code setup (settings, permissions) ---
 setup_claude_code() {
     local project_dir="$SCRIPT_DIR/.."
@@ -1299,10 +1426,15 @@ setup_gemini_cli() {
     local project_dir="$SCRIPT_DIR/.."
     local staging_skills="$project_dir/aitasks/metadata/geminicli_skills"
     local staging_commands="$project_dir/aitasks/metadata/geminicli_commands"
+    local staging_policies="$project_dir/aitasks/metadata/geminicli_policies"
+    local staging_settings="$project_dir/aitasks/metadata/geminicli_settings.seed.json"
     local dest_skills="$project_dir/.gemini/skills"
     local dest_commands="$project_dir/.gemini/commands"
+    local dest_policies="$project_dir/.gemini/policies"
+    local dest_settings="$project_dir/.gemini/settings.json"
 
-    if [[ ! -d "$staging_skills" && ! -d "$staging_commands" ]]; then
+    if [[ ! -d "$staging_skills" && ! -d "$staging_commands" \
+          && ! -d "$staging_policies" && ! -f "$staging_settings" ]]; then
         info "No Gemini CLI staging files found — skipping"
         info "  Re-run 'ait install' to get Gemini CLI support files"
         return
@@ -1351,6 +1483,62 @@ setup_gemini_cli() {
     if [[ -n "$content" ]]; then
         insert_aitasks_instructions "$project_dir/GEMINI.md" "$content"
         info "  Installed GEMINI.md (with aitasks markers)"
+    fi
+
+    # 3. Install permission policies (with user approval)
+    if [[ -d "$staging_policies" || -f "$staging_settings" ]]; then
+        echo ""
+        info "The following Gemini CLI permission policies are recommended for aitask skills:"
+        info "These allow aitask skills to run shell commands without manual approval each time."
+        echo ""
+        if [[ -d "$staging_policies" ]]; then
+            grep 'commandPrefix' "$staging_policies"/*.toml 2>/dev/null | sed 's/^.*commandPrefix[[:space:]]*=[[:space:]]*/  /' | sed 's/"//g'
+        fi
+        echo ""
+
+        local policy_answer
+        if [[ -t 0 ]]; then
+            printf "  Install these Gemini CLI permission policies? [Y/n] "
+            read -r policy_answer
+        else
+            info "(non-interactive: auto-accepting default)"
+            policy_answer="Y"
+        fi
+        case "${policy_answer:-Y}" in
+            [Yy]*|"") ;;
+            *)
+                info "Skipped Gemini CLI permission policies."
+                return
+                ;;
+        esac
+
+        # 3a. Install policies
+        if [[ -d "$staging_policies" ]]; then
+            mkdir -p "$dest_policies"
+            for policy_file in "$staging_policies"/*.toml; do
+                [[ -f "$policy_file" ]] || continue
+                local fname
+                fname="$(basename "$policy_file")"
+                if [[ ! -f "$dest_policies/$fname" ]]; then
+                    cp "$policy_file" "$dest_policies/$fname"
+                    success "  Created .gemini/policies/$fname"
+                else
+                    info "  Existing .gemini/policies/$fname found — merging policies..."
+                    merge_gemini_policies "$policy_file" "$dest_policies/$fname"
+                fi
+            done
+        fi
+
+        # 3b. Install settings.json
+        if [[ -f "$staging_settings" ]]; then
+            if [[ ! -f "$dest_settings" ]]; then
+                cp "$staging_settings" "$dest_settings"
+                success "  Created .gemini/settings.json"
+            else
+                info "  Existing .gemini/settings.json found — merging settings..."
+                merge_gemini_settings "$staging_settings" "$dest_settings"
+            fi
+        fi
     fi
 }
 

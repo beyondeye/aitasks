@@ -73,7 +73,7 @@ jobs:
             fi
           fi
 
-      - name: Build gemini commands and helper docs
+      - name: Build gemini commands, policies, and helper docs
         run: |
           mkdir -p gemini_commands
           if [ -d .gemini/commands ]; then
@@ -85,6 +85,13 @@ jobs:
               cp ".gemini/skills/$doc" "gemini_skills/$doc"
             fi
           done
+          mkdir -p gemini_policies
+          if [ -d .gemini/policies ]; then
+            cp -r .gemini/policies/. gemini_policies/
+          fi
+          if [ -f .gemini/settings.json ]; then
+            cp .gemini/settings.json gemini_settings.json
+          fi
 
       - name: Create release tarball
         run: |
@@ -98,7 +105,9 @@ jobs:
             opencode_skills/ \
             opencode_commands/ \
             gemini_skills/ \
-            gemini_commands/
+            gemini_commands/ \
+            gemini_policies/ \
+            gemini_settings.json
 
       - name: Extract changelog for this version
         id: changelog
