@@ -13,6 +13,7 @@ ait_dispatcher
 ait_settings
 auto-update
 bash_scripts
+claudecode
 claudeskills
 codeagent
 codebrowser
