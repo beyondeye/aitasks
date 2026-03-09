@@ -47,3 +47,11 @@ Cover YAML helper round-trips and the coauthor-domain setup/helper behavior touc
 ## Step 9 Reference
 
 Post-implementation: archive via task-workflow Step 9.
+
+
+## Final Implementation Notes
+- **Actual work done:** Confirmed that t339_1 already implemented the Settings TUI Project Config tab and YAML helpers. Added missing regression tests in tests/test_config_utils.py for save_yaml_config and load_yaml_config to complete the scope.
+- **Deviations from plan:** None, just skipped redundant work already done in t339_1.
+- **Issues encountered:** None.
+- **Key decisions:** Avoided reimplementing TUI features, focused on regression test coverage.
+- **Notes for sibling tasks:** The YAML helpers are now fully tested for edge cases.
