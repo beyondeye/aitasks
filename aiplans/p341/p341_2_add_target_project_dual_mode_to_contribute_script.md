@@ -72,6 +72,14 @@ When `ARG_TARGET == "project"` and `ARG_REPO` is empty, auto-detect from `git re
 - `--list-changes --target project --area <area>` finds files
 - Dry-run with `--target project`
 
+## Final Implementation Notes
+
+- **Actual work done:** All 10 planned steps completed as designed. Added `ARG_TARGET` and `ARG_PARENT` variables, extended `detect_contribute_mode()`, `resolve_area_dirs()`, `list_areas()`, `list_changed_files()`, `generate_diff()`, `parse_args()`, and `main()` for project mode. Added `list_project_areas()` function. Updated `build_issue_body()` with distinct "Project Contribution" header. Updated help text. Added 7 new tests (Tests 26-32).
+- **Deviations from plan:** Instead of checking `ARG_TARGET` separately in `list_changed_files()` and `generate_diff()`, used the `detect_contribute_mode()` return value ("project") which made the condition `mode == "clone" || mode == "project"` cleaner than checking the global variable. Also added `build_issue_body()` project mode header (Step 11 from verified plan) which wasn't in the original task description but was logical.
+- **Issues encountered:** None — all tests passed on first run including backward compatibility.
+- **Key decisions:** Project mode repo auto-detection uses sed to strip both HTTPS and SSH URL prefixes and `.git` suffix. The `list_project_areas()` function outputs both `MODE:project` and `TARGET:project` lines for the skill to parse.
+- **Notes for sibling tasks:** The `--target project` and `--parent <area>` flags are now functional in `aitask_contribute.sh`. t341_3 (SKILL.md update) should use `--list-areas --target project` for area listing, `--list-areas --target project --parent <area>` for drill-down, `--list-changes --target project --area <area>` for change detection, and `--target project` on the full contribution flow. The project mode dry-run produces `## Project Contribution:` instead of `## Contribution:` to distinguish.
+
 ## Post-Implementation
 
 - Reference Step 9 of task-workflow for archival
