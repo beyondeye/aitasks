@@ -266,14 +266,23 @@ Stage and commit the code changes and plan file separately (code lives on main, 
 
 ```bash
 git add <selected_files>
-git commit -m "<issue_type>: <description> (t<N>)"
+# First execute the Contributor Attribution Procedure and the
+# Code-Agent Commit Attribution Procedure from ../task-workflow/procedures.md,
+# then compose one final commit message.
+git commit -m "$(cat <<'EOF'
+<issue_type>: <description> (t<N>)
+
+<optional Based on PR block and contributor trailer>
+<optional code-agent trailer>
+EOF
+)"
 ./ait git add aiplans/p<N>_<name>.md
 ./ait git commit -m "ait: Add plan p<N> for wrapped task"
 ```
 
 Where `<description>` is a concise commit message derived from the task summary.
 
-**Important:** The code commit message MUST use the `<issue_type>: <description> (t<N>)` format. This is required for `aitask_issue_update.sh` to find commits associated with a task.
+**Important:** The code commit message MUST use the `<issue_type>: <description> (t<N>)` format on the subject line. If contributor or code-agent attribution exists, append those blocks in the same commit message. If code-agent attribution fails, continue with the contributor-only or plain commit message.
 
 #### 4d: Archive Task
 

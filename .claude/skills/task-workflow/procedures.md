@@ -9,6 +9,7 @@ the main workflow steps and should be read on demand when referenced.
 - [Issue Update Procedure](#issue-update-procedure) — Referenced from Step 9
 - [PR Close/Decline Procedure](#pr-closedecline-procedure) — Referenced from Step 9
 - [Contributor Attribution Procedure](#contributor-attribution-procedure) — Referenced from Step 8
+- [Code-Agent Commit Attribution Procedure](#code-agent-commit-attribution-procedure) — Referenced from Step 8
 - [Agent Attribution Procedure](#agent-attribution-procedure) — Referenced from Step 7, aitask-wrap, aitask-pickrem, aitask-pickweb
 - [Lock Release Procedure](#lock-release-procedure) — Referenced from Task Abort Procedure
 
@@ -126,43 +127,91 @@ When the archive script outputs `PR:<task_num>:<pr_url>` or `PARENT_PR:<task_num
 
 This procedure is referenced from Step 8 wherever code changes are being committed. It checks whether the task originated from an external PR and, if so, formats the commit message to credit the original contributor.
 
-**When to execute:** Before the code commit in Step 8 ("If Commit changes"), to determine the commit message format.
+**When to execute:** Before the code commit in Step 8 ("If Commit changes"), to determine whether the final commit message needs a contributor trailer block.
 
 **Procedure:**
 
 - Read the task file's frontmatter and check for `contributor`, `contributor_email`, and `pull_request` fields.
 
-- **If both `contributor` and `contributor_email` are present**, the code commit message MUST use a multi-line format:
+- **If both `contributor` and `contributor_email` are present**, the final code commit message MUST include this contributor block:
   ```bash
-  git commit -m "$(cat <<'EOF'
-  <issue_type>: <description> (t<task_id>)
-
   Based on PR: <pull_request_url>
 
-  Co-authored-by: <contributor> <<contributor_email>>
-  EOF
-  )"
+  Co-Authored-By: <contributor> <<contributor_email>>
   ```
   Example:
-  ```bash
-  git commit -m "$(cat <<'EOF'
-  feature: Add dark mode support (t42)
-
+  ```text
   Based on PR: https://github.com/owner/repo/pull/15
 
-  Co-authored-by: octocat <12345+octocat@users.noreply.github.com>
-  EOF
-  )"
+  Co-Authored-By: octocat <12345+octocat@users.noreply.github.com>
   ```
+  This block is composed into the final commit message together with any code-agent trailer from the **Code-Agent Commit Attribution Procedure** below.
 
-- **If only `contributor` is present without `contributor_email`:** Skip the `Co-authored-by` trailer (platforms require a valid email for attribution linking). Use the standard single-line commit format.
+- **If only `contributor` is present without `contributor_email`:** Skip the `Co-Authored-By` trailer (platforms require a valid email for attribution linking). Use the normal subject line, plus the code-agent trailer if available.
 
-- **If neither field is present:** Use the standard single-line commit format (`git commit -m "<issue_type>: <description> (t<task_id>)"`). No contributor attribution needed.
+- **If neither field is present:** No contributor attribution block is needed. Use the normal subject line, plus the code-agent trailer if available.
 
 **Notes:**
-- `Co-authored-by` is preferred over `--author` — the contributor inspired the work but the current implementer wrote this specific code
+- `Co-Authored-By` is preferred over `--author` — the contributor inspired the work but the current implementer wrote this specific code
 - The `contributor_email` is pre-computed during PR import and stored in task metadata — no API call needed at commit time
-- Both GitHub and GitLab display `Co-authored-by` contributors in the commit UI and count them as contributions
+- Both GitHub and GitLab display `Co-Authored-By` contributors in the commit UI and count them as contributions
+
+## Code-Agent Commit Attribution Procedure
+
+This procedure is referenced from Step 8 wherever code changes are being committed. It resolves a `Co-Authored-By` trailer for the code agent recorded in `implemented_with`.
+
+**When to execute:** After the Contributor Attribution Procedure and before the final `git commit`, so the contributor trailer and code-agent trailer can be composed into one commit message.
+
+**Procedure:**
+
+- Read the task file's frontmatter and check `implemented_with`.
+
+- **If `implemented_with` is empty or missing:** Skip agent commit attribution.
+
+- **If `implemented_with` is present:**
+  - Resolve the trailer with:
+    ```bash
+    ait codeagent coauthor "<implemented_with>"
+    ```
+  - Parse the machine-readable output:
+    - `AGENT_COAUTHOR_NAME:<display_name>`
+    - `AGENT_COAUTHOR_EMAIL:<email>`
+    - `AGENT_COAUTHOR_TRAILER:<full trailer>`
+
+- **If the resolver succeeds:** Append `AGENT_COAUTHOR_TRAILER` after any contributor trailer block.
+
+- **If the resolver fails** (unsupported agent, invalid agent string, missing config, or other command error): skip only the code-agent trailer and continue with the commit flow. Do NOT drop or alter an existing contributor attribution block because agent attribution failed.
+
+**Final commit composition:**
+
+- Always keep the subject line as:
+  ```text
+  <issue_type>: <description> (t<task_id>)
+  ```
+- If contributor attribution exists, append:
+  ```text
+  Based on PR: <pull_request_url>
+
+  Co-Authored-By: <contributor> <<contributor_email>>
+  ```
+- If code-agent attribution exists, append its trailer after any contributor trailer:
+  ```text
+  Co-Authored-By: <agent display name> <<agent email>>
+  ```
+
+**Example with both contributor and code-agent attribution:**
+
+```bash
+git commit -m "$(cat <<'EOF'
+feature: Add dark mode support (t42)
+
+Based on PR: https://github.com/owner/repo/pull/15
+
+Co-Authored-By: octocat <12345+octocat@users.noreply.github.com>
+Co-Authored-By: Codex/GPT5.4 <codex@aitasks.io>
+EOF
+)"
+```
 
 ## Agent Attribution Procedure
 

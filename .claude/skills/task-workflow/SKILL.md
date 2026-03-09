@@ -307,14 +307,21 @@ After implementation is complete, the user MUST be given the opportunity to revi
       ```
     - **IMPORTANT for child tasks:** The plan file will be archived and serve as the primary reference for subsequent sibling tasks. Ensure the Final Implementation Notes are comprehensive enough that a fresh context can understand what was done and learn from the experience.
     - The plan file should now serve as a complete record of: the original plan, any post-review change requests (from the "Need more changes" loop), and final implementation notes
-  - **Contributor attribution:** Execute the **Contributor Attribution Procedure** (see `procedures.md`) to determine the commit message format. If the task has contributor metadata, use the multi-line format from the procedure instead of the standard single-line format below.
+  - **Contributor attribution:** Execute the **Contributor Attribution Procedure** (see `procedures.md`) to determine whether the commit needs an imported-contributor block.
+  - **Code-agent attribution:** Execute the **Code-Agent Commit Attribution Procedure** (see `procedures.md`) to resolve a `Co-Authored-By` trailer from `implemented_with`. If agent attribution fails, continue with the contributor-only or plain commit message as applicable.
   - **Commit code changes and plan file separately** (code uses regular `git`, plan uses `./ait git`):
     1. **Code commit** — Stage and commit source code changes:
        ```bash
        git add <changed_code_files>
-       git commit -m "<issue_type>: <description> (t<task_id>)"
+       git commit -m "$(cat <<'EOF'
+       <issue_type>: <description> (t<task_id>)
+
+       <optional Based on PR block and contributor trailer>
+       <optional code-agent trailer>
+       EOF
+       )"
        ```
-       Only include implementation files — never include `aitasks/` or `aiplans/` paths. Skip this commit if there are no code changes.
+       Only include implementation files — never include `aitasks/` or `aiplans/` paths. Skip this commit if there are no code changes. If neither attribution procedure returns content, the code commit can remain a single-line subject.
     2. **Plan file commit** — Stage and commit the updated plan file:
        ```bash
        ./ait git add aiplans/<plan_file>
@@ -323,6 +330,7 @@ After implementation is complete, the user MUST be given the opportunity to revi
        Skip if the plan file was not modified.
   - **IMPORTANT — Commit message conventions:**
     - **Code commits** MUST use `<issue_type>: <description> (t<task_id>)` format, where `<issue_type>` comes from the task's `issue_type` frontmatter (one of: `bug`, `chore`, `documentation`, `feature`, `performance`, `refactor`, `style`, `test`). The `(t<task_id>)` suffix is used by `aitask_issue_update.sh` to find commits. Examples: `feature: Add channel settings screen (t16)`, `bug: Fix login validation (t16_2)`.
+    - **When attribution is present,** compose one final multiline commit message: subject first, imported contributor block second, code-agent trailer last.
     - **Plan/task file commits** use the `ait:` prefix (e.g., `ait: Update plan for t16`). Administrative commits (status changes, archival) also use `ait:` and must NOT include the `(t<task_id>)` tag.
     - **Never mix** code files and `aitasks/`/`aiplans/` files in the same `git add` or commit. Code uses regular `git`; task/plan files use `./ait git`. This separation is required when task data lives on a separate branch, and is safe in legacy mode where `./ait git` passes through to plain `git`.
   - Proceed to Step 9

@@ -216,34 +216,65 @@ YAMLEOF
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor-domain 2>&1)
 assert_contains "coauthor-domain empty field falls back" "COAUTHOR_DOMAIN:aitasks.io" "$output"
 
-# Test 15: --help shows usage
-echo "--- Test 15: --help ---"
+# Restore project config for remaining tests
+cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"
+
+# Test 15: coauthor returns Codex metadata
+echo "--- Test 15: coauthor Codex metadata ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor codex/gpt5_4 2>&1)
+assert_contains "coauthor returns agent string" "AGENT_STRING:codex/gpt5_4" "$output"
+assert_contains "coauthor returns name" "AGENT_COAUTHOR_NAME:Codex/GPT5.4" "$output"
+assert_contains "coauthor returns email" "AGENT_COAUTHOR_EMAIL:codex@aitasks.io" "$output"
+assert_contains "coauthor returns trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Codex/GPT5.4 <codex@aitasks.io>" "$output"
+
+# Test 16: coauthor uses configured custom domain
+echo "--- Test 16: coauthor custom domain ---"
+cat > "$TMPDIR_TEST/aitasks/metadata/project_config.yaml" << 'YAMLEOF'
+codeagent_coauthor_domain: codex.example
+verify_build:
+YAMLEOF
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor codex/gpt5_3codex 2>&1)
+assert_contains "coauthor uses custom domain for email" "AGENT_COAUTHOR_EMAIL:codex@codex.example" "$output"
+assert_contains "coauthor uses model-aware trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Codex/GPT5.3-Codex <codex@codex.example>" "$output"
+
+# Test 17: coauthor falls back to raw model token when model is unknown
+echo "--- Test 17: coauthor unknown model fallback ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor codex/custom_model 2>&1)
+assert_contains "coauthor falls back to raw model token" "AGENT_COAUTHOR_NAME:Codex/custom_model" "$output"
+
+# Test 18: coauthor rejects unsupported agents
+echo "--- Test 18: coauthor unsupported agent ---"
+assert_exit_nonzero "coauthor rejects unsupported agent" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' coauthor geminicli/gemini3pro"
+
+# Restore project config before help and remaining tests
+cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"
+
+# Test 19: --help shows usage
+echo "--- Test 19: --help ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --help 2>&1)
 assert_contains "help shows Usage" "Usage:" "$output"
 assert_contains "help shows list-agents" "list-agents" "$output"
 assert_contains "help shows list-models" "list-models" "$output"
+assert_contains "help shows coauthor" "coauthor <agent-string>" "$output"
 assert_contains "help shows coauthor-domain" "coauthor-domain" "$output"
 assert_contains "help shows resolution chain" "Resolution chain" "$output"
 
-# Restore project config for remaining tests
-cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"
-
-# Test 16: resolve explain uses sonnet
-echo "--- Test 16: resolve explain uses sonnet ---"
+# Test 20: resolve explain uses sonnet
+echo "--- Test 20: resolve explain uses sonnet ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve explain 2>&1)
 assert_contains "resolve explain returns sonnet4_6" "AGENT_STRING:claudecode/sonnet4_6" "$output"
 
-# Test 17: resolve with unknown operation
-echo "--- Test 17: resolve unknown operation ---"
+# Test 21: resolve with unknown operation
+echo "--- Test 21: resolve unknown operation ---"
 assert_exit_nonzero "resolve rejects unknown operation" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' resolve unknown-op"
 
-# Test 18: no command shows help
-echo "--- Test 18: no command shows help ---"
+# Test 22: no command shows help
+echo "--- Test 22: no command shows help ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" 2>&1)
 assert_contains "no command shows usage" "Usage:" "$output"
 
-# Test 19: unknown command fails
-echo "--- Test 19: unknown command ---"
+# Test 23: unknown command fails
+echo "--- Test 23: unknown command ---"
 assert_exit_nonzero "unknown command fails" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' nonexistent-command"
 
 # --- Cleanup ---

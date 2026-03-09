@@ -337,9 +337,18 @@ Read `review_action` from profile (default: `commit`).
    - **Code commit:**
      ```bash
      git add <changed_code_files>
-     git commit -m "<issue_type>: <description> (t<task_id>)"
+     # First execute the Contributor Attribution Procedure and the
+     # Code-Agent Commit Attribution Procedure from ../task-workflow/procedures.md,
+     # then compose one final commit message.
+     git commit -m "$(cat <<'EOF'
+     <issue_type>: <description> (t<task_id>)
+
+     <optional Based on PR block and contributor trailer>
+     <optional code-agent trailer>
+     EOF
+     )"
      ```
-     Only include implementation files — never `aitasks/` or `aiplans/` paths. Skip if no code changes. The `<issue_type>` comes from the task's frontmatter. Examples: `feature: Add channel settings (t16)`, `bug: Fix login validation (t16_2)`.
+     Only include implementation files — never `aitasks/` or `aiplans/` paths. Skip if no code changes. The `<issue_type>` comes from the task's frontmatter. Examples: `feature: Add channel settings (t16)`, `bug: Fix login validation (t16_2)`. If code-agent attribution fails, continue with the contributor-only or plain commit message.
    - **Plan file commit:**
      ```bash
      ./ait git add aiplans/<plan_file>

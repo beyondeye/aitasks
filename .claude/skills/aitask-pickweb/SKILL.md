@@ -272,9 +272,19 @@ Update the plan file in `.aitask-data-updated/` as you progress:
    - Use regular `git` (NOT `./ait git`):
      ```bash
      git add -A
-     git commit -m "<issue_type>: <description> (t<task_id>)"
+     # First execute the Contributor Attribution Procedure and the
+     # Code-Agent Commit Attribution Procedure from ../task-workflow/procedures.md,
+     # then compose one final commit message.
+     git commit -m "$(cat <<'EOF'
+     <issue_type>: <description> (t<task_id>)
+
+     <optional Based on PR block and contributor trailer>
+     <optional code-agent trailer>
+     EOF
+     )"
      ```
    - **Commit message format:** `<issue_type>: <description> (t<task_id>)` where `<issue_type>` is from the task's frontmatter
+   - If code-agent attribution fails, continue with the contributor-only or plain commit message
    - Display: "Changes committed: \<commit_hash\>"
 
 5. Proceed to Step 8.

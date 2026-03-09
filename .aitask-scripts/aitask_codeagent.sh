@@ -180,6 +180,78 @@ get_coauthor_domain() {
     echo "$value"
 }
 
+format_codex_model_label() {
+    local raw_model="$1"
+
+    if [[ "$raw_model" =~ ^gpt-([0-9]+)\.([0-9]+)(-(.*))?$ ]]; then
+        local major="${BASH_REMATCH[1]}"
+        local minor="${BASH_REMATCH[2]}"
+        local suffix="${BASH_REMATCH[4]:-}"
+        local label="GPT${major}.${minor}"
+
+        if [[ -n "$suffix" ]]; then
+            local segment
+            IFS='-' read -r -a suffix_parts <<< "$suffix"
+            for segment in "${suffix_parts[@]}"; do
+                if [[ "$segment" =~ ^[0-9]+$ ]]; then
+                    label+="-${segment}"
+                else
+                    label+="-$(tr '[:lower:]' '[:upper:]' <<< "${segment:0:1}")${segment:1}"
+                fi
+            done
+        fi
+
+        echo "$label"
+        return
+    fi
+
+    echo "$raw_model"
+}
+
+lookup_cli_model_id_if_known() {
+    local agent="$1"
+    local model_name="$2"
+    local models_file="$METADATA_DIR/models_${agent}.json"
+
+    if [[ ! -f "$models_file" ]]; then
+        return
+    fi
+
+    jq -r --arg name "$model_name" \
+        '.models[] | select(.name == $name) | .cli_id' "$models_file" 2>/dev/null || true
+}
+
+get_agent_coauthor_name() {
+    local agent="$1"
+    local model_name="$2"
+    local cli_id=""
+
+    case "$agent" in
+        codex)
+            cli_id="$(lookup_cli_model_id_if_known "$agent" "$model_name")"
+            if [[ -n "$cli_id" && "$cli_id" != "null" ]]; then
+                echo "Codex/$(format_codex_model_label "$cli_id")"
+            else
+                echo "Codex/$model_name"
+            fi
+            ;;
+        *)
+            die "Coauthor metadata for agent '$agent' is not supported yet"
+            ;;
+    esac
+}
+
+get_agent_coauthor_email() {
+    local agent="$1"
+    local domain
+    domain="$(get_coauthor_domain)"
+
+    case "$agent" in
+        codex) echo "codex@$domain" ;;
+        *) die "Coauthor metadata for agent '$agent' is not supported yet" ;;
+    esac
+}
+
 # --- Subcommands ---
 
 cmd_list_agents() {
@@ -289,6 +361,23 @@ cmd_coauthor_domain() {
     echo "COAUTHOR_DOMAIN:$(get_coauthor_domain)"
 }
 
+cmd_coauthor() {
+    local agent_string="${1:-}"
+    [[ -z "$agent_string" ]] && die "Usage: ait codeagent coauthor <agent-string>"
+
+    parse_agent_string "$agent_string"
+
+    local coauthor_name
+    coauthor_name="$(get_agent_coauthor_name "$PARSED_AGENT" "$PARSED_MODEL")"
+    local coauthor_email
+    coauthor_email="$(get_agent_coauthor_email "$PARSED_AGENT")"
+
+    echo "AGENT_STRING:$agent_string"
+    echo "AGENT_COAUTHOR_NAME:$coauthor_name"
+    echo "AGENT_COAUTHOR_EMAIL:$coauthor_email"
+    echo "AGENT_COAUTHOR_TRAILER:Co-Authored-By: $coauthor_name <$coauthor_email>"
+}
+
 # Build the command array for invoking an agent
 # Sets the CMD array variable
 build_invoke_command() {
@@ -395,6 +484,8 @@ Commands:
   list-models [--active-only] [AGENT]
                          List models for an agent (with verification scores and status)
   resolve <operation>    Return configured agent string for an operation
+  coauthor <agent-string>
+                         Return commit coauthor metadata for an agent string
   coauthor-domain        Return the configured code-agent coauthor email domain
   check <agent-string>   Validate agent string and check CLI availability
   invoke <operation> [args...]  Invoke the code agent for an operation
@@ -417,6 +508,7 @@ Examples:
   ait codeagent list-agents
   ait codeagent list-models claudecode
   ait codeagent resolve task-pick
+  ait codeagent coauthor codex/gpt5_4
   ait codeagent coauthor-domain
   ait codeagent check "claudecode/opus4_6"
   ait codeagent invoke task-pick 42
@@ -464,6 +556,7 @@ main() {
         list-agents)  cmd_list_agents "$@" ;;
         list-models)  cmd_list_models "$@" ;;
         resolve)      cmd_resolve "$@" ;;
+        coauthor)     cmd_coauthor "$@" ;;
         coauthor-domain) cmd_coauthor_domain "$@" ;;
         check)        cmd_check "$@" ;;
         invoke)       cmd_invoke "$@" ;;
