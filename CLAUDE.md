@@ -51,7 +51,7 @@ All scripts `cd` to the repo root via `ait` before running. Directory variables 
 - `aitasks/metadata/` — Config: `task_types.txt`, `labels.txt`, `board_config.json`, `project_config.yaml`, `profiles/`
 - `aiplans/` — Implementation plan files (`p<N>.md`)
 - `aireviewguides/` — Code review guides organized by language subdirectory
-- `.claude/skills/` — 13 Claude Code skill definitions (each a dir with `SKILL.md`)
+- `.claude/skills/` — 21 Claude Code skill definitions (each a dir with `SKILL.md`)
 - `website/` — Hugo/Docsy documentation site
 - `seed/` — Template files for `ait setup` bootstrapping into new projects
 

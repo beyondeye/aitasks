@@ -1,6 +1,6 @@
 ---
 name: aitask-create
-description: Create a new AI task file with automatic numbering and proper metadata.
+description: Create a new AI task file with automatic numbering and proper metadata. Supports interactive agent prompts, terminal fzf, and batch mode.
 ---
 
 ## Workflow
@@ -254,3 +254,49 @@ If `--finalize` fails (no network, no counter branch), inform user: "Draft saved
 - Draft tasks are created locally in `aitasks/new/` (gitignored) - no network needed
 - Real task IDs are assigned during finalization via the atomic counter on the `aitask-ids` branch
 - Child tasks are stored in `aitasks/t<parent>/` subdirectory after finalization
+
+## Batch Mode (Non-Interactive)
+
+For non-interactive task creation (e.g., when creating child tasks during planning), use the batch script directly:
+
+```bash
+./.aitask-scripts/aitask_create.sh --batch --name "<name>" --desc "<description>" --commit
+```
+
+Flags:
+- `--batch` — Enable batch mode (required)
+- `--name, -n NAME` — Task name (required, will be sanitized)
+- `--desc, -d DESC` — Task description
+- `--desc-file FILE` — Read description from file (use `-` for stdin)
+- `--priority, -p LEVEL` — high/medium/low (default: medium)
+- `--effort, -e LEVEL` — low/medium/high (default: medium)
+- `--type, -t TYPE` — Issue type (default: feature)
+- `--status, -s STATUS` — Ready/Editing/Implementing/Postponed (default: Ready)
+- `--labels, -l LABELS` — Comma-separated labels
+- `--deps DEPS` — Comma-separated dependency task numbers
+- `--assigned-to, -a EMAIL` — Email of person assigned to task
+- `--issue URL` — Issue tracker URL
+- `--parent, -P NUM` — Create as child of specified parent task
+- `--no-sibling-dep` — Skip default sibling dependency
+- `--commit` — Auto-finalize with real ID (requires network)
+- `--finalize FILE` — Finalize a specific draft from `aitasks/new/`
+- `--finalize-all` — Finalize all drafts in `aitasks/new/`
+- `--silent` — Output only the created filename (for scripting)
+
+Examples:
+```bash
+# Create a standalone task (auto-finalize)
+./.aitask-scripts/aitask_create.sh --batch --name "fix_login" --desc "Fix login bug" --priority high --type bug --commit
+
+# Create first child of task t10
+./.aitask-scripts/aitask_create.sh --batch --parent 10 --name "first_subtask" --desc "First subtask" --commit
+
+# Create child without auto sibling dependency
+./.aitask-scripts/aitask_create.sh --batch --parent 10 --name "parallel_task" --desc "Parallel work" --no-sibling-dep --commit
+
+# Create as draft (no network needed), finalize later
+./.aitask-scripts/aitask_create.sh --batch --name "add_feature" --desc "Add new feature"
+
+# Read description from stdin
+echo "Long description here" | ./.aitask-scripts/aitask_create.sh --batch --name "my_task" --desc-file -
+```

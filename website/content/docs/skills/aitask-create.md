@@ -25,7 +25,15 @@ The skill guides you through task creation using interactive prompts:
 5. **Definition** — Iterative content collection with file reference insertion via Glob search
 6. **Create & commit** — Writes task file with YAML frontmatter and commits to git
 
-This is the code agent-native alternative — metadata collection happens through the agent UI rather than terminal fzf.
+## Batch Mode
+
+For non-interactive task creation (e.g., scripting or automation), use the underlying script directly with `--batch`:
+
+```bash
+./.aitask-scripts/aitask_create.sh --batch --name "task_name" --desc "description" --commit
+```
+
+Run `./.aitask-scripts/aitask_create.sh --help` for the full list of flags.
 
 ## Workflows
 
