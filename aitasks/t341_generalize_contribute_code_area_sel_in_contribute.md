@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [aitask_contribute]
-children_to_implement: [t341_2, t341_3]
+children_to_implement: [t341_3]
 created_at: 2026-03-09 12:23
-updated_at: 2026-03-09 16:11
+updated_at: 2026-03-09 17:03
 boardcol: now
 boardidx: 10
 ---

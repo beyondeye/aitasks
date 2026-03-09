@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t341_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_contribute]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-09 13:06
-updated_at: 2026-03-09 16:58
+updated_at: 2026-03-09 17:03
+completed_at: 2026-03-09 17:03
 ---
 
 Add --target flag to aitask_contribute.sh for framework vs project dual-mode. Add --parent flag for hierarchical drill-down. Extend list_changed_files and generate_diff for project mode. Auto-detect project repo from git remote.
