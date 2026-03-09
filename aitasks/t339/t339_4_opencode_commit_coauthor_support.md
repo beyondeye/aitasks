@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codeagent, task_workflow, opencode]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-08 18:36
-updated_at: 2026-03-08 18:36
+updated_at: 2026-03-09 12:32
 ---
 
 ## Context
