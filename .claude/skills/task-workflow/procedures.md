@@ -225,7 +225,11 @@ This procedure records which code agent and LLM model is executing the task by s
 
 2. **If not set, self-detect:**
    - Identify which code agent CLI you are running in. The agent name MUST be one of these exact strings: `claudecode`, `geminicli`, `codex`, `opencode`. **IMPORTANT:** Use `claudecode` (not `claude`), `geminicli` (not `gemini`). These are the only valid agent identifiers.
-   - Identify your current model ID from your system context (e.g., for Claude Code: the "exact model ID" from the system message, like `claude-opus-4-6`)
+   - **Obtain your current model ID** using the agent-specific method:
+     - **Claude Code:** Read the "exact model ID" from the system message (e.g., `claude-opus-4-6`).
+     - **Codex CLI:** Do NOT guess your model ID — Codex models cannot reliably self-identify from system context. Instead, run: `grep '^model' ~/.codex/config.toml | sed 's/^model[[:space:]]*=[[:space:]]*//' | tr -d '"'` to read the configured model (e.g., `gpt-5.4`). This returns the startup/default model. **Limitation:** If the model was changed mid-session via `/model`, this gives the configured default, not the current runtime model.
+     - **Gemini CLI:** Read the model ID from system context, or run: `jq -r '.model // empty' ~/.gemini/settings.json 2>/dev/null` as fallback.
+     - **OpenCode:** Read the model ID from system context.
    - Read the corresponding model config file: `aitasks/metadata/models_<agent>.json`
    - Find the model entry whose `cli_id` matches your model ID
    - Extract the `name` field from that entry (e.g., `opus4_6`)

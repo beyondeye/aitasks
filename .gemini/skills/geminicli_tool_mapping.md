@@ -42,9 +42,13 @@ read that file directly and follow its instructions. You can also use
 
 ### Agent String
 
-When recording `implemented_with` in task metadata, identify as
-`geminicli/<model_name>`. Read `aitasks/metadata/models_geminicli.json` to find the
-matching `name` for your model ID. Construct as `geminicli/<name>`.
+When recording `implemented_with` in task metadata, construct `geminicli/<name>`.
+
+1. Check `AITASK_AGENT_STRING` env var — if set, use it directly.
+2. Otherwise, identify your model ID from system context.
+   Fallback: `jq -r '.model // empty' ~/.gemini/settings.json 2>/dev/null`
+3. Match against `aitasks/metadata/models_geminicli.json` (`cli_id` → `name`).
+4. Construct `geminicli/<name>` (e.g., `geminicli/gemini2_5pro`).
 
 ### Task-Workflow Adaptations
 

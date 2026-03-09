@@ -47,9 +47,13 @@ or sub-skill invocation mechanism.
 
 ### Agent String
 
-When recording `implemented_with` in task metadata, identify as
-`codex/<model_name>`. Read `aitasks/metadata/models_codex.json` to find the
-matching `name` for your model ID. Construct as `codex/<name>`.
+When recording `implemented_with` in task metadata, construct `codex/<name>`.
+Do NOT guess your model ID — Codex models cannot reliably self-identify.
+
+1. Check `AITASK_AGENT_STRING` env var — if set, use it directly.
+2. Otherwise, read configured model: `grep '^model' ~/.codex/config.toml | sed 's/^model[[:space:]]*=[[:space:]]*//' | tr -d '"'`
+3. Match against `aitasks/metadata/models_codex.json` (`cli_id` → `name`).
+4. Construct `codex/<name>` (e.g., `codex/gpt5_4`).
 
 ### Task-Workflow Adaptations
 
