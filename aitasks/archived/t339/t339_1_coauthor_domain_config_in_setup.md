@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [codeagent, ait_settings, task_workflow]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: codex/gpt-5
 created_at: 2026-03-08 18:35
-updated_at: 2026-03-09 09:51
+updated_at: 2026-03-09 09:52
+completed_at: 2026-03-09 09:52
 ---
 
 ## Context
