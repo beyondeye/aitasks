@@ -454,6 +454,7 @@ mkdir -p "$CODEMAP_DIR/tests" "$CODEMAP_DIR/docs"
 mkdir -p "$CODEMAP_DIR/.aitask-scripts" "$CODEMAP_DIR/aitasks/metadata"
 # Copy scripts needed by codemap
 cp "$PROJECT_DIR/.aitask-scripts/aitask_codemap.sh" "$CODEMAP_DIR/.aitask-scripts/"
+cp "$PROJECT_DIR/.aitask-scripts/aitask_codemap.py" "$CODEMAP_DIR/.aitask-scripts/"
 cp -r "$PROJECT_DIR/.aitask-scripts/lib" "$CODEMAP_DIR/.aitask-scripts/"
 chmod +x "$CODEMAP_DIR/.aitask-scripts/aitask_codemap.sh"
 # Create some tracked files
@@ -465,6 +466,11 @@ echo "code" > "$CODEMAP_DIR/src/shared/utils.js"
 echo "code" > "$CODEMAP_DIR/tests/test_login.py"
 echo "code" > "$CODEMAP_DIR/docs/readme.md"
 echo "code" > "$CODEMAP_DIR/.aitask-scripts/script.sh"
+mkdir -p "$CODEMAP_DIR/aidocs" "$CODEMAP_DIR/aiwork/task1" "$CODEMAP_DIR/website/node_modules/pkg" "$CODEMAP_DIR/pkg/__pycache__"
+echo "doc" > "$CODEMAP_DIR/aidocs/notes.md"
+echo "work" > "$CODEMAP_DIR/aiwork/task1/info.txt"
+echo "js" > "$CODEMAP_DIR/website/node_modules/pkg/index.js"
+echo "cache" > "$CODEMAP_DIR/pkg/__pycache__/mod.pyc"
 (cd "$CODEMAP_DIR" && git init --quiet && git config user.email "test@test.com" && git config user.name "Test" && git add -A && git commit -m "init" --quiet)
 
 output=$(cd "$CODEMAP_DIR" && ./.aitask-scripts/aitask_codemap.sh --scan 2>&1)
@@ -474,8 +480,12 @@ assert_contains "codemap outputs version" "version: 1" "$output"
 assert_contains "codemap has src area" "name: src" "$output"
 assert_contains "codemap has tests area" "name: tests" "$output"
 assert_contains "codemap has docs area" "name: docs" "$output"
+assert_contains "codemap includes aidocs by default" "name: aidocs" "$output"
+assert_contains "codemap includes aiwork by default" "name: aiwork" "$output"
 assert_not_contains "codemap excludes .aitask-scripts" "name: .aitask-scripts" "$output"
 assert_not_contains "codemap excludes aitasks" "name: aitasks" "$output"
+assert_not_contains "codemap excludes node_modules by built-in rule" "name: node_modules" "$output"
+assert_not_contains "codemap excludes pycache by built-in rule" "name: __pycache__" "$output"
 
 # --- Test 22: aitask_codemap.sh --scan with children ---
 echo "--- Test 22: aitask_codemap.sh --scan with children ---"
@@ -521,6 +531,39 @@ assert_eq "codemap --write creates file" "true" "$(test -f "$CODEMAP_DIR/aitasks
 written_content=$(cat "$CODEMAP_DIR/aitasks/metadata/code_areas.yaml")
 assert_contains "written file has version" "version: 1" "$written_content"
 assert_contains "written file has areas" "areas:" "$written_content"
+
+# --- Test 26: aitask_codemap.sh --help documents behavior ---
+echo "--- Test 26: aitask_codemap.sh --help documents behavior ---"
+output=$(cd "$CODEMAP_DIR" && ./.aitask-scripts/aitask_codemap.sh --help 2>&1)
+exit_code=$?
+assert_eq "codemap --help exits 0" "0" "$exit_code"
+assert_contains "codemap help mentions shared venv" "shared aitasks Python" "$output"
+assert_contains "codemap help mentions git-tracked files" "Only scans directories that contain git-tracked files" "$output"
+assert_contains "codemap help mentions include framework dirs" "--include-framework-dirs" "$output"
+assert_contains "codemap help mentions ignore file" "--ignore-file <path>" "$output"
+assert_contains "codemap help mentions aidocs" "aidocs/" "$output"
+
+# --- Test 27: aitask_codemap.sh --include-framework-dirs ---
+echo "--- Test 27: aitask_codemap.sh --include-framework-dirs ---"
+output=$(cd "$CODEMAP_DIR" && ./.aitask-scripts/aitask_codemap.sh --scan --include-framework-dirs 2>&1)
+exit_code=$?
+assert_eq "codemap --include-framework-dirs exits 0" "0" "$exit_code"
+assert_contains "codemap includes framework dir when requested" "name: .aitask-scripts" "$output"
+assert_not_contains "codemap still omits untracked framework dirs" "name: aitasks" "$output"
+
+# --- Test 28: aitask_codemap.sh --ignore-file ---
+echo "--- Test 28: aitask_codemap.sh --ignore-file ---"
+cat > "$CODEMAP_DIR/codemap.ignore" <<'EOF'
+docs/
+aidocs/
+src/backend/
+EOF
+output=$(cd "$CODEMAP_DIR" && ./.aitask-scripts/aitask_codemap.sh --scan --ignore-file codemap.ignore 2>&1)
+exit_code=$?
+assert_eq "codemap --ignore-file exits 0" "0" "$exit_code"
+assert_not_contains "codemap ignore file excludes docs" "name: docs" "$output"
+assert_not_contains "codemap ignore file excludes aidocs" "name: aidocs" "$output"
+assert_not_contains "codemap ignore file excludes backend child" "name: backend" "$output"
 
 # Restore valid code_areas.yaml for LOCAL_DIR tests
 cat > "$LOCAL_DIR/aitasks/metadata/code_areas.yaml" <<'YAML'
@@ -606,21 +649,21 @@ echo 'const App = () => {}' > "$PROJECT_TEST_DIR/src/web/app.js"
     git commit -m "Update login" --quiet
 )
 
-# --- Test 26: --list-areas without --target unchanged (backward compat) ---
-echo "--- Test 26: --list-areas without --target unchanged ---"
+# --- Test 29: --list-areas without --target unchanged (backward compat) ---
+echo "--- Test 29: --list-areas without --target unchanged ---"
 output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh --list-areas 2>&1)
 assert_contains "list-areas without target has MODE:clone" "MODE:clone" "$output"
 assert_contains "list-areas without target has scripts area" "AREA|scripts|" "$output"
 assert_not_contains "list-areas without target has no MODE:project" "MODE:project" "$output"
 
-# --- Test 27: --list-areas --target framework same as no target ---
-echo "--- Test 27: --list-areas --target framework ---"
+# --- Test 30: --list-areas --target framework same as no target ---
+echo "--- Test 30: --list-areas --target framework ---"
 output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh --list-areas --target framework 2>&1)
 assert_contains "framework target has MODE:clone" "MODE:clone" "$output"
 assert_contains "framework target has scripts area" "AREA|scripts|" "$output"
 
-# --- Test 28: --list-areas --target project reads code_areas.yaml ---
-echo "--- Test 28: --list-areas --target project ---"
+# --- Test 31: --list-areas --target project reads code_areas.yaml ---
+echo "--- Test 31: --list-areas --target project ---"
 output=$(cd "$PROJECT_TEST_DIR" && ./.aitask-scripts/aitask_contribute.sh --list-areas --target project 2>&1)
 assert_contains "project target has MODE:project" "MODE:project" "$output"
 assert_contains "project target has TARGET:project" "TARGET:project" "$output"
@@ -628,27 +671,27 @@ assert_contains "project target has backend area" "AREA|backend|src/backend/" "$
 assert_contains "project target has frontend area" "AREA|frontend|src/web/" "$output"
 assert_not_contains "project target has no scripts area" "AREA|scripts|" "$output"
 
-# --- Test 29: --list-areas --target project --parent filter ---
-echo "--- Test 29: --list-areas --target project --parent ---"
+# --- Test 32: --list-areas --target project --parent filter ---
+echo "--- Test 32: --list-areas --target project --parent ---"
 output=$(cd "$PROJECT_TEST_DIR" && ./.aitask-scripts/aitask_contribute.sh --list-areas --target project --parent backend 2>&1)
 assert_contains "project parent filter has auth" "AREA|auth|src/backend/auth/" "$output"
 assert_contains "project parent filter has models" "AREA|models|src/backend/models/" "$output"
 assert_not_contains "project parent filter excludes frontend" "AREA|frontend|" "$output"
 
-# --- Test 30: --list-changes --target project --area ---
-echo "--- Test 30: --list-changes --target project --area ---"
+# --- Test 33: --list-changes --target project --area ---
+echo "--- Test 33: --list-changes --target project --area ---"
 output=$(cd "$PROJECT_TEST_DIR" && ./.aitask-scripts/aitask_contribute.sh --list-changes --target project --area backend 2>&1)
 assert_contains "project list-changes finds login.py" "src/backend/auth/login.py" "$output"
 
-# --- Test 31: --target invalid fails with error ---
-echo "--- Test 31: --target invalid fails with error ---"
+# --- Test 34: --target invalid fails with error ---
+echo "--- Test 34: --target invalid fails with error ---"
 output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh --list-areas --target invalid 2>&1)
 exit_code=$?
 assert_eq "invalid target exits non-zero" "1" "$exit_code"
 assert_contains "invalid target shows error" "Unknown target" "$output"
 
-# --- Test 32: project mode auto-detects repo ---
-echo "--- Test 32: project mode auto-detects repo ---"
+# --- Test 35: project mode auto-detects repo ---
+echo "--- Test 35: project mode auto-detects repo ---"
 output=$(cd "$PROJECT_TEST_DIR" && ./.aitask-scripts/aitask_contribute.sh \
     --dry-run --target project --area auth \
     --files "src/backend/auth/login.py" \
