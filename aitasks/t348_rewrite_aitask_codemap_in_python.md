@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [bash_scripts, aitask_codemap]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-09 16:20
-updated_at: 2026-03-09 16:20
+updated_at: 2026-03-09 17:19
 boardcol: now
 boardidx: 10
 ---
