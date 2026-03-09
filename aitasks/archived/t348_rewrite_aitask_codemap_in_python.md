@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: performance
-status: Implementing
+status: Done
 labels: [bash_scripts, aitask_codemap]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: opencode/zen_gpt_5_4
 created_at: 2026-03-09 16:20
-updated_at: 2026-03-09 18:27
+updated_at: 2026-03-09 18:33
+completed_at: 2026-03-09 18:33
 boardcol: now
 boardidx: 10
 ---
