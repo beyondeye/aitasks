@@ -15,7 +15,7 @@ The Settings TUI requires the shared Python virtual environment (installed by `a
 
 ## Understanding the Layout
 
-The Settings TUI organizes all configuration into four tabs, each accessible via a keyboard shortcut displayed in the footer.
+The Settings TUI organizes configuration into five tabs, each accessible via a keyboard shortcut displayed in the footer.
 
 ### Agent Defaults (a)
 
@@ -45,6 +45,15 @@ Displays board configuration in two sections:
 - **User Settings** (editable) -- `Auto-refresh (min)` (cycle through 0, 1, 2, 5, 10, 15, 30 where 0 = disabled) and `Sync on refresh` (toggle whether push/pull runs on each auto-refresh)
 
 Press **Save Board Settings** to persist changes.
+
+### Project Config (c)
+
+Edit shared values from `aitasks/metadata/project_config.yaml` directly in the TUI. The initial editable keys are:
+
+- `codeagent_coauthor_domain` -- Shared email domain used for custom code-agent `Co-authored-by` trailers
+- `verify_build` -- Build verification command or YAML list of commands run after implementation
+
+Press **Enter** on a row to edit the value, then use **Save Project Config** to persist it.
 
 ### Models (m)
 
@@ -81,6 +90,7 @@ Fields use type-appropriate controls: boolean keys toggle between `true`/`false`
 |-----|--------|
 | **a** | Switch to Agent Defaults tab |
 | **b** | Switch to Board tab |
+| **c** | Switch to Project Config tab |
 | **m** | Switch to Models tab |
 | **p** | Switch to Profiles tab |
 | **Enter** | Edit selected field |

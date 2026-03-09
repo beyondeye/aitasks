@@ -94,7 +94,9 @@ assert_file_contains() {
 setup_seed_file() {
     local dir="$1"
     mkdir -p "$dir/aitasks/metadata"
+    mkdir -p "$dir/seed"
     cp "$PROJECT_DIR/seed/aitasks_agent_instructions.seed.md" "$dir/aitasks/metadata/"
+    cp "$PROJECT_DIR/seed/project_config.yaml" "$dir/seed/"
 }
 
 # Create a repo with remote for testing
@@ -149,6 +151,7 @@ SCRIPT_DIR="$TMPDIR_1/local/.aitask-scripts"
 mkdir -p "$SCRIPT_DIR"
 mkdir -p "$TMPDIR_1/local/seed"
 cp "$PROJECT_DIR/seed/aitasks_agent_instructions.seed.md" "$TMPDIR_1/local/seed/"
+cp "$PROJECT_DIR/seed/project_config.yaml" "$TMPDIR_1/local/seed/"
 
 (cd "$TMPDIR_1/local" && setup_data_branch </dev/null >/dev/null 2>&1)
 
@@ -179,6 +182,10 @@ assert_file_contains ".gitignore has .aitask-data/" "$TMPDIR_1/local/.gitignore"
 assert_dir_exists "aitasks/metadata skeleton" "$TMPDIR_1/local/.aitask-data/aitasks/metadata"
 assert_dir_exists "aitasks/archived skeleton" "$TMPDIR_1/local/.aitask-data/aitasks/archived"
 assert_dir_exists "aiplans/archived skeleton" "$TMPDIR_1/local/.aitask-data/aiplans/archived"
+assert_file_exists "project_config.yaml copied" "$TMPDIR_1/local/.aitask-data/aitasks/metadata/project_config.yaml"
+assert_file_contains "project_config has coauthor domain" \
+    "$TMPDIR_1/local/.aitask-data/aitasks/metadata/project_config.yaml" \
+    "codeagent_coauthor_domain: aitasks.io"
 
 # Check data branch .gitignore has aitasks/new/
 assert_file_contains "Data .gitignore has aitasks/new/" "$TMPDIR_1/local/.aitask-data/.gitignore" "aitasks/new/"
@@ -274,6 +281,12 @@ mkdir -p "$SCRIPT_DIR"
 commits_before=$(git -C "$TMPDIR_3/local" log --oneline 2>/dev/null | wc -l | tr -d ' ')
 data_commits_before=$(git -C "$TMPDIR_3/local/.aitask-data" log --oneline 2>/dev/null | wc -l | tr -d ' ')
 
+# Simulate a user-customized coauthor domain before rerun.
+cat > "$TMPDIR_3/local/aitasks/metadata/project_config.yaml" << 'YAMLEOF'
+codeagent_coauthor_domain: company.example
+verify_build:
+YAMLEOF
+
 # Second run
 output=$(cd "$TMPDIR_3/local" && setup_data_branch </dev/null 2>&1)
 
@@ -283,6 +296,9 @@ data_commits_after=$(git -C "$TMPDIR_3/local/.aitask-data" log --oneline 2>/dev/
 assert_contains "Second run says already configured" "already configured" "$output"
 assert_eq "No extra commits on main" "$commits_before" "$commits_after"
 assert_eq "No extra commits on data branch" "$data_commits_before" "$data_commits_after"
+assert_file_contains "Customized coauthor domain preserved on rerun" \
+    "$TMPDIR_3/local/aitasks/metadata/project_config.yaml" \
+    "codeagent_coauthor_domain: company.example"
 
 rm -rf "$TMPDIR_3"
 
@@ -432,6 +448,28 @@ if command -v shellcheck &>/dev/null; then
         shellcheck --severity=error "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" 2>&1 | head -20
     fi
 fi
+
+# --- Test 10: ensure_project_config_defaults inserts missing key ---
+echo "--- Test 10: ensure_project_config_defaults inserts missing key ---"
+
+TMPDIR_10="$(mktemp -d)"
+mkdir -p "$TMPDIR_10/.aitask-scripts" "$TMPDIR_10/seed" "$TMPDIR_10/aitasks/metadata"
+cp "$PROJECT_DIR/seed/project_config.yaml" "$TMPDIR_10/seed/"
+SCRIPT_DIR="$TMPDIR_10/.aitask-scripts"
+cat > "$TMPDIR_10/aitasks/metadata/project_config.yaml" << 'YAMLEOF'
+verify_build: cargo build
+YAMLEOF
+
+ensure_project_config_defaults >/dev/null 2>&1
+
+assert_file_contains "Missing coauthor domain inserted" \
+    "$TMPDIR_10/aitasks/metadata/project_config.yaml" \
+    "codeagent_coauthor_domain: aitasks.io"
+assert_file_contains "Existing verify_build preserved" \
+    "$TMPDIR_10/aitasks/metadata/project_config.yaml" \
+    "verify_build: cargo build"
+
+rm -rf "$TMPDIR_10"
 
 # --- Summary ---
 echo ""

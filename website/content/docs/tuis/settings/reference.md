@@ -13,6 +13,7 @@ description: "Keyboard shortcuts, configuration files, and profile schema refere
 |-----|--------|
 | **a** | Switch to Agent Defaults tab |
 | **b** | Switch to Board tab |
+| **c** | Switch to Project Config tab |
 | **m** | Switch to Models tab |
 | **p** | Switch to Profiles tab |
 | **e** | Export all configs |
@@ -35,6 +36,7 @@ description: "Keyboard shortcuts, configuration files, and profile schema refere
 |-----|----------|----------|-------------|
 | Agent Defaults | **a** | Yes | Default agent/model per operation, project and user layers |
 | Board | **b** | Partially | Columns (read-only), user settings (editable) |
+| Project Config | **c** | Yes | Shared values from `project_config.yaml` such as coauthor domain and build verification |
 | Models | **m** | No | Available models per agent with verification scores |
 | Profiles | **p** | Yes | Execution profiles that pre-answer workflow questions |
 
@@ -55,6 +57,7 @@ description: "Keyboard shortcuts, configuration files, and profile schema refere
 | `aitasks/metadata/codeagent_config.local.json` | User | Yes (Agent Defaults) | Per-user overrides (gitignored) |
 | `aitasks/metadata/board_config.json` | Project | No | Board column definitions |
 | `aitasks/metadata/board_config.local.json` | User | Yes (Board) | User board settings (gitignored) |
+| `aitasks/metadata/project_config.yaml` | Project | Yes (Project Config) | Shared workflow settings such as coauthor domain and build verification |
 | `aitasks/metadata/models_claudecode.json` | Project | No | Claude Code model definitions |
 | `aitasks/metadata/models_geminicli.json` | Project | No | Gemini CLI model definitions |
 | `aitasks/metadata/models_codex.json` | Project | No | Codex CLI model definitions |
@@ -120,6 +123,13 @@ These keys control behavior for the fully autonomous remote workflow (`/aitask-p
 | `issue_action` | enum | `close_with_notes`, `comment_only`, `close_silently`, `skip` | How to handle linked issues during archival |
 | `abort_plan_action` | enum | `keep`, `discard` | What to do with plan files on abort |
 | `abort_revert_status` | enum | `Ready`, `Editing` | Status to revert to on abort |
+
+## Project Config Keys
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `codeagent_coauthor_domain` | string | Email domain used for custom code-agent commit coauthors |
+| `verify_build` | string or list | Shell command(s) run after implementation to verify the build |
 
 ## Model Entry Schema
 

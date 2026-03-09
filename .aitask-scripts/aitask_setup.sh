@@ -1139,6 +1139,49 @@ setup_data_branch() {
     fi
 }
 
+ensure_project_config_defaults() {
+    local project_dir="$SCRIPT_DIR/.."
+    local seed_config="$project_dir/seed/project_config.yaml"
+    local target_config="$project_dir/aitasks/metadata/project_config.yaml"
+    local default_domain="aitasks.io"
+
+    if [[ ! -f "$seed_config" ]]; then
+        return
+    fi
+
+    mkdir -p "$(dirname "$target_config")"
+
+    if [[ ! -f "$target_config" ]]; then
+        cp "$seed_config" "$target_config"
+        success "Created project_config.yaml"
+        return
+    fi
+
+    if grep -Eq '^[[:space:]]*codeagent_coauthor_domain:[[:space:]]*' "$target_config"; then
+        return
+    fi
+
+    local tmp_file
+    tmp_file="$(mktemp)"
+    awk -v domain="$default_domain" '
+        BEGIN { inserted = 0 }
+        /^[[:space:]]*verify_build:[[:space:]]*$/ && inserted == 0 {
+            print "codeagent_coauthor_domain: " domain
+            print ""
+            inserted = 1
+        }
+        { print }
+        END {
+            if (inserted == 0) {
+                print ""
+                print "codeagent_coauthor_domain: " domain
+            }
+        }
+    ' "$target_config" > "$tmp_file"
+    mv "$tmp_file" "$target_config"
+    success "Updated project_config.yaml with codeagent_coauthor_domain"
+}
+
 # --- Draft directory and gitignore setup ---
 setup_draft_directory() {
     local project_dir="$SCRIPT_DIR/.."
@@ -2237,6 +2280,9 @@ main() {
     echo ""
 
     setup_data_branch
+    echo ""
+
+    ensure_project_config_defaults
     echo ""
 
     setup_userconfig

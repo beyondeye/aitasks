@@ -19,6 +19,7 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 
 METADATA_DIR="${TASK_DIR:-aitasks}/metadata"
 DEFAULT_AGENT_STRING="claudecode/opus4_6"
+DEFAULT_COAUTHOR_DOMAIN="aitasks.io"
 SUPPORTED_AGENTS=(claudecode geminicli codex opencode)
 SUPPORTED_OPERATIONS=(task-pick explain batch-review raw)
 
@@ -151,6 +152,34 @@ resolve_agent_string() {
     echo "$DEFAULT_AGENT_STRING"
 }
 
+# Resolve the project-scoped email domain used by custom code-agent coauthors.
+get_coauthor_domain() {
+    local config_file="$METADATA_DIR/project_config.yaml"
+    local value=""
+
+    if [[ -f "$config_file" ]]; then
+        value=$(awk '
+            /^[[:space:]]*codeagent_coauthor_domain:[[:space:]]*/ {
+                sub(/^[^:]*:[[:space:]]*/, "", $0)
+                sub(/[[:space:]]+#.*$/, "", $0)
+                print
+                exit
+            }
+        ' "$config_file")
+        value="${value%\"}"
+        value="${value#\"}"
+        value="${value%\'}"
+        value="${value#\'}"
+        value="$(printf '%s' "$value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    fi
+
+    if [[ -z "$value" || "$value" == "null" ]]; then
+        value="$DEFAULT_COAUTHOR_DOMAIN"
+    fi
+
+    echo "$value"
+}
+
 # --- Subcommands ---
 
 cmd_list_agents() {
@@ -254,6 +283,10 @@ cmd_check() {
     else
         die "Agent '$PARSED_AGENT' CLI binary '$binary' not found in PATH"
     fi
+}
+
+cmd_coauthor_domain() {
+    echo "COAUTHOR_DOMAIN:$(get_coauthor_domain)"
 }
 
 # Build the command array for invoking an agent
@@ -362,6 +395,7 @@ Commands:
   list-models [--active-only] [AGENT]
                          List models for an agent (with verification scores and status)
   resolve <operation>    Return configured agent string for an operation
+  coauthor-domain        Return the configured code-agent coauthor email domain
   check <agent-string>   Validate agent string and check CLI availability
   invoke <operation> [args...]  Invoke the code agent for an operation
 
@@ -383,6 +417,7 @@ Examples:
   ait codeagent list-agents
   ait codeagent list-models claudecode
   ait codeagent resolve task-pick
+  ait codeagent coauthor-domain
   ait codeagent check "claudecode/opus4_6"
   ait codeagent invoke task-pick 42
   ait codeagent --agent-string geminicli/gemini2_5pro invoke explain src/
@@ -429,6 +464,7 @@ main() {
         list-agents)  cmd_list_agents "$@" ;;
         list-models)  cmd_list_models "$@" ;;
         resolve)      cmd_resolve "$@" ;;
+        coauthor-domain) cmd_coauthor_domain "$@" ;;
         check)        cmd_check "$@" ;;
         invoke)       cmd_invoke "$@" ;;
         *)            die "Unknown command: '$command'. Run 'ait codeagent --help' for usage." ;;

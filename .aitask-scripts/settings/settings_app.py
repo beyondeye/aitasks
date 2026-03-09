@@ -25,9 +25,11 @@ from config_utils import (  # noqa: E402
     export_all_configs,
     import_all_configs,
     load_layered_config,
+    load_yaml_config,
     local_path_for,
     save_local_config,
     save_project_config,
+    save_yaml_config,
     split_config,
     validate_export_bundle,
 )
@@ -55,6 +57,7 @@ from textual.widgets import (  # noqa: E402
 METADATA_DIR = Path("aitasks") / "metadata"
 CODEAGENT_CONFIG = METADATA_DIR / "codeagent_config.json"
 BOARD_CONFIG = METADATA_DIR / "board_config.json"
+PROJECT_CONFIG = METADATA_DIR / "project_config.yaml"
 MODEL_FILES = {
     "claudecode": METADATA_DIR / "models_claudecode.json",
     "codex": METADATA_DIR / "models_codex.json",
@@ -266,9 +269,40 @@ PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
 _TAB_SHORTCUTS = {
     "a": "tab_agent",
     "b": "tab_board",
+    "c": "tab_project",
     "m": "tab_models",
     "p": "tab_profiles",
 }
+
+PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
+    "codeagent_coauthor_domain": {
+        "summary": "Email domain used for custom code-agent commit coauthors",
+        "detail": (
+            "Stored in aitasks/metadata/project_config.yaml and shared with the team. "
+            "The task workflow uses it to build code-agent coauthor emails such as "
+            "codex_gpt5_3codex@aitasks.io."
+        ),
+    },
+    "verify_build": {
+        "summary": "Build verification command(s) run after implementation",
+        "detail": (
+            "Accepts a single shell command string or a YAML list of commands. "
+            "Leave blank to disable build verification for task-workflow, "
+            "aitask-pickrem, and aitask-pickweb."
+        ),
+    },
+}
+
+
+def _format_yaml_value(value) -> str:
+    """Render a YAML value into a compact single-line editor string."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return yaml.safe_dump(
+        value, default_flow_style=True, sort_keys=False, allow_unicode=True,
+    ).strip()
 
 
 def _safe_id(name: str) -> str:
@@ -289,6 +323,7 @@ class ConfigManager:
         self.board: dict = {}
         self.board_project: dict = {}
         self.board_local: dict = {}
+        self.project_config: dict = {}
         self.models: dict[str, dict] = {}
         self.profiles: dict[str, dict] = {}
         self.profile_layers: dict[str, str] = {}  # filename -> "project" | "user"
@@ -309,6 +344,9 @@ class ConfigManager:
         self.board = load_layered_config(str(BOARD_CONFIG), defaults=defaults)
         self.board_project = _load_json(BOARD_CONFIG)
         self.board_local = _load_json(local_path_for(str(BOARD_CONFIG)))
+
+        # Project config (YAML, project-scoped only)
+        self.project_config = load_yaml_config(PROJECT_CONFIG)
 
         # Model files (read-only)
         self.models = {}
@@ -365,6 +403,9 @@ class ConfigManager:
         save_project_config(str(BOARD_CONFIG), project_data)
         if user_data:
             save_local_config(str(local_path_for(str(BOARD_CONFIG))), user_data)
+
+    def save_project_settings(self, data: dict):
+        save_yaml_config(str(PROJECT_CONFIG), data)
 
     def save_profile(self, filename: str, data: dict, layer: str = "project"):
         if layer == "user":
@@ -1255,15 +1296,18 @@ class SettingsApp(App):
         self._expanded_field: str | None = None  # field key with expanded description
         self._profiles_focus_target: str | None = None  # widget ID to focus after repop
         self._editing_layer: str = "project"  # track which layer is being edited
+        self._editing_project_key: str | None = None
         self._repop_counter: int = 0  # ensures unique widget IDs across repopulations
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with TabbedContent("Agent Defaults", "Board", "Models", "Profiles"):
+        with TabbedContent("Agent Defaults", "Board", "Project Config", "Models", "Profiles"):
             with TabPane("Agent Defaults", id="tab_agent"):
                 yield VerticalScroll(id="agent_content")
             with TabPane("Board", id="tab_board"):
                 yield VerticalScroll(id="board_content")
+            with TabPane("Project Config", id="tab_project"):
+                yield VerticalScroll(id="project_content")
             with TabPane("Models", id="tab_models"):
                 yield VerticalScroll(id="models_content")
             with TabPane("Profiles", id="tab_profiles"):
@@ -1273,6 +1317,7 @@ class SettingsApp(App):
     def on_mount(self):
         self._populate_agent_tab()
         self._populate_board_tab()
+        self._populate_project_tab()
         self._populate_models_tab()
         self._populate_profiles_tab()
 
@@ -1343,7 +1388,7 @@ class SettingsApp(App):
         if isinstance(focused, Input):
             return
 
-        # Tab switching: a/b/m/p
+        # Tab switching: a/b/c/m/p
         if event.key in _TAB_SHORTCUTS:
             try:
                 tabbed = self.query_one(TabbedContent)
@@ -1385,6 +1430,17 @@ class SettingsApp(App):
                 self.push_screen(
                     AgentModelPickerScreen(key, current_agent, current_model),
                     callback=self._handle_agent_pick,
+                )
+                event.prevent_default()
+                event.stop()
+                return
+
+            # Project config editing
+            if fid.startswith("project_cfg_"):
+                self._editing_project_key = focused.row_key
+                self.push_screen(
+                    EditStringScreen(focused.row_key, focused.raw_value),
+                    callback=self._handle_project_config_edit,
                 )
                 event.prevent_default()
                 event.stop()
@@ -1535,7 +1591,7 @@ class SettingsApp(App):
 
         container.mount(Label(
             "[dim]Enter: edit  |  d: remove local preference  |  "
-            "\u2191\u2193: navigate  |  a/b/m/p: switch tabs[/dim]",
+            "\u2191\u2193: navigate  |  a/b/c/m/p: switch tabs[/dim]",
             classes="section-hint",
         ))
 
@@ -1634,7 +1690,7 @@ class SettingsApp(App):
 
         container.mount(Label(
             "[dim]\u2191\u2193: navigate  |  \u25c0\u25b6: cycle options  "
-            "|  a/b/m/p: switch tabs[/dim]",
+            "|  a/b/c/m/p: switch tabs[/dim]",
             classes="section-hint",
         ))
 
@@ -1665,6 +1721,94 @@ class SettingsApp(App):
         self.notify("Board settings reverted")
 
     # -------------------------------------------------------------------
+    # Project Config tab (editable)
+    # -------------------------------------------------------------------
+    def _populate_project_tab(self):
+        container = self.query_one("#project_content", VerticalScroll)
+        container.remove_children()
+
+        self._repop_counter += 1
+        rc = self._repop_counter
+
+        container.mount(Label("Project Config", classes="section-header"))
+        container.mount(Label(
+            "[dim]Edit shared values stored in aitasks/metadata/project_config.yaml. "
+            "These settings are git-tracked and apply to the full project.[/dim]",
+            classes="section-hint",
+        ))
+
+        for key, info in PROJECT_CONFIG_SCHEMA.items():
+            raw_value = self.config_mgr.project_config.get(key)
+            display_value = _format_yaml_value(raw_value) or "(not set)"
+            container.mount(ConfigRow(
+                key, display_value, config_layer="project", row_key=key,
+                id=f"project_cfg_{_safe_id(key)}_{rc}",
+                raw_value=_format_yaml_value(raw_value),
+            ))
+            container.mount(Label(
+                f"      [dim]{info['summary']}[/dim]",
+                classes="section-hint",
+            ))
+
+        hbox = Horizontal(classes="tab-buttons")
+        container.mount(hbox)
+        hbox.mount(Button("Save Project Config", variant="success",
+                          id=f"btn_project_save_{rc}"))
+        hbox.mount(Button("Revert Project Config", variant="warning",
+                          id=f"btn_project_revert_{rc}"))
+
+        container.mount(Label(
+            "[dim]Enter: edit  |  ↑↓: navigate  |  a/b/c/m/p: switch tabs[/dim]",
+            classes="section-hint",
+        ))
+
+    def save_project_settings(self):
+        container = self.query_one("#project_content", VerticalScroll)
+        rows = list(container.query(ConfigRow))
+
+        data = dict(self.config_mgr.project_config)
+        for row in rows:
+            if not row.id or not row.id.startswith("project_cfg_"):
+                continue
+            key = row.row_key
+            raw_value = row.raw_value.strip()
+            if not raw_value:
+                data.pop(key, None)
+                continue
+            try:
+                data[key] = yaml.safe_load(raw_value)
+            except yaml.YAMLError as exc:
+                self.notify(f"Invalid YAML for {key}: {exc}", severity="error")
+                return
+
+        self.config_mgr.save_project_settings(data)
+        self.config_mgr.load_all()
+        self._populate_project_tab()
+        self.notify("Project config saved")
+
+    def _revert_project_settings(self):
+        self.config_mgr.load_all()
+        self._populate_project_tab()
+        self.notify("Project config reverted")
+
+    def _handle_project_config_edit(self, result):
+        if result is None:
+            return
+        key = result["key"]
+        value = result["value"]
+
+        rc = self._repop_counter
+        row_id = f"project_cfg_{_safe_id(key)}_{rc}"
+        try:
+            row = self.query_one(f"#{row_id}", ConfigRow)
+            row.raw_value = value
+            row.value = value or "(not set)"
+            row.refresh()
+            self.notify(f"Updated {key} — press Save to persist")
+        except Exception:
+            self.notify(f"Could not update {key}", severity="error")
+
+    # -------------------------------------------------------------------
     # Models tab (read-only)
     # -------------------------------------------------------------------
     def _populate_models_tab(self):
@@ -1674,7 +1818,7 @@ class SettingsApp(App):
         if not self.config_mgr.models:
             container.mount(Label("No model files found.", classes="section-header"))
             container.mount(Label(
-                "[dim]\u2191\u2193: navigate  |  a/b/m/p: switch tabs[/dim]",
+                "[dim]\u2191\u2193: navigate  |  a/b/c/m/p: switch tabs[/dim]",
                 classes="section-hint",
             ))
             return
@@ -1719,7 +1863,7 @@ class SettingsApp(App):
             classes="section-hint",
         ))
         container.mount(Label(
-            "[dim]\u2191\u2193: navigate  |  a/b/m/p: switch tabs[/dim]",
+            "[dim]\u2191\u2193: navigate  |  a/b/c/m/p: switch tabs[/dim]",
             classes="section-hint",
         ))
 
@@ -1759,7 +1903,7 @@ class SettingsApp(App):
                 id="btn_profile_add_new",
             ))
             container.mount(Label(
-                "[dim]\u2191\u2193: navigate  |  a/b/m/p: switch tabs[/dim]",
+                "[dim]\u2191\u2193: navigate  |  a/b/c/m/p: switch tabs[/dim]",
                 classes="section-hint",
             ))
             return
@@ -1787,7 +1931,7 @@ class SettingsApp(App):
             ))
             container.mount(Label(
                 "[dim]\u2191\u2193: navigate  |  \u25c0\u25b6: cycle options  "
-                "|  a/b/m/p: switch tabs[/dim]",
+                "|  a/b/c/m/p: switch tabs[/dim]",
                 classes="section-hint",
             ))
             return
@@ -1883,7 +2027,7 @@ class SettingsApp(App):
         container.mount(Label(
             "[dim]\u2191\u2193: navigate  |  \u25c0\u25b6: cycle options  "
             "|  Enter: edit strings  |  ?: field details  "
-            "|  a/b/m/p: switch tabs[/dim]",
+            "|  a/b/c/m/p: switch tabs[/dim]",
             classes="section-hint",
         ))
 
@@ -1952,6 +2096,10 @@ class SettingsApp(App):
             self.save_board_settings()
         elif btn_id.startswith("btn_board_revert"):
             self._revert_board_settings()
+        elif btn_id.startswith("btn_project_save"):
+            self.save_project_settings()
+        elif btn_id.startswith("btn_project_revert"):
+            self._revert_project_settings()
         elif btn_id == "btn_profile_add_new":
             existing = sorted(self.config_mgr.profiles.keys())
             self.push_screen(
@@ -2146,6 +2294,7 @@ class SettingsApp(App):
             self.config_mgr.load_all()
             self._populate_agent_tab()
             self._populate_board_tab()
+            self._populate_project_tab()
             self._populate_models_tab()
             self._populate_profiles_tab()
             self.notify(f"Imported {len(written)} files")
@@ -2156,6 +2305,7 @@ class SettingsApp(App):
         self.config_mgr.load_all()
         self._populate_agent_tab()
         self._populate_board_tab()
+        self._populate_project_tab()
         self._populate_models_tab()
         self._populate_profiles_tab()
         self.notify("Configs reloaded from disk")

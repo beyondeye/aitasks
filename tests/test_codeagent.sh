@@ -81,6 +81,7 @@ setup_test_env() {
     cp "$PROJECT_DIR/aitasks/metadata/models_codex.json" "$tmpdir/aitasks/metadata/"
     cp "$PROJECT_DIR/aitasks/metadata/models_opencode.json" "$tmpdir/aitasks/metadata/"
     cp "$PROJECT_DIR/aitasks/metadata/codeagent_config.json" "$tmpdir/aitasks/metadata/"
+    cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$tmpdir/aitasks/metadata/"
 
     # Initialize git repo (task_utils.sh needs it)
     (cd "$tmpdir" && git init --quiet && git config user.email "test@test.com" && git config user.name "Test")
@@ -193,30 +194,56 @@ assert_contains "dry-run contains model flag" "claude-opus-4-6" "$output"
 assert_contains "dry-run contains aitask-pick" "aitask-pick" "$output"
 assert_contains "dry-run contains task number" "42" "$output"
 
-# Test 12: --help shows usage
-echo "--- Test 12: --help ---"
+# Test 12: coauthor-domain reads configured domain
+echo "--- Test 12: coauthor-domain configured ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor-domain 2>&1)
+assert_contains "coauthor-domain returns configured domain" "COAUTHOR_DOMAIN:aitasks.io" "$output"
+
+# Test 13: coauthor-domain falls back when field is missing
+echo "--- Test 13: coauthor-domain fallback on missing field ---"
+cat > "$TMPDIR_TEST/aitasks/metadata/project_config.yaml" << 'YAMLEOF'
+verify_build:
+YAMLEOF
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor-domain 2>&1)
+assert_contains "coauthor-domain falls back to default" "COAUTHOR_DOMAIN:aitasks.io" "$output"
+
+# Test 14: coauthor-domain falls back on empty field
+echo "--- Test 14: coauthor-domain fallback on empty field ---"
+cat > "$TMPDIR_TEST/aitasks/metadata/project_config.yaml" << 'YAMLEOF'
+codeagent_coauthor_domain:
+verify_build:
+YAMLEOF
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor-domain 2>&1)
+assert_contains "coauthor-domain empty field falls back" "COAUTHOR_DOMAIN:aitasks.io" "$output"
+
+# Test 15: --help shows usage
+echo "--- Test 15: --help ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --help 2>&1)
 assert_contains "help shows Usage" "Usage:" "$output"
 assert_contains "help shows list-agents" "list-agents" "$output"
 assert_contains "help shows list-models" "list-models" "$output"
+assert_contains "help shows coauthor-domain" "coauthor-domain" "$output"
 assert_contains "help shows resolution chain" "Resolution chain" "$output"
 
-# Test 13: resolve explain uses sonnet
-echo "--- Test 13: resolve explain uses sonnet ---"
+# Restore project config for remaining tests
+cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"
+
+# Test 16: resolve explain uses sonnet
+echo "--- Test 16: resolve explain uses sonnet ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve explain 2>&1)
 assert_contains "resolve explain returns sonnet4_6" "AGENT_STRING:claudecode/sonnet4_6" "$output"
 
-# Test 14: resolve with unknown operation
-echo "--- Test 14: resolve unknown operation ---"
+# Test 17: resolve with unknown operation
+echo "--- Test 17: resolve unknown operation ---"
 assert_exit_nonzero "resolve rejects unknown operation" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' resolve unknown-op"
 
-# Test 15: no command shows help
-echo "--- Test 15: no command shows help ---"
+# Test 18: no command shows help
+echo "--- Test 18: no command shows help ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" 2>&1)
 assert_contains "no command shows usage" "Usage:" "$output"
 
-# Test 16: unknown command fails
-echo "--- Test 16: unknown command ---"
+# Test 19: unknown command fails
+echo "--- Test 19: unknown command ---"
 assert_exit_nonzero "unknown command fails" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' nonexistent-command"
 
 # --- Cleanup ---

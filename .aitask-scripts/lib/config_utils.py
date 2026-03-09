@@ -1,8 +1,8 @@
-"""config_utils - Shared layered config loading/saving for aitasks Python tools.
+"""config_utils - Shared config loading/saving helpers for aitasks Python tools.
 
 Provides JSON config file management with a per-project / per-user override
-pattern. Project configs are git-tracked; user configs use .local.json suffix
-and are gitignored.
+pattern, plus YAML helpers for project-scoped settings files. Project configs
+are git-tracked; user configs use .local.json suffix and are gitignored.
 
 Usage:
     from config_utils import load_layered_config, save_project_config
@@ -20,6 +20,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 EXPORT_EXTENSION = ".aitcfg.json"
 
@@ -126,6 +128,31 @@ def save_local_config(path: str | Path, data: dict) -> None:
     ensuring the path uses the .local.json naming convention.
     """
     _save_json(Path(path), data)
+
+
+def load_yaml_config(path: str | Path, defaults: dict | None = None) -> dict:
+    """Load a project-scoped YAML config file.
+
+    Returns defaults (or {}) when the file is missing or empty.
+    Raises yaml.YAMLError when an existing file contains invalid YAML.
+    """
+    result = copy.deepcopy(defaults) if defaults else {}
+    yaml_path = Path(path)
+    if not yaml_path.is_file():
+        return result
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    if isinstance(data, dict):
+        return deep_merge(result, data)
+    return result
+
+
+def save_yaml_config(path: str | Path, data: dict) -> None:
+    """Write a project-level YAML config with stable key ordering."""
+    yaml_path = Path(path)
+    yaml_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(yaml_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 
 def split_config(

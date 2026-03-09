@@ -17,9 +17,11 @@ from config_utils import (
     export_all_configs,
     import_all_configs,
     load_layered_config,
+    load_yaml_config,
     local_path_for,
     save_local_config,
     save_project_config,
+    save_yaml_config,
     split_config,
     validate_export_bundle,
 )
@@ -256,6 +258,46 @@ class TestSaveConfig(unittest.TestCase):
         with open(path) as f:
             data = json.load(f)
         self.assertEqual(data, {"user": "pref"})
+
+
+# ---------------------------------------------------------------------------
+# load_yaml_config / save_yaml_config
+# ---------------------------------------------------------------------------
+
+
+class TestYamlConfig(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.d = Path(self.tmpdir.name)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_load_yaml_missing_returns_defaults(self):
+        result = load_yaml_config(self.d / "project_config.yaml", defaults={"x": 1})
+        self.assertEqual(result, {"x": 1})
+
+    def test_load_yaml_merges_defaults(self):
+        path = self.d / "project_config.yaml"
+        path.write_text("verify_build: cargo build\n", encoding="utf-8")
+        result = load_yaml_config(path, defaults={"codeagent_coauthor_domain": "aitasks.io"})
+        self.assertEqual(
+            result,
+            {
+                "codeagent_coauthor_domain": "aitasks.io",
+                "verify_build": "cargo build",
+            },
+        )
+
+    def test_save_yaml_config_round_trip(self):
+        path = self.d / "project_config.yaml"
+        data = {
+            "codeagent_coauthor_domain": "company.example",
+            "verify_build": ["npm run build", "npm test"],
+        }
+        save_yaml_config(path, data)
+        loaded = load_yaml_config(path)
+        self.assertEqual(loaded, data)
 
 
 # ---------------------------------------------------------------------------

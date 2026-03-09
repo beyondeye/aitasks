@@ -47,6 +47,20 @@ The Models tab is read-only. To update model definitions, edit the `aitasks/meta
 
 > **Note:** The Columns section at the top is read-only. To customize columns, use the [Board TUI](../board/) directly.
 
+## Edit Project Config Values
+
+1. Press **c** to go to the **Project Config** tab
+2. Navigate to the setting you want to change:
+   - `codeagent_coauthor_domain`
+   - `verify_build`
+3. Press **Enter** to open the editor
+4. Enter the new value:
+   - For `codeagent_coauthor_domain`, enter a domain such as `aitasks.io`
+   - For `verify_build`, enter either a single command or YAML in flow style such as `["npm run build", "npm test"]`
+5. Click **Save Project Config** to persist the YAML file
+
+> **Note:** Project config values are shared and git-tracked. Changing them affects the whole team.
+
 ## Edit an Execution Profile
 
 1. Press **p** to go to the **Profiles** tab
