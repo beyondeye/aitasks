@@ -3,7 +3,7 @@
 Documentation has moved to `website/content/docs/` — the Hugo/Docsy website is the single source of truth.
 All updates should be made there.
 
-**Live site:** https://beyondeye.github.io/aitasks/
+**Live site:** https://aitasks.io/
 
 ## Available Documentation
 

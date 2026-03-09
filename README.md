@@ -8,7 +8,7 @@
   <h3><em>File-based task management for AI coding agents. No backend. Just markdown and git.</em></h3>
 
   <p>
-    <a href="https://beyondeye.github.io/aitasks/"><img src="https://img.shields.io/badge/docs-website-blue" alt="Documentation"/></a>
+    <a href="https://aitasks.io/"><img src="https://img.shields.io/badge/docs-website-blue" alt="Documentation"/></a>
     <a href="https://github.com/beyondeye/aitasks/stargazers"><img src="https://img.shields.io/github/stars/beyondeye/aitasks?style=social" alt="GitHub stars"/></a>
 <a href="https://github.com/beyondeye/aitasks/commits/main"><img src="https://img.shields.io/github/last-commit/beyondeye/aitasks" alt="Last commit"/></a>
     <a href="https://github.com/beyondeye/aitasks/issues"><img src="https://img.shields.io/github/issues/beyondeye/aitasks" alt="GitHub issues"/></a>
@@ -55,14 +55,14 @@ AI coding agents has reached a proficiency level where, given correct specs and 
   - Parallelism: thanks to task status stored in git, and AI agents workflow that support git worktrees.
 
 - Visual Management
-TUI Board: A terminal-based visual interface (Kanban style) for visualizing and organizing tasks without leaving the terminal. See the [Board Documentation](https://beyondeye.github.io/aitasks/docs/board/) for full details.
+TUI Board: A terminal-based visual interface (Kanban style) for visualizing and organizing tasks without leaving the terminal. See the [Board Documentation](https://aitasks.io/docs/board/) for full details.
 
 - Battle tested:
 Not a research experiment. actively developed and used in real projects
 
 - Claude Code optimized.
 
-- Fully customizable workflow for each project: all the scripts and workflow skills live in your project repo — modify them for your needs and contribute back with ease your enhancements to the project with the included AI-based `/aitask-contribute` skill. See the [Contribute and Manage Contributions workflow](https://beyondeye.github.io/aitasks/docs/workflows/contribute-and-manage/).
+- Fully customizable workflow for each project: all the scripts and workflow skills live in your project repo — modify them for your needs and contribute back with ease your enhancements to the project with the included AI-based `/aitask-contribute` skill. See the [Contribute and Manage Contributions workflow](https://aitasks.io/docs/workflows/contribute-and-manage/).
 
 ## 🖥️ Platform Support
 
@@ -72,7 +72,7 @@ Not a research experiment. actively developed and used in real projects
 | Ubuntu/Debian | Fully supported | Includes Pop!_OS, Linux Mint, Elementary |
 | Fedora/RHEL | Fully supported | Includes CentOS, Rocky, Alma |
 | macOS | Fully supported | Requires Homebrew for bash 5 and coreutils (auto-installed by `ait setup`) |
-| Windows (WSL) | Fully supported | Via WSL with Ubuntu/Debian (see [Windows guide](https://beyondeye.github.io/aitasks/docs/installation/windows-wsl/)) |
+| Windows (WSL) | Fully supported | Via WSL with Ubuntu/Debian (see [Windows guide](https://aitasks.io/docs/installation/windows-wsl/)) |
 
 ## ⚡ Quick Install
 
@@ -83,9 +83,9 @@ curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh |
 ait setup
 ```
 
-> **Windows users:** Run this inside a WSL shell, not PowerShell. See the [Windows/WSL guide](https://beyondeye.github.io/aitasks/docs/installation/windows-wsl/).
+> **Windows users:** Run this inside a WSL shell, not PowerShell. See the [Windows/WSL guide](https://aitasks.io/docs/installation/windows-wsl/).
 
-`ait setup` installs dependencies and configures Claude Code permissions. See [`ait setup`](https://beyondeye.github.io/aitasks/docs/commands/setup-install/) for details.
+`ait setup` installs dependencies and configures Claude Code permissions. See [`ait setup`](https://aitasks.io/docs/commands/setup-install/) for details.
 
 Upgrade an existing installation:
 
@@ -110,7 +110,7 @@ ait setup
 
 The shim detects that no aitasks project exists, downloads the latest release, installs it, and then runs the full setup — all in one command.
 
-**Windows/WSL users:** See the [Windows/WSL Installation Guide](https://beyondeye.github.io/aitasks/docs/installation/windows-wsl/) for step-by-step instructions including WSL setup, Claude Code installation, and terminal configuration.
+**Windows/WSL users:** See the [Windows/WSL Installation Guide](https://aitasks.io/docs/installation/windows-wsl/) for step-by-step instructions including WSL setup, Claude Code installation, and terminal configuration.
 
 ## 📦 What Gets Installed
 
@@ -127,25 +127,25 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 - CLI tools: `fzf`, `gh` (for GitHub), `glab` (for GitLab), or `bkt` (for Bitbucket), `jq`, `git`
 - Python venv at `~/.aitask/venv/` with `textual`, `pyyaml`, `linkify-it-py`
 - Global `ait` shim at `~/.local/bin/ait`
-- Claude Code permissions in `.claude/settings.local.json` (see [Claude Code Permissions](https://beyondeye.github.io/aitasks/docs/commands/setup-install/#claude-code-permissions))
+- Claude Code permissions in `.claude/settings.local.json` (see [Claude Code Permissions](https://aitasks.io/docs/commands/setup-install/#claude-code-permissions))
 
 ## 📖 Documentation
 
-**[Documentation Website](https://beyondeye.github.io/aitasks/)** — Browse the full documentation online.
+**[Documentation Website](https://aitasks.io/)** — Browse the full documentation online.
 
-- **[Installation](https://beyondeye.github.io/aitasks/docs/installation/)** — Quick install, platform support, setup, and git remote authentication.
+- **[Installation](https://aitasks.io/docs/installation/)** — Quick install, platform support, setup, and git remote authentication.
 
-- **[Getting Started](https://beyondeye.github.io/aitasks/docs/getting-started/)** — First-time walkthrough from install to completing your first task.
+- **[Getting Started](https://aitasks.io/docs/getting-started/)** — First-time walkthrough from install to completing your first task.
 
-- **[Kanban Board](https://beyondeye.github.io/aitasks/docs/board/)** — Visual task management with the TUI board: tutorials, how-to guides, keyboard shortcuts, and configuration.
+- **[Kanban Board](https://aitasks.io/docs/board/)** — Visual task management with the TUI board: tutorials, how-to guides, keyboard shortcuts, and configuration.
 
-- **[Workflow Guides](https://beyondeye.github.io/aitasks/docs/workflows/)** — End-to-end guides for common usage patterns: capturing ideas fast, complex task decomposition, parallel development, and more.
+- **[Workflow Guides](https://aitasks.io/docs/workflows/)** — End-to-end guides for common usage patterns: capturing ideas fast, complex task decomposition, parallel development, and more.
 
-- **[Claude Code Skills](https://beyondeye.github.io/aitasks/docs/skills/)** — Reference for `/aitask-pick`, `/aitask-explore`, `/aitask-create`, and other skill integrations.
+- **[Claude Code Skills](https://aitasks.io/docs/skills/)** — Reference for `/aitask-pick`, `/aitask-explore`, `/aitask-create`, and other skill integrations.
 
-- **[Command Reference](https://beyondeye.github.io/aitasks/docs/commands/)** — Complete CLI reference for all `ait` subcommands.
+- **[Command Reference](https://aitasks.io/docs/commands/)** — Complete CLI reference for all `ait` subcommands.
 
-- **[Development Guide](https://beyondeye.github.io/aitasks/docs/development/)** — Architecture overview, directory layout, library scripts, and release process.
+- **[Development Guide](https://aitasks.io/docs/development/)** — Architecture overview, directory layout, library scripts, and release process.
 
 ## 📄 License
 This project is licensed under the Apache License 2.0 with the Commons Clause condition.

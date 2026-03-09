@@ -2,7 +2,7 @@
 
 This directory contains the Hugo/Docsy website for aitasks.
 
-**Live site:** https://beyondeye.github.io/aitasks/
+**Live site:** https://aitasks.io/
 
 ## Required Tools
 
@@ -123,7 +123,7 @@ hugo mod get -u
 
 Automatic on push of version tags (`v*`) via GitHub Actions. See `.github/workflows/hugo.yml`.
 
-The site is deployed to https://beyondeye.github.io/aitasks/
+The site is deployed to https://aitasks.io/
 
 ## Common Issues
 
