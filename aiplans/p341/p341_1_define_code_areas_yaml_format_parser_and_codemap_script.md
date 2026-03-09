@@ -56,6 +56,21 @@ Add copy of `code_areas.yaml` seed template during setup (~line 1008, alongside 
 - Test aitask_codemap.sh --scan in a temp git repo
 - Test --scan --existing with partial file
 
+## Verification Notes (2026-03-09)
+
+All reference points confirmed against codebase:
+- AREAS array at `aitask_contribute.sh:43-50` — 6 hardcoded entries, pipe-delimited `name|dirs|desc`
+- `list_areas()` at `aitask_contribute.sh:229-248` — outputs `AREA|name|dirs|desc` (3 fields)
+- `parse_code_areas()` will output `AREA|name|path|desc|parent` (4 fields, adds parent tracking)
+- `seed/project_config.yaml` — 71 lines, extensive commented YAML template pattern
+- `aitask_setup.sh:1005-1016` — seed copy block, uses `cp ... 2>/dev/null || true` pattern
+- `tests/test_contribute.sh` — 382 lines, uses `assert_eq`/`assert_contains` helpers
+- `terminal_compat.sh` — `die()`, `warn()`, `info()`, `success()` available
+- `task_utils.sh:14-18` — `TASK_DIR` defaults to `aitasks`
+- `code_areas.yaml` does NOT exist yet in either `seed/` or `aitasks/metadata/`
+
+Plan is sound and ready for implementation.
+
 ## Post-Implementation
 
 - Reference Step 9 of task-workflow for archival
