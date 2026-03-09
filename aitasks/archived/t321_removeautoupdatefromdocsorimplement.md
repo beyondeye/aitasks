@@ -3,11 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Done
 labels: [auto-update]
-children_to_implement: [t321_6]
 created_at: 2026-03-06 07:53
-updated_at: 2026-03-08 22:32
+updated_at: 2026-03-09 12:02
+completed_at: 2026-03-09 12:02
 boardcol: now
 boardidx: 10
 ---
