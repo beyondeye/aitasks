@@ -307,6 +307,75 @@ assert_contains "metadata has contributor field" "contributor:" "$output"
 assert_contains "metadata has contributor_email field" "contributor_email:" "$output"
 assert_contains "metadata has version field" "based_on_version:" "$output"
 
+# --- Test 12: --source flag parsing ---
+echo "--- Test 12: --source flag parsing ---"
+# Valid sources should be accepted in dry-run mode
+output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh \
+    --dry-run --source github --area scripts \
+    --files ".aitask-scripts/original_script.sh" \
+    --title "Source test" --motivation "Testing" \
+    --scope enhancement --merge-approach "clean merge" 2>&1)
+exit_code=$?
+assert_eq "source github accepted" "0" "$exit_code"
+
+output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh \
+    --dry-run --source gitlab --area scripts \
+    --files ".aitask-scripts/original_script.sh" \
+    --title "Source test" --motivation "Testing" \
+    --scope enhancement --merge-approach "clean merge" 2>&1)
+exit_code=$?
+assert_eq "source gitlab accepted" "0" "$exit_code"
+
+output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh \
+    --dry-run --source bitbucket --area scripts \
+    --files ".aitask-scripts/original_script.sh" \
+    --title "Source test" --motivation "Testing" \
+    --scope enhancement --merge-approach "clean merge" 2>&1)
+exit_code=$?
+assert_eq "source bitbucket accepted" "0" "$exit_code"
+
+# Invalid source should fail
+assert_exit_nonzero "invalid source rejected" \
+    bash -c "cd '$LOCAL_DIR' && ./.aitask-scripts/aitask_contribute.sh --dry-run --source foobar --area scripts --files foo --title test"
+
+# --- Test 13: Help output includes --source ---
+echo "--- Test 13: Help output includes --source ---"
+output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh --help 2>&1)
+assert_contains "help shows --source" "--source" "$output"
+assert_contains "help mentions gitlab" "gitlab" "$output"
+assert_contains "help mentions bitbucket" "bitbucket" "$output"
+assert_contains "help mentions glab" "glab" "$output"
+
+# --- Test 14: Platform dry-run (github) ---
+echo "--- Test 14: Platform dry-run (github) ---"
+output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh \
+    --dry-run --source github --area scripts \
+    --files ".aitask-scripts/original_script.sh" \
+    --title "GitHub test" --motivation "Testing" \
+    --scope enhancement --merge-approach "clean merge" 2>&1)
+assert_contains "github dry-run has contribution heading" "## Contribution:" "$output"
+assert_contains "github dry-run has metadata" "<!-- aitask-contribute-metadata" "$output"
+
+# --- Test 15: Platform dry-run (gitlab) ---
+echo "--- Test 15: Platform dry-run (gitlab) ---"
+output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh \
+    --dry-run --source gitlab --area scripts \
+    --files ".aitask-scripts/original_script.sh" \
+    --title "GitLab test" --motivation "Testing" \
+    --scope enhancement --merge-approach "clean merge" 2>&1)
+assert_contains "gitlab dry-run has contribution heading" "## Contribution:" "$output"
+assert_contains "gitlab dry-run has metadata" "<!-- aitask-contribute-metadata" "$output"
+
+# --- Test 16: Platform dry-run (bitbucket) ---
+echo "--- Test 16: Platform dry-run (bitbucket) ---"
+output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh \
+    --dry-run --source bitbucket --area scripts \
+    --files ".aitask-scripts/original_script.sh" \
+    --title "Bitbucket test" --motivation "Testing" \
+    --scope enhancement --merge-approach "clean merge" 2>&1)
+assert_contains "bitbucket dry-run has contribution heading" "## Contribution:" "$output"
+assert_contains "bitbucket dry-run has metadata" "<!-- aitask-contribute-metadata" "$output"
+
 # --- Summary ---
 echo ""
 echo "Results: $PASS passed, $FAIL failed out of $TOTAL tests"

@@ -5,18 +5,18 @@ weight: 23
 description: "Contribute local framework changes back to the upstream aitasks repository"
 ---
 
-Contribute your local modifications and enhancements back to the upstream aitasks repository without creating a fork, branch, or pull request. The skill analyzes your changes against upstream, lets you select and group what to contribute, and automatically creates structured GitHub issues with full diffs, motivation, and scope — ready for the maintainer to import as an aitask.
+Contribute your local modifications and enhancements back to the upstream aitasks repository without creating a fork, branch, or pull request. The skill analyzes your changes against upstream, lets you select and group what to contribute, and automatically creates structured issues (GitHub, GitLab, or Bitbucket) with full diffs, motivation, and scope — ready for the maintainer to import as an aitask.
 
 **Usage:**
 ```
 /aitask-contribute
 ```
 
-> **Note:** Must be run from the project root directory. Requires the `gh` CLI installed and authenticated (`gh auth login`). See [Skills overview](..) for details.
+> **Note:** Must be run from the project root directory. Requires the platform CLI installed and authenticated: `gh` for GitHub (default), `glab` for GitLab, or `bkt` for Bitbucket. See [Skills overview](..) for details.
 
 ## Step-by-Step
 
-1. **Prerequisites check** — Verifies `gh` CLI is installed and authenticated. Detects contribution mode (clone/fork vs downstream project) and lists available contribution areas
+1. **Prerequisites check** — Detects contribution mode (clone/fork vs downstream project) and lists available contribution areas. Verifies the appropriate platform CLI is installed and authenticated
 2. **Area selection** — Choose which areas of the framework you modified: scripts, Claude skills, Gemini CLI, Codex CLI, OpenCode, website, or a custom path
 3. **File discovery** — Scans selected areas for files that differ from upstream and presents them for selection
 4. **Upstream diff + AI analysis** — Generates diffs for selected files and AI analyzes the changes: what changed semantically, whether changes are logically related or distinct, appropriate scope classification, and merge complexity
@@ -34,7 +34,9 @@ Contribute your local modifications and enhancements back to the upstream aitask
 
 - **AI-powered change analysis** — Diffs are analyzed semantically to identify logical change groups, propose titles, assess merge complexity, and suggest appropriate scope classifications
 
-- **Multi-contribution support** — When changes span multiple unrelated improvements, they can be split into separate GitHub issues — one per logical group — for cleaner upstream tracking
+- **Multi-contribution support** — When changes span multiple unrelated improvements, they can be split into separate issues — one per logical group — for cleaner upstream tracking
+
+- **Multi-platform support** — Issues can be created on GitHub (default), GitLab, or Bitbucket via the `--source` flag. Each platform uses its native CLI tool (`gh`, `glab`, or `bkt`)
 
 - **Contributor attribution** — When the created issue is later imported upstream via [`ait issue-import`](../../commands/issue-integration/#ait-issue-import), the contributor's identity is preserved. Implementation commits include `Co-authored-by` trailers crediting the original contributor
 

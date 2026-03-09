@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # aitask_contribute.sh - Contribute local framework changes to upstream aitasks repo
-# Generates structured diffs and creates GitHub issues for contributions
+# Generates structured diffs and creates GitHub/GitLab/Bitbucket issues for contributions
 # Batch-only: all user interaction goes through the aitask-contribute skill
 
 set -euo pipefail
@@ -30,9 +30,13 @@ ARG_DRY_RUN=false
 ARG_SILENT=false
 ARG_REPO=""
 ARG_DIFF_PREVIEW_LINES=""
+ARG_SOURCE=""
 ARG_LIST_AREAS=false
 ARG_LIST_CHANGES=false
 ARG_HELP=false
+
+# --- Platform state (resolved in main) ---
+CONTRIBUTE_PLATFORM=""
 
 # --- Area definitions ---
 # Format: "name|directories|description"
@@ -44,6 +48,146 @@ AREAS=(
     "opencode|.opencode/skills/,.opencode/commands/|OpenCode skills and commands"
     "website|website/|Website documentation (clone/fork mode only)"
 )
+
+# ============================================================
+# PLATFORM BACKENDS
+# To add a new platform:
+#   1. Implement all <platform>_* functions below
+#   2. Add to --source validation in parse_args()
+#   3. Add case to each source_* dispatcher function
+# ============================================================
+
+# --- GitHub Backend ---
+
+github_check_cli() {
+    command -v gh &>/dev/null || die "gh CLI is required for GitHub. Install: https://cli.github.com/"
+    gh auth status &>/dev/null || die "gh CLI is not authenticated. Run: gh auth login"
+}
+
+github_upstream_url() {
+    local repo="$1" filepath="$2"
+    echo "https://github.com/$repo/blob/main/$filepath"
+}
+
+github_resolve_contributor() {
+    if command -v gh &>/dev/null; then
+        local gh_output
+        gh_output=$(gh api user --jq '.login,.id' 2>/dev/null || echo "")
+        if [[ -n "$gh_output" ]]; then
+            local login user_id
+            login=$(echo "$gh_output" | head -1)
+            user_id=$(echo "$gh_output" | tail -1)
+            if [[ -n "$login" && -n "$user_id" ]]; then
+                echo "$login"
+                echo "${user_id}+${login}@users.noreply.github.com"
+                return 0
+            fi
+        fi
+    fi
+    return 1
+}
+
+github_create_issue() {
+    local repo="$1" title="$2" body="$3"
+    gh issue create -R "$repo" --title "$title" --body "$body" --label "contribution" 2>&1
+}
+
+# --- GitLab Backend ---
+
+gitlab_check_cli() {
+    command -v glab &>/dev/null || die "glab CLI is required for GitLab. Install: https://gitlab.com/gitlab-org/cli"
+    glab auth status &>/dev/null || die "glab CLI is not authenticated. Run: glab auth login"
+}
+
+gitlab_upstream_url() {
+    local repo="$1" filepath="$2"
+    echo "https://gitlab.com/$repo/-/blob/main/$filepath"
+}
+
+gitlab_resolve_contributor() {
+    if command -v glab &>/dev/null; then
+        local glab_output
+        glab_output=$(glab api user --jq '.username,.id' 2>/dev/null || echo "")
+        if [[ -n "$glab_output" ]]; then
+            local username user_id
+            username=$(echo "$glab_output" | head -1)
+            user_id=$(echo "$glab_output" | tail -1)
+            if [[ -n "$username" && -n "$user_id" ]]; then
+                echo "$username"
+                echo "${username}@users.noreply.gitlab.com"
+                return 0
+            fi
+        fi
+    fi
+    return 1
+}
+
+gitlab_create_issue() {
+    local repo="$1" title="$2" body="$3"
+    glab issue create -R "$repo" --title "$title" --description "$body" -l "contribution" 2>&1
+}
+
+# --- Bitbucket Backend ---
+
+bitbucket_check_cli() {
+    command -v bkt &>/dev/null || die "bkt CLI is required for Bitbucket. Install: https://github.com/avivsinai/bitbucket-cli"
+    bkt auth status &>/dev/null || die "bkt CLI is not authenticated. Run: bkt auth login https://bitbucket.org --kind cloud --web"
+}
+
+bitbucket_upstream_url() {
+    local repo="$1" filepath="$2"
+    echo "https://bitbucket.org/$repo/src/main/$filepath"
+}
+
+bitbucket_resolve_contributor() {
+    # Bitbucket has no simple user API via bkt — always fall back
+    return 1
+}
+
+bitbucket_create_issue() {
+    local repo="$1" title="$2" body="$3"
+    bkt issue create --title "$title" --body "$body" 2>&1
+}
+
+# --- Dispatcher Functions ---
+
+source_check_cli() {
+    case "$CONTRIBUTE_PLATFORM" in
+        github) github_check_cli ;;
+        gitlab) gitlab_check_cli ;;
+        bitbucket) bitbucket_check_cli ;;
+        *) die "Unknown platform: $CONTRIBUTE_PLATFORM" ;;
+    esac
+}
+
+source_upstream_url() {
+    local repo="$1" filepath="$2"
+    case "$CONTRIBUTE_PLATFORM" in
+        github) github_upstream_url "$repo" "$filepath" ;;
+        gitlab) gitlab_upstream_url "$repo" "$filepath" ;;
+        bitbucket) bitbucket_upstream_url "$repo" "$filepath" ;;
+        *) die "Unknown platform: $CONTRIBUTE_PLATFORM" ;;
+    esac
+}
+
+source_resolve_contributor() {
+    case "$CONTRIBUTE_PLATFORM" in
+        github) github_resolve_contributor ;;
+        gitlab) gitlab_resolve_contributor ;;
+        bitbucket) bitbucket_resolve_contributor ;;
+        *) return 1 ;;
+    esac
+}
+
+source_create_issue() {
+    local repo="$1" title="$2" body="$3"
+    case "$CONTRIBUTE_PLATFORM" in
+        github) github_create_issue "$repo" "$title" "$body" ;;
+        gitlab) gitlab_create_issue "$repo" "$title" "$body" ;;
+        bitbucket) bitbucket_create_issue "$repo" "$title" "$body" ;;
+        *) die "Unknown platform: $CONTRIBUTE_PLATFORM" ;;
+    esac
+}
 
 # ============================================================
 # CORE FUNCTIONS
@@ -116,8 +260,9 @@ fetch_upstream_file() {
         return 0
     fi
 
-    # Production mode: fetch via repo_fetch_file with constructed URL
-    local url="https://github.com/$repo/blob/main/$filepath"
+    # Production mode: fetch via repo_fetch_file with platform-aware URL
+    local url
+    url=$(source_upstream_url "$repo" "$filepath")
     repo_fetch_file "$url" 2>/dev/null || true
 }
 
@@ -190,27 +335,13 @@ generate_diff() {
 }
 
 resolve_contributor() {
-    local username="" user_email=""
-
-    # Try gh API first
-    if command -v gh &>/dev/null; then
-        local gh_output
-        gh_output=$(gh api user --jq '.login,.id' 2>/dev/null || echo "")
-        if [[ -n "$gh_output" ]]; then
-            local login user_id
-            login=$(echo "$gh_output" | head -1)
-            user_id=$(echo "$gh_output" | tail -1)
-            if [[ -n "$login" && -n "$user_id" ]]; then
-                username="$login"
-                user_email="${user_id}+${login}@users.noreply.github.com"
-                echo "$username"
-                echo "$user_email"
-                return 0
-            fi
-        fi
+    # Try platform-specific resolution first
+    if source_resolve_contributor; then
+        return 0
     fi
 
-    # Fallback to git config
+    # Fallback to git config (works for all platforms)
+    local username user_email
     username=$(git config user.name 2>/dev/null || echo "unknown")
     user_email=$(git config user.email 2>/dev/null || echo "")
     echo "$username"
@@ -345,7 +476,7 @@ create_issue() {
     local repo="${ARG_REPO:-$DEFAULT_UPSTREAM_REPO}"
 
     local result
-    result=$(gh issue create -R "$repo" --title "$title" --body "$body" --label "contribution" 2>&1)
+    result=$(source_create_issue "$repo" "$title" "$body")
     echo "$result"
 }
 
@@ -358,7 +489,7 @@ show_help() {
 Usage: aitask_contribute.sh [OPTIONS]
 
 Contribute local framework changes to the upstream aitasks repository
-by generating structured diffs and creating GitHub issues.
+by generating structured diffs and creating GitHub/GitLab/Bitbucket issues.
 
 Modes:
   --list-areas              List available contribution areas
@@ -373,11 +504,17 @@ Options:
   --motivation <text>       Motivation text
   --scope <type>            Scope: bug_fix|enhancement|new_feature|documentation|other
   --merge-approach <text>   Proposed merge approach
+  --source <platform>       Target platform: github (default), gitlab, bitbucket
   --dry-run                 Output issue body to stdout, don't create issue
   --silent                  Output only the issue URL
   --repo <owner/repo>       Override upstream repo (default: beyondeye/aitasks)
   --diff-preview-lines <N>  Lines shown in rendered preview per file (default: 50)
   --help                    Show this help
+
+Platform CLI requirements:
+  github    gh CLI   (https://cli.github.com/)
+  gitlab    glab CLI (https://gitlab.com/gitlab-org/cli)
+  bitbucket bkt CLI  (https://github.com/avivsinai/bitbucket-cli)
 
 Examples:
   # List areas
@@ -392,11 +529,16 @@ Examples:
     --title "Improve sorting" --motivation "Better UX" \
     --scope enhancement --merge-approach "clean merge"
 
-  # Create issue
+  # Create issue on GitHub (default)
   aitask_contribute.sh --area scripts \
     --files ".aitask-scripts/aitask_ls.sh" \
     --title "Improve sorting" --motivation "Better UX" \
     --scope enhancement --merge-approach "clean merge"
+
+  # Create issue on GitLab
+  aitask_contribute.sh --source gitlab --repo group/project \
+    --area scripts --files ".aitask-scripts/aitask_ls.sh" \
+    --title "Improve sorting" --motivation "Better UX"
 HELP
 }
 
@@ -412,6 +554,7 @@ parse_args() {
             --merge-approach) ARG_MERGE_APPROACH="$2"; shift 2 ;;
             --dry-run) ARG_DRY_RUN=true; shift ;;
             --silent) ARG_SILENT=true; shift ;;
+            --source|-S) ARG_SOURCE="$2"; shift 2 ;;
             --repo) ARG_REPO="$2"; shift 2 ;;
             --diff-preview-lines) ARG_DIFF_PREVIEW_LINES="$2"; shift 2 ;;
             --list-areas) ARG_LIST_AREAS=true; shift ;;
@@ -420,6 +563,14 @@ parse_args() {
             *) die "Unknown argument: $1" ;;
         esac
     done
+
+    # Validate source platform if specified
+    if [[ -n "$ARG_SOURCE" ]]; then
+        case "$ARG_SOURCE" in
+            github|gitlab|bitbucket) ;;
+            *) die "Unknown source platform: $ARG_SOURCE (supported: github, gitlab, bitbucket)" ;;
+        esac
+    fi
 }
 
 # ============================================================
@@ -461,6 +612,13 @@ main() {
         die "--title is required for contribution"
     fi
 
+    # Resolve target platform
+    if [[ -n "$ARG_SOURCE" ]]; then
+        CONTRIBUTE_PLATFORM="$ARG_SOURCE"
+    else
+        CONTRIBUTE_PLATFORM="github"  # Default: upstream beyondeye/aitasks is on GitHub
+    fi
+
     # Resolve contributor
     local contributor_info contributor contributor_email
     contributor_info=$(resolve_contributor)
@@ -492,10 +650,8 @@ main() {
         exit 0
     fi
 
-    # Create issue
-    if ! command -v gh &>/dev/null; then
-        die "GitHub CLI (gh) is required to create issues. Install: https://cli.github.com/"
-    fi
+    # Check platform CLI before creating issue
+    source_check_cli
 
     local issue_url
     issue_url=$(create_issue "[Contribution] $ARG_TITLE" "$issue_body")

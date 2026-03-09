@@ -1,6 +1,6 @@
 ---
 name: aitask-contribute
-description: Contribute local aitasks framework changes back to the upstream repository by opening structured GitHub issues.
+description: Contribute local aitasks framework changes back to the upstream repository by opening structured issues (GitHub, GitLab, or Bitbucket).
 user-invocable: true
 ---
 
@@ -8,15 +8,7 @@ user-invocable: true
 
 ### Step 1: Prerequisites Check
 
-Verify `gh` CLI is installed and authenticated:
-
-```bash
-command -v gh >/dev/null 2>&1 && gh auth status 2>&1
-```
-
-If `gh` is not available or not authenticated, abort: "The `gh` CLI is required for this skill. Install it from https://cli.github.com/ and run `gh auth login`."
-
-Detect contribution mode and list available areas:
+Detect contribution mode and list available areas (this also validates the environment):
 
 ```bash
 ./.aitask-scripts/aitask_contribute.sh --list-areas
@@ -97,8 +89,8 @@ Assess:
 - Question: "These changes appear to cover multiple distinct improvements. Would you like to split them into separate contributions?"
 - Header: "Grouping"
 - Options:
-  - "Split into N separate contributions" (description: "One GitHub issue per logical change group")
-  - "Keep as single contribution" (description: "Submit all changes in one GitHub issue")
+  - "Split into N separate contributions" (description: "One issue per logical change group")
+  - "Keep as single contribution" (description: "Submit all changes in one issue")
   - "Custom grouping" (description: "Manually adjust which files go in which contribution")
 
 If "Custom grouping": Use follow-up `AskUserQuestion` interactions to let user assign files to groups.
@@ -190,7 +182,9 @@ your Co-authored-by attribution will be preserved in implementation commits.
 
 ## Notes
 
-- This skill creates GitHub issues on the upstream repository — it does NOT create local aitasks
+- This skill creates issues on the upstream repository (GitHub by default, also supports GitLab and Bitbucket via `--source`) — it does NOT create local aitasks
+- The script supports three platforms: GitHub (`gh` CLI), GitLab (`glab` CLI), and Bitbucket (`bkt` CLI). Default is GitHub (upstream beyondeye/aitasks)
+- When using a non-default platform, pass `--source gitlab` or `--source bitbucket` to all script invocations
 - No execution profiles are used (unlike aitask-pick, aitask-explore, and aitask-pr-import)
 - No remote sync step needed
 - No handoff to task-workflow
@@ -199,4 +193,4 @@ your Co-authored-by attribution will be preserved in implementation commits.
 - The `--dry-run` flag outputs the full issue markdown body to stdout
 - Without `--dry-run` and with `--silent`, the script outputs only the issue URL
 - Scope values map: "Bug fix" -> `bug_fix`, "Enhancement" -> `enhancement`, "New feature" -> `new_feature`, "Documentation" -> `documentation`. The "Other" option via AskUserQuestion maps to `other`
-- Additional script flags available but not used interactively: `--area-path` (for custom paths), `--repo` (override upstream repo), `--diff-preview-lines` (control diff truncation)
+- Additional script flags available but not used interactively: `--area-path` (for custom paths), `--repo` (override upstream repo), `--diff-preview-lines` (control diff truncation), `--source` (target platform)

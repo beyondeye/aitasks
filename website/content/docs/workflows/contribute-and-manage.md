@@ -47,7 +47,7 @@ The [`/aitask-contribute`](../../skills/aitask-contribute/) skill offers an alte
 2. Running `/aitask-contribute` detects what changed compared to upstream
 3. AI analyzes the diffs, identifies logical groups, and proposes titles and scope
 4. The contributor reviews, adds motivation, and confirms
-5. A structured GitHub issue is created on the upstream repository with embedded diffs, motivation, scope, and merge approach
+5. A structured issue is created on the upstream repository (GitHub, GitLab, or Bitbucket) with embedded diffs, motivation, scope, and merge approach
 
 **No fork required.** No branch to create, no PR to open. The contributor just makes changes and the skill creates a detailed issue that the maintainer can import as an aitask.
 
@@ -63,7 +63,7 @@ Contributor's project                          Upstream repository
         │
 2. /aitask-contribute
         │
-3. AI analyzes changes ──────────────────────► GitHub issue created
+3. AI analyzes changes ──────────────────────► Issue created (GH/GL/BB)
                                                        │
                                                4. ait issue-import
                                                        │
