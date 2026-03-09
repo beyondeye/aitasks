@@ -8,7 +8,7 @@ labels: [board, statistics, plotting]
 created_at: 2026-03-05 15:28
 updated_at: 2026-03-05 15:28
 boardcol: next
-boardidx: 90
+boardidx: 80
 ---
 
 Integrate triggering task statistics plotting from `ait board` directly.
