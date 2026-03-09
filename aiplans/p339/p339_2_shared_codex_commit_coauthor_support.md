@@ -41,6 +41,14 @@ Extend `tests/test_codeagent.sh` to cover at least one Codex agent string and fi
 - shared workflow docs describe contributor + agent trailer composition
 - Codex tests pass
 
+## Final Implementation Notes
+
+- **Actual work done:** Added `ait codeagent coauthor <agent-string>` with machine-readable `AGENT_COAUTHOR_*` output, Codex-specific coauthor naming/email/trailer generation, and help text updates. Updated the shared task-workflow procedures and Step 8 instructions so contributor attribution and code-agent attribution compose into one commit message. Aligned `aitask-pickrem`, `aitask-pickweb`, and `aitask-wrap` with the shared commit-composition flow. Extended `tests/test_codeagent.sh` to cover Codex resolver output, custom-domain handling, unknown-model fallback, unsupported-agent failure, and help text.
+- **Deviations from plan:** The implementation kept the resolver scope intentionally narrow: Codex is the only supported coauthor agent in this child, and unsupported agents fail explicitly so later sibling tasks can add their own mappings without changing the interface.
+- **Issues encountered:** The main repo checkout reports `aitasks/` and `aiplans/` as untracked directories, so task metadata archival/commit workflow was not safe to run as part of this implementation pass.
+- **Key decisions:** The coauthor trailer uses `Co-Authored-By:` casing to match existing repository history. Codex coauthor display names include the agent plus a readable model label derived from the model config `cli_id` when known, falling back to the raw agent-string model token when unknown. Agent-attribution resolution failures are documented as non-blocking so imported contributor trailers remain intact.
+- **Notes for sibling tasks:** The `coauthor` subcommand interface is now stable for follow-up children: `AGENT_STRING`, `AGENT_COAUTHOR_NAME`, `AGENT_COAUTHOR_EMAIL`, and `AGENT_COAUTHOR_TRAILER`. Gemini CLI and OpenCode children can extend the same helper with their own display-name/email rules. The Claude redesign child should decide whether to migrate Claude’s existing trailer format into this shared resolver or keep Claude special-cased.
+
 ## Step 9 Reference
 
 Post-implementation: archive via task-workflow Step 9.
