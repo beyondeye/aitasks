@@ -542,6 +542,121 @@ areas:
     description: React frontend application
 YAML
 
+# ============================================================
+# Project mode tests (--target project)
+# ============================================================
+
+# Setup a project-mode test directory (non-aitasks remote)
+PROJECT_TEST_DIR="$TMPDIR_TEST/project_test"
+mkdir -p "$PROJECT_TEST_DIR/.aitask-scripts/lib"
+mkdir -p "$PROJECT_TEST_DIR/aitasks/metadata"
+mkdir -p "$PROJECT_TEST_DIR/src/backend/auth" "$PROJECT_TEST_DIR/src/backend/models"
+mkdir -p "$PROJECT_TEST_DIR/src/web"
+
+# Copy scripts
+cp "$PROJECT_DIR/.aitask-scripts/aitask_contribute.sh" "$PROJECT_TEST_DIR/.aitask-scripts/"
+cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$PROJECT_TEST_DIR/.aitask-scripts/lib/"
+cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" "$PROJECT_TEST_DIR/.aitask-scripts/lib/"
+cp "$PROJECT_DIR/.aitask-scripts/lib/repo_fetch.sh" "$PROJECT_TEST_DIR/.aitask-scripts/lib/"
+chmod +x "$PROJECT_TEST_DIR/.aitask-scripts/aitask_contribute.sh"
+echo "1.0.0" > "$PROJECT_TEST_DIR/.aitask-scripts/VERSION"
+
+# Create code_areas.yaml for project mode
+cat > "$PROJECT_TEST_DIR/aitasks/metadata/code_areas.yaml" <<'YAML'
+version: 1
+
+areas:
+  - name: backend
+    path: src/backend/
+    description: REST API and business logic
+    children:
+      - name: auth
+        path: src/backend/auth/
+        description: Authentication and JWT handling
+      - name: models
+        path: src/backend/models/
+        description: Database models and migrations
+  - name: frontend
+    path: src/web/
+    description: React frontend application
+YAML
+
+# Create source files
+echo 'def login(): pass' > "$PROJECT_TEST_DIR/src/backend/auth/login.py"
+echo 'class User: pass' > "$PROJECT_TEST_DIR/src/backend/models/user.py"
+echo 'const App = () => {}' > "$PROJECT_TEST_DIR/src/web/app.js"
+
+# Init git repo with non-aitasks remote
+(
+    cd "$PROJECT_TEST_DIR"
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    git remote add origin "https://github.com/myorg/myproject.git"
+    git add -A
+    git commit -m "Initial commit" --quiet
+    git branch -M main
+
+    # Create working branch with modifications
+    git checkout -b working --quiet
+
+    # Modify a file
+    echo 'def login(): return True' > src/backend/auth/login.py
+    git add -A
+    git commit -m "Update login" --quiet
+)
+
+# --- Test 26: --list-areas without --target unchanged (backward compat) ---
+echo "--- Test 26: --list-areas without --target unchanged ---"
+output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh --list-areas 2>&1)
+assert_contains "list-areas without target has MODE:clone" "MODE:clone" "$output"
+assert_contains "list-areas without target has scripts area" "AREA|scripts|" "$output"
+assert_not_contains "list-areas without target has no MODE:project" "MODE:project" "$output"
+
+# --- Test 27: --list-areas --target framework same as no target ---
+echo "--- Test 27: --list-areas --target framework ---"
+output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh --list-areas --target framework 2>&1)
+assert_contains "framework target has MODE:clone" "MODE:clone" "$output"
+assert_contains "framework target has scripts area" "AREA|scripts|" "$output"
+
+# --- Test 28: --list-areas --target project reads code_areas.yaml ---
+echo "--- Test 28: --list-areas --target project ---"
+output=$(cd "$PROJECT_TEST_DIR" && ./.aitask-scripts/aitask_contribute.sh --list-areas --target project 2>&1)
+assert_contains "project target has MODE:project" "MODE:project" "$output"
+assert_contains "project target has TARGET:project" "TARGET:project" "$output"
+assert_contains "project target has backend area" "AREA|backend|src/backend/" "$output"
+assert_contains "project target has frontend area" "AREA|frontend|src/web/" "$output"
+assert_not_contains "project target has no scripts area" "AREA|scripts|" "$output"
+
+# --- Test 29: --list-areas --target project --parent filter ---
+echo "--- Test 29: --list-areas --target project --parent ---"
+output=$(cd "$PROJECT_TEST_DIR" && ./.aitask-scripts/aitask_contribute.sh --list-areas --target project --parent backend 2>&1)
+assert_contains "project parent filter has auth" "AREA|auth|src/backend/auth/" "$output"
+assert_contains "project parent filter has models" "AREA|models|src/backend/models/" "$output"
+assert_not_contains "project parent filter excludes frontend" "AREA|frontend|" "$output"
+
+# --- Test 30: --list-changes --target project --area ---
+echo "--- Test 30: --list-changes --target project --area ---"
+output=$(cd "$PROJECT_TEST_DIR" && ./.aitask-scripts/aitask_contribute.sh --list-changes --target project --area backend 2>&1)
+assert_contains "project list-changes finds login.py" "src/backend/auth/login.py" "$output"
+
+# --- Test 31: --target invalid fails with error ---
+echo "--- Test 31: --target invalid fails with error ---"
+output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh --list-areas --target invalid 2>&1)
+exit_code=$?
+assert_eq "invalid target exits non-zero" "1" "$exit_code"
+assert_contains "invalid target shows error" "Unknown target" "$output"
+
+# --- Test 32: project mode auto-detects repo ---
+echo "--- Test 32: project mode auto-detects repo ---"
+output=$(cd "$PROJECT_TEST_DIR" && ./.aitask-scripts/aitask_contribute.sh \
+    --dry-run --target project --area auth \
+    --files "src/backend/auth/login.py" \
+    --title "Fix login" --motivation "Bug fix" \
+    --scope bug_fix --merge-approach "clean merge" 2>&1)
+assert_contains "project dry-run has project contribution heading" "## Project Contribution:" "$output"
+assert_contains "project dry-run has metadata" "<!-- aitask-contribute-metadata" "$output"
+
 # --- Summary ---
 echo ""
 echo "Results: $PASS passed, $FAIL failed out of $TOTAL tests"

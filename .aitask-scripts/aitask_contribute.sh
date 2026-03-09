@@ -31,6 +31,8 @@ ARG_SILENT=false
 ARG_REPO=""
 ARG_DIFF_PREVIEW_LINES=""
 ARG_SOURCE=""
+ARG_TARGET=""
+ARG_PARENT=""
 ARG_LIST_AREAS=false
 ARG_LIST_CHANGES=false
 ARG_HELP=false
@@ -289,6 +291,10 @@ source_create_issue() {
 # ============================================================
 
 detect_contribute_mode() {
+    if [[ "$ARG_TARGET" == "project" ]]; then
+        echo "project"
+        return
+    fi
     local remote_url
     remote_url=$(git remote get-url origin 2>/dev/null || echo "")
     if [[ "$remote_url" == *"beyondeye/aitasks"* ]]; then
@@ -300,6 +306,17 @@ detect_contribute_mode() {
 
 resolve_area_dirs() {
     local area_name="$1"
+
+    if [[ "$ARG_TARGET" == "project" ]]; then
+        local path
+        path=$(parse_code_areas | awk -F'|' -v name="$area_name" '$2 == name {print $3; exit}')
+        if [[ -z "$path" ]]; then
+            die "Unknown project area: $area_name (check code_areas.yaml)"
+        fi
+        echo "$path"
+        return 0
+    fi
+
     local mode
     mode=$(detect_contribute_mode)
 
@@ -322,6 +339,11 @@ resolve_area_dirs() {
 }
 
 list_areas() {
+    if [[ "$ARG_TARGET" == "project" ]]; then
+        list_project_areas
+        return
+    fi
+
     local mode
     mode=$(detect_contribute_mode)
     echo "MODE:$mode"
@@ -340,6 +362,17 @@ list_areas() {
 
         echo "AREA|$name|$dirs|$desc"
     done
+}
+
+list_project_areas() {
+    local parent_filter="${ARG_PARENT:-}"
+    echo "MODE:project"
+    echo "TARGET:project"
+    if [[ -n "$parent_filter" ]]; then
+        parse_code_areas --parent "$parent_filter"
+    else
+        parse_code_areas
+    fi
 }
 
 # Fetch upstream file content — uses AITASK_CONTRIBUTE_UPSTREAM_DIR for testing
@@ -368,8 +401,8 @@ list_changed_files() {
 
     IFS=',' read -ra dirs <<< "$area_dirs"
 
-    if [[ "$mode" == "clone" ]]; then
-        # Clone mode: use git diff against main
+    if [[ "$mode" == "clone" || "$mode" == "project" ]]; then
+        # Clone/project mode: use git diff against main
         git diff --name-only main -- "${dirs[@]}" 2>/dev/null || true
     else
         # Downstream mode: compare local files against upstream
@@ -400,7 +433,7 @@ generate_diff() {
 
     IFS=',' read -ra file_list <<< "$files"
 
-    if [[ "$mode" == "clone" ]]; then
+    if [[ "$mode" == "clone" || "$mode" == "project" ]]; then
         git diff main -- "${file_list[@]}" 2>/dev/null || true
     else
         for filepath in "${file_list[@]}"; do
@@ -460,7 +493,23 @@ build_issue_body() {
     fi
 
     # Header
-    cat <<EOF
+    if [[ "$ARG_TARGET" == "project" ]]; then
+        cat <<EOF
+## Project Contribution: $title
+
+### Scope
+$scope
+
+### Motivation
+$motivation
+
+### Proposed Merge Approach
+${merge_approach:-Clean merge}
+
+### Changed Files
+EOF
+    else
+        cat <<EOF
 ## Contribution: $title
 
 ### Scope
@@ -477,6 +526,7 @@ ${version:-unknown}
 
 ### Changed Files
 EOF
+    fi
 
     # File list as table
     echo ""
@@ -592,6 +642,8 @@ Modes:
   --dry-run                 Generate issue body without creating issue
 
 Options:
+  --target <mode>           Target mode: framework (default) or project
+  --parent <area>           Parent area for hierarchical drill-down (project mode)
   --area <name>             Contribution area (scripts, claude-skills, gemini, codex, opencode, website)
   --area-path <path>        Custom area path (alternative to --area)
   --files <f1,f2,...>       Specific files to include (comma-separated)
@@ -652,6 +704,8 @@ parse_args() {
             --source|-S) ARG_SOURCE="$2"; shift 2 ;;
             --repo) ARG_REPO="$2"; shift 2 ;;
             --diff-preview-lines) ARG_DIFF_PREVIEW_LINES="$2"; shift 2 ;;
+            --target) ARG_TARGET="$2"; shift 2 ;;
+            --parent) ARG_PARENT="$2"; shift 2 ;;
             --list-areas) ARG_LIST_AREAS=true; shift ;;
             --list-changes) ARG_LIST_CHANGES=true; shift ;;
             --help|-h) ARG_HELP=true; shift ;;
@@ -664,6 +718,14 @@ parse_args() {
         case "$ARG_SOURCE" in
             github|gitlab|bitbucket) ;;
             *) die "Unknown source platform: $ARG_SOURCE (supported: github, gitlab, bitbucket)" ;;
+        esac
+    fi
+
+    # Validate target mode if specified
+    if [[ -n "$ARG_TARGET" ]]; then
+        case "$ARG_TARGET" in
+            framework|project) ;;
+            *) die "Unknown target: $ARG_TARGET (supported: framework, project)" ;;
         esac
     fi
 }
@@ -697,6 +759,14 @@ main() {
         fi
         list_changed_files "$area_dirs"
         exit 0
+    fi
+
+    # Project mode: auto-detect repo from git remote if not specified
+    if [[ "$ARG_TARGET" == "project" && -z "$ARG_REPO" ]]; then
+        local remote_url
+        remote_url=$(git remote get-url origin 2>/dev/null || die "Cannot detect project repo URL from git remote")
+        # Extract owner/repo from URL (supports https and ssh formats)
+        ARG_REPO=$(echo "$remote_url" | sed -E 's#^(https?://[^/]+/|git@[^:]+:)##; s/\.git$//')
     fi
 
     # Full contribution flow
