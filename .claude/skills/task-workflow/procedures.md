@@ -125,25 +125,34 @@ When the archive script outputs `PR:<task_num>:<pr_url>` or `PARENT_PR:<task_num
 
 ## Contributor Attribution Procedure
 
-This procedure is referenced from Step 8 wherever code changes are being committed. It checks whether the task originated from an external PR and, if so, formats the commit message to credit the original contributor.
+This procedure is referenced from Step 8 wherever code changes are being committed. It checks whether the task carries imported contributor metadata and, if so, formats the commit message to credit the original contributor.
 
 **When to execute:** Before the code commit in Step 8 ("If Commit changes"), to determine whether the final commit message needs a contributor trailer block.
 
 **Procedure:**
 
-- Read the task file's frontmatter and check for `contributor`, `contributor_email`, and `pull_request` fields.
+- Read the task file's frontmatter and check for `contributor`, `contributor_email`, `pull_request`, and `issue` fields.
 
-- **If both `contributor` and `contributor_email` are present**, the final code commit message MUST include this contributor block:
-  ```bash
-  Based on PR: <pull_request_url>
+- **If both `contributor` and `contributor_email` are present**, the final code commit message MUST include a contributor attribution block.
+  - **If `pull_request` is present**, use:
+    ```text
+    Based on PR: <pull_request_url>
 
-  Co-Authored-By: <contributor> <<contributor_email>>
-  ```
-  Example:
+    Co-Authored-By: <contributor> <<contributor_email>>
+    ```
+  - **Otherwise** (for example, contributor metadata imported from an issue), use:
+    ```text
+    Co-Authored-By: <contributor> <<contributor_email>>
+    ```
+  Example for PR-imported work:
   ```text
   Based on PR: https://github.com/owner/repo/pull/15
 
   Co-Authored-By: octocat <12345+octocat@users.noreply.github.com>
+  ```
+  Example for issue-imported work:
+  ```text
+  Co-Authored-By: contributor-name <contributor@example.com>
   ```
   This block is composed into the final commit message together with any code-agent trailer from the **Code-Agent Commit Attribution Procedure** below.
 
@@ -153,7 +162,7 @@ This procedure is referenced from Step 8 wherever code changes are being committ
 
 **Notes:**
 - `Co-Authored-By` is preferred over `--author` — the contributor inspired the work but the current implementer wrote this specific code
-- The `contributor_email` is pre-computed during PR import and stored in task metadata — no API call needed at commit time
+- The `contributor_email` can be pre-computed during PR import or extracted by `ait issue-import` from `aitask-contribute` metadata — no API call is needed at commit time
 - Both GitHub and GitLab display `Co-Authored-By` contributors in the commit UI and count them as contributions
 
 ## Code-Agent Commit Attribution Procedure
@@ -188,12 +197,17 @@ This procedure is referenced from Step 8 wherever code changes are being committ
   ```text
   <issue_type>: <description> (t<task_id>)
   ```
-- If contributor attribution exists, append:
-  ```text
-  Based on PR: <pull_request_url>
+- If contributor attribution exists, append the imported contributor block:
+  - PR-imported task:
+    ```text
+    Based on PR: <pull_request_url>
 
-  Co-Authored-By: <contributor> <<contributor_email>>
-  ```
+    Co-Authored-By: <contributor> <<contributor_email>>
+    ```
+  - Issue-imported task (or any task with contributor metadata but no `pull_request` URL):
+    ```text
+    Co-Authored-By: <contributor> <<contributor_email>>
+    ```
 - If code-agent attribution exists, append its trailer after any contributor trailer:
   ```text
   Co-Authored-By: <agent display name> <<agent email>>

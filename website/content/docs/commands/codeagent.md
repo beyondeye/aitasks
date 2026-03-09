@@ -14,6 +14,7 @@ ait codeagent list-agents                              # Show available agents
 ait codeagent list-models claudecode                   # List Claude models
 ait codeagent resolve task-pick                        # Show configured agent/model
 ait codeagent check "claudecode/opus4_6"               # Validate an agent string
+ait codeagent coauthor "codex/gpt5_4"                  # Resolve commit coauthor metadata
 ait codeagent invoke task-pick 42                      # Pick task 42 with configured agent
 ait codeagent --agent-string geminicli/gemini2_5pro invoke explain src/  # Override agent
 ait codeagent --dry-run invoke task-pick 42            # Preview command without running
@@ -117,6 +118,30 @@ Validates an agent string and verifies the CLI binary is available.
 ait codeagent check "claudecode/opus4_6"
 # OK: claudecode/opus4_6 -> claude --model claude-opus-4-6 (binary found)
 ```
+
+#### coauthor
+
+Returns the commit coauthor metadata for an agent string.
+
+```bash
+ait codeagent coauthor "codex/gpt5_4"
+```
+
+Output:
+```text
+AGENT_STRING:codex/gpt5_4
+AGENT_COAUTHOR_NAME:Codex/GPT5.4
+AGENT_COAUTHOR_EMAIL:codex@aitasks.io
+AGENT_COAUTHOR_TRAILER:Co-Authored-By: Codex/GPT5.4 <codex@aitasks.io>
+```
+
+The task workflow uses this subcommand during commit creation. It combines:
+
+- the task's `implemented_with` value
+- the model metadata in `aitasks/metadata/models_<agent>.json`
+- the project-level `codeagent_coauthor_domain` setting from `aitasks/metadata/project_config.yaml`
+
+If the resolver fails, the workflow skips only the code-agent trailer and keeps any normal or imported-contributor attribution.
 
 #### invoke
 
@@ -224,6 +249,8 @@ implemented_with: claudecode/opus4_6
 ```
 
 This enables tracking which agent/model performed each task's implementation for quality analysis.
+
+It also feeds `ait codeagent coauthor`, which the task workflow uses to build resolver-based `Co-Authored-By` trailers for commits.
 
 **How it's populated:**
 

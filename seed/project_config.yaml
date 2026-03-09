@@ -9,16 +9,16 @@
 # ──────────────────────────────────────────────────────────────────────
 # codeagent_coauthor_domain — Email domain for custom AI code-agent commit coauthors.
 #
-# Used by the shared task-workflow commit-attribution logic for non-Claude
-# agents. The resulting coauthor email format is:
+# Used by the shared task-workflow commit-attribution logic for supported
+# code agents. The resulting coauthor email format is:
 #
-#   <agent>_<model>@<codeagent_coauthor_domain>
+#   <agent>@<codeagent_coauthor_domain>
 #
 # Example:
 #
-#   # Codex using model name gpt5_3codex
+#   # Codex
 #   codeagent_coauthor_domain: aitasks.io
-#   # → codex_gpt5_3codex@aitasks.io
+#   # → codex@aitasks.io
 #
 # If omitted or left empty, workflows fall back to `aitasks.io`.
 # ──────────────────────────────────────────────────────────────────────

@@ -28,7 +28,7 @@ The central skill of the aitasks framework. This is a full development lifecycle
 6. **Environment setup** — Optionally creates a separate git branch and worktree (`aiwork/<task_name>/`) for isolated implementation, or works directly on the current branch
 7. **Planning** — Enters the agent planning flow to explore the codebase and create an implementation plan. If a plan already exists, offers three options: use as-is, verify against current code, or create from scratch. Complex tasks can be decomposed into child subtasks during this phase
 8. **Implementation** — Follows the approved plan, updating the plan file with progress and any deviations
-9. **User review** — Presents a change summary for review. Supports an iterative "need more changes" loop where each round of feedback is logged in the plan file before re-presenting for approval
+9. **User review** — Presents a change summary for review. Supports an iterative "need more changes" loop where each round of feedback is logged in the plan file before re-presenting for approval. When code is committed, the workflow can compose both imported-contributor attribution and a code-agent `Co-Authored-By` trailer from `implemented_with`
 10. **Post-implementation** — Archives task and plan files, updates parent task metadata for child tasks, optionally updates/closes linked issues (GitHub/GitLab/Bitbucket), and merges the branch if a worktree was used. In Codex wrappers, after implementation, most of the times you will need to explicitly continue to this phase (for example: `Good, now finish the workflow` or `Good, now continue`)
 
 ## Key Capabilities
@@ -94,6 +94,10 @@ Profiles are preserved during `install.sh --force` upgrades (existing files are 
 ## Build Verification
 
 The skill can optionally verify the build after implementation. See [Build Verification](build-verification/) for configuration details.
+
+## Commit Attribution
+
+The review/commit step can combine imported contributor credit with a resolver-based code-agent coauthor trailer. See [Commit Attribution](commit-attribution/) for the exact commit format and configuration.
 
 ## Workflows
 

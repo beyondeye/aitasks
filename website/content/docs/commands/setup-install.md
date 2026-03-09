@@ -30,6 +30,13 @@ ait setup
 9. **Claude Code permissions** — Shows the recommended permission entries, then prompts Y/n to install them into `.claude/settings.local.json`. If settings already exist, merges permissions (union of allow-lists)
 10. **Version check** — Compares local version against latest GitHub release and suggests update if newer
 
+Setup also ensures the shared project config file exists at `aitasks/metadata/project_config.yaml`. That file is seeded from `seed/project_config.yaml`, tracked in git, and includes project-wide workflow settings such as:
+
+- `codeagent_coauthor_domain: aitasks.io` — the email domain used for custom code-agent `Co-Authored-By` trailers
+- `verify_build` — the post-implementation build verification command or command list
+
+If you re-run `ait setup` after customizing `codeagent_coauthor_domain`, the existing value is preserved.
+
 ### Claude Code Permissions
 
 When you run `ait setup`, it offers to install default Claude Code permissions into `.claude/settings.local.json`. These permissions allow aitask skills to execute common operations (file listing, git commands, aiscript invocations) without prompting for manual approval each time.
