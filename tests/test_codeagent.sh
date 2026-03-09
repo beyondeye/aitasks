@@ -242,15 +242,47 @@ echo "--- Test 17: coauthor unknown model fallback ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor codex/custom_model 2>&1)
 assert_contains "coauthor falls back to raw model token" "AGENT_COAUTHOR_NAME:Codex/custom_model" "$output"
 
-# Test 18: coauthor rejects unsupported agents
-echo "--- Test 18: coauthor unsupported agent ---"
+# Restore project config before Claude coauthor tests
+cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"
+
+# Test 18: coauthor returns Claude Code metadata
+echo "--- Test 18: coauthor Claude Code metadata ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor claudecode/opus4_6 2>&1)
+assert_contains "coauthor returns agent string" "AGENT_STRING:claudecode/opus4_6" "$output"
+assert_contains "coauthor returns name" "AGENT_COAUTHOR_NAME:Claude Code/Opus 4.6" "$output"
+assert_contains "coauthor returns email" "AGENT_COAUTHOR_EMAIL:claudecode@aitasks.io" "$output"
+assert_contains "coauthor returns trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Claude Code/Opus 4.6 <claudecode@aitasks.io>" "$output"
+
+# Test 19: coauthor Claude Code uses configured custom domain
+echo "--- Test 19: coauthor Claude Code custom domain ---"
+cat > "$TMPDIR_TEST/aitasks/metadata/project_config.yaml" << 'YAMLEOF'
+codeagent_coauthor_domain: claude.example
+verify_build:
+YAMLEOF
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor claudecode/sonnet4_6 2>&1)
+assert_contains "coauthor uses custom domain for email" "AGENT_COAUTHOR_EMAIL:claudecode@claude.example" "$output"
+assert_contains "coauthor uses model-aware trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Claude Code/Sonnet 4.6 <claudecode@claude.example>" "$output"
+
+# Test 20: coauthor Claude Code falls back to raw model token when unknown
+echo "--- Test 20: coauthor Claude Code unknown model fallback ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor claudecode/unknown_model 2>&1)
+assert_contains "coauthor falls back to raw model token" "AGENT_COAUTHOR_NAME:Claude Code/unknown_model" "$output"
+
+# Test 21: coauthor Claude Code handles haiku model with date suffix in cli_id
+echo "--- Test 21: coauthor Claude Code haiku model ---"
+cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor claudecode/haiku4_5 2>&1)
+assert_contains "coauthor strips date suffix from haiku" "AGENT_COAUTHOR_NAME:Claude Code/Haiku 4.5" "$output"
+
+# Test 22: coauthor rejects unsupported agents
+echo "--- Test 22: coauthor unsupported agent ---"
 assert_exit_nonzero "coauthor rejects unsupported agent" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' coauthor geminicli/gemini3pro"
 
 # Restore project config before help and remaining tests
 cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"
 
-# Test 19: --help shows usage
-echo "--- Test 19: --help ---"
+# Test 23: --help shows usage
+echo "--- Test 23: --help ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --help 2>&1)
 assert_contains "help shows Usage" "Usage:" "$output"
 assert_contains "help shows list-agents" "list-agents" "$output"
@@ -259,22 +291,22 @@ assert_contains "help shows coauthor" "coauthor <agent-string>" "$output"
 assert_contains "help shows coauthor-domain" "coauthor-domain" "$output"
 assert_contains "help shows resolution chain" "Resolution chain" "$output"
 
-# Test 20: resolve explain uses sonnet
-echo "--- Test 20: resolve explain uses sonnet ---"
+# Test 24: resolve explain uses sonnet
+echo "--- Test 24: resolve explain uses sonnet ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve explain 2>&1)
 assert_contains "resolve explain returns sonnet4_6" "AGENT_STRING:claudecode/sonnet4_6" "$output"
 
-# Test 21: resolve with unknown operation
-echo "--- Test 21: resolve unknown operation ---"
+# Test 25: resolve with unknown operation
+echo "--- Test 25: resolve unknown operation ---"
 assert_exit_nonzero "resolve rejects unknown operation" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' resolve unknown-op"
 
-# Test 22: no command shows help
-echo "--- Test 22: no command shows help ---"
+# Test 26: no command shows help
+echo "--- Test 26: no command shows help ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" 2>&1)
 assert_contains "no command shows usage" "Usage:" "$output"
 
-# Test 23: unknown command fails
-echo "--- Test 23: unknown command ---"
+# Test 27: unknown command fails
+echo "--- Test 27: unknown command ---"
 assert_exit_nonzero "unknown command fails" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' nonexistent-command"
 
 # --- Cleanup ---

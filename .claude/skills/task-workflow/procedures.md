@@ -178,7 +178,7 @@ This procedure is referenced from Step 8 wherever code changes are being committ
     - `AGENT_COAUTHOR_EMAIL:<email>`
     - `AGENT_COAUTHOR_TRAILER:<full trailer>`
 
-- **If the resolver succeeds:** Append `AGENT_COAUTHOR_TRAILER` after any contributor trailer block.
+- **If the resolver succeeds:** Append `AGENT_COAUTHOR_TRAILER` after any contributor trailer block. **IMPORTANT:** The resolver trailer is the sole coauthor attribution for the implementing agent. Do NOT add any additional native or hardcoded coauthor trailers (e.g., Claude Code's default `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`). The resolver output replaces any such defaults.
 
 - **If the resolver fails** (unsupported agent, invalid agent string, missing config, or other command error): skip only the code-agent trailer and continue with the commit flow. Do NOT drop or alter an existing contributor attribution block because agent attribution failed.
 

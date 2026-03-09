@@ -208,6 +208,24 @@ format_codex_model_label() {
     echo "$raw_model"
 }
 
+format_claude_model_label() {
+    local raw_model="$1"
+
+    # claude-<family>-<major>-<minor>[-<date>] → <Family> <major>.<minor>
+    if [[ "$raw_model" =~ ^claude-([a-z]+)-([0-9]+)-([0-9]+)(-[0-9]+)?$ ]]; then
+        local family="${BASH_REMATCH[1]}"
+        local major="${BASH_REMATCH[2]}"
+        local minor="${BASH_REMATCH[3]}"
+        # Capitalize family name
+        local cap_family
+        cap_family="$(tr '[:lower:]' '[:upper:]' <<< "${family:0:1}")${family:1}"
+        echo "$cap_family $major.$minor"
+        return
+    fi
+
+    echo "$raw_model"
+}
+
 lookup_cli_model_id_if_known() {
     local agent="$1"
     local model_name="$2"
@@ -235,6 +253,14 @@ get_agent_coauthor_name() {
                 echo "Codex/$model_name"
             fi
             ;;
+        claudecode)
+            cli_id="$(lookup_cli_model_id_if_known "$agent" "$model_name")"
+            if [[ -n "$cli_id" && "$cli_id" != "null" ]]; then
+                echo "Claude Code/$(format_claude_model_label "$cli_id")"
+            else
+                echo "Claude Code/$model_name"
+            fi
+            ;;
         *)
             die "Coauthor metadata for agent '$agent' is not supported yet"
             ;;
@@ -248,6 +274,7 @@ get_agent_coauthor_email() {
 
     case "$agent" in
         codex) echo "codex@$domain" ;;
+        claudecode) echo "claudecode@$domain" ;;
         *) die "Coauthor metadata for agent '$agent' is not supported yet" ;;
     esac
 }
