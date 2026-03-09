@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [codexcli, task_workflow]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-09 10:45
-updated_at: 2026-03-09 10:52
+updated_at: 2026-03-09 11:41
 ---
 
 the codex cli does properly return the name of the current llm model in use, it return a generic GPT-5 id, this create problems for the agent coauthor attribution procedure: here is an example of the lof of the conversation where the error occurred
