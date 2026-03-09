@@ -299,6 +299,18 @@ class TestYamlConfig(unittest.TestCase):
         loaded = load_yaml_config(path)
         self.assertEqual(loaded, data)
 
+    def test_save_yaml_creates_parent_dirs(self):
+        path = self.d / "sub" / "project_config.yaml"
+        save_yaml_config(path, {"a": 1})
+        self.assertTrue(path.exists())
+
+    def test_load_yaml_invalid_raises(self):
+        import yaml
+        bad = self.d / "bad.yaml"
+        bad.write_text("invalid: yaml: [", encoding="utf-8")
+        with self.assertRaises(yaml.YAMLError):
+            load_yaml_config(bad)
+
 
 # ---------------------------------------------------------------------------
 # split_config
