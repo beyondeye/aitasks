@@ -700,6 +700,21 @@ output=$(cd "$PROJECT_TEST_DIR" && ./.aitask-scripts/aitask_contribute.sh \
 assert_contains "project dry-run has project contribution heading" "## Project Contribution:" "$output"
 assert_contains "project dry-run has metadata" "<!-- aitask-contribute-metadata" "$output"
 
+# --- Test 36: --no-label flag parsing ---
+echo "--- Test 36: --no-label flag parsing ---"
+output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh \
+    --dry-run --area scripts --no-label \
+    --files ".aitask-scripts/original_script.sh" \
+    --title "No label test" --motivation "Testing" \
+    --scope enhancement --merge-approach "clean merge" 2>&1)
+exit_code=$?
+assert_eq "no-label flag accepted in dry-run" "0" "$exit_code"
+
+# --- Test 37: Help output includes --no-label ---
+echo "--- Test 37: Help output includes --no-label ---"
+output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh --help 2>&1)
+assert_contains "help shows --no-label" "--no-label" "$output"
+
 # --- Summary ---
 echo ""
 echo "Results: $PASS passed, $FAIL failed out of $TOTAL tests"

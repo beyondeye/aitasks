@@ -28,6 +28,7 @@ ARG_SCOPE="enhancement"
 ARG_MERGE_APPROACH=""
 ARG_DRY_RUN=false
 ARG_SILENT=false
+ARG_NO_LABEL=false
 ARG_REPO=""
 ARG_DIFF_PREVIEW_LINES=""
 ARG_SOURCE=""
@@ -185,8 +186,26 @@ github_resolve_contributor() {
 }
 
 github_create_issue() {
-    local repo="$1" title="$2" body="$3"
-    gh issue create -R "$repo" --title "$title" --body "$body" --label "contribution" 2>&1
+    local repo="$1" title="$2" body="$3" no_label="${4:-false}"
+    local result exit_code
+
+    if [[ "$no_label" == true ]]; then
+        gh issue create -R "$repo" --title "$title" --body "$body" 2>&1
+        return $?
+    fi
+
+    # Try with label first
+    exit_code=0
+    result=$(gh issue create -R "$repo" --title "$title" --body "$body" --label "contribution" 2>&1) || exit_code=$?
+
+    if [[ "$exit_code" -eq 0 ]]; then
+        echo "$result"
+        return 0
+    fi
+
+    # Label failed — retry without label
+    warn "Could not apply 'contribution' label (it may not exist on the target repo). Creating issue without label."
+    gh issue create -R "$repo" --title "$title" --body "$body" 2>&1
 }
 
 # --- GitLab Backend ---
@@ -220,8 +239,26 @@ gitlab_resolve_contributor() {
 }
 
 gitlab_create_issue() {
-    local repo="$1" title="$2" body="$3"
-    glab issue create -R "$repo" --title "$title" --description "$body" -l "contribution" 2>&1
+    local repo="$1" title="$2" body="$3" no_label="${4:-false}"
+    local result exit_code
+
+    if [[ "$no_label" == true ]]; then
+        glab issue create -R "$repo" --title "$title" --description "$body" 2>&1
+        return $?
+    fi
+
+    # Try with label first
+    exit_code=0
+    result=$(glab issue create -R "$repo" --title "$title" --description "$body" -l "contribution" 2>&1) || exit_code=$?
+
+    if [[ "$exit_code" -eq 0 ]]; then
+        echo "$result"
+        return 0
+    fi
+
+    # Label failed — retry without label
+    warn "Could not apply 'contribution' label (it may not exist on the target repo). Creating issue without label."
+    glab issue create -R "$repo" --title "$title" --description "$body" 2>&1
 }
 
 # --- Bitbucket Backend ---
@@ -242,7 +279,7 @@ bitbucket_resolve_contributor() {
 }
 
 bitbucket_create_issue() {
-    local repo="$1" title="$2" body="$3"
+    local repo="$1" title="$2" body="$3" _no_label="${4:-false}"
     bkt issue create --title "$title" --body "$body" 2>&1
 }
 
@@ -277,11 +314,11 @@ source_resolve_contributor() {
 }
 
 source_create_issue() {
-    local repo="$1" title="$2" body="$3"
+    local repo="$1" title="$2" body="$3" no_label="${4:-false}"
     case "$CONTRIBUTE_PLATFORM" in
-        github) github_create_issue "$repo" "$title" "$body" ;;
-        gitlab) gitlab_create_issue "$repo" "$title" "$body" ;;
-        bitbucket) bitbucket_create_issue "$repo" "$title" "$body" ;;
+        github) github_create_issue "$repo" "$title" "$body" "$no_label" ;;
+        gitlab) gitlab_create_issue "$repo" "$title" "$body" "$no_label" ;;
+        bitbucket) bitbucket_create_issue "$repo" "$title" "$body" "$no_label" ;;
         *) die "Unknown platform: $CONTRIBUTE_PLATFORM" ;;
     esac
 }
@@ -619,9 +656,19 @@ create_issue() {
     local title="$1"
     local body="$2"
     local repo="${ARG_REPO:-$DEFAULT_UPSTREAM_REPO}"
+    local no_label="$ARG_NO_LABEL"
 
-    local result
-    result=$(source_create_issue "$repo" "$title" "$body")
+    local result exit_code=0
+    result=$(source_create_issue "$repo" "$title" "$body" "$no_label") || exit_code=$?
+
+    if [[ "$exit_code" -ne 0 ]]; then
+        die "Failed to create issue: ${result:-unknown error}"
+    fi
+
+    if [[ -z "$result" ]]; then
+        die "Issue creation returned empty result (no URL)"
+    fi
+
     echo "$result"
 }
 
@@ -654,6 +701,7 @@ Options:
   --source <platform>       Target platform: github (default), gitlab, bitbucket
   --dry-run                 Output issue body to stdout, don't create issue
   --silent                  Output only the issue URL
+  --no-label                Skip the "contribution" label on created issues
   --repo <owner/repo>       Override upstream repo (default: beyondeye/aitasks)
   --diff-preview-lines <N>  Lines shown in rendered preview per file (default: 50)
   --help                    Show this help
@@ -708,6 +756,7 @@ parse_args() {
             --parent) ARG_PARENT="$2"; shift 2 ;;
             --list-areas) ARG_LIST_AREAS=true; shift ;;
             --list-changes) ARG_LIST_CHANGES=true; shift ;;
+            --no-label) ARG_NO_LABEL=true; shift ;;
             --help|-h) ARG_HELP=true; shift ;;
             *) die "Unknown argument: $1" ;;
         esac
