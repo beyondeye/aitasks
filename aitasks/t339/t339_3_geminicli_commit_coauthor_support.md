@@ -1,13 +1,13 @@
 ---
 priority: medium
 effort: medium
-depends: [2]
+depends: ['2']
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [codeagent, task_workflow, geminicli]
-assigned_to: dario-e@beyond-eye.com
+assigned_to: ''
 created_at: 2026-03-08 18:36
-updated_at: 2026-03-09 12:08
+updated_at: 2026-03-09 12:32
 ---
 
 ## Context
