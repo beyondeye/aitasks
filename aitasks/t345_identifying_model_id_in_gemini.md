@@ -7,6 +7,8 @@ status: Ready
 labels: []
 created_at: 2026-03-09 14:48
 updated_at: 2026-03-09 14:48
+boardidx: 120
+boardcol: next
 ---
 
 in gemini cli the only reliable way to identify the current model id is to call the cli_tool . need to update the task_workflow to use this method for determining the model id

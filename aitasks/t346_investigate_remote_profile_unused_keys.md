@@ -7,6 +7,8 @@ status: Ready
 labels: [execution_profiles]
 created_at: 2026-03-09 15:01
 updated_at: 2026-03-09 15:01
+boardidx: 80
+boardcol: now
 ---
 
 Investigate whether the `skip_task_confirmation` and `complexity_action` keys in `aitasks/metadata/profiles/remote.yaml` should remain as-is, be removed from the canonical remote profile and related docs, or gain real workflow support.

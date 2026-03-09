@@ -7,6 +7,8 @@ status: Ready
 labels: [geminicli]
 created_at: 2026-03-09 13:27
 updated_at: 2026-03-09 13:27
+boardidx: 100
+boardcol: next
 ---
 
 currently when running aitask-pick with geminicli, the plaanning step of aitask-pick is skipped. need to find a way to force the model the generate a plan first and ask for confirmation
