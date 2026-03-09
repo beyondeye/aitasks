@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_contribute]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-09 22:14
-updated_at: 2026-03-09 22:27
+updated_at: 2026-03-09 22:38
+completed_at: 2026-03-09 22:38
 ---
 
 I have just tried to run the aitask_contribute skill and at the end of the workflow, the issue creation failed bacause the label "contribution" was undefined as available label for issues. what follows is the log the claude code session with the failore and the fix
