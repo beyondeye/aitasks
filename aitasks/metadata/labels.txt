@@ -20,6 +20,7 @@ codeagent
 codebrowser
 codexcli
 development
+execution_profiles
 geminicli
 git-integration
 gitremote
