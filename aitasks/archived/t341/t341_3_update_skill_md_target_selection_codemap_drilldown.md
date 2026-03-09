@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t341_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_contribute, claudeskills]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-09 13:06
-updated_at: 2026-03-09 17:28
+updated_at: 2026-03-09 18:37
+completed_at: 2026-03-09 18:37
 ---
 
 Update aitask-contribute SKILL.md with framework-vs-project target selection (Step 0). Add incremental multi-pass codemap generation sub-workflow when code_areas.yaml is missing. Implement hierarchical drill-down for project areas. Add dynamic area updates for unlisted areas.
