@@ -3,17 +3,19 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codeagent, ait_settings, task_workflow]
+assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt-5
 created_at: 2026-03-08 18:35
-updated_at: 2026-03-08 18:35
+updated_at: 2026-03-09 09:51
 ---
 
 ## Context
 
 This child task adds project-scoped configuration for the custom code-agent commit coauthor email domain.
 
-The new coauthor mechanism for t339 must not hardcode `aitasks.ai`. The domain should live in shared project metadata so all task-workflow consumers derive the same `Co-authored-by` email format, and `ait setup` should initialize that metadata when a project is configured to use aitasks.
+The new coauthor mechanism for t339 must not hardcode `aitasks.io`. The domain should live in shared project metadata so all task-workflow consumers derive the same `Co-authored-by` email format, and `ait setup` should initialize that metadata when a project is configured to use aitasks.
 
 ## Key Files to Modify
 
