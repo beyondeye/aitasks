@@ -286,7 +286,14 @@ class TaskManager:
         for filename, task in self.child_task_datas.items():
             if filename.startswith(prefix):
                 children.append(task)
-        return sorted(children, key=lambda t: t.filename)
+
+        def child_sort_key(task: Task):
+            match = re.match(rf"^{re.escape(parent_num)}_(\d+)_", task.filename)
+            if match:
+                return (0, int(match.group(1)), task.filename)
+            return (1, 0, task.filename)
+
+        return sorted(children, key=child_sort_key)
 
     def get_parent_num_for_child(self, child_task: Task) -> str:
         """Determine parent task number from child task filepath.
