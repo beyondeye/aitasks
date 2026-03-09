@@ -226,6 +226,43 @@ format_claude_model_label() {
     echo "$raw_model"
 }
 
+format_opencode_model_label() {
+    local raw_cli_id="$1"
+    # Strip provider prefix (everything before and including /)
+    local model_part="${raw_cli_id##*/}"
+
+    local result=""
+    local prev_is_num=false
+    local segment
+    IFS='-' read -r -a segments <<< "$model_part"
+    for segment in "${segments[@]}"; do
+        local is_num=false
+        [[ "$segment" =~ ^[0-9]+$ ]] && is_num=true
+
+        if [[ -n "$result" ]]; then
+            if $prev_is_num && $is_num; then
+                # Collapse adjacent numeric segments: 4-6 → 4.6
+                result+=".${segment}"
+            else
+                result+=" "
+                case "$segment" in
+                    gpt|glm) result+="$(echo "$segment" | tr '[:lower:]' '[:upper:]')" ;;
+                    *) result+="$(tr '[:lower:]' '[:upper:]' <<< "${segment:0:1}")${segment:1}" ;;
+                esac
+            fi
+        else
+            case "$segment" in
+                gpt|glm) result="$(echo "$segment" | tr '[:lower:]' '[:upper:]')" ;;
+                *) result="$(tr '[:lower:]' '[:upper:]' <<< "${segment:0:1}")${segment:1}" ;;
+            esac
+        fi
+
+        prev_is_num=$is_num
+    done
+
+    echo "$result"
+}
+
 lookup_cli_model_id_if_known() {
     local agent="$1"
     local model_name="$2"
@@ -261,6 +298,14 @@ get_agent_coauthor_name() {
                 echo "Claude Code/$model_name"
             fi
             ;;
+        opencode)
+            cli_id="$(lookup_cli_model_id_if_known "$agent" "$model_name")"
+            if [[ -n "$cli_id" && "$cli_id" != "null" ]]; then
+                echo "OpenCode/$(format_opencode_model_label "$cli_id")"
+            else
+                echo "OpenCode/$model_name"
+            fi
+            ;;
         *)
             die "Coauthor metadata for agent '$agent' is not supported yet"
             ;;
@@ -275,6 +320,7 @@ get_agent_coauthor_email() {
     case "$agent" in
         codex) echo "codex@$domain" ;;
         claudecode) echo "claudecode@$domain" ;;
+        opencode) echo "opencode@$domain" ;;
         *) die "Coauthor metadata for agent '$agent' is not supported yet" ;;
     esac
 }
