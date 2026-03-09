@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [2, 3, 4, 5]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codeagent, task_workflow, claudecode]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-08 18:36
-updated_at: 2026-03-08 18:36
+updated_at: 2026-03-09 11:37
 ---
 
 ## Context
