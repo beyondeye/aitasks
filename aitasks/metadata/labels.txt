@@ -1,6 +1,7 @@
 aitakspickrem
 aitask_board
 aitask_changelog
+aitask_codemap
 aitask_contribute
 aitask-create
 aitask_explain
