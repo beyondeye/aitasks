@@ -226,6 +226,33 @@ format_claude_model_label() {
     echo "$raw_model"
 }
 
+format_gemini_model_label() {
+    local raw_model="$1"
+
+    if [[ "$raw_model" =~ ^gemini-([0-9\.]+)-([a-z]+)(-[a-z]+)?$ ]]; then
+        local version="${BASH_REMATCH[1]}"
+        local type="${BASH_REMATCH[2]}"
+        local suffix="${BASH_REMATCH[3]:-}"
+        
+        local cap_type
+        cap_type="$(tr '[:lower:]' '[:upper:]' <<< "${type:0:1}")${type:1}"
+        
+        local label="$version $cap_type"
+        
+        if [[ -n "$suffix" ]]; then
+            suffix="${suffix:1}"
+            local cap_suffix
+            cap_suffix="$(tr '[:lower:]' '[:upper:]' <<< "${suffix:0:1}")${suffix:1}"
+            label+=" $cap_suffix"
+        fi
+        
+        echo "$label"
+        return
+    fi
+
+    echo "$raw_model"
+}
+
 format_opencode_model_label() {
     local raw_cli_id="$1"
     # Strip provider prefix (everything before and including /)
@@ -298,6 +325,14 @@ get_agent_coauthor_name() {
                 echo "Claude Code/$model_name"
             fi
             ;;
+        geminicli)
+            cli_id="$(lookup_cli_model_id_if_known "$agent" "$model_name")"
+            if [[ -n "$cli_id" && "$cli_id" != "null" ]]; then
+                echo "Gemini CLI/$(format_gemini_model_label "$cli_id")"
+            else
+                echo "Gemini CLI/$model_name"
+            fi
+            ;;
         opencode)
             cli_id="$(lookup_cli_model_id_if_known "$agent" "$model_name")"
             if [[ -n "$cli_id" && "$cli_id" != "null" ]]; then
@@ -320,6 +355,7 @@ get_agent_coauthor_email() {
     case "$agent" in
         codex) echo "codex@$domain" ;;
         claudecode) echo "claudecode@$domain" ;;
+        geminicli) echo "geminicli@$domain" ;;
         opencode) echo "opencode@$domain" ;;
         *) die "Coauthor metadata for agent '$agent' is not supported yet" ;;
     esac

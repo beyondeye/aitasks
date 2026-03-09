@@ -304,9 +304,28 @@ cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/met
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor opencode/openai_gpt_5_1_codex 2>&1)
 assert_contains "coauthor returns GPT name" "AGENT_COAUTHOR_NAME:OpenCode/GPT 5.1 Codex" "$output"
 
-# Test 26: coauthor rejects unsupported agents
-echo "--- Test 26: coauthor unsupported agent ---"
-assert_exit_nonzero "coauthor rejects unsupported agent" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' coauthor geminicli/gemini3pro"
+# Test 26: coauthor returns Gemini CLI metadata
+echo "--- Test 26: coauthor Gemini CLI metadata ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor geminicli/gemini2_5pro 2>&1)
+assert_contains "coauthor returns agent string" "AGENT_STRING:geminicli/gemini2_5pro" "$output"
+assert_contains "coauthor returns name" "AGENT_COAUTHOR_NAME:Gemini CLI/2.5 Pro" "$output"
+assert_contains "coauthor returns email" "AGENT_COAUTHOR_EMAIL:geminicli@aitasks.io" "$output"
+assert_contains "coauthor returns trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Gemini CLI/2.5 Pro <geminicli@aitasks.io>" "$output"
+
+# Test 26b: coauthor Gemini CLI custom domain
+echo "--- Test 26b: coauthor Gemini CLI custom domain ---"
+cat > "$TMPDIR_TEST/aitasks/metadata/project_config.yaml" << 'YAMLEOF'
+codeagent_coauthor_domain: gemini.example
+verify_build:
+YAMLEOF
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor geminicli/gemini3_1pro 2>&1)
+assert_contains "coauthor uses custom domain for email" "AGENT_COAUTHOR_EMAIL:geminicli@gemini.example" "$output"
+assert_contains "coauthor uses model-aware trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Gemini CLI/3.1 Pro Preview <geminicli@gemini.example>" "$output"
+
+# Test 26c: coauthor Gemini CLI falls back to raw model token when unknown
+echo "--- Test 26c: coauthor Gemini CLI unknown model fallback ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor geminicli/unknown_model 2>&1)
+assert_contains "coauthor falls back to raw model token" "AGENT_COAUTHOR_NAME:Gemini CLI/unknown_model" "$output"
 
 # Restore project config before help and remaining tests
 cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"
