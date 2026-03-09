@@ -376,6 +376,172 @@ output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh \
 assert_contains "bitbucket dry-run has contribution heading" "## Contribution:" "$output"
 assert_contains "bitbucket dry-run has metadata" "<!-- aitask-contribute-metadata" "$output"
 
+# ============================================================
+# parse_code_areas() and aitask_codemap.sh tests
+# ============================================================
+
+# --- Test 17: parse_code_areas with valid YAML ---
+echo "--- Test 17: parse_code_areas with valid YAML ---"
+mkdir -p "$LOCAL_DIR/aitasks/metadata"
+cat > "$LOCAL_DIR/aitasks/metadata/code_areas.yaml" <<'YAML'
+version: 1
+
+areas:
+  - name: backend
+    path: src/backend/
+    description: REST API and business logic
+    children:
+      - name: auth
+        path: src/backend/auth/
+        description: Authentication and JWT handling
+      - name: models
+        path: src/backend/models/
+        description: Database models and migrations
+  - name: frontend
+    path: src/web/
+    description: React frontend application
+  - name: tests
+    path: tests/
+    description: Test suites
+YAML
+
+output=$(cd "$LOCAL_DIR" && source .aitask-scripts/aitask_contribute.sh 2>/dev/null; parse_code_areas 2>&1)
+exit_code=$?
+assert_eq "parse_code_areas exits 0" "0" "$exit_code"
+assert_contains "has backend area" "AREA|backend|src/backend/|REST API and business logic|" "$output"
+assert_contains "has auth child" "AREA|auth|src/backend/auth/|Authentication and JWT handling|backend" "$output"
+assert_contains "has models child" "AREA|models|src/backend/models/|Database models and migrations|backend" "$output"
+assert_contains "has frontend area" "AREA|frontend|src/web/|React frontend application|" "$output"
+assert_contains "has tests area" "AREA|tests|tests/|Test suites|" "$output"
+
+# --- Test 18: parse_code_areas --parent filter ---
+echo "--- Test 18: parse_code_areas --parent filter ---"
+output=$(cd "$LOCAL_DIR" && source .aitask-scripts/aitask_contribute.sh 2>/dev/null; parse_code_areas --parent backend 2>&1)
+exit_code=$?
+assert_eq "parse_code_areas --parent exits 0" "0" "$exit_code"
+assert_contains "filter returns auth child" "AREA|auth|src/backend/auth/" "$output"
+assert_contains "filter returns models child" "AREA|models|src/backend/models/" "$output"
+assert_not_contains "filter excludes frontend" "AREA|frontend|" "$output"
+assert_not_contains "filter excludes tests" "AREA|tests|" "$output"
+
+# --- Test 19: parse_code_areas with missing file ---
+echo "--- Test 19: parse_code_areas with missing file ---"
+# Remove code_areas.yaml to test missing file behavior
+rm -f "$LOCAL_DIR/aitasks/metadata/code_areas.yaml"
+output=$(cd "$LOCAL_DIR" && source .aitask-scripts/aitask_contribute.sh; parse_code_areas 2>&1)
+exit_code=$?
+assert_eq "parse_code_areas missing file exits 1" "1" "$exit_code"
+assert_contains "missing file outputs NO_CODE_AREAS" "NO_CODE_AREAS" "$output"
+
+# --- Test 20: parse_code_areas with empty areas ---
+echo "--- Test 20: parse_code_areas with empty areas ---"
+cat > "$LOCAL_DIR/aitasks/metadata/code_areas.yaml" <<'YAML'
+version: 1
+
+areas: []
+YAML
+output=$(cd "$LOCAL_DIR" && source .aitask-scripts/aitask_contribute.sh 2>/dev/null; parse_code_areas 2>&1)
+exit_code=$?
+assert_eq "parse_code_areas empty areas exits 0" "0" "$exit_code"
+assert_eq "parse_code_areas empty areas has no AREA lines" "" "$output"
+
+# --- Test 21: aitask_codemap.sh --scan ---
+echo "--- Test 21: aitask_codemap.sh --scan ---"
+# Create a temp git repo with some directories
+CODEMAP_DIR="$TMPDIR_TEST/codemap_test"
+mkdir -p "$CODEMAP_DIR/src/backend/auth" "$CODEMAP_DIR/src/backend/models" "$CODEMAP_DIR/src/backend/api" "$CODEMAP_DIR/src/frontend" "$CODEMAP_DIR/src/shared"
+mkdir -p "$CODEMAP_DIR/tests" "$CODEMAP_DIR/docs"
+mkdir -p "$CODEMAP_DIR/.aitask-scripts" "$CODEMAP_DIR/aitasks/metadata"
+# Copy scripts needed by codemap
+cp "$PROJECT_DIR/.aitask-scripts/aitask_codemap.sh" "$CODEMAP_DIR/.aitask-scripts/"
+cp -r "$PROJECT_DIR/.aitask-scripts/lib" "$CODEMAP_DIR/.aitask-scripts/"
+chmod +x "$CODEMAP_DIR/.aitask-scripts/aitask_codemap.sh"
+# Create some tracked files
+echo "code" > "$CODEMAP_DIR/src/backend/auth/login.py"
+echo "code" > "$CODEMAP_DIR/src/backend/models/user.py"
+echo "code" > "$CODEMAP_DIR/src/backend/api/routes.py"
+echo "code" > "$CODEMAP_DIR/src/frontend/app.js"
+echo "code" > "$CODEMAP_DIR/src/shared/utils.js"
+echo "code" > "$CODEMAP_DIR/tests/test_login.py"
+echo "code" > "$CODEMAP_DIR/docs/readme.md"
+echo "code" > "$CODEMAP_DIR/.aitask-scripts/script.sh"
+(cd "$CODEMAP_DIR" && git init --quiet && git config user.email "test@test.com" && git config user.name "Test" && git add -A && git commit -m "init" --quiet)
+
+output=$(cd "$CODEMAP_DIR" && ./.aitask-scripts/aitask_codemap.sh --scan 2>&1)
+exit_code=$?
+assert_eq "codemap --scan exits 0" "0" "$exit_code"
+assert_contains "codemap outputs version" "version: 1" "$output"
+assert_contains "codemap has src area" "name: src" "$output"
+assert_contains "codemap has tests area" "name: tests" "$output"
+assert_contains "codemap has docs area" "name: docs" "$output"
+assert_not_contains "codemap excludes .aitask-scripts" "name: .aitask-scripts" "$output"
+assert_not_contains "codemap excludes aitasks" "name: aitasks" "$output"
+
+# --- Test 22: aitask_codemap.sh --scan with children ---
+echo "--- Test 22: aitask_codemap.sh --scan with children ---"
+# src/ has 3 subdirs (backend, frontend + we need to check), so it should generate children
+assert_contains "codemap generates children for src" "children:" "$output"
+assert_contains "codemap has backend child" "name: backend" "$output"
+assert_contains "codemap has frontend child" "name: frontend" "$output"
+
+# --- Test 23: aitask_codemap.sh --scan --existing ---
+echo "--- Test 23: aitask_codemap.sh --scan --existing ---"
+cat > "$CODEMAP_DIR/aitasks/metadata/code_areas.yaml" <<'YAML'
+version: 1
+
+areas:
+  - name: src
+    path: src/
+    description: Source code
+  - name: tests
+    path: tests/
+    description: Test suites
+YAML
+output=$(cd "$CODEMAP_DIR" && ./.aitask-scripts/aitask_codemap.sh --scan --existing aitasks/metadata/code_areas.yaml 2>&1)
+exit_code=$?
+assert_eq "codemap --existing exits 0" "0" "$exit_code"
+assert_not_contains "codemap --existing excludes mapped src" "name: src" "$output"
+assert_not_contains "codemap --existing excludes mapped tests" "name: tests" "$output"
+assert_contains "codemap --existing shows unmapped docs" "name: docs" "$output"
+
+# --- Test 24: aitask_codemap.sh --write refuses if exists ---
+echo "--- Test 24: aitask_codemap.sh --write refuses if exists ---"
+output=$(cd "$CODEMAP_DIR" && ./.aitask-scripts/aitask_codemap.sh --write 2>&1)
+exit_code=$?
+assert_eq "codemap --write exits 1 when file exists" "1" "$exit_code"
+assert_contains "codemap --write shows already exists error" "already exists" "$output"
+
+# --- Test 25: aitask_codemap.sh --write creates file ---
+echo "--- Test 25: aitask_codemap.sh --write creates file ---"
+rm "$CODEMAP_DIR/aitasks/metadata/code_areas.yaml"
+output=$(cd "$CODEMAP_DIR" && ./.aitask-scripts/aitask_codemap.sh --write 2>&1)
+exit_code=$?
+assert_eq "codemap --write exits 0" "0" "$exit_code"
+assert_eq "codemap --write creates file" "true" "$(test -f "$CODEMAP_DIR/aitasks/metadata/code_areas.yaml" && echo true || echo false)"
+written_content=$(cat "$CODEMAP_DIR/aitasks/metadata/code_areas.yaml")
+assert_contains "written file has version" "version: 1" "$written_content"
+assert_contains "written file has areas" "areas:" "$written_content"
+
+# Restore valid code_areas.yaml for LOCAL_DIR tests
+cat > "$LOCAL_DIR/aitasks/metadata/code_areas.yaml" <<'YAML'
+version: 1
+
+areas:
+  - name: backend
+    path: src/backend/
+    description: REST API and business logic
+    children:
+      - name: auth
+        path: src/backend/auth/
+        description: Authentication and JWT handling
+      - name: models
+        path: src/backend/models/
+        description: Database models and migrations
+  - name: frontend
+    path: src/web/
+    description: React frontend application
+YAML
+
 # --- Summary ---
 echo ""
 echo "Results: $PASS passed, $FAIL failed out of $TOTAL tests"

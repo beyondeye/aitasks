@@ -1,0 +1,51 @@
+# Code areas map — hierarchical project structure for /aitask-contribute
+#
+# This file maps your project's code areas for the contribute workflow.
+# When contributing to the project itself (not the aitasks framework),
+# this file defines which areas of your codebase are available for selection.
+#
+# Generated with: ./.aitask-scripts/aitask_codemap.sh --scan
+# AI-enhanced descriptions are added by the /aitask-contribute skill.
+#
+# ──────────────────────────────────────────────────────────────────────
+# Format:
+#   version: 1
+#   areas:
+#     - name: <area-name>           # Short identifier (no spaces, lowercase)
+#       path: <relative-path>/      # Relative to repo root, trailing /
+#       description: <text>         # Human-readable description
+#       children:                   # Optional sub-areas
+#         - name: <child-name>
+#           path: <child-path>/
+#           description: <text>
+#
+# Rules:
+#   - 2-space YAML indent
+#   - One path per entry (relative to repo root, trailing /)
+#   - children: is optional (omit for leaf areas)
+#   - version: 1 is required
+#
+# ──────────────────────────────────────────────────────────────────────
+# Example:
+#   areas:
+#     - name: backend
+#       path: src/backend/
+#       description: REST API and business logic
+#       children:
+#         - name: auth
+#           path: src/backend/auth/
+#           description: Authentication and JWT handling
+#         - name: models
+#           path: src/backend/models/
+#           description: Database models and migrations
+#     - name: frontend
+#       path: src/web/
+#       description: React frontend application
+#     - name: tests
+#       path: tests/
+#       description: Test suites
+# ──────────────────────────────────────────────────────────────────────
+
+version: 1
+
+areas: []

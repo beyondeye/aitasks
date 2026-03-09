@@ -49,6 +49,101 @@ AREAS=(
     "website|website/|Website documentation (clone/fork mode only)"
 )
 
+# --- Project code areas parser ---
+# Reads aitasks/metadata/code_areas.yaml and outputs AREA lines.
+# Output format: AREA|<name>|<path>|<description>|<parent>
+# <parent> is empty for top-level areas, parent name for children.
+# Usage: parse_code_areas [--parent <name>]
+parse_code_areas() {
+    local filter_parent=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --parent) filter_parent="$2"; shift 2 ;;
+            *) die "parse_code_areas: unknown argument: $1" ;;
+        esac
+    done
+
+    local code_areas_file="$TASK_DIR/metadata/code_areas.yaml"
+    if [[ ! -f "$code_areas_file" ]]; then
+        echo "NO_CODE_AREAS" >&2
+        return 1
+    fi
+
+    awk -v filter="$filter_parent" '
+    BEGIN { name=""; path=""; desc=""; parent=""; current_parent="" }
+
+    # Skip comments and blank lines
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+
+    # Top-level area entry (2-space indent: "  - name:")
+    /^  - name:/ {
+        # Flush previous entry
+        if (name != "") {
+            if (filter == "" || filter == parent) {
+                printf "AREA|%s|%s|%s|%s\n", name, path, desc, parent
+            }
+        }
+        val = $0
+        gsub(/^  - name:[[:space:]]*/, "", val)
+        name = val; path = ""; desc = ""; parent = ""; current_parent = ""
+        next
+    }
+
+    # Child area entry (6-space indent: "      - name:")
+    /^      - name:/ {
+        # Flush previous entry
+        if (name != "") {
+            if (filter == "" || filter == parent) {
+                printf "AREA|%s|%s|%s|%s\n", name, path, desc, parent
+            }
+        }
+        val = $0
+        gsub(/^      - name:[[:space:]]*/, "", val)
+        name = val; path = ""; desc = ""; parent = current_parent
+        next
+    }
+
+    # children: marker at 4-space indent
+    /^    children:/ {
+        current_parent = name
+        # Flush parent entry before children
+        if (name != "") {
+            if (filter == "" || filter == parent) {
+                printf "AREA|%s|%s|%s|%s\n", name, path, desc, parent
+            }
+            name = ""
+        }
+        next
+    }
+
+    # Path field
+    /^[[:space:]]+path:/ {
+        val = $0
+        gsub(/^[[:space:]]+path:[[:space:]]*/, "", val)
+        path = val
+        next
+    }
+
+    # Description field
+    /^[[:space:]]+description:/ {
+        val = $0
+        gsub(/^[[:space:]]+description:[[:space:]]*/, "", val)
+        desc = val
+        next
+    }
+
+    END {
+        # Flush last entry
+        if (name != "") {
+            if (filter == "" || filter == parent) {
+                printf "AREA|%s|%s|%s|%s\n", name, path, desc, parent
+            }
+        }
+    }
+    ' "$code_areas_file"
+}
+
 # ============================================================
 # PLATFORM BACKENDS
 # To add a new platform:
@@ -665,4 +760,7 @@ main() {
     fi
 }
 
-main "$@"
+# Only run main when executed directly (not when sourced for testing)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
