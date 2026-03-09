@@ -36,3 +36,12 @@ If Claude remains special or partially unsupported, document that explicitly ins
 ## Step 9 Reference
 
 Post-implementation: archive via task-workflow Step 9.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added a dedicated `/aitask-pick` Commit Attribution page, linked it from the main `/aitask-pick` docs, expanded `setup-install.md` with `project_config.yaml` initialization details, and documented `ait codeagent coauthor` plus its relationship to `implemented_with`.
+- **Actual work done:** Added a dedicated `/aitask-pick` Commit Attribution page, linked it from the main `/aitask-pick` docs, expanded `setup-install.md` with `project_config.yaml` initialization details, and documented `ait codeagent coauthor` plus its relationship to `implemented_with`. Follow-up wording now covers contributor metadata imported via both PRs and issues.
+- **Deviations from plan:** The implementation also corrected two user-facing stale examples outside the website docs: `seed/project_config.yaml` and the Settings TUI project-config help text still described the old pre-Claude or model-in-email behavior.
+- **Issues encountered:** The current repository worktree already reports broad untracked `aitasks/` and `aiplans/` directories, so I limited verification to content/build checks and did not attempt any task-workflow commit/archive steps.
+- **Key decisions:** The new docs treat Claude Code as fully part of the shared resolver path, because sibling task `t339_6` established that the shared trailer safely replaces the old Claude-specific wording.
+- **Notes for sibling tasks:** The canonical user-facing explanation of commit attribution now lives in `website/content/docs/skills/aitask-pick/commit-attribution.md`; future workflow-doc updates should keep that page aligned with `.claude/skills/task-workflow/procedures.md`.
