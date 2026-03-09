@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_contribute]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-09 23:12
-updated_at: 2026-03-09 23:12
+updated_at: 2026-03-09 23:13
 ---
 
 when creating new issue with aitask-contribute, we don't actually check if the same issue was already addressed in another pr or contribution issue (generated with aitask-contribute skill). the repo mantainer need to run aitask-issue-import one by one for each issue and manually check if the changes are related or not. this is not ideal. also there is the risk of prompt injection in issues if there is no filter of the issues that are allowed to be imported to aitasks. a possibility. in order to reduce needed processing on the reviewer side, assuming that the contributor is honest, is to add in the aitask-contribute skill flow processing that extract a
