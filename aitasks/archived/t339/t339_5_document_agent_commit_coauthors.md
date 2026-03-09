@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [1, 2, 3, 4]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [codeagent, task_workflow, web_site]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: codex/gpt5_4
 created_at: 2026-03-08 18:36
-updated_at: 2026-03-09 15:48
+updated_at: 2026-03-09 15:50
+completed_at: 2026-03-09 15:50
 ---
 
 ## Context
