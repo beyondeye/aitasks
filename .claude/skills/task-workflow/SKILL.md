@@ -266,6 +266,8 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
 
 **Record implementing agent:** Execute the **Agent Attribution Procedure** (see `procedures.md`) to record which code agent and model is implementing this task.
 
+**Repository structure awareness:** Before starting implementation, read `repo-structure.md`
+
 Follow the approved plan, working in the directory specified in the plan metadata.
 
 Update the external plan file as you progress:
@@ -514,6 +516,7 @@ The following procedures are in `procedures.md` — read on demand when referenc
 - When archiving a task with an `issue` field, the workflow offers to update/close the linked issue using `aitask_issue_update.sh`. The SKILL.md workflow is platform-agnostic; the script handles platform specifics (GitHub, GitLab, etc.). It auto-detects commits and includes "Final Implementation Notes" from the archived plan file.
 - **Folded tasks:** When a task has a `folded_tasks` frontmatter field (set by aitask-explore or aitask-fold), the listed tasks are deleted during Step 9 archival. Folded tasks have status `Folded` with a `folded_into` property pointing to the primary task. They are deleted (not archived) because their full content was incorporated into the primary task's description at creation/fold time.
 - **Note:** Folded tasks are handled by `handle_folded_tasks()` in both parent and child archival paths. `/aitask-fold` and manual folding can add `folded_tasks` to any task type.
+- **Symlinks and data worktree:** When the project uses a separate `aitask-data` branch, `aitasks/` and `aiplans/` are symlinks to `.aitask-data/`. See `repo-structure.md` for the full architecture and rules.
 
 ### Project Configuration
 
