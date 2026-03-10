@@ -3,13 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [aitask_contribute]
 children_to_implement: [t355_1, t355_2, t355_3, t355_4, t355_5, t355_6, t355_7]
-assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-09 23:12
-updated_at: 2026-03-10 10:59
+updated_at: 2026-03-10 11:00
 ---
 
 ## Problem
