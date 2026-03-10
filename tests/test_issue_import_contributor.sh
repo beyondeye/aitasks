@@ -63,6 +63,12 @@ parse_contribute_metadata() {
     local body="$1"
     CONTRIBUTE_CONTRIBUTOR=""
     CONTRIBUTE_EMAIL=""
+    CONTRIBUTE_FINGERPRINT_VERSION=""
+    CONTRIBUTE_AREAS=""
+    CONTRIBUTE_FILE_PATHS=""
+    CONTRIBUTE_FILE_DIRS=""
+    CONTRIBUTE_CHANGE_TYPE=""
+    CONTRIBUTE_AUTO_LABELS=""
 
     local in_block=false
     while IFS= read -r line; do
@@ -80,6 +86,24 @@ parse_contribute_metadata() {
                     ;;
                 *contributor:*)
                     CONTRIBUTE_CONTRIBUTOR=$(echo "$line" | sed 's/.*contributor:[[:space:]]*//' | tr -d '[:space:]')
+                    ;;
+                *fingerprint_version:*)
+                    CONTRIBUTE_FINGERPRINT_VERSION=$(echo "$line" | sed 's/.*fingerprint_version:[[:space:]]*//' | tr -d '[:space:]')
+                    ;;
+                *file_paths:*)
+                    CONTRIBUTE_FILE_PATHS=$(echo "$line" | sed 's/.*file_paths:[[:space:]]*//' | sed 's/[[:space:]]*$//')
+                    ;;
+                *file_dirs:*)
+                    CONTRIBUTE_FILE_DIRS=$(echo "$line" | sed 's/.*file_dirs:[[:space:]]*//' | sed 's/[[:space:]]*$//')
+                    ;;
+                *change_type:*)
+                    CONTRIBUTE_CHANGE_TYPE=$(echo "$line" | sed 's/.*change_type:[[:space:]]*//' | tr -d '[:space:]')
+                    ;;
+                *auto_labels:*)
+                    CONTRIBUTE_AUTO_LABELS=$(echo "$line" | sed 's/.*auto_labels:[[:space:]]*//' | sed 's/[[:space:]]*$//')
+                    ;;
+                *areas:*)
+                    CONTRIBUTE_AREAS=$(echo "$line" | sed 's/.*areas:[[:space:]]*//' | sed 's/[[:space:]]*$//')
                     ;;
             esac
         fi
@@ -333,8 +357,141 @@ assert_eq "email from mid-body block" "mid@users.noreply.github.com" "$CONTRIBUT
 
 rm -rf "$FUNC_DIR"
 
-# --- Test 10: Syntax check ---
-echo "--- Test 10: Syntax check ---"
+# --- Test 10a: Parse full metadata with fingerprint fields ---
+echo "--- Test 10a: Parse full metadata with fingerprint fields ---"
+FUNC_DIR="$(setup_parse_function)"
+source "$FUNC_DIR/parse_func.sh"
+
+body_10a="# Feature
+
+Some description.
+
+<!-- aitask-contribute-metadata
+contributor: fpuser
+contributor_email: fp@users.noreply.github.com
+based_on_version: 0.10.0
+fingerprint_version: 1
+areas: scripts,claude-skills
+file_paths: .aitask-scripts/foo.sh,.aitask-scripts/bar.sh
+file_dirs: .aitask-scripts
+change_type: enhancement
+auto_labels: area:scripts,scope:enhancement
+-->"
+
+parse_contribute_metadata "$body_10a"
+assert_eq "10a contributor" "fpuser" "$CONTRIBUTE_CONTRIBUTOR"
+assert_eq "10a email" "fp@users.noreply.github.com" "$CONTRIBUTE_EMAIL"
+assert_eq "10a fingerprint_version" "1" "$CONTRIBUTE_FINGERPRINT_VERSION"
+assert_eq "10a areas" "scripts,claude-skills" "$CONTRIBUTE_AREAS"
+assert_eq "10a file_paths" ".aitask-scripts/foo.sh,.aitask-scripts/bar.sh" "$CONTRIBUTE_FILE_PATHS"
+assert_eq "10a file_dirs" ".aitask-scripts" "$CONTRIBUTE_FILE_DIRS"
+assert_eq "10a change_type" "enhancement" "$CONTRIBUTE_CHANGE_TYPE"
+assert_eq "10a auto_labels" "area:scripts,scope:enhancement" "$CONTRIBUTE_AUTO_LABELS"
+
+rm -rf "$FUNC_DIR"
+
+# --- Test 10b: Backwards compat - old format without fingerprint fields ---
+echo "--- Test 10b: Old format without fingerprint fields ---"
+FUNC_DIR="$(setup_parse_function)"
+source "$FUNC_DIR/parse_func.sh"
+
+body_10b="<!-- aitask-contribute-metadata
+contributor: olduser
+contributor_email: old@users.noreply.github.com
+based_on_version: 0.9.0
+-->"
+
+parse_contribute_metadata "$body_10b"
+assert_eq "10b contributor" "olduser" "$CONTRIBUTE_CONTRIBUTOR"
+assert_eq "10b email" "old@users.noreply.github.com" "$CONTRIBUTE_EMAIL"
+assert_eq "10b fingerprint_version empty" "" "$CONTRIBUTE_FINGERPRINT_VERSION"
+assert_eq "10b areas empty" "" "$CONTRIBUTE_AREAS"
+assert_eq "10b file_paths empty" "" "$CONTRIBUTE_FILE_PATHS"
+assert_eq "10b file_dirs empty" "" "$CONTRIBUTE_FILE_DIRS"
+assert_eq "10b change_type empty" "" "$CONTRIBUTE_CHANGE_TYPE"
+assert_eq "10b auto_labels empty" "" "$CONTRIBUTE_AUTO_LABELS"
+
+rm -rf "$FUNC_DIR"
+
+# --- Test 10c: Fingerprint fields only, no contributor ---
+echo "--- Test 10c: Fingerprint fields only, no contributor ---"
+FUNC_DIR="$(setup_parse_function)"
+source "$FUNC_DIR/parse_func.sh"
+
+body_10c="<!-- aitask-contribute-metadata
+fingerprint_version: 1
+areas: backend
+file_paths: src/main.py
+file_dirs: src
+change_type: bugfix
+auto_labels: area:backend,scope:bugfix
+-->"
+
+parse_contribute_metadata "$body_10c"
+assert_eq "10c contributor empty" "" "$CONTRIBUTE_CONTRIBUTOR"
+assert_eq "10c email empty" "" "$CONTRIBUTE_EMAIL"
+assert_eq "10c fingerprint_version" "1" "$CONTRIBUTE_FINGERPRINT_VERSION"
+assert_eq "10c areas" "backend" "$CONTRIBUTE_AREAS"
+assert_eq "10c file_paths" "src/main.py" "$CONTRIBUTE_FILE_PATHS"
+assert_eq "10c file_dirs" "src" "$CONTRIBUTE_FILE_DIRS"
+assert_eq "10c change_type" "bugfix" "$CONTRIBUTE_CHANGE_TYPE"
+assert_eq "10c auto_labels" "area:backend,scope:bugfix" "$CONTRIBUTE_AUTO_LABELS"
+
+rm -rf "$FUNC_DIR"
+
+# --- Test 10d: Empty fingerprint field values ---
+echo "--- Test 10d: Empty fingerprint field values ---"
+FUNC_DIR="$(setup_parse_function)"
+source "$FUNC_DIR/parse_func.sh"
+
+body_10d="<!-- aitask-contribute-metadata
+contributor: emptytest
+fingerprint_version:
+areas:
+file_paths:
+file_dirs:
+change_type:
+auto_labels:
+-->"
+
+parse_contribute_metadata "$body_10d"
+assert_eq "10d contributor" "emptytest" "$CONTRIBUTE_CONTRIBUTOR"
+assert_eq "10d fingerprint_version empty val" "" "$CONTRIBUTE_FINGERPRINT_VERSION"
+assert_eq "10d areas empty val" "" "$CONTRIBUTE_AREAS"
+assert_eq "10d file_paths empty val" "" "$CONTRIBUTE_FILE_PATHS"
+assert_eq "10d file_dirs empty val" "" "$CONTRIBUTE_FILE_DIRS"
+assert_eq "10d change_type empty val" "" "$CONTRIBUTE_CHANGE_TYPE"
+assert_eq "10d auto_labels empty val" "" "$CONTRIBUTE_AUTO_LABELS"
+
+rm -rf "$FUNC_DIR"
+
+# --- Test 10e: Fingerprint fields with trailing whitespace ---
+echo "--- Test 10e: Trailing whitespace on list fields ---"
+FUNC_DIR="$(setup_parse_function)"
+source "$FUNC_DIR/parse_func.sh"
+
+body_10e="<!-- aitask-contribute-metadata
+contributor: wsuser
+fingerprint_version: 1
+areas: scripts,tests
+file_paths: a.sh,b.sh
+file_dirs: src,lib
+change_type: enhancement
+auto_labels: area:scripts
+-->"
+
+parse_contribute_metadata "$body_10e"
+assert_eq "10e areas trimmed" "scripts,tests" "$CONTRIBUTE_AREAS"
+assert_eq "10e file_paths trimmed" "a.sh,b.sh" "$CONTRIBUTE_FILE_PATHS"
+assert_eq "10e file_dirs trimmed" "src,lib" "$CONTRIBUTE_FILE_DIRS"
+assert_eq "10e auto_labels trimmed" "area:scripts" "$CONTRIBUTE_AUTO_LABELS"
+assert_eq "10e fingerprint_version" "1" "$CONTRIBUTE_FINGERPRINT_VERSION"
+assert_eq "10e change_type" "enhancement" "$CONTRIBUTE_CHANGE_TYPE"
+
+rm -rf "$FUNC_DIR"
+
+# --- Test 11: Syntax check ---
+echo "--- Test 11: Syntax check ---"
 TOTAL=$((TOTAL + 1))
 if bash -n "$PROJECT_DIR/.aitask-scripts/aitask_issue_import.sh" 2>/dev/null; then
     PASS=$((PASS + 1))
