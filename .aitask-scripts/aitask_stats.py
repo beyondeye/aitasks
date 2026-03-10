@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import csv
 import io
+import json
 import os
 import re
 import sys
@@ -37,6 +38,23 @@ DAY_FULL_NAMES = [
     "Sunday",
 ]
 
+AGENT_DISPLAY_NAMES = {
+    "claudecode": "Claude Code",
+    "codex": "Codex",
+    "geminicli": "Gemini CLI",
+    "opencode": "OpenCode",
+    "unknown": "Unknown",
+}
+
+# Historic values found in archived tasks before the wrapper settled on the
+# current normalized agent/model names.
+LEGACY_IMPLEMENTED_WITH_CLI_IDS = {
+    "codex/gpt-5": "gpt-5",
+    "codex/gpt5": "gpt-5",
+    "opencode/openai_gpt_5_3_codex": "openai/gpt-5.3-codex",
+    "opencode/zen_gpt_5_4": "gpt-5.4",
+}
+
 
 @dataclass
 class TaskRecord:
@@ -62,8 +80,23 @@ class StatsData:
     label_dow_counts_30d: Counter
     type_week_counts: Counter
     label_type_week_counts: Counter
+    codeagent_week_counts: Counter
+    model_week_counts: Counter
     all_labels: set
+    all_codeagents: set
+    all_models: set
+    codeagent_display_names: Dict[str, str]
+    model_display_names: Dict[str, str]
     csv_rows: List[List[str]]
+
+
+@dataclass(frozen=True)
+class ImplementationInfo:
+    raw: str
+    codeagent_key: str
+    codeagent_display: str
+    model_key: str
+    model_display: str
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
@@ -213,6 +246,157 @@ def parse_completed_date(frontmatter: Dict[str, str]) -> Optional[date]:
         return None
 
 
+def load_model_cli_ids() -> Dict[Tuple[str, str], str]:
+    result: Dict[Tuple[str, str], str] = {}
+    metadata_dir = TASK_DIR / "metadata"
+
+    for agent in ("claudecode", "codex", "geminicli", "opencode"):
+        path = metadata_dir / f"models_{agent}.json"
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        for model in payload.get("models", []):
+            name = model.get("name")
+            cli_id = model.get("cli_id")
+            if isinstance(name, str) and isinstance(cli_id, str) and name and cli_id:
+                result[(agent, name)] = cli_id
+
+    return result
+
+
+def canonical_model_id(cli_id: str) -> str:
+    if "/" in cli_id:
+        cli_id = cli_id.split("/", 1)[1]
+    cli_id = re.sub(r"-preview$", "", cli_id)
+    cli_id = re.sub(r"-\d{8}$", "", cli_id)
+    return cli_id
+
+
+def slugify_key(value: str) -> str:
+    return re.sub(r"_+", "_", re.sub(r"[^a-z0-9]+", "_", value.lower())).strip("_") or "unknown"
+
+
+def titleize_words(value: str) -> str:
+    parts = re.split(r"[-_]+", value)
+    return " ".join(part.upper() if part in {"gpt", "glm"} else part.capitalize() for part in parts if part)
+
+
+def model_key_from_cli_id(cli_id: str) -> str:
+    value = canonical_model_id(cli_id)
+
+    match = re.match(r"^gpt-([0-9]+)(?:\.([0-9]+))?(?:-(.+))?$", value)
+    if match:
+        major = match.group(1)
+        minor = match.group(2)
+        suffix = match.group(3)
+        key = f"gpt{major}"
+        if minor:
+            key += f"_{minor}"
+        if suffix:
+            parts = suffix.split("-")
+            key += parts[0]
+            for part in parts[1:]:
+                key += f"_{part}"
+        return key
+
+    match = re.match(r"^claude-([a-z]+)-([0-9]+)-([0-9]+)$", value)
+    if match:
+        family, major, minor = match.groups()
+        return f"{family}{major}_{minor}"
+
+    match = re.match(r"^claude-([0-9]+)-([0-9]+)-([a-z]+)$", value)
+    if match:
+        major, minor, family = match.groups()
+        return f"{family}{major}_{minor}"
+
+    match = re.match(r"^gemini-([0-9]+(?:\.[0-9]+)?)-([a-z]+)(?:-([a-z]+))?$", value)
+    if match:
+        version, model_type, suffix = match.groups()
+        key = f"gemini{version.replace('.', '_')}{model_type}"
+        if suffix and suffix != "preview":
+            key += f"_{suffix}"
+        return key
+
+    return slugify_key(value)
+
+
+def model_display_from_cli_id(cli_id: str) -> str:
+    value = canonical_model_id(cli_id)
+
+    match = re.match(r"^gpt-([0-9]+)(?:\.([0-9]+))?(?:-(.+))?$", value)
+    if match:
+        major = match.group(1)
+        minor = match.group(2)
+        suffix = match.group(3)
+        label = f"GPT{major}"
+        if minor:
+            label += f".{minor}"
+        if suffix:
+            for part in suffix.split("-"):
+                label += f"-{part.upper() if part in {'gpt', 'glm'} else part.capitalize()}"
+        return label
+
+    match = re.match(r"^claude-([a-z]+)-([0-9]+)-([0-9]+)$", value)
+    if match:
+        family, major, minor = match.groups()
+        return f"{family.capitalize()} {major}.{minor}"
+
+    match = re.match(r"^claude-([0-9]+)-([0-9]+)-([a-z]+)$", value)
+    if match:
+        major, minor, family = match.groups()
+        return f"{family.capitalize()} {major}.{minor}"
+
+    match = re.match(r"^gemini-([0-9]+(?:\.[0-9]+)?)-([a-z]+)(?:-([a-z]+))?$", value)
+    if match:
+        version, model_type, suffix = match.groups()
+        label = f"Gemini {version} {model_type.capitalize()}"
+        if suffix and suffix != "preview":
+            label += f" {suffix.capitalize()}"
+        return label
+
+    return titleize_words(value)
+
+
+def normalize_implemented_with(
+    raw: Optional[str], model_cli_ids: Optional[Dict[Tuple[str, str], str]] = None
+) -> ImplementationInfo:
+    cleaned = (raw or "").strip()
+    if not cleaned:
+        return ImplementationInfo("", "unknown", AGENT_DISPLAY_NAMES["unknown"], "unknown", "Unknown")
+
+    agent_match = re.match(r"^([a-z]+)/([A-Za-z0-9_.-]+)$", cleaned)
+    if not agent_match:
+        return ImplementationInfo(
+            cleaned, "unknown", AGENT_DISPLAY_NAMES["unknown"], "unknown", "Unknown"
+        )
+
+    agent, model = agent_match.groups()
+    codeagent_key = agent if agent in AGENT_DISPLAY_NAMES else "unknown"
+    codeagent_display = AGENT_DISPLAY_NAMES.get(codeagent_key, AGENT_DISPLAY_NAMES["unknown"])
+
+    if model_cli_ids is None:
+        model_cli_ids = load_model_cli_ids()
+
+    cli_id = model_cli_ids.get((agent, model))
+    if cli_id is None:
+        cli_id = LEGACY_IMPLEMENTED_WITH_CLI_IDS.get(cleaned)
+
+    if cli_id is None:
+        return ImplementationInfo(cleaned, codeagent_key, codeagent_display, "unknown", "Unknown")
+
+    return ImplementationInfo(
+        cleaned,
+        codeagent_key,
+        codeagent_display,
+        model_key_from_cli_id(cli_id),
+        model_display_from_cli_id(cli_id),
+    )
+
+
 def is_child_task(filename: str) -> bool:
     return bool(re.match(r"^t\d+_\d+_", filename))
 
@@ -289,8 +473,15 @@ def collect_stats(today: date, week_start_dow: int) -> StatsData:
     label_dow_counts_30d: Counter = Counter()
     type_week_counts: Counter = Counter()
     label_type_week_counts: Counter = Counter()
+    codeagent_week_counts: Counter = Counter()
+    model_week_counts: Counter = Counter()
     all_labels: set = set()
+    all_codeagents: set = set()
+    all_models: set = set()
+    codeagent_display_names: Dict[str, str] = {"unknown": AGENT_DISPLAY_NAMES["unknown"]}
+    model_display_names: Dict[str, str] = {"unknown": "Unknown"}
     csv_rows: List[List[str]] = []
+    model_cli_ids = load_model_cli_ids()
 
     total_tasks = 0
     tasks_7d = 0
@@ -305,6 +496,7 @@ def collect_stats(today: date, week_start_dow: int) -> StatsData:
 
         issue_type = frontmatter.get("issue_type") or "feature"
         labels = parse_labels(frontmatter.get("labels"))
+        implementation = normalize_implemented_with(frontmatter.get("implemented_with"), model_cli_ids)
         task_type = "child" if is_child_task(filename) else "parent"
         task_id = Path(filename).stem
         week_offset = week_offset_for(completed, today, week_start_dow)
@@ -339,6 +531,12 @@ def collect_stats(today: date, week_start_dow: int) -> StatsData:
         if 0 <= week_offset <= 3:
             type_week_counts[(task_type, week_offset)] += 1
             type_week_counts[(issue_type, week_offset)] += 1
+            codeagent_week_counts[(implementation.codeagent_key, week_offset)] += 1
+            model_week_counts[(implementation.model_key, week_offset)] += 1
+            all_codeagents.add(implementation.codeagent_key)
+            all_models.add(implementation.model_key)
+            codeagent_display_names[implementation.codeagent_key] = implementation.codeagent_display
+            model_display_names[implementation.model_key] = implementation.model_display
 
         csv_rows.append(
             [
@@ -349,6 +547,9 @@ def collect_stats(today: date, week_start_dow: int) -> StatsData:
                 ";".join(labels),
                 issue_type,
                 task_type,
+                implementation.raw,
+                implementation.codeagent_key,
+                implementation.model_key,
             ]
         )
 
@@ -366,9 +567,29 @@ def collect_stats(today: date, week_start_dow: int) -> StatsData:
         label_dow_counts_30d=label_dow_counts_30d,
         type_week_counts=type_week_counts,
         label_type_week_counts=label_type_week_counts,
+        codeagent_week_counts=codeagent_week_counts,
+        model_week_counts=model_week_counts,
         all_labels=all_labels,
+        all_codeagents=all_codeagents,
+        all_models=all_models,
+        codeagent_display_names=codeagent_display_names,
+        model_display_names=model_display_names,
         csv_rows=csv_rows,
     )
+
+
+def sorted_weekly_keys(keys: Iterable[str], weekly_counts: Counter, display_lookup) -> List[str]:
+    return sorted(
+        keys,
+        key=lambda key: (
+            -sum(weekly_counts.get((key, wk), 0) for wk in range(4)),
+            display_lookup(key),
+        ),
+    )
+
+
+def codeagent_display_name(key: str) -> str:
+    return AGENT_DISPLAY_NAMES.get(key, titleize_words(key))
 
 
 def render_text_report(data: StatsData, days: int, verbose: bool, week_start_dow: int, today: date) -> str:
@@ -499,15 +720,86 @@ def render_text_report(data: StatsData, days: int, verbose: bool, week_start_dow
             )
     print(file=out)
 
+    print("### By Code Agent - Weekly Trend (Last 4 Weeks)", file=out)
+    print("| Code Agent   | Total | W-3 | W-2 | W-1 | This Week |", file=out)
+    print("|--------------|-------|-----|-----|-----|-----------|", file=out)
+
+    for codeagent in sorted_weekly_keys(data.all_codeagents, data.codeagent_week_counts, codeagent_display_name):
+        total = sum(data.codeagent_week_counts.get((codeagent, wk), 0) for wk in range(4))
+        print(
+            f"| {codeagent_display_name(codeagent):<12} | {total:<5} | "
+            f"{data.codeagent_week_counts.get((codeagent, 3), 0):<3} | "
+            f"{data.codeagent_week_counts.get((codeagent, 2), 0):<3} | "
+            f"{data.codeagent_week_counts.get((codeagent, 1), 0):<3} | "
+            f"{data.codeagent_week_counts.get((codeagent, 0), 0):<9} |",
+            file=out,
+        )
+    print(file=out)
+
+    print("### By LLM Model - Weekly Trend (Last 4 Weeks)", file=out)
+    print("| LLM Model    | Total | W-3 | W-2 | W-1 | This Week |", file=out)
+    print("|--------------|-------|-----|-----|-----|-----------|", file=out)
+
+    for model in sorted_weekly_keys(
+        data.all_models, data.model_week_counts, lambda key: data.model_display_names.get(key, "Unknown")
+    ):
+        total = sum(data.model_week_counts.get((model, wk), 0) for wk in range(4))
+        print(
+            f"| {data.model_display_names.get(model, 'Unknown'):<12} | {total:<5} | "
+            f"{data.model_week_counts.get((model, 3), 0):<3} | "
+            f"{data.model_week_counts.get((model, 2), 0):<3} | "
+            f"{data.model_week_counts.get((model, 1), 0):<3} | "
+            f"{data.model_week_counts.get((model, 0), 0):<9} |",
+            file=out,
+        )
+    print(file=out)
+
     return out.getvalue()
 
 
 def write_csv(path: Path, rows: Sequence[Sequence[str]]) -> None:
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["date", "day_of_week", "week_offset", "task_id", "labels", "issue_type", "task_type"])
+        writer.writerow(
+            [
+                "date",
+                "day_of_week",
+                "week_offset",
+                "task_id",
+                "labels",
+                "issue_type",
+                "task_type",
+                "implemented_with",
+                "codeagent",
+                "llm_model",
+            ]
+        )
         for row in sorted(rows, key=lambda x: x[0], reverse=True):
             writer.writerow(row)
+
+
+def chart_totals(
+    weekly_counts: Counter,
+    display_lookup,
+    week_offsets: Sequence[int],
+    limit: Optional[int] = None,
+) -> Tuple[List[str], List[int]]:
+    totals: Dict[str, int] = defaultdict(int)
+    for (key, week_offset), count in weekly_counts.items():
+        if week_offset in week_offsets:
+            totals[key] += count
+
+    items = sorted(totals.items(), key=lambda item: (-item[1], display_lookup(item[0])))
+    if limit is not None and len(items) > limit:
+        visible = items[: limit - 1]
+        other_total = sum(count for _, count in items[limit - 1 :])
+        if other_total:
+            visible.append(("__other__", other_total))
+        items = visible
+
+    labels = ["Other" if key == "__other__" else display_lookup(key) for key, _ in items]
+    values = [count for _, count in items]
+    return labels, values
 
 
 def run_plot_summary(data: StatsData, days: int, today: date, week_start_dow: int) -> None:
@@ -580,6 +872,26 @@ def run_plot_summary(data: StatsData, days: int, today: date, week_start_dow: in
         [t.capitalize() for t in types],
         [data.type_week_counts.get((t, 0), 0) for t in types],
     )
+
+    codeagent_4w_x, codeagent_4w_y = chart_totals(
+        data.codeagent_week_counts, codeagent_display_name, range(4)
+    )
+    show_chart("Code Agents (Last 4 Weeks)", codeagent_4w_x, codeagent_4w_y)
+
+    codeagent_1w_x, codeagent_1w_y = chart_totals(
+        data.codeagent_week_counts, codeagent_display_name, [0]
+    )
+    show_chart("Code Agents (This Week)", codeagent_1w_x, codeagent_1w_y)
+
+    model_4w_x, model_4w_y = chart_totals(
+        data.model_week_counts, lambda key: data.model_display_names.get(key, "Unknown"), range(4), limit=8
+    )
+    show_chart("LLM Models (Last 4 Weeks)", model_4w_x, model_4w_y)
+
+    model_1w_x, model_1w_y = chart_totals(
+        data.model_week_counts, lambda key: data.model_display_names.get(key, "Unknown"), [0], limit=8
+    )
+    show_chart("LLM Models (This Week)", model_1w_x, model_1w_y)
 
 
 def main(argv: Sequence[str]) -> int:

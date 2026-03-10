@@ -75,13 +75,16 @@ ait stats -w sun           # Week starts on Sunday
 5. **Label day-of-week** — Per-label averages by day of week (last 30 days)
 6. **Task type trends** — Parent/child and issue type (feature/bug/refactor) weekly trends
 7. **Label + type trends** — Issue types by label, weekly for last 4 weeks
+8. **Code agent trends** — Weekly completion split by code agent for last 4 weeks
+9. **LLM model trends** — Weekly completion split by normalized LLM model for last 4 weeks
 
 **Data sources:** Scans archived parent tasks (`aitasks/archived/t*_*.md`), archived child tasks (`aitasks/archived/t*/`), and compressed archives (`old.tar.gz`). Uses `completed_at` field, falling back to `updated_at` for tasks with `status: Done`.
 
-**CSV export format:** `date, day_of_week, week_offset, task_id, labels, issue_type, task_type`. Open in LibreOffice Calc for custom charts and pivot tables.
+**CSV export format:** `date, day_of_week, week_offset, task_id, labels, issue_type, task_type, implemented_with, codeagent, llm_model`. Open in LibreOffice Calc for custom charts and pivot tables.
 
 **Plot mode (`--plot`):**
 
 - Uses optional `plotext` to render interactive terminal charts.
+- Adds code agent and LLM model histograms for both the last 4 weeks and this week, alongside the existing charts.
 - If `plotext` is not installed, `ait stats` still runs and prints the normal text report, then shows a warning and skips chart rendering (no crash).
 - Enable it via `ait setup` in the Python venv step when prompted: `Install plotext for 'ait stats --plot'? [y/N]`.

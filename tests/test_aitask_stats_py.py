@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import csv
 import importlib.util
+import json
 import sys
 import tarfile
 import tempfile
@@ -54,14 +56,51 @@ class TestCollection(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.base = Path(self.tmp.name)
 
+        metadata = self.base / "aitasks" / "metadata"
         archived = self.base / "aitasks" / "archived"
+        metadata.mkdir(parents=True)
         archived.mkdir(parents=True)
+
+        (metadata / "models_codex.json").write_text(
+            json.dumps(
+                {
+                    "models": [
+                        {"name": "gpt5_4", "cli_id": "gpt-5.4"},
+                        {"name": "gpt5_3codex", "cli_id": "gpt-5.3-codex"},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        (metadata / "models_claudecode.json").write_text(
+            json.dumps({"models": [{"name": "opus4_6", "cli_id": "claude-opus-4-6"}]}),
+            encoding="utf-8",
+        )
+        (metadata / "models_geminicli.json").write_text(
+            json.dumps({"models": [{"name": "gemini2_5pro", "cli_id": "gemini-2.5-pro"}]}),
+            encoding="utf-8",
+        )
+        (metadata / "models_opencode.json").write_text(
+            json.dumps(
+                {
+                    "models": [
+                        {
+                            "name": "openai_gpt_5_3_codex",
+                            "cli_id": "openai/gpt-5.3-codex",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
         (archived / "t1_parent.md").write_text(
             "---\n"
             "status: Done\n"
             "completed_at: 2026-03-01 10:00\n"
             "labels: [alpha]\n"
             "issue_type: bug\n"
+            "implemented_with: codex/gpt5_4\n"
             "---\n"
             "parent\n",
             encoding="utf-8",
@@ -75,8 +114,32 @@ class TestCollection(unittest.TestCase):
             "completed_at: 2026-03-02 11:00\n"
             "labels: [beta]\n"
             "issue_type: feature\n"
+            "implemented_with: claudecode/opus4_6\n"
             "---\n"
             "child\n",
+            encoding="utf-8",
+        )
+
+        (archived / "t3_missing_impl.md").write_text(
+            "---\n"
+            "status: Done\n"
+            "completed_at: 2026-03-03 08:00\n"
+            "labels: [delta]\n"
+            "issue_type: documentation\n"
+            "---\n"
+            "missing\n",
+            encoding="utf-8",
+        )
+
+        (archived / "t4_legacy_impl.md").write_text(
+            "---\n"
+            "status: Done\n"
+            "completed_at: 2026-03-04 12:00\n"
+            "labels: [epsilon]\n"
+            "issue_type: feature\n"
+            "implemented_with: codex/gpt-5\n"
+            "---\n"
+            "legacy\n",
             encoding="utf-8",
         )
 
@@ -89,6 +152,7 @@ class TestCollection(unittest.TestCase):
                 "completed_at: 2026-02-20 09:00\n"
                 "labels: [gamma]\n"
                 "issue_type: refactor\n"
+                "implemented_with: opencode/openai_gpt_5_3_codex\n"
                 "---\n"
                 "old\n",
                 encoding="utf-8",
@@ -114,13 +178,89 @@ class TestCollection(unittest.TestCase):
 
     def test_collect_stats_includes_archived_and_tar(self):
         data = stats.collect_stats(today=date(2026, 3, 5), week_start_dow=1)
-        self.assertEqual(data.total_tasks, 3)
-        self.assertEqual(data.tasks_7d, 2)
-        self.assertEqual(data.tasks_30d, 3)
+        self.assertEqual(data.total_tasks, 5)
+        self.assertEqual(data.tasks_7d, 4)
+        self.assertEqual(data.tasks_30d, 5)
         self.assertEqual(data.label_counts_total["alpha"], 1)
         self.assertEqual(data.label_counts_total["beta"], 1)
         self.assertEqual(data.label_counts_total["gamma"], 1)
-        self.assertEqual(len(data.csv_rows), 3)
+        self.assertEqual(data.codeagent_week_counts[("codex", 0)], 1)
+        self.assertEqual(data.codeagent_week_counts[("codex", 1)], 1)
+        self.assertEqual(data.codeagent_week_counts[("claudecode", 0)], 1)
+        self.assertEqual(data.codeagent_week_counts[("opencode", 2)], 1)
+        self.assertEqual(data.codeagent_week_counts[("unknown", 0)], 1)
+        self.assertEqual(data.model_week_counts[("gpt5", 0)], 1)
+        self.assertEqual(data.model_week_counts[("gpt5_4", 1)], 1)
+        self.assertEqual(data.model_week_counts[("opus4_6", 0)], 1)
+        self.assertEqual(data.model_week_counts[("gpt5_3codex", 2)], 1)
+        self.assertEqual(data.model_week_counts[("unknown", 0)], 1)
+        self.assertEqual(len(data.csv_rows), 5)
+        self.assertEqual(len(data.csv_rows[0]), 10)
+
+    def test_normalize_implemented_with_handles_legacy_and_missing_values(self):
+        canonical = stats.normalize_implemented_with("codex/gpt5_4")
+        legacy = stats.normalize_implemented_with("codex/gpt-5")
+        missing = stats.normalize_implemented_with("")
+        unknown_model = stats.normalize_implemented_with("codex/not_a_known_model")
+
+        self.assertEqual(canonical.codeagent_key, "codex")
+        self.assertEqual(canonical.model_key, "gpt5_4")
+        self.assertEqual(canonical.model_display, "GPT5.4")
+        self.assertEqual(legacy.codeagent_key, "codex")
+        self.assertEqual(legacy.model_key, "gpt5")
+        self.assertEqual(legacy.model_display, "GPT5")
+        self.assertEqual(missing.codeagent_key, "unknown")
+        self.assertEqual(missing.model_key, "unknown")
+        self.assertEqual(unknown_model.codeagent_key, "codex")
+        self.assertEqual(unknown_model.model_key, "unknown")
+
+    def test_render_text_report_includes_codeagent_and_model_sections(self):
+        data = stats.collect_stats(today=date(2026, 3, 5), week_start_dow=1)
+
+        report = stats.render_text_report(
+            data,
+            days=7,
+            verbose=False,
+            week_start_dow=1,
+            today=date(2026, 3, 5),
+        )
+
+        self.assertIn("### By Code Agent - Weekly Trend (Last 4 Weeks)", report)
+        self.assertIn("### By LLM Model - Weekly Trend (Last 4 Weeks)", report)
+        self.assertIn("Codex", report)
+        self.assertIn("Claude Code", report)
+        self.assertIn("GPT5.4", report)
+        self.assertIn("GPT5.3-Codex", report)
+        self.assertIn("Unknown", report)
+
+    def test_write_csv_includes_implementation_columns(self):
+        data = stats.collect_stats(today=date(2026, 3, 5), week_start_dow=1)
+        output = self.base / "stats.csv"
+
+        stats.write_csv(output, data.csv_rows)
+
+        with output.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.reader(handle))
+
+        self.assertEqual(
+            rows[0],
+            [
+                "date",
+                "day_of_week",
+                "week_offset",
+                "task_id",
+                "labels",
+                "issue_type",
+                "task_type",
+                "implemented_with",
+                "codeagent",
+                "llm_model",
+            ],
+        )
+        self.assertIn(
+            ["2026-03-04", "Wed", "0", "t4_legacy_impl", "epsilon", "feature", "parent", "codex/gpt-5", "codex", "gpt5"],
+            rows[1:],
+        )
 
 
 if __name__ == "__main__":
