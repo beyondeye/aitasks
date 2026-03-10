@@ -307,6 +307,23 @@ assert_contains "metadata has contributor field" "contributor:" "$output"
 assert_contains "metadata has contributor_email field" "contributor_email:" "$output"
 assert_contains "metadata has version field" "based_on_version:" "$output"
 
+# --- Test 11b: Fingerprint metadata fields ---
+echo "--- Test 11b: Fingerprint metadata fields ---"
+output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh \
+    --dry-run --area scripts \
+    --files ".aitask-scripts/original_script.sh" \
+    --title "Fingerprint test" \
+    --motivation "Testing fingerprint" \
+    --scope enhancement \
+    --merge-approach "clean merge" 2>&1)
+
+assert_contains "metadata has fingerprint_version" "fingerprint_version: 1" "$output"
+assert_contains "metadata has areas field" "areas: scripts" "$output"
+assert_contains "metadata has file_paths field" "file_paths: .aitask-scripts/original_script.sh" "$output"
+assert_contains "metadata has file_dirs field" "file_dirs: .aitask-scripts" "$output"
+assert_contains "metadata has change_type field" "change_type: enhancement" "$output"
+assert_contains "metadata has auto_labels field" "auto_labels: area:scripts,scope:enhancement" "$output"
+
 # --- Test 12: --source flag parsing ---
 echo "--- Test 12: --source flag parsing ---"
 # Valid sources should be accepted in dry-run mode

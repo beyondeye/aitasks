@@ -608,12 +608,24 @@ EOF
         _output_file_diff "$current_file" "$current_diff" "$preview_lines"
     fi
 
+    # Compute fingerprint fields
+    local sorted_files file_dirs area_name
+    sorted_files=$(echo "$files" | tr ',' '\n' | sort | tr '\n' ',' | sed 's/,$//')
+    file_dirs=$(echo "$files" | tr ',' '\n' | sed 's|/[^/]*$||' | sort -u | tr '\n' ',' | sed 's/,$//')
+    area_name="${ARG_AREA:-unknown}"
+
     # Contributor metadata as HTML comment
     echo ""
     echo "<!-- aitask-contribute-metadata"
     echo "contributor: $contributor"
     echo "contributor_email: $contributor_email"
     echo "based_on_version: ${version:-unknown}"
+    echo "fingerprint_version: 1"
+    echo "areas: $area_name"
+    echo "file_paths: $sorted_files"
+    echo "file_dirs: $file_dirs"
+    echo "change_type: $scope"
+    echo "auto_labels: area:$area_name,scope:$scope"
     echo "-->"
 }
 
