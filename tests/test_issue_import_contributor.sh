@@ -57,58 +57,10 @@ setup_parse_function() {
     local tmpdir
     tmpdir="$(mktemp -d)"
 
-    # Create a minimal script that defines just parse_contribute_metadata
-    cat > "$tmpdir/parse_func.sh" << 'FUNCEOF'
-parse_contribute_metadata() {
-    local body="$1"
-    CONTRIBUTE_CONTRIBUTOR=""
-    CONTRIBUTE_EMAIL=""
-    CONTRIBUTE_FINGERPRINT_VERSION=""
-    CONTRIBUTE_AREAS=""
-    CONTRIBUTE_FILE_PATHS=""
-    CONTRIBUTE_FILE_DIRS=""
-    CONTRIBUTE_CHANGE_TYPE=""
-    CONTRIBUTE_AUTO_LABELS=""
-
-    local in_block=false
-    while IFS= read -r line; do
-        if [[ "$line" == *"<!-- aitask-contribute-metadata"* ]]; then
-            in_block=true
-            continue
-        fi
-        if [[ "$in_block" == true ]]; then
-            if [[ "$line" == *"-->"* ]]; then
-                break
-            fi
-            case "$line" in
-                *contributor_email:*)
-                    CONTRIBUTE_EMAIL=$(echo "$line" | sed 's/.*contributor_email:[[:space:]]*//' | tr -d '[:space:]')
-                    ;;
-                *contributor:*)
-                    CONTRIBUTE_CONTRIBUTOR=$(echo "$line" | sed 's/.*contributor:[[:space:]]*//' | tr -d '[:space:]')
-                    ;;
-                *fingerprint_version:*)
-                    CONTRIBUTE_FINGERPRINT_VERSION=$(echo "$line" | sed 's/.*fingerprint_version:[[:space:]]*//' | tr -d '[:space:]')
-                    ;;
-                *file_paths:*)
-                    CONTRIBUTE_FILE_PATHS=$(echo "$line" | sed 's/.*file_paths:[[:space:]]*//' | sed 's/[[:space:]]*$//')
-                    ;;
-                *file_dirs:*)
-                    CONTRIBUTE_FILE_DIRS=$(echo "$line" | sed 's/.*file_dirs:[[:space:]]*//' | sed 's/[[:space:]]*$//')
-                    ;;
-                *change_type:*)
-                    CONTRIBUTE_CHANGE_TYPE=$(echo "$line" | sed 's/.*change_type:[[:space:]]*//' | tr -d '[:space:]')
-                    ;;
-                *auto_labels:*)
-                    CONTRIBUTE_AUTO_LABELS=$(echo "$line" | sed 's/.*auto_labels:[[:space:]]*//' | sed 's/[[:space:]]*$//')
-                    ;;
-                *areas:*)
-                    CONTRIBUTE_AREAS=$(echo "$line" | sed 's/.*areas:[[:space:]]*//' | sed 's/[[:space:]]*$//')
-                    ;;
-            esac
-        fi
-    done <<< "$body"
-}
+    # Create a minimal script that sources parse_contribute_metadata from task_utils.sh
+    cat > "$tmpdir/parse_func.sh" << FUNCEOF
+SCRIPT_DIR="$PROJECT_DIR/.aitask-scripts"
+source "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh"
 FUNCEOF
     echo "$tmpdir"
 }

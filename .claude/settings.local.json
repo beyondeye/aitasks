@@ -32,6 +32,7 @@
       "Bash(./.aitask-scripts/aitask_codeagent.sh:*)",
       "Bash(./.aitask-scripts/aitask_codemap.sh:*)",
       "Bash(./.aitask-scripts/aitask_contribute.sh:*)",
+      "Bash(./.aitask-scripts/aitask_contribution_check.sh:*)",
       "Bash(./.aitask-scripts/aitask_stats.sh:*)",
       "Bash(./.aitask-scripts/aitask_issue_update.sh:*)",
       "Bash(./.aitask-scripts/aitask_changelog.sh:*)",
@@ -98,7 +99,9 @@
       "Bash(./aiscripts/aitask_lock.sh:*)",
       "Bash(./aiscripts/aitask_review_commits.sh:*)",
       "Bash(./aiscripts/aitask_review_detect_env.sh:*)",
-      "Bash(./aiscripts/aitask_archive.sh:*)"
+      "Bash(./aiscripts/aitask_archive.sh:*)",
+      "WebFetch(domain:developer.atlassian.com)",
+      "WebFetch(domain:support.atlassian.com)"
     ]
   }
 }
