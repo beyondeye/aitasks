@@ -42,4 +42,5 @@ stats_ui
 task_workflow
 tui
 web_site
+whitelists
 workflows
