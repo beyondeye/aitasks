@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [3]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_contribute]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-10 09:56
-updated_at: 2026-03-10 23:13
+updated_at: 2026-03-10 23:23
+completed_at: 2026-03-10 23:23
 ---
 
 ## Context
