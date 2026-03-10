@@ -1,5 +1,42 @@
 # Changelog
 
+## v0.10.0
+
+### Features
+
+- **Upstream contribution workflow** (t321_1, t321_2, t321_4, t321_6): Added `/aitask-contribute` command to open structured issues against upstream repositories directly from local changes, with multi-platform support for GitHub, GitLab, and Bitbucket. Issue imports now parse contributor metadata from contribution issues.
+- **Agent commit coauthor support** (t339_1, t339_2, t339_3, t339_4, t339_6): Commit messages now include accurate code-agent and model attribution for all supported agents (Claude Code, Codex CLI, Gemini CLI, OpenCode). The coauthor domain is configurable via `project_config.yaml`.
+- **Project config editing in settings** (t339_7): Added regression tests for the Settings TUI Project Config tab's YAML helpers.
+- **Code area maps and project contributions** (t341_1, t341_2, t341_3): Added `code_areas.yaml` for defining project structure, automatic codemap generation, and dual-mode contribute workflow supporting both framework and project-level contributions with hierarchical area drill-down.
+- **Code agent and model statistics** (t353): `ait stats` now shows breakdowns by code agent and LLM model, including weekly trends and plot histograms.
+- **AI agent whitelist updates** (t362): Updated agent configuration whitelists to include newly added scripts.
+
+### Bug Fixes
+
+- **Codex CLI model resolution** (t340): Fixed model identification for Codex CLI agents by adding config-file fallback when environment detection fails.
+- **Seed execution profiles out of sync** (t342): Synced seed execution profiles (`fast.yaml`, `remote.yaml`) with the canonical metadata versions.
+- **Consolidated duplicate create skills** (t347): Merged `aitask-create` and `aitask-create2` into a single unified skill with full batch mode support.
+- **Child task sorting in board** (t350): Fixed child tasks sorting lexicographically instead of numerically in the board TUI.
+- **Contribution label failure** (t354): Contributions no longer fail when the target repository lacks the expected issue label; the script retries without the label automatically.
+- **OpenCode planning detail** (t357_1): Enhanced OpenCode plan mode requirements to produce more detailed implementation plans with explicit file paths and code snippets.
+- **Agent confusion with symlinked directories** (t358): Added repo-structure documentation to prevent code agents from misinterpreting `aitasks/` and `aiplans/` symlinks.
+- **Stats plot title and spacing** (t359): Fixed chart titles and sizing in `ait stats --plot` output with terminal-aware rendering and visual spacing between charts.
+- **Workflow skipping review after child creation** (t360): Fixed the task workflow incorrectly proceeding to review/archive steps after creating child tasks instead of stopping.
+
+### Documentation
+
+- **Multi-agent documentation review** (t320): Updated 26 documentation pages to remove Claude-only narration and align with the multi-agent architecture.
+- **Contribution workflow documentation** (t321_3): Added skill docs, workflow guide covering all three contribution paths, and README updates.
+- **Documentation site links** (t336): Updated all README links from GitHub Pages to the new `aitasks.io` domain.
+- **Agent commit attribution docs** (t339_5): Added dedicated commit attribution documentation explaining how agent coauthors work across all supported agents.
+- **Gemini CLI and Codex CLI known issues** (t356): Documented known limitations for Gemini CLI and Codex CLI agents on the installation known-issues page.
+- **OpenCode plan mode caveats** (t357_2): Added OpenCode-specific known issues including plan mode locking skip and shallow plan workarounds.
+- **Contribute docs for project repos** (t363): Updated contribution documentation to reflect support for both framework and project-level contributions.
+
+### Performance
+
+- **Python codemap scanner** (t348): Rewrote the codemap scanning from bash to Python for better performance, with new filtering options and framework directory exclusion.
+
 ## v0.9.0
 
 ### Features
