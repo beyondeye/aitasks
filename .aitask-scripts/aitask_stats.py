@@ -13,6 +13,7 @@ import io
 import json
 import os
 import re
+import shutil
 import sys
 import tarfile
 from collections import Counter, defaultdict
@@ -802,6 +803,26 @@ def chart_totals(
     return labels, values
 
 
+def week_start_display_name(week_start_dow: int) -> str:
+    if 1 <= week_start_dow < len(DAY_FULL_NAMES):
+        return DAY_FULL_NAMES[week_start_dow]
+    return "Monday"
+
+
+def build_chart_title(subject: str, timeframe: str, week_start_dow: Optional[int] = None) -> str:
+    title = f"{subject} - {timeframe}"
+    if week_start_dow is not None:
+        title += f" (week starts {week_start_display_name(week_start_dow)})"
+    return title
+
+
+def chart_plot_size() -> Tuple[int, int]:
+    size = shutil.get_terminal_size(fallback=(120, 40))
+    width = max(60, size.columns)
+    height = max(12, size.lines - 5)
+    return width, height
+
+
 def run_plot_summary(data: StatsData, days: int, today: date, week_start_dow: int) -> None:
     try:
         import plotext as plt  # type: ignore
@@ -823,6 +844,9 @@ def run_plot_summary(data: StatsData, days: int, today: date, week_start_dow: in
         if not x:
             return
         plt.clear_figure()
+        width, height = chart_plot_size()
+        if hasattr(plt, "plotsize"):
+            plt.plotsize(width, height)
         plt.title(title)
         if kind == "line":
             # plotext attempts date parsing for strings like "02-27".
@@ -842,10 +866,12 @@ def run_plot_summary(data: StatsData, days: int, today: date, week_start_dow: in
                 input("Press Enter for next chart... ")
             except EOFError:
                 pass
+        print()
+        print()
 
     dseq = [today - timedelta(days=i) for i in range(days - 1, -1, -1)]
     show_chart(
-        f"Daily Completions (Last {days} Days)",
+        build_chart_title("Daily Completions", f"last {days} days"),
         [d.isoformat()[5:] for d in dseq],
         [data.daily_counts.get(d, 0) for d in dseq],
         kind="line",
@@ -854,21 +880,21 @@ def run_plot_summary(data: StatsData, days: int, today: date, week_start_dow: in
 
     week_dows = [((week_start_dow - 1 + j) % 7) + 1 for j in range(7)]
     show_chart(
-        "Average Completions by Weekday (Last 30d)",
+        build_chart_title("Average Completions by Weekday", "last 30 days", week_start_dow),
         [DAY_NAMES[dow] for dow in week_dows],
         [data.dow_counts_30d.get(dow, 0) for dow in week_dows],
     )
 
     top_labels = sorted(data.all_labels, key=lambda lbl: (-data.label_counts_total.get(lbl, 0), lbl))[:8]
     show_chart(
-        "Top Labels (All Time)",
+        build_chart_title("Top Labels by Completed Tasks", "all time"),
         top_labels,
         [data.label_counts_total.get(lbl, 0) for lbl in top_labels],
     )
 
     types = get_valid_task_types()[:8]
     show_chart(
-        "Issue Types This Week",
+        build_chart_title("Issue Types", "this week", week_start_dow),
         [t.capitalize() for t in types],
         [data.type_week_counts.get((t, 0), 0) for t in types],
     )
@@ -876,22 +902,38 @@ def run_plot_summary(data: StatsData, days: int, today: date, week_start_dow: in
     codeagent_4w_x, codeagent_4w_y = chart_totals(
         data.codeagent_week_counts, codeagent_display_name, range(4)
     )
-    show_chart("Code Agents (Last 4 Weeks)", codeagent_4w_x, codeagent_4w_y)
+    show_chart(
+        build_chart_title("Code Agents by Completed Tasks", "last 4 weeks", week_start_dow),
+        codeagent_4w_x,
+        codeagent_4w_y,
+    )
 
     codeagent_1w_x, codeagent_1w_y = chart_totals(
         data.codeagent_week_counts, codeagent_display_name, [0]
     )
-    show_chart("Code Agents (This Week)", codeagent_1w_x, codeagent_1w_y)
+    show_chart(
+        build_chart_title("Code Agents by Completed Tasks", "this week", week_start_dow),
+        codeagent_1w_x,
+        codeagent_1w_y,
+    )
 
     model_4w_x, model_4w_y = chart_totals(
         data.model_week_counts, lambda key: data.model_display_names.get(key, "Unknown"), range(4), limit=8
     )
-    show_chart("LLM Models (Last 4 Weeks)", model_4w_x, model_4w_y)
+    show_chart(
+        build_chart_title("LLM Models by Completed Tasks", "last 4 weeks", week_start_dow),
+        model_4w_x,
+        model_4w_y,
+    )
 
     model_1w_x, model_1w_y = chart_totals(
         data.model_week_counts, lambda key: data.model_display_names.get(key, "Unknown"), [0], limit=8
     )
-    show_chart("LLM Models (This Week)", model_1w_x, model_1w_y)
+    show_chart(
+        build_chart_title("LLM Models by Completed Tasks", "this week", week_start_dow),
+        model_1w_x,
+        model_1w_y,
+    )
 
 
 def main(argv: Sequence[str]) -> int:

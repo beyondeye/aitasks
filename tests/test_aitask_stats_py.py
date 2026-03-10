@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import csv
 import importlib.util
+import io
 import json
 import sys
 import tarfile
 import tempfile
+import types
 import unittest
 from datetime import date
 from pathlib import Path
+from typing import Any, cast
+from unittest.mock import patch
 
 
 def _load_stats_module():
@@ -24,7 +28,7 @@ def _load_stats_module():
     return module
 
 
-stats = _load_stats_module()
+stats = cast(Any, _load_stats_module())
 
 
 class TestWeekStart(unittest.TestCase):
@@ -260,6 +264,77 @@ class TestCollection(unittest.TestCase):
         self.assertIn(
             ["2026-03-04", "Wed", "0", "t4_legacy_impl", "epsilon", "feature", "parent", "codex/gpt-5", "codex", "gpt5"],
             rows[1:],
+        )
+
+    def test_run_plot_summary_uses_descriptive_titles(self):
+        data = stats.collect_stats(today=date(2026, 3, 5), week_start_dow=1)
+        titles = []
+        plot_sizes = []
+
+        class FakePlotext:
+            def clear_figure(self):
+                pass
+
+            def plotsize(self, width, height):
+                plot_sizes.append((width, height))
+
+            def title(self, value):
+                titles.append(value)
+
+            def plot(self, *args, **kwargs):
+                pass
+
+            def xticks(self, *args, **kwargs):
+                pass
+
+            def bar(self, *args, **kwargs):
+                pass
+
+            def theme(self, *args, **kwargs):
+                pass
+
+            def show(self):
+                pass
+
+        fake_plotext = FakePlotext()
+
+        with patch.dict(sys.modules, {"plotext": types.SimpleNamespace(
+            clear_figure=fake_plotext.clear_figure,
+            plotsize=fake_plotext.plotsize,
+            title=fake_plotext.title,
+            plot=fake_plotext.plot,
+            xticks=fake_plotext.xticks,
+            bar=fake_plotext.bar,
+            theme=fake_plotext.theme,
+            show=fake_plotext.show,
+        )}), patch.object(stats.shutil, "get_terminal_size", return_value=types.SimpleNamespace(columns=100, lines=30)), patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            stats.run_plot_summary(data, days=7, today=date(2026, 3, 5), week_start_dow=1)
+
+        self.assertEqual(len(titles), 8)
+        self.assertEqual(plot_sizes, [(100, 25)] * 8)
+        self.assertEqual(stdout.getvalue(), "\n\n" * 8)
+        self.assertIn("Daily Completions - last 7 days", titles)
+        self.assertIn(
+            "Average Completions by Weekday - last 30 days (week starts Monday)",
+            titles,
+        )
+        self.assertIn("Top Labels by Completed Tasks - all time", titles)
+        self.assertIn("Issue Types - this week (week starts Monday)", titles)
+        self.assertIn(
+            "Code Agents by Completed Tasks - last 4 weeks (week starts Monday)",
+            titles,
+        )
+        self.assertIn(
+            "Code Agents by Completed Tasks - this week (week starts Monday)",
+            titles,
+        )
+        self.assertIn(
+            "LLM Models by Completed Tasks - last 4 weeks (week starts Monday)",
+            titles,
+        )
+        self.assertIn(
+            "LLM Models by Completed Tasks - this week (week starts Monday)",
+            titles,
         )
 
 
