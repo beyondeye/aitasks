@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [aitask_pick]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-10 11:11
-updated_at: 2026-03-10 11:16
+updated_at: 2026-03-10 11:23
 ---
 
 I have just run task 355. this task was explicitly defined was a "DESIGN" task with no code implementation. that created 7 child tasks. at the end pf the "implementation" that is after plan approval and creationg of all 7 child tasks and their plan, I got the following log of operation in claude code;

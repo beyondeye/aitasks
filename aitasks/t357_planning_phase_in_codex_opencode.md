@@ -3,10 +3,9 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Ready
 labels: [task_workflow]
 children_to_implement: [t357_1, t357_2]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-10 09:37
 updated_at: 2026-03-10 11:25
 ---
