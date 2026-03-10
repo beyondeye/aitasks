@@ -136,6 +136,10 @@ Add a note to `aitasks/t355/t355_7_documentation_and_seed_distribution.md` speci
 6. `./.aitask-scripts/aitask_contribution_check.sh --help`
 7. Existing tests still pass: `bash tests/test_contribute.sh && bash tests/test_issue_import_contributor.sh`
 
-## Step 9: Post-Implementation
+## Final Implementation Notes
 
-Archive task and plan via `aitask_archive.sh 355_3`.
+- **Actual work done:** Implemented all plan steps faithfully. Created `aitask_contribution_check.sh` (~740 lines) with 3 platform backends (GitHub/GitLab/Bitbucket), overlap scoring engine, comment formatting, and label resolution. Extracted `parse_contribute_metadata()` to shared lib. Created comprehensive test suite (56 assertions). Added script to all 5 allowlist files (seed + active for Claude Code, Gemini CLI, OpenCode). Updated t355_7 with CI/CD token documentation requirements.
+- **Deviations from plan:** Plan mentioned `_AIT_CONTRIBUTE_METADATA_LOADED` guard for the extracted function; skipped it since `task_utils.sh` already has its own `_AIT_TASK_UTILS_LOADED` guard that prevents the entire file from being sourced twice. Added `classify_overlap()` as a separate helper (plan had thresholds inline in `format_overlap_comment`). Bitbucket backend uses curl-only (no `bkt` CLI) as planned. GitLab uses `glab` with curl fallback as planned.
+- **Issues encountered:** Shellcheck flagged `SC2034` warnings for CONTRIBUTE_* globals in `task_utils.sh` — expected for library functions that set globals for callers (same as when function lived in `aitask_issue_import.sh`). Fixed real shellcheck issues: replaced `sed 's|/|%2F|g'` with `${var//\//%2F}` bash substitution, removed unused `encoded_body` variable, removed unused `target_title`/`target_url` locals.
+- **Key decisions:** Used `local -n` (nameref) for `format_overlap_comment()` to pass arrays by reference. Used colon as field separator in scored results array with `tr ':' '-'` sanitization for titles/details. Test file sources the script directly (BASH_SOURCE guard enables this) rather than extracting functions.
+- **Notes for sibling tasks:** The script follows the same platform backend pattern as `aitask_issue_import.sh` and `aitask_contribute.sh`. Platform dispatchers use `CHECK_PLATFORM` (not `SOURCE` like issue_import). The `BASH_SOURCE` guard on `main()` is essential for t355_6 (contribution-review skill) to source individual functions. All allowlist files must be kept in sync — 5 files total (seed: claude, opencode, gemini; active: claude, gemini).
