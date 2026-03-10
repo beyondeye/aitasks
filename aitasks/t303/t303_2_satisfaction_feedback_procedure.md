@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codeagent, ait_settings]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-08 11:10
-updated_at: 2026-03-08 11:10
+updated_at: 2026-03-10 21:54
 ---
 
 ## Context
