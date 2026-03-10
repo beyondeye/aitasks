@@ -44,7 +44,7 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 
 **Windows/WSL users:** See the [Windows/WSL Installation Guide](windows-wsl/) for step-by-step instructions including WSL setup, agent installation examples, and terminal configuration.
 
-**Agent caveats:** See [Known Agent Issues](known-issues/) for current Claude Code and Codex CLI workflow limitations.
+**Agent caveats:** See [Known Agent Issues](known-issues/) for current Claude Code, Gemini CLI, and Codex CLI workflow limitations.
 
 ## Platform Support
 
