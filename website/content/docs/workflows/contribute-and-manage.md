@@ -2,7 +2,7 @@
 title: "Contribute and Manage Contributions"
 linkTitle: "Contributions"
 weight: 36
-description: "End-to-end guide for contributing to and managing contributions for open-source projects using aitasks"
+description: "End-to-end guide for sharing changes and managing incoming contributions with aitasks"
 ---
 
 The aitasks framework provides a complete toolkit for both sides of open-source contribution: **contributors** who want to share improvements, and **maintainers** who need to review, import, and implement those contributions. Three complementary features work together to create a streamlined contribution lifecycle.
@@ -38,26 +38,26 @@ See the [PR Import workflow](../pr-workflow/) for full details.
 
 ### 3. Contribute Without Forking — `/aitask-contribute`
 
-The [`/aitask-contribute`](../../skills/aitask-contribute/) skill offers an alternative to the traditional fork → branch → PR contribution model. Contributors simply make their modifications locally and the skill handles the rest:
+The [`/aitask-contribute`](../../skills/aitask-contribute/) skill offers a simpler alternative to the usual fork → branch → PR flow. It helps contributors package local changes into a structured issue that a maintainer can later import as an aitask.
 
-**Who uses it:** Contributors who want to share improvements with the upstream project.
+**Who uses it:** Contributors who want to share improvements with the `aitasks` framework or with a project repository that uses aitasks.
 
 **How it works:**
-1. The contributor modifies framework files locally (scripts, skills, website, etc.)
-2. Running `/aitask-contribute` detects what changed compared to upstream
-3. AI analyzes the diffs, identifies logical groups, and proposes titles and scope
-4. The contributor reviews, adds motivation, and confirms
-5. A structured issue is created on the upstream repository (GitHub, GitLab, or Bitbucket) with embedded diffs, motivation, scope, and merge approach
+1. The contributor makes local changes in the framework repo or in a project repo that uses aitasks
+2. Running `/aitask-contribute` helps select the relevant area and files
+3. AI analyzes the diffs and prepares a concise contribution summary
+4. The contributor reviews the proposal, adds motivation, and confirms
+5. A structured issue is created on the destination repository (GitHub, GitLab, or Bitbucket)
 
-**No fork required.** No branch to create, no PR to open. The contributor just makes changes and the skill creates a detailed issue that the maintainer can import as an aitask.
+**No fork required.** The contributor just makes the change locally and lets the skill package it for maintainer review.
 
 ## End-to-End Contribution Lifecycle
 
 The three features connect to form a complete lifecycle:
 
 ```
-Contributor's project                          Upstream repository
-─────────────────────                          ────────────────────
+Contributor's local repo                      Destination repository
+──────────────────────                        ──────────────────────
 
 1. Make local modifications
         │
@@ -113,4 +113,4 @@ This works identically for contributions arriving via PR (`/aitask-pr-import`) o
 
 - **Issue to Task** — For bug reports, feature requests, and general project management
 - **PR to Task** — When contributors submit traditional pull requests that need review and re-implementation
-- **Contribute Without Forking** — When contributors want to share framework improvements without the overhead of forking and creating PRs. Especially useful for downstream projects that have customized their aitasks installation
+- **Contribute Without Forking** — When contributors want to share framework improvements or project-repo changes without the overhead of forking and opening PRs

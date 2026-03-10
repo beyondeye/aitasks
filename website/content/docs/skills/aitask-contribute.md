@@ -2,10 +2,10 @@
 title: "/aitask-contribute"
 linkTitle: "/aitask-contribute"
 weight: 23
-description: "Contribute local framework changes back to the upstream aitasks repository"
+description: "Turn local changes into structured contribution issues for the aitasks framework or the current project repo"
 ---
 
-Contribute your local modifications and enhancements back to the upstream aitasks repository without creating a fork, branch, or pull request. The skill analyzes your changes against upstream, lets you select and group what to contribute, and automatically creates structured issues (GitHub, GitLab, or Bitbucket) with full diffs, motivation, and scope — ready for the maintainer to import as an aitask.
+Use `/aitask-contribute` to turn local changes into a structured contribution issue without going through the usual fork, branch, and pull request flow. You can use it to contribute improvements back to the `aitasks` framework, or to contribute changes to the current project repository when that project uses the aitasks framework.
 
 **Usage:**
 ```
@@ -16,32 +16,28 @@ Contribute your local modifications and enhancements back to the upstream aitask
 
 ## Step-by-Step
 
-1. **Prerequisites check** — Detects contribution mode (clone/fork vs downstream project) and lists available contribution areas. Verifies the appropriate platform CLI is installed and authenticated
-2. **Area selection** — Choose which areas of the framework you modified: scripts, Claude skills, Gemini CLI, Codex CLI, OpenCode, website, or a custom path
-3. **File discovery** — Scans selected areas for files that differ from upstream and presents them for selection
-4. **Upstream diff + AI analysis** — Generates diffs for selected files and AI analyzes the changes: what changed semantically, whether changes are logically related or distinct, appropriate scope classification, and merge complexity
-5. **Contribution grouping** — If multiple distinct change groups are identified, choose to split into separate contributions (one issue per group), keep as a single contribution, or create custom groupings
-6. **Motivation and scope** — For each contribution group: confirm or edit the AI-proposed title, provide motivation for the change, select scope (bug fix, enhancement, new feature, documentation), and choose a merge approach
-7. **Review, confirm, and create issue(s)** — Preview the full issue body, then create it on the upstream repository. Each issue includes embedded diffs, motivation, scope, and merge approach
+1. **Choose the target** — Pick whether you want to contribute to the `aitasks` framework or to the current project repository
+2. **Select the area and files** — Choose the changed area, then select the files you want to include
+3. **Review the AI summary** — The skill analyzes the diffs, summarizes what changed, and can split unrelated work into separate contributions
+4. **Add the contribution details** — Confirm or edit the proposed title, explain the motivation, choose the scope, and set the suggested merge approach
+5. **Preview and create the issue** — Review the final issue body, then create it on GitHub, GitLab, or Bitbucket
 
 ## Key Capabilities
 
-- **Two contribution modes** — Automatically detected from the repository structure:
-  - *Clone/fork mode* — You're working directly in a clone or fork of the aitasks repository
-  - *Downstream project mode* — You're working in a project that uses aitasks as a framework (installed via `ait setup`)
+- **Works in two places** — Contribute back to the `aitasks` framework, or contribute to the current project repository when that repo uses aitasks
 
-- **Contribution areas** — Pre-defined areas that map to framework directories: shell scripts (`.aitask-scripts/`), Claude Code skills (`.claude/skills/`), Gemini CLI (`.gemini/`), Codex CLI (`.agents/`, `.codex/`), OpenCode (`.opencode/`), and website (`website/`). Custom paths are also supported.
+- **Lets you focus the contribution** — Select only the relevant areas and files instead of sending everything at once
 
-- **AI-powered change analysis** — Diffs are analyzed semantically to identify logical change groups, propose titles, assess merge complexity, and suggest appropriate scope classifications
+- **Useful in project repos too** — In project mode, the skill works from the project's code areas map. If the map is missing, it guides you through generating one first
 
-- **Multi-contribution support** — When changes span multiple unrelated improvements, they can be split into separate issues — one per logical group — for cleaner upstream tracking
+- **AI helps package the change** — The skill summarizes the diff, proposes titles, suggests scope, and can split unrelated work into separate issues
 
-- **Multi-platform support** — Issues can be created on GitHub (default), GitLab, or Bitbucket via the `--source` flag. Each platform uses its native CLI tool (`gh`, `glab`, or `bkt`)
+- **Creates issues on the right platform** — Open contribution issues on GitHub, GitLab, or Bitbucket using the matching CLI tool
 
-- **Contributor attribution** — When the created issue is later imported upstream via [`ait issue-import`](../../commands/issue-integration/#ait-issue-import), the contributor's identity is preserved. Implementation commits include `Co-authored-by` trailers crediting the original contributor
+- **Preserves contributor attribution** — Imported work keeps contributor metadata so maintainers can carry attribution through the implementation workflow
 
-- **No fork required** — Unlike the traditional fork → branch → PR workflow, contributors simply make their modifications locally and let the skill handle the rest. This significantly lowers the barrier to contribution
+- **No fork required** — Make the change locally, review the generated issue, and submit it directly
 
 ## Workflows
 
-For a full workflow guide covering the contribution lifecycle end-to-end (including issue import and PR import), see [Contribute and Manage Contributions](../../workflows/contribute-and-manage/).
+For the end-to-end contribution flow, including how maintainers import and implement contributed work, see [Contribute and Manage Contributions](../../workflows/contribute-and-manage/).

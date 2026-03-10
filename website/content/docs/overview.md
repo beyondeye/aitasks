@@ -46,7 +46,7 @@ AI coding agents have reached a proficiency level where, given correct specs and
 
 - **Multi-Agent Support:** Supports Claude Code, Gemini CLI, Codex CLI, and OpenCode with shared task workflows across agents.
 
-- **Fully customizable workflow:** All the scripts and workflow skills live in your project repo — modify them for your needs and contribute back with ease your enhancements to the project with the included AI-based [/aitask-contribute]({{< relref "skills/aitask-contribute" >}}) skill.
+- **Fully customizable workflow:** All the scripts and workflow skills live in your project repo — adapt them to your needs, then use the included AI-based [/aitask-contribute]({{< relref "skills/aitask-contribute" >}}) skill to share improvements back to the framework or to the project repository itself.
 
 ---
 
