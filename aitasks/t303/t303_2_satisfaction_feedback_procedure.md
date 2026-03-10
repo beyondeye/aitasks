@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [codeagent, ait_settings]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: opencode/zen_gpt_5_4
 created_at: 2026-03-08 11:10
-updated_at: 2026-03-10 21:54
+updated_at: 2026-03-10 22:18
 ---
 
 ## Context
