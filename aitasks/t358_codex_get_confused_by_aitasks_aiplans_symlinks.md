@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [task_workflow, codexcli]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-10 09:46
-updated_at: 2026-03-10 09:46
+updated_at: 2026-03-10 12:20
 ---
 
 when codex start implementation phase after plan confirmation it get confused by the aiplans aitaks symlinks. here is an excerpt of the conversation
