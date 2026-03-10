@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [contribution, whitelists]
+assigned_to: dario-e@beyond-eye.com
 issue: https://github.com/beyondeye/aitasks/issues/4
 contributor: beyondeye
 contributor_email: 5619462+beyondeye@users.noreply.github.com
 created_at: 2026-03-10 14:46
-updated_at: 2026-03-10 14:46
+updated_at: 2026-03-10 14:49
 ---
 
 Issue created: 2026-03-09 22:05:20
