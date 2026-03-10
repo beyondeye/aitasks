@@ -4,8 +4,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/task_utils.sh"
 
 SUPPORTED_AGENTS=(claudecode geminicli codex opencode)
+MAX_REMOTE_RETRIES=5
 
 AGENT_STRING=""
 SKILL_NAME=""
@@ -21,6 +24,12 @@ Usage: aitask_verified_update.sh --agent-string <agent/model> --skill <skill> --
 
 Update rolling verification statistics for a model/skill pair.
 
+Concurrency note:
+  If the task data branch has a configured remote, the script uses a retrying
+  remote-aware update flow to reduce lost updates from concurrent writers.
+  Without a remote, it falls back to a local commit-only update and cannot
+  guarantee protection against concurrent updates.
+
 Options:
   --agent-string STR  Agent string in the form <agent>/<model>
   --skill NAME        Skill identifier to update (for example: pick, explain)
@@ -32,6 +41,20 @@ EOF
 
 require_jq() {
     command -v jq >/dev/null 2>&1 || die "jq is required. Install via your package manager."
+}
+
+log_info() {
+    if [[ "$SILENT" == "false" ]]; then
+        info "$@"
+    fi
+}
+
+run_git_quiet() {
+    if [[ "$SILENT" == "true" ]]; then
+        "$@" >/dev/null 2>&1
+    else
+        "$@"
+    fi
 }
 
 map_score() {
@@ -150,7 +173,7 @@ update_model_file() {
     ' "$models_file"
 }
 
-commit_metadata_update() {
+commit_metadata_update_local() {
     local models_file="$1"
     local agent_string="$2"
     local skill_name="$3"
@@ -161,11 +184,145 @@ commit_metadata_update() {
         return
     fi
 
-    if [[ "$SILENT" == "true" ]]; then
-        ./ait git commit -m "ait: Update verified score for ${agent_string} ${skill_name}" >/dev/null
-    else
-        ./ait git commit -m "ait: Update verified score for ${agent_string} ${skill_name}"
+    run_git_quiet ./ait git commit -m "ait: Update verified score for ${agent_string} ${skill_name}"
+}
+
+has_remote_tracking() {
+    ./ait git remote get-url origin >/dev/null 2>&1 || return 1
+    ./ait git rev-parse --abbrev-ref HEAD >/dev/null 2>&1 || return 1
+}
+
+current_task_branch() {
+    ./ait git rev-parse --abbrev-ref HEAD
+}
+
+current_task_remote() {
+    ./ait git remote get-url origin
+}
+
+configure_clone_identity() {
+    local repo_dir="$1"
+    local user_name=""
+    local user_email=""
+
+    user_name="$(./ait git config --get user.name 2>/dev/null || git config --global --get user.name 2>/dev/null || true)"
+    user_email="$(./ait git config --get user.email 2>/dev/null || git config --global --get user.email 2>/dev/null || true)"
+
+    if [[ -n "$user_name" ]]; then
+        git -C "$repo_dir" config user.name "$user_name"
     fi
+    if [[ -n "$user_email" ]]; then
+        git -C "$repo_dir" config user.email "$user_email"
+    fi
+}
+
+run_before_push_hook() {
+    local repo_dir="$1"
+    local attempt="$2"
+
+    if [[ -z "${AITASK_VERIFIED_UPDATE_BEFORE_PUSH_HOOK:-}" ]]; then
+        return 0
+    fi
+
+    AITASK_VERIFIED_UPDATE_ATTEMPT="$attempt" \
+    AITASK_VERIFIED_UPDATE_TEMP_REPO="$repo_dir" \
+        run_git_quiet bash "$AITASK_VERIFIED_UPDATE_BEFORE_PUSH_HOOK"
+}
+
+is_retryable_push_error() {
+    local output="$1"
+    printf '%s' "$output" | grep -Eq 'non-fast-forward|fetch first|rejected|failed to push some refs'
+}
+
+sync_current_repo_from_remote() {
+    task_sync
+}
+
+commit_and_push_from_remote_clone() {
+    local models_file="$1"
+    local agent_string="$2"
+    local skill_name="$3"
+    local model_name="$4"
+    local branch="$5"
+    local remote_url="$6"
+    local attempt="$7"
+
+    local tmpdir clone_dir new_score push_output
+    tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/aitask_verified_remote.XXXXXX")"
+    clone_dir="$tmpdir/repo"
+
+    if ! run_git_quiet git clone --quiet --branch "$branch" --single-branch "$remote_url" "$clone_dir"; then
+        rm -rf "$tmpdir"
+        die "Failed to clone task data branch '$branch' from origin"
+    fi
+
+    configure_clone_identity "$clone_dir"
+
+    ensure_model_exists "$clone_dir/$models_file" "$model_name"
+    new_score="$(update_model_file "$clone_dir/$models_file" "$model_name" "$skill_name" "$SCORE")"
+
+    git -C "$clone_dir" add "$models_file"
+    if git -C "$clone_dir" diff --cached --quiet -- "$models_file"; then
+        rm -rf "$tmpdir"
+        echo "$new_score"
+        return 0
+    fi
+
+    if ! run_git_quiet git -C "$clone_dir" commit -m "ait: Update verified score for ${agent_string} ${skill_name}"; then
+        rm -rf "$tmpdir"
+        die "Failed to commit verified score update"
+    fi
+
+    run_before_push_hook "$clone_dir" "$attempt"
+
+    if push_output="$(git -C "$clone_dir" push --quiet origin "HEAD:${branch}" 2>&1)"; then
+        rm -rf "$tmpdir"
+        sync_current_repo_from_remote
+        echo "$new_score"
+        return 0
+    fi
+
+    rm -rf "$tmpdir"
+
+    if is_retryable_push_error "$push_output"; then
+        log_info "Verified score update raced with another push; retrying (${attempt}/${MAX_REMOTE_RETRIES})"
+        return 10
+    fi
+
+    die "Failed to push verified score update: $push_output"
+}
+
+commit_metadata_update() {
+    local models_file="$1"
+    local agent_string="$2"
+    local skill_name="$3"
+    local model_name="$4"
+
+    if ! has_remote_tracking; then
+        commit_metadata_update_local "$models_file" "$agent_string" "$skill_name"
+        return 0
+    fi
+
+    local branch remote_url attempt new_score rc
+    branch="$(current_task_branch)"
+    remote_url="$(current_task_remote)"
+
+    for attempt in $(seq 1 "$MAX_REMOTE_RETRIES"); do
+        set +e
+        new_score="$(commit_and_push_from_remote_clone "$models_file" "$agent_string" "$skill_name" "$model_name" "$branch" "$remote_url" "$attempt")"
+        rc=$?
+        set -e
+
+        if [[ $rc -eq 0 ]]; then
+            printf '%s\n' "$new_score"
+            return 0
+        fi
+        if [[ $rc -ne 10 ]]; then
+            return "$rc"
+        fi
+    done
+
+    die "Failed to update verified score after ${MAX_REMOTE_RETRIES} retries due to concurrent pushes"
 }
 
 main() {
@@ -179,9 +336,15 @@ main() {
     ensure_model_exists "$models_file" "$PARSED_MODEL"
 
     local new_score
-    new_score="$(update_model_file "$models_file" "$PARSED_MODEL" "$SKILL_NAME" "$SCORE")"
-
-    commit_metadata_update "$models_file" "$AGENT_STRING" "$SKILL_NAME"
+    if has_remote_tracking; then
+        new_score="$(commit_metadata_update "$models_file" "$AGENT_STRING" "$SKILL_NAME" "$PARSED_MODEL")"
+    else
+        if [[ "$SILENT" == "false" ]]; then
+            warn "No remote configured for task data; using local-only verified score update without concurrency protection."
+        fi
+        new_score="$(update_model_file "$models_file" "$PARSED_MODEL" "$SKILL_NAME" "$SCORE")"
+        commit_metadata_update_local "$models_file" "$AGENT_STRING" "$SKILL_NAME"
+    fi
 
     if [[ "$SILENT" == "false" ]]; then
         success "Updated ${AGENT_STRING} ${SKILL_NAME} verified score to ${new_score}"

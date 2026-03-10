@@ -20,7 +20,7 @@ The central skill of the aitasks framework. This is a full development lifecycle
 
 ## Step-by-Step
 
-1. **Profile selection** — Loads an execution profile from `aitasks/metadata/profiles/` to pre-answer skill questions and reduce prompts. See [Execution Profiles](#execution-profiles) below
+1. **Profile selection** — Loads an execution profile from `aitasks/metadata/profiles/` to pre-answer skill questions and reduce prompts. See [Execution Profiles](execution-profiles/) for the profile schema and examples
 2. **Task selection** — Shows a prioritized list of tasks (sorted by priority, effort, blocked status) with pagination, or jumps directly to a task when a number argument is provided
 3. **Child task handling** — When a parent task with children is selected, drills down to show child subtasks. Gathers context from archived sibling plan files so each child task benefits from previous siblings' implementation experience
 4. **Status checks** — Detects edge cases: tasks marked Done but not yet archived, and orphaned parent tasks where all children are complete. Offers to archive them directly
@@ -43,53 +43,14 @@ The central skill of the aitasks framework. This is a full development lifecycle
 
 ## Execution Profiles
 
-The `/aitask-pick` skill asks several interactive questions before reaching implementation (email, local/remote, worktree, plan handling, etc.). Execution profiles let you pre-configure answers to these questions so you can go from task selection to implementation with minimal input.
+The profile schema, shipped examples, and customization guidance now live on a dedicated page for better discoverability: [Execution Profiles](execution-profiles/).
 
-Profiles are YAML files stored in `aitasks/metadata/profiles/`. Two profiles ship by default:
+Use that page for:
 
-- **default** — All questions asked normally (empty profile, serves as template)
-- **fast** — Skip confirmations, use first stored email, work locally on current branch, reuse existing plans
-
-When you run `/aitask-pick`, the profile is selected first (Step 0a). If only one profile exists, it's auto-loaded. With multiple profiles, you're prompted to choose.
-
-### Profile Settings
-
-| Key | Type | Description |
-|-----|------|-------------|
-| `name` | string (required) | Display name shown during profile selection |
-| `description` | string (required) | Description shown below profile name during selection |
-| `skip_task_confirmation` | bool | `true` = auto-confirm task selection |
-| `default_email` | string | `"first"` = use first email from emails.txt; or a literal email address |
-| `run_location` | string | `"locally"` or `"remotely"` |
-| `create_worktree` | bool | `true` = create worktree; `false` = work on current branch |
-| `base_branch` | string | Branch name for worktree (e.g., `"main"`) |
-| `plan_preference` | string | `"use_current"`, `"verify"`, or `"create_new"` |
-| `post_plan_action` | string | `"start_implementation"` = skip post-plan prompt |
-| `explore_auto_continue` | bool | `true` = auto-continue from explore to implementation (used by `/aitask-explore`) |
-
-Omitting a key means the corresponding question is asked interactively. Plan approval (ExitPlanMode) is always mandatory and cannot be skipped.
-
-### Creating a Custom Profile
-
-```bash
-cp aitasks/metadata/profiles/fast.yaml aitasks/metadata/profiles/my-profile.yaml
-```
-
-Edit the file to set your preferences:
-
-```yaml
-name: worktree
-description: Like fast but creates a worktree on main for each task
-skip_task_confirmation: true
-default_email: first
-run_location: locally
-create_worktree: true
-base_branch: main
-plan_preference: use_current
-post_plan_action: start_implementation
-```
-
-Profiles are preserved during `install.sh --force` upgrades (existing files are not overwritten).
+- The full standard profile-key reference used by `/aitask-pick`
+- The new `enableFeedbackQuestions` flag for satisfaction prompts
+- Example `fast`/custom profile YAML
+- Notes about how profiles are reused by related skills such as `/aitask-explore`
 
 ## Build Verification
 

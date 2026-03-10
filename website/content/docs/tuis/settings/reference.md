@@ -98,6 +98,12 @@ Execution profiles are YAML files with the following keys. All keys are optional
 | `plan_preference_child` | enum | `use_current`, `verify`, `create_new` | Same as above, but specifically for child tasks (takes priority) |
 | `post_plan_action` | enum | `start_implementation` | What to do after plan is saved |
 
+### Feedback
+
+| Key | Type | Options | Description |
+|-----|------|---------|-------------|
+| `enableFeedbackQuestions` | bool | `true`, `false` | Whether supported skills ask for satisfaction feedback after completion (`(unset)` behaves like `true`) |
+
 ### Exploration
 
 | Key | Type | Options | Description |

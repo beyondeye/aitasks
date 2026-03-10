@@ -470,6 +470,7 @@ The remote skill uses the standard profile format from `aitasks/metadata/profile
 | `default_email` | string | — | `"first"` or email address | Step 5 email assignment |
 | `plan_preference` | string | `use_current` | `"use_current"`, `"verify"`, `"create_new"` | Step 7.0 existing plan handling |
 | `post_plan_action` | string | `start_implementation` | `"start_implementation"` | Step 7 checkpoint |
+| `enableFeedbackQuestions` | bool | `false` | `true`, `false` | Defined in the shared schema but not used here because remote mode has no feedback prompt |
 
 **Remote-specific fields** (only recognized by this skill):
 
@@ -484,7 +485,7 @@ The remote skill uses the standard profile format from `aitasks/metadata/profile
 | `abort_plan_action` | string | `keep` | `"keep"`, `"delete"` | Abort: Plan file action |
 | `abort_revert_status` | string | `Ready` | `"Ready"`, `"Editing"` | Abort: Revert status |
 
-Fields from the standard schema that are **ignored** (not applicable in remote mode): `run_location`, `create_worktree`, `base_branch`.
+Fields from the standard schema that are **ignored** (not applicable in remote mode): `create_worktree`, `base_branch`.
 
 ---
 

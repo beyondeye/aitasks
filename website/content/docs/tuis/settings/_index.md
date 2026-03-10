@@ -78,6 +78,7 @@ Browse and edit execution profiles -- YAML files that pre-answer workflow questi
 - **Task Selection** -- skip_task_confirmation, default_email
 - **Branch & Worktree** -- create_worktree, base_branch
 - **Planning** -- plan_preference, plan_preference_child, post_plan_action
+- **Feedback** -- enableFeedbackQuestions
 - **Exploration** -- explore_auto_continue
 - **Lock Management** -- force_unlock_stale
 - **Remote Workflow** -- done_task_action, orphan_parent_action, complexity_action, review_action, issue_action, abort_plan_action, abort_revert_status

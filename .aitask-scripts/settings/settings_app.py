@@ -93,6 +93,7 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
     "plan_preference": ("enum", ["use_current", "verify", "create_new"]),
     "plan_preference_child": ("enum", ["use_current", "verify", "create_new"]),
     "post_plan_action": ("enum", ["start_implementation"]),
+    "enableFeedbackQuestions": ("bool", None),
     "explore_auto_continue": ("bool", None),
     "force_unlock_stale": ("bool", None),
     "done_task_action": ("enum", ["archive", "skip"]),
@@ -191,6 +192,13 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "  (unset): ask the user whether to start, revise, or abort\n"
         "Note: plan approval via ExitPlanMode is always required and cannot be skipped."
     ),
+    "enableFeedbackQuestions": (
+        "Ask satisfaction feedback questions at the end of supported skills",
+        "Controls whether supported skills ask for a quick satisfaction rating after completion. "
+        "When false, the Satisfaction Feedback Procedure is skipped. "
+        "When true or unset, feedback questions remain enabled. "
+        "Use false for unattended or non-interactive workflows such as remote profiles."
+    ),
     "explore_auto_continue": (
         "Auto-continue to implementation in exploration mode",
         "Used by aitask-explore. When true, automatically continues to the implementation "
@@ -257,6 +265,7 @@ PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
     ("Task Selection", ["skip_task_confirmation", "default_email"]),
     ("Branch & Worktree", ["create_worktree", "base_branch"]),
     ("Planning", ["plan_preference", "plan_preference_child", "post_plan_action"]),
+    ("Feedback", ["enableFeedbackQuestions"]),
     ("Exploration", ["explore_auto_continue"]),
     ("Lock Management", ["force_unlock_stale"]),
     ("Remote Workflow", [
@@ -775,6 +784,8 @@ class AgentModelPickerScreen(ModalScreen):
         """Switch to model selection for the chosen agent."""
         self._step = 2
         agent = self.selected_agent
+        if not agent:
+            return
         self.query_one("#picker_step_label", Label).update(
             f"Step 2: Choose model for [bold]{agent}[/bold]  "
             "[dim](Esc to go back)[/dim]"
@@ -2086,7 +2097,7 @@ class SettingsApp(App):
             self.push_screen(
                 DeleteProfileConfirmScreen(profile_name, filename),
                 callback=lambda confirmed, fn=filename:
-                    self._handle_delete_profile(confirmed, fn),
+                    self._handle_delete_profile(bool(confirmed), fn),
             )
         elif btn_id.startswith("btn_profile_revert__"):
             safe_fn = btn_id.replace("btn_profile_revert__", "")

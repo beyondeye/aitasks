@@ -353,7 +353,7 @@ This skill uses the same profile format as `aitask-pickrem` from `aitasks/metada
 - `done_task_action`, `orphan_parent_action` — Done/orphaned tasks abort instead of archive
 - `review_action`, `issue_action` — no archive or issue operations
 - `abort_plan_action`, `abort_revert_status` — no status to revert
-- `create_worktree`, `base_branch` — always works on current branch
+- `create_worktree`, `base_branch`, `enableFeedbackQuestions` — always works on current branch and never asks feedback questions
 
 ---
 

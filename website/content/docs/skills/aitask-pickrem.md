@@ -62,6 +62,7 @@ default_email: userconfig
 force_unlock_stale: true
 plan_preference: use_current
 post_plan_action: start_implementation
+enableFeedbackQuestions: false
 done_task_action: archive
 orphan_parent_action: archive
 complexity_action: single_task
@@ -73,7 +74,7 @@ abort_revert_status: Ready
 
 ### Standard Profile Fields
 
-These fields are shared with `/aitask-pick` (see [Execution Profiles](../aitask-pick/#execution-profiles)):
+These fields are shared with `/aitask-pick` (see [Execution Profiles](../aitask-pick/execution-profiles/)):
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -82,8 +83,9 @@ These fields are shared with `/aitask-pick` (see [Execution Profiles](../aitask-
 | `default_email` | string | — | `"userconfig"`, `"first"`, or a literal email address |
 | `plan_preference` | string | `use_current` | `"use_current"`, `"verify"`, or `"create_new"` |
 | `post_plan_action` | string | `start_implementation` | `"start_implementation"` |
+| `enableFeedbackQuestions` | bool | `true` | Standard profile flag, but remote mode sets it to `false` because no feedback prompt is shown |
 
-Fields from the standard schema that are **ignored** in remote mode: `run_location`, `create_worktree`, `base_branch`.
+Fields from the standard schema that are **ignored** in remote mode: `create_worktree`, `base_branch`.
 
 ### Remote-Specific Profile Fields
 

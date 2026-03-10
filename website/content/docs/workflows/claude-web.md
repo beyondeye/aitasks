@@ -125,7 +125,7 @@ The default `remote.yaml` profile works for both `/aitask-pickrem` and `/aitask-
 | `plan_preference` | `use_current` | How to handle existing plans: `use_current`, `verify`, or `create_new` |
 | `post_plan_action` | `start_implementation` | Action after plan approval |
 
-See [`/aitask-pickweb` Execution Profiles](../../skills/aitask-pickweb/#execution-profiles) for details.
+See [`/aitask-pickweb` Execution Profiles](../../skills/aitask-pickweb/) for details.
 
 ## Troubleshooting
 

@@ -10,7 +10,9 @@ the main workflow steps and should be read on demand when referenced.
 - [PR Close/Decline Procedure](#pr-closedecline-procedure) — Referenced from Step 9
 - [Contributor Attribution Procedure](#contributor-attribution-procedure) — Referenced from Step 8
 - [Code-Agent Commit Attribution Procedure](#code-agent-commit-attribution-procedure) — Referenced from Step 8
+- [Model Self-Detection Sub-Procedure](#model-self-detection-sub-procedure) — Referenced from Agent Attribution and Satisfaction Feedback
 - [Agent Attribution Procedure](#agent-attribution-procedure) — Referenced from Step 7, aitask-wrap, aitask-pickrem, aitask-pickweb
+- [Satisfaction Feedback Procedure](#satisfaction-feedback-procedure) — Referenced from Step 9b and standalone skills
 - [Lock Release Procedure](#lock-release-procedure) — Referenced from Task Abort Procedure
 
 ---
@@ -227,15 +229,19 @@ EOF
 )"
 ```
 
-## Agent Attribution Procedure
+## Model Self-Detection Sub-Procedure
 
-This procedure records which code agent and LLM model is executing the task by setting the `implemented_with` field in the task's frontmatter. It is referenced from Step 7 (task-workflow), aitask-wrap (Step 4a), aitask-pickrem (Step 8), and aitask-pickweb (Step 6).
+This shared sub-procedure resolves the current code agent and model into an
+agent string like `claudecode/opus4_6`. It is referenced by the Agent
+Attribution Procedure and the Satisfaction Feedback Procedure.
 
-**When to execute:** At the start of implementation, after plan mode has been exited. This timing is critical because some code agents (e.g., Codex CLI) run initial workflow steps in plan mode, which is read-only and cannot write metadata.
+**Input:** none (reads environment, agent runtime context, and model config files)
+
+**Output:** `agent_string` in format `<agent>/<model>`
 
 **Procedure:**
 
-1. **Check `AITASK_AGENT_STRING` env var** — if set (by the codeagent wrapper), use its value directly as the agent string. Skip to step 3.
+1. **Check `AITASK_AGENT_STRING` env var** — if set (by the codeagent wrapper), use its value directly as the agent string and return.
 
 2. **If not set, self-detect:**
    - Identify which code agent CLI you are running in. The agent name MUST be one of these exact strings: `claudecode`, `geminicli`, `codex`, `opencode`. **IMPORTANT:** Use `claudecode` (not `claude`), `geminicli` (not `gemini`). These are the only valid agent identifiers.
@@ -250,12 +256,58 @@ This procedure records which code agent and LLM model is executing the task by s
    - Construct the agent string as `<agent>/<name>` (e.g., `claudecode/opus4_6`)
    - If no matching entry is found, use `<agent>/<model_id>` as fallback (e.g., `claudecode/claude-opus-4-6`) — the raw model ID from the system context
 
-3. **Write to frontmatter:**
+## Agent Attribution Procedure
+
+This procedure records which code agent and LLM model is executing the task by setting the `implemented_with` field in the task's frontmatter. It is referenced from Step 7 (task-workflow), aitask-wrap (Step 4a), aitask-pickrem (Step 8), and aitask-pickweb (Step 6).
+
+**When to execute:** At the start of implementation, after plan mode has been exited. This timing is critical because some code agents (e.g., Codex CLI) run initial workflow steps in plan mode, which is read-only and cannot write metadata.
+
+**Procedure:**
+
+1. Execute the **Model Self-Detection Sub-Procedure** to get `agent_string`.
+
+2. **Write to frontmatter:**
    ```bash
    ./.aitask-scripts/aitask_update.sh --batch <task_num> --implemented-with "<agent_string>" --silent
    ```
 
 **Variant for aitask-pickweb:** Since pickweb does not call `aitask_update.sh` (no cross-branch operations), store the agent string in the completion marker JSON instead (add an `"implemented_with"` field). The `aitask-web-merge` skill will apply it during archival.
+
+## Satisfaction Feedback Procedure
+
+This procedure collects a quick user rating after a skill completes and updates
+rolling verified scores for the current code agent/model.
+
+**Input:** `skill_name` (string, for example `pick`, `explore`, `explain`)
+
+**Procedure:**
+
+1. **Profile check:** If the active profile exists and `enableFeedbackQuestions` is set to `false`, skip this procedure entirely. Display: `Profile '<name>': feedback questions disabled`.
+
+   **Default behavior:** If `enableFeedbackQuestions` is omitted, treat it as `true` and continue normally.
+
+2. Execute the **Model Self-Detection Sub-Procedure** to get `agent_string`.
+   - If detection fails or no supported agent/model can be identified, skip silently.
+
+3. Use `AskUserQuestion`:
+   - Question: `How well did this skill work? (Rate 1-5, helps improve model selection)`
+   - Header: `Feedback`
+   - Options:
+     - `5 - Excellent` (description: `Completed perfectly, no issues`)
+     - `4 - Good` (description: `Completed with minor issues`)
+     - `3 - Acceptable` (description: `Completed but with notable issues`)
+     - `1-2 - Poor` (description: `Significant problems or failures`)
+
+   **Score mapping:** `5 -> 5`, `4 -> 4`, `3 -> 3`, `1-2 -> 2`
+
+4. If the user selected a rating, update verified stats:
+   ```bash
+   ./.aitask-scripts/aitask_verified_update.sh --agent-string "<agent_string>" --skill "<skill_name>" --score <rating> --silent
+   ```
+   Parse the structured result:
+   - `UPDATED:<agent>/<model>:<skill>:<new_score>` — Display: `Updated <skill> verified score for <agent>/<model>: <new_score>`
+
+5. If the user skips or dismisses the question, continue without updating.
 
 ## Lock Release Procedure
 

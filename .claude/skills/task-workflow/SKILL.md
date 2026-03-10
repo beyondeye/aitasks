@@ -500,7 +500,9 @@ The following procedures are in `procedures.md` — read on demand when referenc
 - **Issue Update Procedure** — Update/close linked issues during archival. Referenced from Step 9.
 - **PR Close/Decline Procedure** — Close/decline linked pull requests during archival. Referenced from Step 9.
 - **Contributor Attribution Procedure** — Credit PR contributors in commit messages. Referenced from Step 8.
+- **Model Self-Detection Sub-Procedure** — Detect the current code agent and model. Referenced from Agent Attribution and Satisfaction Feedback.
 - **Agent Attribution Procedure** — Record implementing code agent and model. Referenced from Step 7.
+- **Satisfaction Feedback Procedure** — Collect user feedback and update verified model scores. Referenced from Step 9b and standalone skills.
 - **Lock Release Procedure** — Release task locks. Referenced from Task Abort Procedure.
 
 ---

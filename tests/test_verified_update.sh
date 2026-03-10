@@ -64,14 +64,26 @@ setup_repo() {
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
+        populate_repo "$tmpdir"
 
-        mkdir -p .aitask-scripts/lib aitasks/metadata
+        git add .
+        git commit -m "Initial setup" --quiet
+    )
 
-        cp "$PROJECT_DIR/.aitask-scripts/aitask_verified_update.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
-        chmod +x .aitask-scripts/aitask_verified_update.sh
+    echo "$tmpdir"
+}
 
-        cat > ait <<'EOF'
+populate_repo() {
+    local repo_dir="$1"
+
+    mkdir -p "$repo_dir/.aitask-scripts/lib" "$repo_dir/aitasks/metadata"
+
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_verified_update.sh" "$repo_dir/.aitask-scripts/"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$repo_dir/.aitask-scripts/lib/"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" "$repo_dir/.aitask-scripts/lib/"
+    chmod +x "$repo_dir/.aitask-scripts/aitask_verified_update.sh"
+
+    cat > "$repo_dir/ait" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -86,9 +98,9 @@ case "${1:-}" in
         ;;
 esac
 EOF
-        chmod +x ait
+    chmod +x "$repo_dir/ait"
 
-        cat > aitasks/metadata/models_claudecode.json <<'EOF'
+    cat > "$repo_dir/aitasks/metadata/models_claudecode.json" <<'EOF'
 {
   "models": [
     {
@@ -104,12 +116,40 @@ EOF
   ]
 }
 EOF
+}
 
+setup_remote_repo() {
+    local basedir origin_dir seed_dir work_dir
+    basedir="$(mktemp -d)"
+    origin_dir="$basedir/origin.git"
+    seed_dir="$basedir/seed"
+    work_dir="$basedir/work"
+
+    git init --bare --quiet "$origin_dir"
+    mkdir -p "$seed_dir"
+
+    (
+        cd "$seed_dir"
+        git init --quiet
+        git config user.email "test@test.com"
+        git config user.name "Test"
+        populate_repo "$seed_dir"
         git add .
         git commit -m "Initial setup" --quiet
+        git branch -M main
+        git remote add origin "$origin_dir"
+        git push --quiet -u origin main
     )
 
-    echo "$tmpdir"
+    git --git-dir="$origin_dir" symbolic-ref HEAD refs/heads/main
+    git clone --quiet --branch main "$origin_dir" "$work_dir" >/dev/null 2>&1
+    (
+        cd "$work_dir"
+        git config user.email "test@test.com"
+        git config user.name "Test"
+    )
+
+    echo "$basedir"
 }
 
 json_get() {
@@ -176,6 +216,65 @@ TMPDIR_8="$(setup_repo)"
 output8=$(cd "$TMPDIR_8" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>&1)
 assert_eq "Silent output is structured only" "UPDATED:claudecode/opus4_6:pick:80" "$output8"
 rm -rf "$TMPDIR_8"
+
+echo "--- Test 9: Remote retry preserves concurrent updates ---"
+TMPDIR_9="$(setup_remote_repo)"
+WORKDIR_9="$TMPDIR_9/work"
+ORIGIN_9="$TMPDIR_9/origin.git"
+HOOK_FLAG_9="$TMPDIR_9/hook-ran"
+cat > "$TMPDIR_9/hook.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${AITASK_VERIFIED_UPDATE_ATTEMPT:-}" != "1" ]]; then
+    exit 0
+fi
+
+if [[ -f "${AITASK_VERIFIED_UPDATE_HOOK_FLAG:-}" ]]; then
+    exit 0
+fi
+
+touch "$AITASK_VERIFIED_UPDATE_HOOK_FLAG"
+
+tmpdir="$(mktemp -d)"
+git clone --quiet "$AITASK_VERIFIED_UPDATE_TEST_ORIGIN" "$tmpdir/repo" >/dev/null 2>&1
+(
+    cd "$tmpdir/repo"
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    tmp_json="$(mktemp)"
+    jq '
+        .models |= map(
+            if .name == "opus4_6" then
+                .verified = (.verified // {}) |
+                .verifiedstats = (.verifiedstats // {}) |
+                .verifiedstats.pick = {
+                    "runs": ((.verifiedstats.pick.runs // 0) + 1),
+                    "score_sum": ((.verifiedstats.pick.score_sum // 0) + 80)
+                } |
+                .verified.pick = ((.verifiedstats.pick.score_sum / .verifiedstats.pick.runs) | round)
+            else
+                .
+            end
+        )
+    ' aitasks/metadata/models_claudecode.json > "$tmp_json"
+    mv "$tmp_json" aitasks/metadata/models_claudecode.json
+    git add aitasks/metadata/models_claudecode.json
+    git commit -m "competing verified update" --quiet
+    git push --quiet origin main
+)
+rm -rf "$tmpdir"
+EOF
+chmod +x "$TMPDIR_9/hook.sh"
+output9=$(cd "$WORKDIR_9" && \
+    AITASK_VERIFIED_UPDATE_BEFORE_PUSH_HOOK="$TMPDIR_9/hook.sh" \
+    AITASK_VERIFIED_UPDATE_HOOK_FLAG="$HOOK_FLAG_9" \
+    AITASK_VERIFIED_UPDATE_TEST_ORIGIN="$ORIGIN_9" \
+    ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>&1)
+assert_eq "Remote retry keeps structured silent output" "UPDATED:claudecode/opus4_6:pick:80" "$output9"
+assert_eq "Concurrent remote updates both counted" "2" "$(json_get "$WORKDIR_9" '.models[0].verifiedstats.pick.runs')"
+assert_eq "Concurrent score sum preserved" "160" "$(json_get "$WORKDIR_9" '.models[0].verifiedstats.pick.score_sum')"
+rm -rf "$TMPDIR_9"
 
 echo ""
 echo "==============================="

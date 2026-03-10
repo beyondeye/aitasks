@@ -28,6 +28,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `plan_preference_child` | string | no | Same values as `plan_preference`; overrides `plan_preference` for child tasks. Defaults to `plan_preference` if omitted | Step 6.0 |
 | `post_plan_action` | string | no | `"start_implementation"` = skip to impl; `"ask"` = always show checkpoint; omit = ask | Step 6 checkpoint |
 | `post_plan_action_for_child` | string | no | Same values as `post_plan_action`; overrides `post_plan_action` when the current task is a child task. Defaults to `post_plan_action` if omitted | Step 6 checkpoint |
+| `enableFeedbackQuestions` | bool | no | `false` = skip satisfaction feedback prompts; omit or `true` = ask them | Satisfaction Feedback Procedure |
 
 Only `name` and `description` are required. Omitting any other key means the corresponding question is asked interactively.
 
@@ -51,6 +52,7 @@ create_worktree: true
 base_branch: main
 plan_preference: use_current
 post_plan_action: start_implementation
+enableFeedbackQuestions: true
 ```
 
 **Notes:**
@@ -58,3 +60,4 @@ post_plan_action: start_implementation
 - The `description` field is shown next to the profile name when selecting a profile
 - Profiles are preserved during `install.sh --force` upgrades (existing files are not overwritten)
 - Plan approval (ExitPlanMode) is always mandatory and cannot be skipped by profiles
+- `enableFeedbackQuestions` defaults to `true` when omitted; set it to `false` for non-interactive or unattended workflows
