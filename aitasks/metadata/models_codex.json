@@ -8,7 +8,8 @@
         "task-pick": 0,
         "explain": 0,
         "batch-review": 0
-      }
+      },
+      "verifiedstats": {}
     },
     {
       "name": "gpt5_3codex",
@@ -18,7 +19,8 @@
         "task-pick": 0,
         "explain": 0,
         "batch-review": 0
-      }
+      },
+      "verifiedstats": {}
     },
     {
       "name": "gpt5_3codex_spark",
@@ -28,7 +30,8 @@
         "task-pick": 0,
         "explain": 0,
         "batch-review": 0
-      }
+      },
+      "verifiedstats": {}
     },
     {
       "name": "gpt5_2codex",
@@ -38,7 +41,8 @@
         "task-pick": 0,
         "explain": 0,
         "batch-review": 0
-      }
+      },
+      "verifiedstats": {}
     },
     {
       "name": "gpt5_1codex_max",
@@ -48,7 +52,8 @@
         "task-pick": 0,
         "explain": 0,
         "batch-review": 0
-      }
+      },
+      "verifiedstats": {}
     },
     {
       "name": "gpt5_1codex_mini",
@@ -58,7 +63,8 @@
         "task-pick": 0,
         "explain": 0,
         "batch-review": 0
-      }
+      },
+      "verifiedstats": {}
     }
   ]
 }

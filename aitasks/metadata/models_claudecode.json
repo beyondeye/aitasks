@@ -8,7 +8,8 @@
         "task-pick": 80,
         "explain": 80,
         "batch-review": 0
-      }
+      },
+      "verifiedstats": {}
     },
     {
       "name": "sonnet4_6",
@@ -18,7 +19,8 @@
         "task-pick": 80,
         "explain": 80,
         "batch-review": 0
-      }
+      },
+      "verifiedstats": {}
     },
     {
       "name": "haiku4_5",
@@ -28,7 +30,8 @@
         "task-pick": 0,
         "explain": 0,
         "batch-review": 0
-      }
+      },
+      "verifiedstats": {}
     },
     {
       "name": "opus4_5",
@@ -38,7 +41,8 @@
         "task-pick": 0,
         "explain": 0,
         "batch-review": 0
-      }
+      },
+      "verifiedstats": {}
     },
     {
       "name": "sonnet4_5",
@@ -48,7 +52,8 @@
         "task-pick": 0,
         "explain": 0,
         "batch-review": 0
-      }
+      },
+      "verifiedstats": {}
     }
   ]
 }

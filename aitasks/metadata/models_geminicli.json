@@ -8,7 +8,8 @@
         "task-pick": 0,
         "explain": 0,
         "batch-review": 0
-      }
+      },
+      "verifiedstats": {}
     },
     {
       "name": "gemini3pro",
@@ -18,7 +19,8 @@
         "task-pick": 0,
         "explain": 0,
         "batch-review": 0
-      }
+      },
+      "verifiedstats": {}
     },
     {
       "name": "gemini3flash",
@@ -28,7 +30,8 @@
         "task-pick": 0,
         "explain": 0,
         "batch-review": 0
-      }
+      },
+      "verifiedstats": {}
     },
     {
       "name": "gemini2_5pro",
@@ -38,7 +41,8 @@
         "task-pick": 0,
         "explain": 0,
         "batch-review": 0
-      }
+      },
+      "verifiedstats": {}
     },
     {
       "name": "gemini2_5flash",
@@ -48,7 +52,8 @@
         "task-pick": 0,
         "explain": 0,
         "batch-review": 0
-      }
+      },
+      "verifiedstats": {}
     }
   ]
 }
