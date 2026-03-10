@@ -23,12 +23,7 @@ Gemini CLI supports policy files (`.gemini/policies/*.toml`) for pre-approving s
 
 Without a working allowlist, Gemini CLI prompts for manual approval on every `run_shell_command` call during aitasks workflows, making multi-step skills impractical to run.
 
-**Workaround:** Use a global policy file instead. Global-level policies (stored in `~/.gemini/policies/`) do work correctly. Copy or symlink the project's allowlist to the global location:
-
-```bash
-mkdir -p ~/.gemini/policies
-cp .gemini/policies/aitasks-whitelist.toml ~/.gemini/policies/aitasks-whitelist.toml
-```
+**Workaround:** Use a global policy file instead. Global-level policies (stored in `~/.gemini/policies/`) do work correctly. `ait setup` now offers to install or merge the aitasks allowlist into `~/.gemini/policies/aitasks-whitelist.toml` after explicitly showing what file will be copied and where. If you skipped that step earlier, rerun `ait setup` and accept the global Gemini policy prompt.
 
 #### Model self-detection requires a slow sub-agent call
 

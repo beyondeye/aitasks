@@ -50,6 +50,8 @@ done
 [ -f "$REPO_DIR/.gemini/settings.json" ] && \
     cp "$REPO_DIR/.gemini/settings.json" "$TEST_DIR/gemini_settings.json"
 
+expected_command_count=$(find "$REPO_DIR/.gemini/commands" -type f -name "*.toml" | wc -l | tr -d ' ')
+
 # No skill wrappers should be in gemini_skills (consolidated to .agents/skills/)
 skill_count=$(find "$TEST_DIR/gemini_skills" -name "SKILL.md" -type f | wc -l | tr -d ' ')
 command_count=$(find "$TEST_DIR/gemini_commands" -type f -name "*.toml" | wc -l | tr -d ' ')
@@ -57,7 +59,7 @@ policy_count=$(find "$TEST_DIR/gemini_policies" -type f -name "*.toml" | wc -l |
 assert_eq "No skill wrappers in gemini_skills" "0" "$skill_count"
 assert_eq "Tool mapping packaged" "true" "$([ -f "$TEST_DIR/gemini_skills/geminicli_tool_mapping.md" ] && echo true || echo false)"
 assert_eq "Planmode prereqs packaged" "true" "$([ -f "$TEST_DIR/gemini_skills/geminicli_planmode_prereqs.md" ] && echo true || echo false)"
-assert_eq "Packaged 17 command wrappers (toml)" "17" "$command_count"
+assert_eq "Packaged command wrappers (toml)" "$expected_command_count" "$command_count"
 assert_eq "Packaged policy file" "1" "$policy_count"
 assert_eq "Packaged settings.json" "true" "$([ -f "$TEST_DIR/gemini_settings.json" ] && echo true || echo false)"
 
@@ -100,7 +102,7 @@ staged_policy_count=$(find "$INSTALL_DIR/aitasks/metadata/geminicli_policies" -t
 assert_eq "No skill wrappers staged" "0" "$staged_skill_count"
 assert_eq "Tool mapping staged" "true" "$([ -f "$INSTALL_DIR/aitasks/metadata/geminicli_skills/geminicli_tool_mapping.md" ] && echo true || echo false)"
 assert_eq "Planmode prereqs staged" "true" "$([ -f "$INSTALL_DIR/aitasks/metadata/geminicli_skills/geminicli_planmode_prereqs.md" ] && echo true || echo false)"
-assert_eq "Staged 17 command wrappers (toml)" "17" "$staged_command_count"
+assert_eq "Staged command wrappers (toml)" "$expected_command_count" "$staged_command_count"
 assert_eq "Staged policy file" "1" "$staged_policy_count"
 assert_eq "Staged settings seed" "true" "$([ -f "$INSTALL_DIR/aitasks/metadata/geminicli_settings.seed.json" ] && echo true || echo false)"
 assert_eq "Skills source cleaned up" "false" "$([ -d "$INSTALL_DIR/gemini_skills" ] && echo true || echo false)"
@@ -233,7 +235,45 @@ assert_contains "Kept custom_cmd" "custom_cmd" "$merged_content"
 assert_contains "Added cat from seed" "cat" "$merged_content"
 
 echo ""
-echo "=== Test 8: Settings merge (policyPaths union) ==="
+echo "=== Test 8: Global Gemini policy install helper ==="
+eval "$(extract_fn "$REPO_DIR/.aitask-scripts/aitask_setup.sh" "install_gemini_global_policy")"
+
+GLOBAL_HOME="$TEST_DIR/global_home"
+mkdir -p "$GLOBAL_HOME"
+HOME="$GLOBAL_HOME"
+
+install_gemini_global_policy "$REPO_DIR/seed/geminicli_policies/aitasks-whitelist.toml"
+global_policy_file="$HOME/.gemini/policies/aitasks-whitelist.toml"
+assert_eq "Created global policy file" "true" "$([ -f "$global_policy_file" ] && echo true || echo false)"
+global_policy_content="$(cat "$global_policy_file")"
+assert_contains "Global policy contains aitask rules" "./.aitask-scripts/aitask_pick_own.sh" "$global_policy_content"
+
+cat > "$global_policy_file" <<'TOML'
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "custom_global_rule"
+decision = "allow"
+priority = 100
+TOML
+
+install_gemini_global_policy "$REPO_DIR/seed/geminicli_policies/aitasks-whitelist.toml"
+merged_global_content="$(cat "$global_policy_file")"
+merged_global_rule_count=$(grep -c '^\[\[rule\]\]' "$global_policy_file")
+seed_rule_count=$(grep -c '^\[\[rule\]\]' "$REPO_DIR/seed/geminicli_policies/aitasks-whitelist.toml")
+expected_global_rule_count=$((seed_rule_count + 1))
+assert_contains "Global merge keeps custom rule" "custom_global_rule" "$merged_global_content"
+assert_contains "Global merge adds aitask rules" "./.aitask-scripts/aitask_pick_own.sh" "$merged_global_content"
+assert_contains "Global policy includes stderr redirection" "2>/dev/null" "$merged_global_content"
+assert_not_contains "Global policy avoids unsupported inline regex flags" "(?i)aitask-review" "$merged_global_content"
+global_activate_skill_count=$(printf '%s' "$merged_global_content" | grep -c '^toolName = "activate_skill"$' | tr -d ' ')
+assert_eq "Global policy has explicit aitask skill entries" "18" "$global_activate_skill_count"
+assert_contains "Global policy includes aitask-pick skill" "argsPattern = \"aitask-pick\"" "$merged_global_content"
+assert_contains "Global policy includes aitask-review skill" "argsPattern = \"aitask-review\"" "$merged_global_content"
+assert_not_contains "Global policy avoids broad aitask skill regex" "[Aa][Ii][Tt][Aa][Ss][Kk]-[A-Za-z0-9_-]+" "$merged_global_content"
+assert_eq "Global merge adds seed rules without duplicates" "$expected_global_rule_count" "$merged_global_rule_count"
+
+echo ""
+echo "=== Test 9: Settings merge (policyPaths union) ==="
 eval "$(extract_fn "$REPO_DIR/.aitask-scripts/aitask_setup.sh" "merge_gemini_settings")"
 
 cat > "$MERGE_DIR/existing_settings.json" <<'JSON'
@@ -264,10 +304,18 @@ assert_contains "Kept custom policies path" "custom_policies" "$settings_content
 assert_contains "Added aitask policies path" ".gemini/policies/" "$settings_content"
 
 echo ""
-echo "=== Test 9: Seed files exist ==="
+echo "=== Test 10: Seed files exist ==="
 assert_eq "Seed policies dir exists" "true" "$([ -d "$REPO_DIR/seed/geminicli_policies" ] && echo true || echo false)"
 assert_eq "Seed policy file exists" "true" "$([ -f "$REPO_DIR/seed/geminicli_policies/aitasks-whitelist.toml" ] && echo true || echo false)"
 assert_eq "Seed settings file exists" "true" "$([ -f "$REPO_DIR/seed/geminicli_settings.seed.json" ] && echo true || echo false)"
+assert_contains "Seed policy includes stderr redirection" "2>/dev/null" "$(cat "$REPO_DIR/seed/geminicli_policies/aitasks-whitelist.toml")"
+assert_not_contains "Seed policy avoids unsupported inline regex flags" "(?i)aitask-review" "$(cat "$REPO_DIR/seed/geminicli_policies/aitasks-whitelist.toml")"
+seed_policy_content="$(cat "$REPO_DIR/seed/geminicli_policies/aitasks-whitelist.toml")"
+seed_activate_skill_count=$(printf '%s' "$seed_policy_content" | grep -c '^toolName = "activate_skill"$' | tr -d ' ')
+assert_eq "Seed policy has explicit aitask skill entries" "18" "$seed_activate_skill_count"
+assert_contains "Seed policy includes aitask-pick skill" "argsPattern = \"aitask-pick\"" "$seed_policy_content"
+assert_contains "Seed policy includes aitask-review skill" "argsPattern = \"aitask-review\"" "$seed_policy_content"
+assert_not_contains "Seed policy avoids broad aitask skill regex" "[Aa][Ii][Tt][Aa][Ss][Kk]-[A-Za-z0-9_-]+" "$seed_policy_content"
 
 echo ""
 echo "========================================="

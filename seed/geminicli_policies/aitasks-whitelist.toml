@@ -222,6 +222,12 @@ priority = 100
 
 [[rule]]
 toolName = "run_shell_command"
+commandRegex = ".*/.aitask-scripts/aitask_lock\\.sh\\s+--check\\s+[0-9_]+\\s+2>/dev/null.*"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
 commandPrefix = "./.aitask-scripts/aitask_lock_diag.sh"
 decision = "allow"
 priority = 100
@@ -474,7 +480,108 @@ priority = 100
 
 [[rule]]
 toolName = "activate_skill"
-argsPattern = "(?i)aitask-review"
+argsPattern = "aitask-changelog"
 decision = "allow"
 priority = 100
 
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-contribute"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-create"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-explain"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-explore"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-fold"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-pick"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-pickrem"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-pickweb"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-pr-import"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-refresh-code-models"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-review"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-reviewguide-classify"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-reviewguide-import"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-reviewguide-merge"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-stats"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-web-merge"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-wrap"
+decision = "allow"
+priority = 100

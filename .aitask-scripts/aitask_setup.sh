@@ -1372,6 +1372,26 @@ print('\n\n'.join(rule_to_toml(r) for r in existing) + '\n')
     fi
 }
 
+install_gemini_global_policy() {
+    local source_policy="$1"
+    local global_dir="$HOME/.gemini/policies"
+    local fname
+    local global_file
+
+    fname="$(basename "$source_policy")"
+    global_file="$global_dir/$fname"
+
+    mkdir -p "$global_dir"
+
+    if [[ ! -f "$global_file" ]]; then
+        cp "$source_policy" "$global_file"
+        success "  Created ~/.gemini/policies/$fname"
+    else
+        info "  Existing ~/.gemini/policies/$fname found — merging policies..."
+        merge_gemini_policies "$source_policy" "$global_file"
+    fi
+}
+
 # Merge Gemini CLI settings.json (ensure policyPaths contains .gemini/policies/)
 merge_gemini_settings() {
     local seed_file="$1"
@@ -1557,12 +1577,16 @@ setup_gemini_cli() {
         esac
 
         # 3a. Install policies
+        local first_installed_policy=""
         if [[ -d "$staging_policies" ]]; then
             mkdir -p "$dest_policies"
             for policy_file in "$staging_policies"/*.toml; do
                 [[ -f "$policy_file" ]] || continue
                 local fname
                 fname="$(basename "$policy_file")"
+                if [[ -z "$first_installed_policy" ]]; then
+                    first_installed_policy="$dest_policies/$fname"
+                fi
                 if [[ ! -f "$dest_policies/$fname" ]]; then
                     cp "$policy_file" "$dest_policies/$fname"
                     success "  Created .gemini/policies/$fname"
@@ -1571,6 +1595,38 @@ setup_gemini_cli() {
                     merge_gemini_policies "$policy_file" "$dest_policies/$fname"
                 fi
             done
+        fi
+
+        # 3a.1 Offer global policy sync (explicit consent only)
+        if [[ -n "$first_installed_policy" && -f "$first_installed_policy" ]]; then
+            echo ""
+            info "Gemini CLI currently ignores per-project policyPaths in some workflows."
+            info "You can also install the aitasks allowlist globally so Gemini CLI uses it automatically."
+            info ""
+            info "  Source: $first_installed_policy"
+            info "  Destination: ~/.gemini/policies/$(basename "$first_installed_policy")"
+            info "  Behavior: create if missing, merge if it already exists"
+            info ""
+            info "Policy preview:"
+            sed 's/^/  /' "$first_installed_policy"
+            echo ""
+
+            local global_policy_answer="N"
+            if [[ -t 0 ]]; then
+                printf "  Also install or merge this Gemini CLI allowlist globally? [y/N] "
+                read -r global_policy_answer
+            else
+                info "(non-interactive: skipping global Gemini policy install because explicit consent is required)"
+            fi
+
+            case "${global_policy_answer:-N}" in
+                [Yy]*)
+                    install_gemini_global_policy "$first_installed_policy"
+                    ;;
+                *)
+                    info "Skipped global Gemini CLI allowlist installation."
+                    ;;
+            esac
         fi
 
         # 3b. Install settings.json
