@@ -409,8 +409,8 @@
       },
       "verifiedstats": {
         "pick": {
-          "runs": 2,
-          "score_sum": 200
+          "runs": 3,
+          "score_sum": 300
         }
       }
     },
