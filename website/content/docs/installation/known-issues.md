@@ -55,10 +55,25 @@ Codex CLI models cannot reliably self-report their model ID when prompted. Unlik
 
 **Workaround:** Launch Codex CLI via [`ait codeagent invoke`](../../commands/codeagent/) instead of calling `codex` directly. The wrapper sets the `AITASK_AGENT_STRING` environment variable with the correct agent string, ensuring accurate `implemented_with` metadata.
 
+## OpenCode
+
+#### Plan mode may skip task locking
+
+When OpenCode runs in plan mode, interactive skills (`aitask-pick`, `aitask-explore`, `aitask-review`, `aitask-fold`) may skip the task locking step because plan mode restricts the agent to read-only tools.
+
+**Recommendation:** Use OpenCode in regular mode (not plan mode) for interactive skills that acquire task locks. These skills have their own internal planning phases.
+
+#### Shallow implementation plans
+
+OpenCode may produce high-level overviews instead of detailed step-by-step implementation plans during the task-workflow planning phase. The `opencode_planmode_prereqs.md` file contains explicit instructions to mitigate this, but results may vary by model.
+
+**Workaround:** If the agent produces a shallow plan, prompt it directly: *"Please make a detailed plan of which files will be edited with which changes."* This usually triggers the agent to expand the plan with specific file paths, exact modifications, and code snippets.
+
 ## References
 
 - Codex CLI docs: [Codex CLI overview](https://developers.openai.com/codex/cli) and [approval modes](https://developers.openai.com/codex/cli/features#approval-modes)
 - aitasks Codex mapping note: [`.agents/skills/codex_tool_mapping.md`](https://github.com/beyondeye/aitasks/blob/main/.agents/skills/codex_tool_mapping.md)
 - Gemini CLI docs: [Gemini CLI overview](https://ai.google.dev/gemini-api/docs/gemini-cli) and [sandbox policies](https://ai.google.dev/gemini-api/docs/gemini-cli/sandbox)
 - aitasks Gemini mapping note: [`.gemini/skills/geminicli_tool_mapping.md`](https://github.com/beyondeye/aitasks/blob/main/.gemini/skills/geminicli_tool_mapping.md)
+- OpenCode plan mode prereqs: [`.opencode/skills/opencode_planmode_prereqs.md`](https://github.com/beyondeye/aitasks/blob/main/.opencode/skills/opencode_planmode_prereqs.md)
 - [`ait codeagent`](../../commands/codeagent/) — unified agent wrapper with `AITASK_AGENT_STRING` support
