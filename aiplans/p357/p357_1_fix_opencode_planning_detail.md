@@ -91,5 +91,12 @@ bug: Enhance OpenCode planning detail requirements and add locking caveat (t357_
 - Read both files after editing to confirm changes
 - No shell scripts modified, so shellcheck N/A
 
+## Final Implementation Notes
+- **Actual work done:** Enhanced `opencode_planmode_prereqs.md` with explicit plan detail requirements (file paths, detailed implementation steps, code snippets, verification, dependencies) and added a "Locking Caveat" section. Expanded `planning.md` line 106 to define what "detailed" means.
+- **Deviations from plan:** User requested adding "detailed implementation steps" to the detail requirements (both in opencode prereqs and planning.md). The plan originally said "exact description of changes" — changed to "detailed implementation steps with exact description of changes".
+- **Issues encountered:** `SKILL.md` had a pre-existing uncommitted modification (child checkpoint flow details) — excluded from this commit.
+- **Key decisions:** Only committed the two files actually modified by this task, not the pre-existing SKILL.md change.
+- **Notes for sibling tasks:** The `opencode_planmode_prereqs.md` now contains explicit locking caveat and recommendation to use regular mode. Child 2 (documentation) should reference this when writing the website known-issues page. The planning.md change is minimal (4 extra lines) and shouldn't need further expansion.
+
 ## Post-Implementation
 - Step 9: Archive task, push
