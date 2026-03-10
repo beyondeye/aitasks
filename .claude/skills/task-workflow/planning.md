@@ -103,7 +103,10 @@ While in plan mode:
         - "Stop here" (description: "All child tasks and plans are written — end this session and pick children later in fresh contexts")
       - **If "Start first child":** Restart the pick process with `/aitask-pick <parent>_1`
       - **If "Stop here":** End the workflow. Display: "Child tasks and plans written to `aiplans/p<parent>/`. Pick individual children later with `/aitask-pick <parent>_<N>`."
-- Create a detailed implementation plan
+- Create a detailed, step-by-step implementation plan. "Detailed" means:
+  specific file paths, detailed implementation steps with exact changes
+  needed in each file, code snippets for non-trivial modifications, and
+  verification steps. Do not produce a high-level overview.
 - Include a reference to **Step 9 (Post-Implementation)** in the plan for the cleanup, archival, and merge steps
 - Use `ExitPlanMode` when ready for user approval
 
