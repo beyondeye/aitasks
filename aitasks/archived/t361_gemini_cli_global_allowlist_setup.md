@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [geminicli]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: opencode/zen_gpt_5_4
 created_at: 2026-03-10 12:13
-updated_at: 2026-03-10 16:21
+updated_at: 2026-03-10 18:19
+completed_at: 2026-03-10 18:19
 ---
 
 Per-project Gemini CLI policy files (.gemini/policies/*.toml) are not applied by the CLI despite being referenced in settings.json via policyPaths. Global-level policies (~/.gemini/policies/) do work correctly.
