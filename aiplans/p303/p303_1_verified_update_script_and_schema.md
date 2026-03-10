@@ -130,3 +130,18 @@ If implementation differs from this plan, record the deviation in the plan file 
 ## Step 9 Reference
 
 Post-implementation cleanup still follows task-workflow Step 9: review, separate code/plan commits, archival, lock release, and `./ait git push` for task data.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-03-10 00:00)
+- **Requested by user:** Add `.aitask-scripts/aitask_verified_update.sh` to the allowed Bash-script whitelists for Claude Code, Gemini CLI, and OpenCode in both the local repo and seed configuration.
+- **Changes made:** Added the new helper script to `.claude/settings.local.json`, `.gemini/policies/aitasks-whitelist.toml`, `seed/claude_settings.local.json`, `seed/geminicli_policies/aitasks-whitelist.toml`, and `seed/opencode_config.seed.json`.
+- **Files affected:** `.claude/settings.local.json`, `.gemini/policies/aitasks-whitelist.toml`, `seed/claude_settings.local.json`, `seed/geminicli_policies/aitasks-whitelist.toml`, `seed/opencode_config.seed.json`
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `.aitask-scripts/aitask_verified_update.sh` as an internal helper that validates agent/model inputs, maps 1-5 feedback scores to 20-100 verification scores, updates `verifiedstats` and `verified` via `jq`, stages metadata with `./ait git`, and emits structured `UPDATED:...` output. Added `tests/test_verified_update.sh` to cover success, rolling averages, validation failures, lazy `verifiedstats` creation, and silent-mode output. Initialized `verifiedstats: {}` across tracked `aitasks/metadata/models_*.json` files and added script allowlist entries for Claude Code, Gemini CLI, and OpenCode seed/local configs.
+- **Deviations from plan:** Did not add an `ait` dispatcher entry because the script is intentionally internal and called directly by workflow procedures. The script suppresses `git commit` output when `--silent` is used so structured output remains machine-readable.
+- **Issues encountered:** The first implementation leaked `git commit` output in silent mode, which broke the test expectation; fixed by redirecting commit output to `/dev/null` only for silent mode. `shellcheck` also needed an explicit `SC1091` suppression for the sourced helper library path.
+- **Key decisions:** Kept schema initialization both in the script (lazy creation) and in tracked metadata files so the new `verifiedstats` structure is visible immediately in repository data. Used temp-file JSON writes for safer updates instead of in-place overwrite pipelines.
+- **Notes for sibling tasks:** Later tasks can call `.aitask-scripts/aitask_verified_update.sh` directly with `--agent-string`, `--skill`, `--score`, and optional `--silent`; no dispatcher command is required. Satisfaction-feedback workflows should rely on the structured `UPDATED:<agent>/<model>:<skill>:<new_score>` line and may assume missing `verifiedstats` is handled automatically by the script.
