@@ -404,9 +404,15 @@
       "verified": {
         "task-pick": 0,
         "explain": 0,
-        "batch-review": 0
+        "batch-review": 0,
+        "pick": 100
       },
-      "verifiedstats": {}
+      "verifiedstats": {
+        "pick": {
+          "runs": 1,
+          "score_sum": 100
+        }
+      }
     },
     {
       "name": "zen_gpt_5_4_pro",
