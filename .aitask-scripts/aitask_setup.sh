@@ -1959,6 +1959,20 @@ setup_review_guides() {
 
     info "Found ${#seed_files[@]} review guide templates available for installation."
 
+    if [[ -t 0 ]]; then
+        printf "  Install review guides? [Y/n] "
+        read -r answer
+        case "${answer:-Y}" in
+            [Yy]*|"") ;;
+            *)
+                info "Skipped review guide installation."
+                return 0
+                ;;
+        esac
+    else
+        info "(non-interactive: auto-accepting default)"
+    fi
+
     # Build display list: extract name and description from YAML frontmatter
     local display_lines=()
     local file_map=()  # parallel array: display_line -> filepath
@@ -2011,6 +2025,10 @@ setup_review_guides() {
         file_map+=("$f")
     done
 
+    # Add "Skip" option at the end
+    display_lines+=(">>> Skip review guide installation")
+    file_map+=("SKIP")
+
     # Create destination directory
     mkdir -p "$dest_dir"
 
@@ -2031,7 +2049,7 @@ setup_review_guides() {
             --header="Select review guides to install" \
             --height=15 --no-info) || true
 
-        if [[ -z "$selected" ]]; then
+        if [[ -z "$selected" ]] || echo "$selected" | grep -q "^>>> Skip review guide installation"; then
             info "No review guides selected — skipping"
             return
         fi
@@ -2044,7 +2062,7 @@ setup_review_guides() {
             # Map selected display lines back to file indices
             while IFS= read -r sel_line; do
                 for i in "${!display_lines[@]}"; do
-                    if [[ "${display_lines[$i]}" == "$sel_line" && "${file_map[$i]}" != "ALL" ]]; then
+                    if [[ "${display_lines[$i]}" == "$sel_line" && "${file_map[$i]}" != "ALL" && "${file_map[$i]}" != "SKIP" ]]; then
                         selected_indices+=("$((i - 1))")  # -1 because file_map[0] is "ALL"
                         break
                     fi
