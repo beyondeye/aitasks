@@ -5,15 +5,56 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [aitask_contribute]
+children_to_implement: [t355_1]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-09 23:12
-updated_at: 2026-03-09 23:13
+updated_at: 2026-03-10 09:18
 ---
 
-when creating new issue with aitask-contribute, we don't actually check if the same issue was already addressed in another pr or contribution issue (generated with aitask-contribute skill). the repo mantainer need to run aitask-issue-import one by one for each issue and manually check if the changes are related or not. this is not ideal. also there is the risk of prompt injection in issues if there is no filter of the issues that are allowed to be imported to aitasks. a possibility. in order to reduce needed processing on the reviewer side, assuming that the contributor is honest, is to add in the aitask-contribute skill flow processing that extract a
+## Problem
 
-a unified "signature" to the contribution, extracted to the aread/set of file type of fix etc. this auto generated "signatures" should be easy to compare to find "matches"m and perhaps we can add an automation flow that add labels based on this signatures when an issue is created, and the reviewer can filter issues by "signatures" or set of labels. I am not sure how feasible is this solution.
+When creating contribution issues with aitask-contribute, there is no check for whether the same fix/change was already proposed in another contribution issue. The repo maintainer must manually import and inspect each issue one by one. Additionally, multiple related issues can't be merged into a single imported task.
 
-about the issue of prompt injection in created issues, this cannot be handled on the "contributor" side that can be hostile, it must handled on the "reviewer" side or with some kind of automated workflow. this should be probably left to a follow up tasks.
+Prompt injection in imported issues is out of scope (must be handled on reviewer side — follow-up task).
 
-I need to brainstorm a few possible soultions at least the first part of the problem (classifying and grouping similar issues). by the way currently we can import a task only from a single issue, we cannot merge multiple issue into a single imported task. this should also be considered when trying to solve this problem.  this is a complex problem. at the first stage need to brainstorm severeal different possible solutions, at the second stage we will try to split the selected solutions into child tasks. ask me questions if you need clarifications
+## Design: Three-Layer, Platform-Agnostic Architecture
+
+### Layer 1: Contributor side (aitask-contribute skill)
+Embed a composite fingerprint AND auto-label suggestions in the issue metadata comment. No label application or overlap checking during issue creation — keep contributor flow fast.
+
+Fingerprint fields added to `<!-- aitask-contribute-metadata -->`:
+```
+fingerprint_version: 1
+areas: scripts,claude-skills
+file_paths: .aitask-scripts/foo.sh,.aitask-scripts/bar.sh
+file_dirs: .aitask-scripts
+change_type: enhancement
+auto_labels: area:scripts,scope:enhancement
+```
+
+### Layer 2: Receiving repo side (core script + CI/CD wrappers)
+A portable bash script (`aitask_contribution_check.sh`) with encapsulated platform-specific code (same dispatch pattern as `aitask_contribute.sh`). Platform-specific API access: CLI-first with curl fallback for CI/CD (GitHub Actions pre-installs `gh`; GitLab/Bitbucket CI runners use curl + REST API).
+
+Thin CI/CD wrappers call the core script:
+- **GitHub Actions**: event-driven (`issues.opened`/`issues.labeled`)
+- **GitLab CI**: webhook-triggered pipeline or scheduled scan
+- **Bitbucket Pipelines**: scheduled scan
+
+`ait setup` auto-detects the git remote, creates the `contribution` label (GitHub: `gh label create`, GitLab: `glab label create`, Bitbucket: skip), and installs the appropriate CI/CD wrapper.
+
+The script posts a comment on each contribution issue with:
+- Top 5 overlapping issues (scores + links + overlap details)
+- Label suggestions (apply existing auto_labels, suggest creating missing ones)
+- Machine-readable `<!-- overlap-results -->` block for downstream consumption
+
+Overlap scoring: file path intersection × 3, directory intersection × 2, area intersection × 2, change type match × 1. Thresholds: ≥ 4 "likely", ≥ 7 "high".
+
+### Layer 3: Reviewer side (new AI skill + merge import)
+New `aitask-contribution-review` skill. Input: single issue number. Gathers related issues from platform-linked issues AND fingerprint overlap results (from the bot comment). AI analyzes actual code diffs across candidates. Proposes ONE task group (or single import). Uses `aitask_issue_import.sh --merge-issues` (new capability) to import.
+
+Multi-contributor attribution for merged issues: primary contributor (largest diff) gets `Co-Authored-By` trailer; others listed in commit body text. New `contributors:` YAML list field in frontmatter for secondary contributors.
+
+## Child Tasks
+
+See child task files in `aitasks/t355/` for detailed implementation specs.
