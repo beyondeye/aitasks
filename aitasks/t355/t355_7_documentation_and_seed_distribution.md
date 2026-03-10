@@ -59,6 +59,13 @@ Add a section in documentation covering:
 - Manual setup for repos not using `ait setup`
 - How to pre-create area/scope labels for auto-label features
 
+### 4a. Per-platform CI/CD token configuration requirements
+
+Documentation must cover token configuration for `aitask_contribution_check.sh`:
+- **GitHub Actions**: `$GITHUB_TOKEN` is auto-provided by Actions, no extra setup needed. The `gh` CLI is pre-installed.
+- **GitLab CI**: `CI_JOB_TOKEN` does NOT have access to issues/notes/labels API endpoints. Must create a project access token with `api` scope and store as `$GITLAB_TOKEN` CI/CD variable. The script uses `glab` CLI if available, with curl + REST API fallback.
+- **Bitbucket Pipelines**: Must create an API token (app passwords deprecated, fully disabled June 2026) and store as `$BITBUCKET_USER` + `$BITBUCKET_TOKEN` repository variables. The script uses curl + REST API only (no CLI dependency). Note: Bitbucket issues API does not support labels, so label operations are silent no-ops.
+
 ### 5. Third-party integration docs
 
 Document the fingerprint metadata format in a way that third-party tools can parse it:

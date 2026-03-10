@@ -5,10 +5,10 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [aitask_contribute]
-children_to_implement: [t355_3, t355_4, t355_5, t355_6, t355_7]
+children_to_implement: [t355_4, t355_5, t355_6, t355_7]
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-09 23:12
-updated_at: 2026-03-10 16:46
+updated_at: 2026-03-10 18:55
 ---
 
 ## Problem
