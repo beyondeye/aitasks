@@ -69,5 +69,19 @@ documentation: Add OpenCode plan mode caveats to website (t357_2)
 - Build website: `cd website && hugo build --gc --minify`
 - Verify known-issues page renders correctly
 
+## Final Implementation Notes
+- **Actual work done:** Added OpenCode section to known-issues.md with two subsections (plan mode locking skip, shallow plans with workaround). Added reference link. Added OpenCode plan mode caveat to skills _index.md blockquote.
+- **Deviations from plan:** Step 1a (update intro text) was skipped — the intro had already been updated by a prior change. Step 1b was enhanced with a user-requested workaround for shallow plans: prompting the agent directly to expand the plan. The shallow plans issue was corrected to be a general OpenCode limitation (not plan-mode-specific). The `relref` shortcode in skills/_index.md required an absolute path (`/docs/installation/known-issues`) instead of relative.
+- **Issues encountered:** Hugo build failed with `REF_NOT_FOUND` when using `relref "installation/known-issues"` from skills/_index.md — fixed by using absolute path `/docs/installation/known-issues`.
+- **Key decisions:** Placed OpenCode section after Codex CLI (alphabetical order among non-Claude agents).
+- **Notes for sibling tasks:** No further siblings expected. The known-issues page now has sections for all four supported agents (Claude Code, Gemini CLI, Codex CLI, OpenCode).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-03-10)
+- **Requested by user:** The shallow implementation plans issue is not specific to OpenCode plan mode — it's a general OpenCode limitation.
+- **Changes made:** Changed heading from "Plan mode produces shallow implementation plans" to "Shallow implementation plans". Updated description to clarify this is a general limitation, not plan-mode-specific.
+- **Files affected:** `website/content/docs/installation/known-issues.md`
+
 ## Post-Implementation
 - Step 9: Archive task, push
