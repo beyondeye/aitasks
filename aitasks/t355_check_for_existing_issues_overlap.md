@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [aitask_contribute]
-children_to_implement: [t355_1]
+children_to_implement: [t355_1, t355_2]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-09 23:12
