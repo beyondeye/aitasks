@@ -238,7 +238,10 @@ If `active_profile` is null (either because no profile was selected by the calli
 > - Save Plan to External File (naming conventions, metadata headers)
 > - Checkpoint (post-plan action)
 >
-> After the checkpoint in `planning.md`, proceed to Step 7.
+> After the checkpoint in `planning.md`:
+> - If child tasks were created and the child checkpoint returned "Stop here" → **END the workflow** (do NOT proceed to Step 7/8/9)
+> - If child tasks were created and the child checkpoint returned "Start first child" → restart with `/aitask-pick <parent>_1` (do NOT proceed to Step 7)
+> - Otherwise (normal single-task plan) → proceed to Step 7
 
 ### Step 7: Implement
 
