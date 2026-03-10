@@ -242,6 +242,7 @@ Set the following context variables from the primary task, then read and follow 
 - **active_profile_filename**: The `<filename>` value from the scanner output for the selected profile (e.g., `fast.yaml` or `local/fast.yaml`), or null if no profile
 - **previous_status**: `Ready`
 - **folded_tasks**: List of non-primary task IDs folded into this task (e.g., `[108, 112]`)
+- **skill_name**: `"fold"`
 
 ---
 

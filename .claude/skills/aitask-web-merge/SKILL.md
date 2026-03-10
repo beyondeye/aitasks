@@ -178,6 +178,10 @@ Otherwise, if other unprocessed branches remain, use `AskUserQuestion`:
   - "Yes, process next" (description: "Continue with the next completed branch")
   - "Done for now" (description: "Stop processing branches")
 
+### Step 7: Satisfaction Feedback
+
+Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/procedures.md`) with `skill_name` = `"web-merge"`.
+
 ---
 
 ## Issue Update Procedure

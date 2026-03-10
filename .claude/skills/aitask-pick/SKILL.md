@@ -218,6 +218,7 @@ At this point, a task has been selected and confirmed. Set the following context
 - **active_profile**: The execution profile loaded in Step 0a (or null if no profile)
 - **active_profile_filename**: The `<filename>` value from the scanner output for the selected profile (e.g., `fast.yaml` or `local/fast.yaml`), or null if no profile
 - **previous_status**: `Ready` (the status the task had before being picked)
+- **skill_name**: `"pick"`
 
 ---
 

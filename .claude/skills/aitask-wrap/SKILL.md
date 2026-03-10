@@ -316,6 +316,10 @@ Display the final summary:
 - Pushed to remote
 ```
 
+### Step 6: Satisfaction Feedback
+
+Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/procedures.md`) with `skill_name` = `"wrap"`.
+
 ## Edge Cases
 
 ### No Uncommitted Changes

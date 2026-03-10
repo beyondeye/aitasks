@@ -20,6 +20,7 @@ This skill is invoked by other skills (e.g., aitask-pick, aitask-explore, aitask
 | `active_profile_filename` | string/null | Scanner-returned filename for the profile (e.g., `fast.yaml` or `local/fast.yaml`), null if no profile |
 | `previous_status` | string | Task status before workflow began (for abort revert, e.g., `Ready`) |
 | `folded_tasks` | array/null | List of task IDs folded into this task (e.g., `[106, 129_5]`), or null/empty if none. Set by aitask-explore when existing tasks are folded into a new task. |
+| `skill_name` | string | Name of the calling skill for feedback tracking (e.g., `pick`, `explore`, `pr-import`) |
 
 ## Workflow
 
@@ -491,6 +492,10 @@ The script outputs structured lines. Parse each line and handle accordingly:
 ```bash
 ./ait git push
 ```
+
+### Step 9b: Satisfaction Feedback
+
+Execute the **Satisfaction Feedback Procedure** (see `procedures.md`) with `skill_name` from the context variables.
 
 ### Procedures
 
