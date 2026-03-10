@@ -162,7 +162,25 @@ priority = 100
 
 [[rule]]
 toolName = "run_shell_command"
-commandPrefix = "./.aitask-scripts/aitask_clear_old.sh"
+commandPrefix = "./.aitask-scripts/aitask_claim_id.sh"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "./.aitask-scripts/aitask_codeagent.sh"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "./.aitask-scripts/aitask_codemap.sh"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "./.aitask-scripts/aitask_contribute.sh"
 decision = "allow"
 priority = 100
 
@@ -199,6 +217,18 @@ priority = 100
 [[rule]]
 toolName = "run_shell_command"
 commandRegex = ".*/.aitask-scripts/aitask_lock\\.sh.*"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "./.aitask-scripts/aitask_lock_diag.sh"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "./.aitask-scripts/aitask_opencode_models.sh"
 decision = "allow"
 priority = 100
 
@@ -258,6 +288,24 @@ priority = 100
 
 [[rule]]
 toolName = "run_shell_command"
+commandPrefix = "./.aitask-scripts/aitask_pr_close.sh"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "./.aitask-scripts/aitask_pr_import.sh"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "./.aitask-scripts/aitask_sync.sh"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
 commandPrefix = "./.aitask-scripts/aitask_zip_old.sh"
 decision = "allow"
 priority = 100
@@ -277,12 +325,6 @@ priority = 100
 [[rule]]
 toolName = "run_shell_command"
 commandPrefix = "bkt issue create"
-decision = "allow"
-priority = 100
-
-[[rule]]
-toolName = "run_shell_command"
-commandPrefix = "./.aitask-scripts/aitask_reviewmode_scan.sh"
 decision = "allow"
 priority = 100
 
