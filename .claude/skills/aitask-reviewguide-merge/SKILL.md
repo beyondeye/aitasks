@@ -262,6 +262,10 @@ Show a summary of the batch session:
 **Files deleted:** <list of deleted source files>
 ```
 
+### Step 14: Satisfaction Feedback
+
+After the workflow is complete (after Step 7 in single-pair mode or Step 13 in batch mode), execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/procedures.md`) with `skill_name` = `"reviewguide-merge"`.
+
 ## Notes
 
 - Arguments are **fuzzy search patterns** passed to `fzf --filter`, not exact paths. Partial matches work (e.g., `security` matches `general/security.md`).

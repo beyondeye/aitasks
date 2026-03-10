@@ -209,6 +209,10 @@ Show a summary of the batch run:
 - Any `similar_to` relationships discovered
 - If any similar_to pairs were found, suggest: "Consider running `/aitask-reviewguide-merge` to review merge candidates."
 
+### Step 14: Satisfaction Feedback
+
+After the workflow is complete (after Step 7 in single-file mode or Step 13 in batch mode), execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/procedures.md`) with `skill_name` = `"reviewguide-classify"`.
+
 ## Notes
 
 - The argument to this skill is a **fuzzy search pattern** passed to `fzf --filter`, not necessarily an exact relative path. Partial matches work (e.g., `security` matches `general/security.md`)

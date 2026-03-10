@@ -187,6 +187,10 @@ Where `<run_dir>` is the path captured in Step 3 (e.g., `aiexplains/20260221_143
 
 **Note:** Stale run cleanup (removing older runs for the same source directory) happens automatically during Step 3 gathering. Manual cleanup via Step 6 removes the current run entirely. To trigger a manual stale cleanup: `./.aitask-scripts/aitask_explain_runs.sh --cleanup-stale`
 
+### Step 7: Satisfaction Feedback
+
+Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/procedures.md`) with `skill_name` = `"explain"`.
+
 ---
 
 ## Notes

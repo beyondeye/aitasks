@@ -284,6 +284,10 @@ git commit -m "ait: Add changelog entry for vX.Y.Z"
 
 Inform the user: "Changelog entry for vX.Y.Z written to CHANGELOG.md and CHANGELOG_HUMANIZED.md. Run `./create_new_release.sh` when ready to create the release."
 
+### Step 9: Satisfaction Feedback
+
+Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/procedures.md`) with `skill_name` = `"changelog"`.
+
 ## Notes
 
 - This skill uses `.aitask-scripts/aitask_changelog.sh` for data gathering (tag detection, commit parsing, plan resolution)

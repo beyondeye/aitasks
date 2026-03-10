@@ -154,6 +154,10 @@ git commit -m "ait: Sync refreshed models to seed templates"
 
 Display summary: "Model configurations updated. N new models added, M models updated, K models flagged as deprecated."
 
+### Step 9: Satisfaction Feedback
+
+Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/procedures.md`) with `skill_name` = `"refresh-code-models"`.
+
 ## Model Naming Convention
 
 When generating `name` fields for new models, follow these rules:
