@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [geminicli]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-10 12:13
-updated_at: 2026-03-10 12:13
+updated_at: 2026-03-10 16:13
 ---
 
 Per-project Gemini CLI policy files (.gemini/policies/*.toml) are not applied by the CLI despite being referenced in settings.json via policyPaths. Global-level policies (~/.gemini/policies/) do work correctly.
