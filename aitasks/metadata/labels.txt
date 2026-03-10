@@ -35,6 +35,7 @@ opencode
 release_scripts
 remote
 remove_support
+reviewguides
 script-performance
 skill_optiomizations
 statistics
