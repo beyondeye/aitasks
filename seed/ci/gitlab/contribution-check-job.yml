@@ -1,0 +1,44 @@
+# Contribution Overlap Check - GitLab CI
+# Installed by: ait setup
+# Copy this into your .gitlab-ci.yml or include via 'include: local'.
+#
+# Two modes:
+#   1. Trigger mode: Set pipeline variable ISSUE_IID to check a specific issue.
+#      Create a project webhook (Issues events) that triggers this pipeline.
+#   2. Scheduled mode: Scans issues updated in the last 6 hours.
+#      Create a pipeline schedule (e.g., every 6 hours).
+#
+# Required CI/CD variables:
+#   GITLAB_TOKEN - Project access token with 'api' scope.
+#                  CI_JOB_TOKEN does NOT have sufficient permissions for
+#                  issues/notes/labels API endpoints.
+
+contribution-check:
+  stage: test
+  image: alpine:latest
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "trigger" && $ISSUE_IID'
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+  before_script:
+    - apk add --no-cache bash curl jq git
+  script:
+    - |
+      if [ -n "$ISSUE_IID" ]; then
+        # Trigger mode: check a single issue
+        bash ./.aitask-scripts/aitask_contribution_check.sh "$ISSUE_IID" \
+          --platform gitlab --repo "$CI_PROJECT_PATH"
+      else
+        # Scheduled mode: scan issues updated in last 6 hours
+        SINCE=$(date -u -d '6 hours ago' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
+          || date -u -v-6H '+%Y-%m-%dT%H:%M:%SZ')
+        PROJECT_ID=$(printf '%s' "$CI_PROJECT_PATH" | sed 's|/|%2F|g')
+        API_BASE="${CI_API_V4_URL:-https://gitlab.com/api/v4}"
+        ISSUES=$(curl -sf --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+          "$API_BASE/projects/$PROJECT_ID/issues?state=opened&labels=contribution&updated_after=$SINCE&per_page=50" \
+          | jq -r '.[].iid')
+        for iid in $ISSUES; do
+          echo "--- Checking issue #$iid ---"
+          bash ./.aitask-scripts/aitask_contribution_check.sh "$iid" \
+            --platform gitlab --repo "$CI_PROJECT_PATH" || true
+        done
+      fi

@@ -1,0 +1,25 @@
+name: Contribution Check
+
+on:
+  issues:
+    types: [opened, labeled]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  check-contribution:
+    if: contains(github.event.issue.labels.*.name, 'contribution')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for overlapping contributions
+        run: |
+          ./.aitask-scripts/aitask_contribution_check.sh \
+            "${{ github.event.issue.number }}" \
+            --platform github \
+            --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
