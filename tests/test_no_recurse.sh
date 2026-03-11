@@ -78,7 +78,7 @@ echo "--- Test 1: --no-recurse on directory with subdirs ---"
 TEST_DIR="$TMPDIR_BASE/test1"
 mkdir -p "$TEST_DIR"
 
-output=$(AIEXPLAINS_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --no-recurse --gather .aitask-scripts/ --max-commits 3 2>/dev/null)
+output=$(AITASK_EXPLAIN_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --no-recurse --gather .aitask-scripts/ --max-commits 3 2>/dev/null)
 run_dir=$(echo "$output" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 files_content=$(cat "$run_dir/files.txt")
 
@@ -105,7 +105,7 @@ echo "--- Test 2: without --no-recurse (recursive, backward compat) ---"
 TEST_DIR="$TMPDIR_BASE/test2"
 mkdir -p "$TEST_DIR"
 
-output=$(AIEXPLAINS_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --gather .aitask-scripts/ --max-commits 3 2>/dev/null)
+output=$(AITASK_EXPLAIN_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --gather .aitask-scripts/ --max-commits 3 2>/dev/null)
 run_dir=$(echo "$output" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 files_content=$(cat "$run_dir/files.txt")
 
@@ -127,7 +127,7 @@ echo "--- Test 3: --no-recurse on root directory ---"
 TEST_DIR="$TMPDIR_BASE/test3"
 mkdir -p "$TEST_DIR"
 
-output=$(AIEXPLAINS_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --no-recurse --gather . --max-commits 3 2>/dev/null)
+output=$(AITASK_EXPLAIN_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --no-recurse --gather . --max-commits 3 2>/dev/null)
 run_dir=$(echo "$output" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 files_content=$(cat "$run_dir/files.txt")
 
@@ -153,7 +153,7 @@ echo "--- Test 4: --no-recurse with --source-key ---"
 TEST_DIR="$TMPDIR_BASE/test4"
 mkdir -p "$TEST_DIR"
 
-output=$(AIEXPLAINS_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --no-recurse --gather --source-key test_nr_key .aitask-scripts/ --max-commits 3 2>/dev/null)
+output=$(AITASK_EXPLAIN_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --no-recurse --gather --source-key test_nr_key .aitask-scripts/ --max-commits 3 2>/dev/null)
 run_dir=$(echo "$output" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 dir_name=$(basename "$run_dir")
 
@@ -173,7 +173,7 @@ echo "--- Test 5: --no-recurse on single file (no effect) ---"
 TEST_DIR="$TMPDIR_BASE/test5"
 mkdir -p "$TEST_DIR"
 
-output=$(AIEXPLAINS_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --no-recurse --gather .aitask-scripts/lib/task_utils.sh --max-commits 3 2>/dev/null)
+output=$(AITASK_EXPLAIN_DIR="$TEST_DIR" "$EXTRACT_SCRIPT" --no-recurse --gather .aitask-scripts/lib/task_utils.sh --max-commits 3 2>/dev/null)
 run_dir=$(echo "$output" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 files_content=$(cat "$run_dir/files.txt")
 

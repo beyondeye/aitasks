@@ -6,7 +6,7 @@ aitasks/new/
 .aitask-scripts/codebrowser/__pycache__/
 
 # aitask-explain generated data (temporary, per-run)
-aiexplains/
+.aitask-explain/
 
 # PR import intermediate data (temporary, per-run)
 .aitask-pr-data/

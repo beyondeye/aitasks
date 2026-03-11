@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# aitask_explain_runs.sh - Manage aiexplain run directories
+# aitask_explain_runs.sh - Manage aitask-explain run directories
 # Lists, inspects, and deletes existing aitask-explain run data.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 
-AIEXPLAINS_DIR="aiexplains"
+AITASK_EXPLAIN_DIR="${AITASK_EXPLAIN_DIR:-${AITASK_EXPLAIN_DIR:-.aitask-explain}}"
 MODE=""
 DELETE_TARGET=""
 
@@ -16,8 +16,8 @@ DELETE_TARGET=""
 
 # List all runs with their associated files
 list_runs() {
-    if [[ ! -d "$AIEXPLAINS_DIR" ]]; then
-        info "No aiexplains directory found."
+    if [[ ! -d "$AITASK_EXPLAIN_DIR" ]]; then
+        info "No .aitask-explain directory found."
         return
     fi
 
@@ -25,7 +25,7 @@ list_runs() {
 
     # Scan top-level runs (exclude codebrowser subdirectory)
     local has_toplevel=false
-    for files_txt in "$AIEXPLAINS_DIR"/*/files.txt; do
+    for files_txt in "$AITASK_EXPLAIN_DIR"/*/files.txt; do
         [[ -f "$files_txt" ]] || continue
         local run_dir
         run_dir=$(dirname "$files_txt")
@@ -52,7 +52,7 @@ list_runs() {
 
     # Scan codebrowser runs
     local has_codebrowser=false
-    for files_txt in "$AIEXPLAINS_DIR"/codebrowser/*/files.txt; do
+    for files_txt in "$AITASK_EXPLAIN_DIR"/codebrowser/*/files.txt; do
         [[ -f "$files_txt" ]] || continue
         if [[ "$has_codebrowser" == false ]]; then
             echo "=== Codebrowser runs ==="
@@ -76,7 +76,7 @@ list_runs() {
     done
 
     if [[ "$found" == false ]]; then
-        info "No runs found in ${AIEXPLAINS_DIR}/"
+        info "No runs found in ${AITASK_EXPLAIN_DIR}/"
     fi
 }
 
@@ -84,25 +84,25 @@ list_runs() {
 delete_run() {
     local dir="$1"
 
-    # Safety: only delete directories under aiexplains/
-    if [[ ! -d "$AIEXPLAINS_DIR" ]]; then
-        die "No ${AIEXPLAINS_DIR}/ directory exists"
+    # Safety: only delete directories under .aitask-explain/
+    if [[ ! -d "$AITASK_EXPLAIN_DIR" ]]; then
+        die "No ${AITASK_EXPLAIN_DIR}/ directory exists"
     fi
 
     local canonical
     canonical=$(realpath "$dir" 2>/dev/null || echo "$dir")
     local base
-    base=$(realpath "$AIEXPLAINS_DIR" 2>/dev/null || echo "$AIEXPLAINS_DIR")
+    base=$(realpath "$AITASK_EXPLAIN_DIR" 2>/dev/null || echo "$AITASK_EXPLAIN_DIR")
 
     if [[ "$canonical" != "$base"/* ]]; then
-        die "Refusing to delete directory outside ${AIEXPLAINS_DIR}/: $dir"
+        die "Refusing to delete directory outside ${AITASK_EXPLAIN_DIR}/: $dir"
     fi
 
     if [[ -d "$dir" ]]; then
         rm -rf "$dir"
         info "Removed: $dir"
         # Remove parent if empty
-        rmdir "$AIEXPLAINS_DIR" 2>/dev/null || true
+        rmdir "$AITASK_EXPLAIN_DIR" 2>/dev/null || true
     else
         warn "Directory does not exist: $dir"
     fi
@@ -110,20 +110,20 @@ delete_run() {
 
 # Delete all run directories
 delete_all() {
-    if [[ ! -d "$AIEXPLAINS_DIR" ]]; then
-        info "No ${AIEXPLAINS_DIR}/ directory exists"
+    if [[ ! -d "$AITASK_EXPLAIN_DIR" ]]; then
+        info "No ${AITASK_EXPLAIN_DIR}/ directory exists"
         return
     fi
 
     local count=0
-    for run_dir in "$AIEXPLAINS_DIR"/*/; do
+    for run_dir in "$AITASK_EXPLAIN_DIR"/*/; do
         [[ -d "$run_dir" ]] || continue
         rm -rf "$run_dir"
         count=$((count + 1))
     done
 
     # Remove parent if empty
-    rmdir "$AIEXPLAINS_DIR" 2>/dev/null || true
+    rmdir "$AITASK_EXPLAIN_DIR" 2>/dev/null || true
 
     if [[ $count -gt 0 ]]; then
         info "Removed $count run(s)"
@@ -134,14 +134,14 @@ delete_all() {
 
 # Interactive mode using fzf
 interactive() {
-    if [[ ! -d "$AIEXPLAINS_DIR" ]]; then
-        info "No ${AIEXPLAINS_DIR}/ directory exists"
+    if [[ ! -d "$AITASK_EXPLAIN_DIR" ]]; then
+        info "No ${AITASK_EXPLAIN_DIR}/ directory exists"
         return
     fi
 
     # Build list of runs with file summaries
     local runs=()
-    for files_txt in "$AIEXPLAINS_DIR"/*/files.txt "$AIEXPLAINS_DIR"/codebrowser/*/files.txt; do
+    for files_txt in "$AITASK_EXPLAIN_DIR"/*/files.txt "$AITASK_EXPLAIN_DIR"/codebrowser/*/files.txt; do
         [[ -f "$files_txt" ]] || continue
         local run_dir
         run_dir=$(dirname "$files_txt")
@@ -160,12 +160,12 @@ interactive() {
         # Include relative path for disambiguation
         local rel_path
         rel_path=$(dirname "$files_txt")
-        rel_path="${rel_path#"$AIEXPLAINS_DIR"/}"
+        rel_path="${rel_path#"$AITASK_EXPLAIN_DIR"/}"
         runs+=("${rel_path} | ${display_name} (${file_count} files: ${first_files})")
     done
 
     if [[ ${#runs[@]} -eq 0 ]]; then
-        info "No runs found in ${AIEXPLAINS_DIR}/"
+        info "No runs found in ${AITASK_EXPLAIN_DIR}/"
         return
     fi
 
@@ -190,7 +190,7 @@ interactive() {
         # Extract rel_path (before " | ") to reconstruct full path
         local rel_path
         rel_path="${selected%% | *}"
-        local run_path="${AIEXPLAINS_DIR}/${rel_path}"
+        local run_path="${AITASK_EXPLAIN_DIR}/${rel_path}"
         local display
         display=$(echo "$selected" | sed 's/^[^ ]* | //' | cut -d' ' -f1-3)
         echo -n "Delete run ${display}? [y/N] "
@@ -209,7 +209,7 @@ show_help() {
     cat << 'EOF'
 Usage: aitask_explain_runs.sh [OPTIONS]
 
-Manage aiexplain run directories.
+Manage aitask-explain run directories.
 
 Modes:
   (no flags)                 Interactive mode using fzf
@@ -226,7 +226,7 @@ Examples:
   ./.aitask-scripts/aitask_explain_runs.sh --list
 
   # Delete a specific run
-  ./.aitask-scripts/aitask_explain_runs.sh --delete aiexplains/aiscripts__lib__20260226_155403
+  ./.aitask-scripts/aitask_explain_runs.sh --delete .aitask-explain/aiscripts__lib__20260226_155403
 
   # Delete all runs
   ./.aitask-scripts/aitask_explain_runs.sh --delete-all

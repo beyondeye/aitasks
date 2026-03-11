@@ -16,7 +16,7 @@ CLEANUP_DIR=""
 SOURCE_KEY=""
 NO_RECURSE=false
 INPUT_PATHS=()
-AIEXPLAINS_DIR="${AIEXPLAINS_DIR:-aiexplains}"
+AITASK_EXPLAIN_DIR="${AITASK_EXPLAIN_DIR:-${AITASK_EXPLAIN_DIR:-.aitask-explain}}"
 
 # --- Functions ---
 
@@ -190,7 +190,7 @@ gather() {
     # Create run directory with timestamp
     local run_id
     run_id=$(date +"%Y%m%d_%H%M%S")
-    local run_dir="${AIEXPLAINS_DIR}/${run_id}"
+    local run_dir="${AITASK_EXPLAIN_DIR}/${run_id}"
     mkdir -p "${run_dir}/tasks" "${run_dir}/plans"
 
     # Write files.txt
@@ -263,15 +263,15 @@ gather() {
     fi
 
     # Rename run directory to include dir_key
-    local named_dir="${AIEXPLAINS_DIR}/${dir_key}__${run_id}"
+    local named_dir="${AITASK_EXPLAIN_DIR}/${dir_key}__${run_id}"
     if [[ "$run_dir" != "$named_dir" ]]; then
         mv "$run_dir" "$named_dir"
         run_dir="$named_dir"
     fi
 
-    # Auto-cleanup stale runs for this AIEXPLAINS_DIR
+    # Auto-cleanup stale runs for this AITASK_EXPLAIN_DIR
     if [[ -x "$SCRIPT_DIR/aitask_explain_cleanup.sh" ]]; then
-        "$SCRIPT_DIR/aitask_explain_cleanup.sh" --quiet --target "$AIEXPLAINS_DIR" 2>/dev/null || true
+        "$SCRIPT_DIR/aitask_explain_cleanup.sh" --quiet --target "$AITASK_EXPLAIN_DIR" 2>/dev/null || true
     fi
 
     echo "RUN_DIR: ${run_dir}"
@@ -280,21 +280,21 @@ gather() {
 cleanup() {
     local dir="$1"
 
-    # Safety: only delete directories under aiexplains/
+    # Safety: only delete directories under .aitask-explain/
     local canonical
     canonical=$(realpath "$dir" 2>/dev/null || echo "$dir")
     local base
-    base=$(realpath "$AIEXPLAINS_DIR" 2>/dev/null || echo "$AIEXPLAINS_DIR")
+    base=$(realpath "$AITASK_EXPLAIN_DIR" 2>/dev/null || echo "$AITASK_EXPLAIN_DIR")
 
     if [[ "$canonical" != "$base"/* ]]; then
-        die "Refusing to delete directory outside ${AIEXPLAINS_DIR}/: $dir"
+        die "Refusing to delete directory outside ${AITASK_EXPLAIN_DIR}/: $dir"
     fi
 
     if [[ -d "$dir" ]]; then
         rm -rf "$dir"
         info "Removed: $dir"
         # Remove parent if empty
-        rmdir "$AIEXPLAINS_DIR" 2>/dev/null || true
+        rmdir "$AITASK_EXPLAIN_DIR" 2>/dev/null || true
     else
         warn "Directory does not exist: $dir"
     fi
@@ -319,7 +319,7 @@ Options:
   --help, -h                 Show help
 
 Output:
-  Creates a run-specific directory under aiexplains/ with:
+  Creates a run-specific directory under .aitask-explain/ with:
   - files.txt       List of analyzed files
   - raw_data.txt    Intermediate pipe-delimited data
   - reference.yaml  Final YAML reference (produced by Python)
@@ -347,7 +347,7 @@ Examples:
   ./.aitask-scripts/aitask_explain_extract_raw_data.sh --gather .aitask-scripts/ --max-commits 20
 
   # Clean up a run
-  ./.aitask-scripts/aitask_explain_extract_raw_data.sh --cleanup aiexplains/20260221_143052
+  ./.aitask-scripts/aitask_explain_extract_raw_data.sh --cleanup .aitask-explain/20260221_143052
 EOF
 }
 

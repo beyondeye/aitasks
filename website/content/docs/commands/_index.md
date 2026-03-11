@@ -44,8 +44,8 @@ description: "Complete CLI reference for all ait subcommands"
 | Command | Description |
 |---------|-------------|
 | [`ait codeagent`](codeagent/) | Manage code agent and model configuration |
-| [`ait explain-runs`](explain/#ait-explain-runs) | Manage aiexplain run directories (list, delete, cleanup) |
-| [`ait explain-cleanup`](explain/#ait-explain-cleanup) | Remove stale aiexplain run directories |
+| [`ait explain-runs`](explain/#ait-explain-runs) | Manage aitask-explain run directories (list, delete, cleanup) |
+| [`ait explain-cleanup`](explain/#ait-explain-cleanup) | Remove stale aitask-explain run directories |
 | [`ait zip-old`](issue-integration/#ait-zip-old) | Archive old completed task and plan files |
 
 ### Infrastructure

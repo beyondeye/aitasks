@@ -120,11 +120,11 @@ assert_eq "compute_common_parent: no common prefix returns dot" "." "$result"
 
 echo "=== Integration tests ==="
 
-TEST_AIEXPLAINS="$TMPDIR_BASE/aiexplains"
-mkdir -p "$TEST_AIEXPLAINS"
+TEST_AITASK_EXPLAIN="$TMPDIR_BASE/.aitask-explain"
+mkdir -p "$TEST_AITASK_EXPLAIN"
 
 # Test 1: Auto-derived key from single file
-output=$(AIEXPLAINS_DIR="$TEST_AIEXPLAINS" "$EXTRACT_SCRIPT" --gather .aitask-scripts/lib/task_utils.sh 2>/dev/null)
+output=$(AITASK_EXPLAIN_DIR="$TEST_AITASK_EXPLAIN" "$EXTRACT_SCRIPT" --gather .aitask-scripts/lib/task_utils.sh 2>/dev/null)
 run_dir=$(echo "$output" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 dir_name=$(basename "$run_dir")
 assert_match "auto-naming: single file produces key__timestamp" "^.aitask-scripts__lib__[0-9]{8}_[0-9]{6}$" "$dir_name"
@@ -148,13 +148,13 @@ else
 fi
 
 # Test 2: Explicit --source-key
-output=$(AIEXPLAINS_DIR="$TEST_AIEXPLAINS" "$EXTRACT_SCRIPT" --gather --source-key custom_key .aitask-scripts/lib/task_utils.sh 2>/dev/null)
+output=$(AITASK_EXPLAIN_DIR="$TEST_AITASK_EXPLAIN" "$EXTRACT_SCRIPT" --gather --source-key custom_key .aitask-scripts/lib/task_utils.sh 2>/dev/null)
 run_dir=$(echo "$output" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 dir_name=$(basename "$run_dir")
 assert_match "source-key: explicit key produces key__timestamp" "^custom_key__[0-9]{8}_[0-9]{6}$" "$dir_name"
 
 # Test 3: Directory input auto-naming
-output=$(AIEXPLAINS_DIR="$TEST_AIEXPLAINS" "$EXTRACT_SCRIPT" --gather .aitask-scripts/lib/ 2>/dev/null)
+output=$(AITASK_EXPLAIN_DIR="$TEST_AITASK_EXPLAIN" "$EXTRACT_SCRIPT" --gather .aitask-scripts/lib/ 2>/dev/null)
 run_dir=$(echo "$output" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 dir_name=$(basename "$run_dir")
 assert_match "auto-naming: directory input" "^.aitask-scripts__lib__[0-9]{8}_[0-9]{6}$" "$dir_name"
@@ -166,23 +166,23 @@ assert_match "auto-naming: directory input" "^.aitask-scripts__lib__[0-9]{8}_[0-
 echo "=== Cleanup integration tests ==="
 
 # Create a fresh test dir for cleanup testing
-CLEANUP_AIEXPLAINS="$TMPDIR_BASE/aiexplains_cleanup"
-mkdir -p "$CLEANUP_AIEXPLAINS"
+CLEANUP_AITASK_EXPLAIN="$TMPDIR_BASE/.aitask-explain_cleanup"
+mkdir -p "$CLEANUP_AITASK_EXPLAIN"
 
 # Run twice for the same file — second run should clean up the first
-output1=$(AIEXPLAINS_DIR="$CLEANUP_AIEXPLAINS" "$EXTRACT_SCRIPT" --gather .aitask-scripts/lib/task_utils.sh 2>/dev/null)
+output1=$(AITASK_EXPLAIN_DIR="$CLEANUP_AITASK_EXPLAIN" "$EXTRACT_SCRIPT" --gather .aitask-scripts/lib/task_utils.sh 2>/dev/null)
 run_dir1=$(echo "$output1" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 
 sleep 1  # ensure different timestamp
 
-output2=$(AIEXPLAINS_DIR="$CLEANUP_AIEXPLAINS" "$EXTRACT_SCRIPT" --gather .aitask-scripts/lib/task_utils.sh 2>/dev/null)
+output2=$(AITASK_EXPLAIN_DIR="$CLEANUP_AITASK_EXPLAIN" "$EXTRACT_SCRIPT" --gather .aitask-scripts/lib/task_utils.sh 2>/dev/null)
 run_dir2=$(echo "$output2" | grep '^RUN_DIR:' | sed 's/^RUN_DIR: //')
 cleaned=$(echo "$output2" | grep '^CLEANED:' | sed 's/^CLEANED: //')
 
-# Note: cleanup only works when AIEXPLAINS_DIR is under the default aiexplains/ path
+# Note: cleanup only works when AITASK_EXPLAIN_DIR is under the default .aitask-explain/ path
 # because the cleanup script has a safety check. When using /tmp paths, cleanup
 # correctly refuses to operate. So we check the CLEANED output instead.
-# In production (real aiexplains/ dir), cleanup will prune stale dirs.
+# In production (real .aitask-explain/ dir), cleanup will prune stale dirs.
 
 # Verify both dirs were created (cleanup may or may not have run due to safety check)
 TOTAL=$((TOTAL + 1))

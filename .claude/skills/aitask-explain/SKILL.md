@@ -10,7 +10,7 @@ description: "Explain files in the project: functionality, usage examples, and c
 **Check for existing runs first:**
 
 ```bash
-ls -d aiexplains/*/files.txt 2>/dev/null
+ls -d .aitask-explain/*/files.txt 2>/dev/null
 ```
 
 If existing runs are found, read `files.txt` from each run to build a summary.
@@ -179,7 +179,7 @@ Use `AskUserQuestion`:
 ./.aitask-scripts/aitask_explain_extract_raw_data.sh --cleanup <run_dir>
 ```
 
-Where `<run_dir>` is the path captured in Step 3 (e.g., `aiexplains/20260221_143052`).
+Where `<run_dir>` is the path captured in Step 3 (e.g., `.aitask-explain/20260221_143052`).
 
 **If "No, keep":**
 - Inform user: "Analysis data preserved at `<run_dir>`. Use `/aitask-explain` again and select 'Use existing analysis' to reuse it."
@@ -197,7 +197,7 @@ Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workfl
 
 - This skill uses `aitask_explain_extract_raw_data.sh` for raw data extraction (git log, git blame, task/plan file copying)
 - Raw data is processed by `aitask_explain_process_raw_data.py` into a structured `reference.yaml` file
-- Each run creates an isolated directory under `aiexplains/<dir_key>__<timestamp>/` where `dir_key` is derived from the common parent directory of analyzed files (e.g., `aiscripts__lib__20260226_155403`)
+- Each run creates an isolated directory under `.aitask-explain/<dir_key>__<timestamp>/` where `dir_key` is derived from the common parent directory of analyzed files (e.g., `aiscripts__lib__20260226_155403`)
 - The `reference.yaml` maps lines → commits → task IDs, enabling targeted "code evolution" explanations
 - Commit timeline is ordered **newest first** (most recent changes have lowest timeline numbers)
 - Task/plan files are copied with ID-only names (e.g., `t16.md`, `p16.md`) for simpler referencing

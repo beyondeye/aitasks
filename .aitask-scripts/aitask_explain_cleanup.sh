@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# aitask_explain_cleanup.sh - Remove stale aiexplain run directories
+# aitask_explain_cleanup.sh - Remove stale aitask-explain run directories
 # Keeps only the newest run per source directory key.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 
-AIEXPLAINS_DIR="aiexplains"
+AITASK_EXPLAIN_DIR="${AITASK_EXPLAIN_DIR:-${AITASK_EXPLAIN_DIR:-.aitask-explain}}"
 CODEBROWSER_SUBDIR="codebrowser"
 TARGET_DIR=""
 MODE="target"  # target | all
@@ -49,7 +49,7 @@ cleanup_directory() {
     fi
 
     local base
-    base=$(realpath "$AIEXPLAINS_DIR" 2>/dev/null || echo "$AIEXPLAINS_DIR")
+    base=$(realpath "$AITASK_EXPLAIN_DIR" 2>/dev/null || echo "$AITASK_EXPLAIN_DIR")
 
     # Associative arrays: key -> newest timestamp, key -> newest dir path
     declare -A newest_ts
@@ -75,11 +75,11 @@ cleanup_directory() {
         key="${parsed%%|*}"
         ts="${parsed##*|}"
 
-        # Safety: verify directory is under aiexplains/
+        # Safety: verify directory is under .aitask-explain/
         local canonical
         canonical=$(realpath "$entry" 2>/dev/null || echo "$entry")
         if [[ "$canonical" != "$base"/* ]]; then
-            warn "Refusing to process directory outside ${AIEXPLAINS_DIR}/: $entry"
+            warn "Refusing to process directory outside ${AITASK_EXPLAIN_DIR}/: $entry"
             continue
         fi
 
@@ -137,11 +137,11 @@ show_help() {
     cat << 'EOF'
 Usage: aitask_explain_cleanup.sh [OPTIONS]
 
-Remove stale aiexplain run directories, keeping only the newest per source directory key.
+Remove stale aitask-explain run directories, keeping only the newest per source directory key.
 
 Options:
-  --target DIR    Clean a specific directory (default: aiexplains/)
-  --all           Clean both aiexplains/ (non-codebrowser) and aiexplains/codebrowser/
+  --target DIR    Clean a specific directory (default: .aitask-explain/)
+  --all           Clean both .aitask-explain/ (non-codebrowser) and .aitask-explain/codebrowser/
   --dry-run       Show what would be removed without deleting
   --quiet         Suppress informational output
   --help, -h      Show help
@@ -151,7 +151,7 @@ Examples:
   ./.aitask-scripts/aitask_explain_cleanup.sh --dry-run --all
 
   # Clean only codebrowser runs
-  ./.aitask-scripts/aitask_explain_cleanup.sh --target aiexplains/codebrowser
+  ./.aitask-scripts/aitask_explain_cleanup.sh --target .aitask-explain/codebrowser
 
   # Clean everything (both top-level and codebrowser)
   ./.aitask-scripts/aitask_explain_cleanup.sh --all
@@ -194,7 +194,7 @@ parse_args() {
 
     # Default target
     if [[ "$MODE" == "target" && -z "$TARGET_DIR" ]]; then
-        TARGET_DIR="$AIEXPLAINS_DIR"
+        TARGET_DIR="$AITASK_EXPLAIN_DIR"
     fi
 }
 
@@ -204,20 +204,20 @@ main() {
     local total_cleaned=0
 
     if [[ "$MODE" == "all" ]]; then
-        [[ "$QUIET" == false ]] && info "Cleaning ${AIEXPLAINS_DIR}/ (excluding ${CODEBROWSER_SUBDIR}/)..."
+        [[ "$QUIET" == false ]] && info "Cleaning ${AITASK_EXPLAIN_DIR}/ (excluding ${CODEBROWSER_SUBDIR}/)..."
 
         # For top-level: create a temporary view excluding codebrowser/
-        # We process aiexplains/ but skip the codebrowser subdirectory
-        if [[ -d "$AIEXPLAINS_DIR" ]]; then
+        # We process .aitask-explain/ but skip the codebrowser subdirectory
+        if [[ -d "$AITASK_EXPLAIN_DIR" ]]; then
             local base
-            base=$(realpath "$AIEXPLAINS_DIR" 2>/dev/null || echo "$AIEXPLAINS_DIR")
+            base=$(realpath "$AITASK_EXPLAIN_DIR" 2>/dev/null || echo "$AITASK_EXPLAIN_DIR")
 
             declare -A newest_ts_top
             declare -A newest_dir_top
             declare -A older_dirs_top
             local skipped_top=0
 
-            for entry in "$AIEXPLAINS_DIR"/*/; do
+            for entry in "$AITASK_EXPLAIN_DIR"/*/; do
                 [[ -d "$entry" ]] || continue
                 local dirname
                 dirname=$(basename "$entry")
@@ -239,7 +239,7 @@ main() {
                 local canonical
                 canonical=$(realpath "$entry" 2>/dev/null || echo "$entry")
                 if [[ "$canonical" != "$base"/* ]]; then
-                    warn "Refusing to process directory outside ${AIEXPLAINS_DIR}/: $entry"
+                    warn "Refusing to process directory outside ${AITASK_EXPLAIN_DIR}/: $entry"
                     continue
                 fi
 
@@ -281,11 +281,11 @@ main() {
                 done <<< "${older_dirs_top[$key]}"
             done
 
-            [[ "$QUIET" == false && $skipped_top -gt 0 ]] && info "Skipped $skipped_top unrecognized/invalid directories in $AIEXPLAINS_DIR/"
+            [[ "$QUIET" == false && $skipped_top -gt 0 ]] && info "Skipped $skipped_top unrecognized/invalid directories in $AITASK_EXPLAIN_DIR/"
         fi
 
-        [[ "$QUIET" == false ]] && info "Cleaning ${AIEXPLAINS_DIR}/${CODEBROWSER_SUBDIR}/..."
-        cleanup_directory "${AIEXPLAINS_DIR}/${CODEBROWSER_SUBDIR}"
+        [[ "$QUIET" == false ]] && info "Cleaning ${AITASK_EXPLAIN_DIR}/${CODEBROWSER_SUBDIR}/..."
+        cleanup_directory "${AITASK_EXPLAIN_DIR}/${CODEBROWSER_SUBDIR}"
         total_cleaned=$((total_cleaned + _cleanup_result))
     else
         cleanup_directory "$TARGET_DIR"

@@ -2,7 +2,7 @@
 
 Generates, caches, and parses explain data for files browsed in the codebrowser.
 Uses aitask_explain_extract_raw_data.sh + aitask_explain_process_raw_data.py
-pipeline, directing output to aiexplains/codebrowser/ with directory-based naming.
+pipeline, directing output to .aitask-explain/codebrowser/ with directory-based naming.
 """
 
 import glob
@@ -18,7 +18,7 @@ import yaml
 
 from annotation_data import AnnotationRange, ExplainRunInfo, FileExplainData, TaskDetailContent
 
-CODEBROWSER_DIR = "aiexplains/codebrowser"
+CODEBROWSER_DIR = ".aitask-explain/codebrowser"
 EXTRACT_SCRIPT = "./.aitask-scripts/aitask_explain_extract_raw_data.sh"
 
 
@@ -85,7 +85,7 @@ class ExplainManager:
         self._active_generation = dir_key
         try:
             env = os.environ.copy()
-            env["AIEXPLAINS_DIR"] = CODEBROWSER_DIR
+            env["AITASK_EXPLAIN_DIR"] = CODEBROWSER_DIR
             cmd = [
                 EXTRACT_SCRIPT, "--no-recurse", "--gather",
                 "--source-key", dir_key,

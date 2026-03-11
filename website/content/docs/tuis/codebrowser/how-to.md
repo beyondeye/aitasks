@@ -64,7 +64,7 @@ Annotations show which aitasks contributed to each section of a file. They are g
 
 **How it works:**
 
-The annotation data comes from the same [explain pipeline]({{< relref "/docs/skills/aitask-explain" >}}) used by `/aitask-explain`. It runs `git blame` and `git log` to map lines to commits, then resolves commits to aitask IDs. Cached data is stored under `aiexplains/codebrowser/` and reused across sessions.
+The annotation data comes from the same [explain pipeline]({{< relref "/docs/skills/aitask-explain" >}}) used by `/aitask-explain`. It runs `git blame` and `git log` to map lines to commits, then resolves commits to aitask IDs. Cached data is stored under `.aitask-explain/codebrowser/` and reused across sessions.
 
 ### How to Use the Detail Pane
 

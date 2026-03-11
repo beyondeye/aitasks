@@ -7,7 +7,7 @@ description: "ait explain-runs and ait explain-cleanup commands"
 
 ## ait explain-runs
 
-Manage aiexplain run directories. The `/aitask-explain` skill generates reference data (git history analysis, task/plan mappings) in directories under `aiexplains/`. Over time these accumulate. Use `ait explain-runs` to list, inspect, and clean up old run data.
+Manage aitask-explain run directories. The `/aitask-explain` skill generates reference data (git history analysis, task/plan mappings) in directories under `.aitask-explain/`. Over time these accumulate. Use `ait explain-runs` to list, inspect, and clean up old run data.
 
 **Interactive mode** (default — requires fzf):
 
@@ -21,7 +21,7 @@ Presents a list of all existing runs (both top-level and codebrowser) with file 
 
 ```bash
 ait explain-runs --list                                              # List all runs with their files
-ait explain-runs --delete aiexplains/aiscripts__lib__20260226_155403  # Delete a specific run
+ait explain-runs --delete .aitask-explain/aiscripts__lib__20260226_155403  # Delete a specific run
 ait explain-runs --delete-all                                         # Delete all runs
 ait explain-runs --cleanup-stale                                      # Remove stale runs (keep newest per source)
 ```
@@ -29,7 +29,7 @@ ait explain-runs --cleanup-stale                                      # Remove s
 | Option | Description |
 |--------|-------------|
 | `--list` | List all runs with their associated files (top-level and codebrowser sections) |
-| `--delete RUN_DIR` | Delete a specific run directory (must be under `aiexplains/`) |
+| `--delete RUN_DIR` | Delete a specific run directory (must be under `.aitask-explain/`) |
 | `--delete-all` | Delete all run directories |
 | `--cleanup-stale` | Remove stale runs, keeping only the newest per source directory (delegates to `ait explain-cleanup --all`) |
 | (no flags) | Interactive mode using fzf |
@@ -40,35 +40,35 @@ Run directories use the format `<dir_key>__<timestamp>`, where `dir_key` identif
 
 **Run directory structure:**
 
-Each run is stored as `aiexplains/<dir_key>__<timestamp>/` and contains:
+Each run is stored as `.aitask-explain/<dir_key>__<timestamp>/` and contains:
 - `files.txt` — list of files that were analyzed
 - `reference.yaml` — structured line-to-commit-to-task mapping
 - `tasks/` and `plans/` — extracted task and plan files for context
 
-Codebrowser runs are stored under `aiexplains/codebrowser/<dir_key>__<timestamp>/` with the same structure. See the [Code Browser documentation]({{< relref "/docs/tuis/codebrowser" >}}) for details on how annotations are displayed.
+Codebrowser runs are stored under `.aitask-explain/codebrowser/<dir_key>__<timestamp>/` with the same structure. See the [Code Browser documentation]({{< relref "/docs/tuis/codebrowser" >}}) for details on how annotations are displayed.
 
 **Safety:**
-- The `--delete` option validates that the target path is under `aiexplains/` before removing
-- The `aiexplains/` parent directory is automatically removed if empty after deletion
+- The `--delete` option validates that the target path is under `.aitask-explain/` before removing
+- The `.aitask-explain/` parent directory is automatically removed if empty after deletion
 - Interactive mode requires explicit confirmation before any deletion
 
 ## ait explain-cleanup
 
-Remove stale aiexplain run directories, keeping only the newest run per source directory key. This prevents disk usage from growing unboundedly as new analysis runs are generated.
+Remove stale aitask-explain run directories, keeping only the newest run per source directory key. This prevents disk usage from growing unboundedly as new analysis runs are generated.
 
 Stale cleanup also happens automatically when the `/aitask-explain` skill generates new data and at codebrowser TUI startup — this command is for manual cleanup or automation.
 
 ```bash
 ait explain-cleanup --all                                   # Clean both top-level and codebrowser runs
-ait explain-cleanup --target aiexplains/codebrowser          # Clean only codebrowser runs
+ait explain-cleanup --target .aitask-explain/codebrowser          # Clean only codebrowser runs
 ait explain-cleanup --dry-run --all                          # Preview what would be removed
 ait explain-cleanup --all --quiet                            # Silent mode for automation
 ```
 
 | Option | Description |
 |--------|-------------|
-| `--target DIR` | Clean a specific directory (default: `aiexplains/`) |
-| `--all` | Clean both `aiexplains/` (top-level) and `aiexplains/codebrowser/` |
+| `--target DIR` | Clean a specific directory (default: `.aitask-explain/`) |
+| `--all` | Clean both `.aitask-explain/` (top-level) and `.aitask-explain/codebrowser/` |
 | `--dry-run` | Show what would be removed without deleting |
 | `--quiet` | Suppress informational output |
 

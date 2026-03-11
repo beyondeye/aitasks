@@ -43,8 +43,8 @@ Reporting:
 
 Tools:
   codeagent      Manage code agent and model configuration
-  explain-runs     Manage aiexplain run directories
-  explain-cleanup  Remove stale aiexplain run directories
+  explain-runs     Manage aitask-explain run directories
+  explain-cleanup  Remove stale aitask-explain run directories
   zip-old        Archive old completed tasks
 
 Infrastructure:

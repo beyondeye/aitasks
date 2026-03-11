@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test_explain_binary.sh - Tests for binary file handling in aiexplains pipeline (t255_1)
+# test_explain_binary.sh - Tests for binary file handling in aitask-explain pipeline (t255_1)
 # Run: bash tests/test_explain_binary.sh
 
 set -e
@@ -113,7 +113,7 @@ fi
 echo "--- Shell extraction: binary file has BINARY_FILE marker ---"
 
 setup_tmpdir
-AIEXPLAINS_DIR="$TMPDIR_TEST" bash "$PROJECT_DIR/.aitask-scripts/aitask_explain_extract_raw_data.sh" \
+AITASK_EXPLAIN_DIR="$TMPDIR_TEST" bash "$PROJECT_DIR/.aitask-scripts/aitask_explain_extract_raw_data.sh" \
     --gather "$BINARY_FILE" --max-commits 5 > "$TMPDIR_TEST/gather_out.txt" 2>&1
 
 RUN_DIR=$(grep "^RUN_DIR:" "$TMPDIR_TEST/gather_out.txt" | sed 's/^RUN_DIR: //')
@@ -143,7 +143,7 @@ cleanup_tmpdir
 echo "--- Shell extraction: text file has BLAME_LINES ---"
 
 setup_tmpdir
-AIEXPLAINS_DIR="$TMPDIR_TEST" bash "$PROJECT_DIR/.aitask-scripts/aitask_explain_extract_raw_data.sh" \
+AITASK_EXPLAIN_DIR="$TMPDIR_TEST" bash "$PROJECT_DIR/.aitask-scripts/aitask_explain_extract_raw_data.sh" \
     --gather "$TEXT_FILE" --max-commits 5 > "$TMPDIR_TEST/gather_out.txt" 2>&1
 
 RUN_DIR=$(grep "^RUN_DIR:" "$TMPDIR_TEST/gather_out.txt" | sed 's/^RUN_DIR: //')
@@ -166,7 +166,7 @@ cleanup_tmpdir
 echo "--- Python processor: binary file has binary: true ---"
 
 setup_tmpdir
-AIEXPLAINS_DIR="$TMPDIR_TEST" bash "$PROJECT_DIR/.aitask-scripts/aitask_explain_extract_raw_data.sh" \
+AITASK_EXPLAIN_DIR="$TMPDIR_TEST" bash "$PROJECT_DIR/.aitask-scripts/aitask_explain_extract_raw_data.sh" \
     --gather "$BINARY_FILE" --max-commits 5 > "$TMPDIR_TEST/gather_out.txt" 2>&1
 
 RUN_DIR=$(grep "^RUN_DIR:" "$TMPDIR_TEST/gather_out.txt" | sed 's/^RUN_DIR: //')
@@ -225,7 +225,7 @@ cleanup_tmpdir
 echo "--- Mixed: binary + text files in same run ---"
 
 setup_tmpdir
-AIEXPLAINS_DIR="$TMPDIR_TEST" bash "$PROJECT_DIR/.aitask-scripts/aitask_explain_extract_raw_data.sh" \
+AITASK_EXPLAIN_DIR="$TMPDIR_TEST" bash "$PROJECT_DIR/.aitask-scripts/aitask_explain_extract_raw_data.sh" \
     --gather "$BINARY_FILE" "$TEXT_FILE" --max-commits 5 > "$TMPDIR_TEST/gather_out.txt" 2>&1
 
 RUN_DIR=$(grep "^RUN_DIR:" "$TMPDIR_TEST/gather_out.txt" | sed 's/^RUN_DIR: //')
