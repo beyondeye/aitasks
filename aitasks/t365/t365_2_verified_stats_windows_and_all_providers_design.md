@@ -3,11 +3,11 @@ priority: high
 effort: high
 depends: [1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [verifiedstats, opencode]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-11 15:50
-updated_at: 2026-03-11 15:50
+updated_at: 2026-03-11 19:01
 ---
 
 ## Context

@@ -1,6 +1,6 @@
 {
   "defaults": {
-    "pick": "opencode/openai_gpt_5_3_codex",
+    "pick": "claudecode/opus4_6",
     "explain": "claudecode/sonnet4_6",
     "batch-review": "claudecode/sonnet4_6",
     "raw": "claudecode/sonnet4_6"
