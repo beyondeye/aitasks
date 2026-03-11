@@ -162,6 +162,45 @@ This procedure is referenced from Step 8 wherever code changes are being committ
 
 - **If neither field is present:** No contributor attribution block is needed. Use the normal subject line, plus the code-agent trailer if available.
 
+### Multi-Contributor Attribution (Merged Issues)
+
+When a task has both `contributor`/`contributor_email` (primary) and a `contributors:` list (secondary contributors from merged issues), the commit message includes:
+
+- **Primary contributor:** `Co-Authored-By` trailer (as above, unchanged)
+- **Secondary contributors:** Listed in the commit body text, between the subject line and the `Co-Authored-By` trailers:
+  ```text
+  Also based on contributions from: bob (#38), charlie (#15)
+  ```
+
+**Procedure for reading `contributors:`:**
+
+- Read the task file's frontmatter. If `contributors:` is present, it is a YAML list of objects:
+  ```yaml
+  contributors:
+    - name: bob
+      email: bob@example.com
+      issue: https://github.com/owner/repo/issues/38
+  ```
+- Extract each contributor's name and issue number (from the URL).
+- Format as: `Also based on contributions from: <name1> (#<issue_num1>), <name2> (#<issue_num2>)`
+- Place this line after the subject, before the `Co-Authored-By` trailer.
+
+**Example with primary + secondary contributors and code-agent:**
+
+```bash
+git commit -m "$(cat <<'EOF'
+feature: Add dark mode and theme support (t42)
+
+Also based on contributions from: bob (#38), charlie (#15)
+
+Co-Authored-By: primary-author <primary@example.com>
+Co-Authored-By: Codex/GPT5.4 <codex@aitasks.io>
+EOF
+)"
+```
+
+- The `related_issues:` frontmatter field is informational only (no commit message impact). It records all source issue URLs for traceability.
+
 **Notes:**
 - `Co-Authored-By` is preferred over `--author` — the contributor inspired the work but the current implementer wrote this specific code
 - The `contributor_email` can be pre-computed during PR import or extracted by `ait issue-import` from `aitask-contribute` metadata — no API call is needed at commit time

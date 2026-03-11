@@ -32,6 +32,7 @@ BATCH_COMMIT=false
 BATCH_SILENT=false
 BATCH_SKIP_DUPLICATES=false
 BATCH_NO_COMMENTS=false
+BATCH_MERGE_ISSUES=""
 
 # --- Helper Functions ---
 
@@ -59,6 +60,55 @@ get_existing_labels() {
     if [[ -s "$LABELS_FILE" ]]; then
         sort -u "$LABELS_FILE"
     fi
+}
+
+# Count +/- diff lines in issue body text (for primary contributor selection)
+# Counts lines starting with + or - (excluding +++ and --- diff headers)
+count_diff_lines() {
+    local body="$1"
+    local count
+    count=$(echo "$body" | grep -cE '^\+[^+]|^-[^-]' || true)
+    echo "${count:-0}"
+}
+
+# Inject related_issues and contributors fields into task file frontmatter
+# Uses a while-read loop + temp file for portability (avoids BSD vs GNU sed issues)
+# Args: $1=filepath, $2=related_issues_yaml, $3=contributors_yaml (may be empty)
+inject_merge_frontmatter() {
+    local filepath="$1"
+    local related_issues_yaml="$2"
+    local contributors_yaml="$3"
+
+    # Find the anchor line to insert after
+    local anchor_pattern=""
+    if grep -q '^contributor_email:' "$filepath"; then
+        anchor_pattern='^contributor_email:'
+    elif grep -q '^contributor:' "$filepath"; then
+        anchor_pattern='^contributor:'
+    elif grep -q '^issue:' "$filepath"; then
+        anchor_pattern='^issue:'
+    else
+        anchor_pattern='^status:'
+    fi
+
+    # Build the insertion text
+    local insert_text="related_issues: $related_issues_yaml"
+    if [[ -n "$contributors_yaml" ]]; then
+        insert_text="${insert_text}"$'\n'"$contributors_yaml"
+    fi
+
+    # Use a temp file approach for portable multi-line insertion
+    local tmpfile
+    tmpfile=$(mktemp "${TMPDIR:-/tmp}/ait_merge_XXXXXX.md")
+    local injected=false
+    while IFS= read -r line; do
+        printf '%s\n' "$line" >> "$tmpfile"
+        if [[ "$injected" == false ]] && echo "$line" | grep -qE "$anchor_pattern"; then
+            printf '%s\n' "$insert_text" >> "$tmpfile"
+            injected=true
+        fi
+    done < "$filepath"
+    mv "$tmpfile" "$filepath"
 }
 
 # ============================================================
@@ -387,6 +437,37 @@ source_format_comments() {
     esac
 }
 
+# --- Comment Posting (for merge-issues feedback) ---
+
+github_post_comment() {
+    local issue_num="$1"
+    local body="$2"
+    gh issue comment "$issue_num" --body "$body"
+}
+
+gitlab_post_comment() {
+    local issue_num="$1"
+    local body="$2"
+    glab issue note "$issue_num" -m "$body"
+}
+
+bitbucket_post_comment() {
+    local issue_num="$1"
+    local body="$2"
+    bkt issue comment "$issue_num" -b "$body"
+}
+
+source_post_comment() {
+    local issue_num="$1"
+    local body="$2"
+    case "$SOURCE" in
+        github) github_post_comment "$issue_num" "$body" ;;
+        gitlab) gitlab_post_comment "$issue_num" "$body" ;;
+        bitbucket) bitbucket_post_comment "$issue_num" "$body" ;;
+        *) die "Unknown source: $SOURCE" ;;
+    esac
+}
+
 # --- Duplicate Detection ---
 
 check_duplicate_import() {
@@ -498,9 +579,242 @@ import_single_issue() {
     echo "$description" | "$SCRIPT_DIR/aitask_create.sh" "${create_args[@]}"
 }
 
+# --- Merge Issues Mode ---
+
+merge_issues() {
+    local issue_nums_csv="$1"
+    local -a issue_nums
+    IFS=',' read -ra issue_nums <<< "$issue_nums_csv"
+
+    # Check for duplicates (warn only, don't block)
+    for num in "${issue_nums[@]}"; do
+        local existing
+        existing=$(check_duplicate_import "$num")
+        if [[ -n "$existing" ]]; then
+            warn "Issue #$num already imported as: $existing"
+        fi
+    done
+
+    # Fetch all issues and parse metadata
+    local -a issue_jsons=()
+    local -a issue_titles=()
+    local -a issue_bodies=()
+    local -a issue_urls=()
+    local -a contrib_names=()
+    local -a contrib_emails=()
+    local -a diff_counts=()
+    local -a all_labels=()
+
+    [[ "$BATCH_SILENT" == true ]] || info "Fetching ${#issue_nums[@]} issues for merge..."
+
+    for num in "${issue_nums[@]}"; do
+        local issue_json
+        issue_json=$(source_fetch_issue "$num") || die "Failed to fetch issue #$num"
+        issue_jsons+=("$issue_json")
+
+        local title body url labels_json
+        title=$(echo "$issue_json" | jq -r '.title')
+        body=$(echo "$issue_json" | jq -r '.body // ""')
+        url=$(echo "$issue_json" | jq -r '.url')
+        labels_json=$(echo "$issue_json" | jq -c '.labels')
+
+        issue_titles+=("$title")
+        issue_bodies+=("$body")
+        issue_urls+=("$url")
+
+        # Parse contribute metadata
+        parse_contribute_metadata "$body"
+        contrib_names+=("${CONTRIBUTE_CONTRIBUTOR:-}")
+        contrib_emails+=("${CONTRIBUTE_EMAIL:-}")
+
+        # Count diff lines for primary contributor selection
+        local dlines
+        dlines=$(count_diff_lines "$body")
+        diff_counts+=("$dlines")
+
+        # Collect labels from this issue
+        local mapped
+        mapped=$(source_map_labels "$labels_json")
+        if [[ -n "$mapped" ]]; then
+            all_labels+=("$mapped")
+        fi
+    done
+
+    # Determine primary contributor (largest diff)
+    local primary_idx=0
+    local max_diff=0
+    for i in "${!diff_counts[@]}"; do
+        if [[ "${diff_counts[$i]}" -gt "$max_diff" ]]; then
+            max_diff="${diff_counts[$i]}"
+            primary_idx=$i
+        fi
+    done
+
+    local primary_contributor="${contrib_names[$primary_idx]}"
+    local primary_email="${contrib_emails[$primary_idx]}"
+    local primary_url="${issue_urls[$primary_idx]}"
+
+    # Build merged task name from first issue title
+    local task_name
+    task_name=$(sanitize_name "${issue_titles[0]}")
+    [[ -z "$task_name" ]] && task_name="merged_issues_$(echo "$issue_nums_csv" | tr ',' '_')"
+
+    # Build merged description
+    local description=""
+    description="## Merged Contribution Issues"$'\n'$'\n'
+    description+="Source issues: "
+    for i in "${!issue_nums[@]}"; do
+        [[ $i -gt 0 ]] && description+=", "
+        description+="#${issue_nums[$i]}"
+    done
+    description+=$'\n'$'\n'
+
+    for i in "${!issue_nums[@]}"; do
+        description+="---"$'\n'$'\n'
+        description+="### Issue #${issue_nums[$i]}: ${issue_titles[$i]}"$'\n'$'\n'
+
+        local issue_created issue_updated ts_line=""
+        issue_created=$(echo "${issue_jsons[$i]}" | jq -r '.createdAt // ""')
+        issue_updated=$(echo "${issue_jsons[$i]}" | jq -r '.updatedAt // ""')
+        if [[ -n "$issue_created" ]]; then
+            ts_line="Issue created: $(utc_to_local "$issue_created")"
+            if [[ -n "$issue_updated" && "$issue_updated" != "$issue_created" ]]; then
+                ts_line="${ts_line}, last updated: $(utc_to_local "$issue_updated")"
+            fi
+            description+="${ts_line}"$'\n'$'\n'
+        fi
+
+        description+="${issue_bodies[$i]}"$'\n'$'\n'
+
+        # Append comments if enabled
+        if [[ "$BATCH_NO_COMMENTS" != true ]]; then
+            local comments_json
+            comments_json=$(echo "${issue_jsons[$i]}" | jq -c '.comments // []')
+            local comments_text
+            comments_text=$(source_format_comments "$comments_json")
+            if [[ -n "$comments_text" ]]; then
+                description+="${comments_text}"$'\n'$'\n'
+            fi
+        fi
+    done
+
+    # Union labels (deduplicate)
+    local merged_labels=""
+    if [[ -n "$BATCH_LABELS" ]]; then
+        merged_labels="$BATCH_LABELS"
+    elif [[ ${#all_labels[@]} -gt 0 ]]; then
+        local joined
+        joined=$(printf "%s," "${all_labels[@]}")
+        merged_labels=$(echo "$joined" | tr ',' '\n' | sort -u | grep -v '^$' | tr '\n' ',' | sed 's/,$//')
+    fi
+
+    # Detect issue type
+    local issue_type
+    if [[ -n "$BATCH_TYPE" ]]; then
+        issue_type="$BATCH_TYPE"
+    else
+        local first_labels
+        first_labels=$(echo "${issue_jsons[0]}" | jq -c '.labels')
+        issue_type=$(source_detect_type "$first_labels")
+    fi
+
+    # Build aitask_create.sh arguments — always use --silent internally to capture filepath
+    local create_args=(--batch --name "$task_name"
+        --desc-file -
+        --priority "$BATCH_PRIORITY" --effort "$BATCH_EFFORT"
+        --type "$issue_type" --status "$BATCH_STATUS"
+        --issue "$primary_url"
+        --silent)
+
+    [[ -n "$merged_labels" ]] && create_args+=(--labels "$merged_labels")
+    [[ -n "$BATCH_DEPS" ]] && create_args+=(--deps "$BATCH_DEPS")
+    [[ -n "$BATCH_PARENT" ]] && create_args+=(--parent "$BATCH_PARENT")
+    [[ "$BATCH_NO_SIBLING_DEP" == true ]] && create_args+=(--no-sibling-dep)
+    [[ "$BATCH_COMMIT" == true ]] && create_args+=(--commit)
+
+    # Set primary contributor
+    if [[ -n "$primary_contributor" ]]; then
+        create_args+=(--contributor "$primary_contributor")
+        if [[ -n "$primary_email" ]]; then
+            create_args+=(--contributor-email "$primary_email")
+        fi
+    fi
+
+    # Create the task (--silent gives us just the filepath)
+    local created_file
+    created_file=$(echo "$description" | "$SCRIPT_DIR/aitask_create.sh" "${create_args[@]}")
+
+    if [[ -z "$created_file" || ! -f "$created_file" ]]; then
+        die "Failed to create merged task"
+    fi
+
+    # Build related_issues YAML list
+    local related_issues_yaml="["
+    for i in "${!issue_urls[@]}"; do
+        [[ $i -gt 0 ]] && related_issues_yaml+=", "
+        related_issues_yaml+="\"${issue_urls[$i]}\""
+    done
+    related_issues_yaml+="]"
+
+    # Build contributors YAML block (secondary contributors only)
+    local contributors_yaml=""
+    for i in "${!contrib_names[@]}"; do
+        # Skip primary contributor
+        [[ $i -eq $primary_idx ]] && continue
+        # Skip issues without contributor info
+        [[ -z "${contrib_names[$i]}" ]] && continue
+        if [[ -z "$contributors_yaml" ]]; then
+            contributors_yaml="contributors:"
+        fi
+        contributors_yaml+=$'\n'"  - name: ${contrib_names[$i]}"
+        if [[ -n "${contrib_emails[$i]}" ]]; then
+            contributors_yaml+=$'\n'"    email: ${contrib_emails[$i]}"
+        fi
+        contributors_yaml+=$'\n'"    issue: ${issue_urls[$i]}"
+    done
+
+    # Inject merge-specific frontmatter fields
+    inject_merge_frontmatter "$created_file" "$related_issues_yaml" "$contributors_yaml"
+
+    # If --commit was used, amend the commit to include frontmatter changes
+    if [[ "$BATCH_COMMIT" == true ]]; then
+        task_git add "$created_file"
+        task_git commit --amend --no-edit
+    fi
+
+    # Post notification comment on each source issue
+    local task_id
+    task_id=$(basename "$created_file" .md | grep -oE '^t[0-9]+(_[0-9]+)?' || echo "unknown")
+    for num in "${issue_nums[@]}"; do
+        local comment_body="This issue has been imported as part of merged task **${task_id}**."
+        source_post_comment "$num" "$comment_body" 2>/dev/null || \
+            warn "Failed to post comment on issue #$num"
+    done
+
+    # Output result
+    if [[ "$BATCH_SILENT" == true ]]; then
+        echo "$created_file"
+    else
+        success "Merged ${#issue_nums[@]} issues into: $created_file"
+    fi
+}
+
 # --- Batch Mode ---
 
 run_batch_mode() {
+    # Merge mode takes priority (validates before CLI check)
+    if [[ -n "$BATCH_MERGE_ISSUES" ]]; then
+        # Validate count early (before source_check_cli which requires auth)
+        local -a _merge_nums
+        IFS=',' read -ra _merge_nums <<< "$BATCH_MERGE_ISSUES"
+        if [[ ${#_merge_nums[@]} -lt 2 ]]; then
+            die "--merge-issues requires at least 2 issue numbers (got ${#_merge_nums[@]})"
+        fi
+        source_check_cli
+        merge_issues "$BATCH_MERGE_ISSUES"
+        return
+    fi
+
     source_check_cli
 
     if [[ "$BATCH_ALL" == true ]]; then
@@ -531,7 +845,7 @@ run_batch_mode() {
     elif [[ -n "$BATCH_ISSUE_NUM" ]]; then
         import_single_issue "$BATCH_ISSUE_NUM"
     else
-        die "Batch mode requires --issue, --range, or --all"
+        die "Batch mode requires --issue, --range, --all, or --merge-issues"
     fi
 }
 
@@ -882,6 +1196,7 @@ Batch mode required flags (one of):
   --issue, -i NUM          Import a specific issue number
   --range START-END        Import issues in a number range (e.g., 5-10)
   --all                    Import all open issues
+  --merge-issues N1,N2,... Merge multiple issues into a single task
 
 Batch mode options:
   --batch                  Enable batch mode (required for non-interactive)
@@ -915,6 +1230,12 @@ Examples:
 
   # Import as child tasks of parent t53
   ./aitask_issue_import.sh --batch --all --parent 53 --skip-duplicates
+
+  # Merge related contribution issues into one task
+  ./aitask_issue_import.sh --batch --merge-issues 38,39,42 --commit
+
+  # Merge issues as child of parent t355
+  ./aitask_issue_import.sh --batch --merge-issues 38,39 --parent 355 --commit
 EOF
 }
 
@@ -938,6 +1259,7 @@ parse_args() {
             --silent) BATCH_SILENT=true; shift ;;
             --skip-duplicates) BATCH_SKIP_DUPLICATES=true; shift ;;
             --no-comments) BATCH_NO_COMMENTS=true; shift ;;
+            --merge-issues) BATCH_MERGE_ISSUES="$2"; shift 2 ;;
             --help|-h) show_help; exit 0 ;;
             *) die "Unknown option: $1. Use --help for usage." ;;
         esac
@@ -958,6 +1280,19 @@ parse_args() {
         bitbucket) ;;
         *) die "Unknown source platform: $SOURCE (supported: github, gitlab, bitbucket)" ;;
     esac
+
+    # Validate --merge-issues is not combined with other import modes
+    if [[ -n "$BATCH_MERGE_ISSUES" ]]; then
+        if [[ -n "$BATCH_ISSUE_NUM" ]]; then
+            die "--merge-issues cannot be combined with --issue"
+        fi
+        if [[ -n "$BATCH_ISSUE_RANGE" ]]; then
+            die "--merge-issues cannot be combined with --range"
+        fi
+        if [[ "$BATCH_ALL" == true ]]; then
+            die "--merge-issues cannot be combined with --all"
+        fi
+    fi
 }
 
 # --- Main ---
