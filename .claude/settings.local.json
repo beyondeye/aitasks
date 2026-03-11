@@ -33,6 +33,7 @@
       "Bash(./.aitask-scripts/aitask_codemap.sh:*)",
       "Bash(./.aitask-scripts/aitask_contribute.sh:*)",
       "Bash(./.aitask-scripts/aitask_contribution_check.sh:*)",
+      "Bash(./.aitask-scripts/aitask_contribution_review.sh:*)",
       "Bash(./.aitask-scripts/aitask_stats.sh:*)",
       "Bash(./.aitask-scripts/aitask_issue_update.sh:*)",
       "Bash(./.aitask-scripts/aitask_changelog.sh:*)",

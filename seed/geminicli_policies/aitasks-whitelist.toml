@@ -192,6 +192,12 @@ priority = 100
 
 [[rule]]
 toolName = "run_shell_command"
+commandPrefix = "./.aitask-scripts/aitask_contribution_review.sh"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
 commandPrefix = "./.aitask-scripts/aitask_stats.sh"
 decision = "allow"
 priority = 100
@@ -499,6 +505,12 @@ priority = 100
 [[rule]]
 toolName = "activate_skill"
 argsPattern = "aitask-contribute"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-contribution-review"
 decision = "allow"
 priority = 100
 

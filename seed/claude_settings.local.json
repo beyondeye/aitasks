@@ -32,6 +32,7 @@
       "Bash(./.aitask-scripts/aitask_codemap.sh:*)",
       "Bash(./.aitask-scripts/aitask_contribute.sh:*)",
       "Bash(./.aitask-scripts/aitask_contribution_check.sh:*)",
+      "Bash(./.aitask-scripts/aitask_contribution_review.sh:*)",
       "Bash(./.aitask-scripts/aitask_create.sh:*)",
       "Bash(./.aitask-scripts/aitask_explain_extract_raw_data.sh:*)",
       "Bash(./.aitask-scripts/aitask_explain_runs.sh:*)",
