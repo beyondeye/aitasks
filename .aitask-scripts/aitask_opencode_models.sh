@@ -58,21 +58,17 @@ if ! command -v jq &>/dev/null; then
 fi
 
 # --- Name conversion ---
-# opencode/claude-opus-4-6 → zen_claude_opus_4_6  (opencode/Zen proxy gets zen_ prefix)
-# openai/gpt-5.3-codex     → openai_gpt_5_3_codex (other providers get their own prefix)
+# opencode/claude-opus-4-6 → opencode_claude_opus_4_6
+# openai/gpt-5.3-codex     → openai_gpt_5_3_codex
 convert_to_model_name() {
     local cli_id="$1"
     local provider="${cli_id%%/*}"
     local raw="${cli_id#*/}"
     local base="${raw//[-.]/_}"
 
-    # All providers get a prefix to clearly indicate the source
-    # opencode/ → zen_ (Zen proxy), openai/ → openai_, etc.
-    if [[ "$provider" == "opencode" ]]; then
-        echo "zen_${base}"
-    else
-        echo "${provider}_${base}"
-    fi
+    # All providers get their own explicit prefix so runtime/model attribution
+    # stays aligned with the provider-qualified cli_id.
+    echo "${provider}_${base}"
 }
 
 # --- Discover models ---
@@ -185,18 +181,23 @@ merge_with_existing() {
     # 1. For each discovered model, preserve existing verified scores/stats if present
     # 2. For existing models not in discovered, mark as unavailable
     jq --argjson discovered "$discovered" '
-        # Build lookup of discovered models by name
-        ($discovered | map({(.name): .}) | add // {}) as $disc_map |
+        # Build lookups of discovered models by name and cli_id
+        ($discovered | map({(.name): .}) | add // {}) as $disc_name_map |
+        ($discovered | map({(.cli_id): .}) | add // {}) as $disc_cli_map |
 
-        # Build lookup of existing models by name
-        (.models | map({(.name): .}) | add // {}) as $exist_map |
+        # Build lookups of existing models by name and cli_id
+        (.models | map({(.name): .}) | add // {}) as $exist_name_map |
+        (.models | map({(.cli_id): .}) | add // {}) as $exist_cli_map |
 
         # Discovered models: preserve existing verified scores and stats
+        # even when the stored model name changes but cli_id remains stable.
         ($discovered | map(
             .name as $n |
-            if $exist_map[$n] then
-                .verified = $exist_map[$n].verified |
-                .verifiedstats = ($exist_map[$n].verifiedstats // {})
+            .cli_id as $id |
+            ($exist_name_map[$n] // $exist_cli_map[$id]) as $existing |
+            if $existing then
+                .verified = ($existing.verified // .verified) |
+                .verifiedstats = ($existing.verifiedstats // {})
             else
                 .
             end
@@ -205,7 +206,8 @@ merge_with_existing() {
         # Existing models not in discovered: mark as unavailable
         (.models | map(
             .name as $n |
-            if $disc_map[$n] then
+            .cli_id as $id |
+            if $disc_name_map[$n] or $disc_cli_map[$id] then
                 empty
             else
                 . + {"status": "unavailable"}

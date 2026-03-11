@@ -277,8 +277,8 @@ assert_contains "coauthor strips date suffix from haiku" "AGENT_COAUTHOR_NAME:Cl
 # Test 22: coauthor returns OpenCode metadata (Claude model via opencode)
 echo "--- Test 22: coauthor OpenCode metadata ---"
 cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor opencode/zen_claude_opus_4_6 2>&1)
-assert_contains "coauthor returns agent string" "AGENT_STRING:opencode/zen_claude_opus_4_6" "$output"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor opencode/opencode_claude_opus_4_6 2>&1)
+assert_contains "coauthor returns agent string" "AGENT_STRING:opencode/opencode_claude_opus_4_6" "$output"
 assert_contains "coauthor returns name" "AGENT_COAUTHOR_NAME:OpenCode/Claude Opus 4.6" "$output"
 assert_contains "coauthor returns email" "AGENT_COAUTHOR_EMAIL:opencode@aitasks.io" "$output"
 assert_contains "coauthor returns trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: OpenCode/Claude Opus 4.6 <opencode@aitasks.io>" "$output"
@@ -289,7 +289,7 @@ cat > "$TMPDIR_TEST/aitasks/metadata/project_config.yaml" << 'YAMLEOF'
 codeagent_coauthor_domain: opencode.example
 verify_build:
 YAMLEOF
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor opencode/zen_gpt_5_4 2>&1)
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor opencode/opencode_gpt_5_4 2>&1)
 assert_contains "coauthor uses custom domain for email" "AGENT_COAUTHOR_EMAIL:opencode@opencode.example" "$output"
 assert_contains "coauthor uses model-aware trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: OpenCode/GPT 5.4 <opencode@opencode.example>" "$output"
 
@@ -303,6 +303,11 @@ echo "--- Test 25: coauthor OpenCode GPT model ---"
 cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor opencode/openai_gpt_5_1_codex 2>&1)
 assert_contains "coauthor returns GPT name" "AGENT_COAUTHOR_NAME:OpenCode/GPT 5.1 Codex" "$output"
+
+# Test 25b: coauthor OpenCode with GPT 5.4 openai provider entry
+echo "--- Test 25b: coauthor OpenCode GPT 5.4 openai provider ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor opencode/openai_gpt_5_4 2>&1)
+assert_contains "coauthor returns GPT 5.4 name" "AGENT_COAUTHOR_NAME:OpenCode/GPT 5.4" "$output"
 
 # Test 26: coauthor returns Gemini CLI metadata
 echo "--- Test 26: coauthor Gemini CLI metadata ---"
