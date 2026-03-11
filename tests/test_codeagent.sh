@@ -80,7 +80,7 @@ setup_test_env() {
     cp "$PROJECT_DIR/aitasks/metadata/models_geminicli.json" "$tmpdir/aitasks/metadata/"
     cp "$PROJECT_DIR/aitasks/metadata/models_codex.json" "$tmpdir/aitasks/metadata/"
     cp "$PROJECT_DIR/aitasks/metadata/models_opencode.json" "$tmpdir/aitasks/metadata/"
-    cp "$PROJECT_DIR/aitasks/metadata/codeagent_config.json" "$tmpdir/aitasks/metadata/"
+    cp "$PROJECT_DIR/seed/codeagent_config.json" "$tmpdir/aitasks/metadata/"
     cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$tmpdir/aitasks/metadata/"
 
     # Initialize git repo (task_utils.sh needs it)
@@ -135,17 +135,17 @@ assert_contains "list-models shows verified" "VERIFIED:" "$output"
 echo "--- Test 4: list-models invalid agent ---"
 assert_exit_nonzero "list-models with invalid agent" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' list-models notanagent"
 
-# Test 5: resolve task-pick returns claude/opus4_6
-echo "--- Test 5: resolve task-pick ---"
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve task-pick 2>&1)
-assert_contains "resolve returns opus4_6 for task-pick" "AGENT_STRING:claudecode/opus4_6" "$output"
+# Test 5: resolve pick returns claude/opus4_6
+echo "--- Test 5: resolve pick ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve pick 2>&1)
+assert_contains "resolve returns opus4_6 for pick" "AGENT_STRING:claudecode/opus4_6" "$output"
 assert_contains "resolve returns agent" "AGENT:claudecode" "$output"
 assert_contains "resolve returns model" "MODEL:opus4_6" "$output"
 assert_contains "resolve returns cli_id" "CLI_ID:claude-opus-4-6" "$output"
 
 # Test 6: resolve with --agent-string override
 echo "--- Test 6: resolve with --agent-string override ---"
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string geminicli/gemini2_5pro resolve task-pick 2>&1)
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string geminicli/gemini2_5pro resolve pick 2>&1)
 assert_contains "override agent string" "AGENT_STRING:geminicli/gemini2_5pro" "$output"
 assert_contains "override resolves geminicli" "AGENT:geminicli" "$output"
 
@@ -154,11 +154,11 @@ echo "--- Test 7: resolve with local config ---"
 cat > "$TMPDIR_TEST/aitasks/metadata/codeagent_config.local.json" << 'LOCALEOF'
 {
   "defaults": {
-    "task-pick": "geminicli/gemini3pro"
+    "pick": "geminicli/gemini3pro"
   }
 }
 LOCALEOF
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve task-pick 2>&1)
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve pick 2>&1)
 assert_contains "local config overrides project config" "AGENT_STRING:geminicli/gemini3pro" "$output"
 # Clean up local config
 rm "$TMPDIR_TEST/aitasks/metadata/codeagent_config.local.json"
@@ -187,7 +187,7 @@ assert_exit_nonzero "check rejects unknown model" bash -c "cd '$TMPDIR_TEST' && 
 
 # Test 11: --dry-run invoke
 echo "--- Test 11: --dry-run invoke ---"
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --dry-run invoke task-pick 42 2>&1)
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --dry-run invoke pick 42 2>&1)
 assert_contains "dry-run starts with DRY_RUN:" "DRY_RUN:" "$output"
 assert_contains "dry-run contains claude" "claude" "$output"
 assert_contains "dry-run contains model flag" "claude-opus-4-6" "$output"

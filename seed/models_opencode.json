@@ -4,19 +4,31 @@
       "name": "zen_kimi_k2_5",
       "cli_id": "opencode/kimi-k2.5",
       "notes": "Moonshot AI, strong coding and agentic tasks",
-      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+      "verified": {
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
+      }
     },
     {
       "name": "zen_claude_sonnet_4_6",
       "cli_id": "opencode/claude-sonnet-4-6",
       "notes": "Claude Sonnet 4.6 via OpenCode Zen provider",
-      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+      "verified": {
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
+      }
     },
     {
       "name": "zen_gpt_5_3_codex",
       "cli_id": "opencode/gpt-5.3-codex",
       "notes": "GPT-5.3 Codex via OpenCode Zen provider",
-      "verified": { "task-pick": 0, "explain": 0, "batch-review": 0 }
+      "verified": {
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
+      }
     }
   ]
 }

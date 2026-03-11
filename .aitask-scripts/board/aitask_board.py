@@ -3000,10 +3000,10 @@ class KanbanApp(App):
         wrapper = str(CODEAGENT_SCRIPT)
         terminal = self._find_terminal()
         if terminal:
-            subprocess.Popen([terminal, "--", wrapper, "invoke", "task-pick", num])
+            subprocess.Popen([terminal, "--", wrapper, "invoke", "pick", num])
         else:
             with self.suspend():
-                ret = subprocess.call([wrapper, "invoke", "task-pick", num])
+                ret = subprocess.call([wrapper, "invoke", "pick", num])
             if ret != 0:
                 self.notify("Code agent invocation failed — check model configuration", severity="error")
             self.manager.load_tasks()

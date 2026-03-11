@@ -108,7 +108,7 @@ EOF
       "cli_id": "claude-opus-4-6",
       "notes": "Test model",
       "verified": {
-        "task-pick": 80,
+        "pick": 80,
         "explain": 60,
         "batch-review": 0
       }
@@ -169,7 +169,7 @@ assert_contains "Structured success output" "UPDATED:claudecode/opus4_6:pick:80"
 assert_eq "Runs initialized to 1" "1" "$(json_get "$TMPDIR_1" '.models[0].verifiedstats.pick.runs')"
 assert_eq "Score sum initialized to 80" "80" "$(json_get "$TMPDIR_1" '.models[0].verifiedstats.pick.score_sum')"
 assert_eq "Verified pick initialized to 80" "80" "$(json_get "$TMPDIR_1" '.models[0].verified.pick')"
-assert_eq "Existing verified key preserved (task-pick)" "80" "$(json_get "$TMPDIR_1" '.models[0].verified["task-pick"]')"
+assert_eq "Existing verified key preserved (batch-review)" "0" "$(json_get "$TMPDIR_1" '.models[0].verified["batch-review"]')"
 assert_eq "Existing verified key preserved (explain)" "60" "$(json_get "$TMPDIR_1" '.models[0].verified.explain')"
 rm -rf "$TMPDIR_1"
 

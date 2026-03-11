@@ -67,7 +67,7 @@ For each selected agent, compare the current `models_*.json` content against the
    - `name`: following the naming convention (see Model Naming Convention below)
    - `cli_id`: exact API/CLI model ID from documentation
    - `notes`: brief description from documentation
-   - `verified`: `{ "task-pick": 0, "explain": 0, "batch-review": 0 }`
+   - `verified`: `{ "pick": 0, "explain": 0, "batch-review": 0 }`
    - `verifiedstats`: `{}`
 
 - **UPDATED**: Model exists in config but notes/status changed significantly (e.g., moved from preview to stable, description updated). Propose updated `notes` field.
@@ -85,7 +85,7 @@ Display a structured change report. For each selected agent:
 - NEW: <cli_id> (<proposed_name>) — "<notes>"
 - UPDATED: <cli_id> (<name>) — notes changed: "<old>" → "<new>"
 - DEPRECATED?: <cli_id> (<name>) — not found in current docs
-- UNCHANGED: <cli_id> (<name>) [IN USE: task-pick, explain]
+- UNCHANGED: <cli_id> (<name>) [IN USE: pick, explain]
 ```
 
 Mark models as `[IN USE: <operations>]` if they appear in `codeagent_config.json` defaults.

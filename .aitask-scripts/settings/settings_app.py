@@ -109,7 +109,7 @@ _UNSET = "(unset)"
 
 # Operation descriptions shown in the Agent Defaults tab
 OPERATION_DESCRIPTIONS: dict[str, str] = {
-    "task-pick": "Model used for picking and implementing tasks",
+    "pick": "Model used for picking and implementing tasks",
     "explain": "Model used for explaining/documenting code",
     "batch-review": "Model used for batch code review operations",
     "raw": "Model used for direct/ad-hoc code agent invocations (passthrough mode)",

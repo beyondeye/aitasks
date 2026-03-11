@@ -21,7 +21,7 @@ METADATA_DIR="${TASK_DIR:-aitasks}/metadata"
 DEFAULT_AGENT_STRING="claudecode/opus4_6"
 DEFAULT_COAUTHOR_DOMAIN="aitasks.io"
 SUPPORTED_AGENTS=(claudecode geminicli codex opencode)
-SUPPORTED_OPERATIONS=(task-pick explain batch-review raw)
+SUPPORTED_OPERATIONS=(pick explain batch-review raw)
 
 # --- Global flags (set by argument parser) ---
 
@@ -514,7 +514,7 @@ build_invoke_command() {
     case "$PARSED_AGENT" in
         claudecode)
             case "$operation" in
-                task-pick)
+                pick)
                     # claude --model <id> "/aitask-pick <args>"
                     CMD+=("/aitask-pick ${args[*]}")
                     ;;
@@ -532,7 +532,7 @@ build_invoke_command() {
             ;;
         geminicli)
             case "$operation" in
-                task-pick)
+                pick)
                     CMD+=("/aitask-pick ${args[*]}")
                     ;;
                 explain)
@@ -545,14 +545,14 @@ build_invoke_command() {
             ;;
         codex)
             case "$operation" in
-                task-pick|explain|batch-review|raw)
+                pick|explain|batch-review|raw)
                     CMD+=("${args[@]}")
                     ;;
             esac
             ;;
         opencode)
             case "$operation" in
-                task-pick|explain|batch-review|raw)
+                pick|explain|batch-review|raw)
                     CMD+=("${args[@]}")
                     ;;
             esac
@@ -610,7 +610,7 @@ Options:
   --dry-run              Print command without executing (for invoke)
   -h, --help             Show this help
 
-Operations: task-pick, explain, batch-review, raw
+Operations: pick, explain, batch-review, raw
 Agent string format: <agent>/<model> (e.g., claudecode/opus4_6, geminicli/gemini3pro)
 
 Resolution chain (highest priority first):
@@ -622,13 +622,13 @@ Resolution chain (highest priority first):
 Examples:
   ait codeagent list-agents
   ait codeagent list-models claudecode
-  ait codeagent resolve task-pick
+  ait codeagent resolve pick
   ait codeagent coauthor codex/gpt5_4
   ait codeagent coauthor-domain
   ait codeagent check "claudecode/opus4_6"
-  ait codeagent invoke task-pick 42
+  ait codeagent invoke pick 42
   ait codeagent --agent-string geminicli/gemini2_5pro invoke explain src/
-  ait codeagent --dry-run invoke task-pick 42
+  ait codeagent --dry-run invoke pick 42
 EOF
 }
 
