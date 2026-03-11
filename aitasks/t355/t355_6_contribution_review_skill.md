@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [3, 5]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_contribute]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-10 10:58
-updated_at: 2026-03-10 10:58
+updated_at: 2026-03-11 14:00
 ---
 
 ## Context
