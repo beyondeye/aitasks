@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [aitask_explain, aitask_pick]
-children_to_implement: [t369_1, t369_2, t369_3, t369_4, t369_5]
+children_to_implement: [t369_1, t369_2, t369_3, t369_4, t369_5, t369_6]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-11 10:16
 updated_at: 2026-03-11 18:34
