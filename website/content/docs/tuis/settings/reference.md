@@ -147,9 +147,16 @@ Each model in `models_<agent>.json`:
   "cli_id": "claude-opus-4-6",
   "notes": "Most intelligent model for agents and coding",
   "verified": {
-    "task-pick": 80,
+    "pick": 80,
     "explain": 80,
     "batch-review": 0
+  },
+  "verifiedstats": {
+    "pick": {
+      "all_time": {"runs": 5, "score_sum": 400},
+      "month": {"period": "2026-03", "runs": 2, "score_sum": 180},
+      "week": {"period": "2026-W11", "runs": 1, "score_sum": 100}
+    }
   }
 }
 ```
@@ -159,7 +166,35 @@ Each model in `models_<agent>.json`:
 | `name` | Internal identifier (underscored, no dots) |
 | `cli_id` | Exact model ID for the CLI binary's model flag |
 | `notes` | Human-readable description |
-| `verified` | Per-operation scores: 0 = untested, 1-49 = partial, 50-79 = verified, 80-100 = highly verified |
+| `verified` | Per-operation scores (all-time average): 0 = untested, 1-49 = partial, 50-79 = verified, 80-100 = highly verified |
+| `verifiedstats` | Per-operation detailed statistics with time-windowed buckets (see below) |
+
+### Verified Stats Buckets
+
+Each skill entry in `verifiedstats` contains three time-windowed buckets:
+
+| Bucket | Period Key | Description |
+|--------|-----------|-------------|
+| `all_time` | (none) | Cumulative stats across all ratings |
+| `month` | `YYYY-MM` | Stats for the current calendar month; resets when the month changes |
+| `week` | `YYYY-Www` | Stats for the current ISO 8601 calendar week; resets when the week changes |
+
+Each bucket contains `runs` (number of ratings) and `score_sum` (sum of mapped scores, where raw 1-5 maps to 20-100).
+
+The `verified.<skill>` field is always the rounded average of `all_time` and is maintained automatically for backward compatibility.
+
+Old flat-format stats (`{"runs": N, "score_sum": S}`) are migrated automatically to the bucketed format on the next update.
+
+### All-Providers Aggregation
+
+To compute cross-provider stats for the same underlying LLM model:
+
+1. Extract the model portion from each entry's `cli_id` by stripping the `provider/` prefix (e.g., `openai/gpt-5.4` and `opencode/gpt-5.4` both normalize to `gpt-5.4`)
+2. Group entries with identical normalized model IDs across all `models_*.json` files
+3. For each skill, sum `runs` and `score_sum` from the matching bucket across the group
+4. For `month` and `week` buckets, only aggregate entries with the same `period` value
+
+This aggregation is performed at read time by consumers (e.g., `ait settings`, `ait stats`) — no duplicate aggregate values are stored.
 
 ## Export Bundle Format
 

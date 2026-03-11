@@ -14,13 +14,16 @@ AGENT_STRING=""
 SKILL_NAME=""
 SCORE=""
 SILENT=false
+DATE_OVERRIDE=""
 
 PARSED_AGENT=""
 PARSED_MODEL=""
+CURRENT_MONTH=""
+CURRENT_WEEK=""
 
 show_help() {
     cat <<'EOF'
-Usage: aitask_verified_update.sh --agent-string <agent/model> --skill <skill> --score <1-5> [--silent]
+Usage: aitask_verified_update.sh --agent-string <agent/model> --skill <skill> --score <1-5> [--date YYYY-MM-DD] [--silent]
 
 Update rolling verification statistics for a model/skill pair.
 
@@ -34,6 +37,7 @@ Options:
   --agent-string STR  Agent string in the form <agent>/<model>
   --skill NAME        Skill identifier to update (for example: pick, explain)
   --score N           Satisfaction score from 1 to 5
+  --date YYYY-MM-DD   Override current date for month/week period calculation
   --silent            Print only the structured success result
   -h, --help          Show this help
 EOF
@@ -82,6 +86,22 @@ parse_agent_string() {
     die "Unknown agent: '$PARSED_AGENT'. Supported: ${SUPPORTED_AGENTS[*]}"
 }
 
+resolve_date_periods() {
+    if [[ -n "$DATE_OVERRIDE" ]]; then
+        [[ "$DATE_OVERRIDE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] \
+            || die "--date must be in YYYY-MM-DD format"
+        CURRENT_MONTH="${DATE_OVERRIDE:0:7}"
+        if date --version >/dev/null 2>&1; then
+            CURRENT_WEEK="$(date -d "$DATE_OVERRIDE" "+%G-W%V")"
+        else
+            CURRENT_WEEK="$(date -j -f "%Y-%m-%d" "$DATE_OVERRIDE" "+%G-W%V")"
+        fi
+    else
+        CURRENT_MONTH="$(date "+%Y-%m")"
+        CURRENT_WEEK="$(date "+%G-W%V")"
+    fi
+}
+
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -98,6 +118,11 @@ parse_args() {
             --score)
                 [[ $# -lt 2 ]] && die "--score requires a value"
                 SCORE="$2"
+                shift 2
+                ;;
+            --date)
+                [[ $# -lt 2 ]] && die "--date requires a value"
+                DATE_OVERRIDE="$2"
                 shift 2
                 ;;
             --silent)
@@ -150,16 +175,38 @@ update_model_file() {
     jq \
         --arg model "$model_name" \
         --arg skill "$skill_name" \
-        --argjson mapped_score "$mapped_score" '
+        --argjson mapped_score "$mapped_score" \
+        --arg current_month "$CURRENT_MONTH" \
+        --arg current_week "$CURRENT_WEEK" '
         .models |= map(
             if .name == $model then
                 .verified = (.verified // {}) |
                 .verifiedstats = (.verifiedstats // {}) |
-                .verifiedstats[$skill] = {
-                    "runs": ((.verifiedstats[$skill].runs // 0) + 1),
-                    "score_sum": ((.verifiedstats[$skill].score_sum // 0) + $mapped_score)
-                } |
-                .verified[$skill] = ((.verifiedstats[$skill].score_sum / .verifiedstats[$skill].runs) | round)
+                (
+                    .verifiedstats[$skill] as $existing |
+                    (
+                        if ($existing | type) == "object" and ($existing | has("runs")) and ($existing | has("all_time") | not) then
+                            # Migrate old flat format to bucketed
+                            {"all_time": {"runs": $existing.runs, "score_sum": $existing.score_sum}, "month": {"period": $current_month, "runs": 0, "score_sum": 0}, "week": {"period": $current_week, "runs": 0, "score_sum": 0}}
+                        elif ($existing | type) == "object" and ($existing | has("all_time")) then
+                            $existing
+                        else
+                            {"all_time": {"runs": 0, "score_sum": 0}, "month": {"period": $current_month, "runs": 0, "score_sum": 0}, "week": {"period": $current_week, "runs": 0, "score_sum": 0}}
+                        end
+                    ) as $base |
+                    ($base.all_time.runs + 1) as $at_runs |
+                    ($base.all_time.score_sum + $mapped_score) as $at_sum |
+                    (if $base.month.period == $current_month then ($base.month.runs + 1) else 1 end) as $m_runs |
+                    (if $base.month.period == $current_month then ($base.month.score_sum + $mapped_score) else $mapped_score end) as $m_sum |
+                    (if $base.week.period == $current_week then ($base.week.runs + 1) else 1 end) as $w_runs |
+                    (if $base.week.period == $current_week then ($base.week.score_sum + $mapped_score) else $mapped_score end) as $w_sum |
+                    .verifiedstats[$skill] = {
+                        "all_time": {"runs": $at_runs, "score_sum": $at_sum},
+                        "month": {"period": $current_month, "runs": $m_runs, "score_sum": $m_sum},
+                        "week": {"period": $current_week, "runs": $w_runs, "score_sum": $w_sum}
+                    } |
+                    .verified[$skill] = (($at_sum / $at_runs) | round)
+                )
             else
                 .
             end
@@ -328,6 +375,7 @@ commit_metadata_update() {
 main() {
     require_jq
     parse_args "$@"
+    resolve_date_periods
 
     local models_file
     models_file="$(models_file_for_agent "$PARSED_AGENT")"
