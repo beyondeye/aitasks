@@ -5,10 +5,9 @@
       "cli_id": "claude-opus-4-6",
       "notes": "Most intelligent model for agents and coding, 128K output, adaptive thinking",
       "verified": {
-        "task-pick": 80,
-        "explain": 80,
         "batch-review": 0,
-        "pick": 100
+        "pick": 100,
+        "explain": 80
       },
       "verifiedstats": {
         "pick": {
@@ -22,9 +21,9 @@
       "cli_id": "claude-sonnet-4-6",
       "notes": "Best speed/intelligence balance, adaptive thinking, 1M context beta",
       "verified": {
-        "task-pick": 80,
-        "explain": 80,
-        "batch-review": 0
+        "batch-review": 0,
+        "pick": 80,
+        "explain": 80
       },
       "verifiedstats": {}
     },
@@ -33,9 +32,9 @@
       "cli_id": "claude-haiku-4-5-20251001",
       "notes": "Fastest model with near-frontier intelligence, extended thinking",
       "verified": {
-        "task-pick": 0,
-        "explain": 0,
-        "batch-review": 0
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
       },
       "verifiedstats": {}
     },
@@ -44,9 +43,9 @@
       "cli_id": "claude-opus-4-5",
       "notes": "Previous generation Opus",
       "verified": {
-        "task-pick": 0,
-        "explain": 0,
-        "batch-review": 0
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
       },
       "verifiedstats": {}
     },
@@ -55,9 +54,9 @@
       "cli_id": "claude-sonnet-4-5",
       "notes": "Previous generation Sonnet",
       "verified": {
-        "task-pick": 0,
-        "explain": 0,
-        "batch-review": 0
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
       },
       "verifiedstats": {}
     }
