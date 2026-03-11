@@ -161,8 +161,9 @@ process_model() {
            "cli_id": $cli_id,
            "notes": $notes,
            "status": "active",
-           "verified": {"task-pick": 0, "explain": 0, "batch-review": 0}
-       }]' <<< "$models_array"
+           "verified": {"task-pick": 0, "explain": 0, "batch-review": 0},
+           "verifiedstats": {}
+        }]' <<< "$models_array"
 }
 
 # --- Merge with existing config ---
@@ -181,7 +182,7 @@ merge_with_existing() {
     existing=$(cat "$existing_file")
 
     # Use jq to merge:
-    # 1. For each discovered model, preserve existing verified scores if present
+    # 1. For each discovered model, preserve existing verified scores/stats if present
     # 2. For existing models not in discovered, mark as unavailable
     jq --argjson discovered "$discovered" '
         # Build lookup of discovered models by name
@@ -190,11 +191,12 @@ merge_with_existing() {
         # Build lookup of existing models by name
         (.models | map({(.name): .}) | add // {}) as $exist_map |
 
-        # Discovered models: preserve existing verified scores
+        # Discovered models: preserve existing verified scores and stats
         ($discovered | map(
             .name as $n |
             if $exist_map[$n] then
-                .verified = $exist_map[$n].verified
+                .verified = $exist_map[$n].verified |
+                .verifiedstats = ($exist_map[$n].verifiedstats // {})
             else
                 .
             end

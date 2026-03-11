@@ -63,11 +63,12 @@ Use generic terms — do NOT hardcode year references:
 
 For each selected agent, compare the current `models_*.json` content against the web research results. Categorize each model:
 
-- **NEW**: Discovered in web research but not present in current config (match by `cli_id`). Generate:
-  - `name`: following the naming convention (see Model Naming Convention below)
-  - `cli_id`: exact API/CLI model ID from documentation
-  - `notes`: brief description from documentation
-  - `verified`: `{ "task-pick": 0, "explain": 0, "batch-review": 0 }`
+ - **NEW**: Discovered in web research but not present in current config (match by `cli_id`). Generate:
+   - `name`: following the naming convention (see Model Naming Convention below)
+   - `cli_id`: exact API/CLI model ID from documentation
+   - `notes`: brief description from documentation
+   - `verified`: `{ "task-pick": 0, "explain": 0, "batch-review": 0 }`
+   - `verifiedstats`: `{}`
 
 - **UPDATED**: Model exists in config but notes/status changed significantly (e.g., moved from preview to stable, description updated). Propose updated `notes` field.
 
@@ -113,10 +114,12 @@ For each agent with approved changes:
    - **Add new models**: Append to the `models` array
    - **Update notes**: Modify the `notes` field for updated models
    - **Remove deprecated** (only if explicitly approved): Remove from the array
-3. **Preserve all existing `verified` scores** for unchanged and updated models
+3. **Preserve all existing `verified` scores and `verifiedstats` data** for unchanged and updated models
 4. Write the updated JSON back to `aitasks/metadata/models_<agent>.json`
-   - Maintain 2-space indentation
-   - Maintain field ordering: `name`, `cli_id`, `notes`, `verified`
+    - Maintain 2-space indentation
+    - Maintain field ordering used by the existing file when possible; current files may include `status`, `verified`, and `verifiedstats`
+
+For new models, initialize both `verified` and `verifiedstats` even if no feedback has been recorded yet.
 
 **Seed sync (conditional):**
 - Check if the `seed/` directory exists in the repository root
@@ -204,7 +207,7 @@ These URLs are used during the web research phase (Step 3). They are checked for
 
 - This skill uses Claude's built-in `WebSearch` and `WebFetch` tools — no external scripts needed
 - The skill never auto-removes models. Deprecated flags are informational only; removal requires explicit user approval
-- When updating, existing `verified` scores are always preserved — only new models get all-zero scores
+- When updating, existing `verified` scores and `verifiedstats` history are always preserved — only new models get all-zero scores and empty stats objects
 - Both `aitasks/metadata/` (via `./ait git`) and `seed/` (via plain `git`) are updated when applicable
 - If web research fails for a specific agent, the skill continues with other agents rather than aborting
 - The self-update URL check (Step 7) only reports issues — it does not modify this SKILL.md automatically

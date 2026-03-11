@@ -410,7 +410,13 @@ cmd_list_models() {
         fi
 
         echo "=== $agent ==="
-        jq -r "$jq_filter"' | "MODEL:\(.name) CLI_ID:\(.cli_id) STATUS:\(.status // "active") NOTES:\(.notes) VERIFIED:\(.verified | to_entries | map("\(.key)=\(.value)") | join(","))"' "$models_file"
+        jq -r "$jq_filter"'
+            | "MODEL:\(.name) CLI_ID:\(.cli_id) STATUS:\(.status // "active") NOTES:\(.notes) VERIFIED:\((.verified // {}) | to_entries | map("\(.key)=\(.value)") | join(","))"
+              + (
+                    ((.verifiedstats // {}) | to_entries | map("\(.key)(runs \(.value.runs // 0), avg \(if (.value.runs // 0) > 0 then ((.value.score_sum // 0) / (.value.runs // 0) | round) else 0 end))") | join(",")) as $stats
+                    | if $stats == "" then "" else "\nSTATS:\($stats)" end
+                )
+        ' "$models_file"
         echo ""
     done
 }
