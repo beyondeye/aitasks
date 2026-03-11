@@ -1616,6 +1616,22 @@ class TaskDetailScreen(ModalScreen):
 
     BINDINGS = [
         Binding("escape", "close_modal", "Close", show=False),
+        Binding("p", "pick", "Pick", show=False),
+        Binding("P", "pick", "Pick", show=False),
+        Binding("l", "lock", "Lock", show=False),
+        Binding("L", "lock", "Lock", show=False),
+        Binding("u", "unlock", "Unlock", show=False),
+        Binding("U", "unlock", "Unlock", show=False),
+        Binding("c", "close", "Close", show=False),
+        Binding("C", "close", "Close", show=False),
+        Binding("s", "save", "Save", show=False),
+        Binding("S", "save", "Save", show=False),
+        Binding("r", "revert", "Revert", show=False),
+        Binding("R", "revert", "Revert", show=False),
+        Binding("e", "edit", "Edit", show=False),
+        Binding("E", "edit", "Edit", show=False),
+        Binding("d", "delete", "Delete", show=False),
+        Binding("D", "delete", "Delete", show=False),
     ]
 
     def __init__(self, task: Task, manager: TaskManager = None, read_only: bool = False):
@@ -1759,24 +1775,24 @@ class TaskDetailScreen(ModalScreen):
             is_locked = self._lock_info is not None
             with Container(id="detail_buttons_area"):
                 with Horizontal(id="detail_buttons_workflow"):
-                    yield Button("Pick", variant="warning", id="btn_pick", disabled=is_done_or_ro)
-                    yield Button("\U0001f512 Lock", variant="primary", id="btn_lock",
+                    yield Button("(P)ick", variant="warning", id="btn_pick", disabled=is_done_or_ro)
+                    yield Button("\U0001f512 (L)ock", variant="primary", id="btn_lock",
                                  disabled=is_done_or_ro or is_locked)
-                    yield Button("\U0001f513 Unlock", variant="warning", id="btn_unlock",
+                    yield Button("\U0001f513 (U)nlock", variant="warning", id="btn_unlock",
                                  disabled=not is_locked)
-                    yield Button("Close", variant="default", id="btn_close")
+                    yield Button("(C)lose", variant="default", id="btn_close")
                 with Horizontal(id="detail_buttons_file"):
-                    yield Button("Save Changes", variant="success", id="btn_save",
+                    yield Button("(S)ave Changes", variant="success", id="btn_save",
                                  disabled=True)
                     is_modified = self.manager.is_modified(self.task_data) if self.manager else False
-                    yield Button("Revert", variant="error", id="btn_revert",
+                    yield Button("(R)evert", variant="error", id="btn_revert",
                                  disabled=is_done_or_ro or not is_modified)
-                    yield Button("Edit", variant="primary", id="btn_edit", disabled=is_done_or_ro)
+                    yield Button("(E)dit", variant="primary", id="btn_edit", disabled=is_done_or_ro)
                     is_child = self.task_data.filepath.parent.name.startswith("t")
                     can_delete = (not is_done and not is_folded and not self.read_only
                                   and self.task_data.metadata.get("status", "") != "Implementing"
                                   and not is_child)
-                    yield Button("Delete", variant="error", id="btn_delete",
+                    yield Button("(D)elete", variant="error", id="btn_delete",
                                  disabled=not can_delete)
 
     @on(CycleField.Changed)
@@ -1939,6 +1955,44 @@ class TaskDetailScreen(ModalScreen):
 
     def action_close_modal(self):
         self.dismiss()
+
+    def action_pick(self):
+        btn = self.query_one("#btn_pick", Button)
+        if not btn.disabled:
+            self.pick_task()
+
+    def action_lock(self):
+        btn = self.query_one("#btn_lock", Button)
+        if not btn.disabled:
+            self.lock_task()
+
+    def action_unlock(self):
+        btn = self.query_one("#btn_unlock", Button)
+        if not btn.disabled:
+            self.unlock_task()
+
+    def action_close(self):
+        self.close_dialog()
+
+    def action_save(self):
+        btn = self.query_one("#btn_save", Button)
+        if not btn.disabled:
+            self.save_changes()
+
+    def action_revert(self):
+        btn = self.query_one("#btn_revert", Button)
+        if not btn.disabled:
+            self.revert_task()
+
+    def action_edit(self):
+        btn = self.query_one("#btn_edit", Button)
+        if not btn.disabled:
+            self.edit_task()
+
+    def action_delete(self):
+        btn = self.query_one("#btn_delete", Button)
+        if not btn.disabled:
+            self.delete_task()
 
 class CommitMessageScreen(ModalScreen):
     """Modal dialog to enter a commit message and confirm git commit."""
