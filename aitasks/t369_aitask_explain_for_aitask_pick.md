@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_explain, aitask_pick]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-11 10:16
-updated_at: 2026-03-11 10:16
+updated_at: 2026-03-11 16:04
 boardidx: 20
 ---
 
