@@ -405,12 +405,12 @@
         "task-pick": 0,
         "explain": 0,
         "batch-review": 0,
-        "pick": 100
+        "pick": 95
       },
       "verifiedstats": {
         "pick": {
-          "runs": 3,
-          "score_sum": 300
+          "runs": 4,
+          "score_sum": 380
         }
       }
     },
