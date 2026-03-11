@@ -1,6 +1,6 @@
 {
   "defaults": {
-    "task-pick": "claudecode/opus4_6",
+    "task-pick": "opencode/zen_gpt_5_4",
     "explain": "claudecode/sonnet4_6",
     "batch-review": "claudecode/sonnet4_6",
     "raw": "claudecode/sonnet4_6"
