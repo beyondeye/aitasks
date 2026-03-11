@@ -545,14 +545,26 @@ build_invoke_command() {
             ;;
         codex)
             case "$operation" in
-                pick|explain|batch-review|raw)
+                pick)
+                    CMD+=("\$aitask-pick ${args[*]}")
+                    ;;
+                explain)
+                    CMD+=("\$aitask-explain ${args[*]}")
+                    ;;
+                batch-review|raw)
                     CMD+=("${args[@]}")
                     ;;
             esac
             ;;
         opencode)
             case "$operation" in
-                pick|explain|batch-review|raw)
+                pick)
+                    CMD+=("--prompt" "/aitask-pick ${args[*]}")
+                    ;;
+                explain)
+                    CMD+=("--prompt" "/aitask-explain ${args[*]}")
+                    ;;
+                batch-review|raw)
                     CMD+=("${args[@]}")
                     ;;
             esac
