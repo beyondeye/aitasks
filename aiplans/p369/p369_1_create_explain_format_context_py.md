@@ -349,6 +349,17 @@ chmod +x .aitask-scripts/aitask_explain_format_context.py
 3. Test with `--max-plans 1` and verify limiting
 4. Test with non-existent files and verify graceful exit
 
+## Final Implementation Notes
+- **Actual work done:** Created `aitask_explain_format_context.py` exactly as planned — all 12 steps implemented. Additionally created `tests/test_explain_format_context.sh` with 30 automated tests (user-requested addition).
+- **Deviations from plan:** The staleness check (Step 9 in plan) was simplified to always return "CURRENT" as planned, since the shell orchestrator (t369_2) will handle staleness detection upstream. Added comprehensive test suite not in original plan.
+- **Issues encountered:** None — implementation was straightforward. All reference files matched the plan's expectations (verified YAML schema against real codebrowser data).
+- **Key decisions:** Used `yaml.safe_load()` for reading (PyYAML dependency acceptable as noted in task). Plan content title extraction uses first `# ` heading line. Compound task IDs handled via `str()` coercion throughout.
+- **Notes for sibling tasks:**
+  - The script expects `--ref refpath:rundir` format with first-colon splitting. t369_2 (shell orchestrator) should construct these args carefully.
+  - Empty output (exit 0) when no relevant data found — t369_2 should check for empty stdout.
+  - Frontmatter stripping regex matches the same pattern as `explain_manager.py:_strip_frontmatter()`.
+  - Test file at `tests/test_explain_format_context.sh` can be referenced for integration testing patterns in t369_5.
+
 ## Step 9: Post-Implementation
 
 Follow `.claude/skills/task-workflow/SKILL.md` Step 9 for cleanup, archival, and merge.
