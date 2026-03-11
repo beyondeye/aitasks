@@ -3,12 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [aitask_explain, aitask_pick]
 children_to_implement: [t369_1, t369_2, t369_3, t369_4, t369_5, t369_6, t369_7]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-11 10:16
-updated_at: 2026-03-11 18:34
+updated_at: 2026-03-11 18:51
 boardidx: 20
 ---
 
