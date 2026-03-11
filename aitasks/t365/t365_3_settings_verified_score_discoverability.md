@@ -3,11 +3,11 @@ priority: medium
 effort: high
 depends: [2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ait_settings, verifiedstats]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-11 15:50
-updated_at: 2026-03-11 15:50
+updated_at: 2026-03-12 00:01
 ---
 
 ## Context
