@@ -3,11 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [opencode, verifiedstats]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: opencode/opencode_gpt_5_4
 created_at: 2026-03-11 15:50
-updated_at: 2026-03-11 16:47
+updated_at: 2026-03-11 18:53
+completed_at: 2026-03-11 18:53
 ---
 
 ## Context
