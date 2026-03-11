@@ -8,6 +8,7 @@ labels: [opencode, verifiedstats]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-11 08:49
 updated_at: 2026-03-11 15:37
+boardidx: 40
 ---
 
 currently in opencode there are two issues with verified state when the same llm models is available from different providers.
