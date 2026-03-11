@@ -3,11 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [codeagent, ait_settings]
-children_to_implement: [t303_4]
 created_at: 2026-03-03 16:47
-updated_at: 2026-03-10 23:44
+updated_at: 2026-03-11 08:51
+completed_at: 2026-03-11 08:51
 boardcol: now
 boardidx: 30
 ---

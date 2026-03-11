@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [1, 2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [codeagent, ait_settings]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: opencode/zen_gpt_5_4
 created_at: 2026-03-08 11:21
-updated_at: 2026-03-11 08:50
+updated_at: 2026-03-11 08:51
+completed_at: 2026-03-11 08:51
 ---
 
 ## Context
