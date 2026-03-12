@@ -228,6 +228,79 @@ format_overlap_comment label_results "100"
 assert_contains "comment has label suggestions" "Suggested Labels" "$OVERLAP_COMMENT"
 assert_contains "comment has matching labels" "area:scripts" "$OVERLAP_COMMENT"
 
+# --- Test 16: Idempotency — github_has_overlap_comment detects existing comment ---
+echo "--- Test 16: Idempotency — existing overlap comment detected ---"
+# Mock gh to return comments containing the overlap marker
+gh() {
+    cat <<'MOCK_EOF'
+Some unrelated comment body
+---
+## Contribution Overlap Analysis
+
+| Issue | Score | Overlap | Detail |
+|-------|-------|---------|--------|
+
+<!-- overlap-results top_overlaps: 5:3 overlap_check_version: 1 -->
+MOCK_EOF
+}
+export -f gh
+ARG_REPO=""
+TOTAL=$((TOTAL + 1))
+if github_has_overlap_comment "99"; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: github_has_overlap_comment should detect existing overlap comment"
+fi
+
+# --- Test 17: Idempotency — no overlap comment present ---
+echo "--- Test 17: Idempotency — no overlap comment present ---"
+gh() {
+    echo "Just a regular comment without any markers"
+}
+export -f gh
+TOTAL=$((TOTAL + 1))
+if github_has_overlap_comment "99"; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: github_has_overlap_comment should return false when no overlap comment exists"
+else
+    PASS=$((PASS + 1))
+fi
+
+# --- Test 18: Idempotency — empty comments ---
+echo "--- Test 18: Idempotency — empty comments ---"
+gh() {
+    echo ""
+}
+export -f gh
+TOTAL=$((TOTAL + 1))
+if github_has_overlap_comment "99"; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: github_has_overlap_comment should return false for empty comments"
+else
+    PASS=$((PASS + 1))
+fi
+
+# --- Test 19: Idempotency — source_has_overlap_comment dispatcher ---
+echo "--- Test 19: Idempotency — dispatcher routes to correct platform ---"
+CHECK_PLATFORM="github"
+gh() {
+    cat <<'MOCK_EOF'
+<!-- overlap-results overlap_check_version: 1 -->
+MOCK_EOF
+}
+export -f gh
+TOTAL=$((TOTAL + 1))
+if source_has_overlap_comment "99"; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: source_has_overlap_comment should detect existing comment via github backend"
+fi
+
+# Restore: unset mock
+unset -f gh
+
 # --- Summary ---
 echo ""
 echo "==============================="

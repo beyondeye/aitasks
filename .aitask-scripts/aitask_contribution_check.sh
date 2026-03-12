@@ -429,6 +429,51 @@ source_list_repo_labels() {
     esac
 }
 
+# --- Idempotency: check for existing overlap comment ---
+
+github_has_overlap_comment() {
+    local issue_num="$1"
+    local repo_flag=()
+    [[ -n "$ARG_REPO" ]] && repo_flag=(-R "$ARG_REPO")
+    local comments
+    comments=$(gh issue view "$issue_num" "${repo_flag[@]}" --json comments --jq '.comments[].body' 2>/dev/null) || return 1
+    echo "$comments" | grep -qF "<!-- overlap-results"
+}
+
+gitlab_has_overlap_comment() {
+    local issue_num="$1"
+    local api_base project_id
+    api_base=$(_gitlab_api_base)
+    project_id=$(_gitlab_project_id)
+    local notes
+    notes=$(curl -sf --header "$(_gitlab_token_header)" \
+        "$api_base/projects/$project_id/issues/$issue_num/notes?per_page=100" \
+        | jq -r '.[].body' 2>/dev/null) || return 1
+    echo "$notes" | grep -qF "<!-- overlap-results"
+}
+
+bitbucket_has_overlap_comment() {
+    local issue_num="$1"
+    local api_base repo_slug
+    api_base=$(_bitbucket_api_base)
+    repo_slug=$(_bitbucket_repo_slug)
+    local comments
+    comments=$(curl -sf -u "$(_bitbucket_auth)" \
+        "$api_base/repositories/$repo_slug/issues/$issue_num/comments?pagelen=100" \
+        | jq -r '.values[].content.raw' 2>/dev/null) || return 1
+    echo "$comments" | grep -qF "<!-- overlap-results"
+}
+
+source_has_overlap_comment() {
+    local issue_num="$1"
+    case "$CHECK_PLATFORM" in
+        github) github_has_overlap_comment "$issue_num" ;;
+        gitlab) gitlab_has_overlap_comment "$issue_num" ;;
+        bitbucket) bitbucket_has_overlap_comment "$issue_num" ;;
+        *) return 1 ;;
+    esac
+}
+
 # ============================================================
 # OVERLAP SCORING
 # ============================================================
@@ -693,8 +738,12 @@ main() {
         if [[ "$ARG_DRY_RUN" == true ]]; then
             echo "$OVERLAP_COMMENT"
         else
-            source_post_comment "$ARG_ISSUE" "$OVERLAP_COMMENT"
-            [[ "$ARG_SILENT" != true ]] && info "Posted overlap analysis comment to issue #${ARG_ISSUE}."
+            if source_has_overlap_comment "$ARG_ISSUE" 2>/dev/null; then
+                [[ "$ARG_SILENT" != true ]] && info "Overlap comment already exists on issue #${ARG_ISSUE}. Skipping."
+            else
+                source_post_comment "$ARG_ISSUE" "$OVERLAP_COMMENT"
+                [[ "$ARG_SILENT" != true ]] && info "Posted overlap analysis comment to issue #${ARG_ISSUE}."
+            fi
         fi
         return
     fi
@@ -758,8 +807,12 @@ main() {
     if [[ "$ARG_DRY_RUN" == true ]]; then
         echo "$OVERLAP_COMMENT"
     else
-        source_post_comment "$ARG_ISSUE" "$OVERLAP_COMMENT"
-        [[ "$ARG_SILENT" != true ]] && info "Posted overlap analysis comment to issue #${ARG_ISSUE}."
+        if source_has_overlap_comment "$ARG_ISSUE" 2>/dev/null; then
+            [[ "$ARG_SILENT" != true ]] && info "Overlap comment already exists on issue #${ARG_ISSUE}. Skipping."
+        else
+            source_post_comment "$ARG_ISSUE" "$OVERLAP_COMMENT"
+            [[ "$ARG_SILENT" != true ]] && info "Posted overlap analysis comment to issue #${ARG_ISSUE}."
+        fi
 
         # Apply matching labels
         if [[ -n "$target_auto_labels" ]]; then
