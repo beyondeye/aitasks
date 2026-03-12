@@ -395,6 +395,17 @@ chmod +x .aitask-scripts/aitask_explain_context.sh
 4. Run against non-existent file -- verify graceful handling
 5. Run against files from multiple directories
 
+## Final Implementation Notes
+
+- **Actual work done:** Created `.aitask-scripts/aitask_explain_context.sh` (~210 lines) following all 11 plan steps. The script groups input files by directory, manages codebrowser cache with staleness detection, calls the extract pipeline for missing/stale data, and delegates to the Python formatter (t369_1) for output. Also created `tests/test_explain_context.sh` with 29 automated tests covering: no-op exit, help flags, error cases, cached data retrieval, multi-file/multi-directory, cache staleness detection, extract pipeline failures, cache reuse, nested directories, root-level files, and shellcheck compliance.
+- **Deviations from plan:** Fixed a bug in the plan's Step 10 (main function): replaced `pair=$(process_directory "$dir_key" 2>&1 | tail -1) || continue` with `pair=$(process_directory "$dir_key" 2>/dev/null) || continue`. The original pattern merged stderr into stdout (breaking pair parsing) and used a pipe that prevented proper error propagation via `|| continue`.
+- **Issues encountered:** None. All reference files and function signatures matched the plan's assumptions exactly.
+- **Key decisions:** Used `2>/dev/null` in the main loop to suppress colored diagnostic messages from subshell capture while preserving exit code propagation. Progress messages from `process_directory` go to stderr via `>&2`, keeping stdout clean for the Python formatter's input.
+- **Notes for sibling tasks:**
+  - t369_3 (update planning skill): The script interface is `--max-plans N <file1> [file2...]`. Output goes to stdout (formatted markdown). The skill should capture stdout and include it in the planning context. When `--max-plans 0`, the script exits immediately with no output.
+  - t369_5 (write tests): All 5 verification scenarios from the plan have been manually tested and pass. Test script should cover: no-op exit, help output, single file context, multi-directory files, non-existent file graceful handling, and cache reuse speed.
+  - The `CODEBROWSER_DIR` is `.aitask-explain/codebrowser` (matching `explain_manager.py` line 21). The script sets `AITASK_EXPLAIN_DIR` to this value when calling the extract pipeline.
+
 ## Step 9: Post-Implementation
 
 Follow `.claude/skills/task-workflow/SKILL.md` Step 9 for cleanup, archival, and merge.
