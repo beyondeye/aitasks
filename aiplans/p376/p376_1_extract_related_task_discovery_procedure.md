@@ -113,6 +113,14 @@ Keep Step 1 validation logic for argument-provided task IDs (Step 0b) — that's
 3. Read updated `aitask-fold/SKILL.md` — verify Step 1 discovery is functionally equivalent
 4. Verify fold-specific features preserved: ≥2 task requirement, "all" selection mode, pagination
 
+## Final Implementation Notes
+
+- **Actual work done:** Created `related-task-discovery.md` as a 5-step parameterized procedure. Updated both calling skills to reference it. All logic preserved faithfully.
+- **Deviations from plan:** None — implementation matched the plan exactly.
+- **Issues encountered:** None.
+- **Key decisions:** Kept the "None — no tasks to fold in" option only for `ai_filtered` mode (as in the original explore logic). Pagination is now consistent across both callers.
+- **Notes for sibling tasks:** The shared procedure is ready for t376_2 to reference from `aitask-contribution-review`. The calling pattern is: specify 4 parameters (matching_context, purpose_text, min_eligible, selection_mode) and the procedure handles listing, filtering, relevance assessment, and user selection. Returns a list of task IDs or empty.
+
 ## Step 9: Post-Implementation
 
 Archive child task, proceed to sibling t376_2.
