@@ -110,6 +110,12 @@ Execution profiles are YAML files with the following keys. All keys are optional
 |-----|------|---------|-------------|
 | `explore_auto_continue` | bool | `true`, `false` | Auto-continue to implementation after exploration |
 
+### Post-Implementation
+
+| Key | Type | Options | Description |
+|-----|------|---------|-------------|
+| `test_followup_task` | enum | `yes`, `no`, `ask` | Create a testing follow-up task before archival |
+
 ### Lock Management
 
 | Key | Type | Options | Description |

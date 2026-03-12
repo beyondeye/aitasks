@@ -94,6 +94,7 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
     "plan_preference_child": ("enum", ["use_current", "verify", "create_new"]),
     "post_plan_action": ("enum", ["start_implementation"]),
     "enableFeedbackQuestions": ("bool", None),
+    "test_followup_task": ("enum", ["yes", "no", "ask"]),
     "explore_auto_continue": ("bool", None),
     "force_unlock_stale": ("bool", None),
     "done_task_action": ("enum", ["archive", "skip"]),
@@ -199,6 +200,14 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "When true or unset, feedback questions remain enabled. "
         "Use false for unattended or non-interactive workflows such as remote profiles."
     ),
+    "test_followup_task": (
+        "Create a testing follow-up task before archival",
+        "Controls whether a follow-up task is created for testing after implementation (Step 8b):\n"
+        "  'yes': always create a testing follow-up task\n"
+        "  'no': never create a testing follow-up task\n"
+        "  'ask': prompt the user to decide\n"
+        "  (unset): same as 'ask'"
+    ),
     "explore_auto_continue": (
         "Auto-continue to implementation in exploration mode",
         "Used by aitask-explore. When true, automatically continues to the implementation "
@@ -266,6 +275,7 @@ PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
     ("Branch & Worktree", ["create_worktree", "base_branch"]),
     ("Planning", ["plan_preference", "plan_preference_child", "post_plan_action"]),
     ("Feedback", ["enableFeedbackQuestions"]),
+    ("Post-Implementation", ["test_followup_task"]),
     ("Exploration", ["explore_auto_continue"]),
     ("Lock Management", ["force_unlock_stale"]),
     ("Remote Workflow", [
