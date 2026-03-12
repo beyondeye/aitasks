@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t369_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_explain, aitask_pick]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-11 18:33
-updated_at: 2026-03-12 08:31
+updated_at: 2026-03-12 08:41
+completed_at: 2026-03-12 08:41
 ---
 
 Create aitask_explain_context.sh - Shell script orchestrating context gathering: groups files by directory, checks/generates codebrowser cache with auto-staleness detection and regeneration, calls Python formatter.
