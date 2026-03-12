@@ -41,6 +41,7 @@ skill_optiomizations
 statistics
 stats_ui
 task_workflow
+testing
 tui
 verifiedstats
 web_site
