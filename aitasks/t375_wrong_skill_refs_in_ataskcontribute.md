@@ -3,11 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Ready
 labels: [aitask_contribute]
-assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-12 11:13
-updated_at: 2026-03-12 11:57
+updated_at: 2026-03-12 12:19
 ---
 
 when running the aitask-contribute skill at the end of the skill workflow when everything is done, the following message is shown:
