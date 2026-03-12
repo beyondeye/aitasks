@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ait_settings, task_workflow]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-12 10:47
-updated_at: 2026-03-12 10:47
+updated_at: 2026-03-12 11:38
 ---
 
 currently in ait settings tui we have in the Project Config tab, the option to set the verify_build settings. drr /docs/skills/aitask-pick/build-verification/ in website documentation. there are several issue with it
