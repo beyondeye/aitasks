@@ -124,8 +124,24 @@ assert_not_contains "Self-reference #99 excluded" "OVERLAP:99" "$result"
 assert_contains "Other issue #42 included" "OVERLAP:42:5" "$result"
 echo ""
 
-# --- Test 7: Parse linked issues from text ---
-echo "--- Test 7: Parse linked issues ---"
+# --- Test 7: Multiple overlap comments - uses last one ---
+echo "--- Test 7: Multiple overlap comments (uses last) ---"
+
+mock_comments_multi='[
+    {"author": "bot", "body": "<!-- overlap-results top_overlaps: 10:8,20:5 overlap_check_version: 1 -->", "createdAt": "2026-01-01"},
+    {"author": "user1", "body": "Thanks for the analysis!", "createdAt": "2026-01-02"},
+    {"author": "bot", "body": "<!-- overlap-results top_overlaps: 30:7,40:4 overlap_check_version: 2 -->", "createdAt": "2026-01-03"}
+]'
+
+result=$(parse_overlap_from_comments "$mock_comments_multi" "99")
+assert_not_contains "First (stale) comment ignored (10:8)" "OVERLAP:10" "$result"
+assert_not_contains "First (stale) comment ignored (20:5)" "OVERLAP:20" "$result"
+assert_contains "Last comment used (30:7)" "OVERLAP:30:7" "$result"
+assert_contains "Last comment used (40:4)" "OVERLAP:40:4" "$result"
+echo ""
+
+# --- Test 8: Parse linked issues from text ---
+echo "--- Test 8: Parse linked issues ---"
 
 mock_text="This relates to #42 and also #38. See #42 again for details. Issue #15 is unrelated."
 result=$(parse_linked_issues "$mock_text" "99")
@@ -137,8 +153,8 @@ count=$(echo "$result" | grep -c '[0-9]')
 assert_eq "Deduplicates #42 (3 unique issues)" "3" "$count"
 echo ""
 
-# --- Test 8: Parse linked issues - self excluded ---
-echo "--- Test 8: Linked issues self-exclusion ---"
+# --- Test 9: Parse linked issues - self excluded ---
+echo "--- Test 9: Linked issues self-exclusion ---"
 
 mock_text_self="See #99 and #42"
 result=$(parse_linked_issues "$mock_text_self" "99")
@@ -146,8 +162,8 @@ assert_not_contains "Self-reference #99 excluded" "99" "$result"
 assert_contains "Other issue #42 included" "42" "$result"
 echo ""
 
-# --- Test 9: Parse linked issues - no references ---
-echo "--- Test 9: No linked issues ---"
+# --- Test 10: Parse linked issues - no references ---
+echo "--- Test 10: No linked issues ---"
 
 mock_text_none="This is a standalone contribution with no references."
 result=$(parse_linked_issues "$mock_text_none" "99")
@@ -159,8 +175,8 @@ fi
 assert_eq "No issues found in text without references" "0" "$count"
 echo ""
 
-# --- Test 10: Argument parsing - fetch subcommand ---
-echo "--- Test 10: Argument parsing ---"
+# --- Test 11: Argument parsing - fetch subcommand ---
+echo "--- Test 11: Argument parsing ---"
 
 # Reset globals
 REVIEW_SUBCMD=""
@@ -178,8 +194,8 @@ assert_eq "Repo parsed" "owner/repo" "$REVIEW_REPO"
 assert_eq "Limit parsed" "25" "$REVIEW_LIMIT"
 echo ""
 
-# --- Test 11: Argument parsing - fetch-multi subcommand ---
-echo "--- Test 11: Argument parsing fetch-multi ---"
+# --- Test 12: Argument parsing - fetch-multi subcommand ---
+echo "--- Test 12: Argument parsing fetch-multi ---"
 
 REVIEW_SUBCMD=""
 REVIEW_ISSUE=""
@@ -194,8 +210,8 @@ assert_eq "Issues CSV parsed" "42,38,15" "$REVIEW_ISSUES_CSV"
 assert_eq "Platform parsed" "gitlab" "$REVIEW_PLATFORM"
 echo ""
 
-# --- Test 12: Argument parsing - missing issue number ---
-echo "--- Test 12: Missing issue number validation ---"
+# --- Test 13: Argument parsing - missing issue number ---
+echo "--- Test 13: Missing issue number validation ---"
 
 REVIEW_SUBCMD=""
 REVIEW_ISSUE=""
@@ -209,8 +225,8 @@ result=$(parse_args fetch 2>&1 || true)
 assert_contains "Error for missing issue" "requires an issue number" "$result"
 echo ""
 
-# --- Test 13: Unknown subcommand ---
-echo "--- Test 13: Unknown subcommand ---"
+# --- Test 14: Unknown subcommand ---
+echo "--- Test 14: Unknown subcommand ---"
 
 result=$("$PROJECT_DIR/.aitask-scripts/aitask_contribution_review.sh" invalid 2>&1 || true)
 assert_contains "Error for unknown subcommand" "Unknown subcommand" "$result"

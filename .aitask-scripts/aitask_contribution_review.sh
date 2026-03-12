@@ -286,7 +286,7 @@ parse_overlap_from_comments() {
 
     # Search for the overlap-results marker in comments
     local overlap_comment
-    overlap_comment=$(echo "$comments_json" | jq -r '.[].body' | grep -o '<!-- overlap-results[^>]*-->' | head -1 || echo "")
+    overlap_comment=$(echo "$comments_json" | jq -r '[.[] | select(.body | contains("<!-- overlap-results"))] | last | .body // empty' | grep -o '<!-- overlap-results[^>]*-->' || echo "")
 
     if [[ -z "$overlap_comment" ]]; then
         echo "NO_BOT_COMMENT"
