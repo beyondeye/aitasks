@@ -2,7 +2,7 @@ name: Contribution Check
 
 on:
   issues:
-    types: [opened, labeled]
+    types: [labeled]
 
 permissions:
   issues: write
@@ -10,9 +10,7 @@ permissions:
 
 jobs:
   check-contribution:
-    if: >-
-      (github.event.action == 'opened' && contains(github.event.issue.labels.*.name, 'contribution')) ||
-      (github.event.action == 'labeled' && github.event.label.name == 'contribution')
+    if: github.event.label.name == 'contribution'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -1,13 +1,13 @@
 # Contribution Overlap Check - GitHub Actions
 # Installed by: ait setup
-# Runs when an issue with the 'contribution' label is opened or labeled.
+# Runs when the 'contribution' label is added to an issue.
 # Calls aitask_contribution_check.sh to detect overlapping contribution issues
 # and posts an analysis comment on the issue.
 name: Contribution Check
 
 on:
   issues:
-    types: [opened, labeled]
+    types: [labeled]
 
 permissions:
   issues: write
@@ -15,9 +15,7 @@ permissions:
 
 jobs:
   check-contribution:
-    if: >-
-      (github.event.action == 'opened' && contains(github.event.issue.labels.*.name, 'contribution')) ||
-      (github.event.action == 'labeled' && github.event.label.name == 'contribution')
+    if: github.event.label.name == 'contribution'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
