@@ -36,7 +36,9 @@ PARSED_MODEL=""
 # --- Utility functions ---
 
 require_jq() {
-    command -v jq &>/dev/null || die "jq is required. Install via your package manager."
+    if ! command -v jq &>/dev/null; then
+        die "jq is required. Install via your package manager."
+    fi
 }
 
 # Validate and parse an agent string like "claudecode/opus4_6"
@@ -54,7 +56,9 @@ parse_agent_string() {
     for a in "${SUPPORTED_AGENTS[@]}"; do
         [[ "$a" == "$PARSED_AGENT" ]] && valid=true
     done
-    $valid || die "Unknown agent: '$PARSED_AGENT'. Supported: ${SUPPORTED_AGENTS[*]}"
+    if ! $valid; then
+        die "Unknown agent: '$PARSED_AGENT'. Supported: ${SUPPORTED_AGENTS[*]}"
+    fi
 }
 
 # Map agent name to CLI binary name

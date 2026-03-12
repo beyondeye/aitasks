@@ -126,7 +126,9 @@ github_check_cli() {
     command -v gh &>/dev/null || die "gh CLI is required for GitHub. Install: https://cli.github.com/"
     command -v jq &>/dev/null || die "jq is required. Install via your package manager."
     # Verify authentication
-    gh auth status &>/dev/null || die "gh CLI is not authenticated. Run: gh auth login"
+    if ! gh auth status &>/dev/null; then
+        die "gh CLI is not authenticated. Run: gh auth login"
+    fi
 }
 
 # Returns JSON with title, body, labels, url, comments, createdAt, updatedAt
@@ -213,7 +215,9 @@ github_preview_issue() {
 gitlab_check_cli() {
     command -v glab &>/dev/null || die "glab CLI is required for GitLab. Install: https://gitlab.com/gitlab-org/cli"
     command -v jq &>/dev/null || die "jq is required. Install via your package manager."
-    glab auth status &>/dev/null || die "glab CLI is not authenticated. Run: glab auth login"
+    if ! glab auth status &>/dev/null; then
+        die "glab CLI is not authenticated. Run: glab auth login"
+    fi
 }
 
 # Returns JSON normalized to GitHub-compatible format
@@ -281,7 +285,9 @@ gitlab_preview_issue() {
 bitbucket_check_cli() {
     command -v bkt &>/dev/null || die "bkt CLI is required for Bitbucket. Install: https://github.com/avivsinai/bitbucket-cli"
     command -v jq &>/dev/null || die "jq is required. Install via your package manager."
-    bkt auth status &>/dev/null || die "bkt CLI is not authenticated. Run: bkt auth login https://bitbucket.org --kind cloud --web"
+    if ! bkt auth status &>/dev/null; then
+        die "bkt CLI is not authenticated. Run: bkt auth login https://bitbucket.org --kind cloud --web"
+    fi
 }
 
 # Returns JSON normalized to GitHub-compatible format

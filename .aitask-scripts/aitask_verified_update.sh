@@ -44,7 +44,9 @@ EOF
 }
 
 require_jq() {
-    command -v jq >/dev/null 2>&1 || die "jq is required. Install via your package manager."
+    if ! command -v jq >/dev/null 2>&1; then
+        die "jq is required. Install via your package manager."
+    fi
 }
 
 log_info() {
@@ -157,8 +159,9 @@ ensure_model_exists() {
     local models_file="$1"
     local model_name="$2"
 
-    jq -e --arg model "$model_name" 'any(.models[]; .name == $model)' "$models_file" >/dev/null \
-        || die "Model '$model_name' not found in $models_file"
+    if ! jq -e --arg model "$model_name" 'any(.models[]; .name == $model)' "$models_file" >/dev/null; then
+        die "Model '$model_name' not found in $models_file"
+    fi
 }
 
 update_model_file() {

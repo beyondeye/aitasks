@@ -88,7 +88,9 @@ parse_args() {
         esac
     done
 
-    [[ -z "$ARG_ISSUE" ]] && die "Issue number is required. Use --help for usage."
+    if [[ -z "$ARG_ISSUE" ]]; then
+        die "Issue number is required. Use --help for usage."
+    fi
 }
 
 # ============================================================
@@ -100,7 +102,9 @@ parse_args() {
 github_check_cli() {
     command -v gh &>/dev/null || die "gh CLI is required for GitHub. Install: https://cli.github.com/"
     command -v jq &>/dev/null || die "jq is required. Install via your package manager."
-    gh auth status &>/dev/null || die "gh CLI is not authenticated. Run: gh auth login"
+    if ! gh auth status &>/dev/null; then
+        die "gh CLI is not authenticated. Run: gh auth login"
+    fi
 }
 
 github_fetch_issue() {
@@ -306,7 +310,9 @@ _bitbucket_auth() {
 bitbucket_check_cli() {
     command -v curl &>/dev/null || die "curl is required for Bitbucket API access."
     command -v jq &>/dev/null || die "jq is required. Install via your package manager."
-    [[ -n "${BITBUCKET_USER:-}" && -n "${BITBUCKET_TOKEN:-}" ]] || die "BITBUCKET_USER and BITBUCKET_TOKEN environment variables are required."
+    if [[ -z "${BITBUCKET_USER:-}" || -z "${BITBUCKET_TOKEN:-}" ]]; then
+        die "BITBUCKET_USER and BITBUCKET_TOKEN environment variables are required."
+    fi
 }
 
 bitbucket_fetch_issue() {

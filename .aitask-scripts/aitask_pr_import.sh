@@ -80,7 +80,9 @@ ensure_pr_data_dir() {
 github_check_cli() {
     command -v gh &>/dev/null || die "gh CLI is required for GitHub. Install: https://cli.github.com/"
     command -v jq &>/dev/null || die "jq is required. Install via your package manager."
-    gh auth status &>/dev/null || die "gh CLI is not authenticated. Run: gh auth login"
+    if ! gh auth status &>/dev/null; then
+        die "gh CLI is not authenticated. Run: gh auth login"
+    fi
 }
 
 # Returns JSON with PR metadata
@@ -201,7 +203,9 @@ github_preview_pr() {
 gitlab_check_cli() {
     command -v glab &>/dev/null || die "glab CLI is required for GitLab. Install: https://gitlab.com/gitlab-org/cli"
     command -v jq &>/dev/null || die "jq is required. Install via your package manager."
-    glab auth status &>/dev/null || die "glab CLI is not authenticated. Run: glab auth login"
+    if ! glab auth status &>/dev/null; then
+        die "glab CLI is not authenticated. Run: glab auth login"
+    fi
 }
 
 # Get -R flag arguments for glab mr commands when REPO_OVERRIDE is set
@@ -339,7 +343,9 @@ gitlab_preview_pr() {
 bitbucket_check_cli() {
     command -v bkt &>/dev/null || die "bkt CLI is required for Bitbucket. Install: https://github.com/avivsinai/bitbucket-cli"
     command -v jq &>/dev/null || die "jq is required. Install via your package manager."
-    bkt auth status &>/dev/null || die "bkt CLI is not authenticated. Run: bkt auth login https://bitbucket.org --kind cloud --web"
+    if ! bkt auth status &>/dev/null; then
+        die "bkt CLI is not authenticated. Run: bkt auth login https://bitbucket.org --kind cloud --web"
+    fi
 }
 
 # Resolve workspace/repo for Bitbucket API calls
@@ -354,7 +360,9 @@ bitbucket_resolve_repo() {
         BKT_WORKSPACE=$(bkt context list 2>/dev/null | grep -A2 '^\*' | grep 'workspace:' | awk '{print $2}')
         BKT_REPO=$(bkt context list 2>/dev/null | grep -A2 '^\*' | grep 'repo:' | awk '{print $2}')
     fi
-    [[ -n "$BKT_WORKSPACE" && -n "$BKT_REPO" ]] || die "Could not resolve Bitbucket workspace/repo. Use --repo workspace/repo or set a bkt context."
+    if [[ -z "$BKT_WORKSPACE" || -z "$BKT_REPO" ]]; then
+        die "Could not resolve Bitbucket workspace/repo. Use --repo workspace/repo or set a bkt context."
+    fi
 }
 
 # Get --workspace/--repo flags for bkt pr commands when REPO_OVERRIDE is set

@@ -159,7 +159,9 @@ parse_code_areas() {
 
 github_check_cli() {
     command -v gh &>/dev/null || die "gh CLI is required for GitHub. Install: https://cli.github.com/"
-    gh auth status &>/dev/null || die "gh CLI is not authenticated. Run: gh auth login"
+    if ! gh auth status &>/dev/null; then
+        die "gh CLI is not authenticated. Run: gh auth login"
+    fi
 }
 
 github_upstream_url() {
@@ -212,7 +214,9 @@ github_create_issue() {
 
 gitlab_check_cli() {
     command -v glab &>/dev/null || die "glab CLI is required for GitLab. Install: https://gitlab.com/gitlab-org/cli"
-    glab auth status &>/dev/null || die "glab CLI is not authenticated. Run: glab auth login"
+    if ! glab auth status &>/dev/null; then
+        die "glab CLI is not authenticated. Run: glab auth login"
+    fi
 }
 
 gitlab_upstream_url() {
@@ -265,7 +269,9 @@ gitlab_create_issue() {
 
 bitbucket_check_cli() {
     command -v bkt &>/dev/null || die "bkt CLI is required for Bitbucket. Install: https://github.com/avivsinai/bitbucket-cli"
-    bkt auth status &>/dev/null || die "bkt CLI is not authenticated. Run: bkt auth login https://bitbucket.org --kind cloud --web"
+    if ! bkt auth status &>/dev/null; then
+        die "bkt CLI is not authenticated. Run: bkt auth login https://bitbucket.org --kind cloud --web"
+    fi
 }
 
 bitbucket_upstream_url() {
@@ -887,7 +893,7 @@ main() {
     else
         info "Issue created: $issue_url"
         info "Contributor: $contributor ($contributor_email)"
-        info "When this issue is imported via /aitask-issue-import, your Co-authored-by attribution will be preserved."
+        info "When this issue is imported via /aitask-contribution-review, your Co-authored-by attribution will be preserved."
     fi
 }
 

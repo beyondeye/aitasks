@@ -36,7 +36,9 @@ GITLAB_REPO_SLUG=""  # Extracted from GitLab URL for cross-repo -R flag
 
 github_check_cli() {
     command -v gh &>/dev/null || die "gh CLI is required for GitHub. Install: https://cli.github.com/"
-    gh auth status &>/dev/null || die "gh CLI is not authenticated. Run: gh auth login"
+    if ! gh auth status &>/dev/null; then
+        die "gh CLI is not authenticated. Run: gh auth login"
+    fi
 }
 
 # Extract PR number from full GitHub URL
@@ -79,7 +81,9 @@ github_close_pr() {
 
 gitlab_check_cli() {
     command -v glab &>/dev/null || die "glab CLI is required for GitLab. Install: https://gitlab.com/gitlab-org/cli"
-    glab auth status &>/dev/null || die "glab CLI is not authenticated. Run: glab auth login"
+    if ! glab auth status &>/dev/null; then
+        die "glab CLI is not authenticated. Run: glab auth login"
+    fi
 }
 
 # Extract MR number from full GitLab URL
@@ -138,7 +142,9 @@ gitlab_close_pr() {
 
 bitbucket_check_cli() {
     command -v bkt &>/dev/null || die "bkt CLI is required for Bitbucket. Install: https://github.com/avivsinai/bitbucket-cli"
-    bkt auth status &>/dev/null || die "bkt CLI is not authenticated. Run: bkt auth login https://bitbucket.org --kind cloud --web"
+    if ! bkt auth status &>/dev/null; then
+        die "bkt CLI is not authenticated. Run: bkt auth login https://bitbucket.org --kind cloud --web"
+    fi
 }
 
 # Extract workspace/repo from Bitbucket PR URL
