@@ -867,7 +867,8 @@ insert_aitasks_instructions() {
         # Replace content between markers
         local tmpfile
         tmpfile="$(mktemp "${TMPDIR:-/tmp}/aitasks_insert_XXXXXX")"
-        awk -v start="$marker_start" -v end="$marker_end" -v block="$marked_block" '
+        _awk_block="$marked_block" awk -v start="$marker_start" -v end="$marker_end" '
+            BEGIN { block = ENVIRON["_awk_block"] }
             $0 == start { print block; skip=1; next }
             $0 == end && skip { skip=0; next }
             !skip { print }

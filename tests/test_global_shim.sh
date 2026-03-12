@@ -5,6 +5,9 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Clear shim guard that may leak from parent environment (e.g. when run via ait)
+unset _AIT_SHIM_ACTIVE
+
 PASS=0
 FAIL=0
 TOTAL=0

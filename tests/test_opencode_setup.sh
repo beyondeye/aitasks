@@ -50,10 +50,10 @@ done
 
 skill_count=$(find "$TEST_DIR/opencode_skills" -name "SKILL.md" -type f | wc -l | tr -d ' ')
 command_count=$(find "$TEST_DIR/opencode_commands" -type f -name "*.md" | wc -l | tr -d ' ')
-assert_eq "Packaged 17 skill wrappers" "17" "$skill_count"
+assert_eq "Packaged 18 skill wrappers" "18" "$skill_count"
 assert_eq "Tool mapping packaged" "true" "$([ -f "$TEST_DIR/opencode_skills/opencode_tool_mapping.md" ] && echo true || echo false)"
 assert_eq "Planmode prereqs packaged" "true" "$([ -f "$TEST_DIR/opencode_skills/opencode_planmode_prereqs.md" ] && echo true || echo false)"
-assert_eq "Packaged 17 command wrappers" "17" "$command_count"
+assert_eq "Packaged 18 command wrappers" "18" "$command_count"
 
 echo ""
 echo "=== Test 2: OpenCode staging (install.sh sim) ==="
@@ -82,10 +82,10 @@ rm -rf "$INSTALL_DIR/opencode_commands"
 
 staged_count=$(find "$INSTALL_DIR/aitasks/metadata/opencode_skills" -name "SKILL.md" -type f | wc -l | tr -d ' ')
 staged_command_count=$(find "$INSTALL_DIR/aitasks/metadata/opencode_commands" -type f -name "*.md" | wc -l | tr -d ' ')
-assert_eq "Staged 17 wrappers to metadata" "17" "$staged_count"
+assert_eq "Staged 18 wrappers to metadata" "18" "$staged_count"
 assert_eq "Tool mapping staged" "true" "$([ -f "$INSTALL_DIR/aitasks/metadata/opencode_skills/opencode_tool_mapping.md" ] && echo true || echo false)"
 assert_eq "Planmode prereqs staged" "true" "$([ -f "$INSTALL_DIR/aitasks/metadata/opencode_skills/opencode_planmode_prereqs.md" ] && echo true || echo false)"
-assert_eq "Staged 17 command wrappers" "17" "$staged_command_count"
+assert_eq "Staged 18 command wrappers" "18" "$staged_command_count"
 assert_eq "Skills source cleaned up" "false" "$([ -d "$INSTALL_DIR/opencode_skills" ] && echo true || echo false)"
 assert_eq "Commands source cleaned up" "false" "$([ -d "$INSTALL_DIR/opencode_commands" ] && echo true || echo false)"
 
@@ -109,7 +109,7 @@ warn() { echo "WARN: $*"; }
 content="$(assemble_aitasks_instructions "$PROJECT_DIR" "opencode")" || true
 assert_eq "Assembly produced content" "true" "$([ -n "$content" ] && echo true || echo false)"
 assert_contains "Layer 1 present" "Task File Format" "$content"
-assert_contains "Layer 2 opencode present" "Skills" "$content"
+assert_contains "Layer 2 opencode present" "Agent Identification" "$content"
 
 echo ""
 echo "=== Test 4: Marker insertion (new file) ==="
