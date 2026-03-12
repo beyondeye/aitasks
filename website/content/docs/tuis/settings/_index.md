@@ -25,11 +25,15 @@ Shows the default agent/model for each operation (`task-pick`, `explain`, `batch
 
 - The current value (e.g., `claudecode/opus4_6`)
 - A layer badge: **[PROJECT]** (green) for project-level defaults or **[USER]** (amber) for per-user overrides
+- **Verified score context** -- score, run count, and recency (e.g., `[96 (9 runs, 2 this mo)]`)
+- When the same underlying LLM has scores from multiple providers, an **all providers** summary appears below (e.g., `all providers: 96 (12 runs, 3 this mo)`)
 - A description of what the operation does
 
-Press **Enter** on any operation to change its agent/model through a two-step picker.
+Press **Enter** on any operation to change its agent/model through the model picker.
 
-{{< static-img src="imgs/aitasks_settings_select_model_step1_codeagent.svg" alt="Step 1: Select code agent" caption="Step 1: Choose which code agent to use" >}}
+The picker opens with a **Top Verified** list showing the highest-scoring models for the selected operation across all providers. Select a model directly or choose **Browse all models** to use the full agent/model browser.
+
+{{< static-img src="imgs/aitasks_settings_select_model_step1_codeagent.svg" alt="Step 1: Select code agent" caption="Step 1: Choose which code agent to use (via Browse all models)" >}}
 
 {{< static-img src="imgs/aitasks_settings_select_model_step2_llmmodel.svg" alt="Step 2: Select model and target layer" caption="Step 2: Choose the model and whether to save to project or user config" >}}
 
@@ -64,7 +68,8 @@ Read-only display of all available models organized by agent (claudecode, codex,
 - **Name** -- Internal identifier used in agent strings
 - **CLI ID** -- Exact model ID passed to the CLI
 - **Notes** -- Description of the model
-- **Verification scores** -- Per-operation scores (task-pick, explain, batch-review)
+- **Verified stats** -- Per-operation score with run count and recency (e.g., `pick: 96 (9 runs, 2 this month)`)
+- **All providers** -- When the same LLM is available through multiple providers, a cross-provider aggregate line appears below the model row
 
 Model definitions are managed by editing `aitasks/metadata/models_<agent>.json` files directly or using the `/aitask-refresh-code-models` skill.
 

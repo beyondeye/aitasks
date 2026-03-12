@@ -319,6 +319,89 @@ def _safe_id(name: str) -> str:
     return name.replace(".", "_").replace(" ", "_").replace("-", "_")
 
 
+def _normalize_model_id(cli_id: str) -> str:
+    """Strip provider/ prefix from cli_id for all_providers grouping."""
+    if "/" in cli_id:
+        return cli_id.split("/", 1)[1]
+    return cli_id
+
+
+def _bucket_avg(bucket: dict) -> int:
+    """Compute rounded average from a verifiedstats bucket."""
+    runs = bucket.get("runs", 0)
+    if runs <= 0:
+        return 0
+    return round(bucket.get("score_sum", 0) / runs)
+
+
+def _aggregate_verifiedstats(
+    all_models: dict[str, dict], target_cli_id: str,
+) -> dict[str, dict]:
+    """Aggregate verifiedstats across all providers for the same underlying LLM.
+
+    Returns {operation: {all_time: {runs, score_sum}, month: {...}, week: {...}}}.
+    """
+    norm = _normalize_model_id(target_cli_id)
+    result: dict[str, dict] = {}
+    for _provider, pdata in all_models.items():
+        for m in pdata.get("models", []):
+            if _normalize_model_id(m.get("cli_id", "")) != norm:
+                continue
+            vs = m.get("verifiedstats", {})
+            for op, buckets in vs.items():
+                if not isinstance(buckets, dict):
+                    continue
+                if op not in result:
+                    result[op] = {
+                        "all_time": {"runs": 0, "score_sum": 0},
+                        "month": {"period": "", "runs": 0, "score_sum": 0},
+                        "week": {"period": "", "runs": 0, "score_sum": 0},
+                    }
+                agg = result[op]
+                # all_time: always sum
+                at = buckets.get("all_time", {})
+                agg["all_time"]["runs"] += at.get("runs", 0)
+                agg["all_time"]["score_sum"] += at.get("score_sum", 0)
+                # month: sum only matching periods
+                mo = buckets.get("month", {})
+                mo_period = mo.get("period", "")
+                if mo_period and mo.get("runs", 0) > 0:
+                    if not agg["month"]["period"]:
+                        agg["month"]["period"] = mo_period
+                    if agg["month"]["period"] == mo_period:
+                        agg["month"]["runs"] += mo.get("runs", 0)
+                        agg["month"]["score_sum"] += mo.get("score_sum", 0)
+                # week: sum only matching periods
+                wk = buckets.get("week", {})
+                wk_period = wk.get("period", "")
+                if wk_period and wk.get("runs", 0) > 0:
+                    if not agg["week"]["period"]:
+                        agg["week"]["period"] = wk_period
+                    if agg["week"]["period"] == wk_period:
+                        agg["week"]["runs"] += wk.get("runs", 0)
+                        agg["week"]["score_sum"] += wk.get("score_sum", 0)
+    return result
+
+
+def _format_op_stats(buckets: dict, compact: bool = False) -> str:
+    """Format verifiedstats buckets for one operation into a display string.
+
+    compact=True: '96 (9 runs, 2 this mo)' — for Agent Defaults labels
+    compact=False: '96 (9 runs, 2 this month)' — for Models tab
+    """
+    at = buckets.get("all_time", {})
+    runs = at.get("runs", 0)
+    if runs <= 0:
+        return ""
+    avg = _bucket_avg(at)
+    mo = buckets.get("month", {})
+    mo_runs = mo.get("runs", 0)
+    mo_label = "mo" if compact else "month"
+    if mo_runs > 0:
+        return f"{avg} ({runs} runs, {mo_runs} this {mo_label})"
+    return f"{avg} ({runs} runs)"
+
+
 # ---------------------------------------------------------------------------
 # ConfigManager
 # ---------------------------------------------------------------------------
@@ -698,18 +781,49 @@ class FuzzySelect(Container):
 # Modal Screens
 # ---------------------------------------------------------------------------
 class AgentModelPickerScreen(ModalScreen):
-    """Two-step picker: code agent -> model name."""
+    """Multi-step picker: top verified -> code agent -> model name."""
 
     BINDINGS = [Binding("escape", "go_back", "Back/Cancel", show=False)]
 
     def __init__(self, operation: str, current_agent: str = "",
-                 current_model: str = ""):
+                 current_model: str = "",
+                 all_models: dict[str, dict] | None = None):
         super().__init__()
         self.operation = operation
         self.current_agent = current_agent
         self.current_model = current_model
+        self.all_models = all_models or {}
         self.selected_agent: str | None = None
-        self._step = 1
+        self._step = 0
+
+    def _build_top_verified(self) -> list[dict]:
+        """Build ranked list of top verified models for the operation."""
+        candidates = []
+        for agent, pdata in self.all_models.items():
+            for m in pdata.get("models", []):
+                if m.get("status", "active") == "unavailable":
+                    continue
+                name = m.get("name", "?")
+                vs = m.get("verifiedstats", {})
+                op_buckets = vs.get(self.operation, {})
+                at = op_buckets.get("all_time", {})
+                runs = at.get("runs", 0)
+                if runs <= 0:
+                    # Fall back to flat verified
+                    score = m.get("verified", {}).get(self.operation, 0)
+                    if score > 0:
+                        candidates.append({
+                            "agent": agent, "name": name,
+                            "score": score, "detail": f"score: {score}",
+                        })
+                    continue
+                detail = _format_op_stats(op_buckets, compact=True)
+                candidates.append({
+                    "agent": agent, "name": name,
+                    "score": _bucket_avg(at), "detail": detail,
+                })
+        candidates.sort(key=lambda c: (-c["score"], c["agent"], c["name"]))
+        return candidates[:5]
 
     def compose(self) -> ComposeResult:
         with Container(id="picker_dialog"):
@@ -717,25 +831,63 @@ class AgentModelPickerScreen(ModalScreen):
                 f"Select model for: [bold]{self.operation}[/bold]",
                 id="picker_title",
             )
-            yield Label("Step 1: Choose code agent", id="picker_step_label")
-            agent_options = [
-                {"value": a, "display": a, "description": ""}
-                for a in sorted(MODEL_FILES.keys())
-            ]
-            yield FuzzySelect(
-                agent_options,
-                placeholder="Type agent name...",
-                id="agent_picker",
-            )
+            # Build top-verified options
+            top = self._build_top_verified()
+            if top:
+                yield Label(
+                    "Top verified models (or browse all)",
+                    id="picker_step_label",
+                )
+                options = []
+                for c in top:
+                    val = f"{c['agent']}/{c['name']}"
+                    options.append({
+                        "value": val,
+                        "display": val,
+                        "description": c["detail"],
+                    })
+                options.append({
+                    "value": "__browse__",
+                    "display": "Browse all models...",
+                    "description": "Full agent/model browser",
+                })
+                yield FuzzySelect(
+                    options,
+                    placeholder="Type to filter...",
+                    id="top_picker",
+                )
+            else:
+                # No verified models — skip to step 1
+                self._step = 1
+                yield Label("Step 1: Choose code agent", id="picker_step_label")
+                agent_options = [
+                    {"value": a, "display": a, "description": ""}
+                    for a in sorted(MODEL_FILES.keys())
+                ]
+                yield FuzzySelect(
+                    agent_options,
+                    placeholder="Type agent name...",
+                    id="agent_picker",
+                )
 
     def action_go_back(self):
         if self._step == 2:
             self._show_step1()
+        elif self._step == 1:
+            self._show_step0()
         else:
             self.dismiss(None)
 
     def on_fuzzy_select_selected(self, event: FuzzySelect.Selected) -> None:
-        if self._step == 1:
+        if self._step == 0:
+            if event.value == "__browse__":
+                self._show_step1()
+            elif event.value:
+                self.dismiss({
+                    "key": self.operation,
+                    "value": event.value,
+                })
+        elif self._step == 1:
             self.selected_agent = event.value
             self._show_step2()
         elif self._step == 2:
@@ -749,8 +901,45 @@ class AgentModelPickerScreen(ModalScreen):
     def on_fuzzy_select_cancelled(self, event: FuzzySelect.Cancelled) -> None:
         if self._step == 2:
             self._show_step1()
+        elif self._step == 1:
+            self._show_step0()
         else:
             self.dismiss(None)
+
+    def _show_step0(self):
+        """Re-show top verified selection."""
+        self._step = 0
+        self.query_one("#picker_step_label", Label).update(
+            "Top verified models (or browse all)"
+        )
+        # Remove other pickers
+        for pid in ("#agent_picker", "#model_picker"):
+            try:
+                self.query_one(pid, FuzzySelect).remove()
+            except Exception:
+                pass
+        # Re-show or recreate top picker
+        try:
+            tp = self.query_one("#top_picker", FuzzySelect)
+            tp.display = True
+        except Exception:
+            top = self._build_top_verified()
+            options = []
+            for c in top:
+                val = f"{c['agent']}/{c['name']}"
+                options.append({
+                    "value": val, "display": val,
+                    "description": c["detail"],
+                })
+            options.append({
+                "value": "__browse__",
+                "display": "Browse all models...",
+                "description": "Full agent/model browser",
+            })
+            container = self.query_one("#picker_dialog", Container)
+            fs = FuzzySelect(options, placeholder="Type to filter...",
+                             id="top_picker")
+            container.mount(fs)
 
     def _show_step1(self):
         """Re-show agent selection."""
@@ -758,11 +947,12 @@ class AgentModelPickerScreen(ModalScreen):
         self.query_one("#picker_step_label", Label).update(
             "Step 1: Choose code agent"
         )
-        # Remove model picker
-        try:
-            self.query_one("#model_picker", FuzzySelect).remove()
-        except Exception:
-            pass
+        # Remove other pickers
+        for pid in ("#model_picker", "#top_picker"):
+            try:
+                self.query_one(pid, FuzzySelect).remove()
+            except Exception:
+                pass
         # Re-show or recreate agent picker
         try:
             ap = self.query_one("#agent_picker", FuzzySelect)
@@ -800,26 +990,44 @@ class AgentModelPickerScreen(ModalScreen):
         model_path = MODEL_FILES.get(agent, Path("nonexistent"))
         model_data = _load_json(model_path)
         models = model_data.get("models", []) if model_data else []
-        model_options = []
+        scored_options = []
+        unscored_options = []
         for m in models:
             if m.get("status", "active") == "unavailable":
                 continue
             name = m.get("name", "?")
             notes = m.get("notes", "")
-            verified = m.get("verified", {})
-            op_score = verified.get(self.operation, 0)
-            if op_score:
-                score_str = f"[score: {op_score}]"
-            elif self.operation in verified:
-                score_str = "(not verified)"
+            # Try verifiedstats first
+            vs = m.get("verifiedstats", {})
+            op_buckets = vs.get(self.operation, {})
+            at = op_buckets.get("all_time", {})
+            if at.get("runs", 0) > 0:
+                detail = _format_op_stats(op_buckets, compact=True)
+                score_str = f"[{detail}]"
+                sort_score = _bucket_avg(at)
             else:
-                score_str = ""
+                # Fall back to flat verified
+                verified = m.get("verified", {})
+                op_score = verified.get(self.operation, 0)
+                if op_score:
+                    score_str = f"[score: {op_score}]"
+                    sort_score = op_score
+                elif self.operation in verified:
+                    score_str = "(not verified)"
+                    sort_score = 0
+                else:
+                    score_str = ""
+                    sort_score = -1
             desc = f"{notes}  {score_str}".strip() if score_str else notes
-            model_options.append({
-                "value": name,
-                "display": name,
-                "description": desc,
-            })
+            opt = {"value": name, "display": name, "description": desc}
+            if sort_score > 0:
+                scored_options.append((sort_score, opt))
+            else:
+                unscored_options.append(opt)
+
+        # Verified models first (sorted by score desc), then the rest
+        scored_options.sort(key=lambda x: -x[0])
+        model_options = [o for _, o in scored_options] + unscored_options
 
         if not model_options:
             model_options = [
@@ -1439,7 +1647,10 @@ class SettingsApp(App):
                     "project" if fid.startswith("agent_proj_") else "user"
                 )
                 self.push_screen(
-                    AgentModelPickerScreen(key, current_agent, current_model),
+                    AgentModelPickerScreen(
+                        key, current_agent, current_model,
+                        all_models=self.config_mgr.models,
+                    ),
                     callback=self._handle_agent_pick,
                 )
                 event.prevent_default()
@@ -1532,6 +1743,14 @@ class SettingsApp(App):
         provider_data = self.config_mgr.models.get(agent, {})
         for m in provider_data.get("models", []):
             if m.get("name") == model_name:
+                # Try verifiedstats first for richer display
+                vs = m.get("verifiedstats", {})
+                op_buckets = vs.get(operation, {})
+                at = op_buckets.get("all_time", {})
+                if at.get("runs", 0) > 0:
+                    detail = _format_op_stats(op_buckets, compact=True)
+                    return f" [dim][{detail}][/dim]"
+                # Fall back to flat verified dict
                 verified = m.get("verified", {})
                 op_score = verified.get(operation, 0)
                 if op_score:
@@ -1540,6 +1759,32 @@ class SettingsApp(App):
                     return " [dim](not verified)[/dim]"
                 return ""
         return ""
+
+    def _get_all_providers_label(self, operation: str, agent_model: str) -> str:
+        """Return all_providers aggregated label if it differs from provider-specific."""
+        if "/" not in agent_model:
+            return ""
+        agent, model_name = agent_model.split("/", 1)
+        provider_data = self.config_mgr.models.get(agent, {})
+        cli_id = ""
+        provider_runs = 0
+        for m in provider_data.get("models", []):
+            if m.get("name") == model_name:
+                cli_id = m.get("cli_id", "")
+                vs = m.get("verifiedstats", {})
+                at = vs.get(operation, {}).get("all_time", {})
+                provider_runs = at.get("runs", 0)
+                break
+        if not cli_id:
+            return ""
+        agg = _aggregate_verifiedstats(self.config_mgr.models, cli_id)
+        op_agg = agg.get(operation, {})
+        agg_at = op_agg.get("all_time", {})
+        agg_runs = agg_at.get("runs", 0)
+        if agg_runs <= 0 or agg_runs == provider_runs:
+            return ""  # no cross-provider data
+        detail = _format_op_stats(op_agg, compact=True)
+        return f" [dim]all providers: {detail}[/dim]"
 
     def _populate_agent_tab(self):
         container = self.query_one("#agent_content", VerticalScroll)
@@ -1592,6 +1837,16 @@ class SettingsApp(App):
                 subordinate=True,
                 raw_value=user_raw,
             ))
+
+            # All-providers hint (show for the effective model)
+            effective_model = (
+                str(local_defaults[key]) if key in local_defaults
+                else proj_raw if proj_val and proj_val != "(not set)" else ""
+            )
+            if effective_model:
+                ap_label = self._get_all_providers_label(key, effective_model)
+                if ap_label:
+                    container.mount(Label(ap_label, classes="op-desc"))
 
             # Operation description
             desc = OPERATION_DESCRIPTIONS.get(key, "")
@@ -1853,9 +2108,25 @@ class SettingsApp(App):
                 cli_id = m.get("cli_id", "?")
                 notes = m.get("notes", "")
                 status = m.get("status", "active")
-                verified = m.get("verified", {})
-                scores = ", ".join(f"{k}:{v}" for k, v in verified.items() if v)
-                score_str = f"  [dim]verified: {scores}[/dim]" if scores else ""
+                # Build rich score string from verifiedstats or verified
+                vs = m.get("verifiedstats", {})
+                score_parts = []
+                for op, buckets in vs.items():
+                    if not isinstance(buckets, dict):
+                        continue
+                    detail = _format_op_stats(buckets, compact=False)
+                    if detail:
+                        score_parts.append(f"{op}: {detail}")
+                if not score_parts:
+                    # Fall back to flat verified dict
+                    verified = m.get("verified", {})
+                    for k, v in verified.items():
+                        if v:
+                            score_parts.append(f"{k}: {v}")
+                score_str = (
+                    f"  [dim]{' | '.join(score_parts)}[/dim]"
+                    if score_parts else ""
+                )
                 if status == "unavailable":
                     container.mount(Static(
                         f"    [dim]{name:<16} {cli_id:<30} {'[UNAVAIL]':<12} {notes}{score_str}[/dim]",
@@ -1866,6 +2137,32 @@ class SettingsApp(App):
                         f"    {name:<16} {cli_id:<30} {'active':<12} {notes}{score_str}",
                         classes="model-row",
                     ))
+                # All-providers summary if model is shared across providers
+                if cli_id != "?":
+                    agg = _aggregate_verifiedstats(
+                        self.config_mgr.models, cli_id,
+                    )
+                    # Check if agg has more runs than this provider alone
+                    provider_total = sum(
+                        vs.get(op, {}).get("all_time", {}).get("runs", 0)
+                        for op in agg
+                    )
+                    agg_total = sum(
+                        agg[op].get("all_time", {}).get("runs", 0)
+                        for op in agg
+                    )
+                    if agg_total > 0 and agg_total > provider_total:
+                        agg_parts = []
+                        for op, buckets in agg.items():
+                            detail = _format_op_stats(buckets, compact=False)
+                            if detail:
+                                agg_parts.append(f"{op}: {detail}")
+                        if agg_parts:
+                            container.mount(Static(
+                                f"    [dim]  all providers: "
+                                f"{' | '.join(agg_parts)}[/dim]",
+                                classes="model-row",
+                            ))
 
         container.mount(Label(""))
         container.mount(Label(

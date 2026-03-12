@@ -194,7 +194,9 @@ To compute cross-provider stats for the same underlying LLM model:
 3. For each skill, sum `runs` and `score_sum` from the matching bucket across the group
 4. For `month` and `week` buckets, only aggregate entries with the same `period` value
 
-This aggregation is performed at read time by consumers (e.g., `ait settings`, `ait stats`) — no duplicate aggregate values are stored.
+This aggregation is performed at read time by consumers — no duplicate aggregate values are stored.
+
+`ait settings` implements this aggregation in the Models tab (cross-provider summary lines), the Agent Defaults tab (all-providers hints), and the model picker (Top Verified ranking).
 
 ## Export Bundle Format
 
