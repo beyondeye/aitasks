@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [aitask_fold, aitask_contribute]
-children_to_implement: [t376_1]
+children_to_implement: [t376_1, t376_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-12 11:28
 updated_at: 2026-03-12 22:51
