@@ -73,49 +73,15 @@ This is non-blocking — if it fails (e.g., no network, merge conflicts), it con
 
 This step is only executed when no task IDs were provided as arguments.
 
-#### 1a: List Eligible Tasks
+Execute the **Related Task Discovery Procedure** (see `.claude/skills/task-workflow/related-task-discovery.md`) with:
+- **Matching context:** (not used — fold uses "all" mode)
+- **Purpose text:** "fold together into a single task (minimum 2)"
+- **Min eligible:** 2
+- **Selection mode:** all
 
-List all pending tasks:
+If the procedure returns fewer than 2 task IDs, inform user "Need at least 2 tasks to fold." and abort the workflow.
 
-```bash
-./.aitask-scripts/aitask_ls.sh -v --status all --all-levels 99 2>/dev/null
-```
-
-Filter the output to include only tasks that are eligible for folding:
-- Status must be `Ready` or `Editing`
-- Must not have children (status shows "Has children") — too complex to fold
-- Must not be a child task — too complex to fold
-- Exclude tasks with status `Implementing`, `Postponed`, `Done`, or `Folded`
-
-If fewer than 2 eligible tasks exist, inform user "Need at least 2 eligible tasks to fold. Only \<N\> eligible task(s) found." and abort the workflow.
-
-#### 1b: Identify Related Tasks
-
-For each eligible task:
-- Read the task file's title and first ~5 lines of body text
-- Note the task's labels from frontmatter
-
-**Identify related groups** by analyzing:
-- **Shared labels:** Tasks that share one or more labels are likely related
-- **Semantic similarity:** Tasks whose descriptions address the same topic, feature, or problem area
-
-Present a summary of the eligible tasks and any detected relationships.
-
-#### 1c: Select Tasks to Fold
-
-Use `AskUserQuestion` with multiSelect to let the user choose which tasks to fold:
-- Question: "Select tasks to fold together into a single task (minimum 2):"
-- Header: "Fold tasks"
-- Options: Each eligible task with the task filename as label and a brief description including labels and match reasons
-
-**Pagination:** Since `AskUserQuestion` supports a maximum of 4 options, implement pagination if there are more than 3 eligible tasks:
-- Start with `current_offset = 0` and `page_size = 3` (3 tasks per page + 1 "Show more" slot)
-- For each page, show tasks from `current_offset` to `current_offset + page_size - 1`
-- If more tasks exist beyond this page, add a "Show more tasks" option (description: "Show next batch of tasks (N more available)")
-- On the last page, show up to 4 tasks
-- Accumulate selections across pages
-
-**After selection:** If fewer than 2 tasks were selected, inform user "Need at least 2 tasks to fold." and abort the workflow.
+Store the selected task IDs for Step 2 (Primary Task Selection).
 
 ### Step 2: Primary Task Selection
 

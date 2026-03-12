@@ -128,31 +128,15 @@ Explore the codebase guided by the exploration strategy set in Step 1. Use Read,
 
 ### Step 2b: Related Task Discovery
 
-Before creating a new task, check for existing pending tasks that overlap with the exploration findings. This prevents duplicate tasks and ensures related work is tracked.
+Before creating a new task, check for existing pending tasks that overlap.
 
-**List pending tasks:**
+Execute the **Related Task Discovery Procedure** (see `.claude/skills/task-workflow/related-task-discovery.md`) with:
+- **Matching context:** The exploration findings gathered in Step 2
+- **Purpose text:** "will be fully covered by the new task (they will be folded in and deleted after implementation)"
+- **Min eligible:** 1
+- **Selection mode:** ai_filtered
 
-```bash
-./.aitask-scripts/aitask_ls.sh -v --status all --all-levels 99 2>/dev/null
-```
-
-Filter the output to include only tasks with status `Ready` or `Editing`. Exclude:
-- Tasks with children (status shows "Has children") — too complex to fold in
-- Child tasks — too complex to fold in
-- Tasks with status `Implementing`, `Postponed`, `Done`, or `Folded`
-
-**Assess relevance:** Read the title and brief description (first ~5 lines of body text) of each remaining task. Based on the exploration findings gathered in Step 2, identify tasks whose scope overlaps significantly with the planned new task. A task is "related" if the new task would cover the same goal, fix the same problem, or implement the same feature.
-
-**If no related tasks are found:** Inform the user: "No existing pending tasks appear related to this exploration." Proceed directly to Step 3.
-
-**If related tasks are found:** Present them to the user using `AskUserQuestion` with multiSelect:
-- Question: "These existing tasks appear related to your exploration findings. Select any that will be fully covered by the new task (they will be folded in and deleted after implementation):"
-- Header: "Related tasks"
-- Options: Each related task as a selectable option, with the task filename as label and a brief reason for the match as description. Include a "None — no tasks to fold in" option.
-
-**If user selects "None" or no tasks:** Proceed to Step 3 with no folded tasks.
-
-**If user selects one or more tasks:** Store the list of selected task IDs (e.g., `[106, 129]`) as the **folded_tasks** list. Read the full description of each selected task — their content will be incorporated into the new task description in Step 3. Proceed to Step 3.
+If the procedure returns task IDs, store them as `folded_tasks` for Step 3. Read the full description of each selected task — their content will be incorporated into the new task description in Step 3.
 
 **Scope rule:** Only standalone parent-level tasks without children may be folded in.
 
