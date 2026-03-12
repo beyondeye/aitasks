@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [aitask_fold, aitask_contribute]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-12 22:34
-updated_at: 2026-03-12 23:12
+updated_at: 2026-03-12 23:27
+completed_at: 2026-03-12 23:27
 ---
 
 ## Context
