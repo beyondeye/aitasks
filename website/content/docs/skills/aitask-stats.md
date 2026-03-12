@@ -25,9 +25,12 @@ Runs `./.aitask-scripts/aitask_stats.sh` and displays the results. Provides the 
 - Label + issue type trends
 - Code agent weekly trends (last 4 weeks)
 - LLM model weekly trends (last 4 weeks)
+- Verified model score rankings per skill (pick, explain, batch-review)
+  - All-providers aggregated view with per-provider breakdowns
+  - Time-windowed display (all-time, this month)
 
 Supports all command-line options (`-d`, `-v`, `--csv`, `-w`, `--plot`).
 `--plot` shows interactive terminal charts when optional `plotext` is installed
 (can be enabled via `ait setup`), including the code agent and LLM model
-histograms.
+histograms and verified score ranking bar charts per skill.
 For CSV export, provides guidance on opening the file in LibreOffice Calc with pivot tables and charts.

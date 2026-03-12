@@ -100,6 +100,24 @@ class ImplementationInfo:
     model_display: str
 
 
+@dataclass
+class VerifiedModelEntry:
+    """A single model's verified score for ranking display."""
+    cli_id: str
+    display_name: str
+    provider: str  # agent name or "all_providers"
+    score: int     # round(score_sum / runs)
+    runs: int
+
+
+@dataclass
+class VerifiedRankingData:
+    """Verified model rankings by operation, provider, and time window."""
+    # {operation: {provider_or_"all_providers": {window: [VerifiedModelEntry, ...]}}}
+    by_window: Dict[str, Dict[str, Dict[str, List[VerifiedModelEntry]]]]
+    operations: List[str]  # sorted list of discovered operations
+
+
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     def parse_days_arg(raw: str) -> int:
         # Be tolerant to accidental trailing dot, e.g. "--days 7."
@@ -188,6 +206,13 @@ def avg(num: int, denom: int) -> str:
     return f"{num / float(denom):.1f}"
 
 
+def bucket_avg(runs: int, score_sum: int) -> int:
+    """Compute rounded average from verifiedstats bucket values."""
+    if runs <= 0:
+        return 0
+    return round(score_sum / runs)
+
+
 def week_start_for(d: date, week_start_dow: int) -> date:
     offset = (d.isoweekday() - week_start_dow + 7) % 7
     return d - timedelta(days=offset)
@@ -267,6 +292,159 @@ def load_model_cli_ids() -> Dict[Tuple[str, str], str]:
                 result[(agent, name)] = cli_id
 
     return result
+
+
+def load_verified_rankings() -> VerifiedRankingData:
+    """Load verifiedstats from all models_*.json and build rankings.
+
+    Returns rankings by operation, provider, and time window, plus
+    all_providers aggregation using canonical_model_id() normalization.
+    """
+    metadata_dir = TASK_DIR / "metadata"
+    agents = ("claudecode", "codex", "geminicli", "opencode")
+
+    # Collect raw verifiedstats: {(agent, cli_id): {op: {window: {runs, score_sum, period?}}}}
+    raw: Dict[Tuple[str, str], Dict[str, Dict[str, dict]]] = {}
+    cli_id_set: Dict[Tuple[str, str], str] = {}  # (agent, cli_id) -> cli_id for display
+
+    for agent in agents:
+        path = metadata_dir / f"models_{agent}.json"
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for model in payload.get("models", []):
+            cli_id = model.get("cli_id", "")
+            vstats = model.get("verifiedstats")
+            if not isinstance(vstats, dict) or not vstats or not cli_id:
+                continue
+            key = (agent, cli_id)
+            cli_id_set[key] = cli_id
+            raw[key] = {}
+            for op, buckets in vstats.items():
+                if not isinstance(buckets, dict):
+                    continue
+                # Handle both new bucketed format and old flat format
+                if "all_time" in buckets:
+                    at = buckets["all_time"]
+                elif "runs" in buckets and "all_time" not in buckets:
+                    # Old flat format: {runs, score_sum} at top level
+                    at = buckets
+                else:
+                    continue
+                at_runs = at.get("runs", 0)
+                if at_runs <= 0:
+                    continue
+                raw[key][op] = {
+                    "all_time": {"runs": at_runs, "score_sum": at.get("score_sum", 0)},
+                    "month": buckets.get("month", {}),
+                    "week": buckets.get("week", {}),
+                }
+
+    if not raw:
+        return VerifiedRankingData(by_window={}, operations=[])
+
+    # Discover all operations
+    all_ops: set = set()
+    for entry_ops in raw.values():
+        all_ops.update(entry_ops.keys())
+
+    # Build per-provider entries
+    by_window: Dict[str, Dict[str, Dict[str, List[VerifiedModelEntry]]]] = {}
+    for op in sorted(all_ops):
+        by_window[op] = {}
+        for (agent, cli_id), entry_ops in raw.items():
+            if op not in entry_ops:
+                continue
+            buckets = entry_ops[op]
+            if agent not in by_window[op]:
+                by_window[op][agent] = {"all_time": [], "month": [], "week": []}
+            display = model_display_from_cli_id(cli_id)
+            at = buckets["all_time"]
+            by_window[op][agent]["all_time"].append(
+                VerifiedModelEntry(cli_id, display, agent, bucket_avg(at["runs"], at["score_sum"]), at["runs"])
+            )
+            for win in ("month", "week"):
+                wb = buckets.get(win, {})
+                w_runs = wb.get("runs", 0)
+                if w_runs > 0:
+                    by_window[op][agent][win].append(
+                        VerifiedModelEntry(cli_id, display, agent, bucket_avg(w_runs, wb.get("score_sum", 0)), w_runs)
+                    )
+
+    # All-providers aggregation: group by canonical_model_id
+    for op in sorted(all_ops):
+        # Collect per-canonical: {canonical: {window: {runs, score_sum, period?}}}
+        grouped: Dict[str, Dict[str, dict]] = defaultdict(lambda: {
+            "all_time": {"runs": 0, "score_sum": 0},
+            "month": {"runs": 0, "score_sum": 0, "period": ""},
+            "week": {"runs": 0, "score_sum": 0, "period": ""},
+        })
+        canonical_display: Dict[str, str] = {}
+        canonical_cli: Dict[str, str] = {}
+        for (agent, cli_id), entry_ops in raw.items():
+            if op not in entry_ops:
+                continue
+            canon = canonical_model_id(cli_id)
+            if canon not in canonical_display:
+                canonical_display[canon] = model_display_from_cli_id(cli_id)
+                canonical_cli[canon] = cli_id
+            buckets = entry_ops[op]
+            at = buckets["all_time"]
+            grouped[canon]["all_time"]["runs"] += at["runs"]
+            grouped[canon]["all_time"]["score_sum"] += at["score_sum"]
+            for win in ("month", "week"):
+                wb = buckets.get(win, {})
+                w_runs = wb.get("runs", 0)
+                w_period = wb.get("period", "")
+                if w_runs <= 0 or not w_period:
+                    continue
+                g = grouped[canon][win]
+                if not g["period"]:
+                    g["period"] = w_period
+                if g["period"] == w_period:
+                    g["runs"] += w_runs
+                    g["score_sum"] += wb.get("score_sum", 0)
+
+        ap_entries: Dict[str, List[VerifiedModelEntry]] = {"all_time": [], "month": [], "week": []}
+        for canon, windows in grouped.items():
+            at = windows["all_time"]
+            if at["runs"] > 0:
+                ap_entries["all_time"].append(
+                    VerifiedModelEntry(
+                        canonical_cli.get(canon, canon),
+                        canonical_display.get(canon, canon),
+                        "all_providers",
+                        bucket_avg(at["runs"], at["score_sum"]),
+                        at["runs"],
+                    )
+                )
+            for win in ("month", "week"):
+                wb = windows[win]
+                if wb["runs"] > 0:
+                    ap_entries[win].append(
+                        VerifiedModelEntry(
+                            canonical_cli.get(canon, canon),
+                            canonical_display.get(canon, canon),
+                            "all_providers",
+                            bucket_avg(wb["runs"], wb["score_sum"]),
+                            wb["runs"],
+                        )
+                    )
+        by_window[op]["all_providers"] = ap_entries
+
+    # Sort all entry lists: score desc, display_name asc
+    def _sort_key(e: VerifiedModelEntry) -> Tuple[int, str]:
+        return (-e.score, e.display_name)
+
+    for op in by_window:
+        for provider in by_window[op]:
+            for win in by_window[op][provider]:
+                by_window[op][provider][win].sort(key=_sort_key)
+
+    return VerifiedRankingData(by_window=by_window, operations=sorted(all_ops))
 
 
 def canonical_model_id(cli_id: str) -> str:
@@ -758,6 +936,53 @@ def render_text_report(data: StatsData, days: int, verbose: bool, week_start_dow
     return out.getvalue()
 
 
+def render_verified_rankings(vdata: VerifiedRankingData) -> str:
+    """Render verified model score rankings as a text report section."""
+    if not vdata.operations:
+        return ""
+
+    out = io.StringIO()
+    print("### Verified Model Rankings\n", file=out)
+
+    for op in vdata.operations:
+        op_data = vdata.by_window.get(op, {})
+        ap = op_data.get("all_providers", {})
+        at_entries = ap.get("all_time", [])
+        if not at_entries:
+            continue
+
+        print(f"#### {op}\n", file=out)
+
+        # Build month lookup for all_providers
+        mo_entries = ap.get("month", [])
+        mo_lookup: Dict[str, VerifiedModelEntry] = {e.display_name: e for e in mo_entries}
+
+        # Main table: all_providers all_time top 5
+        print("| Model | Score | Runs | This month |", file=out)
+        print("|-------|-------|------|------------|", file=out)
+        for entry in at_entries[:5]:
+            mo = mo_lookup.get(entry.display_name)
+            mo_cell = f"{mo.score} ({mo.runs})" if mo else "-"
+            print(f"| {entry.display_name} | {entry.score} | {entry.runs} | {mo_cell} |", file=out)
+        print(file=out)
+
+        # Per-provider breakdown (only when >1 provider has data)
+        providers_with_data = [
+            p for p in sorted(op_data.keys())
+            if p != "all_providers" and op_data[p].get("all_time")
+        ]
+        if len(providers_with_data) > 1:
+            print("By provider:", file=out)
+            for prov in providers_with_data:
+                prov_display = AGENT_DISPLAY_NAMES.get(prov, prov)
+                prov_entries = op_data[prov]["all_time"][:3]
+                parts = [f"{e.display_name} {e.score} ({e.runs} runs)" for e in prov_entries]
+                print(f"  {prov_display}: {' · '.join(parts)}", file=out)
+            print(file=out)
+
+    return out.getvalue()
+
+
 def write_csv(path: Path, rows: Sequence[Sequence[str]]) -> None:
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -823,54 +1048,66 @@ def chart_plot_size() -> Tuple[int, int]:
     return width, height
 
 
-def run_plot_summary(data: StatsData, days: int, today: date, week_start_dow: int) -> None:
+def show_chart(
+    plt,
+    title: str,
+    x: List[str],
+    y: List[int],
+    kind: str = "bar",
+    force_categorical: bool = False,
+) -> None:
+    """Render a single plotext chart and wait for user input."""
+    if not x:
+        return
+    plt.clear_figure()
+    width, height = chart_plot_size()
+    if hasattr(plt, "plotsize"):
+        plt.plotsize(width, height)
+    plt.title(title)
+    if kind == "line":
+        # plotext attempts date parsing for strings like "02-27".
+        # Use numeric x-values and explicit tick labels for stable behavior.
+        if force_categorical:
+            x_positions = list(range(len(x)))
+            plt.plot(x_positions, y, marker="dot")
+            plt.xticks(x_positions, x)
+        else:
+            plt.plot(x, y, marker="dot")
+    else:
+        plt.bar(x, y)
+    plt.theme("pro")
+    plt.show()
+    if sys.stdin.isatty():
+        try:
+            input("Press Enter for next chart... ")
+        except EOFError:
+            pass
+    print()
+    print()
+
+
+def _import_plotext():
+    """Try to import plotext, return module or None."""
     try:
         import plotext as plt  # type: ignore
+        return plt
     except Exception:
         print(
             "Warning: --plot requested but 'plotext' is not installed. "
             "Install it via 'ait setup' (stats graph support).",
             file=sys.stderr,
         )
-        return
+        return None
 
-    def show_chart(
-        title: str,
-        x: List[str],
-        y: List[int],
-        kind: str = "bar",
-        force_categorical: bool = False,
-    ) -> None:
-        if not x:
-            return
-        plt.clear_figure()
-        width, height = chart_plot_size()
-        if hasattr(plt, "plotsize"):
-            plt.plotsize(width, height)
-        plt.title(title)
-        if kind == "line":
-            # plotext attempts date parsing for strings like "02-27".
-            # Use numeric x-values and explicit tick labels for stable behavior.
-            if force_categorical:
-                x_positions = list(range(len(x)))
-                plt.plot(x_positions, y, marker="dot")
-                plt.xticks(x_positions, x)
-            else:
-                plt.plot(x, y, marker="dot")
-        else:
-            plt.bar(x, y)
-        plt.theme("pro")
-        plt.show()
-        if sys.stdin.isatty():
-            try:
-                input("Press Enter for next chart... ")
-            except EOFError:
-                pass
-        print()
-        print()
+
+def run_plot_summary(data: StatsData, days: int, today: date, week_start_dow: int) -> None:
+    plt = _import_plotext()
+    if plt is None:
+        return
 
     dseq = [today - timedelta(days=i) for i in range(days - 1, -1, -1)]
     show_chart(
+        plt,
         build_chart_title("Daily Completions", f"last {days} days"),
         [d.isoformat()[5:] for d in dseq],
         [data.daily_counts.get(d, 0) for d in dseq],
@@ -880,6 +1117,7 @@ def run_plot_summary(data: StatsData, days: int, today: date, week_start_dow: in
 
     week_dows = [((week_start_dow - 1 + j) % 7) + 1 for j in range(7)]
     show_chart(
+        plt,
         build_chart_title("Average Completions by Weekday", "last 30 days", week_start_dow),
         [DAY_NAMES[dow] for dow in week_dows],
         [data.dow_counts_30d.get(dow, 0) for dow in week_dows],
@@ -887,6 +1125,7 @@ def run_plot_summary(data: StatsData, days: int, today: date, week_start_dow: in
 
     top_labels = sorted(data.all_labels, key=lambda lbl: (-data.label_counts_total.get(lbl, 0), lbl))[:8]
     show_chart(
+        plt,
         build_chart_title("Top Labels by Completed Tasks", "all time"),
         top_labels,
         [data.label_counts_total.get(lbl, 0) for lbl in top_labels],
@@ -894,6 +1133,7 @@ def run_plot_summary(data: StatsData, days: int, today: date, week_start_dow: in
 
     types = get_valid_task_types()[:8]
     show_chart(
+        plt,
         build_chart_title("Issue Types", "this week", week_start_dow),
         [t.capitalize() for t in types],
         [data.type_week_counts.get((t, 0), 0) for t in types],
@@ -903,6 +1143,7 @@ def run_plot_summary(data: StatsData, days: int, today: date, week_start_dow: in
         data.codeagent_week_counts, codeagent_display_name, range(4)
     )
     show_chart(
+        plt,
         build_chart_title("Code Agents by Completed Tasks", "last 4 weeks", week_start_dow),
         codeagent_4w_x,
         codeagent_4w_y,
@@ -912,6 +1153,7 @@ def run_plot_summary(data: StatsData, days: int, today: date, week_start_dow: in
         data.codeagent_week_counts, codeagent_display_name, [0]
     )
     show_chart(
+        plt,
         build_chart_title("Code Agents by Completed Tasks", "this week", week_start_dow),
         codeagent_1w_x,
         codeagent_1w_y,
@@ -921,6 +1163,7 @@ def run_plot_summary(data: StatsData, days: int, today: date, week_start_dow: in
         data.model_week_counts, lambda key: data.model_display_names.get(key, "Unknown"), range(4), limit=8
     )
     show_chart(
+        plt,
         build_chart_title("LLM Models by Completed Tasks", "last 4 weeks", week_start_dow),
         model_4w_x,
         model_4w_y,
@@ -930,10 +1173,34 @@ def run_plot_summary(data: StatsData, days: int, today: date, week_start_dow: in
         data.model_week_counts, lambda key: data.model_display_names.get(key, "Unknown"), [0], limit=8
     )
     show_chart(
+        plt,
         build_chart_title("LLM Models by Completed Tasks", "this week", week_start_dow),
         model_1w_x,
         model_1w_y,
     )
+
+
+def run_verified_plots(vdata: VerifiedRankingData) -> None:
+    """Show plotext bar charts for verified model rankings per operation."""
+    plt = _import_plotext()
+    if plt is None:
+        return
+
+    for op in vdata.operations:
+        op_data = vdata.by_window.get(op, {})
+        ap = op_data.get("all_providers", {})
+        at_entries = ap.get("all_time", [])
+        if not at_entries:
+            continue
+        top = at_entries[:5]
+        x = [e.display_name for e in top]
+        y = [e.score for e in top]
+        show_chart(
+            plt,
+            build_chart_title(f"Verified: {op}", "all providers, all time"),
+            x,
+            y,
+        )
 
 
 def main(argv: Sequence[str]) -> int:
@@ -954,6 +1221,10 @@ def main(argv: Sequence[str]) -> int:
     report = render_text_report(data, days=args.days, verbose=args.verbose, week_start_dow=week_start_dow, today=today)
     print(report, end="")
 
+    vdata = load_verified_rankings()
+    if vdata.operations:
+        print(render_verified_rankings(vdata), end="")
+
     if args.csv is not None:
         csv_path = Path(args.csv)
         write_csv(csv_path, data.csv_rows)
@@ -961,6 +1232,8 @@ def main(argv: Sequence[str]) -> int:
 
     if args.plot:
         run_plot_summary(data, days=args.days, today=today, week_start_dow=week_start_dow)
+        if vdata.operations:
+            run_verified_plots(vdata)
 
     return 0
 

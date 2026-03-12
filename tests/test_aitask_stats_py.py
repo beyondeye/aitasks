@@ -338,5 +338,201 @@ class TestCollection(unittest.TestCase):
         )
 
 
+class TestVerifiedRankings(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self.tmp.name)
+
+        metadata = self.base / "aitasks" / "metadata"
+        metadata.mkdir(parents=True)
+
+        # codex: gpt-5.4 with pick stats, gpt-5.3-codex with pick+explain
+        (metadata / "models_codex.json").write_text(
+            json.dumps({
+                "models": [
+                    {
+                        "name": "gpt5_4", "cli_id": "gpt-5.4",
+                        "verifiedstats": {
+                            "pick": {
+                                "all_time": {"runs": 5, "score_sum": 400},
+                                "month": {"period": "2026-03", "runs": 2, "score_sum": 180},
+                                "week": {"period": "2026-W10", "runs": 1, "score_sum": 80},
+                            }
+                        },
+                        "verified": {"pick": 80},
+                    },
+                    {
+                        "name": "gpt5_3codex", "cli_id": "gpt-5.3-codex",
+                        "verifiedstats": {
+                            "pick": {
+                                "all_time": {"runs": 3, "score_sum": 240},
+                                "month": {"period": "2026-03", "runs": 1, "score_sum": 80},
+                                "week": {"period": "2026-W10", "runs": 0, "score_sum": 0},
+                            },
+                            "explain": {
+                                "all_time": {"runs": 2, "score_sum": 180},
+                                "month": {"period": "2026-03", "runs": 1, "score_sum": 100},
+                                "week": {"period": "2026-W10", "runs": 0, "score_sum": 0},
+                            },
+                        },
+                        "verified": {"pick": 80, "explain": 90},
+                    },
+                ]
+            }),
+            encoding="utf-8",
+        )
+
+        # claudecode: opus with pick stats
+        (metadata / "models_claudecode.json").write_text(
+            json.dumps({
+                "models": [
+                    {
+                        "name": "opus4_6", "cli_id": "claude-opus-4-6",
+                        "verifiedstats": {
+                            "pick": {
+                                "all_time": {"runs": 10, "score_sum": 960},
+                                "month": {"period": "2026-03", "runs": 4, "score_sum": 400},
+                                "week": {"period": "2026-W10", "runs": 2, "score_sum": 200},
+                            }
+                        },
+                        "verified": {"pick": 96},
+                    }
+                ]
+            }),
+            encoding="utf-8",
+        )
+
+        # opencode: gpt-5.3-codex (same underlying model as codex's, for cross-provider test)
+        (metadata / "models_opencode.json").write_text(
+            json.dumps({
+                "models": [
+                    {
+                        "name": "openai_gpt_5_3_codex",
+                        "cli_id": "openai/gpt-5.3-codex",
+                        "verifiedstats": {
+                            "pick": {
+                                "all_time": {"runs": 2, "score_sum": 160},
+                                "month": {"period": "2026-03", "runs": 1, "score_sum": 80},
+                                "week": {"period": "2026-W10", "runs": 0, "score_sum": 0},
+                            }
+                        },
+                        "verified": {"pick": 80},
+                    }
+                ]
+            }),
+            encoding="utf-8",
+        )
+
+        (metadata / "models_geminicli.json").write_text(
+            json.dumps({"models": [{"name": "gemini2_5pro", "cli_id": "gemini-2.5-pro"}]}),
+            encoding="utf-8",
+        )
+
+        self.orig_task_dir = stats.TASK_DIR
+        stats.TASK_DIR = self.base / "aitasks"
+
+    def tearDown(self):
+        stats.TASK_DIR = self.orig_task_dir
+        self.tmp.cleanup()
+
+    def test_load_verified_rankings_structure(self):
+        vdata = stats.load_verified_rankings()
+        self.assertEqual(sorted(vdata.operations), ["explain", "pick"])
+        self.assertIn("all_providers", vdata.by_window["pick"])
+        self.assertIn("codex", vdata.by_window["pick"])
+        self.assertIn("claudecode", vdata.by_window["pick"])
+        self.assertIn("opencode", vdata.by_window["pick"])
+
+    def test_all_providers_aggregation(self):
+        vdata = stats.load_verified_rankings()
+        ap_at = vdata.by_window["pick"]["all_providers"]["all_time"]
+        # Find gpt-5.3-codex aggregate (codex 3 runs + opencode 2 runs = 5)
+        codex_entry = [e for e in ap_at if "5.3" in e.display_name]
+        self.assertEqual(len(codex_entry), 1)
+        self.assertEqual(codex_entry[0].runs, 5)  # 3 + 2
+        self.assertEqual(codex_entry[0].score, 80)  # round((240+160)/5) = 80
+
+    def test_all_providers_aggregation_month(self):
+        vdata = stats.load_verified_rankings()
+        ap_mo = vdata.by_window["pick"]["all_providers"]["month"]
+        codex_mo = [e for e in ap_mo if "5.3" in e.display_name]
+        self.assertEqual(len(codex_mo), 1)
+        self.assertEqual(codex_mo[0].runs, 2)  # 1 + 1 (same period)
+
+    def test_rankings_sorted_by_score_desc(self):
+        vdata = stats.load_verified_rankings()
+        at = vdata.by_window["pick"]["all_providers"]["all_time"]
+        scores = [e.score for e in at]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_render_verified_rankings_sections(self):
+        vdata = stats.load_verified_rankings()
+        output = stats.render_verified_rankings(vdata)
+        self.assertIn("### Verified Model Rankings", output)
+        self.assertIn("#### pick", output)
+        self.assertIn("#### explain", output)
+        self.assertIn("Opus 4.6", output)
+        self.assertIn("GPT5.4", output)
+
+    def test_render_verified_rankings_provider_breakdown(self):
+        vdata = stats.load_verified_rankings()
+        output = stats.render_verified_rankings(vdata)
+        # pick has 3 providers, should show provider breakdown
+        self.assertIn("By provider:", output)
+        self.assertIn("Claude Code:", output)
+
+    def test_render_verified_rankings_skips_empty_op(self):
+        # Overwrite models to have only empty verifiedstats
+        metadata = self.base / "aitasks" / "metadata"
+        (metadata / "models_codex.json").write_text(
+            json.dumps({"models": [{"name": "gpt5_4", "cli_id": "gpt-5.4", "verifiedstats": {}}]}),
+            encoding="utf-8",
+        )
+        (metadata / "models_claudecode.json").write_text(
+            json.dumps({"models": [{"name": "opus4_6", "cli_id": "claude-opus-4-6"}]}),
+            encoding="utf-8",
+        )
+        (metadata / "models_opencode.json").write_text(
+            json.dumps({"models": []}),
+            encoding="utf-8",
+        )
+        vdata = stats.load_verified_rankings()
+        self.assertEqual(vdata.operations, [])
+        output = stats.render_verified_rankings(vdata)
+        self.assertEqual(output, "")
+
+    def test_bucket_avg(self):
+        self.assertEqual(stats.bucket_avg(0, 0), 0)
+        self.assertEqual(stats.bucket_avg(3, 240), 80)
+        self.assertEqual(stats.bucket_avg(10, 960), 96)
+
+    def test_verified_plots_chart_count(self):
+        vdata = stats.load_verified_rankings()
+        titles = []
+
+        class FakePlotext:
+            def clear_figure(self): pass
+            def plotsize(self, w, h): pass
+            def title(self, v): titles.append(v)
+            def plot(self, *a, **k): pass
+            def xticks(self, *a, **k): pass
+            def bar(self, *a, **k): pass
+            def theme(self, *a, **k): pass
+            def show(self): pass
+
+        fake = FakePlotext()
+        with patch.dict(sys.modules, {"plotext": types.SimpleNamespace(
+            clear_figure=fake.clear_figure, plotsize=fake.plotsize,
+            title=fake.title, plot=fake.plot, xticks=fake.xticks,
+            bar=fake.bar, theme=fake.theme, show=fake.show,
+        )}), patch("sys.stdout", new_callable=io.StringIO):
+            stats.run_verified_plots(vdata)
+
+        # 2 operations (explain, pick) -> 2 charts
+        self.assertEqual(len(titles), 2)
+        self.assertTrue(any("pick" in t for t in titles))
+        self.assertTrue(any("explain" in t for t in titles))
+
+
 if __name__ == "__main__":
     unittest.main()
