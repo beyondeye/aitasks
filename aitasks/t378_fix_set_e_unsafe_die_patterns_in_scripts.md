@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [cli, ci]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-12 12:14
-updated_at: 2026-03-12 12:20
+updated_at: 2026-03-12 12:31
 ---
 
 ## Problem
