@@ -21,6 +21,7 @@ This skill is invoked by other skills (e.g., aitask-pick, aitask-explore, aitask
 | `previous_status` | string | Task status before workflow began (for abort revert, e.g., `Ready`) |
 | `folded_tasks` | array/null | List of task IDs folded into this task (e.g., `[106, 129_5]`), or null/empty if none. Set by aitask-explore when existing tasks are folded into a new task. |
 | `skill_name` | string | Name of the calling skill for feedback tracking (e.g., `pick`, `explore`, `pr-import`) |
+| `feedback_collected` | boolean | Guard flag — initialized to `false`. Set to `true` after the Satisfaction Feedback Procedure runs. Prevents double execution across workflow paths. |
 
 ## Workflow
 
@@ -240,7 +241,7 @@ If `active_profile` is null (either because no profile was selected by the calli
 > - Checkpoint (post-plan action)
 >
 > After the checkpoint in `planning.md`:
-> - If child tasks were created and the child checkpoint returned "Stop here" → **END the workflow** (do NOT proceed to Step 7/8/9)
+> - If child tasks were created and the child checkpoint returned "Stop here" → collect **Satisfaction Feedback Procedure**(see `procedures.md`) with `skill_name` from context variables, then **END the workflow** (do NOT proceed to Step 7/8/9)
 > - If child tasks were created and the child checkpoint returned "Start first child" → restart with `/aitask-pick <parent>_1` (do NOT proceed to Step 7)
 > - Otherwise (normal single-task plan) → proceed to Step 7
 

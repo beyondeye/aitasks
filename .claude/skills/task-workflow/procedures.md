@@ -321,6 +321,8 @@ rolling verified scores for the current code agent/model.
 
 **Input:** `skill_name` (string, for example `pick`, `explore`, `explain`)
 
+**Guard:** If `feedback_collected` is `true`, skip this procedure entirely (feedback was already collected earlier in this workflow run). Otherwise, set `feedback_collected` to `true` before proceeding.
+
 **Procedure:**
 
 1. **Profile check:** If the active profile exists and `enableFeedbackQuestions` is set to `false`, skip this procedure entirely. Display: `Profile '<name>': feedback questions disabled`.
