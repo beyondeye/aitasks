@@ -5,10 +5,10 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [opencode, verifiedstats]
-children_to_implement: [t365_3, t365_4, t365_5]
+children_to_implement: [t365_4, t365_5]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-11 08:49
-updated_at: 2026-03-11 23:51
+updated_at: 2026-03-12 08:29
 boardidx: 40
 ---
 
