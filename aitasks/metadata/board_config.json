@@ -14,11 +14,17 @@
       "id": "backlog",
       "title": "Backlog 🗄️",
       "color": "#BD93F9"
+    },
+    {
+      "id": "in_the_works",
+      "title": "in the works",
+      "color": "#8BE9FD"
     }
   ],
   "column_order": [
     "now",
     "next",
-    "backlog"
+    "backlog",
+    "in_the_works"
   ]
 }
