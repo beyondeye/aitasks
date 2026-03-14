@@ -3,11 +3,11 @@ priority: medium
 effort: medium
 depends: [t376_1]
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [aitask_contribute]
-assigned_to: dario-e@beyond-eye.com
+assigned_to: ''
 created_at: 2026-03-12 22:41
-updated_at: 2026-03-12 23:34
+updated_at: 2026-03-14 19:23
 ---
 
 ## Context

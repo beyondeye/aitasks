@@ -15,6 +15,7 @@ ait_dispatcher
 ait_settings
 auto-update
 bash_scripts
+brainstorming
 claudecode
 claudeskills
 codeagent
