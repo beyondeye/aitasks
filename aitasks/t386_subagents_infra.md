@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [brainstorming, subagents]
-children_to_implement: [t386_1, t386_2, t386_3, t386_4]
+children_to_implement: [t386_1, t386_2, t386_3, t386_4, t386_5]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-15 09:06
 updated_at: 2026-03-15 10:51
