@@ -209,6 +209,7 @@ Otherwise, use `AskUserQuestion`:
 
 **If "Save for later":**
 - Inform user: "Task t\<N\>_\<name\>.md is ready. Run `/aitask-pick <N>` when you want to implement it."
+- Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/procedures.md`) with `skill_name` = `"explore"`.
 - End the workflow.
 
 **If "Continue to implementation":**
