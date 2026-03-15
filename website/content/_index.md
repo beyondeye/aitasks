@@ -38,9 +38,9 @@ Git worktrees, atomic task locking, and branch management enable multiple develo
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.11.0: Contribution Pipeline, Satisfaction Feedback & Verified Scores, and Explain Context](blog/v0110-contribution-pipeline-satisfaction-feedback-verified-scores-explain-contex/)** -- Mar 15, 2026
 - **[v0.10.0: Contribute Back Without Forking, Code Agent Commit Attribution, and Code Agent and Model Statistics](blog/v0100-contribute-back-without-forking-code-agent-commit-attribution-code-agent-a/)** -- Mar 10, 2026
 - **[v0.9.0: Gemini CLI and OpenCode Are First-Class Citizens, Model Discovery and Status Tracking, and Directory Rename: aiscripts to .aitask-scripts](blog/v090-gemini-cli-and-opencode-are-first-class-citizens-model-discovery-and-status/)** -- Mar 8, 2026
-- **[v0.8.3: Python-powered Stats with Charts, Codex CLI Gets Proper Guardrails, and Safer Task Ownership](blog/v083-python-powered-stats-with-charts-codex-cli-gets-proper-guardrails-safer-tas/)** -- Mar 5, 2026
 
 [All releases &rarr;](blog/)
 
