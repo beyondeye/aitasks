@@ -16,7 +16,7 @@ Verified scores are currently visible in several places but not explained as a c
 
 ### 1. Create dedicated verified-scores page
 
-**File:** `website/content/docs/skills/verified-scores.md` (weight: 55)
+**File:** `website/content/docs/skills/verified-scores.md` (weight: 110)
 
 Content sections:
 - What are verified scores — 1-5 rating at end of skill runs, mapped to 20-100 scale
@@ -45,3 +45,23 @@ Use consistently: `all_providers`, `provider-specific`, `verified scores` (lower
 - `hugo build --gc --minify` in `website/`
 - Review updated docs for consistent terminology and clear cross-linking
 - Verify all relative links resolve correctly
+
+## Post-Review Changes
+
+### Change Request 1 (2026-03-15 22:30)
+- **Requested by user:** Move verified-scores page to the bottom of the skills subpage list
+- **Changes made:** Changed weight from 55 to 110 (highest existing was 100)
+- **Files affected:** `website/content/docs/skills/verified-scores.md`
+
+### Change Request 2 (2026-03-15 22:32)
+- **Requested by user:** Execution profiles link in verified-scores page is broken (resolves to subpage of verified-scores instead of aitask-pick)
+- **Changes made:** Changed relative link `aitask-pick/execution-profiles/` to Hugo relref `{{< relref "/docs/skills/aitask-pick/execution-profiles" >}}`. Also fixed `ait stats` link to use relref.
+- **Files affected:** `website/content/docs/skills/verified-scores.md`
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `website/content/docs/skills/verified-scores.md` as a dedicated reference page covering the full verified scores feature: score collection, scale, time windows, provider-specific vs all_providers, and where scores appear. Added cross-links from 6 existing docs (skills _index, aitask-pick, execution-profiles, aitask-stats, settings _index, settings reference). Fixed one terminology inconsistency in reference.md ("verification scores" → "verified scores").
+- **Deviations from plan:** Changed page weight from 55 to 110 per user request to place it at the bottom of the skills list. Used Hugo `relref` shortcodes for all cross-page links instead of relative paths, which is more reliable. Did not add a link from the Notes section of execution-profiles.md as originally planned — the inline link on the `enableFeedbackQuestions` row is sufficient.
+- **Issues encountered:** Initial relative link for execution profiles resolved incorrectly because Hugo treats leaf pages differently. Fixed by switching to absolute `relref`.
+- **Key decisions:** The new page explains the user-facing concept without duplicating the technical schema (model entry, buckets) already documented in `reference.md`. Links to reference.md for the detailed JSON structure. All cross-links use Hugo `relref` for reliable resolution.
+- **Notes for sibling tasks:** This is the last child task (t365_5). All verified-scores documentation is now cross-linked. The terminology standard is: `verified scores` (lowercase), `all_providers` (code-formatted), `provider-specific`.
