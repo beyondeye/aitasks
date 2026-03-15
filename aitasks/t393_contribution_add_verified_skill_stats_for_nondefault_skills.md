@@ -3,14 +3,15 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [contribution]
 folded_tasks: [373, 374]
+assigned_to: dario-e@beyond-eye.com
 issue: https://github.com/beyondeye/aitasks/issues/8
 contributor: beyondeye
 contributor_email: 5619462+beyondeye@users.noreply.github.com
 created_at: 2026-03-15 16:13
-updated_at: 2026-03-15 16:17
+updated_at: 2026-03-15 16:21
 ---
 
 ## Merged Contribution Issues
