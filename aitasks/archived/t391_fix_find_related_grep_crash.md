@@ -3,7 +3,7 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_contribute]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-15 15:44
