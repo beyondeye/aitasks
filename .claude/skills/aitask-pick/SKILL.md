@@ -30,6 +30,22 @@ Parse the output lines. Each valid profile appears as `PROFILE|<filename>|<name>
 
 **After selection:** Read the chosen profile file: `cat aitasks/metadata/profiles/<filename>`. Store the profile in memory for use throughout remaining steps.
 
+### Step 0a-bis: Historical Context Prompt (if needed)
+
+Resolve the `gather_explain_context` value from the active profile:
+- If a profile is active and has `gather_explain_context` set to a number (including `0`): store it as `explain_context_max_plans`. Display: "Profile '<name>': historical context max plans = <N>"
+- If set to `"ask"`, or if no profile is active, or if the key is omitted from the profile: prompt the user
+
+**When prompting**, use `AskUserQuestion`:
+- Question: "How many historical plans to extract for context during planning? (0 = disabled)"
+- Header: "Context"
+- Options:
+  - "1 plan" (description: "Extract the single most relevant plan by code contribution")
+  - "3 plans" (description: "Extract top 3 most relevant plans -- more context, more token usage")
+  - "0 (disabled)" (description: "Skip historical context gathering entirely")
+
+Parse the selected option to extract the number and store it as `explain_context_max_plans` for use in Step 6.1.
+
 ### Step 0b: Check for Direct Task Selection (Optional Argument)
 
 **IMPORTANT:** Step 0a (profile selection) MUST complete before Step 0b begins. Step 0b's behavior depends on the profile (e.g., `skip_task_confirmation`). Do NOT parallelize these steps.
