@@ -3,8 +3,9 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_contribute]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-15 15:44
 updated_at: 2026-03-15 15:44
 ---
