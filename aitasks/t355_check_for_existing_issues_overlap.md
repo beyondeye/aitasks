@@ -9,7 +9,7 @@ children_to_implement: [t355_7]
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-09 23:12
 updated_at: 2026-03-11 15:13
-boardidx: 40
+boardidx: 10
 ---
 
 ## Problem
