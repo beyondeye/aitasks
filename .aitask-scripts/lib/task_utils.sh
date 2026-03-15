@@ -331,6 +331,34 @@ extract_pr_url() {
     echo ""
 }
 
+# Extract related issue URLs from a task file's YAML frontmatter
+# Input: task file path
+# Output: one URL per line (newline-separated), empty if missing/empty
+extract_related_issues() {
+    local file_path="$1"
+    local in_yaml=false
+
+    while IFS= read -r line; do
+        if [[ "$line" == "---" ]]; then
+            if [[ "$in_yaml" == true ]]; then break
+            else in_yaml=true; continue; fi
+        fi
+        if [[ "$in_yaml" == true && "$line" =~ ^related_issues:[[:space:]]*(.*) ]]; then
+            local raw="${BASH_REMATCH[1]}"
+            # Strip brackets, split on comma, trim quotes/spaces
+            raw="${raw#\[}" ; raw="${raw%\]}"
+            if [[ -z "$raw" ]]; then return; fi
+            while IFS=',' read -ra items; do
+                for item in "${items[@]}"; do
+                    item=$(echo "$item" | sed 's/^[[:space:]"]*//;s/[[:space:]"]*$//')
+                    [[ -n "$item" ]] && echo "$item"
+                done
+            done <<< "$raw"
+            return
+        fi
+    done < "$file_path"
+}
+
 # Extract the contributor username from a task file's YAML frontmatter
 # Input: task file path
 # Output: contributor username or empty string

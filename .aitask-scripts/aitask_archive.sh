@@ -213,6 +213,12 @@ archive_parent() {
         echo "ISSUE:$task_num:$issue_url"
     fi
 
+    # Check for related issues before archival (output for skill)
+    local related_url
+    while IFS= read -r related_url; do
+        [[ -n "$related_url" ]] && echo "RELATED_ISSUE:$task_num:$related_url"
+    done < <(extract_related_issues "$task_file")
+
     # Check for linked PR before archival (output for skill)
     local pr_url
     pr_url=$(extract_pr_url "$task_file")
@@ -314,6 +320,12 @@ handle_folded_tasks() {
             echo "FOLDED_ISSUE:$folded_id:$folded_issue"
         fi
 
+        # Check for related issues on folded task before deletion
+        local folded_related
+        while IFS= read -r folded_related; do
+            [[ -n "$folded_related" ]] && echo "FOLDED_RELATED_ISSUE:$folded_id:$folded_related"
+        done < <(extract_related_issues "$folded_file")
+
         # Check for linked PR before deletion
         local folded_pr_url
         folded_pr_url=$(extract_pr_url "$folded_file")
@@ -367,12 +379,27 @@ archive_child() {
 
     info "Archiving child task: $child_task_basename (parent: $parent_task_basename)"
 
+    # Cache parent issue/PR/related_issues BEFORE --remove-child rewrites the file
+    # (aitask_update.sh may strip fields it doesn't know about)
+    local cached_parent_issue
+    cached_parent_issue=$(extract_issue_url "$parent_task_file")
+    local cached_parent_related
+    cached_parent_related=$(extract_related_issues "$parent_task_file")
+    local cached_parent_pr
+    cached_parent_pr=$(extract_pr_url "$parent_task_file")
+
     # Check for linked issue on child
     local child_issue
     child_issue=$(extract_issue_url "$child_task_file")
     if [[ -n "$child_issue" ]]; then
         echo "ISSUE:$task_id:$child_issue"
     fi
+
+    # Check for related issues on child
+    local child_related
+    while IFS= read -r child_related; do
+        [[ -n "$child_related" ]] && echo "RELATED_ISSUE:$task_id:$child_related"
+    done < <(extract_related_issues "$child_task_file")
 
     # Check for linked PR on child
     local child_pr
@@ -419,18 +446,18 @@ archive_child() {
     if [[ -z "$remaining_children" ]]; then
         info "All child tasks complete — archiving parent task as well."
 
-        # Check for linked issue on parent
-        local parent_issue
-        parent_issue=$(extract_issue_url "$parent_task_file")
-        if [[ -n "$parent_issue" ]]; then
-            echo "PARENT_ISSUE:$parent_num:$parent_issue"
+        # Emit cached parent issue/related/PR (read before --remove-child)
+        if [[ -n "$cached_parent_issue" ]]; then
+            echo "PARENT_ISSUE:$parent_num:$cached_parent_issue"
         fi
 
-        # Check for linked PR on parent
-        local parent_pr
-        parent_pr=$(extract_pr_url "$parent_task_file")
-        if [[ -n "$parent_pr" ]]; then
-            echo "PARENT_PR:$parent_num:$parent_pr"
+        local parent_related
+        while IFS= read -r parent_related; do
+            [[ -n "$parent_related" ]] && echo "PARENT_RELATED_ISSUE:$parent_num:$parent_related"
+        done <<< "$cached_parent_related"
+
+        if [[ -n "$cached_parent_pr" ]]; then
+            echo "PARENT_PR:$parent_num:$cached_parent_pr"
         fi
 
         # Remove empty child directories

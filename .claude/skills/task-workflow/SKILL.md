@@ -443,7 +443,10 @@ The script automatically handles:
 The script outputs structured lines. Parse each line and handle accordingly:
 
 - `ISSUE:<task_num>:<issue_url>` — Execute the **Issue Update Procedure** (see `issue-update.md`) for the task
+- `RELATED_ISSUE:<task_num>:<issue_url>` — A related/merged issue. Execute the **Related Issue Update Procedure** (see `issue-update.md`, "Related Issues" section) using `--issue-url`
 - `PARENT_ISSUE:<task_num>:<issue_url>` — Execute the **Issue Update Procedure** (see `issue-update.md`) for the parent task
+- `PARENT_RELATED_ISSUE:<task_num>:<issue_url>` — A related/merged issue on the parent. Execute the **Related Issue Update Procedure** (see `issue-update.md`, "Related Issues" section) using `--issue-url`
+- `FOLDED_RELATED_ISSUE:<folded_task_num>:<issue_url>` — A related issue on a folded task (file deleted). Handle identically to `FOLDED_ISSUE:` below (same AskUserQuestion, same `--issue-url` commands, same `task_id` note)
 - `FOLDED_ISSUE:<folded_task_num>:<issue_url>` — The folded task's file has been deleted, so the standard Issue Update Procedure cannot be used (it requires the task file). Instead, handle inline:
   - Use `AskUserQuestion`:
     - Question: "Folded task t<folded_task_num> had a linked issue: <issue_url>. Update/close it?"
