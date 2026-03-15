@@ -3,15 +3,17 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [contribution]
 folded_tasks: [373, 374]
 assigned_to: dario-e@beyond-eye.com
 issue: https://github.com/beyondeye/aitasks/issues/8
 contributor: beyondeye
 contributor_email: 5619462+beyondeye@users.noreply.github.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-15 16:13
-updated_at: 2026-03-15 16:21
+updated_at: 2026-03-15 16:58
+completed_at: 2026-03-15 16:58
 ---
 
 ## Merged Contribution Issues
