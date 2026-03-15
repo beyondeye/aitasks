@@ -364,7 +364,7 @@ parse_linked_issues() {
     local target_num="$2"
 
     # Extract #N patterns, deduplicate, exclude self
-    echo "$text" | grep -oE '#[0-9]+' | sed 's/^#//' | sort -un | while read -r num; do
+    echo "$text" | { grep -oE '#[0-9]+' || true; } | sed 's/^#//' | sort -un | while read -r num; do
         if [[ "$num" != "$target_num" && "$num" -gt 0 ]] 2>/dev/null; then
             echo "$num"
         fi
