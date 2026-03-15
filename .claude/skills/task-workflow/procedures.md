@@ -233,41 +233,7 @@ This procedure is referenced from Step 8 wherever code changes are being committ
 
 - **If the resolver fails** (unsupported agent, invalid agent string, missing config, or other command error): skip only the code-agent trailer and continue with the commit flow. Do NOT drop or alter an existing contributor attribution block because agent attribution failed.
 
-**Final commit composition:**
-
-- Always keep the subject line as:
-  ```text
-  <issue_type>: <description> (t<task_id>)
-  ```
-- If contributor attribution exists, append the imported contributor block:
-  - PR-imported task:
-    ```text
-    Based on PR: <pull_request_url>
-
-    Co-Authored-By: <contributor> <<contributor_email>>
-    ```
-  - Issue-imported task (or any task with contributor metadata but no `pull_request` URL):
-    ```text
-    Co-Authored-By: <contributor> <<contributor_email>>
-    ```
-- If code-agent attribution exists, append its trailer after any contributor trailer:
-  ```text
-  Co-Authored-By: <agent display name> <<agent email>>
-  ```
-
-**Example with both contributor and code-agent attribution:**
-
-```bash
-git commit -m "$(cat <<'EOF'
-feature: Add dark mode support (t42)
-
-Based on PR: https://github.com/owner/repo/pull/15
-
-Co-Authored-By: octocat <12345+octocat@users.noreply.github.com>
-Co-Authored-By: Codex/GPT5.4 <codex@aitasks.io>
-EOF
-)"
-```
+**Final commit composition:** Compose the commit message following the format in the **Contributor Attribution Procedure** above (subject line, optional contributor block, optional secondary contributors line), then append the code-agent `Co-Authored-By` trailer as the last trailer. See the combined example in the Multi-Contributor Attribution section above.
 
 ## Model Self-Detection Sub-Procedure
 
