@@ -7,6 +7,36 @@ arguments: "<issue_number>"
 
 ## Workflow
 
+### Step 0: Resolve Issue Number
+
+**If `<issue_number>` argument is provided:** Use it directly and proceed to Step 1.
+
+**If no argument is provided:** List open contribution issues using the platform-encapsulated script:
+
+```bash
+./.aitask-scripts/aitask_contribution_review.sh list-issues
+```
+
+Parse the structured output blocks:
+- `@@@ISSUE:<num>@@@` — Issue separator
+- `TITLE:<title>` — Issue title
+- `HAS_METADATA:true|false` — Whether issue has aitask-contribute-metadata
+
+**If output is `NO_ISSUES`:** Inform user "No open contribution issues found." and end the workflow.
+
+**Filter** to only issues with `HAS_METADATA:true` (these are actual contribution issues).
+
+**If no issues have metadata:** Inform user "No contribution issues with metadata found among open issues." and end the workflow.
+
+**Present the filtered issues** via `AskUserQuestion`:
+- Question: "Which contribution issue should I review?"
+- Header: "Issue"
+- Options: Each contribution issue (label: `#<num> — <short_title>`, description: full title)
+
+Use the selected issue number as `<issue_number>` for Step 1.
+
+**IMPORTANT:** Do NOT call `gh`, `glab`, `curl`, or any platform-specific CLI commands directly. Always use the `aitask_contribution_review.sh` script subcommands, which encapsulate platform detection and work on GitHub, GitLab, and Bitbucket.
+
 ### Step 1: Validate and Fetch Target Issue
 
 Fetch the target issue using the helper script (encapsulates platform detection and API access):
@@ -36,6 +66,27 @@ Parse the structured output lines:
 - **Change type:** <type>
 - **Files:** <file_paths>
 ```
+
+### Step 1b: Check for Duplicate Import
+
+Check if this issue has already been imported as a task:
+
+```bash
+./.aitask-scripts/aitask_contribution_review.sh check-imported <issue_number>
+```
+
+Parse the output:
+- `IMPORTED:<task_file_path>` — Issue was already imported
+- `NOT_IMPORTED` — Issue has not been imported yet
+
+**If `IMPORTED:<path>`:** Extract the task name from the path (e.g., `t387_fix_nodejs_deprecation` from `aitasks/t387_fix_nodejs_deprecation.md`). Use `AskUserQuestion`:
+- Question: "Issue #<N> has already been imported as task <task_name> (<path>). How to proceed?"
+- Header: "Duplicate"
+- Options:
+  - "Proceed anyway" (description: "Continue with the review despite the existing import")
+  - "Abort" (description: "Stop — this issue is already tracked")
+
+**If "Abort":** Inform user "Issue #<N> is already imported as <task_name>. No action taken." and end the workflow.
 
 ### Step 2: Gather Related Issues
 

@@ -307,6 +307,179 @@ assert_eq "Mock received comment body" "Test comment text" "$_mock_body"
 rm -f "$_mock_file"
 echo ""
 
+# --- Test 20: Argument parsing - list-issues subcommand ---
+echo "--- Test 20: Argument parsing list-issues ---"
+
+REVIEW_SUBCMD=""
+REVIEW_ISSUE=""
+REVIEW_ISSUES_CSV=""
+REVIEW_PLATFORM=""
+REVIEW_REPO=""
+REVIEW_LIMIT=50
+
+parse_args list-issues --platform github
+assert_eq "Subcommand parsed" "list-issues" "$REVIEW_SUBCMD"
+assert_eq "No issue needed for list-issues" "" "$REVIEW_ISSUE"
+assert_eq "Platform parsed" "github" "$REVIEW_PLATFORM"
+echo ""
+
+# --- Test 21: cmd_list_issues with mocked source_list_contribution_issues ---
+echo "--- Test 21: cmd_list_issues mocked (multiple issues) ---"
+
+# Save original function
+_orig_source_list_contribution_issues=$(declare -f source_list_contribution_issues)
+
+# Mock source_list_contribution_issues to return JSON with 2 issues
+source_list_contribution_issues() {
+    cat <<'MOCK_JSON'
+[
+  {"number": 10, "title": "Fix bug in auth", "body": "<!-- aitask-contribute-metadata\nfingerprint_version: 1\n-->", "labels": [], "url": "https://example.com/10"},
+  {"number": 11, "title": "Add logging", "body": "No metadata here", "labels": [], "url": "https://example.com/11"}
+]
+MOCK_JSON
+}
+
+result=$(cmd_list_issues)
+assert_contains "Issue 10 separator" "@@@ISSUE:10@@@" "$result"
+assert_contains "Issue 10 title" "TITLE:Fix bug in auth" "$result"
+assert_contains "Issue 11 separator" "@@@ISSUE:11@@@" "$result"
+assert_contains "Issue 11 title" "TITLE:Add logging" "$result"
+
+# Restore original
+eval "$_orig_source_list_contribution_issues"
+echo ""
+
+# --- Test 22: cmd_list_issues - empty result ---
+echo "--- Test 22: cmd_list_issues empty ---"
+
+_orig_source_list_contribution_issues=$(declare -f source_list_contribution_issues)
+
+source_list_contribution_issues() {
+    echo "[]"
+}
+
+result=$(cmd_list_issues)
+assert_eq "Empty issues returns NO_ISSUES" "NO_ISSUES" "$result"
+
+eval "$_orig_source_list_contribution_issues"
+echo ""
+
+# --- Test 23: Argument parsing - check-imported requires issue number ---
+echo "--- Test 23: check-imported missing issue ---"
+
+REVIEW_SUBCMD=""
+REVIEW_ISSUE=""
+REVIEW_ISSUES_CSV=""
+REVIEW_PLATFORM=""
+REVIEW_REPO=""
+REVIEW_LIMIT=50
+
+result=$(parse_args check-imported 2>&1 || true)
+assert_contains "Error for missing issue" "requires an issue number" "$result"
+echo ""
+
+# --- Test 24: Argument parsing - check-imported parses issue number ---
+echo "--- Test 24: Argument parsing check-imported ---"
+
+REVIEW_SUBCMD=""
+REVIEW_ISSUE=""
+REVIEW_ISSUES_CSV=""
+REVIEW_PLATFORM=""
+REVIEW_REPO=""
+REVIEW_LIMIT=50
+
+parse_args check-imported 42
+assert_eq "Subcommand parsed" "check-imported" "$REVIEW_SUBCMD"
+assert_eq "Issue parsed" "42" "$REVIEW_ISSUE"
+echo ""
+
+# --- Test 25: cmd_check_imported - finds imported task ---
+echo "--- Test 25: check-imported finds task ---"
+
+_check_tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/test_check_imported_XXXXXX")
+mkdir -p "$_check_tmpdir/active" "$_check_tmpdir/archived"
+
+# Create a mock task file with issue frontmatter
+cat > "$_check_tmpdir/active/t100_some_task.md" <<'TASK_EOF'
+---
+priority: medium
+issue: https://github.com/owner/repo/issues/42
+status: Implementing
+---
+Test task
+TASK_EOF
+
+# Temporarily override TASK_DIR and ARCHIVED_DIR
+_orig_task_dir="$TASK_DIR"
+_orig_archived_dir="$ARCHIVED_DIR"
+TASK_DIR="$_check_tmpdir/active"
+ARCHIVED_DIR="$_check_tmpdir/archived"
+
+result=$(cmd_check_imported 42)
+assert_contains "Found imported task" "IMPORTED:" "$result"
+assert_contains "Points to correct file" "t100_some_task.md" "$result"
+
+TASK_DIR="$_orig_task_dir"
+ARCHIVED_DIR="$_orig_archived_dir"
+rm -rf "$_check_tmpdir"
+echo ""
+
+# --- Test 26: cmd_check_imported - NOT_IMPORTED for unknown issue ---
+echo "--- Test 26: check-imported not found ---"
+
+_check_tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/test_check_imported_XXXXXX")
+mkdir -p "$_check_tmpdir/active" "$_check_tmpdir/archived"
+
+_orig_task_dir="$TASK_DIR"
+_orig_archived_dir="$ARCHIVED_DIR"
+TASK_DIR="$_check_tmpdir/active"
+ARCHIVED_DIR="$_check_tmpdir/archived"
+
+result=$(cmd_check_imported 99999)
+assert_eq "Unknown issue returns NOT_IMPORTED" "NOT_IMPORTED" "$result"
+
+TASK_DIR="$_orig_task_dir"
+ARCHIVED_DIR="$_orig_archived_dir"
+rm -rf "$_check_tmpdir"
+echo ""
+
+# --- Test 27: cmd_check_imported - finds in archived dir ---
+echo "--- Test 27: check-imported finds archived task ---"
+
+_check_tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/test_check_imported_XXXXXX")
+mkdir -p "$_check_tmpdir/active" "$_check_tmpdir/archived"
+
+# Create archived task with issue frontmatter
+cat > "$_check_tmpdir/archived/t200_old_task.md" <<'TASK_EOF'
+---
+priority: low
+issue: https://github.com/owner/repo/issues/55
+status: Done
+---
+Old archived task
+TASK_EOF
+
+_orig_task_dir="$TASK_DIR"
+_orig_archived_dir="$ARCHIVED_DIR"
+TASK_DIR="$_check_tmpdir/active"
+ARCHIVED_DIR="$_check_tmpdir/archived"
+
+result=$(cmd_check_imported 55)
+assert_contains "Found archived import" "IMPORTED:" "$result"
+assert_contains "Points to archived file" "t200_old_task.md" "$result"
+
+TASK_DIR="$_orig_task_dir"
+ARCHIVED_DIR="$_orig_archived_dir"
+rm -rf "$_check_tmpdir"
+echo ""
+
+# --- Test 28: Help output includes list-issues and check-imported ---
+echo "--- Test 28: Help includes new subcommands ---"
+output=$("$PROJECT_DIR/.aitask-scripts/aitask_contribution_review.sh" --help 2>&1)
+assert_contains "Help shows list-issues" "list-issues" "$output"
+assert_contains "Help shows check-imported" "check-imported" "$output"
+echo ""
+
 # --- Summary ---
 echo ""
 echo "==============================="

@@ -2,7 +2,7 @@
 
 # aitask_contribution_review.sh - Fetch and analyze contribution issues for review
 # Sources aitask_contribution_check.sh for platform backends (BASH_SOURCE guarded).
-# Provides subcommands: fetch, find-related, fetch-multi, post-comment
+# Provides subcommands: fetch, find-related, fetch-multi, post-comment, list-issues, check-imported
 # Used by the aitask-contribution-review Claude Code skill.
 
 set -euo pipefail
@@ -42,6 +42,8 @@ Subcommands:
   find-related <issue_num>   Find related contribution issues
   fetch-multi <N1,N2,...>    Fetch multiple issues for analysis
   post-comment <issue_num> <message>  Post a comment on an issue
+  list-issues                List open contribution issues with metadata status
+  check-imported <issue_num> Check if an issue has already been imported as a task
 
 Options:
   --platform PLATFORM        Source platform: github, gitlab, bitbucket (auto-detected)
@@ -74,6 +76,16 @@ Output format (fetch-multi):
   <body content>
   <<<BODY_END                Body content end
 
+Output format (list-issues):
+  @@@ISSUE:<num>@@@          Issue separator
+  TITLE:<title>              Issue title
+  HAS_METADATA:true|false    Whether aitask-contribute-metadata is present
+  NO_ISSUES                  No open contribution issues found
+
+Output format (check-imported):
+  IMPORTED:<task_file_path>  Issue already imported as the given task
+  NOT_IMPORTED               Issue has not been imported
+
 Examples:
   # Fetch issue #42 with metadata
   ./aitask_contribution_review.sh fetch 42
@@ -86,6 +98,12 @@ Examples:
 
   # Post a comment on issue #42
   ./aitask_contribution_review.sh post-comment 42 "Comment text here"
+
+  # List open contribution issues
+  ./aitask_contribution_review.sh list-issues
+
+  # Check if issue #42 was already imported
+  ./aitask_contribution_review.sh check-imported 42
 EOF
 }
 
@@ -101,7 +119,7 @@ parse_args() {
 
     # First argument is the subcommand
     case "$1" in
-        fetch|find-related|fetch-multi|post-comment)
+        fetch|find-related|fetch-multi|post-comment|list-issues|check-imported)
             REVIEW_SUBCMD="$1"
             shift
             ;;
@@ -142,7 +160,7 @@ parse_args() {
 
     # Validate required arguments per subcommand
     case "$REVIEW_SUBCMD" in
-        fetch|find-related)
+        fetch|find-related|check-imported)
             if [[ -z "$REVIEW_ISSUE" ]]; then
                 die "$REVIEW_SUBCMD requires an issue number. Use --help for usage."
             fi
@@ -500,11 +518,74 @@ cmd_post_comment() {
 }
 
 # ============================================================
+# SUBCOMMAND: list-issues
+# ============================================================
+
+cmd_list_issues() {
+    local issues_json
+    issues_json=$(source_list_contribution_issues) || die "Failed to list contribution issues"
+
+    local count
+    count=$(echo "$issues_json" | jq 'length')
+
+    if [[ "$count" -eq 0 ]]; then
+        echo "NO_ISSUES"
+        return
+    fi
+
+    local i
+    for ((i = 0; i < count; i++)); do
+        local num title body
+        num=$(echo "$issues_json" | jq -r ".[$i].number")
+        title=$(echo "$issues_json" | jq -r ".[$i].title")
+        body=$(echo "$issues_json" | jq -r ".[$i].body // \"\"")
+
+        # Check for contribute metadata
+        parse_contribute_metadata "$body"
+        local has_meta="false"
+        [[ -n "${CONTRIBUTE_FINGERPRINT_VERSION:-}" ]] && has_meta="true"
+
+        echo "@@@ISSUE:${num}@@@"
+        echo "TITLE:${title}"
+        echo "HAS_METADATA:${has_meta}"
+    done
+}
+
+# ============================================================
+# SUBCOMMAND: check-imported
+# ============================================================
+
+cmd_check_imported() {
+    local issue_num="$1"
+    local found=""
+
+    # Search active tasks for issue URL ending with /<issue_num>
+    found=$(grep -rl "^issue:.*/$issue_num$" "$TASK_DIR"/ 2>/dev/null | head -1)
+    if [[ -z "$found" ]]; then
+        # Search archived tasks
+        found=$(grep -rl "^issue:.*/$issue_num$" "$ARCHIVED_DIR"/ 2>/dev/null | head -1)
+    fi
+
+    if [[ -n "$found" ]]; then
+        echo "IMPORTED:${found}"
+    else
+        echo "NOT_IMPORTED"
+    fi
+}
+
+# ============================================================
 # MAIN
 # ============================================================
 
 main() {
     parse_args "$@"
+
+    # check-imported is local-only (no platform needed)
+    if [[ "$REVIEW_SUBCMD" == "check-imported" ]]; then
+        cmd_check_imported "$REVIEW_ISSUE"
+        return
+    fi
+
     setup_platform
 
     case "$REVIEW_SUBCMD" in
@@ -512,6 +593,7 @@ main() {
         find-related) cmd_find_related "$REVIEW_ISSUE" ;;
         fetch-multi) cmd_fetch_multi "$REVIEW_ISSUES_CSV" ;;
         post-comment) cmd_post_comment "$REVIEW_ISSUE" "$REVIEW_COMMENT" ;;
+        list-issues) cmd_list_issues ;;
     esac
 }
 
