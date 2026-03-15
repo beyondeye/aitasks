@@ -1,0 +1,90 @@
+presets:
+  - name: "Python (pytest)"
+    description: "Run pytest test suite"
+    value:
+      - "python -m pytest"
+
+  - name: "Python (pytest + mypy)"
+    description: "Run pytest and mypy type checking"
+    value:
+      - "python -m pytest"
+      - "python -m mypy ."
+
+  - name: "Node.js (npm test)"
+    description: "Run npm test script"
+    value:
+      - "npm test"
+
+  - name: "Node.js (npm build + test)"
+    description: "Build and run tests"
+    value:
+      - "npm run build"
+      - "npm test"
+
+  - name: "Go (go test)"
+    description: "Run Go tests"
+    value:
+      - "go test ./..."
+
+  - name: "Go (go build + test)"
+    description: "Build and run Go tests"
+    value:
+      - "go build ./..."
+      - "go test ./..."
+
+  - name: "Rust (cargo test)"
+    description: "Run Rust tests with cargo"
+    value:
+      - "cargo test"
+
+  - name: "Rust (cargo build + test)"
+    description: "Build and run Rust tests"
+    value:
+      - "cargo build"
+      - "cargo test"
+
+  - name: "Hugo (build)"
+    description: "Build Hugo site"
+    value:
+      - "cd website && hugo build --gc --minify"
+
+  - name: "Shell (shellcheck)"
+    description: "Run shellcheck on shell scripts"
+    value:
+      - "shellcheck .aitask-scripts/aitask_*.sh"
+
+  - name: "Java (Maven)"
+    description: "Build and test with Maven"
+    value:
+      - "mvn clean test"
+
+  - name: "Java (Gradle)"
+    description: "Build and test with Gradle"
+    value:
+      - "./gradlew build"
+
+  - name: "Ruby (rspec)"
+    description: "Run RSpec tests"
+    value:
+      - "bundle exec rspec"
+
+  - name: "PHP (phpunit)"
+    description: "Run PHPUnit tests"
+    value:
+      - "vendor/bin/phpunit"
+
+  - name: "Elixir (mix test)"
+    description: "Run Elixir tests with mix"
+    value:
+      - "mix test"
+
+  - name: "Make (build)"
+    description: "Run make build target"
+    value:
+      - "make build"
+
+  - name: "Make (build + test)"
+    description: "Run make build and test targets"
+    value:
+      - "make build"
+      - "make test"
