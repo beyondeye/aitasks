@@ -167,22 +167,17 @@ Use `AskUserQuestion` to confirm or modify:
 - Ask the user what to change via `AskUserQuestion` or free text
 - Apply their modifications
 
-**If folded_tasks is non-empty:** Incorporate the full content of each folded task into the new task description. Read each folded task file and merge their requirements, details, and context into the task description. The new task description must be self-contained — it must contain all relevant information from the folded tasks so that at implementation time, the original folded task files never need to be read. Append a reference section at the end:
+**If folded_tasks is non-empty:** Execute the **Task Fold Content Procedure** (see `.claude/skills/task-workflow/task-fold-content.md`) with:
+- **primary_description:** The task description based on exploration findings
+- **folded_task_files:** File paths of each selected folded task
 
-```markdown
-## Folded Tasks
-
-The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
-
-- **t<N>** (`<filename>`)
-- ...
-```
+Use the returned merged description as the `TASK_DESC` for `aitask_create.sh` below.
 
 **Create the task:**
 
 ```bash
 ./.aitask-scripts/aitask_create.sh --batch --commit --name "<name>" --desc-file - --priority <p> --effort <e> --type <issue_type> --labels <l> <<'TASK_DESC'
-<task description based on exploration findings, with folded task content incorporated>
+<task description (or merged description if folded_tasks is non-empty)>
 TASK_DESC
 ```
 
@@ -191,20 +186,11 @@ TASK_DESC
   git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
   ```
 
-**If folded_tasks is non-empty**, set the `folded_tasks` frontmatter field and update each folded task:
-```bash
-# Set folded_tasks via aitask_update.sh (no --commit, we'll amend)
-./.aitask-scripts/aitask_update.sh --batch <task_num> --folded-tasks "<comma-separated IDs>"
-
-# Update each folded task's status and folded_into reference
-for folded_id in <folded_task_ids>; do
-    ./.aitask-scripts/aitask_update.sh --batch $folded_id --status Folded --folded-into <task_num>
-done
-
-# Amend the create commit to include all frontmatter updates
-./ait git add aitasks/
-./ait git commit --amend --no-edit
-```
+**If folded_tasks is non-empty**, execute the **Task Fold Marking Procedure** (see `.claude/skills/task-workflow/task-fold-marking.md`) with:
+- **primary_task_num:** `<task_num>` (from the created task)
+- **folded_task_ids:** The `folded_tasks` list
+- **handle_transitive:** `true`
+- **commit_mode:** `"amend"`
 
 ### Step 4: Decision Point
 
@@ -253,5 +239,5 @@ Set the following context variables from the created task, then read and follow 
 - The `explore_auto_continue` profile key controls whether to ask the user about continuing to implementation (default: `false`, always ask)
 - When handing off to task-workflow, the created task has status `Ready` — task-workflow's Step 4 will set it to `Implementing`
 - For the full Execution Profiles schema and customization guide, see `.claude/skills/task-workflow/SKILL.md`
-- **Folded tasks:** When existing pending tasks are folded into a new task (Step 2b), their full content is incorporated into the new task description at creation time. The original folded task files are set to status `Folded` with a `folded_into` property pointing to the new task. They exist only as references for deletion after the new task is completed (handled by task-workflow Step 9). The `folded_tasks` frontmatter field tracks which task IDs to clean up.
+- **Folded tasks:** When existing pending tasks are folded into a new task (Step 2b), their full content is incorporated using the **Task Fold Content Procedure** (structured `## Merged from t<N>` headers) and marked using the **Task Fold Marking Procedure** (both in `.claude/skills/task-workflow/`). The original folded task files are set to status `Folded` with a `folded_into` property pointing to the new task. They exist only as references for deletion after the new task is completed (handled by task-workflow Step 9). The `folded_tasks` frontmatter field tracks which task IDs to clean up.
 - Only standalone parent-level tasks without children can be folded in. Child tasks and parents-with-children are excluded from the related task scan.

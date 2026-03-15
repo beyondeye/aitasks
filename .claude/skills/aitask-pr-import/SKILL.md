@@ -244,16 +244,11 @@ Use `AskUserQuestion` to confirm or modify:
 <What tests are needed, how to verify the changes>
 ```
 
-**If folded_tasks is non-empty:** Incorporate the full content of each folded task into the task description. Append a reference section:
+**If folded_tasks is non-empty:** Execute the **Task Fold Content Procedure** (see `.claude/skills/task-workflow/task-fold-content.md`) with:
+- **primary_description:** The task description built from the PR analysis above
+- **folded_task_files:** File paths of each selected folded task
 
-```markdown
-## Folded Tasks
-
-The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
-
-- **t<N>** (`<filename>`)
-- ...
-```
+Use the returned merged description as the `TASK_DESC` for `aitask_create.sh` below.
 
 **Create the task:**
 
@@ -268,7 +263,7 @@ The following existing tasks have been folded into this task. Their requirements
     --pull-request "<pr_url>" \
     --contributor "<contributor_username>" \
     --contributor-email "<contributor_email>" <<'TASK_DESC'
-<task description with PR context, analysis, and implementation approach>
+<task description (or merged description if folded_tasks is non-empty)>
 TASK_DESC
 ```
 
@@ -277,20 +272,11 @@ TASK_DESC
   git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
   ```
 
-**If folded_tasks is non-empty**, set the `folded_tasks` frontmatter field and update each folded task:
-```bash
-# Set folded_tasks via aitask_update.sh (no --commit, we'll amend)
-./.aitask-scripts/aitask_update.sh --batch <task_num> --folded-tasks "<comma-separated IDs>"
-
-# Update each folded task's status and folded_into reference
-for folded_id in <folded_task_ids>; do
-    ./.aitask-scripts/aitask_update.sh --batch $folded_id --status Folded --folded-into <task_num>
-done
-
-# Amend the create commit to include all frontmatter updates
-./ait git add aitasks/
-./ait git commit --amend --no-edit
-```
+**If folded_tasks is non-empty**, execute the **Task Fold Marking Procedure** (see `.claude/skills/task-workflow/task-fold-marking.md`) with:
+- **primary_task_num:** `<task_num>` (from the created task)
+- **folded_task_ids:** The `folded_tasks` list
+- **handle_transitive:** `true`
+- **commit_mode:** `"amend"`
 
 ### Step 6: Decision Point
 
@@ -341,7 +327,7 @@ Set the following context variables from the created task, then read and follow 
 - The `explore_auto_continue` profile key controls whether to ask the user about continuing to implementation (default: `false`, always ask)
 - When handing off to task-workflow, the created task has status `Ready` — task-workflow's Step 4 will set it to `Implementing`
 - For the full Execution Profiles schema and customization guide, see `.claude/skills/task-workflow/SKILL.md`
-- **Folded tasks:** Same behavior as aitask-explore. When existing pending tasks are folded into the new task (Step 4), their full content is incorporated at creation time. The original folded task files are set to status `Folded` with a `folded_into` property. They exist only as references for deletion after the new task is completed (handled by task-workflow Step 9).
+- **Folded tasks:** Same behavior as aitask-explore. When existing pending tasks are folded into the new task (Step 4), their full content is incorporated using the **Task Fold Content Procedure** (structured `## Merged from t<N>` headers) and marked using the **Task Fold Marking Procedure** (both in `.claude/skills/task-workflow/`). The original folded task files are set to status `Folded` with a `folded_into` property. They exist only as references for deletion after the new task is completed (handled by task-workflow Step 9).
 - Only standalone parent-level tasks without children can be folded in
 - The `--data-only --silent` flag combination on `aitask_pr_import.sh` outputs just the file path (no success messages)
 - The `--list --silent` flag combination outputs `<number>\t<title>` per line (tab-separated, machine-parseable)

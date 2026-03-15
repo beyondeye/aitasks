@@ -140,7 +140,29 @@ Use `AskUserQuestion`:
   - "Import as single task" (description: "Import issue #<N> as an aitask")
   - "Skip" (description: "Don't import yet — cancel without creating a task")
 
+### Step 5b: Check for Overlapping Existing Tasks
+
+Execute the **Related Task Discovery Procedure** (see `.claude/skills/task-workflow/related-task-discovery.md`) with:
+- **Matching context:** The contribution's title, description, areas (`<areas>` from Step 1), file paths (`<file_paths>`), and change type (`<change_type>`)
+- **Purpose text:** "already cover this contribution's scope (they can be folded into the imported task or updated directly)"
+- **Min eligible:** 1
+- **Selection mode:** ai_filtered
+
+**If no overlapping tasks found:** Proceed to Step 6 as normal.
+
+**If overlapping tasks found and user selected task(s):** Use `AskUserQuestion`:
+- Question: "How should the overlap with existing task(s) be handled?"
+- Header: "Overlap"
+- Options:
+  - "Fold into new imported task" (description: "Import the contribution as new task and fold the overlapping existing task(s) into it")
+  - "Update existing task instead" (description: "Add contribution content to the existing task — no new task created")
+  - "Ignore overlap" (description: "Proceed with normal import, leave existing tasks unchanged")
+
+Store the user's choice and the selected task IDs for use in Steps 6/6b.
+
 ### Step 6: Execute Import
+
+**If "Update existing task instead" was selected in Step 5b:** Skip this step and proceed to **Step 6b**.
 
 Based on user selection:
 
@@ -158,7 +180,35 @@ Based on user selection:
 
 After successful import, display the created task file path from the script output.
 
+**If "Fold into new imported task" was selected in Step 5b:**
+
+After import completes:
+
+1. Parse the import output to get the created task file path:
+   - Single import: output contains `Created: <filepath>`
+   - Merge import: output contains `Merged N issues into: <filepath>`
+2. Extract the task number from the filename (e.g., `t42` from `aitasks/t42_foo.md`)
+3. Read the created task file's description body
+4. Execute the **Task Fold Content Procedure** (see `.claude/skills/task-workflow/task-fold-content.md`) with:
+   - **primary_description:** The imported task's description body
+   - **folded_task_files:** File paths of each selected overlapping task from Step 5b
+5. Update the imported task's description with the returned merged content:
+   ```bash
+   ./.aitask-scripts/aitask_update.sh --batch <new_task_num> --desc-file - <<'TASK_DESC'
+   <merged description>
+   TASK_DESC
+   ```
+6. Execute the **Task Fold Marking Procedure** (see `.claude/skills/task-workflow/task-fold-marking.md`) with:
+   - **primary_task_num:** `<new_task_num>`
+   - **folded_task_ids:** Selected overlapping task IDs from Step 5b
+   - **handle_transitive:** `true`
+   - **commit_mode:** `"fresh"`
+
 **Key constraint:** The skill produces at most **ONE task** per invocation. To process multiple unrelated contribution issues, run the skill multiple times.
+
+### Step 6b: Update Existing Task with Contribution (Alternative)
+
+> **See sibling task t376_3 for implementation.** This step is reached when the user chose "Update existing task instead" in Step 5b.
 
 ---
 
