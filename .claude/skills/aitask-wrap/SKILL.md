@@ -228,7 +228,7 @@ git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
 
 Extract `<N>` from the filename `t<N>_<name>.md`.
 
-**Record implementing agent:** Execute the **Agent Attribution Procedure** (see `../task-workflow/procedures.md`) for task t\<N\> to record which code agent and model performed this wrap.
+**Record implementing agent:** Execute the **Agent Attribution Procedure** (see `../task-workflow/agent-attribution.md`) for task t\<N\> to record which code agent and model performed this wrap.
 
 #### 4b: Create Plan File
 
@@ -267,7 +267,7 @@ Stage and commit the code changes and plan file separately (code lives on main, 
 ```bash
 git add <selected_files>
 # First execute the Contributor Attribution Procedure and the
-# Code-Agent Commit Attribution Procedure from ../task-workflow/procedures.md,
+# Code-Agent Commit Attribution Procedure from ../task-workflow/code-agent-commit-attribution.md,
 # then compose one final commit message.
 git commit -m "$(cat <<'EOF'
 <issue_type>: <description> (t<N>)
@@ -291,7 +291,7 @@ Where `<description>` is a concise commit message derived from the task summary.
 ```
 
 Parse the script output and handle structured lines:
-- `ISSUE:<task_num>:<issue_url>` — unlikely for wrap (no linked issue), but handle per task-workflow Issue Update Procedure (see `../task-workflow/procedures.md`) if present
+- `ISSUE:<task_num>:<issue_url>` — unlikely for wrap (no linked issue), but handle per task-workflow Issue Update Procedure (see `../task-workflow/issue-update.md`) if present
 - `COMMITTED:<hash>` — archival commit was created
 - Other lines — display as informational
 
@@ -318,7 +318,7 @@ Display the final summary:
 
 ### Step 6: Satisfaction Feedback
 
-Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/procedures.md`) with `skill_name` = `"wrap"`.
+Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/satisfaction-feedback.md`) with `skill_name` = `"wrap"`.
 
 ## Edge Cases
 

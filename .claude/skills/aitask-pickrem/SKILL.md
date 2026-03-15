@@ -278,7 +278,7 @@ Before starting implementation, verify that ownership/lock was acquired (Step 5 
   - Parse output: `OWNED` → proceed. Any failure (`LOCK_FAILED`, `LOCK_ERROR`, `LOCK_INFRA_MISSING`, or script error) → trigger the **Abort Procedure**.
   - No `AskUserQuestion` calls (remote mode constraint).
 
-**Record implementing agent:** Execute the **Agent Attribution Procedure** (see `../task-workflow/procedures.md`) to record which code agent and model is implementing this task.
+**Record implementing agent:** Execute the **Agent Attribution Procedure** (see `../task-workflow/agent-attribution.md`) to record which code agent and model is implementing this task.
 
 Follow the approved plan, working in the current directory.
 
@@ -338,7 +338,7 @@ Read `review_action` from profile (default: `commit`).
      ```bash
      git add <changed_code_files>
      # First execute the Contributor Attribution Procedure and the
-     # Code-Agent Commit Attribution Procedure from ../task-workflow/procedures.md,
+     # Code-Agent Commit Attribution Procedure from ../task-workflow/code-agent-commit-attribution.md,
      # then compose one final commit message.
      git commit -m "$(cat <<'EOF'
      <issue_type>: <description> (t<task_id>)

@@ -286,7 +286,7 @@ Inform the user: "Changelog entry for vX.Y.Z written to CHANGELOG.md and CHANGEL
 
 ### Step 9: Satisfaction Feedback
 
-Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/procedures.md`) with `skill_name` = `"changelog"`.
+Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/satisfaction-feedback.md`) with `skill_name` = `"changelog"`.
 
 ## Notes
 

@@ -180,7 +180,7 @@ Otherwise, if other unprocessed branches remain, use `AskUserQuestion`:
 
 ### Step 7: Satisfaction Feedback
 
-Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/procedures.md`) with `skill_name` = `"web-merge"`.
+Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/satisfaction-feedback.md`) with `skill_name` = `"web-merge"`.
 
 ---
 

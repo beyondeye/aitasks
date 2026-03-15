@@ -264,7 +264,7 @@ Show a summary of the batch session:
 
 ### Step 14: Satisfaction Feedback
 
-After the workflow is complete (after Step 7 in single-pair mode or Step 13 in batch mode), execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/procedures.md`) with `skill_name` = `"reviewguide-merge"`.
+After the workflow is complete (after Step 7 in single-pair mode or Step 13 in batch mode), execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/satisfaction-feedback.md`) with `skill_name` = `"reviewguide-merge"`.
 
 ## Notes
 

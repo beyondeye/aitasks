@@ -241,7 +241,7 @@ If `active_profile` is null (either because no profile was selected by the calli
 > - Checkpoint (post-plan action)
 >
 > After the checkpoint in `planning.md`:
-> - If child tasks were created and the child checkpoint returned "Stop here" → collect **Satisfaction Feedback Procedure**(see `procedures.md`) with `skill_name` from context variables, then **END the workflow** (do NOT proceed to Step 7/8/9)
+> - If child tasks were created and the child checkpoint returned "Stop here" → collect **Satisfaction Feedback Procedure** (see `satisfaction-feedback.md`) with `skill_name` from context variables, then **END the workflow** (do NOT proceed to Step 7/8/9)
 > - If child tasks were created and the child checkpoint returned "Start first child" → restart with `/aitask-pick <parent>_1` (do NOT proceed to Step 7)
 > - Otherwise (normal single-task plan) → proceed to Step 7
 
@@ -261,12 +261,12 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
     ```
   - Parse output as in Step 4:
     - `OWNED:<task_id>` — Success. Proceed.
-    - `LOCK_FAILED:<owner>` — Use `AskUserQuestion` with options: "Force unlock and claim" / "Abort task". If force unlock, re-run with `--force`. If abort, execute the **Task Abort Procedure** (see `procedures.md`).
+    - `LOCK_FAILED:<owner>` — Use `AskUserQuestion` with options: "Force unlock and claim" / "Abort task". If force unlock, re-run with `--force`. If abort, execute the **Task Abort Procedure** (see `task-abort.md`).
     - `LOCK_ERROR:<message>` — Display error. Use `AskUserQuestion`: "Retry" / "Continue without lock" / "Abort". Handle as in Step 4.
     - `LOCK_INFRA_MISSING` — Inform user to run `ait setup` and abort.
     - Script fails entirely — display error and abort.
 
-**Record implementing agent:** Execute the **Agent Attribution Procedure** (see `procedures.md`) to record which code agent and model is implementing this task.
+**Record implementing agent:** Execute the **Agent Attribution Procedure** (see `agent-attribution.md`) to record which code agent and model is implementing this task.
 
 **Repository structure awareness:** Before starting implementation, read `repo-structure.md`
 
@@ -314,8 +314,8 @@ After implementation is complete, the user MUST be given the opportunity to revi
       ```
     - **IMPORTANT for child tasks:** The plan file will be archived and serve as the primary reference for subsequent sibling tasks. Ensure the Final Implementation Notes are comprehensive enough that a fresh context can understand what was done and learn from the experience.
     - The plan file should now serve as a complete record of: the original plan, any post-review change requests (from the "Need more changes" loop), and final implementation notes
-  - **Contributor attribution:** Execute the **Contributor Attribution Procedure** (see `procedures.md`) to determine whether the commit needs an imported-contributor block.
-  - **Code-agent attribution:** Execute the **Code-Agent Commit Attribution Procedure** (see `procedures.md`) to resolve a `Co-Authored-By` trailer from `implemented_with`. If agent attribution fails, continue with the contributor-only or plain commit message as applicable.
+  - **Contributor attribution:** Execute the **Contributor Attribution Procedure** (see `contributor-attribution.md`) to determine whether the commit needs an imported-contributor block.
+  - **Code-agent attribution:** Execute the **Code-Agent Commit Attribution Procedure** (see `code-agent-commit-attribution.md`) to resolve a `Co-Authored-By` trailer from `implemented_with`. If agent attribution fails, continue with the contributor-only or plain commit message as applicable.
   - **Commit code changes and plan file separately** (code uses regular `git`, plan uses `./ait git`):
     1. **Code commit** — Stage and commit source code changes:
        ```bash
@@ -360,13 +360,13 @@ After implementation is complete, the user MUST be given the opportunity to revi
   - Return to the beginning of Step 8
 
 - **If "Abort":**
-  - Execute the **Task Abort Procedure** (see `procedures.md`)
+  - Execute the **Task Abort Procedure** (see `task-abort.md`)
 
 ### Step 8b: Test Follow-up Task (Optional)
 
 After code is committed and before post-implementation cleanup, optionally create a follow-up task for testing.
 
-Execute the **Test Follow-up Task Procedure** (see `procedures.md`).
+Execute the **Test Follow-up Task Procedure** (see `test-followup-task.md`).
 
 Proceed to Step 9.
 
@@ -442,8 +442,8 @@ The script automatically handles:
 
 The script outputs structured lines. Parse each line and handle accordingly:
 
-- `ISSUE:<task_num>:<issue_url>` — Execute the **Issue Update Procedure** (see `procedures.md`) for the task
-- `PARENT_ISSUE:<task_num>:<issue_url>` — Execute the **Issue Update Procedure** (see `procedures.md`) for the parent task
+- `ISSUE:<task_num>:<issue_url>` — Execute the **Issue Update Procedure** (see `issue-update.md`) for the task
+- `PARENT_ISSUE:<task_num>:<issue_url>` — Execute the **Issue Update Procedure** (see `issue-update.md`) for the parent task
 - `FOLDED_ISSUE:<folded_task_num>:<issue_url>` — The folded task's file has been deleted, so the standard Issue Update Procedure cannot be used (it requires the task file). Instead, handle inline:
   - Use `AskUserQuestion`:
     - Question: "Folded task t<folded_task_num> had a linked issue: <issue_url>. Update/close it?"
@@ -467,8 +467,8 @@ The script outputs structured lines. Parse each line and handle accordingly:
     ```
   - If "Skip": do nothing
   - Note: Uses the primary `task_id` (not `folded_task_num`) so the comment references the primary task's commits and plan file
-- `PR:<task_num>:<pr_url>` — Execute the **PR Close/Decline Procedure** (see `procedures.md`) for the task
-- `PARENT_PR:<task_num>:<pr_url>` — Execute the **PR Close/Decline Procedure** (see `procedures.md`) for the parent task
+- `PR:<task_num>:<pr_url>` — Execute the **PR Close/Decline Procedure** (see `pr-close-decline.md`) for the task
+- `PARENT_PR:<task_num>:<pr_url>` — Execute the **PR Close/Decline Procedure** (see `pr-close-decline.md`) for the parent task
 - `FOLDED_PR:<folded_task_num>:<pr_url>` — The folded task's file has been deleted, so the standard PR Close/Decline Procedure cannot be used. Instead, handle inline:
   - Use `AskUserQuestion`:
     - Question: "Folded task t<folded_task_num> had a linked PR: <pr_url>. Close/decline it?"
@@ -504,21 +504,22 @@ The script outputs structured lines. Parse each line and handle accordingly:
 
 ### Step 9b: Satisfaction Feedback
 
-Execute the **Satisfaction Feedback Procedure** (see `procedures.md`) with `skill_name` from the context variables.
+Execute the **Satisfaction Feedback Procedure** (see `satisfaction-feedback.md`) with `skill_name` from the context variables.
 
 ### Procedures
 
-The following procedures are in `procedures.md` — read on demand when referenced:
+The following procedures are in individual files — read on demand when referenced:
 
-- **Task Abort Procedure** — Lock release, status revert, worktree cleanup. Referenced from Step 6 checkpoint and Step 8.
-- **Issue Update Procedure** — Update/close linked issues during archival. Referenced from Step 9.
-- **PR Close/Decline Procedure** — Close/decline linked pull requests during archival. Referenced from Step 9.
-- **Contributor Attribution Procedure** — Credit PR contributors in commit messages. Referenced from Step 8.
-- **Model Self-Detection Sub-Procedure** — Detect the current code agent and model. Referenced from Agent Attribution and Satisfaction Feedback.
-- **Agent Attribution Procedure** — Record implementing code agent and model. Referenced from Step 7.
-- **Test Follow-up Task Procedure** — Optionally create testing follow-up task. Referenced from Step 8b.
-- **Satisfaction Feedback Procedure** — Collect user feedback and update verified model scores. Referenced from Step 9b and standalone skills.
-- **Lock Release Procedure** — Release task locks. Referenced from Task Abort Procedure.
+- **Task Abort Procedure** (`task-abort.md`) — Lock release, status revert, worktree cleanup. Referenced from Step 6 checkpoint and Step 8.
+- **Issue Update Procedure** (`issue-update.md`) — Update/close linked issues during archival. Referenced from Step 9.
+- **PR Close/Decline Procedure** (`pr-close-decline.md`) — Close/decline linked pull requests during archival. Referenced from Step 9.
+- **Contributor Attribution Procedure** (`contributor-attribution.md`) — Credit PR contributors in commit messages. Referenced from Step 8.
+- **Code-Agent Commit Attribution Procedure** (`code-agent-commit-attribution.md`) — Resolve code-agent Co-Authored-By trailer. Referenced from Step 8.
+- **Model Self-Detection Sub-Procedure** (`model-self-detection.md`) — Detect the current code agent and model. Referenced from Agent Attribution and Satisfaction Feedback.
+- **Agent Attribution Procedure** (`agent-attribution.md`) — Record implementing code agent and model. Referenced from Step 7.
+- **Test Follow-up Task Procedure** (`test-followup-task.md`) — Optionally create testing follow-up task. Referenced from Step 8b.
+- **Satisfaction Feedback Procedure** (`satisfaction-feedback.md`) — Collect user feedback and update verified model scores. Referenced from Step 9b and standalone skills.
+- **Lock Release Procedure** (`lock-release.md`) — Release task locks. Referenced from Task Abort Procedure.
 
 ---
 

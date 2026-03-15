@@ -102,7 +102,7 @@ While in plan mode:
         - "Start first child" (description: "Continue to pick and implement the first child task")
         - "Stop here" (description: "All child tasks and plans are written — end this session and pick children later in fresh contexts")
       - **If "Start first child":** Restart the pick process with `/aitask-pick <parent>_1`
-      - **If "Stop here":** Display: "Child tasks and plans written to `aiplans/p<parent>/`. Pick individual children later with `/aitask-pick <parent>_<N>`." Execute the **Satisfaction Feedback Procedure** (see `procedures.md`) with `skill_name` from the context variables. Then end the workflow.
+      - **If "Stop here":** Display: "Child tasks and plans written to `aiplans/p<parent>/`. Pick individual children later with `/aitask-pick <parent>_<N>`." Execute the **Satisfaction Feedback Procedure** (see `satisfaction-feedback.md`) with `skill_name` from the context variables. Then end the workflow.
 - Create a detailed, step-by-step implementation plan. "Detailed" means:
   specific file paths, detailed implementation steps with exact changes
   needed in each file, code snippets for non-trivial modifications, and
@@ -200,4 +200,4 @@ Otherwise, use `AskUserQuestion`:
   - "Abort task" (description: "Stop and revert task status")
 
 If "Revise plan": Return to the beginning of Step 6.
-If "Abort": Execute the **Task Abort Procedure** (see `procedures.md`).
+If "Abort": Execute the **Task Abort Procedure** (see `task-abort.md`).

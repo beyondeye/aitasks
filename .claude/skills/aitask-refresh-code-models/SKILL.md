@@ -159,7 +159,7 @@ Display summary: "Model configurations updated. N new models added, M models upd
 
 ### Step 9: Satisfaction Feedback
 
-Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/procedures.md`) with `skill_name` = `"refresh-code-models"`.
+Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/satisfaction-feedback.md`) with `skill_name` = `"refresh-code-models"`.
 
 ## Model Naming Convention
 

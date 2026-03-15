@@ -189,7 +189,7 @@ Where `<run_dir>` is the path captured in Step 3 (e.g., `.aitask-explain/2026022
 
 ### Step 7: Satisfaction Feedback
 
-Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/procedures.md`) with `skill_name` = `"explain"`.
+Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/satisfaction-feedback.md`) with `skill_name` = `"explain"`.
 
 ---
 

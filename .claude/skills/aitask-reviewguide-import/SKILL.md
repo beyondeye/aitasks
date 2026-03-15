@@ -293,7 +293,7 @@ This step is reached from Step 1c when the source is a repository directory cont
 
 ### Step 8: Satisfaction Feedback
 
-After the workflow is complete (after Step 6 in single-file mode or Step 7 in batch mode), execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/procedures.md`) with `skill_name` = `"reviewguide-import"`.
+After the workflow is complete (after Step 6 in single-file mode or Step 7 in batch mode), execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/satisfaction-feedback.md`) with `skill_name` = `"reviewguide-import"`.
 
 ## Notes
 

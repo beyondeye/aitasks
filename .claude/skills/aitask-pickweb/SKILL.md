@@ -214,7 +214,7 @@ Read `post_plan_action` from profile (default: `start_implementation`).
 
 **Note:** aitask-pickweb intentionally skips ownership/locking — all lock acquisition, status updates, and archival are deferred to `aitask-web-merge`, which runs locally after the Claude Web session completes. No pre-implementation ownership guard is needed here.
 
-**Record implementing agent:** Execute the **Agent Attribution Procedure** (see `../task-workflow/procedures.md`) to detect which code agent and model is implementing this task. Since pickweb does not call `aitask_update.sh`, store the agent string in memory for inclusion in the completion marker JSON (Step 8).
+**Record implementing agent:** Execute the **Agent Attribution Procedure** (see `../task-workflow/agent-attribution.md`) to detect which code agent and model is implementing this task. Since pickweb does not call `aitask_update.sh`, store the agent string in memory for inclusion in the completion marker JSON (Step 8).
 
 Follow the approved plan, working in the current directory.
 
@@ -273,7 +273,7 @@ Update the plan file in `.aitask-data-updated/` as you progress:
      ```bash
      git add -A
      # First execute the Contributor Attribution Procedure and the
-     # Code-Agent Commit Attribution Procedure from ../task-workflow/procedures.md,
+     # Code-Agent Commit Attribution Procedure from ../task-workflow/code-agent-commit-attribution.md,
      # then compose one final commit message.
      git commit -m "$(cat <<'EOF'
      <issue_type>: <description> (t<task_id>)
