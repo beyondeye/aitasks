@@ -97,6 +97,20 @@ This placeholder will be filled by sibling t376_3.
 2. Verify import output parsing handles both single and merge formats
 3. Verify `aitask_update.sh` flags are correct
 
+## Final Implementation Notes
+
+- **Actual work done:** Extended scope beyond original plan. In addition to adding Step 5b/6/6b to contribution-review, extracted duplicated task folding logic into two shared procedures (`task-fold-content.md` and `task-fold-marking.md`) and updated all 3 existing callers (aitask-fold, aitask-explore, aitask-pr-import) to reference them.
+- **Deviations from plan:** The original plan only modified contribution-review. During planning review, the user identified that the task folding logic was duplicated across 3 skills with bugs (aitask-explore and aitask-pr-import lacked structured `## Merged from t<N>` headers and transitive fold handling). The plan was expanded to extract shared procedures and fix these bugs.
+- **Issues encountered:** None.
+- **Key decisions:**
+  - Split the shared procedure into two files: `task-fold-content.md` (content incorporation) and `task-fold-marking.md` (frontmatter marking) — keeps each focused and allows callers to use them independently
+  - Added `handle_transitive: true` to explore and pr-import callers (previously missing — they only had it in aitask-fold)
+  - The content procedure is parameterized by primary_description + folded_task_files, accommodating both "merge into existing" (fold, contribution-review) and "incorporate during creation" (explore, pr-import) flows
+- **Notes for sibling tasks:**
+  - t376_3 (update existing task path): Step 6b placeholder is in place in contribution-review SKILL.md, ready to be filled. The Task Fold Content Procedure can be used for incorporating contribution content into an existing task
+  - t376_4 (website docs): The two new shared procedure files (task-fold-content.md, task-fold-marking.md) should be documented in the website's architecture/skills section
+  - t376_5 (tests): The shared procedures are skill instructions (markdown), not shell scripts, so they can't be directly unit tested. However, the underlying `aitask_update.sh` flags they reference are testable
+
 ## Step 9: Post-Implementation
 
 Archive child task, proceed to sibling t376_3.
