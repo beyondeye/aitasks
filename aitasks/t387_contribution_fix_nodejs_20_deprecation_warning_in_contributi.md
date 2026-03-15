@@ -5,11 +5,12 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [contribution]
+folded_tasks: [380]
 issue: https://github.com/beyondeye/aitasks/issues/9
 contributor: beyondeye
 contributor_email: 5619462+beyondeye@users.noreply.github.com
 created_at: 2026-03-15 14:09
-updated_at: 2026-03-15 14:09
+updated_at: 2026-03-15 14:11
 ---
 
 Issue created: 2026-03-14 21:59:18, last updated: 2026-03-14 21:59:31
@@ -98,3 +99,15 @@ auto_labels: area:unknown,scope:bug_fix
 | [#6](https://github.com/beyondeye/aitasks/issues/6) | 1 (low) | [Contribution] Fix incorrect skill name in contribute workflow output | change_type- bug_fix (+1) |
 
 <!-- overlap-results top_overlaps: 7:1,6:1 overlap_check_version: 1 -->
+
+## Merged from t380: nodejs warning when running contribution check
+
+currently we have a github action contribution-check.ynl that trigger a warning:
+
+fix this warning, and after the fix, update the copy of the contribution check workflow is seed/ci/github
+
+## Folded Tasks
+
+The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
+
+- **t380** (`t380_nodejs_warning_when_running_contribution_check.md`)
