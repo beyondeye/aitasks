@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [workflow, contribution]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-15 17:05
-updated_at: 2026-03-15 17:05
+updated_at: 2026-03-15 18:22
 ---
 
 ## Bug: Archive workflow only closes primary issue, ignores related_issues
