@@ -221,6 +221,16 @@ gather_explain_context: 1
    ```
 4. Conceptually trace the flow: Step 0a loads profile -> Step 0a-bis reads `gather_explain_context` -> Step 6.1 uses `explain_context_max_plans` to call the script
 
+## Final Implementation Notes
+- **Actual work done:** All 7 plan steps implemented exactly as planned. Step 0a-bis added to aitask-pick SKILL.md, historical context gathering added to planning.md, `gather_explain_context` row added to profiles.md schema table, all 3 existing profile files updated, and `fast_with_historical_ctx.yaml` created.
+- **Deviations from plan:** None — all insertion points, file contents, and structure matched perfectly.
+- **Issues encountered:** None.
+- **Key decisions:** Followed the plan exactly. The `test_followup_task` key present in fast.yaml (not shown in plan's "Current content") was irrelevant since the plan just appends at the end.
+- **Notes for sibling tasks:**
+  - t369_4 (update other agent skills): The same Step 0a-bis and planning.md context gathering instructions need to be adapted for Gemini CLI, Codex CLI, and OpenCode skill formats. The profile schema change only applies to Claude Code since profiles are framework-level.
+  - t369_5 (write tests): The profile YAML files can be validated with `python3 -c "import yaml; yaml.safe_load(open(...))"`; the profile scanner can be tested with `aitask_scan_profiles.sh`.
+  - t369_6 (settings TUI): The new `gather_explain_context` key needs a TUI editor entry — it's an int-or-string type with values `0`, positive int, or `"ask"`.
+
 ## Step 9: Post-Implementation
 
 Follow `.claude/skills/task-workflow/SKILL.md` Step 9 for cleanup, archival, and merge.
