@@ -41,6 +41,7 @@ script-performance
 skill_optiomizations
 statistics
 stats_ui
+subagents
 task_workflow
 testing
 tui
