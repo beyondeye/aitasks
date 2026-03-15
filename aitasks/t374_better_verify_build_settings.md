@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Folded
 labels: [ait_settings, task_workflow]
+folded_into: 393
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-12 10:47
-updated_at: 2026-03-12 22:34
-boardidx: 20
+updated_at: 2026-03-15 16:17
 boardcol: in_the_works
+boardidx: 20
 ---
 
 currently in ait settings tui we have in the Project Config tab, the option to set the verify_build settings. drr /docs/skills/aitask-pick/build-verification/ in website documentation. there are several issue with it

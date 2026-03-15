@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Folded
 labels: [ait_settings, verifiedstats]
+folded_into: 393
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-12 09:14
-updated_at: 2026-03-12 10:55
+updated_at: 2026-03-15 16:17
 boardcol: in_the_works
 boardidx: 10
 ---

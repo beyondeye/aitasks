@@ -5,11 +5,12 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [contribution]
+folded_tasks: [373, 374]
 issue: https://github.com/beyondeye/aitasks/issues/8
 contributor: beyondeye
 contributor_email: 5619462+beyondeye@users.noreply.github.com
 created_at: 2026-03-15 16:13
-updated_at: 2026-03-15 16:13
+updated_at: 2026-03-15 16:17
 ---
 
 ## Merged Contribution Issues
@@ -658,27 +659,23 @@ change_type: enhancement
 auto_labels: area:scripts,scope:enhancement
 -->
 
+## Merged from t373: more verified stats in in ait settings tui
 
-## Comments
+I would like to add more verified stats for all supported skills in the Agent Defaults tab in the ait settings tui, for skills that do not have default settings and have verified stats, for each skill show the stats of the 3 top agent/model. show only skills and models with stats. ask me questions if you need clarification.
 
-**github-actions** (2026-03-12 22:39:30)
+## Merged from t374: better verify build settings
 
-## Contribution Overlap Analysis
+currently in ait settings tui we have in the Project Config tab, the option to set the verify_build settings. drr /docs/skills/aitask-pick/build-verification/ in website documentation. there are several issue with it
 
-| Issue | Score | Overlap | Detail |
-|-------|-------|---------|--------|
-| [#5](https://github.com/beyondeye/aitasks/issues/5) | 8 (high) | [Contribution] Add verified skill stats for non-default skills in settings TUI | files- .aitask-scripts/settings/settings_app.py (+3); dirs- .aitask-scripts/settings (+2); areas- scripts (+2); change_type- enhancement (+1) |
+First, when editing it, it still continue to show it as not set. second, in the editing dialog, we should have a multine edit, third, we should have a button the modal dialog where we edit it, to choose it from some predefined defaults from common project types, make the list of this pre-configurations dynamic, storing it in a aitask-scripts/settings/ directory in some format (like yaml) that is easily parsable end editor, with a list of entries there with common project configuration. when pressing the button to select from predefined configurations, allow to fuzzy search for the configuration name, and use top down arrows to move between currenly fuzzy selected configs, when a config is selected, show also a preview of its content in side box.
 
-<!-- overlap-results top_overlaps: 5:8 overlap_check_version: 1 -->
+also in the project config tab, in addition toe explanation of what the verify_build option is for, add a link with the link to the build verification page in the aitasks documentation: https://aitasks.io/docs/skills/aitask-pick/build-verification/
 
--------
+also in the project config tab, when some verify_build value is set, show, when used, which preset build config was selected
 
-**github-actions** (2026-03-12 22:39:30)
+## Folded Tasks
 
-## Contribution Overlap Analysis
+The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
 
-| Issue | Score | Overlap | Detail |
-|-------|-------|---------|--------|
-| [#5](https://github.com/beyondeye/aitasks/issues/5) | 8 (high) | [Contribution] Add verified skill stats for non-default skills in settings TUI | files- .aitask-scripts/settings/settings_app.py (+3); dirs- .aitask-scripts/settings (+2); areas- scripts (+2); change_type- enhancement (+1) |
-
-<!-- overlap-results top_overlaps: 5:8 overlap_check_version: 1 -->
+- **t373** (`t373_more_verified_stats_in_in_ait_settings_tui.md`)
+- **t374** (`t374_better_verify_build_settings.md`)
