@@ -9,7 +9,7 @@ children_to_implement: [t365_5]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-11 08:49
 updated_at: 2026-03-12 11:57
-boardidx: 60
+boardidx: 50
 ---
 
 currently in opencode there are two issues with verified state when the same llm models is available from different providers.

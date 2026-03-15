@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [aitask_contribute]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-12 22:41
-updated_at: 2026-03-14 22:36
+updated_at: 2026-03-15 08:13
 ---
 
 ## Context
