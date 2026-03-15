@@ -281,7 +281,7 @@ Present the issue body preview to the user.
 - Issue #X: <title> — <url>
 - Issue #Y: <title> — <url>
 
-When these issues are imported via /aitask-pr-import or /aitask-issue-import,
+When these issues are imported via /aitask-contribution-review,
 your Co-authored-by attribution will be preserved in implementation commits.
 ```
 
