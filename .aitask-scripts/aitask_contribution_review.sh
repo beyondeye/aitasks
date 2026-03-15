@@ -560,10 +560,10 @@ cmd_check_imported() {
     local found=""
 
     # Search active tasks for issue URL ending with /<issue_num>
-    found=$(grep -rl "^issue:.*/$issue_num$" "$TASK_DIR"/ 2>/dev/null | head -1)
+    found=$(grep -rl "^issue:.*/$issue_num$" "$TASK_DIR"/ 2>/dev/null | head -1 || true)
     if [[ -z "$found" ]]; then
         # Search archived tasks
-        found=$(grep -rl "^issue:.*/$issue_num$" "$ARCHIVED_DIR"/ 2>/dev/null | head -1)
+        found=$(grep -rl "^issue:.*/$issue_num$" "$ARCHIVED_DIR"/ 2>/dev/null | head -1 || true)
     fi
 
     if [[ -n "$found" ]]; then
