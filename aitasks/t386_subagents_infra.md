@@ -5,9 +5,10 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [brainstorming, subagents]
+children_to_implement: [t386_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-15 09:06
-updated_at: 2026-03-15 09:08
+updated_at: 2026-03-15 10:51
 ---
 
 We want to create infrastructure to support exection of multiple code agents in the background, coordinating their work, monitor their progress, forcing stopping them. the idea is that the code agents get their input from a file. each batch codeagent, also periodically write into a file to report their are "alive", and read from a "commands' file with update instruction (like force stop, or updated instructions). into the "alive" file the agents also write their status like "running", or whatever the status they want to report. (progress they are doing, and so on)
