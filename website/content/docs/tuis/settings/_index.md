@@ -25,7 +25,7 @@ Shows the default agent/model for each operation (`task-pick`, `explain`, `batch
 
 - The current value (e.g., `claudecode/opus4_6`)
 - A layer badge: **[PROJECT]** (green) for project-level defaults or **[USER]** (amber) for per-user overrides
-- **Verified score context** -- score, run count, and recency (e.g., `[96 (9 runs, 2 this mo)]`)
+- **[Verified score]({{< relref "/docs/skills/verified-scores" >}}) context** -- score, run count, and recency (e.g., `[96 (9 runs, 2 this mo)]`)
 - When the same underlying LLM has scores from multiple providers, an **all providers** summary appears below (e.g., `all providers: 96 (12 runs, 3 this mo)`)
 - A description of what the operation does
 

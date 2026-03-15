@@ -62,6 +62,10 @@ The skill can optionally verify the build after implementation. See [Build Verif
 
 The review/commit step can combine imported contributor credit with a resolver-based code-agent coauthor trailer. See [Commit Attribution](commit-attribution/) for the exact commit format and configuration.
 
+## Verified Scores
+
+After completion, skills can prompt for a satisfaction rating (1--5) that feeds into verified model scores. These scores help choose the best model for each operation. See [Verified Scores](../verified-scores/) for how ratings are collected, stored, and displayed.
+
 ## Workflows
 
 For workflow guides covering specific use cases, see [Task Decomposition](../../workflows/task-decomposition/) and [Parallel Development](../../workflows/parallel-development/).

@@ -28,7 +28,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They are loaded 
 | `plan_preference_child` | string | Same values as `plan_preference`, but only for child tasks |
 | `post_plan_action` | string | `"start_implementation"` skips the post-plan checkpoint |
 | `post_plan_action_for_child` | string | Same values as `post_plan_action`, but only for child tasks |
-| `enableFeedbackQuestions` | bool | `false` disables satisfaction feedback prompts; `true` or omitted keeps them enabled |
+| `enableFeedbackQuestions` | bool | `false` disables satisfaction feedback prompts; `true` or omitted keeps them enabled. See [Verified Scores](../../verified-scores/) |
 | `explore_auto_continue` | bool | Used by `/aitask-explore` to continue automatically after exploration |
 | `test_followup_task` | string | `"yes"`, `"no"`, or `"ask"` — create a testing follow-up task before archival |
 

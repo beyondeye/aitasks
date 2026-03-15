@@ -59,6 +59,7 @@ Settings, statistics, and model management.
 | [`/aitask-refresh-code-models`](aitask-refresh-code-models/) | Research latest AI code agent models and update model configuration files |
 | [`/aitask-stats`](aitask-stats/) | View completion statistics |
 | [`/aitask-changelog`](aitask-changelog/) | Generate changelog entries from commits and plans |
+| [Verified Scores](verified-scores/) | How skill satisfaction ratings accumulate into verified model scores |
 
 ---
 

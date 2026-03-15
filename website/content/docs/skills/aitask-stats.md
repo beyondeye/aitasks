@@ -25,7 +25,7 @@ Runs `./.aitask-scripts/aitask_stats.sh` and displays the results. Provides the 
 - Label + issue type trends
 - Code agent weekly trends (last 4 weeks)
 - LLM model weekly trends (last 4 weeks)
-- Verified model score rankings per skill (pick, explain, batch-review)
+- Verified model score rankings per skill (pick, explain, batch-review) -- see [Verified Scores](../verified-scores/) for how scores are accumulated
   - All-providers aggregated view with per-provider breakdowns
   - Time-windowed display (all-time, this month)
 

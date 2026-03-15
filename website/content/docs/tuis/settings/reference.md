@@ -37,7 +37,7 @@ description: "Keyboard shortcuts, configuration files, and profile schema refere
 | Agent Defaults | **a** | Yes | Default agent/model per operation, project and user layers |
 | Board | **b** | Partially | Columns (read-only), user settings (editable) |
 | Project Config | **c** | Yes | Shared values from `project_config.yaml` such as coauthor domain and build verification |
-| Models | **m** | No | Available models per agent with verification scores |
+| Models | **m** | No | Available models per agent with verified scores |
 | Profiles | **p** | Yes | Execution profiles that pre-answer workflow questions |
 
 ## Agent Defaults Operations
@@ -177,6 +177,8 @@ Each model in `models_<agent>.json`:
 
 ### Verified Stats Buckets
 
+> See [Verified Scores]({{< relref "/docs/skills/verified-scores" >}}) for a user-facing overview of how these scores are collected and what they mean.
+
 Each skill entry in `verifiedstats` contains three time-windowed buckets:
 
 | Bucket | Period Key | Description |
@@ -192,6 +194,8 @@ The `verified.<skill>` field is always the rounded average of `all_time` and is 
 Old flat-format stats (`{"runs": N, "score_sum": S}`) are migrated automatically to the bucketed format on the next update.
 
 ### All-Providers Aggregation
+
+> See [Verified Scores]({{< relref "/docs/skills/verified-scores#provider-specific-vs-all-providers" >}}) for a user-facing explanation of provider-specific versus all-providers views.
 
 To compute cross-provider stats for the same underlying LLM model:
 
