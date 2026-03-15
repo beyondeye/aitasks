@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [aitask_explain, aitask_pick, claudeskills]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-11 18:33
-updated_at: 2026-03-15 22:07
+updated_at: 2026-03-15 22:11
 ---
 
 Update Claude Code planning skill instructions and profile schema. Add gather_explain_context profile key (0/N/ask), Step 0a-bis prompt, planning.md context gathering instruction. Create fast_with_historical_ctx.yaml profile. Update fast/default/remote profiles.

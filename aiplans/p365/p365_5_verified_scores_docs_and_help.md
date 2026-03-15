@@ -14,13 +14,34 @@ Verified scores are currently visible in several places but not explained as a c
 
 ## Implementation Plan
 
-1. Create a dedicated verified-scores documentation page under `website/content/docs/skills/`.
-2. Explain the end-of-skill feedback flow and how `enableFeedbackQuestions` affects score collection.
-3. Explain the difference between provider-specific and `all_providers` views, plus all-time/month/week periods.
-4. Add concise cross-links from `/aitask-pick`, execution profiles, settings docs, and `ait stats` docs.
-5. Review terminology across the updated docs so `all_providers` is used consistently and older ambiguous wording is removed.
+### 1. Create dedicated verified-scores page
+
+**File:** `website/content/docs/skills/verified-scores.md` (weight: 55)
+
+Content sections:
+- What are verified scores — 1-5 rating at end of skill runs, mapped to 20-100 scale
+- How scores are collected — satisfaction feedback prompt, list of supporting skills, `enableFeedbackQuestions` profile field
+- Score scale — 0 = untested, 1-49 = partial, 50-79 = verified, 80-100 = highly verified
+- Time windows — all_time, month (YYYY-MM), week (YYYY-Www)
+- Provider-specific vs all_providers — aggregation by stripping provider prefix, read-time only
+- Where scores appear — `ait settings` tabs, `ait stats` rankings/plots
+- Controlling feedback — `enableFeedbackQuestions` in execution profiles
+
+### 2. Add cross-links from existing docs
+
+- `website/content/docs/skills/_index.md` — add to Configuration & Reporting table
+- `website/content/docs/skills/aitask-pick/_index.md` — add Verified Scores section after Commit Attribution
+- `website/content/docs/skills/aitask-pick/execution-profiles.md` — link from enableFeedbackQuestions and Notes
+- `website/content/docs/skills/aitask-stats.md` — link after verified rankings bullet
+- `website/content/docs/tuis/settings/_index.md` — link from Agent Defaults verified score context
+- `website/content/docs/tuis/settings/reference.md` — links from Verified Stats Buckets and All-Providers sections
+
+### 3. Terminology consistency
+
+Use consistently: `all_providers`, `provider-specific`, `verified scores` (lowercase except titles)
 
 ## Verification
 
 - `hugo build --gc --minify` in `website/`
 - Review updated docs for consistent terminology and clear cross-linking
+- Verify all relative links resolve correctly

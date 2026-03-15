@@ -1,2 +1,3 @@
 name: default
 description: Standard interactive workflow - all questions asked normally
+gather_explain_context: ask

@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [workflow, contribution]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-15 17:05
-updated_at: 2026-03-15 22:05
+updated_at: 2026-03-15 22:48
+completed_at: 2026-03-15 22:48
 ---
 
 ## Bug: Archive workflow only closes primary issue, ignores related_issues
