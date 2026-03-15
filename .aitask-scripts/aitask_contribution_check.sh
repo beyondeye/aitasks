@@ -837,7 +837,9 @@ main() {
         fi
     fi
 
-    [[ "$ARG_SILENT" != true ]] && success "Overlap analysis complete for issue #${ARG_ISSUE}."
+    if [[ "$ARG_SILENT" != true ]]; then
+        success "Overlap analysis complete for issue #${ARG_ISSUE}."
+    fi
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
