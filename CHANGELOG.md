@@ -1,5 +1,53 @@
 # Changelog
 
+## v0.11.0
+
+### Features
+
+- **Verified score updater** (t303_1): Added a score updater that records user satisfaction feedback per AI model and skill, building rolling averages over time.
+- **Satisfaction feedback procedure** (t303_2): Added a reusable feedback workflow that prompts users to rate task completion quality, with profile-based control via `enableFeedbackQuestions`.
+- **Feedback in task workflow skills** (t303_3): Integrated satisfaction feedback into all shared-workflow skills so every task completion can optionally collect quality ratings.
+- **Model refresh feedback preservation** (t303_4): Model refresh now preserves verified feedback history and displays aggregated stats when listing models.
+- **Feedback in standalone skills** (t303_5): Added satisfaction feedback prompts to standalone skills like explain, changelog, and review guide management.
+- **Contribution fingerprint metadata** (t355_1): Contribution issues now include fingerprint metadata (affected areas, file paths, change type) for smarter overlap detection.
+- **Fingerprint metadata parser** (t355_2): Extended the contribution metadata parser to read fingerprint fields for downstream overlap analysis.
+- **Contribution overlap checking** (t355_3): Added automated overlap checking that detects when incoming contributions duplicate existing tasks, with GitHub, GitLab, and Bitbucket support.
+- **Contribution CI/CD templates** (t355_4): Added CI/CD templates for GitHub Actions, GitLab CI, and Bitbucket Pipelines to automatically check contributions on new issues.
+- **Merge issues in import** (t355_5): Added `--merge-issues` to combine multiple related contribution issues into a single task with cross-references and contributor attribution.
+- **Contribution review skill** (t355_6): Added a new skill for reviewing incoming contributions, discovering related issues, and importing them as grouped or single tasks.
+- **Time-windowed verified stats** (t365_2): Verified stats now track performance across time windows (all-time, monthly, weekly) with automatic migration from the previous format.
+- **Verified score discoverability in settings** (t365_3): The settings TUI now shows verified scores per model with time-window breakdowns, cross-provider aggregation, and a top-verified model picker.
+- **Verified rankings and plots in stats** (t365_4): Added verified model rankings and bar chart visualizations to `ait stats` output.
+- **Pick command dialog in board** (t367): Added a pick command dialog to the board TUI, making it easy to launch task picks from terminal multiplexers.
+- **Task detail keyboard shortcuts** (t368): Added keyboard shortcuts for all buttons in the board's task detail dialog.
+- **Explain format context formatter** (t369_1): Added a Python formatter for historical task context used by the explain feature.
+- **Explain context orchestrator** (t369_2): Added a shell orchestrator for gathering and caching historical context for file explanations.
+- **Optional test follow-up tasks** (t372): Added an optional post-implementation step to automatically create follow-up testing tasks, controlled via execution profiles.
+- **Task overlap detection in contribution review** (t376_2): Added task overlap detection to contribution review and extracted shared fold procedures for consistent merge behavior across skills.
+- **Update existing task from contributions** (t376_3): Contribution review can now update existing tasks with new contribution content instead of always creating new tasks.
+- **CI workflow Node.js fix** (t387): Upgraded CI workflow actions to fix Node.js 20 deprecation warnings and added missing `jq` dependency.
+
+### Bug Fixes
+
+- **Gemini CLI allowlist setup** (t361): Fixed Gemini CLI policy setup with proper per-skill activation entries and a consent-based global allowlist installation flow.
+- **Skip reviewguide in setup** (t364): Added a skip option when selecting review guides during `ait setup`.
+- **OpenCode provider mapping** (t365_1): Fixed OpenCode model attribution to use correct provider-aware naming instead of legacy aliases.
+- **Verified stats display** (t366): Fixed verified stats not appearing in settings by correcting the internal operation key mismatch.
+- **Pick for OpenCode/Codex** (t371): Fixed task pick command generation for OpenCode and Codex CLI agents.
+- **Unsafe die patterns** (t378): Fixed 23 unsafe `cmd || die` patterns across 8 scripts that could cause silent exits under `set -e`.
+- **Double commenting on contributions** (t381): Fixed contribution check workflow firing twice on issue creation by switching to label-only event triggers.
+- **Duplicate overlap comment parsing** (t382): Fixed overlap comment parsing to correctly handle duplicate overlap comments by using the last one.
+- **Missing feedback in child decomposition** (t383): Fixed satisfaction feedback being skipped when tasks are decomposed into child tasks during pick.
+
+### Improvements
+
+- **Rename aiexplains directory** (t370): Renamed `aiexplains/` to `.aitask-explain/` for consistency with the `.aitask-*` naming convention.
+- **Extract related task discovery** (t376_1): Extracted related task discovery into a shared reusable procedure for explore, fold, and contribution review skills.
+
+### Maintenance
+
+- **macOS compatibility review** (t351): Fixed macOS compatibility issues in awk multiline handling, Python type syntax, and updated stale test assertions across all scripts.
+
 ## v0.10.0
 
 ### Features
