@@ -78,6 +78,14 @@ Look at `aitask_contribution_review.sh` to see what subcommands it supports. If 
 3. Edge case: existing task already has a `contributor` field — check overwrite behavior
 4. Edge case: existing task already has an `issue` field — check overwrite behavior
 
+## Final Implementation Notes
+
+- **Actual work done:** Three changes: (1) Added `post-comment` subcommand to `aitask_contribution_review.sh` — new global `REVIEW_COMMENT`, arg parsing, validation, `cmd_post_comment()` function wrapping `source_post_comment()`, and main dispatch entry. (2) Replaced Step 6b placeholder in contribution-review SKILL.md with full implementation covering target task selection, content appending, frontmatter update, comment posting, commit, and workflow end. (3) Added 5 tests (Tests 15-19) to `test_contribution_review.sh` covering help output, arg parsing, validation errors, and mocked execution.
+- **Deviations from plan:** Original plan assumed `post-comment` subcommand might already exist — it didn't. Added the subcommand to the script rather than calling platform CLI directly (per user feedback: platform-specific commands must be encapsulated in bash scripts).
+- **Issues encountered:** Test 19 initially failed because mock function variables set inside a `$(...)` subshell weren't visible in the parent — fixed by using a temp file to capture mock args.
+- **Key decisions:** Used `source_post_comment()` from the already-sourced `aitask_contribution_check.sh` rather than reimplementing platform dispatch. Output format is `POSTED:<issue_num>` for structured parsing.
+- **Notes for sibling tasks:** The `post-comment` subcommand is available for any future skill that needs to post comments on issues via `aitask_contribution_review.sh post-comment <N> "message"`. t376_4 (website docs) should document this new subcommand. t376_5/t376_6 (tests): the new tests in `test_contribution_review.sh` cover the script changes; the SKILL.md changes are skill instructions and can't be unit tested.
+
 ## Step 9: Post-Implementation
 
 Archive child task. If all siblings done, archive parent t376.
