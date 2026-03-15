@@ -232,6 +232,81 @@ result=$("$PROJECT_DIR/.aitask-scripts/aitask_contribution_review.sh" invalid 2>
 assert_contains "Error for unknown subcommand" "Unknown subcommand" "$result"
 echo ""
 
+# --- Test 15: Help output includes post-comment ---
+echo "--- Test 15: Help includes post-comment ---"
+output=$("$PROJECT_DIR/.aitask-scripts/aitask_contribution_review.sh" --help 2>&1)
+assert_contains "Help shows post-comment subcommand" "post-comment" "$output"
+echo ""
+
+# --- Test 16: Argument parsing - post-comment subcommand ---
+echo "--- Test 16: Argument parsing post-comment ---"
+
+REVIEW_SUBCMD=""
+REVIEW_ISSUE=""
+REVIEW_ISSUES_CSV=""
+REVIEW_COMMENT=""
+REVIEW_PLATFORM=""
+REVIEW_REPO=""
+REVIEW_LIMIT=50
+
+parse_args post-comment 42 "Test comment body" --platform github
+assert_eq "Subcommand parsed" "post-comment" "$REVIEW_SUBCMD"
+assert_eq "Issue number parsed" "42" "$REVIEW_ISSUE"
+assert_eq "Comment body parsed" "Test comment body" "$REVIEW_COMMENT"
+assert_eq "Platform parsed" "github" "$REVIEW_PLATFORM"
+echo ""
+
+# --- Test 17: Argument parsing - post-comment missing comment body ---
+echo "--- Test 17: post-comment missing comment ---"
+
+REVIEW_SUBCMD=""
+REVIEW_ISSUE=""
+REVIEW_ISSUES_CSV=""
+REVIEW_COMMENT=""
+REVIEW_PLATFORM=""
+REVIEW_REPO=""
+REVIEW_LIMIT=50
+
+result=$(parse_args post-comment 42 2>&1 || true)
+assert_contains "Error for missing comment" "requires a message" "$result"
+echo ""
+
+# --- Test 18: Argument parsing - post-comment missing issue number ---
+echo "--- Test 18: post-comment missing issue ---"
+
+REVIEW_SUBCMD=""
+REVIEW_ISSUE=""
+REVIEW_ISSUES_CSV=""
+REVIEW_COMMENT=""
+REVIEW_PLATFORM=""
+REVIEW_REPO=""
+REVIEW_LIMIT=50
+
+result=$(parse_args post-comment 2>&1 || true)
+assert_contains "Error for missing issue" "requires an issue number" "$result"
+echo ""
+
+# --- Test 19: cmd_post_comment with mocked source_post_comment ---
+echo "--- Test 19: cmd_post_comment mocked ---"
+
+# Mock source_post_comment to capture args via temp file
+_mock_file="${TMPDIR:-/tmp}/test_post_comment_XXXXXX"
+_mock_file=$(mktemp "${TMPDIR:-/tmp}/test_post_comment_XXXXXX.txt")
+source_post_comment() {
+    echo "ISSUE=$1" > "$_mock_file"
+    echo "BODY=$2" >> "$_mock_file"
+}
+
+result=$(cmd_post_comment "42" "Test comment text")
+assert_contains "Output contains POSTED" "POSTED:42" "$result"
+
+_mock_issue=$(grep '^ISSUE=' "$_mock_file" | sed 's/^ISSUE=//')
+_mock_body=$(grep '^BODY=' "$_mock_file" | sed 's/^BODY=//')
+assert_eq "Mock received issue number" "42" "$_mock_issue"
+assert_eq "Mock received comment body" "Test comment text" "$_mock_body"
+rm -f "$_mock_file"
+echo ""
+
 # --- Summary ---
 echo ""
 echo "==============================="

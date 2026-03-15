@@ -2,7 +2,7 @@
 
 # aitask_contribution_review.sh - Fetch and analyze contribution issues for review
 # Sources aitask_contribution_check.sh for platform backends (BASH_SOURCE guarded).
-# Provides subcommands: fetch, find-related, fetch-multi
+# Provides subcommands: fetch, find-related, fetch-multi, post-comment
 # Used by the aitask-contribution-review Claude Code skill.
 
 set -euo pipefail
@@ -23,6 +23,7 @@ REVIEW_ISSUE=""
 REVIEW_ISSUES_CSV=""
 REVIEW_PLATFORM=""
 REVIEW_REPO=""
+REVIEW_COMMENT=""
 REVIEW_LIMIT=50
 
 # ============================================================
@@ -40,6 +41,7 @@ Subcommands:
   fetch <issue_num>          Fetch issue with metadata and comments
   find-related <issue_num>   Find related contribution issues
   fetch-multi <N1,N2,...>    Fetch multiple issues for analysis
+  post-comment <issue_num> <message>  Post a comment on an issue
 
 Options:
   --platform PLATFORM        Source platform: github, gitlab, bitbucket (auto-detected)
@@ -81,6 +83,9 @@ Examples:
 
   # Fetch multiple issues for analysis
   ./aitask_contribution_review.sh fetch-multi 42,38,15
+
+  # Post a comment on issue #42
+  ./aitask_contribution_review.sh post-comment 42 "Comment text here"
 EOF
 }
 
@@ -96,7 +101,7 @@ parse_args() {
 
     # First argument is the subcommand
     case "$1" in
-        fetch|find-related|fetch-multi)
+        fetch|find-related|fetch-multi|post-comment)
             REVIEW_SUBCMD="$1"
             shift
             ;;
@@ -116,6 +121,12 @@ parse_args() {
         else
             REVIEW_ISSUE="$1"
         fi
+        shift
+    fi
+
+    # For post-comment, next positional arg is the comment body
+    if [[ "$REVIEW_SUBCMD" == "post-comment" && $# -gt 0 && ! "$1" =~ ^-- ]]; then
+        REVIEW_COMMENT="$1"
         shift
     fi
 
@@ -139,6 +150,14 @@ parse_args() {
         fetch-multi)
             if [[ -z "$REVIEW_ISSUES_CSV" ]]; then
                 die "fetch-multi requires comma-separated issue numbers. Use --help for usage."
+            fi
+            ;;
+        post-comment)
+            if [[ -z "$REVIEW_ISSUE" ]]; then
+                die "post-comment requires an issue number. Use --help for usage."
+            fi
+            if [[ -z "$REVIEW_COMMENT" ]]; then
+                die "post-comment requires a message. Use --help for usage."
             fi
             ;;
     esac
@@ -470,6 +489,17 @@ cmd_fetch_multi() {
 }
 
 # ============================================================
+# SUBCOMMAND: post-comment
+# ============================================================
+
+cmd_post_comment() {
+    local issue_num="$1"
+    local comment_body="$2"
+    source_post_comment "$issue_num" "$comment_body"
+    echo "POSTED:${issue_num}"
+}
+
+# ============================================================
 # MAIN
 # ============================================================
 
@@ -481,6 +511,7 @@ main() {
         fetch) cmd_fetch "$REVIEW_ISSUE" ;;
         find-related) cmd_find_related "$REVIEW_ISSUE" ;;
         fetch-multi) cmd_fetch_multi "$REVIEW_ISSUES_CSV" ;;
+        post-comment) cmd_post_comment "$REVIEW_ISSUE" "$REVIEW_COMMENT" ;;
     esac
 }
 

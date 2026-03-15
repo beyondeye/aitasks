@@ -208,7 +208,48 @@ After import completes:
 
 ### Step 6b: Update Existing Task with Contribution (Alternative)
 
-> **See sibling task t376_3 for implementation.** This step is reached when the user chose "Update existing task instead" in Step 5b.
+This step is reached when the user chose "Update existing task instead" in Step 5b.
+
+**Select target task:** If multiple overlapping tasks were selected in Step 5b, use `AskUserQuestion`:
+- Question: "Which existing task should be updated with this contribution?"
+- Header: "Target"
+- Options: Each selected overlapping task (label: filename, description: brief summary)
+
+If only one task was selected, use it directly.
+
+**Append contribution content to existing task:**
+1. Read the existing task file
+2. Append a new section at the end of the body:
+   ```markdown
+   ## Contribution from <contributor_name> (Issue #<N>)
+
+   **Areas:** <areas from Step 1>
+   **Files:** <file_paths from Step 1>
+   **Change type:** <change_type from Step 1>
+
+   <contribution description/body from Step 1>
+   ```
+3. Write the updated content back to the task file
+
+**Update task frontmatter:**
+```bash
+./.aitask-scripts/aitask_update.sh --batch <task_num> --contributor "<contributor_name>" --contributor-email "<contributor_email>" --issue "<issue_url>"
+```
+
+Where `<contributor_name>`, `<contributor_email>` are from Step 1 metadata, `<issue_url>` is the contribution issue URL, and `<task_num>` is the target task number.
+
+**Post notification on the contribution issue:**
+```bash
+./.aitask-scripts/aitask_contribution_review.sh post-comment <issue_number> "This contribution has been incorporated into existing task **t<task_num>** (<task_title>). The contributor will be credited via Co-authored-by when the task is implemented."
+```
+
+**Commit changes:**
+```bash
+./ait git add aitasks/<task_file>
+./ait git commit -m "ait: Update t<task_num> with contribution from issue #<N>"
+```
+
+**End workflow:** Display "Contribution from issue #\<N\> incorporated into existing task t\<task_num\>. No new task created."
 
 ---
 
