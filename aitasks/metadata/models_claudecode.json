@@ -6,7 +6,7 @@
       "notes": "Most intelligent model for agents and coding, 128K output, adaptive thinking",
       "verified": {
         "batch-review": 0,
-        "pick": 96,
+        "pick": 97,
         "explain": 80,
         "changelog": 100,
         "explore": 100
@@ -14,18 +14,18 @@
       "verifiedstats": {
         "pick": {
           "all_time": {
-            "runs": 28,
-            "score_sum": 2700
+            "runs": 29,
+            "score_sum": 2800
           },
           "month": {
             "period": "2026-03",
-            "runs": 21,
-            "score_sum": 2040
+            "runs": 22,
+            "score_sum": 2140
           },
           "week": {
             "period": "2026-W11",
-            "runs": 21,
-            "score_sum": 2040
+            "runs": 22,
+            "score_sum": 2140
           }
         },
         "changelog": {
