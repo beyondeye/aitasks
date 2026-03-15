@@ -3,12 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [opencode, verifiedstats]
-children_to_implement: [t365_5]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-11 08:49
-updated_at: 2026-03-12 11:57
+updated_at: 2026-03-15 23:43
+completed_at: 2026-03-15 23:43
 boardidx: 20
 ---
 
