@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [workflow, contribution]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-15 17:05
-updated_at: 2026-03-15 18:22
+updated_at: 2026-03-15 22:05
 ---
 
 ## Bug: Archive workflow only closes primary issue, ignores related_issues

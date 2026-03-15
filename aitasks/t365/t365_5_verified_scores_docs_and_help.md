@@ -3,11 +3,11 @@ priority: medium
 effort: medium
 depends: [3, 4]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [docs, verifiedstats]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-11 15:50
-updated_at: 2026-03-11 15:50
+updated_at: 2026-03-15 22:07
 ---
 
 ## Context
