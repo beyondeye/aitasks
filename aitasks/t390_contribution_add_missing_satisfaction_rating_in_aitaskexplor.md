@@ -5,11 +5,12 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [contribution]
+folded_tasks: [379]
 issue: https://github.com/beyondeye/aitasks/issues/7
 contributor: beyondeye
 contributor_email: 5619462+beyondeye@users.noreply.github.com
 created_at: 2026-03-15 15:20
-updated_at: 2026-03-15 15:20
+updated_at: 2026-03-15 15:21
 ---
 
 Issue created: 2026-03-12 16:39:34, last updated: 2026-03-12 16:39:54
@@ -88,3 +89,13 @@ auto_labels: area:claude-skills,scope:bug_fix
 | [#6](https://github.com/beyondeye/aitasks/issues/6) | 3 (low) | [Contribution] Fix incorrect skill name in contribute workflow output | areas- claude-skills (+2); change_type- bug_fix (+1) |
 
 <!-- overlap-results top_overlaps: 6:3 overlap_check_version: 1 -->
+
+## Merged from t379: add missing rating in explore
+
+currently when running aitask-explore skill and not continuing to task implementation after task creation there is no question to the user to rate the perfomance of the cli/model. (after the question continue to implementaiton is answered with no). ask me questions if you need clarification
+
+## Folded Tasks
+
+The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
+
+- **t379** (`t379_add_missing_rating_in_explore.md`)
