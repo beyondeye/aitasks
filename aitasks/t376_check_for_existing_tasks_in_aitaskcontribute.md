@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [aitask_fold, aitask_contribute]
-children_to_implement: [t376_2, t376_3, t376_4, t376_5, t376_6]
+children_to_implement: [t376_3, t376_4, t376_5, t376_6]
 created_at: 2026-03-12 11:28
 updated_at: 2026-03-15 09:19
 boardidx: 10
