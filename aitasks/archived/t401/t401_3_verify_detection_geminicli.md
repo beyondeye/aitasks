@@ -3,10 +3,12 @@ priority: medium
 effort: low
 depends: [t401_1]
 issue_type: test
-status: Ready
+status: Done
+archived_reason: superseded
 labels: [task_workflow]
 created_at: 2026-03-16 11:21
-updated_at: 2026-03-16 11:21
+updated_at: 2026-03-16 11:31
+completed_at: 2026-03-16 11:31
 ---
 
 ## Context
