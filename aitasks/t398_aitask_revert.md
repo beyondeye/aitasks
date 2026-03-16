@@ -5,11 +5,11 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [aitask_revert]
-children_to_implement: [t398_1]
+children_to_implement: [t398_1, t398_2]
 folded_tasks: [38]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-16 09:02
-updated_at: 2026-03-16 10:23
+updated_at: 2026-03-16 10:38
 boardcol: now
 boardidx: 10
 ---
