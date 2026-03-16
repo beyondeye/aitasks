@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_undo]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-16 09:02
-updated_at: 2026-03-16 09:02
+updated_at: 2026-03-16 09:36
 boardcol: now
 boardidx: 10
 ---
