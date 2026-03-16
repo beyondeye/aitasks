@@ -157,7 +157,9 @@ case "${1:-help}" in
         case "$subcmd" in
             init)      exec "$SCRIPTS_DIR/aitask_crew_init.sh" "$@" ;;
             addwork)   exec "$SCRIPTS_DIR/aitask_crew_addwork.sh" "$@" ;;
-            *)         echo "ait crew: unknown subcommand '$subcmd'" >&2; echo "Available: init, addwork" >&2; exit 1 ;;
+            status)    exec "$SCRIPTS_DIR/aitask_crew_status.sh" "$@" ;;
+            command)   exec "$SCRIPTS_DIR/aitask_crew_command.sh" "$@" ;;
+            *)         echo "ait crew: unknown subcommand '$subcmd'" >&2; echo "Available: init, addwork, status, command" >&2; exit 1 ;;
         esac
         ;;
     git)          shift; source "$SCRIPTS_DIR/lib/task_utils.sh"; task_git "$@" ;;

@@ -1,0 +1,310 @@
+"""Shared utilities for AgentCrew: YAML helpers, status validation, DAG ops, heartbeat."""
+
+from __future__ import annotations
+
+import glob
+import os
+from collections import deque
+from datetime import datetime, timezone
+
+import yaml
+
+# ---------------------------------------------------------------------------
+# Status constants (must match .aitask-scripts/lib/agentcrew_utils.sh)
+# ---------------------------------------------------------------------------
+
+AGENT_STATUSES = ["Waiting", "Ready", "Running", "Completed", "Aborted", "Error", "Paused"]
+CREW_STATUSES = ["Initializing", "Running", "Killing", "Paused", "Completed", "Error"]
+
+# ---------------------------------------------------------------------------
+# Valid state transitions
+# ---------------------------------------------------------------------------
+
+AGENT_TRANSITIONS: dict[str, list[str]] = {
+    "Waiting": ["Ready"],
+    "Ready": ["Running"],
+    "Running": ["Completed", "Error", "Aborted", "Paused"],
+    "Paused": ["Running"],
+    # Terminal states — no outgoing transitions
+    "Completed": [],
+    "Aborted": [],
+    "Error": [],
+}
+
+CREW_TRANSITIONS: dict[str, list[str]] = {
+    "Initializing": ["Running"],
+    "Running": ["Killing", "Paused", "Completed", "Error"],
+    "Killing": ["Completed", "Error"],
+    "Paused": ["Running", "Killing"],
+    # Terminal states
+    "Completed": [],
+    "Error": [],
+}
+
+# ---------------------------------------------------------------------------
+# YAML helpers
+# ---------------------------------------------------------------------------
+
+AGENTCREW_DIR = ".aitask-crews"
+
+
+def read_yaml(path: str) -> dict:
+    """Read a YAML file and return its contents as a dict."""
+    with open(path) as f:
+        data = yaml.safe_load(f)
+    return data if isinstance(data, dict) else {}
+
+
+def write_yaml(path: str, data: dict) -> None:
+    """Write a dict to a YAML file."""
+    with open(path, "w") as f:
+        yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+
+
+def update_yaml_field(path: str, field: str, value) -> None:
+    """Update a single field in a YAML file, preserving other fields."""
+    data = read_yaml(path)
+    data[field] = value
+    write_yaml(path, data)
+
+# ---------------------------------------------------------------------------
+# Status validation
+# ---------------------------------------------------------------------------
+
+
+def validate_agent_transition(current: str, target: str) -> bool:
+    """Return True if the agent status transition is valid."""
+    if current not in AGENT_TRANSITIONS:
+        return False
+    return target in AGENT_TRANSITIONS[current]
+
+
+def validate_crew_transition(current: str, target: str) -> bool:
+    """Return True if the crew status transition is valid."""
+    if current not in CREW_TRANSITIONS:
+        return False
+    return target in CREW_TRANSITIONS[current]
+
+
+def compute_crew_status(agent_statuses: list[str]) -> str:
+    """Derive the overall crew status from a list of agent statuses.
+
+    Rules:
+    - All Completed -> Completed
+    - Any Error (no Running) -> Error
+    - Any Running -> Running
+    - All Waiting -> Initializing
+    - Any Paused (no Running) -> Paused
+    - Otherwise -> Running (mixed active states)
+    """
+    if not agent_statuses:
+        return "Initializing"
+
+    status_set = set(agent_statuses)
+
+    if status_set == {"Completed"}:
+        return "Completed"
+
+    if "Error" in status_set and "Running" not in status_set:
+        return "Error"
+
+    if "Running" in status_set:
+        return "Running"
+
+    if status_set == {"Waiting"}:
+        return "Initializing"
+
+    if "Paused" in status_set and "Running" not in status_set:
+        return "Paused"
+
+    # Mixed states (e.g. some Ready, some Waiting, some Completed) -> Running
+    return "Running"
+
+# ---------------------------------------------------------------------------
+# DAG operations
+# ---------------------------------------------------------------------------
+
+
+def topo_sort(agents: dict[str, list[str]]) -> list[str]:
+    """Topological sort via Kahn's BFS. Returns ordered list of agent names.
+
+    agents: {name: [dependency_names]}
+    Raises ValueError if a cycle is detected.
+    """
+    # Build in-degree and adjacency (dep -> dependents)
+    in_degree: dict[str, int] = {name: 0 for name in agents}
+    dependents: dict[str, list[str]] = {name: [] for name in agents}
+
+    for name, deps in agents.items():
+        for dep in deps:
+            if dep in agents:
+                in_degree[name] += 1
+                dependents[dep].append(name)
+
+    queue = deque(name for name, deg in in_degree.items() if deg == 0)
+    result: list[str] = []
+
+    while queue:
+        node = queue.popleft()
+        result.append(node)
+        for dependent in dependents[node]:
+            in_degree[dependent] -= 1
+            if in_degree[dependent] == 0:
+                queue.append(dependent)
+
+    if len(result) != len(agents):
+        missing = set(agents) - set(result)
+        raise ValueError(f"Circular dependency detected involving: {', '.join(sorted(missing))}")
+
+    return result
+
+
+def detect_cycles(agents: dict[str, list[str]]) -> list[str] | None:
+    """Detect cycles in the agent dependency graph.
+
+    Returns None if no cycle, or a list of agent names involved in a cycle.
+    """
+    try:
+        topo_sort(agents)
+        return None
+    except ValueError:
+        # Find the agents that couldn't be sorted
+        in_degree: dict[str, int] = {name: 0 for name in agents}
+        for name, deps in agents.items():
+            for dep in deps:
+                if dep in agents:
+                    in_degree[name] += 1
+
+        queue = deque(name for name, deg in in_degree.items() if deg == 0)
+        visited: set[str] = set()
+        while queue:
+            node = queue.popleft()
+            visited.add(node)
+            for name, deps in agents.items():
+                if node in deps and name not in visited:
+                    in_degree[name] -= 1
+                    if in_degree[name] == 0:
+                        queue.append(name)
+
+        return sorted(set(agents) - visited)
+
+# ---------------------------------------------------------------------------
+# Path helpers
+# ---------------------------------------------------------------------------
+
+
+def crew_worktree_path(crew_id: str) -> str:
+    """Return the filesystem path for a crew's worktree."""
+    return os.path.join(AGENTCREW_DIR, f"crew-{crew_id}")
+
+
+def list_agent_files(worktree_path: str, suffix: str) -> list[str]:
+    """List all agent files with the given suffix in the worktree.
+
+    Excludes crew-level files (prefixed with _).
+    """
+    pattern = os.path.join(worktree_path, f"*{suffix}")
+    return [
+        f for f in sorted(glob.glob(pattern))
+        if not os.path.basename(f).startswith("_")
+    ]
+
+
+def get_agent_names(worktree_path: str) -> list[str]:
+    """Get all agent names from _status.yaml files in the worktree."""
+    names = []
+    for status_file in list_agent_files(worktree_path, "_status.yaml"):
+        data = read_yaml(status_file)
+        name = data.get("agent_name", "")
+        if name:
+            names.append(name)
+    return names
+
+# ---------------------------------------------------------------------------
+# Ready-agent detection
+# ---------------------------------------------------------------------------
+
+
+def get_ready_agents(worktree_path: str) -> list[str]:
+    """Return agents with Waiting status whose all dependencies are Completed.
+
+    These agents are eligible to transition to Ready.
+    """
+    # Load all agent statuses and dependencies
+    agent_data: dict[str, dict] = {}
+    for status_file in list_agent_files(worktree_path, "_status.yaml"):
+        data = read_yaml(status_file)
+        name = data.get("agent_name", "")
+        if name:
+            agent_data[name] = data
+
+    ready = []
+    for name, data in agent_data.items():
+        if data.get("status") != "Waiting":
+            continue
+        deps = data.get("depends_on", [])
+        if not deps:
+            ready.append(name)
+            continue
+        # Check all deps are Completed
+        all_done = all(
+            agent_data.get(dep, {}).get("status") == "Completed"
+            for dep in deps
+        )
+        if all_done:
+            ready.append(name)
+
+    return sorted(ready)
+
+# ---------------------------------------------------------------------------
+# Heartbeat
+# ---------------------------------------------------------------------------
+
+
+def _parse_timestamp(ts_str: str) -> datetime | None:
+    """Parse a UTC timestamp string. Returns None if empty or invalid."""
+    if not ts_str:
+        return None
+    ts_str = str(ts_str).strip()
+    if not ts_str:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(ts_str, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def check_agent_alive(alive_path: str, timeout_seconds: int = 300) -> bool:
+    """Check if an agent's heartbeat is within the timeout.
+
+    Returns True if alive (heartbeat within timeout), False if stale or no heartbeat.
+    """
+    data = read_yaml(alive_path)
+    last_hb = data.get("last_heartbeat")
+    if not last_hb:
+        return False
+    ts = _parse_timestamp(str(last_hb))
+    if ts is None:
+        return False
+    now = datetime.now(timezone.utc)
+    return (now - ts).total_seconds() <= timeout_seconds
+
+
+def get_stale_agents(worktree_path: str, timeout_seconds: int = 300) -> list[str]:
+    """Return names of Running agents whose heartbeat exceeds the timeout."""
+    stale = []
+    for status_file in list_agent_files(worktree_path, "_status.yaml"):
+        data = read_yaml(status_file)
+        name = data.get("agent_name", "")
+        status = data.get("status", "")
+        if not name or status != "Running":
+            continue
+        alive_path = os.path.join(worktree_path, f"{name}_alive.yaml")
+        if not os.path.isfile(alive_path):
+            stale.append(name)
+            continue
+        if not check_agent_alive(alive_path, timeout_seconds):
+            stale.append(name)
+    return sorted(stale)
