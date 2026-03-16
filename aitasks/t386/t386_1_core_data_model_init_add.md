@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [subagents]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-15 10:51
-updated_at: 2026-03-15 10:51
+updated_at: 2026-03-16 14:56
 ---
 
 ## Core Data Model & AgentSet Init/Add Scripts
