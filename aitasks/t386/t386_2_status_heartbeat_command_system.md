@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [t386_1, 1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-15 10:51
-updated_at: 2026-03-15 10:51
+updated_at: 2026-03-16 18:58
 ---
 
 ## Agent Status, Heartbeat & Command System
