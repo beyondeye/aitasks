@@ -3,12 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [agentcrew]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-16 15:59
-updated_at: 2026-03-16 16:16
+updated_at: 2026-03-16 16:28
+completed_at: 2026-03-16 16:28
 ---
 
 ## AgentCrew Nomenclature Rename
