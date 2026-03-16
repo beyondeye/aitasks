@@ -3,13 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [aitask_revert]
 children_to_implement: [t398_1, t398_2, t398_3, t398_4]
 folded_tasks: [38]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-16 09:02
-updated_at: 2026-03-16 10:39
+updated_at: 2026-03-16 10:41
 boardcol: now
 boardidx: 10
 ---

@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: low
-depends: [t398_2]
+depends: [t398_1, t398_2]
 issue_type: feature
 status: Ready
 labels: [aitask_revert]

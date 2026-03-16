@@ -1,7 +1,7 @@
 ---
 priority: low
 effort: low
-depends: [t398_3]
+depends: [t398_2]
 issue_type: documentation
 status: Ready
 labels: [aitask_revert]
