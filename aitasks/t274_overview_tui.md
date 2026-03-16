@@ -7,7 +7,7 @@ status: Ready
 labels: [tui]
 created_at: 2026-03-02 09:55
 updated_at: 2026-03-02 09:55
-boardidx: 110
+boardidx: 60
 boardcol: backlog
 ---
 
