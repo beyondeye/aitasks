@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Folded
 labels: [aitasks]
+folded_into: 398
 created_at: 2026-02-04 11:16
-updated_at: 2026-02-25 12:07
+updated_at: 2026-03-16 09:45
 boardcol: now
 boardidx: 20
 ---
