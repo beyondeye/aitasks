@@ -18,6 +18,7 @@ ait_settings
 auto-update
 bash_scripts
 brainstorming
+child_tasks
 claudecode
 claudeskills
 codeagent
