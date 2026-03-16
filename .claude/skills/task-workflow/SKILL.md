@@ -70,7 +70,7 @@ If neither check triggers, proceed to Step 4 as normal.
 ### Step 3b: refresh execution profile
 If `active_profile` was provided and is non-null, re-read the profile YAML file using the stored filename: `cat aitasks/metadata/profiles/<active_profile_filename>`. Display: "Refreshing profile: \<name\>". If the file cannot be read (missing or invalid), warn: "Warning: Could not refresh profile '\<name\>', proceeding without profile" and set `active_profile` to null.
 
-If `active_profile` is null (either because no profile was selected by the calling skill, or because the profile name was lost during a long conversation), re-run the profile selection logic: run `./.aitask-scripts/aitask_scan_profiles.sh` and parse the output. If `NO_PROFILES`, skip this step. If profiles exist, present them via `AskUserQuestion` (same format as Step 0a in aitask-pick/aitask-explore) and read the chosen profile file. If the user selects "No profile", proceed without one.
+If `active_profile` is null (either because no profile was selected by the calling skill, or because the profile name was lost during a long conversation), re-run the profile selection: execute the **Execution Profile Selection Procedure** (see `execution-profile-selection.md`).
 
 ### Step 4: Assign Task to User
 
@@ -523,6 +523,8 @@ The following procedures are in individual files — read on demand when referen
 - **Test Follow-up Task Procedure** (`test-followup-task.md`) — Optionally create testing follow-up task. Referenced from Step 8b.
 - **Satisfaction Feedback Procedure** (`satisfaction-feedback.md`) — Collect user feedback and update verified model scores. Referenced from Step 9b and standalone skills.
 - **Lock Release Procedure** (`lock-release.md`) — Release task locks. Referenced from Task Abort Procedure.
+- **Execution Profile Selection Procedure** (`execution-profile-selection.md`) — Interactive profile scan and selection. Referenced from Step 0a in calling skills and Step 3b.
+- **Execution Profile Selection Procedure — Auto-Select** (`execution-profile-selection-auto.md`) — Non-interactive auto-select for remote/web skills. Referenced from Step 1 in aitask-pickrem/aitask-pickweb.
 
 ---
 
