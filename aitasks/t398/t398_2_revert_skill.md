@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t398_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_revert]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-16 10:38
-updated_at: 2026-03-16 10:38
+updated_at: 2026-03-16 14:48
 ---
 
 Create .claude/skills/aitask-revert/SKILL.md — the complete interactive revert workflow skill.
