@@ -7,6 +7,8 @@ status: Ready
 labels: [aitask_undo]
 created_at: 2026-03-16 09:02
 updated_at: 2026-03-16 09:02
+boardcol: now
+boardidx: 10
 ---
 
 While experimenting with new features with ai development it can happen that we add features that later we find of limited used, and for avoiding bloat and unneeded complexity we want to revert the changes associated to some specific set of tasks. This is an enhancment of task t38 that was never implemented. There are several possible use cases and ways on how to implement this feature. We don't consider the just reverting git commits, this can be done manually. One possibility is that we want to revert the changes associated to some specific aitask. and eventyally of related aitasks. so the flow for the skill should look like this: if the user call the aitask_undo skill without a task number, the skill fetch latest commits, and create a list of the latest implemented tasks. alternatively the skill can ask for an area in the code and interactively drill down to specific files (in similar way as this is done in the aitask_contribute skill), we should consider if to extract a common procedure for code drill down, common to aitask_contribute, aitask_undo, aitask_explore.) once we selecte a select of files or directory we can use git, or the aitask-explain infrastructure (see task t369) to extract the relevant iatasks associated to latest changes in those files.
