@@ -7,7 +7,7 @@ Branch: main
 Base branch: main
 ---
 
-# Implementation Plan: aitask_parse_detected_agent.sh
+# Implementation Plan: aitask_resolve_detected_agent.sh
 
 ## Step 1: Create `.aitask-scripts/aitask_parse_detected_agent.sh`
 
@@ -77,6 +77,14 @@ Add `bash tests/test_parse_detected_agent.sh` to the test list.
 1. `bash tests/test_parse_detected_agent.sh` — all PASS
 2. `shellcheck .aitask-scripts/aitask_parse_detected_agent.sh` — clean
 3. Manual test with real models
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `aitask_resolve_detected_agent.sh` (renamed from originally planned `aitask_parse_detected_agent.sh` per user request). Updated `model-self-detection.md`, 6 instruction files, 3 seed files, and 5 whitelist/policy files across all code agents (claudecode, geminicli, codex, opencode).
+- **Deviations from plan:** Script renamed from `aitask_parse_detected_agent` to `aitask_resolve_detected_agent`. Test file similarly renamed. Added whitelist entries to `.claude/settings.local.json`, `seed/claude_settings.local.json`, `.gemini/policies/aitasks-whitelist.toml`, `seed/geminicli_policies/aitasks-whitelist.toml`, and `seed/opencode_config.seed.json` (not in original plan).
+- **Issues encountered:** None — all tests passed on first run, shellcheck clean (only SC1091 info about sourced files, consistent with all project scripts).
+- **Key decisions:** Used `head -1` on jq output to handle potential multiple matches. Kept agent-specific model ID detection methods unchanged in instruction files (only replaced steps 3-4 with script call).
+- **Notes for sibling tasks:** The script is now available at `./.aitask-scripts/aitask_resolve_detected_agent.sh`. Sibling tasks t401_2/3/4 should verify that the updated instruction files correctly guide each code agent to use the script. The whitelist entries are already in place for all agents.
 
 ## Step 9: Post-Implementation
 
