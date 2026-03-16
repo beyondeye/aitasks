@@ -100,5 +100,19 @@ Set context variables and follow task-workflow SKILL.md from Step 3:
 
 Add `aitask-revert` to `.claude/settings.local.json` if needed for tool permissions.
 
+## Final Implementation Notes
+- **Actual work done:** Created `.claude/skills/aitask-revert/SKILL.md` (268 lines) with the complete interactive revert workflow. Also created sibling task t398_5 for permissions whitelist registration.
+- **Deviations from plan:**
+  - Step 11 (Register skill in settings.local.json) deferred to a new sibling task t398_5 — permissions registration is needed for Claude/OpenCode/Codex + seed templates, broader scope than just this skill
+  - Added support for `t`-prefixed arguments (e.g., `/aitask-revert t42` in addition to `/aitask-revert 42`) based on user feedback
+  - Added "Implementation Transparency Requirements" sections to both complete and partial revert task templates — the implementing agent must present a pre-revert summary (what will change, impact analysis, cross-area dependencies) for user approval before executing changes
+  - Used `explore_auto_continue` profile key for the decision point rather than introducing a new profile key
+- **Issues encountered:** None
+- **Key decisions:** Revert tasks are created as standalone parent-level tasks (not children), allowing them to be picked and planned independently. The task description is designed to be fully self-contained with all commit hashes, file lists, and area breakdowns so the planning agent doesn't need to re-run analysis.
+- **Notes for sibling tasks:**
+  - t398_3 (post-revert integration): The skill uses `aitask_revert_analyze.sh` directly with `bash .aitask-scripts/aitask_revert_analyze.sh <subcommand>`, not via `./ait`
+  - t398_4 (website documentation): The skill workflow has 7 steps (Step 0 through Step 6), the revert type selection branches into 3a (complete) and 3b (partial), and creates a refactor-type task via `aitask_create.sh --batch`
+  - t398_5 (whitelist registration): Need to add `Bash(./.aitask-scripts/aitask_revert_analyze.sh:*)` to `.claude/settings.local.json`, and corresponding entries in OpenCode/Codex settings + seed templates
+
 ## Step 9 Reference
 After implementation, follow task-workflow Step 9 for archival.
