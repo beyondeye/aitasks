@@ -50,9 +50,11 @@ Create `.aitask-scripts/aitask_crew_init.sh`:
    - `cd` to worktree, `git add`, `git commit`
    - Output: `CREATED:<id>`
 
-## Step 3: Create `aitask_crew_addtask.sh`
+## Step 3: Create `aitask_crew_addwork.sh`
 
-Create `.aitask-scripts/aitask_crew_addtask.sh`:
+CLI command: `ait crew addwork` (renamed from `addtask` to avoid nomenclature clash with aitasks).
+
+Create `.aitask-scripts/aitask_crew_addwork.sh`:
 
 1. Standard header
 2. Argument parsing:
@@ -79,7 +81,7 @@ Create `.aitask-scripts/aitask_crew_addtask.sh`:
    - Update `_crew_meta.yaml` agents list
    - Output: `ADDED:<name>`
 
-## Step 4: Add `agentcrew` to `ait` dispatcher
+## Step 4: Add `crew` to `ait` dispatcher
 
 Edit `ait`:
 - Add case in the main command dispatcher:
@@ -89,13 +91,14 @@ Edit `ait`:
       subcmd="${1:-}"
       shift || true
       case "$subcmd" in
-          init)    exec "$SCRIPTS_DIR/aitask_crew_init.sh" "$@" ;;
-          add)     exec "$SCRIPTS_DIR/aitask_crew_addtask.sh" "$@" ;;
+          init)      exec "$SCRIPTS_DIR/aitask_crew_init.sh" "$@" ;;
+          addwork)   exec "$SCRIPTS_DIR/aitask_crew_addwork.sh" "$@" ;;
           # ... more subcommands added by later child tasks
-          *)       die "Unknown agentcrew subcommand: $subcmd" ;;
+          *)         echo "ait crew: unknown subcommand '$subcmd'" >&2; exit 1 ;;
       esac
       ;;
   ```
+- Add `crew` to the update-skip list on line 129
 
 ## Step 5: Add `.aitask-crews` to `.gitignore`
 
@@ -115,7 +118,7 @@ Create `tests/test_crew_init.sh`:
 ## Step 7: Verify
 
 - `bash tests/test_crew_init.sh`
-- `shellcheck .aitask-scripts/aitask_crew_init.sh .aitask-scripts/aitask_crew_addtask.sh .aitask-scripts/lib/agentcrew_utils.sh`
+- `shellcheck .aitask-scripts/aitask_crew_init.sh .aitask-scripts/aitask_crew_addwork.sh .aitask-scripts/lib/agentcrew_utils.sh`
 
 ## Step 8: Post-Implementation (Step 9)
 

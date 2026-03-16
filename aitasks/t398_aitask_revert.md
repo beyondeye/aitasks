@@ -5,10 +5,10 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [aitask_revert]
-children_to_implement: [t398_3, t398_4, t398_5]
+children_to_implement: [t398_4, t398_5]
 folded_tasks: ['38']
 created_at: 2026-03-16 09:02
-updated_at: 2026-03-16 16:11
+updated_at: 2026-03-16 18:26
 boardcol: now
 boardidx: 20
 ---
