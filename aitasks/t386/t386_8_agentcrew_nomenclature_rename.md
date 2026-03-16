@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-16 15:59
-updated_at: 2026-03-16 16:00
+updated_at: 2026-03-16 16:10
 ---
 
 ## AgentCrew Nomenclature Rename
