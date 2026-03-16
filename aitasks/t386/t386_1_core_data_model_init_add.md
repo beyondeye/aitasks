@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [t386_8]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-15 10:51
-updated_at: 2026-03-16 16:00
+updated_at: 2026-03-16 16:33
 ---
 
 ## Core Data Model & AgentCrew Init/Add Scripts
