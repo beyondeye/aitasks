@@ -168,5 +168,20 @@ shellcheck .aitask-scripts/aitask_revert_analyze.sh
 ./ait revert-analyze --task-commits <known_task_id>
 ```
 
-## Step 9 Reference
-After implementation, follow task-workflow Step 9 for archival.
+## Final Implementation Notes
+
+- **Actual work done:** Created `aitask_revert_analyze.sh` with 4 subcommands (`--recent-tasks`, `--task-commits`, `--task-areas`, `--task-files`) plus 27 automated tests. Script is internal (not registered in `ait` dispatcher).
+- **Deviations from plan:**
+  - No `ait` dispatcher entry — this is an internal script called by the revert skill (t398_2), not user-facing
+  - Added `|| true` to `get_child_ids()` grep pipeline to prevent `pipefail` failures when a task has no children
+  - Used an `order` array instead of re-iterating git log for `cmd_recent_tasks()` output ordering (simpler, single-pass)
+  - Added `build_search_ids()` and `collect_commit_hashes()` helper functions to share search logic between `find_task_commits`, `cmd_task_areas`, and `cmd_task_files`
+  - Used `--fixed-strings` flag with `git log --grep` to match literal parentheses in `(tN)` patterns
+  - Used process substitution (`< <(git log ...)`) instead of piping to avoid subshell issues with `git diff` stats collection
+- **Issues encountered:** `set -euo pipefail` caused `get_child_ids()` to fail when grep found no matches in the pipeline; fixed with `|| true`
+- **Key decisions:** Reused `parse_shortstat()` pattern from `aitask_review_commits.sh` and `extract_task_id()` pattern from `aitask_explain_extract_raw_data.sh` (inlined, not sourced)
+- **Notes for sibling tasks:**
+  - The script is invoked directly with `bash .aitask-scripts/aitask_revert_analyze.sh <subcommand>`, not via `./ait`
+  - Output uses pipe-delimited structured format: `TASK|`, `COMMIT|`, `AREA|`, `FILE|` prefixes
+  - The `--task-commits` subcommand automatically discovers and includes child task commits when given a parent task ID
+  - The `collect_commit_hashes()` function is useful for any subcommand that needs all commit hashes for a task
