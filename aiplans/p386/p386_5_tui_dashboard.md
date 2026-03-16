@@ -8,39 +8,39 @@ Branch: (current branch)
 Base branch: main
 ---
 
-# Implementation Plan: AgentSet TUI Dashboard
+# Implementation Plan: AgentCrew TUI Dashboard
 
 ## Step 1: Create bash launcher
 
-`.aitask-scripts/aitask_agentset_dashboard.sh` following `aitask_board.sh` pattern:
+`.aitask-scripts/aitask_crew_dashboard.sh` following `aitask_board.sh` pattern:
 - Detect Python venv
 - Check textual and yaml packages
 - `ait_warn_if_incapable_terminal`
-- `exec "$PYTHON" "$SCRIPT_DIR/agentset/agentset_dashboard.py" "$@"`
+- `exec "$PYTHON" "$SCRIPT_DIR/agentcrew/agentcrew_dashboard.py" "$@"`
 
-## Step 2: Implement `agentset_dashboard.py` — Data Layer
+## Step 2: Implement `agentcrew_dashboard.py` — Data Layer
 
-`AgentSetManager` class:
-- `list_agentsets()` — Scan dirs + branches, read meta/status/runner files
-- `load_agentset(id)` — Full load of all files
+`CrewManager` class:
+- `list_crews()` — Scan dirs + branches, read meta/status/runner files
+- `load_crew(id)` — Full load of all files
 - `get_runner_status(id)` — Parse `_runner_alive.yaml`, assess alive/stale/stopped
-- `refresh_all()` — Reload all agentsets (called by timer)
-- `send_command(id, agent, cmd)` — `subprocess.run(["aitask_agentset_command.sh", ...])`
-- `start_runner(id)` — `subprocess.Popen(["ait", "agentset", "runner", "--agentset", id], start_new_session=True)`
+- `refresh_all()` — Reload all agentcrews (called by timer)
+- `send_command(id, agent, cmd)` — `subprocess.run(["aitask_crew_command.sh", ...])`
+- `start_runner(id)` — `subprocess.Popen(["ait", "agentcrew", "runner", "--crew", id], start_new_session=True)`
 - `stop_runner(id)` — Write `requested_action: stop` to `_runner_alive.yaml`, git commit+push
 
 ## Step 3: Implement List Screen
 
-Main screen showing all agentsets:
-- DataTable or custom widget per agentset
+Main screen showing all agentcrews:
+- DataTable or custom widget per agentcrew
 - Columns: ID, Name, Status, Progress, Agents (completed/total), Runner (active/stale/none + hostname)
 - Keybinds: n (new), r (start runner), Enter (detail), d (delete/cleanup)
 - Auto-refresh via `set_interval(5s)`
 
 ## Step 4: Implement Detail Screen
 
-`AgentSetDetailScreen(Screen)`:
-- Top bar: agentset name, status, progress bar, elapsed time, runner status
+`CrewDetailScreen(Screen)`:
+- Top bar: agentcrew name, status, progress bar, elapsed time, runner status
 - Per-type concurrency: `implementer: 2/3 running, planner: 0/1`
 - Agent list with DAG visualization (ASCII art dependency arrows)
 - Agent cards: name, status (colored), progress, heartbeat age, blocked-by info
@@ -55,7 +55,7 @@ Main screen showing all agentsets:
 
 ## Step 6: Runner Management
 
-- Auto-detect missing runner: if agentset Running but no active runner → highlight with warning color
+- Auto-detect missing runner: if agentcrew Running but no active runner → highlight with warning color
 - Start: launch detached subprocess, confirm via next refresh
 - Stop: commit+push `requested_action: stop`
 
@@ -66,11 +66,11 @@ Main screen showing all agentsets:
 
 ## Step 8: Add to `ait` dispatcher
 
-Add `dashboard` subcommand to agentset case.
+Add `dashboard` subcommand to agentcrew case.
 
 ## Step 9: Verify
 
-- `python -m py_compile .aitask-scripts/agentset/agentset_dashboard.py`
-- Manual testing with created agentsets
+- `python -m py_compile .aitask-scripts/agentcrew/agentcrew_dashboard.py`
+- Manual testing with created agentcrews
 
 ## Step 10: Post-Implementation (Step 9)

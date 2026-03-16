@@ -165,3 +165,10 @@ Check `aitasks/metadata/labels.txt` — if it contains `subagents`, replace with
 ## Step 7: Post-Implementation (Step 9)
 
 Archive task, push.
+
+## Final Implementation Notes
+- **Actual work done:** Renamed all "agentset" terminology to "agentcrew"/"crew" across 16 files (7 child tasks, 7 plans, parent task, labels.txt). Used a comprehensive sed script with carefully ordered replacements (most specific first) plus manual edge-case fixes.
+- **Deviations from plan:** Added fix for `agentcrew)` → `crew)` dispatcher case routing in t386_1 and p386_1 (CLI commands use short form `crew`). Fixed `Agentset-Agnostic` → `Crew-Agnostic` in p386_6. Fixed typo `agenset` → `agentcrew` in parent task.
+- **Issues encountered:** Context-dependent replacements needed careful ordering — `agentset` maps to `crew` in CLI/function contexts but `agentcrew` in descriptive text. Resolved by handling all specific patterns before the generic catch-all.
+- **Key decisions:** Report format header `AgentSet:` → `Crew:` (short form for output display). Structured output constants (`AGENTSET_ID` etc.) → `CREW_*` (not `AGENTCREW_*`), matching the plan's per-file specifications. Parent task "subagents" in body text left unchanged (refers to individual agents, not the system name).
+- **Notes for sibling tasks:** The naming convention is now fully applied. When implementing t386_1-t386_7, use these names: CLI command `ait crew`, scripts `aitask_crew_*.sh`, Python package `.aitask-scripts/agentcrew/`, Python files `agentcrew_*.py`, worktree dir `.aitask-crews/crew-<id>/`, YAML files `_crew_meta.yaml`/`_crew_status.yaml`, constants `AGENTCREW_*` (except structured output which uses `CREW_*`).

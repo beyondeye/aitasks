@@ -10,20 +10,20 @@ Base branch: main
 
 # Implementation Plan: Architecture Docs & work2do Authoring Guide
 
-## Step 1: Create `aidocs/agentset_architecture.md`
+## Step 1: Create `aidocs/agentcrew_architecture.md`
 
 Comprehensive architecture reference covering:
 
-1. **Overview** — AgentSet concept: coordinating multiple AI code agents via file-based DAG
+1. **Overview** — AgentCrew concept: coordinating multiple AI code agents via file-based DAG
 2. **Lifecycle** — init → add agents → run → complete/cleanup
-3. **Branch & Worktree** — `.aitask-agentsets/agentset-<id>/` structure
+3. **Branch & Worktree** — `.aitask-crews/crew-<id>/` structure
 4. **File Layout** — Complete listing of all files with YAML schemas:
-   - `_agentset_meta.yaml` (static config, agent_types with max_parallel)
-   - `_agentset_status.yaml` (dynamic state)
+   - `_crew_meta.yaml` (static config, agent_types with max_parallel)
+   - `_crew_status.yaml` (dynamic state)
    - `_runner_alive.yaml` (runner PID, heartbeat, requested_action)
    - `<agent>_status.yaml`, `_work2do.md`, `_input.md`, `_output.md`, `_instructions.md`, `_commands.yaml`, `_alive.yaml`
-5. **Status State Machines** — Agent and AgentSet with valid transitions diagrammed
-6. **Agent Types** — Per-agentset config mapping type ID to agent_string + max_parallel
+5. **Status State Machines** — Agent and AgentCrew with valid transitions diagrammed
+6. **Agent Types** — Per-agentcrew config mapping type ID to agent_string + max_parallel
 7. **DAG Dependency Model** — How `depends_on` works, topo sort, cycle detection
 8. **Runner Orchestration** — Main loop flow, per-type limits, git pull/push cycle
 9. **Single-Instance Enforcement** — Cross-machine via hostname + heartbeat
@@ -31,7 +31,7 @@ Comprehensive architecture reference covering:
 11. **Command & Control** — Kill, pause, resume via `_commands.yaml`
 12. **Heartbeat & Stuck Detection** — `_alive.yaml`, timeout-based staleness
 
-## Step 2: Create `aidocs/agentset_work2do_guide.md`
+## Step 2: Create `aidocs/agentcrew_work2do_guide.md`
 
 Practical guide for authoring work2do files:
 
@@ -48,7 +48,7 @@ Practical guide for authoring work2do files:
 3. **Checkpoint Placement** — After major steps, in loops, before expensive ops
 4. **Instructions.md Mapping** — How abstract names map to concrete script calls
 5. **Template work2do** — Full example with checkpoints
-6. **Agentset-Agnostic Design** — Why separation of work2do (abstract) and instructions (concrete) enables reuse
+6. **Crew-Agnostic Design** — Why separation of work2do (abstract) and instructions (concrete) enables reuse
 
 ## Step 3: Verify
 

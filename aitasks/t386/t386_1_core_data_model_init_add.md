@@ -4,34 +4,34 @@ effort: high
 depends: [t386_8]
 issue_type: feature
 status: Ready
-labels: [subagents]
+labels: [agentcrew]
 created_at: 2026-03-15 10:51
 updated_at: 2026-03-16 16:00
 ---
 
-## Core Data Model & AgentSet Init/Add Scripts
+## Core Data Model & AgentCrew Init/Add Scripts
 
 ### Context
-This is the foundational child task for the AgentSet infrastructure (t386). It establishes the data model, file formats, and the two essential scripts for creating and populating agentsets. All subsequent child tasks depend on this one.
+This is the foundational child task for the AgentCrew infrastructure (t386). It establishes the data model, file formats, and the two essential scripts for creating and populating agentcrews. All subsequent child tasks depend on this one.
 
 ### Goal
-Create the shared utility library (`agentset_utils.sh`), the `agentset_init` and `agentset_add` scripts, and integrate the `agentset` command into the `ait` dispatcher.
+Create the shared utility library (`agentcrew_utils.sh`), the `crew_init` and `crew_addtask` scripts, and integrate the `agentcrew` command into the `ait` dispatcher.
 
 ### Key Files to Create
-- `.aitask-scripts/lib/agentset_utils.sh` — Shared bash functions: constants (`AGENTSET_PREFIX`, `AGENTSET_DIR=.aitask-agentsets`), branch/worktree path helpers, agent name validation (`[a-z0-9_]+`), YAML read/write helpers, `detect_circular_deps()` (DFS cycle detection)
-- `.aitask-scripts/aitask_agentset_init.sh` — Create agentset branch + worktree. Args: `--id <id>`, `--batch`, `--add-type <id>:<agent_string>`. Creates branch from current HEAD, `git worktree add` at `.aitask-agentsets/agentset-<id>/`, initializes `_agentset_meta.yaml` (config) and `_agentset_status.yaml` (initial status: Initializing). Output: `CREATED:<id>`
-- `.aitask-scripts/aitask_agentset_add.sh` — Register subagent. Args: `--agentset <id> --name <name> --work2do <file> --depends <a,b> --type <agent_type_id> --batch`. Creates 7 agent files from templates (_work2do.md, _input.md, _output.md, _status.yaml, _instructions.md, _commands.yaml, _alive.yaml). Validates deps exist + no cycles + type exists in agent_types. Output: `ADDED:<name>`
-- `tests/test_agentset_init.sh` — Tests for init/add/DAG validation
+- `.aitask-scripts/lib/agentcrew_utils.sh` — Shared bash functions: constants (`AGENTCREW_PREFIX`, `AGENTCREW_DIR=.aitask-crews`), branch/worktree path helpers, agent name validation (`[a-z0-9_]+`), YAML read/write helpers, `detect_circular_deps()` (DFS cycle detection)
+- `.aitask-scripts/aitask_crew_init.sh` — Create agentcrew branch + worktree. Args: `--id <id>`, `--batch`, `--add-type <id>:<agent_string>`. Creates branch from current HEAD, `git worktree add` at `.aitask-crews/crew-<id>/`, initializes `_crew_meta.yaml` (config) and `_crew_status.yaml` (initial status: Initializing). Output: `CREATED:<id>`
+- `.aitask-scripts/aitask_crew_addtask.sh` — Register subagent. Args: `--crew <id> --name <name> --work2do <file> --depends <a,b> --type <agent_type_id> --batch`. Creates 7 agent files from templates (_work2do.md, _input.md, _output.md, _status.yaml, _instructions.md, _commands.yaml, _alive.yaml). Validates deps exist + no cycles + type exists in agent_types. Output: `ADDED:<name>`
+- `tests/test_crew_init.sh` — Tests for init/add/DAG validation
 
 ### Key Files to Modify
-- `ait` — Add `agentset)` case routing to dispatcher
-- `.gitignore` — Add `.aitask-agentsets`
+- `ait` — Add `crew)` case routing to dispatcher
+- `.gitignore` — Add `.aitask-crews`
 
 ### File Format Definitions
 
-**_agentset_meta.yaml** (static config):
+**_crew_meta.yaml** (static config):
 ```yaml
-id: <agentset_id>
+id: <crew_id>
 name: <display_name>
 created_at: <timestamp>
 created_by: <email>
@@ -42,7 +42,7 @@ agent_types:
     max_parallel: <N>  # 0 = unlimited
 ```
 
-**_agentset_status.yaml** (dynamic state):
+**_crew_status.yaml** (dynamic state):
 ```yaml
 status: Initializing
 progress: 0
@@ -71,6 +71,6 @@ error_message:
 - `.aitask-scripts/lib/terminal_compat.sh` — Guard variables, die/warn/info helpers
 
 ### Verification
-- `bash tests/test_agentset_init.sh`
-- `shellcheck .aitask-scripts/aitask_agentset_init.sh .aitask-scripts/aitask_agentset_add.sh .aitask-scripts/lib/agentset_utils.sh`
-- Manual: `./ait agentset init --id test1 --add-type impl:claudecode/sonnet4_6 --batch` then `./ait agentset add --agentset test1 --name agent_a --type impl --work2do /dev/null --batch`
+- `bash tests/test_crew_init.sh`
+- `shellcheck .aitask-scripts/aitask_crew_init.sh .aitask-scripts/aitask_crew_addtask.sh .aitask-scripts/lib/agentcrew_utils.sh`
+- Manual: `./ait crew init --id test1 --add-type impl:claudecode/sonnet4_6 --batch` then `./ait crew addtask --crew test1 --name agent_a --type impl --work2do /dev/null --batch`

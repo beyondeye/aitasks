@@ -10,12 +10,12 @@ Base branch: main
 
 # Implementation Plan: Agent Runner (Orchestrator)
 
-## Step 1: Implement `agentset_runner.py`
+## Step 1: Implement `agentcrew_runner.py`
 
-Create `.aitask-scripts/agentset/agentset_runner.py`:
+Create `.aitask-scripts/agentcrew/agentcrew_runner.py`:
 
 ### 1a: Argument parsing
-- `--agentset <id>` (required)
+- `--crew <id>` (required)
 - `--interval <seconds>` (default: 30)
 - `--max-concurrent <n>` (default: 3, overall cap)
 - `--once` (single iteration, no loop)
@@ -56,7 +56,7 @@ while not should_stop:
     ready = ready[:max_concurrent - count_running(statuses)]
     for agent in ready:
         launch_agent(agent)
-    update_agentset_status(statuses)
+    update_crew_status(statuses)
     git_commit_push_if_changes()
     if once:
         break
@@ -64,22 +64,22 @@ while not should_stop:
 ```
 
 ### 1e: Per-type max_parallel enforcement
-- Read `agent_types` from `_agentset_meta.yaml`
+- Read `agent_types` from `_crew_meta.yaml`
 - Count currently Running agents per type
 - Only launch agents of type X if running_count < max_parallel (0 = unlimited)
 
 ### 1f: Agent launching
 - Read `agent_type` from `_status.yaml`
-- Look up `agent_string` in `_agentset_meta.yaml` agent_types
+- Look up `agent_string` in `_crew_meta.yaml` agent_types
 - `subprocess.Popen(["./ait", "codeagent", "--agent-string", agent_string, "invoke", "raw", "--prompt", work2do_content])`
 - Store PID in `_status.yaml`, set status to Running, `started_at`
 
 ### 1g: Graceful shutdown
 - Signal handlers: `signal.signal(SIGTERM, handler)`, `signal.signal(SIGINT, handler)`
 - Also triggered by `requested_action: stop`
-- Send kill commands to all Running agents via `aitask_agentset_command.sh send-all <id> kill`
+- Send kill commands to all Running agents via `aitask_crew_command.sh send-all <id> kill`
 - Update `_runner_alive.yaml` status to `stopped`
-- Update `_agentset_status.yaml` status to `Killing`
+- Update `_crew_status.yaml` status to `Killing`
 
 ### 1h: Progress and ETA
 - Progress: `completed_count / total_count * 100`
@@ -87,16 +87,16 @@ while not should_stop:
 
 ## Step 2: Create bash wrapper
 
-`.aitask-scripts/aitask_agentset_runner.sh` — thin wrapper with venv detection.
+`.aitask-scripts/aitask_crew_runner.sh` — thin wrapper with venv detection.
 
 ## Step 3: Update `ait` dispatcher
 
-Add `runner` subcommand to agentset case.
+Add `runner` subcommand to agentcrew case.
 
 ## Step 4: Write tests
 
-`tests/test_agentset_runner.sh`:
-- Init agentset, add 3 agents (A depends on nothing, B depends on A, C depends on A+B)
+`tests/test_crew_runner.sh`:
+- Init agentcrew, add 3 agents (A depends on nothing, B depends on A, C depends on A+B)
 - `--once --dry-run` shows A as ready first
 - After manually marking A complete, B becomes ready
 - Per-type limit enforcement (set max_parallel=1, verify only 1 launched)
