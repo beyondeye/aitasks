@@ -11,6 +11,9 @@ aitasks/new/
 # PR import intermediate data (temporary, per-run)
 .aitask-pr-data/
 
+# AgentCrew worktrees (local, per-crew branches)
+.aitask-crews/
+
 # Hugo generated files
 website/public/
 website/resources/
