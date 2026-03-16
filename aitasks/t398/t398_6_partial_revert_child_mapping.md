@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t398_5]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_revert]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-16 18:32
-updated_at: 2026-03-16 18:32
+updated_at: 2026-03-16 18:34
 ---
 
 When a partial revert is selected for a parent task that has children, map the areas/files selected for revert back to the specific child tasks that originated them. This enables reverting by child task granularity rather than by directory area alone.

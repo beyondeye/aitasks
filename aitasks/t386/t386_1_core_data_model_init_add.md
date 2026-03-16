@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [agentcrew]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-15 10:51
-updated_at: 2026-03-16 16:33
+updated_at: 2026-03-16 18:26
 ---
 
 ## Core Data Model & AgentCrew Init/Add Scripts
