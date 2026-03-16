@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_revert]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-16 10:23
-updated_at: 2026-03-16 10:23
+updated_at: 2026-03-16 12:02
 ---
 
 Create .aitask-scripts/aitask_revert_analyze.sh — the backend data layer for all revert operations.
