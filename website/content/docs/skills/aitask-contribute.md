@@ -36,6 +36,8 @@ Use `/aitask-contribute` to turn local changes into a structured contribution is
 
 - **Preserves contributor attribution** — Imported work keeps contributor metadata so maintainers can carry attribution through the implementation workflow
 
+- **Embeds fingerprint metadata** — Each contribution includes fingerprint data (areas, file paths, directories, change type) that enables automatic overlap detection on the receiving side. See [Contribution Flow](../../workflows/contribute-and-manage/contribution-flow/) for details.
+
 - **No fork required** — Make the change locally, review the generated issue, and submit it directly
 
 ## Workflows
