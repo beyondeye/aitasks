@@ -6,8 +6,9 @@ issue_type: chore
 status: Implementing
 labels: [agentcrew]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-16 15:59
-updated_at: 2026-03-16 16:10
+updated_at: 2026-03-16 16:16
 ---
 
 ## AgentCrew Nomenclature Rename

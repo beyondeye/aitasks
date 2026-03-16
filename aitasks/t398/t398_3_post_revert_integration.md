@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t398_1, t398_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_revert]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-16 10:39
-updated_at: 2026-03-16 10:39
+updated_at: 2026-03-16 16:19
 ---
 
 Refine post-revert task management logic, add archived-task location helpers, ensure end-to-end flow works.
