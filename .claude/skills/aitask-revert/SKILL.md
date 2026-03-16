@@ -108,6 +108,20 @@ Parse the output:
 
 For parent tasks with children: the script automatically includes child task commits. Group commits by `<task_id>` to show per-child breakdown.
 
+**For parent tasks with children**, also run:
+```bash
+./.aitask-scripts/aitask_revert_analyze.sh --task-children-areas <id>
+```
+
+Parse the output:
+- `CHILD_HEADER|<child_id>|<child_name>|<commit_count>` — each child task header
+- `CHILD_AREA|<child_id>|<dir>|<file_count>|<insertions>|<deletions>|<file_list>` — per-child area
+- `PARENT_HEADER|<parent_id>|<commit_count>` — parent-level commits header (if any)
+- `PARENT_AREA|<parent_id>|<dir>|<file_count>|<insertions>|<deletions>|<file_list>` — parent-level area
+- `NO_CHILDREN` — task has no children (standalone task)
+
+Store the `--task-children-areas` data for use in Step 3b (child-level selection).
+
 **Display summary to user:**
 ```
 ## Task t<id>: <task name>
@@ -123,8 +137,12 @@ For parent tasks with children: the script automatically includes child task com
 - ...
 
 ### Per-Child Breakdown (if parent with children)
-- t<id>_1: <N> commits
-- t<id>_2: <N> commits
+- t<id>_1 (<name>): <N> commits
+  Areas: <dir1>/, <dir2>/
+- t<id>_2 (<name>): <N> commits
+  Areas: <dir3>/
+- Parent-level: <N> commits (if any)
+  Areas: <dir4>/
 ```
 
 Use `AskUserQuestion`:
@@ -165,6 +183,111 @@ Store the selected disposition. Proceed to **Step 4**.
 
 ### Step 3b: Partial Revert Path
 
+**For parent tasks with children** (check: the `--task-children-areas` data from Step 2 was not `NO_CHILDREN`):
+
+First, ask selection mode via `AskUserQuestion`:
+- Question: "This is a parent task with children. How do you want to select what to revert?"
+- Header: "Selection"
+- Options:
+  - "By child task" (description: "Select which child tasks to revert — recommended for reverting entire feature slices")
+  - "By area" (description: "Select directory areas to revert, then see which child tasks are affected")
+
+#### Mode A: By child task
+
+Present child tasks as `AskUserQuestion` with `multiSelect: true`:
+- **If <= 4 items** (children + parent-level commits if present): Show all as multiSelect options
+  - Each child: label = `t<child_id> (<name>)`, description = `<commit_count> commits, areas: <area_list>`
+  - If parent-level commits exist: add option label = `Parent-level commits`, description = `<N> commits, areas: <area_list>`
+- **If > 4 items:** List all children in the question text, then provide options:
+  - "All children" (description: "Revert all child tasks")
+  - First 2-3 children as individual options
+  - Free text via "Other" for comma-separated child IDs (e.g., "398_1, 398_3")
+- Question: "Select child tasks to REVERT (unselected will be kept):"
+- Header: "Children"
+
+After child selection, **collect per-area commit mapping** for the selected children (same `git diff-tree` logic as the area path below, but only for commits from selected children).
+
+**Show confirmation summary:**
+
+```
+## Revert Summary
+
+### Will REVERT:
+- t<id>_1 (<name>) — <N> commits, areas: <dir1>/, <dir2>/
+- t<id>_3 (<name>) — <N> commits, areas: <dir3>/
+
+### Will KEEP:
+- t<id>_2 (<name>) — <N> commits, areas: <dir4>/
+```
+
+Use `AskUserQuestion`:
+- Question: "Confirm the revert selection?"
+- Header: "Confirm"
+- Options:
+  - "Confirm selection" (description: "Proceed with this revert/keep split")
+  - "Adjust selection" (description: "Go back and change which children to revert")
+  - "Cancel" (description: "Abort the revert workflow")
+
+- "Confirm" → ask disposition (same `AskUserQuestion` as Step 3a), then proceed to **Step 4**
+- "Adjust" → loop back to the child selection above
+- "Cancel" → end the workflow
+
+#### Mode B: By area (with child mapping)
+
+Present areas from the `--task-areas` output (collected in Step 2). Use `AskUserQuestion` with `multiSelect: true`:
+- Question: "Select the areas to REVERT (unselected areas will be kept):"
+- Header: "Areas"
+- Options: each area as a selectable option
+  - label = `<dir>/` , description = `<file_count> files, +<ins>/-<del>: <truncated file list>`
+
+The user can also type free text via "Other" for more granular specification (e.g., specific files within an area).
+
+**After selection, collect per-area commit mapping:**
+
+For each area selected for revert, identify which commits touch files in that area. Iterate commit hashes from the Step 2 analysis. For each commit, get its file list:
+```bash
+git diff-tree --no-commit-id -r --name-only <hash>
+```
+Match files against each area's file list to build the per-area commit mapping.
+
+**Map areas back to children:** Using the `--task-children-areas` data from Step 2, cross-reference selected areas against per-child areas. For each child, determine:
+- **Fully affected:** ALL of the child's areas are in the revert selection
+- **Partially affected:** SOME of the child's areas are in the revert selection
+- **Not affected:** NONE of the child's areas are in the revert selection
+
+**Show confirmation summary with child mapping:**
+
+```
+## Revert Summary
+
+### Will REVERT:
+- <dir1>/ — <files>, touched by commits: <hash1>, <hash2>
+- <dir2>/ — <files>, touched by commits: <hash3>
+
+### Will KEEP:
+- <dir3>/ — <files>
+- <dir4>/ — <files>
+
+### Child Task Mapping
+- t<id>_1 (<name>): FULLY AFFECTED — all areas selected for revert
+- t<id>_2 (<name>): PARTIALLY AFFECTED — 1 of 2 areas selected
+- t<id>_3 (<name>): NOT AFFECTED — no areas selected
+```
+
+Use `AskUserQuestion`:
+- Question: "Confirm the revert selection?"
+- Header: "Confirm"
+- Options:
+  - "Confirm selection" (description: "Proceed with this revert/keep split")
+  - "Adjust selection" (description: "Go back and change which areas to revert")
+  - "Cancel" (description: "Abort the revert workflow")
+
+- "Confirm" → ask disposition (same `AskUserQuestion` as Step 3a), then proceed to **Step 4**
+- "Adjust" → loop back to the area selection above
+- "Cancel" → end the workflow
+
+#### Standalone tasks (no children)
+
 Present areas from the `--task-areas` output (collected in Step 2). Use `AskUserQuestion` with `multiSelect: true`:
 - Question: "Select the areas to REVERT (unselected areas will be kept):"
 - Header: "Areas"
@@ -204,7 +327,7 @@ Use `AskUserQuestion`:
   - "Cancel" (description: "Abort the revert workflow")
 
 - "Confirm" → ask disposition (same `AskUserQuestion` as Step 3a), then proceed to **Step 4**
-- "Adjust" → loop back to the area selection `AskUserQuestion` above
+- "Adjust" → loop back to the area selection above
 - "Cancel" → end the workflow
 
 ### Step 4: Create Revert Task
@@ -356,6 +479,112 @@ During the planning/implementation phase for this revert task, the implementing 
    - **Areas kept:** <list of kept areas>
    ```
 5. Commit: `./ait git add <paths> && ./ait git commit -m "ait: Un-archive and reset reverted task t<id>"`
+```
+
+**For partial reverts of parent tasks using child-level selection (Mode A), build the description from this template instead:**
+
+```markdown
+## Revert: Partially revert t<id> (<original task name>) — by child task
+
+### Original Task Summary
+<1-2 sentence summary>
+
+### Children to REVERT
+- t<child_id> (<name>): <N> commits
+  Areas: <dir1>/, <dir2>/
+  Commits:
+  - `<hash>` (<date>): <message> — <file1> (+N/-M), <file2> (+N/-M)
+[one entry per child selected for revert, with their commits and per-commit file stats]
+
+### Children to KEEP (do NOT modify)
+- t<child_id> (<name>): <N> commits
+  Areas: <dir3>/
+[children NOT selected for revert]
+
+### Parent-level commits (if any)
+- <reverted or kept, per user selection>
+  Commits:
+  - `<hash>` (<date>): <message> — <file1> (+N/-M)
+
+### Revert Instructions
+1. Revert ALL changes from children listed in "Children to REVERT"
+2. Preserve ALL changes from children listed in "Children to KEEP"
+3. When a commit from a reverted child touches files also modified by kept children, manually revert only the reverted child's hunks
+4. Run verification/tests after reverting
+
+### Implementation Transparency Requirements
+During the planning/implementation phase for this revert task, the implementing agent MUST:
+1. **Before making any changes**, produce a detailed summary for user review:
+   - For each child being reverted: exactly which lines/functions/features will be removed or changed back
+   - For each child being kept: confirm no unintended side effects from reverting the other children
+   - Motivation: why each child is safe to revert independently of the kept children
+2. **Cross-child dependency analysis**: Check for imports, function calls, shared state, or config that crosses the boundary between reverted and kept children. List each dependency and how it will be resolved.
+3. **Impact on other project code**: Identify code OUTSIDE the original task's scope that now depends on the changes being reverted. List potential breakages and mitigation steps.
+4. **Present this summary to the user for approval BEFORE executing any revert changes.**
+
+### Post-Revert Task Management
+- **Disposition:** <chosen disposition>
+- **Original task file:** `<task_path>` (<location_type>)
+- **Original plan file:** `<plan_path>` (<location_type>)
+
+<same disposition handling as the standard partial revert template above>
+
+### Per-Child Disposition
+For each child task that was reverted, update the archived child task file with Revert Notes:
+
+**Fully reverted children** (all their areas selected for revert):
+Add to the archived child task file (resolve path via `--find-task <child_id>`):
+   ## Revert Notes
+   - **Reverted by:** t<revert_task_id>
+   - **Date:** <YYYY-MM-DD>
+   - **Type:** Complete (all changes from this child were reverted)
+   - **Areas reverted:** <child's area list>
+
+Children that were NOT reverted need no annotation.
+
+Commit all child annotations: `./ait git add <paths> && ./ait git commit -m "ait: Add revert notes to t<id> children"`
+```
+
+**For partial reverts of parent tasks using area selection with child mapping (Mode B):**
+
+Use the standard partial revert template above, but append these additional sections after "Areas to KEEP":
+
+```markdown
+### Child Task Mapping
+The selected areas map to the following child tasks:
+- t<child_id> (<name>): FULLY AFFECTED — all areas selected for revert
+- t<child_id> (<name>): PARTIALLY AFFECTED — <N> of <M> areas selected
+  Areas being reverted: <dir1>/
+  Areas being kept: <dir2>/
+- t<child_id> (<name>): NOT AFFECTED — no areas selected for revert
+```
+
+And append a "Per-Child Disposition" section to the Post-Revert Task Management:
+
+```markdown
+### Per-Child Disposition
+For each child task that was **fully** or **partially** affected by the area selection, update the archived child task file with Revert Notes:
+
+**Fully affected children** (all their areas in the revert selection):
+Add to the archived child task file (resolve path via `--find-task <child_id>`):
+   ## Revert Notes
+   - **Reverted by:** t<revert_task_id>
+   - **Date:** <YYYY-MM-DD>
+   - **Type:** Complete (all changes from this child were reverted)
+   - **Areas reverted:** <child's area list>
+
+**Partially affected children** (some areas reverted, some kept):
+Add to the archived child task file:
+   ## Revert Notes
+   - **Reverted by:** t<revert_task_id>
+   - **Date:** <YYYY-MM-DD>
+   - **Type:** Partial
+   - **Areas reverted:** <list of this child's reverted areas>
+   - **Areas kept:** <list of this child's kept areas>
+
+Children that were NOT affected need no annotation.
+
+Commit all child annotations: `./ait git add <paths> && ./ait git commit -m "ait: Add revert notes to t<id> children"`
 ```
 
 **Also fetch file-level details for the description:**

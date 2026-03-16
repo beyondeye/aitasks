@@ -25,6 +25,7 @@ Subcommands:
   --task-areas <id>       Group changed files by directory (area)
   --task-files <id>       Flat list of all changed files
   --find-task <id>        Locate task and plan files across all storage
+  --task-children-areas <id>  Group areas by child task (parent tasks only)
 
 Options:
   --limit N               Max results for --recent-tasks (default: 20)
@@ -37,6 +38,10 @@ Output formats:
   FILE|<path>|<insertions>|<deletions>
   TASK_LOCATION|<active|archived|tar_gz|not_found>|<path>
   PLAN_LOCATION|<active|archived|tar_gz|not_found>|<path>
+  CHILD_HEADER|<child_id>|<child_name>|<commit_count>
+  CHILD_AREA|<child_id>|<dir>|<file_count>|<insertions>|<deletions>|<file_list>
+  PARENT_HEADER|<parent_id>|<commit_count>
+  PARENT_AREA|<parent_id>|<dir>|<file_count>|<insertions>|<deletions>|<file_list>
 EOF
 }
 
@@ -59,6 +64,10 @@ parse_args() {
             --find-task)
                 MODE="find_task"
                 [[ $# -lt 2 ]] && die "--find-task requires a task ID"
+                TASK_ID="$2"; shift 2 ;;
+            --task-children-areas)
+                MODE="task_children_areas"
+                [[ $# -lt 2 ]] && die "--task-children-areas requires a task ID"
                 TASK_ID="$2"; shift 2 ;;
             --limit)
                 [[ $# -lt 2 ]] && die "--limit requires a number"
@@ -116,6 +125,13 @@ build_search_ids() {
     fi
 }
 
+# Collect commit hashes for a single task ID (no children expansion)
+_collect_hashes_for_id() {
+    local sid="$1"
+    local pattern="(t${sid})"
+    git log --all --format="%H" --fixed-strings --grep="$pattern" 2>/dev/null || true
+}
+
 # Collect commit hashes for a set of search IDs
 collect_commit_hashes() {
     local task_id="$1"
@@ -123,9 +139,54 @@ collect_commit_hashes() {
     build_search_ids "$task_id" search_ids
 
     for sid in "${search_ids[@]}"; do
-        local pattern="(t${sid})"
-        git log --all --format="%H" --fixed-strings --grep="$pattern" 2>/dev/null || true
+        _collect_hashes_for_id "$sid"
     done | sort -u
+}
+
+# Aggregate area stats from a list of commit hashes.
+# Outputs AREA-like lines with a configurable prefix and optional ID column.
+# Args: $1=prefix (AREA|CHILD_AREA|PARENT_AREA), $2=id (child_id or parent_id), $3..=hashes
+_aggregate_areas() {
+    local prefix="$1"
+    local id="$2"
+    shift 2
+    local -a hashes=("$@")
+
+    if [[ ${#hashes[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    declare -A area_ins area_del area_files
+
+    for h in "${hashes[@]}"; do
+        while IFS=$'\t' read -r ins del filepath; do
+            [[ -z "$filepath" ]] && continue
+            [[ "$ins" == "-" ]] && ins=0
+            [[ "$del" == "-" ]] && del=0
+
+            local dir
+            dir=$(dirname "$filepath")
+            [[ "$dir" == "." ]] && dir="(root)"
+            dir="${dir}/"
+
+            area_ins[$dir]=$(( ${area_ins[$dir]:-0} + ins ))
+            area_del[$dir]=$(( ${area_del[$dir]:-0} + del ))
+
+            local existing="${area_files[$dir]:-}"
+            if [[ -z "$existing" ]]; then
+                area_files[$dir]="$filepath"
+            elif [[ ",$existing," != *",$filepath,"* ]]; then
+                area_files[$dir]="${existing},${filepath}"
+            fi
+        done < <(git diff-tree --no-commit-id -r --numstat "$h" 2>/dev/null)
+    done
+
+    for dir in $(echo "${!area_ins[@]}" | tr ' ' '\n' | sort); do
+        local files="${area_files[$dir]}"
+        local file_count
+        file_count=$(echo "$files" | tr ',' '\n' | wc -l | tr -d ' ')
+        echo "${prefix}|${id}|${dir}|${file_count}|${area_ins[$dir]}|${area_del[$dir]}|${files}"
+    done
 }
 
 # --- Subcommands ---
@@ -197,41 +258,67 @@ cmd_task_areas() {
         return 0
     fi
 
-    # Collect per-file stats from all commits
-    declare -A area_ins area_del area_files
+    # Use _aggregate_areas with AREA prefix, stripping the id column
+    _aggregate_areas "AREA" "" "${hashes[@]}" | sed 's/^AREA||/AREA|/'
+}
 
-    for h in "${hashes[@]}"; do
-        while IFS=$'\t' read -r ins del filepath; do
-            [[ -z "$filepath" ]] && continue
-            # Skip binary files (shown as "-" in numstat)
-            [[ "$ins" == "-" ]] && ins=0
-            [[ "$del" == "-" ]] && del=0
+cmd_task_children_areas() {
+    local task_id="$1"
 
-            local dir
-            dir=$(dirname "$filepath")
-            [[ "$dir" == "." ]] && dir="(root)"
-            dir="${dir}/"
+    # Get child IDs
+    local children
+    children=$(get_child_ids "$task_id")
+    if [[ -z "$children" ]]; then
+        echo "NO_CHILDREN"
+        return 0
+    fi
 
-            area_ins[$dir]=$(( ${area_ins[$dir]:-0} + ins ))
-            area_del[$dir]=$(( ${area_del[$dir]:-0} + del ))
+    # Get all children info (paths + names) from all-children
+    local all_children_output
+    all_children_output=$("$SCRIPT_DIR/aitask_query_files.sh" all-children "$task_id" 2>/dev/null) || true
 
-            # Track unique files per area (comma-separated)
-            local existing="${area_files[$dir]:-}"
-            if [[ -z "$existing" ]]; then
-                area_files[$dir]="$filepath"
-            elif [[ ",$existing," != *",$filepath,"* ]]; then
-                area_files[$dir]="${existing},${filepath}"
-            fi
-        done < <(git diff-tree --no-commit-id -r --numstat "$h" 2>/dev/null)
-    done
+    # Process each child
+    while IFS= read -r cid; do
+        [[ -z "$cid" ]] && continue
 
-    # Output sorted by directory
-    for dir in $(echo "${!area_ins[@]}" | tr ' ' '\n' | sort); do
-        local files="${area_files[$dir]}"
-        local file_count
-        file_count=$(echo "$files" | tr ',' '\n' | wc -l | tr -d ' ')
-        echo "AREA|${dir}|${file_count}|${area_ins[$dir]}|${area_del[$dir]}|${files}"
-    done
+        # Resolve child name from all-children output
+        local child_name=""
+        local child_line
+        child_line=$(echo "$all_children_output" | grep -E "t${task_id}_${cid##*_}_" | head -1 || true)
+        if [[ -n "$child_line" ]]; then
+            # Extract name: CHILD:aitasks/t50/t50_1_login.md → login
+            local basename_part
+            basename_part=$(basename "${child_line#*:}" .md)
+            # Strip the t<parent>_<child>_ prefix to get the name
+            child_name="${basename_part#t"${task_id}"_"${cid##*_}"_}"
+        fi
+
+        # Collect hashes for this child only
+        local -a child_hashes=()
+        while IFS= read -r h; do
+            [[ -n "$h" ]] && child_hashes+=("$h")
+        done < <(_collect_hashes_for_id "$cid")
+
+        local commit_count=${#child_hashes[@]}
+
+        echo "CHILD_HEADER|${cid}|${child_name}|${commit_count}"
+
+        if [[ $commit_count -gt 0 ]]; then
+            _aggregate_areas "CHILD_AREA" "$cid" "${child_hashes[@]}"
+        fi
+    done <<< "$children"
+
+    # Parent-level commits (tagged with parent ID, not any child)
+    local -a parent_hashes=()
+    while IFS= read -r h; do
+        [[ -n "$h" ]] && parent_hashes+=("$h")
+    done < <(_collect_hashes_for_id "$task_id")
+
+    local parent_count=${#parent_hashes[@]}
+    if [[ $parent_count -gt 0 ]]; then
+        echo "PARENT_HEADER|${task_id}|${parent_count}"
+        _aggregate_areas "PARENT_AREA" "$task_id" "${parent_hashes[@]}"
+    fi
 }
 
 cmd_task_files() {
@@ -346,11 +433,12 @@ cmd_find_task() {
 main() {
     parse_args "$@"
     case "$MODE" in
-        recent_tasks) cmd_recent_tasks ;;
-        task_commits) find_task_commits "$TASK_ID" ;;
-        task_areas)   cmd_task_areas "$TASK_ID" ;;
-        task_files)   cmd_task_files "$TASK_ID" ;;
-        find_task)    cmd_find_task "$TASK_ID" ;;
+        recent_tasks)        cmd_recent_tasks ;;
+        task_commits)        find_task_commits "$TASK_ID" ;;
+        task_areas)          cmd_task_areas "$TASK_ID" ;;
+        task_files)          cmd_task_files "$TASK_ID" ;;
+        find_task)           cmd_find_task "$TASK_ID" ;;
+        task_children_areas) cmd_task_children_areas "$TASK_ID" ;;
         *) show_help; exit 1 ;;
     esac
 }

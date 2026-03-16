@@ -106,12 +106,20 @@ setup_test_repo() {
         echo "auth v2" > src/auth.py
         git add . && git commit -m "bug: Fix auth validation (t50)" --quiet
 
-        # Task 50 children
+        # Task 50 children (with distinct directories for per-child area tests)
         echo "login code" > src/login.py
         git add . && git commit -m "feature: Add login page (t50_1)" --quiet
 
+        mkdir -p templates
+        echo "login template" > templates/login.html
+        git add . && git commit -m "feature: Add login template (t50_1)" --quiet
+
         echo "signup code" > src/signup.py
         git add . && git commit -m "feature: Add signup flow (t50_2)" --quiet
+
+        mkdir -p tests
+        echo "signup tests" > tests/test_signup.py
+        git add . && git commit -m "test: Add signup tests (t50_2)" --quiet
 
         # Task 99: single commit in a different directory
         mkdir -p lib
@@ -278,6 +286,43 @@ assert_line_count "not-found outputs 2 lines" "2" "$result"
 echo "=== Test: --help shows --find-task ==="
 result=$(cd "$TMPDIR_TEST" && bash "$SCRIPT" --help 2>&1)
 assert_contains "--help lists --find-task" "--find-task" "$result"
+
+echo "=== Test: --task-children-areas for parent with children ==="
+result=$(cd "$TMPDIR_TEST" && bash "$SCRIPT" --task-children-areas 50 2>&1)
+assert_contains "children-areas has CHILD_HEADER 50_1" "CHILD_HEADER|50_1|" "$result"
+assert_contains "children-areas has CHILD_HEADER 50_2" "CHILD_HEADER|50_2|" "$result"
+assert_contains "children-areas 50_1 has src/" "CHILD_AREA|50_1|src/" "$result"
+assert_contains "children-areas 50_1 has templates/" "CHILD_AREA|50_1|templates/" "$result"
+assert_contains "children-areas 50_2 has src/" "CHILD_AREA|50_2|src/" "$result"
+assert_contains "children-areas 50_2 has tests/" "CHILD_AREA|50_2|tests/" "$result"
+assert_contains "children-areas has PARENT_HEADER" "PARENT_HEADER|50|" "$result"
+assert_contains "children-areas parent has src/" "PARENT_AREA|50|src/" "$result"
+
+echo "=== Test: --task-children-areas child names ==="
+result=$(cd "$TMPDIR_TEST" && bash "$SCRIPT" --task-children-areas 50 2>&1)
+assert_contains "50_1 child name is login" "CHILD_HEADER|50_1|login|" "$result"
+assert_contains "50_2 child name is signup" "CHILD_HEADER|50_2|signup|" "$result"
+
+echo "=== Test: --task-children-areas commit counts ==="
+result=$(cd "$TMPDIR_TEST" && bash "$SCRIPT" --task-children-areas 50 2>&1)
+# t50_1 has 2 commits (login page + login template)
+assert_contains "50_1 has 2 commits" "CHILD_HEADER|50_1|login|2" "$result"
+# t50_2 has 2 commits (signup flow + signup tests)
+assert_contains "50_2 has 2 commits" "CHILD_HEADER|50_2|signup|2" "$result"
+# Parent has 2 commits (auth module + auth fix)
+assert_contains "parent has 2 commits" "PARENT_HEADER|50|2" "$result"
+
+echo "=== Test: --task-children-areas for standalone task ==="
+result=$(cd "$TMPDIR_TEST" && bash "$SCRIPT" --task-children-areas 99 2>&1)
+assert_eq "standalone returns NO_CHILDREN" "NO_CHILDREN" "$result"
+
+echo "=== Test: --task-children-areas for nonexistent task ==="
+result=$(cd "$TMPDIR_TEST" && bash "$SCRIPT" --task-children-areas 9999 2>&1)
+assert_eq "nonexistent returns NO_CHILDREN" "NO_CHILDREN" "$result"
+
+echo "=== Test: --help shows --task-children-areas ==="
+result=$(cd "$TMPDIR_TEST" && bash "$SCRIPT" --help 2>&1)
+assert_contains "--help lists --task-children-areas" "--task-children-areas" "$result"
 
 # --- Summary ---
 echo ""
