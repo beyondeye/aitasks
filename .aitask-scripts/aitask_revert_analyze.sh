@@ -24,6 +24,7 @@ Subcommands:
   --task-commits <id>     Find all commits associated with a task
   --task-areas <id>       Group changed files by directory (area)
   --task-files <id>       Flat list of all changed files
+  --find-task <id>        Locate task and plan files across all storage
 
 Options:
   --limit N               Max results for --recent-tasks (default: 20)
@@ -34,6 +35,8 @@ Output formats:
   COMMIT|<hash>|<date>|<message>|<insertions>|<deletions>|<task_id>
   AREA|<dir>|<file_count>|<insertions>|<deletions>|<file1,file2,...>
   FILE|<path>|<insertions>|<deletions>
+  TASK_LOCATION|<active|archived|tar_gz|not_found>|<path>
+  PLAN_LOCATION|<active|archived|tar_gz|not_found>|<path>
 EOF
 }
 
@@ -52,6 +55,10 @@ parse_args() {
             --task-files)
                 MODE="task_files"
                 [[ $# -lt 2 ]] && die "--task-files requires a task ID"
+                TASK_ID="$2"; shift 2 ;;
+            --find-task)
+                MODE="find_task"
+                [[ $# -lt 2 ]] && die "--find-task requires a task ID"
                 TASK_ID="$2"; shift 2 ;;
             --limit)
                 [[ $# -lt 2 ]] && die "--limit requires a number"
@@ -257,6 +264,83 @@ cmd_task_files() {
     done
 }
 
+# Locate a file by trying active, archived, then tar.gz locations.
+# Args: $1=type ("task" or "plan"), $2=task_id
+# Output: prints TASK_LOCATION|... or PLAN_LOCATION|... line
+_find_file_location() {
+    local file_type="$1"
+    local task_id="$2"
+    local prefix label active_dir archived_dir tar_path
+
+    if [[ "$file_type" == "task" ]]; then
+        prefix="t"; label="TASK_LOCATION"
+        active_dir="$TASK_DIR"; archived_dir="$ARCHIVED_DIR"
+        tar_path="$ARCHIVED_DIR/old.tar.gz"
+    else
+        prefix="p"; label="PLAN_LOCATION"
+        active_dir="$PLAN_DIR"; archived_dir="$ARCHIVED_PLAN_DIR"
+        tar_path="$ARCHIVED_PLAN_DIR/old.tar.gz"
+    fi
+
+    local files=""
+
+    if [[ "$task_id" =~ ^([0-9]+)_([0-9]+)$ ]]; then
+        local parent_num="${BASH_REMATCH[1]}"
+        local child_num="${BASH_REMATCH[2]}"
+        local pat="${prefix}${parent_num}/${prefix}${parent_num}_${child_num}_"
+
+        # Active
+        files=$(ls "${active_dir}/${prefix}${parent_num}/${prefix}${parent_num}_${child_num}_"*.md 2>/dev/null || true)
+        if [[ -n "$files" ]]; then
+            echo "${label}|active|${files}"
+            return
+        fi
+
+        # Archived
+        files=$(ls "${archived_dir}/${prefix}${parent_num}/${prefix}${parent_num}_${child_num}_"*.md 2>/dev/null || true)
+        if [[ -n "$files" ]]; then
+            echo "${label}|archived|${files}"
+            return
+        fi
+
+        # Deep archive
+        local tar_match
+        tar_match=$(_search_tar_gz "$tar_path" "(^|/)${pat}.*\.md$" || true)
+        if [[ -n "$tar_match" ]]; then
+            echo "${label}|tar_gz|${tar_match}"
+            return
+        fi
+    else
+        # Parent
+        files=$(ls "${active_dir}/${prefix}${task_id}_"*.md 2>/dev/null || true)
+        if [[ -n "$files" ]]; then
+            echo "${label}|active|${files}"
+            return
+        fi
+
+        files=$(ls "${archived_dir}/${prefix}${task_id}_"*.md 2>/dev/null || true)
+        if [[ -n "$files" ]]; then
+            echo "${label}|archived|${files}"
+            return
+        fi
+
+        local tar_match
+        tar_match=$(_search_tar_gz "$tar_path" "(^|/)${prefix}${task_id}_.*\.md$" || true)
+        if [[ -n "$tar_match" ]]; then
+            echo "${label}|tar_gz|${tar_match}"
+            return
+        fi
+    fi
+
+    echo "${label}|not_found|"
+}
+
+cmd_find_task() {
+    local task_id="$1"
+    _find_file_location "task" "$task_id"
+    _find_file_location "plan" "$task_id"
+}
+
 # --- Main ---
 
 main() {
@@ -266,6 +350,7 @@ main() {
         task_commits) find_task_commits "$TASK_ID" ;;
         task_areas)   cmd_task_areas "$TASK_ID" ;;
         task_files)   cmd_task_files "$TASK_ID" ;;
+        find_task)    cmd_find_task "$TASK_ID" ;;
         *) show_help; exit 1 ;;
     esac
 }

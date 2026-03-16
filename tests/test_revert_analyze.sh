@@ -126,6 +126,22 @@ setup_test_repo() {
         mkdir -p aitasks/t50
         echo "---" > aitasks/t50/t50_1_login.md
         echo "---" > aitasks/t50/t50_2_signup.md
+
+        # Create task/plan files for --find-task tests
+        # Active parent task + plan (t99)
+        echo "---" > aitasks/t99_utils.md
+        mkdir -p aiplans
+        echo "---" > aiplans/p99_utils.md
+
+        # Archived parent task + plan (t50)
+        mkdir -p aitasks/archived aiplans/archived
+        echo "---" > aitasks/archived/t50_auth.md
+        echo "---" > aiplans/archived/p50_auth.md
+
+        # Archived child plan (t50_1)
+        mkdir -p aiplans/archived/p50
+        echo "---" > aiplans/archived/p50/p50_1_login.md
+
         git add . && git commit -m "ait: Add child tasks" --quiet
     )
 
@@ -227,6 +243,41 @@ assert_line_count "t99 has 1 file" "1" "$result"
 echo "=== Test: --task-commits nonexistent task ==="
 result=$(cd "$TMPDIR_TEST" && bash "$SCRIPT" --task-commits 9999 2>&1)
 assert_eq "nonexistent task returns empty" "" "$result"
+
+echo "=== Test: --find-task active parent ==="
+result=$(cd "$TMPDIR_TEST" && bash "$SCRIPT" --find-task 99 2>&1)
+assert_contains "find active task" "TASK_LOCATION|active|" "$result"
+assert_contains "find active task path" "t99_utils.md" "$result"
+assert_contains "find active plan" "PLAN_LOCATION|active|" "$result"
+assert_contains "find active plan path" "p99_utils.md" "$result"
+assert_line_count "find-task outputs 2 lines" "2" "$result"
+
+echo "=== Test: --find-task archived parent ==="
+result=$(cd "$TMPDIR_TEST" && bash "$SCRIPT" --find-task 50 2>&1)
+# t50 has active children in aitasks/t50/ but no active parent task file;
+# the parent task file is in aitasks/archived/
+assert_contains "find archived task" "TASK_LOCATION|archived|" "$result"
+assert_contains "find archived task path" "t50_auth.md" "$result"
+assert_contains "find archived plan" "PLAN_LOCATION|archived|" "$result"
+assert_contains "find archived plan path" "p50_auth.md" "$result"
+
+echo "=== Test: --find-task active child ==="
+result=$(cd "$TMPDIR_TEST" && bash "$SCRIPT" --find-task 50_1 2>&1)
+assert_contains "find active child task" "TASK_LOCATION|active|" "$result"
+assert_contains "find active child path" "t50_1_login.md" "$result"
+# Child plan is archived
+assert_contains "find archived child plan" "PLAN_LOCATION|archived|" "$result"
+assert_contains "find archived child plan path" "p50_1_login.md" "$result"
+
+echo "=== Test: --find-task nonexistent ==="
+result=$(cd "$TMPDIR_TEST" && bash "$SCRIPT" --find-task 9999 2>&1)
+assert_contains "not found task" "TASK_LOCATION|not_found|" "$result"
+assert_contains "not found plan" "PLAN_LOCATION|not_found|" "$result"
+assert_line_count "not-found outputs 2 lines" "2" "$result"
+
+echo "=== Test: --help shows --find-task ==="
+result=$(cd "$TMPDIR_TEST" && bash "$SCRIPT" --help 2>&1)
+assert_contains "--help lists --find-task" "--find-task" "$result"
 
 # --- Summary ---
 echo ""

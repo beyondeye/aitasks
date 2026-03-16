@@ -13,28 +13,7 @@ user-invocable: true
 
 ### Step 0: Select Execution Profile
 
-Scan available execution profiles:
-
-```bash
-./.aitask-scripts/aitask_scan_profiles.sh
-```
-
-Parse the output lines. Each valid profile appears as `PROFILE|<filename>|<name>|<description>`. Lines starting with `INVALID|<filename>` indicate profiles with bad YAML — warn the user ("Profile '\<filename\>' has invalid format, skipping").
-
-**If output is `NO_PROFILES`:** Skip this step (no profile active, all questions asked normally).
-
-**If exactly one `PROFILE` line:** Auto-load it and inform user: "Using execution profile: \<name\> (\<description\>)". Read the full profile: `cat aitasks/metadata/profiles/<filename>`
-
-**If multiple `PROFILE` lines:** Use `AskUserQuestion`:
-- Question: "Select an execution profile (pre-configured answers to reduce prompts):"
-- Header: "Profile"
-- Options:
-  - Each profile: label = `name` field, description = `description` field
-  - "No profile" (description: "Ask all questions interactively")
-
-**If "No profile" selected:** Proceed with all questions asked normally (no active profile).
-
-**After selection:** Read the chosen profile file: `cat aitasks/metadata/profiles/<filename>`. Store the profile in memory for use throughout remaining steps. Store the `<filename>` value as `active_profile_filename`.
+Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-workflow/execution-profile-selection.md`).
 
 ### Step 1: Task Discovery
 
@@ -232,6 +211,12 @@ Use `AskUserQuestion`:
 
 Build a self-contained task description using the data collected. The description must include ALL information needed for a future planning agent to execute the revert without re-running analysis scripts.
 
+**Before building the description**, resolve task and plan file locations:
+```bash
+bash .aitask-scripts/aitask_revert_analyze.sh --find-task <id>
+```
+Parse the output: `TASK_LOCATION|<location_type>|<path>` and `PLAN_LOCATION|<location_type>|<path>`. Location types are `active`, `archived`, `tar_gz`, or `not_found`. Use the resolved paths in the disposition instructions below.
+
 **For complete reverts, build the description from this template:**
 
 ```markdown
@@ -265,10 +250,39 @@ During the planning/implementation phase for this revert task, the implementing 
 
 ### Post-Revert Task Management
 - **Disposition:** <delete task and plan | keep archived with revert notes | move back to Ready>
-<specific instructions per disposition choice:>
-- Delete: Remove task file, plan file, and archived versions entirely
-- Keep archived: Add a "## Reverted" section to the archived task file noting the revert task ID and date
-- Move back to Ready: Un-archive task file to aitasks/, set status to Ready, clear assigned_to, add notes about what was reverted
+- **Original task file:** `<task_path>` (<location_type>)
+- **Original plan file:** `<plan_path>` (<location_type>)
+
+**If disposition is "Delete task and plan":**
+1. Delete original task file: `rm <task_path>`
+2. Delete original plan file: `rm <plan_path>` (if exists)
+3. For parent tasks with archived children: also remove `aitasks/archived/t<id>/` and `aiplans/archived/p<id>/`
+4. Commit deletions: `./ait git add <paths> && ./ait git commit -m "ait: Remove reverted task t<id>"`
+
+**If disposition is "Keep archived":**
+1. Add a Revert Notes section to the archived task file (`<task_path>`):
+   ```
+   ## Revert Notes
+   - **Reverted by:** t<revert_task_id>
+   - **Date:** <YYYY-MM-DD>
+   - **Type:** Complete
+   - **Areas reverted:** <list of all affected areas>
+   ```
+2. Commit: `./ait git add <task_path> && ./ait git commit -m "ait: Add revert notes to t<id>"`
+
+**If disposition is "Move back to Ready":**
+1. If task is archived, move to active: `mv <task_path> aitasks/`
+2. If plan is archived, move to active: `mv <plan_path> aiplans/` (or `aiplans/p<id>/` for children)
+3. Update task status: `bash .aitask-scripts/aitask_update.sh --batch <id> --status Ready --assigned-to ""`
+4. Add Revert Notes section to the task file:
+   ```
+   ## Revert Notes
+   - **Reverted by:** t<revert_task_id>
+   - **Date:** <YYYY-MM-DD>
+   - **Type:** Complete
+   - **Areas reverted:** <list of all affected areas>
+   ```
+5. Commit: `./ait git add <paths> && ./ait git commit -m "ait: Un-archive and reset reverted task t<id>"`
 ```
 
 **For partial reverts, build the description from this template:**
@@ -307,8 +321,41 @@ During the planning/implementation phase for this revert task, the implementing 
 
 ### Post-Revert Task Management
 - **Disposition:** <chosen disposition>
-<specific instructions per disposition choice (same as complete revert)>
-- If moving back to Ready: add notes to original task about which areas were reverted vs kept, referencing this revert task ID
+- **Original task file:** `<task_path>` (<location_type>)
+- **Original plan file:** `<plan_path>` (<location_type>)
+
+**If disposition is "Delete task and plan":**
+1. Delete original task file: `rm <task_path>`
+2. Delete original plan file: `rm <plan_path>` (if exists)
+3. For parent tasks with archived children: also remove `aitasks/archived/t<id>/` and `aiplans/archived/p<id>/`
+4. Commit deletions: `./ait git add <paths> && ./ait git commit -m "ait: Remove reverted task t<id>"`
+
+**If disposition is "Keep archived":**
+1. Add a Revert Notes section to the archived task file (`<task_path>`):
+   ```
+   ## Revert Notes
+   - **Reverted by:** t<revert_task_id>
+   - **Date:** <YYYY-MM-DD>
+   - **Type:** Partial
+   - **Areas reverted:** <list of reverted areas>
+   - **Areas kept:** <list of kept areas>
+   ```
+2. Commit: `./ait git add <task_path> && ./ait git commit -m "ait: Add revert notes to t<id>"`
+
+**If disposition is "Move back to Ready":**
+1. If task is archived, move to active: `mv <task_path> aitasks/`
+2. If plan is archived, move to active: `mv <plan_path> aiplans/` (or `aiplans/p<id>/` for children)
+3. Update task status: `bash .aitask-scripts/aitask_update.sh --batch <id> --status Ready --assigned-to ""`
+4. Add Revert Notes section to the task file:
+   ```
+   ## Revert Notes
+   - **Reverted by:** t<revert_task_id>
+   - **Date:** <YYYY-MM-DD>
+   - **Type:** Partial
+   - **Areas reverted:** <list of reverted areas>
+   - **Areas kept:** <list of kept areas>
+   ```
+5. Commit: `./ait git add <paths> && ./ait git commit -m "ait: Un-archive and reset reverted task t<id>"`
 ```
 
 **Also fetch file-level details for the description:**
