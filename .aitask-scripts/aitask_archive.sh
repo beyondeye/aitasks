@@ -29,6 +29,7 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 # --- Configuration ---
 DRY_RUN=false
 NO_COMMIT=false
+SUPERSEDED=false
 TASK_NUM=""
 
 # --- Help ---
@@ -44,6 +45,7 @@ Arguments:
 Options:
   --dry-run       Preview actions without executing
   --no-commit     Stage changes but don't commit
+  --superseded    Mark task as superseded (adds archived_reason: superseded)
   --help, -h      Show this help
 
 Output format (structured lines for skill parsing):
@@ -77,6 +79,10 @@ parse_args() {
                 ;;
             --no-commit)
                 NO_COMMIT=true
+                shift
+                ;;
+            --superseded)
+                SUPERSEDED=true
                 shift
                 ;;
             --help|-h)
@@ -119,6 +125,12 @@ archive_metadata_update() {
     # Add completed_at after updated_at (only if not already present)
     if ! grep -q "^completed_at:" "$file_path"; then
         awk -v ts="$timestamp" '/^updated_at:/{print; print "completed_at: " ts; next}1' "$file_path" > "$file_path.tmp" && mv "$file_path.tmp" "$file_path"
+    fi
+    # Add archived_reason for superseded tasks
+    if [[ "$SUPERSEDED" == true ]]; then
+        if ! grep -q "^archived_reason:" "$file_path"; then
+            awk '/^status:/{print; print "archived_reason: superseded"; next}1' "$file_path" > "$file_path.tmp" && mv "$file_path.tmp" "$file_path"
+        fi
     fi
 }
 

@@ -1232,6 +1232,70 @@ class DeleteConfirmScreen(ModalScreen):
         self.dismiss(False)
 
 
+class DeleteArchiveConfirmScreen(ModalScreen):
+    """Confirmation dialog offering Delete or Archive for a task."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, task_name: str, files_to_delete: list,
+                 dep_warnings: list, related_tasks: list,
+                 is_child: bool):
+        super().__init__()
+        self.task_name = task_name
+        self.files_to_delete = files_to_delete
+        self.dep_warnings = dep_warnings
+        self.related_tasks = related_tasks
+        self.is_child = is_child
+
+    def compose(self):
+        lines = []
+        # Explicit dependency section — always shown
+        if self.dep_warnings:
+            lines.append("[!] Explicit dependencies found:")
+            for w in self.dep_warnings:
+                lines.append(f"    {w}")
+        else:
+            lines.append("[ok] No explicit dependencies found.")
+        lines.append("")
+        # Related tasks for manual review
+        if self.related_tasks:
+            label = "Sibling" if self.is_child else "Related"
+            lines.append(f"{label} tasks — please verify no implicit dependencies:")
+            for t in self.related_tasks:
+                lines.append(f"    {t}")
+            lines.append("")
+        # Files affected
+        lines.append("Files affected:")
+        for f in self.files_to_delete:
+            lines.append(f"    {f}")
+        with Container(id="dep_picker_dialog"):
+            yield Label(
+                f"Delete or Archive '{self.task_name}'?\n\n" + "\n".join(lines),
+                id="delarch_label",
+            )
+            with Horizontal(id="detail_buttons"):
+                yield Button("Delete", variant="error", id="btn_do_delete")
+                yield Button("Archive", variant="warning", id="btn_do_archive")
+                yield Button("Cancel", variant="default", id="btn_do_cancel")
+
+    @on(Button.Pressed, "#btn_do_delete")
+    def do_delete(self):
+        self.dismiss("delete")
+
+    @on(Button.Pressed, "#btn_do_archive")
+    def do_archive(self):
+        self.dismiss("archive")
+
+    @on(Button.Pressed, "#btn_do_cancel")
+    def do_cancel(self):
+        self.dismiss("cancel")
+
+    def action_cancel(self):
+        self.dismiss("cancel")
+
+
 class DepPickerItem(Static):
     """A selectable dependency item in the picker."""
 
@@ -1788,11 +1852,9 @@ class TaskDetailScreen(ModalScreen):
                     yield Button("(R)evert", variant="error", id="btn_revert",
                                  disabled=is_done_or_ro or not is_modified)
                     yield Button("(E)dit", variant="primary", id="btn_edit", disabled=is_done_or_ro)
-                    is_child = self.task_data.filepath.parent.name.startswith("t")
                     can_delete = (not is_done and not is_folded and not self.read_only
-                                  and self.task_data.metadata.get("status", "") != "Implementing"
-                                  and not is_child)
-                    yield Button("(D)elete", variant="error", id="btn_delete",
+                                  and self.task_data.metadata.get("status", "") != "Implementing")
+                    yield Button("(D)elete/Archive", variant="error", id="btn_delete",
                                  disabled=not can_delete)
 
     @on(CycleField.Changed)
@@ -1807,10 +1869,9 @@ class TaskDetailScreen(ModalScreen):
         btn_save.disabled = not is_dirty
 
     def _update_delete_button(self):
-        is_child = self.task_data.filepath.parent.name.startswith("t")
         status = self._current_values.get("status", "")
         btn_delete = self.query_one("#btn_delete", Button)
-        btn_delete.disabled = (status == "Implementing" or is_child)
+        btn_delete.disabled = (status == "Implementing")
 
     @on(Button.Pressed, "#btn_save")
     def save_changes(self):
@@ -1863,7 +1924,7 @@ class TaskDetailScreen(ModalScreen):
 
     @on(Button.Pressed, "#btn_delete")
     def delete_task(self):
-        self.dismiss("delete")
+        self.dismiss("delete_archive")
 
     @on(Button.Pressed, "#btn_pick")
     def pick_task(self):
@@ -2493,6 +2554,10 @@ class KanbanApp(App):
         padding: 0 0 1 0;
         text-style: bold;
     }
+    #delarch_label {
+        text-align: left;
+        padding: 0 0 1 0;
+    }
     DepPickerItem { height: 1; width: 100%; padding: 0 1; }
     DepPickerItem.dep-item-focused { background: $primary 20%; border-left: thick $accent; }
     ChildPickerItem { height: 1; width: 100%; padding: 0 1; }
@@ -3042,15 +3107,27 @@ class KanbanApp(App):
                             )
                             return
                     self.run_aitask_pick(focused.task_data.filename)
-                elif result == "delete":
+                elif result == "delete_archive":
+                    task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
+                    is_child = focused.task_data.filepath.parent.name.startswith("t")
                     display_names, paths = self._collect_delete_files(focused.task_data)
-                    def on_delete_confirmed(confirmed):
-                        if confirmed:
-                            task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
+                    dep_warnings, related = self._check_task_dependencies(focused.task_data, is_child)
+
+                    def on_action_chosen(action):
+                        if action == "delete":
                             self._execute_delete(task_num, paths, focused.task_data)
+                        elif action == "archive":
+                            self._execute_archive(task_num, focused.task_data)
                         else:
                             self.refresh_board(refocus_filename=focused.task_data.filename)
-                    self.push_screen(DeleteConfirmScreen(display_names), on_delete_confirmed)
+
+                    self.push_screen(
+                        DeleteArchiveConfirmScreen(
+                            focused.task_data.filename, display_names,
+                            dep_warnings, related, is_child,
+                        ),
+                        on_action_chosen,
+                    )
                     return
                 # Refresh board to update git status indicators (asterisk, commit actions)
                 # Include lock refresh when returning from lock/unlock operations
@@ -3605,25 +3682,99 @@ class KanbanApp(App):
         display_names.append(task.filename)
         paths.append(task.filepath)
 
-        # Plan file for parent task: aiplans/p<N>_<name>.md
-        plan_name = "p" + task.filename[1:]
-        plan_path = Path("aiplans") / plan_name
-        if plan_path.exists():
-            display_names.append(str(plan_path))
-            paths.append(plan_path)
+        is_child = task.filepath.parent.name.startswith("t")
 
-        # Child tasks and their plans
-        children = self.manager.get_child_tasks_for_parent(task_num)
-        for child in children:
-            display_names.append(child.filename)
-            paths.append(child.filepath)
-            child_plan_name = "p" + child.filename[1:]
-            child_plan_path = Path("aiplans") / task_num.replace("t", "p", 1) / child_plan_name
-            if child_plan_path.exists():
-                display_names.append(str(child_plan_path))
-                paths.append(child_plan_path)
+        if is_child:
+            # Child task: plan is in aiplans/p<parent>/p<parent>_<child>_<name>.md
+            parent_num = self.manager.get_parent_num_for_child(task)
+            plan_name = "p" + task.filename[1:]
+            plan_path = Path("aiplans") / parent_num.replace("t", "p", 1) / plan_name
+            if plan_path.exists():
+                display_names.append(str(plan_path))
+                paths.append(plan_path)
+        else:
+            # Parent task: plan is in aiplans/p<N>_<name>.md
+            plan_name = "p" + task.filename[1:]
+            plan_path = Path("aiplans") / plan_name
+            if plan_path.exists():
+                display_names.append(str(plan_path))
+                paths.append(plan_path)
+
+            # Child tasks and their plans
+            children = self.manager.get_child_tasks_for_parent(task_num)
+            for child in children:
+                display_names.append(child.filename)
+                paths.append(child.filepath)
+                child_plan_name = "p" + child.filename[1:]
+                child_plan_path = Path("aiplans") / task_num.replace("t", "p", 1) / child_plan_name
+                if child_plan_path.exists():
+                    display_names.append(str(child_plan_path))
+                    paths.append(child_plan_path)
 
         return display_names, paths
+
+    def _check_task_dependencies(self, task: Task, is_child: bool):
+        """Check if other tasks depend on this task.
+        Returns (dep_warnings: list[str], related_summaries: list[str])."""
+        task_num_str, _ = TaskCard._parse_filename(task.filename)
+        dep_warnings = []
+        related_summaries = []
+
+        if is_child:
+            # Check sibling dependencies
+            # Depends may use bare number (1), full ID (t398_1), or number-only ID (398_1)
+            parent_num = self.manager.get_parent_num_for_child(task)
+            siblings = self.manager.get_child_tasks_for_parent(parent_num)
+            child_local = task_num_str.split("_")[-1]
+            match_variants = {child_local, task_num_str, task_num_str.lstrip("t")}
+
+            for sib in siblings:
+                if sib.filepath == task.filepath:
+                    continue
+                sib_status = sib.metadata.get("status", "Ready")
+                sib_depends = {str(d) for d in sib.metadata.get("depends", [])}
+                if match_variants & sib_depends:
+                    dep_warnings.append(
+                        f"{sib.filename} ({sib_status}) explicitly depends on this task"
+                    )
+                else:
+                    related_summaries.append(f"{sib.filename} [{sib_status}]")
+        else:
+            # Check all parent tasks for dependencies on this task number
+            # Depends may use bare number (42) or with prefix (t42)
+            task_local = task_num_str.lstrip("t")
+            match_variants = {task_local, task_num_str}
+            for fname, other in self.manager.task_datas.items():
+                if other.filepath == task.filepath:
+                    continue
+                other_status = other.metadata.get("status", "Ready")
+                other_depends = {str(d) for d in other.metadata.get("depends", [])}
+                if match_variants & other_depends:
+                    dep_warnings.append(
+                        f"{other.filename} ({other_status}) explicitly depends on this task"
+                    )
+
+        return dep_warnings, related_summaries
+
+    def _execute_archive(self, task_num: str, task: Task):
+        """Archive a task as superseded via aitask_archive.sh --superseded."""
+        try:
+            result = subprocess.run(
+                ["./.aitask-scripts/aitask_archive.sh", "--superseded", task_num],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode == 0:
+                self.notify(f"Archived {task_num} as superseded", severity="information")
+            else:
+                error = result.stderr.strip() or result.stdout.strip()
+                self.notify(f"Archive failed: {error}", severity="error")
+        except subprocess.TimeoutExpired:
+            self.notify("Archive operation timed out", severity="error")
+        except FileNotFoundError:
+            self.notify("Archive script not found", severity="error")
+
+        self.manager.load_tasks()
+        self.refresh_board()
 
     def _execute_delete(self, task_num: str, paths: list, task: Task = None):
         """Delete files via git rm and commit."""
