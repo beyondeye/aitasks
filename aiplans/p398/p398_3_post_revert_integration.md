@@ -83,5 +83,19 @@ Test the complete flow manually:
 5. Run `./ait revert-analyze --find-task <id>` — verify file locations
 6. Trace through the SKILL.md workflow mentally for all 3 dispositions
 
+## Final Implementation Notes
+- **Actual work done:** Added `--find-task <id>` subcommand to `aitask_revert_analyze.sh`, refined SKILL.md disposition templates with concrete paths/commands/Revert Notes format, and added 17 automated tests for the new subcommand.
+- **Deviations from plan:**
+  - Step 3 (update `ait` dispatcher) was dropped per user feedback — `aitask_revert_analyze.sh` is an internal script called directly by the revert skill, not user-facing
+  - Added automated tests instead of just manual validation (Step 4)
+  - Used `_find_file_location()` helper function (shared between task and plan resolution) instead of duplicating patterns — cleaner than separate functions
+  - Added `|| true` to `_search_tar_gz` calls in `_find_file_location` to handle `pipefail` when grep finds no matches in tar.gz
+- **Issues encountered:** `_search_tar_gz` pipeline (`tar | grep | head`) returns non-zero when grep finds no matches, which with `set -euo pipefail` causes the script to exit. Fixed with `|| true` on the call sites.
+- **Key decisions:** Reused `_search_tar_gz()` from task_utils.sh (already sourced) rather than reimplementing tar.gz search. Implemented `_find_file_location()` as a generic helper that handles both task and plan lookups via a `file_type` parameter.
+- **Notes for sibling tasks:**
+  - The `--find-task` subcommand is called by the revert skill in Step 4 to populate concrete file paths in the disposition instructions
+  - Output format: exactly 2 lines — `TASK_LOCATION|<type>|<path>` and `PLAN_LOCATION|<type>|<path>`
+  - The SKILL.md was also modified by a linter during review (Step 0 now references `execution-profile-selection.md` instead of inline profile instructions)
+
 ## Step 9 Reference
 After implementation, follow task-workflow Step 9 for archival.
