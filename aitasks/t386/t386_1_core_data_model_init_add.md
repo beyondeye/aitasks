@@ -1,13 +1,12 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [t386_8]
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [subagents]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-15 10:51
-updated_at: 2026-03-16 14:56
+updated_at: 2026-03-16 16:00
 ---
 
 ## Core Data Model & AgentSet Init/Add Scripts
