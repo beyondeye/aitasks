@@ -54,8 +54,8 @@ When recording `implemented_with` in task metadata, construct `opencode/<name>`.
 
 1. Check `AITASK_AGENT_STRING` env var — if set, use it directly.
 2. Otherwise, identify your model ID from system context.
-3. Match against `aitasks/metadata/models_opencode.json` (`cli_id` → `name`).
-4. Construct `opencode/<name>` (e.g., `opencode/gpt5_4`).
+3. Run: `./.aitask-scripts/aitask_resolve_detected_agent.sh --agent opencode --cli-id <model_id>`
+4. Parse the output — the value after the colon is your agent string.
 
 ### Task-Workflow Adaptations
 

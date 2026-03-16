@@ -52,8 +52,8 @@ Do NOT guess your model ID — Codex models cannot reliably self-identify.
 
 1. Check `AITASK_AGENT_STRING` env var — if set, use it directly.
 2. Otherwise, read configured model: `grep '^model' ~/.codex/config.toml | sed 's/^model[[:space:]]*=[[:space:]]*//' | tr -d '"'`
-3. Match against `aitasks/metadata/models_codex.json` (`cli_id` → `name`).
-4. Construct `codex/<name>` (e.g., `codex/gpt5_4`).
+3. Run: `./.aitask-scripts/aitask_resolve_detected_agent.sh --agent codex --cli-id <model_id>`
+4. Parse the output — the value after the colon is your agent string.
 
 ### Task-Workflow Adaptations
 

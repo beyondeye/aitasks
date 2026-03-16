@@ -19,9 +19,10 @@ Attribution Procedure (see `agent-attribution.md`) and the Satisfaction Feedback
      - **Codex CLI:** Do NOT guess your model ID — Codex models cannot reliably self-identify from system context. Instead, run: `grep '^model' ~/.codex/config.toml | sed 's/^model[[:space:]]*=[[:space:]]*//' | tr -d '"'` to read the configured model (e.g., `gpt-5.4`). This returns the startup/default model. **Limitation:** If the model was changed mid-session via `/model`, this gives the configured default, not the current runtime model.
      - **Gemini CLI:** Read the model ID from system context, or run: `jq -r '.model // empty' ~/.gemini/settings.json 2>/dev/null` as fallback.
      - **OpenCode:** Read the model ID from system context.
-    - Read the corresponding model config file: `aitasks/metadata/models_<agent>.json`
-    - Find the model entry whose `cli_id` matches your model ID exactly
-    - For OpenCode only, if no exact match exists, try an explicit documented alias match before falling back. Do not silently remap to a different provider/model entry based only on a similar base model name.
-    - Extract the `name` field from that entry (e.g., `opus4_6`)
-   - Construct the agent string as `<agent>/<name>` (e.g., `claudecode/opus4_6`)
-   - If no matching entry is found, use `<agent>/<model_id>` as fallback (e.g., `claudecode/claude-opus-4-6`) — the raw model ID from the system context
+   - **Resolve via script:**
+     ```bash
+     ./.aitask-scripts/aitask_resolve_detected_agent.sh --agent <agent> --cli-id <model_id>
+     ```
+   - Parse the single-line output — the value after the colon is the agent string:
+     - `AGENT_STRING:<value>` — exact match found, use `<value>` as agent string
+     - `AGENT_STRING_FALLBACK:<value>` — no match found, `<value>` uses raw cli_id as fallback
