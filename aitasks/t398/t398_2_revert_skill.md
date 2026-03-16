@@ -11,8 +11,6 @@ updated_at: 2026-03-16 10:38
 
 Create .claude/skills/aitask-revert/SKILL.md — the complete interactive revert workflow skill.
 
-depends: [398_1]
-
 ## Context
 This is child 2 of t398 (aitask-revert). Depends on t398_1 (the analysis script). This child creates the skill definition that orchestrates the entire revert experience: task discovery, analysis, revert type selection, area selection for partial reverts, revert task creation, and handoff to the task-workflow.
 
