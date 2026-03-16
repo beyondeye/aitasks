@@ -5,7 +5,7 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [task_workflow]
-children_to_implement: [t401_1]
+children_to_implement: [t401_1, t401_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-16 10:51
 updated_at: 2026-03-16 11:21
