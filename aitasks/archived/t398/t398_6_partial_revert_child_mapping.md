@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: [t398_5]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_revert]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-16 18:32
-updated_at: 2026-03-16 18:34
+updated_at: 2026-03-16 19:10
+completed_at: 2026-03-16 19:10
 ---
 
 When a partial revert is selected for a parent task that has children, map the areas/files selected for revert back to the specific child tasks that originated them. This enables reverting by child task granularity rather than by directory area alone.
