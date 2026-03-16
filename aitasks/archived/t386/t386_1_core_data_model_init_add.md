@@ -3,12 +3,12 @@ priority: medium
 effort: high
 depends: [t386_8]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [agentcrew]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-15 10:51
-updated_at: 2026-03-16 18:26
+updated_at: 2026-03-16 18:46
 ---
 
 ## Core Data Model & AgentCrew Init/Add Scripts
@@ -46,17 +46,17 @@ agent_types:
 
 **_crew_status.yaml** (dynamic state):
 ```yaml
-status: Initializing
+status: Done
 progress: 0
 started_at:
-updated_at: <timestamp>
+updated_at: 2026-03-16 18:46
 ```
 
 **<agentname>_status.yaml**:
 ```yaml
 agent_name: <name>
 agent_type: <type_id>
-status: Waiting
+status: Done
 depends_on: [agent1, agent2]
 created_at: <timestamp>
 started_at:
