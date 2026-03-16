@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [aitask_explain, aitask_pick]
-children_to_implement: [t369_3, t369_4, t369_5, t369_6, t369_7]
+children_to_implement: [t369_4, t369_5, t369_6, t369_7]
 created_at: 2026-03-11 10:16
-updated_at: 2026-03-12 08:41
+updated_at: 2026-03-16 07:55
 boardidx: 40
 ---
 
