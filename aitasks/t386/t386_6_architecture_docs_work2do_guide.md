@@ -6,7 +6,7 @@ issue_type: documentation
 status: Ready
 labels: [agentcrew]
 created_at: 2026-03-15 10:51
-updated_at: 2026-03-15 10:51
+updated_at: 2026-03-17 09:15
 ---
 
 ## Architecture Documentation & work2do Authoring Guide
@@ -34,6 +34,7 @@ Write comprehensive architecture docs and a practical guide for designing work2d
 - Concurrent write strategy (agents write files, runner commits)
 - Command and control system (kill, pause, resume)
 - Heartbeat and stuck-agent detection
+- Runner configuration file (`aitasks/metadata/crew_runner_config.yaml`): schema, resolution order (CLI args > config file > hardcoded defaults), and how `ait setup` seeds it from `seed/crew_runner_config.yaml`
 
 ### work2do Authoring Guide Scope
 - **Checkpoint pattern:** How to structure work2do with periodic checkpoints
