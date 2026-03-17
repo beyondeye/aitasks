@@ -3,12 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [aitask_revert]
-children_to_implement: [t398_4]
 folded_tasks: ['38']
 created_at: 2026-03-16 09:02
-updated_at: 2026-03-17 10:20
+updated_at: 2026-03-17 12:24
+completed_at: 2026-03-17 12:24
 boardcol: now
 boardidx: 20
 ---

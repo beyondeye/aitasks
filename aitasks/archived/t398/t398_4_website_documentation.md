@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: [t398_2]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [aitask_revert]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-16 10:39
-updated_at: 2026-03-17 12:15
+updated_at: 2026-03-17 12:24
+completed_at: 2026-03-17 12:24
 ---
 
 Create website documentation for the aitask-revert feature: skill reference page and workflow guide.
