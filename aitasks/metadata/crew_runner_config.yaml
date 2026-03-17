@@ -1,0 +1,6 @@
+# Default configuration for the AgentCrew runner.
+# CLI arguments override these values.
+# If this file is absent, hardcoded defaults are used (interval: 30, max_concurrent: 3).
+
+interval: 30          # Seconds between runner iterations
+max_concurrent: 3     # Maximum agents running simultaneously (across all types)
