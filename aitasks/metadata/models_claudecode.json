@@ -8,7 +8,7 @@
         "batch-review": 0,
         "pick": 97,
         "explain": 80,
-        "changelog": 100,
+        "changelog": 90,
         "explore": 100,
         "revert": 100
       },
@@ -31,18 +31,18 @@
         },
         "changelog": {
           "all_time": {
-            "runs": 1,
-            "score_sum": 100
+            "runs": 2,
+            "score_sum": 180
           },
           "month": {
             "period": "2026-03",
-            "runs": 1,
-            "score_sum": 100
+            "runs": 2,
+            "score_sum": 180
           },
           "week": {
-            "period": "2026-W11",
+            "period": "2026-W12",
             "runs": 1,
-            "score_sum": 100
+            "score_sum": 80
           }
         },
         "explore": {
