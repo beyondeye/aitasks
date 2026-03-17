@@ -78,5 +78,12 @@ cd website && hugo build --gc --minify
 
 Check that pages render correctly, links work, and are in correct position in nav.
 
+## Final Implementation Notes
+- **Actual work done:** Created skill reference page (`website/content/docs/skills/aitask-revert.md`, weight 35) and workflow guide (`website/content/docs/workflows/revert-changes.md`, weight 90). Updated skills index (`website/content/docs/skills/_index.md`) to add `/aitask-revert` to the Task Management table.
+- **Deviations from plan:** Added Step 3 (update skills index) during plan verification — the original plan only had Steps 1-3 (create skill page, create workflow page, verify build). The index needed updating because it has a manually maintained skill table.
+- **Issues encountered:** None. Hugo build passed cleanly with all 112 pages.
+- **Key decisions:** Followed `aitask-fold.md` pattern for skill page structure and `follow-up-tasks.md` pattern for workflow page. Included a comparison table (git revert vs /aitask-revert) in the workflow page for clarity. Used concrete example walkthroughs (t195 notification badges, t180 settings panel) to illustrate complete and partial revert flows.
+- **Notes for sibling tasks:** This was the last pending child task for t398. All siblings (t398_1 through t398_6) are now complete.
+
 ## Step 9 Reference
 After implementation, follow task-workflow Step 9 for archival.
