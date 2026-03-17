@@ -55,6 +55,7 @@ AgentCrew:
   crew runner    Start/check the crew runner orchestrator
   crew report    Report crew summary, agent details, outputs
   crew cleanup   Remove completed crew worktrees and branches
+  crew dashboard TUI dashboard for monitoring and managing crews
 
 Infrastructure:
   setup          Install dependencies
@@ -171,7 +172,8 @@ case "${1:-help}" in
             runner)    exec "$SCRIPTS_DIR/aitask_crew_runner.sh" "$@" ;;
             report)    exec "$SCRIPTS_DIR/aitask_crew_report.sh" "$@" ;;
             cleanup)   exec "$SCRIPTS_DIR/aitask_crew_cleanup.sh" "$@" ;;
-            *)         echo "ait crew: unknown subcommand '$subcmd'" >&2; echo "Available: init, addwork, status, command, runner, report, cleanup" >&2; exit 1 ;;
+            dashboard) exec "$SCRIPTS_DIR/aitask_crew_dashboard.sh" "$@" ;;
+            *)         echo "ait crew: unknown subcommand '$subcmd'" >&2; echo "Available: init, addwork, status, command, runner, report, cleanup, dashboard" >&2; exit 1 ;;
         esac
         ;;
     git)          shift; source "$SCRIPTS_DIR/lib/task_utils.sh"; task_git "$@" ;;
