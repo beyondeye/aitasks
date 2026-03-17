@@ -26,6 +26,12 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
 
+# Source agentcrew_utils.sh for read_yaml_list, preserving SCRIPT_DIR
+_ARCHIVE_SCRIPT_DIR="$SCRIPT_DIR"
+source "$SCRIPT_DIR/lib/agentcrew_utils.sh"
+SCRIPT_DIR="$_ARCHIVE_SCRIPT_DIR"
+unset _ARCHIVE_SCRIPT_DIR
+
 # --- Configuration ---
 DRY_RUN=false
 NO_COMMIT=false
