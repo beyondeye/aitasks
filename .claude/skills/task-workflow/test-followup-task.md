@@ -6,6 +6,8 @@ This procedure is referenced from Step 8b. It optionally creates a follow-up tas
 
 **Procedure:**
 
+0. **Pre-check — tests already created:** If automated tests (unit tests, integration tests, end-to-end tests, etc.) were already created or modified as part of this task's implementation, skip this entire procedure — a test follow-up task is not needed. Display: "Tests already created/modified in this task. Skipping test follow-up." and return.
+
 1. **Profile check:** If the active profile has `test_followup_task` set:
    - If `"yes"`: Create follow-up task. Display: "Profile '<name>': creating test follow-up task"
    - If `"no"`: Skip. Display: "Profile '<name>': skipping test follow-up". Return.
