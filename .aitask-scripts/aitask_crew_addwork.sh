@@ -181,26 +181,26 @@ write_yaml_file "$WT_PATH/${AGENT_NAME}_instructions.md" "# Lifecycle Instructio
 ## Status Updates
 Call the crew status update script to report your status:
 \`\`\`bash
-./ait crew status --crew ${CREW_ID} --agent ${AGENT_NAME} --set-status <status>
+ait crew status --crew ${CREW_ID} --agent ${AGENT_NAME} set --status <status>
 \`\`\`
-Valid statuses: Waiting, Running, Completed, Aborted, Error
+Valid statuses: Running, Completed, Aborted, Error
 
 ## Progress Reporting
 Update your progress (0-100):
 \`\`\`bash
-./ait crew status --crew ${CREW_ID} --agent ${AGENT_NAME} --set-progress <N>
+ait crew status --crew ${CREW_ID} --agent ${AGENT_NAME} set --progress <N>
 \`\`\`
 
 ## Heartbeat / Alive Signal
 Periodically write to your alive file to signal you are active:
 \`\`\`bash
-./ait crew status --crew ${CREW_ID} --agent ${AGENT_NAME} --heartbeat
+ait crew status --crew ${CREW_ID} --agent ${AGENT_NAME} heartbeat
 \`\`\`
 
 ## Reading Commands
 Check for intra-run commands (e.g., force stop):
 \`\`\`bash
-./ait crew command --crew ${CREW_ID} --agent ${AGENT_NAME} --read
+ait crew command list --crew ${CREW_ID} --agent ${AGENT_NAME}
 \`\`\`
 
 ## Writing Output
