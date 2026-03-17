@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t386_2, 1, 2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [agentcrew]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-15 10:51
-updated_at: 2026-03-17 09:35
+updated_at: 2026-03-17 09:53
+completed_at: 2026-03-17 09:53
 ---
 
 ## Agent Runner (Orchestrator)

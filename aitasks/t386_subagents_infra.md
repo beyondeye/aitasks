@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [brainstorming, agentcrew]
-children_to_implement: [t386_3, t386_4, t386_5, t386_6, t386_7, t386_9]
+children_to_implement: [t386_4, t386_5, t386_6, t386_7, t386_9]
 created_at: 2026-03-15 09:06
-updated_at: 2026-03-17 09:44
+updated_at: 2026-03-17 09:53
 boardcol: now
 boardidx: 10
 ---
