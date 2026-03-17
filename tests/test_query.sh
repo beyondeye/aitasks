@@ -284,6 +284,45 @@ out=$("$QUERY" all-children 999)
 assert_eq "all-children 999 no dir" "NO_CHILDREN" "$out"
 
 # ============================================================
+# Tests: archived-task
+# ============================================================
+
+echo "--- archived-task ---"
+
+# Create an archived task file on filesystem
+echo "---\nstatus: Done\n---\nArchived task 50" > "$ARCHIVED_DIR/t50_old_feature.md"
+
+out=$("$QUERY" archived-task 50)
+assert_contains "archived-task 50 found on filesystem" "ARCHIVED_TASK:" "$out"
+assert_contains "archived-task 50 path" "t50_old_feature.md" "$out"
+assert_not_contains "archived-task 50 not tar_gz" "TAR_GZ" "$out"
+
+out=$("$QUERY" archived-task t50)
+assert_contains "archived-task t50 with prefix" "ARCHIVED_TASK:" "$out"
+
+out=$("$QUERY" archived-task 99999)
+assert_eq "archived-task 99999 not found" "NOT_FOUND" "$out"
+
+# Create old.tar.gz with a task inside (different number)
+staging=$(mktemp -d)
+echo "---\nstatus: Done\n---\nTar task 60" > "$staging/t60_tar_feature.md"
+tar -czf "$ARCHIVED_DIR/old.tar.gz" -C "$staging" .
+rm -rf "$staging"
+
+out=$("$QUERY" archived-task 60)
+assert_contains "archived-task 60 found in tar.gz" "ARCHIVED_TASK_TAR_GZ:" "$out"
+assert_contains "archived-task 60 tar entry" "t60_tar_feature.md" "$out"
+
+# Priority: filesystem wins over tar.gz (task 50 exists on both)
+# old.tar.gz already exists from above; t50 is on filesystem
+out=$("$QUERY" archived-task 50)
+assert_contains "archived-task 50 filesystem wins" "ARCHIVED_TASK:" "$out"
+assert_not_contains "archived-task 50 not tar_gz when filesystem exists" "TAR_GZ" "$out"
+
+# Clean up test artifacts
+rm -f "$ARCHIVED_DIR/t50_old_feature.md" "$ARCHIVED_DIR/old.tar.gz"
+
+# ============================================================
 # Tests: input validation
 # ============================================================
 
@@ -296,6 +335,7 @@ out=$("$QUERY" --help 2>&1)
 assert_contains "help shows usage" "Usage:" "$out"
 assert_contains "help shows active-children" "active-children" "$out"
 assert_contains "help shows all-children" "all-children" "$out"
+assert_contains "help shows archived-task" "archived-task" "$out"
 
 # ============================================================
 # Summary

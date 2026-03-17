@@ -290,9 +290,93 @@ archive_files() {
     echo "$count"
 }
 
+# --- Unpack subcommand ---
+
+# Extract a task (and its children/plans) from old.tar.gz back to the filesystem.
+# No-op if the task is not in any tar.gz archive.
+# Args: $1=task_number
+cmd_unpack() {
+    local num="$1"
+    local found=false
+
+    # Process each archive: (archive_path, dest_dir, prefix, output_tag)
+    local archives=(
+        "$TASK_ARCHIVE|$TASK_ARCHIVED_DIR|t|UNPACKED_TASK"
+        "$PLAN_ARCHIVE|$PLAN_ARCHIVED_DIR|p|UNPACKED_PLAN"
+    )
+
+    for entry in "${archives[@]}"; do
+        IFS='|' read -r archive_path dest_dir prefix output_tag <<< "$entry"
+
+        [[ -f "$archive_path" ]] || continue
+
+        # Find matching entries: parent t<N>_*.md and children t<N>/t<N>_*_*.md
+        local matches
+        matches=$(tar -tzf "$archive_path" 2>/dev/null | grep -E "(^|/)${prefix}${num}_[^/]*\.md$|(^|/)${prefix}${num}/${prefix}${num}_[^/]*\.md$" || true)
+        [[ -z "$matches" ]] && continue
+
+        # Extract full archive to temp dir
+        local temp_dir
+        temp_dir=$(mktemp -d)
+
+        tar -xzf "$archive_path" -C "$temp_dir"
+
+        # Copy matching files to destination and remove from temp
+        while IFS= read -r match; do
+            [[ -z "$match" ]] && continue
+            local src="$temp_dir/$match"
+            [[ -f "$src" ]] || continue
+
+            # Strip leading ./ if present
+            local clean_match="${match#./}"
+            local dest="$dest_dir/$clean_match"
+            mkdir -p "$(dirname "$dest")"
+            cp "$src" "$dest"
+            rm "$src"
+            echo "${output_tag}:${dest}"
+            found=true
+        done <<< "$matches"
+
+        # Remove empty subdirectories from temp
+        find "$temp_dir" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+
+        # Rebuild or delete archive
+        local remaining
+        remaining=$(find "$temp_dir" -type f 2>/dev/null | head -1)
+        if [[ -z "$remaining" ]]; then
+            rm "$archive_path"
+        else
+            tar -czf "$archive_path" -C "$temp_dir" .
+        fi
+
+        rm -rf "$temp_dir"
+    done
+
+    if [[ "$found" == false ]]; then
+        echo "NOT_IN_ARCHIVE"
+    fi
+}
+
 # --- Main ---
 
 main() {
+    # Check for subcommands before the default archive flow
+    if [[ $# -ge 1 && "$1" == "unpack" ]]; then
+        shift
+        if [[ $# -lt 1 ]]; then
+            die "unpack requires a task number argument"
+        fi
+        local num="$1"
+        # Strip optional t/p prefix
+        num="${num#t}"
+        num="${num#p}"
+        if [[ ! "$num" =~ ^[0-9]+$ ]]; then
+            die "Invalid task number: '$1' (expected a number like 42 or t42)"
+        fi
+        cmd_unpack "$num"
+        exit 0
+    fi
+
     parse_args "$@"
 
     if $DRY_RUN; then

@@ -468,6 +468,135 @@ assert_not_contains "Test 19: t35 kept (mixed plain)" "t35_dep" "$output_19"
 assert_contains "Test 19: t36 IS listed (no dep)" "t36_nodep" "$output_19"
 rm -rf "$TMPDIR_19"
 
+# ============================================================
+# Tests: unpack subcommand
+# ============================================================
+
+echo ""
+echo "=== Testing unpack subcommand ==="
+echo ""
+
+# --- Test 20: Unpack parent task from tar.gz ---
+echo "--- Test 20: Unpack parent task from tar.gz ---"
+TMPDIR_20="$(setup_test_env)"
+(
+    cd "$TMPDIR_20"
+    # Create tar with a parent task
+    staging=$(mktemp -d)
+    echo "task 50 content" > "$staging/t50_old_feature.md"
+    echo "task 51 content" > "$staging/t51_other.md"
+    tar -czf aitasks/archived/old.tar.gz -C "$staging" .
+    rm -rf "$staging"
+    git add -A && git commit -m "Setup" --quiet
+)
+output_20=$(cd "$TMPDIR_20" && bash .aitask-scripts/aitask_zip_old.sh unpack 50 2>&1)
+assert_contains "Test 20: reports unpacked task" "UNPACKED_TASK:" "$output_20"
+assert_contains "Test 20: correct filename" "t50_old_feature.md" "$output_20"
+assert_file_exists "Test 20: file extracted to filesystem" "$TMPDIR_20/aitasks/archived/t50_old_feature.md"
+# Verify tar.gz still has the other task
+tar_contents_20=$(tar -tzf "$TMPDIR_20/aitasks/archived/old.tar.gz" 2>/dev/null)
+assert_contains "Test 20: tar still has t51" "t51_other.md" "$tar_contents_20"
+assert_not_contains "Test 20: tar no longer has t50" "t50_old_feature" "$tar_contents_20"
+rm -rf "$TMPDIR_20"
+
+# --- Test 21: Unpack parent + children ---
+echo "--- Test 21: Unpack parent + children ---"
+TMPDIR_21="$(setup_test_env)"
+(
+    cd "$TMPDIR_21"
+    staging=$(mktemp -d)
+    echo "parent task" > "$staging/t50_parent.md"
+    mkdir -p "$staging/t50"
+    echo "child 1" > "$staging/t50/t50_1_child.md"
+    echo "child 2" > "$staging/t50/t50_2_child.md"
+    tar -czf aitasks/archived/old.tar.gz -C "$staging" .
+    rm -rf "$staging"
+    git add -A && git commit -m "Setup" --quiet
+)
+output_21=$(cd "$TMPDIR_21" && bash .aitask-scripts/aitask_zip_old.sh unpack 50 2>&1)
+assert_file_exists "Test 21: parent extracted" "$TMPDIR_21/aitasks/archived/t50_parent.md"
+assert_file_exists "Test 21: child 1 extracted" "$TMPDIR_21/aitasks/archived/t50/t50_1_child.md"
+assert_file_exists "Test 21: child 2 extracted" "$TMPDIR_21/aitasks/archived/t50/t50_2_child.md"
+rm -rf "$TMPDIR_21"
+
+# --- Test 22: Unpack also extracts plan files ---
+echo "--- Test 22: Unpack extracts plan files too ---"
+TMPDIR_22="$(setup_test_env)"
+(
+    cd "$TMPDIR_22"
+    # Task archive
+    staging_t=$(mktemp -d)
+    echo "task 50" > "$staging_t/t50_feature.md"
+    tar -czf aitasks/archived/old.tar.gz -C "$staging_t" .
+    rm -rf "$staging_t"
+    # Plan archive
+    staging_p=$(mktemp -d)
+    echo "plan 50" > "$staging_p/p50_feature.md"
+    tar -czf aiplans/archived/old.tar.gz -C "$staging_p" .
+    rm -rf "$staging_p"
+    git add -A && git commit -m "Setup" --quiet
+)
+output_22=$(cd "$TMPDIR_22" && bash .aitask-scripts/aitask_zip_old.sh unpack 50 2>&1)
+assert_contains "Test 22: unpacked task" "UNPACKED_TASK:" "$output_22"
+assert_contains "Test 22: unpacked plan" "UNPACKED_PLAN:" "$output_22"
+assert_file_exists "Test 22: task file extracted" "$TMPDIR_22/aitasks/archived/t50_feature.md"
+assert_file_exists "Test 22: plan file extracted" "$TMPDIR_22/aiplans/archived/p50_feature.md"
+rm -rf "$TMPDIR_22"
+
+# --- Test 23: No-op when not in archive ---
+echo "--- Test 23: No-op when not in archive ---"
+TMPDIR_23="$(setup_test_env)"
+(
+    cd "$TMPDIR_23"
+    # Task exists on filesystem, not in tar
+    create_archived_file aitasks/archived/t50_on_disk.md
+    git add -A && git commit -m "Setup" --quiet
+)
+output_23=$(cd "$TMPDIR_23" && bash .aitask-scripts/aitask_zip_old.sh unpack 50 2>&1)
+assert_eq "Test 23: reports not in archive" "NOT_IN_ARCHIVE" "$output_23"
+assert_file_exists "Test 23: filesystem file untouched" "$TMPDIR_23/aitasks/archived/t50_on_disk.md"
+rm -rf "$TMPDIR_23"
+
+# --- Test 24: No-op when task doesn't exist anywhere ---
+echo "--- Test 24: No-op when task doesn't exist ---"
+TMPDIR_24="$(setup_test_env)"
+output_24=$(cd "$TMPDIR_24" && bash .aitask-scripts/aitask_zip_old.sh unpack 99999 2>&1)
+assert_eq "Test 24: reports not in archive" "NOT_IN_ARCHIVE" "$output_24"
+rm -rf "$TMPDIR_24"
+
+# --- Test 25: Tar.gz deleted when emptied ---
+echo "--- Test 25: Tar.gz deleted when emptied ---"
+TMPDIR_25="$(setup_test_env)"
+(
+    cd "$TMPDIR_25"
+    # Only one task in the archive
+    staging=$(mktemp -d)
+    echo "only task" > "$staging/t50_only.md"
+    tar -czf aitasks/archived/old.tar.gz -C "$staging" .
+    rm -rf "$staging"
+    git add -A && git commit -m "Setup" --quiet
+)
+(cd "$TMPDIR_25" && bash .aitask-scripts/aitask_zip_old.sh unpack 50 2>&1 >/dev/null)
+assert_file_exists "Test 25: file extracted" "$TMPDIR_25/aitasks/archived/t50_only.md"
+assert_file_not_exists "Test 25: tar.gz deleted (was only entry)" "$TMPDIR_25/aitasks/archived/old.tar.gz"
+rm -rf "$TMPDIR_25"
+
+# --- Test 26: t prefix accepted ---
+echo "--- Test 26: t prefix accepted ---"
+TMPDIR_26="$(setup_test_env)"
+(
+    cd "$TMPDIR_26"
+    staging=$(mktemp -d)
+    echo "task 50" > "$staging/t50_prefix_test.md"
+    tar -czf aitasks/archived/old.tar.gz -C "$staging" .
+    rm -rf "$staging"
+    git add -A && git commit -m "Setup" --quiet
+)
+output_26=$(cd "$TMPDIR_26" && bash .aitask-scripts/aitask_zip_old.sh unpack t50 2>&1)
+assert_contains "Test 26: t prefix works" "UNPACKED_TASK:" "$output_26"
+assert_file_exists "Test 26: file extracted with t prefix" "$TMPDIR_26/aitasks/archived/t50_prefix_test.md"
+rm -rf "$TMPDIR_26"
+
 # --- Summary ---
 echo ""
 echo "======================================="

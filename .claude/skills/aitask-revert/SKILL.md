@@ -27,8 +27,12 @@ Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-
   ```bash
   ./.aitask-scripts/aitask_query_files.sh archived-task <number>
   ```
-  Parse: `ARCHIVED_TASK:<path>` means found in archive, `NOT_FOUND` means not found.
-- If found (active or archived): skip to **Step 2** with the resolved task file path
+  Parse: `ARCHIVED_TASK:<path>` means found in archive (filesystem), `ARCHIVED_TASK_TAR_GZ:<entry>` means found in deep archive (old.tar.gz), `NOT_FOUND` means not found.
+- If found (active, archived, or in deep archive): First, ensure the task and all its children/plans are extracted from deep archive (no-op if already on filesystem):
+  ```bash
+  bash .aitask-scripts/aitask_zip_old.sh unpack <number>
+  ```
+  Then skip to **Step 2** with the resolved task file path.
 - If not found: display "Task t\<N\> not found in active or archived tasks." and fall through to discovery options
 
 **Otherwise (no argument):** Present discovery options via `AskUserQuestion`:

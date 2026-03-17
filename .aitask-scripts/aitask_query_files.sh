@@ -14,6 +14,7 @@
 #   ./.aitask-scripts/aitask_query_files.sh sibling-context <parent>
 #   ./.aitask-scripts/aitask_query_files.sh plan-file <taskid>
 #   ./.aitask-scripts/aitask_query_files.sh archived-children <N>
+#   ./.aitask-scripts/aitask_query_files.sh archived-task <N>
 #   ./.aitask-scripts/aitask_query_files.sh active-children <N>
 #   ./.aitask-scripts/aitask_query_files.sh resolve <N>
 
@@ -42,6 +43,7 @@ Subcommands:
   sibling-context <parent>     List all sibling context files (archived + pending)
   plan-file <taskid>           Find active plan file (supports "16" or "16_2")
   archived-children <N>        List archived children of task N
+  archived-task <N>            Find archived task file for number N
   resolve <N>                  Combined: task-file + has-children in one call
 
 Output format (structured lines):
@@ -60,6 +62,7 @@ Output format (structured lines):
   NO_CONTEXT                 No sibling context files found
   PLAN_FILE:<path>           Active plan file found
   ARCHIVED_CHILD:<path>      Archived child task file
+  ARCHIVED_TASK_TAR_GZ:<entry> Archived task found in old.tar.gz
   NO_ARCHIVED_CHILDREN       No archived children found
 
 All subcommands exit 0. Use output lines (not exit codes) for status.
@@ -73,6 +76,7 @@ Examples:
   ./.aitask-scripts/aitask_query_files.sh sibling-context 16
   ./.aitask-scripts/aitask_query_files.sh plan-file 16_2
   ./.aitask-scripts/aitask_query_files.sh archived-children 16
+  ./.aitask-scripts/aitask_query_files.sh archived-task 16
 EOF
 }
 
@@ -110,6 +114,31 @@ cmd_task_file() {
     else
         echo "NOT_FOUND"
     fi
+}
+
+cmd_archived_task() {
+    [[ $# -lt 1 ]] && die "archived-task requires a task number argument"
+    local num
+    num=$(strip_prefix "$1")
+    validate_num "$num" "task number"
+
+    # Check filesystem first
+    local files
+    files=$(ls "$ARCHIVED_DIR"/t"${num}"_*.md 2>/dev/null || true)
+    if [[ -n "$files" ]]; then
+        echo "ARCHIVED_TASK:$files"
+        return
+    fi
+
+    # Check old.tar.gz deep archive
+    local tar_match
+    tar_match=$(_search_tar_gz "$ARCHIVED_DIR/old.tar.gz" "(^|/)t${num}_.*\.md$" || true)
+    if [[ -n "$tar_match" ]]; then
+        echo "ARCHIVED_TASK_TAR_GZ:$tar_match"
+        return
+    fi
+
+    echo "NOT_FOUND"
 }
 
 cmd_has_children() {
@@ -376,6 +405,10 @@ main() {
         archived-children)
             shift
             cmd_archived_children "$@"
+            ;;
+        archived-task)
+            shift
+            cmd_archived_task "$@"
             ;;
         resolve)
             shift
