@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: []
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-17 10:52
-updated_at: 2026-03-17 10:53
+updated_at: 2026-03-17 11:04
+completed_at: 2026-03-17 11:04
 ---
 
 ## Revert: Partially revert t369 (aitask_explain_for_aitask_pick) — by child task
