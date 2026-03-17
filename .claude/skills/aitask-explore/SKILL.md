@@ -5,11 +5,7 @@ description: Explore the codebase interactively, then create a task for implemen
 
 ## Workflow
 
-### Step 0a: Select Execution Profile
-
-Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-workflow/execution-profile-selection.md`).
-
-### Step 0c: Sync with Remote (Best-effort)
+### Step 0: Sync with Remote (Best-effort)
 
 Do a best-effort sync to ensure the local state is up to date and clean up stale locks:
 
@@ -171,6 +167,14 @@ TASK_DESC
 - **handle_transitive:** `true`
 - **commit_mode:** `"amend"`
 
+### Step 3b: Select Execution Profile
+
+Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-workflow/execution-profile-selection.md`).
+
+Store the loaded profile as `active_profile` and `active_profile_filename` for use in Step 4 and the Step 5 handoff.
+
+If no profiles exist (output is `NO_PROFILES`), set both to null — Step 4 will use the default behavior (always ask the user).
+
 ### Step 4: Decision Point
 
 **Profile check:** If the active profile has `explore_auto_continue` set to `true`:
@@ -204,7 +208,7 @@ Set the following context variables from the created task, then read and follow 
 - **is_child**: `false` (explore creates standalone tasks)
 - **parent_id**: null
 - **parent_task_file**: null
-- **active_profile**: The execution profile loaded in Step 0a (or null if no profile)
+- **active_profile**: The execution profile loaded in Step 3b (or null if no profile)
 - **active_profile_filename**: The `<filename>` value from the scanner output for the selected profile (e.g., `fast.yaml` or `local/fast.yaml`), or null if no profile
 - **previous_status**: `Ready`
 - **folded_tasks**: List of task IDs folded into this task (e.g., `[106, 129]`), or empty list if none

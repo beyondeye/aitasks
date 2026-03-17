@@ -2,7 +2,8 @@
 
 This procedure scans and selects an execution profile interactively. It is
 referenced from Step 0a (or Step 0) in interactive skills: aitask-pick,
-aitask-explore, aitask-fold, aitask-review, aitask-pr-import, aitask-revert.
+aitask-fold, aitask-review, aitask-pr-import, aitask-revert.
+Also referenced from Step 3b in aitask-explore (deferred until after task creation).
 Also referenced from Step 3b in task-workflow for profile refresh.
 
 For the non-interactive auto-select variant, see `execution-profile-selection-auto.md`.
