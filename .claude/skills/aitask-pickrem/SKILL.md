@@ -142,7 +142,7 @@ If neither check triggers, proceed to Step 5.
 - **Parse the script output:**
   - `OWNED:<task_id>` — Success. Display: "Task t\<N\> claimed (email: \<email\>)". Proceed to Step 6.
   - `FORCE_UNLOCKED:<previous_owner>` + `OWNED:<task_id>` — Force-unlock succeeded. Display: "Force-unlocked stale lock held by \<previous_owner\>. Task t\<N\> claimed." Proceed to Step 6.
-  - `LOCK_FAILED:<owner>` — Read `force_unlock_stale` from profile (default: `false`):
+  - `LOCK_FAILED:<owner>|<locked_at>|<hostname>` — Parse the owner from the first `|`-separated field. Read `force_unlock_stale` from profile (default: `false`):
     - If `true`: Display "Profile: force-unlocking stale lock held by \<owner\>". Re-run with `--force`:
       ```bash
       ./.aitask-scripts/aitask_pick_own.sh <task_num> --force --email "<email>"

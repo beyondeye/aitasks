@@ -15,7 +15,7 @@
 #
 # Output format (structured lines for LLM parsing):
 #   OWNED:<task_id>              Task successfully claimed
-#   LOCK_FAILED:<owner>          Lock held by another user (exit 1)
+#   LOCK_FAILED:<owner>|<locked_at>|<hostname>   Lock held by another user (exit 1)
 #   LOCK_INFRA_MISSING           Lock infrastructure not initialized (exit 1)
 #   LOCK_ERROR:<message>         Lock system error (exit 1)
 #   FORCE_UNLOCKED:<prev_owner>  Stale lock force-unlocked, then re-locked
@@ -66,7 +66,8 @@ Options:
 
 Output format (one structured line to stdout):
   OWNED:<task_id>              Task successfully claimed
-  LOCK_FAILED:<owner>          Lock held by another user (exit 1)
+  LOCK_FAILED:<owner>|<locked_at>|<hostname>
+                               Lock held by another user (exit 1)
   LOCK_INFRA_MISSING           Lock infrastructure not initialized (exit 1)
   LOCK_ERROR:<message>         Lock system error (exit 1)
   FORCE_UNLOCKED:<prev_owner>  Stale lock force-unlocked, then re-locked
@@ -166,10 +167,20 @@ acquire_lock() {
 
     case $lock_exit in
         1)  # Already locked by another user
-            local owner
-            owner=$(echo "$lock_output" | grep -o 'already locked by [^ ]*' | sed 's/already locked by //')
+            local holder_line owner locked_at locked_hostname
+            holder_line=$(echo "$lock_output" | grep '^LOCK_HOLDER:' || true)
+            if [[ -n "$holder_line" ]]; then
+                local details="${holder_line#LOCK_HOLDER:}"
+                owner=$(echo "$details" | cut -d'|' -f1)
+                locked_at=$(echo "$details" | cut -d'|' -f2)
+                locked_hostname=$(echo "$details" | cut -d'|' -f3)
+            else
+                owner=$(echo "$lock_output" | grep -o 'already locked by [^ ]*' | sed 's/already locked by //')
+                locked_at="unknown"
+                locked_hostname="unknown"
+            fi
             [[ -z "$owner" ]] && owner="unknown"
-            echo "LOCK_FAILED:$owner"
+            echo "LOCK_FAILED:${owner}|${locked_at}|${locked_hostname}"
             return 1 ;;
         10) echo "LOCK_INFRA_MISSING"; return 2 ;;
         11) echo "LOCK_ERROR:fetch_failed"; return 3 ;;

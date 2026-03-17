@@ -115,31 +115,6 @@ If `active_profile` is null (either because no profile was selected by the calli
   - If "No": Proceed without updating
   - **Skip this check** if: the final email matches userconfig, or email was resolved from userconfig itself, or no email was selected ("Skip")
 
-- **Lock pre-check (read-only):**
-
-  Before claiming ownership, check if the task is already locked:
-
-  ```bash
-  ./.aitask-scripts/aitask_lock.sh --check <task_num> 2>/dev/null
-  ```
-
-  **If exit code 0 (locked):** Parse the output for `locked_by`, `locked_at`, and `hostname`.
-
-  - **If `locked_by` matches the resolved email** (same user): Display: "Task already locked by you — refreshing lock." Proceed to **Claim task ownership** below.
-
-  - **If `locked_by` differs from the resolved email** (different user): Use `AskUserQuestion`:
-    - Question: "Task t\<N\> is already locked by \<locked_by\> (since \<locked_at\>, hostname: \<hostname\>). How to proceed?"
-    - Header: "Lock"
-    - Options:
-      - "Force unlock and claim" (description: "Override the existing lock and claim this task")
-      - "Proceed anyway" (description: "Attempt to claim without force-unlocking — may fail if lock is enforced")
-      - "Pick a different task" (description: "Leave the lock intact and select another task")
-    - If "Force unlock and claim": Add `--force` flag to the `aitask_pick_own.sh` call below.
-    - If "Proceed anyway": Proceed to **Claim task ownership** below (normal `aitask_pick_own.sh` call — the script's own `LOCK_FAILED` handling will apply if the lock blocks it).
-    - If "Pick a different task": Return to the calling skill's task selection. Do NOT proceed.
-
-  **If exit code 1 (not locked) or command fails:** Proceed normally to **Claim task ownership**.
-
 - **Claim task ownership (lock, update status, commit, push):**
 
   If email was provided (new or selected):
@@ -151,15 +126,10 @@ If `active_profile` is null (either because no profile was selected by the calli
   ./.aitask-scripts/aitask_pick_own.sh <task_num>
   ```
 
-  **If `--force` was set by the lock pre-check above**, add `--force` to the command:
-  ```bash
-  ./.aitask-scripts/aitask_pick_own.sh <task_num> --force --email "<email>"
-  ```
-
   **Parse the script output:**
   - `OWNED:<task_id>` — Success. Proceed to Step 5.
   - `FORCE_UNLOCKED:<previous_owner>` + `OWNED:<task_id>` — Force-unlock succeeded. Inform user: "Force-unlocked stale lock held by \<previous_owner\>." Proceed to Step 5.
-  - `LOCK_FAILED:<owner>` — Task is locked by another user/PC. Run `aitask_lock.sh --check <task_num>` to get lock details (locked_by, locked_at, hostname). Use `AskUserQuestion`:
+  - `LOCK_FAILED:<owner>|<locked_at>|<hostname>` — Task is locked by another user/PC. Parse the `|`-separated fields for lock details. Use `AskUserQuestion`:
     - Question: "Task t\<N\> is locked by \<owner\> (since \<locked_at\>, hostname: \<hostname\>). Force unlock?"
     - Header: "Lock"
     - Options:
@@ -261,7 +231,7 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
     ```
   - Parse output as in Step 4:
     - `OWNED:<task_id>` — Success. Proceed.
-    - `LOCK_FAILED:<owner>` — Use `AskUserQuestion` with options: "Force unlock and claim" / "Abort task". If force unlock, re-run with `--force`. If abort, execute the **Task Abort Procedure** (see `task-abort.md`).
+    - `LOCK_FAILED:<owner>|<locked_at>|<hostname>` — Parse the `|`-separated fields. Use `AskUserQuestion` with options: "Force unlock and claim" / "Abort task". If force unlock, re-run with `--force`. If abort, execute the **Task Abort Procedure** (see `task-abort.md`).
     - `LOCK_ERROR:<message>` — Display error. Use `AskUserQuestion`: "Retry" / "Continue without lock" / "Abort". Handle as in Step 4.
     - `LOCK_INFRA_MISSING` — Inform user to run `ait setup` and abort.
     - Script fails entirely — display error and abort.

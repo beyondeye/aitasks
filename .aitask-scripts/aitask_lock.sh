@@ -124,12 +124,17 @@ lock_task() {
             lock_content=$(git show "origin/$BRANCH:$lock_file" 2>/dev/null || echo "unknown")
             locked_by=$(echo "$lock_content" | grep '^locked_by:' | sed 's/locked_by: *//')
             locked_at=$(echo "$lock_content" | grep '^locked_at:' | sed 's/locked_at: *//')
+            local locked_hostname
+            locked_hostname=$(echo "$lock_content" | grep '^hostname:' | sed 's/hostname: *//')
+            [[ -z "$locked_hostname" ]] && locked_hostname="unknown"
 
             # Idempotent: if same email owns the lock, refresh it
             if [[ "$locked_by" == "$email" ]]; then
                 debug "Lock already held by same user, refreshing"
             else
-                die "Task t$task_id is already locked by $locked_by (since $locked_at)"
+                # Structured output for machine parsing (by aitask_pick_own.sh)
+                echo "LOCK_HOLDER:${locked_by}|${locked_at}|${locked_hostname}"
+                die "Task t$task_id is already locked by $locked_by (since $locked_at, hostname: $locked_hostname)"
             fi
         fi
 
