@@ -3,11 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [crew]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-17 12:59
-updated_at: 2026-03-17 13:00
+updated_at: 2026-03-17 13:15
+completed_at: 2026-03-17 13:15
 ---
 
 # Fix crew script permissions and add missing help text
