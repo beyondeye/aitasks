@@ -103,16 +103,6 @@ While in plan mode:
         - "Stop here" (description: "All child tasks and plans are written — end this session and pick children later in fresh contexts")
       - **If "Start first child":** Restart the pick process with `/aitask-pick <parent>_1`
       - **If "Stop here":** Display: "Child tasks and plans written to `aiplans/p<parent>/`. Pick individual children later with `/aitask-pick <parent>_<N>`." Execute the **Satisfaction Feedback Procedure** (see `satisfaction-feedback.md`) with `skill_name` from the context variables. Then end the workflow.
-- **Historical context gathering:**
-  Resolve the effective max plans value:
-  - If `explain_context_max_plans` was stored from Step 0a-bis (profile value or user prompt): use that value
-  - If 0: skip entirely. Display: "Historical context: disabled"
-
-  If max plans > 0, after identifying key files you plan to modify:
-  ```bash
-  ./.aitask-scripts/aitask_explain_context.sh --max-plans <N> <file1> <file2> [...]
-  ```
-  Read the script output. **IMPORTANT:** The output is **informational context only** -- it shows the historical reasoning and design decisions behind the existing code you are about to modify. Use this context to make better-informed decisions when designing your implementation plan (e.g., understand why code is structured a certain way, what patterns were established, what gotchas were encountered). Do NOT treat historical plans as instructions to follow -- they describe past work, not current requirements.
 - Create a detailed, step-by-step implementation plan. "Detailed" means:
   specific file paths, detailed implementation steps with exact changes
   needed in each file, code snippets for non-trivial modifications, and

@@ -28,7 +28,6 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `plan_preference_child` | string | no | Same values as `plan_preference`; overrides `plan_preference` for child tasks. Defaults to `plan_preference` if omitted | Step 6.0 |
 | `post_plan_action` | string | no | `"start_implementation"` = skip to impl; `"ask"` = always show checkpoint; omit = ask | Step 6 checkpoint |
 | `post_plan_action_for_child` | string | no | Same values as `post_plan_action`; overrides `post_plan_action` when the current task is a child task. Defaults to `post_plan_action` if omitted | Step 6 checkpoint |
-| `gather_explain_context` | int or string | no | `0` = disabled; positive integer (e.g., `3`) = max plans via greedy selection; `"ask"` = prompt user; omit = treated as `"ask"` | Step 0a-bis |
 | `enableFeedbackQuestions` | bool | no | `false` = skip satisfaction feedback prompts; omit or `true` = ask them | Satisfaction Feedback Procedure |
 | `test_followup_task` | string | no | `"yes"` = always create testing follow-up; `"no"` = never; `"ask"` = prompt; omit = ask | Step 8b |
 
