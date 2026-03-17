@@ -12,6 +12,14 @@ updated_at: 2026-03-16 07:55
 completed_at: 2026-03-16 07:55
 ---
 
+## Revert Notes
+- **Reverted by:** t407
+- **Date:** 2026-03-17
+- **Type:** Complete (all changes from this child were reverted)
+- **Areas reverted:** .claude/skills/aitask-pick/, .claude/skills/task-workflow/
+
+---
+
 Update Claude Code planning skill instructions and profile schema. Add gather_explain_context profile key (0/N/ask), Step 0a-bis prompt, planning.md context gathering instruction. Create fast_with_historical_ctx.yaml profile. Update fast/default/remote profiles.
 
 ## Context
