@@ -21,3 +21,9 @@ in a classical user-driven redesign we have original aitask/aiplan design that m
 so as possible documunted workflows for the aitask_redesign skill we should document both actual redesign and brainstorm and design the skill for both use cases. please help me design this new skill. this is a complex task that need to splitted in child task, with a child task also for documenting the new skill and its associated workflows. ask me questions if you need clarifications
 
 note that the new redesign skill is complementary and can be coupled with the use of the aitask-revert skill (it should be documented in workflows), that is first we revert a task, partially or completely and then with run the aitask-redesign skill
+
+IMPORTANT: a very good implementation of a brainstorming workflow skill is defined here: https://github.com/obra/superpowers/tree/main/skills/brainstorming, it is based on parallel agent exploring the possible solution
+Also for deep brainstorming mode note that now we have implemented the agentcrew engine (see agentcrew_architecture.md and agentcrew_work2do_guide.md in aidocs).
+I am not sure if deep brainstorming mode should be integrated in this aitask_redesign skill of separated to a new separate skill aitask_brainstorm, that take advantage of the agent_crew infrastructure to process an aitask definition and create 
+need to check how this is done in superpower brainstorming, that uses an architecture with multiple agents with multiple roles, and understand if it has any advantage, considering that when running a DAG of agent tasks, how we integrate user 
+input to refine intent and guild the design toward what the user actually want?
