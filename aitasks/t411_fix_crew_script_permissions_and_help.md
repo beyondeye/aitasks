@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [crew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-17 12:59
-updated_at: 2026-03-17 12:59
+updated_at: 2026-03-17 13:00
 ---
 
 # Fix crew script permissions and add missing help text
