@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [aitask_explore]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-17 10:11
-updated_at: 2026-03-17 10:31
+updated_at: 2026-03-17 10:45
+completed_at: 2026-03-17 10:45
 ---
 
 I found out recently that the aitask-explore skill is far more useful than what I thought, and I would like to better document the possible workflows centered on it in the website documentaiton. here a list places where docs need to be integrated.
