@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [t386_2, 1, 2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-15 10:51
-updated_at: 2026-03-15 10:51
+updated_at: 2026-03-17 08:37
 ---
 
 ## Agent Runner (Orchestrator)
