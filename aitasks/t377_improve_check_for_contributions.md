@@ -7,7 +7,7 @@ status: Ready
 labels: [aitask_contribute]
 created_at: 2026-03-12 11:46
 updated_at: 2026-03-12 23:10
-boardidx: 70
+boardidx: 60
 boardcol: backlog
 ---
 
