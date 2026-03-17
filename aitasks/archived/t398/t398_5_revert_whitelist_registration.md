@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t398_4]
 issue_type: chore
-status: Implementing
+status: Done
 labels: [aitask_revert]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-16 14:56
-updated_at: 2026-03-17 10:04
+updated_at: 2026-03-17 10:20
+completed_at: 2026-03-17 10:20
 ---
 
 Add `aitask_revert_analyze.sh` to permission/tool whitelists for Claude Code, OpenCode, and Gemini CLI — both in seed templates and local project settings files. (Codex CLI does not use whitelisting.)
