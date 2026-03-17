@@ -39,3 +39,16 @@ before any implementation work starts.
 
 When this child is completed, archive it normally so later sibling tasks can use
 its archived plan as the primary reference.
+
+## Final Implementation Notes
+
+- **Actual work done:** Wrote the v1 redesign design note in
+  `aidocs/aitask_redesign_spec.md`.
+- **Key decisions locked:** v1 creates a new redesign task plus a matching plan,
+  supports both redesign and brainstorm modes, supports parent/standalone source
+  tasks, and defers AgentCrew-powered deep brainstorming.
+- **Deviations from the initial plan:** None. The implementation matched the
+  child plan directly.
+- **Notes for sibling tasks:** Treat `aidocs/aitask_redesign_spec.md` as the
+  behavioral source of truth for child `t399_2`, and keep the public docs in
+  child `t399_3` aligned with the exact decisions recorded there.

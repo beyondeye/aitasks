@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [aitask-redesign, brainstorming]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: opencode/openai_gpt_5_4
 created_at: 2026-03-17 18:51
-updated_at: 2026-03-17 21:22
+updated_at: 2026-03-17 21:24
 ---
 
 ## Redesign Workflow Spec
