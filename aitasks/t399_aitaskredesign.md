@@ -7,7 +7,7 @@ status: Ready
 labels: [aitask-redesign]
 created_at: 2026-03-16 09:20
 updated_at: 2026-03-16 09:20
-boardidx: 130
+boardidx: 120
 boardcol: now
 ---
 
