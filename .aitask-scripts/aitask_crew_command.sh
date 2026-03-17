@@ -100,7 +100,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Validation ---
-[[ -z "$CREW_ID" ]] && die "Missing required --crew"
+[[ -z "$CREW_ID" ]] && die "Missing required --crew. Run 'ait crew command --help' for usage."
 validate_crew_id "$CREW_ID"
 
 WT_PATH="$(resolve_crew "$CREW_ID")"
@@ -127,8 +127,8 @@ get_utc_timestamp() {
 
 # --- Sub-command: send ---
 cmd_send() {
-    [[ -z "$AGENT_NAME" ]] && die "Missing required --agent for 'send'"
-    [[ -z "$COMMAND" ]] && die "Missing required --command for 'send'"
+    [[ -z "$AGENT_NAME" ]] && die "Missing required --agent for 'send'. Run 'ait crew command --help' for usage."
+    [[ -z "$COMMAND" ]] && die "Missing required --command for 'send'. Run 'ait crew command --help' for usage."
     validate_agent_name "$AGENT_NAME"
     validate_command "$COMMAND"
 
@@ -173,7 +173,7 @@ EOF
 
 # --- Sub-command: send-all ---
 cmd_send_all() {
-    [[ -z "$COMMAND" ]] && die "Missing required --command for 'send-all'"
+    [[ -z "$COMMAND" ]] && die "Missing required --command for 'send-all'. Run 'ait crew command --help' for usage."
     validate_command "$COMMAND"
 
     local count=0
@@ -201,7 +201,7 @@ cmd_send_all() {
 
 # --- Sub-command: list ---
 cmd_list() {
-    [[ -z "$AGENT_NAME" ]] && die "Missing required --agent for 'list'"
+    [[ -z "$AGENT_NAME" ]] && die "Missing required --agent for 'list'. Run 'ait crew command --help' for usage."
     validate_agent_name "$AGENT_NAME"
 
     local cmd_file="$WT_PATH/${AGENT_NAME}_commands.yaml"
@@ -219,7 +219,7 @@ cmd_list() {
 
 # --- Sub-command: ack ---
 cmd_ack() {
-    [[ -z "$AGENT_NAME" ]] && die "Missing required --agent for 'ack'"
+    [[ -z "$AGENT_NAME" ]] && die "Missing required --agent for 'ack'. Run 'ait crew command --help' for usage."
     validate_agent_name "$AGENT_NAME"
 
     local cmd_file="$WT_PATH/${AGENT_NAME}_commands.yaml"

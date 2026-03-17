@@ -29,4 +29,11 @@ else
     fi
 fi
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    echo "Usage: ait crew runner --crew <id> [--interval N] [--max-concurrent N] [--once] [--dry-run] [--check] [--force]"
+    echo ""
+    echo "Start or check the crew runner orchestrator."
+    exit 0
+fi
+
 exec "$PYTHON" "$SCRIPT_DIR/agentcrew/agentcrew_runner.py" "$@"

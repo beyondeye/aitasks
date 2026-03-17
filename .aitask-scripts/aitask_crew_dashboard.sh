@@ -33,4 +33,11 @@ fi
 # Check terminal capabilities (warn on incapable terminals)
 ait_warn_if_incapable_terminal
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    echo "Usage: ait crew dashboard [options]"
+    echo ""
+    echo "TUI dashboard for monitoring and managing crews."
+    exit 0
+fi
+
 exec "$PYTHON" "$SCRIPT_DIR/agentcrew/agentcrew_dashboard.py" "$@"

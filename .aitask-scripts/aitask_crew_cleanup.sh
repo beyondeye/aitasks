@@ -58,7 +58,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$CREW_ID" ]] && ! $ALL_COMPLETED; then
-    die "Either --crew <id> or --all-completed is required"
+    die "Either --crew <id> or --all-completed is required. Run 'ait crew cleanup --help' for usage."
 fi
 
 # Terminal states that allow cleanup

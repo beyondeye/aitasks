@@ -29,4 +29,11 @@ else
     fi
 fi
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    echo "Usage: ait crew report [--batch] <summary|detail|output|list> [options]"
+    echo ""
+    echo "Report crew summary, agent details, and outputs."
+    exit 0
+fi
+
 exec "$PYTHON" "$SCRIPT_DIR/agentcrew/agentcrew_report.py" "$@"

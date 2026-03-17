@@ -29,4 +29,11 @@ else
     fi
 fi
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    echo "Usage: ait crew status --crew <id> [--agent <name>] <get|set|list|heartbeat> [options]"
+    echo ""
+    echo "Get or set agent and crew status."
+    exit 0
+fi
+
 exec "$PYTHON" "$SCRIPT_DIR/agentcrew/agentcrew_status.py" "$@"

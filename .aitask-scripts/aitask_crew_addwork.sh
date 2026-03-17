@@ -82,10 +82,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Validation ---
-[[ -z "$CREW_ID" ]] && die "Missing required --crew"
-[[ -z "$AGENT_NAME" ]] && die "Missing required --name"
-[[ -z "$WORK2DO_FILE" ]] && die "Missing required --work2do"
-[[ -z "$AGENT_TYPE" ]] && die "Missing required --type"
+[[ -z "$CREW_ID" ]] && die "Missing required --crew. Run 'ait crew addwork --help' for usage."
+[[ -z "$AGENT_NAME" ]] && die "Missing required --name. Run 'ait crew addwork --help' for usage."
+[[ -z "$WORK2DO_FILE" ]] && die "Missing required --work2do. Run 'ait crew addwork --help' for usage."
+[[ -z "$AGENT_TYPE" ]] && die "Missing required --type. Run 'ait crew addwork --help' for usage."
 
 validate_crew_id "$CREW_ID"
 validate_agent_name "$AGENT_NAME"

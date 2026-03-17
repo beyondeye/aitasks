@@ -173,6 +173,22 @@ case "${1:-help}" in
             report)    exec "$SCRIPTS_DIR/aitask_crew_report.sh" "$@" ;;
             cleanup)   exec "$SCRIPTS_DIR/aitask_crew_cleanup.sh" "$@" ;;
             dashboard) exec "$SCRIPTS_DIR/aitask_crew_dashboard.sh" "$@" ;;
+            --help|-h|"")
+                echo "Usage: ait crew <subcommand> [options]"
+                echo ""
+                echo "Available subcommands:"
+                echo "  init        Initialize a new agentcrew"
+                echo "  addwork     Add an agent to an existing crew"
+                echo "  status      Get/set agent and crew status"
+                echo "  command     Send commands to agents"
+                echo "  runner      Start/check the crew runner orchestrator"
+                echo "  report      Report crew summary, agent details, outputs"
+                echo "  cleanup     Remove completed crew worktrees and branches"
+                echo "  dashboard   TUI dashboard for monitoring and managing crews"
+                echo ""
+                echo "Run 'ait crew <subcommand> --help' for subcommand-specific help."
+                exit 0
+                ;;
             *)         echo "ait crew: unknown subcommand '$subcmd'" >&2; echo "Available: init, addwork, status, command, runner, report, cleanup, dashboard" >&2; exit 1 ;;
         esac
         ;;
