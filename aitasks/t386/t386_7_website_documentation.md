@@ -1,12 +1,12 @@
 ---
 priority: low
 effort: medium
-depends: [t386_6, 1, 2, 3, 4, 5, 6]
+depends: [t386_6, t386_10, 1, 2, 3, 4, 5, 6]
 issue_type: documentation
 status: Ready
 labels: [agentcrew]
 created_at: 2026-03-15 10:51
-updated_at: 2026-03-15 10:51
+updated_at: 2026-03-17 14:30
 ---
 
 ## Website Documentation for AgentCrew
