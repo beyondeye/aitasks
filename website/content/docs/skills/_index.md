@@ -36,8 +36,17 @@ Create, organize, import, and wrap tasks.
 | [`/aitask-explore`](aitask-explore/) | Explore the codebase interactively, then create a task from findings |
 | [`/aitask-fold`](aitask-fold/) | Identify and merge related tasks into a single task |
 | [`/aitask-revert`](aitask-revert/) | Revert changes associated with completed tasks — fully or partially |
-| [`/aitask-pr-import`](aitask-pr-import/) | Import a pull request as an aitask with AI-powered analysis and implementation plan |
 | [`/aitask-wrap`](aitask-wrap/) | Wrap uncommitted changes into an aitask with retroactive documentation |
+
+### Contributions
+
+Import external work and contribute changes back.
+
+| Skill | Description |
+|-------|-------------|
+| [`/aitask-pr-import`](aitask-pr-import/) | Import a pull request as an aitask with AI-powered analysis and implementation plan |
+| [`/aitask-contribute`](aitask-contribute/) | Turn local changes into structured contribution issues for upstream repos |
+| [`/aitask-contribution-review`](aitask-contribution-review/) | Analyze contribution issues for duplicates and overlaps, then import as tasks |
 
 ### Code Review
 
