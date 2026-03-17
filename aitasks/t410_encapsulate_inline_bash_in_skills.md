@@ -5,9 +5,11 @@ depends: []
 issue_type: refactor
 status: Ready
 labels: [bash_scripts, task_workflow, reviewguides]
-folded_tasks: [263]
+folded_tasks: ['263']
 created_at: 2026-03-17 12:58
 updated_at: 2026-03-17 12:59
+boardcol: next
+boardidx: 130
 ---
 
 Encapsulate inline bash commands found in SKILL.md files into dedicated whitelistable scripts.
