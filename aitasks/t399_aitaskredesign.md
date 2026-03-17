@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: [398]
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [aitask-redesign]
-assigned_to: dario-e@beyond-eye.com
+children_to_implement: [t399_1, t399_2, t399_3]
+assigned_to: ''
 created_at: 2026-03-16 09:20
-updated_at: 2026-03-17 18:22
+updated_at: 2026-03-17 18:51
 boardcol: now
 boardidx: 10
 ---
