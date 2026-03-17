@@ -51,6 +51,7 @@
       "Bash(./.aitask-scripts/aitask_pr_close.sh:*)",
       "Bash(./.aitask-scripts/aitask_pr_import.sh:*)",
       "Bash(./.aitask-scripts/aitask_query_files.sh:*)",
+      "Bash(./.aitask-scripts/aitask_revert_analyze.sh:*)",
       "Bash(./.aitask-scripts/aitask_review_commits.sh:*)",
       "Bash(./.aitask-scripts/aitask_review_detect_env.sh:*)",
       "Bash(./.aitask-scripts/aitask_reviewguide_scan.sh:*)",

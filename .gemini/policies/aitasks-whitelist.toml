@@ -252,6 +252,12 @@ priority = 100
 
 [[rule]]
 toolName = "run_shell_command"
+commandPrefix = "./.aitask-scripts/aitask_revert_analyze.sh"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
 commandPrefix = "./.aitask-scripts/aitask_review_commits.sh"
 decision = "allow"
 priority = 100
@@ -559,6 +565,12 @@ priority = 100
 [[rule]]
 toolName = "activate_skill"
 argsPattern = "aitask-refresh-code-models"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-revert"
 decision = "allow"
 priority = 100
 

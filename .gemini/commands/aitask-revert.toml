@@ -1,0 +1,13 @@
+description = "Revert changes associated with completed tasks — fully or partially."
+prompt = """
+
+@.gemini/skills/geminicli_tool_mapping.md
+
+@.gemini/skills/geminicli_planmode_prereqs.md
+
+Execute the following Claude Code skill workflow.
+
+Arguments: {{args}}
+
+@.claude/skills/aitask-revert/SKILL.md
+"""

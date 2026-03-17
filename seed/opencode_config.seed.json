@@ -40,6 +40,7 @@
       "./.aitask-scripts/aitask_pr_close.sh *": "allow",
       "./.aitask-scripts/aitask_pr_import.sh *": "allow",
       "./.aitask-scripts/aitask_query_files.sh *": "allow",
+      "./.aitask-scripts/aitask_revert_analyze.sh *": "allow",
       "./.aitask-scripts/aitask_review_commits.sh *": "allow",
       "./.aitask-scripts/aitask_review_detect_env.sh *": "allow",
       "./.aitask-scripts/aitask_reviewguide_scan.sh *": "allow",
