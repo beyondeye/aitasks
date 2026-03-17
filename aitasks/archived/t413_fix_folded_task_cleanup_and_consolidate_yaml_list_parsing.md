@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [yaml, board, archive]
 created_at: 2026-03-17 15:16
-updated_at: 2026-03-17 15:16
+updated_at: 2026-03-17 15:17
+completed_at: 2026-03-17 15:17
 ---
 
 Fix: Folded task t38 was not deleted when primary task t398 was archived.
