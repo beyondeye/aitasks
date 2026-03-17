@@ -35,6 +35,7 @@ Create, organize, import, and wrap tasks.
 | [`/aitask-create`](aitask-create/) | Create tasks interactively via code agent prompts |
 | [`/aitask-explore`](aitask-explore/) | Explore the codebase interactively, then create a task from findings |
 | [`/aitask-fold`](aitask-fold/) | Identify and merge related tasks into a single task |
+| [`/aitask-revert`](aitask-revert/) | Revert changes associated with completed tasks — fully or partially |
 | [`/aitask-pr-import`](aitask-pr-import/) | Import a pull request as an aitask with AI-powered analysis and implementation plan |
 | [`/aitask-wrap`](aitask-wrap/) | Wrap uncommitted changes into an aitask with retroactive documentation |
 
