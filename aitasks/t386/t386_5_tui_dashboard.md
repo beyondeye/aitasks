@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [agentcrew, ui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-15 10:51
-updated_at: 2026-03-17 10:49
+updated_at: 2026-03-17 12:35
 ---
 
 ## AgentCrew TUI Dashboard
