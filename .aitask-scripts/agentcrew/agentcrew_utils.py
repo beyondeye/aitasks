@@ -308,3 +308,74 @@ def get_stale_agents(worktree_path: str, timeout_seconds: int = 300) -> list[str
         if not check_agent_alive(alive_path, timeout_seconds):
             stale.append(name)
     return sorted(stale)
+
+
+# ---------------------------------------------------------------------------
+# Crew listing
+# ---------------------------------------------------------------------------
+
+
+def list_crews() -> list[dict]:
+    """List all agentcrews by scanning .aitask-crews/ directories.
+
+    Returns a list of dicts, each with keys:
+      id, name, status, progress, created_at, started_at, updated_at,
+      agent_count, runner_status, runner_heartbeat
+    """
+    crews_dir = AGENTCREW_DIR
+    if not os.path.isdir(crews_dir):
+        return []
+
+    results = []
+    prefix = "crew-"
+    for entry in sorted(os.listdir(crews_dir)):
+        entry_path = os.path.join(crews_dir, entry)
+        if not os.path.isdir(entry_path) or not entry.startswith(prefix):
+            continue
+
+        crew_id = entry[len(prefix):]
+        meta_path = os.path.join(entry_path, "_crew_meta.yaml")
+        status_path = os.path.join(entry_path, "_crew_status.yaml")
+        runner_path = os.path.join(entry_path, "_runner_alive.yaml")
+
+        meta = read_yaml(meta_path) if os.path.isfile(meta_path) else {}
+        status_data = read_yaml(status_path) if os.path.isfile(status_path) else {}
+        runner_data = read_yaml(runner_path) if os.path.isfile(runner_path) else {}
+
+        agent_names = get_agent_names(entry_path)
+
+        results.append({
+            "id": crew_id,
+            "name": meta.get("name", crew_id),
+            "status": status_data.get("status", "Unknown"),
+            "progress": status_data.get("progress", 0),
+            "created_at": meta.get("created_at", ""),
+            "started_at": status_data.get("started_at", ""),
+            "updated_at": status_data.get("updated_at", ""),
+            "agent_count": len(agent_names),
+            "runner_status": runner_data.get("status", ""),
+            "runner_heartbeat": runner_data.get("last_heartbeat", ""),
+        })
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Formatting helpers
+# ---------------------------------------------------------------------------
+
+
+def format_elapsed(seconds: float) -> str:
+    """Format a duration in seconds to a human-readable string."""
+    if seconds < 0:
+        return "0s"
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes = seconds // 60
+    if minutes < 60:
+        secs = seconds % 60
+        return f"{minutes}m" if secs == 0 else f"{minutes}m {secs}s"
+    hours = minutes // 60
+    mins = minutes % 60
+    return f"{hours}h" if mins == 0 else f"{hours}h {mins}m"

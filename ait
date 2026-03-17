@@ -47,6 +47,15 @@ Tools:
   explain-cleanup  Remove stale aitask-explain run directories
   zip-old        Archive old completed tasks
 
+AgentCrew:
+  crew init      Initialize a new agentcrew
+  crew addwork   Add an agent to an existing crew
+  crew status    Get/set agent and crew status
+  crew command   Send commands to agents
+  crew runner    Start/check the crew runner orchestrator
+  crew report    Report crew summary, agent details, outputs
+  crew cleanup   Remove completed crew worktrees and branches
+
 Infrastructure:
   setup          Install dependencies
   install        Update aitasks to latest or specific version
@@ -160,7 +169,9 @@ case "${1:-help}" in
             status)    exec "$SCRIPTS_DIR/aitask_crew_status.sh" "$@" ;;
             command)   exec "$SCRIPTS_DIR/aitask_crew_command.sh" "$@" ;;
             runner)    exec "$SCRIPTS_DIR/aitask_crew_runner.sh" "$@" ;;
-            *)         echo "ait crew: unknown subcommand '$subcmd'" >&2; echo "Available: init, addwork, status, command, runner" >&2; exit 1 ;;
+            report)    exec "$SCRIPTS_DIR/aitask_crew_report.sh" "$@" ;;
+            cleanup)   exec "$SCRIPTS_DIR/aitask_crew_cleanup.sh" "$@" ;;
+            *)         echo "ait crew: unknown subcommand '$subcmd'" >&2; echo "Available: init, addwork, status, command, runner, report, cleanup" >&2; exit 1 ;;
         esac
         ;;
     git)          shift; source "$SCRIPTS_DIR/lib/task_utils.sh"; task_git "$@" ;;
