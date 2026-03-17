@@ -1,13 +1,13 @@
 ---
 priority: medium
 effort: high
-depends: ['398']
+depends: [398]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask-redesign]
-assigned_to: ''
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-16 09:20
-updated_at: 2026-03-17 17:05
+updated_at: 2026-03-17 18:22
 boardcol: now
 boardidx: 10
 ---
