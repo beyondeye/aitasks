@@ -1,5 +1,59 @@
 # Changelog
 
+## v0.12.0
+
+### Features
+
+- **AgentCrew data model and initialization** (t386_1): Added `ait crew init` and `ait crew addwork` commands to create and populate multi-agent crew sessions with task decomposition, dependency tracking, and worktree management.
+- **AgentCrew status and heartbeat system** (t386_2): Added `ait crew status` and `ait crew command` for monitoring agent health, tracking heartbeats, and sending commands to running agents.
+- **AgentCrew runner orchestrator** (t386_3): Added `ait crew runner` to automatically launch, monitor, and manage agents through their lifecycle with DAG-aware scheduling, configurable concurrency limits, and graceful shutdown.
+- **AgentCrew reporting and cleanup** (t386_4): Added `ait crew report` with summary/detail/output views and `ait crew cleanup` for tearing down completed crew sessions.
+- **AgentCrew TUI dashboard** (t386_5): Added `ait crew dashboard` with real-time auto-refreshing crew list, agent card views sorted by dependency order, and runner management controls.
+- **Task revert analysis** (t398_1): Added commit, file, and area analysis capabilities for identifying the scope and impact of task changes before reverting.
+- **Task revert skill** (t398_2): Added `/aitask-revert` interactive skill for safely reverting completed task changes, supporting both complete and partial reversions with detailed impact analysis.
+- **Post-revert integration** (t398_3): Enhanced the revert skill with task/plan file resolution and refined disposition templates for handling archived artifacts after revert.
+- **Partial revert child mapping** (t398_6): Enhanced partial revert to support child-task-level selection for parent tasks, showing per-child area breakdowns for granular revert decisions.
+- **Historical context gathering in planning** (t369_3): Added `gather_explain_context` profile key to control how many historical task explanations are gathered during the planning phase.
+- **Satisfaction feedback in explore** (t390): Added satisfaction feedback prompt to the "Save for later" path in `/aitask-explore`.
+- **Verified skill stats and build presets** (t393): Added verified skill statistics display and a `verify_build` preset editor with 17 common project type presets to the settings TUI.
+
+### Bug Fixes
+
+- **Wrong skill references in contribute** (t375): Fixed incorrect skill reference in `/aitask-contribute` summary message pointing to non-existent skills.
+- **Instructions template CLI syntax** (t386_11): Fixed 6 incorrect CLI syntax examples in the AgentCrew auto-generated agent instructions template.
+- **Contribution review list and dedup** (t388): Added `list-issues` and `check-imported` subcommands to `/aitask-contribution-review` for querying open issues and detecting already-imported contributions.
+- **Check-imported crash** (t389): Fixed a pipefail crash in `check-imported` when no matching task files exist.
+- **Find-related grep crash** (t391): Fixed a pipefail crash in `find-related` when no `#N` references exist in task files.
+- **Silent mode exit code** (t392): Fixed incorrect exit code in contribution check's silent mode that could mask failures.
+- **Obsolete child task management** (t400): Added unified Delete/Archive flow to the board TUI for managing obsolete child tasks, with dependency checking and superseded status tracking.
+- **Agent detection encapsulation** (t401_1): Encapsulated model JSON lookup into a reusable script, replacing inline detection logic across all agent instruction files.
+- **Archived task querying** (t403): Added `archived-task` subcommand and tar.gz archive unpacking support for the revert skill to access completed task data.
+- **Smart test follow-up** (t406): The test follow-up question now auto-skips when tests were already created during the current task implementation.
+- **Crew script permissions** (t411): Fixed missing execute permissions on crew scripts and added crew help text to `ait help`.
+- **Folded task cleanup** (t413): Fixed folded task cleanup and consolidated YAML list parsing for more reliable task folding.
+
+### Improvements
+
+- **Deduplicated commit attribution** (t385): Removed duplicated commit format rules from the Code-Agent Attribution procedure by referencing the canonical Contributor Attribution section.
+- **Modular procedures** (t395): Split the monolithic procedures file into individual procedure files for easier maintenance and cross-referencing.
+- **Shared profile selection** (t402): Extracted execution profile selection into shared procedure files referenced by all skills, eliminating duplicated instructions.
+- **Consolidated lock pre-check** (t405): Merged the lock pre-check logic directly into the pick workflow, reducing an extra script invocation during task claiming.
+- **Reverted historical context feature** (t407): Removed the `gather_explain_context` planning feature introduced in t369_3 after it proved unnecessary.
+- **Deferred profile selection in explore** (t412): Moved execution profile selection in `/aitask-explore` from the start to after task creation, so the profile is only selected when actually needed.
+
+### Documentation
+
+- **Contribution flow documentation** (t355_7): Added comprehensive contribution flow docs covering fingerprint metadata, overlap scoring, review skill workflow, and per-platform CI/CD setup.
+- **Verified scores reference** (t365_5): Added a dedicated verified scores reference page with cross-links from 6 existing documentation pages.
+- **AgentCrew architecture guide** (t386_6): Added architecture documentation covering the full AgentCrew system design, file schemas, status state machines, and a work2do operational guide.
+- **Revert skill documentation** (t398_4): Added website skill reference page and workflow guide for `/aitask-revert` with comparison table and example walkthroughs.
+- **Explore workflow documentation** (t404): Added `/aitask-explore` references to the idea capture and terminal setup documentation pages.
+- **Contribution skills index** (t409): Added missing contribution skills (`/aitask-contribute`, `/aitask-contribution-review`) to the website skills index page.
+
+### Maintenance
+
+- **Revert skill whitelist registration** (t398_5): Added whitelist entries and skill wrappers for `/aitask-revert` across all supported code agents (Claude Code, Gemini CLI, Codex CLI, OpenCode).
+
 ## v0.11.0
 
 ### Features
