@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: ['222']
+depends: [222]
 issue_type: feature
 status: Ready
 labels: [board, statistics, plotting]

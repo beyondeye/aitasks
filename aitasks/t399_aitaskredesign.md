@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: high
-depends: ['398']
+depends: [398]
 issue_type: feature
 status: Ready
 labels: [aitask-redesign]

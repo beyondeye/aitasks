@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t386_5, 1, 2]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-15 10:51
-updated_at: 2026-03-17 09:15
+updated_at: 2026-03-17 15:08
 ---
 
 ## Architecture Documentation & work2do Authoring Guide

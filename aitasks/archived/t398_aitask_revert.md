@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Done
 labels: [aitask_revert]
-folded_tasks: ['38']
+folded_tasks: [38]
 created_at: 2026-03-16 09:02
 updated_at: 2026-03-17 12:24
 completed_at: 2026-03-17 12:24

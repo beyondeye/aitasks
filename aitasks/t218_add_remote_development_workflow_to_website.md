@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: ['219']
+depends: [219]
 issue_type: documentation
 status: Ready
 labels: [website, documentation]

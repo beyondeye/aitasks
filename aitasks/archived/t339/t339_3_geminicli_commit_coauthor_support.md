@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: ['2']
+depends: [2]
 issue_type: feature
 status: Done
 labels: [codeagent, task_workflow, geminicli]
