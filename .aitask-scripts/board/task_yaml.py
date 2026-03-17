@@ -51,13 +51,19 @@ FRONTMATTER_RE = re.compile(r'\A---\n(.*?)\n---\n(.*)', re.DOTALL)
 def _normalize_task_ids(ids_list):
     """Normalize task IDs: ensure child task refs (with underscore) have 't' prefix.
 
-    Plain numbers (parent refs like 16, 77) are left as-is.
+    Plain numbers (parent refs like 16, 77) are left as-is (preserving int type).
     Entries already prefixed (t85_2) pass through unchanged.
     """
     if not ids_list:
         return ids_list
-    return [f"t{s}" if re.match(r'^\d+_\d+$', s := str(item)) else s
-            for item in ids_list]
+    result = []
+    for item in ids_list:
+        s = str(item)
+        if re.match(r'^\d+_\d+$', s):
+            result.append(f"t{s}")
+        else:
+            result.append(item)  # preserve original type (int stays int)
+    return result
 
 
 def parse_frontmatter(raw_text: str):

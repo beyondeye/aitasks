@@ -108,7 +108,7 @@ read_yaml_list() {
 
     # Inline format: [a, b, c]
     if [[ "$value" =~ ^\[.*\]$ ]]; then
-        echo "$value" | tr -d '[]' | tr ',' '\n' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' | grep -v '^$'
+        echo "$value" | tr -d "[]'\"" | tr ',' '\n' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' | grep -v '^$'
         return 0
     fi
 
@@ -155,7 +155,7 @@ append_yaml_list_item() {
     fi
 
     local list_content
-    list_content=$(echo "$current" | sed "s/^${field}:[[:space:]]*//" | tr -d '[]' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+    list_content=$(echo "$current" | sed "s/^${field}:[[:space:]]*//" | tr -d "[]'\"" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
 
     local new_line
     if [[ -z "$list_content" ]]; then

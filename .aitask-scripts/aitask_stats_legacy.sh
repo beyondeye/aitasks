@@ -5,6 +5,8 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+# shellcheck source=lib/task_utils.sh
+source "$SCRIPT_DIR/lib/task_utils.sh"
 
 TASK_DIR="aitasks"
 ARCHIVE_DIR="$TASK_DIR/archived"
@@ -220,7 +222,7 @@ parse_completed_at() {
 # Parse labels from content
 parse_labels() {
     local content="$1"
-    echo "$content" | grep -E "^labels:" | head -1 | sed 's/labels:[[:space:]]*//' | tr -d '[]' | tr -d ' '
+    parse_yaml_list "$(echo "$content" | grep -E "^labels:" | head -1 | sed 's/labels:[[:space:]]*//')"
 }
 
 # Parse issue_type from content

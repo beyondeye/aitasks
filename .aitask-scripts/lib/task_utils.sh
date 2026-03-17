@@ -67,6 +67,32 @@ task_push() {
     fi
 }
 
+# --- YAML List Parsing ---
+
+# Parse a YAML inline list value to comma-separated string.
+# Strips brackets, quotes, and spaces: "['38', t85_2]" -> "38,t85_2"
+parse_yaml_list() {
+    local value="$1"
+    echo "$value" | tr -d "[]'\"" | tr -d ' '
+}
+
+# Normalize child task IDs: ensure entries with underscore have 't' prefix.
+# e.g. "85_2,t85_3,16" -> "t85_2,t85_3,16"
+normalize_task_ids() {
+    local input="$1"
+    [[ -z "$input" ]] && return
+    local result=""
+    IFS=',' read -ra ids <<< "$input"
+    for id in "${ids[@]}"; do
+        if [[ "$id" =~ ^[0-9]+_[0-9]+$ ]]; then
+            id="t${id}"
+        fi
+        [[ -n "$result" ]] && result="${result},"
+        result="${result}${id}"
+    done
+    echo "$result"
+}
+
 # --- Per-user Config ---
 
 # Read the current user's email from the local (gitignored) userconfig.yaml

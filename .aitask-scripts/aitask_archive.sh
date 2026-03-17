@@ -187,16 +187,6 @@ read_yaml_field() {
     echo ""
 }
 
-# --- Helper: parse YAML list field to comma-separated ---
-read_yaml_list() {
-    local file_path="$1"
-    local field_name="$2"
-    local raw
-    raw=$(read_yaml_field "$file_path" "$field_name")
-    # Convert [a, b, c] -> a,b,c
-    echo "$raw" | tr -d '[]' | tr -d ' '
-}
-
 # --- Helper: read status of a folded task ---
 read_task_status() {
     local file_path="$1"
@@ -284,7 +274,7 @@ handle_folded_tasks() {
     local archived_task_file="$2"
 
     local folded_raw
-    folded_raw=$(read_yaml_list "$archived_task_file" "folded_tasks")
+    folded_raw=$(parse_yaml_list "$(read_yaml_field "$archived_task_file" "folded_tasks")")
 
     if [[ -z "$folded_raw" ]]; then
         return

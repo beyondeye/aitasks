@@ -321,19 +321,16 @@ parse_yaml_frontmatter() {
                 priority) CURRENT_PRIORITY="$value" ;;
                 effort) CURRENT_EFFORT="$value" ;;
                 depends)
-                    # Parse YAML list: [1, 3, 5] -> 1,3,5
-                    CURRENT_DEPS=$(echo "$value" | tr -d '[]' | tr -d ' ')
+                    CURRENT_DEPS=$(parse_yaml_list "$value")
                     CURRENT_DEPS=$(normalize_task_ids "$CURRENT_DEPS")
                     ;;
                 issue_type) CURRENT_TYPE="$value" ;;
                 status) CURRENT_STATUS="$value" ;;
                 labels)
-                    # Parse YAML list: [ui, backend] -> ui,backend
-                    CURRENT_LABELS=$(echo "$value" | tr -d '[]' | tr -d ' ')
+                    CURRENT_LABELS=$(parse_yaml_list "$value")
                     ;;
                 children_to_implement)
-                    # Parse YAML list: [t1_1, t1_2] -> t1_1,t1_2
-                    CURRENT_CHILDREN_TO_IMPLEMENT=$(echo "$value" | tr -d '[]' | tr -d ' ')
+                    CURRENT_CHILDREN_TO_IMPLEMENT=$(parse_yaml_list "$value")
                     CURRENT_CHILDREN_TO_IMPLEMENT=$(normalize_task_ids "$CURRENT_CHILDREN_TO_IMPLEMENT")
                     ;;
                 created_at) CURRENT_CREATED_AT="$value" ;;
@@ -345,7 +342,7 @@ parse_yaml_frontmatter() {
                 contributor) CURRENT_CONTRIBUTOR="$value" ;;
                 contributor_email) CURRENT_CONTRIBUTOR_EMAIL="$value" ;;
                 folded_tasks)
-                    CURRENT_FOLDED_TASKS=$(echo "$value" | tr -d '[]' | tr -d ' ')
+                    CURRENT_FOLDED_TASKS=$(parse_yaml_list "$value")
                     ;;
                 folded_into) CURRENT_FOLDED_INTO="$value" ;;
                 implemented_with) CURRENT_IMPLEMENTED_WITH="$value" ;;
@@ -373,23 +370,6 @@ sanitize_name() {
 }
 
 # --- YAML Formatting ---
-
-normalize_task_ids() {
-    # Normalize child task IDs: ensure entries with underscore have 't' prefix
-    # e.g. "85_2,t85_3,16" -> "t85_2,t85_3,16"
-    local input="$1"
-    [[ -z "$input" ]] && return
-    local result=""
-    IFS=',' read -ra ids <<< "$input"
-    for id in "${ids[@]}"; do
-        if [[ "$id" =~ ^[0-9]+_[0-9]+$ ]]; then
-            id="t${id}"
-        fi
-        [[ -n "$result" ]] && result="${result},"
-        result="${result}${id}"
-    done
-    echo "$result"
-}
 
 get_timestamp() {
     date '+%Y-%m-%d %H:%M'

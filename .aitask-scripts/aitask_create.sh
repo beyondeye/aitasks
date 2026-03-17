@@ -238,7 +238,7 @@ update_parent_children_to_implement() {
     while IFS= read -r line; do
         if [[ "$line" =~ ^children_to_implement: ]]; then
             # Extract list: [t1_1, t1_2] -> t1_1,t1_2
-            current_children=$(echo "$line" | sed 's/children_to_implement://' | tr -d '[]' | tr -d ' ')
+            current_children=$(parse_yaml_list "$(echo "$line" | sed 's/children_to_implement://')")
             break
         fi
     done < "$parent_file"

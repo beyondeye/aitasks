@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/task_utils.sh
+source "$SCRIPT_DIR/lib/task_utils.sh"
+
 TASK_DIR="aitasks"
 
 # --- Help Function ---
@@ -170,23 +174,6 @@ issue_text=""
 pull_request_text=""
 contributor_text=""
 
-normalize_task_ids() {
-    # Normalize child task IDs: ensure entries with underscore have 't' prefix
-    # e.g. "85_2,t85_3,16" -> "t85_2,t85_3,16"
-    local input="$1"
-    [[ -z "$input" ]] && return
-    local result=""
-    IFS=',' read -ra ids <<< "$input"
-    for id in "${ids[@]}"; do
-        if [[ "$id" =~ ^[0-9]+_[0-9]+$ ]]; then
-            id="t${id}"
-        fi
-        [[ -n "$result" ]] && result="${result},"
-        result="${result}${id}"
-    done
-    echo "$result"
-}
-
 parse_yaml_frontmatter() {
     local file_path="$1"
     local in_frontmatter=false
@@ -233,8 +220,7 @@ parse_yaml_frontmatter() {
                     esac
                     ;;
                 depends)
-                    # Parse YAML list: [1, 3, 5] -> 1,3,5
-                    d_text=$(echo "$value" | tr -d '[]' | tr -d ' ')
+                    d_text=$(parse_yaml_list "$value")
                     d_text=$(normalize_task_ids "$d_text")
                     ;;
                 issue_type)
@@ -244,12 +230,10 @@ parse_yaml_frontmatter() {
                     status_text="$value"
                     ;;
                 labels)
-                    # Parse YAML list: [ui, backend] -> ui,backend
-                    labels_text=$(echo "$value" | tr -d '[]' | tr -d ' ')
+                    labels_text=$(parse_yaml_list "$value")
                     ;;
                 children_to_implement)
-                    # Parse YAML list: [t1_1, t1_2] -> t1_1,t1_2
-                    children_to_implement_text=$(echo "$value" | tr -d '[]' | tr -d ' ')
+                    children_to_implement_text=$(parse_yaml_list "$value")
                     children_to_implement_text=$(normalize_task_ids "$children_to_implement_text")
                     ;;
                 assigned_to)
