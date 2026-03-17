@@ -64,7 +64,13 @@ Sections:
 
 Follow pattern from `website/content/docs/workflows/follow-up-tasks.md`.
 
-### Step 3: Verify build
+### Step 3: Update skills index
+
+**File:** `website/content/docs/skills/_index.md`
+
+Add `/aitask-revert` row to the "Task Management" table after `/aitask-fold`.
+
+### Step 4: Verify build
 
 ```bash
 cd website && hugo build --gc --minify
