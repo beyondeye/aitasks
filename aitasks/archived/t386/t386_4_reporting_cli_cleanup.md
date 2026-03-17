@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t386_3, 1, 2, 3]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [agentcrew]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-15 10:51
-updated_at: 2026-03-17 10:24
+updated_at: 2026-03-17 10:39
+completed_at: 2026-03-17 10:39
 ---
 
 ## Reporting, CLI Integration & Cleanup
