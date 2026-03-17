@@ -14,4 +14,3 @@ review_action: commit
 issue_action: close_with_notes
 abort_plan_action: keep
 abort_revert_status: Ready
-gather_explain_context: 0
