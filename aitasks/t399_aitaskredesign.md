@@ -18,3 +18,5 @@ another use case for this aitask-redesign feature is brainstorming alternative d
 in a classical user-driven redesign we have original aitask/aiplan design that must be adapted because explciit requirement/user input/ changed infrastructure/ changed use-case /changed tech to use etc.  in the "brainstorm mode" the exploration directions are more driven (at least initially by the code agent) but the flow is very similar.
 
 so as possible documunted workflows for the aitask_redesign skill we should document both actual redesign and brainstorm and design the skill for both use cases. please help me design this new skill. this is a complex task that need to splitted in child task, with a child task also for documenting the new skill and its associated workflows. ask me questions if you need clarifications
+
+note that the new redesign skill is complementary and can be coupled with the use of the aitask-revert skill (it should be documented in workflows), that is first we revert a task, partially or completely and then with run the aitask-redesign skill

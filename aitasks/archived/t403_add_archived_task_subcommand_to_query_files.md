@@ -3,12 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [revert, scripts]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-16 23:09
-updated_at: 2026-03-17 08:34
+updated_at: 2026-03-17 08:49
+completed_at: 2026-03-17 08:49
 ---
 
 ## Bug: aitask_query_files.sh missing `archived-task` subcommand
