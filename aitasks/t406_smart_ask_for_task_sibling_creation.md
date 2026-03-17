@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [testing, task_workflow]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-17 10:45
-updated_at: 2026-03-17 10:51
+updated_at: 2026-03-17 11:10
 boardidx: 10
 ---
 

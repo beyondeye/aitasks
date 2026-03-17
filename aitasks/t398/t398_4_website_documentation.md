@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: [t398_2]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [aitask_revert]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-16 10:39
-updated_at: 2026-03-16 10:39
+updated_at: 2026-03-17 11:10
 ---
 
 Create website documentation for the aitask-revert feature: skill reference page and workflow guide.
