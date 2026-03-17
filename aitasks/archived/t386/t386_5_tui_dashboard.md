@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t386_4, 1, 2, 3, 4]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [agentcrew, ui]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-15 10:51
-updated_at: 2026-03-17 12:35
+updated_at: 2026-03-17 13:00
+completed_at: 2026-03-17 13:00
 ---
 
 ## AgentCrew TUI Dashboard
