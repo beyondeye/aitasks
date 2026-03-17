@@ -1696,6 +1696,8 @@ class TaskDetailScreen(ModalScreen):
         Binding("E", "edit", "Edit", show=False),
         Binding("d", "delete", "Delete", show=False),
         Binding("D", "delete", "Delete", show=False),
+        Binding("v", "toggle_view", "Toggle View", show=False),
+        Binding("V", "toggle_view", "Toggle View", show=False),
     ]
 
     def __init__(self, task: Task, manager: TaskManager = None, read_only: bool = False):
@@ -1711,6 +1713,20 @@ class TaskDetailScreen(ModalScreen):
             "issue_type": task.metadata.get("issue_type", "feature"),
         }
         self._current_values = dict(self._original_values)
+        self._showing_plan = False
+        self._plan_path = self._resolve_plan_path() if manager else None
+
+    def _resolve_plan_path(self):
+        """Resolve the plan file path for this task."""
+        is_child = self.task_data.filepath.parent.name.startswith("t")
+        if is_child:
+            parent_num = self.manager.get_parent_num_for_child(self.task_data)
+            plan_name = "p" + self.task_data.filename[1:]
+            plan_path = Path("aiplans") / parent_num.replace("t", "p", 1) / plan_name
+        else:
+            plan_name = "p" + self.task_data.filename[1:]
+            plan_path = Path("aiplans") / plan_name
+        return plan_path if plan_path.exists() else None
 
     def compose(self):
         task_num, task_name = TaskCard._parse_filename(self.task_data.filename)
@@ -1832,6 +1848,9 @@ class TaskDetailScreen(ModalScreen):
                     "[b]\U0001f513 Lock:[/b] [dim]Unlocked[/dim]",
                     classes="meta-ro")
 
+            has_plan = self._plan_path is not None
+            yield Label("[b]Viewing:[/b] Task", id="view_indicator")
+
             with VerticalScroll(id="md_view"):
                 yield Markdown(self.task_data.content)
 
@@ -1846,6 +1865,8 @@ class TaskDetailScreen(ModalScreen):
                                  disabled=not is_locked)
                     yield Button("(C)lose", variant="default", id="btn_close")
                 with Horizontal(id="detail_buttons_file"):
+                    yield Button("(V)iew Plan", variant="primary", id="btn_view",
+                                 disabled=not has_plan)
                     yield Button("(S)ave Changes", variant="success", id="btn_save",
                                  disabled=True)
                     is_modified = self.manager.is_modified(self.task_data) if self.manager else False
@@ -1920,7 +1941,40 @@ class TaskDetailScreen(ModalScreen):
 
     @on(Button.Pressed, "#btn_edit")
     def edit_task(self):
-        self.dismiss("edit")
+        if self._showing_plan:
+            self.dismiss("edit_plan")
+        else:
+            self.dismiss("edit")
+
+    @on(Button.Pressed, "#btn_view")
+    def toggle_view(self):
+        """Toggle between task content and plan content."""
+        if not self._plan_path:
+            self.app.notify("No plan file found", severity="warning")
+            return
+        self._showing_plan = not self._showing_plan
+        md_widget = self.query_one("#md_view Markdown", Markdown)
+        indicator = self.query_one("#view_indicator", Label)
+        btn_view = self.query_one("#btn_view", Button)
+
+        md_view = self.query_one("#md_view", VerticalScroll)
+
+        if self._showing_plan:
+            content = self._plan_path.read_text(encoding="utf-8")
+            # Strip YAML frontmatter from plan file if present
+            if content.startswith("---"):
+                parts = content.split("---", 2)
+                if len(parts) >= 3:
+                    content = parts[2].strip()
+            md_widget.update(content)
+            indicator.update("[b]Viewing:[/b] [#FFB86C]Plan[/]")
+            btn_view.label = "(V)iew Task"
+            md_view.styles.border = ("solid", "#FFB86C")
+        else:
+            md_widget.update(self.task_data.content)
+            indicator.update("[b]Viewing:[/b] Task")
+            btn_view.label = "(V)iew Plan"
+            md_view.styles.border = None
 
     @on(Button.Pressed, "#btn_delete")
     def delete_task(self):
@@ -2049,6 +2103,11 @@ class TaskDetailScreen(ModalScreen):
         btn = self.query_one("#btn_edit", Button)
         if not btn.disabled:
             self.edit_task()
+
+    def action_toggle_view(self):
+        btn = self.query_one("#btn_view", Button)
+        if not btn.disabled:
+            self.toggle_view()
 
     def action_delete(self):
         btn = self.query_one("#btn_delete", Button)
@@ -2519,6 +2578,7 @@ class KanbanApp(App):
     .meta-ro.ro-focused { background: $primary 20%; border-left: thick $accent; }
     #btn_save:disabled { opacity: 50%; }
     #btn_delete:disabled { opacity: 50%; }
+    #view_indicator { height: 1; width: 100%; padding: 0 2; color: $text-muted; }
     #md_view { margin: 1 0; border: solid $secondary-background; }
     .task-title-row { height: auto; }
     .task-number { color: $accent; text-style: bold; width: auto; margin: 0 1 0 0; }
@@ -3090,6 +3150,10 @@ class KanbanApp(App):
             def check_edit(result):
                 if result == "edit":
                     self.run_editor(focused.task_data.filepath)
+                elif result == "edit_plan":
+                    plan_path = self._resolve_plan_path_for(focused.task_data)
+                    if plan_path:
+                        self.run_editor(plan_path)
                 elif result == "pick":
                     task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
                     if task_num:
@@ -3670,6 +3734,18 @@ class KanbanApp(App):
             CommitMessageScreen(modified_tasks, self.manager),
             handle_commit_result
         )
+
+    def _resolve_plan_path_for(self, task: Task):
+        """Resolve the plan file path for a given task."""
+        is_child = task.filepath.parent.name.startswith("t")
+        if is_child:
+            parent_num = self.manager.get_parent_num_for_child(task)
+            plan_name = "p" + task.filename[1:]
+            plan_path = Path("aiplans") / parent_num.replace("t", "p", 1) / plan_name
+        else:
+            plan_name = "p" + task.filename[1:]
+            plan_path = Path("aiplans") / plan_name
+        return plan_path if plan_path.exists() else None
 
     def _collect_delete_files(self, task: Task):
         """Collect files to delete for a task (including children and plans).
