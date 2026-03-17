@@ -20,10 +20,12 @@ The aitasks framework is built for terminal-centric development. Using a termina
 
 | Tab | Purpose |
 |-----|---------|
-| Tab 1 | Main code agent session running [`/aitask-pick`](../skills/aitask-pick/) |
+| Tab 1 | Main code agent session (Claude Code, Gemini CLI, Codex CLI, OpenCode, etc.) running [`/aitask-pick`](../skills/aitask-pick/) |
 | Tab 2 | [`ait board`](../commands/board-stats/#ait-board) for visual task management and triage |
 | Tab 3 | [`ait create`](../commands/task-management/#ait-create) ready to launch for capturing new ideas |
 | Tab 4 | Git status / diff viewer ([lazygit](https://github.com/jesseduffield/lazygit), [delta](https://github.com/dandavison/delta), or plain `git diff`) for monitoring implementation changes |
+| Tab 5 | [`/aitask-explore`](../skills/aitask-explore/) session for exploring the codebase and capturing ideas from findings |
+| Tab 6+ | Additional code agent sessions — run multiple agents in parallel on different tasks (e.g., Claude Code on one task, Gemini CLI or Codex CLI on another) |
 
 **IDE alternative:** You can also run a terminal inside your IDE (VS Code, IntelliJ, etc.) and use another pane to watch file changes in real time. However, dedicated terminal emulators with keyboard-driven tab switching tend to be faster for this workflow.
 
@@ -36,7 +38,7 @@ While [`/aitask-pick`](../skills/aitask-pick/) is running — especially during 
 **What to do while waiting:**
 
 - **Triage tasks** — Open [`ait board`](../commands/board-stats/#ait-board) in another tab to review priorities, move tasks between kanban columns, update metadata (priority, effort, labels), and adjust dependencies. See the [Board documentation](../tuis/board/) for all available operations and keyboard shortcuts
-- **Capture new ideas** — As ideas come up during the implementation (which they often do while watching the agent work), quickly switch to a tab with [`ait create`](../commands/task-management/#ait-create) and write them down. The key shortcut `n` in [`ait board`](../commands/board-stats/#ait-board) also launches task creation directly
+- **Capture new ideas** — As ideas come up during the implementation (which they often do while watching the agent work), quickly switch to a tab with [`ait create`](../commands/task-management/#ait-create) and write them down, or use [`/aitask-explore`](../skills/aitask-explore/) to investigate a hunch before turning it into a task. The key shortcut `n` in [`ait board`](../commands/board-stats/#ait-board) also launches task creation directly
 - **Review progress** — Watch the current diff in another tab to understand what changes are being made. [lazygit](https://github.com/jesseduffield/lazygit), Warp's built-in diff viewer, or a plain `git diff` all work well for this
 
 This parallel workflow means the human never becomes a bottleneck waiting for the AI agent to finish. You are always either reviewing the agent's output, managing your task backlog, or capturing the next set of ideas.
