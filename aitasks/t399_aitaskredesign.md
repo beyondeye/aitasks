@@ -3,13 +3,13 @@ priority: medium
 effort: high
 depends: ['398']
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [aitask-redesign]
-assigned_to: dario-e@beyond-eye.com
+assigned_to: ''
 created_at: 2026-03-16 09:20
-updated_at: 2026-03-17 15:11
+updated_at: 2026-03-17 17:05
 boardcol: now
-boardidx: 100
+boardidx: 10
 ---
 
 It can happens that we start to implement some aitask and then we discover that the implementation direction was wrong, or perhaps we decide that the feature is not useful, and revert all or a part of its changes (see task t398). But we do not delete the task and eventually we want to reimplement it using different implementation techniques or techs, changing the design, and so on. but don't want to loose all the user "intention" that was incorporated in the original plan; althogh the actual task implementation was discarded, the user intentions, ideas, pain points that were conveid in the task description are still useful context to use when redesigning the feature. an example of this is task t259 batch reviews, that is not yet implemented, now that we have decided to create a more general infrastructure for running batch agents (see task t386), many of the specific details that were in the origianal plans in t259 must be changed. but many other higher level details not related to the infrastructure to run the batch reviews, are still relevant.
