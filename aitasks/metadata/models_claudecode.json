@@ -9,7 +9,8 @@
         "pick": 97,
         "explain": 80,
         "changelog": 100,
-        "explore": 100
+        "explore": 100,
+        "revert": 100
       },
       "verifiedstats": {
         "pick": {
@@ -58,6 +59,22 @@
             "period": "2026-W12",
             "runs": 2,
             "score_sum": 200
+          }
+        },
+        "revert": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "month": {
+            "period": "2026-03",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W12",
+            "runs": 1,
+            "score_sum": 100
           }
         }
       }
