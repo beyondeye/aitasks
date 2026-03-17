@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: []
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-17 10:52
-updated_at: 2026-03-17 10:52
+updated_at: 2026-03-17 10:53
 ---
 
 ## Revert: Partially revert t369 (aitask_explain_for_aitask_pick) — by child task
