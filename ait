@@ -22,6 +22,7 @@ Usage: ait <command> [options]
 TUI:
   board          Launch the task board TUI
   codebrowser    Launch the code browser TUI
+  diffviewer     Launch the diff viewer TUI
   settings       Launch the settings TUI
 
 Task Management:
@@ -149,6 +150,7 @@ case "${1:-help}" in
     pr-import)    shift; exec "$SCRIPTS_DIR/aitask_pr_import.sh" "$@" ;;
     board)        shift; exec "$SCRIPTS_DIR/aitask_board.sh" "$@" ;;
     codebrowser)  shift; exec "$SCRIPTS_DIR/aitask_codebrowser.sh" "$@" ;;
+    diffviewer)   shift; exec "$SCRIPTS_DIR/aitask_diffviewer.sh" "$@" ;;
     settings)     shift; exec "$SCRIPTS_DIR/aitask_settings.sh" "$@" ;;
     stats)        shift; exec "$SCRIPTS_DIR/aitask_stats.sh" "$@" ;;
     zip-old)      shift; exec "$SCRIPTS_DIR/aitask_zip_old.sh" "$@" ;;
