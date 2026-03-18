@@ -1,5 +1,19 @@
 # Releases
 
+## v0.12.1
+
+A smaller release this time with two quality-of-life improvements — one for the board UI and one under the hood for agent reliability.
+
+## View Implementation Plans Right in the Board
+
+You can now toggle between viewing a task and its implementation plan directly in the TUI board detail screen. Hit `v` to switch views — the border turns orange so you always know which file you're looking at. Editing is context-aware too, so pressing edit while viewing a plan opens the plan file, not the task.
+
+## More Reliable Satisfaction Feedback
+
+The satisfaction feedback procedure that agents follow after completing tasks has been simplified from a 3-file chain down to a single script call with `--agent` and `--cli-id` flags. This means agents are far less likely to get lost or hallucinate script names when wrapping up tasks in long conversations.
+
+---
+
 ## v0.12.0
 
 v0.12.0 brings multi-agent orchestration and the ability to undo any task you've ever completed. Two big additions that change how you work with aitasks.

@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.12.1
+
+### Features
+
+- **Plan visualization in board** (t415): The TUI board detail screen now supports toggling between task content and the associated implementation plan, with a visual border color indicator and context-aware editing.
+
+### Bug Fixes
+
+- **Simplified satisfaction feedback procedure** (t414_1): Agent and CLI ID can now be passed directly as flags to the verified update script, replacing the error-prone 3-file chain that agents frequently failed to follow in context-heavy conversations.
+
 ## v0.12.0
 
 ### Features
