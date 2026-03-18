@@ -3,10 +3,9 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [tui, brainstorming]
 children_to_implement: [t417_1, t417_2, t417_3, t417_4, t417_5, t417_6, t417_7]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-18 11:08
 updated_at: 2026-03-18 12:23
 ---
