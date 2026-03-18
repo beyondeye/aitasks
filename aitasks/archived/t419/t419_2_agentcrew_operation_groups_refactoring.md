@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t419_1]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [agentcrew]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-18 14:58
-updated_at: 2026-03-18 22:06
+updated_at: 2026-03-18 23:04
+completed_at: 2026-03-18 23:04
 ---
 
 ## Context
