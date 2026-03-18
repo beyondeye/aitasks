@@ -130,5 +130,12 @@ Add new section "Operation Groups" covering:
 - Dashboard shows group column
 - shellcheck passes on modified bash scripts
 
+## Final Implementation Notes
+- **Actual work done:** Implemented all 8 plan steps: group helpers in utils, --group flag on addwork with _groups.yaml auto-management, runner group-priority scheduling, send-group command, --group filter on status and report, group display in dashboard, architecture docs, and 10 automated tests (24 assertions).
+- **Deviations from plan:** (1) Fixed pipefail issue in addwork.sh — `grep 'sequence:'` needs `|| true` when _groups.yaml has no entries yet. (2) Added group filtering to READY_AGENTS/STALE_AGENTS output in status list. (3) Also updated t386_7 task with a note about the new group features for website docs.
+- **Issues encountered:** `set -euo pipefail` caused `grep` returning exit 1 (no match) to abort the script. Fixed with `{ grep ... || true; }` pattern. Test suite initially missing `agentcrew_report.py` in setup — added it.
+- **Key decisions:** (1) Group membership derived from agent `group` field in _status.yaml — no agents list in _groups.yaml (avoids double bookkeeping). (2) Agents without a group get sort key (999, name) — sorted last. (3) _groups.yaml auto-created on first `--group` usage, never removed.
+- **Notes for sibling tasks:** The `_groups.yaml` schema (name, sequence, description, created_at) is the AgentCrew-core version. The brainstorm layer (t419_4+) should create `br_groups.yaml` with brainstorm-specific enrichments (operation, agents, head_at_creation, nodes_created) that wrap/extend this. The `group` field in agent_status.yaml is a simple string — no validation against _groups.yaml at the agent level. Helper functions `load_groups()`, `get_group_agents()`, `get_group_status()`, `group_sort_key()` are all in agentcrew_utils.py.
+
 ## Post-Implementation
 - Step 9: archive task, push changes
