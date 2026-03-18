@@ -19,7 +19,9 @@ from diffviewer.diff_engine import (
     PairwiseDiff,
     compute_classical_diff,
     compute_multi_diff,
+    compute_structural_diff,
 )
+from diffviewer.md_parser import Section, parse_sections, normalize_section
 
 TEST_PLANS = SCRIPTS_DIR / "diffviewer" / "test_plans"
 
@@ -228,6 +230,224 @@ class TestDataClasses(unittest.TestCase):
         h2 = DiffHunk(tag="b")
         h1.main_lines.append("x")
         self.assertEqual(h2.main_lines, [])
+
+
+class TestParseSections(unittest.TestCase):
+    def test_preamble_only(self):
+        lines = ["Hello\n", "World\n"]
+        sections = parse_sections(lines)
+        self.assertEqual(len(sections), 1)
+        self.assertEqual(sections[0].level, 0)
+        self.assertEqual(sections[0].heading, "")
+        self.assertEqual(sections[0].content_lines, lines)
+
+    def test_single_heading(self):
+        lines = ["# Title\n", "Body line\n"]
+        sections = parse_sections(lines)
+        self.assertEqual(len(sections), 2)  # preamble + section
+        self.assertEqual(sections[0].content_lines, [])  # empty preamble
+        self.assertEqual(sections[1].heading, "# Title")
+        self.assertEqual(sections[1].level, 1)
+        self.assertEqual(sections[1].content_lines, ["Body line\n"])
+
+    def test_multiple_headings(self):
+        lines = ["# H1\n", "A\n", "## H2\n", "B\n", "### H3\n", "C\n"]
+        sections = parse_sections(lines)
+        self.assertEqual(len(sections), 4)  # preamble + 3 headings
+        self.assertEqual(sections[1].level, 1)
+        self.assertEqual(sections[2].level, 2)
+        self.assertEqual(sections[3].level, 3)
+
+    def test_code_fence_not_split(self):
+        lines = [
+            "# Before\n",
+            "```python\n",
+            "## Not a heading\n",
+            "```\n",
+            "# After\n",
+            "Body\n",
+        ]
+        sections = parse_sections(lines)
+        headings = [s.heading for s in sections if s.heading]
+        self.assertEqual(headings, ["# Before", "# After"])
+        # The code fence content stays in "Before" section
+        before = [s for s in sections if s.heading == "# Before"][0]
+        self.assertIn("## Not a heading\n", before.content_lines)
+
+    def test_preamble_before_first_heading(self):
+        lines = ["Preamble\n", "\n", "# Title\n", "Body\n"]
+        sections = parse_sections(lines)
+        self.assertEqual(sections[0].heading, "")
+        self.assertEqual(sections[0].content_lines, ["Preamble\n", "\n"])
+
+    def test_line_ranges(self):
+        lines = ["# A\n", "A1\n", "A2\n", "# B\n", "B1\n"]
+        sections = parse_sections(lines)
+        # Section A starts at line 0, ends before line 3 (where B starts)
+        a_section = sections[1]
+        self.assertEqual(a_section.original_line_range[0], 0)
+        self.assertEqual(a_section.original_line_range[1], 3)
+
+    def test_test_plans_parse(self):
+        """Each test plan produces a list of sections with correct headings."""
+        for name in ("plan_alpha", "plan_beta", "plan_gamma", "plan_delta", "plan_epsilon"):
+            _, _, lines = load_plan(str(TEST_PLANS / f"{name}.md"))
+            sections = parse_sections(lines)
+            self.assertGreater(len(sections), 1, f"{name}: should have multiple sections")
+
+
+class TestNormalizeSection(unittest.TestCase):
+    def test_heading_normalization(self):
+        s = Section(heading="## Step 1: Setup", level=2, content_lines=[])
+        n = normalize_section(s)
+        self.assertEqual(n.heading, "step 1: setup")
+
+    def test_content_whitespace_strip(self):
+        s = Section(
+            heading="# T", level=1,
+            content_lines=["  line  \n", "other  \n"]
+        )
+        n = normalize_section(s)
+        self.assertEqual(n.content_lines, ["  line\n", "other\n"])
+
+    def test_collapse_blank_lines(self):
+        s = Section(
+            heading="# T", level=1,
+            content_lines=["A\n", "\n", "\n", "\n", "B\n"]
+        )
+        n = normalize_section(s)
+        self.assertEqual(n.content_lines, ["A\n", "\n", "B\n"])
+
+    def test_strip_leading_trailing_blanks(self):
+        s = Section(
+            heading="# T", level=1,
+            content_lines=["\n", "\n", "Content\n", "\n"]
+        )
+        n = normalize_section(s)
+        self.assertEqual(n.content_lines, ["Content\n"])
+
+    def test_immutable(self):
+        s = Section(heading="## H", level=2, content_lines=["A\n"])
+        n = normalize_section(s)
+        self.assertIsNot(s, n)
+        self.assertEqual(s.heading, "## H")  # original unchanged
+
+
+class TestComputeStructuralDiff(unittest.TestCase):
+    def test_identical_content_all_equal(self):
+        lines = ["# A\n", "Body\n", "# B\n", "Other\n"]
+        hunks = compute_structural_diff(lines, lines)
+        tags = {h.tag for h in hunks}
+        self.assertEqual(tags, {"equal"})
+
+    def test_reordered_sections_are_moved(self):
+        main = ["# A\n", "Content A\n", "# B\n", "Content B\n"]
+        other = ["# B\n", "Content B\n", "# A\n", "Content A\n"]
+        hunks = compute_structural_diff(main, other)
+        moved_hunks = [h for h in hunks if h.tag == "moved"]
+        self.assertGreater(len(moved_hunks), 0, "Should detect moved sections")
+
+    def test_classical_does_not_detect_moves(self):
+        main = ["# A\n", "Content A\n", "# B\n", "Content B\n"]
+        other = ["# B\n", "Content B\n", "# A\n", "Content A\n"]
+        hunks = compute_classical_diff(main, other)
+        moved_hunks = [h for h in hunks if h.tag == "moved"]
+        self.assertEqual(len(moved_hunks), 0, "Classical should not detect moves")
+
+    def test_deleted_section(self):
+        main = ["# A\n", "A content\n", "# B\n", "B content\n"]
+        other = ["# A\n", "A content\n"]
+        hunks = compute_structural_diff(main, other)
+        delete_hunks = [h for h in hunks if h.tag == "delete"]
+        self.assertGreater(len(delete_hunks), 0)
+
+    def test_inserted_section(self):
+        main = ["# A\n", "A content\n"]
+        other = ["# A\n", "A content\n", "# B\n", "B content\n"]
+        hunks = compute_structural_diff(main, other)
+        insert_hunks = [h for h in hunks if h.tag == "insert"]
+        self.assertGreater(len(insert_hunks), 0)
+
+    def test_replaced_section_content(self):
+        main = ["# A\n", "Old content\n"]
+        other = ["# A\n", "New content\n"]
+        hunks = compute_structural_diff(main, other)
+        # Should have replace hunks (same heading, different content, same position)
+        tags = {h.tag for h in hunks}
+        self.assertIn("replace", tags)
+
+    def test_content_similarity_matching(self):
+        """Sections with different headings but similar content should match."""
+        main = ["# Setup Step\n", "Install deps\n", "Run config\n", "Test it\n"]
+        other = ["# Configuration\n", "Install deps\n", "Run config\n", "Test it\n"]
+        hunks = compute_structural_diff(main, other)
+        # Should not have delete+insert, should have moved or replace
+        delete_hunks = [h for h in hunks if h.tag == "delete"]
+        insert_hunks = [h for h in hunks if h.tag == "insert"]
+        self.assertEqual(len(delete_hunks), 0, "Should match by content similarity")
+        self.assertEqual(len(insert_hunks), 0, "Should match by content similarity")
+
+    def test_source_plan_propagated(self):
+        main = ["# A\n", "X\n"]
+        other = ["# A\n", "Y\n"]
+        hunks = compute_structural_diff(main, other, source_plan="test.md")
+        for h in hunks:
+            self.assertEqual(h.source_plans, ["test.md"])
+
+    def test_test_plans_structural_detects_moves(self):
+        """Alpha vs gamma share 'Verification' heading at different positions."""
+        _, _, alpha = load_plan(str(TEST_PLANS / "plan_alpha.md"))
+        _, _, gamma = load_plan(str(TEST_PLANS / "plan_gamma.md"))
+        struct_hunks = compute_structural_diff(alpha, gamma)
+        moved = [h for h in struct_hunks if h.tag == "moved"]
+        class_hunks = compute_classical_diff(alpha, gamma)
+        class_moved = [h for h in class_hunks if h.tag == "moved"]
+        self.assertGreater(len(moved), 0, "Structural should find moved sections")
+        self.assertEqual(len(class_moved), 0, "Classical should not find moves")
+
+    def test_empty_inputs(self):
+        hunks = compute_structural_diff([], [])
+        # Empty preamble sections both sides — should be equal
+        for h in hunks:
+            self.assertIn(h.tag, ("equal",))
+
+
+class TestComputeMultiDiffStructural(unittest.TestCase):
+    def test_structural_mode_routing(self):
+        result = compute_multi_diff(
+            str(TEST_PLANS / "plan_alpha.md"),
+            [str(TEST_PLANS / "plan_beta.md")],
+            mode="structural",
+        )
+        self.assertEqual(result.comparisons[0].mode, "structural")
+
+    def test_structural_multi_diff_returns_valid_result(self):
+        result = compute_multi_diff(
+            str(TEST_PLANS / "plan_alpha.md"),
+            [
+                str(TEST_PLANS / "plan_beta.md"),
+                str(TEST_PLANS / "plan_gamma.md"),
+            ],
+            mode="structural",
+        )
+        self.assertEqual(len(result.comparisons), 2)
+        self.assertEqual(result.main_path, str(TEST_PLANS / "plan_alpha.md"))
+
+    def test_structural_all_five_plans(self):
+        result = compute_multi_diff(
+            str(TEST_PLANS / "plan_alpha.md"),
+            [
+                str(TEST_PLANS / "plan_beta.md"),
+                str(TEST_PLANS / "plan_gamma.md"),
+                str(TEST_PLANS / "plan_delta.md"),
+                str(TEST_PLANS / "plan_epsilon.md"),
+            ],
+            mode="structural",
+        )
+        self.assertEqual(len(result.comparisons), 4)
+        # All comparisons should have hunks
+        for comp in result.comparisons:
+            self.assertGreater(len(comp.hunks), 0)
 
 
 if __name__ == "__main__":
