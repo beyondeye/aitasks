@@ -119,6 +119,14 @@ Update `diffviewer_app.py`:
 - Re-enter diff → instant (no recomputation)
 - Up/down/pgup/pgdn → cursor moves within diff display
 
+## Final Implementation Notes
+
+- **Actual work done:** Created `diff_viewer_screen.py` with `DiffViewerScreen(Screen)` and `SummaryScreen(ModalScreen)`. DiffViewerScreen eagerly computes both classical and structural diffs in a background worker for instant mode switching. Updated `plan_manager_screen.py` to push DiffViewerScreen from the DiffLaunchDialog callback. Added CSS for info bar and summary modal to `diffviewer_app.py`. Also added `[..] Parent directory` navigation entry to `plan_browser.py` for easier testing/navigation.
+- **Deviations from plan:** Used `id="diff_viewer"` for the DiffDisplay widget in DiffViewerScreen (not `id="diff_display"`) to avoid conflicting with the internal Static child id in DiffDisplay. Used `self.app.call_from_thread()` instead of `self.call_from_thread()` since `call_from_thread` is a method on `App`, not `Screen`. Parent directory browser entry is always shown (not just when not at root) and handles empty parent path by falling back to `"."`.
+- **Issues encountered:** (1) `work` decorator must be imported from `textual` not `textual.worker`. (2) Duplicate CSS id crash: DiffDisplay's internal Static uses `id="diff_display"`, so the outer widget needed a different id. (3) `call_from_thread` is on `App`, not `Screen` — fixed to use `self.app.call_from_thread()`. (4) Parent directory navigation from root gave empty string to `os.listdir` — fixed with `or "."` fallback.
+- **Key decisions:** Both diff modes computed eagerly on screen mount for instant switching. Unified mode reuses `load_multi_diff()`. Summary modal reads `unique_to_main`/`unique_to_others` directly from `MultiDiffResult`.
+- **Notes for sibling tasks:** DiffViewerScreen uses `id="diff_viewer"` for its DiffDisplay widget (not `"diff_display"`). The current single-pane diff view shows both files interleaved — a follow-up task (t417_8) should implement a multi-column side-by-side view for better clarity. CSS for DiffViewerScreen and SummaryScreen is in `DiffViewerApp.CSS`.
+
 ## Post-Implementation
 
 Step 9 of the task-workflow: archive task, push changes.
