@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [tui, brainstorming]
-children_to_implement: [t417_1, t417_2]
+children_to_implement: [t417_1, t417_2, t417_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-18 11:08
 updated_at: 2026-03-18 12:22
