@@ -324,6 +324,79 @@ Agents signal liveness by updating `<agent>_alive.yaml` at regular intervals (vi
 - `error_message` set to `"Heartbeat timeout — agent presumed dead"`
 - `completed_at` set to current time
 
+## Operation Groups
+
+Operation groups are a logical grouping of agents registered as part of the same operation. They enable priority scheduling (earlier groups first), group-level commands, and group-level status queries.
+
+### Use Cases
+
+- **Brainstorm engine:** Multiple operations (explore, compare, hybridize) in one persistent crew. Each operation creates a group so agents from earlier operations complete before later ones start.
+- **Batch processing:** Register multiple batches of work where earlier batches should finish first.
+
+### Group Field in Agent Status
+
+Each agent has an optional `group` field in `<name>_status.yaml`:
+
+```yaml
+agent_name: explorer_001a
+agent_type: explorer
+group: explore_001     # Empty string if no group
+status: Waiting
+depends_on: []
+```
+
+Set via `ait crew addwork --group <name>`.
+
+### _groups.yaml Schema
+
+Stored in the crew worktree alongside `_crew_meta.yaml`. Created automatically when the first agent with a `--group` flag is registered.
+
+```yaml
+groups:
+- name: explore_001
+  sequence: 1
+  description: ''
+  created_at: '2026-03-18 14:05:00'
+- name: compare_002
+  sequence: 2
+  description: ''
+  created_at: '2026-03-18 14:30:00'
+```
+
+Sequence numbers are auto-incremented. Groups are never removed — they serve as a historical record.
+
+### Priority Scheduling
+
+The runner sorts ready agents by group sequence (ascending) before applying per-type and overall concurrency limits. Agents without a group sort last. This ensures agents from earlier operations get launched first when capacity is constrained.
+
+### Group Commands
+
+Send a command to all agents in a group:
+
+```bash
+ait crew command send-group --crew <id> --group <name> --command <cmd>
+```
+
+### Group Queries
+
+Filter status and report output by group:
+
+```bash
+ait crew status --crew <id> list --group <name>
+ait crew report --batch summary --crew <id> --group <name>
+ait crew report --batch output --crew <id> --group <name>
+```
+
+### Group Status Derivation
+
+Group status is derived from its agents' statuses (same rules as crew status):
+- All Completed → Completed
+- Any Error (no Running) → Error
+- Any Running → Running
+- All Waiting → Waiting
+
+Helper: `get_group_status(crew_dir, group_name)` in `agentcrew_utils.py`.
+
 ## TUI Dashboard
 
 The crew dashboard (`ait crew dashboard`) provides a Textual-based terminal UI for monitoring and managing crews. See the dedicated dashboard documentation for keybindings, screens, and features.

@@ -126,6 +126,7 @@ class CrewManager:
             agents[name] = {
                 "status": data.get("status", "Unknown"),
                 "agent_type": data.get("agent_type", ""),
+                "group": data.get("group", ""),
                 "depends_on": data.get("depends_on", []),
                 "progress": data.get("progress", 0),
                 "started_at": data.get("started_at", ""),
@@ -308,10 +309,15 @@ class AgentCard(Static, can_focus=True):
             error = f"  ⚠ {d['error_message']}"
 
         type_label = f" ({atype})" if atype else ""
+        group = d.get("group", "")
+        group_label = ""
+        if group:
+            g = group if len(group) <= 15 else group[:12] + "..."
+            group_label = f" [{g}]"
         hb_label = f"  ♥ {hb_str}" if hb_str else ""
 
         return (
-            f"[{color}]●[/{color}] {self.agent_name}{type_label}  "
+            f"[{color}]●[/{color}] {self.agent_name}{type_label}{group_label}  "
             f"[{color}]{status}[/{color}]  "
             f"{bar} {progress}%"
             f"{hb_label}{blocked}{error}{msg_str}"

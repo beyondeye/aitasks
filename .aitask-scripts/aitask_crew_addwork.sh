@@ -23,6 +23,7 @@ AGENT_NAME=""
 WORK2DO_FILE=""
 DEPENDS_CSV=""
 AGENT_TYPE=""
+GROUP=""
 # shellcheck disable=SC2034  # reserved for interactive mode
 BATCH_MODE=false
 
@@ -41,6 +42,7 @@ Required:
 
 Options:
   --depends <a,b>           Comma-separated list of agent names this agent depends on
+  --group <name>            Operation group name (e.g. explore_001)
   --batch                   Non-interactive mode (no prompts)
   --help                    Show this help
 
@@ -72,6 +74,9 @@ while [[ $# -gt 0 ]]; do
         --type)
             [[ -z "${2:-}" ]] && die "--type requires a value"
             AGENT_TYPE="$2"; shift 2 ;;
+        --group)
+            [[ -z "${2:-}" ]] && die "--group requires a value"
+            GROUP="$2"; shift 2 ;;
         --batch)
             BATCH_MODE=true; shift ;;
         --help|-h)
@@ -154,6 +159,7 @@ write_yaml_file "$WT_PATH/${AGENT_NAME}_work2do.md" "$WORK2DO_CONTENT"
 # 2. <name>_status.yaml
 STATUS_CONTENT="agent_name: ${AGENT_NAME}
 agent_type: ${AGENT_TYPE}
+group: ${GROUP}
 status: ${AGENT_STATUS_WAITING}
 depends_on: ${DEPENDS_YAML}
 created_at: ${NOW}
@@ -223,13 +229,55 @@ last_message:"
 # --- Update _crew_meta.yaml agents list ---
 append_yaml_list_item "$META_FILE" "agents" "$AGENT_NAME"
 
+# --- Update _groups.yaml if --group was provided ---
+GROUPS_FILE="$WT_PATH/_groups.yaml"
+GIT_ADD_GROUPS=""
+if [[ -n "$GROUP" ]]; then
+    if [[ ! -f "$GROUPS_FILE" ]]; then
+        write_yaml_file "$GROUPS_FILE" "groups: []"
+    fi
+    # Check if group already exists
+    if ! grep -q "name: ${GROUP}" "$GROUPS_FILE" 2>/dev/null; then
+        # Compute next sequence number
+        NEXT_SEQ=1
+        LAST_SEQ=$({ grep 'sequence:' "$GROUPS_FILE" || true; } | tail -1 | sed 's/.*sequence:[[:space:]]*//' | tr -d ' ')
+        if [[ -n "$LAST_SEQ" ]]; then
+            NEXT_SEQ=$((LAST_SEQ + 1))
+        fi
+        GROUP_NOW="$(date -u '+%Y-%m-%d %H:%M:%S')"
+        # Append group entry (replace empty list or append to existing)
+        if grep -q 'groups: \[\]' "$GROUPS_FILE" 2>/dev/null; then
+            # Replace empty list with first entry
+            tmpfile="$(mktemp "${TMPDIR:-/tmp}/groups_XXXXXX")"
+            cat > "$tmpfile" <<GROUPEOF
+groups:
+- name: ${GROUP}
+  sequence: ${NEXT_SEQ}
+  description: ''
+  created_at: '${GROUP_NOW}'
+GROUPEOF
+            mv "$tmpfile" "$GROUPS_FILE"
+        else
+            # Append new group entry
+            cat >> "$GROUPS_FILE" <<GROUPEOF
+- name: ${GROUP}
+  sequence: ${NEXT_SEQ}
+  description: ''
+  created_at: '${GROUP_NOW}'
+GROUPEOF
+        fi
+    fi
+    GIT_ADD_GROUPS="_groups.yaml"
+fi
+
 # --- Commit in worktree ---
 (
     cd "$WT_PATH"
+    # shellcheck disable=SC2086
     git add "${AGENT_NAME}_work2do.md" "${AGENT_NAME}_status.yaml" \
             "${AGENT_NAME}_input.md" "${AGENT_NAME}_output.md" \
             "${AGENT_NAME}_instructions.md" "${AGENT_NAME}_commands.yaml" \
-            "${AGENT_NAME}_alive.yaml" "_crew_meta.yaml"
+            "${AGENT_NAME}_alive.yaml" "_crew_meta.yaml" $GIT_ADD_GROUPS
     git commit -m "crew: Add agent '${AGENT_NAME}' to crew '${CREW_ID}'" --quiet
 )
 

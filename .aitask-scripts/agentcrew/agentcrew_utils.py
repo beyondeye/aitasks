@@ -365,6 +365,67 @@ def list_crews() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+def load_groups(crew_dir: str) -> list[dict]:
+    """Load _groups.yaml, return list of group dicts sorted by sequence."""
+    groups_file = os.path.join(crew_dir, "_groups.yaml")
+    if not os.path.exists(groups_file):
+        return []
+    data = read_yaml(groups_file)
+    groups = data.get("groups", [])
+    return sorted(groups, key=lambda g: g.get("sequence", 999))
+
+
+def get_group_agents(crew_dir: str, group_name: str) -> list[str]:
+    """Return agent names belonging to the specified group."""
+    agents = []
+    for f in list_agent_files(crew_dir, "_status.yaml"):
+        data = read_yaml(f)
+        if data.get("group", "") == group_name:
+            name = data.get("agent_name", "")
+            if name:
+                agents.append(name)
+    return agents
+
+
+def get_group_status(crew_dir: str, group_name: str) -> str:
+    """Return derived status for a group: Completed/Running/Error/Waiting."""
+    agents = get_group_agents(crew_dir, group_name)
+    if not agents:
+        return "Waiting"
+    statuses = []
+    for name in agents:
+        sf = os.path.join(crew_dir, f"{name}_status.yaml")
+        if os.path.exists(sf):
+            data = read_yaml(sf)
+            statuses.append(data.get("status", "Waiting"))
+    if all(s == "Completed" for s in statuses):
+        return "Completed"
+    if any(s == "Error" for s in statuses) and not any(s == "Running" for s in statuses):
+        return "Error"
+    if any(s == "Running" for s in statuses):
+        return "Running"
+    return "Waiting"
+
+
+def group_sort_key(agent_status: dict, groups: list[dict]) -> tuple:
+    """Return sort key for group-priority scheduling.
+
+    Lower sequence = higher priority. No-group agents sort last.
+    """
+    group_name = agent_status.get("group", "")
+    if not group_name:
+        return (999, agent_status.get("agent_name", ""))
+    for g in groups:
+        if g.get("name") == group_name:
+            return (g.get("sequence", 999), agent_status.get("agent_name", ""))
+    return (999, agent_status.get("agent_name", ""))
+
+
+# ---------------------------------------------------------------------------
+# Formatting helpers
+# ---------------------------------------------------------------------------
+
+
 def format_elapsed(seconds: float) -> str:
     """Format a duration in seconds to a human-readable string."""
     if seconds < 0:

@@ -20,7 +20,9 @@ from agentcrew.agentcrew_utils import (
     get_agent_names,
     get_ready_agents,
     get_stale_agents,
+    group_sort_key,
     list_agent_files,
+    load_groups,
     read_yaml,
     update_yaml_field,
     validate_agent_transition,
@@ -651,6 +653,18 @@ def run_loop(worktree: str, crew_id: str, interval: int, max_concurrent: int,
         ready = get_ready_agents(worktree)
         if ready:
             log(f"Ready agents: {', '.join(ready)}", batch)
+
+        # Sort by group priority (lower sequence first, no-group last)
+        groups = load_groups(worktree)
+        if groups and ready:
+            agent_data = {
+                name: read_yaml(os.path.join(worktree, f"{name}_status.yaml"))
+                for name in ready
+            }
+            ready = sorted(
+                ready,
+                key=lambda n: group_sort_key(agent_data.get(n, {}), groups),
+            )
 
         # Enforce per-type limits
         ready = enforce_type_limits(ready, agents, meta)

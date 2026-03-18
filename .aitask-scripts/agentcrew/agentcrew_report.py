@@ -62,7 +62,7 @@ def _read_file_content(path: str, max_lines: int = 0) -> str:
 # ---------------------------------------------------------------------------
 
 
-def cmd_summary(crew_id: str, batch: bool) -> int:
+def cmd_summary(crew_id: str, batch: bool, group_filter: str | None = None) -> int:
     """Print a summary report for a crew."""
     wt = crew_worktree_path(crew_id)
     if not os.path.isdir(wt):
@@ -95,6 +95,8 @@ def cmd_summary(crew_id: str, batch: bool) -> int:
         data = read_yaml(status_file)
         name = data.get("agent_name", "")
         if not name:
+            continue
+        if group_filter and data.get("group", "") != group_filter:
             continue
         alive_path = os.path.join(wt, f"{name}_alive.yaml")
         alive_data = read_yaml(alive_path) if os.path.isfile(alive_path) else {}
@@ -265,7 +267,7 @@ def cmd_detail(crew_id: str, agent_name: str, batch: bool) -> int:
 # ---------------------------------------------------------------------------
 
 
-def cmd_output(crew_id: str, batch: bool) -> int:
+def cmd_output(crew_id: str, batch: bool, group_filter: str | None = None) -> int:
     """Aggregate all agent output files in dependency order."""
     wt = crew_worktree_path(crew_id)
     if not os.path.isdir(wt):
@@ -278,6 +280,8 @@ def cmd_output(crew_id: str, batch: bool) -> int:
         data = read_yaml(status_file)
         name = data.get("agent_name", "")
         if name:
+            if group_filter and data.get("group", "") != group_filter:
+                continue
             agents_deps[name] = data.get("depends_on", [])
 
     try:
@@ -372,6 +376,7 @@ def main() -> int:
 
     sp_summary = subparsers.add_parser("summary", help="Crew overview with agent statuses")
     sp_summary.add_argument("--crew", required=True, help="Crew ID")
+    sp_summary.add_argument("--group", help="Filter to agents in this group")
 
     sp_detail = subparsers.add_parser("detail", help="Detailed agent report")
     sp_detail.add_argument("--crew", required=True, help="Crew ID")
@@ -379,6 +384,7 @@ def main() -> int:
 
     sp_output = subparsers.add_parser("output", help="Aggregate agent outputs")
     sp_output.add_argument("--crew", required=True, help="Crew ID")
+    sp_output.add_argument("--group", help="Filter to agents in this group")
 
     subparsers.add_parser("list", help="List all agentcrews")
 
@@ -386,11 +392,11 @@ def main() -> int:
     batch = args.batch
 
     if args.command == "summary":
-        return cmd_summary(args.crew, batch)
+        return cmd_summary(args.crew, batch, getattr(args, "group", None))
     elif args.command == "detail":
         return cmd_detail(args.crew, args.agent, batch)
     elif args.command == "output":
-        return cmd_output(args.crew, batch)
+        return cmd_output(args.crew, batch, getattr(args, "group", None))
     elif args.command == "list":
         return cmd_list(batch)
     else:

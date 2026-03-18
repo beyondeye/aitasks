@@ -27,6 +27,7 @@ CREW_ID=""
 AGENT_NAME=""
 COMMAND=""
 SENT_BY="user"
+GROUP_NAME=""
 SUBCMD=""
 
 # --- Usage ---
@@ -37,15 +38,17 @@ Usage: ait crew command <sub-command> --crew <id> [options]
 Send commands to agents in an agentcrew.
 
 Sub-commands:
-  send       Send a command to a specific agent
-  send-all   Send a command to all Running agents
-  list       List pending commands for an agent
-  ack        Acknowledge (clear) pending commands for an agent
+  send        Send a command to a specific agent
+  send-all    Send a command to all Running agents
+  send-group  Send a command to all agents in a group
+  list        List pending commands for an agent
+  ack         Acknowledge (clear) pending commands for an agent
 
 Options:
   --crew <id>             Crew identifier (required)
   --agent <name>          Agent name (required for send, list, ack)
-  --command <cmd>         Command to send (required for send, send-all)
+  --group <name>          Group name (required for send-group)
+  --command <cmd>         Command to send (required for send, send-all, send-group)
                           Valid: kill, pause, resume, update_instructions
   --sent-by <who>         Who sent the command: runner|user (default: user)
   --help                  Show this help
@@ -73,9 +76,9 @@ fi
 shift
 
 case "$SUBCMD" in
-    send|send-all|list|ack) ;;
+    send|send-all|send-group|list|ack) ;;
     --help|-h) show_help; exit 0 ;;
-    *) die "Unknown sub-command: $SUBCMD. Valid: send, send-all, list, ack" ;;
+    *) die "Unknown sub-command: $SUBCMD. Valid: send, send-all, send-group, list, ack" ;;
 esac
 
 while [[ $# -gt 0 ]]; do
@@ -89,6 +92,9 @@ while [[ $# -gt 0 ]]; do
         --command)
             [[ -z "${2:-}" ]] && die "--command requires a value"
             COMMAND="$2"; shift 2 ;;
+        --group)
+            [[ -z "${2:-}" ]] && die "--group requires a value"
+            GROUP_NAME="$2"; shift 2 ;;
         --sent-by)
             [[ -z "${2:-}" ]] && die "--sent-by requires a value"
             SENT_BY="$2"; shift 2 ;;
@@ -199,6 +205,34 @@ cmd_send_all() {
     fi
 }
 
+# --- Sub-command: send-group ---
+cmd_send_group() {
+    [[ -z "$GROUP_NAME" ]] && die "Missing required --group for 'send-group'. Run 'ait crew command --help' for usage."
+    [[ -z "$COMMAND" ]] && die "Missing required --command for 'send-group'. Run 'ait crew command --help' for usage."
+    validate_command "$COMMAND"
+
+    local count=0
+    local status_file agent_name agent_group
+
+    for status_file in "$WT_PATH"/*_status.yaml; do
+        [[ -f "$status_file" ]] || continue
+        [[ "$(basename "$status_file")" == "_crew_status.yaml" ]] && continue
+
+        agent_group=$(read_yaml_field "$status_file" "group")
+        if [[ "$agent_group" == "$GROUP_NAME" ]]; then
+            agent_name=$(read_yaml_field "$status_file" "agent_name")
+            [[ -z "$agent_name" ]] && continue
+            AGENT_NAME="$agent_name"
+            cmd_send
+            count=$((count + 1))
+        fi
+    done
+
+    if [[ $count -eq 0 ]]; then
+        info "No agents found in group '$GROUP_NAME' in crew '$CREW_ID'"
+    fi
+}
+
 # --- Sub-command: list ---
 cmd_list() {
     [[ -z "$AGENT_NAME" ]] && die "Missing required --agent for 'list'. Run 'ait crew command --help' for usage."
@@ -233,8 +267,9 @@ cmd_ack() {
 
 # --- Dispatch ---
 case "$SUBCMD" in
-    send)     cmd_send ;;
-    send-all) cmd_send_all ;;
-    list)     cmd_list ;;
-    ack)      cmd_ack ;;
+    send)       cmd_send ;;
+    send-all)   cmd_send_all ;;
+    send-group) cmd_send_group ;;
+    list)       cmd_list ;;
+    ack)        cmd_ack ;;
 esac

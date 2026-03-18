@@ -130,11 +130,14 @@ def cmd_list(args: argparse.Namespace) -> None:
     """List all agents with their status, progress, and heartbeat."""
     wt = resolve_crew(args.crew)
     timeout = _get_heartbeat_timeout(wt)
+    group_filter = getattr(args, "group", None) or None
 
     for status_file in list_agent_files(wt, "_status.yaml"):
         data = read_yaml(status_file)
         name = data.get("agent_name", "")
         if not name:
+            continue
+        if group_filter and data.get("group", "") != group_filter:
             continue
         status = data.get("status", "Unknown")
         progress = data.get("progress", 0)
@@ -149,12 +152,16 @@ def cmd_list(args: argparse.Namespace) -> None:
 
         print(f"AGENT:{name} STATUS:{status} PROGRESS:{progress} HEARTBEAT:{hb}")
 
-    # Also show ready agents and stale agents
+    # Also show ready agents and stale agents (filtered by group if active)
     ready = get_ready_agents(wt)
+    stale = get_stale_agents(wt, timeout)
+    if group_filter:
+        from agentcrew.agentcrew_utils import get_group_agents
+        group_members = set(get_group_agents(wt, group_filter))
+        ready = [a for a in ready if a in group_members]
+        stale = [a for a in stale if a in group_members]
     if ready:
         print(f"READY_AGENTS:{','.join(ready)}")
-
-    stale = get_stale_agents(wt, timeout)
     if stale:
         print(f"STALE_AGENTS:{','.join(stale)}")
 
@@ -255,7 +262,8 @@ def main() -> None:
     set_p.add_argument("--progress", type=int, help="Progress percentage (0-100)")
 
     # list
-    sub.add_parser("list", help="List all agents with status")
+    list_p = sub.add_parser("list", help="List all agents with status")
+    list_p.add_argument("--group", help="Filter to agents in this group")
 
     # heartbeat
     hb_p = sub.add_parser("heartbeat", help="Update agent heartbeat")
