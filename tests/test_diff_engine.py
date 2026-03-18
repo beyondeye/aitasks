@@ -1,0 +1,234 @@
+"""Unit tests for .aitask-scripts/diffviewer/diff_engine.py and plan_loader.py."""
+
+from __future__ import annotations
+
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+# Add the .aitask-scripts directory to path for imports
+SCRIPTS_DIR = Path(__file__).resolve().parents[1] / ".aitask-scripts"
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+from diffviewer.plan_loader import load_plan
+from diffviewer.diff_engine import (
+    DiffHunk,
+    MultiDiffResult,
+    PairwiseDiff,
+    compute_classical_diff,
+    compute_multi_diff,
+)
+
+TEST_PLANS = SCRIPTS_DIR / "diffviewer" / "test_plans"
+
+
+class TestPlanLoader(unittest.TestCase):
+    def test_load_plan_with_frontmatter(self):
+        meta, body, lines = load_plan(str(TEST_PLANS / "plan_alpha.md"))
+        self.assertIn("Task", meta)
+        self.assertGreater(len(body), 0)
+        self.assertGreater(len(lines), 0)
+
+    def test_load_plan_body_excludes_frontmatter(self):
+        meta, body, lines = load_plan(str(TEST_PLANS / "plan_alpha.md"))
+        self.assertNotIn("---", body[:10])
+
+    def test_load_plan_no_frontmatter(self):
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", delete=False
+        ) as f:
+            f.write("# No frontmatter\n\nJust content.\n")
+            path = f.name
+        try:
+            meta, body, lines = load_plan(path)
+            self.assertEqual(meta, {})
+            self.assertIn("No frontmatter", body)
+            self.assertGreater(len(lines), 0)
+        finally:
+            os.unlink(path)
+
+    def test_load_plan_missing_file(self):
+        with self.assertRaises(FileNotFoundError):
+            load_plan("/nonexistent/path.md")
+
+    def test_all_test_plans_loadable(self):
+        for name in ("plan_alpha", "plan_beta", "plan_gamma", "plan_delta", "plan_epsilon"):
+            path = str(TEST_PLANS / f"{name}.md")
+            meta, body, lines = load_plan(path)
+            self.assertIsInstance(meta, dict, f"{name}: meta should be dict")
+            self.assertGreater(len(lines), 0, f"{name}: should have body lines")
+
+
+class TestComputeClassicalDiff(unittest.TestCase):
+    def test_identical_lines_all_equal(self):
+        _, _, lines = load_plan(str(TEST_PLANS / "plan_alpha.md"))
+        hunks = compute_classical_diff(lines, lines)
+        self.assertTrue(all(h.tag == "equal" for h in hunks))
+
+    def test_different_lines_has_changes(self):
+        _, _, alpha = load_plan(str(TEST_PLANS / "plan_alpha.md"))
+        _, _, beta = load_plan(str(TEST_PLANS / "plan_beta.md"))
+        hunks = compute_classical_diff(alpha, beta)
+        tags = {h.tag for h in hunks}
+        self.assertTrue(tags - {"equal"}, "Should have non-equal hunks")
+
+    def test_empty_vs_content_all_insert(self):
+        hunks = compute_classical_diff([], ["line1\n", "line2\n"])
+        self.assertEqual(len(hunks), 1)
+        self.assertEqual(hunks[0].tag, "insert")
+        self.assertEqual(hunks[0].other_lines, ["line1\n", "line2\n"])
+        self.assertEqual(hunks[0].main_lines, [])
+
+    def test_content_vs_empty_all_delete(self):
+        hunks = compute_classical_diff(["line1\n", "line2\n"], [])
+        self.assertEqual(len(hunks), 1)
+        self.assertEqual(hunks[0].tag, "delete")
+        self.assertEqual(hunks[0].main_lines, ["line1\n", "line2\n"])
+        self.assertEqual(hunks[0].other_lines, [])
+
+    def test_replace_hunk(self):
+        hunks = compute_classical_diff(
+            ["same\n", "old\n"], ["same\n", "new\n"]
+        )
+        tags = [h.tag for h in hunks]
+        self.assertIn("equal", tags)
+        self.assertIn("replace", tags)
+
+    def test_source_plan_propagated(self):
+        hunks = compute_classical_diff(
+            ["a\n"], ["b\n"], source_plan="test.md"
+        )
+        self.assertEqual(hunks[0].source_plans, ["test.md"])
+
+    def test_source_plan_empty_when_not_provided(self):
+        hunks = compute_classical_diff(["a\n"], ["b\n"])
+        self.assertEqual(hunks[0].source_plans, [])
+
+    def test_main_range_tracking(self):
+        hunks = compute_classical_diff(
+            ["same\n", "old\n", "end\n"],
+            ["same\n", "new\n", "end\n"],
+        )
+        equal_hunks = [h for h in hunks if h.tag == "equal"]
+        self.assertEqual(equal_hunks[0].main_range, (0, 1))
+
+    def test_other_range_tracking(self):
+        hunks = compute_classical_diff(
+            ["same\n", "old\n"],
+            ["same\n", "new\n"],
+        )
+        replace_hunks = [h for h in hunks if h.tag == "replace"]
+        self.assertEqual(len(replace_hunks), 1)
+        self.assertEqual(replace_hunks[0].other_range, (1, 2))
+
+    def test_both_empty(self):
+        hunks = compute_classical_diff([], [])
+        self.assertEqual(hunks, [])
+
+
+class TestComputeMultiDiff(unittest.TestCase):
+    def test_two_comparisons(self):
+        result = compute_multi_diff(
+            str(TEST_PLANS / "plan_alpha.md"),
+            [
+                str(TEST_PLANS / "plan_beta.md"),
+                str(TEST_PLANS / "plan_gamma.md"),
+            ],
+        )
+        self.assertEqual(len(result.comparisons), 2)
+        self.assertEqual(result.main_path, str(TEST_PLANS / "plan_alpha.md"))
+
+    def test_unique_to_main_populated(self):
+        result = compute_multi_diff(
+            str(TEST_PLANS / "plan_alpha.md"),
+            [
+                str(TEST_PLANS / "plan_beta.md"),
+                str(TEST_PLANS / "plan_gamma.md"),
+            ],
+        )
+        self.assertGreater(len(result.unique_to_main), 0)
+
+    def test_unique_to_others_populated(self):
+        result = compute_multi_diff(
+            str(TEST_PLANS / "plan_alpha.md"),
+            [
+                str(TEST_PLANS / "plan_beta.md"),
+                str(TEST_PLANS / "plan_gamma.md"),
+            ],
+        )
+        self.assertGreater(len(result.unique_to_others), 0)
+
+    def test_mode_is_classical(self):
+        result = compute_multi_diff(
+            str(TEST_PLANS / "plan_alpha.md"),
+            [str(TEST_PLANS / "plan_beta.md")],
+        )
+        self.assertEqual(result.comparisons[0].mode, "classical")
+
+    def test_single_comparison(self):
+        result = compute_multi_diff(
+            str(TEST_PLANS / "plan_alpha.md"),
+            [str(TEST_PLANS / "plan_delta.md")],
+        )
+        self.assertEqual(len(result.comparisons), 1)
+
+    def test_gamma_delta_asymmetry(self):
+        """Delta is a subset of gamma — gamma as main should have more unique content."""
+        r1 = compute_multi_diff(
+            str(TEST_PLANS / "plan_gamma.md"),
+            [str(TEST_PLANS / "plan_delta.md")],
+        )
+        r2 = compute_multi_diff(
+            str(TEST_PLANS / "plan_delta.md"),
+            [str(TEST_PLANS / "plan_gamma.md")],
+        )
+        self.assertGreater(len(r1.unique_to_main), len(r2.unique_to_main))
+
+    def test_all_five_plans(self):
+        result = compute_multi_diff(
+            str(TEST_PLANS / "plan_alpha.md"),
+            [
+                str(TEST_PLANS / "plan_beta.md"),
+                str(TEST_PLANS / "plan_gamma.md"),
+                str(TEST_PLANS / "plan_delta.md"),
+                str(TEST_PLANS / "plan_epsilon.md"),
+            ],
+        )
+        self.assertEqual(len(result.comparisons), 4)
+
+
+class TestDataClasses(unittest.TestCase):
+    def test_diffhunk_defaults(self):
+        h = DiffHunk(tag="insert")
+        self.assertEqual(h.main_lines, [])
+        self.assertEqual(h.other_lines, [])
+        self.assertEqual(h.source_plans, [])
+        self.assertEqual(h.main_range, (0, 0))
+        self.assertEqual(h.other_range, (0, 0))
+
+    def test_diffhunk_repr(self):
+        h = DiffHunk(tag="equal", main_lines=["test\n"], main_range=(0, 1))
+        self.assertIn("equal", repr(h))
+
+    def test_pairwisediff_defaults(self):
+        p = PairwiseDiff(main_path="a.md", other_path="b.md", mode="classical")
+        self.assertEqual(p.hunks, [])
+
+    def test_multidiffresult_defaults(self):
+        m = MultiDiffResult(main_path="a.md")
+        self.assertEqual(m.comparisons, [])
+        self.assertEqual(m.unique_to_main, [])
+        self.assertEqual(m.unique_to_others, {})
+
+    def test_no_shared_mutable_defaults(self):
+        """Ensure each instance gets its own list/dict."""
+        h1 = DiffHunk(tag="a")
+        h2 = DiffHunk(tag="b")
+        h1.main_lines.append("x")
+        self.assertEqual(h2.main_lines, [])
+
+
+if __name__ == "__main__":
+    unittest.main()
