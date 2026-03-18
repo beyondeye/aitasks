@@ -160,6 +160,14 @@ class DiffViewerApp(App):
 - Quit with `q`
 - Reopen app → history shows previously loaded plans in browser
 
+## Final Implementation Notes
+
+- **Actual work done:** Created `plan_browser.py` with `PlanBrowser(VerticalScroll)` and `_BrowserEntry(Static)` focusable entries. Created `plan_manager_screen.py` with `PlanManagerScreen(Screen)`, `_LoadedPlanEntry(Horizontal)`, and `DiffLaunchDialog(ModalScreen)`. Replaced `diffviewer_app.py` placeholder stub with full `DiffViewerApp(App)` including inline CSS for all widgets.
+- **Deviations from plan:** Used `_BrowserEntry._find_browser()` with manual ancestor walking instead of Textual's `ancestors_with_type()` which does not exist in the Textual API. Similarly used `_find_ancestor()` helper for button-to-entry ancestor lookup in `plan_manager_screen.py`. The compose structure uses `Vertical` instead of `VerticalScroll` for `#loaded_pane` outer container (VerticalScroll is only for the inner list). PlanBrowser default root is `aiplans/` (test_plans requires manual root override). Breadcrumb uses emoji folder icon rather than clickable back navigation.
+- **Issues encountered:** `ancestors_with_type()` method does not exist on Textual widgets — replaced with explicit ancestor loop. Fixed during user review cycle.
+- **Key decisions:** History stored as absolute paths for uniqueness. Browser entry navigation uses direct method calls on parent PlanBrowser rather than message posting for simplicity. DiffLaunchDialog "Start Diff" shows a notification placeholder — actual DiffViewerScreen transition will be wired in t417_6.
+- **Notes for sibling tasks:** `PlanManagerScreen` stores loaded plans as `list[dict]` with keys `path`, `display_name`, `heading`. `DiffLaunchDialog.dismiss()` returns `(main_path, selected_paths, mode)` tuple on success or `None` on cancel. The `handle_result` callback in `on_diff_as_main` is where t417_6 should replace the notification with `app.push_screen(DiffViewerScreen(...))`. CSS is defined in `DiffViewerApp.CSS` — add DiffViewerScreen styles there.
+
 ## Post-Implementation
 
 Step 9 of the task-workflow: archive task, push changes.
