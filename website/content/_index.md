@@ -38,9 +38,9 @@ Git worktrees, atomic task locking, and branch management enable multiple develo
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.12.1: View Implementation Plans Right in the Board, and More Reliable Satisfaction Feedback](blog/v0121-view-implementation-plans-right-in-the-board-more-reliable-satisfaction-fe/)** -- Mar 18, 2026
 - **[v0.12.0: AgentCrew: Run Multiple Agents in Parallel, Revert Any Completed Task, and Smarter Contribution Management](blog/v0120-agentcrew-run-multiple-agents-in-parallel-revert-any-completed-task-smarte/)** -- Mar 17, 2026
 - **[v0.11.0: Contribution Pipeline, Satisfaction Feedback & Verified Scores, and Explain Context](blog/v0110-contribution-pipeline-satisfaction-feedback-verified-scores-explain-contex/)** -- Mar 15, 2026
-- **[v0.10.0: Contribute Back Without Forking, Code Agent Commit Attribution, and Code Agent and Model Statistics](blog/v0100-contribute-back-without-forking-code-agent-commit-attribution-code-agent-a/)** -- Mar 10, 2026
 
 [All releases &rarr;](blog/)
 
