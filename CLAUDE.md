@@ -22,6 +22,7 @@ bash tests/test_t167_integration.sh
 bash tests/test_global_shim.sh
 bash tests/test_sed_compat.sh
 bash tests/test_resolve_detected_agent.sh
+bash tests/test_verified_update_flags.sh
 ```
 No test runner — each file is self-contained with `assert_eq`/`assert_contains` helpers and prints PASS/FAIL summary.
 

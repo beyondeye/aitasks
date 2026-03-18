@@ -11,6 +11,8 @@ SUPPORTED_AGENTS=(claudecode geminicli codex opencode)
 MAX_REMOTE_RETRIES=5
 
 AGENT_STRING=""
+CLI_AGENT=""
+CLI_ID=""
 SKILL_NAME=""
 SCORE=""
 SILENT=false
@@ -23,7 +25,7 @@ CURRENT_WEEK=""
 
 show_help() {
     cat <<'EOF'
-Usage: aitask_verified_update.sh --agent-string <agent/model> --skill <skill> --score <1-5> [--date YYYY-MM-DD] [--silent]
+Usage: aitask_verified_update.sh [--agent-string <agent/model> | --agent <name> --cli-id <id>] --skill <skill> --score <1-5> [--date YYYY-MM-DD] [--silent]
 
 Update rolling verification statistics for a model/skill pair.
 
@@ -35,6 +37,9 @@ Concurrency note:
 
 Options:
   --agent-string STR  Agent string in the form <agent>/<model>
+  --agent NAME        Agent name (claudecode, geminicli, codex, opencode)
+  --cli-id ID         Raw model ID from agent runtime (e.g. claude-opus-4-6)
+                      Use --agent + --cli-id as alternative to --agent-string
   --skill NAME        Skill identifier to update (for example: pick, explain)
   --score N           Satisfaction score from 1 to 5
   --date YYYY-MM-DD   Override current date for month/week period calculation
@@ -112,6 +117,16 @@ parse_args() {
                 AGENT_STRING="$2"
                 shift 2
                 ;;
+            --agent)
+                [[ $# -lt 2 ]] && die "--agent requires a value"
+                CLI_AGENT="$2"
+                shift 2
+                ;;
+            --cli-id)
+                [[ $# -lt 2 ]] && die "--cli-id requires a value"
+                CLI_ID="$2"
+                shift 2
+                ;;
             --skill)
                 [[ $# -lt 2 ]] && die "--skill requires a value"
                 SKILL_NAME="$2"
@@ -141,11 +156,26 @@ parse_args() {
         esac
     done
 
-    [[ -n "$AGENT_STRING" ]] || die "--agent-string is required"
     [[ -n "$SKILL_NAME" ]] || die "--skill is required"
     [[ -n "$SCORE" ]] || die "--score is required"
-
     [[ "$SCORE" =~ ^[1-5]$ ]] || die "--score must be an integer from 1 to 5"
+
+    # Mutual exclusion: --agent-string vs --agent/--cli-id
+    if [[ -n "$AGENT_STRING" && ( -n "$CLI_AGENT" || -n "$CLI_ID" ) ]]; then
+        die "--agent-string cannot be combined with --agent/--cli-id"
+    fi
+
+    if [[ -z "$AGENT_STRING" ]]; then
+        # Must have both --agent and --cli-id
+        [[ -n "$CLI_AGENT" ]] || die "Either --agent-string or --agent/--cli-id is required"
+        [[ -n "$CLI_ID" ]] || die "--cli-id is required when --agent is provided"
+
+        # Resolve via aitask_resolve_detected_agent.sh
+        local resolve_output
+        resolve_output="$("$SCRIPT_DIR/aitask_resolve_detected_agent.sh" --agent "$CLI_AGENT" --cli-id "$CLI_ID")"
+        # Parse output: AGENT_STRING:<value> or AGENT_STRING_FALLBACK:<value>
+        AGENT_STRING="${resolve_output#*:}"
+    fi
 
     parse_agent_string "$AGENT_STRING"
 }

@@ -13,7 +13,13 @@ rolling verified scores for the current code agent/model. It is referenced from 
 
    **Default behavior:** If `enableFeedbackQuestions` is omitted, treat it as `true` and continue normally.
 
-2. Execute the **Model Self-Detection Sub-Procedure** (see `model-self-detection.md`) to get `agent_string`.
+2. **Identify yourself:**
+   - Determine which code agent you are running in. Use one of: `claudecode`, `geminicli`, `codex`, `opencode`. **IMPORTANT:** Use `claudecode` (not `claude`), `geminicli` (not `gemini`).
+   - Obtain your current model ID:
+     - **Claude Code:** Read the "exact model ID" from the system message (e.g., `claude-opus-4-6`).
+     - **Codex CLI:** Run: `grep '^model' ~/.codex/config.toml | sed 's/^model[[:space:]]*=[[:space:]]*//' | tr -d '"'`
+     - **Gemini CLI:** Read the model ID from system context, or run: `jq -r '.model // empty' ~/.gemini/settings.json 2>/dev/null`
+     - **OpenCode:** Read the model ID from system context.
    - If detection fails or no supported agent/model can be identified, skip silently.
 
 3. Use `AskUserQuestion`:
@@ -29,8 +35,10 @@ rolling verified scores for the current code agent/model. It is referenced from 
 
 4. If the user selected a rating, update verified stats:
    ```bash
-   ./.aitask-scripts/aitask_verified_update.sh --agent-string "<agent_string>" --skill "<skill_name>" --score <rating> --silent
+   ./.aitask-scripts/aitask_verified_update.sh --agent "<agent>" --cli-id "<model_id>" --skill "<skill_name>" --score <rating> --silent
    ```
+   The script resolves the agent string internally — no need to call `aitask_resolve_detected_agent.sh` separately.
+
    Parse the structured result:
    - `UPDATED:<agent>/<model>:<skill>:<new_score>` — Display: `Updated <skill> verified score for <agent>/<model>: <new_score>`
 
