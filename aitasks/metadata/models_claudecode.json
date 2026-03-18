@@ -10,7 +10,8 @@
         "explain": 80,
         "changelog": 90,
         "explore": 100,
-        "revert": 100
+        "revert": 100,
+        "test_414_flags": 100
       },
       "verifiedstats": {
         "pick": {
@@ -62,6 +63,22 @@
           }
         },
         "revert": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "month": {
+            "period": "2026-03",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W12",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "test_414_flags": {
           "all_time": {
             "runs": 1,
             "score_sum": 100
