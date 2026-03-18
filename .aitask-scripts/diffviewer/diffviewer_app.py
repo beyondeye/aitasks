@@ -171,6 +171,40 @@ class DiffViewerApp(App):
     #diff_launch_buttons Button {
         margin: 0 1;
     }
+
+    /* ── DiffViewerScreen ── */
+
+    #info_bar {
+        text-style: bold;
+        color: $accent;
+        padding: 0 1;
+        height: 1;
+    }
+
+    /* ── SummaryScreen ── */
+
+    SummaryScreen {
+        align: center middle;
+    }
+
+    #summary_container {
+        width: 50%;
+        height: auto;
+        max-height: 60%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+
+    #summary_title {
+        text-style: bold;
+        color: $accent;
+        padding: 0 0 1 0;
+    }
+
+    #btn_close_summary {
+        margin: 1 0 0 0;
+    }
     """
 
     BINDINGS = [

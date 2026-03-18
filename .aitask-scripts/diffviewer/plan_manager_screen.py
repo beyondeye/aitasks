@@ -15,6 +15,7 @@ from textual import on
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from diffviewer.plan_browser import PlanBrowser
 from diffviewer.plan_loader import load_plan
+from diffviewer.diff_viewer_screen import DiffViewerScreen
 
 
 class _LoadedPlanEntry(Horizontal):
@@ -211,11 +212,7 @@ class PlanManagerScreen(Screen):
             if result is None:
                 return
             _main, _targets, _mode = result
-            # t417_6 will implement DiffViewerScreen — for now show notification
-            self.notify(
-                f"Diff ready: {os.path.basename(_main)} vs {len(_targets)} plan(s) ({_mode})",
-                severity="information",
-            )
+            self.app.push_screen(DiffViewerScreen(_main, _targets, _mode))
 
         self.app.push_screen(
             DiffLaunchDialog(main_path, main_name, other_plans),

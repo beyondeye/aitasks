@@ -128,6 +128,16 @@ class PlanBrowser(VerticalScroll):
             self.mount(Static("  (cannot read directory)", classes="browser-error"))
             return
 
+        # Parent directory entry (always shown)
+        parent = os.path.dirname(os.path.normpath(self._current_dir)) or "."
+        entry = _BrowserEntry(
+            "  [..] Parent directory",
+            parent,
+            is_dir=True,
+            classes="browser-dir-entry",
+        )
+        self.mount(entry)
+
         # Directories first, then .md files
         dirs = []
         files = []
