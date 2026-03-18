@@ -5,6 +5,8 @@ Uses aitask_explain_extract_raw_data.sh + aitask_explain_process_raw_data.py
 pipeline, directing output to .aitask-explain/codebrowser/ with directory-based naming.
 """
 
+from __future__ import annotations
+
 import glob
 import os
 import re

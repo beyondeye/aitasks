@@ -1,5 +1,7 @@
 """Detail pane widget showing plan/task content for the current annotation."""
 
+from __future__ import annotations
+
 from textual.containers import VerticalScroll
 from textual.widgets import Markdown, Static
 

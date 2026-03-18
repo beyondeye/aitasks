@@ -1,5 +1,7 @@
 """Code viewer widget with syntax highlighting, line numbers, and annotation gutter."""
 
+from __future__ import annotations
+
 import time
 from pathlib import Path
 
