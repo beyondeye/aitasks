@@ -25,7 +25,7 @@ and expose it through the existing wrapper conventions.
 
 ## Steps
 
-1. Read `aidocs/aitask_redesign_spec.md` from child `t399_1`.
+1. Read `aidocs/brainstorming/aitask_redesign_spec.md` from child `t399_1`.
 2. Create the Claude source skill skeleton with frontmatter, arguments, and
    execution-profile handling.
 3. Implement source-task discovery and context loading using existing helpers.

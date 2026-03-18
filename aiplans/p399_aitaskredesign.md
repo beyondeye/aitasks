@@ -47,7 +47,7 @@ infrastructure unless a real gap is discovered during implementation.
 
 ### t399_1 - Redesign workflow spec
 
-Create a source-of-truth design note in `aidocs/aitask_redesign_spec.md` that
+Create a source-of-truth design note in `aidocs/brainstorming/aitask_redesign_spec.md` that
 defines:
 
 - exact user-visible workflow
