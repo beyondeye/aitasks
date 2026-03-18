@@ -24,17 +24,17 @@ workflow building blocks already present in the repository:
 - `.claude/skills/aitask-explore/SKILL.md`
 - `.claude/skills/aitask-fold/SKILL.md`
 - `.claude/skills/task-workflow/planning.md`
-- `aidocs/agentcrew_architecture.md`
-- `aidocs/agentcrew_work2do_guide.md`
+- `aidocs/agentcrew/agentcrew_architecture.md`
+- `aidocs/agentcrew/agentcrew_work2do_guide.md`
 - the external `superpowers` brainstorming skill referenced in the parent task
 
 The expected output of this child is a source-of-truth spec at
-`aidocs/aitask_redesign_spec.md` that makes the later implementation mostly
+`aidocs/brainstorming/aitask_redesign_spec.md` that makes the later implementation mostly
 mechanical.
 
 ### Key Files To Modify
 
-- `aidocs/aitask_redesign_spec.md` - new design note defining the v1 workflow
+- `aidocs/brainstorming/aitask_redesign_spec.md` - new design note defining the v1 workflow
 - `aiplans/p399/p399_1_redesign_workflow_spec.md` - update with final notes once
   the design decisions are locked
 
@@ -80,7 +80,7 @@ mechanical.
 
 ### Verification Steps
 
-- `aidocs/aitask_redesign_spec.md` explicitly defines both redesign and
+- `aidocs/brainstorming/aitask_redesign_spec.md` explicitly defines both redesign and
   brainstorm modes
 - the spec explains why v1 creates a new task instead of editing the old task
 - the spec names the exact files child 2 and child 3 are expected to create

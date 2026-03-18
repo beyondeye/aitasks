@@ -24,7 +24,7 @@ so as possible documunted workflows for the aitask_redesign skill we should docu
 note that the new redesign skill is complementary and can be coupled with the use of the aitask-revert skill (it should be documented in workflows), that is first we revert a task, partially or completely and then with run the aitask-redesign skill
 
 IMPORTANT: a very good implementation of a brainstorming workflow skill is defined here: https://github.com/obra/superpowers/tree/main/skills/brainstorming, it is based on parallel agent exploring the possible solution
-Also for deep brainstorming mode note that now we have implemented the agentcrew engine (see agentcrew_architecture.md and agentcrew_work2do_guide.md in aidocs).
+Also for deep brainstorming mode note that now we have implemented the agentcrew engine (see aidocs/agentcrew/agentcrew_architecture.md and aidocs/agentcrew/agentcrew_work2do_guide.md).
 I am not sure if deep brainstorming mode should be integrated in this aitask_redesign skill of separated to a new separate skill aitask_brainstorm, that take advantage of the agent_crew infrastructure to process an aitask definition and create 
 need to check how this is done in superpower brainstorming, that uses an architecture with multiple agents with multiple roles, and understand if it has any advantage, considering that when running a DAG of agent tasks, how we integrate user 
 input to refine intent and guild the design toward what the user actually want?

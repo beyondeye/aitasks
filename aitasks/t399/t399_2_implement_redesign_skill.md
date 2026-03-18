@@ -39,7 +39,7 @@ OpenCode, and the unified Codex/Gemini wrappers.
 
 ### Implementation Plan
 
-1. Read `aidocs/aitask_redesign_spec.md` from child `t399_1` and treat it as
+1. Read `aidocs/brainstorming/aitask_redesign_spec.md` from child `t399_1` and treat it as
    the behavioral source of truth.
 2. Create `.claude/skills/aitask-redesign/SKILL.md` with:
    - frontmatter
