@@ -114,12 +114,27 @@ Design criteria for test data:
 - Structure: All sections from alpha + gamma, plus Risk Assessment, Performance Considerations
 - Features: `###` subsections, rephrased versions of shared content, longest plan
 
-## 6. Verification
+## 6. Register in `ait` Dispatcher
+
+Add `diffviewer` command to `./ait`:
+- Add usage line in `show_usage()` under TUI section
+- Add case branch: `diffviewer) shift; exec "$SCRIPTS_DIR/aitask_diffviewer.sh" "$@" ;;`
+
+## 7. Verification
 
 - `shellcheck .aitask-scripts/aitask_diffviewer.sh` — passes
 - `bash .aitask-scripts/aitask_diffviewer.sh` — runs without error (prints placeholder message)
+- `./ait diffviewer` — works via dispatcher
 - Python can import: `python3 -c "import sys; sys.path.insert(0, '.aitask-scripts'); import diffviewer"`
 - Each test plan has valid YAML frontmatter (test with task_yaml.parse_frontmatter or manual check)
+
+## Final Implementation Notes
+
+- **Actual work done:** Created directory structure, launcher script, placeholder app, 5 test plans, and registered `ait diffviewer` in the dispatcher. All items from the plan implemented as specified.
+- **Deviations from plan:** Added dispatcher registration (step 6) which was missing from the original plan — discovered during verification.
+- **Issues encountered:** shellcheck SC1091 info about not following sourced files — same as existing `aitask_codebrowser.sh`, not a real issue.
+- **Key decisions:** Test plans use plan-file frontmatter format (Task/Worktree/Branch/Base branch) rather than task-style frontmatter, matching real plan files in `aiplans/`.
+- **Notes for sibling tasks:** The launcher script at `.aitask-scripts/aitask_diffviewer.sh` follows the exact `aitask_codebrowser.sh` pattern. The placeholder app at `.aitask-scripts/diffviewer/diffviewer_app.py` needs to be replaced with the actual Textual TUI in t417_2+. Test plans are in `.aitask-scripts/diffviewer/test_plans/` and have deliberately overlapping content at different positions for testing structural diff detection. The `ait diffviewer` command is registered in the dispatcher.
 
 ## Post-Implementation
 
