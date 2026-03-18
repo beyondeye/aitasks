@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.12.2
+
+### Maintenance
+
+- **Review scripts for macOS compat** (t416): Added `from __future__ import annotations` to codebrowser Python files to ensure compatibility with macOS system Python.
+
 ## v0.12.1
 
 ### Features

@@ -1,5 +1,15 @@
 # Releases
 
+## v0.12.2
+
+A quick patch release focused on macOS compatibility.
+
+## macOS Compatibility Fix
+
+If you're running aitasks on macOS, the codebrowser Python files now include future annotations so they work correctly with the system Python version. A small fix, but one less thing to worry about when setting up on a Mac.
+
+---
+
 ## v0.12.1
 
 A smaller release this time with two quality-of-life improvements — one for the board UI and one under the hood for agent reliability.
