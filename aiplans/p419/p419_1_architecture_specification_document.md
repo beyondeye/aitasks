@@ -131,5 +131,39 @@ Each prompt includes: Role description, Input format, Output format, Rules/const
 - All 5 subagent prompts are complete and specific
 - No references to undefined schemas or unspecified operations
 
+## Post-Review Changes
+
+### Change Request 1 (2026-03-18)
+- **Requested by user:** Context assembly is not addressed — agents start with empty context and need a specification for how input is assembled
+- **Changes made:** Added Section 6 (Context Assembly) covering: the reference-based input model, per-agent-type input assembly formats, reference file tracking across DAG evolution, and context window management
+- **Files affected:** `aidocs/brainstorming/brainstorm_engine_architecture.md`
+
+### Change Request 2 (2026-03-18)
+- **Requested by user:** reference_files should support remote URLs, not just local files
+- **Changes made:** Updated reference_files schema to support both local paths and URLs. Added URL caching in br_url_cache/ with configurable settings in br_session.yaml (global toggle + per-URL bypass)
+- **Files affected:** `aidocs/brainstorming/brainstorm_engine_architecture.md`
+
+### Change Request 3 (2026-03-18)
+- **Requested by user:** Brainstorm data should share the AgentCrew crew branch for multi-user/PC access via git
+- **Changes made:** Unified brainstorm session data into the crew worktree at `.aitask-crews/crew-brainstorm-<task_num>/`. All brainstorm files prefixed with `br_` for namespace separation. Added Source Control Model, Lifecycle and Cleanup sections.
+- **Files affected:** `aidocs/brainstorming/brainstorm_engine_architecture.md`
+
+### Change Request 4 (2026-03-18)
+- **Requested by user:** Files should be referenced (paths) not inlined in _input.md; cached URLs should note source URL
+- **Changes made:** Updated all context assembly input formats to use file path references instead of inlined contents. Cached URL references include `(source: <url>)` annotation.
+- **Files affected:** `aidocs/brainstorming/brainstorm_engine_architecture.md`
+
+### Change Request 5 (2026-03-18)
+- **Requested by user:** Note future interactive patching mode; add references to AgentCrew docs
+- **Changes made:** Added "Future: Interactive Patching Mode" note in Section 7.6. Added References section at document end linking to agentcrew_architecture.md, agentcrew_work2do_guide.md, and building_an_iterative_ai_design_system.md.
+- **Files affected:** `aidocs/brainstorming/brainstorm_engine_architecture.md`
+
+## Final Implementation Notes
+- **Actual work done:** Created `aidocs/brainstorming/brainstorm_engine_architecture.md` (1500+ lines) — the complete architecture specification document for the brainstorm engine. The document covers 8 sections: Overview, Directory Structure, Data Format Specifications, Proposal/Plan Templates, AgentCrew Integration, Context Assembly, Orchestration Flow, and Subagent Prompt Specifications.
+- **Deviations from plan:** Added Section 6 (Context Assembly) which was not in the original plan but was identified as a critical gap during review. The directory structure changed from standalone `.aitask-brainstorm/` to unified crew worktree. All brainstorm files use `br_` prefix for namespace separation.
+- **Issues encountered:** Five rounds of review feedback were needed to address: context assembly gap, URL support in references, source control model, reference-based (not inlined) input, and interactive patching note.
+- **Key decisions:** (1) Brainstorm data lives on the AgentCrew crew branch — no separate branch needed. (2) `_input.md` contains file references, not inlined contents — agents read files themselves. (3) URL caching is configurable (global toggle + per-URL bypass). (4) Interactive patching mode deferred to future.
+- **Notes for sibling tasks:** The architecture document defines the canonical schema names (br_session.yaml, br_graph_state.yaml, br_nodes/, br_proposals/, br_plans/, br_groups.yaml) that all sibling tasks must follow. The `reference_files` field in node YAML supports both local paths and URLs. The _groups.yaml schema is new and will be implemented by t419_2. The DAG operations (t419_3) should read/write br_nodes/ and br_graph_state.yaml. Session management scripts (t419_4) should read/write br_session.yaml.
+
 ## Post-Implementation
 - Step 9: archive task, push changes
