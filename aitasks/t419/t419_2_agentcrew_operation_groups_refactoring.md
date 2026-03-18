@@ -3,10 +3,11 @@ priority: high
 effort: high
 depends: [t419_1]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-18 14:58
-updated_at: 2026-03-18 14:58
+updated_at: 2026-03-18 18:34
 ---
 
 ## Context
