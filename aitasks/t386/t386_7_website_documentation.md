@@ -6,7 +6,7 @@ issue_type: documentation
 status: Ready
 labels: [agentcrew]
 created_at: 2026-03-15 10:51
-updated_at: 2026-03-17 14:30
+updated_at: 2026-03-18 20:30
 ---
 
 ## Website Documentation for AgentCrew
@@ -48,6 +48,16 @@ Document the agentcrew workflow, CLI commands, and TUI dashboard on the project 
 - `website/content/docs/workflows/parallel-development.md` — Workflow doc style
 - `website/content/docs/commands/codeagent.md` — CLI reference style
 - `website/content/docs/tuis/board/` — TUI doc structure (overview, how-to, reference)
+
+### Note: Operation Groups (added by t419_2)
+AgentCrew now supports operation groups. The website docs should cover:
+- `--group <name>` flag on `ait crew addwork`
+- `send-group` subcommand on `ait crew command`
+- `--group` filter flag on `ait crew status list` and `ait crew report summary/output`
+- Group column in the TUI dashboard
+- `_groups.yaml` file in crew worktree
+- Priority scheduling: lower-sequence groups get launched first
+See `aidocs/agentcrew/agentcrew_architecture.md` "Operation Groups" section for details.
 
 ### Verification
 - `cd website && hugo build --gc --minify` — Verify site builds without errors
