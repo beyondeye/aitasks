@@ -95,6 +95,14 @@ assert len(moved_hunks_c) == 0  # Classical doesn't detect moves
 # Test 4: Content similarity matching (similar content, different headings)
 ```
 
+## Final Implementation Notes
+
+- **Actual work done:** Created `md_parser.py` with `Section` dataclass, `parse_sections()`, and `normalize_section()`. Extended `diff_engine.py` with `compute_structural_diff()` implementing all 5 phases (parse, heading match, content similarity, classify, flatten). Updated `compute_multi_diff()` to route `mode='structural'`. Added 25 new tests covering parser, normalizer, structural diff, and multi-diff structural mode.
+- **Deviations from plan:** Two bugs discovered during testing: (1) preamble sections (empty heading) were excluded from Phase 2 heading matching due to a truthiness guard (`mn.heading and ...`) — fixed by removing the guard so empty headings match empty headings. (2) Moved sections with identical content lost their 'moved' tag because classical sub-diff produced all-'equal' hunks — fixed by emitting a single 'moved' hunk directly when content is identical. Also, the verification test changed from alpha-vs-beta to alpha-vs-gamma because alpha/beta share content at paragraph level (within sections) but not at section level — their sections have completely different structures (step-based vs file-based), so no sections cross the 0.6 similarity threshold. Alpha-vs-gamma share the "Verification" heading at different positions, validating move detection with real test data.
+- **Issues encountered:** None beyond the two bugs above.
+- **Key decisions:** Similarity threshold set at 0.6 (configurable via parameter). Greedy matching strategy for content similarity (highest ratio first). Preamble matching by position via empty-heading equality. The `similarity_threshold` parameter is exposed on `compute_structural_diff()` for callers to tune.
+- **Notes for sibling tasks:** `compute_structural_diff()` returns a flat list of `DiffHunk` objects sorted by `main_range`, consistent with `compute_classical_diff()`. The 'moved' tag is new to structural mode — display widgets (t417_4) should handle it distinctly (e.g., different color). Moved sections with content changes produce sub-hunks tagged 'moved' (for changed lines) and 'equal' (for unchanged lines within the section). The `md_parser` module is independent and can be reused for other markdown processing. Content similarity uses `SequenceMatcher` on joined normalized content strings, not line-by-line comparison.
+
 ## Post-Implementation
 
 Step 9 of the task-workflow: archive task, push changes.
