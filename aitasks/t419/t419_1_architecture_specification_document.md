@@ -6,8 +6,9 @@ issue_type: documentation
 status: Implementing
 labels: [brainstorming, agentcrew]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-18 14:58
-updated_at: 2026-03-18 15:13
+updated_at: 2026-03-18 15:58
 ---
 
 ## Context
