@@ -119,6 +119,14 @@ assert len(result.comparisons) == 2
 assert len(result.unique_to_main) > 0
 ```
 
+## Final Implementation Notes
+
+- **Actual work done:** Created `plan_loader.py` and `diff_engine.py` as specified. Added `tests/test_diff_engine.py` with 27 unit tests covering all modules.
+- **Deviations from plan:** Added explicit `os.path.isfile()` check in `load_plan()` before opening (cleaner error message). Added automated Python unittest suite (not in original plan, requested during review).
+- **Issues encountered:** None — `parse_frontmatter` API matched expectations exactly.
+- **Key decisions:** Used `_is_junk` as first positional arg to `SequenceMatcher` (the `isjunk` parameter) rather than `None`. This makes blank lines and `---` delimiters low-priority for matching.
+- **Notes for sibling tasks:** The `plan_loader.load_plan()` returns body lines with `keepends=True` (trailing newlines preserved) — consumers should be aware of this. The `diff_engine` module uses relative imports (`from .plan_loader import ...`) so it must be imported as a package (`from diffviewer.diff_engine import ...`), not as a standalone script. The `_compute_unique_content` algorithm uses set-based line index tracking — unique-to-main means the line was NOT equal in ANY comparison, not ALL comparisons. The `mode` parameter in `compute_multi_diff` is passed through but only `classical` is implemented; `structural` mode (t417_3) will need to add a branch there.
+
 ## Post-Implementation
 
 Step 9 of the task-workflow: archive task, push changes.
