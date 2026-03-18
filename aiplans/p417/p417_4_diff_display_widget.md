@@ -128,6 +128,14 @@ In multi-diff mode, the gutter shows the plan letter in its assigned color inste
 - Empty diff: shows "No differences found" message
 - Large diff (100+ lines): no performance degradation
 
+## Final Implementation Notes
+
+- **Actual work done:** Created `diff_display.py` with `DiffDisplay(VerticalScroll)` class following the CodeViewer pattern. Implemented `_DisplayLine` dataclass, `_flatten_hunks()` module-level helper, `load_diff()`, `load_multi_diff()`, `set_active_comparison()`, `_render_diff()` with Rich Table, keyboard navigation (up/down/page_up/page_down/home/end), and `CursorMoved` message. Added plan identifier gutter colors for multi-diff mode. Added empty-state handling.
+- **Deviations from plan:** `CursorMoved` message includes `total` field (matching CodeViewer pattern) rather than just `line`. The `_flatten_hunks()` function is module-level rather than a method, for easier testing. Binding strings use `pageup`/`pagedown` (Textual convention) rather than `page_up`/`page_down`. Line number columns use width 5 (matching CodeViewer) rather than 4. No viewport windowing — plan diffs are unlikely to exceed 2000 lines, so the simpler approach was used. Unified overlay mode for multi-diff (item 3 in `load_multi_diff`) was deferred — the per-comparison switching approach is sufficient for now.
+- **Issues encountered:** None.
+- **Key decisions:** `replace` hunks are flattened as delete lines + insert lines (main first, then other) for clarity. Moved hunks use `other_lines` as display content with both line numbers when available. Module-level `_all_equal()` helper detects identical-plan case cleanly.
+- **Notes for sibling tasks:** `DiffDisplay` exposes `load_diff(PairwiseDiff)` and `load_multi_diff(MultiDiffResult, active_idx)` as its public loading API. The `CursorMoved` message includes `line` (1-indexed) and `total`. The widget's Static child has id `"diff_display"`. `set_active_comparison(idx)` switches between comparisons in multi-diff mode. The multi-diff gutter uses `PLAN_COLORS` (A-E) — if more than 5 comparisons are needed, extend this list.
+
 ## Post-Implementation
 
 Step 9 of the task-workflow: archive task, push changes.
