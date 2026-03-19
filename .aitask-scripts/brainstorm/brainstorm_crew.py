@@ -22,6 +22,9 @@ from pathlib import Path
 
 # Allow importing sibling packages
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
+
+from config_utils import load_layered_config  # noqa: E402
 
 from .brainstorm_dag import (  # noqa: E402
     NODES_DIR,
@@ -40,6 +43,32 @@ BRAINSTORM_AGENT_TYPES = {
     "detailer": {"agent_string": "claudecode/opus4_6", "max_parallel": 1},
     "patcher": {"agent_string": "claudecode/sonnet4_6", "max_parallel": 1},
 }
+
+
+def get_agent_types(config_root: Path | None = None) -> dict[str, dict]:
+    """Return brainstorm agent types with agent_string from codeagent config.
+
+    Reads brainstorm-* keys from codeagent_config.json (layered: project <- local).
+    Falls back to BRAINSTORM_AGENT_TYPES hardcoded defaults for missing keys.
+
+    Args:
+        config_root: Repository root path. Defaults to two levels up from this file.
+    """
+    import copy
+    result = copy.deepcopy(BRAINSTORM_AGENT_TYPES)
+    if config_root is None:
+        config_root = Path(__file__).resolve().parents[2]
+    config_path = config_root / "aitasks" / "metadata" / "codeagent_config.json"
+    try:
+        config = load_layered_config(str(config_path))
+        defaults = config.get("defaults", {})
+        for agent_type, info in result.items():
+            config_key = f"brainstorm-{agent_type}"
+            if config_key in defaults:
+                info["agent_string"] = defaults[config_key]
+    except Exception:
+        pass  # Fall back to hardcoded defaults
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import sys
@@ -37,6 +38,7 @@ from brainstorm.brainstorm_crew import (
     _assemble_input_synthesizer,
     _format_reference_files,
     _group_seq,
+    get_agent_types,
 )
 
 
@@ -344,6 +346,67 @@ class TestAgentNaming(unittest.TestCase):
     def test_explorer_name_no_suffix(self):
         seq = _group_seq("explore_001")
         self.assertEqual(f"explorer_{seq}", "explorer_001")
+
+
+class TestGetAgentTypes(unittest.TestCase):
+    """Test that get_agent_types reads from codeagent config correctly."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="brainstorm_config_test_")
+        self.config_dir = Path(self.tmpdir) / "aitasks" / "metadata"
+        self.config_dir.mkdir(parents=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_defaults_when_no_config(self):
+        """Falls back to BRAINSTORM_AGENT_TYPES when config file is missing."""
+        result = get_agent_types(config_root=Path(self.tmpdir))
+        for agent_type, info in BRAINSTORM_AGENT_TYPES.items():
+            self.assertEqual(result[agent_type]["agent_string"], info["agent_string"])
+            self.assertEqual(result[agent_type]["max_parallel"], info["max_parallel"])
+
+    def test_reads_project_config(self):
+        """Reads brainstorm-* keys from project codeagent_config.json."""
+        config = {"defaults": {"brainstorm-explorer": "geminicli/gemini_2_5_pro"}}
+        (self.config_dir / "codeagent_config.json").write_text(json.dumps(config))
+        result = get_agent_types(config_root=Path(self.tmpdir))
+        self.assertEqual(result["explorer"]["agent_string"], "geminicli/gemini_2_5_pro")
+        # Others unchanged
+        self.assertEqual(result["comparator"]["agent_string"], "claudecode/sonnet4_6")
+
+    def test_local_overrides_project(self):
+        """Local config overrides project config for brainstorm agents."""
+        proj = {"defaults": {"brainstorm-explorer": "claudecode/opus4_6"}}
+        local = {"defaults": {"brainstorm-explorer": "codex/o3"}}
+        (self.config_dir / "codeagent_config.json").write_text(json.dumps(proj))
+        (self.config_dir / "codeagent_config.local.json").write_text(json.dumps(local))
+        result = get_agent_types(config_root=Path(self.tmpdir))
+        self.assertEqual(result["explorer"]["agent_string"], "codex/o3")
+
+    def test_partial_config_only_overrides_present_keys(self):
+        """Only brainstorm keys present in config are overridden."""
+        config = {"defaults": {"brainstorm-patcher": "claudecode/opus4_6"}}
+        (self.config_dir / "codeagent_config.json").write_text(json.dumps(config))
+        result = get_agent_types(config_root=Path(self.tmpdir))
+        self.assertEqual(result["patcher"]["agent_string"], "claudecode/opus4_6")
+        self.assertEqual(result["explorer"]["agent_string"], "claudecode/opus4_6")  # default
+        self.assertEqual(result["comparator"]["agent_string"], "claudecode/sonnet4_6")  # default
+
+    def test_max_parallel_preserved(self):
+        """Config only changes agent_string, not max_parallel."""
+        config = {"defaults": {"brainstorm-explorer": "codex/o3"}}
+        (self.config_dir / "codeagent_config.json").write_text(json.dumps(config))
+        result = get_agent_types(config_root=Path(self.tmpdir))
+        self.assertEqual(result["explorer"]["max_parallel"], 2)
+
+    def test_non_brainstorm_keys_ignored(self):
+        """Non-brainstorm keys in config don't affect agent types."""
+        config = {"defaults": {"pick": "claudecode/opus4_6", "brainstorm-detailer": "codex/o3"}}
+        (self.config_dir / "codeagent_config.json").write_text(json.dumps(config))
+        result = get_agent_types(config_root=Path(self.tmpdir))
+        self.assertEqual(result["detailer"]["agent_string"], "codex/o3")
+        self.assertNotIn("pick", result)
 
 
 if __name__ == "__main__":

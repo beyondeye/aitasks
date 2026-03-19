@@ -84,16 +84,38 @@ if [[ "$exists_output" == "EXISTS" ]]; then
     die "Brainstorm session for task $TASK_NUM already exists."
 fi
 
+# --- Resolve brainstorm agent strings from config ---
+_get_brainstorm_agent_string() {
+    local agent_type="$1"
+    local default_val="$2"
+    local config_key="brainstorm-${agent_type}"
+    local val
+    val=$("$PYTHON" -c "
+import json, sys
+for p in ['aitasks/metadata/codeagent_config.local.json', 'aitasks/metadata/codeagent_config.json']:
+    try:
+        d = json.load(open(p))
+        v = d.get('defaults', {}).get('$config_key')
+        if v:
+            print(v)
+            sys.exit(0)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+print('$default_val')
+" 2>/dev/null) || val="$default_val"
+    echo "$val"
+}
+
 # --- Create AgentCrew crew ---
 info "Creating brainstorm crew for task $TASK_NUM..."
 crew_output=$(bash "$SCRIPT_DIR/aitask_crew_init.sh" \
     --id "brainstorm-${TASK_NUM}" \
     --name "Brainstorm t${TASK_NUM}" \
-    --add-type explorer:claudecode/opus4_6 \
-    --add-type comparator:claudecode/sonnet4_6 \
-    --add-type synthesizer:claudecode/opus4_6 \
-    --add-type detailer:claudecode/opus4_6 \
-    --add-type patcher:claudecode/sonnet4_6 \
+    --add-type "explorer:$(_get_brainstorm_agent_string explorer claudecode/opus4_6)" \
+    --add-type "comparator:$(_get_brainstorm_agent_string comparator claudecode/sonnet4_6)" \
+    --add-type "synthesizer:$(_get_brainstorm_agent_string synthesizer claudecode/opus4_6)" \
+    --add-type "detailer:$(_get_brainstorm_agent_string detailer claudecode/opus4_6)" \
+    --add-type "patcher:$(_get_brainstorm_agent_string patcher claudecode/sonnet4_6)" \
     --batch 2>&1) || {
     die "Failed to create crew: $crew_output"
 }

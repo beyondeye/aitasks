@@ -1,7 +1,7 @@
-# Recommended _crew_meta.yaml agent_types for brainstorm crews.
+# Default brainstorm agent_types. Configurable via `ait settings` > Agent Defaults.
 # Used by aitask_brainstorm_init.sh when creating the brainstorm crew.
 # This file is a reference template — the init script registers types
-# via --add-type flags to ait crew init.
+# via --add-type flags to ait crew init, reading overrides from codeagent_config.json.
 agent_types:
   explorer:
     agent_string: claudecode/opus4_6

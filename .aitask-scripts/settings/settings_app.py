@@ -115,6 +115,11 @@ OPERATION_DESCRIPTIONS: dict[str, str] = {
     "explain": "Model used for explaining/documenting code",
     "batch-review": "Model used for batch code review operations",
     "raw": "Model used for direct/ad-hoc code agent invocations (passthrough mode)",
+    "brainstorm-explorer": "Model for exploring solution space in brainstorming sessions",
+    "brainstorm-comparator": "Model for comparing and analyzing design proposals",
+    "brainstorm-synthesizer": "Model for merging and synthesizing design proposals",
+    "brainstorm-detailer": "Model for creating detailed implementation plans from designs",
+    "brainstorm-patcher": "Model for applying targeted tweaks to brainstorm plans",
 }
 
 # Config file descriptions shown during import
@@ -2069,7 +2074,7 @@ class SettingsApp(App):
         self._repop_counter += 1
         rc = self._repop_counter
 
-        container.mount(Label("Code Agent Default Models", classes="section-header"))
+        container.mount(Label("Default Code Agents for Skills", classes="section-header"))
         container.mount(Label(
             "[dim]Each operation shows the shared [#50FA7B]project[/] setting "
             "and your local [#FFB86C]user[/] preference below it.[/dim]",
@@ -2084,7 +2089,22 @@ class SettingsApp(App):
             list(project_defaults.keys()) + list(local_defaults.keys())
         ))
 
+        brainstorm_header_shown = False
         for key in all_keys:
+            # Insert brainstorm section header before first brainstorm key
+            if key.startswith("brainstorm-") and not brainstorm_header_shown:
+                container.mount(Label(""))  # spacer
+                container.mount(Label(
+                    "Default Code Agents for Brainstorming",
+                    classes="section-header",
+                ))
+                container.mount(Label(
+                    "[dim]Models used by brainstorm agent types "
+                    "during design exploration.[/dim]",
+                    classes="section-hint",
+                ))
+                brainstorm_header_shown = True
+
             sk = _safe_id(key)
 
             # Project row
