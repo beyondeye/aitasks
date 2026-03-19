@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [tui, brainstorming]
-children_to_implement: [t417_10, t417_11, t417_12]
+children_to_implement: [t417_11, t417_12]
 created_at: 2026-03-18 11:08
-updated_at: 2026-03-19 17:17
+updated_at: 2026-03-19 21:43
 boardidx: 10
 ---
 

@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: [t417_9]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [tui, brainstorming]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-19 12:03
-updated_at: 2026-03-19 17:24
+updated_at: 2026-03-19 21:43
+completed_at: 2026-03-19 21:43
 ---
 
 ## Context
