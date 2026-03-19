@@ -111,5 +111,12 @@ Run `shellcheck` on all new scripts.
 - `ait brainstorm --help` shows available subcommands
 - shellcheck passes on all new scripts
 
+## Final Implementation Notes
+- **Actual work done:** Created 5 new files: `brainstorm_cli.py` (Python CLI with 6 subcommands: init, status, list, finalize, archive, exists), `aitask_brainstorm_init.sh`, `aitask_brainstorm_status.sh`, `aitask_brainstorm_archive.sh` (bash wrappers), plus 2 test files (`test_brainstorm_cli.sh` with 20 assertions, `test_brainstorm_cli_python.py` with 10 unit tests). Modified `ait` dispatcher to add brainstorm routing, help text, and update-check skip entry.
+- **Deviations from plan:** (1) Added `brainstorm_cli.py` as a Python CLI entry point not in the original plan — needed because bash scripts cannot directly call Python library functions with complex arguments. (2) Changed archive flow: archive script now calls `brainstorm_cli.py archive` which sets `_crew_status.yaml` to `Completed` before crew cleanup, since `ait crew cleanup` only processes terminal-state crews. (3) Init flow reordered: crew is created first (via `ait crew init`), then Python `init_session()` populates the existing worktree — matching the t419_3 architecture where `init_session()` expects a pre-existing crew worktree.
+- **Issues encountered:** None — clean implementation.
+- **Key decisions:** (1) Python CLI with argparse subparsers as the bridge between bash orchestration and Python library. (2) Positional args for task_num (simpler than `--task` flags since every brainstorm command needs exactly one task number). (3) `--spec-file` flag instead of inline spec to avoid shell quoting issues with task content.
+- **Notes for sibling tasks:** The brainstorm CLI entry point is at `.aitask-scripts/brainstorm/brainstorm_cli.py` and can be extended with new subcommands. The `[0-9]*)` case in the ait dispatcher routes to `aitask_brainstorm_tui.sh` which doesn't exist yet — t419_6 (TUI) needs to create it. All bash scripts follow the Python setup pattern from `aitask_crew_report.sh` (venv preferred, system python fallback).
+
 ## Post-Implementation
 - Step 9: archive task, push changes
