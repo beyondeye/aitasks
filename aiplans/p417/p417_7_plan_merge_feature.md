@@ -168,6 +168,18 @@ Binding("e", "enter_merge", "Merge mode"),
 - Content matches expected merge of accepted hunks
 - `escape` → back to DiffViewerScreen without saving
 
+## Post-Review Changes
+
+### Change Request 1 (2026-03-19 14:30)
+- **Requested by user:** Preview pane should show line numbers, highlight affected lines for current hunk, and scroll to position when navigating hunks
+- **Changes made:** Added `apply_merge_annotated()` (returns per-line source annotations) and `compute_hunk_preview_range()` to merge_engine.py. Updated `_render_preview()` in merge_screen.py to use Rich Table with line numbers, orange highlighting for current hunk range, green for other accepted hunks, and auto-scroll preview to highlighted region. Cursor navigation now also re-renders preview.
+- **Files affected:** merge_engine.py, merge_screen.py
+
+### Change Request 2 (2026-03-19 14:35)
+- **Requested by user:** After saving merged file, diff view should refresh — merged file becomes the new main, original main joins the comparison set, other files stay
+- **Changes made:** MergeScreen dismisses with saved path. DiffViewerScreen callback swaps main_path to the merged file, adds old main to other_paths, and recomputes diffs.
+- **Files affected:** merge_screen.py, diff_viewer_screen.py
+
 ## Post-Implementation
 
 Step 9 of the task-workflow: archive task, push changes.
