@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [brainstorming, ui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-18 14:58
-updated_at: 2026-03-19 21:56
+updated_at: 2026-03-19 22:13
 ---
 
 ## Context
