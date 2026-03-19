@@ -86,7 +86,15 @@ fi
 
 # --- Create AgentCrew crew ---
 info "Creating brainstorm crew for task $TASK_NUM..."
-crew_output=$(bash "$SCRIPT_DIR/aitask_crew_init.sh" --id "brainstorm-${TASK_NUM}" --name "Brainstorm t${TASK_NUM}" --batch 2>&1) || {
+crew_output=$(bash "$SCRIPT_DIR/aitask_crew_init.sh" \
+    --id "brainstorm-${TASK_NUM}" \
+    --name "Brainstorm t${TASK_NUM}" \
+    --add-type explorer:claudecode/opus4_6 \
+    --add-type comparator:claudecode/sonnet4_6 \
+    --add-type synthesizer:claudecode/opus4_6 \
+    --add-type detailer:claudecode/opus4_6 \
+    --add-type patcher:claudecode/sonnet4_6 \
+    --batch 2>&1) || {
     die "Failed to create crew: $crew_output"
 }
 

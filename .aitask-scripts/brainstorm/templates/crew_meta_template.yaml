@@ -1,0 +1,20 @@
+# Recommended _crew_meta.yaml agent_types for brainstorm crews.
+# Used by aitask_brainstorm_init.sh when creating the brainstorm crew.
+# This file is a reference template — the init script registers types
+# via --add-type flags to ait crew init.
+agent_types:
+  explorer:
+    agent_string: claudecode/opus4_6
+    max_parallel: 2
+  comparator:
+    agent_string: claudecode/sonnet4_6
+    max_parallel: 1
+  synthesizer:
+    agent_string: claudecode/opus4_6
+    max_parallel: 1
+  detailer:
+    agent_string: claudecode/opus4_6
+    max_parallel: 1
+  patcher:
+    agent_string: claudecode/sonnet4_6
+    max_parallel: 1
