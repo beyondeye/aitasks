@@ -88,6 +88,9 @@ Change unpinned `pip install` to pinned versions with differentiated strategy.
 4. `ait codebrowser .` → file tree and code display work
 5. Review setup script changes
 
-## Step 9 Reference
+## Final Implementation Notes
 
-After implementation, proceed to Post-Implementation: commit, archive task, push.
+- **Actual work done:** Pinned all 5 Python dependency versions in `ait setup` with a differentiated strategy (semver-range for Textual/tomli, exact pins for PyYAML/linkify-it-py/plotext). Upgraded local venv from Textual 7.5.0 to 8.1.1 and linkify-it-py from 2.0.3 to 2.1.0. Updated 2 documentation files. No TUI code changes were needed.
+- **Deviations from plan:** No code migration was required. All 5 TUI apps (board, codebrowser, diffviewer, settings, agentcrew dashboard) import and work correctly with Textual 8.1.1 without modifications. The breaking changes in 8.0.0 (container scrollbar defaults, RadioSet focus, TextArea defaults, DirectoryTree threading) are behavioral — our code doesn't rely on the old defaults.
+- **Issues encountered:** None.
+- **Key decisions:** Used differentiated pinning strategy based on each package's semver compliance history rather than a uniform approach. Textual and tomli follow semver (range pins safe), while PyYAML, linkify-it-py, and plotext have broken semver in the past (exact pins needed).
