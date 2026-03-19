@@ -190,5 +190,12 @@ Test that the TUI starts, shows placeholder screens, and responds to keybindings
 - No import errors
 - shellcheck passes on bash wrapper
 
+## Final Implementation Notes
+- **Actual work done:** Created both deliverables as planned — bash wrapper and Textual app skeleton with 4 placeholder screens (DAG, NodeDetail, Compare, Actions)
+- **Deviations from plan:** The plan's `sys.path` approach needed adjustment. The plan inserted the brainstorm directory itself and board directory; the actual implementation uses the parent `.aitask-scripts/` directory (matching `brainstorm_cli.py` pattern) and imports as `from brainstorm.brainstorm_session import crew_worktree`. Also changed `?` binding name from `action_help` to `action_help_keys` to avoid conflict with Textual's built-in help action, and added `escape` bindings on screens to return to main view.
+- **Issues encountered:** Initial import failed with `ImportError: attempted relative import with no known parent package` because brainstorm_session.py uses `from .brainstorm_dag import ...` (relative import). Fixed by matching the import pattern from brainstorm_cli.py: set sys.path to parent dir, import as `from brainstorm.brainstorm_session`.
+- **Key decisions:** Stored `session_path` on the app instance via `crew_worktree(task_num)` at init time — follow-up tasks can use this directly for loading session data.
+- **Notes for sibling tasks:** The `brainstorm_app.py` follows the same import pattern as `brainstorm_cli.py` — `sys.path.insert(0, parent_dir)` then `from brainstorm.<module>`. All placeholder screens have an `escape` binding to pop back to the main screen. The `SCREENS` dict maps to Screen classes for `push_screen()`.
+
 ## Post-Implementation
 - Step 9: archive task, push changes
