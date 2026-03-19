@@ -12,7 +12,9 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 from diffviewer.diff_display import (
     _DisplayLine,
+    _SideBySideLine,
     _flatten_hunks,
+    _flatten_hunks_side_by_side,
     _all_equal,
     PLAN_COLORS,
     TAG_GUTTERS,
@@ -217,6 +219,143 @@ class TestConstants(unittest.TestCase):
         for letter, color in PLAN_COLORS:
             self.assertEqual(len(letter), 1)
             self.assertTrue(color.startswith("#"))
+
+
+class TestFlattenHunksSideBySide(unittest.TestCase):
+    """Tests for _flatten_hunks_side_by_side() — side-by-side alignment."""
+
+    def test_equal_hunk_both_sides(self):
+        hunks = [DiffHunk(
+            tag="equal",
+            main_lines=["a", "b"],
+            other_lines=["a", "b"],
+            main_range=(0, 2),
+            other_range=(0, 2),
+        )]
+        rows = _flatten_hunks_side_by_side(hunks)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0].main_content, "a")
+        self.assertEqual(rows[0].other_content, "a")
+        self.assertEqual(rows[0].main_lineno, 1)
+        self.assertEqual(rows[0].other_lineno, 1)
+        self.assertEqual(rows[0].tag, "equal")
+
+    def test_insert_blank_on_main_side(self):
+        hunks = [DiffHunk(
+            tag="insert",
+            main_lines=[],
+            other_lines=["new"],
+            main_range=(3, 3),
+            other_range=(3, 4),
+        )]
+        rows = _flatten_hunks_side_by_side(hunks)
+        self.assertEqual(len(rows), 1)
+        self.assertIsNone(rows[0].main_lineno)
+        self.assertEqual(rows[0].main_content, "")
+        self.assertEqual(rows[0].other_lineno, 4)
+        self.assertEqual(rows[0].other_content, "new")
+        self.assertEqual(rows[0].tag, "insert")
+
+    def test_delete_blank_on_other_side(self):
+        hunks = [DiffHunk(
+            tag="delete",
+            main_lines=["old"],
+            other_lines=[],
+            main_range=(5, 6),
+            other_range=(5, 5),
+        )]
+        rows = _flatten_hunks_side_by_side(hunks)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].main_lineno, 6)
+        self.assertEqual(rows[0].main_content, "old")
+        self.assertIsNone(rows[0].other_lineno)
+        self.assertEqual(rows[0].other_content, "")
+        self.assertEqual(rows[0].tag, "delete")
+
+    def test_replace_pairs_lines_horizontally(self):
+        hunks = [DiffHunk(
+            tag="replace",
+            main_lines=["old1", "old2"],
+            other_lines=["new1"],
+            main_range=(0, 2),
+            other_range=(0, 1),
+        )]
+        rows = _flatten_hunks_side_by_side(hunks)
+        self.assertEqual(len(rows), 2)
+        # First row: paired
+        self.assertEqual(rows[0].main_content, "old1")
+        self.assertEqual(rows[0].other_content, "new1")
+        self.assertEqual(rows[0].tag, "replace")
+        # Second row: main has content, other padded blank
+        self.assertEqual(rows[1].main_content, "old2")
+        self.assertEqual(rows[1].other_content, "")
+        self.assertIsNone(rows[1].other_lineno)
+
+    def test_replace_other_longer_than_main(self):
+        hunks = [DiffHunk(
+            tag="replace",
+            main_lines=["old"],
+            other_lines=["new1", "new2", "new3"],
+            main_range=(0, 1),
+            other_range=(0, 3),
+        )]
+        rows = _flatten_hunks_side_by_side(hunks)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0].main_content, "old")
+        self.assertEqual(rows[0].other_content, "new1")
+        # Rows 1 and 2: main is padded
+        self.assertIsNone(rows[1].main_lineno)
+        self.assertEqual(rows[1].main_content, "")
+        self.assertEqual(rows[2].other_content, "new3")
+
+    def test_moved_hunk_both_sides(self):
+        hunks = [DiffHunk(
+            tag="moved",
+            main_lines=["moved content"],
+            other_lines=["moved content"],
+            source_plans=["plan_b"],
+            main_range=(10, 11),
+            other_range=(20, 21),
+        )]
+        rows = _flatten_hunks_side_by_side(hunks)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].main_content, "moved content")
+        self.assertEqual(rows[0].other_content, "moved content")
+        self.assertEqual(rows[0].tag, "moved")
+        self.assertEqual(rows[0].source_plan, "plan_b")
+
+    def test_empty_hunks(self):
+        rows = _flatten_hunks_side_by_side([])
+        self.assertEqual(rows, [])
+
+    def test_source_plan_default(self):
+        sbl = _SideBySideLine(
+            main_lineno=1, main_content="a",
+            other_lineno=1, other_content="a",
+            tag="equal",
+        )
+        self.assertEqual(sbl.source_plan, "")
+
+    def test_end_to_end_classical(self):
+        """Side-by-side flattening of real diff engine output."""
+        result = compute_multi_diff(
+            str(TEST_PLANS / "plan_alpha.md"),
+            [str(TEST_PLANS / "plan_beta.md")],
+            mode="classical",
+        )
+        rows = _flatten_hunks_side_by_side(result.comparisons[0].hunks)
+        self.assertGreater(len(rows), 0)
+        for row in rows:
+            self.assertIn(row.tag, ("equal", "insert", "delete", "replace", "moved"))
+            if row.tag == "equal":
+                self.assertIsNotNone(row.main_lineno)
+                self.assertIsNotNone(row.other_lineno)
+            elif row.tag == "insert":
+                self.assertIsNone(row.main_lineno)
+                self.assertEqual(row.main_content, "")
+            elif row.tag == "delete":
+                self.assertIsNone(row.other_lineno)
+                self.assertEqual(row.other_content, "")
 
 
 class TestEndToEnd(unittest.TestCase):

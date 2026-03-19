@@ -66,6 +66,7 @@ class DiffViewerScreen(Screen):
         Binding("p", "prev_comparison", "Prev"),
         Binding("m", "toggle_mode", "Mode"),
         Binding("u", "unified_view", "Unified"),
+        Binding("v", "toggle_layout", "Layout"),
         Binding("s", "summary", "Summary"),
         Binding("escape", "back", "Back"),
     ]
@@ -80,6 +81,7 @@ class DiffViewerScreen(Screen):
         self._classical_result: MultiDiffResult | None = None
         self._structural_result: MultiDiffResult | None = None
         self._unified_mode = False
+        self._side_by_side = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -124,6 +126,7 @@ class DiffViewerScreen(Screen):
             self._active_idx = self._active_idx % len(result.comparisons)
             display.load_multi_diff(result, self._active_idx)
 
+        display.set_layout(self._side_by_side)
         self._update_info_bar()
 
     def _update_info_bar(self) -> None:
@@ -135,13 +138,14 @@ class DiffViewerScreen(Screen):
         main_name = os.path.basename(self._main_path)
         total = len(result.comparisons)
         mode_label = self._current_mode.capitalize()
+        layout_label = "Side-by-side" if self._side_by_side else "Interleaved"
 
         if self._unified_mode:
-            text = f"Main: {main_name} \u2014 Unified view ({total} comparisons, {mode_label})"
+            text = f"Main: {main_name} \u2014 Unified view ({total} comparisons, {mode_label}, {layout_label})"
         else:
             idx = self._active_idx % total
             other_name = os.path.basename(result.comparisons[idx].other_path)
-            text = f"Main: {main_name} vs {other_name} ({mode_label}, {idx + 1}/{total})"
+            text = f"Main: {main_name} vs {other_name} ({mode_label}, {idx + 1}/{total}, {layout_label})"
 
         self.query_one("#info_bar", Static).update(text)
 
@@ -171,6 +175,13 @@ class DiffViewerScreen(Screen):
     def action_unified_view(self) -> None:
         self._unified_mode = not self._unified_mode
         self._load_current_view()
+
+    def action_toggle_layout(self) -> None:
+        """Toggle between interleaved and side-by-side layout."""
+        self._side_by_side = not self._side_by_side
+        display = self.query_one("#diff_viewer", DiffDisplay)
+        display.set_layout(self._side_by_side)
+        self._update_info_bar()
 
     def action_summary(self) -> None:
         result = self._get_active_result()
