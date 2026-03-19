@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t419_4, 1, 2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [brainstorming, agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-18 14:58
-updated_at: 2026-03-18 14:58
+updated_at: 2026-03-19 10:35
 ---
 
 ## Context
