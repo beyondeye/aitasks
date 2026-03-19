@@ -2,12 +2,13 @@
   "recent": [
     "/home/ddt/Work/aitasks/.aitask-scripts/diffviewer/test_plans/plan_epsilon.md",
     "/home/ddt/Work/aitasks/.aitask-scripts/diffviewer/test_plans/plan_delta.md",
-    "/home/ddt/Work/aitasks/.aitask-scripts/diffviewer/test_plans/plan_gamma.md",
     "/home/ddt/Work/aitasks/.aitask-scripts/diffviewer/test_plans/plan_beta.md",
     "/home/ddt/Work/aitasks/.aitask-scripts/diffviewer/test_plans/plan_alpha.md",
+    "/home/ddt/Work/aitasks/.aitask-scripts/diffviewer/test_plans/plan_gamma_merged_epsilon.md",
+    "/home/ddt/Work/aitasks/.aitask-scripts/diffviewer/test_plans/plan_gamma.md",
+    "/home/ddt/Work/aitasks/.aitask-scripts/diffviewer/test_plans/plan_delta_merged_epsilon.md",
     "/home/ddt/Work/aitasks/aiplans/p259_batch_reviews.md",
     "/home/ddt/Work/aitasks/aiplans/p257_performance_when_chaning_selection.md",
-    "/home/ddt/Work/aitasks/aiplans/p144_ait_clear_old_rewrite.md",
-    "/home/ddt/Work/aitasks/aiplans/p312.md"
+    "/home/ddt/Work/aitasks/aiplans/p144_ait_clear_old_rewrite.md"
   ]
 }
