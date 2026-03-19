@@ -3,11 +3,13 @@ priority: high
 effort: high
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [tui, dependencies]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-19 09:26
-updated_at: 2026-03-19 09:51
+updated_at: 2026-03-19 10:29
+completed_at: 2026-03-19 10:29
 ---
 
 ## Summary
