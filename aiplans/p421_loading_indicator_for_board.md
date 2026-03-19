@@ -70,3 +70,9 @@ Split into wrapper (captures focused card, pushes overlay) + `_do_git_commit_tas
 - Interactive sync / Edit / Pick / Create: suspend the app
 - Revert: too fast
 - Refresh git status / lock map: background noise
+
+## Final Implementation Notes
+- **Actual work done:** Implemented exactly as planned. Added `LoadingOverlay` ModalScreen class, CSS rules, and converted all 7 target operations (sync, commit selected, commit all, lock, unlock, archive, delete) from synchronous/blocking to `@work(thread=True)` workers with loading overlays. Net change: +175 / -93 lines in a single file.
+- **Deviations from plan:** None — plan was followed as-is.
+- **Issues encountered:** None.
+- **Key decisions:** For `_run_sync`, used `show_overlay` parameter so the auto-refresh timer caller doesn't show an overlay. For `_do_unlock`, used explicit `pop_screen` at each branch rather than `finally` because overlay must be dismissed before `ResetTaskConfirmScreen` push. For `_execute_delete`, pre-extracted `folded_ids` and `paths_str` in the wrapper to avoid passing non-serializable `Task` objects to the thread worker.
