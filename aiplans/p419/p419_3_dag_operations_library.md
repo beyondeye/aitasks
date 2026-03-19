@@ -161,5 +161,20 @@ Use a temp directory for test isolation.
 - finalize_session produces valid aiplan file
 - No import errors when importing from other scripts
 
+## Final Implementation Notes
+- **Actual work done:** Created `.aitask-scripts/brainstorm/` Python module with 4 files: `__init__.py`, `brainstorm_schemas.py` (schema constants + 3 validators + dimension helpers), `brainstorm_dag.py` (12 DAG operations), `brainstorm_session.py` (8 session management functions). Also created `tests/test_brainstorm_dag.py` with 24 unit tests (all passing).
+- **Deviations from plan:** Major alignment corrections needed because the original plan was written before the architecture spec was finalized:
+  1. Directory changed from `.aitask-brainstorm/<task_num>/` to `.aitask-crews/crew-brainstorm-<task_num>/` (crew worktree)
+  2. All subdirectories prefixed with `br_`: `br_nodes/`, `br_proposals/`, `br_plans/`
+  3. All YAML files prefixed with `br_`: `br_session.yaml`, `br_graph_state.yaml`, `br_groups.yaml`
+  4. Session init no longer creates the worktree — it expects an existing crew worktree from `ait crew init`
+  5. Node schema now includes `reference_files` field (local paths + URLs)
+  6. Session schema includes `url_cache` and `url_cache_bypass` fields
+  7. `created_at` and `created_by_group` moved to required node fields
+  8. Session statuses include `init` (was missing from original plan)
+- **Issues encountered:** None — clean implementation once alignment issues were identified during plan verification.
+- **Key decisions:** (1) Reuse `read_yaml()`/`write_yaml()` from `agentcrew_utils.py` via import rather than duplicating YAML I/O. (2) Python unittest instead of bash test script — better fit for testing a Python library. (3) `get_node_lineage()` follows first parent at each step for linear lineage through hybridization nodes. (4) `init_session()` raises `FileNotFoundError` if crew worktree doesn't exist rather than silently creating it — enforces proper crew initialization flow.
+- **Notes for sibling tasks:** The brainstorm module lives at `.aitask-scripts/brainstorm/` and can be imported with `from brainstorm import brainstorm_dag, brainstorm_session, brainstorm_schemas`. Session management functions use `AGENTCREW_DIR` from agentcrew_utils for crew worktree paths. DAG functions take a `session_path: Path` (the crew worktree) as first argument. The `br_groups.yaml` schema is defined in `brainstorm_schemas.py` but not yet managed by the library — t419_4 (CLI scripts) or t419_5 (agent types) should add group CRUD operations as needed. Tests are in `tests/test_brainstorm_dag.py` and can be run with `python tests/test_brainstorm_dag.py -v`.
+
 ## Post-Implementation
 - Step 9: archive task, push changes
