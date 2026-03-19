@@ -205,6 +205,57 @@ class DiffViewerApp(App):
     #btn_close_summary {
         margin: 1 0 0 0;
     }
+
+    /* ── MergeScreen ── */
+
+    #merge_layout {
+        width: 100%;
+        height: 1fr;
+    }
+
+    #merge_hunk_pane {
+        width: 50%;
+        height: 100%;
+        border-right: tall $accent;
+        padding: 0 1;
+    }
+
+    #merge_preview_pane {
+        width: 50%;
+        height: 100%;
+        padding: 0 1;
+    }
+
+    /* ── SaveMergeDialog ── */
+
+    SaveMergeDialog {
+        align: center middle;
+    }
+
+    #save_merge_dialog {
+        width: 60%;
+        height: auto;
+        max-height: 60%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+
+    #save_merge_title {
+        text-style: bold;
+        color: $accent;
+        padding: 0 0 1 0;
+    }
+
+    #save_merge_buttons {
+        height: auto;
+        padding: 1 0 0 0;
+        align-horizontal: right;
+    }
+
+    #save_merge_buttons Button {
+        margin: 0 1;
+    }
     """
 
     BINDINGS = [

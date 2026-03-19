@@ -12,6 +12,9 @@ from textual import on, work
 
 from .diff_display import DiffDisplay
 from .diff_engine import MultiDiffResult, compute_multi_diff
+from .merge_engine import MergeSession
+from .merge_screen import MergeScreen
+from .plan_loader import load_plan
 
 
 class SummaryScreen(ModalScreen):
@@ -68,6 +71,7 @@ class DiffViewerScreen(Screen):
         Binding("u", "unified_view", "Unified"),
         Binding("v", "toggle_layout", "Layout"),
         Binding("s", "summary", "Summary"),
+        Binding("e", "enter_merge", "Merge"),
         Binding("escape", "back", "Back"),
     ]
 
@@ -195,6 +199,40 @@ class DiffViewerScreen(Screen):
             self.notify("Diffs not yet computed", severity="warning")
             return
         self.app.push_screen(SummaryScreen(result, self._current_mode))
+
+    def action_enter_merge(self) -> None:
+        """Enter merge mode: create a MergeSession from current diffs."""
+        result = self._get_active_result()
+        if result is None or not result.comparisons:
+            self.notify("Diffs not yet computed", severity="warning")
+            return
+        try:
+            main_meta, _body, main_lines = load_plan(self._main_path)
+        except FileNotFoundError:
+            self.notify(f"Main plan not found: {self._main_path}", severity="error")
+            return
+        session = MergeSession(main_lines, result)
+        self.app.push_screen(
+            MergeScreen(session, self._main_path, main_meta),
+            callback=self._on_merge_result,
+        )
+
+    def _on_merge_result(self, saved_path: str | None) -> None:
+        """Handle merge result: merged file becomes main, original main joins others."""
+        if saved_path is None:
+            return
+        # The merged file becomes the new main plan
+        old_main = self._main_path
+        self._main_path = saved_path
+        # Add the original main to the comparison set (if not already there)
+        if old_main not in self._other_paths:
+            self._other_paths.append(old_main)
+        # Start showing the first comparison
+        self._active_idx = 0
+        # Recompute diffs with the new main
+        self._classical_result = None
+        self._structural_result = None
+        self._compute_diffs()
 
     def action_back(self) -> None:
         self.app.pop_screen()

@@ -307,11 +307,15 @@ class DiffDisplay(VerticalScroll):
             main_num = Text(str(dl.main_lineno), style="dim") if dl.main_lineno is not None else Text("")
             other_num = Text(str(dl.other_lineno), style="dim") if dl.other_lineno is not None else Text("")
 
-            # Gutter
-            if use_plan_gutter and dl.tag != "equal":
+            # Gutter — plan label only for other-file lines (insert/moved),
+            # not for main-file lines (delete) or unchanged lines (equal)
+            if use_plan_gutter and dl.tag in ("insert", "moved"):
                 plan_idx = min(self._active_comparison_idx, len(PLAN_COLORS) - 1)
                 letter, color = PLAN_COLORS[plan_idx]
                 gutter = Text(letter, style=Style(color=color, bold=True))
+            elif use_plan_gutter and dl.tag == "delete":
+                # Main-file line in diff context — show "M" for main
+                gutter = Text("M", style=Style(dim=True))
             else:
                 gutter_char = TAG_GUTTERS.get(dl.tag, " ")
                 gutter = Text(gutter_char, style=tag_style)
@@ -398,7 +402,8 @@ class DiffDisplay(VerticalScroll):
                 elif sbl.tag == "equal":
                     other_text.stylize(TAG_STYLES["equal"])
 
-            # Gutter
+            # Gutter — in side-by-side both columns are visible,
+            # so show plan label for all non-equal lines
             if use_plan_gutter and sbl.tag != "equal":
                 plan_idx = min(self._active_comparison_idx, len(PLAN_COLORS) - 1)
                 letter, color = PLAN_COLORS[plan_idx]
