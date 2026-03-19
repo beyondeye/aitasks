@@ -58,6 +58,13 @@ AgentCrew:
   crew cleanup   Remove completed crew worktrees and branches
   crew dashboard TUI dashboard for monitoring and managing crews
 
+Brainstorm:
+  brainstorm init      Initialize a brainstorm session for a task
+  brainstorm status    Show brainstorm session details
+  brainstorm list      List all brainstorm sessions
+  brainstorm archive   Finalize and archive a brainstorm session
+  brainstorm <num>     Launch brainstorm TUI for a task
+
 Infrastructure:
   setup          Install dependencies
   install        Update aitasks to latest or specific version
@@ -137,7 +144,7 @@ check_for_updates() {
 
 # Check for updates (skip for meta-commands, install, and git passthrough)
 case "${1:-help}" in
-    help|--help|-h|--version|-v|install|setup|git|sync|lock|codeagent|crew|settings) ;;
+    help|--help|-h|--version|-v|install|setup|git|sync|lock|codeagent|crew|brainstorm|settings) ;;
     *) check_for_updates ;;
 esac
 
@@ -192,6 +199,32 @@ case "${1:-help}" in
                 exit 0
                 ;;
             *)         echo "ait crew: unknown subcommand '$subcmd'" >&2; echo "Available: init, addwork, status, command, runner, report, cleanup, dashboard" >&2; exit 1 ;;
+        esac
+        ;;
+    brainstorm)
+        shift
+        subcmd="${1:-}"
+        shift || true
+        case "$subcmd" in
+            init)    exec "$SCRIPTS_DIR/aitask_brainstorm_init.sh" "$@" ;;
+            status)  exec "$SCRIPTS_DIR/aitask_brainstorm_status.sh" "$@" ;;
+            archive) exec "$SCRIPTS_DIR/aitask_brainstorm_archive.sh" "$@" ;;
+            list)    exec "$SCRIPTS_DIR/aitask_brainstorm_status.sh" --list "$@" ;;
+            [0-9]*)  exec "$SCRIPTS_DIR/aitask_brainstorm_tui.sh" "$subcmd" "$@" ;;
+            --help|-h|"")
+                echo "Usage: ait brainstorm <subcommand> [options]"
+                echo ""
+                echo "Available subcommands:"
+                echo "  init      Initialize a brainstorm session for a task"
+                echo "  status    Show brainstorm session details"
+                echo "  list      List all brainstorm sessions"
+                echo "  archive   Finalize and archive a brainstorm session"
+                echo "  <num>     Launch brainstorm TUI for a task"
+                echo ""
+                echo "Run 'ait brainstorm <subcommand> --help' for subcommand-specific help."
+                exit 0
+                ;;
+            *)  echo "ait brainstorm: unknown subcommand '$subcmd'" >&2; echo "Available: init, status, list, archive" >&2; exit 1 ;;
         esac
         ;;
     git)          shift; source "$SCRIPTS_DIR/lib/task_utils.sh"; task_git "$@" ;;
