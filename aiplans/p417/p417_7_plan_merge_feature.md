@@ -180,6 +180,18 @@ Binding("e", "enter_merge", "Merge mode"),
 - **Changes made:** MergeScreen dismisses with saved path. DiffViewerScreen callback swaps main_path to the merged file, adds old main to other_paths, and recomputes diffs.
 - **Files affected:** merge_screen.py, diff_viewer_screen.py
 
+### Change Request 3 (2026-03-19 14:45)
+- **Requested by user:** Plan gutter label ("A", "B" etc.) was incorrectly shown for main-file lines (delete lines) — should only appear on other-file lines. Also: "unified mode" keybinding is a no-op stub.
+- **Changes made:** Updated DiffDisplay gutter logic: **interleaved** — plan label shows on "insert"/"moved" lines (other-file), "M" marker on "delete" lines (main-file), nothing on "equal". **Side-by-side** — plan label on all non-equal lines (both columns visible). Created sibling task t417_12 for implementing the stubbed unified diff mode.
+- **Files affected:** diff_display.py
+
+## Final Implementation Notes
+- **Actual work done:** Created merge_engine.py (MergeSession, apply_merge, apply_merge_annotated, compute_hunk_preview_range, suggest_filename, get_conflicts) and merge_screen.py (MergeScreen with split hunk-list/preview layout, SaveMergeDialog). Wired into DiffViewerScreen via "e" keybinding. Added CSS to DiffViewerApp. Also fixed pre-existing DiffDisplay gutter label behavior.
+- **Deviations from plan:** Added apply_merge_annotated() and compute_hunk_preview_range() (not in original plan) for line-number preview with highlighting and scroll-to-position. Added post-save refresh that swaps merged file as new main (not in original plan). Fixed gutter label logic in diff_display.py (pre-existing issue, surfaced during testing).
+- **Issues encountered:** DiffDisplay gutter labels were showing for main-file lines (delete/replace tags) — fixed by differentiating interleaved (only insert/moved show plan label) vs side-by-side (all non-equal show label). Unified mode is a non-functional stub — deferred to sibling task.
+- **Key decisions:** Used apply_merge_annotated with forward-walking algorithm for preview annotations (cleaner than tracking offsets separately). Used Rich Table for preview rendering with line numbers. Orange highlight for current hunk, green for other accepted hunks. MergeScreen uses dismiss() with path result instead of pop_screen() for cleaner callback flow.
+- **Notes for sibling tasks:** The gutter logic in diff_display.py now has differentiated behavior between interleaved and side-by-side modes. Unified mode (keybinding "u") is stubbed — both branches of _load_current_view call the same code. t417_12 should implement proper unified view showing all comparisons simultaneously.
+
 ## Post-Implementation
 
 Step 9 of the task-workflow: archive task, push changes.
