@@ -36,6 +36,50 @@ TAG_GUTTERS = {
 
 CURSOR_STYLE = Style(bold=True)
 
+
+def _word_diff_texts(
+    main_line: str,
+    other_line: str,
+    main_style: Style,
+    other_style: Style,
+) -> tuple[Text, Text]:
+    """Return styled Text objects with word-level diff highlighting.
+
+    Tokenizes by whitespace-delimited words, then diffs the word lists.
+    Matching words get a dim style; differing words get their respective tag style.
+    """
+    import re
+    from difflib import SequenceMatcher
+
+    dim_style = Style(dim=True)
+    main_text = Text(main_line)
+    other_text = Text(other_line)
+
+    # Start with everything dim
+    main_text.stylize(dim_style)
+    other_text.stylize(dim_style)
+
+    # Tokenize into words with character positions
+    main_words = [(m.group(), m.start(), m.end()) for m in re.finditer(r"\S+", main_line)]
+    other_words = [(m.group(), m.start(), m.end()) for m in re.finditer(r"\S+", other_line)]
+
+    main_strs = [w[0] for w in main_words]
+    other_strs = [w[0] for w in other_words]
+
+    sm = SequenceMatcher(None, main_strs, other_strs, autojunk=False)
+    for op, m_start, m_end, o_start, o_end in sm.get_opcodes():
+        if op != "equal":
+            if m_start < m_end:
+                char_start = main_words[m_start][1]
+                char_end = main_words[m_end - 1][2]
+                main_text.stylize(main_style, char_start, char_end)
+            if o_start < o_end:
+                char_start = other_words[o_start][1]
+                char_end = other_words[o_end - 1][2]
+                other_text.stylize(other_style, char_start, char_end)
+
+    return main_text, other_text
+
 # Plan identifier colors for multi-diff gutter
 PLAN_COLORS = [
     ("A", "#FF5555"),  # Red
@@ -54,6 +98,7 @@ class _DisplayLine:
     tag: str
     content: str
     source_plan: str = ""
+    replace_partner: str | None = None
 
 
 @dataclass
@@ -96,6 +141,8 @@ class DiffDisplay(VerticalScroll):
         self._sbs_lines: list[_SideBySideLine] = []
         self._side_by_side: bool = False
         self._active_comparison_idx: int = 0
+        self._main_label: str = ""
+        self._other_label: str = ""
 
     def compose(self):
         yield Static("No diff loaded", id="diff_display")
@@ -104,10 +151,13 @@ class DiffDisplay(VerticalScroll):
 
     def load_diff(self, diff: PairwiseDiff) -> None:
         """Load a pairwise diff and render it."""
+        import os
         self._diff = diff
         self._multi_diff = None
         self._flat_lines = _flatten_hunks(diff.hunks)
         self._sbs_lines = _flatten_hunks_side_by_side(diff.hunks)
+        self._main_label = os.path.basename(diff.main_path)
+        self._other_label = os.path.basename(diff.other_path)
         self._cursor_line = 0
 
         if not self._flat_lines or _all_equal(self._flat_lines):
@@ -119,12 +169,15 @@ class DiffDisplay(VerticalScroll):
 
     def load_multi_diff(self, result: MultiDiffResult, active_idx: int = 0) -> None:
         """Load a multi-diff result, displaying one comparison at a time."""
+        import os
         self._multi_diff = result
         self._active_comparison_idx = active_idx
         if result.comparisons:
             self._diff = result.comparisons[active_idx]
             self._flat_lines = _flatten_hunks(self._diff.hunks)
             self._sbs_lines = _flatten_hunks_side_by_side(self._diff.hunks)
+            self._main_label = os.path.basename(result.main_path)
+            self._other_label = os.path.basename(self._diff.other_path)
         else:
             self._diff = None
             self._flat_lines = []
@@ -140,6 +193,7 @@ class DiffDisplay(VerticalScroll):
 
     def set_active_comparison(self, idx: int) -> None:
         """Switch which comparison is displayed without recomputing diffs."""
+        import os
         if self._multi_diff is None:
             return
         if idx < 0 or idx >= len(self._multi_diff.comparisons):
@@ -148,6 +202,7 @@ class DiffDisplay(VerticalScroll):
         self._diff = self._multi_diff.comparisons[idx]
         self._flat_lines = _flatten_hunks(self._diff.hunks)
         self._sbs_lines = _flatten_hunks_side_by_side(self._diff.hunks)
+        self._other_label = os.path.basename(self._diff.other_path)
         self._cursor_line = 0
 
         if not self._flat_lines or _all_equal(self._flat_lines):
@@ -161,11 +216,41 @@ class DiffDisplay(VerticalScroll):
         """Switch between interleaved and side-by-side layout."""
         if self._side_by_side == side_by_side:
             return
+
+        # Capture reference line number from first visible line
+        target_lineno = None
+        visible_idx = max(0, int(self.scroll_y))
+        if self._side_by_side:
+            if visible_idx < len(self._sbs_lines):
+                sbl = self._sbs_lines[visible_idx]
+                target_lineno = sbl.main_lineno or sbl.other_lineno
+        else:
+            if visible_idx < len(self._flat_lines):
+                dl = self._flat_lines[visible_idx]
+                target_lineno = dl.main_lineno or dl.other_lineno
+
         self._side_by_side = side_by_side
-        self._cursor_line = 0
+
+        # Find equivalent position in new layout
+        new_pos = 0
+        if target_lineno is not None:
+            if self._side_by_side:
+                for i, sbl in enumerate(self._sbs_lines):
+                    lineno = sbl.main_lineno or sbl.other_lineno
+                    if lineno is not None and lineno >= target_lineno:
+                        new_pos = i
+                        break
+            else:
+                for i, dl in enumerate(self._flat_lines):
+                    lineno = dl.main_lineno or dl.other_lineno
+                    if lineno is not None and lineno >= target_lineno:
+                        new_pos = i
+                        break
+
+        self._cursor_line = new_pos
         if self._active_lines_count() > 0:
             self._render_diff()
-            self.scroll_home(animate=False)
+            self.scroll_to(y=new_pos, animate=False)
 
     def _active_lines_count(self) -> int:
         """Number of lines in current layout mode."""
@@ -231,9 +316,21 @@ class DiffDisplay(VerticalScroll):
                 gutter_char = TAG_GUTTERS.get(dl.tag, " ")
                 gutter = Text(gutter_char, style=tag_style)
 
-            # Content
-            content = Text(dl.content)
-            content.stylize(tag_style)
+            # Content — word-level diff for replace partners
+            if dl.replace_partner is not None:
+                if dl.tag == "delete":
+                    content, _ = _word_diff_texts(
+                        dl.content, dl.replace_partner,
+                        TAG_STYLES["delete"], TAG_STYLES["insert"],
+                    )
+                else:  # insert
+                    _, content = _word_diff_texts(
+                        dl.replace_partner, dl.content,
+                        TAG_STYLES["delete"], TAG_STYLES["insert"],
+                    )
+            else:
+                content = Text(dl.content)
+                content.stylize(tag_style)
 
             # Row style: cursor highlight
             row_style = CURSOR_STYLE if idx == self._cursor_line else None
@@ -249,20 +346,22 @@ class DiffDisplay(VerticalScroll):
         available = self.size.width if self.size.width > 0 else 120
         content_each = max(10, (available - LINENO_WIDTH * 2 - GUTTER_WIDTH - 4) // 2)
 
+        show_headers = bool(self._main_label or self._other_label)
         table = Table(
-            show_header=False,
+            show_header=show_headers,
             show_edge=False,
             box=None,
             pad_edge=False,
+            header_style="bold",
         )
         # Left side: main
-        table.add_column(style="dim", justify="right", width=LINENO_WIDTH, no_wrap=True)
-        table.add_column(no_wrap=True, width=content_each)
+        table.add_column(header="", style="dim", justify="right", width=LINENO_WIDTH, no_wrap=True)
+        table.add_column(header=self._main_label, no_wrap=True, width=content_each)
         # Center gutter
-        table.add_column(width=GUTTER_WIDTH, no_wrap=True)
+        table.add_column(header="", width=GUTTER_WIDTH, no_wrap=True)
         # Right side: other
-        table.add_column(style="dim", justify="right", width=LINENO_WIDTH, no_wrap=True)
-        table.add_column(no_wrap=True, width=content_each)
+        table.add_column(header="", style="dim", justify="right", width=LINENO_WIDTH, no_wrap=True)
+        table.add_column(header=self._other_label, no_wrap=True, width=content_each)
 
         use_plan_gutter = (
             self._multi_diff is not None
@@ -278,12 +377,26 @@ class DiffDisplay(VerticalScroll):
                 if sbl.main_lineno is not None else Text("")
             )
 
-            # Left content
-            main_text = Text(sbl.main_content)
-            if sbl.tag in ("delete", "replace", "moved") and sbl.main_content:
-                main_text.stylize(tag_style)
-            elif sbl.tag == "equal":
-                main_text.stylize(TAG_STYLES["equal"])
+            # Left and right content — word-level diff for replace rows
+            if sbl.tag == "replace" and sbl.main_content and sbl.other_content:
+                main_text, other_text = _word_diff_texts(
+                    sbl.main_content, sbl.other_content,
+                    tag_style, tag_style,
+                )
+            else:
+                # Left content
+                main_text = Text(sbl.main_content)
+                if sbl.tag in ("delete", "replace", "moved") and sbl.main_content:
+                    main_text.stylize(tag_style)
+                elif sbl.tag == "equal":
+                    main_text.stylize(TAG_STYLES["equal"])
+
+                # Right content
+                other_text = Text(sbl.other_content)
+                if sbl.tag in ("insert", "replace", "moved") and sbl.other_content:
+                    other_text.stylize(tag_style)
+                elif sbl.tag == "equal":
+                    other_text.stylize(TAG_STYLES["equal"])
 
             # Gutter
             if use_plan_gutter and sbl.tag != "equal":
@@ -299,13 +412,6 @@ class DiffDisplay(VerticalScroll):
                 Text(str(sbl.other_lineno), style="dim")
                 if sbl.other_lineno is not None else Text("")
             )
-
-            # Right content
-            other_text = Text(sbl.other_content)
-            if sbl.tag in ("insert", "replace", "moved") and sbl.other_content:
-                other_text.stylize(tag_style)
-            elif sbl.tag == "equal":
-                other_text.stylize(TAG_STYLES["equal"])
 
             # Cursor highlight
             row_style = CURSOR_STYLE if idx == self._cursor_line else None
@@ -407,21 +513,26 @@ def _flatten_hunks(hunks: list[DiffHunk]) -> list[_DisplayLine]:
 
         elif tag == "replace":
             # Show deleted lines from main, then inserted lines from other
+            # Pair main/other lines row-by-row for word-level diff
             for i, text in enumerate(hunk.main_lines):
+                partner = hunk.other_lines[i] if i < len(hunk.other_lines) else None
                 lines.append(_DisplayLine(
                     main_lineno=m_start + i + 1,
                     other_lineno=None,
                     tag="delete",
                     content=text,
                     source_plan=source,
+                    replace_partner=partner,
                 ))
             for i, text in enumerate(hunk.other_lines):
+                partner = hunk.main_lines[i] if i < len(hunk.main_lines) else None
                 lines.append(_DisplayLine(
                     main_lineno=None,
                     other_lineno=o_start + i + 1,
                     tag="insert",
                     content=text,
                     source_plan=source,
+                    replace_partner=partner,
                 ))
 
         elif tag == "moved":

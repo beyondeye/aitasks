@@ -141,11 +141,17 @@ class DiffViewerScreen(Screen):
         layout_label = "Side-by-side" if self._side_by_side else "Interleaved"
 
         if self._unified_mode:
-            text = f"Main: {main_name} \u2014 Unified view ({total} comparisons, {mode_label}, {layout_label})"
+            if self._side_by_side:
+                text = f"Unified view ({total} comparisons, {mode_label}, {layout_label})"
+            else:
+                text = f"Main: {main_name} \u2014 Unified view ({total} comparisons, {mode_label}, {layout_label})"
         else:
             idx = self._active_idx % total
-            other_name = os.path.basename(result.comparisons[idx].other_path)
-            text = f"Main: {main_name} vs {other_name} ({mode_label}, {idx + 1}/{total}, {layout_label})"
+            if self._side_by_side:
+                text = f"{mode_label}, {idx + 1}/{total}, {layout_label}"
+            else:
+                other_name = os.path.basename(result.comparisons[idx].other_path)
+                text = f"Main: {main_name} vs {other_name} ({mode_label}, {idx + 1}/{total}, {layout_label})"
 
         self.query_one("#info_bar", Static).update(text)
 

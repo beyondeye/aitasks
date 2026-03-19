@@ -16,6 +16,7 @@ from diffviewer.diff_display import (
     _flatten_hunks,
     _flatten_hunks_side_by_side,
     _all_equal,
+    _word_diff_texts,
     PLAN_COLORS,
     TAG_GUTTERS,
     TAG_STYLES,
@@ -421,6 +422,176 @@ class TestEndToEnd(unittest.TestCase):
         )
         flat = _flatten_hunks(result.comparisons[0].hunks)
         self.assertTrue(_all_equal(flat))
+
+
+class TestWordDiffTexts(unittest.TestCase):
+    """Tests for _word_diff_texts() — word-level intra-line diff highlighting."""
+
+    def test_identical_lines(self):
+        """Identical lines → all spans dim, no tag style applied."""
+        style_a = TAG_STYLES["delete"]
+        style_b = TAG_STYLES["insert"]
+        main, other = _word_diff_texts("hello world", "hello world", style_a, style_b)
+        self.assertEqual(main.plain, "hello world")
+        self.assertEqual(other.plain, "hello world")
+        # Should have dim spans but no tag style spans
+        has_dim = any(s.style.dim for s in main._spans)
+        has_tag = any(s.style == style_a for s in main._spans)
+        self.assertTrue(has_dim)
+        self.assertFalse(has_tag)
+
+    def test_completely_different(self):
+        """Nothing matches → both fully get their tag style."""
+        style_a = TAG_STYLES["delete"]
+        style_b = TAG_STYLES["insert"]
+        main, other = _word_diff_texts("abc", "xyz", style_a, style_b)
+        self.assertEqual(main.plain, "abc")
+        self.assertEqual(other.plain, "xyz")
+        # Should have tag styles applied, not dim
+        has_tag_style = any(s.style == style_a for s in main._spans)
+        self.assertTrue(has_tag_style)
+        has_tag_style = any(s.style == style_b for s in other._spans)
+        self.assertTrue(has_tag_style)
+
+    def test_partial_change(self):
+        """Lines differ by a few words → mixed styling."""
+        style_a = TAG_STYLES["delete"]
+        style_b = TAG_STYLES["insert"]
+        main, other = _word_diff_texts(
+            "the quick brown fox",
+            "the slow brown cat",
+            style_a, style_b,
+        )
+        self.assertEqual(main.plain, "the quick brown fox")
+        self.assertEqual(other.plain, "the slow brown cat")
+        # Should have both dim spans (matching) and tag-styled spans (changed)
+        has_dim = any(s.style.dim for s in main._spans)
+        has_tag = any(s.style == style_a for s in main._spans)
+        self.assertTrue(has_dim, "Should have dim spans for matching text")
+        self.assertTrue(has_tag, "Should have tag style for changed text")
+
+    def test_empty_main(self):
+        """Empty main → other fully styled, main text empty."""
+        style_a = TAG_STYLES["delete"]
+        style_b = TAG_STYLES["insert"]
+        main, other = _word_diff_texts("", "hello", style_a, style_b)
+        self.assertEqual(main.plain, "")
+        self.assertEqual(other.plain, "hello")
+        has_tag = any(s.style == style_b for s in other._spans)
+        self.assertTrue(has_tag)
+
+    def test_empty_other(self):
+        """Empty other → main fully styled, other text empty."""
+        style_a = TAG_STYLES["delete"]
+        style_b = TAG_STYLES["insert"]
+        main, other = _word_diff_texts("hello", "", style_a, style_b)
+        self.assertEqual(main.plain, "hello")
+        self.assertEqual(other.plain, "")
+        has_tag = any(s.style == style_a for s in main._spans)
+        self.assertTrue(has_tag)
+
+    def test_single_word_diff(self):
+        """Single-word lines that differ → entire word gets tag style."""
+        style_a = TAG_STYLES["delete"]
+        style_b = TAG_STYLES["insert"]
+        main, other = _word_diff_texts("cat", "bat", style_a, style_b)
+        self.assertEqual(main.plain, "cat")
+        self.assertEqual(other.plain, "bat")
+        # Whole words are different, so both get tag style
+        has_tag_a = any(s.style == style_a for s in main._spans)
+        has_tag_b = any(s.style == style_b for s in other._spans)
+        self.assertTrue(has_tag_a)
+        self.assertTrue(has_tag_b)
+
+    def test_different_styles_applied_independently(self):
+        """main_style and other_style are applied to their respective texts."""
+        style_a = TAG_STYLES["delete"]
+        style_b = TAG_STYLES["insert"]
+        main, other = _word_diff_texts("abc", "axc", style_a, style_b)
+        # main should have style_a on changed chars, other should have style_b
+        main_styles = {s.style for s in main._spans if not s.style.dim}
+        other_styles = {s.style for s in other._spans if not s.style.dim}
+        if main_styles:
+            self.assertIn(style_a, main_styles)
+            self.assertNotIn(style_b, main_styles)
+        if other_styles:
+            self.assertIn(style_b, other_styles)
+            self.assertNotIn(style_a, other_styles)
+
+
+class TestFlattenHunksReplacePartner(unittest.TestCase):
+    """Tests for replace_partner pairing in _flatten_hunks()."""
+
+    def test_replace_partner_equal_length(self):
+        """Equal-length replace → each delete/insert has its partner."""
+        hunks = [DiffHunk(
+            tag="replace",
+            main_lines=["old1", "old2"],
+            other_lines=["new1", "new2"],
+            main_range=(0, 2),
+            other_range=(0, 2),
+        )]
+        flat = _flatten_hunks(hunks)
+        self.assertEqual(len(flat), 4)
+        # Delete lines have their insert partners
+        self.assertEqual(flat[0].tag, "delete")
+        self.assertEqual(flat[0].replace_partner, "new1")
+        self.assertEqual(flat[1].tag, "delete")
+        self.assertEqual(flat[1].replace_partner, "new2")
+        # Insert lines have their delete partners
+        self.assertEqual(flat[2].tag, "insert")
+        self.assertEqual(flat[2].replace_partner, "old1")
+        self.assertEqual(flat[3].tag, "insert")
+        self.assertEqual(flat[3].replace_partner, "old2")
+
+    def test_replace_partner_uneven_main_longer(self):
+        """Main longer → extra delete lines have None partner."""
+        hunks = [DiffHunk(
+            tag="replace",
+            main_lines=["old1", "old2", "old3"],
+            other_lines=["new1"],
+            main_range=(0, 3),
+            other_range=(0, 1),
+        )]
+        flat = _flatten_hunks(hunks)
+        # 3 deletes + 1 insert
+        self.assertEqual(len(flat), 4)
+        self.assertEqual(flat[0].replace_partner, "new1")
+        self.assertIsNone(flat[1].replace_partner)
+        self.assertIsNone(flat[2].replace_partner)
+        # Insert has partner
+        self.assertEqual(flat[3].replace_partner, "old1")
+
+    def test_replace_partner_uneven_other_longer(self):
+        """Other longer → extra insert lines have None partner."""
+        hunks = [DiffHunk(
+            tag="replace",
+            main_lines=["old1"],
+            other_lines=["new1", "new2", "new3"],
+            main_range=(0, 1),
+            other_range=(0, 3),
+        )]
+        flat = _flatten_hunks(hunks)
+        # 1 delete + 3 inserts
+        self.assertEqual(len(flat), 4)
+        self.assertEqual(flat[0].replace_partner, "new1")
+        self.assertEqual(flat[1].replace_partner, "old1")
+        self.assertIsNone(flat[2].replace_partner)
+        self.assertIsNone(flat[3].replace_partner)
+
+    def test_non_replace_hunks_have_no_partner(self):
+        """Equal, insert, delete, moved hunks should have None partner."""
+        hunks = [
+            DiffHunk(tag="equal", main_lines=["a"], other_lines=["a"],
+                     main_range=(0, 1), other_range=(0, 1)),
+            DiffHunk(tag="insert", main_lines=[], other_lines=["b"],
+                     main_range=(1, 1), other_range=(1, 2)),
+            DiffHunk(tag="delete", main_lines=["c"], other_lines=[],
+                     main_range=(1, 2), other_range=(2, 2)),
+        ]
+        flat = _flatten_hunks(hunks)
+        for dl in flat:
+            self.assertIsNone(dl.replace_partner)
 
 
 if __name__ == "__main__":
