@@ -3,10 +3,11 @@ priority: high
 effort: high
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [tui, dependencies]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-19 09:26
-updated_at: 2026-03-19 09:26
+updated_at: 2026-03-19 09:51
 ---
 
 ## Summary
