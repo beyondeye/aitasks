@@ -1,3 +1,4 @@
+agentcrew
 aitakspickrem
 aitask_board
 aitask_changelog
@@ -25,6 +26,7 @@ codeagent
 codebrowser
 codexcli
 development
+differ
 execution_profiles
 geminicli
 git-integration
@@ -44,7 +46,6 @@ script-performance
 skill_optiomizations
 statistics
 stats_ui
-agentcrew
 task_workflow
 testing
 tui
