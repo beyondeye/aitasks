@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from textual.binding import Binding
@@ -36,6 +37,69 @@ TAG_GUTTERS = {
 
 CURSOR_STYLE = Style(bold=True)
 
+# Markdown syntax highlighting styles — themable dict, same pattern as TAG_STYLES
+MD_STYLES = {
+    "h1": Style(bold=True, color="#BD93F9"),
+    "h2": Style(bold=True, color="#8BE9FD"),
+    "h3": Style(bold=True, color="#50FA7B"),
+    "h4": Style(bold=True, color="#FFB86C"),
+    "h5": Style(bold=True, color="#FF79C6"),
+    "h6": Style(bold=True, color="#6272A4"),
+    "bold": Style(bold=True),
+    "italic": Style(italic=True),
+    "code": Style(color="#F1FA8C"),
+    "bullet": Style(bold=True, color="#FF79C6"),
+}
+
+# Compiled markdown regex patterns
+_MD_HEADING_RE = re.compile(r"^(#{1,6})\s")
+_MD_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+_MD_ITALIC_RE = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")
+_MD_CODE_RE = re.compile(r"`([^`]+)`")
+_MD_LIST_RE = re.compile(r"^(\s*)([-*])\s")
+_MD_OLIST_RE = re.compile(r"^(\s*)(\d+\.)\s")
+
+
+def _highlight_md_line(line: str) -> Text:
+    """Apply inline markdown syntax highlighting to a line.
+
+    Returns a Rich Text object with markdown-level styles applied.
+    All styles are looked up from MD_STYLES for easy theming.
+    """
+    text = Text(line)
+
+    # Headings — style the whole line, early return
+    m = _MD_HEADING_RE.match(line)
+    if m:
+        level = len(m.group(1))
+        style = MD_STYLES.get(f"h{level}", MD_STYLES["h6"])
+        text.stylize(style)
+        return text
+
+    # Bold: **text**
+    for m in _MD_BOLD_RE.finditer(line):
+        text.stylize(MD_STYLES["bold"], m.start(), m.end())
+
+    # Italic: *text* (not preceded/followed by *)
+    for m in _MD_ITALIC_RE.finditer(line):
+        text.stylize(MD_STYLES["italic"], m.start(), m.end())
+
+    # Inline code: `text`
+    for m in _MD_CODE_RE.finditer(line):
+        text.stylize(MD_STYLES["code"], m.start(), m.end())
+
+    # List bullets (unordered)
+    m = _MD_LIST_RE.match(line)
+    if m:
+        text.stylize(MD_STYLES["bullet"], m.start(2), m.end(2))
+    else:
+        # Ordered list numbers
+        m = _MD_OLIST_RE.match(line)
+        if m:
+            text.stylize(MD_STYLES["bullet"], m.start(2), m.end(2))
+
+    return text
+
 
 def _word_diff_texts(
     main_line: str,
@@ -52,8 +116,8 @@ def _word_diff_texts(
     from difflib import SequenceMatcher
 
     dim_style = Style(dim=True)
-    main_text = Text(main_line)
-    other_text = Text(other_line)
+    main_text = _highlight_md_line(main_line)
+    other_text = _highlight_md_line(other_line)
 
     # Start with everything dim
     main_text.stylize(dim_style)
@@ -333,7 +397,7 @@ class DiffDisplay(VerticalScroll):
                         TAG_STYLES["delete"], TAG_STYLES["insert"],
                     )
             else:
-                content = Text(dl.content)
+                content = _highlight_md_line(dl.content)
                 content.stylize(tag_style)
 
             # Row style: cursor highlight
@@ -389,14 +453,14 @@ class DiffDisplay(VerticalScroll):
                 )
             else:
                 # Left content
-                main_text = Text(sbl.main_content)
+                main_text = _highlight_md_line(sbl.main_content)
                 if sbl.tag in ("delete", "replace", "moved") and sbl.main_content:
                     main_text.stylize(tag_style)
                 elif sbl.tag == "equal":
                     main_text.stylize(TAG_STYLES["equal"])
 
                 # Right content
-                other_text = Text(sbl.other_content)
+                other_text = _highlight_md_line(sbl.other_content)
                 if sbl.tag in ("insert", "replace", "moved") and sbl.other_content:
                     other_text.stylize(tag_style)
                 elif sbl.tag == "equal":

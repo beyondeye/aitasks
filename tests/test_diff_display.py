@@ -17,9 +17,11 @@ from diffviewer.diff_display import (
     _flatten_hunks_side_by_side,
     _all_equal,
     _word_diff_texts,
+    _highlight_md_line,
     PLAN_COLORS,
     TAG_GUTTERS,
     TAG_STYLES,
+    MD_STYLES,
 )
 from diffviewer.diff_engine import (
     DiffHunk,
@@ -592,6 +594,114 @@ class TestFlattenHunksReplacePartner(unittest.TestCase):
         flat = _flatten_hunks(hunks)
         for dl in flat:
             self.assertIsNone(dl.replace_partner)
+
+
+class TestHighlightMdLine(unittest.TestCase):
+    """Tests for _highlight_md_line() — markdown syntax highlighting."""
+
+    def test_heading_h1(self):
+        """H1 heading → bold + h1 color on entire line."""
+        text = _highlight_md_line("# Main Title")
+        self.assertEqual(text.plain, "# Main Title")
+        self.assertTrue(any(
+            s.style == MD_STYLES["h1"] for s in text._spans
+        ))
+
+    def test_heading_h3(self):
+        """H3 heading → bold + h3 color on entire line."""
+        text = _highlight_md_line("### Sub-section")
+        self.assertEqual(text.plain, "### Sub-section")
+        self.assertTrue(any(
+            s.style == MD_STYLES["h3"] for s in text._spans
+        ))
+
+    def test_heading_levels_1_through_6(self):
+        """All heading levels 1-6 should be recognized."""
+        for level in range(1, 7):
+            line = f"{'#' * level} Heading {level}"
+            text = _highlight_md_line(line)
+            expected_style = MD_STYLES[f"h{level}"]
+            self.assertTrue(
+                any(s.style == expected_style for s in text._spans),
+                f"h{level} style not found for '{line}'",
+            )
+
+    def test_bold(self):
+        """**bold** text → bold style on the matched span."""
+        text = _highlight_md_line("some **bold** text")
+        self.assertEqual(text.plain, "some **bold** text")
+        self.assertTrue(any(
+            s.style == MD_STYLES["bold"] for s in text._spans
+        ))
+
+    def test_italic(self):
+        """*italic* text → italic style on the matched span."""
+        text = _highlight_md_line("some *italic* text")
+        self.assertEqual(text.plain, "some *italic* text")
+        self.assertTrue(any(
+            s.style == MD_STYLES["italic"] for s in text._spans
+        ))
+
+    def test_inline_code(self):
+        """`code` span → code style on the matched span."""
+        text = _highlight_md_line("run `npm install` now")
+        self.assertEqual(text.plain, "run `npm install` now")
+        self.assertTrue(any(
+            s.style == MD_STYLES["code"] for s in text._spans
+        ))
+
+    def test_unordered_list_bullet(self):
+        """- list item → bullet style on the dash."""
+        text = _highlight_md_line("- list item")
+        self.assertEqual(text.plain, "- list item")
+        self.assertTrue(any(
+            s.style == MD_STYLES["bullet"] for s in text._spans
+        ))
+
+    def test_ordered_list_number(self):
+        """1. list item → bullet style on the number."""
+        text = _highlight_md_line("1. first item")
+        self.assertEqual(text.plain, "1. first item")
+        self.assertTrue(any(
+            s.style == MD_STYLES["bullet"] for s in text._spans
+        ))
+
+    def test_plain_text_no_styles(self):
+        """Plain text with no markdown → no extra styles applied."""
+        text = _highlight_md_line("just plain text")
+        self.assertEqual(text.plain, "just plain text")
+        self.assertEqual(len(text._spans), 0)
+
+    def test_multiple_markers_on_one_line(self):
+        """Multiple markdown markers on one line all get styled."""
+        text = _highlight_md_line("**bold** and `code` here")
+        self.assertEqual(text.plain, "**bold** and `code` here")
+        has_bold = any(s.style == MD_STYLES["bold"] for s in text._spans)
+        has_code = any(s.style == MD_STYLES["code"] for s in text._spans)
+        self.assertTrue(has_bold, "bold style missing")
+        self.assertTrue(has_code, "code style missing")
+
+    def test_heading_no_inline_styles(self):
+        """Heading lines get heading style only, not inline bold/code styles."""
+        text = _highlight_md_line("## Heading with **bold**")
+        # Should only have h2 style (early return), not bold style
+        styles = {s.style for s in text._spans}
+        self.assertIn(MD_STYLES["h2"], styles)
+        self.assertNotIn(MD_STYLES["bold"], styles)
+
+    def test_star_list_bullet(self):
+        """* list item → bullet style on the asterisk."""
+        text = _highlight_md_line("* star item")
+        self.assertEqual(text.plain, "* star item")
+        self.assertTrue(any(
+            s.style == MD_STYLES["bullet"] for s in text._spans
+        ))
+
+    def test_empty_line(self):
+        """Empty line → no crash, no styles."""
+        text = _highlight_md_line("")
+        self.assertEqual(text.plain, "")
+        self.assertEqual(len(text._spans), 0)
 
 
 if __name__ == "__main__":
