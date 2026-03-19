@@ -499,9 +499,9 @@ setup_python_venv() {
 
     info "Installing/upgrading Python dependencies..."
     "$VENV_DIR/bin/pip" install --quiet --upgrade pip
-    "$VENV_DIR/bin/pip" install --quiet textual pyyaml linkify-it-py tomli
+    "$VENV_DIR/bin/pip" install --quiet 'textual>=8.1.1,<9' 'pyyaml==6.0.3' 'linkify-it-py==2.1.0' 'tomli>=2.4.0,<3'
     if [[ "$install_plotext" == true ]]; then
-        "$VENV_DIR/bin/pip" install --quiet plotext
+        "$VENV_DIR/bin/pip" install --quiet 'plotext==5.3.2'
         info "Installed optional stats graph dependency: plotext"
     else
         info "Skipped optional stats graph dependency (plotext)"
