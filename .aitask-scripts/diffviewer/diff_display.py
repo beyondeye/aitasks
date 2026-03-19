@@ -17,13 +17,17 @@ from rich.text import Text
 from .diff_engine import DiffHunk, PairwiseDiff, MultiDiffResult
 
 
-# Styles per diff tag — colors chosen for readability in both dark and light themes
+# Styles per diff tag — dim backgrounds for readability, light foreground text
 TAG_STYLES = {
     "equal": Style(dim=True),
-    "insert": Style(color="black", bgcolor="#50FA7B"),
-    "delete": Style(color="white", bgcolor="#FF5555"),
-    "replace": Style(color="black", bgcolor="#FFB86C"),
-    "moved": Style(color="black", bgcolor="#8BE9FD"),
+    "insert": Style(color="#d0d0d0", bgcolor="#264d26"),
+    "delete": Style(color="#d0d0d0", bgcolor="#4d2626"),
+    "replace": Style(color="#d0d0d0", bgcolor="#4d3826"),
+    "moved": Style(color="#d0d0d0", bgcolor="#263a4d"),
+    # Dimmed variants for matching words in word-level diff lines
+    "insert_dim": Style(color="#a0a0a0", bgcolor="#152a15"),
+    "delete_dim": Style(color="#a0a0a0", bgcolor="#2a1515"),
+    "replace_dim": Style(color="#a0a0a0", bgcolor="#2a1f15"),
 }
 
 # Gutter characters per diff tag
@@ -106,22 +110,25 @@ def _word_diff_texts(
     other_line: str,
     main_style: Style,
     other_style: Style,
+    main_dim_style: Style | None = None,
+    other_dim_style: Style | None = None,
 ) -> tuple[Text, Text]:
     """Return styled Text objects with word-level diff highlighting.
 
     Tokenizes by whitespace-delimited words, then diffs the word lists.
-    Matching words get a dim style; differing words get their respective tag style.
+    Matching words get the dim style (dimmed background variant);
+    differing words get their respective full tag style.
     """
-    import re
     from difflib import SequenceMatcher
 
-    dim_style = Style(dim=True)
     main_text = _highlight_md_line(main_line)
     other_text = _highlight_md_line(other_line)
 
-    # Start with everything dim
-    main_text.stylize(dim_style)
-    other_text.stylize(dim_style)
+    # Apply dim background to entire line first (matching words keep this)
+    m_dim = main_dim_style if main_dim_style is not None else Style(dim=True)
+    o_dim = other_dim_style if other_dim_style is not None else Style(dim=True)
+    main_text.stylize(m_dim)
+    other_text.stylize(o_dim)
 
     # Tokenize into words with character positions
     main_words = [(m.group(), m.start(), m.end()) for m in re.finditer(r"\S+", main_line)]
@@ -349,6 +356,7 @@ class DiffDisplay(VerticalScroll):
             show_edge=False,
             box=None,
             pad_edge=False,
+            padding=0,
         )
         table.add_column(
             style="dim", justify="right", width=LINENO_WIDTH, no_wrap=True,
@@ -390,14 +398,17 @@ class DiffDisplay(VerticalScroll):
                     content, _ = _word_diff_texts(
                         dl.content, dl.replace_partner,
                         TAG_STYLES["delete"], TAG_STYLES["insert"],
+                        TAG_STYLES["delete_dim"], TAG_STYLES["insert_dim"],
                     )
                 else:  # insert
                     _, content = _word_diff_texts(
                         dl.replace_partner, dl.content,
                         TAG_STYLES["delete"], TAG_STYLES["insert"],
+                        TAG_STYLES["delete_dim"], TAG_STYLES["insert_dim"],
                     )
             else:
-                content = _highlight_md_line(dl.content)
+                # Use a space for empty lines so background color renders
+                content = _highlight_md_line(dl.content or " ")
                 content.stylize(tag_style)
 
             # Row style: cursor highlight
@@ -420,6 +431,7 @@ class DiffDisplay(VerticalScroll):
             show_edge=False,
             box=None,
             pad_edge=False,
+            padding=0,
             header_style="bold",
         )
         # Left side: main
@@ -447,21 +459,23 @@ class DiffDisplay(VerticalScroll):
 
             # Left and right content — word-level diff for replace rows
             if sbl.tag == "replace" and sbl.main_content and sbl.other_content:
+                replace_dim = TAG_STYLES.get("replace_dim", Style(dim=True))
                 main_text, other_text = _word_diff_texts(
                     sbl.main_content, sbl.other_content,
                     tag_style, tag_style,
+                    replace_dim, replace_dim,
                 )
             else:
-                # Left content
-                main_text = _highlight_md_line(sbl.main_content)
-                if sbl.tag in ("delete", "replace", "moved") and sbl.main_content:
+                # Left content — use space for empty lines so background renders
+                main_text = _highlight_md_line(sbl.main_content or " ")
+                if sbl.tag in ("delete", "replace", "moved"):
                     main_text.stylize(tag_style)
                 elif sbl.tag == "equal":
                     main_text.stylize(TAG_STYLES["equal"])
 
-                # Right content
-                other_text = _highlight_md_line(sbl.other_content)
-                if sbl.tag in ("insert", "replace", "moved") and sbl.other_content:
+                # Right content — use space for empty lines so background renders
+                other_text = _highlight_md_line(sbl.other_content or " ")
+                if sbl.tag in ("insert", "replace", "moved"):
                     other_text.stylize(tag_style)
                 elif sbl.tag == "equal":
                     other_text.stylize(TAG_STYLES["equal"])

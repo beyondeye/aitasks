@@ -23,9 +23,9 @@ def load_plan(path: str) -> tuple[dict, str, list[str]]:
     result = parse_frontmatter(raw)
     if result is None:
         # No frontmatter — treat entire content as body
-        lines = raw.splitlines(keepends=True)
+        lines = raw.splitlines()
         return {}, raw, lines
 
     metadata, body, _key_order = result
-    body_lines = body.splitlines(keepends=True)
+    body_lines = body.splitlines()
     return metadata, body, body_lines

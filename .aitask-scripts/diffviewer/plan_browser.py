@@ -67,7 +67,7 @@ class PlanBrowser(VerticalScroll):
             super().__init__()
             self.path = path
 
-    def __init__(self, root_dir: str = "aiplans/", **kwargs):
+    def __init__(self, root_dir: str = ".aitask-scripts/diffviewer/test_plans/", **kwargs):
         super().__init__(**kwargs)
         self._root_dir = root_dir
         self._current_dir = root_dir
