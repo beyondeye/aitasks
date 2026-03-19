@@ -16,7 +16,7 @@ from config_utils import load_layered_config, split_config, save_project_config,
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
-from textual.widgets import Header, Footer, Static, Label, Markdown, Input, Button
+from textual.widgets import Header, Footer, Static, Label, Markdown, Input, Button, LoadingIndicator
 from textual.screen import Screen, ModalScreen
 from textual.binding import Binding
 from textual.message import Message
@@ -1994,21 +1994,29 @@ class TaskDetailScreen(ModalScreen):
         def on_email(email):
             if email is None:
                 return
-            try:
-                result = subprocess.run(
-                    ["./.aitask-scripts/aitask_lock.sh", "--lock", task_id, "--email", email],
-                    capture_output=True, text=True, timeout=15
-                )
-                if result.returncode == 0:
-                    self.app.notify(f"Locked t{task_id}", severity="information")
-                    self.dismiss("locked")
-                else:
-                    error = result.stderr.strip() or result.stdout.strip()
-                    self.app.notify(f"Lock failed: {error}", severity="error")
-            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-                self.app.notify(f"Lock failed: {e}", severity="error")
+            self.app.push_screen(LoadingOverlay("Locking task..."))
+            self._do_lock(task_id, email)
 
         self.app.push_screen(LockEmailScreen(task_id, default_email), on_email)
+
+    @work(thread=True)
+    def _do_lock(self, task_id: str, email: str):
+        """Run lock subprocess in a thread worker."""
+        try:
+            result = subprocess.run(
+                ["./.aitask-scripts/aitask_lock.sh", "--lock", task_id, "--email", email],
+                capture_output=True, text=True, timeout=15
+            )
+            self.app.call_from_thread(self.app.pop_screen)  # dismiss LoadingOverlay
+            if result.returncode == 0:
+                self.app.call_from_thread(self.app.notify, f"Locked t{task_id}", severity="information")
+                self.app.call_from_thread(self.dismiss, "locked")
+            else:
+                error = result.stderr.strip() or result.stdout.strip()
+                self.app.call_from_thread(self.app.notify, f"Lock failed: {error}", severity="error")
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            self.app.call_from_thread(self.app.pop_screen)  # dismiss LoadingOverlay
+            self.app.call_from_thread(self.app.notify, f"Lock failed: {e}", severity="error")
 
     @on(Button.Pressed, "#btn_unlock")
     def unlock_task(self):
@@ -2017,37 +2025,8 @@ class TaskDetailScreen(ModalScreen):
         task_id = task_num.lstrip("t")
 
         def do_unlock():
-            try:
-                result = subprocess.run(
-                    ["./.aitask-scripts/aitask_lock.sh", "--unlock", task_id],
-                    capture_output=True, text=True, timeout=15
-                )
-                if result.returncode == 0:
-                    self.app.notify(f"Unlocked t{task_id}", severity="information")
-                    meta = self.task_data.metadata
-                    if meta.get("status") == "Implementing" and meta.get("assigned_to"):
-                        assigned_to = meta["assigned_to"]
-                        def on_reset_confirmed(confirmed):
-                            if confirmed:
-                                if not self.task_data.load():
-                                    self.app.notify("Task file no longer exists", severity="error")
-                                    self.dismiss("unlocked")
-                                    return
-                                self.task_data.metadata["status"] = "Ready"
-                                self.task_data.metadata["assigned_to"] = ""
-                                self.task_data.save_with_timestamp()
-                            self.dismiss("unlocked")
-                        self.app.push_screen(
-                            ResetTaskConfirmScreen(task_id, assigned_to),
-                            on_reset_confirmed,
-                        )
-                        return
-                    self.dismiss("unlocked")
-                else:
-                    error = result.stderr.strip() or result.stdout.strip()
-                    self.app.notify(f"Unlock failed: {error}", severity="error")
-            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-                self.app.notify(f"Unlock failed: {e}", severity="error")
+            self.app.push_screen(LoadingOverlay("Unlocking task..."))
+            self._do_unlock(task_id)
 
         if self._lock_info:
             my_email = _get_user_email()
@@ -2067,6 +2046,44 @@ class TaskDetailScreen(ModalScreen):
                 return
 
         do_unlock()
+
+    @work(thread=True)
+    def _do_unlock(self, task_id: str):
+        """Run unlock subprocess in a thread worker."""
+        try:
+            result = subprocess.run(
+                ["./.aitask-scripts/aitask_lock.sh", "--unlock", task_id],
+                capture_output=True, text=True, timeout=15
+            )
+            self.app.call_from_thread(self.app.pop_screen)  # dismiss LoadingOverlay
+            if result.returncode == 0:
+                self.app.call_from_thread(self.app.notify, f"Unlocked t{task_id}", severity="information")
+                meta = self.task_data.metadata
+                if meta.get("status") == "Implementing" and meta.get("assigned_to"):
+                    assigned_to = meta["assigned_to"]
+                    def on_reset_confirmed(confirmed):
+                        if confirmed:
+                            if not self.task_data.load():
+                                self.app.notify("Task file no longer exists", severity="error")
+                                self.dismiss("unlocked")
+                                return
+                            self.task_data.metadata["status"] = "Ready"
+                            self.task_data.metadata["assigned_to"] = ""
+                            self.task_data.save_with_timestamp()
+                        self.dismiss("unlocked")
+                    self.app.call_from_thread(
+                        self.app.push_screen,
+                        ResetTaskConfirmScreen(task_id, assigned_to),
+                        on_reset_confirmed,
+                    )
+                    return
+                self.app.call_from_thread(self.dismiss, "unlocked")
+            else:
+                error = result.stderr.strip() or result.stdout.strip()
+                self.app.call_from_thread(self.app.notify, f"Unlock failed: {error}", severity="error")
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            self.app.call_from_thread(self.app.pop_screen)  # dismiss LoadingOverlay
+            self.app.call_from_thread(self.app.notify, f"Unlock failed: {e}", severity="error")
 
     def action_close_modal(self):
         self.dismiss()
@@ -2417,6 +2434,19 @@ class SyncConflictScreen(ModalScreen):
         self.dismiss(False)
 
 
+class LoadingOverlay(ModalScreen):
+    """Modal overlay showing a LoadingIndicator with a message."""
+
+    def __init__(self, message: str = "Working..."):
+        super().__init__()
+        self._message = message
+
+    def compose(self) -> ComposeResult:
+        with Container(id="loading_dialog"):
+            yield Label(self._message, id="loading_message")
+            yield LoadingIndicator()
+
+
 class ColumnSelectItem(Static):
     """A selectable column item in the picker."""
 
@@ -2710,6 +2740,23 @@ class KanbanApp(App):
     .pick-copy-row Button {
         width: auto;
         min-width: 12;
+    }
+    #loading_dialog {
+        width: 40;
+        height: 7;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+        align: center middle;
+    }
+    #loading_message {
+        text-align: center;
+        width: 100%;
+        height: 1;
+        padding: 0 0 1 0;
+    }
+    #loading_dialog LoadingIndicator {
+        height: 3;
     }
     """
 
@@ -3254,10 +3301,11 @@ class KanbanApp(App):
         """Manually trigger a sync with remote."""
         if self._modal_is_active():
             return
-        self._run_sync(show_notification=True)
+        self.push_screen(LoadingOverlay("Syncing with remote..."))
+        self._run_sync(show_notification=True, show_overlay=True)
 
-    @work(exclusive=True)
-    async def _run_sync(self, show_notification: bool = True):
+    @work(exclusive=True, thread=True)
+    def _run_sync(self, show_notification: bool = True, show_overlay: bool = False):
         """Run ait sync --batch in background and handle the result."""
         try:
             result = subprocess.run(
@@ -3267,12 +3315,19 @@ class KanbanApp(App):
             output = result.stdout.strip().splitlines()
             status_line = output[0] if output else ""
         except subprocess.TimeoutExpired:
+            if show_overlay:
+                self.app.call_from_thread(self.pop_screen)
             if show_notification:
-                self.notify("Sync timed out", severity="warning")
+                self.app.call_from_thread(self.notify, "Sync timed out", severity="warning")
             return
         except FileNotFoundError:
-            self.notify("Sync script not found", severity="error")
+            if show_overlay:
+                self.app.call_from_thread(self.pop_screen)
+            self.app.call_from_thread(self.notify, "Sync script not found", severity="error")
             return
+
+        if show_overlay:
+            self.app.call_from_thread(self.pop_screen)
 
         if status_line.startswith("CONFLICT:"):
             files = status_line[len("CONFLICT:"):].split(",")
@@ -3280,25 +3335,25 @@ class KanbanApp(App):
             return
         elif status_line == "NO_NETWORK":
             if show_notification:
-                self.notify("Sync: No network", severity="warning")
+                self.app.call_from_thread(self.notify, "Sync: No network", severity="warning")
         elif status_line == "NO_REMOTE":
             if show_notification:
-                self.notify("Sync: No remote configured", severity="warning")
+                self.app.call_from_thread(self.notify, "Sync: No remote configured", severity="warning")
         elif status_line == "NOTHING":
             if show_notification:
-                self.notify("Already up to date", severity="information")
+                self.app.call_from_thread(self.notify, "Already up to date", severity="information")
         elif status_line == "AUTOMERGED":
             if show_notification:
-                self.notify("Sync: Auto-merged conflicts", severity="information")
+                self.app.call_from_thread(self.notify, "Sync: Auto-merged conflicts", severity="information")
         elif status_line in ("PUSHED", "PULLED", "SYNCED"):
             if show_notification:
-                self.notify(f"Sync: {status_line.capitalize()}", severity="information")
+                self.app.call_from_thread(self.notify, f"Sync: {status_line.capitalize()}", severity="information")
         elif status_line.startswith("ERROR:"):
             msg = status_line[len("ERROR:"):]
-            self.notify(f"Sync error: {msg}", severity="error")
+            self.app.call_from_thread(self.notify, f"Sync error: {msg}", severity="error")
 
-        self.manager.load_tasks()
-        self.refresh_board(refresh_locks=True)
+        self.app.call_from_thread(self.manager.load_tasks)
+        self.app.call_from_thread(self.refresh_board, refresh_locks=True)
 
     def _show_conflict_dialog(self, files: list[str]):
         """Show the conflict resolution dialog (must be called on main thread)."""
@@ -3833,42 +3888,57 @@ class KanbanApp(App):
         return dep_warnings, related_summaries
 
     def _execute_archive(self, task_num: str, task: Task):
-        """Archive a task as superseded via aitask_archive.sh --superseded."""
+        """Archive a task as superseded (shows loading overlay)."""
+        self.push_screen(LoadingOverlay("Archiving task..."))
+        self._do_archive(task_num)
+
+    @work(thread=True)
+    def _do_archive(self, task_num: str):
+        """Run archive subprocess in a thread worker."""
         try:
             result = subprocess.run(
                 ["./.aitask-scripts/aitask_archive.sh", "--superseded", task_num],
                 capture_output=True, text=True, timeout=30
             )
             if result.returncode == 0:
-                self.notify(f"Archived {task_num} as superseded", severity="information")
+                self.app.call_from_thread(self.notify, f"Archived {task_num} as superseded", severity="information")
             else:
                 error = result.stderr.strip() or result.stdout.strip()
-                self.notify(f"Archive failed: {error}", severity="error")
+                self.app.call_from_thread(self.notify, f"Archive failed: {error}", severity="error")
         except subprocess.TimeoutExpired:
-            self.notify("Archive operation timed out", severity="error")
+            self.app.call_from_thread(self.notify, "Archive operation timed out", severity="error")
         except FileNotFoundError:
-            self.notify("Archive script not found", severity="error")
+            self.app.call_from_thread(self.notify, "Archive script not found", severity="error")
+        finally:
+            self.app.call_from_thread(self.pop_screen)
 
-        self.manager.load_tasks()
-        self.refresh_board()
+        self.app.call_from_thread(self.manager.load_tasks)
+        self.app.call_from_thread(self.refresh_board)
 
     def _execute_delete(self, task_num: str, paths: list, task: Task = None):
-        """Delete files via git rm and commit."""
+        """Delete task files (shows loading overlay)."""
+        paths_str = [str(p) for p in paths]
+        folded_ids = []
+        if task:
+            folded_ids = [str(fid).lstrip("t") for fid in task.metadata.get("folded_tasks", [])]
+        self.push_screen(LoadingOverlay("Deleting task..."))
+        self._do_delete(task_num, paths_str, folded_ids)
+
+    @work(thread=True)
+    def _do_delete(self, task_num: str, paths: list[str], folded_ids: list[str]):
+        """Run delete subprocess in a thread worker."""
         try:
             # Unfold folded tasks before deleting
-            if task:
-                folded = task.metadata.get("folded_tasks", [])
-                for fid in folded:
-                    fid_str = str(fid).lstrip("t")
-                    subprocess.run(
-                        ["./.aitask-scripts/aitask_update.sh", "--batch", fid_str,
-                         "--status", "Ready", "--folded-into", ""],
-                        capture_output=True, text=True, timeout=10
-                    )
+            for fid_str in folded_ids:
+                subprocess.run(
+                    ["./.aitask-scripts/aitask_update.sh", "--batch", fid_str,
+                     "--status", "Ready", "--folded-into", ""],
+                    capture_output=True, text=True, timeout=10
+                )
 
             for path in paths:
                 result = subprocess.run(
-                    [*_task_git_cmd(), "rm", "-f", str(path)],
+                    [*_task_git_cmd(), "rm", "-f", path],
                     capture_output=True, text=True, timeout=10
                 )
                 if result.returncode != 0:
@@ -3897,24 +3967,36 @@ class KanbanApp(App):
                 capture_output=True, text=True, timeout=15
             )
             if result.returncode == 0:
-                self.notify(f"Deleted task {task_num}", severity="information")
+                self.app.call_from_thread(self.notify, f"Deleted task {task_num}", severity="information")
             else:
                 error = result.stderr.strip() or result.stdout.strip()
-                self.notify(f"Delete commit failed: {error}", severity="error")
+                self.app.call_from_thread(self.notify, f"Delete commit failed: {error}", severity="error")
         except subprocess.TimeoutExpired:
-            self.notify("Git operation timed out", severity="error")
+            self.app.call_from_thread(self.notify, "Git operation timed out", severity="error")
         except FileNotFoundError:
-            self.notify("git not found", severity="error")
+            self.app.call_from_thread(self.notify, "git not found", severity="error")
+        finally:
+            self.app.call_from_thread(self.pop_screen)
 
-        self.manager.load_tasks()
-        self.refresh_board()
+        self.app.call_from_thread(self.manager.load_tasks)
+        self.app.call_from_thread(self.refresh_board)
 
     def _git_commit_tasks(self, tasks: list[Task], message: str):
-        """Stage and commit specific task files."""
+        """Stage and commit specific task files (shows loading overlay)."""
+        focused = self._focused_card()
+        refocus = focused.task_data.filename if focused else ""
+        filepaths = [str(t.filepath) for t in tasks]
+        count = len(tasks)
+        self.push_screen(LoadingOverlay("Committing..."))
+        self._do_git_commit_tasks(filepaths, count, message, refocus)
+
+    @work(thread=True)
+    def _do_git_commit_tasks(self, filepaths: list[str], count: int, message: str, refocus: str):
+        """Run git add+commit in a thread worker."""
         try:
-            for task in tasks:
+            for fp in filepaths:
                 subprocess.run(
-                    [*_task_git_cmd(), "add", str(task.filepath)],
+                    [*_task_git_cmd(), "add", fp],
                     capture_output=True, text=True, timeout=10
                 )
             result = subprocess.run(
@@ -3922,19 +4004,19 @@ class KanbanApp(App):
                 capture_output=True, text=True, timeout=15
             )
             if result.returncode == 0:
-                self.notify(f"Committed {len(tasks)} file(s)", severity="information")
+                self.app.call_from_thread(self.notify, f"Committed {count} file(s)", severity="information")
             else:
                 error = result.stderr.strip() or result.stdout.strip()
-                self.notify(f"Commit failed: {error}", severity="error")
+                self.app.call_from_thread(self.notify, f"Commit failed: {error}", severity="error")
         except subprocess.TimeoutExpired:
-            self.notify("Git commit timed out", severity="error")
+            self.app.call_from_thread(self.notify, "Git commit timed out", severity="error")
         except FileNotFoundError:
-            self.notify("git not found", severity="error")
+            self.app.call_from_thread(self.notify, "git not found", severity="error")
+        finally:
+            self.app.call_from_thread(self.pop_screen)
 
-        focused = self._focused_card()
-        refocus = focused.task_data.filename if focused else ""
-        self.manager.refresh_git_status()
-        self.refresh_board(refocus_filename=refocus)
+        self.app.call_from_thread(self.manager.refresh_git_status)
+        self.app.call_from_thread(self.refresh_board, refocus_filename=refocus)
 
 if __name__ == "__main__":
     app = KanbanApp()
