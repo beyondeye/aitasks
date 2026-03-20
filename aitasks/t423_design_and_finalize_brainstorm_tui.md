@@ -10,3 +10,4 @@ updated_at: 2026-03-19 21:40
 ---
 
 in task 410 we have implemented all the logic for the brainstorming feature and initial scaffolding for the brainstorming tui. this task is to finalize the design of the actual user interface (the tui), based on docs and specs in aidocs/agentcrew. ask me question if you need clarifications. for each each component of the ait brainstorm tui (based on docs) present 2-3 alternative, let the user choose, then combine all into the final implementation plan. the final implementation plan must be split in multiple child tasks
+Note that we have separately implmented to diffviewer tui for diff viewing and merging specifically designed to merge/compare alternative implementation plan (see task 417). it was developeped independenlty and should be refactored (not directly included as part of ait brainstorm)
