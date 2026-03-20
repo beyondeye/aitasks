@@ -180,6 +180,7 @@ class _DisplayLine:
     content: str
     source_plan: str = ""
     replace_partner: str | None = None
+    comparison_idx: int = -1  # -1 = use global idx, >= 0 = per-line (unified mode)
 
 
 @dataclass
@@ -221,6 +222,7 @@ class DiffDisplay(VerticalScroll):
         self._flat_lines: list[_DisplayLine] = []
         self._sbs_lines: list[_SideBySideLine] = []
         self._side_by_side: bool = False
+        self._unified: bool = False
         self._active_comparison_idx: int = 0
         self._main_label: str = ""
         self._other_label: str = ""
@@ -235,6 +237,7 @@ class DiffDisplay(VerticalScroll):
         import os
         self._diff = diff
         self._multi_diff = None
+        self._unified = False
         self._flat_lines = _flatten_hunks(diff.hunks)
         self._sbs_lines = _flatten_hunks_side_by_side(diff.hunks)
         self._main_label = os.path.basename(diff.main_path)
@@ -252,6 +255,7 @@ class DiffDisplay(VerticalScroll):
         """Load a multi-diff result, displaying one comparison at a time."""
         import os
         self._multi_diff = result
+        self._unified = False
         self._active_comparison_idx = active_idx
         if result.comparisons:
             self._diff = result.comparisons[active_idx]
@@ -275,6 +279,7 @@ class DiffDisplay(VerticalScroll):
     def set_active_comparison(self, idx: int) -> None:
         """Switch which comparison is displayed without recomputing diffs."""
         import os
+        self._unified = False
         if self._multi_diff is None:
             return
         if idx < 0 or idx >= len(self._multi_diff.comparisons):
@@ -287,6 +292,22 @@ class DiffDisplay(VerticalScroll):
         self._cursor_line = 0
 
         if not self._flat_lines or _all_equal(self._flat_lines):
+            self._show_message("No differences found between the plans.")
+            return
+
+        self._render_diff()
+        self.scroll_home(animate=False)
+
+    def load_unified_diff(self, result: MultiDiffResult) -> None:
+        """Load all comparisons into a single unified view."""
+        self._multi_diff = result
+        self._diff = None
+        self._unified = True
+        self._flat_lines = _flatten_unified(result)
+        self._sbs_lines = []
+        self._cursor_line = 0
+
+        if not self._flat_lines:
             self._show_message("No differences found between the plans.")
             return
 
@@ -384,6 +405,25 @@ class DiffDisplay(VerticalScroll):
         )
 
         for idx, dl in enumerate(self._flat_lines):
+            # Unified-mode special line types
+            if dl.tag == "separator":
+                sep = Text("\u2500" * content_width, style=Style(dim=True))
+                table.add_row(Text(""), Text(""), Text(""), sep)
+                continue
+            if dl.tag == "header":
+                ci = dl.comparison_idx
+                if 0 <= ci < len(PLAN_COLORS):
+                    _, color = PLAN_COLORS[ci]
+                    hdr = Text(dl.content, style=Style(color=color, bold=True))
+                else:
+                    hdr = Text(dl.content, style=Style(bold=True))
+                table.add_row(Text(""), Text(""), Text(""), hdr)
+                continue
+            if dl.tag == "fold":
+                fold = Text(dl.content, style=Style(dim=True, italic=True))
+                table.add_row(Text(""), Text(""), Text(""), fold)
+                continue
+
             tag_style = TAG_STYLES.get(dl.tag, Style())
 
             # Line numbers with tag background color
@@ -393,7 +433,8 @@ class DiffDisplay(VerticalScroll):
             # Gutter — plan label only for other-file lines (insert/moved),
             # not for main-file lines (delete) or unchanged lines (equal)
             if use_plan_gutter and dl.tag in ("insert", "moved"):
-                plan_idx = min(self._active_comparison_idx, len(PLAN_COLORS) - 1)
+                effective_idx = dl.comparison_idx if dl.comparison_idx >= 0 else self._active_comparison_idx
+                plan_idx = min(effective_idx, len(PLAN_COLORS) - 1)
                 letter, color = PLAN_COLORS[plan_idx]
                 gutter = Text(letter, style=Style(color=color, bold=True))
             elif use_plan_gutter and dl.tag == "delete":
@@ -722,3 +763,85 @@ def _flatten_hunks_side_by_side(hunks: list[DiffHunk]) -> list[_SideBySideLine]:
                 ))
 
     return rows
+
+
+_UNIFIED_CONTEXT = 3  # equal lines to show before/after changes
+
+
+def _flatten_unified(result: MultiDiffResult) -> list[_DisplayLine]:
+    """Merge all comparisons into a single unified view with plan annotations.
+
+    Each comparison section gets a header line and its non-equal hunks
+    with surrounding context lines.  Long equal regions are collapsed
+    into fold indicators.
+    """
+    import os
+
+    all_lines: list[_DisplayLine] = []
+
+    for comp_idx, comparison in enumerate(result.comparisons):
+        # Separator between comparison sections
+        if comp_idx > 0:
+            all_lines.append(_DisplayLine(
+                main_lineno=None, other_lineno=None,
+                tag="separator", content="",
+                comparison_idx=comp_idx,
+            ))
+
+        # Section header with plan letter and filename
+        plan_letter = PLAN_COLORS[min(comp_idx, len(PLAN_COLORS) - 1)][0]
+        plan_name = os.path.basename(comparison.other_path)
+        all_lines.append(_DisplayLine(
+            main_lineno=None, other_lineno=None,
+            tag="header",
+            content=f" {plan_letter}: {plan_name} ",
+            comparison_idx=comp_idx,
+        ))
+
+        # Flatten this comparison's hunks
+        comp_flat = _flatten_hunks(comparison.hunks)
+
+        # Find non-equal (change) line indices
+        change_indices = [i for i, dl in enumerate(comp_flat) if dl.tag != "equal"]
+
+        if not change_indices:
+            all_lines.append(_DisplayLine(
+                main_lineno=None, other_lineno=None,
+                tag="equal", content="  (no differences)",
+                comparison_idx=comp_idx,
+            ))
+            continue
+
+        # Build visible set: each change ± context lines
+        visible: set[int] = set()
+        for ci in change_indices:
+            for offset in range(-_UNIFIED_CONTEXT, _UNIFIED_CONTEXT + 1):
+                idx = ci + offset
+                if 0 <= idx < len(comp_flat):
+                    visible.add(idx)
+
+        # Emit visible lines with fold indicators for gaps
+        last_shown = -1
+        for i, dl in enumerate(comp_flat):
+            if i not in visible:
+                continue
+            if i > last_shown + 1 and last_shown >= 0:
+                skipped = i - last_shown - 1
+                all_lines.append(_DisplayLine(
+                    main_lineno=None, other_lineno=None,
+                    tag="fold",
+                    content=f"  \u00b7\u00b7\u00b7 {skipped} equal lines \u00b7\u00b7\u00b7",
+                    comparison_idx=comp_idx,
+                ))
+            all_lines.append(_DisplayLine(
+                main_lineno=dl.main_lineno,
+                other_lineno=dl.other_lineno,
+                tag=dl.tag,
+                content=dl.content,
+                source_plan=dl.source_plan,
+                replace_partner=dl.replace_partner,
+                comparison_idx=comp_idx,
+            ))
+            last_shown = i
+
+    return all_lines

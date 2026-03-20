@@ -124,13 +124,13 @@ class DiffViewerScreen(Screen):
         display = self.query_one("#diff_viewer", DiffDisplay)
 
         if self._unified_mode:
-            display.load_multi_diff(result, self._active_idx)
+            display.load_unified_diff(result)
         else:
             # Clamp index
             self._active_idx = self._active_idx % len(result.comparisons)
             display.load_multi_diff(result, self._active_idx)
+            display.set_layout(self._side_by_side)
 
-        display.set_layout(self._side_by_side)
         self._update_info_bar()
 
     def _update_info_bar(self) -> None:
@@ -165,6 +165,9 @@ class DiffViewerScreen(Screen):
         result = self._get_active_result()
         if result is None or not result.comparisons:
             return
+        if self._unified_mode:
+            self._jump_to_section(forward=True)
+            return
         self._active_idx = (self._active_idx + 1) % len(result.comparisons)
         self._load_current_view()
 
@@ -172,8 +175,27 @@ class DiffViewerScreen(Screen):
         result = self._get_active_result()
         if result is None or not result.comparisons:
             return
+        if self._unified_mode:
+            self._jump_to_section(forward=False)
+            return
         self._active_idx = (self._active_idx - 1) % len(result.comparisons)
         self._load_current_view()
+
+    def _jump_to_section(self, forward: bool) -> None:
+        """Jump cursor to the next/previous comparison header in unified mode."""
+        display = self.query_one("#diff_viewer", DiffDisplay)
+        headers = [
+            i for i, dl in enumerate(display._flat_lines)
+            if dl.tag == "header"
+        ]
+        if not headers:
+            return
+        cur = display._cursor_line
+        if forward:
+            target = next((h for h in headers if h > cur), headers[0])
+        else:
+            target = next((h for h in reversed(headers) if h < cur), headers[-1])
+        display._move_cursor(target)
 
     def action_toggle_mode(self) -> None:
         if self._current_mode == "classical":
@@ -188,6 +210,9 @@ class DiffViewerScreen(Screen):
 
     def action_toggle_layout(self) -> None:
         """Toggle between interleaved and side-by-side layout."""
+        if self._unified_mode:
+            self.notify("Side-by-side not available in unified mode", severity="warning")
+            return
         self._side_by_side = not self._side_by_side
         display = self.query_one("#diff_viewer", DiffDisplay)
         display.set_layout(self._side_by_side)

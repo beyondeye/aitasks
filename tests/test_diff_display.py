@@ -15,6 +15,7 @@ from diffviewer.diff_display import (
     _SideBySideLine,
     _flatten_hunks,
     _flatten_hunks_side_by_side,
+    _flatten_unified,
     _all_equal,
     _styled_lineno,
     _word_diff_texts,
@@ -743,6 +744,103 @@ class TestStyledLineno(unittest.TestCase):
         """None line number should return empty Text."""
         text = _styled_lineno(None, "insert", "+")
         self.assertEqual(text.plain, "")
+
+
+class TestFlattenUnified(unittest.TestCase):
+    """Tests for _flatten_unified() — unified multi-comparison view."""
+
+    def _make_result(self, comparisons):
+        """Helper: build a MultiDiffResult from a list of (other_path, hunks) tuples."""
+        return MultiDiffResult(
+            main_path="/tmp/main.md",
+            comparisons=[
+                PairwiseDiff(
+                    main_path="/tmp/main.md",
+                    other_path=other_path,
+                    mode="classical",
+                    hunks=hunks,
+                )
+                for other_path, hunks in comparisons
+            ],
+        )
+
+    def test_basic_unified_two_comparisons(self):
+        """Two comparisons → header for each, correct comparison_idx on all lines."""
+        hunks_a = [
+            DiffHunk(tag="equal", main_lines=["line1"], other_lines=["line1"],
+                     main_range=(0, 1), other_range=(0, 1)),
+            DiffHunk(tag="insert", main_lines=[], other_lines=["new_a"],
+                     main_range=(1, 1), other_range=(1, 2)),
+        ]
+        hunks_b = [
+            DiffHunk(tag="equal", main_lines=["line1"], other_lines=["line1"],
+                     main_range=(0, 1), other_range=(0, 1)),
+            DiffHunk(tag="delete", main_lines=["old_b"], other_lines=[],
+                     main_range=(1, 2), other_range=(1, 1)),
+        ]
+        result = self._make_result([("/tmp/plan_a.md", hunks_a), ("/tmp/plan_b.md", hunks_b)])
+        flat = _flatten_unified(result)
+
+        # Should have header lines for both comparisons
+        headers = [dl for dl in flat if dl.tag == "header"]
+        self.assertEqual(len(headers), 2)
+        self.assertIn("A", headers[0].content)
+        self.assertIn("plan_a.md", headers[0].content)
+        self.assertIn("B", headers[1].content)
+        self.assertIn("plan_b.md", headers[1].content)
+
+        # Should have a separator between comparisons
+        separators = [dl for dl in flat if dl.tag == "separator"]
+        self.assertEqual(len(separators), 1)
+
+        # comparison_idx set correctly on all lines
+        comp0_lines = [dl for dl in flat if dl.comparison_idx == 0]
+        comp1_lines = [dl for dl in flat if dl.comparison_idx == 1]
+        self.assertGreater(len(comp0_lines), 0)
+        self.assertGreater(len(comp1_lines), 0)
+
+    def test_no_changes_shows_placeholder(self):
+        """Comparison with all-equal hunks → '(no differences)' placeholder."""
+        hunks = [
+            DiffHunk(tag="equal", main_lines=["a", "b"], other_lines=["a", "b"],
+                     main_range=(0, 2), other_range=(0, 2)),
+        ]
+        result = self._make_result([("/tmp/same.md", hunks)])
+        flat = _flatten_unified(result)
+        contents = [dl.content for dl in flat if dl.tag == "equal"]
+        self.assertTrue(any("no differences" in c for c in contents))
+
+    def test_context_folding(self):
+        """Long equal section between changes → fold indicator with line count."""
+        equal_lines = [f"line{i}" for i in range(20)]
+        hunks = [
+            DiffHunk(tag="insert", main_lines=[], other_lines=["top_new"],
+                     main_range=(0, 0), other_range=(0, 1)),
+            DiffHunk(tag="equal", main_lines=equal_lines, other_lines=equal_lines,
+                     main_range=(0, 20), other_range=(1, 21)),
+            DiffHunk(tag="delete", main_lines=["bottom_old"], other_lines=[],
+                     main_range=(20, 21), other_range=(21, 21)),
+        ]
+        result = self._make_result([("/tmp/plan.md", hunks)])
+        flat = _flatten_unified(result)
+        folds = [dl for dl in flat if dl.tag == "fold"]
+        self.assertGreater(len(folds), 0, "Should have fold indicators for long equal sections")
+        # Fold should report number of skipped lines
+        self.assertTrue(any("equal lines" in dl.content for dl in folds))
+
+    def test_comparison_idx_on_all_lines(self):
+        """Every line in unified output has comparison_idx >= 0."""
+        hunks = [
+            DiffHunk(tag="equal", main_lines=["a"], other_lines=["a"],
+                     main_range=(0, 1), other_range=(0, 1)),
+            DiffHunk(tag="insert", main_lines=[], other_lines=["b"],
+                     main_range=(1, 1), other_range=(1, 2)),
+        ]
+        result = self._make_result([("/tmp/p.md", hunks)])
+        flat = _flatten_unified(result)
+        for dl in flat:
+            self.assertGreaterEqual(dl.comparison_idx, 0,
+                                    f"Line with tag={dl.tag} has comparison_idx={dl.comparison_idx}")
 
 
 if __name__ == "__main__":
