@@ -89,6 +89,9 @@ class SaveMergeDialog(ModalScreen):
                 yield Button("Save", variant="primary", id="btn_save_merge")
                 yield Button("Cancel", variant="default", id="btn_cancel_merge")
 
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.on_save()
+
     @on(Button.Pressed, "#btn_save_merge")
     def on_save(self) -> None:
         filename = self.query_one("#merge_filename_input", Input).value.strip()

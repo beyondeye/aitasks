@@ -1520,6 +1520,9 @@ class LockEmailScreen(ModalScreen):
         else:
             self.app.notify("Email is required", severity="warning")
 
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.confirm_lock()
+
     @on(Button.Pressed, "#btn_cancel_lock")
     def cancel_lock(self):
         self.dismiss(None)
@@ -2172,6 +2175,9 @@ class CommitMessageScreen(ModalScreen):
             return
         self.dismiss(("commit", msg))
 
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.do_commit()
+
     @on(Button.Pressed, "#btn_commit_cancel")
     def cancel(self):
         self.dismiss(None)
@@ -2300,6 +2306,9 @@ class ColumnEditScreen(ModalScreen):
             self.dismiss(("add", col_id, title, color))
         else:
             self.dismiss(("edit", self.col_id, title, color))
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.save()
 
     @on(Button.Pressed, "#btn_col_cancel")
     def cancel(self):

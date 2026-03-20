@@ -1123,6 +1123,9 @@ class ExportScreen(ModalScreen):
                 yield Button("Export", variant="success", id="btn_export_ok")
                 yield Button("Cancel", variant="default", id="btn_export_cancel")
 
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.do_export()
+
     @on(Button.Pressed, "#btn_export_ok")
     def do_export(self):
         directory = self.query_one("#export_dir", Input).value.strip() or "."
@@ -1228,6 +1231,10 @@ class ImportScreen(ModalScreen):
             if idx < len(self._discovered):
                 inp = self.query_one("#import_path", Input)
                 inp.value = self._discovered[idx]["path"]
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if self.query_one("#import_step1").display:
+            self.do_next()
 
     @on(Button.Pressed, "#btn_import_next")
     def do_next(self):
@@ -1340,6 +1347,9 @@ class EditStringScreen(ModalScreen):
             with Horizontal(id="edit_buttons"):
                 yield Button("Save", variant="success", id="btn_edit_save")
                 yield Button("Cancel", variant="default", id="btn_edit_cancel")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.do_save()
 
     @on(Button.Pressed, "#btn_edit_save")
     def do_save(self):
@@ -1538,6 +1548,9 @@ class NewProfileScreen(ModalScreen):
             with Horizontal(id="edit_buttons"):
                 yield Button("Create", variant="success", id="btn_new_profile_ok")
                 yield Button("Cancel", variant="default", id="btn_new_profile_cancel")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.do_create()
 
     @on(Button.Pressed, "#btn_new_profile_ok")
     def do_create(self):
