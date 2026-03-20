@@ -9,7 +9,7 @@ children_to_implement: [t414_2, t414_3]
 created_at: 2026-03-17 18:52
 updated_at: 2026-03-18 09:42
 boardcol: now
-boardidx: 50
+boardidx: 70
 ---
 
 ## Problem

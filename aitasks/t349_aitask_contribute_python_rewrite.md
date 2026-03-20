@@ -7,7 +7,7 @@ status: Ready
 labels: [bash_scripts, aitask_contribute]
 created_at: 2026-03-09 16:23
 updated_at: 2026-03-09 16:23
-boardidx: 160
+boardidx: 150
 boardcol: next
 ---
 
