@@ -105,6 +105,16 @@ def _highlight_md_line(line: str) -> Text:
     return text
 
 
+def _styled_lineno(lineno: int | None, tag: str, prefix: str = "") -> Text:
+    """Line number with tag background color and optional gutter prefix."""
+    if lineno is None:
+        return Text("")
+    tag_style = TAG_STYLES.get(tag, Style())
+    style = Style(dim=True, bgcolor=tag_style.bgcolor) if tag_style.bgcolor else Style(dim=True)
+    text = f"{prefix}{lineno}" if prefix else str(lineno)
+    return Text(text, style=style)
+
+
 def _word_diff_texts(
     main_line: str,
     other_line: str,
@@ -348,8 +358,9 @@ class DiffDisplay(VerticalScroll):
         """Build and render the interleaved diff table."""
         LINENO_WIDTH = 5
         GUTTER_WIDTH = 1
+        CONTENT_PAD = 2
         available = self.size.width if self.size.width > 0 else 120
-        content_width = max(20, available - LINENO_WIDTH * 2 - GUTTER_WIDTH - 4)
+        content_width = max(20, available - LINENO_WIDTH * 2 - GUTTER_WIDTH - 4 - CONTENT_PAD)
 
         table = Table(
             show_header=False,
@@ -375,9 +386,9 @@ class DiffDisplay(VerticalScroll):
         for idx, dl in enumerate(self._flat_lines):
             tag_style = TAG_STYLES.get(dl.tag, Style())
 
-            # Line numbers
-            main_num = Text(str(dl.main_lineno), style="dim") if dl.main_lineno is not None else Text("")
-            other_num = Text(str(dl.other_lineno), style="dim") if dl.other_lineno is not None else Text("")
+            # Line numbers with tag background color
+            main_num = _styled_lineno(dl.main_lineno, dl.tag)
+            other_num = _styled_lineno(dl.other_lineno, dl.tag)
 
             # Gutter — plan label only for other-file lines (insert/moved),
             # not for main-file lines (delete) or unchanged lines (equal)
@@ -411,6 +422,9 @@ class DiffDisplay(VerticalScroll):
                 content = _highlight_md_line(dl.content or " ")
                 content.stylize(tag_style)
 
+            # Pad content for visual separation from gutter
+            content = Text.assemble("  ", content)
+
             # Row style: cursor highlight
             row_style = CURSOR_STYLE if idx == self._cursor_line else None
 
@@ -423,7 +437,8 @@ class DiffDisplay(VerticalScroll):
         LINENO_WIDTH = 5
         GUTTER_WIDTH = 3
         available = self.size.width if self.size.width > 0 else 120
-        content_each = max(10, (available - LINENO_WIDTH * 2 - GUTTER_WIDTH - 4) // 2)
+        CONTENT_PAD = 2
+        content_each = max(10, (available - LINENO_WIDTH * 2 - GUTTER_WIDTH - 4 - CONTENT_PAD * 2) // 2)
 
         show_headers = bool(self._main_label or self._other_label)
         table = Table(
@@ -451,11 +466,8 @@ class DiffDisplay(VerticalScroll):
         for idx, sbl in enumerate(self._sbs_lines):
             tag_style = TAG_STYLES.get(sbl.tag, Style())
 
-            # Left line number
-            main_num = (
-                Text(str(sbl.main_lineno), style="dim")
-                if sbl.main_lineno is not None else Text("")
-            )
+            # Left line number with tag background color
+            main_num = _styled_lineno(sbl.main_lineno, sbl.tag)
 
             # Left and right content — word-level diff for replace rows
             if sbl.tag == "replace" and sbl.main_content and sbl.other_content:
@@ -490,11 +502,12 @@ class DiffDisplay(VerticalScroll):
                 gutter_char = TAG_GUTTERS.get(sbl.tag, " ")
                 gutter = Text(f" {gutter_char} ", style=tag_style)
 
-            # Right line number
-            other_num = (
-                Text(str(sbl.other_lineno), style="dim")
-                if sbl.other_lineno is not None else Text("")
-            )
+            # Right line number with tag background color
+            other_num = _styled_lineno(sbl.other_lineno, sbl.tag)
+
+            # Pad content for visual separation from line numbers
+            main_text = Text.assemble("  ", main_text)
+            other_text = Text.assemble("  ", other_text)
 
             # Cursor highlight
             row_style = CURSOR_STYLE if idx == self._cursor_line else None

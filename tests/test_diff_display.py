@@ -16,6 +16,7 @@ from diffviewer.diff_display import (
     _flatten_hunks,
     _flatten_hunks_side_by_side,
     _all_equal,
+    _styled_lineno,
     _word_diff_texts,
     _highlight_md_line,
     PLAN_COLORS,
@@ -702,6 +703,46 @@ class TestHighlightMdLine(unittest.TestCase):
         text = _highlight_md_line("")
         self.assertEqual(text.plain, "")
         self.assertEqual(len(text._spans), 0)
+
+
+class TestStyledLineno(unittest.TestCase):
+    """Tests for _styled_lineno() — line numbers with tag background and gutter prefix."""
+
+    def test_insert_line_has_plus_prefix(self):
+        """Insert line number should start with '+'."""
+        text = _styled_lineno(15, "insert", "+")
+        self.assertEqual(text.plain, "+15")
+
+    def test_delete_line_has_minus_prefix(self):
+        """Delete line number should start with '-'."""
+        text = _styled_lineno(42, "delete", "-")
+        self.assertEqual(text.plain, "-42")
+
+    def test_equal_line_no_prefix(self):
+        """Equal line number should have no prefix."""
+        text = _styled_lineno(10, "equal")
+        self.assertEqual(text.plain, "10")
+
+    def test_insert_has_bgcolor(self):
+        """Insert line number should have insert tag bgcolor."""
+        text = _styled_lineno(5, "insert", "+")
+        self.assertEqual(text.style.bgcolor, TAG_STYLES["insert"].bgcolor)
+
+    def test_delete_has_bgcolor(self):
+        """Delete line number should have delete tag bgcolor."""
+        text = _styled_lineno(5, "delete", "-")
+        self.assertEqual(text.style.bgcolor, TAG_STYLES["delete"].bgcolor)
+
+    def test_equal_is_dim_no_bgcolor(self):
+        """Equal line number should be dim with no bgcolor."""
+        text = _styled_lineno(5, "equal")
+        self.assertTrue(text.style.dim)
+        self.assertIsNone(text.style.bgcolor)
+
+    def test_none_lineno_returns_empty(self):
+        """None line number should return empty Text."""
+        text = _styled_lineno(None, "insert", "+")
+        self.assertEqual(text.plain, "")
 
 
 if __name__ == "__main__":
