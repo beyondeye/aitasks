@@ -69,3 +69,45 @@ codeagent_coauthor_domain: aitasks.io
 # ──────────────────────────────────────────────────────────────────────
 
 verify_build:
+
+# ──────────────────────────────────────────────────────────────────────
+# default_profiles — Default execution profile for each skill.
+#
+# Maps skill names to profile names (without .yaml extension). When a
+# skill starts, it checks this setting before prompting for a profile.
+# Users can override per-skill in userconfig.yaml (gitignored, personal).
+# The --profile argument on any skill overrides both.
+#
+# Valid skill names: pick, fold, review, pr-import, revert, explore,
+#                    pickrem, pickweb, qa
+#
+# Resolution order:
+#   1. --profile <name> argument (highest priority)
+#   2. userconfig.yaml default_profiles.<skill> (personal)
+#   3. project_config.yaml default_profiles.<skill> (team)
+#   4. Interactive selection / auto-select (fallback)
+#
+# Examples:
+#
+#   # Team-wide: use 'fast' for pick, 'default' for review
+#   default_profiles:
+#     pick: fast
+#     review: default
+#
+#   # Set all interactive skills to 'fast'
+#   default_profiles:
+#     pick: fast
+#     fold: fast
+#     review: fast
+#     pr-import: fast
+#     revert: fast
+#     explore: fast
+#     qa: fast
+#
+#   # Remote skills: use 'remote' profile
+#   default_profiles:
+#     pickrem: remote
+#     pickweb: remote
+# ──────────────────────────────────────────────────────────────────────
+
+default_profiles:

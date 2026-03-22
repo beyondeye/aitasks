@@ -316,6 +316,14 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
             "aitask-pickrem, and aitask-pickweb."
         ),
     },
+    "default_profiles": {
+        "summary": "Default execution profile for each skill",
+        "detail": (
+            "Maps skill names to profile names (without .yaml). "
+            "Valid skills: pick, fold, review, pr-import, revert, explore, pickrem, pickweb, qa. "
+            "Users can override in userconfig.yaml. The --profile argument overrides both."
+        ),
+    },
 }
 
 
