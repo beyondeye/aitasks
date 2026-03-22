@@ -105,3 +105,16 @@ Add rows at ~line 520:
 ## Post-Implementation
 
 Step 9 of task-workflow for archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** All 5 plan steps implemented: seed/project_config.yaml docs, project_config.yaml keys, settings_app.py schema+handlers+generalized presets, two preset files, and SKILL.md table update.
+- **Deviations from plan:**
+  - Generalized `_PRESETS_FILE` constant to `_SETTINGS_DIR` (points to parent directory) and replaced `_load_verify_build_presets()` entirely with `_load_command_presets(key)` rather than keeping the old function as a wrapper. All 3 call sites updated.
+  - Removed `vb_presets` variable from display/mount logic since each key now loads its own presets inline.
+  - Added bonus fix: `FuzzySelect.on_key` now handles Enter directly (previously only `on_input_submitted` caught it, which requires Input focus). This fixes preset selection when navigating with arrow keys without typing.
+- **Issues encountered:** Pre-existing `brainstorm_app.py` uncommitted changes present in working tree — excluded from commit.
+- **Key decisions:** Preset files follow the existing `presets:` top-level format from `verify_build_presets.yaml`. The `_load_command_presets` function is generic enough for any future command-type config key.
+- **Notes for sibling tasks:**
+  - t428_7 (QA profile keys in TUI): `PROFILE_SCHEMA`, `PROFILE_FIELD_INFO`, and `PROFILE_FIELD_GROUPS` in settings_app.py are the targets. Unrelated to the changes here.
+  - t428_5 (website docs): The new keys are `test_command` and `lint_command` in project_config.yaml, added to the Project Configuration table in SKILL.md.
