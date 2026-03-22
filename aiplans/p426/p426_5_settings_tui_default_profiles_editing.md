@@ -16,49 +16,37 @@ The settings TUI Project Config tab already renders all keys from `PROJECT_CONFI
 
 ## Steps
 
-### 1. Verify existing rendering
+### 1. Add VALID_PROFILE_SKILLS constant (line 329)
 
-After t426_1 is complete, the `default_profiles` key should already appear in the Project Config tab via the existing `_populate_project_tab()` loop. The `_format_yaml_value()` function handles dicts by rendering them as compact YAML (e.g., `{pick: fast, fold: fast}`).
+Set of valid skill names used for rendering individual rows and structural validation.
 
-Launch `./ait settings`, navigate to Project Config tab (press `c`), and verify `default_profiles` appears with its summary hint.
+### 2. Add ProfilePickerScreen modal (line 1530)
 
-### 2. Add validation for `default_profiles` editing
+FuzzySelect-based modal for choosing an execution profile. Shows `<not set>` + all available profile names.
 
-**File:** `.aitask-scripts/settings/settings_app.py`
+### 3. Update _populate_project_tab() (line 2409)
 
-Find where project config values are saved after editing (the save handler for ConfigRow edits in the Project Config tab). Add validation specifically for the `default_profiles` key:
+Instead of one ConfigRow for the whole dict, render a section header + one ConfigRow per skill, each showing current profile or `(not set)`.
 
-```python
-VALID_PROFILE_SKILLS = {
-    "pick", "fold", "review", "pr-import", "revert",
-    "explore", "pickrem", "pickweb",
-}
-```
+### 4. Update on_key() handler (line 1946)
 
-When the user edits `default_profiles`:
-1. Parse the edited string as YAML
-2. If result is not a dict (or is None/empty string), accept it (clearing the value)
-3. If result is a dict:
-   - Validate all keys are in `VALID_PROFILE_SKILLS`
-   - Validate all values are strings (profile names)
-   - If invalid keys found, show error notification: "Invalid skill name(s): <names>. Valid: pick, fold, review, pr-import, revert, explore, pickrem, pickweb"
-   - If invalid values found, show error notification: "Profile names must be strings"
+Route `project_dp_` rows to ProfilePickerScreen with profiles from `config_mgr.profiles`.
 
-The validation should happen in the save/apply handler, NOT blocking the edit itself. This matches how `verify_build` validation works (accepts list or string).
+### 5. Update save_project_settings() (line 2470)
 
-### 3. Verify
+Collect `project_dp_` rows into `default_profiles` dict. Empty skills excluded; if all empty, key removed.
 
-- `./ait settings` → Project Config → edit `default_profiles` → enter `{pick: fast, review: default}` → save → verify persisted to project_config.yaml
-- Edit with invalid key → enter `{invalid_skill: fast}` → verify error notification
-- Edit to empty → verify it clears the value
-- Reload → verify persisted values reload correctly
+### 6. Add _handle_default_profile_pick() callback (line 2533)
 
-## Files to Modify
+Updates ConfigRow display after profile selection.
 
-- `.aitask-scripts/settings/settings_app.py` — add VALID_PROFILE_SKILLS constant and validation logic
+## Files Modified
 
-## Reference Files
+- `.aitask-scripts/settings/settings_app.py`
 
-- `.aitask-scripts/settings/settings_app.py:302-319` — PROJECT_CONFIG_SCHEMA (t426_1 will have added `default_profiles`)
-- `.aitask-scripts/settings/settings_app.py:322-330` — `_format_yaml_value()` for dict rendering
-- `.aitask-scripts/settings/settings_app.py` — search for `verify_build` handling for validation pattern reference
+## Final Implementation Notes
+- **Actual work done:** Replaced raw YAML editing of `default_profiles` with per-skill ConfigRow rendering and FuzzySelect-based profile picker. Added `VALID_PROFILE_SKILLS` constant, `ProfilePickerScreen` modal, per-skill rendering in `_populate_project_tab()`, routing in `on_key()`, collection logic in `save_project_settings()`, and `_handle_default_profile_pick()` callback.
+- **Deviations from plan:** Original plan called for raw YAML editing with post-save validation. User feedback during review requested a better UX: per-skill rows with fuzzy profile selection (similar to code agent/model picker). This structural approach makes validation unnecessary — invalid keys and non-string values are impossible.
+- **Issues encountered:** None.
+- **Key decisions:** Used `project_dp_` ID prefix for skill rows to distinguish from regular `project_cfg_` rows. Profile names loaded from `config_mgr.profiles` (already available in the app). `<not set>` option maps to empty string, which causes the skill to be excluded from the dict on save.
+- **Notes for sibling tasks:** The `VALID_PROFILE_SKILLS` constant includes `qa` (9 skills total). `ProfilePickerScreen` follows the same pattern as `VerifyBuildPresetScreen` — future similar pickers can follow the same structure.
