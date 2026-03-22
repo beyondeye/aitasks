@@ -138,8 +138,9 @@ parse_args() {
 # Note: get_next_task_number() removed. Parent task IDs are now assigned via
 # aitask_claim_id.sh (atomic counter) during finalization.
 # get_next_task_number_local() is defined later as a fallback.
-# Child task IDs use get_next_child_number() (local scan, safe because parent
-# ID is unique and only one PC works on an implementing task).
+# Child task IDs use get_next_child_number() (local scan + mkdir-based lock).
+# The lock serializes concurrent child creation for the same parent, which can
+# happen when the planning workflow creates multiple children in parallel.
 
 # --- Parent/Child Task Functions ---
 
@@ -191,6 +192,40 @@ get_next_child_number() {
     fi
 
     echo $((max_child + 1))
+}
+
+# Acquire per-parent lock for child task creation (prevents parallel races).
+# Uses mkdir which is atomic on POSIX (Linux + macOS).
+acquire_child_lock() {
+    local parent_num="$1"
+    local lock_dir="/tmp/aitask_child_lock_${parent_num}"
+    local max_retries=20
+    local retry=0
+
+    while ! mkdir "$lock_dir" 2>/dev/null; do
+        retry=$((retry + 1))
+        if [[ $retry -ge $max_retries ]]; then
+            die "Failed to acquire child creation lock for parent $parent_num after $max_retries attempts"
+        fi
+        # Check for stale lock (older than 120 seconds)
+        # stat -c %Y is GNU (Linux), stat -f %m is BSD (macOS)
+        if [[ -d "$lock_dir" ]]; then
+            local lock_age
+            lock_age=$(( $(date +%s) - $(stat -c %Y "$lock_dir" 2>/dev/null || stat -f %m "$lock_dir" 2>/dev/null || echo "0") ))
+            if [[ "$lock_age" -gt 120 ]]; then
+                warn "Removing stale child lock for parent $parent_num (age: ${lock_age}s)"
+                rmdir "$lock_dir" 2>/dev/null || true
+                continue
+            fi
+        fi
+        sleep 0.5
+    done
+}
+
+release_child_lock() {
+    local parent_num="$1"
+    local lock_dir="/tmp/aitask_child_lock_${parent_num}"
+    rmdir "$lock_dir" 2>/dev/null || true
 }
 
 # Interactive selection of parent task
@@ -480,7 +515,10 @@ finalize_draft() {
     local task_id filepath
 
     if [[ -n "$parent_num" ]]; then
-        # Child task: use local scan (parent ID is already unique, one PC per implementing task)
+        # Child task: lock to prevent parallel races on child number assignment
+        acquire_child_lock "$parent_num"
+        trap 'release_child_lock "$parent_num"' EXIT
+
         local child_num
         child_num=$(get_next_child_number "$parent_num")
 
@@ -510,6 +548,9 @@ finalize_draft() {
         local humanized_name
         humanized_name=$(echo "$task_name" | tr '_' ' ')
         task_git commit -m "ait: Add child task ${task_id}: ${humanized_name}"
+
+        release_child_lock "$parent_num"
+        trap - EXIT
     else
         # Parent task: claim from atomic counter
         local claimed_id
@@ -1230,9 +1271,17 @@ run_batch_mode() {
         # --commit: auto-finalize immediately (claims real ID, requires network)
         if [[ -n "$BATCH_PARENT" ]]; then
             # Child task: create directly (parent ID is already unique)
+            # Lock to prevent parallel races on child number assignment
+            acquire_child_lock "$BATCH_PARENT"
+            trap 'release_child_lock "$BATCH_PARENT"' EXIT
+
             local parent_file
             parent_file=$(get_parent_task_file "$BATCH_PARENT")
-            [[ -z "$parent_file" || ! -f "$parent_file" ]] && die "Parent task t$BATCH_PARENT not found"
+            if [[ -z "$parent_file" || ! -f "$parent_file" ]]; then
+                release_child_lock "$BATCH_PARENT"
+                trap - EXIT
+                die "Parent task t$BATCH_PARENT not found"
+            fi
 
             local child_num
             child_num=$(get_next_child_number "$BATCH_PARENT")
@@ -1261,6 +1310,9 @@ run_batch_mode() {
             task_git add "$parent_file" 2>/dev/null || true
             task_git add "$LABELS_FILE" 2>/dev/null || true
             task_git commit -m "ait: Add child task ${task_id}: ${humanized_name}"
+
+            release_child_lock "$BATCH_PARENT"
+            trap - EXIT
         else
             # Parent task: claim real ID from atomic counter
             local claimed_id
