@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [testing, qa, settings]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-22 11:23
-updated_at: 2026-03-22 13:15
+updated_at: 2026-03-22 14:57
+completed_at: 2026-03-22 14:57
 ---
 
 ## Context
