@@ -1,3 +1,4 @@
 codeagent_coauthor_domain: aitasks.io
 default_profiles:
+  explore: fast
   pick: fast
