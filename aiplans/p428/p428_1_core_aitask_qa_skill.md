@@ -108,3 +108,18 @@ Add `qa_mode` and `qa_run_tests` rows to the profile schema table.
 ## Post-Implementation
 
 Step 9 of task-workflow for archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created all 3 deliverables: `recent-archived` subcommand in `aitask_query_files.sh`, standalone `aitask-qa` SKILL.md, and profile key documentation in `profiles.md`.
+- **Deviations from plan:**
+  - Used inline `grep`+`sed` for YAML field extraction instead of `read_yaml_field()` (which lives in `agentcrew_utils.sh`, not sourced by this script).
+  - Used `0000-00-00 00:00` fallback for missing `completed_at` instead of `stat` (not portable across macOS/Linux per CLAUDE.md conventions).
+  - Skipped `settings.local.json` modification — skills are auto-discovered from `.claude/skills/` directory; no registration needed. All bash commands the skill uses (`aitask_query_files.sh`, `aitask_ls.sh`, `aitask_create.sh`, `git log`, `git diff`) are already whitelisted.
+  - Fixed SIGPIPE (exit 141) in `recent-archived` — the `sort | head | while read` pipeline under `set -euo pipefail` breaks when `head` closes early. Fixed by capturing sorted output into a variable first.
+- **Issues encountered:** The original plan's code snippet used `local` redeclarations inside loops and `stat -c`/`stat -f` which are both problematic. Restructured to declare locals once at function top and eliminated `stat` entirely.
+- **Key decisions:** The skill is designed as read-only analysis — it never modifies task status or claims ownership. This makes it safe to run on any task at any time.
+- **Notes for sibling tasks:**
+  - t428_2 (decouple test-followup): The original `test-followup-task.md` procedure remains in place. The new skill is standalone and complementary, not a replacement yet.
+  - t428_6 (multi-agent wrappers): The SKILL.md follows the same patterns as `aitask-review` and `aitask-pick`, so wrappers should be straightforward to create.
+  - Profile keys `qa_mode` and `qa_run_tests` are documented in `profiles.md` but NOT yet added to `fast.yaml` or `default.yaml` — sibling tasks or users can add them as needed.
