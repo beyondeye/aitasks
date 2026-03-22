@@ -5,7 +5,7 @@ depends: []
 issue_type: test
 status: Implementing
 labels: [testing, qa]
-children_to_implement: [t428_1, t428_2]
+children_to_implement: [t428_1, t428_2, t428_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-22 10:40
 updated_at: 2026-03-22 11:28
