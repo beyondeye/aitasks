@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [testing, qa, settings]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-22 11:23
-updated_at: 2026-03-22 11:23
+updated_at: 2026-03-22 13:12
 ---
 
 ## Context
