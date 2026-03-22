@@ -30,6 +30,8 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `post_plan_action_for_child` | string | no | Same values as `post_plan_action`; overrides `post_plan_action` when the current task is a child task. Defaults to `post_plan_action` if omitted | Step 6 checkpoint |
 | `enableFeedbackQuestions` | bool | no | `false` = skip satisfaction feedback prompts; omit or `true` = ask them | Satisfaction Feedback Procedure |
 | `test_followup_task` | string | no | `"yes"` = always create testing follow-up; `"no"` = never; `"ask"` = prompt; omit = ask | Step 8b |
+| `qa_mode` | string | no | `"ask"` = prompt; `"create_task"` = auto-create follow-up; `"implement"` = implement tests now; `"plan_only"` = export plan only; omit = ask | aitask-qa Step 5 |
+| `qa_run_tests` | bool | no | `true` = run discovered tests; `false` = skip test execution; omit or `true` = run | aitask-qa Step 4 |
 
 Only `name` and `description` are required. Omitting any other key means the corresponding question is asked interactively.
 

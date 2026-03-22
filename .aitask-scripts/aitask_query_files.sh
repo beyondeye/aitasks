@@ -17,6 +17,7 @@
 #   ./.aitask-scripts/aitask_query_files.sh archived-task <N>
 #   ./.aitask-scripts/aitask_query_files.sh active-children <N>
 #   ./.aitask-scripts/aitask_query_files.sh resolve <N>
+#   ./.aitask-scripts/aitask_query_files.sh recent-archived [limit]
 
 set -euo pipefail
 
@@ -45,6 +46,7 @@ Subcommands:
   archived-children <N>        List archived children of task N
   archived-task <N>            Find archived task file for number N
   resolve <N>                  Combined: task-file + has-children in one call
+  recent-archived [limit]      List recently archived tasks (default: 15)
 
 Output format (structured lines):
   TASK_FILE:<path>           Active task file found
@@ -64,6 +66,8 @@ Output format (structured lines):
   ARCHIVED_CHILD:<path>      Archived child task file
   ARCHIVED_TASK_TAR_GZ:<entry> Archived task found in old.tar.gz
   NO_ARCHIVED_CHILDREN       No archived children found
+  RECENT_ARCHIVED:<path>|<completed_at>|<issue_type>|<task_name>
+  NO_RECENT_ARCHIVED         No recently archived tasks found
 
 All subcommands exit 0. Use output lines (not exit codes) for status.
 
@@ -77,6 +81,7 @@ Examples:
   ./.aitask-scripts/aitask_query_files.sh plan-file 16_2
   ./.aitask-scripts/aitask_query_files.sh archived-children 16
   ./.aitask-scripts/aitask_query_files.sh archived-task 16
+  ./.aitask-scripts/aitask_query_files.sh recent-archived 5
 EOF
 }
 
@@ -362,6 +367,48 @@ cmd_resolve() {
     fi
 }
 
+# cmd_recent_archived [limit]
+# List recently archived tasks sorted by completed_at descending.
+cmd_recent_archived() {
+    local limit="${1:-15}"
+    local entries=()
+    local completed_at issue_type basename_f f
+
+    # Scan parent archived tasks
+    for f in "$ARCHIVED_DIR"/t*_*.md; do
+        [[ -e "$f" ]] || continue
+        completed_at=$({ grep "^completed_at:" "$f" 2>/dev/null || true; } | sed 's/^completed_at:[[:space:]]*//' | head -n 1)
+        [[ -z "$completed_at" ]] && completed_at="0000-00-00 00:00"
+        issue_type=$({ grep "^issue_type:" "$f" 2>/dev/null || true; } | sed 's/^issue_type:[[:space:]]*//' | head -n 1)
+        basename_f=$(basename "$f" .md)
+        entries+=("${completed_at}|${f}|${issue_type}|${basename_f}")
+    done
+
+    # Scan child archived tasks
+    for d in "$ARCHIVED_DIR"/t*/; do
+        [[ -d "$d" ]] || continue
+        for f in "$d"t*_*.md; do
+            [[ -e "$f" ]] || continue
+            completed_at=$({ grep "^completed_at:" "$f" 2>/dev/null || true; } | sed 's/^completed_at:[[:space:]]*//' | head -n 1)
+            [[ -z "$completed_at" ]] && completed_at="0000-00-00 00:00"
+            issue_type=$({ grep "^issue_type:" "$f" 2>/dev/null || true; } | sed 's/^issue_type:[[:space:]]*//' | head -n 1)
+            basename_f=$(basename "$f" .md)
+            entries+=("${completed_at}|${f}|${issue_type}|${basename_f}")
+        done
+    done
+
+    if [[ ${#entries[@]} -eq 0 ]]; then
+        echo "NO_RECENT_ARCHIVED"
+        return
+    fi
+
+    local sorted
+    sorted=$(printf '%s\n' "${entries[@]}" | sort -t'|' -k1 -r | head -n "$limit")
+    while IFS='|' read -r ca path itype tname; do
+        echo "RECENT_ARCHIVED:${path}|${ca}|${itype}|${tname}"
+    done <<< "$sorted"
+}
+
 # --- Main dispatch ---
 main() {
     if [[ $# -eq 0 ]]; then
@@ -413,6 +460,10 @@ main() {
         resolve)
             shift
             cmd_resolve "$@"
+            ;;
+        recent-archived)
+            shift
+            cmd_recent_archived "$@"
             ;;
         *)
             die "Unknown subcommand: '$1'. Use --help for usage."
