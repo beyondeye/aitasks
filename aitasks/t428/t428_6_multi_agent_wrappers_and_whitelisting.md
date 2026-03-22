@@ -1,12 +1,13 @@
 ---
 priority: low
 effort: low
-depends: [428_1]
+depends: [t428_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [testing, qa]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-22 11:28
-updated_at: 2026-03-22 11:28
+updated_at: 2026-03-22 15:00
 ---
 
 ## Context
