@@ -25,6 +25,7 @@ from textual.widgets import (
     Static,
     TabbedContent,
     TabPane,
+    TextArea,
 )
 from textual import on, work
 
@@ -41,7 +42,23 @@ from brainstorm.brainstorm_dag import (
 )
 from brainstorm.brainstorm_schemas import extract_dimensions
 from brainstorm.brainstorm_dag_display import DAGDisplay
-from brainstorm.brainstorm_session import crew_worktree, load_session, session_exists
+from brainstorm.brainstorm_session import (
+    archive_session,
+    crew_worktree,
+    finalize_session,
+    GROUPS_FILE,
+    load_session,
+    save_session,
+    session_exists,
+)
+from brainstorm.brainstorm_crew import (
+    register_comparator,
+    register_detailer,
+    register_explorer,
+    register_patcher,
+    register_synthesizer,
+)
+from agentcrew.agentcrew_utils import read_yaml
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -63,6 +80,21 @@ _TAB_SHORTCUTS = {
     "4": "tab_actions",
     "5": "tab_status",
 }
+
+_DESIGN_OPS = [
+    ("explore", "Explore", "Create new design variants from a base node"),
+    ("compare", "Compare", "Run agent comparison across nodes"),
+    ("hybridize", "Hybridize", "Merge multiple nodes into a synthesis"),
+    ("detail", "Detail", "Generate implementation plan for a node"),
+    ("patch", "Patch", "Tweak an existing plan"),
+]
+
+_SESSION_OPS = [
+    ("pause", "Pause", "Pause the active session"),
+    ("resume", "Resume", "Resume a paused session"),
+    ("finalize", "Finalize", "Copy HEAD plan to aiplans/ and mark completed"),
+    ("archive", "Archive", "Mark completed session as archived"),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +286,64 @@ class NodeRow(Static):
         return f"[bold]{self.node_id}[/]{head_marker}  {self.node_description}"
 
 
+class OperationRow(Static):
+    """Focusable row representing an operation in the Actions wizard."""
+
+    def __init__(self, op_key: str, label: str, description: str, disabled: bool = False):
+        super().__init__()
+        self.op_key = op_key
+        self.op_label = label
+        self.op_description = description
+        self.op_disabled = disabled
+        self.can_focus = not disabled
+
+    def render(self) -> str:
+        if self.op_disabled:
+            return f"[dim strikethrough]{self.op_label}[/]  [dim]{self.op_description}[/]"
+        return f"[bold]{self.op_label}[/]  {self.op_description}"
+
+    def on_click(self) -> None:
+        """Ensure this row claims focus when clicked."""
+        if not self.op_disabled:
+            self.focus()
+
+
+class CycleField(Static):
+    """Minimal cycle widget for numeric option selection (left/right keys)."""
+
+    def __init__(self, label: str, options: list[str], initial: str = "", *, id: str | None = None):
+        super().__init__(id=id)
+        self.label = label
+        self.options = options
+        self.current_index = options.index(initial) if initial in options else 0
+        self.can_focus = True
+
+    @property
+    def current_value(self) -> str:
+        return self.options[self.current_index]
+
+    def render(self) -> str:
+        parts = []
+        for i, opt in enumerate(self.options):
+            if i == self.current_index:
+                parts.append(f"[bold reverse] {opt} [/]")
+            else:
+                parts.append(f" {opt} ")
+        return f"  {self.label}:  [dim]\u25c0[/] {'|'.join(parts)} [dim]\u25b6[/]"
+
+    def on_key(self, event) -> None:
+        if event.key == "left":
+            self.current_index = (self.current_index - 1) % len(self.options)
+            self.refresh()
+            event.prevent_default()
+            event.stop()
+        elif event.key == "right":
+            self.current_index = (self.current_index + 1) % len(self.options)
+            self.refresh()
+            event.prevent_default()
+            event.stop()
+
+
 # ---------------------------------------------------------------------------
 # Main App
 # ---------------------------------------------------------------------------
@@ -277,13 +367,60 @@ class BrainstormApp(App):
         padding: 1 2;
     }
 
-    /* Placeholder labels for future tabs */
-    #actions_placeholder, #status_placeholder {
+    /* Placeholder label for future tabs */
+    #status_placeholder {
         width: 100%;
         content-align: center middle;
         text-style: italic;
         color: $text-muted;
         height: 100%;
+    }
+
+    /* Actions wizard */
+    .actions_step_indicator {
+        text-style: bold;
+        text-align: center;
+        width: 100%;
+        margin-bottom: 1;
+        color: $accent;
+    }
+
+    .actions_section_title {
+        text-style: bold;
+        margin-top: 1;
+    }
+
+    OperationRow {
+        padding: 0 1;
+        height: 1;
+    }
+
+    OperationRow:focus {
+        background: $accent;
+        color: $text;
+    }
+
+    OperationRow:hover {
+        background: $surface-lighten-1;
+    }
+
+    CycleField {
+        height: 1;
+        padding: 0 1;
+    }
+
+    CycleField:focus {
+        background: $accent;
+    }
+
+    .actions_summary {
+        padding: 1 2;
+    }
+
+    .actions_buttons {
+        height: 3;
+        align: center middle;
+        margin-top: 1;
     }
 
     /* Compare tab */
@@ -449,6 +586,9 @@ class BrainstormApp(App):
         self.session_path = crew_worktree(task_num)
         self.session_data: dict = {}
         self.read_only: bool = False
+        self._wizard_step: int = 0
+        self._wizard_op: str = ""
+        self._wizard_config: dict = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -474,13 +614,7 @@ class BrainstormApp(App):
                     id="compare_content",
                 )
             with TabPane("Actions", id="tab_actions"):
-                yield VerticalScroll(
-                    Label(
-                        "Actions \u2014 coming in follow-up tasks",
-                        id="actions_placeholder",
-                    ),
-                    id="actions_content",
-                )
+                yield VerticalScroll(id="actions_content")
             with TabPane("Status", id="tab_status"):
                 yield VerticalScroll(
                     Label(
@@ -492,9 +626,32 @@ class BrainstormApp(App):
         yield Footer()
 
     def on_key(self, event) -> None:
-        """Handle Enter on NodeRow, compare keys, and numeric tab shortcuts."""
+        """Handle Enter on NodeRow, compare keys, wizard nav, and tab shortcuts."""
         if isinstance(self.screen, ModalScreen):
             return
+        # Actions tab wizard navigation
+        tabbed = self.query_one(TabbedContent)
+        if tabbed.active == "tab_actions" and self._wizard_step > 0:
+            if event.key == "escape" and self._wizard_step > 1:
+                if self._wizard_step == 2:
+                    self._actions_show_step1()
+                elif self._wizard_step == 3:
+                    self._actions_show_step2()
+                event.prevent_default()
+                event.stop()
+                return
+            if event.key == "enter" and self._wizard_step == 1:
+                focused = self.focused
+                if isinstance(focused, OperationRow) and not focused.op_disabled:
+                    self._wizard_op = focused.op_key
+                    if self._wizard_op in ("pause", "resume", "finalize", "archive"):
+                        self._wizard_config = {"confirmed": True}
+                        self._actions_show_step3()
+                    else:
+                        self._actions_show_step2()
+                    event.prevent_default()
+                    event.stop()
+                    return
         if event.key == "enter":
             focused = self.focused
             if isinstance(focused, NodeRow):
@@ -560,6 +717,7 @@ class BrainstormApp(App):
         self._update_session_status()
         self._populate_node_list()
         self.query_one(DAGDisplay).load_dag(self.session_path)
+        self._actions_show_step1()
 
     def _update_session_status(self) -> None:
         """Show session metadata in the right pane status area."""
@@ -630,9 +788,13 @@ class BrainstormApp(App):
         self.query_one("#dash_node_info", Label).update("\n".join(detail_lines))
 
     def on_descendant_focus(self, event) -> None:
-        """When a NodeRow gets focus, update the detail pane."""
+        """When a NodeRow gets focus, update the detail pane. Track wizard node selection."""
         if isinstance(event.widget, NodeRow):
             self._show_node_detail(event.widget.node_id)
+        if isinstance(event.widget, OperationRow):
+            tabbed = self.query_one(TabbedContent)
+            if tabbed.active == "tab_actions" and self._wizard_step == 2:
+                self._wizard_config["_selected_node"] = event.widget.op_key
 
     def on_dag_display_node_selected(self, event: DAGDisplay.NodeSelected) -> None:
         """Open node detail modal from DAG view."""
@@ -730,6 +892,460 @@ class BrainstormApp(App):
         score = Text(f"{avg:.0%}", style="bold cyan")
         cells = [label, score] + [Text("")] * (len(nodes) - 1)
         table.add_row(*cells, key="sim_score")
+
+    # ------------------------------------------------------------------
+    # Actions wizard
+    # ------------------------------------------------------------------
+
+    def _actions_show_step1(self) -> None:
+        """Render Step 1: operation selection list."""
+        self._wizard_step = 1
+        self._wizard_op = ""
+        self._wizard_config = {}
+
+        container = self.query_one("#actions_content", VerticalScroll)
+        container.remove_children()
+
+        if self.read_only:
+            container.mount(Label("[italic]Session is read-only. No operations available.[/]"))
+            return
+
+        container.mount(Label("Step 1 of 3 \u2014 Select Operation", classes="actions_step_indicator"))
+
+        status = self.session_data.get("status", "")
+        head = get_head(self.session_path)
+
+        # Design operations
+        container.mount(Label("Design Operations", classes="actions_section_title"))
+        design_disabled = status not in ("init", "active")
+        for op_key, label, desc in _DESIGN_OPS:
+            container.mount(OperationRow(op_key, label, desc, disabled=design_disabled))
+
+        # Session lifecycle operations
+        container.mount(Label("Session Lifecycle", classes="actions_section_title"))
+        for op_key, label, desc in _SESSION_OPS:
+            disabled = self._is_session_op_disabled(op_key, status, head)
+            container.mount(OperationRow(op_key, label, desc, disabled=disabled))
+
+        # Recent operations history
+        self._mount_recent_ops(container)
+
+        # Focus first enabled operation after widgets are rendered
+        self.call_after_refresh(self._focus_first_operation)
+
+    def _focus_first_operation(self) -> None:
+        """Focus the first enabled OperationRow in the actions tab."""
+        tabbed = self.query_one(TabbedContent)
+        if tabbed.active != "tab_actions":
+            return
+        try:
+            rows = self.query("OperationRow")
+            for row in rows:
+                if not row.op_disabled:
+                    row.focus()
+                    break
+        except Exception:
+            pass
+
+    def _is_session_op_disabled(self, op_key: str, status: str, head: str | None) -> bool:
+        """Determine if a session operation should be disabled."""
+        if op_key == "pause":
+            return status != "active"
+        if op_key == "resume":
+            return status != "paused"
+        if op_key == "finalize":
+            return status != "active" or head is None
+        if op_key == "archive":
+            return status != "completed"
+        return False
+
+    def _mount_recent_ops(self, container: VerticalScroll) -> None:
+        """Append recent operation history from br_groups.yaml."""
+        groups_path = self.session_path / GROUPS_FILE
+        if not groups_path.is_file():
+            return
+        try:
+            groups_data = read_yaml(str(groups_path))
+        except Exception:
+            return
+        groups = groups_data.get("groups", {}) if groups_data else {}
+        if not groups:
+            return
+        container.mount(Label("Recent Operations", classes="actions_section_title"))
+        for name in list(groups.keys())[-5:]:
+            info = groups[name] if isinstance(groups[name], dict) else {}
+            op = info.get("operation", "?")
+            gstatus = info.get("status", "?")
+            created = info.get("created_at", "")
+            container.mount(Label(f"  [dim]{name}[/]  {op}  [{gstatus}]  {created}"))
+
+    def _actions_show_step2(self) -> None:
+        """Render Step 2: operation-specific configuration form."""
+        self._wizard_step = 2
+        self._wizard_config = {}
+
+        container = self.query_one("#actions_content", VerticalScroll)
+        container.remove_children()
+        container.mount(
+            Label(f"Step 2 of 3 \u2014 Configure: {self._wizard_op.title()}", classes="actions_step_indicator")
+        )
+
+        op = self._wizard_op
+        if op == "explore":
+            self._config_explore(container)
+        elif op == "compare":
+            self._config_compare(container)
+        elif op == "hybridize":
+            self._config_hybridize(container)
+        elif op == "detail":
+            self._config_detail(container)
+        elif op == "patch":
+            self._config_patch(container)
+        else:
+            self._config_session_op(container)
+
+    def _config_explore(self, container: VerticalScroll) -> None:
+        """Explore config: base node selector, mandate, parallel count."""
+        nodes = list_nodes(self.session_path)
+        head = get_head(self.session_path)
+
+        container.mount(Label("[bold]Base Node[/]"))
+        for nid in nodes:
+            node_data = read_node(self.session_path, nid)
+            desc = node_data.get("description", "")
+            lbl = f"{nid} [green]HEAD[/]" if nid == head else nid
+            container.mount(OperationRow(nid, lbl, desc))
+
+        container.mount(Label("[bold]Exploration Mandate[/]"))
+        container.mount(TextArea(""))
+
+        container.mount(CycleField("Parallel explorers", ["1", "2", "3", "4"], initial="2"))
+
+        container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+
+    def _config_compare(self, container: VerticalScroll) -> None:
+        """Compare config: multi-node checkboxes + dimension checkboxes."""
+        nodes = list_nodes(self.session_path)
+
+        container.mount(Label("[bold]Select Nodes to Compare (2+)[/]"))
+        for nid in nodes:
+            container.mount(Checkbox(nid, classes="chk_node"))
+
+        container.mount(Label("[bold]Dimensions[/]"))
+        all_dims = self._get_all_dimension_keys()
+        if all_dims:
+            for dim in all_dims:
+                container.mount(Checkbox(dim, value=True, classes="chk_dim"))
+        else:
+            container.mount(Label("[dim]No dimensions found[/]"))
+
+        container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+
+    def _config_hybridize(self, container: VerticalScroll) -> None:
+        """Hybridize config: multi-node checkboxes + merge rules."""
+        nodes = list_nodes(self.session_path)
+
+        container.mount(Label("[bold]Select Source Nodes (2+)[/]"))
+        for nid in nodes:
+            container.mount(Checkbox(nid, classes="chk_node"))
+
+        container.mount(Label("[bold]Merge Rules[/]"))
+        container.mount(TextArea(""))
+        container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+
+    def _config_detail(self, container: VerticalScroll) -> None:
+        """Detail config: single node selector."""
+        nodes = list_nodes(self.session_path)
+        head = get_head(self.session_path)
+
+        container.mount(Label("[bold]Select Node for Detailing[/]"))
+        for nid in nodes:
+            node_data = read_node(self.session_path, nid)
+            desc = node_data.get("description", "")
+            lbl = f"{nid} [green]HEAD[/]" if nid == head else nid
+            container.mount(OperationRow(nid, lbl, desc))
+        container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+
+    def _config_patch(self, container: VerticalScroll) -> None:
+        """Patch config: single node selector + tweak request."""
+        nodes = list_nodes(self.session_path)
+        head = get_head(self.session_path)
+
+        container.mount(Label("[bold]Select Node to Patch[/]"))
+        for nid in nodes:
+            node_data = read_node(self.session_path, nid)
+            desc = node_data.get("description", "")
+            lbl = f"{nid} [green]HEAD[/]" if nid == head else nid
+            container.mount(OperationRow(nid, lbl, desc))
+
+        container.mount(Label("[bold]Patch Request[/]"))
+        container.mount(TextArea(""))
+        container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+
+    def _config_session_op(self, container: VerticalScroll) -> None:
+        """Session operation config: confirmation only."""
+        labels = {
+            "pause": "Pause the session. Agents will not be dispatched.",
+            "resume": "Resume the paused session.",
+            "finalize": "Copy the HEAD node's plan to aiplans/ and mark session completed.",
+            "archive": "Mark the session as archived.",
+        }
+        container.mount(Label(f"[bold]{labels.get(self._wizard_op, self._wizard_op)}[/]"))
+        container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+
+    def _get_all_dimension_keys(self) -> list[str]:
+        """Get all dimension keys from all nodes (preserving order)."""
+        all_dims: list[str] = []
+        seen: set[str] = set()
+        for nid in list_nodes(self.session_path):
+            data = read_node(self.session_path, nid)
+            for k in extract_dimensions(data):
+                if k not in seen:
+                    all_dims.append(k)
+                    seen.add(k)
+        return all_dims
+
+    def _actions_collect_config(self) -> bool:
+        """Collect and validate config from step 2 widgets. Returns True if valid."""
+        op = self._wizard_op
+        config: dict = {}
+        container = self.query_one("#actions_content", VerticalScroll)
+
+        if op == "explore":
+            node = self._wizard_config.get("_selected_node")
+            if not node:
+                self.notify("Select a base node first", severity="warning")
+                return False
+            config["base_node"] = node
+            config["mandate"] = container.query_one(TextArea).text.strip()
+            if not config["mandate"]:
+                self.notify("Mandate cannot be empty", severity="warning")
+                return False
+            config["parallel"] = int(container.query_one(CycleField).current_value)
+
+        elif op == "compare":
+            node_cbs = container.query("Checkbox.chk_node")
+            selected = [cb.label for cb in node_cbs if cb.value]
+            if len(selected) < 2:
+                self.notify("Select at least 2 nodes", severity="warning")
+                return False
+            config["nodes"] = [str(lbl) for lbl in selected]
+            dim_cbs = container.query("Checkbox.chk_dim")
+            config["dimensions"] = [str(cb.label) for cb in dim_cbs if cb.value]
+
+        elif op == "hybridize":
+            node_cbs = container.query("Checkbox.chk_node")
+            selected = [cb.label for cb in node_cbs if cb.value]
+            if len(selected) < 2:
+                self.notify("Select at least 2 source nodes", severity="warning")
+                return False
+            config["nodes"] = [str(lbl) for lbl in selected]
+            config["merge_rules"] = container.query_one(TextArea).text.strip()
+            if not config["merge_rules"]:
+                self.notify("Merge rules cannot be empty", severity="warning")
+                return False
+
+        elif op == "detail":
+            node = self._wizard_config.get("_selected_node")
+            if not node:
+                self.notify("Select a node first", severity="warning")
+                return False
+            config["node"] = node
+
+        elif op == "patch":
+            node = self._wizard_config.get("_selected_node")
+            if not node:
+                self.notify("Select a node first", severity="warning")
+                return False
+            config["node"] = node
+            config["patch_request"] = container.query_one(TextArea).text.strip()
+            if not config["patch_request"]:
+                self.notify("Patch request cannot be empty", severity="warning")
+                return False
+
+        elif op in ("pause", "resume", "finalize", "archive"):
+            config["confirmed"] = True
+
+        self._wizard_config = config
+        return True
+
+    def _actions_show_step3(self) -> None:
+        """Render Step 3: summary + launch/confirm button."""
+        self._wizard_step = 3
+
+        container = self.query_one("#actions_content", VerticalScroll)
+        container.remove_children()
+        container.mount(Label("Step 3 of 3 \u2014 Confirm", classes="actions_step_indicator"))
+
+        summary_lines = self._build_summary()
+        container.mount(Static("\n".join(summary_lines), classes="actions_summary"))
+
+        is_session_op = self._wizard_op in ("pause", "resume", "finalize", "archive")
+        btn_label = "Confirm" if is_session_op else "Launch"
+        container.mount(
+            Horizontal(
+                Button(btn_label, variant="primary", classes="btn_actions_launch"),
+                Button("Back", variant="default", classes="btn_actions_back"),
+                classes="actions_buttons",
+            )
+        )
+
+    def _build_summary(self) -> list[str]:
+        """Build summary lines for step 3 display."""
+        op = self._wizard_op
+        cfg = self._wizard_config
+        lines = [f"[bold]Operation:[/] {op.title()}", ""]
+
+        if op == "explore":
+            lines.append(f"[bold]Base Node:[/] {cfg['base_node']}")
+            lines.append(f"[bold]Parallel Explorers:[/] {cfg['parallel']}")
+            lines.append("[bold]Mandate:[/]")
+            lines.append(cfg["mandate"])
+        elif op == "compare":
+            lines.append(f"[bold]Nodes:[/] {', '.join(cfg['nodes'])}")
+            dims_str = ", ".join(cfg["dimensions"]) if cfg["dimensions"] else "(all)"
+            lines.append(f"[bold]Dimensions:[/] {dims_str}")
+        elif op == "hybridize":
+            lines.append(f"[bold]Source Nodes:[/] {', '.join(cfg['nodes'])}")
+            lines.append("[bold]Merge Rules:[/]")
+            lines.append(cfg["merge_rules"])
+        elif op == "detail":
+            lines.append(f"[bold]Node:[/] {cfg['node']}")
+        elif op == "patch":
+            lines.append(f"[bold]Node:[/] {cfg['node']}")
+            lines.append("[bold]Patch Request:[/]")
+            lines.append(cfg["patch_request"])
+        elif op == "pause":
+            lines.append("Session will be paused.")
+        elif op == "resume":
+            lines.append("Session will be resumed.")
+        elif op == "finalize":
+            head = get_head(self.session_path)
+            lines.append(f"HEAD node [bold]{head}[/] plan will be copied to aiplans/.")
+        elif op == "archive":
+            lines.append("Session will be archived.")
+
+        return lines
+
+    @on(Button.Pressed, ".btn_actions_launch")
+    def _on_actions_launch(self) -> None:
+        """Handle Launch/Confirm button press in step 3."""
+        if self._wizard_op in ("pause", "resume", "finalize", "archive"):
+            self._execute_session_op()
+        else:
+            self._execute_design_op()
+
+    @on(Button.Pressed, ".btn_actions_back")
+    def _on_actions_back(self) -> None:
+        """Handle Back button in step 3."""
+        self._actions_show_step2()
+
+    @on(Button.Pressed, ".btn_actions_next")
+    def _on_actions_next(self) -> None:
+        """Handle Next button in step 2 forms."""
+        if self._wizard_step == 2 and self._actions_collect_config():
+            self._actions_show_step3()
+
+    def _execute_session_op(self) -> None:
+        """Execute a session lifecycle operation."""
+        op = self._wizard_op
+        try:
+            if op == "pause":
+                save_session(self.task_num, {"status": "paused"})
+                self.notify("Session paused")
+            elif op == "resume":
+                save_session(self.task_num, {"status": "active"})
+                self.notify("Session resumed")
+            elif op == "finalize":
+                dest = finalize_session(self.task_num)
+                self.notify(f"Plan finalized to {dest}")
+            elif op == "archive":
+                archive_session(self.task_num)
+                self.notify("Session archived")
+        except Exception as e:
+            self.notify(f"Error: {e}", severity="error")
+            return
+
+        self._load_existing_session()
+
+    def _execute_design_op(self) -> None:
+        """Dispatch design operation to background thread."""
+        status = self.session_data.get("status", "")
+        if status == "init":
+            save_session(self.task_num, {"status": "active"})
+            self.session_data["status"] = "active"
+        self._run_design_op()
+
+    @work(thread=True)
+    def _run_design_op(self) -> None:
+        """Register agents for the design operation in a background thread."""
+        op = self._wizard_op
+        cfg = self._wizard_config
+        crew_id = self.session_data.get("crew_id", f"brainstorm-{self.task_num}")
+        group_name = self._next_group_name(op)
+
+        try:
+            if op == "explore":
+                agents = []
+                count = cfg["parallel"]
+                suffixes = "abcdefgh"
+                for i in range(count):
+                    suffix = suffixes[i] if count > 1 else ""
+                    agent = register_explorer(
+                        self.session_path, crew_id, cfg["mandate"],
+                        cfg["base_node"], group_name, agent_suffix=suffix,
+                    )
+                    agents.append(agent)
+                msg = f"Registered {len(agents)} explorer(s): {', '.join(agents)}"
+            elif op == "compare":
+                agent = register_comparator(
+                    self.session_path, crew_id, cfg["nodes"],
+                    cfg["dimensions"], group_name,
+                )
+                msg = f"Registered comparator: {agent}"
+            elif op == "hybridize":
+                agent = register_synthesizer(
+                    self.session_path, crew_id, cfg["nodes"],
+                    cfg["merge_rules"], group_name,
+                )
+                msg = f"Registered synthesizer: {agent}"
+            elif op == "detail":
+                agent = register_detailer(
+                    self.session_path, crew_id, cfg["node"],
+                    ["."], group_name,
+                )
+                msg = f"Registered detailer: {agent}"
+            elif op == "patch":
+                agent = register_patcher(
+                    self.session_path, crew_id, cfg["node"],
+                    cfg["patch_request"], group_name,
+                )
+                msg = f"Registered patcher: {agent}"
+            else:
+                msg = f"Unknown operation: {op}"
+
+            self.call_from_thread(self.notify, msg)
+            self.call_from_thread(self._actions_show_step1)
+
+        except Exception as e:
+            self.call_from_thread(
+                self.notify, f"Operation failed: {e}", severity="error",
+            )
+            self.call_from_thread(self._actions_show_step1)
+
+    def _next_group_name(self, op: str) -> str:
+        """Generate next group name (e.g., explore_001, compare_002)."""
+        groups_path = self.session_path / GROUPS_FILE
+        groups: dict = {}
+        if groups_path.is_file():
+            try:
+                data = read_yaml(str(groups_path))
+                groups = (data or {}).get("groups", {})
+            except Exception:
+                pass
+        existing = [k for k in groups if k.startswith(f"{op}_")]
+        seq = len(existing) + 1
+        return f"{op}_{seq:03d}"
 
     def _on_init_result(self, confirmed: bool | None) -> None:
         """Handle InitSessionModal result."""
