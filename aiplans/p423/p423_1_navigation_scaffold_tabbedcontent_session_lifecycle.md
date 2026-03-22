@@ -35,6 +35,10 @@ Replace the placeholder brainstorm TUI scaffold with a real navigation framework
 3. Press 1-5 -- each tab activates (placeholder content is fine)
 4. Press q -- app exits cleanly
 
-## Post-Implementation
+## Final Implementation Notes
 
-Follow Step 9 of the task workflow (testing, verification, commit).
+- **Actual work done:** Complete rewrite of `brainstorm_app.py` (156 LOC → ~270 LOC). Removed 4 placeholder Screen classes, replaced with TabbedContent (5 tabs), 2 ModalScreen classes (InitSessionModal, NodeDetailModal), numeric key bindings (1-5), session lifecycle in on_mount(), and comprehensive CSS.
+- **Deviations from plan:** None — implementation followed the plan exactly.
+- **Issues encountered:** None.
+- **Key decisions:** Used `_TAB_SHORTCUTS` dict + `on_key()` pattern from `settings_app.py` for tab switching. Kept `STATUS_COLORS` dict for future use by sibling tasks.
+- **Notes for sibling tasks:** The TabbedContent uses IDs `tab_dashboard`, `tab_dag`, `tab_compare`, `tab_actions`, `tab_status`. Tab content areas use `dashboard_content`, `dag_content`, etc. The app stores `self.session_data` (dict from `load_session()`), `self.read_only` (bool), `self.session_path` (Path). NodeDetailModal is a skeleton — t423_4 should flesh it out. InitSessionModal runs `ait brainstorm init` via `@work(thread=True)` and calls `_load_existing_session()` on success.
