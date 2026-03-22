@@ -36,6 +36,10 @@ Implement the Node Detail modal as a ModalScreen with TabbedContent (3 tabs: Met
 5. Tab switching preserves scroll position
 6. Esc closes modal
 
-## Post-Implementation
+## Final Implementation Notes
 
-Follow Step 9 of the task workflow (testing, verification, commit).
+- **Actual work done:** Replaced the skeleton `NodeDetailModal` in `brainstorm_app.py` with a full 3-tab implementation. Added `Markdown`, `read_plan`, `read_proposal` imports. Constructor now accepts `session_path` alongside `node_id`. `compose()` yields TabbedContent with Metadata (Static + Rich markup), Proposal (Markdown widget), and Plan (Markdown widget) tabs. `on_mount()` loads data into all tabs. Updated CSS (height 80%→90%, added tab/scroll styling, removed placeholder). Updated both invocation sites (Dashboard Enter key, DAG NodeSelected) to pass `session_path`. Total: +78/-17 lines in a single file.
+- **Deviations from plan:** Minor — plan listed CSS width as 80% which was already correct. Height changed to 90% per task spec. Used `VerticalScroll` wrappers around tab content for scrollability (not explicitly in original plan but follows established patterns).
+- **Issues encountered:** None.
+- **Key decisions:** Used Rich markup (`[bold]...[/bold]`) for metadata labels in the Static widget rather than plain text — matches the dashboard detail pane pattern. Used Textual's `Markdown` widget for proposal/plan rendering rather than Static, enabling proper markdown formatting. Wrapped each tab's content in `VerticalScroll` for long content scrollability.
+- **Notes for sibling tasks:** `NodeDetailModal` now requires two arguments: `node_id: str` and `session_path: Path`. The modal's TabbedContent uses IDs `tab_metadata`, `tab_proposal`, `tab_plan`. Tab content widgets use IDs `metadata_content` (Static), `proposal_content` (Markdown), `plan_content` (Markdown). If future tasks need to add tabs or actions to the modal, the `on_mount()` pattern loads data after compose. The `Markdown` widget import is now available for use elsewhere in the app.
