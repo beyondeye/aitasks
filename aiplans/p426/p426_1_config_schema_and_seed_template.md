@@ -31,7 +31,7 @@ Add a new commented block after the `verify_build` section, following the same d
 # The --profile argument on any skill overrides both.
 #
 # Valid skill names: pick, fold, review, pr-import, revert, explore,
-#                    pickrem, pickweb
+#                    pickrem, pickweb, qa
 #
 # Resolution order:
 #   1. --profile <name> argument (highest priority)
@@ -54,6 +54,7 @@ Add a new commented block after the `verify_build` section, following the same d
 #     pr-import: fast
 #     revert: fast
 #     explore: fast
+#     qa: fast
 #
 #   # Remote skills: use 'remote' profile
 #   default_profiles:
@@ -75,7 +76,7 @@ Add a new entry to the `PROJECT_CONFIG_SCHEMA` dict:
     "summary": "Default execution profile for each skill",
     "detail": (
         "Maps skill names to profile names (without .yaml). "
-        "Valid skills: pick, fold, review, pr-import, revert, explore, pickrem, pickweb. "
+        "Valid skills: pick, fold, review, pr-import, revert, explore, pickrem, pickweb, qa. "
         "Users can override in userconfig.yaml. The --profile argument overrides both."
     ),
 },
@@ -95,3 +96,10 @@ Add a new entry to the `PROJECT_CONFIG_SCHEMA` dict:
 
 - `seed/project_config.yaml` (existing style: lines 9-71 for codeagent_coauthor_domain and verify_build)
 - `.aitask-scripts/settings/settings_app.py:302-319` (existing PROJECT_CONFIG_SCHEMA entries)
+
+## Final Implementation Notes
+- **Actual work done:** Added `default_profiles` commented block to `seed/project_config.yaml` (42 lines) and `default_profiles` entry to `PROJECT_CONFIG_SCHEMA` in `settings_app.py` (8 lines). Exactly as planned.
+- **Deviations from plan:** Added `qa` to valid skill names list per user request — a new `aitask-qa` skill is being introduced. Original plan only listed 8 skills; now 9.
+- **Issues encountered:** None. Both files parsed correctly on first attempt.
+- **Key decisions:** Placed `qa` after `explore` in the interactive skills example block (alphabetically sensible, grouped with other interactive skills rather than remote ones).
+- **Notes for sibling tasks:** The valid skill names list now includes `qa` — sibling tasks t426_2 through t426_6 should use the same 9-skill list: `pick, fold, review, pr-import, revert, explore, pickrem, pickweb, qa`.
