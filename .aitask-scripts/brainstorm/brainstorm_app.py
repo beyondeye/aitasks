@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from difflib import SequenceMatcher
 from pathlib import Path
 
 # Allow importing sibling packages (brainstorm, agentcrew)
@@ -15,6 +16,8 @@ from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
+    Checkbox,
+    DataTable,
     Footer,
     Header,
     Label,
@@ -25,6 +28,8 @@ from textual.widgets import (
 )
 from textual import on, work
 
+from rich.text import Text
+
 from brainstorm.brainstorm_dag import (
     get_dimension_fields,
     get_head,
@@ -34,6 +39,7 @@ from brainstorm.brainstorm_dag import (
     read_proposal,
     set_head,
 )
+from brainstorm.brainstorm_schemas import extract_dimensions
 from brainstorm.brainstorm_dag_display import DAGDisplay
 from brainstorm.brainstorm_session import crew_worktree, load_session, session_exists
 
@@ -183,6 +189,51 @@ class NodeDetailModal(ModalScreen):
         self.dismiss(None)
 
 
+class CompareNodeSelectModal(ModalScreen):
+    """Modal for selecting 2-4 nodes to compare in the dimension matrix."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(self, node_ids: list[str]):
+        super().__init__()
+        self.node_ids = node_ids
+
+    def compose(self) -> ComposeResult:
+        with Container(id="compare_select_dialog"):
+            yield Label("Select 2\u20134 nodes to compare", id="compare_select_title")
+            with VerticalScroll(id="compare_checkbox_list"):
+                for nid in self.node_ids:
+                    yield Checkbox(nid, id=f"chk_cmp_{nid}")
+            with Horizontal(id="compare_select_buttons"):
+                yield Button("Compare", variant="primary", id="btn_compare")
+                yield Button("Cancel", variant="default", id="btn_compare_cancel")
+
+    def _get_selected(self) -> list[str]:
+        return [
+            nid
+            for nid in self.node_ids
+            if self.query_one(f"#chk_cmp_{nid}", Checkbox).value
+        ]
+
+    @on(Button.Pressed, "#btn_compare")
+    def confirm(self) -> None:
+        selected = self._get_selected()
+        if len(selected) < 2:
+            self.notify("Select at least 2 nodes", severity="warning")
+            return
+        if len(selected) > 4:
+            self.notify("Select at most 4 nodes", severity="warning")
+            return
+        self.dismiss(selected)
+
+    @on(Button.Pressed, "#btn_compare_cancel")
+    def cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 # ---------------------------------------------------------------------------
 # Dashboard Widgets
 # ---------------------------------------------------------------------------
@@ -227,13 +278,53 @@ class BrainstormApp(App):
     }
 
     /* Placeholder labels for future tabs */
-    #compare_placeholder,
     #actions_placeholder, #status_placeholder {
         width: 100%;
         content-align: center middle;
         text-style: italic;
         color: $text-muted;
         height: 100%;
+    }
+
+    /* Compare tab */
+    #compare_hint {
+        width: 100%;
+        content-align: center middle;
+        text-style: italic;
+        color: $text-muted;
+        height: 100%;
+    }
+
+    #compare_table {
+        height: 1fr;
+    }
+
+    /* Compare node selection modal */
+    #compare_select_dialog {
+        width: 60;
+        height: auto;
+        max-height: 70%;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+    }
+
+    #compare_select_title {
+        text-style: bold;
+        text-align: center;
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #compare_checkbox_list {
+        max-height: 20;
+        padding: 0 1;
+    }
+
+    #compare_select_buttons {
+        height: 3;
+        align: center middle;
+        margin-top: 1;
     }
 
     /* DAG visualization */
@@ -377,8 +468,8 @@ class BrainstormApp(App):
             with TabPane("Compare", id="tab_compare"):
                 yield VerticalScroll(
                     Label(
-                        "Compare view \u2014 coming in follow-up tasks",
-                        id="compare_placeholder",
+                        "Press 'c' to select nodes for comparison",
+                        id="compare_hint",
                     ),
                     id="compare_content",
                 )
@@ -401,13 +492,45 @@ class BrainstormApp(App):
         yield Footer()
 
     def on_key(self, event) -> None:
-        """Handle Enter on NodeRow and numeric tab shortcuts (1-5)."""
+        """Handle Enter on NodeRow, compare keys, and numeric tab shortcuts."""
         if isinstance(self.screen, ModalScreen):
             return
         if event.key == "enter":
             focused = self.focused
             if isinstance(focused, NodeRow):
                 self.push_screen(NodeDetailModal(focused.node_id, self.session_path))
+                event.prevent_default()
+                event.stop()
+                return
+        if event.key == "c":
+            tabbed = self.query_one(TabbedContent)
+            if tabbed.active == "tab_compare":
+                nodes = list_nodes(self.session_path)
+                if len(nodes) < 2:
+                    self.notify("Need at least 2 nodes to compare", severity="warning")
+                else:
+                    self.push_screen(
+                        CompareNodeSelectModal(nodes),
+                        callback=self._on_compare_selected,
+                    )
+                event.prevent_default()
+                event.stop()
+                return
+        if event.key == "d":
+            tabbed = self.query_one(TabbedContent)
+            if (
+                tabbed.active == "tab_compare"
+                and hasattr(self, "_compare_nodes")
+                and len(self._compare_nodes) >= 2
+            ):
+                n1, n2 = self._compare_nodes[:2]
+                p1 = self.session_path / "br_proposals" / f"{n1}.md"
+                p2 = self.session_path / "br_proposals" / f"{n2}.md"
+                if p1.is_file() and p2.is_file():
+                    subprocess.Popen(["diff", "--color=always", str(p1), str(p2)])
+                    self.notify(f"Diff launched: {n1} vs {n2}")
+                else:
+                    self.notify("Proposal files not found", severity="warning")
                 event.prevent_default()
                 event.stop()
                 return
@@ -522,6 +645,91 @@ class BrainstormApp(App):
             self._populate_node_list()
             self._update_session_status()
             self.query_one(DAGDisplay).load_dag(self.session_path)
+
+    def _on_compare_selected(self, selected: list[str] | None) -> None:
+        """Handle CompareNodeSelectModal result."""
+        if selected:
+            self._build_compare_matrix(selected)
+
+    def _build_compare_matrix(self, selected_nodes: list[str]) -> None:
+        """Build dimension comparison matrix DataTable."""
+        container = self.query_one("#compare_content", VerticalScroll)
+        container.remove_children()
+
+        # Extract dimensions for each node
+        node_dims: dict[str, dict] = {}
+        for nid in selected_nodes:
+            data = read_node(self.session_path, nid)
+            node_dims[nid] = extract_dimensions(data)
+
+        # Collect all dimension keys (preserving first-seen order)
+        all_keys: list[str] = []
+        seen: set[str] = set()
+        for dims in node_dims.values():
+            for k in dims:
+                if k not in seen:
+                    all_keys.append(k)
+                    seen.add(k)
+
+        if not all_keys:
+            container.mount(Label("No dimension fields found in selected nodes"))
+            return
+
+        table = DataTable(id="compare_table")
+        table.add_column("Dimension", key="dim")
+        for nid in selected_nodes:
+            table.add_column(nid, key=nid)
+
+        # Add dimension rows with color-coded values
+        for key in all_keys:
+            raw_values = [str(node_dims[nid].get(key, "\u2014")) for nid in selected_nodes]
+
+            # Determine color based on similarity
+            unique = set(raw_values)
+            if len(unique) == 1:
+                color = "green"
+            else:
+                max_sim = 0.0
+                for i, v1 in enumerate(raw_values):
+                    for v2 in raw_values[i + 1 :]:
+                        sim = SequenceMatcher(None, v1, v2).ratio()
+                        if sim > max_sim:
+                            max_sim = sim
+                color = "yellow" if max_sim > 0.6 else "red"
+
+            styled = [Text(v, style=color) for v in raw_values]
+            table.add_row(key, *styled, key=key)
+
+        # Add similarity score summary row
+        self._add_similarity_row(table, selected_nodes, node_dims, all_keys)
+
+        container.mount(table)
+        self._compare_nodes = selected_nodes
+
+    def _add_similarity_row(
+        self,
+        table: DataTable,
+        nodes: list[str],
+        node_dims: dict[str, dict],
+        all_keys: list[str],
+    ) -> None:
+        """Add an average similarity score row to the compare table."""
+        from itertools import combinations
+
+        pair_avgs: list[float] = []
+        for n1, n2 in combinations(nodes, 2):
+            scores = []
+            for key in all_keys:
+                v1 = str(node_dims[n1].get(key, ""))
+                v2 = str(node_dims[n2].get(key, ""))
+                scores.append(SequenceMatcher(None, v1, v2).ratio())
+            pair_avgs.append(sum(scores) / len(scores) if scores else 0.0)
+
+        avg = sum(pair_avgs) / len(pair_avgs) if pair_avgs else 0.0
+        label = Text("\u2014 Avg Similarity \u2014", style="bold")
+        score = Text(f"{avg:.0%}", style="bold cyan")
+        cells = [label, score] + [Text("")] * (len(nodes) - 1)
+        table.add_row(*cells, key="sim_score")
 
     def _on_init_result(self, confirmed: bool | None) -> None:
         """Handle InitSessionModal result."""
