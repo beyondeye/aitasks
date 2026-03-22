@@ -5,9 +5,9 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [task_workflow]
-children_to_implement: [t414_2, t414_3]
+children_to_implement: [t414_3]
 created_at: 2026-03-17 18:52
-updated_at: 2026-03-18 09:42
+updated_at: 2026-03-22 22:02
 boardcol: now
 boardidx: 80
 ---
