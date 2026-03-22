@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [testing, qa]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-22 11:21
-updated_at: 2026-03-22 11:39
+updated_at: 2026-03-22 11:55
 ---
 
 ## Context
