@@ -69,3 +69,13 @@ Update any found references. Known locations:
 ## Post-Implementation
 
 Step 9 of task-workflow for archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** Removed Step 8b from SKILL.md, added deprecation header to test-followup-task.md, removed `test_followup_task` row from profiles.md, removed the key from fast.yaml and remote.yaml, updated aitask-qa/SKILL.md reference, and updated memory file.
+- **Deviations from plan:**
+  - Step 3 (profiles.md): `qa_mode` and `qa_run_tests` rows were already added by t428_1, so only the `test_followup_task` row removal was needed.
+  - Step 5: `aitask-pickrem` and `aitask-pickweb` had no references to Step 8b or `test_followup_task`. Added update to `aitask-qa/SKILL.md` line 305 which had a note claiming the embedded procedure "remains available" — updated to say "now deprecated".
+- **Issues encountered:** None.
+- **Key decisions:** Kept `test-followup-task.md` file with deprecation header rather than deleting it, for historical reference.
+- **Notes for sibling tasks:** The `test_followup_task` profile key has been fully removed. The `qa_mode` and `qa_run_tests` keys are the new profile mechanism for controlling QA behavior.
