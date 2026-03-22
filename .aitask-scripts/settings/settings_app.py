@@ -326,6 +326,11 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
     },
 }
 
+VALID_PROFILE_SKILLS = {
+    "pick", "fold", "review", "pr-import", "revert",
+    "explore", "pickrem", "pickweb", "qa",
+}
+
 
 def _format_yaml_value(value) -> str:
     """Render a YAML value into a compact single-line editor string."""
@@ -1522,6 +1527,44 @@ class VerifyBuildPresetScreen(ModalScreen):
         self.dismiss(None)
 
 
+class ProfilePickerScreen(ModalScreen):
+    """Modal for selecting an execution profile name via fuzzy search."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(self, skill: str, current: str, profile_names: list[str]):
+        super().__init__()
+        self.skill = skill
+        self.current = current
+        self.profile_names = profile_names
+
+    def compose(self) -> ComposeResult:
+        options = [
+            {"value": "", "display": "<not set>", "description": "Remove default profile"},
+        ]
+        for name in self.profile_names:
+            options.append({"value": name, "display": name, "description": ""})
+        with Container(id="picker_dialog"):
+            yield Label(
+                f"Default profile for [bold]{self.skill}[/bold]"
+                f"  (current: {self.current or '<not set>'})",
+                id="picker_title",
+            )
+            yield FuzzySelect(
+                options, placeholder="Type to filter profiles...",
+                id="profile_picker",
+            )
+
+    def on_fuzzy_select_selected(self, event: FuzzySelect.Selected):
+        self.dismiss({"key": self.skill, "value": event.value})
+
+    def on_fuzzy_select_cancelled(self, event: FuzzySelect.Cancelled):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+
 class NewProfileScreen(ModalScreen):
     """Modal for creating a new profile based on an existing one."""
 
@@ -1895,6 +1938,23 @@ class SettingsApp(App):
                         all_models=self.config_mgr.models,
                     ),
                     callback=self._handle_agent_pick,
+                )
+                event.prevent_default()
+                event.stop()
+                return
+
+            # Default profiles per-skill editing
+            if fid.startswith("project_dp_"):
+                skill = focused.row_key
+                current = focused.raw_value or ""
+                profile_names = sorted(
+                    pdata.get("name", fn.removesuffix(".yaml"))
+                    for fn, pdata in self.config_mgr.profiles.items()
+                )
+                self._editing_project_row_id = focused.id
+                self.push_screen(
+                    ProfilePickerScreen(skill, current, profile_names),
+                    callback=self._handle_default_profile_pick,
                 )
                 event.prevent_default()
                 event.stop()
@@ -2346,7 +2406,28 @@ class SettingsApp(App):
         ))
 
         vb_presets = _load_verify_build_presets()
+        dp_values = self.config_mgr.project_config.get("default_profiles")
+        if not isinstance(dp_values, dict):
+            dp_values = {}
         for key, info in PROJECT_CONFIG_SCHEMA.items():
+            if key == "default_profiles":
+                # Render as section header + individual skill rows
+                container.mount(Label(
+                    f"  [bold]default_profiles:[/bold]", classes="section-hint",
+                ))
+                container.mount(Label(
+                    f"      [dim]{info['summary']}[/dim]",
+                    classes="section-hint",
+                ))
+                for skill in sorted(VALID_PROFILE_SKILLS):
+                    profile_name = dp_values.get(skill, "")
+                    display = profile_name or "(not set)"
+                    container.mount(ConfigRow(
+                        skill, display, config_layer="project", row_key=skill,
+                        id=f"project_dp_{_safe_id(skill)}_{rc}",
+                        raw_value=profile_name,
+                    ))
+                continue
             raw_value = self.config_mgr.project_config.get(key)
             formatted = _format_yaml_value(raw_value)
             display_value = formatted or "(not set)"
@@ -2386,6 +2467,20 @@ class SettingsApp(App):
         rows = list(container.query(ConfigRow))
 
         data = dict(self.config_mgr.project_config)
+
+        # Collect default_profiles from individual skill rows
+        dp = {}
+        for row in rows:
+            if not row.id or not row.id.startswith("project_dp_"):
+                continue
+            val = (row.raw_value or "").strip()
+            if val:
+                dp[row.row_key] = val
+        if dp:
+            data["default_profiles"] = dp
+        else:
+            data.pop("default_profiles", None)
+
         for row in rows:
             if not row.id or not row.id.startswith("project_cfg_"):
                 continue
@@ -2434,6 +2529,25 @@ class SettingsApp(App):
             self.notify(f"Updated {key} — press Save to persist")
         except Exception as exc:
             self.notify(f"Could not update {key}: {exc}", severity="error")
+
+    def _handle_default_profile_pick(self, result):
+        if result is None:
+            return
+        skill = result["key"]
+        profile_name = result["value"]
+
+        row_id = getattr(self, "_editing_project_row_id", None)
+        if not row_id:
+            rc = self._repop_counter
+            row_id = f"project_dp_{_safe_id(skill)}_{rc}"
+        try:
+            row = self.query_one(f"#{row_id}", ConfigRow)
+            row.raw_value = profile_name
+            row.value = profile_name or "(not set)"
+            row.refresh()
+            self.notify(f"Updated {skill} — press Save to persist")
+        except Exception as exc:
+            self.notify(f"Could not update {skill}: {exc}", severity="error")
 
     # -------------------------------------------------------------------
     # Models tab (read-only)
