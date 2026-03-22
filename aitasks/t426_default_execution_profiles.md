@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [ait_settings, execution_profiles]
-children_to_implement: [t426_1, t426_2]
+children_to_implement: [t426_1, t426_2, t426_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-22 09:23
 updated_at: 2026-03-22 10:21
