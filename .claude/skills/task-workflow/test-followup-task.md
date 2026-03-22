@@ -1,3 +1,8 @@
+> **DEPRECATED:** This procedure has been replaced by the standalone `/aitask-qa` skill.
+> It is retained for historical reference only. See `.claude/skills/aitask-qa/SKILL.md`.
+
+---
+
 # Test Follow-up Task Procedure
 
 This procedure is referenced from Step 8b. It optionally creates a follow-up task for testing (integration tests, deeper unit tests, or end-to-end tests) based on the profile setting and user choice.

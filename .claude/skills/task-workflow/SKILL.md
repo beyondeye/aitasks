@@ -310,7 +310,8 @@ After implementation is complete, the user MUST be given the opportunity to revi
     - **When attribution is present,** compose one final multiline commit message: subject first, imported contributor block second, code-agent trailer last. For PR-imported tasks the contributor block includes `Based on PR:`; for issue-imported contributor metadata it may be only the contributor trailer.
     - **Plan/task file commits** use the `ait:` prefix (e.g., `ait: Update plan for t16`). Administrative commits (status changes, archival) also use `ait:` and must NOT include the `(t<task_id>)` tag.
     - **Never mix** code files and `aitasks/`/`aiplans/` files in the same `git add` or commit. Code uses regular `git`; task/plan files use `./ait git`. This separation is required when task data lives on a separate branch, and is safe in legacy mode where `./ait git` passes through to plain `git`.
-  - Proceed to Step 8b
+  - **Note:** For test coverage analysis and test plan generation, run `/aitask-qa <task_id>` after implementation.
+  - Proceed to Step 9
 
 - **If "Need more changes":**
   - Ask user what needs to change
@@ -331,14 +332,6 @@ After implementation is complete, the user MUST be given the opportunity to revi
 
 - **If "Abort":**
   - Execute the **Task Abort Procedure** (see `task-abort.md`)
-
-### Step 8b: Test Follow-up Task (Optional)
-
-After code is committed and before post-implementation cleanup, optionally create a follow-up task for testing.
-
-Execute the **Test Follow-up Task Procedure** (see `test-followup-task.md`).
-
-Proceed to Step 9.
 
 ### Step 9: Post-Implementation
 
@@ -490,7 +483,7 @@ The following procedures are in individual files — read on demand when referen
 - **Code-Agent Commit Attribution Procedure** (`code-agent-commit-attribution.md`) — Resolve code-agent Co-Authored-By trailer. Referenced from Step 8.
 - **Model Self-Detection Sub-Procedure** (`model-self-detection.md`) — Detect the current code agent and model. Referenced from Agent Attribution and Satisfaction Feedback.
 - **Agent Attribution Procedure** (`agent-attribution.md`) — Record implementing code agent and model. Referenced from Step 7.
-- **Test Follow-up Task Procedure** (`test-followup-task.md`) — Optionally create testing follow-up task. Referenced from Step 8b.
+- **Test Follow-up Task Procedure** (`test-followup-task.md`) — DEPRECATED: replaced by `/aitask-qa` skill.
 - **Satisfaction Feedback Procedure** (`satisfaction-feedback.md`) — Collect user feedback and update verified model scores. Referenced from Step 9b and standalone skills.
 - **Lock Release Procedure** (`lock-release.md`) — Release task locks. Referenced from Task Abort Procedure.
 - **Execution Profile Selection Procedure** (`execution-profile-selection.md`) — Interactive profile scan and selection. Referenced from Step 0a in calling skills and Step 3b.

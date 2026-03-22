@@ -302,4 +302,4 @@ Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workfl
 - Profile keys `qa_mode` and `qa_run_tests` control automation level
 - When no commits are found, the skill falls back to plan-file analysis
 - This skill does NOT modify task status or claim ownership — it is read-only analysis
-- The skill replaces the tightly-coupled test-followup-task procedure (Step 8b) for standalone use; the embedded procedure remains available in task-workflow for inline use
+- The skill replaces the tightly-coupled test-followup-task procedure (formerly Step 8b in task-workflow, now deprecated)
