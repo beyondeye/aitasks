@@ -3,11 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [task_workflow]
-children_to_implement: [t414_3]
 created_at: 2026-03-17 18:52
-updated_at: 2026-03-22 22:02
+updated_at: 2026-03-22 22:45
+completed_at: 2026-03-22 22:45
 boardcol: now
 boardidx: 80
 ---
