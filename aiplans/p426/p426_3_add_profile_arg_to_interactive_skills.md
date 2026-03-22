@@ -176,3 +176,10 @@ Same changes as Codex wrappers, in `.opencode/skills/aitask-<name>/SKILL.md`.
 
 - `.claude/skills/task-workflow/execution-profile-selection.md` — updated procedure with Input params (from t426_2)
 - Existing skill SKILL.md files for argument parsing patterns
+
+## Final Implementation Notes
+- **Actual work done:** Added `--profile <name>` argument parsing to all 6 interactive skills (pick, fold, review, pr-import, revert, explore) and updated their procedure calls to pass `skill_name` and `profile_override`. Updated all 12 wrapper files (6 Codex + 6 OpenCode) to document `--profile` in their Arguments sections. Exactly as planned.
+- **Deviations from plan:** aitask-revert originally used "Step 0" for profile selection — renamed to "Step 0a" to be consistent with other skills, and added "Step 0 (pre-parse)" before it. Also updated a downstream reference ("Step 0" → "Step 0a") in the context variables section. Added `--profile` to revert's formal Arguments section (not just the pre-parse step). For pr-import, the core skill had no formal Arguments section — added a new `## Arguments (Optional)` section (the wrappers already documented PR URL args).
+- **Issues encountered:** None. All 18 files edited cleanly.
+- **Key decisions:** Used two patterns consistently: Pattern A (pre-parse step) for skills with existing arguments (pick, fold, revert), Pattern B (new Arguments section) for skills without (review, pr-import, explore). For explore, the `--profile` is parsed at the top but passed through to Step 3b (deferred profile selection), not Step 0a.
+- **Notes for sibling tasks:** t426_4 (auto-select skills: pickrem, pickweb) should follow a similar pattern but targeting the auto-select procedure. The `--profile` argument is position-independent — it can appear anywhere in the argument string. All wrapper files follow the same pattern: append a line documenting `--profile` to the existing Arguments section.
