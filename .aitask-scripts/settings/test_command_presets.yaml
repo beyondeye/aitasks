@@ -1,0 +1,60 @@
+presets:
+  - name: "Python (pytest)"
+    description: "Run pytest test suite"
+    value:
+      - "pytest"
+
+  - name: "Python (unittest)"
+    description: "Run unittest discovery"
+    value:
+      - "python -m unittest discover"
+
+  - name: "JavaScript (npm test)"
+    description: "Run npm test script"
+    value:
+      - "npm test"
+
+  - name: "JavaScript (vitest)"
+    description: "Run vitest test runner"
+    value:
+      - "npx vitest run"
+
+  - name: "Go (go test)"
+    description: "Run Go tests"
+    value:
+      - "go test ./..."
+
+  - name: "Rust (cargo test)"
+    description: "Run Rust tests with cargo"
+    value:
+      - "cargo test"
+
+  - name: "Shell (aitasks pattern)"
+    description: "Run shell test scripts"
+    value:
+      - "bash tests/test_*.sh"
+
+  - name: "Ruby (rspec)"
+    description: "Run RSpec tests"
+    value:
+      - "bundle exec rspec"
+
+  - name: "PHP (phpunit)"
+    description: "Run PHPUnit tests"
+    value:
+      - "vendor/bin/phpunit"
+
+  - name: "Java (Maven)"
+    description: "Run Maven tests"
+    value:
+      - "mvn test"
+
+  - name: "Java (Gradle)"
+    description: "Run Gradle tests"
+    value:
+      - "./gradlew test"
+
+  - name: "Elixir (mix test)"
+    description: "Run Elixir tests with mix"
+    value:
+      - "mix test"

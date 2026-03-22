@@ -71,6 +71,65 @@ codeagent_coauthor_domain: aitasks.io
 verify_build:
 
 # ──────────────────────────────────────────────────────────────────────
+# test_command — Shell command(s) to run project tests.
+#
+# Used by /aitask-qa skill to execute tests and verify test coverage.
+# Accepts a single command string or a YAML list of commands.
+# Leave blank to let aitask-qa auto-detect tests from project structure.
+#
+# Examples by project type:
+#
+#   # Python:
+#   test_command: "pytest"
+#
+#   # JavaScript:
+#   test_command: "npm test"
+#
+#   # Go:
+#   test_command: "go test ./..."
+#
+#   # Rust:
+#   test_command: "cargo test"
+#
+#   # Shell (aitasks):
+#   test_command: "bash tests/test_*.sh"
+#
+#   # Multi-step:
+#   test_command:
+#     - "npm run unit"
+#     - "npm run integration"
+# ──────────────────────────────────────────────────────────────────────
+
+test_command:
+
+# ──────────────────────────────────────────────────────────────────────
+# lint_command — Shell command(s) to lint/check project code.
+#
+# Used by /aitask-qa skill to run linting on changed files.
+# Accepts a single command string or a YAML list of commands.
+# Leave blank to skip linting or let aitask-qa auto-detect.
+#
+# Examples by project type:
+#
+#   # Python:
+#   lint_command: "ruff check ."
+#
+#   # JavaScript:
+#   lint_command: "eslint ."
+#
+#   # Go:
+#   lint_command: "golangci-lint run"
+#
+#   # Rust:
+#   lint_command: "cargo clippy"
+#
+#   # Shell:
+#   lint_command: "shellcheck .aitask-scripts/aitask_*.sh"
+# ──────────────────────────────────────────────────────────────────────
+
+lint_command:
+
+# ──────────────────────────────────────────────────────────────────────
 # default_profiles — Default execution profile for each skill.
 #
 # Maps skill names to profile names (without .yaml extension). When a

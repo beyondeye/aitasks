@@ -1,0 +1,51 @@
+presets:
+  - name: "Python (ruff)"
+    description: "Run ruff linter"
+    value:
+      - "ruff check ."
+
+  - name: "Python (flake8)"
+    description: "Run flake8 linter"
+    value:
+      - "flake8 ."
+
+  - name: "Python (ruff + mypy)"
+    description: "Run ruff linter and mypy type checker"
+    value:
+      - "ruff check ."
+      - "mypy ."
+
+  - name: "JavaScript (eslint)"
+    description: "Run ESLint"
+    value:
+      - "eslint ."
+
+  - name: "Go (golangci-lint)"
+    description: "Run golangci-lint"
+    value:
+      - "golangci-lint run"
+
+  - name: "Rust (clippy)"
+    description: "Run cargo clippy"
+    value:
+      - "cargo clippy"
+
+  - name: "Shell (shellcheck)"
+    description: "Run shellcheck on shell scripts"
+    value:
+      - "shellcheck .aitask-scripts/aitask_*.sh"
+
+  - name: "Ruby (rubocop)"
+    description: "Run RuboCop linter"
+    value:
+      - "bundle exec rubocop"
+
+  - name: "PHP (phpstan)"
+    description: "Run PHPStan static analysis"
+    value:
+      - "vendor/bin/phpstan analyse"
+
+  - name: "Java (checkstyle via Maven)"
+    description: "Run checkstyle with Maven"
+    value:
+      - "mvn checkstyle:check"

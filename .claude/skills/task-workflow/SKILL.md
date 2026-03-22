@@ -510,6 +510,8 @@ Project-level settings are stored in `aitasks/metadata/project_config.yaml` (git
 | Key | Type | Default | Description | Used in |
 |-----|------|---------|-------------|---------|
 | `verify_build` | string or list | (none — skip) | Shell command(s) to verify the build after implementation | Step 9 |
+| `test_command` | string or list | (none — auto-detect) | Shell command(s) for running project tests | aitask-qa Step 4 |
+| `lint_command` | string or list | (none — skip) | Shell command(s) for linting project code | aitask-qa Step 4 |
 
 If the file does not exist or a field is absent, the corresponding feature is skipped.
 

@@ -316,6 +316,20 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
             "aitask-pickrem, and aitask-pickweb."
         ),
     },
+    "test_command": {
+        "summary": "Test command(s) for QA analysis (used by /aitask-qa)",
+        "detail": (
+            "Shell command(s) used by /aitask-qa to run project tests. "
+            "Accepts a single string or YAML list. Leave blank for auto-detection."
+        ),
+    },
+    "lint_command": {
+        "summary": "Lint command(s) for QA analysis (used by /aitask-qa)",
+        "detail": (
+            "Shell command(s) used by /aitask-qa to lint changed files. "
+            "Accepts a single string or YAML list. Leave blank to skip."
+        ),
+    },
     "default_profiles": {
         "summary": "Default execution profile for each skill",
         "detail": (
@@ -348,16 +362,17 @@ def _safe_id(name: str) -> str:
     return name.replace(".", "_").replace(" ", "_").replace("-", "_")
 
 
-_PRESETS_FILE = Path(__file__).resolve().parent / "verify_build_presets.yaml"
+_SETTINGS_DIR = Path(__file__).resolve().parent
 _BUILD_VERIFY_DOCS = "https://aitasks.io/docs/skills/aitask-pick/build-verification/"
 
 
-def _load_verify_build_presets() -> list[dict]:
-    """Load verify_build presets from the YAML file."""
-    if not _PRESETS_FILE.is_file():
+def _load_command_presets(key: str) -> list[dict]:
+    """Load presets for a command-type config key (verify_build, test_command, lint_command)."""
+    presets_file = _SETTINGS_DIR / f"{key}_presets.yaml"
+    if not presets_file.is_file():
         return []
     try:
-        with open(_PRESETS_FILE, "r", encoding="utf-8") as f:
+        with open(presets_file, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
         if isinstance(data, dict) and "presets" in data:
             return data["presets"]
@@ -824,6 +839,12 @@ class FuzzySelect(Container):
             if self.highlight_index < len(self.filtered) - 1:
                 self.highlight_index += 1
                 self._update_highlight()
+            event.prevent_default()
+            event.stop()
+        elif event.key == "enter":
+            if self.filtered:
+                selected = self.filtered[self.highlight_index]
+                self.post_message(self.Selected(selected["value"]))
             event.prevent_default()
             event.stop()
         elif event.key == "escape":
@@ -1964,8 +1985,8 @@ class SettingsApp(App):
             if fid.startswith("project_cfg_"):
                 self._editing_project_key = focused.row_key
                 self._editing_project_row_id = focused.id
-                if focused.row_key == "verify_build":
-                    presets = _load_verify_build_presets()
+                if focused.row_key in ("verify_build", "test_command", "lint_command"):
+                    presets = _load_command_presets(focused.row_key)
                     self.push_screen(
                         EditVerifyBuildScreen(
                             focused.row_key, focused.raw_value, presets=presets,
@@ -2405,7 +2426,6 @@ class SettingsApp(App):
             classes="section-hint",
         ))
 
-        vb_presets = _load_verify_build_presets()
         dp_values = self.config_mgr.project_config.get("default_profiles")
         if not isinstance(dp_values, dict):
             dp_values = {}
@@ -2431,8 +2451,9 @@ class SettingsApp(App):
             raw_value = self.config_mgr.project_config.get(key)
             formatted = _format_yaml_value(raw_value)
             display_value = formatted or "(not set)"
-            if key == "verify_build" and raw_value is not None:
-                preset_name = _match_preset_name(formatted, vb_presets)
+            if key in ("verify_build", "test_command", "lint_command") and raw_value is not None:
+                cmd_presets = _load_command_presets(key)
+                preset_name = _match_preset_name(formatted, cmd_presets)
                 if preset_name:
                     display_value = f"{display_value}  [dim](preset: {preset_name})[/dim]"
             container.mount(ConfigRow(
@@ -2519,8 +2540,8 @@ class SettingsApp(App):
             row = self.query_one(f"#{row_id}", ConfigRow)
             row.raw_value = value
             display = _format_yaml_value(value) or "(not set)"
-            if key == "verify_build" and value:
-                presets = _load_verify_build_presets()
+            if key in ("verify_build", "test_command", "lint_command") and value:
+                presets = _load_command_presets(key)
                 preset_name = _match_preset_name(value, presets)
                 if preset_name:
                     display = f"{display}  [dim](preset: {preset_name})[/dim]"
