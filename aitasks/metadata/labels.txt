@@ -39,6 +39,7 @@ model_selection
 modelvrapper
 opencode
 openshell
+qa
 release_scripts
 remote
 remove_support
