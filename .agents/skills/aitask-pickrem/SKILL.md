@@ -24,3 +24,4 @@ Read that file and follow its complete workflow.
 ## Arguments
 
 Required task ID: `16` (parent) or `16_2` (child). Fully autonomous, no interactive prompts.
+Optional `--profile <name>` to override execution profile auto-selection. Example: `/aitask-pickrem 16 --profile remote`.

@@ -23,4 +23,5 @@ Read that file and follow its complete workflow.
 
 ## Arguments
 
-Required task ID: `16`. Zero interactive prompts. Stores data in `.aitask-data-updated/`.
+Required task ID: `16` (parent) or `16_2` (child). Zero interactive prompts. Stores data in `.aitask-data-updated/`.
+Optional `--profile <name>` to override execution profile auto-selection. Example: `/aitask-pickweb 16 --profile remote`.

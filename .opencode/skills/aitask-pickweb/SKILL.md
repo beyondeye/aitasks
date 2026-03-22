@@ -19,4 +19,5 @@ OpenCode adaptations, read **`.opencode/skills/opencode_tool_mapping.md`**.
 
 ## Arguments
 
-Required task ID: `/aitask-pickweb 16`. Zero interactive prompts. Stores data in `.aitask-data-updated/`.
+Required task ID: `/aitask-pickweb 16` (parent) or `/aitask-pickweb 16_2` (child). Zero interactive prompts. Stores data in `.aitask-data-updated/`.
+Optional `--profile <name>` to override execution profile auto-selection. Example: `/aitask-pickweb 16 --profile remote`.

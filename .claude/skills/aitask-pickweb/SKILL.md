@@ -23,11 +23,23 @@ All task metadata (plans, completion markers) is stored in `.aitask-data-updated
 - Format 1: Parent task number (e.g., `42`)
 - Format 2: Child task ID (e.g., `42_2`)
 
+**Optional:** `--profile <name>` to override execution profile auto-selection. Example: `/aitask-pickweb 42 --profile remote`.
+
 **IMPORTANT:** This skill will NOT work without a task ID argument. If invoked without one, display an error and abort.
 
 ## Workflow
 
-### Step 0: Initialize Data Branch (if needed)
+### Step 0 (pre-parse): Extract `--profile` argument
+
+If the skill arguments contain `--profile <name>`:
+- Extract the `<name>` value (the word following `--profile`)
+- Store it as `profile_override`
+- Remove `--profile <name>` from the argument string before passing to Step 0a
+- If `--profile` appears but no name follows, warn: "Missing profile name after --profile" and set `profile_override` to null
+
+If no `--profile` in arguments, set `profile_override` to null.
+
+### Step 0a: Initialize Data Branch (if needed)
 
 Ensure the aitask-data worktree and symlinks are set up:
 
@@ -46,7 +58,10 @@ If the command fails (non-zero exit), display the error and abort.
 
 ### Step 1: Load Execution Profile
 
-Execute the **Execution Profile Selection Procedure — Auto-Select** (see `.claude/skills/task-workflow/execution-profile-selection-auto.md`) with `mode_label` = `"Web"`.
+Execute the **Execution Profile Selection Procedure — Auto-Select** (see `.claude/skills/task-workflow/execution-profile-selection-auto.md`) with:
+- `mode_label`: `"Web"`
+- `skill_name`: `"pickweb"`
+- `profile_override`: the value parsed from `--profile` argument (or null)
 
 ### Step 2: Resolve Task File
 

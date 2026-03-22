@@ -20,3 +20,4 @@ OpenCode adaptations, read **`.opencode/skills/opencode_tool_mapping.md`**.
 ## Arguments
 
 Required task ID: `/aitask-pickrem 16` (parent) or `/aitask-pickrem 16_2` (child). Fully autonomous, no interactive prompts.
+Optional `--profile <name>` to override execution profile auto-selection. Example: `/aitask-pickrem 16 --profile remote`.
