@@ -108,3 +108,10 @@ For each of the 8 skills, add a brief note in the Notes section at the end of SK
 
 - `.claude/skills/task-workflow/execution-profile-selection.md` — updated procedure (from t426_2)
 - `seed/project_config.yaml` — config documentation (from t426_1)
+
+## Final Implementation Notes
+- **Actual work done:** Updated 4 documentation files: `profiles.md` (added Default Profile Configuration and Profile Override Argument sections with ToC), `reference.md` (added `default_profiles` to Project Config Keys table), `how-to.md` (added Set Default Execution Profiles section with TUI/YAML/override instructions), `execution-profiles.md` (added default profiles and override sections with resolution order). Skipped Step 4 (skill Notes sections) — all 9 skills already had `--profile` notes from t426_3/t426_4.
+- **Deviations from plan:** Added `qa` to valid skill names list in all locations (9 skills total, consistent with t426_1). Added mention of Settings TUI profile picker in profiles.md and execution-profiles.md (reflecting t426_5's per-skill picker UI). Step 4 entirely skipped — verification showed it was already complete.
+- **Issues encountered:** None. Website builds cleanly (115 pages, no errors).
+- **Key decisions:** Kept resolution order documentation consistent across all 4 files: `--profile` → `userconfig.yaml` → `project_config.yaml` → interactive/auto-select. Included both TUI and YAML approaches in how-to.md for completeness.
+- **Notes for sibling tasks:** This was the final child task. All documentation is now in sync with the implementation from t426_1 through t426_5. The `qa` skill is included in all valid skill name lists.
