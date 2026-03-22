@@ -3,11 +3,21 @@ name: aitask-review
 description: Review code using configurable review guides, then create tasks from findings.
 ---
 
+## Arguments (Optional)
+
+This skill accepts an optional `--profile <name>` argument to override execution profile selection.
+
+Example: `/aitask-review --profile fast`
+
+If provided, parse the profile name and store as `profile_override`. If not provided, set `profile_override` to null.
+
 ## Workflow
 
 ### Step 0a: Select Execution Profile
 
-Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-workflow/execution-profile-selection.md`).
+Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-workflow/execution-profile-selection.md`) with:
+- `skill_name`: `"review"`
+- `profile_override`: the value parsed from `--profile` argument (or null)
 
 ### Step 0c: Sync with Remote (Best-effort)
 

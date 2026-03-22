@@ -24,3 +24,4 @@ Read that file and follow its complete workflow.
 ## Arguments
 
 Accepts a PR URL or number: `42` or `https://github.com/org/repo/pull/42`.
+Optional `--profile <name>` to override execution profile selection. Example: `/aitask-pr-import --profile fast`.

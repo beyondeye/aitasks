@@ -23,4 +23,4 @@ Read that file and follow its complete workflow.
 
 ## Arguments
 
-No arguments. Follows interactive codebase exploration workflow.
+Optional `--profile <name>` to override execution profile selection. Example: `/aitask-explore --profile fast`.

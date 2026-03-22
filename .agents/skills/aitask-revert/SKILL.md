@@ -24,3 +24,4 @@ Read that file and follow its complete workflow.
 ## Arguments
 
 Optional task ID argument (e.g., `42` or `t42`). Without argument, presents interactive task discovery.
+Optional `--profile <name>` to override execution profile selection. Example: `/aitask-revert --profile fast 42`.

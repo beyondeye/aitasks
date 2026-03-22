@@ -3,6 +3,14 @@ name: aitask-explore
 description: Explore the codebase interactively, then create a task for implementation.
 ---
 
+## Arguments (Optional)
+
+This skill accepts an optional `--profile <name>` argument to override execution profile selection.
+
+Example: `/aitask-explore --profile fast`
+
+If provided, parse the profile name and store as `profile_override`. If not provided, set `profile_override` to null.
+
 ## Workflow
 
 ### Step 0: Sync with Remote (Best-effort)
@@ -169,7 +177,9 @@ TASK_DESC
 
 ### Step 3b: Select Execution Profile
 
-Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-workflow/execution-profile-selection.md`).
+Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-workflow/execution-profile-selection.md`) with:
+- `skill_name`: `"explore"`
+- `profile_override`: the value parsed from `--profile` argument (or null)
 
 Store the loaded profile as `active_profile` and `active_profile_filename` for use in Step 4 and the Step 5 handoff.
 

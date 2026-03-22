@@ -20,3 +20,4 @@ OpenCode adaptations, read **`.opencode/skills/opencode_tool_mapping.md`**.
 ## Arguments
 
 Accepts an optional task ID: `/aitask-pick 16` (parent) or `/aitask-pick 16_2` (child). Without argument, follows interactive selection.
+Optional `--profile <name>` to override execution profile selection. Example: `/aitask-pick --profile fast 16`.

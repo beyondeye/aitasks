@@ -20,3 +20,4 @@ OpenCode adaptations, read **`.opencode/skills/opencode_tool_mapping.md`**.
 ## Arguments
 
 Accepts optional task IDs: `/aitask-fold 106,108,112` or `/aitask-fold 106 108`. Without arguments, follows interactive discovery.
+Optional `--profile <name>` to override execution profile selection. Example: `/aitask-fold --profile fast 106,108`.

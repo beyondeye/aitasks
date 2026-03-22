@@ -5,9 +5,23 @@ description: Select the next AI task for implementation from the `aitasks/` dire
 
 ## Workflow
 
+### Step 0 (pre-parse): Extract `--profile` argument
+
+If the skill arguments contain `--profile <name>`:
+- Extract the `<name>` value (the word following `--profile`)
+- Store it as `profile_override`
+- Remove `--profile <name>` from the argument string before passing to Step 0b
+- If `--profile` appears but no name follows, warn: "Missing profile name after --profile" and set `profile_override` to null
+
+If no `--profile` in arguments, set `profile_override` to null.
+
+Example: `/aitask-pick --profile fast 42` or `/aitask-pick 42 --profile fast`
+
 ### Step 0a: Select Execution Profile
 
-Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-workflow/execution-profile-selection.md`).
+Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-workflow/execution-profile-selection.md`) with:
+- `skill_name`: `"pick"`
+- `profile_override`: the value parsed from `--profile` argument (or null)
 
 ### Step 0b: Check for Direct Task Selection (Optional Argument)
 

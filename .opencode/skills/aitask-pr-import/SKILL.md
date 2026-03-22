@@ -20,3 +20,4 @@ OpenCode adaptations, read **`.opencode/skills/opencode_tool_mapping.md`**.
 ## Arguments
 
 Accepts a PR URL or number: `/aitask-pr-import 42` or `/aitask-pr-import https://github.com/org/repo/pull/42`.
+Optional `--profile <name>` to override execution profile selection. Example: `/aitask-pr-import --profile fast`.

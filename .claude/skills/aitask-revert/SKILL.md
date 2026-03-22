@@ -8,12 +8,25 @@ user-invocable: true
 
 - No argument: show task discovery options (Step 1)
 - Numeric argument (e.g., `/aitask-revert 42` or `/aitask-revert t42`): skip discovery, go directly to task analysis (Step 2). Both `42` and `t42` are accepted — strip the leading `t` if present.
+- Optional `--profile <name>` to override execution profile selection. Example: `/aitask-revert --profile fast 42`.
 
 ## Workflow
 
-### Step 0: Select Execution Profile
+### Step 0 (pre-parse): Extract `--profile` argument
 
-Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-workflow/execution-profile-selection.md`).
+If the skill arguments contain `--profile <name>`:
+- Extract the `<name>` value (the word following `--profile`)
+- Store it as `profile_override`
+- Remove `--profile <name>` from the argument string before passing to Step 1
+- If `--profile` appears but no name follows, warn: "Missing profile name after --profile" and set `profile_override` to null
+
+If no `--profile` in arguments, set `profile_override` to null.
+
+### Step 0a: Select Execution Profile
+
+Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-workflow/execution-profile-selection.md`) with:
+- `skill_name`: `"revert"`
+- `profile_override`: the value parsed from `--profile` argument (or null)
 
 ### Step 1: Task Discovery
 
@@ -642,7 +655,7 @@ Set the following context variables from the created revert task, then read and 
 - **is_child**: `false` (revert creates standalone tasks)
 - **parent_id**: null
 - **parent_task_file**: null
-- **active_profile**: The execution profile loaded in Step 0 (or null if no profile)
+- **active_profile**: The execution profile loaded in Step 0a (or null if no profile)
 - **active_profile_filename**: The `<filename>` value from the scanner output (e.g., `fast.yaml`), or null if no profile
 - **previous_status**: `Ready`
 - **folded_tasks**: empty list

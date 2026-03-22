@@ -24,3 +24,4 @@ Read that file and follow its complete workflow.
 ## Arguments
 
 Accepts optional task IDs: `106,108,112` or `106 108`. Without arguments, follows interactive discovery.
+Optional `--profile <name>` to override execution profile selection. Example: `/aitask-fold --profile fast 106,108`.

@@ -4,11 +4,21 @@ description: Create an aitask from a pull request by analyzing PR data and gener
 user-invocable: true
 ---
 
+## Arguments (Optional)
+
+This skill accepts an optional `--profile <name>` argument to override execution profile selection.
+
+Example: `/aitask-pr-import --profile fast`
+
+If provided, parse the profile name and store as `profile_override`. If not provided, set `profile_override` to null.
+
 ## Workflow
 
 ### Step 0a: Select Execution Profile
 
-Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-workflow/execution-profile-selection.md`).
+Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-workflow/execution-profile-selection.md`) with:
+- `skill_name`: `"pr-import"`
+- `profile_override`: the value parsed from `--profile` argument (or null)
 
 ### Step 0c: Sync with Remote (Best-effort)
 

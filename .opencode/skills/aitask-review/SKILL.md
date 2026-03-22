@@ -19,4 +19,4 @@ OpenCode adaptations, read **`.opencode/skills/opencode_tool_mapping.md`**.
 
 ## Arguments
 
-No arguments. Follows interactive code review workflow.
+Optional `--profile <name>` to override execution profile selection. Example: `/aitask-review --profile fast`.

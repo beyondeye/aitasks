@@ -24,3 +24,4 @@ Read that file and follow its complete workflow.
 ## Arguments
 
 Accepts an optional task ID: `16` (parent) or `16_2` (child). Without argument, follows interactive selection.
+Optional `--profile <name>` to override execution profile selection. Example: `/aitask-pick --profile fast 16`.

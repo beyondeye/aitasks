@@ -5,9 +5,23 @@ description: Identify and merge related tasks into a single task, then optionall
 
 ## Workflow
 
+### Step 0 (pre-parse): Extract `--profile` argument
+
+If the skill arguments contain `--profile <name>`:
+- Extract the `<name>` value (the word following `--profile`)
+- Store it as `profile_override`
+- Remove `--profile <name>` from the argument string before passing to Step 0b
+- If `--profile` appears but no name follows, warn: "Missing profile name after --profile" and set `profile_override` to null
+
+If no `--profile` in arguments, set `profile_override` to null.
+
+Example: `/aitask-fold --profile fast 106,108` or `/aitask-fold 106,108 --profile fast`
+
 ### Step 0a: Select Execution Profile
 
-Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-workflow/execution-profile-selection.md`).
+Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-workflow/execution-profile-selection.md`) with:
+- `skill_name`: `"fold"`
+- `profile_override`: the value parsed from `--profile` argument (or null)
 
 ### Step 0b: Check for Explicit Task IDs (Optional Argument)
 
