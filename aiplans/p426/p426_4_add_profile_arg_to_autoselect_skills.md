@@ -95,3 +95,10 @@ Same change as Codex wrappers.
 ## Reference Files
 
 - `.claude/skills/task-workflow/execution-profile-selection-auto.md` — updated procedure with Input params (from t426_2)
+
+## Final Implementation Notes
+- **Actual work done:** Added `--profile <name>` argument parsing to both auto-select skills (pickrem, pickweb) and updated their procedure calls to pass `skill_name` and `profile_override`. Updated all 4 wrapper files (2 Codex + 2 OpenCode) to document `--profile` in their Arguments sections. Exactly as planned.
+- **Deviations from plan:** For pickweb Codex/OpenCode wrappers, also added child task ID format (`16_2`) to the Arguments description for consistency with pickrem wrappers. Renamed the original "Step 0: Initialize Data Branch" to "Step 0a" in both core skills to make room for the pre-parse step, consistent with the pattern established by t426_3 for interactive skills.
+- **Issues encountered:** None. All 6 files edited cleanly.
+- **Key decisions:** Used the same two-pattern approach as t426_3: pre-parse Step 0 extracts `--profile` before Step 0a (init data branch), and Step 1 passes the three parameters (`mode_label`, `skill_name`, `profile_override`) to the auto-select procedure.
+- **Notes for sibling tasks:** All 8 skills (6 interactive + 2 auto-select) now support `--profile <name>`. The auto-select procedure (`execution-profile-selection-auto.md`) already accepts these parameters from t426_2.
