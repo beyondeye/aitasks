@@ -3,7 +3,9 @@
 This procedure collects a quick user rating after a skill completes and updates
 rolling verified scores for the current code agent/model. It is referenced from Step 9b (task-workflow) and standalone skills (aitask-explore, aitask-explain, aitask-changelog, aitask-wrap, aitask-refresh-code-models, aitask-reviewguide-classify, aitask-reviewguide-merge, aitask-reviewguide-import, aitask-web-merge).
 
-**Input:** `skill_name` (string, for example `pick`, `explore`, `explain`)
+**Input:**
+- `skill_name` (string, required) — for example `pick`, `explore`, `explain`
+- `detected_agent_string` (string, optional) — pre-resolved agent string from Agent Attribution (e.g., `claudecode/opus4_6`). If provided, skips self-detection in step 2.
 
 **Guard:** If `feedback_collected` is `true`, skip this procedure entirely (feedback was already collected earlier in this workflow run). Otherwise, set `feedback_collected` to `true` before proceeding.
 
@@ -14,6 +16,10 @@ rolling verified scores for the current code agent/model. It is referenced from 
    **Default behavior:** If `enableFeedbackQuestions` is omitted, treat it as `true` and continue normally.
 
 2. **Identify yourself:**
+
+   **Fast path:** If `detected_agent_string` is available (non-null, non-empty), use it directly — skip the self-detection below and proceed to step 3.
+
+   **Self-detection fallback** (when `detected_agent_string` is not available):
    - Determine which code agent you are running in. Use one of: `claudecode`, `geminicli`, `codex`, `opencode`. **IMPORTANT:** Use `claudecode` (not `claude`), `geminicli` (not `gemini`).
    - Obtain your current model ID:
      - **Claude Code:** Read the "exact model ID" from the system message (e.g., `claude-opus-4-6`).
@@ -34,6 +40,13 @@ rolling verified scores for the current code agent/model. It is referenced from 
    **Score mapping:** `5 -> 5`, `4 -> 4`, `3 -> 3`, `1-2 -> 2`
 
 4. If the user selected a rating, update verified stats:
+
+   **If using `detected_agent_string` (fast path):**
+   ```bash
+   ./.aitask-scripts/aitask_verified_update.sh --agent-string "<detected_agent_string>" --skill "<skill_name>" --score <rating> --silent
+   ```
+
+   **If using self-detection fallback:**
    ```bash
    ./.aitask-scripts/aitask_verified_update.sh --agent "<agent>" --cli-id "<model_id>" --skill "<skill_name>" --score <rating> --silent
    ```

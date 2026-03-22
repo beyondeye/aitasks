@@ -13,4 +13,6 @@ This procedure records which code agent and LLM model is executing the task by s
    ./.aitask-scripts/aitask_update.sh --batch <task_num> --implemented-with "<agent_string>" --silent
    ```
 
+3. **Store for reuse:** Set `detected_agent_string` to the resolved `agent_string` value. This allows downstream procedures (e.g., Satisfaction Feedback) to skip re-detection.
+
 **Variant for aitask-pickweb:** Since pickweb does not call `aitask_update.sh` (no cross-branch operations), store the agent string in the completion marker JSON instead (add an `"implemented_with"` field). The `aitask-web-merge` skill will apply it during archival.

@@ -228,7 +228,7 @@ git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
 
 Extract `<N>` from the filename `t<N>_<name>.md`.
 
-**Record implementing agent:** Execute the **Agent Attribution Procedure** (see `../task-workflow/agent-attribution.md`) for task t\<N\> to record which code agent and model performed this wrap.
+**Record implementing agent:** Execute the **Agent Attribution Procedure** (see `../task-workflow/agent-attribution.md`) for task t\<N\> to record which code agent and model performed this wrap. Store the resulting `detected_agent_string` for use in Step 6 (Satisfaction Feedback).
 
 #### 4b: Create Plan File
 
@@ -318,7 +318,7 @@ Display the final summary:
 
 ### Step 6: Satisfaction Feedback
 
-Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/satisfaction-feedback.md`) with `skill_name` = `"wrap"`.
+Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/satisfaction-feedback.md`) with `skill_name` = `"wrap"` and `detected_agent_string` from Step 4a.
 
 ## Edge Cases
 
