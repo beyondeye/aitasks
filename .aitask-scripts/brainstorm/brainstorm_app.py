@@ -18,6 +18,7 @@ from textual.widgets import (
     Footer,
     Header,
     Label,
+    Markdown,
     Static,
     TabbedContent,
     TabPane,
@@ -29,6 +30,8 @@ from brainstorm.brainstorm_dag import (
     get_head,
     list_nodes,
     read_node,
+    read_plan,
+    read_proposal,
     set_head,
 )
 from brainstorm.brainstorm_dag_display import DAGDisplay
@@ -93,27 +96,84 @@ class InitSessionModal(ModalScreen):
 
 
 class NodeDetailModal(ModalScreen):
-    """Skeleton modal for viewing node details (content in t423_4)."""
+    """Modal for viewing node details with tabbed content (Metadata, Proposal, Plan)."""
 
     BINDINGS = [Binding("escape", "close", "Close", show=False)]
 
-    def __init__(self, node_id: str = ""):
+    def __init__(self, node_id: str, session_path: Path):
         super().__init__()
         self.node_id = node_id
+        self.session_path = session_path
 
     def compose(self) -> ComposeResult:
         with Container(id="node_detail_dialog"):
             yield Label(
                 f"Node Detail: {self.node_id}", id="node_detail_title"
             )
-            yield Label(
-                "Node detail viewer \u2014 coming in follow-up tasks",
-                id="node_placeholder",
-            )
+            with TabbedContent(id="node_detail_tabs"):
+                with TabPane("Metadata", id="tab_metadata"):
+                    yield VerticalScroll(
+                        Static(id="metadata_content"),
+                        id="metadata_scroll",
+                    )
+                with TabPane("Proposal", id="tab_proposal"):
+                    yield VerticalScroll(
+                        Markdown(id="proposal_content"),
+                        id="proposal_scroll",
+                    )
+                with TabPane("Plan", id="tab_plan"):
+                    yield VerticalScroll(
+                        Markdown(id="plan_content"),
+                        id="plan_scroll",
+                    )
             with Horizontal(id="node_detail_buttons"):
                 yield Button(
                     "Close", variant="default", id="btn_close_detail"
                 )
+
+    def on_mount(self) -> None:
+        """Load node data into all three tabs."""
+        try:
+            node_data = read_node(self.session_path, self.node_id)
+        except Exception:
+            node_data = {}
+
+        # --- Metadata tab ---
+        parents = node_data.get("parents", [])
+        desc = node_data.get("description", "")
+        created = node_data.get("created_at", "")
+        group = node_data.get("created_by_group", "")
+
+        lines = [
+            f"[bold]Node ID:[/bold] {self.node_id}",
+            f"[bold]Parents:[/bold] {', '.join(parents) if parents else 'root'}",
+            f"[bold]Description:[/bold] {desc}",
+            f"[bold]Created:[/bold] {created}",
+        ]
+        if group:
+            lines.append(f"[bold]Group:[/bold] {group}")
+
+        dims = get_dimension_fields(node_data)
+        if dims:
+            lines.append("")
+            lines.append("[bold]Dimensions:[/bold]")
+            for k, v in dims.items():
+                lines.append(f"  {k}: {v}")
+
+        self.query_one("#metadata_content", Static).update("\n".join(lines))
+
+        # --- Proposal tab ---
+        try:
+            proposal = read_proposal(self.session_path, self.node_id)
+        except Exception:
+            proposal = "*No proposal found.*"
+        self.query_one("#proposal_content", Markdown).update(proposal)
+
+        # --- Plan tab ---
+        plan = read_plan(self.session_path, self.node_id)
+        if plan is None:
+            plan = "*No plan generated.*"
+        self.query_one("#plan_content", Markdown).update(plan)
 
     @on(Button.Pressed, "#btn_close_detail")
     def close_detail(self) -> None:
@@ -253,7 +313,7 @@ class BrainstormApp(App):
     /* Node detail modal */
     #node_detail_dialog {
         width: 80%;
-        height: 80%;
+        height: 90%;
         background: $surface;
         border: thick $primary;
         padding: 1 2;
@@ -268,18 +328,19 @@ class BrainstormApp(App):
         background: $secondary;
     }
 
+    #node_detail_tabs {
+        height: 1fr;
+    }
+
+    #metadata_scroll, #proposal_scroll, #plan_scroll {
+        height: 1fr;
+        padding: 1 2;
+    }
+
     #node_detail_buttons {
         dock: bottom;
         height: 3;
         align: center middle;
-    }
-
-    #node_placeholder {
-        width: 100%;
-        height: 1fr;
-        content-align: center middle;
-        text-style: italic;
-        color: $text-muted;
     }
 
     Button {
@@ -346,7 +407,7 @@ class BrainstormApp(App):
         if event.key == "enter":
             focused = self.focused
             if isinstance(focused, NodeRow):
-                self.push_screen(NodeDetailModal(focused.node_id))
+                self.push_screen(NodeDetailModal(focused.node_id, self.session_path))
                 event.prevent_default()
                 event.stop()
                 return
@@ -452,7 +513,7 @@ class BrainstormApp(App):
 
     def on_dag_display_node_selected(self, event: DAGDisplay.NodeSelected) -> None:
         """Open node detail modal from DAG view."""
-        self.push_screen(NodeDetailModal(event.node_id))
+        self.push_screen(NodeDetailModal(event.node_id, self.session_path))
 
     def on_dag_display_head_changed(self, event: DAGDisplay.HeadChanged) -> None:
         """Update HEAD from DAG view."""
