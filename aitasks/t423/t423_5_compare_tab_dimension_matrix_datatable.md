@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t423_4]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [brainstorming, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-20 12:40
-updated_at: 2026-03-20 12:40
+updated_at: 2026-03-22 13:14
 ---
 
 ## Context
