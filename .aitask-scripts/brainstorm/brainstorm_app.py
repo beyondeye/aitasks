@@ -24,7 +24,14 @@ from textual.widgets import (
 )
 from textual import on, work
 
-from brainstorm.brainstorm_dag import get_dimension_fields, get_head, list_nodes, read_node
+from brainstorm.brainstorm_dag import (
+    get_dimension_fields,
+    get_head,
+    list_nodes,
+    read_node,
+    set_head,
+)
+from brainstorm.brainstorm_dag_display import DAGDisplay
 from brainstorm.brainstorm_session import crew_worktree, load_session, session_exists
 
 # ---------------------------------------------------------------------------
@@ -160,13 +167,19 @@ class BrainstormApp(App):
     }
 
     /* Placeholder labels for future tabs */
-    #dag_placeholder, #compare_placeholder,
+    #compare_placeholder,
     #actions_placeholder, #status_placeholder {
         width: 100%;
         content-align: center middle;
         text-style: italic;
         color: $text-muted;
         height: 100%;
+    }
+
+    /* DAG visualization */
+    DAGDisplay {
+        height: 1fr;
+        padding: 1 2;
     }
 
     /* Dashboard split pane */
@@ -299,13 +312,7 @@ class BrainstormApp(App):
                         id="detail_pane",
                     )
             with TabPane("DAG", id="tab_dag"):
-                yield VerticalScroll(
-                    Label(
-                        "DAG visualization \u2014 coming in follow-up tasks",
-                        id="dag_placeholder",
-                    ),
-                    id="dag_content",
-                )
+                yield DAGDisplay(id="dag_content")
             with TabPane("Compare", id="tab_compare"):
                 yield VerticalScroll(
                     Label(
@@ -368,6 +375,7 @@ class BrainstormApp(App):
             self.read_only = True
         self._update_session_status()
         self._populate_node_list()
+        self.query_one(DAGDisplay).load_dag(self.session_path)
 
     def _update_session_status(self) -> None:
         """Show session metadata in the right pane status area."""
@@ -441,6 +449,18 @@ class BrainstormApp(App):
         """When a NodeRow gets focus, update the detail pane."""
         if isinstance(event.widget, NodeRow):
             self._show_node_detail(event.widget.node_id)
+
+    def on_dag_display_node_selected(self, event: DAGDisplay.NodeSelected) -> None:
+        """Open node detail modal from DAG view."""
+        self.push_screen(NodeDetailModal(event.node_id))
+
+    def on_dag_display_head_changed(self, event: DAGDisplay.HeadChanged) -> None:
+        """Update HEAD from DAG view."""
+        if not self.read_only:
+            set_head(self.session_path, event.node_id)
+            self._populate_node_list()
+            self._update_session_status()
+            self.query_one(DAGDisplay).load_dag(self.session_path)
 
     def _on_init_result(self, confirmed: bool | None) -> None:
         """Handle InitSessionModal result."""
