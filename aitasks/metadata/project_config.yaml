@@ -1,4 +1,6 @@
 codeagent_coauthor_domain: aitasks.io
+test_command:
+lint_command:
 default_profiles:
   explore: fast
   pick: fast
