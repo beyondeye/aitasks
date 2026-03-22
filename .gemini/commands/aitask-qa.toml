@@ -1,0 +1,13 @@
+description = "Run QA analysis on any task — analyze changes, discover test gaps, run tests, and create follow-up test tasks."
+prompt = """
+
+@.gemini/skills/geminicli_tool_mapping.md
+
+@.gemini/skills/geminicli_planmode_prereqs.md
+
+Execute the following Claude Code skill workflow.
+
+Arguments: {{args}}
+
+@.claude/skills/aitask-qa/SKILL.md
+"""
