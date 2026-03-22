@@ -415,9 +415,9 @@ class DAGDisplay(VerticalScroll):
         if self._focused_idx < 0:
             self._focused_idx = 0
 
-        self._render()
+        self._render_dag()
 
-    def _render(self) -> None:
+    def _render_dag(self) -> None:
         """Build full DAG rendering and update display."""
         if not self._layers:
             return
@@ -486,10 +486,10 @@ class DAGDisplay(VerticalScroll):
         """Move focus to next node (j key)."""
         if self._focused_idx < len(self._node_order) - 1:
             self._focused_idx += 1
-            self._render()
+            self._render_dag()
 
     def action_prev_node(self) -> None:
         """Move focus to previous node (k key)."""
         if self._focused_idx > 0:
             self._focused_idx -= 1
-            self._render()
+            self._render_dag()
