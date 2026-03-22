@@ -73,6 +73,10 @@ Render as Rich `Text` lines:
 4. j/k moves focus, Enter opens detail, h sets HEAD
 5. Scrolling follows focused node for tall graphs
 
-## Post-Implementation
+## Final Implementation Notes
 
-Follow Step 9 of the task workflow (testing, verification, commit).
+- **Actual work done:** Created `brainstorm_dag_display.py` (~290 LOC) with full DAG layout algorithm (Kahn's topological sort + barycenter ordering) and ASCII renderer (Rich Text boxes + Unicode box-drawing edge routing). Integrated into `brainstorm_app.py` by replacing the DAG tab placeholder, adding event handlers for NodeSelected/HeadChanged messages, and loading the DAG on session init. Total: +290 new LOC, +29/-9 modified LOC.
+- **Deviations from plan:** Initial implementation had an overly complex rendering approach with full-width padded lines and composite extraction. Simplified to a cleaner approach where `_render_node_box` returns BOX_WIDTH-wide lines and `_render_layer` composites them by concatenation with gap padding. Also fixed a closure bug in `_order_within_layers` (bound `prev_positions` explicitly via default arg).
+- **Issues encountered:** None significant. Working directory shifted during testing but was corrected.
+- **Key decisions:** Used Kahn's algorithm (BFS from roots) for layer assignment instead of DFS — handles multi-parent merges correctly. Used grid-based character routing for edges rather than direct line drawing — simpler to handle overlaps and junctions. Kept all layout/rendering in a separate module to avoid bloating `brainstorm_app.py`.
+- **Notes for sibling tasks:** `DAGDisplay` is in `.aitask-scripts/brainstorm/brainstorm_dag_display.py`. It emits `NodeSelected(node_id)` and `HeadChanged(node_id)` messages. The widget's `load_dag(session_path)` must be called after session load. The `_node_order` list provides flat traversal order for any future features needing node iteration. CSS selector is `DAGDisplay`. The `NodeDetailModal` (t423_4) will be invoked via `on_dag_display_node_selected` — no changes needed to the DAG display for that integration.
