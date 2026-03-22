@@ -130,3 +130,10 @@ Then keep existing auto-select content under the new sub-heading.
 - `aitasks/metadata/project_config.yaml` — where `default_profiles` is read from
 - `aitasks/metadata/userconfig.yaml` — where personal `default_profiles` override is read from
 - `.aitask-scripts/aitask_scan_profiles.sh` — profile scanner output format
+
+## Final Implementation Notes
+- **Actual work done:** Added `## Input` section and `### Check for override or default profile` resolution logic to both `execution-profile-selection.md` (interactive) and `execution-profile-selection-auto.md` (auto-select). Existing scan/select and auto-select flows preserved under new sub-headings as fallback paths. Exactly as planned.
+- **Deviations from plan:** Added `"qa"` to the skill_name examples in the interactive procedure's Input section, consistent with t426_1's addition of `qa` to valid skill names. The auto-select version uses `"pickrem"`, `"pickweb"` examples as planned.
+- **Issues encountered:** None. Both files edited cleanly in a single pass.
+- **Key decisions:** Used `### Scan and select` (interactive) and `### Auto-select` (auto) as sub-heading names to clearly delineate the new resolution logic from the existing fallback behavior. The auto-select version uses slightly different display messages (prefixed with `<mode_label> mode:`) to match the existing auto-select convention.
+- **Notes for sibling tasks:** t426_3 (add --profile arg to interactive skills) should pass `skill_name` and `profile_override` when invoking the interactive procedure. t426_4 (add --profile arg to auto-select skills) should pass `skill_name` and `profile_override` when invoking the auto-select procedure. Both procedures now accept these as documented inputs. The resolution order is: override → default (userconfig then project_config) → interactive/auto fallback.
