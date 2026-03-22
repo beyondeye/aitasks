@@ -38,10 +38,12 @@ macos
 model_selection
 modelvrapper
 opencode
+openshell
 release_scripts
 remote
 remove_support
 reviewguides
+sanboxing
 script-performance
 skill_optiomizations
 statistics
