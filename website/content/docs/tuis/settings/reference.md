@@ -142,6 +142,7 @@ These keys control behavior for the fully autonomous remote workflow (`/aitask-p
 |-----|------|-------------|
 | `codeagent_coauthor_domain` | string | Email domain used for custom code-agent commit coauthors |
 | `verify_build` | string or list | Shell command(s) run after implementation to verify the build |
+| `default_profiles` | dict | Default execution profile per skill. Maps skill names (`pick`, `fold`, `review`, `pr-import`, `revert`, `explore`, `pickrem`, `pickweb`, `qa`) to profile names (without `.yaml`). Users can override in `userconfig.yaml`. The `--profile` argument overrides both |
 
 ## Model Entry Schema
 

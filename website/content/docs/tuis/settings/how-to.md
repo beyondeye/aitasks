@@ -61,6 +61,47 @@ The Models tab is read-only. To update model definitions, edit the `aitasks/meta
 
 > **Note:** Project config values are shared and git-tracked. Changing them affects the whole team.
 
+## Set Default Execution Profiles
+
+Default profiles let you skip the profile selection prompt by pre-assigning a profile to each skill.
+
+### Using the Settings TUI
+
+1. Press **c** to go to the **Project Config** tab
+2. Find the **Default Profiles** section (one row per skill)
+3. Press **Enter** on a skill to open the profile picker
+4. Select a profile name or `<not set>` to clear
+5. Click **Save Project Config** to persist
+
+### Using YAML directly
+
+Add `default_profiles` to `project_config.yaml` (team-wide) or `userconfig.yaml` (personal, gitignored):
+
+```yaml
+# project_config.yaml (shared with team)
+default_profiles:
+  pick: fast
+  review: default
+
+# userconfig.yaml (personal override)
+default_profiles:
+  pick: default   # overrides team's "fast"
+```
+
+Valid skill names: `pick`, `fold`, `review`, `pr-import`, `revert`, `explore`, `pickrem`, `pickweb`, `qa`.
+
+### Override with `--profile`
+
+Any skill that supports profiles accepts `--profile <name>` to override both team and personal defaults:
+
+```
+/aitask-pick --profile fast
+/aitask-fold --profile fast 106,108
+/aitask-pickrem 42 --profile remote
+```
+
+**Resolution order:** `--profile` argument > `userconfig.yaml` > `project_config.yaml` > interactive/auto-select.
+
 ## Edit an Execution Profile
 
 1. Press **p** to go to the **Profiles** tab

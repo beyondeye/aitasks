@@ -51,6 +51,46 @@ enableFeedbackQuestions: true
 test_followup_task: ask
 ```
 
+## Default Profile Configuration
+
+Instead of selecting a profile interactively each time, you can set a default per skill in `project_config.yaml` (team-wide) or `userconfig.yaml` (personal override):
+
+```yaml
+# project_config.yaml (shared with team)
+default_profiles:
+  pick: fast
+  review: default
+
+# userconfig.yaml (personal, gitignored)
+default_profiles:
+  pick: default   # overrides team's "fast"
+```
+
+Valid skill names: `pick`, `fold`, `review`, `pr-import`, `revert`, `explore`, `pickrem`, `pickweb`, `qa`. Values are profile names (without `.yaml` extension) matching the `name` field in profile YAML files.
+
+You can also configure defaults via the Settings TUI: `ait settings` → Project Config tab → Default Profiles section.
+
+## Profile Override Argument
+
+All skills that support profiles accept an optional `--profile <name>` argument to override both team and personal defaults:
+
+```
+/aitask-pick --profile fast
+/aitask-pick 42 --profile fast
+/aitask-fold --profile fast 106,108
+/aitask-review --profile default
+/aitask-pickrem 42 --profile remote
+```
+
+The argument is position-independent and can appear anywhere in the argument string.
+
+### Resolution Order
+
+1. `--profile <name>` argument (highest priority)
+2. `userconfig.yaml` → `default_profiles.<skill>` (personal)
+3. `project_config.yaml` → `default_profiles.<skill>` (team)
+4. Interactive selection / auto-select (fallback)
+
 ## Notes
 
 - Use `enableFeedbackQuestions: false` for unattended or non-interactive profiles
