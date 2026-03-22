@@ -5,10 +5,9 @@ depends: [419]
 issue_type: feature
 status: Ready
 labels: [brainstorming, tui]
-children_to_implement: [t423_1, t423_2, t423_3, t423_4, t423_5, t423_6, t423_7, t423_8,
-  t423_9, t423_10, t423_11]
+children_to_implement: [t423_2, t423_3, t423_4, t423_5, t423_6, t423_7, t423_8]
 created_at: 2026-03-19 21:40
-updated_at: 2026-03-20 12:41
+updated_at: 2026-03-22 10:21
 boardcol: now
 boardidx: 10
 ---
