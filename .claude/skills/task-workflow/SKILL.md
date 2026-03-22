@@ -483,7 +483,6 @@ The following procedures are in individual files — read on demand when referen
 - **Code-Agent Commit Attribution Procedure** (`code-agent-commit-attribution.md`) — Resolve code-agent Co-Authored-By trailer. Referenced from Step 8.
 - **Model Self-Detection Sub-Procedure** (`model-self-detection.md`) — Detect the current code agent and model. Referenced from Agent Attribution and Satisfaction Feedback.
 - **Agent Attribution Procedure** (`agent-attribution.md`) — Record implementing code agent and model. Referenced from Step 7.
-- **Test Follow-up Task Procedure** (`test-followup-task.md`) — DEPRECATED: replaced by `/aitask-qa` skill.
 - **Satisfaction Feedback Procedure** (`satisfaction-feedback.md`) — Collect user feedback and update verified model scores. Referenced from Step 9b and standalone skills.
 - **Lock Release Procedure** (`lock-release.md`) — Release task locks. Referenced from Task Abort Procedure.
 - **Execution Profile Selection Procedure** (`execution-profile-selection.md`) — Interactive profile scan and selection. Referenced from Step 0a in calling skills and Step 3b.
