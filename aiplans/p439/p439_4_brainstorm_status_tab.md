@@ -93,5 +93,12 @@ StatusLogRow:focus { background: $accent 20%; }
 7. Press `t`/`f`/`r` in modal for tail/full/refresh
 8. Verify auto-refresh updates both agent statuses and log list
 
+## Final Implementation Notes
+- **Actual work done:** All 6 planned changes implemented — log utils import, `LogDetailModal` (modal screen with Tail/Full tabs), `StatusLogRow` (focusable widget), `_refresh_status_tab()` extension with log section, Enter handler in `on_key()`, and CSS for both new widgets. Exactly as specified in the plan.
+- **Deviations from plan:** `LogDetailModal` uses `TabbedContent` with two `TabPane`s (Tail/Full) instead of a simple scrollable text area — this provides a better UX matching the `NodeDetailModal` pattern. Added `_update_header()` method to refresh file size on `r` key. CSS is more detailed than the plan specified, including proper styling for the modal title, tabs, scroll areas, and buttons (matching `NodeDetailModal` CSS pattern).
+- **Issues encountered:** None
+- **Key decisions:** Used `ModalScreen` (like `NodeDetailModal`) rather than `Screen` (like the dashboard's `LogViewScreen`) since the brainstorm TUI uses modals for detail views. Both tabs load content on mount rather than lazy-loading.
+- **Notes for sibling tasks:** The import pattern for brainstorm_app.py is `from agentcrew.agentcrew_log_utils import ...` (qualified), which differs from the dashboard's unqualified `from agentcrew_log_utils import ...` because the brainstorm app doesn't add the agentcrew dir to sys.path directly. The `StatusLogRow` stores the full `log_info` dict (from `list_agent_logs()`) for easy access in the Enter handler.
+
 ### Post-Implementation
 Archive task, commit, push per standard workflow.
