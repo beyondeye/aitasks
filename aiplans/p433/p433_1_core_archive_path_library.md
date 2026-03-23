@@ -237,11 +237,10 @@ bash tests/test_archive_utils_v2.sh
 
 All tests must pass.
 
-### Step 9: Final Implementation Notes
+## Final Implementation Notes
 
-_(To be filled in after implementation)_
-
-- **Actual files created/modified:**
-- **Issues encountered:**
-- **Deviations from plan:**
-- **ShellCheck result:**
+- **Actual work done:** Created `.aitask-scripts/lib/archive_utils_v2.sh` (154 lines) exactly as planned — guard variable, path computation functions (`archive_bundle`, `archive_dir`, `archive_path_for_id`), temp dir management, single-archive primitives (`_search_tar_gz_v2`, `_extract_from_tar_gz_v2`), and multi-archive operations (`_find_archive_for_task`, `_search_all_archives`, `_search_legacy_then_v2`).
+- **Deviations from plan:** None. Implementation matched the plan exactly.
+- **Issues encountered:** None. ShellCheck clean (only SC1091 info for sourced file, same as task_utils.sh). All spot-check values match expected output.
+- **Key decisions:** Used `_b` prefix on directory names to avoid collision with existing `t*` or `old*` names. Inlined arithmetic in `archive_path_for_id` to avoid subshell overhead.
+- **Notes for sibling tasks:** The library is ready to source. Sibling tasks (t433_3 through t433_7) can use `source "${SCRIPT_DIR}/lib/archive_utils_v2.sh"` and call all public functions. The `_v2` suffix on internal functions ensures no collision when both old and new libraries are sourced simultaneously during the transition period. The `_search_legacy_then_v2` function provides the fallback pattern for the migration period.
