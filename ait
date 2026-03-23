@@ -227,7 +227,13 @@ case "${1:-help}" in
             *)  echo "ait brainstorm: unknown subcommand '$subcmd'" >&2; echo "Available: init, status, list, archive" >&2; exit 1 ;;
         esac
         ;;
-    git)          shift; source "$SCRIPTS_DIR/lib/task_utils.sh"; task_git "$@" ;;
+    git)          shift; source "$SCRIPTS_DIR/lib/task_utils.sh"
+                  if [[ "${1:-}" == "push" ]]; then
+                      task_push
+                  else
+                      task_git "$@"
+                  fi
+                  ;;
     help|--help|-h) show_usage ;;
     --version|-v)   show_version ;;
     *)

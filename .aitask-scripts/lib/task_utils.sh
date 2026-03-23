@@ -48,22 +48,52 @@ task_git() {
 }
 
 # Sync task data from remote (independent of code sync in branch mode)
+# Uses --rebase instead of --ff-only so sync succeeds even when local has
+# unpushed commits (e.g. from a previous failed push cycle).
 task_sync() {
     _ait_detect_data_worktree
     if [[ "$_AIT_DATA_WORKTREE" != "." ]]; then
-        git -C "$_AIT_DATA_WORKTREE" pull --ff-only --quiet 2>/dev/null || true
+        git -C "$_AIT_DATA_WORKTREE" pull --rebase --quiet 2>/dev/null || true
     else
-        git pull --ff-only --quiet 2>/dev/null || true
+        git pull --rebase --quiet 2>/dev/null || true
     fi
 }
 
-# Push task data to remote (independent of code push in branch mode)
+# Push task data to remote with automatic pull-rebase on conflict.
+# Retries up to 3 times. Failures are non-fatal (best-effort push).
 task_push() {
+    local max_attempts=3
+    local attempt
+    for (( attempt=1; attempt<=max_attempts; attempt++ )); do
+        if _task_push_once 2>/dev/null; then
+            return 0
+        fi
+        # Pull with rebase to incorporate remote changes, then retry
+        if [[ $attempt -lt $max_attempts ]]; then
+            _task_pull_rebase 2>/dev/null || true
+        fi
+    done
+    # All attempts exhausted — best-effort, don't fail the workflow
+    return 0
+}
+
+# Internal: single push attempt
+_task_push_once() {
     _ait_detect_data_worktree
     if [[ "$_AIT_DATA_WORKTREE" != "." ]]; then
-        git -C "$_AIT_DATA_WORKTREE" push --quiet 2>/dev/null || true
+        git -C "$_AIT_DATA_WORKTREE" push --quiet
     else
-        git push --quiet 2>/dev/null || true
+        git push --quiet
+    fi
+}
+
+# Internal: pull with rebase to catch up with remote
+_task_pull_rebase() {
+    _ait_detect_data_worktree
+    if [[ "$_AIT_DATA_WORKTREE" != "." ]]; then
+        git -C "$_AIT_DATA_WORKTREE" pull --rebase --quiet
+    else
+        git pull --rebase --quiet
     fi
 }
 
