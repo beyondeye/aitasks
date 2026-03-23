@@ -1,5 +1,56 @@
 # Changelog
 
+## v0.13.0
+
+### Features
+
+- **Diff Viewer TUI** (t417): Added a complete plan diff viewer with classical and structural diff modes, side-by-side and interleaved layouts, word-level intra-line highlighting, markdown syntax highlighting, unified multi-comparison view, plan merge with selective hunk acceptance, and a file browser for plan selection.
+- **Brainstorm Engine** (t419) *(WIP)*: Built the brainstorm engine with a DAG operations library, session management CLI, agent type templates (explorer, comparator, synthesizer, detailer, patcher), configurable agent model settings, and TUI scaffolding with tabbed navigation.
+- **Brainstorm TUI** (t423) *(WIP)*: Added a full brainstorm TUI with a dashboard showing node list and detail pane, ASCII art DAG visualization, node detail modal with metadata/proposal/plan tabs, dimension comparison matrix, an actions wizard for launching brainstorm operations, and crew/agent status monitoring.
+- **QA Skill** (t428): Introduced `/aitask-qa` as a standalone skill for analyzing test coverage gaps, with tiered testing modes (quick/standard/exhaustive), a health score system, verification gate, and configurable profile keys in the settings TUI.
+- **Default Execution Profiles** (t426): Added support for default profile assignment per skill in project config, `--profile` override argument on all 8 interactive and auto-select skills, and a per-skill profile picker in the settings TUI.
+- **Agent Log Browsing** (t439) *(WIP)*: Added log capture for agent subprocesses, shared log utilities, and log browsing screens in both the AgentCrew Dashboard and Brainstorm TUI.
+- **Loading Indicators** (t421): Added loading overlay animations for async board operations like sync, commit, lock, unlock, archive, and delete.
+- **Brainstorm Delete** (t441) *(WIP)*: Added `ait brainstorm delete` subcommand for cleaning up brainstorm sessions with proper branch and worktree removal.
+- **Test and Lint Commands in Settings** (t428_4): Added `test_command` and `lint_command` configuration keys to project settings with preset support in the TUI.
+- **AgentCrew Operation Groups** (t419_2) *(WIP)*: Added operation groups to AgentCrew for organizing and scheduling agents by group with priority ordering.
+
+### Bug Fixes
+
+- **Parallel Task Creation Race Condition** (t429): Fixed race condition when creating child tasks in parallel by adding POSIX `mkdir`-based locking around the critical section.
+- **Brainstorm TUI Bootstrap** (t434): Fixed brainstorm TUI failing to create a root node on init, added brief preview display, and fixed wizard click handling.
+- **Task Data Push Conflicts** (t436): Added retry-rebase logic to task push/sync for handling concurrent pushes to the aitask-data branch.
+- **Task Creation Batch Procedure** (t435): Refactored task creation invocation into a shared procedure to prevent agents from struggling with shell quoting in batch mode.
+- **DAG Tab Crash** (t430): Fixed crash in DAG tab caused by method name conflicting with Textual internals.
+- **Enter Key in Dialogs** (t425): Added Enter key confirmation to all TUI modal dialogs with text input fields.
+- **SIGPIPE in Recent Archived** (t442): Fixed crash when piping sorted output under `set -euo pipefail` in the recent-archived query.
+- **Crew Init Orphan Branches** (t445): Changed AgentCrew worktrees to use orphan branches, avoiding unnecessary history from the main branch.
+- **Git Log in Branch Mode** (t446): Fixed bare `git log` commands in skills to use `./ait git log` when task data lives on a separate branch.
+- **Diff Viewer Visual Tweaks** (t417_13): Added colored line numbers and content padding to the diff viewer display.
+
+### Improvements
+
+- **Numbered Archive Scheme** (t433): Replaced the single monolithic `old.tar.gz` with numbered per-range archives for faster lookups, parallel-safe archiving, and O(1) task resolution.
+- **Decouple Test Followup** (t428_2): Removed the embedded Step 8b test-followup from the task workflow, replaced by the standalone `/aitask-qa` skill.
+- **Avoid Duplicate Agent Query** (t432): Eliminated redundant agent/model detection by passing the resolved agent string through the task workflow context.
+
+### Documentation
+
+- **Brainstorm Engine Architecture** (t419_1) *(WIP)*: Published the complete architecture specification for the brainstorm engine covering data formats, templates, context assembly, and orchestration flow.
+- **Default Profiles Documentation** (t426_6): Added documentation for default profile configuration, `--profile` override, and resolution order.
+- **QA Skill Documentation** (t428_5): Added skill reference page, QA testing workflow guide, and updated settings documentation.
+
+### Tests
+
+- **Archive Library Tests** (t433_2): Added comprehensive tests for the v2 archive path library.
+- **Archive Integration Tests** (t433_6): Added end-to-end integration tests for the v2 archive system.
+
+### Maintenance
+
+- **Organize aidocs** (t418): Moved documentation files into brainstorming and agentcrew subdirectories.
+- **Pin Dependencies** (t420): Pinned all Python dependency versions and upgraded to Textual 8.x.
+- **Remove Deprecated Step 8b** (t431): Deleted the deprecated test-followup-task procedure file.
+
 ## v0.12.2
 
 ### Maintenance
