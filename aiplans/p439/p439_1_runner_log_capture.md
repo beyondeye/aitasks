@@ -92,5 +92,12 @@ After `agents[name]["status"] = "Error"`, add:
 2. Run `shellcheck` on any bash files if touched (none expected here — Python only)
 3. Manual testing: create a crew, add work, start runner, verify `<agent>_log.txt` files appear with headers and agent output
 
+## Final Implementation Notes
+- **Actual work done:** All 5 planned changes implemented exactly as specified — module-level `_log_handles` dict, `append_to_agent_log()` helper, `launch_agent()` log file capture replacing DEVNULL, stale marker in `mark_stale_as_error()`, and handle cleanup in `graceful_shutdown()`
+- **Deviations from plan:** None — implementation matched the plan precisely
+- **Issues encountered:** None
+- **Key decisions:** Log files use append mode (`"a"`) so re-launches of the same agent append to the existing log rather than overwriting
+- **Notes for sibling tasks:** Log files follow the existing per-agent file convention: `<agent_name>_log.txt` in the crew worktree root. The `_log_handles` dict is module-level and tracks open file handles by agent name. t439_2 (shared log utils) should glob for `*_log.txt` files in the worktree. The log header format uses `===` delimiters with agent name, type, string, timestamp, and command on separate lines, followed by a `=` x 60 separator before the actual agent output begins.
+
 ### Step 9: Post-Implementation
 Archive task, commit, push per standard workflow.
