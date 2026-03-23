@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [task-archive]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 09:58
-updated_at: 2026-03-23 09:58
+updated_at: 2026-03-23 10:42
 ---
 
 ## Core Archive Path Library
