@@ -41,6 +41,8 @@ CONFIG_FILE = "aitasks/metadata/crew_runner_config.yaml"
 DEFAULT_INTERVAL = 30
 DEFAULT_MAX_CONCURRENT = 3
 
+_log_handles: dict[str, object] = {}  # agent_name → open file handle for log
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -56,6 +58,15 @@ def log(msg: str, batch: bool = False) -> None:
     if not batch:
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
         print(f"[{ts}] {msg}", file=sys.stderr)
+
+
+def append_to_agent_log(worktree: str, name: str, message: str) -> None:
+    """Append a timestamped message to an agent's log file."""
+    log_path = os.path.join(worktree, f"{name}_log.txt")
+    if not os.path.isfile(log_path):
+        return
+    with open(log_path, "a") as f:
+        f.write(f"\n=== {now_utc()} | {message} ===\n")
 
 
 def parse_timestamp(ts_str: str) -> datetime | None:
@@ -280,6 +291,7 @@ def mark_stale_as_error(worktree: str, stale_agents: list[str],
             update_yaml_field(status_file, "error_message", "Heartbeat timeout — agent presumed dead")
             update_yaml_field(status_file, "completed_at", now_utc())
             agents[name]["status"] = "Error"
+            append_to_agent_log(worktree, name, "STALE: heartbeat timeout — marked as Error")
 
 
 def process_pending_commands(worktree: str, agents: dict[str, dict], batch: bool) -> None:
@@ -405,13 +417,19 @@ def launch_agent(worktree: str, name: str, agents: dict[str, dict],
     # Launch the agent process
     log(f"Launching agent '{name}' (type={atype}, string={agent_string})", batch)
     try:
-        proc = subprocess.Popen(
-            ["./ait", "codeagent", "--agent-string", agent_string,
-             "invoke", "raw", "-p", work2do_content],
-            cwd=worktree,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        # Capture agent stdout/stderr to a per-agent log file
+        log_path = os.path.join(worktree, f"{name}_log.txt")
+        log_fh = open(log_path, "a")
+        cmd = ["./ait", "codeagent", "--agent-string", agent_string,
+               "invoke", "raw", "-p", work2do_content]
+        log_fh.write(f"=== Agent: {name} | Type: {atype} | String: {agent_string} ===\n")
+        log_fh.write(f"=== Started: {now_utc()} ===\n")
+        log_fh.write(f"=== Command: {' '.join(cmd)} ===\n")
+        log_fh.write(f"{'=' * 60}\n")
+        log_fh.flush()
+
+        proc = subprocess.Popen(cmd, cwd=worktree, stdout=log_fh, stderr=log_fh)
+        _log_handles[name] = log_fh
         update_yaml_field(status_file, "pid", proc.pid)
         agents[name]["pid"] = proc.pid
         if batch:
@@ -581,6 +599,14 @@ def graceful_shutdown(worktree: str, crew_id: str, interval: int, batch: bool) -
     if os.path.isfile(crew_status_path):
         update_yaml_field(crew_status_path, "status", "Killing")
         update_yaml_field(crew_status_path, "updated_at", now_utc())
+
+    # Close agent log file handles
+    for name, fh in _log_handles.items():
+        try:
+            fh.close()
+        except Exception:
+            pass
+    _log_handles.clear()
 
     git_commit_push_if_changes(worktree, "runner: graceful shutdown", batch)
 
