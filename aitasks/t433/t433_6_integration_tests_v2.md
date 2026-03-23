@@ -7,7 +7,7 @@ status: Implementing
 labels: [task-archive]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 09:58
-updated_at: 2026-03-23 13:25
+updated_at: 2026-03-23 13:31
 ---
 
 ## Integration Tests for V2 Archive System
