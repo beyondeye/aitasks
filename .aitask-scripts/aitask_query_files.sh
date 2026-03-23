@@ -379,9 +379,9 @@ cmd_recent_archived() {
     # Scan parent archived tasks
     for f in "$ARCHIVED_DIR"/t*_*.md; do
         [[ -e "$f" ]] || continue
-        completed_at=$({ grep "^completed_at:" "$f" 2>/dev/null || true; } | sed 's/^completed_at:[[:space:]]*//' | head -n 1)
+        completed_at=$({ grep "^completed_at:" "$f" 2>/dev/null || true; } | sed 's/^completed_at:[[:space:]]*//' | head -n 1) || true
         [[ -z "$completed_at" ]] && completed_at="0000-00-00 00:00"
-        issue_type=$({ grep "^issue_type:" "$f" 2>/dev/null || true; } | sed 's/^issue_type:[[:space:]]*//' | head -n 1)
+        issue_type=$({ grep "^issue_type:" "$f" 2>/dev/null || true; } | sed 's/^issue_type:[[:space:]]*//' | head -n 1) || true
         basename_f=$(basename "$f" .md)
         entries+=("${completed_at}|${f}|${issue_type}|${basename_f}")
     done
@@ -391,9 +391,9 @@ cmd_recent_archived() {
         [[ -d "$d" ]] || continue
         for f in "$d"t*_*.md; do
             [[ -e "$f" ]] || continue
-            completed_at=$({ grep "^completed_at:" "$f" 2>/dev/null || true; } | sed 's/^completed_at:[[:space:]]*//' | head -n 1)
+            completed_at=$({ grep "^completed_at:" "$f" 2>/dev/null || true; } | sed 's/^completed_at:[[:space:]]*//' | head -n 1) || true
             [[ -z "$completed_at" ]] && completed_at="0000-00-00 00:00"
-            issue_type=$({ grep "^issue_type:" "$f" 2>/dev/null || true; } | sed 's/^issue_type:[[:space:]]*//' | head -n 1)
+            issue_type=$({ grep "^issue_type:" "$f" 2>/dev/null || true; } | sed 's/^issue_type:[[:space:]]*//' | head -n 1) || true
             basename_f=$(basename "$f" .md)
             entries+=("${completed_at}|${f}|${issue_type}|${basename_f}")
         done
@@ -405,7 +405,7 @@ cmd_recent_archived() {
     fi
 
     local sorted
-    sorted=$(printf '%s\n' "${entries[@]}" | sort -t'|' -k1 -r | head -n "$limit")
+    sorted=$(printf '%s\n' "${entries[@]}" | sort -t'|' -k1 -r | head -n "$limit") || true
     while IFS='|' read -r ca path itype tname; do
         echo "RECENT_ARCHIVED:${path}|${ca}|${itype}|${tname}"
     done <<< "$sorted"
