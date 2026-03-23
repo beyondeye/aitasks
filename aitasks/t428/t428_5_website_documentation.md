@@ -1,12 +1,13 @@
 ---
 priority: medium
 effort: medium
-depends: [428_1, 428_2, 428_4]
+depends: [t428_1, t428_2, t428_4]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [testing, qa, documentation]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-22 11:23
-updated_at: 2026-03-22 11:23
+updated_at: 2026-03-23 19:13
 ---
 
 ## Context
