@@ -209,17 +209,14 @@ All steps execute sequentially without further user prompts.
 
 #### 4a: Create Task File
 
-```bash
-./.aitask-scripts/aitask_create.sh --batch --commit \
-  --name "<task_name>" \
-  --desc-file - \
-  --priority <priority> \
-  --effort <effort> \
-  --type <issue_type> \
-  --labels "<labels>" <<'TASK_DESC'
-<task summary content>
-TASK_DESC
-```
+Execute the **Batch Task Creation Procedure** (see `../task-workflow/task-creation-batch.md`) with:
+- mode: `parent`
+- name: `"<task_name>"`
+- priority: `<priority>`
+- effort: `<effort>`
+- issue_type: `<issue_type>`
+- labels: `"<labels>"`
+- description: `<task summary content>`
 
 **Parse output** to extract the created task filename and ID:
 ```bash

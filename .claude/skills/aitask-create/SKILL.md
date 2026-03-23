@@ -257,6 +257,8 @@ If `--finalize` fails (no network, no counter branch), inform user: "Draft saved
 
 ## Batch Mode (Non-Interactive)
 
+> **Note:** For the canonical batch creation templates used by other skills, see `.claude/skills/task-workflow/task-creation-batch.md`.
+
 For non-interactive task creation (e.g., when creating child tasks during planning), use the batch script directly:
 
 ```bash

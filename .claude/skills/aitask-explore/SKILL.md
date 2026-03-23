@@ -154,20 +154,23 @@ Use `AskUserQuestion` to confirm or modify:
 - **primary_description:** The task description based on exploration findings
 - **folded_task_files:** File paths of each selected folded task
 
-Use the returned merged description as the `TASK_DESC` for `aitask_create.sh` below.
+Use the returned merged description as the task description for the creation procedure below.
 
 **Create the task:**
 
-```bash
-./.aitask-scripts/aitask_create.sh --batch --commit --name "<name>" --desc-file - --priority <p> --effort <e> --type <issue_type> --labels <l> <<'TASK_DESC'
-<task description (or merged description if folded_tasks is non-empty)>
-TASK_DESC
-```
+Execute the **Batch Task Creation Procedure** (see `.claude/skills/task-workflow/task-creation-batch.md`) with:
+- mode: `parent`
+- name: `"<name>"`
+- priority: `<p>`
+- effort: `<e>`
+- issue_type: `<issue_type>`
+- labels: `"<l>"`
+- description: task description (or merged description if folded_tasks is non-empty)
 
-- Read back the created task file to confirm the assigned task ID:
-  ```bash
-  git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
-  ```
+Read back the created task file to confirm the assigned task ID:
+```bash
+git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
+```
 
 **If folded_tasks is non-empty**, execute the **Task Fold Marking Procedure** (see `.claude/skills/task-workflow/task-fold-marking.md`) with:
 - **primary_task_num:** `<task_num>` (from the created task)

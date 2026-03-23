@@ -27,32 +27,26 @@ Include in the follow-up task:
 
 ## Create the task
 
+Execute the **Batch Task Creation Procedure** (see `../task-workflow/task-creation-batch.md`) with:
+
 **If `is_child` is true** (create as sibling of the target task's parent):
-```bash
-./.aitask-scripts/aitask_create.sh --batch --commit \
-  --parent <parent_id> \
-  --no-sibling-dep \
-  --name "test_<short_description>" \
-  --type test \
-  --priority medium \
-  --effort medium \
-  --labels "testing,qa" \
-  --desc-file - <<'TASK_DESC'
-<composed description>
-TASK_DESC
-```
+- mode: `child`
+- parent_num: `<parent_id>`
+- no_sibling_dep: `true`
+- name: `"test_<short_description>"`
+- priority: `medium`
+- effort: `medium`
+- issue_type: `test`
+- labels: `"testing,qa"`
+- description: `<composed description>`
 
 **If `is_child` is false** (create as standalone task):
-```bash
-./.aitask-scripts/aitask_create.sh --batch --commit \
-  --name "test_t<task_id>_<short_description>" \
-  --type test \
-  --priority medium \
-  --effort medium \
-  --labels "testing,qa" \
-  --desc-file - <<'TASK_DESC'
-<composed description>
-TASK_DESC
-```
+- mode: `parent`
+- name: `"test_t<task_id>_<short_description>"`
+- priority: `medium`
+- effort: `medium`
+- issue_type: `test`
+- labels: `"testing,qa"`
+- description: `<composed description>`
 
 Display: "Created testing follow-up task: <filename>"

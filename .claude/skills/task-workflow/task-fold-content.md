@@ -59,4 +59,4 @@ Return the complete merged description text.
 TASK_DESC
 ```
 
-**"Incorporate during creation" callers** (aitask-explore, aitask-pr-import): The primary task is being created. Use the returned merged description as the `TASK_DESC` content for `aitask_create.sh --desc-file -`.
+**"Incorporate during creation" callers** (aitask-explore, aitask-pr-import): The primary task is being created. Use the returned merged description as the `description` parameter for the **Batch Task Creation Procedure** (see `task-creation-batch.md`).

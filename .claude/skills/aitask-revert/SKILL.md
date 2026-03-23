@@ -611,11 +611,15 @@ Commit all child annotations: `./ait git add <paths> && ./ait git commit -m "ait
 Parse the `FILE|<path>|<insertions>|<deletions>` output to populate per-commit file stats in the templates above.
 
 **Create the task:**
-```bash
-./.aitask-scripts/aitask_create.sh --batch --commit --name "revert_t<id>" --type refactor --desc-file - <<'TASK_DESC'
-<built description from template above>
-TASK_DESC
-```
+
+Execute the **Batch Task Creation Procedure** (see `.claude/skills/task-workflow/task-creation-batch.md`) with:
+- mode: `parent`
+- name: `"revert_t<id>"`
+- priority: `medium`
+- effort: `medium`
+- issue_type: `refactor`
+- labels: `"revert"`
+- description: built description from template above
 
 Read back the created task file to confirm the assigned task ID:
 ```bash

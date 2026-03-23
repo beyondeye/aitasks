@@ -191,14 +191,14 @@ Use `AskUserQuestion`: "How should the selected findings become tasks?"
 
 **For single task:**
 
-```bash
-./.aitask-scripts/aitask_create.sh --batch --commit --name "<sanitized_target>_code_review" \
-  --desc-file - --priority <p> --effort <e> --type feature --labels "review" <<'TASK_DESC'
-## Code Review Findings
-
-<formatted list of all selected findings with file:line, description, severity, and suggested fix>
-TASK_DESC
-```
+Execute the **Batch Task Creation Procedure** (see `../task-workflow/task-creation-batch.md`) with:
+- mode: `parent`
+- name: `"<sanitized_target>_code_review"`
+- priority: `<p>` (from findings severity)
+- effort: `<e>`
+- issue_type: `feature`
+- labels: `"review"`
+- description: formatted list of all selected findings with file:line, description, severity, and suggested fix
 
 Read back the created task file:
 ```bash
@@ -207,26 +207,30 @@ git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
 
 **For multiple tasks (group by mode or separate):**
 
-1. Create a parent task:
-   ```bash
-   ./.aitask-scripts/aitask_create.sh --batch --commit --name "<sanitized_target>_code_review" \
-     --desc-file - --priority <p> --effort medium --type feature --labels "review" <<'TASK_DESC'
-   Code review of <target area>. Child tasks contain individual findings grouped by <mode/finding>.
-   TASK_DESC
-   ```
+1. Create a parent task via the **Batch Task Creation Procedure** (see `../task-workflow/task-creation-batch.md`) with:
+   - mode: `parent`
+   - name: `"<sanitized_target>_code_review"`
+   - priority: `<p>`
+   - effort: `medium`
+   - issue_type: `feature`
+   - labels: `"review"`
+   - description: `"Code review of <target area>. Child tasks contain individual findings grouped by <mode/finding>."`
 
 2. Read back parent task ID:
    ```bash
    git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
    ```
 
-3. Create child tasks — for each group (mode or individual finding):
-   ```bash
-   ./.aitask-scripts/aitask_create.sh --batch --commit --parent <parent_num> --no-sibling-dep \
-     --name "<child_name>" --desc-file - --priority <p> --effort <e> --type feature --labels "review" <<'TASK_DESC'
-   <findings for this group/finding with file:line, description, severity, and suggested fix>
-   TASK_DESC
-   ```
+3. Create child tasks — for each group (mode or individual finding), execute the **Batch Task Creation Procedure** with:
+   - mode: `child`
+   - parent_num: `<parent_num>` (from step 2)
+   - no_sibling_dep: `true`
+   - name: `"<child_name>"`
+   - priority: `<p>`
+   - effort: `<e>`
+   - issue_type: `feature`
+   - labels: `"review"`
+   - description: findings for this group/finding with file:line, description, severity, and suggested fix
 
 ### Step 5: Decision Point
 

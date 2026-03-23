@@ -71,8 +71,8 @@ While in plan mode:
     - Options: "Yes, create child tasks" / "No, implement as single task"
   - **If creating child tasks:**
     - Ask how many subtasks and get brief descriptions for each
-    - Use `aitask_create.sh --batch --parent <N>` to create each child
-    - **IMPORTANT:** Each child task file MUST include detailed context (see Child Task Documentation Requirements below)
+    - For each child task, execute the **Batch Task Creation Procedure** (see `task-creation-batch.md`) with mode `child`, the parent task number, an appropriate name, and the child task description content
+    - **IMPORTANT:** Each child task description MUST include detailed context (see Child Task Documentation Requirements below)
     - **IMPORTANT:** Revert the parent task status back to "Ready" since only the child task being worked on should be "Implementing":
       ```bash
       ./.aitask-scripts/aitask_update.sh --batch <parent_num> --status Ready --assigned-to ""
@@ -88,11 +88,11 @@ While in plan mode:
       - Use the child plan file naming and metadata header conventions from the **Save Plan to External File** section below
       - Each plan should leverage the codebase exploration already done during the parent planning phase
       - Plans do not need to go through `EnterPlanMode`/`ExitPlanMode` — write them directly as files since the overall parent plan was already approved
-      - Commit all child task files and plan files together:
+      - Commit all child plan files together (child task files were already committed by the Batch Task Creation Procedure):
         ```bash
         mkdir -p aiplans/p<parent>
-        ./ait git add aitasks/t<parent>/ aiplans/p<parent>/
-        ./ait git commit -m "ait: Create t<parent> child tasks and plans"
+        ./ait git add aiplans/p<parent>/
+        ./ait git commit -m "ait: Add t<parent> child implementation plans"
         ```
     - **Child task checkpoint (ALWAYS interactive — ignores `post_plan_action` profile setting):**
       Use `AskUserQuestion`:
