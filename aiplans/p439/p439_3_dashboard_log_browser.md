@@ -205,5 +205,12 @@ def action_view_logs(self) -> None:
 5. Press `f` for full, `t` for tail, `r` to refresh
 6. Press escape to navigate back
 
+## Final Implementation Notes
+- **Actual work done:** All 5 planned changes implemented — log utils import, `LogEntry` widget, `LogViewScreen`, `LogBrowserScreen`, and `CrewDetailScreen` keybinding/action. Exactly as specified in the plan.
+- **Deviations from plan:** Removed the redundant local `from agentcrew.agentcrew_utils import crew_worktree_path` import in `LogBrowserScreen._refresh_list` since `crew_worktree_path` is already imported at the top of the file. Also adjusted the top-level import from `agentcrew.agentcrew_log_utils` to `agentcrew_log_utils` (relative import matching the existing pattern in the dashboard file).
+- **Issues encountered:** None
+- **Key decisions:** Used existing top-level `crew_worktree_path` import instead of adding a redundant local import. Followed `AgentCard` widget pattern exactly for `LogEntry`.
+- **Notes for sibling tasks:** The `LogEntry` widget, `LogViewScreen`, and `LogBrowserScreen` are available as reference patterns for t439_4 (brainstorm TUI). The import pattern is `from agentcrew_log_utils import ...` (not `from agentcrew.agentcrew_log_utils`). Log browser uses 5-second auto-refresh. The `LogViewScreen` accepts `log_path` and `agent_name` constructor args and supports tail/full modes — the brainstorm `LogDetailModal` can follow the same approach.
+
 ### Step 9: Post-Implementation
 Archive task, commit, push per standard workflow.
