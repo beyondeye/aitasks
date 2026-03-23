@@ -577,6 +577,34 @@ Update the Architecture section Key Directories if archive paths are mentioned.
 
 ---
 
+## Verification Results (2026-03-23)
+
+**Phases 1-3 are already complete (done by siblings + previous attempt):**
+
+- **Phase 1 (Data Migration):** Verified correct. `old.tar.gz.premigration` backups exist.
+  All 383 task files and 358 plan files migrated to numbered archives with correct bundle
+  placement (old0=t0-99, old1=t100-199, old2=t200-299, old3=t300-399) and identical checksums.
+  No `old.tar.gz` remaining.
+- **Phase 2 (Code Swap):** All production scripts already use v2 functions:
+  - `task_utils.sh` sources `archive_utils_v2.sh`, uses v2 resolve logic
+  - `aitask_claim_id.sh` sources `archive_scan_v2.sh`, delegates to `scan_max_task_id_v2()`
+  - `aitask_query_files.sh` sources `archive_scan_v2.sh`, uses `search_archived_task_v2()`
+  - `aitask_stats.py` imports `archive_iter_v2`
+  - `aitask_zip_old.sh` identical to `aitask_zip_old_v2.sh`
+  - `task_resolve_v2.sh` is dead code (never sourced by anything)
+- **Phase 3 (Tests):** All pass:
+  - test_resolve_v2: 15/15, test_zip_old_v2: 28/28, test_archive_scan_v2: 23/23
+  - test_resolve_tar_gz: 14/14, test_claim_id: 23/23
+  - Additional file found: `tests/test_archive_utils_v2.sh` (not in original plan)
+
+**Remaining work:** Phase 4 (website docs) and Phase 5 (v2 file cleanup/rename).
+See detailed plan in steps above. Key changes:
+- Skip Steps 1-11 (migration + code swap + test updates — already done)
+- Start from Step 12 (website docs)
+- Then Step 18-23 (cleanup, rename, final verification)
+
+---
+
 ## Post-Implementation
 
 ### Step 24: Final Implementation Notes

@@ -3,12 +3,11 @@ priority: medium
 effort: high
 depends: [t433_6]
 issue_type: refactor
-status: Implementing
+status: Ready
 labels: [task-archive]
-assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-23 09:59
-updated_at: 2026-03-23 15:25
+updated_at: 2026-03-23 15:39
 ---
 
 ## Migration, Code Swap, and Documentation Update
