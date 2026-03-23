@@ -60,6 +60,12 @@ from brainstorm.brainstorm_crew import (
     register_synthesizer,
 )
 from agentcrew.agentcrew_utils import list_agent_files, format_elapsed, read_yaml
+from agentcrew.agentcrew_log_utils import (
+    list_agent_logs,
+    read_log_tail,
+    read_log_full,
+    format_log_size,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -232,6 +238,85 @@ class NodeDetailModal(ModalScreen):
         self.dismiss(None)
 
 
+class LogDetailModal(ModalScreen):
+    """Modal for viewing agent log file content with Tail/Full tabs."""
+
+    BINDINGS = [
+        Binding("escape", "close", "Close", show=False),
+        Binding("r", "refresh", "Refresh"),
+        Binding("t", "show_tail", "Tail"),
+        Binding("f", "show_full", "Full"),
+    ]
+
+    def __init__(self, log_path: str, agent_name: str):
+        super().__init__()
+        self.log_path = log_path
+        self.agent_name = agent_name
+
+    def compose(self) -> ComposeResult:
+        import os
+
+        size = format_log_size(os.path.getsize(self.log_path)) if os.path.isfile(self.log_path) else "0 B"
+        with Container(id="log_modal_container"):
+            yield Label(
+                f"Log: {self.agent_name}  ({size})", id="log_modal_title"
+            )
+            with TabbedContent(id="log_modal_tabs"):
+                with TabPane("Tail", id="tab_log_tail"):
+                    yield VerticalScroll(
+                        Static(id="log_tail_content"),
+                        id="log_tail_scroll",
+                    )
+                with TabPane("Full", id="tab_log_full"):
+                    yield VerticalScroll(
+                        Static(id="log_full_content"),
+                        id="log_full_scroll",
+                    )
+            with Horizontal(id="log_modal_buttons"):
+                yield Button(
+                    "Close", variant="default", id="btn_close_log"
+                )
+
+    def on_mount(self) -> None:
+        self._load_tail()
+        self._load_full()
+
+    def _load_tail(self) -> None:
+        content = read_log_tail(self.log_path) or "(empty)"
+        self.query_one("#log_tail_content", Static).update(content)
+
+    def _load_full(self) -> None:
+        content = read_log_full(self.log_path) or "(empty)"
+        self.query_one("#log_full_content", Static).update(content)
+
+    def _update_header(self) -> None:
+        import os
+
+        size = format_log_size(os.path.getsize(self.log_path)) if os.path.isfile(self.log_path) else "0 B"
+        self.query_one("#log_modal_title", Label).update(
+            f"Log: {self.agent_name}  ({size})"
+        )
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+    def action_refresh(self) -> None:
+        self._update_header()
+        self._load_tail()
+        self._load_full()
+        self.notify("Refreshed")
+
+    def action_show_tail(self) -> None:
+        self.query_one("#log_modal_tabs", TabbedContent).active = "tab_log_tail"
+
+    def action_show_full(self) -> None:
+        self.query_one("#log_modal_tabs", TabbedContent).active = "tab_log_full"
+
+    @on(Button.Pressed, "#btn_close_log")
+    def close_log(self) -> None:
+        self.dismiss(None)
+
+
 class CompareNodeSelectModal(ModalScreen):
     """Modal for selecting 2-4 nodes to compare in the dimension matrix."""
 
@@ -383,6 +468,23 @@ class GroupRow(Static, can_focus=True):
             f"{arrow} [bold]{self.group_name}[/bold]  {op}  "
             f"[{color}]{status}[/{color}]  agents: {len(agents)}  {created}"
         )
+
+    def on_click(self) -> None:
+        self.focus()
+
+
+class StatusLogRow(Static, can_focus=True):
+    """Focusable row displaying an agent log file entry in the Status tab."""
+
+    def __init__(self, log_info: dict, **kwargs):
+        super().__init__(**kwargs)
+        self.log_info = log_info
+
+    def render(self) -> str:
+        name = self.log_info["name"]
+        size = format_log_size(self.log_info["size"])
+        mtime = self.log_info["mtime_str"]
+        return f"  {name}  [{size}]  Last updated: {mtime}"
 
     def on_click(self) -> None:
         self.focus()
@@ -645,6 +747,40 @@ class BrainstormApp(App):
         align: center middle;
     }
 
+    /* Log browsing widgets (t439_4) */
+    StatusLogRow { height: 1; padding: 0 1; }
+    StatusLogRow:focus { background: $accent 20%; }
+
+    #log_modal_container {
+        width: 90%;
+        height: 85%;
+        background: $surface;
+        border: solid $primary;
+        padding: 1 2;
+    }
+
+    #log_modal_title {
+        text-style: bold;
+        text-align: center;
+        dock: top;
+        width: 100%;
+        padding: 1;
+        background: $secondary;
+    }
+
+    #log_modal_tabs { height: 1fr; }
+
+    #log_tail_scroll, #log_full_scroll {
+        height: 1fr;
+        padding: 1 2;
+    }
+
+    #log_modal_buttons {
+        dock: bottom;
+        height: 3;
+        align: center middle;
+    }
+
     Button {
         margin: 0 1;
     }
@@ -731,6 +867,11 @@ class BrainstormApp(App):
                 else:
                     self._expanded_groups.add(name)
                 self._refresh_status_tab()
+                event.prevent_default()
+                event.stop()
+                return
+            if isinstance(focused, StatusLogRow):
+                self.push_screen(LogDetailModal(focused.log_info["path"], focused.log_info["name"]))
                 event.prevent_default()
                 event.stop()
                 return
@@ -889,6 +1030,19 @@ class BrainstormApp(App):
             )
             for name, data in ungrouped:
                 self._mount_agent_row(container, wt_path, name, data)
+
+        # Log files section (t439_4)
+        logs = list_agent_logs(wt_path)
+        if logs:
+            container.mount(Label(""))
+            container.mount(
+                Label(
+                    "[bold]Agent Logs[/bold]  (Enter to view)",
+                    classes="status_section_title",
+                )
+            )
+            for log_info in logs:
+                container.mount(StatusLogRow(log_info))
 
     def _mount_group_agents(
         self, container: VerticalScroll, wt_path: str, ginfo: dict
