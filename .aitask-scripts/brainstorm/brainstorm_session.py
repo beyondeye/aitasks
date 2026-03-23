@@ -18,7 +18,15 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from agentcrew.agentcrew_utils import AGENTCREW_DIR, read_yaml, write_yaml  # noqa: E402
 
-from .brainstorm_dag import GRAPH_STATE_FILE, NODES_DIR, PLANS_DIR, PROPOSALS_DIR  # noqa: E402
+from .brainstorm_dag import (  # noqa: E402
+    GRAPH_STATE_FILE,
+    NODES_DIR,
+    PLANS_DIR,
+    PROPOSALS_DIR,
+    create_node,
+    next_node_id,
+    set_head,
+)
 
 SESSION_FILE = "br_session.yaml"
 GROUPS_FILE = "br_groups.yaml"
@@ -81,6 +89,28 @@ def init_session(
 
     # Write empty br_groups.yaml
     write_yaml(str(wt / GROUPS_FILE), {"groups": {}})
+
+    # Create root node (n000_init) so the session is immediately usable
+    spec_lines = [
+        ln for ln in initial_spec.splitlines() if ln.strip() and not ln.startswith("---")
+    ]
+    brief = (spec_lines[0][:80] + "…") if spec_lines and len(spec_lines[0]) > 80 else (spec_lines[0] if spec_lines else "Initial specification")
+
+    create_node(
+        session_path=wt,
+        node_id="n000_init",
+        parents=[],
+        description=brief,
+        dimensions={},
+        proposal_content=initial_spec,
+        group_name="bootstrap",
+    )
+    set_head(wt, "n000_init")
+    next_node_id(wt)  # increment counter from 0 → 1
+
+    # Transition session to active
+    session_data["status"] = "active"
+    write_yaml(str(wt / SESSION_FILE), session_data)
 
     return wt
 

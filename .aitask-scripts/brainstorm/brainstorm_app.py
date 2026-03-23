@@ -28,6 +28,7 @@ from textual.widgets import (
     TextArea,
 )
 from textual import on, work
+from textual.message import Message
 
 from rich.text import Text
 
@@ -289,6 +290,13 @@ class NodeRow(Static):
 class OperationRow(Static):
     """Focusable row representing an operation in the Actions wizard."""
 
+    class Activated(Message):
+        """Emitted when an OperationRow is clicked (mouse activation)."""
+
+        def __init__(self, row: OperationRow) -> None:
+            super().__init__()
+            self.row = row
+
     def __init__(self, op_key: str, label: str, description: str, disabled: bool = False):
         super().__init__()
         self.op_key = op_key
@@ -303,9 +311,10 @@ class OperationRow(Static):
         return f"[bold]{self.op_label}[/]  {self.op_description}"
 
     def on_click(self) -> None:
-        """Ensure this row claims focus when clicked."""
+        """Focus and activate this row when clicked."""
         if not self.op_disabled:
             self.focus()
+            self.post_message(self.Activated(self))
 
 
 class CycleField(Static):
@@ -691,6 +700,15 @@ class BrainstormApp(App):
                 event.prevent_default()
                 event.stop()
                 return
+        if event.key == "b":
+            spec = getattr(self, "session_data", {}).get("initial_spec", "")
+            if spec:
+                self._show_brief_in_detail(spec)
+            else:
+                self.notify("No task brief available", severity="warning")
+            event.prevent_default()
+            event.stop()
+            return
         if event.key in _TAB_SHORTCUTS:
             tabbed = self.query_one(TabbedContent)
             tabbed.active = _TAB_SHORTCUTS[event.key]
@@ -736,6 +754,15 @@ class BrainstormApp(App):
             f"Updated: {updated}",
             f"Path: {self.session_path}",
         ]
+
+        spec = sd.get("initial_spec", "")
+        if spec:
+            preview_lines = [ln for ln in spec.splitlines() if ln.strip() and not ln.startswith("---")][:2]
+            preview = " | ".join(preview_lines)
+            if len(preview) > 100:
+                preview = preview[:97] + "…"
+            info_lines.append(f"Brief: {preview}  [press b for full text]")
+
         self.query_one("#session_status_info", Label).update("\n".join(info_lines))
 
     def _populate_node_list(self) -> None:
@@ -786,6 +813,17 @@ class BrainstormApp(App):
                 detail_lines.append(f"  {k}: {v}")
 
         self.query_one("#dash_node_info", Label).update("\n".join(detail_lines))
+
+    def _show_brief_in_detail(self, spec: str) -> None:
+        """Show the full initial_spec in the detail pane (press b to toggle)."""
+        self.query_one("#dash_node_title", Label).update("Task Brief")
+        # Truncate for the Label widget; full text is in n000_init proposal
+        lines = spec.splitlines()
+        if len(lines) > 30:
+            preview = "\n".join(lines[:30]) + "\n\n… (truncated — see n000_init proposal for full text)"
+        else:
+            preview = spec
+        self.query_one("#dash_node_info", Label).update(preview)
 
     def on_descendant_focus(self, event) -> None:
         """When a NodeRow gets focus, update the detail pane. Track wizard node selection."""
@@ -1008,6 +1046,10 @@ class BrainstormApp(App):
         """Explore config: base node selector, mandate, parallel count."""
         nodes = list_nodes(self.session_path)
         head = get_head(self.session_path)
+
+        if not nodes:
+            container.mount(Label("[bold yellow]No nodes available.[/] Initialize the session first."))
+            return
 
         container.mount(Label("[bold]Base Node[/]"))
         for nid in nodes:
@@ -1245,6 +1287,22 @@ class BrainstormApp(App):
         """Handle Next button in step 2 forms."""
         if self._wizard_step == 2 and self._actions_collect_config():
             self._actions_show_step3()
+
+    def on_operation_row_activated(self, event: OperationRow.Activated) -> None:
+        """Handle mouse click activation on an OperationRow."""
+        row = event.row
+        tabbed = self.query_one(TabbedContent)
+        if tabbed.active != "tab_actions":
+            return
+        if self._wizard_step == 1:
+            self._wizard_op = row.op_key
+            if self._wizard_op in ("pause", "resume", "finalize", "archive"):
+                self._wizard_config = {"confirmed": True}
+                self._actions_show_step3()
+            else:
+                self._actions_show_step2()
+        elif self._wizard_step == 2:
+            self._wizard_config["_selected_node"] = row.op_key
 
     def _execute_session_op(self) -> None:
         """Execute a session lifecycle operation."""
