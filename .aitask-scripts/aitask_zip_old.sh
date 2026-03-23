@@ -1,29 +1,31 @@
 #!/usr/bin/env bash
 
-# aitask_zip_old.sh - Archive old task and plan files to tar.gz
-# Only archives files no longer relevant to active work
+# aitask_zip_old.sh - Archive old task and plan files to numbered tar.gz archives
+# Groups files by 100-task bundles into _bN/oldM.tar.gz
+#
+# Numbering scheme:
+#   bundle = task_id / 100
+#   dir    = bundle / 10
+#   path   = archived/_b{dir}/old{bundle}.tar.gz
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+# shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# shellcheck source=lib/archive_utils.sh
+source "$SCRIPT_DIR/lib/archive_utils.sh"
 
 # --- Constants ---
 TASK_ARCHIVED_DIR="aitasks/archived"
 PLAN_ARCHIVED_DIR="aiplans/archived"
-TASK_ARCHIVE="$TASK_ARCHIVED_DIR/old.tar.gz"
-PLAN_ARCHIVE="$PLAN_ARCHIVED_DIR/old.tar.gz"
 
 # --- Flags ---
 DRY_RUN=false
 NO_COMMIT=false
 VERBOSE=false
-
-# --- Counters ---
-TASKS_ARCHIVED=0
-PLANS_ARCHIVED=0
 
 # --- Computed sets (populated in main) ---
 ACTIVE_PARENTS=""
@@ -42,8 +44,10 @@ verbose() {
 usage() {
     cat << EOF
 Usage: $(basename "$0") [OPTIONS]
+       $(basename "$0") unpack <task_number>
 
-Archive old task and plan files to tar.gz archives.
+Archive old task and plan files to numbered tar.gz archives.
+Groups files by 100-task bundles into _bN/oldM.tar.gz.
 Skips files still relevant to active work (siblings of active children, dependencies).
 
 Options:
@@ -54,9 +58,10 @@ Options:
 
 Examples:
   $(basename "$0")                  # Archive and commit
-  $(basename "$0") --dry-run        # Preview what would be archived
+  $(basename "$0") --dry-run        # Preview what would be archived (shows bundle grouping)
   $(basename "$0") --no-commit      # Archive without git commit
   $(basename "$0") -v               # Verbose output
+  $(basename "$0") unpack 42        # Extract task 42 from numbered archive
 EOF
 }
 
@@ -88,7 +93,7 @@ parse_args() {
     done
 }
 
-# --- Selection Functions ---
+# --- Selection Functions (unchanged from v1) ---
 
 # Get parent numbers that still have active children (aitasks/t*/ directories)
 get_active_parent_numbers() {
@@ -142,7 +147,7 @@ is_dependency() {
 
 # Collect files to archive from an archived directory
 # Args: $1=base_dir (e.g., aitasks/archived), $2=prefix (t or p)
-# Sets: _COLLECT_RESULT (newline-separated file list)
+# Sets: _COLLECT_RESULT (newline-separated file list, relative to base_dir)
 # Side effects: appends to SKIPPED_ACTIVE_PARENTS and SKIPPED_DEPS
 # NOTE: Must be called directly (not in command substitution) to preserve globals
 collect_files_to_archive() {
@@ -213,76 +218,61 @@ collect_files_to_archive() {
     _COLLECT_RESULT="$result"
 }
 
-# Archive files to tar.gz (supports both flat files and subdirectory paths)
-# Args: $1=archive_path, $2=files (newline-separated), $3=base_dir (for resolving relative paths)
-archive_files() {
+# --- V2 Archive Functions ---
+
+# Archive a group of files into a single tar.gz (create or append-merge)
+# Args: $1=archive_path, $2=files (newline-separated, relative to base_dir), $3=base_dir
+# Output: number of files added
+_archive_single_bundle() {
     local archive_path="$1"
     local files="$2"
     local base_dir="$3"
-    local dir
-    dir=$(dirname "$archive_path")
-
-    if [[ -z "$files" ]]; then
-        verbose "No files to archive for $archive_path"
-        return 0
-    fi
 
     local temp_dir
     temp_dir=$(mktemp -d)
+    # shellcheck disable=SC2064  # Intentional: expand $temp_dir at definition time
     trap "rm -rf '$temp_dir'" RETURN
 
-    # If archive exists, extract it first
+    # Extract existing archive to merge
     if [[ -f "$archive_path" ]]; then
-        verbose "Extracting existing archive: $archive_path"
+        verbose "Merging with existing archive: $archive_path"
         if ! tar -xzf "$archive_path" -C "$temp_dir" 2>/dev/null; then
-            warn "Warning: Existing archive appears corrupted. Creating backup."
+            warn "Warning: Existing archive corrupted. Creating backup."
             mv "$archive_path" "${archive_path}.bak"
-            info "Backup saved as ${archive_path}.bak"
         fi
     fi
 
-    # Copy new files to temp directory, preserving subdirectory structure
-    # All paths are relative to base_dir (e.g., "t50_old.md" or "t10/t10_1_name.md")
+    # Copy new files
     local count=0
     while IFS= read -r f; do
         [[ -z "$f" ]] && continue
-
-        local src_path="$base_dir/$f"
-        local dest_path="$temp_dir/$f"
-        mkdir -p "$(dirname "$dest_path")"
-
-        if [[ -f "$src_path" ]]; then
-            verbose "Adding to archive: $f"
-            cp "$src_path" "$dest_path"
+        local src="$base_dir/$f"
+        local dest="$temp_dir/$f"
+        mkdir -p "$(dirname "$dest")"
+        if [[ -f "$src" ]]; then
+            verbose "  + $f -> $(basename "$archive_path")"
+            cp "$src" "$dest"
             ((count++))
         fi
     done <<< "$files"
 
-    # Create new archive
-    verbose "Creating archive: $archive_path"
+    # Create archive and verify
+    mkdir -p "$(dirname "$archive_path")"
     tar -czf "$archive_path" -C "$temp_dir" .
+    tar -tzf "$archive_path" > /dev/null 2>&1 || die "Archive verification failed: $archive_path"
 
-    # Verify archive integrity
-    verbose "Verifying archive integrity"
-    if ! tar -tzf "$archive_path" > /dev/null 2>&1; then
-        die "Archive verification failed! Original files NOT deleted."
-    fi
-
-    # Delete original files
+    # Remove originals
     while IFS= read -r f; do
         [[ -z "$f" ]] && continue
-
-        local src_path="$base_dir/$f"
-
-        if [[ -f "$src_path" ]]; then
-            verbose "Removing original: $src_path"
-            rm "$src_path"
-
-            # Try to remove parent directory if empty (for child directories)
-            local parent_dir
-            parent_dir=$(dirname "$src_path")
-            if [[ -d "$parent_dir" && "$parent_dir" != "$base_dir" ]]; then
-                rmdir "$parent_dir" 2>/dev/null || true
+        local src="$base_dir/$f"
+        if [[ -f "$src" ]]; then
+            verbose "Removing original: $src"
+            rm "$src"
+            # Remove empty parent dir
+            local pdir
+            pdir=$(dirname "$src")
+            if [[ -d "$pdir" && "$pdir" != "$base_dir" ]]; then
+                rmdir "$pdir" 2>/dev/null || true
             fi
         fi
     done <<< "$files"
@@ -290,66 +280,158 @@ archive_files() {
     echo "$count"
 }
 
+# Archive files to numbered tar.gz bundles
+# Args: $1=files (newline-separated, relative to base_dir), $2=base_dir, $3=prefix (t or p)
+# Output: total number of files archived
+archive_files() {
+    local files="$1"
+    local base_dir="$2"
+    local prefix="$3"
+    local total=0
+
+    [[ -z "$files" ]] && { echo "0"; return 0; }
+
+    # Group by bundle using associative array
+    declare -A bundle_groups
+
+    while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+        local bname
+        bname=$(basename "$f")
+        # Extract parent number: t100_name.md -> 100, p129_name.md -> 129
+        local num
+        num=$(echo "$bname" | sed "s/^${prefix}\([0-9]*\).*/\1/")
+        local apath
+        apath=$(archive_path_for_id "$num" "$base_dir")
+        if [[ -n "${bundle_groups[$apath]:-}" ]]; then
+            bundle_groups[$apath]="${bundle_groups[$apath]}"$'\n'"$f"
+        else
+            bundle_groups[$apath]="$f"
+        fi
+    done <<< "$files"
+
+    # Archive each bundle
+    for apath in "${!bundle_groups[@]}"; do
+        local group="${bundle_groups[$apath]}"
+        verbose "Bundle: $apath"
+        local cnt
+        cnt=$(_archive_single_bundle "$apath" "$group" "$base_dir")
+        ((total += cnt))
+    done
+
+    echo "$total"
+}
+
+# --- Dry Run Display ---
+
+# Show files grouped by target bundle archive
+# Args: $1=files, $2=base_dir, $3=prefix (t or p), $4=label (Tasks or Plans)
+_show_dry_run_bundles() {
+    local files="$1"
+    local base_dir="$2"
+    local prefix="$3"
+    local label="$4"
+    [[ -z "$files" ]] && return
+
+    declare -A groups
+    while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+        local bname
+        bname=$(basename "$f")
+        local num
+        num=$(echo "$bname" | sed "s/^${prefix}\([0-9]*\).*/\1/")
+        local apath
+        apath=$(archive_path_for_id "$num" "$base_dir")
+        local bundle
+        bundle=$(archive_bundle "$num")
+        local range_lo=$((bundle * 100))
+        local range_hi=$(( (bundle + 1) * 100 - 1 ))
+        local key="${apath}|${range_lo}-${range_hi}"
+        if [[ -n "${groups[$key]:-}" ]]; then
+            groups[$key]="${groups[$key]}"$'\n'"    - $f"
+        else
+            groups[$key]="    - $f"
+        fi
+    done <<< "$files"
+
+    echo ""
+    echo "$label:"
+    for key in $(echo "${!groups[@]}" | tr ' ' '\n' | sort); do
+        local apath range
+        IFS='|' read -r apath range <<< "$key"
+        echo "  $apath (${prefix}${range}):"
+        echo "${groups[$key]}"
+    done
+}
+
 # --- Unpack subcommand ---
 
-# Extract a task (and its children/plans) from old.tar.gz back to the filesystem.
-# No-op if the task is not in any tar.gz archive.
+# Extract a task (and its children/plans) from numbered archives back to the filesystem.
+# Falls back to legacy old.tar.gz if not found in numbered archive.
 # Args: $1=task_number
 cmd_unpack() {
     local num="$1"
     local found=false
 
-    # Process each archive: (archive_path, dest_dir, prefix, output_tag)
-    local archives=(
-        "$TASK_ARCHIVE|$TASK_ARCHIVED_DIR|t|UNPACKED_TASK"
-        "$PLAN_ARCHIVE|$PLAN_ARCHIVED_DIR|p|UNPACKED_PLAN"
+    local archive_types=(
+        "$TASK_ARCHIVED_DIR|t|UNPACKED_TASK"
+        "$PLAN_ARCHIVED_DIR|p|UNPACKED_PLAN"
     )
 
-    for entry in "${archives[@]}"; do
-        IFS='|' read -r archive_path dest_dir prefix output_tag <<< "$entry"
+    for entry in "${archive_types[@]}"; do
+        IFS='|' read -r base_dir prefix output_tag <<< "$entry"
 
-        [[ -f "$archive_path" ]] || continue
+        # Compute numbered archive path, plus legacy fallback
+        local archive_path legacy_path
+        archive_path=$(archive_path_for_id "$num" "$base_dir")
+        legacy_path="$base_dir/old.tar.gz"
 
-        # Find matching entries: parent t<N>_*.md and children t<N>/t<N>_*_*.md
-        local matches
-        matches=$(tar -tzf "$archive_path" 2>/dev/null | grep -E "(^|/)${prefix}${num}_[^/]*\.md$|(^|/)${prefix}${num}/${prefix}${num}_[^/]*\.md$" || true)
-        [[ -z "$matches" ]] && continue
+        local search_list=()
+        [[ -f "$archive_path" ]] && search_list+=("$archive_path")
+        [[ -f "$legacy_path" ]] && search_list+=("$legacy_path")
 
-        # Extract full archive to temp dir
-        local temp_dir
-        temp_dir=$(mktemp -d)
+        for arch in "${search_list[@]}"; do
+            local matches
+            matches=$(tar -tzf "$arch" 2>/dev/null \
+                | grep -E "(^|/)${prefix}${num}_[^/]*\.md$|(^|/)${prefix}${num}/${prefix}${num}_[^/]*\.md$" || true)
+            [[ -z "$matches" ]] && continue
 
-        tar -xzf "$archive_path" -C "$temp_dir"
+            local temp_dir
+            temp_dir=$(mktemp -d)
+            tar -xzf "$arch" -C "$temp_dir"
 
-        # Copy matching files to destination and remove from temp
-        while IFS= read -r match; do
-            [[ -z "$match" ]] && continue
-            local src="$temp_dir/$match"
-            [[ -f "$src" ]] || continue
+            while IFS= read -r match; do
+                [[ -z "$match" ]] && continue
+                local src="$temp_dir/$match"
+                [[ -f "$src" ]] || continue
+                local clean="${match#./}"
+                local dest="$base_dir/$clean"
+                mkdir -p "$(dirname "$dest")"
+                cp "$src" "$dest"
+                rm "$src"
+                echo "${output_tag}:${dest}"
+                found=true
+            done <<< "$matches"
 
-            # Strip leading ./ if present
-            local clean_match="${match#./}"
-            local dest="$dest_dir/$clean_match"
-            mkdir -p "$(dirname "$dest")"
-            cp "$src" "$dest"
-            rm "$src"
-            echo "${output_tag}:${dest}"
-            found=true
-        done <<< "$matches"
+            # Clean up empty dirs in temp
+            find "$temp_dir" -mindepth 1 -type d -empty -delete 2>/dev/null || true
 
-        # Remove empty subdirectories from temp
-        find "$temp_dir" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+            # Rebuild or remove archive
+            local remaining
+            remaining=$(find "$temp_dir" -type f 2>/dev/null | head -1)
+            if [[ -z "$remaining" ]]; then
+                rm "$arch"
+                # Remove parent _bN dir if empty
+                local bdir
+                bdir=$(dirname "$arch")
+                [[ -d "$bdir" ]] && rmdir "$bdir" 2>/dev/null || true
+            else
+                tar -czf "$arch" -C "$temp_dir" .
+            fi
 
-        # Rebuild or delete archive
-        local remaining
-        remaining=$(find "$temp_dir" -type f 2>/dev/null | head -1)
-        if [[ -z "$remaining" ]]; then
-            rm "$archive_path"
-        else
-            tar -czf "$archive_path" -C "$temp_dir" .
-        fi
-
-        rm -rf "$temp_dir"
+            rm -rf "$temp_dir"
+            [[ "$found" == true ]] && break
+        done
     done
 
     if [[ "$found" == false ]]; then
@@ -402,13 +484,8 @@ main() {
     # Count files to archive
     local task_count=0
     local plan_count=0
-
-    if [[ -n "$task_files" ]]; then
-        task_count=$(echo "$task_files" | wc -l)
-    fi
-    if [[ -n "$plan_files" ]]; then
-        plan_count=$(echo "$plan_files" | wc -l)
-    fi
+    [[ -n "$task_files" ]] && task_count=$(echo "$task_files" | wc -l | tr -d ' ')
+    [[ -n "$plan_files" ]] && plan_count=$(echo "$plan_files" | wc -l | tr -d ' ')
 
     # Check if anything to do
     if [[ $task_count -eq 0 && $plan_count -eq 0 ]]; then
@@ -418,89 +495,60 @@ main() {
 
     # Deduplicate skipped lists for display
     local unique_active_parents
-    unique_active_parents=$(echo "$SKIPPED_ACTIVE_PARENTS" | tr ' ' '\n' | sort -un | tr '\n' ' ' | sed 's/^ *//;s/ *$//')
+    unique_active_parents=$(echo "$SKIPPED_ACTIVE_PARENTS" | tr ' ' '\n' | sort -un | grep -v '^$' | tr '\n' ' ' | sed 's/^ *//;s/ *$//' || true)
     local unique_deps
-    unique_deps=$(echo "$SKIPPED_DEPS" | tr ' ' '\n' | sort -u | grep -v '^$' | tr '\n' ' ' | sed 's/^ *//;s/ *$//')
+    unique_deps=$(echo "$SKIPPED_DEPS" | tr ' ' '\n' | sort -u | grep -v '^$' | tr '\n' ' ' | sed 's/^ *//;s/ *$//' || true)
 
-    # Dry run - show what would happen
+    # --- Dry run ---
     if $DRY_RUN; then
-        echo ""
-
+        # Show bundle grouping
+        _show_dry_run_bundles "$task_files" "$TASK_ARCHIVED_DIR" "t" "Tasks"
+        _show_dry_run_bundles "$plan_files" "$PLAN_ARCHIVED_DIR" "p" "Plans"
+        # Show skipped
         if [[ -n "$unique_active_parents" || -n "$unique_deps" ]]; then
+            echo ""
             info "Skipped (still relevant):"
             [[ -n "$unique_active_parents" ]] && echo "  Active parents: $unique_active_parents"
             [[ -n "$unique_deps" ]] && echo "  Dependencies: $unique_deps"
-            echo ""
         fi
-
-        info "Files that would be archived:"
-        echo ""
-
-        if [[ $task_count -gt 0 ]]; then
-            echo "Tasks ($task_count files) -> $TASK_ARCHIVE:"
-            echo "$task_files" | while read -r f; do
-                [[ -n "$f" ]] && echo "  - $(basename "$f")"
-            done
-            echo ""
-        fi
-
-        if [[ $plan_count -gt 0 ]]; then
-            echo "Plans ($plan_count files) -> $PLAN_ARCHIVE:"
-            echo "$plan_files" | while read -r f; do
-                [[ -n "$f" ]] && echo "  - $(basename "$f")"
-            done
-            echo ""
-        fi
-
         exit 0
     fi
 
-    # Archive task files
+    # --- Archive ---
+    local tasks_archived=0
+    local plans_archived=0
     if [[ $task_count -gt 0 ]]; then
-        info "Archiving $task_count task file(s)..."
-        TASKS_ARCHIVED=$(archive_files "$TASK_ARCHIVE" "$task_files" "$TASK_ARCHIVED_DIR")
+        info "Archiving $task_count task file(s) to numbered bundles..."
+        tasks_archived=$(archive_files "$task_files" "$TASK_ARCHIVED_DIR" "t")
     fi
-
-    # Archive plan files
     if [[ $plan_count -gt 0 ]]; then
-        info "Archiving $plan_count plan file(s)..."
-        PLANS_ARCHIVED=$(archive_files "$PLAN_ARCHIVE" "$plan_files" "$PLAN_ARCHIVED_DIR")
+        info "Archiving $plan_count plan file(s) to numbered bundles..."
+        plans_archived=$(archive_files "$plan_files" "$PLAN_ARCHIVED_DIR" "p")
     fi
 
-    # Git commit (unless --no-commit)
+    # --- Git commit ---
     if ! $NO_COMMIT; then
         verbose "Committing changes to git..."
-
-        task_git add "$TASK_ARCHIVE" "$PLAN_ARCHIVE" 2>/dev/null || true
+        task_git add "$TASK_ARCHIVED_DIR"/_b*/old*.tar.gz 2>/dev/null || true
+        task_git add "$PLAN_ARCHIVED_DIR"/_b*/old*.tar.gz 2>/dev/null || true
         task_git add -u "$TASK_ARCHIVED_DIR/" "$PLAN_ARCHIVED_DIR/" 2>/dev/null || true
 
-        local commit_msg="ait: Archive old task and plan files
+        local commit_msg="ait: Archive old files to numbered bundles
 
-Archived to:
-- $TASK_ARCHIVE
-- $PLAN_ARCHIVE"
-
-        if [[ -n "$unique_active_parents" || -n "$unique_deps" ]]; then
-            commit_msg="$commit_msg
-
-Skipped (still relevant):"
-            [[ -n "$unique_active_parents" ]] && commit_msg="$commit_msg
-- Active parents: $unique_active_parents"
-            [[ -n "$unique_deps" ]] && commit_msg="$commit_msg
-- Dependencies: $unique_deps"
-        fi
+Tasks archived: $tasks_archived
+Plans archived: $plans_archived"
 
         task_git commit -m "$commit_msg" 2>/dev/null || warn "Nothing to commit (no changes detected)"
     else
         info "Skipping git commit (--no-commit)"
     fi
 
-    # Summary
+    # --- Summary ---
     echo ""
     success "=== Archive Complete ==="
     echo ""
-    echo "Task files archived: $TASKS_ARCHIVED"
-    echo "Plan files archived: $PLANS_ARCHIVED"
+    echo "Task files archived: $tasks_archived"
+    echo "Plan files archived: $plans_archived"
 
     if [[ -n "$unique_active_parents" || -n "$unique_deps" ]]; then
         echo ""
@@ -508,10 +556,6 @@ Skipped (still relevant):"
         [[ -n "$unique_active_parents" ]] && echo "  Active parents: $unique_active_parents"
         [[ -n "$unique_deps" ]] && echo "  Dependencies: $unique_deps"
     fi
-
-    echo ""
-    echo "Archive sizes:"
-    ls -lh "$TASK_ARCHIVE" "$PLAN_ARCHIVE" 2>/dev/null | awk '{print "  " $NF ": " $5}' || true
 }
 
 main "$@"

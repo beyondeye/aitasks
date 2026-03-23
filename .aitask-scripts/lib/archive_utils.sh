@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# archive_utils_v2.sh - Numbered archive path computation and search/extract primitives
+# archive_utils.sh - Numbered archive path computation and search/extract primitives
 # Source this file from aitask scripts; do not execute directly.
 #
 # Numbering scheme (0-indexed):
@@ -13,8 +13,8 @@
 #   Task 1000..1099 -> archived/_b1/old10.tar.gz
 
 # --- Guard against double-sourcing ---
-[[ -n "${_AIT_ARCHIVE_UTILS_V2_LOADED:-}" ]] && return 0
-_AIT_ARCHIVE_UTILS_V2_LOADED=1
+[[ -n "${_AIT_ARCHIVE_UTILS_LOADED:-}" ]] && return 0
+_AIT_ARCHIVE_UTILS_LOADED=1
 
 # Ensure terminal_compat.sh is loaded (for die/warn helpers)
 SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -59,13 +59,13 @@ archive_path_for_id() {
 # Temp directory management
 # ============================================================================
 
-_AIT_ARCHIVE_V2_TMPDIR=""
-_ait_archive_v2_cleanup() {
-    if [[ -n "$_AIT_ARCHIVE_V2_TMPDIR" && -d "$_AIT_ARCHIVE_V2_TMPDIR" ]]; then
-        rm -rf "$_AIT_ARCHIVE_V2_TMPDIR"
+_AIT_ARCHIVE_TMPDIR=""
+_ait_archive_cleanup() {
+    if [[ -n "$_AIT_ARCHIVE_TMPDIR" && -d "$_AIT_ARCHIVE_TMPDIR" ]]; then
+        rm -rf "$_AIT_ARCHIVE_TMPDIR"
     fi
 }
-trap _ait_archive_v2_cleanup EXIT
+trap _ait_archive_cleanup EXIT
 
 # ============================================================================
 # Single-archive primitives (matching task_utils.sh API)
@@ -74,7 +74,7 @@ trap _ait_archive_v2_cleanup EXIT
 # Search for a file matching a pattern inside a tar.gz archive.
 # Args: $1=archive_path, $2=grep_pattern (extended regex)
 # Output: matching filename inside the tar (first match), or empty
-_search_tar_gz_v2() {
+_search_tar_gz() {
     local archive="$1"
     local pattern="$2"
     [[ -f "$archive" ]] || return 0
@@ -83,17 +83,17 @@ _search_tar_gz_v2() {
 
 # Extract a file from tar.gz to a temp location.
 # Args: $1=archive_path, $2=filename_inside_tar
-# Sets: _AIT_V2_EXTRACT_RESULT to the path of the extracted temp file
+# Sets: _AIT_EXTRACT_RESULT to the path of the extracted temp file
 # Note: Must be called WITHOUT command substitution $() to preserve
-# _AIT_ARCHIVE_V2_TMPDIR in the caller's shell for EXIT trap cleanup.
-_extract_from_tar_gz_v2() {
+# _AIT_ARCHIVE_TMPDIR in the caller's shell for EXIT trap cleanup.
+_extract_from_tar_gz() {
     local archive="$1"
     local filename="$2"
-    if [[ -z "$_AIT_ARCHIVE_V2_TMPDIR" ]]; then
-        _AIT_ARCHIVE_V2_TMPDIR=$(mktemp -d)
+    if [[ -z "$_AIT_ARCHIVE_TMPDIR" ]]; then
+        _AIT_ARCHIVE_TMPDIR=$(mktemp -d)
     fi
-    _AIT_V2_EXTRACT_RESULT="$_AIT_ARCHIVE_V2_TMPDIR/$(basename "$filename")"
-    tar -xzf "$archive" -O "$filename" > "$_AIT_V2_EXTRACT_RESULT" 2>/dev/null
+    _AIT_EXTRACT_RESULT="$_AIT_ARCHIVE_TMPDIR/$(basename "$filename")"
+    tar -xzf "$archive" -O "$filename" > "$_AIT_EXTRACT_RESULT" 2>/dev/null
 }
 
 # ============================================================================
@@ -114,7 +114,7 @@ _find_archive_for_task() {
     fi
 }
 
-# Iterate all v2 archives (_bN/oldM.tar.gz) searching for a pattern.
+# Iterate all numbered archives (_bN/oldM.tar.gz) searching for a pattern.
 # Useful for queries where the task ID is unknown (e.g., text search).
 # Args: $1=archived_dir, $2=grep_pattern
 # Output: "archive_path:matched_filename" for each match (one per line)
@@ -124,29 +124,28 @@ _search_all_archives() {
     local archive match
     for archive in "$archived_dir"/_b*/old*.tar.gz; do
         [[ -f "$archive" ]] || continue
-        match=$(_search_tar_gz_v2 "$archive" "$pattern")
+        match=$(_search_tar_gz "$archive" "$pattern")
         if [[ -n "$match" ]]; then
             echo "${archive}:${match}"
         fi
     done
 }
 
-# Search v2 numbered archive first, then fall back to legacy old.tar.gz.
-# Designed for the transition period when both formats may coexist.
+# Search numbered archive first, then fall back to legacy old.tar.gz.
 # Args: $1=task_id (numeric parent ID), $2=archived_dir, $3=grep_pattern
 # Output: "archive_path:matched_filename" or empty
-_search_legacy_then_v2() {
+_search_numbered_then_legacy() {
     local task_id="$1"
     local archived_dir="$2"
     local pattern="$3"
 
-    # Try v2 numbered archive first (O(1) lookup)
-    local v2_path match
-    v2_path=$(archive_path_for_id "$task_id" "$archived_dir")
-    if [[ -f "$v2_path" ]]; then
-        match=$(_search_tar_gz_v2 "$v2_path" "$pattern")
+    # Try numbered archive first (O(1) lookup)
+    local numbered_path match
+    numbered_path=$(archive_path_for_id "$task_id" "$archived_dir")
+    if [[ -f "$numbered_path" ]]; then
+        match=$(_search_tar_gz "$numbered_path" "$pattern")
         if [[ -n "$match" ]]; then
-            echo "${v2_path}:${match}"
+            echo "${numbered_path}:${match}"
             return
         fi
     fi
@@ -154,7 +153,7 @@ _search_legacy_then_v2() {
     # Fall back to legacy single old.tar.gz
     local legacy_path="${archived_dir}/old.tar.gz"
     if [[ -f "$legacy_path" ]]; then
-        match=$(_search_tar_gz_v2 "$legacy_path" "$pattern")
+        match=$(_search_tar_gz "$legacy_path" "$pattern")
         if [[ -n "$match" ]]; then
             echo "${legacy_path}:${match}"
             return

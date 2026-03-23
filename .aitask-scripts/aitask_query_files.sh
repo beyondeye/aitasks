@@ -26,6 +26,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# shellcheck source=lib/archive_scan.sh
+source "$SCRIPT_DIR/lib/archive_scan.sh"
 
 # --- Help ---
 show_help() {
@@ -135,11 +137,11 @@ cmd_archived_task() {
         return
     fi
 
-    # Check old.tar.gz deep archive
-    local tar_match
-    tar_match=$(_search_tar_gz "$ARCHIVED_DIR/old.tar.gz" "(^|/)t${num}_.*\.md$" || true)
-    if [[ -n "$tar_match" ]]; then
-        echo "ARCHIVED_TASK_TAR_GZ:$tar_match"
+    # Check numbered archives (O(1) lookup, then legacy fallback)
+    local scan_result
+    scan_result=$(search_archived_task "$num" "$ARCHIVED_DIR")
+    if [[ "$scan_result" != "NOT_FOUND" ]]; then
+        echo "$scan_result"
         return
     fi
 

@@ -1,10 +1,10 @@
-"""archive_iter_v2.py - Python archive iteration for numbered archive scheme.
+"""archive_iter.py - Python archive iteration for numbered archive scheme.
 
 Provides iterator functions that yield (filename, text_content) tuples from
 numbered _bN/oldM.tar.gz archives and legacy old.tar.gz.
 
 Usage:
-    from archive_iter_v2 import iter_all_archived_tar_files
+    from archive_iter import iter_all_archived_tar_files
     for name, content in iter_all_archived_tar_files(Path("aitasks/archived")):
         process(name, content)
 """

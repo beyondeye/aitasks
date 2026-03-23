@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
-# archive_scan_v2.sh - Archive scanning functions for numbered archives
+# archive_scan.sh - Archive scanning functions for numbered archives
 # Source this file from aitask scripts; do not execute directly.
 #
 # Provides:
-#   scan_max_task_id_v2()       - find highest task ID across all locations
-#   search_archived_task_v2()   - find a specific task in archives
-#   iter_all_archived_files_v2() - iterate all files in all archives
+#   scan_max_task_id()       - find highest task ID across all locations
+#   search_archived_task()   - find a specific task in archives
+#   iter_all_archived_files() - iterate all files in all archives
 
 # --- Guard against double-sourcing ---
-[[ -n "${_AIT_ARCHIVE_SCAN_V2_LOADED:-}" ]] && return 0
-_AIT_ARCHIVE_SCAN_V2_LOADED=1
+[[ -n "${_AIT_ARCHIVE_SCAN_LOADED:-}" ]] && return 0
+_AIT_ARCHIVE_SCAN_LOADED=1
 
 SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # shellcheck source=terminal_compat.sh
 source "${SCRIPT_DIR}/lib/terminal_compat.sh"
-# shellcheck source=archive_utils_v2.sh
-source "${SCRIPT_DIR}/lib/archive_utils_v2.sh"
+# shellcheck source=archive_utils.sh
+source "${SCRIPT_DIR}/lib/archive_utils.sh"
 
 # ============================================================================
-# scan_max_task_id_v2 - Find the highest task number across all locations
+# scan_max_task_id - Find the highest task number across all locations
 # ============================================================================
 
 # Find the highest task number across all task locations.
 # Args: $1=task_dir, $2=archived_dir
 # Output: integer (max task ID, or 0 if no tasks found)
-scan_max_task_id_v2() {
+scan_max_task_id() {
     local task_dir="$1"
     local archived_dir="$2"
     local max_num=0
@@ -83,14 +83,14 @@ scan_max_task_id_v2() {
 }
 
 # ============================================================================
-# search_archived_task_v2 - O(1) lookup for a specific task in archives
+# search_archived_task - O(1) lookup for a specific task in archives
 # ============================================================================
 
 # Search for a specific task number in archives (numbered then legacy fallback).
 # Uses O(1) lookup via archive_path_for_id when task number is known.
 # Args: $1=task_num (numeric, e.g., "150"), $2=archived_dir
 # Output: "ARCHIVED_TASK_TAR_GZ:<archive_path>:<match>" or "NOT_FOUND"
-search_archived_task_v2() {
+search_archived_task() {
     local num="$1"
     local archived_dir="$2"
     local pattern="(^|/)t${num}_.*\.md$"
@@ -100,7 +100,7 @@ search_archived_task_v2() {
     archive_path=$(archive_path_for_id "$num" "$archived_dir")
     if [[ -f "$archive_path" ]]; then
         local tar_match
-        tar_match=$(_search_tar_gz_v2 "$archive_path" "$pattern")
+        tar_match=$(_search_tar_gz "$archive_path" "$pattern")
         if [[ -n "$tar_match" ]]; then
             echo "ARCHIVED_TASK_TAR_GZ:${archive_path}:${tar_match}"
             return
@@ -111,7 +111,7 @@ search_archived_task_v2() {
     local legacy_path="${archived_dir}/old.tar.gz"
     if [[ -f "$legacy_path" ]]; then
         local tar_match
-        tar_match=$(_search_tar_gz_v2 "$legacy_path" "$pattern")
+        tar_match=$(_search_tar_gz "$legacy_path" "$pattern")
         if [[ -n "$tar_match" ]]; then
             echo "ARCHIVED_TASK_TAR_GZ:${legacy_path}:${tar_match}"
             return
@@ -122,14 +122,14 @@ search_archived_task_v2() {
 }
 
 # ============================================================================
-# iter_all_archived_files_v2 - Iterate all files in all archives
+# iter_all_archived_files - Iterate all files in all archives
 # ============================================================================
 
 # Iterate all files across all numbered archives and legacy archive.
 # Args: $1=archived_dir, $2=callback_cmd
 #   callback_cmd is invoked as: $callback_cmd "$archive_path" "$filename_in_tar"
 # Returns: 0 on success
-iter_all_archived_files_v2() {
+iter_all_archived_files() {
     local archived_dir="$1"
     local callback_cmd="$2"
 

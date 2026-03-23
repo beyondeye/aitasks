@@ -23,9 +23,8 @@ bash tests/test_global_shim.sh
 bash tests/test_sed_compat.sh
 bash tests/test_resolve_detected_agent.sh
 bash tests/test_verified_update_flags.sh
-bash tests/test_resolve_v2.sh
-bash tests/test_zip_old_v2.sh
-bash tests/test_archive_scan_v2.sh
+bash tests/test_archive_scan.sh
+bash tests/test_archive_utils.sh
 ```
 No test runner — each file is self-contained with `assert_eq`/`assert_contains` helpers and prints PASS/FAIL summary.
 

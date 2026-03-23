@@ -10,6 +10,8 @@ _AIT_TASK_UTILS_LOADED=1
 SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # shellcheck source=terminal_compat.sh
 source "${SCRIPT_DIR}/lib/terminal_compat.sh"
+# shellcheck source=archive_utils.sh
+source "${SCRIPT_DIR}/lib/archive_utils.sh"
 
 # --- Default directory variables (override before sourcing if needed) ---
 TASK_DIR="${TASK_DIR:-aitasks}"
@@ -168,41 +170,10 @@ detect_platform_from_url() {
     fi
 }
 
-# --- Temp directory for tar.gz extraction ---
-_AIT_TASK_UTILS_TMPDIR=""
-_ait_task_utils_cleanup() {
-    if [[ -n "$_AIT_TASK_UTILS_TMPDIR" && -d "$_AIT_TASK_UTILS_TMPDIR" ]]; then
-        rm -rf "$_AIT_TASK_UTILS_TMPDIR"
-    fi
-}
-trap _ait_task_utils_cleanup EXIT
-
-# Search for a file matching a pattern inside a tar.gz archive
-# Args: $1=archive_path, $2=grep_pattern
-# Output: matching filename inside the tar (first match), or empty
-_search_tar_gz() {
-    local archive="$1"
-    local pattern="$2"
-    [[ -f "$archive" ]] || return 0
-    tar -tzf "$archive" 2>/dev/null | grep -E "$pattern" | head -1
-}
-
-# Extract a file from tar.gz to a temp location
-# Args: $1=archive_path, $2=filename_inside_tar
-# Sets: _AIT_EXTRACT_RESULT to the path of the extracted temp file
-# Note: Must be called WITHOUT command substitution $() to preserve
-# _AIT_TASK_UTILS_TMPDIR in the caller's shell for EXIT trap cleanup
-_extract_from_tar_gz() {
-    local archive="$1"
-    local filename="$2"
-    if [[ -z "$_AIT_TASK_UTILS_TMPDIR" ]]; then
-        _AIT_TASK_UTILS_TMPDIR=$(mktemp -d)
-    fi
-    _AIT_EXTRACT_RESULT="$_AIT_TASK_UTILS_TMPDIR/$(basename "$filename")"
-    tar -xzf "$archive" -O "$filename" > "$_AIT_EXTRACT_RESULT" 2>/dev/null
-}
-
 # --- Task and Plan Resolution ---
+# Archive search/extract primitives provided by archive_utils.sh:
+#   _search_tar_gz(), _extract_from_tar_gz(), archive_path_for_id()
+# Temp directory cleanup handled by _AIT_ARCHIVE_TMPDIR in archive_utils.sh
 
 # Resolve task number to file path, checking both active and archived directories
 # Input: task_id (e.g., "53" or "53_6")
@@ -223,18 +194,23 @@ resolve_task_file() {
             files=$(ls "$ARCHIVED_DIR"/t${parent_num}/t${parent_num}_${child_num}_*.md 2>/dev/null || true)
         fi
 
-        # Check tar.gz archive
+        # Tier 3: numbered archives (computed path, then legacy fallback)
         if [[ -z "$files" ]]; then
-            local tar_match
-            tar_match=$(_search_tar_gz "$ARCHIVED_DIR/old.tar.gz" "(^|/)t${parent_num}/t${parent_num}_${child_num}_.*\.md$")
+            local archive_path tar_match
+            archive_path=$(archive_path_for_id "$parent_num" "$ARCHIVED_DIR")
+            tar_match=$(_search_tar_gz "$archive_path" "(^|/)t${parent_num}/t${parent_num}_${child_num}_.*\.md$")
+            if [[ -z "$tar_match" && -f "$ARCHIVED_DIR/old.tar.gz" ]]; then
+                archive_path="$ARCHIVED_DIR/old.tar.gz"
+                tar_match=$(_search_tar_gz "$archive_path" "(^|/)t${parent_num}/t${parent_num}_${child_num}_.*\.md$")
+            fi
             if [[ -n "$tar_match" ]]; then
-                _extract_from_tar_gz "$ARCHIVED_DIR/old.tar.gz" "$tar_match"
+                _extract_from_tar_gz "$archive_path" "$tar_match"
                 files="$_AIT_EXTRACT_RESULT"
             fi
         fi
 
         if [[ -z "$files" ]]; then
-            die "No task file found for t${parent_num}_${child_num} (checked active, archived, and tar.gz)"
+            die "No task file found for t${parent_num}_${child_num} (checked active, archived, and numbered archives)"
         fi
     else
         # Parent task
@@ -244,18 +220,23 @@ resolve_task_file() {
             files=$(ls "$ARCHIVED_DIR"/t${task_id}_*.md 2>/dev/null || true)
         fi
 
-        # Check tar.gz archive
+        # Tier 3: numbered archives (computed path, then legacy fallback)
         if [[ -z "$files" ]]; then
-            local tar_match
-            tar_match=$(_search_tar_gz "$ARCHIVED_DIR/old.tar.gz" "(^|/)t${task_id}_.*\.md$")
+            local archive_path tar_match
+            archive_path=$(archive_path_for_id "$task_id" "$ARCHIVED_DIR")
+            tar_match=$(_search_tar_gz "$archive_path" "(^|/)t${task_id}_.*\.md$")
+            if [[ -z "$tar_match" && -f "$ARCHIVED_DIR/old.tar.gz" ]]; then
+                archive_path="$ARCHIVED_DIR/old.tar.gz"
+                tar_match=$(_search_tar_gz "$archive_path" "(^|/)t${task_id}_.*\.md$")
+            fi
             if [[ -n "$tar_match" ]]; then
-                _extract_from_tar_gz "$ARCHIVED_DIR/old.tar.gz" "$tar_match"
+                _extract_from_tar_gz "$archive_path" "$tar_match"
                 files="$_AIT_EXTRACT_RESULT"
             fi
         fi
 
         if [[ -z "$files" ]]; then
-            die "No task file found for task number $task_id (checked active, archived, and tar.gz)"
+            die "No task file found for task number $task_id (checked active, archived, and numbered archives)"
         fi
     fi
 
@@ -291,12 +272,17 @@ resolve_plan_file() {
             files=$(ls "$ARCHIVED_PLAN_DIR"/p${parent_num}/p${parent_num}_${child_num}_*.md 2>/dev/null || true)
         fi
 
-        # Check tar.gz archive
+        # Tier 3: numbered archives (computed path, then legacy fallback)
         if [[ -z "$files" ]]; then
-            local tar_match
-            tar_match=$(_search_tar_gz "$ARCHIVED_PLAN_DIR/old.tar.gz" "(^|/)p${parent_num}/p${parent_num}_${child_num}_.*\.md$")
+            local archive_path tar_match
+            archive_path=$(archive_path_for_id "$parent_num" "$ARCHIVED_PLAN_DIR")
+            tar_match=$(_search_tar_gz "$archive_path" "(^|/)p${parent_num}/p${parent_num}_${child_num}_.*\.md$")
+            if [[ -z "$tar_match" && -f "$ARCHIVED_PLAN_DIR/old.tar.gz" ]]; then
+                archive_path="$ARCHIVED_PLAN_DIR/old.tar.gz"
+                tar_match=$(_search_tar_gz "$archive_path" "(^|/)p${parent_num}/p${parent_num}_${child_num}_.*\.md$")
+            fi
             if [[ -n "$tar_match" ]]; then
-                _extract_from_tar_gz "$ARCHIVED_PLAN_DIR/old.tar.gz" "$tar_match"
+                _extract_from_tar_gz "$archive_path" "$tar_match"
                 files="$_AIT_EXTRACT_RESULT"
             fi
         fi
@@ -308,12 +294,17 @@ resolve_plan_file() {
             files=$(ls "$ARCHIVED_PLAN_DIR"/p${task_id}_*.md 2>/dev/null || true)
         fi
 
-        # Check tar.gz archive
+        # Tier 3: numbered archives (computed path, then legacy fallback)
         if [[ -z "$files" ]]; then
-            local tar_match
-            tar_match=$(_search_tar_gz "$ARCHIVED_PLAN_DIR/old.tar.gz" "(^|/)p${task_id}_.*\.md$")
+            local archive_path tar_match
+            archive_path=$(archive_path_for_id "$task_id" "$ARCHIVED_PLAN_DIR")
+            tar_match=$(_search_tar_gz "$archive_path" "(^|/)p${task_id}_.*\.md$")
+            if [[ -z "$tar_match" && -f "$ARCHIVED_PLAN_DIR/old.tar.gz" ]]; then
+                archive_path="$ARCHIVED_PLAN_DIR/old.tar.gz"
+                tar_match=$(_search_tar_gz "$archive_path" "(^|/)p${task_id}_.*\.md$")
+            fi
             if [[ -n "$tar_match" ]]; then
-                _extract_from_tar_gz "$ARCHIVED_PLAN_DIR/old.tar.gz" "$tar_match"
+                _extract_from_tar_gz "$archive_path" "$tar_match"
                 files="$_AIT_EXTRACT_RESULT"
             fi
         fi

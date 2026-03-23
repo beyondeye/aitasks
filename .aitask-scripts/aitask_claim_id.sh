@@ -22,6 +22,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+# shellcheck source=lib/archive_scan.sh
+source "$SCRIPT_DIR/lib/archive_scan.sh"
 
 BRANCH="aitask-ids"
 COUNTER_FILE="next_id.txt"
@@ -32,41 +34,8 @@ DEBUG=false
 
 TASK_DIR="${TASK_DIR:-aitasks}"
 ARCHIVED_DIR="${ARCHIVED_DIR:-aitasks/archived}"
-ARCHIVE_FILE="${ARCHIVE_FILE:-aitasks/archived/old.tar.gz}"
 
 # --- Helpers ---
-
-# Scan all task locations for the maximum existing task number
-scan_max_task_id() {
-    local max_num=0
-    local num
-
-    # Active tasks
-    if ls "$TASK_DIR"/t*_*.md &>/dev/null; then
-        for f in "$TASK_DIR"/t*_*.md; do
-            num=$(basename "$f" | grep -oE '^t[0-9]+' | sed 's/t//')
-            [[ "$num" -gt "$max_num" ]] && max_num="$num"
-        done
-    fi
-
-    # Archived tasks
-    if ls "$ARCHIVED_DIR"/t*_*.md &>/dev/null; then
-        for f in "$ARCHIVED_DIR"/t*_*.md; do
-            num=$(basename "$f" | grep -oE '^t[0-9]+' | sed 's/t//')
-            [[ "$num" -gt "$max_num" ]] && max_num="$num"
-        done
-    fi
-
-    # Compressed archive
-    if [[ -f "$ARCHIVE_FILE" ]]; then
-        while IFS= read -r line; do
-            num=$(echo "$line" | grep -oE 't[0-9]+' | head -1 | sed 's/t//')
-            [[ -n "$num" && "$num" -gt "$max_num" ]] && max_num="$num"
-        done < <(tar -tzf "$ARCHIVE_FILE" 2>/dev/null | grep -E 't[0-9]+')
-    fi
-
-    echo "$max_num"
-}
 
 debug() {
     if [[ "$DEBUG" == true ]]; then
@@ -103,7 +72,7 @@ init_counter_branch() {
 
     # Scan for max existing task ID
     local max_id
-    max_id=$(scan_max_task_id)
+    max_id=$(scan_max_task_id "$TASK_DIR" "$ARCHIVED_DIR")
     local next_id=$((max_id + ID_BUFFER))
 
     info "Max existing task ID: t$max_id"
@@ -134,7 +103,7 @@ has_local_branch() {
 # Auto-initialize a local counter branch (no remote needed)
 init_local_branch() {
     local max_id
-    max_id=$(scan_max_task_id)
+    max_id=$(scan_max_task_id "$TASK_DIR" "$ARCHIVED_DIR")
     local next_id=$((max_id + ID_BUFFER))
 
     debug "Initializing local counter branch with next_id=$next_id (max=$max_id + buffer=$ID_BUFFER)"
@@ -278,7 +247,7 @@ peek_counter() {
         else
             # No branch yet — show what next claim would return
             local max_id
-            max_id=$(scan_max_task_id)
+            max_id=$(scan_max_task_id "$TASK_DIR" "$ARCHIVED_DIR")
             echo $((max_id + ID_BUFFER))
         fi
         return 0

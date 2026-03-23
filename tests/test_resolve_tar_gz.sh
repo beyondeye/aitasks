@@ -256,7 +256,7 @@ echo "tar task 77 content" > "$staging/t77_cleanup_test.md"
 create_test_archive "$TMPDIR_13/aitasks/archived/old.tar.gz" "$staging"
 rm -rf "$staging"
 # Run in a subshell that will exit, triggering the EXIT trap.
-# The subshell writes _AIT_TASK_UTILS_TMPDIR to a file so the parent can check it.
+# The subshell writes _AIT_ARCHIVE_TMPDIR to a file so the parent can check it.
 marker_file=$(mktemp)
 bash -c "
     export TASK_DIR='$TMPDIR_13/aitasks'
@@ -264,7 +264,7 @@ bash -c "
     export SCRIPT_DIR='$PROJECT_DIR/.aitask-scripts'
     source '$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh'
     resolve_task_file '77' >/dev/null
-    echo \"\$_AIT_TASK_UTILS_TMPDIR\" > '$marker_file'
+    echo \"\$_AIT_ARCHIVE_TMPDIR\" > '$marker_file'
 "
 tmpdir_path=$(cat "$marker_file")
 rm -f "$marker_file"

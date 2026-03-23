@@ -16,6 +16,11 @@ import re
 import shutil
 import sys
 import tarfile
+
+# Add lib/ to Python path for archive_iter
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "lib"))
+from archive_iter import iter_all_archived_tar_files
+
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -24,7 +29,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 TASK_DIR = Path("aitasks")
 ARCHIVE_DIR = TASK_DIR / "archived"
-ARCHIVE_TAR = ARCHIVE_DIR / "old.tar.gz"
+# Archive iteration handled by archive_iter (numbered + legacy archives)
 TASK_TYPES_FILE = TASK_DIR / "metadata" / "task_types.txt"
 
 DAY_NAMES = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -596,20 +601,9 @@ def iter_archived_markdown_files() -> Iterable[Tuple[str, str]]:
             except OSError:
                 continue
 
-    if ARCHIVE_TAR.exists():
-        try:
-            with tarfile.open(ARCHIVE_TAR, "r:gz") as tf:
-                for member in tf.getmembers():
-                    if not member.isfile() or not member.name.endswith(".md"):
-                        continue
-                    extracted = tf.extractfile(member)
-                    if extracted is None:
-                        continue
-                    raw = extracted.read()
-                    text = raw.decode("utf-8", errors="replace")
-                    yield os.path.basename(member.name), text
-        except (tarfile.TarError, OSError):
-            return
+    # Numbered archives (_bN/oldM.tar.gz) + legacy old.tar.gz
+    for name, text in iter_all_archived_tar_files(ARCHIVE_DIR):
+        yield name, text
 
 
 def get_valid_task_types() -> List[str]:

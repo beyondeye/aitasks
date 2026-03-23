@@ -88,6 +88,8 @@ setup_paired_repos() {
         mkdir -p .aitask-scripts/lib
         cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
         chmod +x .aitask-scripts/aitask_claim_id.sh
 
         git add -A
@@ -114,6 +116,8 @@ clone_second_local() {
         mkdir -p .aitask-scripts/lib
         cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
         chmod +x .aitask-scripts/aitask_claim_id.sh
     )
 
@@ -236,6 +240,8 @@ TMPDIR_7="$(mktemp -d)"
     echo "---" > aitasks/t3_third.md
     cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
     chmod +x .aitask-scripts/aitask_claim_id.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
@@ -309,6 +315,8 @@ TMPDIR_11="$(mktemp -d)"
     mkdir -p .aitask-scripts/lib
     cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
     chmod +x .aitask-scripts/aitask_claim_id.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
@@ -329,6 +337,8 @@ TMPDIR_12="$(mktemp -d)"
     echo "---" > aitasks/t10_task.md
     cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
     chmod +x .aitask-scripts/aitask_claim_id.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
@@ -355,6 +365,8 @@ TMPDIR_13="$(mktemp -d)"
     mkdir -p aitasks/archived .aitask-scripts/lib
     cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
     chmod +x .aitask-scripts/aitask_claim_id.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
@@ -380,6 +392,8 @@ TMPDIR_14="$(mktemp -d)"
     echo "---" > aitasks/t1_task.md
     cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
     chmod +x .aitask-scripts/aitask_claim_id.sh
     echo "init" > dummy.txt && git add -A && git commit -m "init" --quiet
 )

@@ -135,6 +135,7 @@ setup_test_env() {
         cp "$PROJECT_DIR/.aitask-scripts/aitask_zip_old.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
 
         # Initial commit
         git add -A
@@ -285,13 +286,13 @@ TMPDIR_9="$(setup_test_env)"
     git add -A && git commit -m "Add test files" --quiet
 )
 (cd "$TMPDIR_9" && bash .aitask-scripts/aitask_zip_old.sh --no-commit 2>&1 >/dev/null)
-assert_file_exists "Test 9: task tar.gz created" "$TMPDIR_9/aitasks/archived/old.tar.gz"
-assert_file_exists "Test 9: plan tar.gz created" "$TMPDIR_9/aiplans/archived/old.tar.gz"
+assert_file_exists "Test 9: task tar.gz created" "$TMPDIR_9/aitasks/archived/_b0/old0.tar.gz"
+assert_file_exists "Test 9: plan tar.gz created" "$TMPDIR_9/aiplans/archived/_b0/old0.tar.gz"
 assert_file_not_exists "Test 9: t50 removed" "$TMPDIR_9/aitasks/archived/t50_old.md"
 assert_file_not_exists "Test 9: t51 removed" "$TMPDIR_9/aitasks/archived/t51_old.md"
 assert_file_not_exists "Test 9: p50 removed" "$TMPDIR_9/aiplans/archived/p50_old.md"
 # Verify tar.gz contents
-tar_contents_9=$(tar -tzf "$TMPDIR_9/aitasks/archived/old.tar.gz" 2>/dev/null)
+tar_contents_9=$(tar -tzf "$TMPDIR_9/aitasks/archived/_b0/old0.tar.gz" 2>/dev/null)
 assert_contains "Test 9: tar contains t50" "t50_old.md" "$tar_contents_9"
 assert_contains "Test 9: tar contains t51" "t51_old.md" "$tar_contents_9"
 rm -rf "$TMPDIR_9"
@@ -310,7 +311,7 @@ TMPDIR_10="$(setup_test_env)"
     create_archived_file aitasks/archived/t51_second.md
 )
 (cd "$TMPDIR_10" && bash .aitask-scripts/aitask_zip_old.sh --no-commit 2>&1 >/dev/null)
-tar_contents_10=$(tar -tzf "$TMPDIR_10/aitasks/archived/old.tar.gz" 2>/dev/null)
+tar_contents_10=$(tar -tzf "$TMPDIR_10/aitasks/archived/_b0/old0.tar.gz" 2>/dev/null)
 assert_contains "Test 10: tar still has first batch" "t50_first.md" "$tar_contents_10"
 assert_contains "Test 10: tar has second batch" "t51_second.md" "$tar_contents_10"
 rm -rf "$TMPDIR_10"
@@ -330,7 +331,7 @@ TMPDIR_11="$(setup_test_env)"
 )
 (cd "$TMPDIR_11" && bash .aitask-scripts/aitask_zip_old.sh 2>&1 >/dev/null)
 commit_msg_11=$(cd "$TMPDIR_11" && git log -1 --pretty=%B)
-assert_contains "Test 11: commit mentions archive" "ait: Archive old task and plan files" "$commit_msg_11"
+assert_contains "Test 11: commit mentions archive" "ait: Archive old files" "$commit_msg_11"
 rm -rf "$TMPDIR_11"
 
 # --- Test 12: Empty child dirs cleaned up ---
@@ -358,7 +359,7 @@ TMPDIR_13="$(setup_test_env)"
 # Check that there's no new commit (HEAD should still be "Setup")
 last_commit_13=$(cd "$TMPDIR_13" && git log -1 --pretty=%s)
 assert_eq "Test 13: no git commit made" "Setup" "$last_commit_13"
-assert_file_exists "Test 13: archive still created" "$TMPDIR_13/aitasks/archived/old.tar.gz"
+assert_file_exists "Test 13: archive still created" "$TMPDIR_13/aitasks/archived/_b0/old0.tar.gz"
 rm -rf "$TMPDIR_13"
 
 # --- Test 14: Verbose output ---
