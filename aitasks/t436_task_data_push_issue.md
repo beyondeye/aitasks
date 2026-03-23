@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [task_workflow]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 11:23
-updated_at: 2026-03-23 11:23
+updated_at: 2026-03-23 11:28
 ---
 
 when running the task-workflow.md, in the step when we push updates to the task-data branch (for the updated plans/tasks, archived status, and so on) we almost get conflicts at the first attempts. this is expected as there are most of the time multiple users pushing updated to the task-data branch. show here an excerpt of th calude code run log as an example: ● Step 9: Post-Implementation — No separate branch, so skipping merge. Verifying plan completeness for child task — done (Final Implementation Notes
