@@ -6,8 +6,9 @@ issue_type: documentation
 status: Implementing
 labels: [testing, qa, documentation]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-22 11:23
-updated_at: 2026-03-23 19:13
+updated_at: 2026-03-23 19:31
 ---
 
 ## Context
