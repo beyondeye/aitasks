@@ -1,12 +1,13 @@
 ---
 priority: high
 effort: low
-depends: [t433_1, 433_1]
+depends: [t433_1, t433_1]
 issue_type: test
-status: Ready
+status: Implementing
 labels: [task-archive]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 09:58
-updated_at: 2026-03-23 09:58
+updated_at: 2026-03-23 11:25
 ---
 
 ## Tests for Core Archive Library
