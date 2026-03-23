@@ -131,7 +131,7 @@ archive_files_v2() {
         local num
         num=$(echo "$bname" | sed "s/^${prefix}\([0-9]*\).*/\1/")
         local apath
-        apath=$(archive_path_for_id "$base_dir" "$num")
+        apath=$(archive_path_for_id "$num" "$base_dir")
         if [[ -n "${bundle_groups[$apath]:-}" ]]; then
             bundle_groups[$apath]="${bundle_groups[$apath]}"$'\n'"$f"
         else
@@ -171,7 +171,7 @@ cmd_unpack_v2() {
 
         # Compute numbered archive path, plus legacy fallback
         local archive_path legacy_path
-        archive_path=$(archive_path_for_id "$base_dir" "$num")
+        archive_path=$(archive_path_for_id "$num" "$base_dir")
         legacy_path="$base_dir/old.tar.gz"
 
         local search_list=()
@@ -332,7 +332,7 @@ _show_dry_run_bundles() {
         local bname num apath
         bname=$(basename "$f")
         num=$(echo "$bname" | sed "s/^${prefix}\([0-9]*\).*/\1/")
-        apath=$(archive_path_for_id "$base_dir" "$num")
+        apath=$(archive_path_for_id "$num" "$base_dir")
         local bundle
         bundle=$(archive_bundle "$num")
         local range_lo=$((bundle * 100)) range_hi=$(( (bundle + 1) * 100 - 1 ))
@@ -398,6 +398,13 @@ ls aitasks/archived/t50_old_task.md  # should exist again
 - **`wc -l` portability:** pipe through `tr -d ' '` when comparing as string (per CLAUDE.md)
 - **`declare -A` requires bash 4+:** the shebang `#!/usr/bin/env bash` picks up brew bash 5 on macOS (per CLAUDE.md)
 
-## Post-Implementation
+## Final Implementation Notes
 
-Follow Step 9 of the task workflow (testing, verification, commit).
+- **Actual work done:** Created `.aitask-scripts/aitask_zip_old_v2.sh` (~370 lines) implementing all planned functions: selection logic copied from v1 (unchanged), `_archive_single_bundle()` for per-archive create/merge, `archive_files_v2()` with associative-array grouping by bundle, `cmd_unpack_v2()` with O(1) archive lookup + legacy fallback, `_show_dry_run_bundles()` for bundle-grouped dry-run display, and `main()` wiring it all together.
+- **Deviations from plan:**
+  - Fixed `archive_path_for_id` argument order throughout (plan had `base_dir, num` but actual function signature is `task_id, archived_dir`). Caught during verification.
+  - Added `|| true` to `grep -v '^$'` pipelines in the dedup section — `set -euo pipefail` (new in v2, v1 used only `set -e`) causes `grep` returning exit 1 on no-match to abort the script.
+  - Removed unused `TASKS_ARCHIVED`/`PLANS_ARCHIVED` global counters (v2 uses locals in `main()`).
+- **Issues encountered:** `pipefail` interaction with `grep -v '^$'` — when `SKIPPED_*` variables are empty, the grep produces no output and returns exit 1, triggering pipefail abort. Fixed by appending `|| true`.
+- **Key decisions:** Kept `set -euo pipefail` (stricter than v1's `set -e`) since it caught the grep issue early. The trap in `_archive_single_bundle` intentionally uses early expansion (`SC2064` suppressed) to capture the temp dir path.
+- **Notes for sibling tasks:** The v2 script is fully standalone and coexists with v1. It sources `archive_utils_v2.sh` for path computation. The `archive_files_v2()` and `_archive_single_bundle()` functions could be referenced by t433_5 (archive scanners) if needed. The bundle grouping pattern (associative array keyed by archive path) may be useful in t433_6 integration tests.
