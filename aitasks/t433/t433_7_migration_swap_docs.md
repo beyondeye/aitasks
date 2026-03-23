@@ -1,12 +1,13 @@
 ---
 priority: medium
 effort: high
-depends: [433_6]
+depends: [t433_6]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [task-archive]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 09:59
-updated_at: 2026-03-23 09:59
+updated_at: 2026-03-23 14:27
 ---
 
 ## Migration, Code Swap, and Documentation Update
