@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 12:53
-updated_at: 2026-03-23 12:53
+updated_at: 2026-03-23 13:11
 ---
 
 ## Runner: Capture agent subprocess output to per-agent log files
