@@ -33,6 +33,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `enableFeedbackQuestions` | bool | no | `false` = skip satisfaction feedback prompts; omit or `true` = ask them | Satisfaction Feedback Procedure |
 | `qa_mode` | string | no | `"ask"` = prompt; `"create_task"` = auto-create follow-up; `"implement"` = implement tests now; `"plan_only"` = export plan only; omit = ask | aitask-qa Step 5 |
 | `qa_run_tests` | bool | no | `true` = run discovered tests; `false` = skip test execution; omit or `true` = run | aitask-qa Step 4 |
+| `qa_tier` | string | no | `"quick"`, `"standard"` (default), `"exhaustive"` | aitask-qa Step 1c |
 
 Only `name` and `description` are required. Omitting any other key means the corresponding question is asked interactively.
 
