@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [agentcrew, brainstorming]
 folded_tasks: [438]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 19:02
-updated_at: 2026-03-23 19:02
+updated_at: 2026-03-23 19:11
 ---
 
 ## Problem
