@@ -395,9 +395,8 @@ fi
 
 ### Step 9: Final Implementation Notes
 
-_(To be filled in after implementation)_
-
-- **Actual files created/modified:**
-- **Issues encountered:**
-- **Deviations from plan:**
-- **Test count and results:**
+- **Actual work done:** Created `tests/test_archive_utils_v2.sh` (254 lines) with 42 assertions across 10 test groups (A–J), covering all functions in `archive_utils_v2.sh`: path computation (`archive_bundle`, `archive_dir`, `archive_path_for_id`), single-archive primitives (`_search_tar_gz_v2`, `_extract_from_tar_gz_v2`), multi-archive operations (`_find_archive_for_task`, `_search_all_archives`, `_search_legacy_then_v2`), child task resolution, and temp dir cleanup.
+- **Deviations from plan:** None. Implementation matched the plan exactly.
+- **Issues encountered:** None. All 42 tests pass. ShellCheck clean (only SC1091 info for sourced file, same as existing tests).
+- **Test count and results:** 42 passed, 0 failed, 42 total — ALL TESTS PASSED.
+- **Notes for sibling tasks:** The test file validates all functions from t433_1's library. Sibling tasks (t433_3+) that add new functions to the library or modify existing ones should add corresponding tests to this file or create new test files as appropriate. The test pattern (setup_test_env, create_test_archive, source_archive_utils with guard reset) is reusable.
