@@ -349,9 +349,11 @@ rm -rf "$tmpdir"
 
 ### Step 9: Final Implementation Notes
 
-_(To be filled in after implementation)_
-
 - **Actual files created/modified:**
-- **Issues encountered:**
-- **Deviations from plan:**
-- **ShellCheck result:**
+  - `.aitask-scripts/lib/archive_scan_v2.sh` (~145 lines) — shell scanner library with guard variable, `scan_max_task_id_v2()`, `search_archived_task_v2()`, and `iter_all_archived_files_v2()`
+  - `.aitask-scripts/lib/archive_iter_v2.py` (~65 lines) — Python iterator module with `archive_path_for_id()`, `iter_numbered_archives()`, `iter_legacy_archive()`, `iter_all_archived_tar_files()`, and `_iter_single_archive()`
+- **Deviations from plan:** None. Implementation matched the plan exactly.
+- **Issues encountered:** None. ShellCheck clean (only SC1091 info for sourced files, same as all other project scripts). All manual integration tests pass. All 42 existing archive_utils_v2 tests pass.
+- **ShellCheck result:** Clean (SC1091 info-level only, same as other scripts)
+- **Key decisions:** Used explicit `task_dir` and `archived_dir` parameters (not globals) for testability. Shell glob iteration for numbered archives (`_b*/old*.tar.gz`) naturally sorts alphabetically. Python module uses `sorted()` on glob results for deterministic iteration.
+- **Notes for sibling tasks:** Both libraries are ready. Shell: `source "${SCRIPT_DIR}/lib/archive_scan_v2.sh"` provides all scanner functions. Python: `from archive_iter_v2 import iter_all_archived_tar_files` is the drop-in replacement for the `ARCHIVE_TAR` block in `aitask_stats.py`. The `search_archived_task_v2()` output format (`ARCHIVED_TASK_TAR_GZ:<path>:<match>`) matches the convention in `aitask_query_files.sh`. For t433_6 (integration tests), the shell functions accept explicit directory parameters making them easy to test with temp directories. The correct `archive_path_for_id` argument order is `(task_id, archived_dir)` — consistent with t433_3's notes.
