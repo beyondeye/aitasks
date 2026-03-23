@@ -42,11 +42,20 @@ DEFAULT_INTERVAL = 30
 DEFAULT_MAX_CONCURRENT = 3
 
 _log_handles: dict[str, object] = {}  # agent_name → open file handle for log
+_repo_root: str | None = None  # cached repo root (set in main)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def resolve_repo_root() -> str:
+    """Return the absolute path to the main repository root."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True, check=True,
+    )
+    return result.stdout.strip()
 
 def now_utc() -> str:
     """Return current UTC timestamp as string."""
@@ -420,7 +429,8 @@ def launch_agent(worktree: str, name: str, agents: dict[str, dict],
         # Capture agent stdout/stderr to a per-agent log file
         log_path = os.path.join(worktree, f"{name}_log.txt")
         log_fh = open(log_path, "a")
-        cmd = ["./ait", "codeagent", "--agent-string", agent_string,
+        ait_cmd = os.path.join(_repo_root, "ait") if _repo_root else "./ait"
+        cmd = [ait_cmd, "codeagent", "--agent-string", agent_string,
                "invoke", "raw", "-p", work2do_content]
         log_fh.write(f"=== Agent: {name} | Type: {atype} | String: {agent_string} ===\n")
         log_fh.write(f"=== Started: {now_utc()} ===\n")
@@ -428,7 +438,7 @@ def launch_agent(worktree: str, name: str, agents: dict[str, dict],
         log_fh.write(f"{'=' * 60}\n")
         log_fh.flush()
 
-        proc = subprocess.Popen(cmd, cwd=worktree, stdout=log_fh, stderr=log_fh)
+        proc = subprocess.Popen(cmd, cwd=_repo_root or ".", stdout=log_fh, stderr=log_fh)
         _log_handles[name] = log_fh
         update_yaml_field(status_file, "pid", proc.pid)
         agents[name]["pid"] = proc.pid
@@ -580,11 +590,7 @@ def graceful_shutdown(worktree: str, crew_id: str, interval: int, batch: bool) -
     log("Graceful shutdown initiated", batch)
 
     # Send kill command to all running agents
-    ait_path = os.path.join(worktree, "ait")
-    if os.path.isfile(ait_path):
-        cmd_path = ait_path
-    else:
-        cmd_path = "./ait"
+    cmd_path = os.path.join(_repo_root, "ait") if _repo_root else "./ait"
 
     subprocess.run(
         [cmd_path, "crew", "command", "send-all", "--crew", crew_id, "--command", "kill"],
@@ -780,6 +786,10 @@ def main() -> int:
 
     args = parser.parse_args()
     crew_id = args.crew
+
+    # Resolve repo root (for ait command path)
+    global _repo_root
+    _repo_root = resolve_repo_root()
 
     # Resolve worktree
     worktree = crew_worktree_path(crew_id)

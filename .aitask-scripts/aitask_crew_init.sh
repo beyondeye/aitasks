@@ -103,7 +103,10 @@ info "Creating agentcrew '$CREW_ID'..."
 
 mkdir -p "$AGENTCREW_DIR"
 
-git branch "$BRANCH_NAME" HEAD
+# Create orphan branch with empty tree (no source code in crew worktrees)
+empty_tree_hash=$(printf '' | git mktree)
+commit_hash=$(echo "crew: Initialize agentcrew '$CREW_ID'" | git commit-tree "$empty_tree_hash")
+git update-ref "refs/heads/$BRANCH_NAME" "$commit_hash"
 git worktree add "$WT_PATH" "$BRANCH_NAME" --quiet
 
 # --- Build agent_types YAML block ---
