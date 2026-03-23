@@ -1,0 +1,22 @@
+id: brainstorm-427
+name: Brainstorm t427
+created_at: 2026-03-23 16:39:37
+created_by: dario-e@beyond-eye.com
+agents: []
+agent_types:
+  explorer:
+    agent_string: claudecode/opus4_6
+    max_parallel: 0
+  comparator:
+    agent_string: claudecode/sonnet4_6
+    max_parallel: 0
+  synthesizer:
+    agent_string: claudecode/opus4_6
+    max_parallel: 0
+  detailer:
+    agent_string: claudecode/opus4_6
+    max_parallel: 0
+  patcher:
+    agent_string: claudecode/sonnet4_6
+    max_parallel: 0
+
