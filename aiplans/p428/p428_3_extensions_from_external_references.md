@@ -86,3 +86,20 @@ Add `qa_tier` row to the schema table:
 ## Post-Implementation
 
 Step 9 of task-workflow for archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** Refactored the monolithic SKILL.md (305 lines) into a concise orchestrator (118 lines) + 6 procedure files, following the task-workflow progressive disclosure pattern. Added all 4 planned extensions: tiered testing modes (Step 1c), health score (4d), verification gate (4e), and regression test hints (5a). Updated profiles.md with `qa_tier` key.
+- **Deviations from plan:**
+  - **Major refactor added:** Per user feedback, the skill was refactored into procedure files before adding features (not in original plan). This follows Claude platform best practices for skills approaching 500 lines.
+  - **Step numbering:** Used "Step 1c" instead of "Step 1b" since 1b was already taken by Interactive Task Selection.
+  - **Tier system redesign:** Per user feedback, replaced vague "tier gate" prose with an explicit `tier` context variable (`q`/`s`/`e`) and `[Tier: ...]` annotations on every step/sub-step heading. Each annotation explicitly lists which tier values activate it.
+- **Issues encountered:** None.
+- **Key decisions:**
+  - Procedure files follow the task-workflow pattern: each has a context header, Input/Output section, and `---` separator before the procedure body.
+  - The `[Tier: ...]` annotation convention is new to this skill — placed in heading text for maximum visibility.
+  - Health score uses proportional weight redistribution when a component is N/A (e.g., no lint command).
+- **Notes for sibling tasks:**
+  - t428_5 (website docs): The skill now has 7 files in `.claude/skills/aitask-qa/` — documentation should reflect the refactored structure. New profile key `qa_tier` needs documenting.
+  - t428_7 (TUI profile keys): `qa_tier` was added to `profiles.md` with values `"quick"`, `"standard"`, `"exhaustive"`. The TUI settings should support this as a string dropdown.
+  - Multi-agent wrappers (created in t428_6) need NO changes — they delegate to SKILL.md which references procedure files on demand.
