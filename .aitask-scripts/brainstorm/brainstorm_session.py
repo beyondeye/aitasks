@@ -196,3 +196,14 @@ def finalize_session(task_num: int | str, plan_dest_dir: str = "aiplans") -> str
 def archive_session(task_num: int | str) -> None:
     """Mark session as archived in br_session.yaml."""
     save_session(task_num, {"status": "archived"})
+
+
+def delete_session(task_num: int | str) -> None:
+    """Delete a brainstorm session by removing its crew worktree directory.
+
+    Raises FileNotFoundError if the session does not exist.
+    """
+    wt = crew_worktree(task_num)
+    if not (wt / SESSION_FILE).is_file():
+        raise FileNotFoundError(f"No brainstorm session for task {task_num}")
+    shutil.rmtree(wt)

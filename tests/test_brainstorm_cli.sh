@@ -101,6 +101,7 @@ setup_test_repo() {
         cp "$PROJECT_DIR/.aitask-scripts/aitask_brainstorm_init.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/aitask_brainstorm_status.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/aitask_brainstorm_archive.sh" .aitask-scripts/
+        cp "$PROJECT_DIR/.aitask-scripts/aitask_brainstorm_delete.sh" .aitask-scripts/
         chmod +x .aitask-scripts/aitask_brainstorm_*.sh
 
         # Copy crew scripts (needed by brainstorm init/archive)
@@ -271,6 +272,48 @@ TMPDIR_T8="$(setup_test_repo)"
     assert_contains "help shows task_num" "task_num" "$output"
 )
 cleanup_test_repo "$TMPDIR_T8"
+
+# --- Test 9: brainstorm delete removes session ---
+echo "Test 9: brainstorm delete removes session"
+TMPDIR_T9="$(setup_test_repo)"
+(
+    cd "$TMPDIR_T9"
+    bash .aitask-scripts/aitask_brainstorm_init.sh 999 >/dev/null 2>&1
+    # Verify session exists
+    output=$("$PYTHON" .aitask-scripts/brainstorm/brainstorm_cli.py exists --task-num 999 2>&1)
+    assert_eq "session exists before delete" "EXISTS" "$output"
+
+    # Delete with --yes to skip confirmation
+    output=$(bash .aitask-scripts/aitask_brainstorm_delete.sh 999 --yes 2>&1)
+    assert_contains "delete outputs DELETED" "DELETED:999" "$output"
+
+    # Verify session is gone
+    output=$("$PYTHON" .aitask-scripts/brainstorm/brainstorm_cli.py exists --task-num 999 2>&1)
+    assert_eq "session gone after delete" "NOT_EXISTS" "$output"
+)
+cleanup_test_repo "$TMPDIR_T9"
+
+# --- Test 10: brainstorm delete rejects non-existent session ---
+echo "Test 10: brainstorm delete rejects non-existent session"
+TMPDIR_T10="$(setup_test_repo)"
+(
+    cd "$TMPDIR_T10"
+    assert_exit_nonzero "delete rejects non-existent session" bash .aitask-scripts/aitask_brainstorm_delete.sh 12345 --yes
+)
+cleanup_test_repo "$TMPDIR_T10"
+
+# --- Test 11: brainstorm archive succeeds with no-plan session ---
+echo "Test 11: brainstorm archive handles no-plan HEAD gracefully"
+TMPDIR_T11="$(setup_test_repo)"
+(
+    cd "$TMPDIR_T11"
+    bash .aitask-scripts/aitask_brainstorm_init.sh 999 >/dev/null 2>&1
+    # Archive without generating any plan — HEAD node has no plan_file
+    output=$(bash .aitask-scripts/aitask_brainstorm_archive.sh 999 2>&1)
+    assert_contains "archive outputs NO_PLAN warning" "NO_PLAN" "$output"
+    assert_contains "archive outputs ARCHIVED" "ARCHIVED:999" "$output"
+)
+cleanup_test_repo "$TMPDIR_T11"
 
 # ============================================================
 # Summary

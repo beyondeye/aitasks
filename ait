@@ -209,6 +209,7 @@ case "${1:-help}" in
             init)    exec "$SCRIPTS_DIR/aitask_brainstorm_init.sh" "$@" ;;
             status)  exec "$SCRIPTS_DIR/aitask_brainstorm_status.sh" "$@" ;;
             archive) exec "$SCRIPTS_DIR/aitask_brainstorm_archive.sh" "$@" ;;
+            delete)  exec "$SCRIPTS_DIR/aitask_brainstorm_delete.sh" "$@" ;;
             list)    exec "$SCRIPTS_DIR/aitask_brainstorm_status.sh" --list "$@" ;;
             [0-9]*)  exec "$SCRIPTS_DIR/aitask_brainstorm_tui.sh" "$subcmd" "$@" ;;
             --help|-h|"")
@@ -219,12 +220,13 @@ case "${1:-help}" in
                 echo "  status    Show brainstorm session details"
                 echo "  list      List all brainstorm sessions"
                 echo "  archive   Finalize and archive a brainstorm session"
+                echo "  delete    Completely delete a brainstorm session"
                 echo "  <num>     Launch brainstorm TUI for a task"
                 echo ""
                 echo "Run 'ait brainstorm <subcommand> --help' for subcommand-specific help."
                 exit 0
                 ;;
-            *)  echo "ait brainstorm: unknown subcommand '$subcmd'" >&2; echo "Available: init, status, list, archive" >&2; exit 1 ;;
+            *)  echo "ait brainstorm: unknown subcommand '$subcmd'" >&2; echo "Available: init, status, list, archive, delete" >&2; exit 1 ;;
         esac
         ;;
     git)          shift; source "$SCRIPTS_DIR/lib/task_utils.sh"

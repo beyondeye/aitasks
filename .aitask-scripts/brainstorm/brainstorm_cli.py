@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from brainstorm.brainstorm_session import (  # noqa: E402
     archive_session,
     crew_worktree,
+    delete_session,
     finalize_session,
     init_session,
     list_sessions,
@@ -116,6 +117,16 @@ def cmd_archive(args: argparse.Namespace) -> None:
     print(f"ARCHIVED:{args.task_num}")
 
 
+def cmd_delete(args: argparse.Namespace) -> None:
+    """Delete a brainstorm session entirely."""
+    if not session_exists(args.task_num):
+        print(f"ERROR:No brainstorm session for task {args.task_num}", file=sys.stderr)
+        sys.exit(1)
+
+    delete_session(args.task_num)
+    print(f"DELETED:{args.task_num}")
+
+
 def cmd_exists(args: argparse.Namespace) -> None:
     """Check if a brainstorm session exists."""
     if session_exists(args.task_num):
@@ -157,6 +168,11 @@ def main(argv: list[str] | None = None) -> None:
     p_arch = subparsers.add_parser("archive", help="Mark session archived")
     p_arch.add_argument("--task-num", required=True, help="Task number")
     p_arch.set_defaults(func=cmd_archive)
+
+    # delete
+    p_del = subparsers.add_parser("delete", help="Delete session entirely")
+    p_del.add_argument("--task-num", required=True, help="Task number")
+    p_del.set_defaults(func=cmd_delete)
 
     # exists
     p_exists = subparsers.add_parser("exists", help="Check if session exists")

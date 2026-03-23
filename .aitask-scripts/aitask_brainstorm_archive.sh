@@ -73,13 +73,20 @@ done
 
 # --- Finalize: copy HEAD plan to aiplans/ ---
 info "Finalizing brainstorm session for task $TASK_NUM..."
-finalize_output=$("$PYTHON" "$SCRIPT_DIR/brainstorm/brainstorm_cli.py" finalize --task-num "$TASK_NUM") || {
-    die "Failed to finalize session: $finalize_output"
+finalize_output=$("$PYTHON" "$SCRIPT_DIR/brainstorm/brainstorm_cli.py" finalize --task-num "$TASK_NUM" 2>&1) || {
+    if echo "$finalize_output" | grep -q "has no plan_file"; then
+        warn "HEAD node has no plan file — skipping plan finalize"
+        echo "NO_PLAN"
+    else
+        die "Failed to finalize session: $finalize_output"
+    fi
 }
 
-# Parse PLAN:<path> from output
-PLAN_PATH="${finalize_output#PLAN:}"
-echo "PLAN:${PLAN_PATH}"
+# Parse PLAN:<path> from output (if finalize succeeded)
+if echo "$finalize_output" | grep -q "^PLAN:"; then
+    PLAN_PATH="${finalize_output#PLAN:}"
+    echo "PLAN:${PLAN_PATH}"
+fi
 
 # --- Archive session (also sets crew status to Completed) ---
 archive_output=$("$PYTHON" "$SCRIPT_DIR/brainstorm/brainstorm_cli.py" archive --task-num "$TASK_NUM") || {
