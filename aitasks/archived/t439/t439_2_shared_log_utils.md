@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [agentcrew]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-23 12:53
-updated_at: 2026-03-23 14:27
+updated_at: 2026-03-23 16:02
+completed_at: 2026-03-23 16:02
 ---
 
 ## Shared log utilities module for TUI log browsing
