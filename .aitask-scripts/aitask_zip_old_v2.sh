@@ -434,7 +434,9 @@ cmd_unpack_v2() {
         done
     done
 
-    [[ "$found" == false ]] && echo "NOT_IN_ARCHIVE"
+    if [[ "$found" == false ]]; then
+        echo "NOT_IN_ARCHIVE"
+    fi
 }
 
 # --- Main ---

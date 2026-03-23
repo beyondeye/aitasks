@@ -30,25 +30,28 @@ ARCHIVED_PLAN_DIR="${ARCHIVED_PLAN_DIR:-aiplans/archived}"
 # Search for a file in numbered archives, falling back to legacy old.tar.gz
 # Args: $1=base_archived_dir, $2=task_or_parent_id (numeric), $3=grep_pattern
 # Sets: _AIT_RESOLVE_V2_ARCHIVE (path of archive containing the match)
-# Output: matching filename inside the archive (first match), or empty
+# Sets: _AIT_RESOLVE_V2_MATCH (matching filename inside archive, or empty)
+# Note: Must be called WITHOUT command substitution $() to preserve globals.
 _resolve_v2_search_archives() {
     local base_dir="$1"
     local id="$2"
     local pattern="$3"
-    local archive_path tar_match
+    local archive_path
+
+    _AIT_RESOLVE_V2_MATCH=""
+    _AIT_RESOLVE_V2_ARCHIVE=""
 
     # Try computed numbered archive path first
     archive_path=$(archive_path_for_id "$id" "$base_dir")
-    tar_match=$(_search_tar_gz_v2 "$archive_path" "$pattern")
+    _AIT_RESOLVE_V2_MATCH=$(_search_tar_gz_v2 "$archive_path" "$pattern")
 
     # Fall back to legacy old.tar.gz
-    if [[ -z "$tar_match" && -f "$base_dir/old.tar.gz" ]]; then
+    if [[ -z "$_AIT_RESOLVE_V2_MATCH" && -f "$base_dir/old.tar.gz" ]]; then
         archive_path="$base_dir/old.tar.gz"
-        tar_match=$(_search_tar_gz_v2 "$archive_path" "$pattern")
+        _AIT_RESOLVE_V2_MATCH=$(_search_tar_gz_v2 "$archive_path" "$pattern")
     fi
 
     _AIT_RESOLVE_V2_ARCHIVE="$archive_path"
-    echo "$tar_match"
 }
 
 # ============================================================================
@@ -77,11 +80,10 @@ resolve_task_file_v2() {
 
         # Tier 3: numbered archives (v2 path, then legacy fallback)
         if [[ -z "$files" ]]; then
-            local tar_match
-            tar_match=$(_resolve_v2_search_archives "$ARCHIVED_DIR" "$parent_num" \
-                "(^|/)t${parent_num}/t${parent_num}_${child_num}_.*\\.md$")
-            if [[ -n "$tar_match" ]]; then
-                _extract_from_tar_gz_v2 "$_AIT_RESOLVE_V2_ARCHIVE" "$tar_match"
+            _resolve_v2_search_archives "$ARCHIVED_DIR" "$parent_num" \
+                "(^|/)t${parent_num}/t${parent_num}_${child_num}_.*\\.md$"
+            if [[ -n "$_AIT_RESOLVE_V2_MATCH" ]]; then
+                _extract_from_tar_gz_v2 "$_AIT_RESOLVE_V2_ARCHIVE" "$_AIT_RESOLVE_V2_MATCH"
                 files="$_AIT_V2_EXTRACT_RESULT"
             fi
         fi
@@ -101,11 +103,10 @@ resolve_task_file_v2() {
 
         # Tier 3: numbered archives (v2 path, then legacy fallback)
         if [[ -z "$files" ]]; then
-            local tar_match
-            tar_match=$(_resolve_v2_search_archives "$ARCHIVED_DIR" "$task_id" \
-                "(^|/)t${task_id}_.*\\.md$")
-            if [[ -n "$tar_match" ]]; then
-                _extract_from_tar_gz_v2 "$_AIT_RESOLVE_V2_ARCHIVE" "$tar_match"
+            _resolve_v2_search_archives "$ARCHIVED_DIR" "$task_id" \
+                "(^|/)t${task_id}_.*\\.md$"
+            if [[ -n "$_AIT_RESOLVE_V2_MATCH" ]]; then
+                _extract_from_tar_gz_v2 "$_AIT_RESOLVE_V2_ARCHIVE" "$_AIT_RESOLVE_V2_MATCH"
                 files="$_AIT_V2_EXTRACT_RESULT"
             fi
         fi
@@ -148,11 +149,10 @@ resolve_plan_file_v2() {
 
         # Tier 3: numbered archives (v2 path, then legacy fallback)
         if [[ -z "$files" ]]; then
-            local tar_match
-            tar_match=$(_resolve_v2_search_archives "$ARCHIVED_PLAN_DIR" "$parent_num" \
-                "(^|/)p${parent_num}/p${parent_num}_${child_num}_.*\\.md$")
-            if [[ -n "$tar_match" ]]; then
-                _extract_from_tar_gz_v2 "$_AIT_RESOLVE_V2_ARCHIVE" "$tar_match"
+            _resolve_v2_search_archives "$ARCHIVED_PLAN_DIR" "$parent_num" \
+                "(^|/)p${parent_num}/p${parent_num}_${child_num}_.*\\.md$"
+            if [[ -n "$_AIT_RESOLVE_V2_MATCH" ]]; then
+                _extract_from_tar_gz_v2 "$_AIT_RESOLVE_V2_ARCHIVE" "$_AIT_RESOLVE_V2_MATCH"
                 files="$_AIT_V2_EXTRACT_RESULT"
             fi
         fi
@@ -168,11 +168,10 @@ resolve_plan_file_v2() {
 
         # Tier 3: numbered archives (v2 path, then legacy fallback)
         if [[ -z "$files" ]]; then
-            local tar_match
-            tar_match=$(_resolve_v2_search_archives "$ARCHIVED_PLAN_DIR" "$task_id" \
-                "(^|/)p${task_id}_.*\\.md$")
-            if [[ -n "$tar_match" ]]; then
-                _extract_from_tar_gz_v2 "$_AIT_RESOLVE_V2_ARCHIVE" "$tar_match"
+            _resolve_v2_search_archives "$ARCHIVED_PLAN_DIR" "$task_id" \
+                "(^|/)p${task_id}_.*\\.md$"
+            if [[ -n "$_AIT_RESOLVE_V2_MATCH" ]]; then
+                _extract_from_tar_gz_v2 "$_AIT_RESOLVE_V2_ARCHIVE" "$_AIT_RESOLVE_V2_MATCH"
                 files="$_AIT_V2_EXTRACT_RESULT"
             fi
         fi
