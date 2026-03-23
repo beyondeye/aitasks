@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 18:38
-updated_at: 2026-03-23 18:38
+updated_at: 2026-03-23 18:45
 ---
 
 ## Problem
