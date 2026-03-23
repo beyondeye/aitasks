@@ -306,10 +306,24 @@ while they exist as separate files.
 
 ### Step 9: Final Implementation Notes
 
-_(To be filled in after implementation)_
-
 - **Actual files created/modified:**
+  - `tests/test_resolve_v2.sh` (new, ~250 lines) — 14 test cases, 15 assertions for resolve_task_file_v2 / resolve_plan_file_v2
+  - `tests/test_zip_old_v2.sh` (new, ~420 lines) — 14 test cases, 28 assertions for aitask_zip_old_v2.sh
+  - `tests/test_archive_scan_v2.sh` (new, ~230 lines) — 12 test cases, 23 assertions for archive_scan_v2.sh
+  - `.aitask-scripts/lib/task_resolve_v2.sh` (bug fix) — fixed subshell variable loss in `_resolve_v2_search_archives`
+  - `.aitask-scripts/aitask_zip_old_v2.sh` (bug fix) — fixed `set -e` crash on unpack success
+  - `CLAUDE.md` (updated) — added 3 new test entries to Testing section
 - **Issues encountered:**
-- **Deviations from plan:**
-- **ShellCheck result:**
+  1. **Critical bug in task_resolve_v2.sh:** `_resolve_v2_search_archives()` was called via `$()` command substitution, which meant `_AIT_RESOLVE_V2_ARCHIVE` (a global return variable) was set inside a subshell and lost when the subshell exited. All archive extraction returned empty content. **Fix:** Changed function to set `_AIT_RESOLVE_V2_MATCH` as a second global return variable, and callers now invoke the function directly (without `$()`) and read both `_AIT_RESOLVE_V2_ARCHIVE` and `_AIT_RESOLVE_V2_MATCH` globals.
+  2. **Bug in aitask_zip_old_v2.sh:** `[[ "$found" == false ]] && echo "NOT_IN_ARCHIVE"` at the end of `cmd_unpack_v2()` returned exit code 1 when `found=true` (the `[[` condition fails, and `&&` propagates the failure). With `set -euo pipefail`, this aborted the script on successful unpack. **Fix:** Replaced with an `if` statement.
+- **Deviations from plan:** The plan did not anticipate library bugs. Two bugs were discovered and fixed during test development:
+  - The `_resolve_v2_search_archives` subshell variable loss bug (root cause: the t433_3 implementation notes said "Used `_AIT_RESOLVE_V2_ARCHIVE` as a 'return' variable from the helper to avoid subshell overhead" but the callers still used `$()`, defeating the purpose)
+  - The `set -e` interaction with `[[ ]] &&` pattern (root cause: v2 script uses `set -euo pipefail` which is stricter than v1's `set -e`)
+- **ShellCheck result:** Clean for all 3 test files (SC1091 info-level for sourced files only, same as all project tests). Library files also clean (info/style level only, pre-existing).
 - **Test results (all three files):**
+  - `test_resolve_v2.sh`: 15 passed, 0 failed, 15 total — ALL TESTS PASSED
+  - `test_zip_old_v2.sh`: 28 passed, 0 failed, 28 total — ALL TESTS PASSED
+  - `test_archive_scan_v2.sh`: 23 passed, 0 failed, 23 total — ALL TESTS PASSED
+  - Existing `test_resolve_tar_gz.sh`: 14 passed, 0 failed — no regression
+- **Key decisions:** Test files follow the established self-contained pattern from `test_resolve_tar_gz.sh` with copy-pasted helpers (not shared), temp directory isolation, and PASS/FAIL summary. The `test_zip_old_v2.sh` requires git init in temp dirs (same as v1's `test_zip_old.sh`) since the archive script sources `task_utils.sh`.
+- **Notes for sibling tasks:** The two library bug fixes are critical — without them, v2 resolve functions would fail silently when called in the standard `result=$(resolve_task_file_v2 ...)` pattern, and unpack would crash on success. These must be present before t433_7 migration swaps v1 for v2. The `_resolve_v2_search_archives` API changed: callers must now call without `$()` and read `_AIT_RESOLVE_V2_MATCH` global instead of capturing the function's stdout.
