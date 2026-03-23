@@ -609,12 +609,28 @@ See detailed plan in steps above. Key changes:
 
 ### Step 24: Final Implementation Notes
 
-_(To be filled in after implementation)_
-
-- **Actual files created/modified:**
+- **Actual work done:** Completed Phase 4 (website documentation) and Phase 5 (v2 file cleanup/rename). Phases 1-3 were done by previous attempt.
+- **Files modified (Phase 4):**
+  - `website/content/docs/commands/issue-integration.md` — Updated "How it works" for numbered bundles
+  - `website/content/docs/commands/board-stats.md` — Updated data sources description
+  - `website/content/docs/development/task-format.md` — Added "Archive Storage" section with bundle computation table
+  - `website/content/docs/development/_index.md` — Added `_bN/` directory row, `archive_utils.sh` and `archive_scan.sh` library entries, updated resolve function descriptions
+- **Files renamed (Phase 5):**
+  - `archive_utils_v2.sh` → `archive_utils.sh` (+ updated guard vars, function names)
+  - `archive_scan_v2.sh` → `archive_scan.sh` (+ updated guard vars, function names)
+  - `archive_iter_v2.py` → `archive_iter.py` (+ updated docstring)
+  - `test_archive_scan_v2.sh` → `test_archive_scan.sh`
+  - `test_archive_utils_v2.sh` → `test_archive_utils.sh`
+- **Files removed:** `task_resolve_v2.sh` (dead code), `aitask_zip_old_v2.sh` (duplicate), `test_resolve_v2.sh`, `test_zip_old_v2.sh`, `migrate_to_numbered_archives.sh`
+- **Files updated:** All callers (`task_utils.sh`, `aitask_claim_id.sh`, `aitask_query_files.sh`, `aitask_stats.py`, `aitask_zip_old.sh`) — dropped `_v2` from source lines, function names, guard vars, comments
 - **Issues encountered:**
-- **Deviations from plan:**
-- **ShellCheck result:**
-- **All test results:**
-- **Website build result:**
-- **Premigration backup status:** (kept/deleted)
+  1. `test_zip_old.sh` — `setup_test_env()` didn't copy `archive_utils.sh` to temp dir (needed because `task_utils.sh` now sources it). Fixed by adding cp line.
+  2. `test_zip_old.sh` — Tests 9/10/13 expected `old.tar.gz` but new scheme creates `_b0/old0.tar.gz`. Updated assertions.
+  3. `test_zip_old.sh` — Test 11 expected old commit message text. Updated to match new message.
+  4. `aitask_claim_id.sh` — Had a `scan_max_task_id()` wrapper that would become recursive after `scan_max_task_id_v2` was renamed to `scan_max_task_id`. Removed wrapper and inlined `"$TASK_DIR" "$ARCHIVED_DIR"` args at 3 call sites.
+- **Deviations from plan:** Plan suggested separate commits for docs vs cleanup. Combined all code changes into one commit since the v2 rename touches the same files as the Phase 2 swap (already uncommitted from previous attempt). Also renamed `_search_legacy_then_v2` → `_search_numbered_then_legacy` for clarity.
+- **ShellCheck result:** Clean (SC1091 info + SC2086 info + SC2034 warnings — all pre-existing, no new issues)
+- **All test results:** claim_id: 23/23, resolve_tar_gz: 14/14, archive_scan: 23/23, archive_utils: 42/42, zip_old: 72/72
+- **Website build result:** Clean, 115 pages
+- **Premigration backup status:** Deleted
+- **Key decisions:** Renamed `_search_legacy_then_v2` to `_search_numbered_then_legacy` (more descriptive). Removed the `scan_max_task_id()` wrapper in `aitask_claim_id.sh` instead of keeping a pass-through to avoid recursive function name collision.
