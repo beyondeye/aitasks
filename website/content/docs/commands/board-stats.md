@@ -78,7 +78,7 @@ ait stats -w sun           # Week starts on Sunday
 8. **Code agent trends** — Weekly completion split by code agent for last 4 weeks
 9. **LLM model trends** — Weekly completion split by normalized LLM model for last 4 weeks
 
-**Data sources:** Scans archived parent tasks (`aitasks/archived/t*_*.md`), archived child tasks (`aitasks/archived/t*/`), and compressed archives (`old.tar.gz`). Uses `completed_at` field, falling back to `updated_at` for tasks with `status: Done`.
+**Data sources:** Scans archived parent tasks (`aitasks/archived/t*_*.md`), archived child tasks (`aitasks/archived/t*/`), and compressed archives (numbered `_bN/oldM.tar.gz` bundles). Uses `completed_at` field, falling back to `updated_at` for tasks with `status: Done`.
 
 **CSV export format:** `date, day_of_week, week_offset, task_id, labels, issue_type, task_type, implemented_with, codeagent, llm_model`. Open in LibreOffice Calc for custom charts and pivot tables.
 

@@ -80,6 +80,35 @@ Child task IDs use the format `t<parent>_<child>_<name>.md` where both parent an
 
 ---
 
+## Archive Storage
+
+Completed tasks move through the archive lifecycle:
+
+1. **Archived directory** — `aitasks/archived/t150_feature.md` (loose files, recent)
+2. **Numbered archives** — `aitasks/archived/_b0/old1.tar.gz` (compressed bundles)
+
+The numbering scheme groups tasks by hundreds:
+
+| Task IDs | Bundle | Directory | Archive Path |
+|----------|--------|-----------|-------------|
+| 0–99 | 0 | 0 | `archived/_b0/old0.tar.gz` |
+| 100–199 | 1 | 0 | `archived/_b0/old1.tar.gz` |
+| 900–999 | 9 | 0 | `archived/_b0/old9.tar.gz` |
+| 1000–1099 | 10 | 1 | `archived/_b1/old10.tar.gz` |
+
+**Computation:**
+- `bundle = task_id / 100` (integer division)
+- `directory = bundle / 10` (integer division)
+- `path = archived/_b{directory}/old{bundle}.tar.gz`
+
+The `_b` prefix on directory names avoids collision with task child directories (`t<N>/`).
+
+Child tasks are archived with their parent's bundle (e.g., `t130/t130_2_subtask.md` goes into `old1.tar.gz` alongside `t130_feature.md`).
+
+Plan archives follow the same scheme under `aiplans/archived/`.
+
+---
+
 ## Customizing Task Types
 
 Valid issue types are defined in `aitasks/metadata/task_types.txt` (one type per line, sorted alphabetically). The default types are:

@@ -170,9 +170,13 @@ ait zip-old -v                 # Verbose output
 
 1. Scans `aitasks/archived/` and `aiplans/archived/` for parent and child files
 2. Keeps the most recent parent file and most recent child (per parent) uncompressed — this preserves task numbering for `ait create`
-3. Archives all older files to `old.tar.gz` in each directory, preserving subdirectory structure
-4. Verifies archive integrity before deleting originals
-5. If `old.tar.gz` already exists, appends new files to it
+3. Groups eligible files by 100-task bundles and archives each group to a numbered archive:
+   - **Bundle** = `task_id / 100` (integer division)
+   - **Directory** = `bundle / 10` (integer division)
+   - **Path** = `archived/_b{dir}/old{bundle}.tar.gz`
+   - Example: task 150 → `archived/_b0/old1.tar.gz`, task 1050 → `archived/_b1/old10.tar.gz`
+4. If a numbered archive already exists, merges new files into it
+5. Verifies archive integrity before deleting originals
 6. If an existing archive is corrupted, creates a backup before starting fresh
 7. Removes empty child directories after archiving
 8. Commits changes to git (unless `--no-commit`)

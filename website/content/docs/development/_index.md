@@ -24,6 +24,7 @@ ait <subcommand> [args]  →  .aitask-scripts/aitask_<subcommand>.sh [args]
 | `aitasks/new/` | Draft task files (gitignored, local-only) |
 | `aiplans/` | Active plan files (`p<N>_name.md`) and child plan directories (`p<N>/`) |
 | `aitasks/archived/` | Completed task files and child directories |
+| `aitasks/archived/_bN/` | Numbered archive bundles (`old0.tar.gz` through `old9.tar.gz` per directory) |
 | `aiplans/archived/` | Completed plan files and child directories |
 | `aitasks/metadata/` | Configuration: `labels.txt`, `task_types.txt`, `emails.txt`, `profiles/` |
 | `aireviewguides/` | Review guide files, vocabulary metadata, and environment subdirectories |
@@ -48,10 +49,29 @@ Task and plan file resolution utilities. Sources `terminal_compat.sh` automatica
 
 **Functions:**
 
-- **`resolve_task_file(task_id)`** — Find a task file by number (e.g., `"53"` or `"53_6"`). Searches active directory first, then archived. Dies if not found or if multiple matches exist.
-- **`resolve_plan_file(task_id)`** — Find the corresponding plan file using `t→p` prefix conversion (e.g., `t53_name.md` → `p53_name.md`). Returns empty string if not found.
+- **`resolve_task_file(task_id)`** — Find a task file by number (e.g., `"53"` or `"53_6"`). Searches active directory first, then archived loose files, then numbered archives (`_bN/oldM.tar.gz`), with legacy `old.tar.gz` fallback. Dies if not found or if multiple matches exist.
+- **`resolve_plan_file(task_id)`** — Find the corresponding plan file using `t→p` prefix conversion (e.g., `t53_name.md` → `p53_name.md`). Searches the same three tiers as `resolve_task_file`. Returns empty string if not found.
 - **`extract_issue_url(file_path)`** — Parse the `issue:` field from a task file's YAML frontmatter. Returns empty string if not present.
 - **`extract_final_implementation_notes(plan_path)`** — Extract the `## Final Implementation Notes` section from a plan file. Stops at the next `##` heading. Trims leading/trailing blank lines.
+
+### lib/archive_utils.sh
+
+Archive path computation and search/extract primitives for the numbered archive scheme.
+
+**Functions:**
+
+- **`archive_bundle(task_id)`** — Compute bundle number (`task_id / 100`)
+- **`archive_dir(bundle)`** — Compute directory number (`bundle / 10`)
+- **`archive_path_for_id(task_id, archived_dir)`** — Full archive path for a task ID (e.g., task 150 → `archived/_b0/old1.tar.gz`)
+
+### lib/archive_scan.sh
+
+Consolidated archive scanning functions for numbered archives.
+
+**Functions:**
+
+- **`scan_max_task_id(task_dir, archived_dir)`** — Find highest task ID across all locations (active, archived loose, numbered archives, legacy)
+- **`search_archived_task(task_num, archived_dir)`** — Search for a task in numbered and legacy archives using O(1) lookup
 
 ### lib/terminal_compat.sh
 
