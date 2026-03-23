@@ -6,67 +6,67 @@ issue_type: feature
 status: Ready
 labels: [brainstorming, agentcrew]
 created_at: 2026-03-23 12:55
-updated_at: 2026-03-23 12:55
+updated_at: 2026-03-23 13:25
 ---
 
-## Populate Brainstorm TUI Status tab with agent status + log browsing
+## Add log browsing to Brainstorm TUI Status tab
 
 ### Context
-The brainstorm TUI's Status tab (tab 5) is currently a placeholder: "Status — coming in follow-up tasks" (brainstorm_app.py:630). This task populates it with agent status monitoring and log browsing, reusing the shared log utilities from t439_2. Depends on t439_2 (shared log utils) and t439_3 (dashboard log browser — for reusable patterns).
+The brainstorm TUI's Status tab (tab 5) was implemented by t423_7 with operation group display, agent status monitoring (color-coded), expand/collapse groups, output previews, and auto-refresh (30s). This task adds **log browsing** on top of that existing infrastructure, reusing shared log utilities from t439_2.
+
+**Important — t423_7 already implemented:**
+- `GroupRow` widget for expandable operation groups
+- `AGENT_STATUS_COLORS` constant for color-coded statuses
+- `_refresh_status_tab()` method that populates `#status_content` with groups and agent rows
+- `_mount_group_agents()` / `_mount_agent_row()` for agent detail display with heartbeat and output preview
+- Auto-refresh timer (30s) and refresh on tab activation via `on_tabbed_content_tab_activated()`
+- `self._expanded_groups` set for expand/collapse state
+
+**This task only adds:** LogDetailModal, StatusLogRow, log file listing, and extends `_refresh_status_tab()` to append log entries.
 
 ### Key Files to Modify
-- `.aitask-scripts/brainstorm/brainstorm_app.py` — Replace Status tab placeholder, add log detail modal
+- `.aitask-scripts/brainstorm/brainstorm_app.py` — Add LogDetailModal, StatusLogRow, extend `_refresh_status_tab()` with log section
 
 ### Reference Files for Patterns
-- `.aitask-scripts/agentcrew/agentcrew_dashboard.py` lines 266-327 — `AgentCard` widget (agent status display)
-- `.aitask-scripts/agentcrew/agentcrew_dashboard.py` lines 94-184 — `CrewManager.load_crew()` (loading agent data)
+- `.aitask-scripts/agentcrew/agentcrew_dashboard.py` lines 266-327 — `AgentCard` widget pattern
 - `.aitask-scripts/agentcrew/agentcrew_log_utils.py` — Shared log utilities (from t439_2)
-- `.aitask-scripts/brainstorm/brainstorm_app.py` lines 106-160 — `NodeDetailModal` pattern (modal screen)
-- `.aitask-scripts/brainstorm/brainstorm_session.py` — `crew_worktree()` function to get the crew worktree path
+- `.aitask-scripts/brainstorm/brainstorm_app.py` — `NodeDetailModal` pattern, existing `GroupRow` and `_refresh_status_tab()` from t423_7
+- `aiplans/archived/p423/p423_7_status_tab_crew_agent_monitoring.md` — Implementation notes from t423_7
 
 ### Implementation Plan
 
-#### 1. Import dependencies
+#### 1. Import log utilities
 ```python
 from agentcrew.agentcrew_log_utils import list_agent_logs, read_log_tail, read_log_full, format_log_size
-from agentcrew.agentcrew_utils import (
-    list_agent_files, read_yaml, check_agent_alive, format_elapsed, _parse_timestamp
-)
 ```
+Note: `list_agent_files`, `format_elapsed`, `read_yaml` are already imported (added by t423_7).
 
 #### 2. Create `LogDetailModal` (modal screen)
 Similar to `NodeDetailModal` but shows log content:
 - Tabbed content with "Tail" and "Full" tabs
-- Keybinding `r` to refresh
+- Keybinding `r` to refresh, `t` for tail, `f` for full
 - `escape` to dismiss
 - Shows agent name + file size in header
 
-#### 3. Replace Status tab placeholder (lines 627-634)
-Replace the placeholder Label with a structured layout:
+#### 3. Create `StatusLogRow` (focusable widget)
+Focusable row for log file entries. Posts a `Selected` message with log path and agent name on Enter.
 
-**Top section — Agent Status Summary:**
-- Runner status (active/stale/none) with heartbeat age
-- List of agents with: name, status (color-coded), heartbeat age, last message
-- Use data from `<agent>_status.yaml` and `<agent>_alive.yaml` files in the crew worktree
-
-**Bottom section — Agent Logs:**
+#### 4. Extend `_refresh_status_tab()` — add log section
+After the existing groups/agents section (DO NOT replace it), append:
+- A "Agent Logs" section header
 - List of `*_log.txt` files sorted by last modified (most recent first)
-- Each entry shows: agent name, file size, last modified time
-- Focusable rows; Enter → push `LogDetailModal`
+- Each entry as a `StatusLogRow` showing: agent name, file size, last modified time
 
-#### 4. Add refresh logic
-- Auto-refresh the Status tab content every 5 seconds using `set_interval()`
-- Only refresh when the Status tab is active (check `tabbed.active == "tab_status"`)
-
-#### 5. Wire up `crew_worktree()` for the session
-The brainstorm TUI already has `self.session_path`. Use `crew_worktree(self.task_num)` from `brainstorm_session` to get the crew worktree path for reading agent files and logs.
+#### 5. Wire up log opening
+- Add Enter handler for `StatusLogRow` in `on_key()`: push `LogDetailModal`
+- Add CSS for `StatusLogRow` and `LogDetailModal`
 
 ### Verification Steps
 1. Initialize a brainstorm session: `ait brainstorm init <task_num>`
 2. Launch an explore operation from the Actions tab
 3. Switch to the Status tab (press `5`)
-4. Verify agent statuses are shown with color-coded status and heartbeat info
-5. Verify agent logs are listed below, sorted by last modified
+4. Verify existing agent statuses still display correctly (from t423_7)
+5. Verify agent logs are listed below the agent section, sorted by last modified
 6. Press Enter on a log entry to view content in a modal
-7. Verify auto-refresh updates the status display
-8. Verify the same log utilities are used as in the agentcrew dashboard (shared code)
+7. Press `t`/`f`/`r` in modal for tail/full/refresh
+8. Verify auto-refresh updates both agent statuses and log list
