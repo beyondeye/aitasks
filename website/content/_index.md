@@ -38,9 +38,9 @@ Git worktrees, atomic task locking, and branch management enable multiple develo
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.13.0: Diff Viewer TUI, Brainstorm Engine & TUI, and Standalone QA Skill](blog/v0130-diff-viewer-tui-brainstorm-engine-tui-standalone-qa-skill/)** -- Mar 23, 2026
 - **[v0.12.2: macOS Compatibility Fix](blog/v0122-macos-compatibility-fix/)** -- Mar 18, 2026
 - **[v0.12.1: View Implementation Plans Right in the Board, and More Reliable Satisfaction Feedback](blog/v0121-view-implementation-plans-right-in-the-board-more-reliable-satisfaction-fe/)** -- Mar 18, 2026
-- **[v0.12.0: AgentCrew: Run Multiple Agents in Parallel, Revert Any Completed Task, and Smarter Contribution Management](blog/v0120-agentcrew-run-multiple-agents-in-parallel-revert-any-completed-task-smarte/)** -- Mar 17, 2026
 
 [All releases &rarr;](blog/)
 
