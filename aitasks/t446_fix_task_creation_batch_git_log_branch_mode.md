@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [skills, procedures]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 19:21
-updated_at: 2026-03-23 19:21
+updated_at: 2026-03-23 19:22
 ---
 
 # Fix task-creation-batch.md git log command for branch mode
