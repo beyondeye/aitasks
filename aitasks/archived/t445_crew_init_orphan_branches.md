@@ -3,13 +3,14 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [agentcrew, brainstorming]
 folded_tasks: [438]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-23 19:02
-updated_at: 2026-03-23 19:19
+updated_at: 2026-03-23 19:25
+completed_at: 2026-03-23 19:25
 ---
 
 ## Problem
