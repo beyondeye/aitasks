@@ -3,11 +3,10 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Ready
 labels: [brainstorming, tui]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 09:36
-updated_at: 2026-03-23 09:41
+updated_at: 2026-03-23 10:22
 ---
 
 ## Problem

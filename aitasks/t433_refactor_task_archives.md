@@ -3,10 +3,9 @@ priority: medium
 effort: high
 depends: []
 issue_type: refactor
-status: Implementing
+status: Ready
 labels: [task-archive]
 children_to_implement: [t433_1, t433_2, t433_3, t433_4, t433_5, t433_6, t433_7]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 09:20
 updated_at: 2026-03-23 09:59
 ---
