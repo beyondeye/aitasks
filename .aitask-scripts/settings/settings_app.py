@@ -105,6 +105,8 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
     "issue_action": ("enum", ["close_with_notes", "comment_only", "close_silently", "skip"]),
     "abort_plan_action": ("enum", ["keep", "discard"]),
     "abort_revert_status": ("enum", ["Ready", "Editing"]),
+    "qa_mode": ("enum", ["ask", "create_task", "implement", "plan_only"]),
+    "qa_run_tests": ("bool", None),
 }
 
 _UNSET = "(unset)"
@@ -272,6 +274,21 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "  'Ready': task goes back to the Ready queue\n"
         "  'Editing': task stays in Editing state"
     ),
+    "qa_mode": (
+        "Action after QA test plan proposal",
+        "Controls what happens after /aitask-qa generates a test plan.\n"
+        "  ask         — Prompt with AskUserQuestion (default)\n"
+        "  create_task — Auto-create a follow-up test task\n"
+        "  implement   — Implement proposed tests in current session\n"
+        "  plan_only   — Export test plan to file without further action\n\n"
+        "Omitting this key shows the interactive prompt.",
+    ),
+    "qa_run_tests": (
+        "Run discovered tests during QA analysis",
+        "When true (default), /aitask-qa executes discovered tests and lints.\n"
+        "Set to false to skip test execution and only analyze coverage gaps.\n\n"
+        "Useful when tests are slow or require special setup.",
+    ),
 }
 
 # Logical grouping of profile fields for display
@@ -282,6 +299,7 @@ PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
     ("Planning", ["plan_preference", "plan_preference_child", "post_plan_action"]),
     ("Feedback", ["enableFeedbackQuestions"]),
     ("Post-Implementation", ["test_followup_task"]),
+    ("QA Analysis", ["qa_mode", "qa_run_tests"]),
     ("Exploration", ["explore_auto_continue"]),
     ("Lock Management", ["force_unlock_stale"]),
     ("Remote Workflow", [
