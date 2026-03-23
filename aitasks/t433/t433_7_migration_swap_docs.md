@@ -6,8 +6,9 @@ issue_type: refactor
 status: Implementing
 labels: [task-archive]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-23 09:59
-updated_at: 2026-03-23 14:27
+updated_at: 2026-03-23 15:25
 ---
 
 ## Migration, Code Swap, and Documentation Update
