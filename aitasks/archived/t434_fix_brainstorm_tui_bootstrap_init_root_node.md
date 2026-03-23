@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [brainstorming, tui]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-23 09:36
-updated_at: 2026-03-23 10:24
+updated_at: 2026-03-23 11:43
+completed_at: 2026-03-23 11:43
 ---
 
 ## Problem
