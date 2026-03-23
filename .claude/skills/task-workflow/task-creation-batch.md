@@ -25,7 +25,7 @@ Creates a task using `aitask_create.sh` in batch mode.
 The script prints `Created: <filepath>` on success. To extract the task ID after creation:
 
 ```bash
-git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
+./ait git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
 ```
 
 Parse the task number from the filename (e.g., `aitasks/t42_fix_login.md` → `42`).

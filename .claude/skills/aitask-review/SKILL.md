@@ -202,7 +202,7 @@ Execute the **Batch Task Creation Procedure** (see `../task-workflow/task-creati
 
 Read back the created task file:
 ```bash
-git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
+./ait git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
 ```
 
 **For multiple tasks (group by mode or separate):**
@@ -218,7 +218,7 @@ git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
 
 2. Read back parent task ID:
    ```bash
-   git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
+   ./ait git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
    ```
 
 3. Create child tasks — for each group (mode or individual finding), execute the **Batch Task Creation Procedure** with:

@@ -220,7 +220,7 @@ Execute the **Batch Task Creation Procedure** (see `../task-workflow/task-creati
 
 **Parse output** to extract the created task filename and ID:
 ```bash
-git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
+./ait git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
 ```
 
 Extract `<N>` from the filename `t<N>_<name>.md`.

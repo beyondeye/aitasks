@@ -623,7 +623,7 @@ Execute the **Batch Task Creation Procedure** (see `.claude/skills/task-workflow
 
 Read back the created task file to confirm the assigned task ID:
 ```bash
-git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
+./ait git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
 ```
 
 ### Step 5: Decision Point
