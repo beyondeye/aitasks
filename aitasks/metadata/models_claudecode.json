@@ -49,18 +49,18 @@
         },
         "explore": {
           "all_time": {
-            "runs": 16,
-            "score_sum": 1580
+            "runs": 17,
+            "score_sum": 1680
           },
           "month": {
             "period": "2026-03",
-            "runs": 16,
-            "score_sum": 1580
+            "runs": 17,
+            "score_sum": 1680
           },
           "week": {
-            "period": "2026-W12",
-            "runs": 12,
-            "score_sum": 1180
+            "period": "2026-W13",
+            "runs": 1,
+            "score_sum": 100
           }
         },
         "revert": {
