@@ -3,10 +3,9 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [brainstorming, agentcrew]
 children_to_implement: [t439_1, t439_2, t439_3, t439_4]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 12:05
 updated_at: 2026-03-23 12:55
 ---
