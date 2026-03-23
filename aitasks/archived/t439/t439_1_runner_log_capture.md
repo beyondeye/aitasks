@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [agentcrew]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-23 12:53
-updated_at: 2026-03-23 13:13
+updated_at: 2026-03-23 13:20
+completed_at: 2026-03-23 13:20
 ---
 
 ## Runner: Capture agent subprocess output to per-agent log files
