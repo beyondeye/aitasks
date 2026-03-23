@@ -121,5 +121,12 @@ def format_log_size(size_bytes: int) -> str:
 4. `read_log_full()` with a large file → truncation works
 5. `format_log_size(1536)` → `"1.5 KB"`
 
+## Final Implementation Notes
+- **Actual work done:** Created `agentcrew_log_utils.py` with all 4 planned functions plus `tests/test_agentcrew_log_utils.py` with 17 unit tests covering all functions and edge cases
+- **Deviations from plan:** Added automated test file (user requested tests before commit). No other deviations — implementation matched the plan exactly
+- **Issues encountered:** None
+- **Key decisions:** Tests use unittest (matching project convention from `test_brainstorm_crew.py`), temp directories for isolation, and `time.sleep(0.05)` for mtime ordering tests
+- **Notes for sibling tasks:** Import as `from agentcrew.agentcrew_log_utils import list_agent_logs, read_log_tail, read_log_full, format_log_size`. The module is at `.aitask-scripts/agentcrew/agentcrew_log_utils.py`. All 4 functions are tested and stable. `list_agent_logs()` returns dicts with keys: name, path, size, mtime, mtime_str. `read_log_tail()` uses seek-from-end (64KB chunk) for efficiency.
+
 ### Step 9: Post-Implementation
 Archive task, commit, push per standard workflow.
