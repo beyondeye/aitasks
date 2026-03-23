@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [brainstorming, bash_scripts]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-23 13:29
-updated_at: 2026-03-23 13:31
+updated_at: 2026-03-23 13:37
 ---
 
 add a subcommand to ait brainstorm to completely delete a brainstorm session (with confirmation). also note that currently when running ait brainstorm archive 427 it errors with: Traceback (most recent call last):
