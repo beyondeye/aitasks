@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [ui, agentcrew]
-children_to_implement: [t447_1, t447_2]
+children_to_implement: [t447_1, t447_2, t447_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 19:35
 updated_at: 2026-03-23 23:09
