@@ -25,6 +25,12 @@ from agentcrew_utils import (
     topo_sort,
     _parse_timestamp,
 )
+from agentcrew_log_utils import (
+    list_agent_logs,
+    read_log_tail,
+    read_log_full,
+    format_log_size,
+)
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -327,6 +333,153 @@ class AgentCard(Static, can_focus=True):
         self.post_message(self.Selected(self.agent_name))
 
 
+class LogEntry(Static, can_focus=True):
+    """Displays a single agent log file entry."""
+
+    class Selected(Message):
+        def __init__(self, log_path: str, agent_name: str) -> None:
+            super().__init__()
+            self.log_path = log_path
+            self.agent_name = agent_name
+
+    def __init__(self, log_info: dict, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.log_info = log_info
+
+    def render(self) -> str:
+        d = self.log_info
+        name = d["name"]
+        size = format_log_size(d["size"])
+        mtime = d["mtime_str"]
+        return f"  {name}  [{size}]  Last updated: {mtime}"
+
+    def on_focus(self) -> None:
+        self.post_message(self.Selected(self.log_info["path"], self.log_info["name"]))
+
+
+class LogViewScreen(Screen):
+    """View the content of a single agent log file."""
+
+    BINDINGS = [
+        Binding("escape", "go_back", "Back"),
+        Binding("r", "refresh", "Refresh"),
+        Binding("t", "show_tail", "Tail"),
+        Binding("f", "show_full", "Full"),
+    ]
+
+    CSS = """
+    LogViewScreen { layout: vertical; }
+    #log-header { height: 2; background: $surface; padding: 0 2; }
+    #log-content { height: 1fr; }
+    """
+
+    def __init__(self, log_path: str, agent_name: str) -> None:
+        super().__init__()
+        self.log_path = log_path
+        self.agent_name = agent_name
+        self._mode = "tail"
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Label(f"Log: {self.agent_name}", id="log-header")
+        yield VerticalScroll(Label("Loading...", id="log-text"), id="log-content")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self._load_content()
+
+    def _load_content(self) -> None:
+        size = format_log_size(os.path.getsize(self.log_path)) if os.path.isfile(self.log_path) else "0 B"
+        self.query_one("#log-header", Label).update(
+            f"[bold]{self.agent_name}[/bold]  ({size})  Mode: {self._mode}"
+        )
+        if self._mode == "tail":
+            content = read_log_tail(self.log_path) or "(empty)"
+        else:
+            content = read_log_full(self.log_path) or "(empty)"
+        self.query_one("#log-text", Label).update(content)
+
+    def action_go_back(self) -> None:
+        self.app.pop_screen()
+
+    def action_refresh(self) -> None:
+        self._load_content()
+        self.notify("Refreshed")
+
+    def action_show_tail(self) -> None:
+        self._mode = "tail"
+        self._load_content()
+
+    def action_show_full(self) -> None:
+        self._mode = "full"
+        self._load_content()
+
+
+class LogBrowserScreen(Screen):
+    """Browse agent log files for a crew."""
+
+    BINDINGS = [
+        Binding("escape", "go_back", "Back"),
+        Binding("enter", "open_log", "View"),
+        Binding("f5", "refresh", "Refresh"),
+    ]
+
+    CSS = """
+    LogBrowserScreen { layout: vertical; }
+    #logs-header { height: 2; background: $surface; padding: 0 2; }
+    #logs-list { height: 1fr; }
+    LogEntry { height: 1; padding: 0 1; }
+    LogEntry:focus { background: $accent 20%; }
+    """
+
+    def __init__(self, crew_id: str, manager: CrewManager) -> None:
+        super().__init__()
+        self.crew_id = crew_id
+        self.manager = manager
+        self.selected_path = ""
+        self.selected_name = ""
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Label(f"Agent Logs — {self.crew_id}", id="logs-header")
+        yield VerticalScroll(id="logs-list")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self._refresh_list()
+        self.set_interval(5.0, self._refresh_list)
+
+    async def _refresh_list(self) -> None:
+        wt = crew_worktree_path(self.crew_id)
+        logs = list_agent_logs(wt)
+
+        container = self.query_one("#logs-list", VerticalScroll)
+        await container.remove_children()
+
+        if not logs:
+            await container.mount(Label("  No log files found"))
+            return
+
+        for log_info in logs:
+            await container.mount(LogEntry(log_info))
+
+    @on(LogEntry.Selected)
+    def on_log_selected(self, event: LogEntry.Selected) -> None:
+        self.selected_path = event.log_path
+        self.selected_name = event.agent_name
+
+    def action_go_back(self) -> None:
+        self.app.pop_screen()
+
+    def action_open_log(self) -> None:
+        if self.selected_path:
+            self.app.push_screen(LogViewScreen(self.selected_path, self.selected_name))
+
+    async def action_refresh(self) -> None:
+        await self._refresh_list()
+        self.notify("Refreshed")
+
+
 class CrewCard(Static, can_focus=True):
     """Displays a single crew in the list view."""
 
@@ -397,6 +550,7 @@ class CrewDetailScreen(Screen):
         Binding("escape", "go_back", "Back"),
         Binding("r", "start_runner", "Start Runner"),
         Binding("k", "stop_runner", "Stop Runner"),
+        Binding("l", "view_logs", "Logs"),
         Binding("p", "pause_agent", "Pause/Resume"),
         Binding("x", "kill_agent", "Kill Agent"),
         Binding("f5", "refresh", "Refresh"),
@@ -571,6 +725,9 @@ class CrewDetailScreen(Screen):
 
     def action_go_back(self) -> None:
         self.app.pop_screen()
+
+    def action_view_logs(self) -> None:
+        self.app.push_screen(LogBrowserScreen(self.crew_id, self.manager))
 
     def action_start_runner(self) -> None:
         if self.manager.start_runner(self.crew_id):
