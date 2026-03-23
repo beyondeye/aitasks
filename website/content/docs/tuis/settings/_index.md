@@ -85,7 +85,7 @@ Browse and edit execution profiles -- YAML files that pre-answer workflow questi
 - **Planning** -- plan_preference, plan_preference_child, post_plan_action
 - **Feedback** -- enableFeedbackQuestions
 - **Exploration** -- explore_auto_continue
-- **Post-Implementation** -- test_followup_task
+- **QA** -- qa_mode, qa_run_tests
 - **Lock Management** -- force_unlock_stale
 - **Remote Workflow** -- done_task_action, orphan_parent_action, complexity_action, review_action, issue_action, abort_plan_action, abort_revert_status
 

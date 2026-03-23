@@ -30,7 +30,9 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They are loaded 
 | `post_plan_action_for_child` | string | Same values as `post_plan_action`, but only for child tasks |
 | `enableFeedbackQuestions` | bool | `false` disables satisfaction feedback prompts; `true` or omitted keeps them enabled. See [Verified Scores](../../verified-scores/) |
 | `explore_auto_continue` | bool | Used by `/aitask-explore` to continue automatically after exploration |
-| `test_followup_task` | string | `"yes"`, `"no"`, or `"ask"` — create a testing follow-up task before archival |
+| `qa_mode` | string | `"ask"`, `"create_task"`, `"implement"`, or `"plan_only"` — used by [`/aitask-qa`](../../aitask-qa/) to control what happens with test proposals |
+| `qa_run_tests` | bool | `true` runs discovered tests, `false` skips test execution — used by [`/aitask-qa`](../../aitask-qa/) |
+| `qa_tier` | string | `"quick"`, `"standard"`, or `"exhaustive"` — pre-selects the QA analysis depth tier |
 
 Omitting a key means that question is asked interactively. `enableFeedbackQuestions` is enabled by default when the key is absent.
 
@@ -48,7 +50,7 @@ plan_preference_child: verify
 post_plan_action: start_implementation
 post_plan_action_for_child: ask
 enableFeedbackQuestions: true
-test_followup_task: ask
+qa_mode: ask
 ```
 
 ## Default Profile Configuration

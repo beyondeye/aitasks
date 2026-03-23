@@ -29,8 +29,9 @@ The central skill of the aitasks framework. This is a full development lifecycle
 7. **Planning** — Enters the agent planning flow to explore the codebase and create an implementation plan. If a plan already exists, offers three options: use as-is, verify against current code, or create from scratch. Complex tasks can be decomposed into child subtasks during this phase
 8. **Implementation** — Follows the approved plan, updating the plan file with progress and any deviations
 9. **User review** — Presents a change summary for review. Supports an iterative "need more changes" loop where each round of feedback is logged in the plan file before re-presenting for approval. When code is committed, the workflow can compose both imported-contributor attribution and a code-agent `Co-Authored-By` trailer from `implemented_with`
-10. **Test follow-up** (optional) — After commit, optionally creates a follow-up task for testing (integration tests, deeper unit tests, or end-to-end tests). Controlled by the `test_followup_task` profile field (`yes`/`no`/`ask`). For child tasks, the follow-up is created as a sibling
-11. **Post-implementation** — Archives task and plan files, updates parent task metadata for child tasks, optionally updates/closes linked issues (GitHub/GitLab/Bitbucket), and merges the branch if a worktree was used. In Codex wrappers, after implementation, most of the times you will need to explicitly continue to this phase (for example: `Good, now finish the workflow` or `Good, now continue`)
+10. **Post-implementation** — Archives task and plan files, updates parent task metadata for child tasks, optionally updates/closes linked issues (GitHub/GitLab/Bitbucket), and merges the branch if a worktree was used. In Codex wrappers, after implementation, most of the times you will need to explicitly continue to this phase (for example: `Good, now finish the workflow` or `Good, now continue`)
+
+> **Test coverage analysis** has been moved to the standalone [`/aitask-qa`](../aitask-qa/) skill. Run `/aitask-qa <task_id>` after implementation to analyze test gaps and create follow-up test tasks.
 
 ## Key Capabilities
 
@@ -49,7 +50,7 @@ The profile schema, shipped examples, and customization guidance now live on a d
 Use that page for:
 
 - The full standard profile-key reference used by `/aitask-pick`
-- The `test_followup_task` field for optional testing follow-up task creation
+- QA profile keys (`qa_mode`, `qa_run_tests`, `qa_tier`) for the [`/aitask-qa`](../aitask-qa/) skill
 - The `enableFeedbackQuestions` flag for satisfaction prompts
 - Example `fast`/custom profile YAML
 - Notes about how profiles are reused by related skills such as `/aitask-explore`

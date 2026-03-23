@@ -55,6 +55,7 @@ Review code and manage review guides.
 | Skill | Description |
 |-------|-------------|
 | [`/aitask-explain`](aitask-explain/) | Explain files: functionality, usage examples, and code evolution traced through aitasks |
+| [`/aitask-qa`](aitask-qa/) | Run QA analysis on any task — discover tests, run them, identify gaps, and create follow-up test tasks |
 | [`/aitask-review`](aitask-review/) | Review code using configurable review guides, then create tasks from findings |
 | [`/aitask-reviewguide-classify`](aitask-reviewguide-classify/) | Classify a review guide by assigning metadata and finding similar guides |
 | [`/aitask-reviewguide-merge`](aitask-reviewguide-merge/) | Compare two similar review guides and merge, split, or keep separate |
