@@ -50,6 +50,10 @@ Add section to `website/content/docs/skills/aitask-pick/build-verification.md` o
 2. Check `website/public/docs/skills/aitask-qa/index.html` exists
 3. No broken references to test-followup in built output
 
-## Post-Implementation
+## Final Implementation Notes
 
-Step 9 of task-workflow for archival.
+- **Actual work done:** Created new skill page (`aitask-qa.md`), new workflow page (`qa-testing.md`), updated 6 existing docs to replace `test_followup_task` with QA profile keys and add `test_command`/`lint_command` documentation. Added aitask-qa entry to skills index.
+- **Deviations from plan:** Original plan did not include: workflow page (added per user feedback), skills index update, or settings TUI docs update. These were discovered during plan verification and added.
+- **Issues encountered:** None — all changes were straightforward documentation edits.
+- **Key decisions:** Workflow page philosophy emphasizes that tests should be part of implementation, with `/aitask-qa` filling coverage gaps caused by LLM context limits and late-discovered requirements (per user feedback, not separation of concerns).
+- **Notes for sibling tasks:** This is the final child task — no remaining siblings.
