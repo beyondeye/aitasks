@@ -97,16 +97,16 @@
         },
         "qa": {
           "all_time": {
-            "runs": 1,
-            "score_sum": 100
+            "runs": 2,
+            "score_sum": 200
           },
           "month": {
             "period": "2026-03",
-            "runs": 1,
-            "score_sum": 100
+            "runs": 2,
+            "score_sum": 200
           },
           "week": {
-            "period": "2026-W12",
+            "period": "2026-W13",
             "runs": 1,
             "score_sum": 100
           }
