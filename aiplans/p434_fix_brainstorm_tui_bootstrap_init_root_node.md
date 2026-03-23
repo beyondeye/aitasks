@@ -66,6 +66,23 @@ After `nodes = list_nodes(self.session_path)`, add:
 5. Actions → Explore — n000_init appears as base node
 6. Run: `shellcheck .aitask-scripts/aitask_brainstorm_init.sh`
 
+## Post-Review Changes
+
+### Change Request 1 (2026-03-23 10:30)
+- **Requested by user:** TaskBriefModal should be a dialog, not a modal screen. Also, clicking explore in the Actions wizard doesn't advance to the next step.
+- **Changes made:**
+  1. Removed `TaskBriefModal` (ModalScreen) entirely. Instead, pressing `b` shows the full brief inline in the dashboard's detail pane via `_show_brief_in_detail()`.
+  2. Added `OperationRow.Activated` message (Textual Message subclass) + `on_click` posts it. App handles `on_operation_row_activated()` to advance wizard on mouse click — same logic as Enter key handler. Works for both step 1 (operation selection) and step 2 (node selection).
+  3. Imported `Message` from `textual.message`.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`
+
+## Final Implementation Notes
+
+- **Actual work done:** All three original fixes plus two post-review fixes. Root node creation works. Brief shows inline (not modal). Wizard responds to both keyboard Enter and mouse clicks.
+- **Deviations from plan:** Brief display changed from ModalScreen to inline detail pane update. Wizard click handling added (not in original plan, was a pre-existing UX gap exposed by root node fix).
+- **Issues encountered:** Wizard click issue was pre-existing — the wizard only responded to Enter key. With root node now being created, users could reach the wizard for the first time after init and discovered the click gap.
+- **Key decisions:** Brief preview in dashboard joins first 2 non-empty/non-frontmatter lines with `" | "` separator, truncated at 100 chars. Root node description uses first non-frontmatter line of `initial_spec`, truncated at 80 chars with `…`. User suggested refactoring task detail viewing into a shared library for board + brainstorm TUI — deferred to a follow-up task.
+
 ## Step 9 Reference
 
 After implementation, proceed to Step 9 (Post-Implementation) for commit, archival, and push.
