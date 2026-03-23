@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t439_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [brainstorming, agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 12:55
-updated_at: 2026-03-23 13:25
+updated_at: 2026-03-23 18:55
 ---
 
 ## Add log browsing to Brainstorm TUI Status tab
