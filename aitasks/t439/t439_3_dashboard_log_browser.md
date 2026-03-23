@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t439_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 12:54
-updated_at: 2026-03-23 12:54
+updated_at: 2026-03-23 18:18
 ---
 
 ## Add log browsing to AgentCrew Dashboard TUI
