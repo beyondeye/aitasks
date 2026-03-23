@@ -59,7 +59,7 @@ from brainstorm.brainstorm_crew import (
     register_patcher,
     register_synthesizer,
 )
-from agentcrew.agentcrew_utils import read_yaml
+from agentcrew.agentcrew_utils import list_agent_files, format_elapsed, read_yaml
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -72,6 +72,16 @@ STATUS_COLORS = {
     "paused": "#FFB86C",
     "completed": "#6272A4",
     "archived": "#888888",
+}
+
+AGENT_STATUS_COLORS = {
+    "Completed": "green",
+    "Running": "yellow",
+    "Waiting": "#BD93F9",
+    "Ready": "cyan",
+    "Error": "red",
+    "Aborted": "red",
+    "Paused": "#FFB86C",
 }
 
 _TAB_SHORTCUTS = {
@@ -353,6 +363,31 @@ class CycleField(Static):
             event.stop()
 
 
+class GroupRow(Static, can_focus=True):
+    """Expandable group row in the Status tab."""
+
+    def __init__(self, name: str, info: dict, expanded: bool = False, **kwargs):
+        super().__init__(**kwargs)
+        self.group_name = name
+        self.group_info = info
+        self.expanded = expanded
+
+    def render(self) -> str:
+        arrow = "\u25bc" if self.expanded else "\u25b6"
+        op = self.group_info.get("operation", "?")
+        status = self.group_info.get("status", "?")
+        color = AGENT_STATUS_COLORS.get(status, "#888888")
+        agents = self.group_info.get("agents", [])
+        created = self.group_info.get("created_at", "")
+        return (
+            f"{arrow} [bold]{self.group_name}[/bold]  {op}  "
+            f"[{color}]{status}[/{color}]  agents: {len(agents)}  {created}"
+        )
+
+    def on_click(self) -> None:
+        self.focus()
+
+
 # ---------------------------------------------------------------------------
 # Main App
 # ---------------------------------------------------------------------------
@@ -376,8 +411,38 @@ class BrainstormApp(App):
         padding: 1 2;
     }
 
-    /* Placeholder label for future tabs */
-    #status_placeholder {
+    /* Status tab */
+    GroupRow {
+        height: auto;
+        padding: 0 1;
+    }
+
+    GroupRow:focus {
+        background: $accent;
+        color: $text;
+    }
+
+    GroupRow:hover {
+        background: $surface-lighten-1;
+    }
+
+    .status_section_title {
+        text-style: bold;
+        margin-top: 1;
+    }
+
+    .status_agent_detail {
+        padding: 0 3;
+        height: auto;
+    }
+
+    .status_output_preview {
+        padding: 0 5;
+        color: $text-muted;
+        height: auto;
+    }
+
+    .status_empty {
         width: 100%;
         content-align: center middle;
         text-style: italic;
@@ -598,6 +663,8 @@ class BrainstormApp(App):
         self._wizard_step: int = 0
         self._wizard_op: str = ""
         self._wizard_config: dict = {}
+        self._expanded_groups: set[str] = set()
+        self._status_refresh_timer = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -625,13 +692,7 @@ class BrainstormApp(App):
             with TabPane("Actions", id="tab_actions"):
                 yield VerticalScroll(id="actions_content")
             with TabPane("Status", id="tab_status"):
-                yield VerticalScroll(
-                    Label(
-                        "Status \u2014 coming in follow-up tasks",
-                        id="status_placeholder",
-                    ),
-                    id="status_content",
-                )
+                yield VerticalScroll(id="status_content")
         yield Footer()
 
     def on_key(self, event) -> None:
@@ -663,6 +724,16 @@ class BrainstormApp(App):
                     return
         if event.key == "enter":
             focused = self.focused
+            if isinstance(focused, GroupRow):
+                name = focused.group_name
+                if name in self._expanded_groups:
+                    self._expanded_groups.discard(name)
+                else:
+                    self._expanded_groups.add(name)
+                self._refresh_status_tab()
+                event.prevent_default()
+                event.stop()
+                return
             if isinstance(focused, NodeRow):
                 self.push_screen(NodeDetailModal(focused.node_id, self.session_path))
                 event.prevent_default()
@@ -736,6 +807,164 @@ class BrainstormApp(App):
         self._populate_node_list()
         self.query_one(DAGDisplay).load_dag(self.session_path)
         self._actions_show_step1()
+        self._status_refresh_timer = self.set_interval(30, self._refresh_status_tab)
+
+    def on_tabbed_content_tab_activated(self, event) -> None:
+        """Refresh Status tab when it becomes active."""
+        if event.pane.id == "tab_status":
+            self._refresh_status_tab()
+
+    def _refresh_status_tab(self) -> None:
+        """Populate the Status tab with operation groups and agent statuses."""
+        tabbed = self.query_one(TabbedContent)
+        if tabbed.active != "tab_status":
+            return
+
+        import os
+
+        wt_path = str(self.session_path)
+        container = self.query_one("#status_content", VerticalScroll)
+        container.remove_children()
+
+        if not os.path.isdir(wt_path):
+            container.mount(Label("Crew worktree not found", classes="status_empty"))
+            return
+
+        # Read groups from br_groups.yaml
+        groups_path = self.session_path / GROUPS_FILE
+        groups: dict = {}
+        if groups_path.is_file():
+            try:
+                gdata = read_yaml(str(groups_path))
+                groups = gdata.get("groups", {}) if gdata else {}
+            except Exception:
+                pass
+
+        # Check for agent files even without groups
+        agent_files = list_agent_files(wt_path, "_status.yaml")
+
+        if not groups and not agent_files:
+            container.mount(Label("No operations yet", classes="status_empty"))
+            return
+
+        # Groups section
+        if groups:
+            container.mount(
+                Label("[bold]Operation Groups[/bold]", classes="status_section_title")
+            )
+            # Sort by created_at descending (newest first)
+            sorted_groups = sorted(
+                groups.items(),
+                key=lambda kv: kv[1].get("created_at", "") if isinstance(kv[1], dict) else "",
+                reverse=True,
+            )
+            for gname, ginfo in sorted_groups:
+                if not isinstance(ginfo, dict):
+                    continue
+                expanded = gname in self._expanded_groups
+                container.mount(
+                    GroupRow(gname, ginfo, expanded=expanded, classes="status_group_row")
+                )
+                if expanded:
+                    self._mount_group_agents(container, wt_path, ginfo)
+
+        # Ungrouped agents section
+        grouped_agents: set[str] = set()
+        for ginfo in groups.values():
+            if isinstance(ginfo, dict):
+                for a in ginfo.get("agents", []):
+                    grouped_agents.add(a)
+
+        ungrouped = []
+        for sf in agent_files:
+            data = read_yaml(sf)
+            name = data.get("agent_name", "")
+            if name and name not in grouped_agents:
+                ungrouped.append((name, data))
+
+        if ungrouped:
+            container.mount(Label(""))
+            container.mount(
+                Label("[bold]Ungrouped Agents[/bold]", classes="status_section_title")
+            )
+            for name, data in ungrouped:
+                self._mount_agent_row(container, wt_path, name, data)
+
+    def _mount_group_agents(
+        self, container: VerticalScroll, wt_path: str, ginfo: dict
+    ) -> None:
+        """Mount agent detail rows for an expanded group."""
+        import os
+
+        agent_names = ginfo.get("agents", [])
+        if not agent_names:
+            container.mount(Label("  (no agents)", classes="status_agent_detail"))
+            return
+
+        for name in agent_names:
+            sf = os.path.join(wt_path, f"{name}_status.yaml")
+            if os.path.isfile(sf):
+                data = read_yaml(sf)
+            else:
+                data = {"agent_name": name, "status": "Unknown"}
+            self._mount_agent_row(container, wt_path, name, data)
+
+    def _mount_agent_row(
+        self, container: VerticalScroll, wt_path: str, name: str, data: dict
+    ) -> None:
+        """Mount a single agent status row with optional output preview."""
+        import os
+        from datetime import datetime, timezone
+
+        status = data.get("status", "Unknown")
+        color = AGENT_STATUS_COLORS.get(status, "#888888")
+        atype = data.get("agent_type", "")
+        type_label = f" ({atype})" if atype else ""
+
+        # Heartbeat info
+        alive_path = os.path.join(wt_path, f"{name}_alive.yaml")
+        hb_str = ""
+        msg_str = ""
+        if os.path.isfile(alive_path):
+            alive = read_yaml(alive_path)
+            hb = alive.get("last_heartbeat", "")
+            if hb:
+                try:
+                    ts = datetime.fromisoformat(str(hb).replace("Z", "+00:00"))
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                    elapsed = (datetime.now(timezone.utc) - ts).total_seconds()
+                    hb_str = f"  \u2665 {format_elapsed(elapsed)} ago"
+                except (ValueError, TypeError):
+                    pass
+            msg = alive.get("last_message", "")
+            if msg:
+                msg_str = f"  {msg}"
+
+        line = (
+            f"  [{color}]\u25cf[/{color}] {name}{type_label}  "
+            f"[{color}]{status}[/{color}]{hb_str}{msg_str}"
+        )
+        container.mount(Label(line, classes="status_agent_detail"))
+
+        # Output preview (last 10 lines)
+        output_path = os.path.join(wt_path, f"{name}_output.md")
+        if os.path.isfile(output_path):
+            try:
+                with open(output_path) as f:
+                    lines = f.readlines()
+                if lines:
+                    tail = lines[-10:]
+                    preview = "".join(tail).rstrip()
+                    if preview:
+                        container.mount(
+                            Label(
+                                f"[dim]{preview}[/dim]",
+                                classes="status_output_preview",
+                            )
+                        )
+            except Exception:
+                pass
 
     def _update_session_status(self) -> None:
         """Show session metadata in the right pane status area."""
