@@ -203,6 +203,12 @@ Confirm the exact function signatures from `archive_utils_v2.sh`:
 
 If t433_1 changes any signatures, update the resolve functions accordingly.
 
-## Post-Implementation
+## Final Implementation Notes
 
-Follow Step 9 of the task workflow (testing, verification, commit).
+- **Actual work done:** Created `.aitask-scripts/lib/task_resolve_v2.sh` (178 lines) with guard variable, dependency sourcing, directory defaults, `_resolve_v2_search_archives()` helper, `resolve_task_file_v2()`, and `resolve_plan_file_v2()`. All functions mirror the v1 API from `task_utils.sh` but use numbered archive lookup via `archive_utils_v2.sh`.
+- **Deviations from plan:** Two bugs in the plan were corrected during implementation:
+  1. `archive_path_for_id` argument order was reversed in the plan — plan said `(base_dir, id)` but actual API is `(task_id, archived_dir)`. Fixed to `archive_path_for_id "$id" "$base_dir"`.
+  2. Extract result variable was wrong — plan used `$_AIT_EXTRACT_RESULT` (v1) but actual v2 API sets `$_AIT_V2_EXTRACT_RESULT`. Fixed throughout.
+- **Issues encountered:** None. ShellCheck clean (SC1091/SC2086 info-level only, same as v1). Source test passes. All 42 existing archive_utils_v2 tests pass.
+- **Key decisions:** Used `_AIT_RESOLVE_V2_ARCHIVE` as a "return" variable from the helper to avoid subshell overhead. Kept the same glob pattern style as v1 (unquoted `${parent_num}` in path globs) for consistency.
+- **Notes for sibling tasks:** The library is ready to source via `source "${SCRIPT_DIR}/lib/task_resolve_v2.sh"`. Sibling tasks (t433_4 zip-old, t433_5 scanners) can use it for resolve operations. The `_resolve_v2_search_archives()` helper encapsulates the "try numbered, fall back to legacy" pattern and can serve as a reference for similar patterns in other scripts. The correct `archive_path_for_id` argument order is `(task_id, archived_dir)` — NOT what the original task description suggests. Also use `_AIT_V2_EXTRACT_RESULT` (not `_AIT_EXTRACT_RESULT`) after calling `_extract_from_tar_gz_v2`.
