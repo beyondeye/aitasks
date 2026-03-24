@@ -27,7 +27,25 @@ ait setup
 
 See the [Installation guide](../installation/) for platform-specific details and troubleshooting.
 
-## 2. Create Your First Task
+## 2. Review Settings
+
+After setup, review and configure framework settings with the interactive TUI:
+
+```bash
+ait settings
+```
+
+The Settings TUI provides centralized management of:
+
+- **Agent Defaults** — Which code agent and model is used when launching tasks from the [Board](../tuis/board/) TUI and when running explain from the [Code Browser](../tuis/codebrowser/) TUI
+- **Board** — Auto-refresh interval and sync behavior
+- **Project Config** — Build verification commands, test/lint commands, co-author email domain
+- **Models** — Browse available models and their verified performance scores
+- **Execution Profiles** — Pre-configured answers to workflow prompts (e.g., skip confirmations, auto-create worktrees)
+
+We recommend reviewing settings early — they affect how the Board and Code Browser TUIs invoke code agents and which models are used. See the [Settings documentation](../tuis/settings/) for details.
+
+## 3. Create Your First Task
 
 Launch the interactive task creator:
 
@@ -39,7 +57,7 @@ Walk through the prompts to set priority, effort, labels, and write a descriptio
 
 Your task is saved as a local draft in `aitasks/new/`. Select "Finalize now" to assign it a permanent ID and commit to git.
 
-## 3. View Tasks on the Board
+## 4. View Tasks on the Board
 
 Open the kanban board to see your tasks visually:
 
@@ -49,7 +67,7 @@ ait board
 
 Use arrow keys to navigate, **Shift+arrows** to move tasks between columns, and **Enter** to view task details. See the [Board documentation](../tuis/board/) for the full guide.
 
-## 4. Pick and Implement a Task
+## 5. Pick and Implement a Task
 
 Start your code agent and run the pick skill:
 
@@ -73,7 +91,7 @@ This launches the full development workflow:
 4. **Review** — You review changes, request adjustments if needed, then commit
 5. **Archive** — Task and plan files are archived automatically
 
-## 5. Iterate
+## 6. Iterate
 
 The core loop is: **create tasks** (with `ait create`, `/aitask-create`, or `$aitask-create`) → **triage** (with `ait board`) → **implement** (with `/aitask-pick` or `$aitask-pick`).
 

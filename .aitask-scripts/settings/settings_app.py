@@ -113,8 +113,8 @@ _UNSET = "(unset)"
 
 # Operation descriptions shown in the Agent Defaults tab
 OPERATION_DESCRIPTIONS: dict[str, str] = {
-    "pick": "Model used for picking and implementing tasks",
-    "explain": "Model used for explaining/documenting code",
+    "pick": "Model used for picking and implementing tasks (used when launching tasks from the Board TUI)",
+    "explain": "Model used for explaining/documenting code (used when running explain from the Code Browser TUI)",
     "batch-review": "Model used for batch code review operations",
     "raw": "Model used for direct/ad-hoc code agent invocations (passthrough mode)",
     "brainstorm-explorer": "Model for exploring solution space in brainstorming sessions",
