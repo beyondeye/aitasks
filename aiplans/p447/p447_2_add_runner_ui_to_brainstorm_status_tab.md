@@ -120,3 +120,17 @@ def _on_runner_stop(self, event: Button.Pressed) -> None:
 ### Step 9: Post-Implementation
 
 Archive task and plan per workflow.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-03-24 12:00)
+- **Requested by user:** Start Runner button crashes with DuplicateIds error
+- **Changes made:** Changed `id="runner_status_line"` and `id="runner_bar"` to CSS classes (`.runner_bar`), matching the pattern used by all other widgets in `_refresh_status_tab()`. Fixed CSS selector from `#runner_bar` to `.runner_bar`.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`
+
+## Final Implementation Notes
+- **Actual work done:** Added runner control UI to the brainstorm TUI Status tab. Imports `get_runner_info`, `start_runner`, `stop_runner` from the shared `agentcrew_runner_control` module (t447_1). Displays color-coded runner status (none/stopped→gray, stale→red, active→green) with hostname and heartbeat age. Mounts Start/Stop buttons conditionally based on runner state.
+- **Deviations from plan:** Used CSS classes instead of IDs for dynamically re-mounted widgets to avoid DuplicateIds crashes on refresh. Dropped individual button margin CSS rules since the generic `Button { margin: 0 1; }` already covers them. Used `.get("heartbeat_age", "never")` instead of direct dict access since `get_runner_info()` omits this key for "none" status.
+- **Issues encountered:** DuplicateIds crash when clicking Start Runner — `_refresh_status_tab()` re-mounts widgets after `remove_children()`, and Textual's ID registry requires unique IDs. Fixed by switching to CSS classes. Also discovered `ait crew runner` has a pre-existing import bug (`ModuleNotFoundError: No module named 'agentcrew'`) — created sibling task t447_4 to address this.
+- **Key decisions:** Followed the existing pattern in `_refresh_status_tab()` of using classes (not IDs) for all dynamically mounted widgets.
+- **Notes for sibling tasks:** The `ait crew runner` command fails with a `ModuleNotFoundError` because `agentcrew_runner.py` uses package-style imports (`from agentcrew.agentcrew_utils`) but the shell wrapper doesn't set `PYTHONPATH` to `.aitask-scripts/`. The fix is to add `sys.path.insert(0, str(Path(__file__).resolve().parent.parent))` to `agentcrew_runner.py` or set `PYTHONPATH` in `aitask_crew_runner.sh`.
