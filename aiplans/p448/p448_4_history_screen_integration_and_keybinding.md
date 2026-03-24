@@ -153,6 +153,26 @@ def _open_file_by_path(self, file_path: str):
 5. Tab cycles focus between panes
 6. Footer shows correct bindings
 
+## Final Implementation Notes
+
+- **Actual work done:** Created `history_screen.py` with HistoryScreen composing left pane + detail pane, integrated into CodeBrowserApp with `h` keybinding. Also fixed a pre-existing bug in `history_detail.py` (DuplicateIds crash) and added comprehensive state preservation for re-opening.
+- **Deviations from plan:**
+  - **No cached screen instance:** Textual cannot reliably re-push a dismissed Screen instance. Instead, a new HistoryScreen is created each time, with loaded data (task index, platform info) cached on the CodeBrowserApp. Re-opens are instant because cached data is passed to the new screen's constructor.
+  - **State preservation:** Added `restore_task_id`, `restore_chunks`, `restore_showing_plan`, `restore_scroll_y` parameters so that the detail pane shows the same task, the list scroll position is maintained, and the plan/task toggle state persists across opens.
+  - **Screen-level bindings:** Added `v` binding at screen level (delegating to detail pane) to ensure plan/task toggle works regardless of focus. Also added no-op overrides for codebrowser bindings (`r`, `t`, `g`, `e`, `d`, `D`) to hide them from the footer in the history screen.
+  - **`call_from_thread`:** Must be `self.app.call_from_thread()` not `self.call_from_thread()` — Screen doesn't have this method; only App does.
+- **Issues encountered:**
+  - `call_from_thread` AttributeError on Screen — fixed by using `self.app.call_from_thread()`.
+  - Textual cannot re-push the same dismissed Screen instance — redesigned to create fresh instances with cached data.
+  - DuplicateIds crash in `history_detail.py` — `child.remove()` loop is async, old `body_markdown` ID still present when new one mounts. Fixed by switching to `remove_children()` and using class (`body-markdown`) instead of ID.
+  - `show_task()` resets `_showing_plan = False` — fixed by setting the restored plan state AFTER calling `show_task()`, since the render is deferred.
+  - Scroll restoration needs deferred execution — used `set_timer(0.1)` to restore after layout completes.
+- **Key decisions:** Caching loaded data on the App instance (`_history_index`, `_history_platform`, `_history_last_task_id`, etc.) enables both fast re-opens and state preservation while avoiding the re-push problem. The deferred scroll restore uses 100ms timer which is simple and reliable.
+- **Notes for sibling tasks:**
+  - `_open_file_by_path()` on CodeBrowserApp is a stub — t448_5 should implement it to open files in the codebrowser view after navigating from history.
+  - Plan files inside old.tar.gz archives return "No plan file found" when toggling with `v` — this is a data retrieval issue in `history_data.py` that should be investigated separately (not a UI bug).
+  - The `action_toggle_history` uses lazy import (`from history_screen import HistoryScreen`) to avoid circular imports and speed up app startup.
+
 ## Step 9: Post-Implementation
 
 Archive child task, update plan, push.
