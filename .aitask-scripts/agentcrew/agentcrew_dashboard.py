@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 # Ensure agentcrew package is importable
@@ -23,13 +22,20 @@ from agentcrew_utils import (
     list_crews,
     read_yaml,
     topo_sort,
-    _parse_timestamp,
 )
 from agentcrew_log_utils import (
     list_agent_logs,
     read_log_tail,
     read_log_full,
     format_log_size,
+)
+from agentcrew_runner_control import (
+    RUNNER_STALE_SECONDS,
+    _elapsed_since,
+    _heartbeat_age,
+    get_runner_info as _get_runner_info,
+    start_runner as _start_runner,
+    stop_runner as _stop_runner,
 )
 
 from textual.app import App, ComposeResult
@@ -59,28 +65,9 @@ STATUS_COLORS = {
     "Unknown": "#888888",
 }
 
-RUNNER_STALE_SECONDS = 120  # Consider runner stale after 2 minutes without heartbeat
-
-
 # ---------------------------------------------------------------------------
 # Data Layer
 # ---------------------------------------------------------------------------
-
-
-def _elapsed_since(ts_str: str) -> float | None:
-    """Return seconds elapsed since a timestamp string, or None."""
-    ts = _parse_timestamp(str(ts_str))
-    if ts is None:
-        return None
-    return (datetime.now(timezone.utc) - ts).total_seconds()
-
-
-def _heartbeat_age(ts_str: str) -> str:
-    """Return a human-readable heartbeat age string."""
-    elapsed = _elapsed_since(ts_str)
-    if elapsed is None:
-        return "never"
-    return f"{format_elapsed(elapsed)} ago"
 
 
 def _read_file_preview(path: str, max_lines: int = 5) -> str:
@@ -191,54 +178,15 @@ class CrewManager:
 
     def get_runner_info(self, crew_id: str) -> dict:
         """Get runner status information."""
-        wt = crew_worktree_path(crew_id)
-        runner_path = os.path.join(wt, "_runner_alive.yaml")
-        if not os.path.isfile(runner_path):
-            return {"status": "none", "hostname": "", "heartbeat": "", "stale": True}
-
-        data = read_yaml(runner_path)
-        hb = data.get("last_heartbeat", "")
-        elapsed = _elapsed_since(str(hb)) if hb else None
-        stale = elapsed is None or elapsed > RUNNER_STALE_SECONDS
-
-        return {
-            "status": data.get("status", "unknown"),
-            "hostname": data.get("hostname", ""),
-            "heartbeat": hb,
-            "stale": stale,
-            "heartbeat_age": _heartbeat_age(str(hb)) if hb else "never",
-        }
+        return _get_runner_info(crew_id)
 
     def start_runner(self, crew_id: str) -> bool:
         """Launch a runner for the crew as a detached process."""
-        try:
-            subprocess.Popen(
-                [AIT_PATH, "crew", "runner", "--crew", crew_id],
-                start_new_session=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            return True
-        except OSError:
-            return False
+        return _start_runner(crew_id)
 
     def stop_runner(self, crew_id: str) -> bool:
         """Request runner to stop by sending stop command."""
-        try:
-            result = subprocess.run(
-                [AIT_PATH, "crew", "command", "send-all", "--crew", crew_id,
-                 "--command", "kill"],
-                capture_output=True, text=True, timeout=10,
-            )
-            # Also update runner_alive.yaml requested_action
-            wt = crew_worktree_path(crew_id)
-            runner_path = os.path.join(wt, "_runner_alive.yaml")
-            if os.path.isfile(runner_path):
-                from agentcrew_utils import update_yaml_field
-                update_yaml_field(runner_path, "requested_action", "stop")
-            return True
-        except (OSError, subprocess.TimeoutExpired):
-            return False
+        return _stop_runner(crew_id)
 
     def send_command(self, crew_id: str, agent_name: str, command: str) -> bool:
         """Send a command to a specific agent."""
