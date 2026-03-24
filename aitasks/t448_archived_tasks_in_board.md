@@ -3,10 +3,9 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [aitask_board, task-archive]
 children_to_implement: [t448_1, t448_2, t448_3, t448_4, t448_5, t448_6]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 23:48
 updated_at: 2026-03-24 09:00
 ---
