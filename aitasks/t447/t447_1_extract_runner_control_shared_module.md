@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 23:08
-updated_at: 2026-03-23 23:08
+updated_at: 2026-03-24 10:00
 ---
 
 ## Summary
