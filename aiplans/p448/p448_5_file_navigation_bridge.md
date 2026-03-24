@@ -73,6 +73,20 @@ The dismiss/push cycle must work correctly:
 4. Test with non-existent file → notification shown
 5. Test with deeply nested file → tree expands correctly
 
+## Final Implementation Notes
+
+- **Actual work done:** Replaced `_open_file_by_path()` stub in `codebrowser_app.py` with full implementation that replicates `on_directory_tree_file_selected` pattern (load file, clear detail pane, reset info bar, load explain data, select in tree). Added `select_path()` method to `ProjectFileTree` in `file_tree.py` using async `@work` decorator to handle lazy-loaded tree expansion.
+- **Deviations from plan:**
+  - `_open_file_by_path` also clears cursor/annotation info and detail pane (matching the full `on_directory_tree_file_selected` pattern), which the original plan snippet didn't include.
+  - `select_path()` required async implementation with `@work` decorator and `reload_node()` awaiting, because Textual's DirectoryTree lazily loads directory children. A sync walk fails when the tree is collapsed.
+- **Issues encountered:**
+  - **Sync tree walking failed for collapsed trees:** Initial sync implementation with `expand()` worked only when the tree was already expanded. Children aren't available immediately after `expand()` because loading is async.
+  - **Race condition between expand() and reload_node():** Calling both on the same node caused a race where `_populate_node` could run twice (from the NodeExpanded message handler and from reload_node), with `remove_children()` in one interfering with the other. Fixed by using `reload_node()` exclusively for unloaded directories (it handles both loading AND expanding via `_populate_node → expand()`), and `expand()` only for already-loaded but collapsed directories.
+- **Key decisions:** Using Textual's `@work(exclusive=True, group="select_path")` ensures only one select_path operation runs at a time and integrates properly with the event loop. The `reload_node` awaitable ensures children are fully populated before traversal continues.
+- **Notes for sibling tasks:**
+  - `_open_file_by_path` accepts a string relative path (from `NavigateToFile.file_path` emitted by `history_detail.py`) and converts to Path via `self._project_root / file_path`.
+  - The `select_path` method is reusable for any programmatic file selection in the tree.
+
 ## Step 9: Post-Implementation
 
 Archive child task, update plan, push.
