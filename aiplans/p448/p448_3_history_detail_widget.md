@@ -168,6 +168,23 @@ CSS for the modal:
 5. Sibling picker: Enter on "N siblings" opens modal, search filters, selection works
 6. Affected file Enter posts NavigateToFile message
 
+## Final Implementation Notes
+
+- **Actual work done:** Created `history_detail.py` (795 lines) with all planned widgets and the `SiblingPickerModal`. Added `IssueLinkField` and `PullRequestLinkField` beyond the original plan — these render focusable issue/PR links from task metadata (`metadata.get("issue")`, `metadata.get("pull_request")`), opening in browser on Enter. Follows the board's `IssueField`/`PullRequestField` patterns.
+- **Deviations from plan:**
+  - Renamed `SiblingCountField.siblings` to `sibling_tasks` — Textual's `Widget` base class has a `siblings` property that conflicts (same collision pattern as `completed_task` in `history_list.py`).
+  - Did not add a pane-level `s` keybinding for opening siblings (plan had `Binding("s", "open_siblings")`). Instead, the `s` key is handled locally on `SiblingCountField.on_key`. This avoids intercepting `s` when the user is typing in the search input of the sibling picker modal.
+  - Added `_BackButton`, `_SectionHeader`, and `_ViewIndicator` helper widgets not in the original plan for cleaner section rendering.
+  - The `_render_task` method accepts an optional `commits` parameter — when called from the `@work` thread via `call_from_thread`, commits are passed directly; when called from `go_back()`, commits are not passed and the section is skipped (back navigation reuses cached content display).
+- **Issues encountered:** `Widget.siblings` property collision caused `AttributeError` at runtime. Fixed by renaming to `sibling_tasks`.
+- **Key decisions:** All field widgets use `_focus_neighbor()` from `history_list.py` for consistent arrow key navigation across the entire history view. Content caching is per-task-id in dictionaries, not invalidated (archived tasks don't change).
+- **Notes for sibling tasks:**
+  - Import `NavigateToFile`, `HistoryBrowseEvent`, and `HistoryDetailPane` from `history_detail`.
+  - The pane requires `set_context(project_root, task_index, platform_info)` to be called before `show_task()` works. The screen (t448_4) should call this after `load_task_index()` completes.
+  - `show_task(task_id, is_explicit_browse=True)` posts `HistoryBrowseEvent` — the screen should forward this to the left pane's `add_to_history()`.
+  - `NavigateToFile` message bubbles up — the screen should handle `on_navigate_to_file` and dismiss with the file path as result.
+  - The test app `test_history_detail.py` demonstrates the full wiring pattern that t448_4's `HistoryScreen` should follow.
+
 ## Step 9: Post-Implementation
 
 Archive child task, update plan, push.
