@@ -142,3 +142,24 @@ Ensure `.aitask-history/` is in the project's `.gitignore` (it's user-local stat
 ## Step 9: Post-Implementation
 
 Archive child task, update plan, push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `history_list.py` with all planned widgets (HistoryTaskItem, HistoryTaskList, RecentlyOpenedList, HistoryLeftPane, TaskSelected message) plus helper functions (_type_color, _format_labels, _compute_child_counts, _focus_neighbor). Added `.aitask-history/` to `.gitignore`. Also fixed a performance bug in `history_data.py`.
+- **Deviations from plan:**
+  - `HistoryTaskItem` uses `completed_task` attribute instead of `task` (Textual's `Static` has a `task` property that conflicts).
+  - Items render as two lines instead of one: line 1 = task ID + name + children, line 2 = type badge + date + labels. Names are dynamically truncated based on widget width to prevent wrapping.
+  - "Load more" is a clickable `_LoadMoreIndicator(Static)` instead of a `Button` — Textual's Button default styling conflicted with single-line rendering.
+  - Arrow key navigation uses a shared `_focus_neighbor()` function that walks all visible focusable children in DOM order, so up/down seamlessly traverses task items and the load-more indicator.
+  - Issue type colors are new (board's TaskCard doesn't color-code issue_type) — uses Dracula palette from board's PALETTE_COLORS.
+- **Issues encountered:**
+  - `Static.task` property collision required renaming the attribute to `completed_task`.
+  - `VerticalScroll` captures arrow keys for scrolling — required custom `on_key` handlers with `event.prevent_default()` and `event.stop()`.
+  - `Button` with `height: 1` and `border: none` didn't render properly — switched to Static-based clickable indicator.
+  - `load_task_index()` in `history_data.py` had O(N*M) performance bug — for each task it re-scanned all archived files to find filenames. Fixed by collecting filenames during the single frontmatter scan pass. Down from ~3s to 0.26s for 481 tasks.
+- **Key decisions:** Two-line item format was chosen over single-line to prevent long task names from hiding metadata. Name truncation is dynamic based on actual widget width.
+- **Notes for sibling tasks:**
+  - Import `TaskSelected` message from `history_list` — the parent screen (t448_4) should handle this message to update both the detail pane and recently-opened list.
+  - `HistoryLeftPane.set_data(task_index)` is the single entry point for populating the pane — call it after `load_task_index()` completes (use `@work(thread=True)` for async loading, see test app pattern).
+  - `_focus_neighbor()` pattern works across widget types — reuse if the detail pane (t448_3) needs similar keyboard navigation.
+  - The `_type_color()` mapping could be extracted to a shared module if t448_3 needs the same colors for the detail view.
