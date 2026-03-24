@@ -3,3 +3,7 @@
 === Prompt file: .aitask-crews/crew-brainstorm-427/explorer_001_prompt.md ===
 === Command: /home/ddt/Work/aitasks/ait codeagent --agent-string claudecode/opus4_6 invoke raw -p Read and follow all instructions in the file: .aitask-crews/crew-brainstorm-427/explorer_001_prompt.md ===
 ============================================================
+I need write permissions to the crew files and WebFetch access to research OpenShell. Could you approve these permissions so I can proceed? I need to:
+
+1. Write to `.aitask-crews/crew-brainstorm-427/` files (heartbeat, status, output)
+2. Use WebFetch to research the NVIDIA/OpenShell GitHub project
