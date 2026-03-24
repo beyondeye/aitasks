@@ -146,3 +146,22 @@ A complete proposal following the template with these required sections:
 - update_progress: 100
 - report_alive: "Exploration complete" ===
 ============================================================
+
+=== 2026-03-24 09:39:26 | STALE: heartbeat timeout — marked as Error ===
+I've completed the analysis and generated the full proposal, but I need write permission to `.aitask-crews/crew-brainstorm-427/explorer_001_output.md` to deliver the output. This is the file the brainstorm engine reads to process my results.
+
+Could you either:
+1. Allow writes to `.aitask-crews/` files, or
+2. Let me know if you'd prefer I output the proposal differently?
+
+The proposal covers 8 components for integrating OpenShell sandboxing into aitasks:
+- **SandboxLauncher** — Optional dispatch layer in `agentcrew_runner.py` that creates OpenShell containers per agent
+- **Sandbox config** — Per-agent-type sandbox profiles in `_crew_meta.yaml` (image, CPU/memory limits, network policy)
+- **SandboxMonitor** — Container health checks alongside existing heartbeat detection (OOM kills, crashes)
+- **CLI** — `ait sandbox list/inspect/exec/logs/stop/cleanup` commands
+- **TUI dashboard** — Sandbox status column, resource metrics, container log viewer
+- **Execution profile** — `sandboxed.yaml` extending remote profile
+- **Sandbox images** — Dockerfile hierarchy (base + per-agent-CLI)
+- **Setup extension** — `ait setup` checks for OpenShell + Docker
+
+Key design decisions: sandboxing is opt-in per agent type (backward compatible), uses OpenShell CLI as subprocess (not library), crew worktree is bind-mounted so existing file-based coordination works unchanged.
