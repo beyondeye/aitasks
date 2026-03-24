@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [aitask_board, task-archive]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-24 08:59
-updated_at: 2026-03-24 11:36
+updated_at: 2026-03-24 11:57
 ---
 
 ## Context

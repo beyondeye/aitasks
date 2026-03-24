@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [agentcrew]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-24 10:50
-updated_at: 2026-03-24 11:10
+updated_at: 2026-03-24 12:20
+completed_at: 2026-03-24 12:20
 ---
 
 ## Summary

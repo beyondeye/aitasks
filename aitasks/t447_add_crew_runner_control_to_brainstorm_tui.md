@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [ui, agentcrew]
-children_to_implement: [t447_4, t447_5]
+children_to_implement: [t447_5]
 created_at: 2026-03-23 19:35
-updated_at: 2026-03-24 10:57
+updated_at: 2026-03-24 12:20
 ---
 
 ## Summary
