@@ -66,6 +66,11 @@ from agentcrew.agentcrew_log_utils import (
     read_log_full,
     format_log_size,
 )
+from agentcrew.agentcrew_runner_control import (
+    get_runner_info,
+    start_runner,
+    stop_runner,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -781,6 +786,8 @@ class BrainstormApp(App):
         align: center middle;
     }
 
+    .runner_bar { height: auto; padding: 0 1; margin-bottom: 1; }
+
     Button {
         margin: 0 1;
     }
@@ -970,6 +977,46 @@ class BrainstormApp(App):
         if not os.path.isdir(wt_path):
             container.mount(Label("Crew worktree not found", classes="status_empty"))
             return
+
+        # Runner status section
+        crew_id = self.session_data.get("crew_id", "")
+        if crew_id:
+            runner = get_runner_info(crew_id)
+            status = runner["status"]
+            stale = runner["stale"]
+
+            if status == "none":
+                status_text = "No runner"
+                color = "#888888"
+            elif status == "stopped":
+                status_text = "Runner stopped"
+                color = "#888888"
+            elif stale:
+                status_text = "Runner stale"
+                color = "#FF5555"
+            else:
+                status_text = "Runner active"
+                color = "#50FA7B"
+
+            info_parts = [f"[{color}]{status_text}[/{color}]"]
+            if runner.get("hostname"):
+                info_parts.append(f"Host: {runner['hostname']}")
+            hb_age = runner.get("heartbeat_age", "never")
+            if hb_age != "never":
+                info_parts.append(f"Heartbeat: {hb_age}")
+
+            container.mount(
+                Label("[bold]Runner[/bold]", classes="status_section_title")
+            )
+            container.mount(Label("  ".join(info_parts)))
+
+            runner_active = status not in ("none", "stopped") and not stale
+            bar = Horizontal(classes="runner_bar")
+            container.mount(bar)
+            if not runner_active:
+                bar.mount(Button("Start Runner", classes="btn_runner_start"))
+            else:
+                bar.mount(Button("Stop Runner", classes="btn_runner_stop"))
 
         # Read groups from br_groups.yaml
         groups_path = self.session_path / GROUPS_FILE
@@ -1670,6 +1717,26 @@ class BrainstormApp(App):
         """Handle Next button in step 2 forms."""
         if self._wizard_step == 2 and self._actions_collect_config():
             self._actions_show_step3()
+
+    @on(Button.Pressed, ".btn_runner_start")
+    def _on_runner_start(self, event: Button.Pressed) -> None:
+        """Start the crew runner process."""
+        crew_id = self.session_data.get("crew_id", "")
+        if crew_id and start_runner(crew_id):
+            self.notify("Runner started")
+        else:
+            self.notify("Failed to start runner", severity="error")
+        self._refresh_status_tab()
+
+    @on(Button.Pressed, ".btn_runner_stop")
+    def _on_runner_stop(self, event: Button.Pressed) -> None:
+        """Request the crew runner to stop."""
+        crew_id = self.session_data.get("crew_id", "")
+        if crew_id and stop_runner(crew_id):
+            self.notify("Runner stop requested")
+        else:
+            self.notify("Failed to stop runner", severity="error")
+        self._refresh_status_tab()
 
     def on_operation_row_activated(self, event: OperationRow.Activated) -> None:
         """Handle mouse click activation on an OperationRow."""
