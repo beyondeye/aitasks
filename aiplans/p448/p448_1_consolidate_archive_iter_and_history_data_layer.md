@@ -192,6 +192,10 @@ class PlatformInfo:
 
 ---
 
-## Step 9: Post-Implementation
+## Final Implementation Notes
 
-Archive child task, update plan, push.
+- **Actual work done:** All parts implemented as planned — consolidated archive iteration in `archive_iter.py`, refactored `aitask_stats.py`, created `history_data.py` data layer, and wrote comprehensive test suites (16 + 25 tests).
+- **Deviations from plan:** The plan originally imported `iter_all_archived_tar_files` alongside `iter_all_archived_markdown` in stats. The actual refactor only needs `iter_all_archived_markdown` since the consolidated function replaces all prior usage. Also did not import `archive_path_for_id` in `history_data.py` as it wasn't needed (the consolidated iterator handles tar fallback internally).
+- **Issues encountered:** Fixed a pre-existing test failure in `test_aitask_stats_py.py` — the `TestCollection.setUp` referenced `stats.ARCHIVE_TAR`, a global removed in commit `f0d3d98a` (t433_7 archive refactor) without updating the tests. Fixed by switching the test fixture from legacy `old.tar.gz` to a numbered `_b0/old0.tar.gz` archive.
+- **Key decisions:** `iter_all_archived_markdown()` intentionally skips legacy `old.tar.gz` per the task spec. No legacy archives exist in the current repo, so this is safe. The `_extract_metadata` wrapper in `history_data.py` handles the `parse_frontmatter()` return type (`tuple | None`) correctly.
+- **Notes for sibling tasks:** The `history_data.py` module provides all data layer functions needed by t448_2 (left pane list) and t448_3 (detail widget). Import with `from history_data import ...` using bare relative imports within the codebrowser package. The `load_task_index()` function is the main entry point — it returns `List[CompletedTask]` sorted by commit date descending. For platform-aware commit links in t448_3, use `detect_platform_info()` which returns a `PlatformInfo` dataclass with a `commit_url_template` containing a `{hash}` placeholder.
