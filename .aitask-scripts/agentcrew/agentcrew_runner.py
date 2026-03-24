@@ -445,6 +445,10 @@ def launch_agent(worktree: str, name: str, agents: dict[str, dict],
         _log_handles[name] = log_fh
         update_yaml_field(status_file, "pid", proc.pid)
         agents[name]["pid"] = proc.pid
+        # Write initial heartbeat so agent isn't considered stale before it
+        # writes its own first heartbeat
+        alive_path = os.path.join(worktree, f"{name}_alive.yaml")
+        update_yaml_field(alive_path, "last_heartbeat", now_utc())
         if batch:
             print(f"LAUNCHED:{name}:{proc.pid}")
     except OSError as e:
