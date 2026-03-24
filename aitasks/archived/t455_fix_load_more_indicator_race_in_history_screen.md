@@ -3,12 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ui, codebrowser]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-24 21:33
-updated_at: 2026-03-24 21:40
+updated_at: 2026-03-24 21:43
+completed_at: 2026-03-24 21:43
 ---
 
 ## Problem
