@@ -212,6 +212,17 @@ ait crew command list --crew ${CREW_ID} --agent ${AGENT_NAME}
 ## Writing Output
 Write your results to: ${AGENT_NAME}_output.md
 
+## Your Files
+All your files are in: ${WT_PATH}
+
+- \`_work2do.md\` → ${WT_PATH}/${AGENT_NAME}_work2do.md
+- \`_input.md\` → ${WT_PATH}/${AGENT_NAME}_input.md
+- \`_output.md\` → ${WT_PATH}/${AGENT_NAME}_output.md
+- \`_instructions.md\` → ${WT_PATH}/${AGENT_NAME}_instructions.md
+- \`_status.yaml\` → ${WT_PATH}/${AGENT_NAME}_status.yaml
+- \`_commands.yaml\` → ${WT_PATH}/${AGENT_NAME}_commands.yaml
+- \`_alive.yaml\` → ${WT_PATH}/${AGENT_NAME}_alive.yaml
+
 ## Checkpoints
 At each checkpoint in your work2do flow:
 1. Send heartbeat

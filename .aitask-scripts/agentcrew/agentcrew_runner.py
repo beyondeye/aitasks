@@ -411,6 +411,28 @@ def launch_agent(worktree: str, name: str, agents: dict[str, dict],
               f"agent_string={agent_string})")
         return
 
+    # Assemble the full prompt with file path references
+    worktree_rel = os.path.relpath(worktree, _repo_root) if _repo_root else worktree
+    agent_files_preamble = (
+        f"## Your Agent Files\n\n"
+        f"All your files are in: {worktree_rel}\n\n"
+        f"- `_work2do.md` \u2192 {worktree_rel}/{name}_work2do.md\n"
+        f"- `_input.md` \u2192 {worktree_rel}/{name}_input.md\n"
+        f"- `_output.md` \u2192 {worktree_rel}/{name}_output.md\n"
+        f"- `_instructions.md` \u2192 {worktree_rel}/{name}_instructions.md\n"
+        f"- `_status.yaml` \u2192 {worktree_rel}/{name}_status.yaml\n"
+        f"- `_commands.yaml` \u2192 {worktree_rel}/{name}_commands.yaml\n"
+        f"- `_alive.yaml` \u2192 {worktree_rel}/{name}_alive.yaml\n"
+        f"\n---\n\n"
+    )
+    full_prompt = agent_files_preamble + work2do_content
+
+    # Write assembled prompt to a file instead of passing inline
+    prompt_file = os.path.join(worktree, f"{name}_prompt.md")
+    with open(prompt_file, "w") as pf:
+        pf.write(full_prompt)
+    prompt_rel = os.path.relpath(prompt_file, _repo_root) if _repo_root else prompt_file
+
     # Transition Waiting → Ready
     current = agent_data.get("status", "")
     if current == "Waiting":
@@ -433,10 +455,12 @@ def launch_agent(worktree: str, name: str, agents: dict[str, dict],
         log_path = os.path.join(worktree, f"{name}_log.txt")
         log_fh = open(log_path, "a")
         ait_cmd = os.path.join(_repo_root, "ait") if _repo_root else "./ait"
+        short_prompt = f"Read and follow all instructions in the file: {prompt_rel}"
         cmd = [ait_cmd, "codeagent", "--agent-string", agent_string,
-               "invoke", "raw", "-p", work2do_content]
+               "invoke", "raw", "-p", short_prompt]
         log_fh.write(f"=== Agent: {name} | Type: {atype} | String: {agent_string} ===\n")
         log_fh.write(f"=== Started: {now_utc()} ===\n")
+        log_fh.write(f"=== Prompt file: {prompt_rel} ===\n")
         log_fh.write(f"=== Command: {' '.join(cmd)} ===\n")
         log_fh.write(f"{'=' * 60}\n")
         log_fh.flush()
