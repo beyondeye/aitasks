@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-24 10:50
-updated_at: 2026-03-24 10:50
+updated_at: 2026-03-24 11:04
 ---
 
 ## Summary
