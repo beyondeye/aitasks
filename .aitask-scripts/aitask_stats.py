@@ -19,7 +19,7 @@ import tarfile
 
 # Add lib/ to Python path for archive_iter
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "lib"))
-from archive_iter import iter_all_archived_tar_files
+from archive_iter import iter_all_archived_markdown
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -586,24 +586,7 @@ def is_child_task(filename: str) -> bool:
 
 
 def iter_archived_markdown_files() -> Iterable[Tuple[str, str]]:
-    if ARCHIVE_DIR.exists():
-        for path in sorted(ARCHIVE_DIR.glob("t*_*.md")):
-            if is_child_task(path.name):
-                continue
-            try:
-                yield path.name, path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-
-        for path in sorted(ARCHIVE_DIR.glob("t*/t*_*_*.md")):
-            try:
-                yield path.name, path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-
-    # Numbered archives (_bN/oldM.tar.gz) + legacy old.tar.gz
-    for name, text in iter_all_archived_tar_files(ARCHIVE_DIR):
-        yield name, text
+    return iter_all_archived_markdown(ARCHIVE_DIR)
 
 
 def get_valid_task_types() -> List[str]:

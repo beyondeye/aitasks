@@ -147,7 +147,10 @@ class TestCollection(unittest.TestCase):
             encoding="utf-8",
         )
 
-        tar_path = archived / "old.tar.gz"
+        # Use numbered archive (_b0/old0.tar.gz) instead of legacy old.tar.gz
+        tar_dir = archived / "_b0"
+        tar_dir.mkdir()
+        tar_path = tar_dir / "old0.tar.gz"
         with tarfile.open(tar_path, "w:gz") as tf:
             old = self.base / "old_task.md"
             old.write_text(
@@ -161,22 +164,19 @@ class TestCollection(unittest.TestCase):
                 "old\n",
                 encoding="utf-8",
             )
-            tf.add(old, arcname="aitasks/archived/t2_old_task.md")
+            tf.add(old, arcname="t2_old_task.md")
 
         self.orig_task_dir = stats.TASK_DIR
         self.orig_archive_dir = stats.ARCHIVE_DIR
-        self.orig_archive_tar = stats.ARCHIVE_TAR
         self.orig_task_types = stats.TASK_TYPES_FILE
 
         stats.TASK_DIR = self.base / "aitasks"
         stats.ARCHIVE_DIR = stats.TASK_DIR / "archived"
-        stats.ARCHIVE_TAR = stats.ARCHIVE_DIR / "old.tar.gz"
         stats.TASK_TYPES_FILE = stats.TASK_DIR / "metadata" / "task_types.txt"
 
     def tearDown(self):
         stats.TASK_DIR = self.orig_task_dir
         stats.ARCHIVE_DIR = self.orig_archive_dir
-        stats.ARCHIVE_TAR = self.orig_archive_tar
         stats.TASK_TYPES_FILE = self.orig_task_types
         self.tmp.cleanup()
 

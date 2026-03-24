@@ -1,15 +1,16 @@
 """archive_iter.py - Python archive iteration for numbered archive scheme.
 
 Provides iterator functions that yield (filename, text_content) tuples from
-numbered _bN/oldM.tar.gz archives and legacy old.tar.gz.
+numbered _bN/oldM.tar.gz archives, legacy old.tar.gz, and loose markdown files.
 
 Usage:
-    from archive_iter import iter_all_archived_tar_files
-    for name, content in iter_all_archived_tar_files(Path("aitasks/archived")):
+    from archive_iter import iter_all_archived_markdown
+    for name, content in iter_all_archived_markdown(Path("aitasks/archived")):
         process(name, content)
 """
 
 import os
+import re
 import tarfile
 from pathlib import Path
 from typing import Iterable, Tuple
@@ -48,6 +49,56 @@ def iter_all_archived_tar_files(
     """
     yield from iter_numbered_archives(archived_dir)
     yield from iter_legacy_archive(archived_dir)
+
+
+def iter_all_archived_markdown(
+    archived_dir: Path,
+) -> Iterable[Tuple[str, str]]:
+    """Yield (filename, text_content) from loose files + numbered archives.
+
+    Scans in order: loose parent files, loose child files (in subdirs),
+    then numbered tar.gz archives. Does NOT scan legacy old.tar.gz.
+    """
+    if archived_dir.exists():
+        # Loose parent tasks
+        for path in sorted(archived_dir.glob("t*_*.md")):
+            if _is_child_filename(path.name):
+                continue
+            try:
+                yield path.name, path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+        # Loose child tasks in subdirectories
+        for path in sorted(archived_dir.glob("t*/t*_*_*.md")):
+            try:
+                yield path.name, path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+    # Numbered archives only (no legacy)
+    yield from iter_numbered_archives(archived_dir)
+
+
+def iter_archived_frontmatter(
+    archived_dir: Path,
+    parse_fn,
+) -> Iterable[Tuple[str, dict]]:
+    """Yield (filename, metadata_dict) using parse_fn on frontmatter only.
+
+    parse_fn should accept a string (full file text) and return a dict
+    of metadata (the YAML frontmatter). This avoids loading full body content.
+    """
+    for name, text in iter_all_archived_markdown(archived_dir):
+        try:
+            metadata = parse_fn(text)
+            if metadata is not None:
+                yield name, metadata
+        except Exception:
+            continue
+
+
+def _is_child_filename(name: str) -> bool:
+    """Check if filename matches child task pattern t<N>_<M>_*.md."""
+    return bool(re.match(r"t\d+_\d+_", name))
 
 
 def _iter_single_archive(archive_path: Path) -> Iterable[Tuple[str, str]]:
