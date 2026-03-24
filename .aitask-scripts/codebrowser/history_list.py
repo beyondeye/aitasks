@@ -152,6 +152,7 @@ class _LoadMoreIndicator(Static):
 
     DEFAULT_CSS = """
     _LoadMoreIndicator {
+        display: none;
         width: 100%;
         height: 1;
         padding: 0 1;
@@ -206,9 +207,6 @@ class HistoryTaskList(VerticalScroll):
 
     def compose(self):
         yield _LoadMoreIndicator("", id="load_more_ind")
-
-    def on_mount(self) -> None:
-        self.query_one("#load_more_ind").display = False
 
     def set_index(self, index: list[CompletedTask], child_counts: dict[str, int]) -> None:
         self._index = index
