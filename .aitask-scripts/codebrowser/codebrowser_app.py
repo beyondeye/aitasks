@@ -129,6 +129,7 @@ class CodeBrowserApp(App):
         Binding("e", "launch_agent", "Explain"),
         Binding("d", "toggle_detail", "Toggle detail"),
         Binding("D", "expand_detail", "Expand detail"),
+        Binding("h", "toggle_history", "History"),
     ]
 
     DETAIL_DEFAULT_WIDTH = 30
@@ -147,6 +148,12 @@ class CodeBrowserApp(App):
         self._annotation_info: str = ""
         self._detail_visible: bool = False
         self._detail_expanded: bool = False
+        self._history_index = None       # cached task index
+        self._history_platform = None    # cached platform info
+        self._history_last_task_id = None  # last viewed task in history
+        self._history_loaded_chunks = 0    # number of chunks loaded in list
+        self._history_showing_plan = False  # plan/task view toggle state
+        self._history_scroll_y = 0         # task list scroll position
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -537,6 +544,30 @@ class CodeBrowserApp(App):
                 file_tree.focus()
         else:
             file_tree.focus()
+
+    def action_toggle_history(self) -> None:
+        """Push the history screen to browse completed tasks."""
+        if self._project_root is None:
+            return
+        from history_screen import HistoryScreen
+        screen = HistoryScreen(
+            self._project_root,
+            cached_index=self._history_index,
+            cached_platform=self._history_platform,
+            restore_task_id=self._history_last_task_id,
+            restore_chunks=self._history_loaded_chunks,
+            restore_showing_plan=self._history_showing_plan,
+            restore_scroll_y=self._history_scroll_y,
+        )
+        self.push_screen(screen, callback=self._on_history_dismiss)
+
+    def _on_history_dismiss(self, result) -> None:
+        if result is not None:
+            self._open_file_by_path(result)
+
+    def _open_file_by_path(self, file_path: str) -> None:
+        """Stub — will be implemented in t448_5."""
+        pass
 
     def _find_terminal(self) -> str | None:
         """Find an available terminal emulator, or return None."""

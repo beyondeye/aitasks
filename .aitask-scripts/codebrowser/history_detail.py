@@ -553,7 +553,7 @@ class HistoryDetailPane(VerticalScroll):
         text-align: center;
         margin-top: 4;
     }
-    HistoryDetailPane #body_markdown {
+    HistoryDetailPane .body-markdown {
         margin: 0 1;
     }
     """
@@ -567,6 +567,7 @@ class HistoryDetailPane(VerticalScroll):
         self._showing_plan = False
         self._task_content_cache: dict[str, str | None] = {}
         self._plan_content_cache: dict[str, str | None] = {}
+        self._body_md = None  # reference to current Markdown widget
 
     def compose(self):
         yield Static(
@@ -633,9 +634,8 @@ class HistoryDetailPane(VerticalScroll):
         commits: list[TaskCommitInfo] | None = None,
     ) -> None:
         """Clear and rebuild all sections for the given task."""
-        # Remove all children
-        for child in list(self.children):
-            child.remove()
+        # Remove all children synchronously to avoid DuplicateIds on re-mount
+        self.remove_children()
 
         # Find the CompletedTask in the index
         task = self._find_task(task_id)
@@ -726,7 +726,8 @@ class HistoryDetailPane(VerticalScroll):
         )
 
         content = self._get_body_content(task_id)
-        md = Markdown(content or "*No content available*", id="body_markdown")
+        md = Markdown(content or "*No content available*", classes="body-markdown")
+        self._body_md = md
         self.mount(md)
 
         self.scroll_home(animate=False)
@@ -777,9 +778,8 @@ class HistoryDetailPane(VerticalScroll):
 
         # Update markdown body
         content = self._get_body_content(task_id)
-        md_widgets = self.query("#body_markdown")
-        for md in md_widgets:
-            md.update(content or "*No content available*")
+        if self._body_md is not None:
+            self._body_md.update(content or "*No content available*")
 
     def _find_task(self, task_id: str) -> CompletedTask | None:
         """Find a task in the index by ID."""
