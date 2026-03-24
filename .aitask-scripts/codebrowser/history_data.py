@@ -101,26 +101,21 @@ def load_task_index(project_root: Path) -> List[CompletedTask]:
     except (OSError, subprocess.SubprocessError):
         pass
 
-    # Step 2: Scan archived frontmatter
-    meta_map: dict = {}  # task_id -> (metadata, file_source)
+    # Step 2: Scan archived frontmatter (also collect filenames for name extraction)
+    meta_map: dict = {}  # task_id -> (metadata, file_source, filename)
     # Loose + tar files via consolidated iterator
     for filename, metadata in iter_archived_frontmatter(archived_dir, _extract_metadata):
         tid = _extract_task_id_from_filename(filename)
         if tid is not None:
-            meta_map[tid] = (metadata, "loose")
+            meta_map[tid] = (metadata, "loose", filename)
 
     # Step 3: Merge — only tasks with both commit info and metadata
     tasks = []
     for tid, (hash_val, date_val, msg) in commit_map.items():
         if tid not in meta_map:
             continue
-        metadata, file_source = meta_map[tid]
-        filename_match = None
-        for fn, _ in iter_all_archived_markdown(archived_dir):
-            if _extract_task_id_from_filename(fn) == tid:
-                filename_match = fn
-                break
-        name = _extract_name_from_filename(filename_match) if filename_match else tid
+        metadata, file_source, filename_match = meta_map[tid]
+        name = _extract_name_from_filename(filename_match)
         tasks.append(
             CompletedTask(
                 task_id=tid,

@@ -11,6 +11,9 @@ aitasks/new/
 # PR import intermediate data (temporary, per-run)
 .aitask-pr-data/
 
+# History view local state (recently opened tasks)
+.aitask-history/
+
 # AgentCrew worktrees (local, per-crew branches)
 .aitask-crews/
 
