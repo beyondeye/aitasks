@@ -129,8 +129,8 @@ class TestStatusCommand(CLITestBase):
         self._init_session()
         out, _ = self._capture_cli(["status", "--task-num", str(self.task_num)])
         self.assertIn("task_id:", out)
-        self.assertIn("status: init", out)
-        self.assertIn("nodes: 0", out)
+        self.assertIn("status: active", out)
+        self.assertIn("nodes: 1", out)
 
     def test_status_nonexistent_exits(self):
         with self.assertRaises(SystemExit) as ctx:

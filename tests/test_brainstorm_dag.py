@@ -101,14 +101,18 @@ class TestInitSession(BrainstormTestBase):
 
         session = read_yaml(str(wt / SESSION_FILE))
         self.assertEqual(session["task_id"], self.task_num)
-        self.assertEqual(session["status"], "init")
+        self.assertEqual(session["status"], "active")
         self.assertEqual(session["url_cache"], "enabled")
 
         gs = read_yaml(str(wt / GRAPH_STATE_FILE))
-        self.assertIsNone(gs["current_head"])
-        self.assertEqual(gs["history"], [])
-        self.assertEqual(gs["next_node_id"], 0)
+        self.assertEqual(gs["current_head"], "n000_init")
+        self.assertEqual(gs["history"], ["n000_init"])
+        self.assertEqual(gs["next_node_id"], 1)
         self.assertEqual(gs["active_dimensions"], [])
+
+        # Verify auto-created root node and proposal
+        self.assertTrue((wt / NODES_DIR / "n000_init.yaml").is_file())
+        self.assertTrue((wt / PROPOSALS_DIR / "n000_init.md").is_file())
 
     def test_init_session_no_worktree(self):
         shutil.rmtree(str(self.wt_path))
@@ -167,11 +171,12 @@ class TestSetHead(BrainstormTestBase):
         self._init_session()
         create_node(self.wt_path, "n000_init", [], "Init", {}, "# Init", "explore_001")
 
+        # init_session already sets head to n000_init with history ["n000_init"]
         set_head(self.wt_path, "n000_init")
         self.assertEqual(get_head(self.wt_path), "n000_init")
 
         gs = read_yaml(str(self.wt_path / GRAPH_STATE_FILE))
-        self.assertEqual(gs["history"], ["n000_init"])
+        self.assertEqual(gs["history"], ["n000_init", "n000_init"])
 
         # Set another head
         create_node(self.wt_path, "n001_alt", ["n000_init"], "Alt", {}, "# Alt", "explore_001")
@@ -179,7 +184,7 @@ class TestSetHead(BrainstormTestBase):
         self.assertEqual(get_head(self.wt_path), "n001_alt")
 
         gs = read_yaml(str(self.wt_path / GRAPH_STATE_FILE))
-        self.assertEqual(gs["history"], ["n000_init", "n001_alt"])
+        self.assertEqual(gs["history"], ["n000_init", "n000_init", "n001_alt"])
 
 
 class TestGetChildren(BrainstormTestBase):
@@ -205,9 +210,10 @@ class TestNextNodeId(BrainstormTestBase):
 
     def test_next_node_id_increments(self):
         self._init_session()
-        self.assertEqual(next_node_id(self.wt_path), 0)
+        # init_session already consumed ID 0 for n000_init
         self.assertEqual(next_node_id(self.wt_path), 1)
         self.assertEqual(next_node_id(self.wt_path), 2)
+        self.assertEqual(next_node_id(self.wt_path), 3)
 
 
 class TestListNodes(BrainstormTestBase):
@@ -218,7 +224,8 @@ class TestListNodes(BrainstormTestBase):
         create_node(self.wt_path, "n000_a", [], "A", {}, "# A", "")
         create_node(self.wt_path, "n001_b", [], "B", {}, "# B", "")
 
-        self.assertEqual(list_nodes(self.wt_path), ["n000_a", "n001_b", "n002_c"])
+        # init_session auto-creates n000_init
+        self.assertEqual(list_nodes(self.wt_path), ["n000_a", "n000_init", "n001_b", "n002_c"])
 
 
 class TestGetNodeLineage(BrainstormTestBase):
