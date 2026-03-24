@@ -1,0 +1,5 @@
+=== Agent: explorer_001 | Type: explorer | String: claudecode/opus4_6 ===
+=== Started: 2026-03-24 19:48:23 ===
+=== Prompt file: .aitask-crews/crew-brainstorm-427/explorer_001_prompt.md ===
+=== Command: /home/ddt/Work/aitasks/ait codeagent --agent-string claudecode/opus4_6 invoke raw -p Read and follow all instructions in the file: .aitask-crews/crew-brainstorm-427/explorer_001_prompt.md ===
+============================================================
