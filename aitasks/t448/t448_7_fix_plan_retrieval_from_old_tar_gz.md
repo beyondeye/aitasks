@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_board, task-archive]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-24 13:35
-updated_at: 2026-03-24 13:35
+updated_at: 2026-03-24 21:09
 ---
 
 ## Context
