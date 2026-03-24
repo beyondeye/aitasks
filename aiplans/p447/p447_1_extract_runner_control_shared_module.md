@@ -148,3 +148,10 @@ def stop_runner(self, crew_id: str) -> bool:
 ### Step 9: Post-Implementation
 
 Archive task and plan per workflow.
+
+## Final Implementation Notes
+- **Actual work done:** Extracted `RUNNER_STALE_SECONDS`, `_elapsed_since()`, `_heartbeat_age()`, `get_runner_info()`, `start_runner()`, `stop_runner()` from `agentcrew_dashboard.py` into new `agentcrew_runner_control.py`. Updated dashboard to import from the shared module and use thin wrappers in `CrewManager`. Also cleaned up unused imports (`datetime`, `timezone`, `_parse_timestamp`) from dashboard.
+- **Deviations from plan:** Added `sys.path.insert(0, ...)` to the new module (not in original plan) — required because `agentcrew_utils` is a sibling module, not a proper package import. Without this, standalone imports fail. Also removed now-unused `datetime`/`timezone` and `_parse_timestamp` imports from dashboard (cleanup beyond plan scope but necessary to avoid linter warnings).
+- **Issues encountered:** Initial import test failed with `ModuleNotFoundError: No module named 'agentcrew_utils'` — the `agentcrew/` directory uses flat module imports with `sys.path` manipulation rather than proper relative imports. Fixed by adding the same `sys.path.insert` pattern used by the dashboard.
+- **Key decisions:** Kept `CrewManager` methods as thin wrappers (rather than removing them) to preserve the existing API for all dashboard callers.
+- **Notes for sibling tasks:** t447_2 can now `from agentcrew.agentcrew_runner_control import get_runner_info, start_runner, stop_runner` in `brainstorm_app.py`. The brainstorm app already has `sys.path.insert(0, ...)` for the agentcrew package, so imports should work. The shared module's `AIT_PATH` resolves relative to its own file location, not the caller's.
