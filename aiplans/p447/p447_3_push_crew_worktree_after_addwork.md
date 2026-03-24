@@ -19,10 +19,13 @@ Base branch: main
 After the git commit block (line 282), add a push:
 
 ```bash
+    git pull --rebase --quiet 2>/dev/null || true
     git push --quiet 2>/dev/null || warn "git push failed (offline?)"
 ```
 
-The full block (lines 274-283) becomes:
+The `pull --rebase` handles the case where the remote has diverged (e.g., another machine pushed agents). Since each addwork creates unique agent files, rebase should never conflict.
+
+The full block (lines 274-284) becomes:
 
 ```bash
 (
@@ -33,6 +36,7 @@ The full block (lines 274-283) becomes:
             "${AGENT_NAME}_instructions.md" "${AGENT_NAME}_commands.yaml" \
             "${AGENT_NAME}_alive.yaml" "_crew_meta.yaml" $GIT_ADD_GROUPS
     git commit -m "crew: Add agent '${AGENT_NAME}' to crew '${CREW_ID}'" --quiet
+    git pull --rebase --quiet 2>/dev/null || true
     git push --quiet 2>/dev/null || warn "git push failed (offline?)"
 )
 ```
@@ -46,3 +50,10 @@ The full block (lines 274-283) becomes:
 ### Step 9: Post-Implementation
 
 Archive task and plan per workflow.
+
+## Final Implementation Notes
+- **Actual work done:** Added `git pull --rebase` + `git push` after the commit in `aitask_crew_addwork.sh` (Option A from the task spec). This benefits all callers (brainstorm TUI, crew dashboard, CLI).
+- **Deviations from plan:** Added `git pull --rebase` before push (not in original task spec) per user request, to handle the case where the remote has diverged from another machine's push. Since each addwork creates unique agent files, rebase conflicts should not occur.
+- **Issues encountered:** None. The change was a clean 2-line addition.
+- **Key decisions:** Used `--rebase` (not merge) for the pull to keep a clean linear history on the crew worktree branch. Both pull and push are best-effort — pull failure is silenced (`|| true`), push failure warns but doesn't block.
+- **Notes for sibling tasks:** The crew worktree now auto-pushes after addwork. Sibling t447_1 and t447_2 (runner control) don't need to account for push — they deal with runner start/stop which already has its own push logic in `agentcrew_runner.py`.
