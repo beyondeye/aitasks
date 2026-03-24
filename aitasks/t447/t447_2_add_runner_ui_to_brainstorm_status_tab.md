@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t447_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ui, agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 23:09
-updated_at: 2026-03-23 23:09
+updated_at: 2026-03-24 10:26
 ---
 
 ## Summary
