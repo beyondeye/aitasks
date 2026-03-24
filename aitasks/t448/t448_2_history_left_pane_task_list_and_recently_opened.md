@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t448_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_board, task-archive]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-24 08:59
-updated_at: 2026-03-24 08:59
+updated_at: 2026-03-24 10:24
 ---
 
 ## Context
