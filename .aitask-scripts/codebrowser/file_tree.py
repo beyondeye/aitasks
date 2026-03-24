@@ -4,6 +4,7 @@ import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
+from textual import work
 from textual.widgets import DirectoryTree
 
 
@@ -24,6 +25,50 @@ def get_project_root() -> Path:
 
 class ProjectFileTree(DirectoryTree):
     """Directory tree filtered to show only git-tracked files."""
+
+    def select_path(self, target: Path) -> None:
+        """Expand tree to the target file and select/highlight it.
+
+        Schedules async work to walk the tree, expanding and loading
+        intermediate directories as needed before selecting the file node.
+        If the target is not found (e.g. not git-tracked), does nothing.
+        """
+        self._do_select_path(target)
+
+    @work(exclusive=True, group="select_path")
+    async def _do_select_path(self, target: Path) -> None:
+        """Async worker that expands directories and selects the target node."""
+        try:
+            rel_parts = target.relative_to(Path(self.path)).parts
+        except ValueError:
+            return
+
+        node = self.root
+        for i, part in enumerate(rel_parts):
+            # Ensure this directory's children are loaded
+            if node.data and not node.data.loaded:
+                await self.reload_node(node)
+
+            found = None
+            for child in node.children:
+                if child.data and child.data.path.name == part:
+                    found = child
+                    break
+            if found is None:
+                return
+
+            if i < len(rel_parts) - 1:
+                # Intermediate directory — ensure expanded and loaded
+                if found.data and not found.data.loaded:
+                    # reload_node loads children AND expands the node
+                    await self.reload_node(found)
+                elif not found.is_expanded:
+                    # Already loaded but collapsed — just expand
+                    found.expand()
+            node = found
+
+        self.select_node(node)
+        self.scroll_to_node(node)
 
     def __init__(self, path: str | Path, **kwargs) -> None:
         root = Path(path)

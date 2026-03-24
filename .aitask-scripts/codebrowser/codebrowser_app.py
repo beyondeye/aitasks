@@ -566,8 +566,30 @@ class CodeBrowserApp(App):
             self._open_file_by_path(result)
 
     def _open_file_by_path(self, file_path: str) -> None:
-        """Stub — will be implemented in t448_5."""
-        pass
+        """Programmatically open a file in the code viewer (from history navigation)."""
+        full_path = self._project_root / file_path
+        if not full_path.exists():
+            self.notify(f"File not found: {file_path}", severity="warning")
+            return
+
+        self._current_file_path = full_path
+        code_viewer = self.query_one("#code_viewer", CodeViewer)
+        code_viewer.load_file(full_path)
+
+        self._cursor_info = ""
+        self._annotation_info = ""
+        self._update_info_bar()
+
+        try:
+            self.query_one("#detail_pane", DetailPane).clear()
+        except Exception:
+            pass
+
+        if self.explain_manager:
+            self._load_explain_data(full_path)
+
+        tree = self.query_one("#file_tree", ProjectFileTree)
+        tree.select_path(full_path)
 
     def _find_terminal(self) -> str | None:
         """Find an available terminal emulator, or return None."""
