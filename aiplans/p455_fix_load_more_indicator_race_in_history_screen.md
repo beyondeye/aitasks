@@ -32,3 +32,9 @@ Archive task t455, push changes.
 1. Run codebrowser and press `h` — verify "load more" indicator appears on first entry
 2. Press `h` to go back, then `h` again — verify indicator still works on re-entry
 3. Click/Enter on "load more" — verify it loads more tasks
+
+## Final Implementation Notes
+- **Actual work done:** Exactly as planned — added `display: none;` to `_LoadMoreIndicator` DEFAULT_CSS and removed `HistoryTaskList.on_mount()`.
+- **Deviations from plan:** None.
+- **Issues encountered:** None.
+- **Key decisions:** Using CSS `display: none` rather than an alternative approach (e.g., deferring `set_data`) because `_load_chunk()` already manages visibility correctly on every call.
