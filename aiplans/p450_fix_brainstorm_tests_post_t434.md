@@ -54,5 +54,8 @@ python3 -m unittest tests/test_brainstorm_cli_python.py -v
 
 All 26 tests (16 + 10) should pass.
 
-## Post-implementation: Step 9
-Archive task, commit, push.
+## Final Implementation Notes
+- **Actual work done:** Updated test expectations in 2 files (5 test methods) to match post-t434 `init_session()` behavior — exactly as planned
+- **Deviations from plan:** None
+- **Issues encountered:** None
+- **Key decisions:** Updated assertions in-place rather than restructuring tests; added brief comments explaining why expected values differ from the pre-t434 defaults
