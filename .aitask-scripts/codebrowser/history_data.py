@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "board"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
 
 from task_yaml import parse_frontmatter
-from archive_iter import iter_all_archived_markdown, iter_archived_frontmatter
+from archive_iter import iter_all_archived_markdown, iter_archived_frontmatter, iter_all_archived_tar_files
 
 
 @dataclass
@@ -194,6 +194,12 @@ def load_plan_content(project_root: Path, task_id: str) -> Optional[str]:
                 return path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
+
+    # Fall back to tar archives
+    for filename, content in iter_all_archived_tar_files(archived_plans):
+        m = re.match(r"p(\d+(?:_\d+)?)_", filename)
+        if m and m.group(1) == task_id:
+            return content
 
     return None
 
