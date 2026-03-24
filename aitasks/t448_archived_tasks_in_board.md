@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [aitask_board, task-archive]
-children_to_implement: [t448_1, t448_2]
+children_to_implement: [t448_1, t448_2, t448_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 23:48
 updated_at: 2026-03-24 08:59
