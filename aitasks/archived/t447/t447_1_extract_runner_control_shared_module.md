@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [agentcrew]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-23 23:08
-updated_at: 2026-03-24 10:07
+updated_at: 2026-03-24 10:18
+completed_at: 2026-03-24 10:18
 ---
 
 ## Summary
