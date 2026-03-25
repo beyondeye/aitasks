@@ -23,3 +23,8 @@ I need your approval to run commands. Could you please approve the `gh repo view
 2. Sending heartbeat/progress updates as required by the crew protocol
 
 === 2026-03-25 08:03:15 | STALE: heartbeat timeout — marked as Error ===
+=== Agent: explorer_001 | Type: explorer | String: claudecode/opus4_6 ===
+=== Started: 2026-03-25 13:02:27 ===
+=== Prompt file: .aitask-crews/crew-brainstorm-427/explorer_001_prompt.md ===
+=== Command: /home/ddt/Work/aitasks/ait codeagent --agent-string claudecode/opus4_6 invoke raw -p Read and follow all instructions in the file: .aitask-crews/crew-brainstorm-427/explorer_001_prompt.md ===
+============================================================
