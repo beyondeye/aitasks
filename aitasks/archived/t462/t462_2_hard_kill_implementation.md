@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [agentcrew]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-25 11:41
-updated_at: 2026-03-25 12:26
+updated_at: 2026-03-25 12:42
+completed_at: 2026-03-25 12:42
 ---
 
 ## Hard Kill Implementation
