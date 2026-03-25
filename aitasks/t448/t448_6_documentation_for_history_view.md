@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: [t448_5]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [aitask_board, task-archive, website]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-24 09:00
-updated_at: 2026-03-24 09:00
+updated_at: 2026-03-25 10:35
 ---
 
 ## Context
