@@ -1,5 +1,7 @@
 """History screen composing left pane + detail pane for browsing completed tasks."""
 
+import shutil
+import subprocess
 from pathlib import Path
 from typing import List, Optional
 
@@ -27,6 +29,7 @@ class HistoryScreen(Screen):
         Binding("right", "focus_right", "Focus detail"),
         Binding("v", "toggle_view", "Toggle task/plan"),
         Binding("l", "label_filter", "Label filter"),
+        Binding("a", "launch_qa", "Launch QA"),
         # Override codebrowser app bindings to hide them from footer
         Binding("r", "noop", show=False),
         Binding("t", "noop", show=False),
@@ -248,6 +251,45 @@ class HistoryScreen(Screen):
             left.apply_label_filter(result)
         except Exception:
             pass
+
+    @work(exclusive=True)
+    async def action_launch_qa(self) -> None:
+        """Launch QA agent for the currently viewed task."""
+        try:
+            detail = self.query_one("#history_detail", HistoryDetailPane)
+        except Exception:
+            return
+        if not detail._nav_stack:
+            self.notify("No task selected", severity="warning")
+            return
+        task_id = detail._nav_stack[-1]
+
+        from agent_utils import find_terminal, resolve_agent_binary
+
+        agent_name, binary, error_msg = resolve_agent_binary(self._project_root, "qa")
+        if not binary:
+            self.notify(error_msg or "Could not resolve QA agent configuration", severity="error")
+            return
+        if not shutil.which(binary):
+            self.notify(f"{agent_name} CLI ({binary}) not found in PATH", severity="error")
+            return
+
+        wrapper = str(self._project_root / ".aitask-scripts" / "aitask_codeagent.sh")
+        terminal = find_terminal()
+
+        self.notify(f"Launching QA for t{task_id} via {agent_name}...")
+
+        if terminal:
+            subprocess.Popen(
+                [terminal, "--", wrapper, "invoke", "qa", task_id],
+                cwd=str(self._project_root),
+            )
+        else:
+            with self.app.suspend():
+                subprocess.call(
+                    [wrapper, "invoke", "qa", task_id],
+                    cwd=str(self._project_root),
+                )
 
     def action_toggle_focus(self) -> None:
         try:

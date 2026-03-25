@@ -15,6 +15,7 @@ from textual.timer import Timer
 from textual.widgets import Button, Header, Footer, Input, Label, Static, DirectoryTree
 from textual import on, work
 
+from agent_utils import find_terminal, resolve_agent_binary
 from code_viewer import CodeViewer
 from detail_pane import DetailPane
 from explain_manager import ExplainManager
@@ -643,49 +644,6 @@ class CodeBrowserApp(App):
         tree = self.query_one("#file_tree", ProjectFileTree)
         tree.select_path(full_path)
 
-    def _find_terminal(self) -> str | None:
-        """Find an available terminal emulator, or return None."""
-        terminal = os.environ.get("TERMINAL")
-        if terminal and shutil.which(terminal):
-            return terminal
-        for term in [
-            "alacritty", "kitty", "ghostty", "foot",
-            "x-terminal-emulator", "xdg-terminal-exec", "gnome-terminal",
-            "konsole", "xfce4-terminal", "lxterminal", "mate-terminal", "xterm",
-        ]:
-            if shutil.which(term):
-                return term
-        return None
-
-    def _resolve_agent_binary(self, operation: str) -> tuple[str, str] | None:
-        """Resolve agent name and binary for an operation via codeagent wrapper."""
-        codeagent = self._project_root / ".aitask-scripts" / "aitask_codeagent.sh"
-        if not codeagent.exists():
-            return None
-        try:
-            result = subprocess.run(
-                [str(codeagent), "resolve", operation],
-                capture_output=True, text=True, timeout=5,
-                cwd=str(self._project_root),
-            )
-            if result.returncode != 0:
-                stderr = result.stderr.strip()
-                if "unavailable" in stderr.lower():
-                    # Extract the error message after "ERROR: " prefix
-                    msg = stderr.split("ERROR:")[-1].strip() if "ERROR:" in stderr else stderr
-                    self._resolve_error = msg
-                return None
-            info = {}
-            for line in result.stdout.strip().splitlines():
-                if ":" in line:
-                    key, _, val = line.partition(":")
-                    info[key] = val
-            binary = info.get("BINARY", "")
-            agent = info.get("AGENT", "unknown")
-            return (agent, binary) if binary else None
-        except (subprocess.TimeoutExpired, OSError):
-            return None
-
     @work(exclusive=True)
     async def action_launch_agent(self) -> None:
         """Launch the configured code agent with the explain skill for the current file."""
@@ -693,13 +651,10 @@ class CodeBrowserApp(App):
             self.notify("No file selected", severity="warning")
             return
 
-        self._resolve_error = None
-        resolved = self._resolve_agent_binary("explain")
-        if not resolved:
-            msg = self._resolve_error or "Could not resolve code agent configuration"
-            self.notify(msg, severity="error")
+        agent_name, binary, error_msg = resolve_agent_binary(self._project_root, "explain")
+        if not binary:
+            self.notify(error_msg or "Could not resolve code agent configuration", severity="error")
             return
-        agent_name, binary = resolved
         if not shutil.which(binary):
             self.notify(f"{agent_name} CLI ({binary}) not found in PATH", severity="error")
             return
@@ -718,7 +673,7 @@ class CodeBrowserApp(App):
             self.notify(f"Launching {agent_name} for {rel_path}...")
 
         wrapper = str(self._project_root / ".aitask-scripts" / "aitask_codeagent.sh")
-        terminal = self._find_terminal()
+        terminal = find_terminal()
         if terminal:
             subprocess.Popen([terminal, "--", wrapper, "invoke", "explain", arg],
                              cwd=str(self._project_root))
