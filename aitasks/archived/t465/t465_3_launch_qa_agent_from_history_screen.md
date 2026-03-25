@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t465_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [codebrowser, qa]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-25 12:57
-updated_at: 2026-03-25 15:06
+updated_at: 2026-03-25 21:27
+completed_at: 2026-03-25 21:27
 ---
 
 ## Context

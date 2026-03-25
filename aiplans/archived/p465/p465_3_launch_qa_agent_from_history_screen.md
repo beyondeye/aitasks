@@ -155,6 +155,16 @@ from history_detail import HistoryDetailPane  # if not already imported
 - Existing `e` key in main screen still works after refactoring
 - `ait codeagent --dry-run invoke qa 42` returns expected command (from t465_1)
 
-## Step 9: Post-Implementation
+## Final Implementation Notes
 
-Follow standard archival workflow.
+**Refined from original plan:** Changed `resolve_agent_binary()` to return a 3-tuple `(agent, binary, error_msg)` instead of `None` on failure. This allows both callers to propagate specific error messages without the `_resolve_error` side-effect pattern.
+
+**Actual changes:**
+- Created `agent_utils.py` with `find_terminal()` and `resolve_agent_binary()` — 3-tuple return type
+- Fully removed `_find_terminal()` and `_resolve_agent_binary()` from `codebrowser_app.py` (not just delegating — deleted the methods entirely)
+- `action_launch_agent()` in codebrowser_app.py now calls utility functions directly, no `_resolve_error` attribute
+- Added `a` binding and `action_launch_qa()` to `history_screen.py` with `import shutil, subprocess` at module level
+- `HistoryDetailPane` was already imported — no additional import needed
+- All syntax checks pass, `ait codeagent --dry-run invoke qa 42` confirmed working
+
+**Commit:** `13be1769` on main
