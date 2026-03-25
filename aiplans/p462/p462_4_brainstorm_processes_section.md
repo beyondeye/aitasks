@@ -189,6 +189,18 @@ Ensure `format_elapsed` is available for `ProcessRow`. The brainstorm app alread
 6. Verify 30-second auto-refresh updates process data
 7. Test with no running agents: "No running processes" message
 
+## Final Implementation Notes
+
+### Corrections from original plan
+- **Step 1:** Added `send_agent_command` to `agentcrew_runner_control` import (was missing). `format_elapsed` already imported — Step 7 unnecessary.
+- **Step 2:** CSS padding changed to `0 3` (matching `AgentStatusRow`). Removed unused `#status-processes` and `.process-section-header` rules. Added `ProcessRow:hover` style.
+- **Step 3:** Added focus hints in `render()` (`(p:pause  k:kill  K:hard kill)`), `on_click`/`on_focus`/`on_blur` handlers matching `AgentStatusRow` pattern. Removed `on_mount` with `-dead` class (using inline `[red]DEAD[/]` instead).
+- **Step 4:** Used flat mounting into `VerticalScroll` container (matching existing pattern) instead of separate `Vertical` widget with `#status-processes` ID.
+- **Step 6:** Added `ProcessRow` to `_navigate_rows()` row types tuple. Added `set_timer(2.0, ...)` after pause/kill actions for auto-refresh. Added proper `event.stop()` calls.
+
+### Files modified
+- `.aitask-scripts/brainstorm/brainstorm_app.py` — all changes in single file
+
 ## Step 9: Post-Implementation
 
 See task-workflow SKILL.md Step 9 for archival, merge, and cleanup.
