@@ -18,3 +18,6 @@ I need write permissions to the crew files and WebFetch access to research OpenS
 === Prompt file: .aitask-crews/crew-brainstorm-427/explorer_001_prompt.md ===
 === Command: /home/ddt/Work/aitasks/ait codeagent --agent-string claudecode/opus4_6 invoke raw -p Read and follow all instructions in the file: .aitask-crews/crew-brainstorm-427/explorer_001_prompt.md ===
 ============================================================
+I need your approval to run commands. Could you please approve the `gh repo view` and `./ait crew status` commands? They are needed for:
+1. Fetching OpenShell repository information from GitHub
+2. Sending heartbeat/progress updates as required by the crew protocol
