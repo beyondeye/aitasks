@@ -21,3 +21,5 @@ I need write permissions to the crew files and WebFetch access to research OpenS
 I need your approval to run commands. Could you please approve the `gh repo view` and `./ait crew status` commands? They are needed for:
 1. Fetching OpenShell repository information from GitHub
 2. Sending heartbeat/progress updates as required by the crew protocol
+
+=== 2026-03-25 08:03:15 | STALE: heartbeat timeout — marked as Error ===

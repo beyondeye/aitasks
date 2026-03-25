@@ -1,1 +1,4 @@
-pending_commands: []
+pending_commands:
+- command: reset
+  sent_at: '2026-03-25 08:10:09'
+  sent_by: user
