@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t462_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [agentcrew]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-25 11:42
-updated_at: 2026-03-25 12:54
+updated_at: 2026-03-25 13:00
+completed_at: 2026-03-25 13:00
 ---
 
 ## AgentCrew Dashboard Processes Screen
