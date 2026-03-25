@@ -6,8 +6,9 @@ issue_type: documentation
 status: Implementing
 labels: [codebrowser, website]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-25 12:58
-updated_at: 2026-03-25 22:01
+updated_at: 2026-03-25 22:10
 ---
 
 ## Context
