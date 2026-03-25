@@ -10,7 +10,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 # Import from sibling directories
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "board"))
@@ -69,15 +69,9 @@ def _extract_name_from_filename(filename: str) -> str:
     return name.removesuffix(".md")
 
 
-def load_task_index(project_root: Path) -> List[CompletedTask]:
-    """Build an index of completed tasks from git log + archived metadata.
-
-    Returns list of CompletedTask sorted by most recent commit date descending.
-    """
-    archived_dir = project_root / "aitasks" / "archived"
-
-    # Step 1: Get all task-related commits from git log
-    commit_map: dict = {}  # task_id -> (hash, date, message)
+def _build_commit_map(project_root: Path) -> dict:
+    """Build task_id -> (hash, date, message) map from git log."""
+    commit_map: dict = {}
     try:
         result = subprocess.run(
             ["git", "log", "--all", "--grep=(t", "--format=%H %aI %s"],
@@ -100,22 +94,19 @@ def load_task_index(project_root: Path) -> List[CompletedTask]:
                         commit_map[tid] = (hash_val[:12], date_val, msg)
     except (OSError, subprocess.SubprocessError):
         pass
+    return commit_map
 
-    # Step 2: Scan archived frontmatter (also collect filenames for name extraction)
-    meta_map: dict = {}  # task_id -> (metadata, file_source, filename)
-    # Loose + tar files via consolidated iterator
-    for filename, metadata in iter_archived_frontmatter(archived_dir, _extract_metadata):
-        tid = _extract_task_id_from_filename(filename)
-        if tid is not None:
-            meta_map[tid] = (metadata, "loose", filename)
 
-    # Step 3: Merge — only tasks with both commit info and metadata
+def _merge_chunk(
+    buffer: list, commit_map: dict
+) -> List[CompletedTask]:
+    """Merge a buffer of (task_id, metadata, filename) tuples with commit_map."""
     tasks = []
-    for tid, (hash_val, date_val, msg) in commit_map.items():
-        if tid not in meta_map:
+    for tid, metadata, filename in buffer:
+        if tid not in commit_map:
             continue
-        metadata, file_source, filename_match = meta_map[tid]
-        name = _extract_name_from_filename(filename_match)
+        hash_val, date_val, msg = commit_map[tid]
+        name = _extract_name_from_filename(filename)
         tasks.append(
             CompletedTask(
                 task_id=tid,
@@ -126,14 +117,52 @@ def load_task_index(project_root: Path) -> List[CompletedTask]:
                 effort=metadata.get("effort", ""),
                 commit_date=date_val,
                 commit_hash=hash_val,
-                file_source=file_source,
+                file_source="loose",
                 metadata=metadata,
             )
         )
-
-    # Step 4: Sort by commit date descending
-    tasks.sort(key=lambda t: t.commit_date, reverse=True)
     return tasks
+
+
+def load_task_index_progressive(
+    project_root: Path, chunk_size: int = 200
+) -> Iterable[List[CompletedTask]]:
+    """Yield progressively growing task index in chunks.
+
+    Phase 1: git log (fast) to build commit map.
+    Phase 2: archive scan in batches of chunk_size, merging and sorting
+    after each batch.
+    """
+    archived_dir = project_root / "aitasks" / "archived"
+    commit_map = _build_commit_map(project_root)
+
+    tasks: List[CompletedTask] = []
+    buffer: list = []
+    for filename, metadata in iter_archived_frontmatter(archived_dir, _extract_metadata):
+        tid = _extract_task_id_from_filename(filename)
+        if tid is not None:
+            buffer.append((tid, metadata, filename))
+        if len(buffer) >= chunk_size:
+            tasks.extend(_merge_chunk(buffer, commit_map))
+            tasks.sort(key=lambda t: t.commit_date, reverse=True)
+            buffer = []
+            yield list(tasks)
+    # Final flush
+    if buffer:
+        tasks.extend(_merge_chunk(buffer, commit_map))
+        tasks.sort(key=lambda t: t.commit_date, reverse=True)
+    yield list(tasks)
+
+
+def load_task_index(project_root: Path) -> List[CompletedTask]:
+    """Build an index of completed tasks from git log + archived metadata.
+
+    Returns list of CompletedTask sorted by most recent commit date descending.
+    """
+    result = []
+    for chunk in load_task_index_progressive(project_root):
+        result = chunk
+    return result
 
 
 def load_task_content(project_root: Path, task_id: str) -> Optional[str]:

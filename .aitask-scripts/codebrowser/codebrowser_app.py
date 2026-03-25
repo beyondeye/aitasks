@@ -154,6 +154,7 @@ class CodeBrowserApp(App):
         self._history_loaded_chunks = 0    # number of chunks loaded in list
         self._history_showing_plan = False  # plan/task view toggle state
         self._history_scroll_y = 0         # task list scroll position
+        self._history_active_labels: set = set()  # label filter state
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -558,6 +559,7 @@ class CodeBrowserApp(App):
             restore_chunks=self._history_loaded_chunks,
             restore_showing_plan=self._history_showing_plan,
             restore_scroll_y=self._history_scroll_y,
+            restore_labels=self._history_active_labels,
         )
         self.push_screen(screen, callback=self._on_history_dismiss)
 

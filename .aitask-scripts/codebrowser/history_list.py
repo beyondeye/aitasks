@@ -11,6 +11,7 @@ from textual.message import Message
 from textual.widgets import Static
 
 from history_data import CompletedTask, load_completed_tasks_chunk
+from history_label_filter import filter_index_by_labels
 
 # Issue type → Dracula palette color (matching board's PALETTE_COLORS)
 _TYPE_COLORS = {
@@ -199,23 +200,52 @@ class HistoryTaskList(VerticalScroll):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
+        self._full_index: list[CompletedTask] = []
         self._index: list[CompletedTask] = []
         self._child_counts: dict[str, int] = {}
         self._offset = 0
-        self._chunk_size = 10
+        self._chunk_size = 20
         self._has_more = False
+        self._active_labels: set[str] = set()
 
     def compose(self):
         yield _LoadMoreIndicator("", id="load_more_ind")
 
     def set_index(self, index: list[CompletedTask], child_counts: dict[str, int]) -> None:
-        self._index = index
+        self._full_index = index
         self._child_counts = child_counts
+        self._index = filter_index_by_labels(self._full_index, self._active_labels)
         self._offset = 0
         # Remove any previously loaded items
         for item in self.query(HistoryTaskItem):
             item.remove()
         self._load_chunk()
+
+    def apply_label_filter(self, labels: set[str]) -> None:
+        """Apply label filter: recompute index, reset display, reload first chunk."""
+        self._active_labels = labels
+        self._index = filter_index_by_labels(self._full_index, self._active_labels)
+        self._offset = 0
+        for item in self.query(HistoryTaskItem):
+            item.remove()
+        self._load_chunk()
+
+    def update_index(self, new_index: list[CompletedTask]) -> None:
+        """Progressive update: replace full index and refresh filtered view."""
+        self._full_index = new_index
+        self._child_counts = _compute_child_counts(new_index)
+        new_filtered = filter_index_by_labels(self._full_index, self._active_labels)
+        # Only update load-more indicator (items already displayed stay)
+        self._index = new_filtered
+        if self._has_more or self._offset < len(self._index):
+            self._has_more = self._offset < len(self._index)
+            ind = self.query_one("#load_more_ind", _LoadMoreIndicator)
+            if self._has_more:
+                remaining = len(self._index) - self._offset
+                ind.update(f"\u25bc Load more ({remaining} remaining) \u25bc")
+                ind.display = True
+            else:
+                ind.display = False
 
     def _load_chunk(self) -> None:
         chunk, has_more = load_completed_tasks_chunk(self._index, self._offset, self._chunk_size)
@@ -318,6 +348,19 @@ class HistoryLeftPane(Container):
     HistoryLeftPane #history_header {
         margin-top: 2;
     }
+    HistoryLeftPane #label_filter_status {
+        height: auto;
+        padding: 0 1;
+        color: #FFB86C;
+        display: none;
+    }
+    HistoryLeftPane #no_match_msg {
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
+        text-style: italic;
+        display: none;
+    }
     """
 
     def __init__(self, project_root: Path, **kwargs) -> None:
@@ -329,6 +372,8 @@ class HistoryLeftPane(Container):
         yield Static("Recently Opened (0)", id="recent_header", classes="section-header")
         yield RecentlyOpenedList(self._project_root, [], id="recent_list")
         yield Static("Completed Tasks (0)", id="history_header", classes="section-header")
+        yield Static("", id="label_filter_status")
+        yield Static("No tasks match selected labels", id="no_match_msg")
         yield HistoryTaskList(id="history_list")
 
     def set_data(self, task_index: list[CompletedTask]) -> None:
@@ -339,11 +384,46 @@ class HistoryLeftPane(Container):
         self.query_one("#recent_list", RecentlyOpenedList).set_task_index(task_index)
         self._update_headers()
 
+    def apply_label_filter(self, labels: set[str]) -> None:
+        """Apply label filter and update display."""
+        task_list = self.query_one("#history_list", HistoryTaskList)
+        task_list.apply_label_filter(labels)
+        self._update_filter_status(labels)
+        self._update_headers()
+        # Show/hide no-match message
+        no_match = self.query_one("#no_match_msg", Static)
+        no_match.display = len(task_list._index) == 0 and bool(labels)
+
+    def update_index(self, new_index: list[CompletedTask]) -> None:
+        """Progressive update from chunked loading."""
+        self._task_index = new_index
+        task_list = self.query_one("#history_list", HistoryTaskList)
+        task_list.update_index(new_index)
+        self.query_one("#recent_list", RecentlyOpenedList).set_task_index(new_index)
+        self._update_headers()
+
+    def _update_filter_status(self, labels: set[str]) -> None:
+        status = self.query_one("#label_filter_status", Static)
+        if labels:
+            labels_str = ", ".join(sorted(labels))
+            status.update(f"Filtered: {labels_str}")
+            status.display = True
+        else:
+            status.update("")
+            status.display = False
+
     def _update_headers(self) -> None:
-        total = len(self._task_index)
-        self.query_one("#history_header", Static).update(
-            f"Completed Tasks ({total} total)"
-        )
+        task_list = self.query_one("#history_list", HistoryTaskList)
+        total = len(task_list._full_index)
+        filtered = len(task_list._index)
+        if task_list._active_labels:
+            self.query_one("#history_header", Static).update(
+                f"Completed Tasks ({filtered} of {total} total)"
+            )
+        else:
+            self.query_one("#history_header", Static).update(
+                f"Completed Tasks ({total} total)"
+            )
         recent = self.query_one("#recent_list", RecentlyOpenedList)
         valid_count = sum(
             1 for h in recent._history if h.get("task_id") in recent._index_map

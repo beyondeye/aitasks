@@ -12,7 +12,7 @@ from textual import work
 
 from history_list import HistoryLeftPane, HistoryTaskList, HistoryTaskItem, TaskSelected
 from history_detail import HistoryDetailPane, NavigateToFile, HistoryBrowseEvent
-from history_data import load_task_index, detect_platform_info, CompletedTask, PlatformInfo
+from history_data import load_task_index, load_task_index_progressive, detect_platform_info, CompletedTask, PlatformInfo
 
 
 class HistoryScreen(Screen):
@@ -24,6 +24,7 @@ class HistoryScreen(Screen):
         Binding("q", "quit", "Quit"),
         Binding("tab", "toggle_focus", "Toggle Focus"),
         Binding("v", "toggle_view", "Toggle task/plan"),
+        Binding("l", "label_filter", "Label filter"),
         # Override codebrowser app bindings to hide them from footer
         Binding("r", "noop", show=False),
         Binding("t", "noop", show=False),
@@ -47,6 +48,7 @@ class HistoryScreen(Screen):
         restore_chunks: int = 0,
         restore_showing_plan: bool = False,
         restore_scroll_y: int = 0,
+        restore_labels: Optional[set] = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -57,6 +59,7 @@ class HistoryScreen(Screen):
         self._restore_chunks = restore_chunks
         self._restore_showing_plan = restore_showing_plan
         self._restore_scroll_y = restore_scroll_y
+        self._restore_labels = restore_labels
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -83,6 +86,9 @@ class HistoryScreen(Screen):
         detail = self.query_one("#history_detail", HistoryDetailPane)
         left.set_data(self._task_index)
         detail.set_context(self._project_root, self._task_index, self._platform_info)
+        # Restore label filter before loading chunks
+        if self._restore_labels:
+            left.apply_label_filter(self._restore_labels)
         # Restore additional chunks that were loaded previously
         if self._restore_chunks > 1:
             task_list = left.query_one("#history_list", HistoryTaskList)
@@ -112,31 +118,46 @@ class HistoryScreen(Screen):
 
     @work(thread=True)
     def _load_data(self) -> None:
-        index = load_task_index(self._project_root)
         platform = detect_platform_info(self._project_root)
-        self.app.call_from_thread(self._on_data_loaded, index, platform)
+        for index_chunk in load_task_index_progressive(self._project_root):
+            self.app.call_from_thread(self._on_index_chunk, index_chunk, platform)
 
-    def _on_data_loaded(self, index, platform) -> None:
-        self._task_index = index
-        self._platform_info = platform
-        # Cache on the app for fast re-open next time
+    def _on_index_chunk(self, index, platform) -> None:
+        # Always cache on app (even if screen dismissed, so re-open is fast)
         self.app._history_index = index
         self.app._history_platform = platform
-        # Remove loading indicator
-        try:
-            self.query_one("#history_loading").remove()
-        except Exception:
-            pass
-        # Mount the actual content
-        container = Horizontal()
-        left = HistoryLeftPane(self._project_root, id="history_left")
-        detail = HistoryDetailPane(project_root=self._project_root, id="history_detail")
-        self.mount(container, before=self.query_one(Footer))
-        container.mount(left)
-        container.mount(detail)
-        # Populate with data
-        left.set_data(index)
-        detail.set_context(self._project_root, index, platform)
+        # Guard: skip UI updates if screen was dismissed while worker ran
+        if not self.is_mounted:
+            return
+        if self._task_index is None:
+            # First chunk: mount the UI
+            self._task_index = index
+            self._platform_info = platform
+            # Remove loading indicator
+            try:
+                self.query_one("#history_loading").remove()
+            except Exception:
+                pass
+            # Mount the actual content
+            container = Horizontal()
+            left = HistoryLeftPane(self._project_root, id="history_left")
+            detail = HistoryDetailPane(project_root=self._project_root, id="history_detail")
+            self.mount(container, before=self.query_one(Footer))
+            container.mount(left)
+            container.mount(detail)
+            # Populate with data
+            left.set_data(index)
+            detail.set_context(self._project_root, index, platform)
+        else:
+            # Subsequent chunks: update existing UI progressively
+            self._task_index = index
+            try:
+                left = self.query_one("#history_left", HistoryLeftPane)
+                left.update_index(index)
+                detail = self.query_one("#history_detail", HistoryDetailPane)
+                detail._task_index = index
+            except Exception:
+                pass
 
     def _save_state_to_app(self) -> None:
         """Save current view state to the app for restoration on re-open."""
@@ -153,6 +174,8 @@ class HistoryScreen(Screen):
             if task_list._offset > 0:
                 chunks = (task_list._offset + task_list._chunk_size - 1) // task_list._chunk_size
                 self.app._history_loaded_chunks = chunks
+            # Save label filter state
+            self.app._history_active_labels = set(task_list._active_labels)
         except Exception:
             pass
 
@@ -183,6 +206,37 @@ class HistoryScreen(Screen):
     def action_noop(self) -> None:
         """No-op action to suppress inherited codebrowser bindings."""
         pass
+
+    def action_label_filter(self) -> None:
+        """Open the label filter modal dialog."""
+        if self._task_index is None:
+            return
+        from history_label_filter import LabelFilterModal, load_labels, compute_label_counts
+        labels_list = load_labels(self._project_root)
+        label_counts = compute_label_counts(self._task_index)
+        try:
+            left = self.query_one("#history_left", HistoryLeftPane)
+            task_list = left.query_one("#history_list", HistoryTaskList)
+            current = set(task_list._active_labels)
+        except Exception:
+            current = set()
+        modal = LabelFilterModal(
+            all_labels=labels_list,
+            label_counts=label_counts,
+            currently_selected=current,
+            task_index=self._task_index,
+        )
+        self.app.push_screen(modal, callback=self._on_label_filter_result)
+
+    def _on_label_filter_result(self, result: set | None) -> None:
+        """Handle label filter modal result."""
+        if result is None:
+            return  # Cancel — keep existing filter
+        try:
+            left = self.query_one("#history_left", HistoryLeftPane)
+            left.apply_label_filter(result)
+        except Exception:
+            pass
 
     def action_toggle_focus(self) -> None:
         try:
