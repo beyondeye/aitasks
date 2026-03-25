@@ -7,3 +7,5 @@ I need write permissions to the crew files and WebFetch access to research OpenS
 
 1. Write to `.aitask-crews/crew-brainstorm-427/` files (heartbeat, status, output)
 2. Use WebFetch to research the NVIDIA/OpenShell GitHub project
+
+=== 2026-03-24 20:11:35 | STALE: heartbeat timeout — marked as Error ===
