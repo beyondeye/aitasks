@@ -299,6 +299,14 @@ def sync_stale_processes(crew_id: str) -> list[str]:
 - `python -c "from agentcrew.agentcrew_process_stats import get_process_info; import os; print(get_process_info(os.getpid()))"`
 - Should return a dict with cpu_time_seconds, memory_rss_mb, wall_time_seconds, create_time
 
+## Final Implementation Notes
+
+- **Actual work done:** Created `agentcrew_process_stats.py` with all 4 public functions + 2 helpers exactly as planned. Module verified with self-process test.
+- **Deviations from plan:** None — plan was followed exactly.
+- **Issues encountered:** None. All `agentcrew_utils` imports resolved correctly.
+- **Key decisions:** Improved `_check_pid_alive()` to correctly return `True` on `PermissionError` (existing `check_pid_alive` in `agentcrew_runner.py` treats it as dead via `OSError` catch-all). Module constants `_CLK_TCK`, `_PAGE_SIZE`, `_BOOT_TIME` resolved once at import time for performance.
+- **Notes for sibling tasks:** The module is ready to import from dashboard (t462_3) and brainstorm (t462_4) TUIs. Import with: `from agentcrew.agentcrew_process_stats import get_all_agent_processes, get_runner_process_info, sync_stale_processes`. The hard kill task (t462_2) may want to reuse `_check_pid_alive` — consider promoting it to public API if needed.
+
 ## Step 9: Post-Implementation
 
 See task-workflow SKILL.md Step 9 for archival, merge, and cleanup.
