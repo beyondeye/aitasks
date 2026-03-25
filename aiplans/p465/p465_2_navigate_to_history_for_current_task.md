@@ -87,9 +87,24 @@ def action_history_for_task(self) -> None:
 
 ## Verification
 
-- Open annotated file, enable detail pane (`d`), navigate to annotated line, press `H` → history opens showing that task
-- Press `H` with no task → notification "No task selected in detail pane"
+- Open annotated file, navigate to annotated line, press `H` → history opens showing that task (works with or without detail pane)
+- Press `H` with detail pane open showing a task → uses detail pane's task ID
+- Press `H` with no task at cursor → notification "No task at cursor line"
 - Press `H` in history screen → noop
+
+## Post-Review Changes
+
+### Change Request 1 (2026-03-25)
+- **Requested by user:** `H` should work even without the detail pane open — just needs cursor on an annotated line with a task
+- **Changes made:** Added `_resolve_task_id_at_cursor()` helper that reads annotations directly from `_current_explain_data`. `action_history_for_task()` now tries detail pane first (if visible), then falls back to annotation resolution at cursor. Error message changed from "No task selected in detail pane" to "No task at cursor line".
+- **Files affected:** `.aitask-scripts/codebrowser/codebrowser_app.py`
+
+## Final Implementation Notes
+- **Actual work done:** Added `navigate_to_task_id` parameter to HistoryScreen, `H` binding to CodeBrowserApp, `_resolve_task_id_at_cursor()` helper, `action_history_for_task()` action, and `H` noop in HistoryScreen
+- **Deviations from plan:** Added `_resolve_task_id_at_cursor()` to support `H` without requiring the detail pane to be visible. The original plan only used `DetailPane._current_task_id`, but user feedback correctly pointed out the shortcut should work whenever cursor is on an annotated line.
+- **Issues encountered:** None
+- **Key decisions:** Task ID resolution uses a two-tier approach: detail pane first (more precise, handles multi-task disambiguation), then direct annotation lookup (works without detail pane). Only resolves when exactly one task is at the cursor line (multi-task lines return None, matching the detail pane's "show multiple" behavior).
+- **Notes for sibling tasks:** The `_resolve_task_id_at_cursor()` pattern could be reused by t465_3 if it needs to resolve a task ID from the main screen. The `navigate_to_task_id` parameter on HistoryScreen is the mechanism to open history pre-focused on a specific task.
 
 ## Step 9: Post-Implementation
 
