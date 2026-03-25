@@ -249,6 +249,19 @@ The `ProcessCard` uses `format_elapsed` from `agentcrew_utils`. Ensure it's impo
 5. Press `escape` → back to CrewDetailScreen
 6. Verify 5-second auto-refresh
 
+## Final Implementation Notes
+
+- **Actual work done:** Added `ProcessCard` widget, `ProcessListScreen` stacked screen, `CrewManager.hard_kill()` method, imports for `agentcrew_process_stats` and `hard_kill_agent`, CSS rules, `o` keybinding and `action_view_processes()` in `CrewDetailScreen`. All in `agentcrew_dashboard.py` (+182 lines).
+- **Deviations from plan:**
+  - **crew_name access:** Plan called `self.crew_name` but `CrewDetailScreen` stores it in `self.crew_data['name']`. Fixed to use `self.crew_data.get('name', self.crew_id)`.
+  - **Import style:** Plan imported `send_agent_command` directly. Instead, used existing `_send_agent_command` alias via `CrewManager.send_command()` pattern for consistency. Added `hard_kill_agent as _hard_kill_agent` to the existing runner_control import block and wrapped it in `CrewManager.hard_kill()`.
+  - **Async patterns:** Plan's `_refresh_data()` was sync. Made it `async` with `await container.remove_children()` / `await container.mount()` matching the established pattern in `CrewDetailScreen` and `AgentCrewDashboard`.
+  - **format_elapsed:** Plan Step 7 was unnecessary — already imported at module top from `agentcrew_utils`.
+  - **CSS placement:** Used screen-level `CSS` class variable on `ProcessListScreen` instead of adding to `AgentCrewDashboard.CSS`, matching the pattern used by `CrewDetailScreen`.
+- **Issues encountered:** None.
+- **Key decisions:** Passed `manager: CrewManager` to `ProcessListScreen` for consistency with `LogBrowserScreen` pattern, rather than calling module functions directly.
+- **Notes for sibling tasks:** The brainstorm TUI (t462_4) should follow the same pattern: import `get_all_agent_processes`/`get_runner_process_info`/`sync_stale_processes` from `agentcrew_process_stats` and `hard_kill_agent` from `agentcrew_runner_control`. The `ProcessCard` widget from the dashboard could potentially be reused if the brainstorm TUI imports it, but it's tightly coupled to the dashboard's Textual patterns — better to create an independent widget there.
+
 ## Step 9: Post-Implementation
 
 See task-workflow SKILL.md Step 9 for archival, merge, and cleanup.
