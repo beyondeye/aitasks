@@ -34,9 +34,15 @@ from agentcrew_runner_control import (
     _elapsed_since,
     _heartbeat_age,
     get_runner_info as _get_runner_info,
+    hard_kill_agent as _hard_kill_agent,
     send_agent_command as _send_agent_command,
     start_runner as _start_runner,
     stop_runner as _stop_runner,
+)
+from agentcrew_process_stats import (
+    get_all_agent_processes,
+    get_runner_process_info,
+    sync_stale_processes,
 )
 
 from textual.app import App, ComposeResult
@@ -193,6 +199,10 @@ class CrewManager:
         """Send a command to a specific agent."""
         return _send_agent_command(crew_id, agent_name, command)
 
+    def hard_kill(self, crew_id: str, agent_name: str) -> dict:
+        """Hard kill an agent process via SIGKILL."""
+        return _hard_kill_agent(crew_id, agent_name)
+
     def cleanup_crew(self, crew_id: str) -> bool:
         """Cleanup a completed crew's worktree."""
         try:
@@ -272,6 +282,173 @@ class AgentCard(Static, can_focus=True):
 
     def on_focus(self) -> None:
         self.post_message(self.Selected(self.agent_name))
+
+
+class ProcessCard(Static, can_focus=True):
+    """Displays a running agent process with OS-level stats."""
+
+    def __init__(self, proc_data: dict, crew_id: str, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.proc_data = proc_data
+        self.crew_id = crew_id
+        self.agent_name = proc_data["agent_name"]
+
+    def render(self) -> str:
+        d = self.proc_data
+        alive = d.get("process_alive", False)
+        status = d.get("status", "")
+
+        if alive and status == "Running":
+            dot = "[green]●[/]"
+        elif status == "Paused":
+            dot = "[yellow]●[/]"
+        elif not alive:
+            dot = "[red]●[/]"
+        else:
+            dot = "[dim]●[/]"
+
+        pid_str = str(d.get("pid", "?"))
+        wall = format_elapsed(d["wall_time"]) if d.get("wall_time") is not None else "?"
+        cpu = f'{d["cpu_time"]:.1f}s' if d.get("cpu_time") is not None else "?"
+        rss = f'{d["memory_rss_mb"]:.0f}MB' if d.get("memory_rss_mb") is not None else "?"
+        hb = d.get("heartbeat_age", "?")
+        agent_type = d.get("agent_type", "")
+        name = d["agent_name"]
+
+        line1 = f"{dot} {name}"
+        if agent_type:
+            line1 += f" ({agent_type})"
+        line1 += f"  PID: {pid_str}  Wall: {wall}  CPU: {cpu}  RSS: {rss}  HB: {hb}"
+
+        msg = d.get("last_message", "")
+        if msg:
+            line1 += f"\n    Last: {msg}"
+        if not alive:
+            line1 += "\n    [red]Process dead but status not updated[/]"
+
+        return line1
+
+    def on_mount(self) -> None:
+        if not self.proc_data.get("process_alive", False):
+            self.add_class("-dead")
+
+
+class ProcessListScreen(Screen):
+    """Shows running agent processes with OS stats and control actions."""
+
+    BINDINGS = [
+        Binding("p", "pause_resume", "Pause/Resume"),
+        Binding("k", "kill_agent", "Kill"),
+        Binding("K", "hard_kill", "Hard Kill"),
+        Binding("f5", "refresh", "Refresh"),
+        Binding("escape", "go_back", "Back"),
+    ]
+
+    CSS = """
+    ProcessCard { height: auto; padding: 0 2; margin: 0 0 1 0; }
+    ProcessCard:focus { background: $accent; color: $text; }
+    ProcessCard.-dead { opacity: 0.6; }
+    #runner-process-info { height: auto; padding: 1 2; background: $surface; margin: 0 0 1 0; }
+    #no-processes { padding: 2 4; color: $text-muted; }
+    #process-title { padding: 1 2; text-style: bold; }
+    """
+
+    def __init__(self, crew_id: str, manager: CrewManager, crew_name: str = "", **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.crew_id = crew_id
+        self.manager = manager
+        self.crew_name = crew_name
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static(f"Processes — {self.crew_name or self.crew_id}", id="process-title")
+        yield Static("", id="runner-process-info")
+        yield VerticalScroll(id="process-list")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        corrected = sync_stale_processes(self.crew_id)
+        if corrected:
+            self.notify(f"Auto-corrected {len(corrected)} stale agent(s): {', '.join(corrected)}")
+        self.call_later(self._refresh_data)
+        self.set_interval(5.0, self._refresh_data)
+
+    async def _refresh_data(self) -> None:
+        runner = get_runner_process_info(self.crew_id)
+        runner_widget = self.query_one("#runner-process-info", Static)
+        if runner and runner.get("pid"):
+            parts = [f"Runner PID: {runner['pid']}"]
+            if runner.get("remote"):
+                parts.append(f"(remote: {runner.get('hostname', '?')})")
+            else:
+                if runner.get("cpu_time") is not None:
+                    parts.append(f"CPU: {runner['cpu_time']:.1f}s")
+                if runner.get("memory_rss_mb") is not None:
+                    parts.append(f"RSS: {runner['memory_rss_mb']:.0f}MB")
+                alive = runner.get("process_alive")
+                if alive is False:
+                    parts.append("[red]DEAD[/]")
+            runner_widget.update("  ".join(parts))
+        else:
+            runner_widget.update("[dim]No runner active[/]")
+
+        container = self.query_one("#process-list", VerticalScroll)
+        await container.remove_children()
+
+        processes = get_all_agent_processes(self.crew_id)
+        if not processes:
+            await container.mount(Static("[dim]No running processes[/]", id="no-processes"))
+        else:
+            for proc in processes:
+                await container.mount(ProcessCard(proc, self.crew_id))
+
+    def _get_focused_process(self) -> ProcessCard | None:
+        focused = self.focused
+        if isinstance(focused, ProcessCard):
+            return focused
+        return None
+
+    def action_pause_resume(self) -> None:
+        card = self._get_focused_process()
+        if not card:
+            self.notify("No process selected", severity="warning")
+            return
+        status = card.proc_data.get("status", "")
+        cmd = "resume" if status == "Paused" else "pause"
+        ok = self.manager.send_command(self.crew_id, card.agent_name, cmd)
+        self.notify(
+            f"{'Resumed' if cmd == 'resume' else 'Paused'} {card.agent_name}" if ok
+            else f"Failed to {cmd} {card.agent_name}",
+            severity="information" if ok else "error",
+        )
+
+    def action_kill_agent(self) -> None:
+        card = self._get_focused_process()
+        if not card:
+            self.notify("No process selected", severity="warning")
+            return
+        ok = self.manager.send_command(self.crew_id, card.agent_name, "kill")
+        self.notify(
+            f"Kill sent to {card.agent_name}" if ok
+            else f"Failed to send kill to {card.agent_name}",
+            severity="information" if ok else "error",
+        )
+
+    def action_hard_kill(self) -> None:
+        card = self._get_focused_process()
+        if not card:
+            self.notify("No process selected", severity="warning")
+            return
+        result = self.manager.hard_kill(self.crew_id, card.agent_name)
+        self.notify(result["message"], severity="information" if result["success"] else "error")
+        if result["success"]:
+            self.call_later(self._refresh_data)
+
+    async def action_refresh(self) -> None:
+        await self._refresh_data()
+
+    def action_go_back(self) -> None:
+        self.app.pop_screen()
 
 
 class LogEntry(Static, can_focus=True):
@@ -492,6 +669,7 @@ class CrewDetailScreen(Screen):
         Binding("r", "start_runner", "Start Runner"),
         Binding("k", "stop_runner", "Stop Runner"),
         Binding("l", "view_logs", "Logs"),
+        Binding("o", "view_processes", "Processes"),
         Binding("p", "pause_agent", "Pause/Resume"),
         Binding("x", "kill_agent", "Kill Agent"),
         Binding("w", "reset_agent", "Reset to Waiting"),
@@ -670,6 +848,10 @@ class CrewDetailScreen(Screen):
 
     def action_view_logs(self) -> None:
         self.app.push_screen(LogBrowserScreen(self.crew_id, self.manager))
+
+    def action_view_processes(self) -> None:
+        crew_name = self.crew_data.get("name", self.crew_id)
+        self.app.push_screen(ProcessListScreen(self.crew_id, self.manager, crew_name))
 
     def action_start_runner(self) -> None:
         if self.manager.start_runner(self.crew_id):
