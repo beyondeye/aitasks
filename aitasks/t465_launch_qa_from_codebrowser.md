@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [codebrowser, qa]
-children_to_implement: [t465_2, t465_3, t465_4]
+children_to_implement: [t465_3, t465_4]
 created_at: 2026-03-25 12:40
-updated_at: 2026-03-25 13:26
+updated_at: 2026-03-25 15:02
 ---
 
 we have implemented a new screen in codebrowser, the history screen, but there are addiional feature I would like to add
