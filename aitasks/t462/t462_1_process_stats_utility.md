@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [agentcrew, brainstorming]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-25 10:37
-updated_at: 2026-03-25 11:51
+updated_at: 2026-03-25 12:07
 ---
 
 ## Process Stats Utility Module
