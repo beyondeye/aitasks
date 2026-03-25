@@ -21,7 +21,7 @@ METADATA_DIR="${TASK_DIR:-aitasks}/metadata"
 DEFAULT_AGENT_STRING="claudecode/opus4_6"
 DEFAULT_COAUTHOR_DOMAIN="aitasks.io"
 SUPPORTED_AGENTS=(claudecode geminicli codex opencode)
-SUPPORTED_OPERATIONS=(pick explain batch-review raw)
+SUPPORTED_OPERATIONS=(pick explain batch-review qa raw)
 
 # --- Global flags (set by argument parser) ---
 
@@ -526,6 +526,10 @@ build_invoke_command() {
                     # claude --model <id> "/aitask-explain <args>"
                     CMD+=("/aitask-explain ${args[*]}")
                     ;;
+                qa)
+                    # claude --model <id> "/aitask-qa <args>"
+                    CMD+=("/aitask-qa ${args[*]}")
+                    ;;
                 batch-review)
                     CMD+=("--print" "${args[@]}")
                     ;;
@@ -542,6 +546,9 @@ build_invoke_command() {
                 explain)
                     CMD+=("/aitask-explain ${args[*]}")
                     ;;
+                qa)
+                    CMD+=("/aitask-qa ${args[*]}")
+                    ;;
                 batch-review|raw)
                     CMD+=("${args[@]}")
                     ;;
@@ -555,6 +562,9 @@ build_invoke_command() {
                 explain)
                     CMD+=("\$aitask-explain ${args[*]}")
                     ;;
+                qa)
+                    CMD+=("\$aitask-qa ${args[*]}")
+                    ;;
                 batch-review|raw)
                     CMD+=("${args[@]}")
                     ;;
@@ -567,6 +577,9 @@ build_invoke_command() {
                     ;;
                 explain)
                     CMD+=("--prompt" "/aitask-explain ${args[*]}")
+                    ;;
+                qa)
+                    CMD+=("--prompt" "/aitask-qa ${args[*]}")
                     ;;
                 batch-review|raw)
                     CMD+=("${args[@]}")
@@ -626,7 +639,7 @@ Options:
   --dry-run              Print command without executing (for invoke)
   -h, --help             Show this help
 
-Operations: pick, explain, batch-review, raw
+Operations: pick, explain, batch-review, qa, raw
 Agent string format: <agent>/<model> (e.g., claudecode/opus4_6, geminicli/gemini3pro)
 
 Resolution chain (highest priority first):

@@ -116,6 +116,7 @@ OPERATION_DESCRIPTIONS: dict[str, str] = {
     "pick": "Model used for picking and implementing tasks (used when launching tasks from the Board TUI)",
     "explain": "Model used for explaining/documenting code (used when running explain from the Code Browser TUI)",
     "batch-review": "Model used for batch code review operations",
+    "qa": "Model used for QA analysis on completed tasks (used when launching QA from the Code Browser TUI history screen)",
     "raw": "Model used for direct/ad-hoc code agent invocations (passthrough mode)",
     "brainstorm-explorer": "Model for exploring solution space in brainstorming sessions",
     "brainstorm-comparator": "Model for comparing and analyzing design proposals",
