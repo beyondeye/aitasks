@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: [t465_2]
+depends: [t465_1]
 issue_type: feature
 status: Ready
 labels: [codebrowser, qa]

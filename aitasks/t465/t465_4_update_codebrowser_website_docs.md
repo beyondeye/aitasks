@@ -1,7 +1,7 @@
 ---
 priority: low
 effort: low
-depends: [t465_3]
+depends: [t465_2, t465_3]
 issue_type: documentation
 status: Ready
 labels: [codebrowser, website]
