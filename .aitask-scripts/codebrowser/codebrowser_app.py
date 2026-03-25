@@ -130,6 +130,7 @@ class CodeBrowserApp(App):
         Binding("d", "toggle_detail", "Toggle detail"),
         Binding("D", "expand_detail", "Expand detail"),
         Binding("h", "toggle_history", "History"),
+        Binding("H", "history_for_task", "History for task"),
     ]
 
     DETAIL_DEFAULT_WIDTH = 30
@@ -559,6 +560,55 @@ class CodeBrowserApp(App):
             restore_chunks=self._history_loaded_chunks,
             restore_showing_plan=self._history_showing_plan,
             restore_scroll_y=self._history_scroll_y,
+            restore_labels=self._history_active_labels,
+        )
+        self.push_screen(screen, callback=self._on_history_dismiss)
+
+    def _resolve_task_id_at_cursor(self) -> str | None:
+        """Get the task ID at the current cursor line from annotations."""
+        if not self._current_explain_data or not self._current_file_path:
+            return None
+        rel_path = str(self._current_file_path.relative_to(self._project_root))
+        file_data = self._current_explain_data.get(rel_path)
+        if not file_data or not file_data.annotations:
+            return None
+        code_viewer = self.query_one("#code_viewer", CodeViewer)
+        cursor_line = code_viewer._cursor_line + 1
+        task_ids: list[str] = []
+        for ann in file_data.annotations:
+            if ann.start_line <= cursor_line and ann.end_line >= cursor_line:
+                for tid in ann.task_ids:
+                    if tid not in task_ids:
+                        task_ids.append(tid)
+        if len(task_ids) == 1:
+            return task_ids[0]
+        return None
+
+    def action_history_for_task(self) -> None:
+        """Open history screen navigated to the current annotation's task."""
+        if self._project_root is None:
+            return
+        # Try detail pane first (if visible and showing a task)
+        task_id = None
+        if self._detail_visible:
+            try:
+                detail = self.query_one("#detail_pane", DetailPane)
+                task_id = detail._current_task_id
+            except Exception:
+                pass
+        # Fall back to resolving from annotations at cursor
+        if not task_id:
+            task_id = self._resolve_task_id_at_cursor()
+        if not task_id:
+            self.notify("No task at cursor line", severity="warning")
+            return
+        from history_screen import HistoryScreen
+        screen = HistoryScreen(
+            self._project_root,
+            cached_index=self._history_index,
+            cached_platform=self._history_platform,
+            navigate_to_task_id=task_id,
+            restore_chunks=self._history_loaded_chunks,
             restore_labels=self._history_active_labels,
         )
         self.push_screen(screen, callback=self._on_history_dismiss)

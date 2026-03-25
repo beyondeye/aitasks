@@ -34,6 +34,7 @@ class HistoryScreen(Screen):
         Binding("e", "noop", show=False),
         Binding("d", "noop", show=False),
         Binding("D", "noop", show=False),
+        Binding("H", "noop", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -51,6 +52,7 @@ class HistoryScreen(Screen):
         restore_showing_plan: bool = False,
         restore_scroll_y: int = 0,
         restore_labels: Optional[set] = None,
+        navigate_to_task_id: Optional[str] = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -62,6 +64,7 @@ class HistoryScreen(Screen):
         self._restore_showing_plan = restore_showing_plan
         self._restore_scroll_y = restore_scroll_y
         self._restore_labels = restore_labels
+        self._navigate_to_task_id = navigate_to_task_id
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -105,6 +108,9 @@ class HistoryScreen(Screen):
             # read the restored value when it executes on the main thread.
             if self._restore_showing_plan:
                 detail._showing_plan = True
+        # Navigate to specific task if requested (takes priority over restore)
+        if self._navigate_to_task_id:
+            detail.show_task(self._navigate_to_task_id, is_explicit_browse=True)
         # Defer scroll restoration to after layout completes
         if self._restore_scroll_y > 0:
             self.set_timer(0.1, self._restore_scroll)
@@ -150,6 +156,9 @@ class HistoryScreen(Screen):
             # Populate with data
             left.set_data(index)
             detail.set_context(self._project_root, index, platform)
+            # Navigate to specific task if requested
+            if self._navigate_to_task_id:
+                detail.show_task(self._navigate_to_task_id, is_explicit_browse=True)
         else:
             # Subsequent chunks: update existing UI progressively
             self._task_index = index
