@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [core]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-25 22:10
-updated_at: 2026-03-25 22:10
+updated_at: 2026-03-25 22:12
 ---
 
 ## Bug: `archived-task` subcommand fails for child task IDs
