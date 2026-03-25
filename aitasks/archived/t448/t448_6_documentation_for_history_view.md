@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: [t448_5]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [aitask_board, task-archive, website]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-24 09:00
-updated_at: 2026-03-25 12:14
+updated_at: 2026-03-25 12:41
+completed_at: 2026-03-25 12:41
 ---
 
 ## Context

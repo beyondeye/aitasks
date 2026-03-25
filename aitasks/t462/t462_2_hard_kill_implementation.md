@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [agentcrew]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-25 11:41
-updated_at: 2026-03-25 12:24
+updated_at: 2026-03-25 12:26
 ---
 
 ## Hard Kill Implementation
