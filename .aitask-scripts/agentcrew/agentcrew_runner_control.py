@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import os
+import signal
+import socket
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Ensure sibling modules (agentcrew_utils) are importable
@@ -14,6 +17,7 @@ from agentcrew_utils import (
     crew_worktree_path,
     format_elapsed,
     read_yaml,
+    write_yaml,
     update_yaml_field,
     _parse_timestamp,
 )
@@ -28,7 +32,6 @@ def _elapsed_since(ts_str: str) -> float | None:
     ts = _parse_timestamp(str(ts_str))
     if ts is None:
         return None
-    from datetime import datetime, timezone
     return (datetime.now(timezone.utc) - ts).total_seconds()
 
 
@@ -103,3 +106,74 @@ def stop_runner(crew_id: str) -> bool:
         return True
     except (OSError, subprocess.TimeoutExpired):
         return False
+
+
+def hard_kill_agent(crew_id: str, agent_name: str) -> dict:
+    """Send SIGKILL to an agent process and clean up status files.
+
+    Returns dict with: success (bool), message (str), was_alive (bool).
+    """
+    wt = crew_worktree_path(crew_id)
+    status_path = os.path.join(wt, f"{agent_name}_status.yaml")
+
+    if not os.path.isfile(status_path):
+        return {"success": False, "message": f"Agent '{agent_name}' not found", "was_alive": False}
+
+    data = read_yaml(status_path)
+    status = data.get("status", "")
+    pid = data.get("pid")
+
+    if status not in ("Running", "Paused"):
+        return {"success": False, "message": f"Agent status is '{status}', not killable", "was_alive": False}
+
+    if not pid:
+        return {"success": False, "message": "No PID recorded for agent", "was_alive": False}
+
+    pid = int(pid)
+
+    # Hostname safety check
+    runner_path = os.path.join(wt, "_runner_alive.yaml")
+    if os.path.isfile(runner_path):
+        runner_data = read_yaml(runner_path)
+        runner_hostname = runner_data.get("hostname", "")
+        local_hostname = socket.gethostname()
+        if runner_hostname and runner_hostname != local_hostname:
+            return {"success": False,
+                    "message": f"Cannot hard kill remote process on {runner_hostname}",
+                    "was_alive": False}
+
+    # Attempt SIGKILL
+    was_alive = False
+    try:
+        os.kill(pid, signal.SIGKILL)
+        was_alive = True
+    except ProcessLookupError:
+        was_alive = False  # Already dead
+    except PermissionError:
+        return {"success": False, "message": f"Permission denied killing PID {pid}", "was_alive": False}
+
+    # Update status file
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    data["status"] = "Aborted"
+    data["error_message"] = "Hard killed by user"
+    data["completed_at"] = now_str
+    write_yaml(status_path, data)
+
+    # Clear pending commands
+    cmd_path = os.path.join(wt, f"{agent_name}_commands.yaml")
+    if os.path.isfile(cmd_path):
+        cmd_data = read_yaml(cmd_path)
+        cmd_data["pending_commands"] = []
+        write_yaml(cmd_path, cmd_data)
+
+    # Log the action
+    log_path = os.path.join(wt, f"{agent_name}_log.txt")
+    try:
+        with open(log_path, "a") as f:
+            f.write(f"[{now_str}] HARD_KILL: Process {pid} killed by user (was_alive: {was_alive})\n")
+    except OSError:
+        pass  # Best effort
+
+    return {"success": True,
+            "message": f"Hard killed agent '{agent_name}' (PID {pid}, was_alive: {was_alive})",
+            "was_alive": was_alive}
