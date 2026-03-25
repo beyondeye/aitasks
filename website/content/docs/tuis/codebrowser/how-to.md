@@ -102,3 +102,60 @@ The codebrowser integrates directly with the [`/aitask-explain`]({{< relref "/do
 5. After the explain session, return to the codebrowser to continue browsing
 
 This is the recommended workflow for going deeper: use the codebrowser's visual annotations to identify interesting code sections, then press **e** to get a full narrative explanation from your configured agent.
+
+### How to Browse Completed Tasks
+
+The history screen lets you explore all archived tasks that have been completed in the project.
+
+**Opening the history screen:**
+
+1. Press **h** to open the history view
+2. The first time, data is loaded from git history (a loading indicator appears briefly)
+3. Subsequent opens are instant — data is cached and your previous view state is restored
+
+**Browsing the task list:**
+
+1. The left pane shows completed tasks in reverse-chronological order (most recent first)
+2. The **Recently Opened** section at the top shows tasks you've previously viewed (persistent across sessions)
+3. Scroll down through the task list to browse
+4. At the bottom of each chunk, a "Load more" button fetches the next batch of older tasks
+5. Use **Left** arrow to cycle focus between the full task list and the recently opened list
+
+**Viewing task details:**
+
+1. Select a task in the list (click or press **Enter**) to see its full details in the right pane
+2. The detail pane shows: issue type, priority, effort, labels, completion date, commits, affected files, and linked issues/PRs
+3. Press **v** to toggle between the task description and its implementation plan
+4. Use **Up** / **Down** arrows to navigate between focusable fields in the detail pane
+
+**Opening commits, issues, and PRs in the browser:**
+
+1. Use **Right** arrow or **Tab** to focus the detail pane
+2. Navigate to a commit link, issue link, or PR link field using **Up** / **Down**
+3. Press **Enter** to open it in your default browser
+
+**Navigating to affected files:**
+
+1. In the detail pane, navigate to an affected file field
+2. Press **Enter** — the history screen closes and the codebrowser opens that file
+3. Press **h** to return to history — your previous position is preserved
+
+**Browsing sibling tasks:**
+
+When viewing a child task (e.g., t448_3), you can browse its sibling tasks:
+
+1. Focus the sibling count field in the detail pane
+2. Press **Enter** or **s** to open the sibling picker modal
+3. Select a sibling to view its details
+4. Press **Escape** to close the picker
+
+**Filtering by labels:**
+
+1. Press **l** to open the label filter dialog
+2. Select one or more labels to filter the task list
+3. Press **o** to confirm, or **r** to reset (show all tasks)
+4. Press **Escape** to cancel without changing the filter
+
+**Returning to the code browser:**
+
+- Press **h** or **Escape** to close the history screen and return to browsing code

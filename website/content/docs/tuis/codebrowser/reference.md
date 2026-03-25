@@ -19,6 +19,36 @@ description: "Keyboard shortcuts, annotation pipeline, and technical details"
 | `e` | Launch the configured code agent for explain on the current file | Global |
 | `d` | Toggle detail pane visibility | Global |
 | `D` | Toggle detail pane between default and expanded width | Global |
+| `h` | Toggle completed tasks history view | Global |
+
+#### History Screen
+
+| Key | Action | Context |
+|-----|--------|---------|
+| `h` / `Escape` | Return to code browser | History screen |
+| `v` | Toggle task/plan content view | History screen |
+| `l` | Open label filter dialog | History screen |
+| `Tab` | Cycle focus between list and detail panes | History screen |
+| `Left` | Move focus to list pane (cycles task list / recently opened) | History screen |
+| `Right` | Move focus to detail pane | History screen |
+| `Up` / `Down` | Navigate between focusable fields | History detail |
+| `Enter` | Open link, select task, or navigate to file (context-dependent) | History detail |
+| `s` | Open sibling task picker (on child tasks) | History detail |
+
+#### Label Filter Dialog
+
+| Key | Action | Context |
+|-----|--------|---------|
+| `Escape` | Cancel and close dialog | Dialog |
+| `o` | Confirm selection (OK) | Dialog |
+| `r` | Reset filter (show all) | Dialog |
+
+#### Sibling Picker Dialog
+
+| Key | Action | Context |
+|-----|--------|---------|
+| `Escape` | Cancel and close dialog | Dialog |
+| `Enter` | Select sibling task | Dialog |
 
 #### Code Viewer
 

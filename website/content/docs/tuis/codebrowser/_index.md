@@ -66,6 +66,30 @@ The detail pane provides context about the task annotating the current cursor li
 - As you move the cursor, the pane updates to show the **plan content** (preferred) or **task description** for the task ID on the current line.
 - When a selection spans lines annotated by multiple tasks, the pane shows a summary list of all task IDs in the selection.
 
+### Viewing Completed Task History
+
+{{< static-img src="imgs/codebrowser_task_history.svg" alt="History screen showing completed tasks list and task detail pane" caption="The completed tasks history screen with task list (left) and task details (right)" >}}
+
+Press **h** to open the completed tasks history screen. This view lets you browse all archived tasks directly within the codebrowser, ordered by commit history (most recent first).
+
+The history screen has a two-pane layout:
+
+1. **Task list** (left pane) — Shows completed tasks in reverse-chronological order, grouped into chunks. A **Recently Opened** section at the top provides quick access to tasks you've viewed before (persistent across sessions). Scroll down and use "Load more" to fetch older tasks progressively.
+
+2. **Task details** (right pane) — Displays full metadata for the selected task: issue type, priority, effort, labels, completion date, commit links, affected files, and issue/PR links. For child tasks, sibling tasks and child task lists are also shown.
+
+Key capabilities:
+
+- **Task/plan toggle:** Press **v** to switch between viewing the task description and its implementation plan
+- **Commit links:** Focus a commit and press **Enter** to open it in your browser (requires a recognized git remote)
+- **File navigation:** Focus an affected file and press **Enter** to return to the codebrowser with that file opened
+- **Sibling browsing:** For child tasks, press **s** (or **Enter** on the sibling count field) to open a sibling picker modal
+- **Label filtering:** Press **l** to filter the task list by labels
+- **Pane navigation:** Use **Left** / **Right** arrows to move focus between panes, or **Tab** to cycle. The left arrow cycles between the task list and recently opened list
+- **State preservation:** When you return to the codebrowser and press **h** again, the history screen restores your previous position — selected task, scroll position, loaded chunks, plan/task toggle, and label filter
+
+Press **h** or **Escape** to return to the code browser.
+
 ### Launching an Explain Session
 
 Press **e** to launch the configured code agent with the [`/aitask-explain`]({{< relref "/docs/skills/aitask-explain" >}}) skill targeting the current file. The code browser uses the [code agent wrapper]({{< relref "/docs/commands/codeagent" >}}) to resolve which agent and model to use for the `explain` operation. If you have a line selection active, the explain session focuses on that specific line range.
