@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: [t465_2, t465_3]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [codebrowser, website]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-25 12:58
-updated_at: 2026-03-25 12:58
+updated_at: 2026-03-25 22:01
 ---
 
 ## Context
