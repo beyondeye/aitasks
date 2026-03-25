@@ -23,6 +23,7 @@ from textual.widgets import (
     Label,
     Markdown,
     Static,
+    Tabs,
     TabbedContent,
     TabPane,
     TextArea,
@@ -889,6 +890,38 @@ class BrainstormApp(App):
             return
         tabbed = self.query_one(TabbedContent)
 
+        # Down from tab bar: focus first row in active tab
+        if event.key == "down":
+            tabs_widget = tabbed.query_one(Tabs)
+            if self.focused is tabs_widget:
+                tab_to_container = {
+                    "tab_dashboard": ("node_list_pane", (NodeRow,)),
+                    "tab_actions": ("actions_content", (OperationRow,)),
+                    "tab_status": ("status_content", (GroupRow, AgentStatusRow, StatusLogRow)),
+                }
+                mapping = tab_to_container.get(tabbed.active)
+                if mapping:
+                    if self._navigate_rows(1, mapping[0], mapping[1]):
+                        event.prevent_default()
+                        event.stop()
+                        return
+
+        # Up/down: navigate NodeRow items in Dashboard
+        if event.key in ("up", "down") and tabbed.active == "tab_dashboard":
+            direction = 1 if event.key == "down" else -1
+            if self._navigate_rows(direction, "node_list_pane", (NodeRow,)):
+                event.prevent_default()
+                event.stop()
+                return
+
+        # Up on Graph/Compare tab: focus tab bar directly
+        if event.key == "up" and tabbed.active in ("tab_dag", "tab_compare"):
+            tabs_widget = tabbed.query_one(Tabs)
+            tabs_widget.focus()
+            event.prevent_default()
+            event.stop()
+            return
+
         # Actions tab wizard navigation
         if tabbed.active == "tab_actions" and self._wizard_step > 0:
             # Esc: go back to previous wizard step
@@ -937,26 +970,13 @@ class BrainstormApp(App):
                         event.prevent_default()
                         event.stop()
                         return
-            # Up/down: cycle between OperationRow widgets in wizard steps 1-2
+            # Up/down: navigate OperationRow widgets in wizard steps 1-2
             if event.key in ("up", "down") and self._wizard_step in (1, 2):
-                focused = self.focused
-                if isinstance(focused, OperationRow):
-                    container = self.query_one("#actions_content", VerticalScroll)
-                    rows = [w for w in container.query(OperationRow) if not w.op_disabled]
-                    if rows:
-                        try:
-                            idx = rows.index(focused)
-                        except ValueError:
-                            idx = 0
-                        if event.key == "down":
-                            idx = (idx + 1) % len(rows)
-                        else:
-                            idx = (idx - 1) % len(rows)
-                        rows[idx].focus()
-                        rows[idx].scroll_visible()
-                        event.prevent_default()
-                        event.stop()
-                        return
+                direction = 1 if event.key == "down" else -1
+                if self._navigate_rows(direction, "actions_content", (OperationRow,)):
+                    event.prevent_default()
+                    event.stop()
+                    return
 
         # Enter key handlers for various focusable rows
         if event.key == "enter":
@@ -1029,27 +1049,11 @@ class BrainstormApp(App):
 
         # Up/down: navigate focusable rows in Status tab
         if event.key in ("up", "down") and tabbed.active == "tab_status":
-            focused = self.focused
-            if isinstance(focused, (GroupRow, AgentStatusRow, StatusLogRow)):
-                container = self.query_one("#status_content", VerticalScroll)
-                focusable = [
-                    w for w in container.children
-                    if isinstance(w, (GroupRow, AgentStatusRow, StatusLogRow))
-                ]
-                if focusable:
-                    try:
-                        idx = focusable.index(focused)
-                    except ValueError:
-                        idx = 0
-                    if event.key == "down":
-                        idx = (idx + 1) % len(focusable)
-                    else:
-                        idx = (idx - 1) % len(focusable)
-                    focusable[idx].focus()
-                    focusable[idx].scroll_visible()
-                    event.prevent_default()
-                    event.stop()
-                    return
+            direction = 1 if event.key == "down" else -1
+            if self._navigate_rows(direction, "status_content", (GroupRow, AgentStatusRow, StatusLogRow)):
+                event.prevent_default()
+                event.stop()
+                return
 
     # ------------------------------------------------------------------
     # Tab switching actions (shown in Footer via BINDINGS)
@@ -1091,6 +1095,65 @@ class BrainstormApp(App):
         if isinstance(self.screen, ModalScreen):
             return
         self.query_one(TabbedContent).active = "tab_status"
+
+    # ------------------------------------------------------------------
+    # Keyboard navigation helper
+    # ------------------------------------------------------------------
+
+    def _navigate_rows(self, direction: int, container_id: str, row_types: tuple) -> bool:
+        """Navigate up/down among focusable rows in a container.
+
+        Returns True if the event was handled.
+        direction: -1 for up, +1 for down.
+        """
+        try:
+            container = self.query_one(f"#{container_id}", VerticalScroll)
+        except Exception:
+            return False
+
+        focusable = [w for w in container.children if isinstance(w, row_types) and w.can_focus]
+        if not focusable:
+            return False
+
+        focused = self.focused
+        tabbed = self.query_one(TabbedContent)
+        tabs_widget = tabbed.query_one(Tabs)
+
+        # If focus is on the Tabs bar and direction is down, focus first row
+        if focused is tabs_widget:
+            if direction == 1:
+                focusable[0].focus()
+                focusable[0].scroll_visible()
+                return True
+            return False
+
+        # If no row is focused, focus the first (down) or last (up) row
+        if not isinstance(focused, row_types):
+            target = focusable[0] if direction == 1 else focusable[-1]
+            target.focus()
+            target.scroll_visible()
+            return True
+
+        # Find current index
+        try:
+            idx = focusable.index(focused)
+        except ValueError:
+            focusable[0].focus()
+            focusable[0].scroll_visible()
+            return True
+
+        new_idx = idx + direction
+
+        # At boundary: up past top → focus tabs; down past bottom → stop
+        if new_idx < 0:
+            tabs_widget.focus()
+            return True
+        if new_idx >= len(focusable):
+            return True  # Stop at bottom, don't wrap
+
+        focusable[new_idx].focus()
+        focusable[new_idx].scroll_visible()
+        return True
 
     def on_mount(self) -> None:
         """Session lifecycle: load existing or prompt to initialize."""
