@@ -219,7 +219,7 @@ class ChildTaskField(Static):
             # The detail pane listens for this to navigate
             pane = self._find_detail_pane()
             if pane:
-                pane.show_task(self.completed_task.task_id)
+                pane.show_task(self.completed_task.task_id, focus_after_render=True)
             event.prevent_default()
             event.stop()
         elif event.key == "down":
@@ -288,7 +288,7 @@ class SiblingCountField(Static):
 
             def _on_pick(task_id: str | None) -> None:
                 if task_id:
-                    pane.show_task(task_id)
+                    pane.show_task(task_id, focus_after_render=True)
 
             self.app.push_screen(SiblingPickerModal(self.sibling_tasks), _on_pick)
 
@@ -455,6 +455,24 @@ class _SiblingItem(Static):
             event.prevent_default()
             event.stop()
         elif event.key == "up":
+            # If first item, move focus back to search input
+            parent = self.parent
+            if parent is not None:
+                focusable = [
+                    w for w in parent.children
+                    if w.can_focus and w.display and w.styles.display != "none"
+                ]
+                try:
+                    idx = focusable.index(self)
+                except ValueError:
+                    idx = 1
+                if idx == 0:
+                    modal = self.screen
+                    if isinstance(modal, SiblingPickerModal):
+                        modal.query_one("#sibling_search", Input).focus()
+                    event.prevent_default()
+                    event.stop()
+                    return
             _focus_neighbor(self, -1)
             event.prevent_default()
             event.stop()
@@ -479,6 +497,12 @@ class SiblingPickerModal(ModalScreen[str | None]):
         padding: 1 2;
     }
     #sibling_search {
+        margin-bottom: 0;
+    }
+    #sibling_keybind_help {
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
         margin-bottom: 1;
     }
     #sibling_list {
@@ -494,11 +518,28 @@ class SiblingPickerModal(ModalScreen[str | None]):
     def compose(self):
         with Container(id="sibling_picker_dialog"):
             yield Input(placeholder="Search siblings...", id="sibling_search")
+            yield Static(
+                "[dim]\\[Up/Down] navigate  \\[Enter] select  \\[Esc] cancel[/]",
+                id="sibling_keybind_help",
+            )
             yield VerticalScroll(id="sibling_list")
 
     def on_mount(self) -> None:
         self._refresh_list()
         self.query_one("#sibling_search", Input).focus()
+
+    def on_key(self, event) -> None:
+        """Handle Down arrow from Input to move focus to first sibling item."""
+        if event.key == "down":
+            focused = self.focused
+            if isinstance(focused, Input) and focused.id == "sibling_search":
+                container = self.query_one("#sibling_list", VerticalScroll)
+                items = list(container.query(_SiblingItem))
+                if items:
+                    items[0].focus()
+                    items[0].scroll_visible()
+                    event.prevent_default()
+                    event.stop()
 
     def on_input_changed(self, event: Input.Changed) -> None:
         query = event.value.lower()
@@ -573,13 +614,18 @@ class HistoryDetailPane(VerticalScroll):
         self._task_index = task_index
         self._platform_info = platform_info
 
-    def show_task(self, task_id: str, is_explicit_browse: bool = True) -> None:
+    def show_task(
+        self,
+        task_id: str,
+        is_explicit_browse: bool = True,
+        focus_after_render: bool = False,
+    ) -> None:
         """Load and display task details. Pushes onto navigation stack."""
         self._nav_stack.append(task_id)
         if is_explicit_browse:
             self.post_message(HistoryBrowseEvent(task_id))
         self._showing_plan = False
-        self._load_and_render(task_id)
+        self._load_and_render(task_id, focus_after_render)
 
     def go_back(self) -> None:
         """Pop navigation stack, show previous task (no browse event)."""
@@ -588,13 +634,22 @@ class HistoryDetailPane(VerticalScroll):
             prev = self._nav_stack[-1]
             self._showing_plan = False
             self._render_task(prev)
+            self._focus_first_field()
+
+    def _focus_first_field(self) -> None:
+        """Focus the first focusable field in this pane."""
+        for child in self.children:
+            if child.can_focus and child.display and child.styles.display != "none":
+                child.focus()
+                child.scroll_visible()
+                return
 
     def clear_stack(self) -> None:
         """Reset navigation stack."""
         self._nav_stack.clear()
 
     @work(thread=True)
-    def _load_and_render(self, task_id: str) -> None:
+    def _load_and_render(self, task_id: str, focus_after: bool = False) -> None:
         """Load commit and content data in a worker thread, then render."""
         if self._project_root is None:
             return
@@ -613,12 +668,13 @@ class HistoryDetailPane(VerticalScroll):
         commits = find_commits_for_task(task_id, self._project_root)
 
         # Schedule UI update on the main thread
-        self.app.call_from_thread(self._render_task, task_id, commits)
+        self.app.call_from_thread(self._render_task, task_id, commits, focus_after)
 
     def _render_task(
         self,
         task_id: str,
         commits: list[TaskCommitInfo] | None = None,
+        focus_after: bool = False,
     ) -> None:
         """Clear and rebuild all sections for the given task."""
         # Remove all children synchronously to avoid DuplicateIds on re-mount
@@ -718,6 +774,9 @@ class HistoryDetailPane(VerticalScroll):
         self.mount(md)
 
         self.scroll_home(animate=False)
+
+        if focus_after:
+            self._focus_first_field()
 
     def _get_body_content(self, task_id: str) -> str | None:
         """Return task or plan content based on current toggle state."""
