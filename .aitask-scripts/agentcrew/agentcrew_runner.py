@@ -340,6 +340,19 @@ def process_pending_commands(worktree: str, agents: dict[str, dict], batch: bool
                     update_yaml_field(status_file, "status", "Running")
                     agents[name]["status"] = "Running"
                     processed = True
+            elif command == "reset" and current_status == "Error":
+                if validate_agent_transition(current_status, "Waiting"):
+                    log(f"Resetting agent '{name}' to Waiting", batch)
+                    if batch:
+                        print(f"CMD_RESET:{name}")
+                    status_file = os.path.join(worktree, f"{name}_status.yaml")
+                    update_yaml_field(status_file, "status", "Waiting")
+                    update_yaml_field(status_file, "error_message", "")
+                    update_yaml_field(status_file, "completed_at", "")
+                    agents[name]["status"] = "Waiting"
+                    append_to_agent_log(worktree, name,
+                                        "RESET: Error → Waiting (command)")
+                    processed = True
 
         if processed:
             # Ack commands
@@ -658,7 +671,8 @@ def graceful_shutdown(worktree: str, crew_id: str, interval: int, batch: bool) -
 # ---------------------------------------------------------------------------
 
 def run_loop(worktree: str, crew_id: str, interval: int, max_concurrent: int,
-             once: bool, dry_run: bool, batch: bool) -> int:
+             once: bool, dry_run: bool, batch: bool,
+             reset_errors: bool = False) -> int:
     """Run the main orchestration loop."""
     global _should_stop
 
@@ -681,6 +695,29 @@ def run_loop(worktree: str, crew_id: str, interval: int, max_concurrent: int,
     if not dry_run:
         write_runner_alive(worktree, interval)
         git_commit_push_if_changes(worktree, "runner: started", batch)
+
+    # Reset errored agents if requested (one-time at startup)
+    if reset_errors:
+        startup_agents = read_all_agent_statuses(worktree)
+        for name, data in startup_agents.items():
+            if data.get("status") == "Error":
+                if dry_run:
+                    log(f"DRY_RUN: Would reset agent '{name}' to Waiting", batch)
+                    if batch:
+                        print(f"RESET_DRY:{name}")
+                else:
+                    status_file = os.path.join(worktree, f"{name}_status.yaml")
+                    update_yaml_field(status_file, "status", "Waiting")
+                    update_yaml_field(status_file, "error_message", "")
+                    update_yaml_field(status_file, "completed_at", "")
+                    log(f"Reset errored agent '{name}' to Waiting", batch)
+                    if batch:
+                        print(f"RESET:{name}")
+                    append_to_agent_log(worktree, name,
+                                        "RESET: Error → Waiting (--reset-errors)")
+        if not dry_run:
+            git_commit_push_if_changes(worktree, "runner: reset errored agents",
+                                       batch)
 
     iteration = 0
     while not _should_stop:
@@ -814,6 +851,8 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="Diagnostic mode")
     parser.add_argument("--force", action="store_true",
                         help="Force restart if runner already active on same host")
+    parser.add_argument("--reset-errors", action="store_true",
+                        help="Reset Error agents back to Waiting before starting")
 
     args = parser.parse_args()
     crew_id = args.crew
@@ -850,7 +889,7 @@ def main() -> int:
             f"{'  (dry-run)' if args.dry_run else ''}")
 
     return run_loop(worktree, crew_id, interval, max_concurrent,
-                    args.once, args.dry_run, args.batch)
+                    args.once, args.dry_run, args.batch, args.reset_errors)
 
 
 if __name__ == "__main__":

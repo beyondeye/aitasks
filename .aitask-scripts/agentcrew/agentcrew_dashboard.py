@@ -501,6 +501,7 @@ class CrewDetailScreen(Screen):
         Binding("l", "view_logs", "Logs"),
         Binding("p", "pause_agent", "Pause/Resume"),
         Binding("x", "kill_agent", "Kill Agent"),
+        Binding("w", "reset_agent", "Reset to Waiting"),
         Binding("f5", "refresh", "Refresh"),
     ]
 
@@ -716,6 +717,22 @@ class CrewDetailScreen(Screen):
             self.notify(f"Kill signal sent to {self.selected_agent}")
         else:
             self.notify("Failed to send kill", severity="error")
+
+    def action_reset_agent(self) -> None:
+        if not self.selected_agent:
+            self.notify("No agent selected", severity="warning")
+            return
+        agents = self.crew_data.get("agents", {})
+        agent = agents.get(self.selected_agent, {})
+        status = agent.get("status", "")
+        if status != "Error":
+            self.notify(f"Can only reset agents in Error state (current: {status})",
+                        severity="warning")
+            return
+        if self.manager.send_command(self.crew_id, self.selected_agent, "reset"):
+            self.notify(f"Reset command sent for {self.selected_agent}")
+        else:
+            self.notify("Failed to send reset command", severity="error")
 
     async def action_refresh(self) -> None:
         await self._refresh_data()

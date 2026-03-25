@@ -468,6 +468,136 @@ write_yaml('$wt/_runner_alive.yaml', {
 )
 cleanup_test_repo "$TMPDIR_T10"
 
+# --- Test 11: --reset-errors identifies Error agents (dry-run) ---
+echo "Test 11: --reset-errors identifies Error agents in dry-run"
+TMPDIR_T11="$(setup_test_repo)"
+(
+    cd "$TMPDIR_T11"
+    setup_crew_with_agents "$TMPDIR_T11"
+
+    wt=".aitask-crews/crew-testcrew"
+
+    # Mark all agents as Error
+    for agent in agent_a agent_b agent_c; do
+        $PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import update_yaml_field
+update_yaml_field('$wt/${agent}_status.yaml', 'status', 'Error')
+update_yaml_field('$wt/${agent}_status.yaml', 'error_message', 'Heartbeat timeout')
+" 2>/dev/null
+    done
+
+    output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
+        --crew testcrew --once --dry-run --reset-errors --batch 2>&1)
+
+    assert_contains "dry-run reset agent_a" "RESET_DRY:agent_a" "$output"
+    assert_contains "dry-run reset agent_b" "RESET_DRY:agent_b" "$output"
+    assert_contains "dry-run reset agent_c" "RESET_DRY:agent_c" "$output"
+    # In dry-run mode agents stay Error, so ALL_TERMINAL is expected
+    assert_contains "dry-run still shows ALL_TERMINAL" "ALL_TERMINAL" "$output"
+)
+cleanup_test_repo "$TMPDIR_T11"
+
+# --- Test 12: Without --reset-errors, all-Error agents trigger ALL_TERMINAL ---
+echo "Test 12: all-Error without --reset-errors triggers ALL_TERMINAL"
+TMPDIR_T12="$(setup_test_repo)"
+(
+    cd "$TMPDIR_T12"
+    setup_crew_with_agents "$TMPDIR_T12"
+
+    wt=".aitask-crews/crew-testcrew"
+
+    # Mark all agents as Error
+    for agent in agent_a agent_b agent_c; do
+        $PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import update_yaml_field
+update_yaml_field('$wt/${agent}_status.yaml', 'status', 'Error')
+" 2>/dev/null
+    done
+
+    output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
+        --crew testcrew --once --dry-run --batch 2>&1)
+    assert_contains "all-Error triggers ALL_TERMINAL" "ALL_TERMINAL" "$output"
+)
+cleanup_test_repo "$TMPDIR_T12"
+
+# --- Test 13: reset command via aitask_crew_command.sh ---
+echo "Test 13: reset command accepted by crew command script"
+TMPDIR_T13="$(setup_test_repo)"
+(
+    cd "$TMPDIR_T13"
+    setup_crew_with_agents "$TMPDIR_T13"
+
+    output=$(bash .aitask-scripts/aitask_crew_command.sh send --crew testcrew \
+        --agent agent_a --command reset 2>&1)
+    assert_contains "reset command accepted" "COMMAND_SENT:reset" "$output"
+
+    output=$(bash .aitask-scripts/aitask_crew_command.sh list --crew testcrew \
+        --agent agent_a 2>&1)
+    assert_contains "reset command listed" "reset" "$output"
+)
+cleanup_test_repo "$TMPDIR_T13"
+
+# --- Test 14: process_pending_commands handles reset command ---
+echo "Test 14: runner processes pending reset command"
+TMPDIR_T14="$(setup_test_repo)"
+(
+    cd "$TMPDIR_T14"
+    setup_crew_with_agents "$TMPDIR_T14"
+
+    wt=".aitask-crews/crew-testcrew"
+
+    # Mark agent_a as Error
+    $PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import update_yaml_field
+update_yaml_field('$wt/agent_a_status.yaml', 'status', 'Error')
+update_yaml_field('$wt/agent_a_status.yaml', 'error_message', 'Test error')
+" 2>/dev/null
+
+    # Write a pending reset command for agent_a
+    $PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import write_yaml
+write_yaml('$wt/agent_a_commands.yaml', {
+    'pending_commands': [{'command': 'reset', 'sent_at': '2026-01-01 00:00:00', 'sent_by': 'user'}]
+})
+" 2>/dev/null
+
+    # Use --dry-run to prevent agent launch after reset
+    output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
+        --crew testcrew --once --dry-run --batch 2>&1)
+    assert_contains "runner resets agent_a via command" "CMD_RESET:agent_a" "$output"
+
+    # Verify status is now Waiting (process_pending_commands modifies even in dry-run)
+    status=$($PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import read_yaml
+print(read_yaml('$wt/agent_a_status.yaml').get('status', ''))
+" 2>/dev/null)
+    assert_eq "agent_a is Waiting after reset command" "Waiting" "$status"
+)
+cleanup_test_repo "$TMPDIR_T14"
+
+# --- Test 15: Error → Waiting transition validation ---
+echo "Test 15: Error → Waiting transition is valid"
+(
+    result=$($PYTHON -c "
+import sys; sys.path.insert(0, '$PROJECT_DIR/.aitask-scripts')
+from agentcrew.agentcrew_utils import validate_agent_transition
+print(validate_agent_transition('Error', 'Waiting'))
+" 2>/dev/null)
+    assert_eq "Error → Waiting is valid" "True" "$result"
+
+    result=$($PYTHON -c "
+import sys; sys.path.insert(0, '$PROJECT_DIR/.aitask-scripts')
+from agentcrew.agentcrew_utils import validate_agent_transition
+print(validate_agent_transition('Completed', 'Waiting'))
+" 2>/dev/null)
+    assert_eq "Completed → Waiting is still invalid" "False" "$result"
+)
+
 # ============================================================
 # Summary
 # ============================================================

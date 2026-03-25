@@ -25,10 +25,10 @@ AGENT_TRANSITIONS: dict[str, list[str]] = {
     "Ready": ["Running"],
     "Running": ["Completed", "Error", "Aborted", "Paused"],
     "Paused": ["Running"],
-    # Terminal states — no outgoing transitions
+    # Terminal states — no outgoing transitions (except Error → Waiting for reset)
     "Completed": [],
     "Aborted": [],
-    "Error": [],
+    "Error": ["Waiting"],
 }
 
 CREW_TRANSITIONS: dict[str, list[str]] = {

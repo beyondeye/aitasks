@@ -20,7 +20,7 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/agentcrew_utils.sh"
 
 # --- Valid commands ---
-VALID_COMMANDS="kill pause resume update_instructions"
+VALID_COMMANDS="kill pause resume update_instructions reset"
 
 # --- Defaults ---
 CREW_ID=""
