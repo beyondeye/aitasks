@@ -71,6 +71,7 @@ from agentcrew.agentcrew_runner_control import (
     start_runner,
     stop_runner,
 )
+from agentcrew.agentcrew_utils import update_yaml_field
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -495,6 +496,32 @@ class StatusLogRow(Static, can_focus=True):
         self.focus()
 
 
+class AgentStatusRow(Static, can_focus=True):
+    """Focusable agent status row in the Status tab. Supports reset via 'w' key."""
+
+    def __init__(self, name: str, status: str, display_line: str, crew_id: str, **kwargs):
+        super().__init__(**kwargs)
+        self.agent_name = name
+        self.agent_status = status
+        self.crew_id = crew_id
+        self._display_line = display_line
+
+    def render(self) -> str:
+        line = self._display_line
+        if self.has_focus and self.agent_status == "Error":
+            line += "  [dim](w: reset)[/dim]"
+        return line
+
+    def on_click(self) -> None:
+        self.focus()
+
+    def on_focus(self) -> None:
+        self.refresh()
+
+    def on_blur(self) -> None:
+        self.refresh()
+
+
 # ---------------------------------------------------------------------------
 # Main App
 # ---------------------------------------------------------------------------
@@ -541,6 +568,20 @@ class BrainstormApp(App):
     .status_agent_detail {
         padding: 0 3;
         height: auto;
+    }
+
+    AgentStatusRow {
+        padding: 0 3;
+        height: auto;
+    }
+
+    AgentStatusRow:focus {
+        background: $accent;
+        color: $text;
+    }
+
+    AgentStatusRow:hover {
+        background: $surface-lighten-1;
     }
 
     .status_output_preview {
@@ -928,6 +969,19 @@ class BrainstormApp(App):
             event.prevent_default()
             event.stop()
             return
+        if event.key == "w":
+            focused = self.focused
+            if isinstance(focused, AgentStatusRow):
+                if focused.agent_status != "Error":
+                    self.notify(
+                        f"Can only reset agents in Error state (current: {focused.agent_status})",
+                        severity="warning",
+                    )
+                else:
+                    self._reset_agent(focused)
+                event.prevent_default()
+                event.stop()
+                return
         if event.key in _TAB_SHORTCUTS:
             tabbed = self.query_one(TabbedContent)
             tabbed.active = _TAB_SHORTCUTS[event.key]
@@ -1091,6 +1145,27 @@ class BrainstormApp(App):
             for log_info in logs:
                 container.mount(StatusLogRow(log_info))
 
+    def _reset_agent(self, row: "AgentStatusRow") -> None:
+        """Reset an agent from Error to Waiting by updating the status file directly."""
+        import os
+
+        name = row.agent_name
+        wt_path = str(self.session_path)
+        sf = os.path.join(wt_path, f"{name}_status.yaml")
+        if os.path.isfile(sf):
+            update_yaml_field(sf, "status", "Waiting")
+            update_yaml_field(sf, "error_message", "")
+            update_yaml_field(sf, "completed_at", "")
+            self.notify(f"Agent {name} reset to Waiting")
+            self._delayed_refresh_status()
+        else:
+            self.notify(f"Status file not found for {name}", severity="error")
+
+    def _delayed_refresh_status(self) -> None:
+        """Show a loading notification then refresh the status tab after 2 seconds."""
+        self.notify("Refreshing status...", timeout=2)
+        self.set_timer(2.0, self._refresh_status_tab)
+
     def _mount_group_agents(
         self, container: VerticalScroll, wt_path: str, ginfo: dict
     ) -> None:
@@ -1146,7 +1221,8 @@ class BrainstormApp(App):
             f"  [{color}]\u25cf[/{color}] {name}{type_label}  "
             f"[{color}]{status}[/{color}]{hb_str}{msg_str}"
         )
-        container.mount(Label(line, classes="status_agent_detail"))
+        crew_id = self.session_data.get("crew_id", "")
+        container.mount(AgentStatusRow(name, status, line, crew_id))
 
         # Output preview (last 10 lines)
         output_path = os.path.join(wt_path, f"{name}_output.md")
@@ -1724,9 +1800,9 @@ class BrainstormApp(App):
         crew_id = self.session_data.get("crew_id", "")
         if crew_id and start_runner(crew_id):
             self.notify("Runner started")
+            self._delayed_refresh_status()
         else:
             self.notify("Failed to start runner", severity="error")
-        self._refresh_status_tab()
 
     @on(Button.Pressed, ".btn_runner_stop")
     def _on_runner_stop(self, event: Button.Pressed) -> None:
@@ -1734,9 +1810,9 @@ class BrainstormApp(App):
         crew_id = self.session_data.get("crew_id", "")
         if crew_id and stop_runner(crew_id):
             self.notify("Runner stop requested")
+            self._delayed_refresh_status()
         else:
             self.notify("Failed to stop runner", severity="error")
-        self._refresh_status_tab()
 
     def on_operation_row_activated(self, event: OperationRow.Activated) -> None:
         """Handle mouse click activation on an OperationRow."""

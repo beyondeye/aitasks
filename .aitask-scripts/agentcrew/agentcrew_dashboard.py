@@ -34,6 +34,7 @@ from agentcrew_runner_control import (
     _elapsed_since,
     _heartbeat_age,
     get_runner_info as _get_runner_info,
+    send_agent_command as _send_agent_command,
     start_runner as _start_runner,
     stop_runner as _stop_runner,
 )
@@ -190,15 +191,7 @@ class CrewManager:
 
     def send_command(self, crew_id: str, agent_name: str, command: str) -> bool:
         """Send a command to a specific agent."""
-        try:
-            result = subprocess.run(
-                [AIT_PATH, "crew", "command", "send", "--crew", crew_id,
-                 "--agent", agent_name, "--command", command],
-                capture_output=True, text=True, timeout=10,
-            )
-            return "COMMAND_SENT:" in result.stdout
-        except (OSError, subprocess.TimeoutExpired):
-            return False
+        return _send_agent_command(crew_id, agent_name, command)
 
     def cleanup_crew(self, crew_id: str) -> bool:
         """Cleanup a completed crew's worktree."""

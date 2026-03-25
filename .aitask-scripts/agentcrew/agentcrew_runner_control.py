@@ -75,6 +75,19 @@ def start_runner(crew_id: str) -> bool:
         return False
 
 
+def send_agent_command(crew_id: str, agent_name: str, command: str) -> bool:
+    """Send a command to a specific agent via ait crew command send."""
+    try:
+        result = subprocess.run(
+            [AIT_PATH, "crew", "command", "send", "--crew", crew_id,
+             "--agent", agent_name, "--command", command],
+            capture_output=True, text=True, timeout=10,
+        )
+        return "COMMAND_SENT:" in result.stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def stop_runner(crew_id: str) -> bool:
     """Request runner to stop by sending stop command."""
     try:
