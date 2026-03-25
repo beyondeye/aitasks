@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-25 11:41
-updated_at: 2026-03-25 11:41
+updated_at: 2026-03-25 12:24
 ---
 
 ## Hard Kill Implementation
