@@ -129,6 +129,14 @@ from agentcrew_utils import (
 - Test with already-dead process — should succeed with `was_alive: False`
 - Test with remote hostname — should reject with clear message
 
+## Final Implementation Notes
+
+- **Actual work done:** Added `hard_kill_agent()` function to `agentcrew_runner_control.py` exactly as planned. Added `signal`, `socket`, `datetime` top-level imports; added `write_yaml` to agentcrew_utils imports; removed lazy `datetime` import from `_elapsed_since()`.
+- **Deviations from plan:** None — plan was followed exactly.
+- **Issues encountered:** None. All imports resolved correctly, module verified with import test.
+- **Key decisions:** Moved `datetime` import from lazy (inside `_elapsed_since()`) to top-level since `hard_kill_agent()` also needs it. This is a minor cleanup that simplifies the module.
+- **Notes for sibling tasks:** The `hard_kill_agent()` function is ready to be called from TUI screens (t462_3 dashboard, t462_4 brainstorm). Import with: `from agentcrew.agentcrew_runner_control import hard_kill_agent`. The sibling `agentcrew_process_stats.py` module (t462_1) has its own `_check_pid_alive()` — the hard kill function does not reuse it since it needs different error handling (PermissionError returns failure instead of "alive").
+
 ## Step 5: Post-Implementation
 
 See task-workflow SKILL.md Step 9 for archival, merge, and cleanup.
