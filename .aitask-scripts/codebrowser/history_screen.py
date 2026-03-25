@@ -23,6 +23,8 @@ class HistoryScreen(Screen):
         Binding("escape", "dismiss_screen", "Back to browser"),
         Binding("q", "quit", "Quit"),
         Binding("tab", "toggle_focus", "Toggle Focus"),
+        Binding("left", "focus_left", "Focus list"),
+        Binding("right", "focus_right", "Focus detail"),
         Binding("v", "toggle_view", "Toggle task/plan"),
         Binding("l", "label_filter", "Label filter"),
         # Override codebrowser app bindings to hide them from footer
@@ -248,3 +250,90 @@ class HistoryScreen(Screen):
             detail.focus()
         else:
             left.focus()
+
+    def action_focus_right(self) -> None:
+        """Move focus to first focusable field in the detail pane."""
+        try:
+            detail = self.query_one("#history_detail", HistoryDetailPane)
+        except Exception:
+            return
+        if detail.has_focus_within:
+            return
+        for child in detail.children:
+            if child.can_focus and child.display and child.styles.display != "none":
+                child.focus()
+                child.scroll_visible()
+                return
+
+    def action_focus_left(self) -> None:
+        """Move focus leftward: detail->task list->recent list, cycling."""
+        try:
+            left = self.query_one("#history_left", HistoryLeftPane)
+            detail = self.query_one("#history_detail", HistoryDetailPane)
+        except Exception:
+            return
+        task_list = left.query_one("#history_list", HistoryTaskList)
+        recent_list = left.query_one("#recent_list")
+
+        if detail.has_focus_within:
+            # Detail pane -> focus current task in either list
+            current_task_id = detail._nav_stack[-1] if detail._nav_stack else None
+            if self._focus_in_list(task_list, current_task_id):
+                return
+            if self._focus_in_list(recent_list, current_task_id):
+                return
+            # Fallback: first visible in task list
+            if not self._focus_in_list(task_list):
+                self._focus_in_list(recent_list)
+            return
+
+        if task_list.has_focus_within:
+            # Remember focused task before switching to recent list
+            focused = self.app.focused
+            if isinstance(focused, HistoryTaskItem):
+                self._last_task_list_focus_id = focused.completed_task.task_id
+            # Full task list -> recent tasks list
+            self._focus_in_list(recent_list)
+            return
+
+        if recent_list.has_focus_within:
+            # Recent tasks list -> full task list (restore last focused if possible)
+            last_id = getattr(self, "_last_task_list_focus_id", None)
+            if last_id and self._focus_in_list(task_list, last_id):
+                return
+            self._focus_in_list(task_list)
+            return
+
+        # No focus anywhere -> full task list, then recent list
+        if not self._focus_in_list(task_list):
+            self._focus_in_list(recent_list)
+
+    def _focus_in_list(self, container, target_task_id: str | None = None) -> bool:
+        """Focus a task item in the given container. Returns True if focused."""
+        items = list(container.query(HistoryTaskItem))
+        if target_task_id:
+            for item in items:
+                if item.completed_task.task_id == target_task_id:
+                    item.focus()
+                    item.scroll_visible()
+                    return True
+        # Find the first item visible in the scroll viewport
+        try:
+            scroll_y = container.scroll_y
+            viewport_h = container.size.height
+            for item in items:
+                if not item.display or item.styles.display == "none":
+                    continue
+                item_y = item.virtual_region.y
+                if item_y + item.virtual_region.height > scroll_y and item_y < scroll_y + viewport_h:
+                    item.focus()
+                    return True
+        except Exception:
+            pass
+        # Fallback: first visible item
+        for item in items:
+            if item.display and item.styles.display != "none":
+                item.focus()
+                item.scroll_visible()
+                return True
+        return False

@@ -54,29 +54,16 @@ class HistoryBrowseEvent(Message):
 
 
 class MetadataField(Static):
-    """Read-only metadata field with focus highlight."""
+    """Read-only metadata field (not focusable — no enter action)."""
 
-    can_focus = True
+    can_focus = False
 
     DEFAULT_CSS = """
     MetadataField {
         height: 1;
         padding: 0 1;
     }
-    MetadataField:focus {
-        background: $accent 20%;
-    }
     """
-
-    def on_key(self, event) -> None:
-        if event.key == "down":
-            _focus_neighbor(self, 1)
-            event.prevent_default()
-            event.stop()
-        elif event.key == "up":
-            _focus_neighbor(self, -1)
-            event.prevent_default()
-            event.stop()
 
 
 class IssueLinkField(Static):

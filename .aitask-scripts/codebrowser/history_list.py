@@ -260,6 +260,9 @@ class HistoryTaskList(VerticalScroll):
             remaining = len(self._index) - self._offset
             ind.update(f"▼ Load more ({remaining} remaining) ▼")
             ind.display = True
+            if ind.has_focus:
+                # Defer scroll until after layout recalculates with new items
+                self.set_timer(0.05, lambda: ind.scroll_visible())
         else:
             ind.display = False
 
