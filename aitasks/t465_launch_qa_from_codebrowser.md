@@ -5,10 +5,10 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [codebrowser, qa]
-children_to_implement: [t465_1, t465_2, t465_3]
+children_to_implement: [t465_1, t465_2, t465_3, t465_4]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-25 12:40
-updated_at: 2026-03-25 12:57
+updated_at: 2026-03-25 12:58
 ---
 
 we have implemented a new screen in codebrowser, the history screen, but there are addiional feature I would like to add
