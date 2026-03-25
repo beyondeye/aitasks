@@ -29,6 +29,7 @@ from textual.widgets import (
 )
 from textual import on, work
 from textual.message import Message
+from textual.reactive import reactive
 
 from rich.text import Text
 
@@ -96,13 +97,7 @@ AGENT_STATUS_COLORS = {
     "Paused": "#FFB86C",
 }
 
-_TAB_SHORTCUTS = {
-    "1": "tab_dashboard",
-    "2": "tab_dag",
-    "3": "tab_compare",
-    "4": "tab_actions",
-    "5": "tab_status",
-}
+_NODE_SELECT_OPS = {"explore", "detail", "patch"}
 
 _DESIGN_OPS = [
     ("explore", "Explore", "Create new design variants from a base node"),
@@ -391,6 +386,8 @@ class NodeRow(Static):
 class OperationRow(Static):
     """Focusable row representing an operation in the Actions wizard."""
 
+    selected = reactive(False)
+
     class Activated(Message):
         """Emitted when an OperationRow is clicked (mouse activation)."""
 
@@ -409,7 +406,8 @@ class OperationRow(Static):
     def render(self) -> str:
         if self.op_disabled:
             return f"[dim strikethrough]{self.op_label}[/]  [dim]{self.op_description}[/]"
-        return f"[bold]{self.op_label}[/]  {self.op_description}"
+        marker = "[bold cyan]> [/]" if self.selected else "  "
+        return f"{marker}[bold]{self.op_label}[/]  {self.op_description}"
 
     def on_click(self) -> None:
         """Focus and activate this row when clicked."""
@@ -836,6 +834,11 @@ class BrainstormApp(App):
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
+        Binding("d", "tab_dashboard", "Dashboard"),
+        Binding("g", "tab_graph", "Graph"),
+        Binding("c", "tab_compare", "Compare"),
+        Binding("a", "tab_actions", "Actions"),
+        Binding("s", "tab_status", "Status"),
     ]
 
     def __init__(self, task_num: str):
@@ -845,6 +848,7 @@ class BrainstormApp(App):
         self.session_data: dict = {}
         self.read_only: bool = False
         self._wizard_step: int = 0
+        self._wizard_total_steps: int = 3
         self._wizard_op: str = ""
         self._wizard_config: dict = {}
         self._expanded_groups: set[str] = set()
@@ -863,12 +867,12 @@ class BrainstormApp(App):
                         Label("", id="dash_node_info"),
                         id="detail_pane",
                     )
-            with TabPane("DAG", id="tab_dag"):
+            with TabPane("Graph", id="tab_dag"):
                 yield DAGDisplay(id="dag_content")
             with TabPane("Compare", id="tab_compare"):
                 yield VerticalScroll(
                     Label(
-                        "Press 'c' to select nodes for comparison",
+                        "Press 'c' to select nodes for comparison, 'D' to diff",
                         id="compare_hint",
                     ),
                     id="compare_content",
@@ -880,32 +884,81 @@ class BrainstormApp(App):
         yield Footer()
 
     def on_key(self, event) -> None:
-        """Handle Enter on NodeRow, compare keys, wizard nav, and tab shortcuts."""
+        """Handle Enter on NodeRow, compare keys, wizard nav, and arrow navigation."""
         if isinstance(self.screen, ModalScreen):
             return
-        # Actions tab wizard navigation
         tabbed = self.query_one(TabbedContent)
+
+        # Actions tab wizard navigation
         if tabbed.active == "tab_actions" and self._wizard_step > 0:
+            # Esc: go back to previous wizard step
             if event.key == "escape" and self._wizard_step > 1:
-                if self._wizard_step == 2:
+                if self._wizard_step == self._wizard_total_steps:
+                    # From confirm step
+                    if self._wizard_op in ("explore", "patch"):
+                        self._actions_show_config()
+                    elif self._wizard_op == "detail":
+                        self._actions_show_node_select()
+                    else:
+                        self._actions_show_config()
+                elif self._wizard_step == 3 and self._wizard_op in ("explore", "patch"):
+                    # From config step (step 3 of 4)
+                    self._actions_show_node_select()
+                elif self._wizard_step == 2:
                     self._actions_show_step1()
-                elif self._wizard_step == 3:
-                    self._actions_show_step2()
                 event.prevent_default()
                 event.stop()
                 return
+            # Enter on step 1: select operation
             if event.key == "enter" and self._wizard_step == 1:
                 focused = self.focused
                 if isinstance(focused, OperationRow) and not focused.op_disabled:
                     self._wizard_op = focused.op_key
+                    self._set_total_steps()
                     if self._wizard_op in ("pause", "resume", "finalize", "archive"):
                         self._wizard_config = {"confirmed": True}
-                        self._actions_show_step3()
+                        self._actions_show_confirm()
                     else:
                         self._actions_show_step2()
                     event.prevent_default()
                     event.stop()
                     return
+            # Enter on step 2 node select: select node and advance
+            if event.key == "enter" and self._wizard_step == 2:
+                focused = self.focused
+                if isinstance(focused, OperationRow) and not focused.op_disabled:
+                    if self._wizard_op in _NODE_SELECT_OPS:
+                        self._wizard_config["_selected_node"] = focused.op_key
+                        if self._wizard_op == "detail":
+                            self._wizard_config["node"] = focused.op_key
+                            self._actions_show_confirm()
+                        else:
+                            self._actions_show_config()
+                        event.prevent_default()
+                        event.stop()
+                        return
+            # Up/down: cycle between OperationRow widgets in wizard steps 1-2
+            if event.key in ("up", "down") and self._wizard_step in (1, 2):
+                focused = self.focused
+                if isinstance(focused, OperationRow):
+                    container = self.query_one("#actions_content", VerticalScroll)
+                    rows = [w for w in container.query(OperationRow) if not w.op_disabled]
+                    if rows:
+                        try:
+                            idx = rows.index(focused)
+                        except ValueError:
+                            idx = 0
+                        if event.key == "down":
+                            idx = (idx + 1) % len(rows)
+                        else:
+                            idx = (idx - 1) % len(rows)
+                        rows[idx].focus()
+                        rows[idx].scroll_visible()
+                        event.prevent_default()
+                        event.stop()
+                        return
+
+        # Enter key handlers for various focusable rows
         if event.key == "enter":
             focused = self.focused
             if isinstance(focused, GroupRow):
@@ -928,22 +981,9 @@ class BrainstormApp(App):
                 event.prevent_default()
                 event.stop()
                 return
-        if event.key == "c":
-            tabbed = self.query_one(TabbedContent)
-            if tabbed.active == "tab_compare":
-                nodes = list_nodes(self.session_path)
-                if len(nodes) < 2:
-                    self.notify("Need at least 2 nodes to compare", severity="warning")
-                else:
-                    self.push_screen(
-                        CompareNodeSelectModal(nodes),
-                        callback=self._on_compare_selected,
-                    )
-                event.prevent_default()
-                event.stop()
-                return
-        if event.key == "d":
-            tabbed = self.query_one(TabbedContent)
+
+        # Shift+D: diff proposals on Compare tab (was 'd', now 'D' to avoid Dashboard shortcut conflict)
+        if event.key == "D":
             if (
                 tabbed.active == "tab_compare"
                 and hasattr(self, "_compare_nodes")
@@ -960,6 +1000,8 @@ class BrainstormApp(App):
                 event.prevent_default()
                 event.stop()
                 return
+
+        # b: show task brief
         if event.key == "b":
             spec = getattr(self, "session_data", {}).get("initial_spec", "")
             if spec:
@@ -969,6 +1011,8 @@ class BrainstormApp(App):
             event.prevent_default()
             event.stop()
             return
+
+        # w: reset agent in Error state
         if event.key == "w":
             focused = self.focused
             if isinstance(focused, AgentStatusRow):
@@ -982,12 +1026,71 @@ class BrainstormApp(App):
                 event.prevent_default()
                 event.stop()
                 return
-        if event.key in _TAB_SHORTCUTS:
-            tabbed = self.query_one(TabbedContent)
-            tabbed.active = _TAB_SHORTCUTS[event.key]
-            tabbed.query_one("Tabs").focus()
-            event.prevent_default()
-            event.stop()
+
+        # Up/down: navigate focusable rows in Status tab
+        if event.key in ("up", "down") and tabbed.active == "tab_status":
+            focused = self.focused
+            if isinstance(focused, (GroupRow, AgentStatusRow, StatusLogRow)):
+                container = self.query_one("#status_content", VerticalScroll)
+                focusable = [
+                    w for w in container.children
+                    if isinstance(w, (GroupRow, AgentStatusRow, StatusLogRow))
+                ]
+                if focusable:
+                    try:
+                        idx = focusable.index(focused)
+                    except ValueError:
+                        idx = 0
+                    if event.key == "down":
+                        idx = (idx + 1) % len(focusable)
+                    else:
+                        idx = (idx - 1) % len(focusable)
+                    focusable[idx].focus()
+                    focusable[idx].scroll_visible()
+                    event.prevent_default()
+                    event.stop()
+                    return
+
+    # ------------------------------------------------------------------
+    # Tab switching actions (shown in Footer via BINDINGS)
+    # ------------------------------------------------------------------
+
+    def action_tab_dashboard(self) -> None:
+        if isinstance(self.screen, ModalScreen):
+            return
+        self.query_one(TabbedContent).active = "tab_dashboard"
+
+    def action_tab_graph(self) -> None:
+        if isinstance(self.screen, ModalScreen):
+            return
+        self.query_one(TabbedContent).active = "tab_dag"
+
+    def action_tab_compare(self) -> None:
+        if isinstance(self.screen, ModalScreen):
+            return
+        tabbed = self.query_one(TabbedContent)
+        if tabbed.active == "tab_compare":
+            # Already on compare — trigger compare node select
+            nodes = list_nodes(self.session_path)
+            if len(nodes) < 2:
+                self.notify("Need at least 2 nodes to compare", severity="warning")
+            else:
+                self.push_screen(
+                    CompareNodeSelectModal(nodes),
+                    callback=self._on_compare_selected,
+                )
+            return
+        tabbed.active = "tab_compare"
+
+    def action_tab_actions(self) -> None:
+        if isinstance(self.screen, ModalScreen):
+            return
+        self.query_one(TabbedContent).active = "tab_actions"
+
+    def action_tab_status(self) -> None:
+        if isinstance(self.screen, ModalScreen):
+            return
+        self.query_one(TabbedContent).active = "tab_status"
 
     def on_mount(self) -> None:
         """Session lifecycle: load existing or prompt to initialize."""
@@ -1338,7 +1441,17 @@ class BrainstormApp(App):
         if isinstance(event.widget, OperationRow):
             tabbed = self.query_one(TabbedContent)
             if tabbed.active == "tab_actions" and self._wizard_step == 2:
-                self._wizard_config["_selected_node"] = event.widget.op_key
+                if self._wizard_op in _NODE_SELECT_OPS:
+                    self._wizard_config["_selected_node"] = event.widget.op_key
+                    # Visual feedback: mark selected node
+                    container = self.query_one("#actions_content", VerticalScroll)
+                    for row in container.query(OperationRow):
+                        row.selected = (row.op_key == event.widget.op_key)
+                    # Enable Next button
+                    try:
+                        self.query_one(".btn_actions_next", Button).disabled = False
+                    except Exception:
+                        pass
 
     def on_dag_display_node_selected(self, event: DAGDisplay.NodeSelected) -> None:
         """Open node detail modal from DAG view."""
@@ -1454,7 +1567,7 @@ class BrainstormApp(App):
             container.mount(Label("[italic]Session is read-only. No operations available.[/]"))
             return
 
-        container.mount(Label("Step 1 of 3 \u2014 Select Operation", classes="actions_step_indicator"))
+        container.mount(Label("Step 1 \u2014 Select Operation  (\u2191\u2193 Navigate  Enter Select)", classes="actions_step_indicator"))
 
         status = self.session_data.get("status", "")
         head = get_head(self.session_path)
@@ -1523,52 +1636,101 @@ class BrainstormApp(App):
             created = info.get("created_at", "")
             container.mount(Label(f"  [dim]{name}[/]  {op}  [{gstatus}]  {created}"))
 
+    def _set_total_steps(self) -> None:
+        """Set _wizard_total_steps based on operation type."""
+        if self._wizard_op in ("explore", "patch"):
+            self._wizard_total_steps = 4
+        else:
+            self._wizard_total_steps = 3
+
     def _actions_show_step2(self) -> None:
-        """Render Step 2: operation-specific configuration form."""
+        """Route to node selection or config based on operation type."""
+        if self._wizard_op in _NODE_SELECT_OPS:
+            self._actions_show_node_select()
+        else:
+            self._actions_show_config()
+
+    def _actions_show_node_select(self) -> None:
+        """Step 2: dedicated node selection for explore/detail/patch."""
         self._wizard_step = 2
         self._wizard_config = {}
 
         container = self.query_one("#actions_content", VerticalScroll)
         container.remove_children()
+
+        total = self._wizard_total_steps
+        desc_map = {
+            "explore": "Select Base Node",
+            "detail": "Select Node for Detailing",
+            "patch": "Select Node to Patch",
+        }
+        desc = desc_map.get(self._wizard_op, "Select Node")
         container.mount(
-            Label(f"Step 2 of 3 \u2014 Configure: {self._wizard_op.title()}", classes="actions_step_indicator")
+            Label(
+                f"Step 2 of {total} \u2014 {desc}  (Esc: Back)",
+                classes="actions_step_indicator",
+            )
+        )
+        container.mount(
+            Label("[dim]  \u2191\u2193 Navigate  Enter Select  |  Click node + Next[/dim]")
         )
 
-        op = self._wizard_op
-        if op == "explore":
-            self._config_explore(container)
-        elif op == "compare":
-            self._config_compare(container)
-        elif op == "hybridize":
-            self._config_hybridize(container)
-        elif op == "detail":
-            self._config_detail(container)
-        elif op == "patch":
-            self._config_patch(container)
-        else:
-            self._config_session_op(container)
-
-    def _config_explore(self, container: VerticalScroll) -> None:
-        """Explore config: base node selector, mandate, parallel count."""
         nodes = list_nodes(self.session_path)
         head = get_head(self.session_path)
 
         if not nodes:
-            container.mount(Label("[bold yellow]No nodes available.[/] Initialize the session first."))
+            container.mount(
+                Label("[bold yellow]No nodes available.[/] Initialize the session first.")
+            )
             return
 
-        container.mount(Label("[bold]Base Node[/]"))
         for nid in nodes:
             node_data = read_node(self.session_path, nid)
             desc = node_data.get("description", "")
             lbl = f"{nid} [green]HEAD[/]" if nid == head else nid
             container.mount(OperationRow(nid, lbl, desc))
 
+        container.mount(
+            Button("Next \u25b6", variant="primary", classes="btn_actions_next", disabled=True)
+        )
+        self.call_after_refresh(self._focus_first_operation)
+
+    def _actions_show_config(self) -> None:
+        """Render config step: operation-specific configuration form."""
+        op = self._wizard_op
+        if op in ("explore", "patch"):
+            self._wizard_step = 3  # Step 3 of 4
+        else:
+            self._wizard_step = 2  # Step 2 of 3
+
+        container = self.query_one("#actions_content", VerticalScroll)
+        container.remove_children()
+
+        total = self._wizard_total_steps
+        step = self._wizard_step
+        container.mount(
+            Label(
+                f"Step {step} of {total} \u2014 Configure: {op.title()}  (Esc: Back)",
+                classes="actions_step_indicator",
+            )
+        )
+
+        if op == "explore":
+            self._config_explore_no_node(container)
+        elif op == "compare":
+            self._config_compare(container)
+        elif op == "hybridize":
+            self._config_hybridize(container)
+        elif op == "patch":
+            self._config_patch_no_node(container)
+
+    def _config_explore_no_node(self, container: VerticalScroll) -> None:
+        """Explore config (node already selected): mandate, parallel count."""
+        node_id = self._wizard_config.get("_selected_node", "?")
+        container.mount(Label(f"[bold]Base Node:[/] {node_id}"))
         container.mount(Label("[bold]Exploration Mandate[/]"))
         container.mount(TextArea(""))
-
         container.mount(CycleField("Parallel explorers", ["1", "2", "3", "4"], initial="2"))
-
         container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
 
     def _config_compare(self, container: VerticalScroll) -> None:
@@ -1601,31 +1763,10 @@ class BrainstormApp(App):
         container.mount(TextArea(""))
         container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
 
-    def _config_detail(self, container: VerticalScroll) -> None:
-        """Detail config: single node selector."""
-        nodes = list_nodes(self.session_path)
-        head = get_head(self.session_path)
-
-        container.mount(Label("[bold]Select Node for Detailing[/]"))
-        for nid in nodes:
-            node_data = read_node(self.session_path, nid)
-            desc = node_data.get("description", "")
-            lbl = f"{nid} [green]HEAD[/]" if nid == head else nid
-            container.mount(OperationRow(nid, lbl, desc))
-        container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
-
-    def _config_patch(self, container: VerticalScroll) -> None:
-        """Patch config: single node selector + tweak request."""
-        nodes = list_nodes(self.session_path)
-        head = get_head(self.session_path)
-
-        container.mount(Label("[bold]Select Node to Patch[/]"))
-        for nid in nodes:
-            node_data = read_node(self.session_path, nid)
-            desc = node_data.get("description", "")
-            lbl = f"{nid} [green]HEAD[/]" if nid == head else nid
-            container.mount(OperationRow(nid, lbl, desc))
-
+    def _config_patch_no_node(self, container: VerticalScroll) -> None:
+        """Patch config (node already selected): patch request."""
+        node_id = self._wizard_config.get("_selected_node", "?")
+        container.mount(Label(f"[bold]Node:[/] {node_id}"))
         container.mount(Label("[bold]Patch Request[/]"))
         container.mount(TextArea(""))
         container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
@@ -1654,17 +1795,20 @@ class BrainstormApp(App):
         return all_dims
 
     def _actions_collect_config(self) -> bool:
-        """Collect and validate config from step 2 widgets. Returns True if valid."""
+        """Collect and validate config from config step widgets. Returns True if valid."""
         op = self._wizard_op
+        # Preserve _selected_node from node selection step
+        selected_node = self._wizard_config.get("_selected_node")
         config: dict = {}
+        if selected_node:
+            config["_selected_node"] = selected_node
         container = self.query_one("#actions_content", VerticalScroll)
 
         if op == "explore":
-            node = self._wizard_config.get("_selected_node")
-            if not node:
+            config["base_node"] = selected_node or ""
+            if not config["base_node"]:
                 self.notify("Select a base node first", severity="warning")
                 return False
-            config["base_node"] = node
             config["mandate"] = container.query_one(TextArea).text.strip()
             if not config["mandate"]:
                 self.notify("Mandate cannot be empty", severity="warning")
@@ -1693,19 +1837,11 @@ class BrainstormApp(App):
                 self.notify("Merge rules cannot be empty", severity="warning")
                 return False
 
-        elif op == "detail":
-            node = self._wizard_config.get("_selected_node")
-            if not node:
-                self.notify("Select a node first", severity="warning")
-                return False
-            config["node"] = node
-
         elif op == "patch":
-            node = self._wizard_config.get("_selected_node")
-            if not node:
+            config["node"] = selected_node or ""
+            if not config["node"]:
                 self.notify("Select a node first", severity="warning")
                 return False
-            config["node"] = node
             config["patch_request"] = container.query_one(TextArea).text.strip()
             if not config["patch_request"]:
                 self.notify("Patch request cannot be empty", severity="warning")
@@ -1717,13 +1853,14 @@ class BrainstormApp(App):
         self._wizard_config = config
         return True
 
-    def _actions_show_step3(self) -> None:
-        """Render Step 3: summary + launch/confirm button."""
-        self._wizard_step = 3
+    def _actions_show_confirm(self) -> None:
+        """Render final confirm step: summary + launch/confirm button."""
+        total = self._wizard_total_steps
+        self._wizard_step = total
 
         container = self.query_one("#actions_content", VerticalScroll)
         container.remove_children()
-        container.mount(Label("Step 3 of 3 \u2014 Confirm", classes="actions_step_indicator"))
+        container.mount(Label(f"Step {total} of {total} \u2014 Confirm  (Esc: Back)", classes="actions_step_indicator"))
 
         summary_lines = self._build_summary()
         container.mount(Static("\n".join(summary_lines), classes="actions_summary"))
@@ -1785,14 +1922,35 @@ class BrainstormApp(App):
 
     @on(Button.Pressed, ".btn_actions_back")
     def _on_actions_back(self) -> None:
-        """Handle Back button in step 3."""
-        self._actions_show_step2()
+        """Handle Back button in confirm step."""
+        if self._wizard_op in ("explore", "patch"):
+            self._actions_show_config()
+        elif self._wizard_op == "detail":
+            self._actions_show_node_select()
+        else:
+            self._actions_show_config()
 
     @on(Button.Pressed, ".btn_actions_next")
     def _on_actions_next(self) -> None:
-        """Handle Next button in step 2 forms."""
-        if self._wizard_step == 2 and self._actions_collect_config():
-            self._actions_show_step3()
+        """Handle Next button in wizard steps."""
+        if self._wizard_step == 2:
+            if self._wizard_op in _NODE_SELECT_OPS:
+                # Step 2 is node select; advance
+                node = self._wizard_config.get("_selected_node")
+                if not node:
+                    self.notify("Select a node first", severity="warning")
+                    return
+                if self._wizard_op == "detail":
+                    self._wizard_config["node"] = node
+                    self._actions_show_confirm()
+                else:
+                    self._actions_show_config()
+            elif self._actions_collect_config():
+                self._actions_show_confirm()
+        elif self._wizard_step == 3 and self._wizard_op in ("explore", "patch"):
+            # Step 3 is config for 4-step ops
+            if self._actions_collect_config():
+                self._actions_show_confirm()
 
     @on(Button.Pressed, ".btn_runner_start")
     def _on_runner_start(self, event: Button.Pressed) -> None:
@@ -1822,13 +1980,23 @@ class BrainstormApp(App):
             return
         if self._wizard_step == 1:
             self._wizard_op = row.op_key
+            self._set_total_steps()
             if self._wizard_op in ("pause", "resume", "finalize", "archive"):
                 self._wizard_config = {"confirmed": True}
-                self._actions_show_step3()
+                self._actions_show_confirm()
             else:
                 self._actions_show_step2()
-        elif self._wizard_step == 2:
+        elif self._wizard_step == 2 and self._wizard_op in _NODE_SELECT_OPS:
             self._wizard_config["_selected_node"] = row.op_key
+            # Visual feedback: mark selected node
+            container = self.query_one("#actions_content", VerticalScroll)
+            for op_row in container.query(OperationRow):
+                op_row.selected = (op_row.op_key == row.op_key)
+            # Enable Next button
+            try:
+                self.query_one(".btn_actions_next", Button).disabled = False
+            except Exception:
+                pass
 
     def _execute_session_op(self) -> None:
         """Execute a session lifecycle operation."""
