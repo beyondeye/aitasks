@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [brainstorming]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-25 11:42
-updated_at: 2026-03-25 13:28
+updated_at: 2026-03-25 15:00
+completed_at: 2026-03-25 15:00
 ---
 
 ## Brainstorm App Processes Section in Status Tab
