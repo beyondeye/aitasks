@@ -70,8 +70,15 @@ from agentcrew.agentcrew_log_utils import (
 )
 from agentcrew.agentcrew_runner_control import (
     get_runner_info,
+    hard_kill_agent,
+    send_agent_command,
     start_runner,
     stop_runner,
+)
+from agentcrew.agentcrew_process_stats import (
+    get_all_agent_processes,
+    get_runner_process_info,
+    sync_stale_processes,
 )
 from agentcrew.agentcrew_utils import update_yaml_field
 
@@ -521,6 +528,52 @@ class AgentStatusRow(Static, can_focus=True):
         self.refresh()
 
 
+class ProcessRow(Static, can_focus=True):
+    """Focusable process row in the Status tab. Supports p/k/K actions."""
+
+    def __init__(self, proc_data: dict, crew_id: str, **kwargs):
+        super().__init__(**kwargs)
+        self.proc_data = proc_data
+        self.crew_id = crew_id
+        self.agent_name = proc_data["agent_name"]
+
+    def render(self) -> str:
+        d = self.proc_data
+        alive = d.get("process_alive", False)
+        status = d.get("status", "")
+
+        if alive and status == "Running":
+            dot = "[green]\u25cf[/]"
+        elif status == "Paused":
+            dot = "[yellow]\u25cf[/]"
+        elif not alive:
+            dot = "[red]\u25cf[/]"
+        else:
+            dot = "[dim]\u25cf[/]"
+
+        pid_str = str(d.get("pid", "?"))
+        wall = format_elapsed(d["wall_time"]) if d.get("wall_time") is not None else "?"
+        cpu = f'{d["cpu_time"]:.1f}s' if d.get("cpu_time") is not None else "?"
+        rss = f'{d["memory_rss_mb"]:.0f}MB' if d.get("memory_rss_mb") is not None else "?"
+        hb = d.get("heartbeat_age", "?")
+
+        line = f"{dot} {d['agent_name']}  PID:{pid_str}  Wall:{wall}  CPU:{cpu}  RSS:{rss}  HB:{hb}"
+        if not alive:
+            line += "  [red]DEAD[/]"
+        if self.has_focus:
+            line += "  [dim](p:pause  k:kill  K:hard kill)[/dim]"
+        return line
+
+    def on_click(self) -> None:
+        self.focus()
+
+    def on_focus(self) -> None:
+        self.refresh()
+
+    def on_blur(self) -> None:
+        self.refresh()
+
+
 # ---------------------------------------------------------------------------
 # Main App
 # ---------------------------------------------------------------------------
@@ -581,6 +634,24 @@ class BrainstormApp(App):
 
     AgentStatusRow:hover {
         background: $surface-lighten-1;
+    }
+
+    ProcessRow {
+        height: auto;
+        padding: 0 3;
+    }
+
+    ProcessRow:focus {
+        background: $accent;
+        color: $text;
+    }
+
+    ProcessRow:hover {
+        background: $surface-lighten-1;
+    }
+
+    ProcessRow.-dead {
+        opacity: 0.6;
     }
 
     .status_output_preview {
@@ -854,6 +925,7 @@ class BrainstormApp(App):
         self._wizard_config: dict = {}
         self._expanded_groups: set[str] = set()
         self._status_refresh_timer = None
+        self._processes_synced: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -1047,10 +1119,49 @@ class BrainstormApp(App):
                 event.stop()
                 return
 
+        # Process actions on focused ProcessRow
+        if isinstance(self.focused, ProcessRow):
+            proc_row = self.focused
+            if event.key == "p":
+                status = proc_row.proc_data.get("status", "")
+                cmd = "resume" if status == "Paused" else "pause"
+                ok = send_agent_command(proc_row.crew_id, proc_row.agent_name, cmd)
+                self.notify(
+                    f"{'Resumed' if cmd == 'resume' else 'Paused'} {proc_row.agent_name}"
+                    if ok else f"Failed to {cmd} {proc_row.agent_name}",
+                    severity="information" if ok else "error",
+                )
+                self.set_timer(2.0, self._refresh_status_tab)
+                event.prevent_default()
+                event.stop()
+                return
+            elif event.key == "k":
+                ok = send_agent_command(proc_row.crew_id, proc_row.agent_name, "kill")
+                self.notify(
+                    f"Kill sent to {proc_row.agent_name}" if ok
+                    else f"Failed to send kill to {proc_row.agent_name}",
+                    severity="information" if ok else "error",
+                )
+                self.set_timer(2.0, self._refresh_status_tab)
+                event.prevent_default()
+                event.stop()
+                return
+            elif event.key == "K":
+                result = hard_kill_agent(proc_row.crew_id, proc_row.agent_name)
+                self.notify(
+                    result["message"],
+                    severity="information" if result["success"] else "error",
+                )
+                if result["success"]:
+                    self.set_timer(2.0, self._refresh_status_tab)
+                event.prevent_default()
+                event.stop()
+                return
+
         # Up/down: navigate focusable rows in Status tab
         if event.key in ("up", "down") and tabbed.active == "tab_status":
             direction = 1 if event.key == "down" else -1
-            if self._navigate_rows(direction, "status_content", (GroupRow, AgentStatusRow, StatusLogRow)):
+            if self._navigate_rows(direction, "status_content", (GroupRow, AgentStatusRow, ProcessRow, StatusLogRow)):
                 event.prevent_default()
                 event.stop()
                 return
@@ -1225,6 +1336,18 @@ class BrainstormApp(App):
             if hb_age != "never":
                 info_parts.append(f"Heartbeat: {hb_age}")
 
+            # Augment with OS-level stats
+            runner_proc = get_runner_process_info(crew_id)
+            if runner_proc and runner_proc.get("pid") and not runner_proc.get("remote"):
+                extra = []
+                extra.append(f"PID: {runner_proc['pid']}")
+                if runner_proc.get("cpu_time") is not None:
+                    extra.append(f"CPU: {runner_proc['cpu_time']:.1f}s")
+                if runner_proc.get("memory_rss_mb") is not None:
+                    extra.append(f"RSS: {runner_proc['memory_rss_mb']:.0f}MB")
+                if extra:
+                    info_parts.extend(extra)
+
             container.mount(
                 Label("[bold]Runner[/bold]", classes="status_section_title")
             )
@@ -1237,6 +1360,24 @@ class BrainstormApp(App):
                 bar.mount(Button("Start Runner", classes="btn_runner_start"))
             else:
                 bar.mount(Button("Stop Runner", classes="btn_runner_stop"))
+
+        # --- Running Processes section ---
+        if crew_id:
+            if not self._processes_synced:
+                corrected = sync_stale_processes(crew_id)
+                if corrected:
+                    self.notify(f"Auto-corrected {len(corrected)} stale agent(s)")
+                self._processes_synced = True
+
+            processes = get_all_agent_processes(crew_id)
+            container.mount(
+                Label("[bold]Running Processes[/bold]", classes="status_section_title")
+            )
+            if not processes:
+                container.mount(Label("  [dim]No running processes[/dim]"))
+            else:
+                for proc in processes:
+                    container.mount(ProcessRow(proc, crew_id))
 
         # Read groups from br_groups.yaml
         groups_path = self.session_path / GROUPS_FILE
