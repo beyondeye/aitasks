@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: [t468_2, t468_3, t468_4]
+depends: [t468_2, t468_3, t468_4, t468_7]
 issue_type: documentation
 status: Ready
 labels: [documentation, website]
@@ -13,7 +13,7 @@ updated_at: 2026-03-26 13:00
 
 The t468 task family adds full tmux integration to aitasks TUIs. Child tasks t468_1-t468_5 create shared launch utilities, migrate board/codebrowser to use them, and add tmux settings. This task updates the Hugo/Docsy website documentation to reflect these changes.
 
-Depends on: t468_2 (board migration), t468_3 (codebrowser modal), t468_4 (tmux settings tab)
+Depends on: t468_2 (board migration), t468_3 (codebrowser modal), t468_4 (tmux settings tab), t468_7 (auto-launch TUIs in tmux)
 
 ## Key Areas to Update
 
@@ -47,6 +47,19 @@ Depends on: t468_2 (board migration), t468_3 (codebrowser modal), t468_4 (tmux s
 ### 5. Codebrowser Documentation (`ait codebrowser`)
 - Document the new launch modal for explain (`e` shortcut) and QA (`a` shortcut in history)
 - Both now show the same tabbed dialog with direct/tmux modes
+
+### 6. tmux Tips & Configuration Subpage
+- Create a new subpage under installation/setup (e.g., "tmux Setup & Tips")
+- Cover: installing tmux on Linux/macOS, basic tmux configuration for aitasks use, useful tmux key bindings
+- Explain how to open/attach to the aitasks tmux session (`tmux attach -t aitasks` or `tmux new -s aitasks`)
+- Recommended tmux workflow: board in one window, codebrowser in another, agent sessions spawned as additional windows
+- Link to t468_7's `ait workspace` command if applicable
+
+### 7. `ait workspace` / Auto-Launch Documentation
+- Document the auto-launch behavior added by t468_7:
+  - How `ait board`, `ait codebrowser`, `ait settings` automatically start inside the aitasks tmux session when tmux is available
+  - The `ait workspace` command for launching a pre-configured tmux session with all main TUIs
+  - Settings to control this behavior
 
 ### Reference Files
 - `website/content/en/docs/` — Documentation pages

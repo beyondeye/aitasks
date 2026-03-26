@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t468_1, t468_4]
 issue_type: feature
 status: Ready
 labels: [ui, tmux]
