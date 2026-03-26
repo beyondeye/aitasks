@@ -153,8 +153,10 @@ class AgentCommandScreen(ModalScreen):
     }
     """
 
+    AUTO_FOCUS = ""
+    ESCAPE_TO_MINIMIZE = False
+
     BINDINGS = [
-        Binding("escape", "cancel", "Cancel", show=False),
         Binding("c", "copy_command", "Copy Command", show=False),
         Binding("C", "copy_command", "Copy Command", show=False),
         Binding("p", "copy_prompt", "Copy Prompt", show=False),
@@ -214,10 +216,15 @@ class AgentCommandScreen(ModalScreen):
         container = Container(id="tmux_content")
         return container
 
-    def on_mount(self) -> None:
-        # Prevent Input from stealing focus on open
-        self.set_focus(None)
+    def handle_escape(self) -> None:
+        """Custom escape: unfocus Input/Select if focused, otherwise dismiss."""
+        focused = self.focused
+        if isinstance(focused, (Input, Select)):
+            self.set_focus(None)
+        else:
+            self.dismiss(None)
 
+    def on_mount(self) -> None:
         # Populate direct tab
         direct = self.query_one("#direct_content")
         direct.mount(Label("Prompt only:"))
@@ -254,13 +261,13 @@ class AgentCommandScreen(ModalScreen):
 
         sess_row = Horizontal(classes="tmux-field-row")
         tmux.mount(sess_row)
-        sess_row.mount(Label("Session:"))
+        sess_row.mount(Label("(S)ession:"))
         sess_row.mount(Select(session_options, value=initial_session, id="tmux_session_select"))
 
         # New session name input (hidden by default)
         new_sess_row = Horizontal(id="tmux_new_session_row", classes="hidden")
         tmux.mount(new_sess_row)
-        new_sess_row.mount(Label("Name:"))
+        new_sess_row.mount(Label("Session (n)ame:"))
         new_sess_row.mount(Input(
             value=self._tmux_defaults["default_session"],
             id="tmux_new_session_input",
@@ -270,13 +277,13 @@ class AgentCommandScreen(ModalScreen):
         # Window selector (populated when session is selected)
         win_row = Horizontal(classes="tmux-field-row")
         tmux.mount(win_row)
-        win_row.mount(Label("Window:"))
+        win_row.mount(Label("(W)indow:"))
         win_row.mount(Select([], allow_blank=True, id="tmux_window_select"))
 
         # New window name input
         new_win_row = Horizontal(id="tmux_new_window_row", classes="hidden")
         tmux.mount(new_win_row)
-        new_win_row.mount(Label("Name:"))
+        new_win_row.mount(Label("Window na(m)e:"))
         new_win_row.mount(Input(
             value=self.default_window_name,
             id="tmux_new_window_input",
@@ -452,12 +459,6 @@ class AgentCommandScreen(ModalScreen):
     # --- Actions ---
 
     def action_cancel(self) -> None:
-        # If an Input is focused, unfocus it first (so shortcuts work);
-        # only dismiss when no Input has focus.
-        focused = self.app.focused
-        if isinstance(focused, Input):
-            self.set_focus(None)
-            return
         self.dismiss(None)
 
     def action_copy_command(self) -> None:
@@ -481,16 +482,42 @@ class AgentCommandScreen(ModalScreen):
                 pass
 
     def on_key(self, event) -> None:
-        # Handle 't' for tmux tab (can't use Binding because 't' would conflict
-        # with Input widget text entry — only switch tab when Input not focused)
-        if event.key == "t" and self._tmux_available:
-            focused = self.app.focused
-            if not isinstance(focused, Input):
-                try:
-                    self.query_one("#agent_cmd_tabs", TabbedContent).active = "tab_tmux"
-                except Exception:
-                    pass
-                event.prevent_default()
+        focused = self.app.focused
+        if isinstance(focused, (Input, Select)):
+            return  # Let input/select handle the key
+        if not self._tmux_available:
+            return
+        # Tab navigation shortcuts (only when no Input/Select focused)
+        if event.key == "t":
+            try:
+                self.query_one("#agent_cmd_tabs", TabbedContent).active = "tab_tmux"
+            except Exception:
+                pass
+            event.prevent_default()
+        elif event.key == "s":
+            try:
+                self.query_one("#tmux_session_select", Select).focus()
+            except Exception:
+                pass
+            event.prevent_default()
+        elif event.key == "n":
+            try:
+                self.query_one("#tmux_new_session_input", Input).focus()
+            except Exception:
+                pass
+            event.prevent_default()
+        elif event.key == "w":
+            try:
+                self.query_one("#tmux_window_select", Select).focus()
+            except Exception:
+                pass
+            event.prevent_default()
+        elif event.key == "m":
+            try:
+                self.query_one("#tmux_new_window_input", Input).focus()
+            except Exception:
+                pass
+            event.prevent_default()
 
     # --- Helpers ---
 

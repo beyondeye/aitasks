@@ -2994,7 +2994,10 @@ class KanbanApp(App):
     def action_focus_board(self):
         """Escape: close modal if active, otherwise return to board from search."""
         if self._modal_is_active():
-            self.screen.dismiss()
+            if hasattr(self.screen, "handle_escape"):
+                self.screen.handle_escape()
+            else:
+                self.screen.dismiss()
             return
         cards = list(self.query(TaskCard))
         if cards:
