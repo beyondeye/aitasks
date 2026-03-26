@@ -103,7 +103,14 @@ Three call sites, all change from `self._find_terminal()` to `_find_terminal()`:
   - Added `TmuxLaunchConfig` and `launch_in_tmux` imports — needed for the AgentCommandScreen's tmux dismiss result callback pattern.
   - Fixed bugs in `agent_command_screen.py` (not in original plan scope):
     - `Select.BLANK` is `False` in Textual 8.1.1, causing `InvalidSelectValueError` on mount. Fixed session select to default to `_NEW_SESSION_SENTINEL` when no sessions, window select to use `allow_blank=True` without explicit value, and `.clear()` instead of `value = Select.BLANK`.
-    - Input widget auto-focus on dialog open blocked keyboard shortcuts. Added `set_focus(None)` in `on_mount`.
-    - Esc key now first unfocuses Input widgets before dismissing the dialog.
+    - Input widget auto-focus on dialog open blocked keyboard shortcuts. Used `AUTO_FOCUS = ""` (empty string disables, `None` inherits from app).
+    - Esc key now first unfocuses Input/Select widgets before dismissing the dialog.
+    - Escape handling required `handle_escape()` protocol on the screen + delegation from `KanbanApp.action_focus_board()`, because Textual 8.1.1 resolves priority bindings App→Screen (reversed chain), so App's priority escape binding always wins.
+    - Added `ESCAPE_TO_MINIMIZE = False` to prevent Textual 8.1.1's built-in escape handling.
+    - Added keyboard shortcuts for tmux tab: `s`=session, `n`=session name, `w`=window, `m`=window name.
+    - Renamed ambiguous "Name:" labels to "Session (n)ame:" and "Window na(m)e:".
 - **Issues encountered:** `resolve_dry_run_command` expects `Path` for project root, not a string path to the script — initial call passed `str(CODEAGENT_SCRIPT)` instead of `Path(".")`.
-- **Notes for sibling tasks:** The `AgentCommandScreen` has Textual 8.1.1 compatibility fixes. The `Select.BLANK`/`Select.NULL` mismatch in Textual 8.1.1 should be kept in mind — never use `Select.BLANK` for initialization or assignment; use `allow_blank=True` constructor arg and `.clear()` method instead.
+- **Notes for sibling tasks:**
+  - The `AgentCommandScreen` has Textual 8.1.1 compatibility fixes. The `Select.BLANK`/`Select.NULL` mismatch in Textual 8.1.1 should be kept in mind — never use `Select.BLANK` for initialization or assignment; use `allow_blank=True` constructor arg and `.clear()` method instead.
+  - For escape handling in custom ModalScreens: don't use priority escape bindings (App wins). Instead, add a `handle_escape()` method and ensure the host App delegates to it from its own escape handler via `hasattr(self.screen, "handle_escape")`.
+  - `AUTO_FOCUS = None` inherits from App (which auto-focuses first widget). Use `AUTO_FOCUS = ""` to disable.
