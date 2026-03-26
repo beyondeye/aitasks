@@ -193,6 +193,22 @@ Key changes from `PickCommandScreen`:
 2. Import test: `cd .aitask-scripts/lib && python -c "from agent_launch_utils import find_terminal, resolve_dry_run_command; print('OK')"`
 3. Dry-run test: `python -c "import sys; sys.path.insert(0, '.aitask-scripts/lib'); from agent_launch_utils import resolve_dry_run_command; from pathlib import Path; r = resolve_dry_run_command(Path('.'), 'pick', '1'); print(r or 'None (expected if no task 1)')"`
 
+## Final Implementation Notes
+
+- **Actual work done:** Created two shared modules as planned, but significantly expanded scope to include full tmux integration (tabbed Direct/tmux modes in the dialog, tmux session/window/pane management utilities, config loading from project_config.yaml). Original plan only had simple direct-run modal.
+- **Deviations from plan:** Constructor gained `default_window_name` and `project_root` parameters. Dialog now uses `Input` widget for editable command (was `Label` in original plan). Added `TabbedContent` with Direct/tmux tabs. Dismiss result can now be `TmuxLaunchConfig` dataclass in addition to `"run"` or `None`.
+- **Issues encountered:** None — all imports and utility tests passed on first try. tmux detection works correctly.
+- **Key decisions:**
+  - Command `Input` sits above tabs (shared between both modes) rather than duplicated in each tab
+  - `t` key binding for tmux tab handled via `on_key` to avoid conflicts with `Input` text entry
+  - Class-level `_last_session`/`_last_window` for cross-dialog-open memory within same TUI session
+  - `load_tmux_defaults()` uses YAML with `try/except` fallback — no hard dependency on config existing
+- **Notes for sibling tasks:**
+  - t468_2 (board migration): Replace `PickCommandScreen` import with `AgentCommandScreen`, change constructor from `(task_num, full_command, prompt_str)` to `(title, full_command, prompt_str, default_window_name, project_root)`. Handle `TmuxLaunchConfig` dismiss result in callback by calling `launch_in_tmux()`. Remove board's `_find_terminal()`, `_resolve_pick_command()` and pick command CSS — all now in shared modules.
+  - t468_3 (codebrowser): Import `AgentCommandScreen` from `lib/`, use same pattern. Codebrowser's `agent_utils.py:find_terminal()` can be replaced with the shared one.
+  - t468_4 (settings tab): Add `tmux:` section to `PROJECT_CONFIG_SCHEMA` in settings_app.py. Use `_TAB_SHORTCUTS["t"] = "tab_tmux"` pattern. Settings: `default_session`, `default_split`, `use_for_create`.
+  - t468_5 (board create refactor): Read `tmux.use_for_create` from config, optionally route `action_create_task()` through tmux launch.
+
 ## Step 9 (Post-Implementation)
 
-Commit code, update plan, archive task per workflow.
+Commit code, create t468_4 and t468_5 sibling tasks, update plan, archive task per workflow.
