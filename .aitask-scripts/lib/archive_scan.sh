@@ -91,13 +91,22 @@ scan_max_task_id() {
 # Args: $1=task_num (numeric, e.g., "150"), $2=archived_dir
 # Output: "ARCHIVED_TASK_TAR_GZ:<archive_path>:<match>" or "NOT_FOUND"
 search_archived_task() {
-    local num="$1"
+    local id="$1"
     local archived_dir="$2"
-    local pattern="(^|/)t${num}_.*\.md$"
+
+    # Parse child task format (e.g., "465_2") vs parent (e.g., "465")
+    local bucket_id pattern
+    if [[ "$id" =~ ^([0-9]+)_([0-9]+)$ ]]; then
+        bucket_id="${BASH_REMATCH[1]}"
+        pattern="(^|/)t${BASH_REMATCH[1]}/t${BASH_REMATCH[1]}_${BASH_REMATCH[2]}_.*\.md$"
+    else
+        bucket_id="$id"
+        pattern="(^|/)t${id}_.*\.md$"
+    fi
 
     # O(1) lookup: compute the exact archive for this task number
     local archive_path
-    archive_path=$(archive_path_for_id "$num" "$archived_dir")
+    archive_path=$(archive_path_for_id "$bucket_id" "$archived_dir")
     if [[ -f "$archive_path" ]]; then
         local tar_match
         tar_match=$(_search_tar_gz "$archive_path" "$pattern")

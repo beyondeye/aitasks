@@ -14,7 +14,7 @@
 #   ./.aitask-scripts/aitask_query_files.sh sibling-context <parent>
 #   ./.aitask-scripts/aitask_query_files.sh plan-file <taskid>
 #   ./.aitask-scripts/aitask_query_files.sh archived-children <N>
-#   ./.aitask-scripts/aitask_query_files.sh archived-task <N>
+#   ./.aitask-scripts/aitask_query_files.sh archived-task <N|N_M>
 #   ./.aitask-scripts/aitask_query_files.sh active-children <N>
 #   ./.aitask-scripts/aitask_query_files.sh resolve <N>
 #   ./.aitask-scripts/aitask_query_files.sh recent-archived [limit]
@@ -46,7 +46,7 @@ Subcommands:
   sibling-context <parent>     List all sibling context files (archived + pending)
   plan-file <taskid>           Find active plan file (supports "16" or "16_2")
   archived-children <N>        List archived children of task N
-  archived-task <N>            Find archived task file for number N
+  archived-task <N|N_M>        Find archived task file (parent N or child N_M)
   resolve <N>                  Combined: task-file + has-children in one call
   recent-archived [limit]      List recently archived tasks (default: 15)
 
@@ -127,6 +127,32 @@ cmd_archived_task() {
     [[ $# -lt 1 ]] && die "archived-task requires a task number argument"
     local num
     num=$(strip_prefix "$1")
+
+    # Handle child task format (e.g., "465_2")
+    if [[ "$num" =~ ^([0-9]+)_([0-9]+)$ ]]; then
+        local parent="${BASH_REMATCH[1]}"
+        local child="${BASH_REMATCH[2]}"
+
+        # Check archived child directory on filesystem
+        local files
+        files=$(ls "$ARCHIVED_DIR"/t"${parent}"/t"${parent}"_"${child}"_*.md 2>/dev/null || true)
+        if [[ -n "$files" ]]; then
+            echo "ARCHIVED_TASK:$files"
+            return
+        fi
+
+        # Check numbered archives (search_archived_task now handles N_M format)
+        local scan_result
+        scan_result=$(search_archived_task "${parent}_${child}" "$ARCHIVED_DIR")
+        if [[ "$scan_result" != "NOT_FOUND" ]]; then
+            echo "$scan_result"
+            return
+        fi
+
+        echo "NOT_FOUND"
+        return
+    fi
+
     validate_num "$num" "task number"
 
     # Check filesystem first

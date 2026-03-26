@@ -322,6 +322,38 @@ assert_not_contains "archived-task 50 not tar_gz when filesystem exists" "TAR_GZ
 # Clean up test artifacts
 rm -f "$ARCHIVED_DIR/t50_old_feature.md" "$ARCHIVED_DIR/old.tar.gz"
 
+# --- archived-task: child task IDs (N_M format) ---
+
+echo "--- archived-task (child) ---"
+
+# Filesystem child lookup (t10/t10_1_first_task.md exists in mock)
+out=$("$QUERY" archived-task 10_1)
+assert_contains "archived-task 10_1 found on filesystem" "ARCHIVED_TASK:" "$out"
+assert_contains "archived-task 10_1 path" "t10_1_first_task.md" "$out"
+assert_not_contains "archived-task 10_1 not tar_gz" "TAR_GZ" "$out"
+
+# Prefix stripping with child format
+out=$("$QUERY" archived-task t10_1)
+assert_contains "archived-task t10_1 with prefix" "ARCHIVED_TASK:" "$out"
+assert_contains "archived-task t10_1 path" "t10_1_first_task.md" "$out"
+
+# Child not found on filesystem
+out=$("$QUERY" archived-task 10_99)
+assert_eq "archived-task 10_99 not found" "NOT_FOUND" "$out"
+
+# tar.gz child lookup: create archive with child task in subdirectory
+staging=$(mktemp -d)
+mkdir -p "$staging/t70"
+echo "---\nstatus: Done\n---\nTar child task" > "$staging/t70/t70_1_subtask.md"
+tar -czf "$ARCHIVED_DIR/old.tar.gz" -C "$staging" .
+rm -rf "$staging"
+
+out=$("$QUERY" archived-task 70_1)
+assert_contains "archived-task 70_1 found in tar.gz" "ARCHIVED_TASK_TAR_GZ:" "$out"
+assert_contains "archived-task 70_1 tar entry" "t70_1_subtask.md" "$out"
+
+rm -f "$ARCHIVED_DIR/old.tar.gz"
+
 # ============================================================
 # Tests: input validation
 # ============================================================
