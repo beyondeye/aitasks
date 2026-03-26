@@ -20,6 +20,7 @@ description: "Keyboard shortcuts, annotation pipeline, and technical details"
 | `d` | Toggle detail pane visibility | Global |
 | `D` | Toggle detail pane between default and expanded width | Global |
 | `h` | Toggle completed tasks history view | Global |
+| `H` | Open history screen navigated to the task at cursor | Global (requires annotated line) |
 
 #### History Screen
 
@@ -34,6 +35,7 @@ description: "Keyboard shortcuts, annotation pipeline, and technical details"
 | `Up` / `Down` | Navigate between focusable fields | History detail |
 | `Enter` | Open link, select task, or navigate to file (context-dependent) | History detail |
 | `s` | Open sibling task picker (on child tasks) | History detail |
+| `a` | Launch QA agent for the selected task | History detail |
 
 #### Label Filter Dialog
 
@@ -116,7 +118,7 @@ See [`ait explain-runs` and `ait explain-cleanup`]({{< relref "/docs/commands/ex
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `TERMINAL` | Auto-detected | Terminal emulator for launching the configured code agent (when pressing `e`) |
+| `TERMINAL` | Auto-detected | Terminal emulator for launching code agents (when pressing `e` or `a`) |
 | `PYTHON` | `python3` | Python interpreter (used by launcher if shared venv is unavailable) |
 
 **Terminal auto-detection order:** `$TERMINAL`, then `alacritty`, `kitty`, `ghostty`, `foot`, `x-terminal-emulator`, `xdg-terminal-exec`, `gnome-terminal`, `konsole`, `xfce4-terminal`, `lxterminal`, `mate-terminal`, `xterm`.

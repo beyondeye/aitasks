@@ -103,6 +103,17 @@ The codebrowser integrates directly with the [`/aitask-explain`]({{< relref "/do
 
 This is the recommended workflow for going deeper: use the codebrowser's visual annotations to identify interesting code sections, then press **e** to get a full narrative explanation from your configured agent.
 
+### How to Navigate from Code to Task History
+
+When viewing annotated code, you can jump directly to a specific task in the history screen:
+
+1. Navigate to a line annotated with a task ID
+2. Press **H** (capital H) to open the history screen, pre-navigated to that task
+3. The history detail pane shows the full task info: commits, affected files, child tasks, etc.
+4. Press **h** or **Escape** to return to the code browser
+
+If the detail pane is open, **H** uses its current task. Otherwise, it resolves the task from the annotation at the cursor line. This is the reverse of the existing flow where you press **Enter** on an affected file in history to open it in the browser.
+
 ### How to Browse Completed Tasks
 
 The history screen lets you explore all archived tasks that have been completed in the project.
@@ -159,3 +170,15 @@ When viewing a child task (e.g., t448_3), you can browse its sibling tasks:
 **Returning to the code browser:**
 
 - Press **h** or **Escape** to close the history screen and return to browsing code
+
+### How to Launch QA from the History Screen
+
+You can run QA analysis on any completed task directly from the history screen:
+
+1. Press **h** to open the history screen
+2. Select a completed task from the list
+3. Press **a** to launch the configured QA agent for that task
+4. A terminal opens with the `/aitask-qa` skill pre-loaded for the selected task
+5. If no terminal is detected, the codebrowser suspends and runs QA in the current terminal
+
+The QA agent uses the model configured for the `qa` operation in `ait settings` (Agent Defaults tab). By default, this is `claudecode/sonnet4_6`.
