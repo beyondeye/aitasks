@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t468_1]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [codebrowser, ui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-26 09:54
-updated_at: 2026-03-26 09:54
+updated_at: 2026-03-26 14:11
 ---
 
 ## Context
