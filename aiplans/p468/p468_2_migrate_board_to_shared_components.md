@@ -95,6 +95,15 @@ Three call sites, all change from `self._find_terminal()` to `_find_terminal()`:
 4. Open task detail → press `p` — verify same modal appears
 5. Verify sync, create task, and pick all use terminal detection correctly
 
-## Step 9 (Post-Implementation)
+## Final Implementation Notes
 
-Commit code, update plan, archive task per workflow.
+- **Actual work done:** Migrated board TUI from `PickCommandScreen` to shared `AgentCommandScreen`, replaced `_find_terminal()` with shared `find_terminal()`, delegated `_resolve_pick_command()` to `resolve_dry_run_command()`. Also added `TmuxLaunchConfig` callback handling and removed unused `shutil` import.
+- **Deviations from plan:**
+  - Plan suggested importing `find_terminal as _find_terminal` to minimize call-site changes. Instead imported as `find_terminal` directly and changed all call sites (cleaner, no aliasing).
+  - Added `TmuxLaunchConfig` and `launch_in_tmux` imports — needed for the AgentCommandScreen's tmux dismiss result callback pattern.
+  - Fixed bugs in `agent_command_screen.py` (not in original plan scope):
+    - `Select.BLANK` is `False` in Textual 8.1.1, causing `InvalidSelectValueError` on mount. Fixed session select to default to `_NEW_SESSION_SENTINEL` when no sessions, window select to use `allow_blank=True` without explicit value, and `.clear()` instead of `value = Select.BLANK`.
+    - Input widget auto-focus on dialog open blocked keyboard shortcuts. Added `set_focus(None)` in `on_mount`.
+    - Esc key now first unfocuses Input widgets before dismissing the dialog.
+- **Issues encountered:** `resolve_dry_run_command` expects `Path` for project root, not a string path to the script — initial call passed `str(CODEAGENT_SCRIPT)` instead of `Path(".")`.
+- **Notes for sibling tasks:** The `AgentCommandScreen` has Textual 8.1.1 compatibility fixes. The `Select.BLANK`/`Select.NULL` mismatch in Textual 8.1.1 should be kept in mind — never use `Select.BLANK` for initialization or assignment; use `allow_blank=True` constructor arg and `.clear()` method instead.
