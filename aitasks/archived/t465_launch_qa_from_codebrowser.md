@@ -3,11 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [codebrowser, qa]
-children_to_implement: [t465_4]
 created_at: 2026-03-25 12:40
-updated_at: 2026-03-25 21:27
+updated_at: 2026-03-26 09:25
+completed_at: 2026-03-26 09:25
 ---
 
 we have implemented a new screen in codebrowser, the history screen, but there are addiional feature I would like to add

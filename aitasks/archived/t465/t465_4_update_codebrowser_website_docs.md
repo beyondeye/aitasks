@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: [t465_2, t465_3]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [codebrowser, website]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-25 12:58
-updated_at: 2026-03-25 22:10
+updated_at: 2026-03-26 09:25
+completed_at: 2026-03-26 09:25
 ---
 
 ## Context
