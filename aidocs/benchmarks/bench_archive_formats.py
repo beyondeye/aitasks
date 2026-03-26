@@ -250,85 +250,90 @@ class TarGzCLI(ArchiveFormat):
         return r.stdout
 
 
-class TarZstCLI(ArchiveFormat):
-    name = "tar.zst (CLI)"
+class TarZstNative(ArchiveFormat):
+    """tar.zst using GNU tar's native --zstd flag (Linux only)."""
+    name = "tar.zst (native)"
     extension = ".tar.zst"
 
-    def __init__(self, has_tar_zstd: bool):
-        self._native = has_tar_zstd
-
     def create(self, source_dir: Path, output_path: Path) -> None:
-        if self._native:
-            subprocess.run(
-                ["tar", "--zstd", "-cf", str(output_path),
-                 "-C", str(source_dir), "."],
-                check=True, capture_output=True,
-            )
-        else:
-            with open(output_path, "wb") as out:
-                tar_proc = subprocess.Popen(
-                    ["tar", "-cf", "-", "-C", str(source_dir), "."],
-                    stdout=subprocess.PIPE,
-                )
-                zstd_proc = subprocess.Popen(
-                    ["zstd", "-q"],
-                    stdin=tar_proc.stdout, stdout=out,
-                )
-                tar_proc.stdout.close()
-                zstd_proc.wait()
-                tar_proc.wait()
+        subprocess.run(
+            ["tar", "--zstd", "-cf", str(output_path),
+             "-C", str(source_dir), "."],
+            check=True, capture_output=True,
+        )
 
     def list_files(self, archive_path: Path) -> List[str]:
-        if self._native:
-            r = subprocess.run(
-                ["tar", "--zstd", "-tf", str(archive_path)],
-                check=True, capture_output=True, text=True,
-            )
-        else:
-            zstd_proc = subprocess.Popen(
-                ["zstd", "-dc", str(archive_path)],
-                stdout=subprocess.PIPE,
-            )
-            tar_proc = subprocess.Popen(
-                ["tar", "-tf", "-"],
-                stdin=zstd_proc.stdout,
-                capture_output=True, text=True,
-            )
-            zstd_proc.stdout.close()
-            r_stdout, _ = tar_proc.communicate()
-            # Simulate an object with .stdout for uniform handling
-            class _R:
-                stdout = r_stdout
-            r = _R()
+        r = subprocess.run(
+            ["tar", "--zstd", "-tf", str(archive_path)],
+            check=True, capture_output=True, text=True,
+        )
         return [_normalize_tar_name(l) for l in r.stdout.strip().splitlines() if l]
 
     def check_file_exists(self, archive_path: Path, filename: str) -> bool:
         return filename in set(self.list_files(archive_path))
 
     def extract_single(self, archive_path: Path, filename: str) -> bytes:
-        # Try with ./ prefix first (matches tar -C dir . output)
         for name in ["./" + filename, filename]:
-            if self._native:
-                r = subprocess.run(
-                    ["tar", "--zstd", "-xf", str(archive_path), "-O", name],
-                    capture_output=True,
-                )
-                if r.returncode == 0:
-                    return r.stdout
-            else:
-                zstd_proc = subprocess.Popen(
-                    ["zstd", "-dc", str(archive_path)],
-                    stdout=subprocess.PIPE,
-                )
-                tar_proc = subprocess.Popen(
-                    ["tar", "-xf", "-", "-O", name],
-                    stdin=zstd_proc.stdout,
-                    capture_output=True,
-                )
-                zstd_proc.stdout.close()
-                out, _ = tar_proc.communicate()
-                if tar_proc.returncode == 0:
-                    return out
+            r = subprocess.run(
+                ["tar", "--zstd", "-xf", str(archive_path), "-O", name],
+                capture_output=True,
+            )
+            if r.returncode == 0:
+                return r.stdout
+        raise FileNotFoundError(f"{filename} not in {archive_path}")
+
+
+class TarZstPipe(ArchiveFormat):
+    """tar.zst using pipe approach (cross-platform: Linux + macOS)."""
+    name = "tar.zst (pipe)"
+    extension = ".pipe.tar.zst"
+
+    def create(self, source_dir: Path, output_path: Path) -> None:
+        with open(output_path, "wb") as out:
+            tar_proc = subprocess.Popen(
+                ["tar", "-cf", "-", "-C", str(source_dir), "."],
+                stdout=subprocess.PIPE,
+            )
+            zstd_proc = subprocess.Popen(
+                ["zstd", "-q"],
+                stdin=tar_proc.stdout, stdout=out,
+            )
+            tar_proc.stdout.close()
+            zstd_proc.wait()
+            tar_proc.wait()
+
+    def list_files(self, archive_path: Path) -> List[str]:
+        zstd_proc = subprocess.Popen(
+            ["zstd", "-dc", str(archive_path)],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+        tar_proc = subprocess.Popen(
+            ["tar", "-tf", "-"],
+            stdin=zstd_proc.stdout,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        zstd_proc.stdout.close()
+        out, _ = tar_proc.communicate()
+        return [_normalize_tar_name(l) for l in out.strip().splitlines() if l]
+
+    def check_file_exists(self, archive_path: Path, filename: str) -> bool:
+        return filename in set(self.list_files(archive_path))
+
+    def extract_single(self, archive_path: Path, filename: str) -> bytes:
+        for name in ["./" + filename, filename]:
+            zstd_proc = subprocess.Popen(
+                ["zstd", "-dc", str(archive_path)],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            )
+            tar_proc = subprocess.Popen(
+                ["tar", "-xf", "-", "-O", name],
+                stdin=zstd_proc.stdout,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            zstd_proc.stdout.close()
+            out, _ = tar_proc.communicate()
+            if tar_proc.returncode == 0:
+                return out
         raise FileNotFoundError(f"{filename} not in {archive_path}")
 
 
@@ -659,7 +664,9 @@ def main() -> None:
             all_formats.append(TarGzCLI())
         if not want or "tar.zst" in want:
             if caps.has_zstd_cli:
-                all_formats.append(TarZstCLI(caps.has_tar_zstd))
+                if caps.has_tar_zstd:
+                    all_formats.append(TarZstNative())
+                all_formats.append(TarZstPipe())
             else:
                 print("WARN: zstd CLI not found, skipping tar.zst")
         if not want or "tar.xz" in want:
