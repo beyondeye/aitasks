@@ -16,7 +16,7 @@ File: `website/content/docs/tuis/codebrowser/reference.md`, line ~22 (after `h` 
 
 Add row:
 ```
-| `H` | Open history navigated to the task in the detail pane | Global (requires detail pane with task) |
+| `H` | Open history screen navigated to the task at cursor | Global (requires annotated line) |
 ```
 
 ## Step 2: Update reference.md — History Screen shortcuts
@@ -46,14 +46,12 @@ File: `website/content/docs/tuis/codebrowser/how-to.md`, after "How to Launch Ex
 
 When viewing annotated code, you can jump directly to a specific task in the history screen:
 
-1. Press **d** to open the detail pane (if not already visible)
-2. Navigate to a line annotated with a task ID
-3. The detail pane shows the plan or task content for that annotation
-4. Press **H** (capital H) to open the history screen, pre-navigated to that task
-5. The history detail pane shows the full task info: commits, affected files, child tasks, etc.
-6. Press **h** or **Escape** to return to the code browser
+1. Navigate to a line annotated with a task ID
+2. Press **H** (capital H) to open the history screen, pre-navigated to that task
+3. The history detail pane shows the full task info: commits, affected files, child tasks, etc.
+4. Press **h** or **Escape** to return to the code browser
 
-This is the reverse of the existing flow where you press **Enter** on an affected file in history to open it in the browser.
+If the detail pane is open, **H** uses its current task. Otherwise, it resolves the task from the annotation at the cursor line. This is the reverse of the existing flow where you press **Enter** on an affected file in history to open it in the browser.
 ```
 
 ## Step 5: Add how-to section — Launch QA from History
@@ -80,6 +78,9 @@ The QA agent uses the model configured for the `qa` operation in `ait settings` 
 - New sections render correctly in generated output
 - Links resolve (no broken relref)
 
-## Step 9: Post-Implementation
-
-Follow standard archival workflow.
+## Final Implementation Notes
+- **Actual work done:** All 5 steps implemented as planned. Added `H` and `a` shortcut rows to reference.md, updated TERMINAL env var description, added two new how-to sections (Navigate from Code to Task History, Launch QA from History).
+- **Deviations from plan:** Corrected the `H` shortcut description during plan verification — original plan (from task file) said "requires detail pane with task" but per p465_2's actual implementation, `H` resolves from annotation at cursor when detail pane is not open. Updated to "requires annotated line".
+- **Issues encountered:** None.
+- **Key decisions:** Kept how-to sections concise and consistent with existing section style.
+- **Notes for sibling tasks:** This is the final child task (t465_4). All t465 children are now complete.
