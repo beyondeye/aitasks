@@ -16,6 +16,7 @@ aitask_undo
 aitask_wrap
 ait_dispatcher
 ait_settings
+archiveformat
 auto-update
 bash_scripts
 brainstorming
