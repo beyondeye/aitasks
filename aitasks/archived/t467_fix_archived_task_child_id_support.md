@@ -3,11 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [core]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-25 22:10
-updated_at: 2026-03-25 22:12
+updated_at: 2026-03-26 10:00
+completed_at: 2026-03-26 10:00
 ---
 
 ## Bug: `archived-task` subcommand fails for child task IDs
