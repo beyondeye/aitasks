@@ -12,7 +12,8 @@
         "explore": 99,
         "revert": 100,
         "test_414_flags": 90,
-        "qa": 100
+        "qa": 100,
+        "wrap": 100
       },
       "verifiedstats": {
         "pick": {
@@ -104,6 +105,22 @@
             "period": "2026-03",
             "runs": 2,
             "score_sum": 200
+          },
+          "week": {
+            "period": "2026-W13",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "wrap": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "month": {
+            "period": "2026-03",
+            "runs": 1,
+            "score_sum": 100
           },
           "week": {
             "period": "2026-W13",
