@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: low
-depends: [t468_4]
+depends: [t468_1, t468_4]
 issue_type: refactor
 status: Ready
 labels: [ui, board]
