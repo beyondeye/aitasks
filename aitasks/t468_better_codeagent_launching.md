@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [codebrowser]
-children_to_implement: [t468_1, t468_2, t468_3, t468_4, t468_5]
+children_to_implement: [t468_2, t468_3, t468_4, t468_5]
 created_at: 2026-03-26 09:34
 updated_at: 2026-03-26 12:54
 ---
