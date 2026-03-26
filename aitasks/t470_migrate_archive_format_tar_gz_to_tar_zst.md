@@ -6,7 +6,7 @@ issue_type: refactor
 status: Ready
 labels: [task-archive, archiveformat]
 created_at: 2026-03-26 22:42
-updated_at: 2026-03-26 22:42
+updated_at: 2026-03-26 23:05
 ---
 
 Migrate all archive operations from tar.gz to tar.zst format across the entire aitasks codebase.
@@ -41,10 +41,23 @@ While zip was fastest for listing/existence checks (14x faster), it doesn't tran
 - `ait setup` should add automatic migration of existing `old*.tar.gz` files to `old*.tar.zst`
 - Linux: `zstd` is available in all major distro package managers (apt, dnf, pacman)
 
-### macOS compatibility
+### macOS compatibility — DECIDED: use pipe approach universally
 - BSD tar does NOT support `--zstd` flag. Must use pipe approach: `tar -cf - -C dir . | zstd > archive.tar.zst` for creation, `zstd -dc archive.tar.zst | tar -tf -` for listing, etc.
-- GNU tar on Linux supports `--zstd` natively, but for cross-platform code, the pipe approach works on both.
-- Decision needed: use pipe approach universally, or detect and use native `--zstd` on Linux?
+- GNU tar on Linux supports `--zstd` natively, but benchmarks (t469) show the **pipe approach is ~15% faster** than native `--zstd` on Linux across all operations (list: 4.7ms vs 5.6ms, extract: 4.6ms vs 5.3ms, create: 18.9ms vs 19.5ms). Archive sizes are identical (955KB).
+- The pipe approach benefits from parallel decompression — `zstd` decompresses in one process while `tar` parses in another.
+- **Decision: use pipe approach universally.** No platform detection needed. Simpler code, cross-platform, and faster on Linux too.
+
+### Command patterns (pipe approach — use these everywhere)
+
+| Operation | Current (tar.gz) | New (tar.zst pipe) |
+|-----------|-------------------|---------------------|
+| **Create** | `tar -czf archive.tar.gz -C dir .` | `tar -cf - -C dir . \| zstd -q -o archive.tar.zst` |
+| **List files** | `tar -tzf archive.tar.gz` | `zstd -dc archive.tar.zst \| tar -tf -` |
+| **Extract single** | `tar -xzf archive.tar.gz -O file` | `zstd -dc archive.tar.zst \| tar -xf - -O file` |
+| **Extract all** | `tar -xzf archive.tar.gz -C dir` | `zstd -dc archive.tar.zst \| tar -xf - -C dir` |
+| **Verify** | `tar -tzf archive.tar.gz > /dev/null` | `zstd -dc archive.tar.zst \| tar -tf - > /dev/null` |
+
+For Python (`archive_iter.py`): use `subprocess.Popen` pipe chain (same pattern as CLI), or `zstd -dc archive | tar -tf -` via shell. The Python `tarfile` module does not natively support zstd, so subprocess is required.
 
 ### Archive naming convention change
 - Current: `_b{dir}/old{bundle}.tar.gz`
