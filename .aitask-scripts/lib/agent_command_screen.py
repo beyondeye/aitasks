@@ -215,6 +215,9 @@ class AgentCommandScreen(ModalScreen):
         return container
 
     def on_mount(self) -> None:
+        # Prevent Input from stealing focus on open
+        self.set_focus(None)
+
         # Populate direct tab
         direct = self.query_one("#direct_content")
         direct.mount(Label("Prompt only:"))
@@ -242,11 +245,12 @@ class AgentCommandScreen(ModalScreen):
         session_options.append(("+ Create new session", _NEW_SESSION_SENTINEL))
 
         # Determine initial session selection
-        initial_session = Select.BLANK
         if AgentCommandScreen._last_session and AgentCommandScreen._last_session in sessions:
             initial_session = AgentCommandScreen._last_session
         elif sessions:
             initial_session = sessions[0]
+        else:
+            initial_session = _NEW_SESSION_SENTINEL
 
         sess_row = Horizontal(classes="tmux-field-row")
         tmux.mount(sess_row)
@@ -267,7 +271,7 @@ class AgentCommandScreen(ModalScreen):
         win_row = Horizontal(classes="tmux-field-row")
         tmux.mount(win_row)
         win_row.mount(Label("Window:"))
-        win_row.mount(Select([], value=Select.BLANK, id="tmux_window_select"))
+        win_row.mount(Select([], allow_blank=True, id="tmux_window_select"))
 
         # New window name input
         new_win_row = Horizontal(id="tmux_new_window_row", classes="hidden")
@@ -293,10 +297,10 @@ class AgentCommandScreen(ModalScreen):
         buttons.mount(Button("Cancel", variant="default", id="btn_tmux_cancel"))
 
         # If a session is pre-selected, populate windows
-        if initial_session != Select.BLANK and initial_session != _NEW_SESSION_SENTINEL:
+        if initial_session != _NEW_SESSION_SENTINEL:
             self._selected_session = initial_session
             self._update_window_options(initial_session)
-        elif initial_session == _NEW_SESSION_SENTINEL:
+        else:
             self._show_new_session_input()
 
     def _update_window_options(self, session: str) -> None:
@@ -336,7 +340,7 @@ class AgentCommandScreen(ModalScreen):
             # When creating new session, always create new window
             win_select = self.query_one("#tmux_window_select", Select)
             win_select.set_options([])
-            win_select.value = Select.BLANK
+            win_select.clear()
             self._show_new_window_input()
             self.query_one("#tmux_split_row").add_class("hidden")
         except Exception:
@@ -448,6 +452,12 @@ class AgentCommandScreen(ModalScreen):
     # --- Actions ---
 
     def action_cancel(self) -> None:
+        # If an Input is focused, unfocus it first (so shortcuts work);
+        # only dismiss when no Input has focus.
+        focused = self.app.focused
+        if isinstance(focused, Input):
+            self.set_focus(None)
+            return
         self.dismiss(None)
 
     def action_copy_command(self) -> None:

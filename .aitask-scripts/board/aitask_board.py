@@ -6,13 +6,14 @@ import sys
 import yaml
 import json
 import glob
-import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for
+from agent_command_screen import AgentCommandScreen
+from agent_launch_utils import find_terminal, resolve_dry_run_command, TmuxLaunchConfig, launch_in_tmux
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
@@ -1613,71 +1614,6 @@ class ResetTaskConfirmScreen(ModalScreen):
         self.dismiss(False)
 
 
-class PickCommandScreen(ModalScreen):
-    """Dialog showing the pick command for copying into a multiplexer pane."""
-
-    BINDINGS = [
-        Binding("escape", "cancel", "Cancel", show=False),
-        Binding("c", "copy_command", "Copy Command", show=False),
-        Binding("C", "copy_command", "Copy Command", show=False),
-        Binding("p", "copy_prompt", "Copy Prompt", show=False),
-        Binding("P", "copy_prompt", "Copy Prompt", show=False),
-        Binding("r", "run_terminal", "Run in Terminal", show=False),
-        Binding("R", "run_terminal", "Run in Terminal", show=False),
-    ]
-
-    def __init__(self, task_num: str, full_command: str, prompt_str: str):
-        super().__init__()
-        self.task_num = task_num
-        self.full_command = full_command
-        self.prompt_str = prompt_str
-
-    def compose(self):
-        with Container(id="pick_command_dialog"):
-            yield Label(f"Pick Task t{self.task_num}", id="pick_command_title")
-            yield Label("Full command:")
-            with Horizontal(classes="pick-copy-row"):
-                yield Label(self.full_command, id="pick_command_full")
-                yield Button("(C)opy", variant="primary", id="btn_copy_command")
-            yield Label("Prompt only:")
-            with Horizontal(classes="pick-copy-row"):
-                yield Label(self.prompt_str, id="pick_command_prompt")
-                yield Button("Copy (P)rompt", variant="primary", id="btn_copy_prompt")
-            with Horizontal(id="detail_buttons"):
-                yield Button("(R)un in new terminal", variant="warning", id="btn_run_terminal")
-                yield Button("Cancel", variant="default", id="btn_pick_cancel")
-
-    @on(Button.Pressed, "#btn_copy_command")
-    def copy_command(self):
-        self.app.copy_to_clipboard(self.full_command)
-        self.app.notify("Command copied to clipboard")
-
-    @on(Button.Pressed, "#btn_copy_prompt")
-    def copy_prompt(self):
-        self.app.copy_to_clipboard(self.prompt_str)
-        self.app.notify("Prompt copied to clipboard")
-
-    @on(Button.Pressed, "#btn_run_terminal")
-    def run_terminal(self):
-        self.dismiss("run")
-
-    @on(Button.Pressed, "#btn_pick_cancel")
-    def cancel(self):
-        self.dismiss(None)
-
-    def action_cancel(self):
-        self.dismiss(None)
-
-    def action_copy_command(self):
-        self.copy_command()
-
-    def action_copy_prompt(self):
-        self.copy_prompt()
-
-    def action_run_terminal(self):
-        self.dismiss("run")
-
-
 class TaskDetailScreen(ModalScreen):
     """Popup to view/edit task details with metadata editing."""
 
@@ -2724,32 +2660,6 @@ class KanbanApp(App):
         height: 1;
         padding: 0 2;
     }
-    #pick_command_dialog {
-        width: 70%;
-        height: auto;
-        max-height: 50%;
-        background: $surface;
-        border: thick $accent;
-        padding: 1 2;
-    }
-    #pick_command_title {
-        text-align: center;
-        padding: 0 0 1 0;
-        text-style: bold;
-    }
-    #pick_command_full, #pick_command_prompt {
-        padding: 0 1;
-        width: 1fr;
-    }
-    .pick-copy-row {
-        height: 3;
-        width: 100%;
-        align: left middle;
-    }
-    .pick-copy-row Button {
-        width: auto;
-        min-width: 12;
-    }
     #loading_dialog {
         width: 40;
         height: 7;
@@ -3217,14 +3127,14 @@ class KanbanApp(App):
                         if full_cmd:
                             num = task_num.lstrip("t")
                             prompt_str = f"/aitask-pick {num}"
+                            screen = AgentCommandScreen(f"Pick Task t{num}", full_cmd, prompt_str, default_window_name=f"pick-{num}")
                             def on_pick_result(pick_result):
                                 if pick_result == "run":
                                     self.run_aitask_pick(focused.task_data.filename)
+                                elif isinstance(pick_result, TmuxLaunchConfig):
+                                    launch_in_tmux(screen.full_command, pick_result)
                                 self.refresh_board(refocus_filename=focused.task_data.filename)
-                            self.push_screen(
-                                PickCommandScreen(num, full_cmd, prompt_str),
-                                on_pick_result,
-                            )
+                            self.push_screen(screen, on_pick_result)
                             return
                     self.run_aitask_pick(focused.task_data.filename)
                 elif result == "delete_archive":
@@ -3270,14 +3180,14 @@ class KanbanApp(App):
         if full_cmd:
             num = task_num.lstrip("t")
             prompt_str = f"/aitask-pick {num}"
+            screen = AgentCommandScreen(f"Pick Task t{num}", full_cmd, prompt_str, default_window_name=f"pick-{num}")
             def on_pick_result(pick_result):
                 if pick_result == "run":
                     self.run_aitask_pick(focused.task_data.filename)
+                elif isinstance(pick_result, TmuxLaunchConfig):
+                    launch_in_tmux(screen.full_command, pick_result)
                 self.refresh_board(refocus_filename=focused.task_data.filename)
-            self.push_screen(
-                PickCommandScreen(num, full_cmd, prompt_str),
-                on_pick_result,
-            )
+            self.push_screen(screen, on_pick_result)
         else:
             self.run_aitask_pick(focused.task_data.filename)
 
@@ -3294,17 +3204,6 @@ class KanbanApp(App):
 
         self.manager.load_tasks()
         self.refresh_board(refocus_filename=filename)
-
-    def _find_terminal(self):
-        """Find an available terminal emulator, or return None."""
-        terminal = os.environ.get("TERMINAL")
-        if terminal and shutil.which(terminal):
-            return terminal
-        for term in ["x-terminal-emulator", "xdg-terminal-exec", "gnome-terminal",
-                     "konsole", "xfce4-terminal", "lxterminal", "mate-terminal", "xterm"]:
-            if shutil.which(term):
-                return term
-        return None
 
     def action_sync_remote(self):
         """Manually trigger a sync with remote."""
@@ -3377,7 +3276,7 @@ class KanbanApp(App):
     @work(exclusive=True)
     async def _run_interactive_sync(self):
         """Launch interactive ait sync in a terminal."""
-        terminal = self._find_terminal()
+        terminal = find_terminal()
         if terminal:
             subprocess.Popen([terminal, "--", "./ait", "sync"])
         else:
@@ -3389,19 +3288,7 @@ class KanbanApp(App):
     def _resolve_pick_command(self, task_num: str):
         """Resolve the full pick command via --dry-run, return command string or None."""
         num = task_num.lstrip("t")
-        wrapper = str(CODEAGENT_SCRIPT)
-        try:
-            result = subprocess.run(
-                [wrapper, "--dry-run", "invoke", "pick", num],
-                capture_output=True, text=True, timeout=10,
-            )
-            if result.returncode == 0:
-                output = result.stdout.strip()
-                if output.startswith("DRY_RUN: "):
-                    return output[len("DRY_RUN: "):]
-            return None
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            return None
+        return resolve_dry_run_command(Path("."), "pick", num)
 
     @work(exclusive=True)
     async def run_aitask_pick(self, filename):
@@ -3411,7 +3298,7 @@ class KanbanApp(App):
             return
         num = task_num.lstrip("t")
         wrapper = str(CODEAGENT_SCRIPT)
-        terminal = self._find_terminal()
+        terminal = find_terminal()
         if terminal:
             subprocess.Popen([terminal, "--", wrapper, "invoke", "pick", num])
         else:
@@ -3425,7 +3312,7 @@ class KanbanApp(App):
     @work(exclusive=True)
     async def action_create_task(self):
         """Create a new task, using a terminal emulator or falling back to suspend."""
-        terminal = self._find_terminal()
+        terminal = find_terminal()
         if terminal:
             subprocess.Popen([terminal, "--", "./.aitask-scripts/aitask_create.sh"])
         else:
