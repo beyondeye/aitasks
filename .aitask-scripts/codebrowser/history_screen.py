@@ -2,8 +2,13 @@
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import List, Optional
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+from agent_command_screen import AgentCommandScreen
+from agent_launch_utils import find_terminal as _find_terminal, resolve_dry_run_command, TmuxLaunchConfig, launch_in_tmux
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -252,8 +257,7 @@ class HistoryScreen(Screen):
         except Exception:
             pass
 
-    @work(exclusive=True)
-    async def action_launch_qa(self) -> None:
+    def action_launch_qa(self) -> None:
         """Launch QA agent for the currently viewed task."""
         try:
             detail = self.query_one("#history_detail", HistoryDetailPane)
@@ -264,7 +268,7 @@ class HistoryScreen(Screen):
             return
         task_id = detail._nav_stack[-1]
 
-        from agent_utils import find_terminal, resolve_agent_binary
+        from agent_utils import resolve_agent_binary
 
         agent_name, binary, error_msg = resolve_agent_binary(self._project_root, "qa")
         if not binary:
@@ -274,11 +278,24 @@ class HistoryScreen(Screen):
             self.notify(f"{agent_name} CLI ({binary}) not found in PATH", severity="error")
             return
 
+        full_cmd = resolve_dry_run_command(self._project_root, "qa", task_id)
+        if full_cmd:
+            prompt_str = f"/aitask-qa {task_id}"
+            screen = AgentCommandScreen(f"QA for t{task_id}", full_cmd, prompt_str, default_window_name=f"qa-{task_id}")
+            def on_result(result):
+                if result == "run":
+                    self._run_qa_command(task_id)
+                elif isinstance(result, TmuxLaunchConfig):
+                    launch_in_tmux(screen.full_command, result)
+            self.app.push_screen(screen, on_result)
+        else:
+            self._run_qa_command(task_id)
+
+    @work(exclusive=True)
+    async def _run_qa_command(self, task_id: str) -> None:
+        """Launch QA agent in a terminal or inline."""
         wrapper = str(self._project_root / ".aitask-scripts" / "aitask_codeagent.sh")
-        terminal = find_terminal()
-
-        self.notify(f"Launching QA for t{task_id} via {agent_name}...")
-
+        terminal = _find_terminal()
         if terminal:
             subprocess.Popen(
                 [terminal, "--", wrapper, "invoke", "qa", task_id],

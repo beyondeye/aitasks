@@ -4,8 +4,13 @@ import asyncio
 import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+from agent_command_screen import AgentCommandScreen
+from agent_launch_utils import find_terminal as _find_terminal, resolve_dry_run_command, TmuxLaunchConfig, launch_in_tmux
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -15,7 +20,7 @@ from textual.timer import Timer
 from textual.widgets import Button, Header, Footer, Input, Label, Static, DirectoryTree
 from textual import on, work
 
-from agent_utils import find_terminal, resolve_agent_binary
+from agent_utils import resolve_agent_binary
 from code_viewer import CodeViewer
 from detail_pane import DetailPane
 from explain_manager import ExplainManager
@@ -122,6 +127,7 @@ class CodeBrowserApp(App):
     TITLE = "aitasks codebrowser"
 
     BINDINGS = [
+        Binding("escape", "handle_escape_key", "Escape", show=False, priority=True),
         Binding("q", "quit", "Quit"),
         Binding("tab", "toggle_focus", "Toggle Focus"),
         Binding("r", "refresh_explain", "Refresh annotations"),
@@ -157,6 +163,15 @@ class CodeBrowserApp(App):
         self._history_showing_plan = False  # plan/task view toggle state
         self._history_scroll_y = 0         # task list scroll position
         self._history_active_labels: set = set()  # label filter state
+
+    def action_handle_escape_key(self) -> None:
+        """Escape: delegate to screen's handle_escape if available, dismiss modals, or no-op."""
+        if hasattr(self.screen, "handle_escape"):
+            self.screen.handle_escape()
+        elif isinstance(self.screen, ModalScreen):
+            self.screen.dismiss(None)
+        elif hasattr(self.screen, "action_dismiss_screen"):
+            self.screen.action_dismiss_screen()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -644,8 +659,7 @@ class CodeBrowserApp(App):
         tree = self.query_one("#file_tree", ProjectFileTree)
         tree.select_path(full_path)
 
-    @work(exclusive=True)
-    async def action_launch_agent(self) -> None:
+    def action_launch_agent(self) -> None:
         """Launch the configured code agent with the explain skill for the current file."""
         if not self._current_file_path:
             self.notify("No file selected", severity="warning")
@@ -665,21 +679,36 @@ class CodeBrowserApp(App):
 
         if selected:
             arg = f"{rel_path}:{selected[0]}-{selected[1]}"
-            self.notify(
-                f"Launching {agent_name} for {rel_path} (lines {selected[0]}-{selected[1]})..."
-            )
+            title = f"Explain {rel_path} (lines {selected[0]}-{selected[1]})"
         else:
             arg = str(rel_path)
-            self.notify(f"Launching {agent_name} for {rel_path}...")
+            title = f"Explain {rel_path}"
 
+        full_cmd = resolve_dry_run_command(self._project_root, "explain", arg)
+        if full_cmd:
+            prompt_str = f"/aitask-explain {arg}"
+            screen = AgentCommandScreen(title, full_cmd, prompt_str, default_window_name=f"explain-{rel_path.name}")
+            def on_result(result):
+                if result == "run":
+                    self._run_agent_command("explain", arg)
+                elif isinstance(result, TmuxLaunchConfig):
+                    launch_in_tmux(screen.full_command, result)
+            self.push_screen(screen, on_result)
+        else:
+            # Fallback: direct launch without modal
+            self._run_agent_command("explain", arg)
+
+    @work(exclusive=True)
+    async def _run_agent_command(self, operation: str, arg: str) -> None:
+        """Launch code agent in a terminal or inline."""
         wrapper = str(self._project_root / ".aitask-scripts" / "aitask_codeagent.sh")
-        terminal = find_terminal()
+        terminal = _find_terminal()
         if terminal:
-            subprocess.Popen([terminal, "--", wrapper, "invoke", "explain", arg],
+            subprocess.Popen([terminal, "--", wrapper, "invoke", operation, arg],
                              cwd=str(self._project_root))
         else:
             with self.suspend():
-                subprocess.call([wrapper, "invoke", "explain", arg],
+                subprocess.call([wrapper, "invoke", operation, arg],
                                 cwd=str(self._project_root))
 
 
