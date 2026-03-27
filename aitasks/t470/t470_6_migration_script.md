@@ -1,7 +1,7 @@
 ---
 priority: high
 effort: medium
-depends: []
+depends: [2, 3]
 issue_type: feature
 status: Ready
 labels: [task-archive, archiveformat]

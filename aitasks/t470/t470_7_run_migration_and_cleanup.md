@@ -1,7 +1,7 @@
 ---
 priority: high
 effort: low
-depends: []
+depends: [4, 5, 6]
 issue_type: chore
 status: Ready
 labels: [task-archive, archiveformat]
