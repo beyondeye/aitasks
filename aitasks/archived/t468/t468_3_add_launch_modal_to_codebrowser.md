@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: [t468_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [codebrowser, ui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-26 09:58
-updated_at: 2026-03-27 12:07
+updated_at: 2026-03-27 15:46
+completed_at: 2026-03-27 15:46
 ---
 
 ## Context
