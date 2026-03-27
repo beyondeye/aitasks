@@ -3,10 +3,11 @@ priority: high
 effort: high
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [task-archive, archiveformat]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-26 22:42
-updated_at: 2026-03-26 23:05
+updated_at: 2026-03-27 12:06
 ---
 
 Migrate all archive operations from tar.gz to tar.zst format across the entire aitasks codebase.
