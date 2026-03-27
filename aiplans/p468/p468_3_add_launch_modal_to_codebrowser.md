@@ -192,6 +192,10 @@ Note: history_screen uses `self.app.suspend()` (not `self.suspend()`) since it's
 5. History screen → select task → `a` → modal shows "QA for tN"
 6. Fallback: if dry-run fails, explain/QA launch directly without modal
 
-## Step 9 (Post-Implementation)
+## Final Implementation Notes
 
-Commit code, update plan, archive task per workflow.
+- **Actual work done:** Implemented the plan as written, plus two additions not in the original plan: (1) escape key handling via a priority escape binding on `CodeBrowserApp` with delegation to `handle_escape()`, and (2) `TmuxLaunchConfig` handling in the callback (run-in-tmux support alongside direct run).
+- **Deviations from plan:** The plan didn't account for the escape handling protocol required by `AgentCommandScreen` (which has no escape binding itself — the host app must delegate). Added `action_handle_escape_key()` on `CodeBrowserApp` with priority escape binding. Also added `TmuxLaunchConfig` and `launch_in_tmux` imports/handling to match the board's callback pattern (the plan only mentioned `"run"` result, not tmux).
+- **Issues encountered:** None — the shared components from t468_1/t468_2 worked as expected.
+- **Key decisions:** Used `self.app.push_screen()` in HistoryScreen (not `self.push_screen()`) to push `AgentCommandScreen` onto the App's screen stack, ensuring the App-level escape binding intercepts it. The escape handler also handles `GoToLineScreen` (ModalScreen fallback) and `HistoryScreen` (via `action_dismiss_screen`).
+- **Notes for sibling tasks:** The `action_handle_escape_key` on `CodeBrowserApp` now handles escape for any screen with `handle_escape()`, any ModalScreen (dismiss with None), or any screen with `action_dismiss_screen`. Future modal screens pushed in the codebrowser will automatically benefit. The `_find_terminal` alias (from `agent_launch_utils`) avoids shadowing the existing `agent_utils.find_terminal`.
