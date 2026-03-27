@@ -22,6 +22,7 @@ from textual.screen import Screen, ModalScreen
 from textual.binding import Binding
 from textual.message import Message
 from textual import on, work
+from textual.compose import compose as _compose_widgets
 from textual.command import Provider, Hit, Hits, DiscoveryHit
 
 from task_yaml import (
@@ -268,6 +269,38 @@ class TaskManager:
             if self._is_phantom_stub(task):
                 continue
             self.child_task_datas[path.name] = task
+
+    def reload_task(self, filename: str) -> bool:
+        """Reload a single task from disk. Returns True if present after reload."""
+        if filename in self.task_datas:
+            task = self.task_datas[filename]
+            if not task.filepath.exists() or not task.load() or self._is_phantom_stub(task):
+                del self.task_datas[filename]
+                return False
+            return True
+        if filename in self.child_task_datas:
+            task = self.child_task_datas[filename]
+            if not task.filepath.exists() or not task.load() or self._is_phantom_stub(task):
+                del self.child_task_datas[filename]
+                return False
+            return True
+        # Not in memory — try to discover and load as parent
+        path = TASKS_DIR / filename
+        if path.exists():
+            task = Task(path)
+            if not self._is_phantom_stub(task):
+                self.task_datas[filename] = task
+                return True
+        # Try child path pattern: t47_1_desc.md → aitasks/t47/t47_1_desc.md
+        m = re.match(r'^(t\d+)_\d+_', filename)
+        if m:
+            child_path = TASKS_DIR / m.group(1) / filename
+            if child_path.exists():
+                task = Task(child_path)
+                if not self._is_phantom_stub(task):
+                    self.child_task_datas[filename] = task
+                    return True
+        return False
 
     def find_task_by_id(self, task_id: str):
         """Find a task (parent or child) by its ID like 't47' or 't47_1'."""
@@ -2862,6 +2895,64 @@ class KanbanApp(App):
                 card.focus()
                 return
 
+    def _recompose_column(self, col_widget: KanbanColumn):
+        """Replace a column's children in-place using textual.compose.
+
+        Keeps the KanbanColumn shell in the DOM (no layout shift) and only
+        swaps its inner content (header + task cards).
+        """
+        col_widget.collapsed = self.manager.is_column_collapsed(col_widget.col_id)
+        col_widget.remove_children()
+        new_children = _compose_widgets(col_widget)
+        col_widget.mount_all(new_children)
+
+    def refresh_column(self, col_id: str, refocus_filename: str = ""):
+        """Re-render a single column's contents without layout changes."""
+        old_col = None
+        for col in self.query(KanbanColumn):
+            if col.col_id == col_id:
+                old_col = col
+                break
+
+        if old_col is None:
+            # Column not on screen — check if it should appear
+            if col_id == "unordered" and self.manager.get_column_tasks("unordered"):
+                self.refresh_board(refocus_filename=refocus_filename)
+            return
+
+        # Check if unordered column should disappear
+        if col_id == "unordered" and not self.manager.get_column_tasks("unordered"):
+            old_col.remove()
+            if refocus_filename:
+                self.call_after_refresh(self._refocus_card, refocus_filename)
+            return
+
+        self._recompose_column(old_col)
+
+        self.apply_filter()
+        if refocus_filename:
+            self.call_after_refresh(self._refocus_card, refocus_filename)
+
+    def refresh_columns(self, col_ids: set, refocus_filename: str = ""):
+        """Re-render multiple columns. Falls back to full refresh for structural changes."""
+        # Check if unordered needs structural add/remove
+        if "unordered" in col_ids:
+            has_widget = any(c.col_id == "unordered" for c in self.query(KanbanColumn))
+            has_tasks = bool(self.manager.get_column_tasks("unordered"))
+            if has_widget != has_tasks:
+                self.refresh_board(refocus_filename=refocus_filename)
+                return
+
+        for col_id in col_ids:
+            for col in self.query(KanbanColumn):
+                if col.col_id == col_id:
+                    self._recompose_column(col)
+                    break
+
+        self.apply_filter()
+        if refocus_filename:
+            self.call_after_refresh(self._refocus_card, refocus_filename)
+
     @on(Input.Changed, "#search_box")
     def on_search(self, event: Input.Changed):
         self.search_filter = event.value.lower()
@@ -3152,7 +3243,8 @@ class KanbanApp(App):
                         elif action == "archive":
                             self._execute_archive(task_num, focused.task_data)
                         else:
-                            self.refresh_board(refocus_filename=focused.task_data.filename)
+                            self.apply_filter()
+                            self.call_after_refresh(self._refocus_card, focused.task_data.filename)
 
                     self.push_screen(
                         DeleteArchiveConfirmScreen(
@@ -3162,10 +3254,20 @@ class KanbanApp(App):
                         on_action_chosen,
                     )
                     return
-                # Refresh board to update git status indicators (asterisk, commit actions)
-                # Include lock refresh when returning from lock/unlock operations
+                # Granular refresh: reload single task + refresh affected column(s)
                 needs_locks = result in ("locked", "unlocked")
-                self.refresh_board(refocus_filename=focused.task_data.filename, refresh_locks=needs_locks)
+                filename = focused.task_data.filename
+                old_col = focused.column_id
+                self.manager.reload_task(filename)
+                self.manager.refresh_git_status()
+                if needs_locks:
+                    self.manager.refresh_lock_map()
+                task = self.manager.task_datas.get(filename) or self.manager.child_task_datas.get(filename)
+                new_col = task.board_col if task else old_col
+                if new_col != old_col:
+                    self.refresh_columns({old_col, new_col}, refocus_filename=filename)
+                else:
+                    self.refresh_column(old_col, refocus_filename=filename)
 
             self.push_screen(TaskDetailScreen(focused.task_data, self.manager), check_edit)
 
@@ -3349,7 +3451,8 @@ class KanbanApp(App):
             self.expanded_tasks.discard(fn)
         else:
             self.expanded_tasks.add(fn)
-        self.refresh_board(refocus_filename=fn)
+        col_id = focused.column_id
+        self.refresh_column(col_id, refocus_filename=fn)
 
     def action_toggle_children(self):
         self._toggle_expand()
@@ -3390,7 +3493,8 @@ class KanbanApp(App):
             self.manager.move_task_col(filename, new_col)
             self.manager.normalize_indices(current_col_id)
             self.manager.normalize_indices(new_col)
-            self.refresh_board(refocus_filename=filename)
+            self.manager.refresh_git_status()
+            self.refresh_columns({current_col_id, new_col}, refocus_filename=filename)
 
     def action_move_task_up(self):
         self._move_task_vertical(-1)
@@ -3417,7 +3521,8 @@ class KanbanApp(App):
             target_task = tasks[swap_idx]
             self.manager.swap_tasks(filename, target_task.filename)
             self.manager.normalize_indices(col_id)
-            self.refresh_board(refocus_filename=filename)
+            self.manager.refresh_git_status()
+            self.refresh_column(col_id, refocus_filename=filename)
 
     def action_move_task_top(self):
         self._move_task_to_extreme(-1)
@@ -3449,7 +3554,8 @@ class KanbanApp(App):
             focused.task_data.board_idx = tasks[-1].board_idx + 10
         focused.task_data.reload_and_save_board_fields()
         self.manager.normalize_indices(col_id)
-        self.refresh_board(refocus_filename=filename)
+        self.manager.refresh_git_status()
+        self.refresh_column(col_id, refocus_filename=filename)
 
     # --- Column Reordering ---
 
