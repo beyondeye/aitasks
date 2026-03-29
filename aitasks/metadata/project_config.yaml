@@ -1,6 +1,10 @@
 codeagent_coauthor_domain: aitasks.io
-test_command:
-lint_command:
+test_command: null
+lint_command: null
 default_profiles:
   explore: fast
   pick: fast
+tmux:
+  default_session: aitasks
+  default_split: horizontal
+  prefer_tmux: true
