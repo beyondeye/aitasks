@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: [2, 3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task-archive, archiveformat]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-27 13:12
-updated_at: 2026-03-27 13:12
+updated_at: 2026-03-29 12:13
 ---
 
 Create a standalone migration script that converts existing old*.tar.gz archives to old*.tar.zst format. Add as ait migrate-archives subcommand.
