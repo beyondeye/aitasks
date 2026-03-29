@@ -124,6 +124,25 @@ Style sections: attention=top (collapsible if empty), main-panels=horizontal spl
 - CLI args work
 - Graceful error when no tmux session
 
-## Step 9 Reference (Post-Implementation)
+## Final Implementation Notes
 
-Commit, archive, push per task-workflow Step 9.
+### Actual Work Done
+- Created `.aitask-scripts/monitor/monitor_app.py` (~490 LOC) — full Textual TUI with attention queue, pane list, content preview, session rename dialog
+- Created `.aitask-scripts/aitask_monitor.sh` — wrapper script following board pattern (checks Python, textual, yaml, tmux)
+- Updated `ait` dispatcher: added `monitor` command to usage, case dispatch, and update-check skip list
+- Integrated `TuiSwitcherMixin` with visible `j` keybinding in footer
+- Auto-renames tmux window to "monitor" on mount for switcher discoverability
+
+### Deviations from Plan
+- Removed TUI panel (right pane) — redundant with TUI switcher (`j` key); keeps layout simpler
+- Added tmux session auto-detection (`tmux display-message -p '#S'`) instead of relying solely on config. Session resolution: CLI > auto-detect > config > "aitasks"
+- Added `SessionRenameDialog` (ModalScreen) — when session name doesn't match config, offers to rename; if expected name already exists, warns only
+- Removed `t` (spawn TUI) binding since TUI panel was removed
+
+### Bugs Fixed in Dependencies
+- Fixed `tui_switcher.py`: `tmux new-window -t session` was ambiguous when a window shared the session name. Changed to `-t session:` (trailing colon) to disambiguate
+- Fixed `tmux_monitor.py` `spawn_tui()`: same trailing-colon fix for `new-window -t`
+- Fixed `tui_switcher.py` `action_tui_switcher()`: now auto-detects current tmux session via `_detect_current_session()` instead of relying on config
+
+### Information for Sibling Tasks
+- t475_4 (Integrate TUI Switcher): The monitor TUI already includes `TuiSwitcherMixin` with visible `j` binding — it can serve as a reference for how the other 5 TUIs should integrate the mixin. The `_detect_current_session()` fix in `tui_switcher.py` benefits all TUI apps.
