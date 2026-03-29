@@ -11,96 +11,51 @@ Base branch: main
 # t470_6: Migration Script
 
 ## Overview
-Create a standalone script that converts existing `old*.tar.gz` archives to `old*.tar.zst` format. Add as `ait migrate-archives` subcommand.
+Create a standalone script that migrates archive storage to the new tar.zst scheme via `ait migrate-archives`.
 
-## Step 1: Create .aitask-scripts/aitask_migrate_archives.sh
+Behavior split:
+- Numbered archives (`_b*/old*.tar.gz`) convert in place to `.tar.zst`
+- Legacy root archives (`old.tar.gz`) are unpacked and rebucketed into numbered `_bN/oldM.tar.zst` bundles
 
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
+## Step 1: Add `.aitask-scripts/aitask_migrate_archives.sh`
 
-# Source utilities
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/lib/terminal_compat.sh"
+Implement:
+- argument parsing for `--dry-run`, `--delete-old`, `--verbose`, `-h/--help`
+- numbered archive conversion with verification and optional source deletion
+- legacy root archive rebucketing based on parent task id, preserving child subdirectory paths
+- merge support when rebucketing into an existing `.tar.zst` numbered bundle
+- summary counters: `found`, `converted`, `skipped`, `failed`
 
-# Defaults
-DRY_RUN=false
-DELETE_OLD=false
-VERBOSE=false
+## Step 2: Add `migrate-archives` to `ait`
 
-# Parse arguments
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --dry-run) DRY_RUN=true; shift ;;
-        --delete-old) DELETE_OLD=true; shift ;;
-        --verbose) VERBOSE=true; shift ;;
-        -h|--help) usage; exit 0 ;;
-        *) die "Unknown argument: $1" ;;
-    esac
-done
+Update help text and dispatch routing so `./ait migrate-archives ...` executes the new script.
 
-# Scan directories
-TASK_ARCHIVED="${TASK_DIR:-aitasks}/archived"
-PLAN_ARCHIVED="${PLAN_DIR:-aiplans}/archived"
+## Step 3: Add automated coverage
 
-# Core conversion logic per archive
-convert_archive() {
-    local gz_path="$1"
-    local zst_path="${gz_path%.tar.gz}.tar.zst"
+Create `tests/test_migrate_archives.sh` covering:
+- syntax and help output
+- numbered archive dry-run and real conversion
+- `--delete-old` cleanup for numbered archives
+- legacy task archive rebucketing
+- legacy plan archive rebucketing
+- merge into an existing `.tar.zst` bundle
+- skip behavior when target `.tar.zst` already exists
+- dispatcher routing through `./ait`
 
-    if [[ -f "$zst_path" ]]; then
-        $VERBOSE && info "Skipping $gz_path (already converted)"
-        return 1  # skipped
-    fi
-
-    if $DRY_RUN; then
-        info "Would convert: $gz_path → $zst_path"
-        return 0
-    fi
-
-    local temp_dir
-    temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/ait_migrate_XXXXXX")
-    trap "rm -rf '$temp_dir'" RETURN
-
-    tar -xzf "$gz_path" -C "$temp_dir"
-    tar -cf - -C "$temp_dir" . | zstd -q -o "$zst_path"
-
-    # Verify
-    zstd -dc "$zst_path" | tar -tf - > /dev/null
-
-    $VERBOSE && info "Converted: $gz_path → $zst_path"
-
-    if $DELETE_OLD; then
-        rm -f "$gz_path"
-        $VERBOSE && info "Deleted: $gz_path"
-    fi
-}
-
-# Main: scan and convert
-```
-
-## Step 2: Scan logic
-
-Find all tar.gz archives in both task and plan archived directories:
-- `${TASK_ARCHIVED}/_b*/old*.tar.gz`
-- `${PLAN_ARCHIVED}/_b*/old*.tar.gz`
-- `${TASK_ARCHIVED}/old.tar.gz` (legacy)
-- `${PLAN_ARCHIVED}/old.tar.gz` (legacy)
-
-## Step 3: Summary output
-
-Print: total found, converted, skipped, failed.
-
-## Step 4: Add to ait dispatcher
-
-Add `migrate-archives` case to the main `ait` dispatcher script.
-
-## Step 5: Verify
+## Step 4: Verify
 
 ```bash
 shellcheck .aitask-scripts/aitask_migrate_archives.sh
-./ait migrate-archives --dry-run  # preview
+bash tests/test_migrate_archives.sh
+./ait migrate-archives --dry-run
 ```
 
 ## Step 9 Reference
 Post-implementation: user review, commit, archive task, push.
+
+## Final Implementation Notes
+- **Actual work done:** Added `.aitask-scripts/aitask_migrate_archives.sh`, wired `migrate-archives` into `ait`, and added `tests/test_migrate_archives.sh`. The command converts numbered tar.gz archives to tar.zst and rebuckets legacy `old.tar.gz` task/plan archives into numbered `.tar.zst` bundles.
+- **Deviations from plan:** The original plan only converted legacy root archives in place. During planning this was expanded so legacy `old.tar.gz` archives are rebucketed instead of producing `old.tar.zst`. Also added dedicated automated tests instead of relying only on manual verification.
+- **Issues encountered:** `shellcheck` needed inline `SC1091` suppression for dynamic `source` paths. Also had to make skip behavior compatible with `--delete-old` so already-migrated `.tar.gz` files can still be cleaned up safely.
+- **Key decisions:** Numbered archives are processed before legacy rebucketing so rebucketing can safely merge into existing `.tar.zst` targets and fail if a numbered `.tar.gz` still exists for the same bundle. Legacy source archives are only deleted after the full rebucketing operation succeeds.
+- **Notes for sibling tasks:** `t470_7` can use `./ait migrate-archives --dry-run` to preview the real repo migration, then `./ait migrate-archives --delete-old` for final cleanup. The command already preserves child directory structure inside rebucketed bundles, so follow-up verification should focus on end-to-end archive readers and documentation.
