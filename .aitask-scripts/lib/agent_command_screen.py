@@ -240,8 +240,12 @@ class AgentCommandScreen(ModalScreen):
 
         if self._tmux_available:
             self._populate_tmux_tab()
-            # Add tmux tab binding (only when tmux available)
-            # t is used for tmux tab switch, handled in on_key
+            # Pre-select tmux tab if prefer_tmux is enabled
+            if self._tmux_defaults.get("prefer_tmux"):
+                try:
+                    self.query_one("#agent_cmd_tabs", TabbedContent).active = "tab_tmux"
+                except Exception:
+                    pass
 
     def _populate_tmux_tab(self) -> None:
         tmux = self.query_one("#tmux_content")

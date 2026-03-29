@@ -42,6 +42,7 @@ DATA_WORKTREE = Path(".aitask-data")
 USERCONFIG_FILE = TASKS_DIR / "metadata" / "userconfig.yaml"
 EMAILS_FILE = TASKS_DIR / "metadata" / "emails.txt"
 CODEAGENT_SCRIPT = Path(".aitask-scripts") / "aitask_codeagent.sh"
+CREATE_SCRIPT = Path(".aitask-scripts") / "aitask_create.sh"
 
 def _task_git_cmd() -> list[str]:
     """Return git command prefix for task data operations.
@@ -3414,15 +3415,34 @@ class KanbanApp(App):
             self.manager.load_tasks()
             self.refresh_board(refocus_filename=filename)
 
+    def action_create_task(self):
+        """Open create task dialog with terminal/tmux options."""
+        if self._modal_is_active():
+            return
+        full_cmd = f"./{CREATE_SCRIPT}"
+        prompt_str = "ait create"
+        screen = AgentCommandScreen(
+            "Create Task", full_cmd, prompt_str,
+            default_window_name="create-task",
+        )
+        def on_create_result(create_result):
+            if create_result == "run":
+                self._run_create_in_terminal()
+            elif isinstance(create_result, TmuxLaunchConfig):
+                launch_in_tmux(screen.full_command, create_result)
+            self.manager.load_tasks()
+            self.refresh_board()
+        self.push_screen(screen, on_create_result)
+
     @work(exclusive=True)
-    async def action_create_task(self):
-        """Create a new task, using a terminal emulator or falling back to suspend."""
+    async def _run_create_in_terminal(self):
+        """Launch aitask_create.sh in a terminal or via suspend."""
         terminal = find_terminal()
         if terminal:
-            subprocess.Popen([terminal, "--", "./.aitask-scripts/aitask_create.sh"])
+            subprocess.Popen([terminal, "--", str(CREATE_SCRIPT)])
         else:
             with self.suspend():
-                subprocess.call(["./.aitask-scripts/aitask_create.sh"])
+                subprocess.call([str(CREATE_SCRIPT)])
             self.manager.load_tasks()
             self.refresh_board()
 
