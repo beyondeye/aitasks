@@ -1,5 +1,55 @@
 # Changelog
 
+## v0.14.0
+
+### Features
+
+- **Completed tasks history browser** (t448_1–t448_5, t455, t458, t460): New history screen in the codebrowser TUI (`h` to open) for browsing archived tasks with a searchable list, detail view with plan toggling, label filtering, sibling navigation, left/right arrow cycling, and file navigation back to source code.
+- **Process monitoring and hard kill** (t462_1–t462_4): View running agent processes and resource usage in both dashboard (`o` key) and brainstorm (Status tab) TUIs. Pause, kill, or hard-kill unresponsive agents directly from the UI.
+- **Unified agent launch dialog with tmux support** (t468_1–t468_5): All agent launch actions (pick, create, explain, QA) now use a shared dialog with Direct and tmux execution tabs. Configure defaults in the new Tmux settings tab.
+- **Runner control in brainstorm TUI** (t447_2): View runner status and start/stop the crew runner from the brainstorm Status tab with color-coded indicators.
+- **Crew worktree auto-push** (t447_3): Crew worktree changes are automatically pushed after adding work, enabling cross-machine collaboration.
+- **Reset errored agents in brainstorm** (t459): Press `w` to reset agents stuck in Error state back to Waiting from the brainstorm Status tab.
+- **Brainstorm keyboard navigation** (t464, t466): Letter-key tab shortcuts (d/g/c/a/s), improved wizard navigation, tab-bar focus cycling, and consistent arrow key navigation throughout.
+- **QA agent integration** (t465_1–t465_3): Added `qa` as a codeagent operation. Press `a` in the history screen to launch a QA agent, or `H` in the codebrowser to jump to the history entry for the task at the current line.
+- **Prompt file passing in agentcrew** (t453): Agent prompts are now passed via temporary files with a "Your Files" section mapping shorthand names to file paths.
+- **Archive migration command** (t470_6): New `ait migrate-archives` command converts existing tar.gz archives to the faster tar.zst format.
+
+### Bug Fixes
+
+- **Fix crew runner startup** (t447_4): Fixed `ModuleNotFoundError` preventing the crew runner from starting.
+- **Fix plan retrieval from tar archives** (t448_7): Plans inside tar archives now display correctly in the history view.
+- **Fix agent stale detection on launch** (t451): Agents write a heartbeat immediately on launch, preventing false stale warnings during startup.
+- **Reset errored agents on runner restart** (t452): Agents in Error state are automatically reset to Waiting when the runner restarts, with manual reset via `w` in the dashboard.
+- **Fix history screen focus issues** (t463): Fixed focus loss after back navigation, sibling selection, and child task navigation.
+- **Fix archived child task queries** (t467): Archived task queries now correctly resolve child task IDs.
+- **Fix board expand/collapse** (t476): Fixed children not expanding or collapsing after initial board load.
+
+### Improvements
+
+- **Migrate archives to tar.zst** (t469–t471, t470_1–t470_4): Migrated the entire archive system from tar.gz to Zstandard compression for faster performance. All bash and Python utilities updated with full backward compatibility for existing tar.gz archives.
+- **Extract shared modules** (t447_1, t468_1–t468_2): Runner control and agent launch functionality extracted into reusable shared modules used across dashboard, brainstorm, and codebrowser TUIs.
+
+### Documentation
+
+- **History view documentation** (t448_6): Comprehensive docs for the codebrowser history feature including keyboard shortcuts, how-to guides, and screenshots.
+- **Settings in getting started guide** (t449): Added settings reference to the getting started documentation.
+- **QA and history navigation docs** (t465_4): Updated codebrowser reference and how-to docs with QA agent and history navigation features.
+
+### Performance
+
+- **Per-column board refresh** (t472): Column updates refresh only the affected column instead of the entire board, eliminating visual flicker.
+- **Adjacent task DOM swap** (t473): Moving tasks within a column uses efficient DOM-level widget swapping instead of full column rebuilds.
+
+### Tests
+
+- **Fix brainstorm tests** (t450): Updated test expectations to match post-t434 session initialization behavior.
+
+### Maintenance
+
+- **Add zstd dependency** (t470_5): Added zstd to `ait setup` dependency installation and website documentation.
+- **Run archive migration** (t470_7): Converted all repository archive bundles from tar.gz to tar.zst format.
+
 ## v0.13.0
 
 ### Features
