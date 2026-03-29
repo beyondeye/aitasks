@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: [t475_5]
+depends: [t475_3, t475_4, t475_5]
 issue_type: documentation
 status: Ready
 labels: [aitask_monitor, tui, website]
