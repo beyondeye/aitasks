@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: [4, 5, 6]
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [task-archive, archiveformat]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-27 15:44
-updated_at: 2026-03-27 15:44
+updated_at: 2026-03-29 12:31
 ---
 
 Execute the migration script on this repository's archives, run full test suite, update documentation, and clean up old tar.gz files.
