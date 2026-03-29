@@ -8,7 +8,7 @@ labels: [ui, agentcrew]
 children_to_implement: [t447_5]
 created_at: 2026-03-23 19:35
 updated_at: 2026-03-24 12:20
-boardidx: 50
+boardidx: 60
 ---
 
 ## Summary

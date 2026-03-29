@@ -7,7 +7,7 @@ status: Ready
 labels: [task_workflow]
 created_at: 2026-03-23 12:26
 updated_at: 2026-03-23 12:26
-boardidx: 40
+boardidx: 50
 ---
 
 at the end of the task workflow we update the plan with deviations and implementaiton details and finaally commit it before archiving the completed task. there is an issue with claude code that it keep the plan in its internal plan files and when it gets to the step where it need to write the plan in aiaplan before comit and archival, it does not find it: see associated claude code run log

@@ -5,9 +5,9 @@ depends: []
 issue_type: refactor
 status: Ready
 labels: [task-archive, archiveformat]
-children_to_implement: [t470_5, t470_6, t470_7]
+children_to_implement: [t470_6, t470_7]
 created_at: 2026-03-26 22:42
-updated_at: 2026-03-29 10:39
+updated_at: 2026-03-29 11:12
 boardidx: 90
 ---
 
