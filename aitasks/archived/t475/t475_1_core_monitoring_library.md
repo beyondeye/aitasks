@@ -3,11 +3,13 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_monitor, tui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-29 10:37
-updated_at: 2026-03-29 12:47
+updated_at: 2026-03-29 13:18
+completed_at: 2026-03-29 13:18
 ---
 
 ## Core Monitoring Library
