@@ -73,3 +73,9 @@ grep -r "tar\.gz" .aitask-scripts/ | grep -v "^Binary" | head -20
 
 ## Step 9 Reference
 Post-implementation: user review, commit, archive parent task, push.
+
+## Final Implementation Notes
+- **Actual work done:** Claimed `t470_7`, ran `./ait migrate-archives --verbose`, converted all 10 numbered archive bundles to `.tar.zst`, verified every produced bundle with `zstd -dc | tar -tf -`, updated `CLAUDE.md` to describe `.tar.zst` archive storage, then ran `./ait migrate-archives --delete-old` to remove the old numbered `.tar.gz` sources.
+- **Deviations from plan:** The two Python tests were validated with `python3 -m unittest discover ...` instead of `python3 -m pytest ...` because `pytest` is not installed in this environment. The repo already supports this fallback pattern for Python tests.
+- **Issues encountered:** `./ait migrate-archives --delete-old` reports existing numbered `.tar.zst` targets as "Skipping numbered archive (target exists)" after the initial conversion pass. This is expected; the command still deletes the old `.tar.gz` sources when `--delete-old` is set.
+- **Key decisions:** Kept all remaining `tar.gz` references in tests and migration/backward-compat code intact. The cleanup for this task only removed live archive bundle files, not compatibility fixtures or fallback logic.
