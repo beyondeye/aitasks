@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [task-archive, archiveformat]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-27 13:10
-updated_at: 2026-03-27 13:10
+updated_at: 2026-03-29 10:58
 ---
 
 Add zstd to the list of CLI tools that ait setup installs across all supported platforms.
