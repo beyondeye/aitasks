@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: [t468_1, t468_4]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [ui, board]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-26 12:54
-updated_at: 2026-03-29 09:16
+updated_at: 2026-03-29 09:36
+completed_at: 2026-03-29 09:36
 ---
 
 ## Context

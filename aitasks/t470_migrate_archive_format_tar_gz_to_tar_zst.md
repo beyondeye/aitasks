@@ -8,7 +8,7 @@ labels: [task-archive, archiveformat]
 children_to_implement: [t470_2, t470_3, t470_4, t470_5, t470_6, t470_7]
 created_at: 2026-03-26 22:42
 updated_at: 2026-03-29 09:10
-boardidx: 80
+boardidx: 90
 ---
 
 Migrate all archive operations from tar.gz to tar.zst format across the entire aitasks codebase.

@@ -92,3 +92,15 @@ shellcheck .aitask-scripts/lib/task_utils.sh .aitask-scripts/aitask_revert_analy
 
 ## Step 9 Reference
 Post-implementation: user review, commit, archive task, push.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented all plan steps. Updated task_utils.sh (4 archive lookup blocks), aitask_query_files.sh (help text), aitask_revert_analyze.sh (_find_file_location), aitask_stats_legacy.sh (collect_from_tarball), aitask-revert SKILL.md (2 output format refs), renamed test_resolve_tar_gz.sh → test_resolve_tar_zst.sh with 15 tests including backward compat, updated test_query.sh and test_claim_id.sh, updated CLAUDE.md test list.
+- **Deviations from plan:** (1) Used `_find_archive_for_task()` instead of `archive_path_for_id()` in task_utils.sh to properly handle .tar.zst/.tar.gz fallback for numbered archives — the plan said "no path changes needed" but this was necessary since `archive_path_for_id()` now returns .tar.zst which may not exist in unmigrated repos. (2) Removed plan Step 9 (test_t167_integration.sh) — verified it uses a distribution tarball for install.sh, not a task archive, so no migration needed. (3) Legacy fallback in task_utils.sh and aitask_revert_analyze.sh now loops over both .tar.zst and .tar.gz instead of checking a single hardcoded path.
+- **Issues encountered:** None. All 3 test suites pass (15+75+23 tests).
+- **Key decisions:** Used format-agnostic loop pattern (`for legacy in .tar.zst .tar.gz`) for legacy fallback paths throughout, ensuring backward compatibility with unmigrated repos.
+- **Notes for sibling tasks:**
+  - All consumer scripts now use `_search_archive()` and `_extract_from_archive()` from archive_utils.sh — no more direct `_search_tar_gz`/`_extract_from_tar_gz` calls outside the libraries.
+  - Output prefix `ARCHIVED_TASK_ARCHIVE:` is now the standard (was `ARCHIVED_TASK_TAR_GZ:`). Location type is `archive` (was `tar_gz`).
+  - `aitask_stats_legacy.sh` now uses `_archive_list()` and `_archive_extract_file()` helpers instead of direct tar commands.
+  - `test_t167_integration.sh` does NOT need migration — it's a distribution tarball, not a task archive.
+  - The `create_test_archive_gz()` helper was added to test_resolve_tar_zst.sh for backward compat test fixtures.
