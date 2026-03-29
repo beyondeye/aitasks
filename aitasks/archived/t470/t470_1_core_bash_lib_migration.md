@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [task-archive, archiveformat]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-27 13:08
-updated_at: 2026-03-29 08:42
+updated_at: 2026-03-29 09:10
+completed_at: 2026-03-29 09:10
 ---
 
 Migrate the two foundational bash libraries (archive_utils.sh + archive_scan.sh) from tar.gz to tar.zst, with backward compatibility fallback to tar.gz. Update corresponding tests.
