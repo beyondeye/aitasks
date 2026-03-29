@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [aitask_monitor, tui]
-children_to_implement: [t475_2, t475_3, t475_4, t475_5, t475_6]
+children_to_implement: [t475_3, t475_4, t475_5, t475_6]
 created_at: 2026-03-29 09:08
-updated_at: 2026-03-29 13:18
+updated_at: 2026-03-29 15:17
 boardidx: 10
 ---
 

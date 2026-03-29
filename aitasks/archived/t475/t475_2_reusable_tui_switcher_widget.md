@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_monitor, tui]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-29 10:38
-updated_at: 2026-03-29 13:20
+updated_at: 2026-03-29 15:17
+completed_at: 2026-03-29 15:17
 ---
 
 ## Reusable TUI Switcher Widget

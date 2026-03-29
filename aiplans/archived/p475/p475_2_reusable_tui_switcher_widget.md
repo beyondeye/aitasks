@@ -72,6 +72,20 @@ class TuiSwitcherMixin:
 - Test outside tmux (warning notification)
 - Test current TUI highlighting
 
-## Step 9 Reference
+## Final Implementation Notes
 
-Post-implementation: commit, archive, push per task-workflow Step 9.
+**File created:** `.aitask-scripts/lib/tui_switcher.py`
+
+**Components implemented:**
+- `KNOWN_TUIS`: Registry of 6 TUIs with (window_name, display_label, launch_command) tuples
+- `TuiSwitcherOverlay(ModalScreen)`: Centered modal with ListView, color-coded status indicators (cyan=current, green=running, dim=available). Binds `Enter` to switch, `j`/`Escape` to close
+- `TuiSwitcherMixin`: Adds `j` binding and `action_tui_switcher()`. Checks `$TMUX` env, loads session from `project_config.yaml` via `load_tmux_defaults()`
+- `_TuiListItem(ListItem)`: Custom list item with status indicators
+
+**Key decisions:**
+- Used `get_tmux_windows()` from `agent_launch_utils.py` (lightweight, same lib directory) rather than the heavier `TmuxMonitor` class
+- `j` key confirmed free at App level in all 6 TUI apps. Widget-level conflict in brainstorm DAGDisplay is acceptable (widget bindings take priority when focused)
+- Launch command for missing TUIs uses `ait <name>` pattern, matching existing tmux session conventions
+- `subprocess.Popen` for tmux commands (non-blocking, matches `agent_command_screen.py` pattern)
+
+**For sibling tasks:** Apps integrate by adding `TuiSwitcherMixin` to class bases, including `*TuiSwitcherMixin.SWITCHER_BINDINGS` in BINDINGS, and setting `self.current_tui_name` in `__init__`
