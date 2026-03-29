@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ui, settings]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-26 12:53
-updated_at: 2026-03-26 12:53
+updated_at: 2026-03-29 08:47
 ---
 
 ## Context
