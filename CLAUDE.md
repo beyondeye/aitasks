@@ -51,7 +51,7 @@ All scripts `cd` to the repo root via `ait` before running. Directory variables 
 - `.aitask-scripts/` — Shell scripts implementing all CLI commands (~18 scripts + 2 lib files)
 - `.aitask-scripts/board/aitask_board.py` — Python TUI board (Textual framework, ~2400 LOC)
 - `aitasks/` — Active task files (`t<N>.md`, child tasks in `t<N>/t<N>_M_*.md`)
-- `aitasks/archived/` — Completed tasks (may include `old.tar.gz` for space)
+- `aitasks/archived/` — Completed tasks (may include `old.tar.zst` numbered bundles for space)
 - `aitasks/metadata/` — Config: `task_types.txt`, `labels.txt`, `board_config.json`, `project_config.yaml`, `profiles/`
 - `aiplans/` — Implementation plan files (`p<N>.md`)
 - `aireviewguides/` — Code review guides organized by language subdirectory
