@@ -8,6 +8,7 @@ aitask-create
 aitask_explain
 aitask_explore
 aitask_fold
+aitask_monitor
 aitask_pick
 aitask-redesign
 aitask_review
