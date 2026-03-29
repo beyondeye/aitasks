@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [task-archive, archiveformat]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-27 13:10
-updated_at: 2026-03-27 13:10
+updated_at: 2026-03-29 10:31
 ---
 
 Migrate the Python archive iteration module (archive_iter.py) from tarfile with r:gz mode to subprocess pipe approach using zstd. Update corresponding tests.
