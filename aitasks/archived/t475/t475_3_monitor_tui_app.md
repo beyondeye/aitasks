@@ -3,11 +3,13 @@ priority: high
 effort: high
 depends: [t475_1, t475_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_monitor, tui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-29 10:41
-updated_at: 2026-03-29 18:15
+updated_at: 2026-03-29 22:06
+completed_at: 2026-03-29 22:06
 ---
 
 ## Monitor TUI App
