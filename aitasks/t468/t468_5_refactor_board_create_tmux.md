@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t468_1, t468_4]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [ui, board]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-26 12:54
-updated_at: 2026-03-26 12:54
+updated_at: 2026-03-29 09:16
 ---
 
 ## Context
