@@ -8,3 +8,16 @@ tmux:
   default_session: aitasks
   default_split: horizontal
   prefer_tmux: true
+  monitor:
+    refresh_seconds: 3
+    idle_threshold_seconds: 5
+    capture_lines: 30
+    agent_window_prefixes:
+      - "agent-"
+    tui_window_names:
+      - board
+      - codebrowser
+      - settings
+      - brainstorm
+      - monitor
+      - diffviewer

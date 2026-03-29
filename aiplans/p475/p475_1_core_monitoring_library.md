@@ -94,6 +94,14 @@ Change these window names to use `agent-` prefix:
 - Test with actual tmux session
 - Verify pane discovery, categorization, idle detection, send_enter, switch_to_pane
 
+## Final Implementation Notes
+
+- **Actual work done:** Created `.aitask-scripts/monitor/` package with `tmux_monitor.py` containing `PaneCategory` enum, `TmuxPaneInfo`/`PaneSnapshot` dataclasses, `TmuxMonitor` class with all planned methods, and `load_monitor_config()`. Renamed agent window names in 4 files to use `agent-` prefix. Added `tmux.monitor` config section to `project_config.yaml`.
+- **Deviations from plan:** `create-task` and `aitask` fallback window names were NOT renamed (per user feedback — they don't spawn code agents). The task description had listed them for renaming.
+- **Issues encountered:** No tmux server running in test environment — verified graceful degradation (empty results, no errors). Classification, config loading, and self-exclusion all tested successfully.
+- **Key decisions:** `exclude_pane` defaults to `$TMUX_PANE` env var if not explicitly provided. Idle detection only tracks AGENT panes (TUI/OTHER always report `is_idle=False`). Stale pane entries are cleaned on each `capture_all()` cycle.
+- **Notes for sibling tasks:** The `TmuxMonitor` class is ready for import. Use `from monitor.tmux_monitor import TmuxMonitor, load_monitor_config` (with `.aitask-scripts` on sys.path). The `_pane_cache` dict is populated by `discover_panes()` and used by `switch_to_pane()` — always call `discover_panes()` or `capture_all()` before switching. Config loading follows the same pattern as `load_tmux_defaults()` in `agent_launch_utils.py`. The `agent-` prefix convention is now established — future agent windows should use this prefix for automatic categorization.
+
 ## Step 9 Reference
 
 Post-implementation: commit, archive, push per task-workflow Step 9.
