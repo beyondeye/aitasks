@@ -132,3 +132,14 @@ shellcheck .aitask-scripts/aitask_zip_old.sh .aitask-scripts/aitask_create.sh
 
 ## Step 9 Reference
 Post-implementation: user review, commit, archive task, push.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented all 7 plan steps. Updated `_archive_single_bundle()` to use `_archive_extract_all()`, zstd pipe creation, and `_archive_verify()`. Updated `cmd_unpack()` to use `_archive_list()`, `_archive_extract_all()`, zstd pipe rebuild with automatic `.tar.gz` → `.tar.zst` format conversion. Updated git staging globs and comments/help text. Migrated `aitask_create.sh` (added `archive_utils.sh` sourcing, `.tar.zst`-first fallback for `ARCHIVE_FILE`, replaced `tar -tzf` with `_archive_list()`). Updated all 26 tests in `test_zip_old.sh`.
+- **Deviations from plan:** (1) Added `-f` flag to `zstd` in creation commands — without it, `zstd` refuses to overwrite existing archives during cumulative archiving (Test 10 caught this). (2) Added `archive_utils.sh` sourcing to `aitask_create.sh` — not in the original plan but required since the file didn't source it previously. (3) Added `-n` empty-string guard (`[[ -n "$ARCHIVE_FILE" && -f "$ARCHIVE_FILE" ]]`) in `aitask_create.sh` since `ARCHIVE_FILE` can now be empty when no legacy archive exists.
+- **Issues encountered:** `zstd -q -o` does not overwrite existing files by default (unlike `tar -czf`). Required adding `-f` flag. Discovered during Test 10 (cumulative archiving).
+- **Key decisions:** `cmd_unpack()` rebuild path automatically converts `.tar.gz` → `.tar.zst` when rebuilding a partial archive (strips old extension, adds `.tar.zst`, removes old file if different). Legacy fallback in `cmd_unpack()` tries both `.tar.zst` and `.tar.gz` for backward compat.
+- **Notes for sibling tasks:**
+  - `zstd` creation commands MUST use `-f` flag for overwrite safety: `zstd -q -f -o <file>`. Without `-f`, cumulative operations fail silently.
+  - `aitask_create.sh` now sources `archive_utils.sh` — the `_archive_list()` helper is available there.
+  - `ARCHIVE_FILE` in `aitask_create.sh` can be empty string when no legacy archive exists — guard with `-n` check.
+  - All archive creation in the codebase now uses zstd pipe: `tar -cf - -C dir . | zstd -q -f -o file.tar.zst`.
