@@ -3501,7 +3501,33 @@ class KanbanApp(App):
 
     def action_move_task_down(self):
         self._move_task_vertical(1)
-        
+
+    def _swap_adjacent_cards(self, col_widget, card_above, card_below):
+        """Swap two adjacent TaskCard blocks in the DOM without rebuilding.
+
+        A 'block' is a TaskCard followed by zero or more child-wrapper
+        Horizontal widgets (present when a parent task is expanded).
+        """
+        children = list(col_widget.children)
+
+        def _block(card):
+            idx = children.index(card)
+            block = [card]
+            for i in range(idx + 1, len(children)):
+                w = children[i]
+                if isinstance(w, Horizontal) and w.has_class("child-wrapper"):
+                    block.append(w)
+                else:
+                    break
+            return block
+
+        below_block = _block(card_below)
+        anchor = card_above
+        for widget in below_block:
+            col_widget.move_child(widget, before=anchor)
+
+        self.apply_filter()
+
     def _move_task_vertical(self, direction):
         focused = self._focused_card()
         if focused and focused.is_child: return
@@ -3522,7 +3548,29 @@ class KanbanApp(App):
             self.manager.swap_tasks(filename, target_task.filename)
             self.manager.normalize_indices(col_id)
             self.manager.refresh_git_status()
-            self.refresh_column(col_id, refocus_filename=filename)
+
+            # DOM swap: reorder widgets in-place instead of rebuilding column
+            col_widget = None
+            for col in self.query(KanbanColumn):
+                if col.col_id == col_id:
+                    col_widget = col
+                    break
+
+            target_card = None
+            if col_widget is not None:
+                for card in col_widget.query(TaskCard):
+                    if not card.is_child and card.task_data.filename == target_task.filename:
+                        target_card = card
+                        break
+
+            if col_widget is not None and target_card is not None:
+                if direction == -1:  # moving up: focused was below, target above
+                    self._swap_adjacent_cards(col_widget, target_card, focused)
+                else:  # moving down: focused was above, target below
+                    self._swap_adjacent_cards(col_widget, focused, target_card)
+                self.call_after_refresh(self._refocus_card, filename)
+            else:
+                self.refresh_column(col_id, refocus_filename=filename)
 
     def action_move_task_top(self):
         self._move_task_to_extreme(-1)
