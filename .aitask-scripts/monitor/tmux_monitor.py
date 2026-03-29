@@ -210,7 +210,7 @@ class TmuxMonitor:
     def spawn_tui(self, tui_name: str) -> bool:
         try:
             result = subprocess.run(
-                ["tmux", "new-window", "-t", self.session, "-n", tui_name, f"ait {tui_name}"],
+                ["tmux", "new-window", "-t", f"{self.session}:", "-n", tui_name, f"ait {tui_name}"],
                 capture_output=True, timeout=5,
             )
             return result.returncode == 0

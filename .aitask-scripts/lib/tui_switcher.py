@@ -36,6 +36,23 @@ if _LIB_DIR not in sys.path:
 
 from agent_launch_utils import get_tmux_windows, load_tmux_defaults  # noqa: E402
 
+
+def _detect_current_session() -> str | None:
+    """Auto-detect the current tmux session name, or None if not inside tmux."""
+    if not os.environ.get("TMUX"):
+        return None
+    try:
+        result = subprocess.run(
+            ["tmux", "display-message", "-p", "#S"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    return None
+
+
 # Registry of known TUIs: (window_name, display_label, launch_command)
 # window_name must match what tmux uses (the -n flag when creating the window)
 KNOWN_TUIS = [
@@ -161,8 +178,9 @@ class TuiSwitcherOverlay(ModalScreen):
                 )
             else:
                 cmd = self._get_launch_command(name)
+                # Trailing colon ensures tmux interprets target as session, not window
                 subprocess.Popen(
-                    ["tmux", "new-window", "-t", self._session, "-n", name, cmd],
+                    ["tmux", "new-window", "-t", f"{self._session}:", "-n", name, cmd],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
         except (FileNotFoundError, OSError):
@@ -200,7 +218,10 @@ class TuiSwitcherMixin:
         if not os.environ.get("TMUX"):
             self.notify("TUI switcher requires tmux", severity="warning")
             return
-        defaults = load_tmux_defaults(Path.cwd())
-        session = defaults.get("default_session", "aitasks")
+        # Prefer auto-detecting current tmux session, fall back to config
+        session = _detect_current_session()
+        if session is None:
+            defaults = load_tmux_defaults(Path.cwd())
+            session = defaults.get("default_session", "aitasks")
         current = getattr(self, "current_tui_name", "")
         self.push_screen(TuiSwitcherOverlay(session=session, current_tui=current))
