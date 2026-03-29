@@ -143,3 +143,14 @@ python3 -m pytest tests/test_aitask_stats_py.py -v
 
 ## Step 9 Reference
 Post-implementation: user review, commit, archive task, push.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented all 8 plan steps. Updated `archive_path_for_id()` to return `.tar.zst`. Rewrote `iter_numbered_archives()` with dual-glob dedup (.tar.zst preferred over .tar.gz). Updated `iter_legacy_archive()` with .tar.zst-first fallback. Rewrote `_iter_single_archive()` with format-aware dispatch: subprocess zstd pipe with streaming `tarfile.open(mode="r|")` for .tar.zst, native `tarfile.open(mode="r:gz")` for .tar.gz backward compat. Added `_make_archive()` test helper for .tar.zst creation and 2 new tests (backward compat + dedup preference). Updated `test_aitask_stats_py.py` archive fixture.
+- **Deviations from plan:** (1) Added `-f` flag to `zstd` in test helper `_make_archive()` for overwrite safety (learned from t470_3). (2) Used `os.path.basename()` consistently (matching existing code style) instead of `Path(member.name).name` as shown in plan. (3) Total tests 18 (not 19 as stated in task description — the task file overcounted; added 2 new tests for 18 total).
+- **Issues encountered:** `pytest` not installed — used `python3 -m unittest` runner instead. All tests pass.
+- **Key decisions:** Used streaming tar mode `"r|"` for zstd pipe (no seeking, compatible with pipe input). Kept native `tarfile.open("r:gz")` for .tar.gz backward compat (no subprocess needed).
+- **Notes for sibling tasks:**
+  - Python archive iteration now supports both .tar.zst (primary) and .tar.gz (backward compat) seamlessly.
+  - Test helper `_make_archive()` creates .tar.zst archives using subprocess pipe; `_make_tar_gz()` kept for backward compat test fixtures.
+  - `subprocess` import added to both archive_iter.py and test files.
+  - `zstd -f` flag is important for overwrite safety in test helpers (confirmed from t470_3 experience).
