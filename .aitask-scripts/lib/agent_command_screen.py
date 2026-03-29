@@ -20,7 +20,7 @@ Usage:
         title="Pick Task t42",
         full_command="claude --model opus '/aitask-pick 42'",
         prompt_str="/aitask-pick 42",
-        default_window_name="pick-42",
+        default_window_name="agent-pick-42",
     )
     app.push_screen(screen, callback)
 """

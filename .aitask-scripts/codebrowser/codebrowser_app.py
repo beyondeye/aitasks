@@ -687,7 +687,7 @@ class CodeBrowserApp(App):
         full_cmd = resolve_dry_run_command(self._project_root, "explain", arg)
         if full_cmd:
             prompt_str = f"/aitask-explain {arg}"
-            screen = AgentCommandScreen(title, full_cmd, prompt_str, default_window_name=f"explain-{rel_path.name}")
+            screen = AgentCommandScreen(title, full_cmd, prompt_str, default_window_name=f"agent-explain-{rel_path.name}")
             def on_result(result):
                 if result == "run":
                     self._run_agent_command("explain", arg)

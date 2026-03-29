@@ -3222,7 +3222,7 @@ class KanbanApp(App):
                         if full_cmd:
                             num = task_num.lstrip("t")
                             prompt_str = f"/aitask-pick {num}"
-                            screen = AgentCommandScreen(f"Pick Task t{num}", full_cmd, prompt_str, default_window_name=f"pick-{num}")
+                            screen = AgentCommandScreen(f"Pick Task t{num}", full_cmd, prompt_str, default_window_name=f"agent-pick-{num}")
                             def on_pick_result(pick_result):
                                 if pick_result == "run":
                                     self.run_aitask_pick(focused.task_data.filename)
@@ -3286,7 +3286,7 @@ class KanbanApp(App):
         if full_cmd:
             num = task_num.lstrip("t")
             prompt_str = f"/aitask-pick {num}"
-            screen = AgentCommandScreen(f"Pick Task t{num}", full_cmd, prompt_str, default_window_name=f"pick-{num}")
+            screen = AgentCommandScreen(f"Pick Task t{num}", full_cmd, prompt_str, default_window_name=f"agent-pick-{num}")
             def on_pick_result(pick_result):
                 if pick_result == "run":
                     self.run_aitask_pick(focused.task_data.filename)

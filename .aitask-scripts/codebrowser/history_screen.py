@@ -281,7 +281,7 @@ class HistoryScreen(Screen):
         full_cmd = resolve_dry_run_command(self._project_root, "qa", task_id)
         if full_cmd:
             prompt_str = f"/aitask-qa {task_id}"
-            screen = AgentCommandScreen(f"QA for t{task_id}", full_cmd, prompt_str, default_window_name=f"qa-{task_id}")
+            screen = AgentCommandScreen(f"QA for t{task_id}", full_cmd, prompt_str, default_window_name=f"agent-qa-{task_id}")
             def on_result(result):
                 if result == "run":
                     self._run_qa_command(task_id)
