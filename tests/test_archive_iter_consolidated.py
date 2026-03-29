@@ -10,6 +10,7 @@ import importlib.util
 import io
 import os
 import stat
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -27,8 +28,25 @@ from archive_iter import (
 )
 
 
+def _make_archive(archive_path: Path, files: dict[str, str]) -> None:
+    """Create a tar.zst at archive_path with the given filename->content mapping."""
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tf:
+        for name, content in files.items():
+            data = content.encode("utf-8")
+            info = tarfile.TarInfo(name=name)
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+    buf.seek(0)
+    subprocess.run(
+        ["zstd", "-q", "-f", "-o", str(archive_path)],
+        input=buf.read(), check=True,
+    )
+
+
 def _make_tar_gz(archive_path: Path, files: dict[str, str]) -> None:
-    """Create a tar.gz at archive_path with the given filename->content mapping."""
+    """Create a tar.gz at archive_path (for backward compat tests)."""
     archive_path.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive_path, "w:gz") as tf:
         for name, content in files.items():
@@ -87,8 +105,8 @@ class TestIterAllArchivedMarkdown(unittest.TestCase):
         self.assertIn("t1_2_sub.md", names)
 
     def test_numbered_tar(self):
-        _make_tar_gz(
-            self.archived / "_b0" / "old0.tar.gz",
+        _make_archive(
+            self.archived / "_b0" / "old0.tar.zst",
             {"t50_task.md": "tar content"},
         )
         results = list(iter_all_archived_markdown(self.archived))
@@ -100,8 +118,8 @@ class TestIterAllArchivedMarkdown(unittest.TestCase):
         )
 
     def test_skips_legacy_tar(self):
-        _make_tar_gz(
-            self.archived / "old.tar.gz",
+        _make_archive(
+            self.archived / "old.tar.zst",
             {"t99_legacy.md": "legacy content"},
         )
         results = list(iter_all_archived_markdown(self.archived))
@@ -116,8 +134,8 @@ class TestIterAllArchivedMarkdown(unittest.TestCase):
         child_dir.mkdir()
         (child_dir / "t1_1_child.md").write_text("c1")
         # Numbered tar
-        _make_tar_gz(
-            self.archived / "_b0" / "old0.tar.gz",
+        _make_archive(
+            self.archived / "_b0" / "old0.tar.zst",
             {"t50_tar.md": "tar1"},
         )
         results = list(iter_all_archived_markdown(self.archived))
@@ -151,6 +169,35 @@ class TestIterAllArchivedMarkdown(unittest.TestCase):
             self.assertIn("t2_readable.md", names)
         finally:
             path.chmod(0o644)
+
+    def test_backward_compat_tar_gz(self):
+        """Verify .tar.gz archives are still readable (backward compat)."""
+        _make_tar_gz(
+            self.archived / "_b0" / "old0.tar.gz",
+            {"t50_legacy.md": "legacy content"},
+        )
+        results = list(iter_all_archived_markdown(self.archived))
+        names = [r[0] for r in results]
+        self.assertIn("t50_legacy.md", names)
+        self.assertEqual(
+            [r[1] for r in results if r[0] == "t50_legacy.md"],
+            ["legacy content"],
+        )
+
+    def test_tar_zst_preferred_over_tar_gz(self):
+        """When both .tar.zst and .tar.gz exist for same bundle, prefer .tar.zst."""
+        _make_archive(
+            self.archived / "_b0" / "old0.tar.zst",
+            {"t50_task.md": "zst content"},
+        )
+        _make_tar_gz(
+            self.archived / "_b0" / "old0.tar.gz",
+            {"t50_task.md": "gz content"},
+        )
+        results = list(iter_all_archived_markdown(self.archived))
+        contents = [r[1] for r in results if r[0] == "t50_task.md"]
+        self.assertEqual(len(contents), 1)
+        self.assertEqual(contents[0], "zst content")
 
 
 class TestIterArchivedFrontmatter(unittest.TestCase):

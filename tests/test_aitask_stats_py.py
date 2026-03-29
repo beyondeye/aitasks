@@ -6,6 +6,7 @@ import csv
 import importlib.util
 import io
 import json
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -147,24 +148,30 @@ class TestCollection(unittest.TestCase):
             encoding="utf-8",
         )
 
-        # Use numbered archive (_b0/old0.tar.gz) instead of legacy old.tar.gz
+        # Use numbered archive (_b0/old0.tar.zst) instead of legacy old.tar.zst
         tar_dir = archived / "_b0"
         tar_dir.mkdir()
-        tar_path = tar_dir / "old0.tar.gz"
-        with tarfile.open(tar_path, "w:gz") as tf:
-            old = self.base / "old_task.md"
-            old.write_text(
-                "---\n"
-                "status: Done\n"
-                "completed_at: 2026-02-20 09:00\n"
-                "labels: [gamma]\n"
-                "issue_type: refactor\n"
-                "implemented_with: opencode/openai_gpt_5_3_codex\n"
-                "---\n"
-                "old\n",
-                encoding="utf-8",
-            )
+        tar_path = tar_dir / "old0.tar.zst"
+        old = self.base / "old_task.md"
+        old.write_text(
+            "---\n"
+            "status: Done\n"
+            "completed_at: 2026-02-20 09:00\n"
+            "labels: [gamma]\n"
+            "issue_type: refactor\n"
+            "implemented_with: opencode/openai_gpt_5_3_codex\n"
+            "---\n"
+            "old\n",
+            encoding="utf-8",
+        )
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tf:
             tf.add(old, arcname="t2_old_task.md")
+        buf.seek(0)
+        subprocess.run(
+            ["zstd", "-q", "-f", "-o", str(tar_path)],
+            input=buf.read(), check=True,
+        )
 
         self.orig_task_dir = stats.TASK_DIR
         self.orig_archive_dir = stats.ARCHIVE_DIR
