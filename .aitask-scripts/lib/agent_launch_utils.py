@@ -146,13 +146,13 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> subprocess.Popen:
 def load_tmux_defaults(project_root: Path) -> dict:
     """Load tmux defaults from project_config.yaml.
 
-    Returns dict with keys: default_session, default_split, use_for_create.
+    Returns dict with keys: default_session, default_split, prefer_tmux.
     Falls back to hardcoded defaults if config is absent.
     """
     defaults = {
         "default_session": "aitasks",
         "default_split": "horizontal",
-        "use_for_create": False,
+        "prefer_tmux": False,
     }
     config_path = project_root / "aitasks" / "metadata" / "project_config.yaml"
     if not config_path.is_file():
@@ -169,8 +169,8 @@ def load_tmux_defaults(project_root: Path) -> dict:
                 val = str(tmux["default_split"]).lower()
                 if val in ("horizontal", "vertical"):
                     defaults["default_split"] = val
-            if "use_for_create" in tmux:
-                defaults["use_for_create"] = bool(tmux["use_for_create"])
+            if "prefer_tmux" in tmux:
+                defaults["prefer_tmux"] = bool(tmux["prefer_tmux"])
     except Exception:
         pass
     return defaults

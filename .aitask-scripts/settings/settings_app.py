@@ -316,6 +316,7 @@ _TAB_SHORTCUTS = {
     "c": "tab_project",
     "m": "tab_models",
     "p": "tab_profiles",
+    "t": "tab_tmux",
 }
 
 PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
@@ -362,6 +363,38 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
 VALID_PROFILE_SKILLS = {
     "pick", "fold", "review", "pr-import", "revert",
     "explore", "pickrem", "pickweb", "qa",
+}
+
+TMUX_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
+    "default_session": {
+        "summary": "Default tmux session name",
+        "detail": (
+            "Session name used when creating new tmux sessions "
+            "from agent launch dialog (default: aitasks)"
+        ),
+        "type": "string",
+        "default": "aitasks",
+    },
+    "default_split": {
+        "summary": "Default pane split direction",
+        "detail": (
+            "Split direction when creating new pane in existing window: "
+            "horizontal or vertical (default: horizontal)"
+        ),
+        "type": "enum",
+        "options": "horizontal,vertical",
+        "default": "horizontal",
+    },
+    "prefer_tmux": {
+        "summary": "Prefer tmux tab in launch dialogs",
+        "detail": (
+            "When enabled, agent launch dialogs (pick, explain, QA, create) "
+            "will start with the tmux tab pre-selected instead of the "
+            "terminal tab (default: false)"
+        ),
+        "type": "bool",
+        "default": "false",
+    },
 }
 
 
@@ -1846,13 +1879,15 @@ class SettingsApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with TabbedContent("Agent Defaults", "Board", "Project Config", "Models", "Profiles"):
+        with TabbedContent("Agent Defaults", "Board", "Project Config", "Tmux", "Models", "Profiles"):
             with TabPane("Agent Defaults", id="tab_agent"):
                 yield VerticalScroll(id="agent_content")
             with TabPane("Board", id="tab_board"):
                 yield VerticalScroll(id="board_content")
             with TabPane("Project Config", id="tab_project"):
                 yield VerticalScroll(id="project_content")
+            with TabPane("Tmux", id="tab_tmux"):
+                yield VerticalScroll(id="tmux_content")
             with TabPane("Models", id="tab_models"):
                 yield VerticalScroll(id="models_content")
             with TabPane("Profiles", id="tab_profiles"):
@@ -1863,6 +1898,7 @@ class SettingsApp(App):
         self._populate_agent_tab()
         self._populate_board_tab()
         self._populate_project_tab()
+        self._populate_tmux_tab()
         self._populate_models_tab()
         self._populate_profiles_tab()
 
@@ -1933,7 +1969,7 @@ class SettingsApp(App):
         if isinstance(focused, Input):
             return
 
-        # Tab switching: a/b/c/m/p
+        # Tab switching: a/b/c/m/p/t
         if event.key in _TAB_SHORTCUTS:
             try:
                 tabbed = self.query_one(TabbedContent)
@@ -1995,6 +2031,17 @@ class SettingsApp(App):
                 self.push_screen(
                     ProfilePickerScreen(skill, current, profile_names),
                     callback=self._handle_default_profile_pick,
+                )
+                event.prevent_default()
+                event.stop()
+                return
+
+            # Tmux config editing
+            if fid.startswith("tmux_cfg_"):
+                self._editing_tmux_row_id = focused.id
+                self.push_screen(
+                    EditStringScreen(focused.row_key, focused.raw_value),
+                    callback=self._handle_tmux_config_edit,
                 )
                 event.prevent_default()
                 event.stop()
@@ -2299,7 +2346,7 @@ class SettingsApp(App):
 
         container.mount(Label(
             "[dim]Enter: edit  |  d: remove local preference  |  "
-            "\u2191\u2193: navigate  |  a/b/c/m/p: switch tabs[/dim]",
+            "\u2191\u2193: navigate  |  a/b/c/m/p/t: switch tabs[/dim]",
             classes="section-hint",
         ))
 
@@ -2398,7 +2445,7 @@ class SettingsApp(App):
 
         container.mount(Label(
             "[dim]\u2191\u2193: navigate  |  \u25c0\u25b6: cycle options  "
-            "|  a/b/c/m/p: switch tabs[/dim]",
+            "|  a/b/c/m/p/t: switch tabs[/dim]",
             classes="section-hint",
         ))
 
@@ -2498,7 +2545,7 @@ class SettingsApp(App):
                           id=f"btn_project_revert_{rc}"))
 
         container.mount(Label(
-            "[dim]Enter: edit  |  ↑↓: navigate  |  a/b/c/m/p: switch tabs[/dim]",
+            "[dim]Enter: edit  |  ↑↓: navigate  |  a/b/c/m/p/t: switch tabs[/dim]",
             classes="section-hint",
         ))
 
@@ -2590,6 +2637,136 @@ class SettingsApp(App):
             self.notify(f"Could not update {skill}: {exc}", severity="error")
 
     # -------------------------------------------------------------------
+    # Tmux tab (editable — writes to project_config.yaml tmux: section)
+    # -------------------------------------------------------------------
+    def _populate_tmux_tab(self):
+        container = self.query_one("#tmux_content", VerticalScroll)
+        container.remove_children()
+
+        self._repop_counter += 1
+        rc = self._repop_counter
+
+        container.mount(Label("Tmux Settings", classes="section-header"))
+        container.mount(Label(
+            "[dim]Configure tmux defaults for agent launch dialogs. "
+            "Stored in aitasks/metadata/project_config.yaml under the tmux: section.[/dim]",
+            classes="section-hint",
+        ))
+
+        tmux = self.config_mgr.project_config.get("tmux")
+        if not isinstance(tmux, dict):
+            tmux = {}
+
+        for key, info in TMUX_CONFIG_SCHEMA.items():
+            stype = info.get("type", "string")
+            current = tmux.get(key)
+
+            if stype == "string":
+                display = str(current) if current is not None else info["default"]
+                container.mount(ConfigRow(
+                    key, display, config_layer="project", row_key=key,
+                    id=f"tmux_cfg_{_safe_id(key)}_{rc}",
+                    raw_value=display,
+                ))
+            elif stype == "enum":
+                options = info["options"].split(",")
+                cur_val = str(current) if current is not None else info["default"]
+                if cur_val not in options:
+                    cur_val = info["default"]
+                container.mount(CycleField(
+                    key, options, cur_val, field_key=key,
+                    id=f"tmux_cycle_{_safe_id(key)}_{rc}",
+                ))
+            elif stype == "bool":
+                cur_val = str(current).lower() if current is not None else info["default"]
+                if cur_val not in ("true", "false"):
+                    cur_val = info["default"]
+                container.mount(CycleField(
+                    key, ["false", "true"], cur_val, field_key=key,
+                    id=f"tmux_cycle_{_safe_id(key)}_{rc}",
+                ))
+
+            container.mount(Label(
+                f"      [dim]{info['summary']}[/dim]",
+                classes="section-hint",
+            ))
+
+        hbox = Horizontal(classes="tab-buttons")
+        container.mount(hbox)
+        hbox.mount(Button("Save Tmux Settings", variant="success",
+                          id=f"btn_tmux_save_{rc}"))
+        hbox.mount(Button("Revert Tmux Settings", variant="warning",
+                          id=f"btn_tmux_revert_{rc}"))
+
+        container.mount(Label(
+            "[dim]Enter: edit  |  ←→: cycle  |  ↑↓: navigate  |  a/b/c/m/p/t: switch tabs[/dim]",
+            classes="section-hint",
+        ))
+
+    def save_tmux_settings(self):
+        container = self.query_one("#tmux_content", VerticalScroll)
+        tmux_data: dict = {}
+
+        for key, info in TMUX_CONFIG_SCHEMA.items():
+            stype = info.get("type", "string")
+            rc = self._repop_counter
+
+            if stype == "string":
+                widget_id = f"tmux_cfg_{_safe_id(key)}_{rc}"
+                try:
+                    row = self.query_one(f"#{widget_id}", ConfigRow)
+                    val = (row.raw_value or "").strip()
+                    if val:
+                        tmux_data[key] = val
+                except Exception:
+                    pass
+            elif stype in ("enum", "bool"):
+                widget_id = f"tmux_cycle_{_safe_id(key)}_{rc}"
+                try:
+                    field = self.query_one(f"#{widget_id}", CycleField)
+                    val = field.current_value
+                    if stype == "bool":
+                        tmux_data[key] = val == "true"
+                    else:
+                        tmux_data[key] = val
+                except Exception:
+                    pass
+
+        data = dict(self.config_mgr.project_config)
+        if tmux_data:
+            data["tmux"] = tmux_data
+        else:
+            data.pop("tmux", None)
+        self.config_mgr.save_project_settings(data)
+        self.config_mgr.load_all()
+        self._populate_tmux_tab()
+        self.notify("Tmux settings saved")
+
+    def _revert_tmux_settings(self):
+        self.config_mgr.load_all()
+        self._populate_tmux_tab()
+        self.notify("Tmux settings reverted")
+
+    def _handle_tmux_config_edit(self, result):
+        if result is None:
+            return
+        key = result["key"]
+        value = result["value"]
+
+        row_id = getattr(self, "_editing_tmux_row_id", None)
+        if not row_id:
+            rc = self._repop_counter
+            row_id = f"tmux_cfg_{_safe_id(key)}_{rc}"
+        try:
+            row = self.query_one(f"#{row_id}", ConfigRow)
+            row.raw_value = value
+            row.value = value or "(not set)"
+            row.refresh()
+            self.notify(f"Updated {key} — press Save to persist")
+        except Exception as exc:
+            self.notify(f"Could not update {key}: {exc}", severity="error")
+
+    # -------------------------------------------------------------------
     # Models tab (read-only)
     # -------------------------------------------------------------------
     def _populate_models_tab(self):
@@ -2599,7 +2776,7 @@ class SettingsApp(App):
         if not self.config_mgr.models:
             container.mount(Label("No model files found.", classes="section-header"))
             container.mount(Label(
-                "[dim]\u2191\u2193: navigate  |  a/b/c/m/p: switch tabs[/dim]",
+                "[dim]\u2191\u2193: navigate  |  a/b/c/m/p/t: switch tabs[/dim]",
                 classes="section-hint",
             ))
             return
@@ -2686,7 +2863,7 @@ class SettingsApp(App):
             classes="section-hint",
         ))
         container.mount(Label(
-            "[dim]\u2191\u2193: navigate  |  a/b/c/m/p: switch tabs[/dim]",
+            "[dim]\u2191\u2193: navigate  |  a/b/c/m/p/t: switch tabs[/dim]",
             classes="section-hint",
         ))
 
@@ -2726,7 +2903,7 @@ class SettingsApp(App):
                 id="btn_profile_add_new",
             ))
             container.mount(Label(
-                "[dim]\u2191\u2193: navigate  |  a/b/c/m/p: switch tabs[/dim]",
+                "[dim]\u2191\u2193: navigate  |  a/b/c/m/p/t: switch tabs[/dim]",
                 classes="section-hint",
             ))
             return
@@ -2754,7 +2931,7 @@ class SettingsApp(App):
             ))
             container.mount(Label(
                 "[dim]\u2191\u2193: navigate  |  \u25c0\u25b6: cycle options  "
-                "|  a/b/c/m/p: switch tabs[/dim]",
+                "|  a/b/c/m/p/t: switch tabs[/dim]",
                 classes="section-hint",
             ))
             return
@@ -2850,7 +3027,7 @@ class SettingsApp(App):
         container.mount(Label(
             "[dim]\u2191\u2193: navigate  |  \u25c0\u25b6: cycle options  "
             "|  Enter: edit strings  |  ?: field details  "
-            "|  a/b/c/m/p: switch tabs[/dim]",
+            "|  a/b/c/m/p/t: switch tabs[/dim]",
             classes="section-hint",
         ))
 
@@ -2923,6 +3100,10 @@ class SettingsApp(App):
             self.save_project_settings()
         elif btn_id.startswith("btn_project_revert"):
             self._revert_project_settings()
+        elif btn_id.startswith("btn_tmux_save"):
+            self.save_tmux_settings()
+        elif btn_id.startswith("btn_tmux_revert"):
+            self._revert_tmux_settings()
         elif btn_id == "btn_profile_add_new":
             existing = sorted(self.config_mgr.profiles.keys())
             self.push_screen(
