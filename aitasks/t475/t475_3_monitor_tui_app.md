@@ -1,12 +1,12 @@
 ---
 priority: high
 effort: high
-depends: [t475_2]
+depends: [t475_1, t475_2]
 issue_type: feature
 status: Ready
 labels: [aitask_monitor, tui]
 created_at: 2026-03-29 10:41
-updated_at: 2026-03-29 10:41
+updated_at: 2026-03-29 10:58
 ---
 
 ## Monitor TUI App
