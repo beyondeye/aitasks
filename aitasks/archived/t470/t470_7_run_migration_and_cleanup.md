@@ -3,11 +3,13 @@ priority: high
 effort: low
 depends: [4, 5, 6]
 issue_type: chore
-status: Implementing
+status: Done
 labels: [task-archive, archiveformat]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt5_4
 created_at: 2026-03-27 15:44
-updated_at: 2026-03-29 12:31
+updated_at: 2026-03-29 12:35
+completed_at: 2026-03-29 12:35
 ---
 
 Execute the migration script on this repository's archives, run full test suite, update documentation, and clean up old tar.gz files.

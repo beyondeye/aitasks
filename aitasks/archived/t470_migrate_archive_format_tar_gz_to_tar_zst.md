@@ -3,11 +3,11 @@ priority: high
 effort: high
 depends: []
 issue_type: refactor
-status: Ready
+status: Done
 labels: [task-archive, archiveformat]
-children_to_implement: [t470_7]
 created_at: 2026-03-26 22:42
-updated_at: 2026-03-29 12:24
+updated_at: 2026-03-29 12:35
+completed_at: 2026-03-29 12:35
 boardidx: 90
 ---
 
