@@ -3,10 +3,11 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_monitor, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-29 10:37
-updated_at: 2026-03-29 10:37
+updated_at: 2026-03-29 12:47
 ---
 
 ## Core Monitoring Library
