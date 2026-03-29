@@ -3,10 +3,11 @@ priority: high
 effort: high
 depends: [1]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [task-archive, archiveformat]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-27 13:09
-updated_at: 2026-03-27 13:09
+updated_at: 2026-03-29 09:56
 ---
 
 Update aitask_zip_old.sh (primary archive creation/management script) and aitask_create.sh to use tar.zst format with pipe approach. Update corresponding tests.
