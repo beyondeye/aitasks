@@ -10,7 +10,11 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 
 TASK_DIR="aitasks"
 ARCHIVE_DIR="$TASK_DIR/archived"
-ARCHIVE_TAR="$ARCHIVE_DIR/old.tar.gz"
+if [[ -f "$ARCHIVE_DIR/old.tar.zst" ]]; then
+    ARCHIVE_TAR="$ARCHIVE_DIR/old.tar.zst"
+else
+    ARCHIVE_TAR="$ARCHIVE_DIR/old.tar.gz"
+fi
 TASK_TYPES_FILE="$TASK_DIR/metadata/task_types.txt"
 
 # --- Help Function ---
@@ -426,15 +430,15 @@ collect_archived_children() {
     done
 }
 
-# Collect from old.tar.gz archive
+# Collect from archive (tar.zst or tar.gz)
 collect_from_tarball() {
     [[ -f "$ARCHIVE_TAR" ]] || return
 
-    local files=$(tar -tzf "$ARCHIVE_TAR" 2>/dev/null | grep '\.md$')
+    local files=$(_archive_list "$ARCHIVE_TAR" | grep '\.md$')
     [[ -z "$files" ]] && return
 
     while IFS= read -r filename; do
-        local content=$(tar -xzf "$ARCHIVE_TAR" -O "$filename" 2>/dev/null)
+        local content=$(_archive_extract_file "$ARCHIVE_TAR" "$filename")
         [[ -z "$content" ]] && continue
         local basename=$(basename "$filename")
         process_task "$content" "$basename"

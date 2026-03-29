@@ -17,7 +17,7 @@ bash tests/test_task_lock.sh
 bash tests/test_terminal_compat.sh
 bash tests/test_zip_old.sh
 bash tests/test_setup_git.sh
-bash tests/test_resolve_tar_gz.sh
+bash tests/test_resolve_tar_zst.sh
 bash tests/test_t167_integration.sh
 bash tests/test_global_shim.sh
 bash tests/test_sed_compat.sh

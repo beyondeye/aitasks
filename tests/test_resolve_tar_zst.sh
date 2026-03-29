@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# test_resolve_tar_gz.sh - Automated tests for tar.gz fallback in resolve functions
-# Run: bash tests/test_resolve_tar_gz.sh
+# test_resolve_tar_zst.sh - Automated tests for archive fallback in resolve functions
+# Run: bash tests/test_resolve_tar_zst.sh
 
 set -e
 
@@ -73,9 +73,16 @@ setup_test_env() {
     echo "$tmpdir"
 }
 
-# Create a tar.gz archive mimicking aitask_zip_old.sh format (./prefix paths)
+# Create a tar.zst archive mimicking aitask_zip_old.sh format (./prefix paths)
 # Args: $1=archive_path, $2=source_dir (files to archive, relative structure preserved)
 create_test_archive() {
+    local archive_path="$1"
+    local source_dir="$2"
+    tar -cf - -C "$source_dir" . | zstd -q -o "$archive_path"
+}
+
+# Create a tar.gz archive for backward compatibility tests
+create_test_archive_gz() {
     local archive_path="$1"
     local source_dir="$2"
     tar -czf "$archive_path" -C "$source_dir" .
@@ -105,7 +112,7 @@ source_task_utils() {
 
 # --- Tests ---
 
-echo "=== test_resolve_tar_gz.sh ==="
+echo "=== test_resolve_tar_zst.sh ==="
 echo ""
 
 # --- Test 1: Resolve parent task from active dir ---
@@ -126,18 +133,18 @@ result=$(resolve_task_file "50")
 assert_eq "Parent task resolved from archived dir" "$TMPDIR_2/aitasks/archived/t50_test_feature.md" "$result"
 rm -rf "$TMPDIR_2"
 
-# --- Test 3: Resolve parent task from tar.gz ---
-echo "--- Test 3: Resolve parent task from tar.gz ---"
+# --- Test 3: Resolve parent task from tar.zst ---
+echo "--- Test 3: Resolve parent task from tar.zst ---"
 TMPDIR_3=$(setup_test_env)
-# Create tar.gz with a task file inside
+# Create tar.zst with a task file inside
 staging=$(mktemp -d)
 echo "tar task 50 content" > "$staging/t50_test_feature.md"
-create_test_archive "$TMPDIR_3/aitasks/archived/old.tar.gz" "$staging"
+create_test_archive "$TMPDIR_3/aitasks/archived/old.tar.zst" "$staging"
 rm -rf "$staging"
 source_task_utils "$TMPDIR_3"
 result=$(resolve_task_file "50")
 actual_content=$(cat "$result")
-assert_eq "Parent task from tar.gz has correct content" "tar task 50 content" "$actual_content"
+assert_eq "Parent task from tar.zst has correct content" "tar task 50 content" "$actual_content"
 rm -rf "$TMPDIR_3"
 
 # --- Test 4: Resolve child task from active dir ---
@@ -160,71 +167,71 @@ result=$(resolve_task_file "10_2")
 assert_eq "Child task resolved from archived dir" "$TMPDIR_5/aitasks/archived/t10/t10_2_add_login.md" "$result"
 rm -rf "$TMPDIR_5"
 
-# --- Test 6: Resolve child task from tar.gz ---
-echo "--- Test 6: Resolve child task from tar.gz ---"
+# --- Test 6: Resolve child task from tar.zst ---
+echo "--- Test 6: Resolve child task from tar.zst ---"
 TMPDIR_6=$(setup_test_env)
 staging=$(mktemp -d)
 mkdir -p "$staging/t10"
 echo "tar child 10_2 content" > "$staging/t10/t10_2_add_login.md"
-create_test_archive "$TMPDIR_6/aitasks/archived/old.tar.gz" "$staging"
+create_test_archive "$TMPDIR_6/aitasks/archived/old.tar.zst" "$staging"
 rm -rf "$staging"
 source_task_utils "$TMPDIR_6"
 result=$(resolve_task_file "10_2")
 actual_content=$(cat "$result")
-assert_eq "Child task from tar.gz has correct content" "tar child 10_2 content" "$actual_content"
+assert_eq "Child task from tar.zst has correct content" "tar child 10_2 content" "$actual_content"
 rm -rf "$TMPDIR_6"
 
-# --- Test 7: Resolve parent plan from tar.gz ---
-echo "--- Test 7: Resolve parent plan from tar.gz ---"
+# --- Test 7: Resolve parent plan from tar.zst ---
+echo "--- Test 7: Resolve parent plan from tar.zst ---"
 TMPDIR_7=$(setup_test_env)
 staging=$(mktemp -d)
 echo "tar plan 50 content" > "$staging/p50_test_feature.md"
-create_test_archive "$TMPDIR_7/aiplans/archived/old.tar.gz" "$staging"
+create_test_archive "$TMPDIR_7/aiplans/archived/old.tar.zst" "$staging"
 rm -rf "$staging"
 source_task_utils "$TMPDIR_7"
 result=$(resolve_plan_file "50")
 actual_content=$(cat "$result")
-assert_eq "Parent plan from tar.gz has correct content" "tar plan 50 content" "$actual_content"
+assert_eq "Parent plan from tar.zst has correct content" "tar plan 50 content" "$actual_content"
 rm -rf "$TMPDIR_7"
 
-# --- Test 8: Resolve child plan from tar.gz ---
-echo "--- Test 8: Resolve child plan from tar.gz ---"
+# --- Test 8: Resolve child plan from tar.zst ---
+echo "--- Test 8: Resolve child plan from tar.zst ---"
 TMPDIR_8=$(setup_test_env)
 staging=$(mktemp -d)
 mkdir -p "$staging/p10"
 echo "tar child plan 10_2 content" > "$staging/p10/p10_2_add_login.md"
-create_test_archive "$TMPDIR_8/aiplans/archived/old.tar.gz" "$staging"
+create_test_archive "$TMPDIR_8/aiplans/archived/old.tar.zst" "$staging"
 rm -rf "$staging"
 source_task_utils "$TMPDIR_8"
 result=$(resolve_plan_file "10_2")
 actual_content=$(cat "$result")
-assert_eq "Child plan from tar.gz has correct content" "tar child plan 10_2 content" "$actual_content"
+assert_eq "Child plan from tar.zst has correct content" "tar child plan 10_2 content" "$actual_content"
 rm -rf "$TMPDIR_8"
 
-# --- Test 9: Priority - active dir wins over tar.gz ---
-echo "--- Test 9: Priority - active dir wins over tar.gz ---"
+# --- Test 9: Priority - active dir wins over tar.zst ---
+echo "--- Test 9: Priority - active dir wins over tar.zst ---"
 TMPDIR_9=$(setup_test_env)
 echo "active task 50" > "$TMPDIR_9/aitasks/t50_test_feature.md"
 staging=$(mktemp -d)
 echo "tar task 50" > "$staging/t50_test_feature.md"
-create_test_archive "$TMPDIR_9/aitasks/archived/old.tar.gz" "$staging"
+create_test_archive "$TMPDIR_9/aitasks/archived/old.tar.zst" "$staging"
 rm -rf "$staging"
 source_task_utils "$TMPDIR_9"
 result=$(resolve_task_file "50")
-assert_eq "Active dir wins over tar.gz" "$TMPDIR_9/aitasks/t50_test_feature.md" "$result"
+assert_eq "Active dir wins over tar.zst" "$TMPDIR_9/aitasks/t50_test_feature.md" "$result"
 rm -rf "$TMPDIR_9"
 
-# --- Test 10: Priority - archived dir wins over tar.gz ---
-echo "--- Test 10: Priority - archived dir wins over tar.gz ---"
+# --- Test 10: Priority - archived dir wins over tar.zst ---
+echo "--- Test 10: Priority - archived dir wins over tar.zst ---"
 TMPDIR_10=$(setup_test_env)
 echo "archived task 50" > "$TMPDIR_10/aitasks/archived/t50_test_feature.md"
 staging=$(mktemp -d)
 echo "tar task 50" > "$staging/t50_test_feature.md"
-create_test_archive "$TMPDIR_10/aitasks/archived/old.tar.gz" "$staging"
+create_test_archive "$TMPDIR_10/aitasks/archived/old.tar.zst" "$staging"
 rm -rf "$staging"
 source_task_utils "$TMPDIR_10"
 result=$(resolve_task_file "50")
-assert_eq "Archived dir wins over tar.gz" "$TMPDIR_10/aitasks/archived/t50_test_feature.md" "$result"
+assert_eq "Archived dir wins over tar.zst" "$TMPDIR_10/aitasks/archived/t50_test_feature.md" "$result"
 rm -rf "$TMPDIR_10"
 
 # --- Test 11: Not found anywhere - parent task dies ---
@@ -253,7 +260,7 @@ echo "--- Test 13: Temp file cleanup after shell exits ---"
 TMPDIR_13=$(setup_test_env)
 staging=$(mktemp -d)
 echo "tar task 77 content" > "$staging/t77_cleanup_test.md"
-create_test_archive "$TMPDIR_13/aitasks/archived/old.tar.gz" "$staging"
+create_test_archive "$TMPDIR_13/aitasks/archived/old.tar.zst" "$staging"
 rm -rf "$staging"
 # Run in a subshell that will exit, triggering the EXIT trap.
 # The subshell writes _AIT_ARCHIVE_TMPDIR to a file so the parent can check it.
@@ -277,8 +284,8 @@ else
 fi
 rm -rf "$TMPDIR_13"
 
-# --- Test 14: extract_final_implementation_notes works on tar.gz-extracted file ---
-echo "--- Test 14: extract_final_implementation_notes works on tar.gz-extracted file ---"
+# --- Test 14: extract_final_implementation_notes works on tar.zst-extracted file ---
+echo "--- Test 14: extract_final_implementation_notes works on tar.zst-extracted file ---"
 TMPDIR_14=$(setup_test_env)
 staging=$(mktemp -d)
 cat > "$staging/p30_some_plan.md" << 'PLANEOF'
@@ -295,13 +302,26 @@ Step 1: Do something
 - **Actual work done:** Completed all steps
 - **Issues encountered:** None
 PLANEOF
-create_test_archive "$TMPDIR_14/aiplans/archived/old.tar.gz" "$staging"
+create_test_archive "$TMPDIR_14/aiplans/archived/old.tar.zst" "$staging"
 rm -rf "$staging"
 source_task_utils "$TMPDIR_14"
 plan_path=$(resolve_plan_file "30")
 notes=$(extract_final_implementation_notes "$plan_path")
-assert_contains "extract_final_implementation_notes finds content from tar.gz file" "Completed all steps" "$notes"
+assert_contains "extract_final_implementation_notes finds content from tar.zst file" "Completed all steps" "$notes"
 rm -rf "$TMPDIR_14"
+
+# --- Test 15: Backward compat - resolve parent task from tar.gz (legacy) ---
+echo "--- Test 15: Backward compat - resolve parent task from tar.gz (legacy) ---"
+TMPDIR_15=$(setup_test_env)
+staging=$(mktemp -d)
+echo "legacy gz task 50 content" > "$staging/t50_test_feature.md"
+create_test_archive_gz "$TMPDIR_15/aitasks/archived/old.tar.gz" "$staging"
+rm -rf "$staging"
+source_task_utils "$TMPDIR_15"
+result=$(resolve_task_file "50")
+actual_content=$(cat "$result")
+assert_eq "Parent task from legacy tar.gz has correct content" "legacy gz task 50 content" "$actual_content"
+rm -rf "$TMPDIR_15"
 
 # --- Results ---
 

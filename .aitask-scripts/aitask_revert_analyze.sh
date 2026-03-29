@@ -36,8 +36,8 @@ Output formats:
   COMMIT|<hash>|<date>|<message>|<insertions>|<deletions>|<task_id>
   AREA|<dir>|<file_count>|<insertions>|<deletions>|<file1,file2,...>
   FILE|<path>|<insertions>|<deletions>
-  TASK_LOCATION|<active|archived|tar_gz|not_found>|<path>
-  PLAN_LOCATION|<active|archived|tar_gz|not_found>|<path>
+  TASK_LOCATION|<active|archived|archive|not_found>|<path>
+  PLAN_LOCATION|<active|archived|archive|not_found>|<path>
   CHILD_HEADER|<child_id>|<child_name>|<commit_count>
   CHILD_AREA|<child_id>|<dir>|<file_count>|<insertions>|<deletions>|<file_list>
   PARENT_HEADER|<parent_id>|<commit_count>
@@ -357,16 +357,14 @@ cmd_task_files() {
 _find_file_location() {
     local file_type="$1"
     local task_id="$2"
-    local prefix label active_dir archived_dir tar_path
+    local prefix label active_dir archived_dir
 
     if [[ "$file_type" == "task" ]]; then
         prefix="t"; label="TASK_LOCATION"
         active_dir="$TASK_DIR"; archived_dir="$ARCHIVED_DIR"
-        tar_path="$ARCHIVED_DIR/old.tar.gz"
     else
         prefix="p"; label="PLAN_LOCATION"
         active_dir="$PLAN_DIR"; archived_dir="$ARCHIVED_PLAN_DIR"
-        tar_path="$ARCHIVED_PLAN_DIR/old.tar.gz"
     fi
 
     local files=""
@@ -391,12 +389,15 @@ _find_file_location() {
         fi
 
         # Deep archive
-        local tar_match
-        tar_match=$(_search_tar_gz "$tar_path" "(^|/)${pat}.*\.md$" || true)
-        if [[ -n "$tar_match" ]]; then
-            echo "${label}|tar_gz|${tar_match}"
-            return
-        fi
+        local tar_match legacy
+        for legacy in "$archived_dir/old.tar.zst" "$archived_dir/old.tar.gz"; do
+            [[ -f "$legacy" ]] || continue
+            tar_match=$(_search_archive "$legacy" "(^|/)${pat}.*\.md$" || true)
+            if [[ -n "$tar_match" ]]; then
+                echo "${label}|archive|${tar_match}"
+                return
+            fi
+        done
     else
         # Parent
         files=$(ls "${active_dir}/${prefix}${task_id}_"*.md 2>/dev/null || true)
@@ -411,12 +412,15 @@ _find_file_location() {
             return
         fi
 
-        local tar_match
-        tar_match=$(_search_tar_gz "$tar_path" "(^|/)${prefix}${task_id}_.*\.md$" || true)
-        if [[ -n "$tar_match" ]]; then
-            echo "${label}|tar_gz|${tar_match}"
-            return
-        fi
+        local tar_match legacy
+        for legacy in "$archived_dir/old.tar.zst" "$archived_dir/old.tar.gz"; do
+            [[ -f "$legacy" ]] || continue
+            tar_match=$(_search_archive "$legacy" "(^|/)${prefix}${task_id}_.*\.md$" || true)
+            if [[ -n "$tar_match" ]]; then
+                echo "${label}|archive|${tar_match}"
+                return
+            fi
+        done
     fi
 
     echo "${label}|not_found|"

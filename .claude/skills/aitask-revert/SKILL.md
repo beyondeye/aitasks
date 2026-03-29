@@ -40,7 +40,7 @@ Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-
   ```bash
   ./.aitask-scripts/aitask_query_files.sh archived-task <number>
   ```
-  Parse: `ARCHIVED_TASK:<path>` means found in archive (filesystem), `ARCHIVED_TASK_TAR_GZ:<entry>` means found in deep archive (old.tar.gz), `NOT_FOUND` means not found.
+  Parse: `ARCHIVED_TASK:<path>` means found in archive (filesystem), `ARCHIVED_TASK_ARCHIVE:<entry>` means found in deep archive, `NOT_FOUND` means not found.
 - If found (active, archived, or in deep archive): First, ensure the task and all its children/plans are extracted from deep archive (no-op if already on filesystem):
   ```bash
   bash .aitask-scripts/aitask_zip_old.sh unpack <number>
@@ -355,7 +355,7 @@ Build a self-contained task description using the data collected. The descriptio
 ```bash
 bash .aitask-scripts/aitask_revert_analyze.sh --find-task <id>
 ```
-Parse the output: `TASK_LOCATION|<location_type>|<path>` and `PLAN_LOCATION|<location_type>|<path>`. Location types are `active`, `archived`, `tar_gz`, or `not_found`. Use the resolved paths in the disposition instructions below.
+Parse the output: `TASK_LOCATION|<location_type>|<path>` and `PLAN_LOCATION|<location_type>|<path>`. Location types are `active`, `archived`, `archive`, or `not_found`. Use the resolved paths in the disposition instructions below.
 
 **For complete reverts, build the description from this template:**
 

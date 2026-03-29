@@ -288,7 +288,7 @@ TMPDIR_9="$(setup_paired_repos)"
     cd "$TMPDIR_9/local"
     mkdir -p /tmp/tartest_$$
     echo "---" > "/tmp/tartest_$$/t100_old_task.md"
-    tar -czf aitasks/archived/old.tar.gz -C "/tmp/tartest_$$" t100_old_task.md
+    tar -cf - -C "/tmp/tartest_$$" t100_old_task.md | zstd -q -o aitasks/archived/old.tar.zst
     rm -rf "/tmp/tartest_$$"
     git add -A && git commit -m "Add tar" --quiet && git push --quiet 2>/dev/null
 )

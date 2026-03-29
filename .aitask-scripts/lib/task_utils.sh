@@ -172,7 +172,7 @@ detect_platform_from_url() {
 
 # --- Task and Plan Resolution ---
 # Archive search/extract primitives provided by archive_utils.sh:
-#   _search_tar_gz(), _extract_from_tar_gz(), archive_path_for_id()
+#   _search_archive(), _extract_from_archive(), _find_archive_for_task()
 # Temp directory cleanup handled by _AIT_ARCHIVE_TMPDIR in archive_utils.sh
 
 # Resolve task number to file path, checking both active and archived directories
@@ -197,14 +197,21 @@ resolve_task_file() {
         # Tier 3: numbered archives (computed path, then legacy fallback)
         if [[ -z "$files" ]]; then
             local archive_path tar_match
-            archive_path=$(archive_path_for_id "$parent_num" "$ARCHIVED_DIR")
-            tar_match=$(_search_tar_gz "$archive_path" "(^|/)t${parent_num}/t${parent_num}_${child_num}_.*\.md$")
-            if [[ -z "$tar_match" && -f "$ARCHIVED_DIR/old.tar.gz" ]]; then
-                archive_path="$ARCHIVED_DIR/old.tar.gz"
-                tar_match=$(_search_tar_gz "$archive_path" "(^|/)t${parent_num}/t${parent_num}_${child_num}_.*\.md$")
+            archive_path=$(_find_archive_for_task "$parent_num" "$ARCHIVED_DIR")
+            if [[ -n "$archive_path" ]]; then
+                tar_match=$(_search_archive "$archive_path" "(^|/)t${parent_num}/t${parent_num}_${child_num}_.*\.md$")
+            fi
+            if [[ -z "$tar_match" ]]; then
+                local legacy
+                for legacy in "$ARCHIVED_DIR/old.tar.zst" "$ARCHIVED_DIR/old.tar.gz"; do
+                    [[ -f "$legacy" ]] || continue
+                    archive_path="$legacy"
+                    tar_match=$(_search_archive "$archive_path" "(^|/)t${parent_num}/t${parent_num}_${child_num}_.*\.md$")
+                    [[ -n "$tar_match" ]] && break
+                done
             fi
             if [[ -n "$tar_match" ]]; then
-                _extract_from_tar_gz "$archive_path" "$tar_match"
+                _extract_from_archive "$archive_path" "$tar_match"
                 files="$_AIT_EXTRACT_RESULT"
             fi
         fi
@@ -223,14 +230,21 @@ resolve_task_file() {
         # Tier 3: numbered archives (computed path, then legacy fallback)
         if [[ -z "$files" ]]; then
             local archive_path tar_match
-            archive_path=$(archive_path_for_id "$task_id" "$ARCHIVED_DIR")
-            tar_match=$(_search_tar_gz "$archive_path" "(^|/)t${task_id}_.*\.md$")
-            if [[ -z "$tar_match" && -f "$ARCHIVED_DIR/old.tar.gz" ]]; then
-                archive_path="$ARCHIVED_DIR/old.tar.gz"
-                tar_match=$(_search_tar_gz "$archive_path" "(^|/)t${task_id}_.*\.md$")
+            archive_path=$(_find_archive_for_task "$task_id" "$ARCHIVED_DIR")
+            if [[ -n "$archive_path" ]]; then
+                tar_match=$(_search_archive "$archive_path" "(^|/)t${task_id}_.*\.md$")
+            fi
+            if [[ -z "$tar_match" ]]; then
+                local legacy
+                for legacy in "$ARCHIVED_DIR/old.tar.zst" "$ARCHIVED_DIR/old.tar.gz"; do
+                    [[ -f "$legacy" ]] || continue
+                    archive_path="$legacy"
+                    tar_match=$(_search_archive "$archive_path" "(^|/)t${task_id}_.*\.md$")
+                    [[ -n "$tar_match" ]] && break
+                done
             fi
             if [[ -n "$tar_match" ]]; then
-                _extract_from_tar_gz "$archive_path" "$tar_match"
+                _extract_from_archive "$archive_path" "$tar_match"
                 files="$_AIT_EXTRACT_RESULT"
             fi
         fi
@@ -275,14 +289,21 @@ resolve_plan_file() {
         # Tier 3: numbered archives (computed path, then legacy fallback)
         if [[ -z "$files" ]]; then
             local archive_path tar_match
-            archive_path=$(archive_path_for_id "$parent_num" "$ARCHIVED_PLAN_DIR")
-            tar_match=$(_search_tar_gz "$archive_path" "(^|/)p${parent_num}/p${parent_num}_${child_num}_.*\.md$")
-            if [[ -z "$tar_match" && -f "$ARCHIVED_PLAN_DIR/old.tar.gz" ]]; then
-                archive_path="$ARCHIVED_PLAN_DIR/old.tar.gz"
-                tar_match=$(_search_tar_gz "$archive_path" "(^|/)p${parent_num}/p${parent_num}_${child_num}_.*\.md$")
+            archive_path=$(_find_archive_for_task "$parent_num" "$ARCHIVED_PLAN_DIR")
+            if [[ -n "$archive_path" ]]; then
+                tar_match=$(_search_archive "$archive_path" "(^|/)p${parent_num}/p${parent_num}_${child_num}_.*\.md$")
+            fi
+            if [[ -z "$tar_match" ]]; then
+                local legacy
+                for legacy in "$ARCHIVED_PLAN_DIR/old.tar.zst" "$ARCHIVED_PLAN_DIR/old.tar.gz"; do
+                    [[ -f "$legacy" ]] || continue
+                    archive_path="$legacy"
+                    tar_match=$(_search_archive "$archive_path" "(^|/)p${parent_num}/p${parent_num}_${child_num}_.*\.md$")
+                    [[ -n "$tar_match" ]] && break
+                done
             fi
             if [[ -n "$tar_match" ]]; then
-                _extract_from_tar_gz "$archive_path" "$tar_match"
+                _extract_from_archive "$archive_path" "$tar_match"
                 files="$_AIT_EXTRACT_RESULT"
             fi
         fi
@@ -297,14 +318,21 @@ resolve_plan_file() {
         # Tier 3: numbered archives (computed path, then legacy fallback)
         if [[ -z "$files" ]]; then
             local archive_path tar_match
-            archive_path=$(archive_path_for_id "$task_id" "$ARCHIVED_PLAN_DIR")
-            tar_match=$(_search_tar_gz "$archive_path" "(^|/)p${task_id}_.*\.md$")
-            if [[ -z "$tar_match" && -f "$ARCHIVED_PLAN_DIR/old.tar.gz" ]]; then
-                archive_path="$ARCHIVED_PLAN_DIR/old.tar.gz"
-                tar_match=$(_search_tar_gz "$archive_path" "(^|/)p${task_id}_.*\.md$")
+            archive_path=$(_find_archive_for_task "$task_id" "$ARCHIVED_PLAN_DIR")
+            if [[ -n "$archive_path" ]]; then
+                tar_match=$(_search_archive "$archive_path" "(^|/)p${task_id}_.*\.md$")
+            fi
+            if [[ -z "$tar_match" ]]; then
+                local legacy
+                for legacy in "$ARCHIVED_PLAN_DIR/old.tar.zst" "$ARCHIVED_PLAN_DIR/old.tar.gz"; do
+                    [[ -f "$legacy" ]] || continue
+                    archive_path="$legacy"
+                    tar_match=$(_search_archive "$archive_path" "(^|/)p${task_id}_.*\.md$")
+                    [[ -n "$tar_match" ]] && break
+                done
             fi
             if [[ -n "$tar_match" ]]; then
-                _extract_from_tar_gz "$archive_path" "$tar_match"
+                _extract_from_archive "$archive_path" "$tar_match"
                 files="$_AIT_EXTRACT_RESULT"
             fi
         fi

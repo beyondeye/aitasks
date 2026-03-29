@@ -66,7 +66,7 @@ Output format (structured lines):
   NO_CONTEXT                 No sibling context files found
   PLAN_FILE:<path>           Active plan file found
   ARCHIVED_CHILD:<path>      Archived child task file
-  ARCHIVED_TASK_TAR_GZ:<entry> Archived task found in old.tar.gz
+  ARCHIVED_TASK_ARCHIVE:<entry> Archived task found in archive
   NO_ARCHIVED_CHILDREN       No archived children found
   RECENT_ARCHIVED:<path>|<completed_at>|<issue_type>|<task_name>
   NO_RECENT_ARCHIVED         No recently archived tasks found
