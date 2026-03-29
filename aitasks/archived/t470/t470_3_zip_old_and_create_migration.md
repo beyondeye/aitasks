@@ -3,11 +3,13 @@ priority: high
 effort: high
 depends: [1]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [task-archive, archiveformat]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-27 13:09
-updated_at: 2026-03-29 09:56
+updated_at: 2026-03-29 10:17
+completed_at: 2026-03-29 10:17
 ---
 
 Update aitask_zip_old.sh (primary archive creation/management script) and aitask_create.sh to use tar.zst format with pipe approach. Update corresponding tests.
