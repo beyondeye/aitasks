@@ -20,7 +20,7 @@ ait setup
 **Guided setup flow:**
 
 1. **OS detection** — Automatically detects: macOS, Arch Linux, Debian/Ubuntu, Fedora/RHEL, WSL
-2. **CLI tools** — Installs missing tools (`fzf`, `gh`/`glab`/`bkt`, `jq`, `git`) via the platform's package manager (pacman, apt, dnf, brew). Auto-detects git remote platform to install the right CLI tool (`gh` for GitHub, `glab` for GitLab, `bkt` for Bitbucket). On macOS, requires [Homebrew](https://brew.sh) and also installs bash 5.x, Python 3, and coreutils
+2. **CLI tools** — Installs missing tools (`fzf`, `gh`/`glab`/`bkt`, `jq`, `git`, `zstd`) via the platform's package manager (pacman, apt, dnf, brew). Auto-detects git remote platform to install the right CLI tool (`gh` for GitHub, `glab` for GitLab, `bkt` for Bitbucket). On macOS, requires [Homebrew](https://brew.sh) and also installs bash 5.x, Python 3, and coreutils
 3. **Version checks** — Verifies Bash >= 4.0 and Python >= 3.9. On macOS, offers to install/upgrade via Homebrew if versions are too old
 4. **Git repo** — Verifies you are inside a git repository. If no `.git/` is found, explains that aitasks is tightly integrated with git and asks to confirm this is the correct project directory before offering to run `git init`
 5. **Draft directory** — Creates `aitasks/new/` for local draft tasks and adds it to `.gitignore` so drafts stay local-only

@@ -109,7 +109,7 @@ install_cli_tools() {
     platform=$(_detect_git_platform)
 
     # Build tools list: always fzf, jq, git; platform-specific CLI
-    local tools=(fzf jq git)
+    local tools=(fzf jq git zstd)
     case "$platform" in
         gitlab)
             tools+=(glab)
