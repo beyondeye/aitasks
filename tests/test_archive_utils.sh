@@ -69,10 +69,19 @@ setup_test_env() {
     echo "$tmpdir"
 }
 
-# Create a tar.gz archive from a staging directory.
+# Create a tar.zst archive from a staging directory.
 # Automatically creates parent dirs for the archive path.
 # Args: $1=archive_path, $2=source_dir
 create_test_archive() {
+    local archive_path="$1"
+    local source_dir="$2"
+    mkdir -p "$(dirname "$archive_path")"
+    tar -cf - -C "$source_dir" . | zstd -q -o "$archive_path"
+}
+
+# Create a tar.gz archive (for backward compatibility tests).
+# Args: $1=archive_path, $2=source_dir
+create_test_archive_gz() {
     local archive_path="$1"
     local source_dir="$2"
     mkdir -p "$(dirname "$archive_path")"
@@ -119,43 +128,43 @@ assert_eq "dir(100)=10"  "10" "$(archive_dir 100)"
 
 # --- Group C: archive_path_for_id() full paths ---
 echo "--- Group C: archive_path_for_id() ---"
-assert_eq "path(0)"    "archived/_b0/old0.tar.gz"           "$(archive_path_for_id 0 "archived")"
-assert_eq "path(99)"   "archived/_b0/old0.tar.gz"           "$(archive_path_for_id 99 "archived")"
-assert_eq "path(100)"  "archived/_b0/old1.tar.gz"           "$(archive_path_for_id 100 "archived")"
-assert_eq "path(999)"  "archived/_b0/old9.tar.gz"           "$(archive_path_for_id 999 "archived")"
-assert_eq "path(1000)" "archived/_b1/old10.tar.gz"          "$(archive_path_for_id 1000 "archived")"
-assert_eq "path(5432)" "aitasks/archived/_b5/old54.tar.gz"  "$(archive_path_for_id 5432 "aitasks/archived")"
+assert_eq "path(0)"    "archived/_b0/old0.tar.zst"           "$(archive_path_for_id 0 "archived")"
+assert_eq "path(99)"   "archived/_b0/old0.tar.zst"           "$(archive_path_for_id 99 "archived")"
+assert_eq "path(100)"  "archived/_b0/old1.tar.zst"           "$(archive_path_for_id 100 "archived")"
+assert_eq "path(999)"  "archived/_b0/old9.tar.zst"           "$(archive_path_for_id 999 "archived")"
+assert_eq "path(1000)" "archived/_b1/old10.tar.zst"          "$(archive_path_for_id 1000 "archived")"
+assert_eq "path(5432)" "aitasks/archived/_b5/old54.tar.zst"  "$(archive_path_for_id 5432 "aitasks/archived")"
 
-# --- Group D: _search_tar_gz() ---
-echo "--- Group D: _search_tar_gz() ---"
+# --- Group D: _search_archive() ---
+echo "--- Group D: _search_archive() ---"
 TMPDIR_D=$(setup_test_env)
 staging=$(mktemp -d)
 echo "task 50 content" > "$staging/t50_test_feature.md"
-create_test_archive "$TMPDIR_D/aitasks/archived/_b0/old0.tar.gz" "$staging"
+create_test_archive "$TMPDIR_D/aitasks/archived/_b0/old0.tar.zst" "$staging"
 rm -rf "$staging"
 source_archive_utils
 
-result=$(_search_tar_gz "$TMPDIR_D/aitasks/archived/_b0/old0.tar.gz" "t50_.*\.md$")
+result=$(_search_archive "$TMPDIR_D/aitasks/archived/_b0/old0.tar.zst" "t50_.*\.md$")
 assert_contains "search finds t50 in old0" "t50_test_feature.md" "$result"
 
-result=$(_search_tar_gz "$TMPDIR_D/aitasks/archived/_b0/old0.tar.gz" "t999_.*\.md$")
+result=$(_search_archive "$TMPDIR_D/aitasks/archived/_b0/old0.tar.zst" "t999_.*\.md$")
 assert_eq "search for non-existent returns empty" "" "$result"
 
-result=$(_search_tar_gz "$TMPDIR_D/aitasks/archived/nonexistent.tar.gz" "t50_.*\.md$")
+result=$(_search_archive "$TMPDIR_D/aitasks/archived/nonexistent.tar.zst" "t50_.*\.md$")
 assert_eq "search on missing archive returns empty" "" "$result"
 rm -rf "$TMPDIR_D"
 
-# --- Group E: _extract_from_tar_gz() ---
-echo "--- Group E: _extract_from_tar_gz() ---"
+# --- Group E: _extract_from_archive() ---
+echo "--- Group E: _extract_from_archive() ---"
 TMPDIR_E=$(setup_test_env)
 staging=$(mktemp -d)
 echo "extracted content here" > "$staging/t75_some_task.md"
-create_test_archive "$TMPDIR_E/aitasks/archived/_b0/old0.tar.gz" "$staging"
+create_test_archive "$TMPDIR_E/aitasks/archived/_b0/old0.tar.zst" "$staging"
 rm -rf "$staging"
 source_archive_utils
 
-filename=$(_search_tar_gz "$TMPDIR_E/aitasks/archived/_b0/old0.tar.gz" "t75_.*\.md$")
-_extract_from_tar_gz "$TMPDIR_E/aitasks/archived/_b0/old0.tar.gz" "$filename"
+filename=$(_search_archive "$TMPDIR_E/aitasks/archived/_b0/old0.tar.zst" "t75_.*\.md$")
+_extract_from_archive "$TMPDIR_E/aitasks/archived/_b0/old0.tar.zst" "$filename"
 actual_content=$(cat "$_AIT_EXTRACT_RESULT")
 assert_eq "extract content matches" "extracted content here" "$actual_content"
 assert_contains "extract result path set" "t75_some_task.md" "$_AIT_EXTRACT_RESULT"
@@ -166,12 +175,12 @@ echo "--- Group F: _find_archive_for_task() ---"
 TMPDIR_F=$(setup_test_env)
 staging=$(mktemp -d)
 echo "task 150" > "$staging/t150_feature.md"
-create_test_archive "$TMPDIR_F/aitasks/archived/_b0/old1.tar.gz" "$staging"
+create_test_archive "$TMPDIR_F/aitasks/archived/_b0/old1.tar.zst" "$staging"
 rm -rf "$staging"
 source_archive_utils
 
 result=$(_find_archive_for_task 150 "$TMPDIR_F/aitasks/archived")
-assert_eq "find archive for task 150" "$TMPDIR_F/aitasks/archived/_b0/old1.tar.gz" "$result"
+assert_eq "find archive for task 150" "$TMPDIR_F/aitasks/archived/_b0/old1.tar.zst" "$result"
 
 result=$(_find_archive_for_task 9999 "$TMPDIR_F/aitasks/archived")
 assert_eq "find archive for nonexistent returns empty" "" "$result"
@@ -184,12 +193,12 @@ TMPDIR_G=$(setup_test_env)
 # Create two archives in different bundles
 staging1=$(mktemp -d)
 echo "task 50" > "$staging1/t50_alpha.md"
-create_test_archive "$TMPDIR_G/aitasks/archived/_b0/old0.tar.gz" "$staging1"
+create_test_archive "$TMPDIR_G/aitasks/archived/_b0/old0.tar.zst" "$staging1"
 rm -rf "$staging1"
 
 staging2=$(mktemp -d)
 echo "task 150" > "$staging2/t150_beta.md"
-create_test_archive "$TMPDIR_G/aitasks/archived/_b0/old1.tar.gz" "$staging2"
+create_test_archive "$TMPDIR_G/aitasks/archived/_b0/old1.tar.zst" "$staging2"
 rm -rf "$staging2"
 
 source_archive_utils
@@ -216,23 +225,23 @@ rm -rf "$TMPDIR_G" "$TMPDIR_G2"
 # --- Group H: _search_numbered_then_legacy() ---
 echo "--- Group H: _search_numbered_then_legacy() ---"
 
-# H1: Only v2 archive exists
+# H1: Only numbered .tar.zst archive exists
 TMPDIR_H1=$(setup_test_env)
 staging=$(mktemp -d)
 echo "numbered task 200" > "$staging/t200_numonly.md"
-create_test_archive "$TMPDIR_H1/aitasks/archived/_b0/old2.tar.gz" "$staging"
+create_test_archive "$TMPDIR_H1/aitasks/archived/_b0/old2.tar.zst" "$staging"
 rm -rf "$staging"
 source_archive_utils
 result=$(_search_numbered_then_legacy 200 "$TMPDIR_H1/aitasks/archived" "t200_.*\.md$")
 assert_contains "numbered: finds via numbered" "t200_numonly.md" "$result"
-assert_contains "v2-only: correct archive path" "old2.tar.gz" "$result"
+assert_contains "zst-only: correct archive path" "old2.tar.zst" "$result"
 rm -rf "$TMPDIR_H1"
 
-# H2: Only legacy old.tar.gz exists
+# H2: Only legacy old.tar.gz exists (backward compat)
 TMPDIR_H2=$(setup_test_env)
 staging=$(mktemp -d)
 echo "legacy task 200" > "$staging/t200_legacy.md"
-create_test_archive "$TMPDIR_H2/aitasks/archived/old.tar.gz" "$staging"
+create_test_archive_gz "$TMPDIR_H2/aitasks/archived/old.tar.gz" "$staging"
 rm -rf "$staging"
 source_archive_utils
 result=$(_search_numbered_then_legacy 200 "$TMPDIR_H2/aitasks/archived" "t200_.*\.md$")
@@ -240,19 +249,19 @@ assert_contains "legacy-only: finds via fallback" "t200_legacy.md" "$result"
 assert_contains "legacy-only: legacy archive path" "old.tar.gz" "$result"
 rm -rf "$TMPDIR_H2"
 
-# H3: Both exist -- v2 wins
+# H3: Both .tar.zst and legacy -- .tar.zst wins
 TMPDIR_H3=$(setup_test_env)
 staging_num=$(mktemp -d)
 echo "numbered task 200" > "$staging_num/t200_num.md"
-create_test_archive "$TMPDIR_H3/aitasks/archived/_b0/old2.tar.gz" "$staging_num"
+create_test_archive "$TMPDIR_H3/aitasks/archived/_b0/old2.tar.zst" "$staging_num"
 rm -rf "$staging_num"
 staging_leg=$(mktemp -d)
 echo "legacy task 200" > "$staging_leg/t200_legacy.md"
-create_test_archive "$TMPDIR_H3/aitasks/archived/old.tar.gz" "$staging_leg"
+create_test_archive_gz "$TMPDIR_H3/aitasks/archived/old.tar.gz" "$staging_leg"
 rm -rf "$staging_leg"
 source_archive_utils
 result=$(_search_numbered_then_legacy 200 "$TMPDIR_H3/aitasks/archived" "t200_.*\.md$")
-assert_contains "both: v2 takes priority" "old2.tar.gz" "$result"
+assert_contains "both: zst takes priority" "old2.tar.zst" "$result"
 rm -rf "$TMPDIR_H3"
 
 # H4: Neither exists
@@ -268,23 +277,23 @@ TMPDIR_I=$(setup_test_env)
 staging=$(mktemp -d)
 mkdir -p "$staging/t130"
 echo "child 130_2 content" > "$staging/t130/t130_2_add_login.md"
-# Task 130 -> bundle 1 -> dir 0 -> _b0/old1.tar.gz
-create_test_archive "$TMPDIR_I/aitasks/archived/_b0/old1.tar.gz" "$staging"
+# Task 130 -> bundle 1 -> dir 0 -> _b0/old1.tar.zst
+create_test_archive "$TMPDIR_I/aitasks/archived/_b0/old1.tar.zst" "$staging"
 rm -rf "$staging"
 source_archive_utils
 
 # Verify path computation for child's parent
 assert_eq "child parent 130 bundle" "1" "$(archive_bundle 130)"
-assert_eq "child parent 130 path" "$TMPDIR_I/aitasks/archived/_b0/old1.tar.gz" \
+assert_eq "child parent 130 path" "$TMPDIR_I/aitasks/archived/_b0/old1.tar.zst" \
     "$(archive_path_for_id 130 "$TMPDIR_I/aitasks/archived")"
 
 # Search for child pattern in correct archive
 archive_path=$(archive_path_for_id 130 "$TMPDIR_I/aitasks/archived")
-result=$(_search_tar_gz "$archive_path" "(^|/)t130/t130_2_.*\.md$")
+result=$(_search_archive "$archive_path" "(^|/)t130/t130_2_.*\.md$")
 assert_contains "child search finds t130_2" "t130_2_add_login.md" "$result"
 
 # Extract and verify content
-_extract_from_tar_gz "$archive_path" "$result"
+_extract_from_archive "$archive_path" "$result"
 actual_content=$(cat "$_AIT_EXTRACT_RESULT")
 assert_eq "child extract content" "child 130_2 content" "$actual_content"
 rm -rf "$TMPDIR_I"
@@ -294,15 +303,15 @@ echo "--- Group J: Temp dir cleanup ---"
 TMPDIR_J=$(setup_test_env)
 staging=$(mktemp -d)
 echo "cleanup test" > "$staging/t88_cleanup.md"
-create_test_archive "$TMPDIR_J/aitasks/archived/_b0/old0.tar.gz" "$staging"
+create_test_archive "$TMPDIR_J/aitasks/archived/_b0/old0.tar.zst" "$staging"
 rm -rf "$staging"
 
 marker_file=$(mktemp)
 bash -c "
     export SCRIPT_DIR='$PROJECT_DIR/.aitask-scripts'
     source '$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh'
-    filename=\$(_search_tar_gz '$TMPDIR_J/aitasks/archived/_b0/old0.tar.gz' 't88_.*\.md$')
-    _extract_from_tar_gz '$TMPDIR_J/aitasks/archived/_b0/old0.tar.gz' \"\$filename\"
+    filename=\$(_search_archive '$TMPDIR_J/aitasks/archived/_b0/old0.tar.zst' 't88_.*\.md$')
+    _extract_from_archive '$TMPDIR_J/aitasks/archived/_b0/old0.tar.zst' \"\$filename\"
     echo \"\$_AIT_ARCHIVE_TMPDIR\" > '$marker_file'
 "
 tmpdir_path=$(cat "$marker_file")
@@ -315,6 +324,38 @@ else
     echo "FAIL: v2 temp dir should be cleaned up after shell exit (dir: '$tmpdir_path', exists: $(test -d "$tmpdir_path" && echo yes || echo no))"
 fi
 rm -rf "$TMPDIR_J"
+
+# --- Group K: Backward compat — .tar.gz reading ---
+echo "--- Group K: Backward compat (.tar.gz) ---"
+TMPDIR_K=$(setup_test_env)
+staging=$(mktemp -d)
+echo "gz compat content" > "$staging/t60_gz_compat.md"
+create_test_archive_gz "$TMPDIR_K/aitasks/archived/_b0/old0.tar.gz" "$staging"
+rm -rf "$staging"
+source_archive_utils
+
+# _search_archive reads .tar.gz
+result=$(_search_archive "$TMPDIR_K/aitasks/archived/_b0/old0.tar.gz" "t60_.*\.md$")
+assert_contains "gz compat: search finds t60" "t60_gz_compat.md" "$result"
+
+# _extract_from_archive reads .tar.gz
+_extract_from_archive "$TMPDIR_K/aitasks/archived/_b0/old0.tar.gz" "$result"
+actual_content=$(cat "$_AIT_EXTRACT_RESULT")
+assert_eq "gz compat: extract content" "gz compat content" "$actual_content"
+
+# _find_archive_for_task falls back to .tar.gz when no .tar.zst
+result=$(_find_archive_for_task 60 "$TMPDIR_K/aitasks/archived")
+assert_eq "gz compat: find falls back to gz" "$TMPDIR_K/aitasks/archived/_b0/old0.tar.gz" "$result"
+
+# _find_archive_for_task prefers .tar.zst when both exist
+staging2=$(mktemp -d)
+echo "zst content" > "$staging2/t60_zst.md"
+create_test_archive "$TMPDIR_K/aitasks/archived/_b0/old0.tar.zst" "$staging2"
+rm -rf "$staging2"
+source_archive_utils
+result=$(_find_archive_for_task 60 "$TMPDIR_K/aitasks/archived")
+assert_eq "gz compat: find prefers zst" "$TMPDIR_K/aitasks/archived/_b0/old0.tar.zst" "$result"
+rm -rf "$TMPDIR_K"
 
 # --- Results ---
 

@@ -49,6 +49,13 @@ create_test_archive() {
     local archive_path="$1"
     local source_dir="$2"
     mkdir -p "$(dirname "$archive_path")"
+    tar -cf - -C "$source_dir" . | zstd -q -o "$archive_path"
+}
+
+create_test_archive_gz() {
+    local archive_path="$1"
+    local source_dir="$2"
+    mkdir -p "$(dirname "$archive_path")"
     tar -czf "$archive_path" -C "$source_dir" .
 }
 
@@ -61,9 +68,9 @@ create_numbered_archive() {
     local bundle dir archive_path
     bundle=$(( task_id / 100 ))
     dir=$(( bundle / 10 ))
-    archive_path="$tmpdir/$base/_b${dir}/old${bundle}.tar.gz"
+    archive_path="$tmpdir/$base/_b${dir}/old${bundle}.tar.zst"
     mkdir -p "$(dirname "$archive_path")"
-    tar -czf "$archive_path" -C "$source_dir" .
+    tar -cf - -C "$source_dir" . | zstd -q -o "$archive_path"
 }
 
 # Source archive_scan.sh
@@ -134,7 +141,7 @@ echo "--- Test 5: scan_max -- legacy fallback ---"
 TMPDIR_5=$(setup_test_env)
 staging=$(mktemp -d)
 echo "task" > "$staging/t400_legacy.md"
-create_test_archive "$TMPDIR_5/aitasks/archived/old.tar.gz" "$staging"
+create_test_archive_gz "$TMPDIR_5/aitasks/archived/old.tar.gz" "$staging"
 rm -rf "$staging"
 source_scan
 result=$(scan_max_task_id "$TMPDIR_5/aitasks" "$TMPDIR_5/aitasks/archived")
@@ -154,7 +161,7 @@ rm -rf "$staging_n"
 # Legacy: t200
 staging_l=$(mktemp -d)
 echo "task" > "$staging_l/t200_legacy.md"
-create_test_archive "$TMPDIR_6/aitasks/archived/old.tar.gz" "$staging_l"
+create_test_archive_gz "$TMPDIR_6/aitasks/archived/old.tar.gz" "$staging_l"
 rm -rf "$staging_l"
 source_scan
 result=$(scan_max_task_id "$TMPDIR_6/aitasks" "$TMPDIR_6/aitasks/archived")
@@ -178,8 +185,8 @@ create_numbered_archive "$TMPDIR_8" "aitasks/archived" 150 "$staging"
 rm -rf "$staging"
 source_scan
 result=$(search_archived_task "150" "$TMPDIR_8/aitasks/archived")
-assert_contains "Search found in numbered" "ARCHIVED_TASK_TAR_GZ:" "$result"
-assert_contains "Search result has old1" "old1.tar.gz" "$result"
+assert_contains "Search found in numbered" "ARCHIVED_TASK_ARCHIVE:" "$result"
+assert_contains "Search result has old1" "old1.tar.zst" "$result"
 assert_contains "Search result has t150" "t150_searchable.md" "$result"
 rm -rf "$TMPDIR_8"
 
@@ -188,11 +195,11 @@ echo "--- Test 9: search -- found in legacy ---"
 TMPDIR_9=$(setup_test_env)
 staging=$(mktemp -d)
 echo "task" > "$staging/t150_legacy_search.md"
-create_test_archive "$TMPDIR_9/aitasks/archived/old.tar.gz" "$staging"
+create_test_archive_gz "$TMPDIR_9/aitasks/archived/old.tar.gz" "$staging"
 rm -rf "$staging"
 source_scan
 result=$(search_archived_task "150" "$TMPDIR_9/aitasks/archived")
-assert_contains "Search found in legacy" "ARCHIVED_TASK_TAR_GZ:" "$result"
+assert_contains "Search found in legacy" "ARCHIVED_TASK_ARCHIVE:" "$result"
 assert_contains "Search result has old.tar.gz" "old.tar.gz" "$result"
 assert_contains "Search result has t150" "t150_legacy_search.md" "$result"
 rm -rf "$TMPDIR_9"
@@ -215,7 +222,7 @@ create_numbered_archive "$TMPDIR_11" "aitasks/archived" 150 "$staging"
 rm -rf "$staging"
 # Verify old0 does not exist
 TOTAL=$((TOTAL + 1))
-if [[ ! -f "$TMPDIR_11/aitasks/archived/_b0/old0.tar.gz" ]]; then
+if [[ ! -f "$TMPDIR_11/aitasks/archived/_b0/old0.tar.zst" ]]; then
     PASS=$((PASS + 1))
 else
     FAIL=$((FAIL + 1))
@@ -224,7 +231,7 @@ fi
 source_scan
 # Search should succeed without old0 existing (O(1) direct lookup)
 result=$(search_archived_task "150" "$TMPDIR_11/aitasks/archived")
-assert_contains "O(1) lookup succeeds without old0" "ARCHIVED_TASK_TAR_GZ:" "$result"
+assert_contains "O(1) lookup succeeds without old0" "ARCHIVED_TASK_ARCHIVE:" "$result"
 assert_contains "O(1) lookup finds t150" "t150_o1_test.md" "$result"
 rm -rf "$TMPDIR_11"
 
@@ -245,10 +252,10 @@ staging2=$(mktemp -d)
 echo "task" > "$staging2/t250_iter4.md"
 create_numbered_archive "$TMPDIR_12" "aitasks/archived" 250 "$staging2"
 rm -rf "$staging2"
-# Legacy archive
+# Legacy archive (.tar.gz backward compat)
 staging_l=$(mktemp -d)
 echo "task" > "$staging_l/t400_iter5.md"
-create_test_archive "$TMPDIR_12/aitasks/archived/old.tar.gz" "$staging_l"
+create_test_archive_gz "$TMPDIR_12/aitasks/archived/old.tar.gz" "$staging_l"
 rm -rf "$staging_l"
 
 source_scan

@@ -62,22 +62,30 @@ scan_max_task_id() {
         done
     fi
 
-    # Numbered archives (_bN/oldM.tar.gz)
-    for archive in "$archived_dir"/_b*/old*.tar.gz; do
+    # Numbered archives (_bN/oldM.tar.zst and .tar.gz fallback)
+    for archive in "$archived_dir"/_b*/old*.tar.zst "$archived_dir"/_b*/old*.tar.gz; do
         [[ -f "$archive" ]] || continue
+        # Skip .tar.gz if corresponding .tar.zst exists
+        if [[ "$archive" == *.tar.gz ]]; then
+            local zst_variant="${archive%.tar.gz}.tar.zst"
+            [[ -f "$zst_variant" ]] && continue
+        fi
         while IFS= read -r line; do
             num=$(echo "$line" | grep -oE 't[0-9]+' | head -1 | sed 's/t//')
             [[ -n "$num" && "$num" -gt "$max_num" ]] && max_num="$num"
-        done < <(tar -tzf "$archive" 2>/dev/null | grep -E 't[0-9]+')
+        done < <(_archive_list "$archive" | grep -E 't[0-9]+')
     done
 
-    # Legacy old.tar.gz fallback
-    if [[ -f "$archived_dir/old.tar.gz" ]]; then
+    # Legacy archive fallback (.tar.zst then .tar.gz)
+    local legacy
+    for legacy in "$archived_dir/old.tar.zst" "$archived_dir/old.tar.gz"; do
+        [[ -f "$legacy" ]] || continue
         while IFS= read -r line; do
             num=$(echo "$line" | grep -oE 't[0-9]+' | head -1 | sed 's/t//')
             [[ -n "$num" && "$num" -gt "$max_num" ]] && max_num="$num"
-        done < <(tar -tzf "$archived_dir/old.tar.gz" 2>/dev/null | grep -E 't[0-9]+')
-    fi
+        done < <(_archive_list "$legacy" | grep -E 't[0-9]+')
+        break  # Only process the first existing legacy archive
+    done
 
     echo "$max_num"
 }
@@ -88,8 +96,9 @@ scan_max_task_id() {
 
 # Search for a specific task number in archives (numbered then legacy fallback).
 # Uses O(1) lookup via archive_path_for_id when task number is known.
+# Tries .tar.zst first, falls back to .tar.gz for backward compatibility.
 # Args: $1=task_num (numeric, e.g., "150"), $2=archived_dir
-# Output: "ARCHIVED_TASK_TAR_GZ:<archive_path>:<match>" or "NOT_FOUND"
+# Output: "ARCHIVED_TASK_ARCHIVE:<archive_path>:<match>" or "NOT_FOUND"
 search_archived_task() {
     local id="$1"
     local archived_dir="$2"
@@ -104,28 +113,36 @@ search_archived_task() {
         pattern="(^|/)t${id}_.*\.md$"
     fi
 
-    # O(1) lookup: compute the exact archive for this task number
-    local archive_path
-    archive_path=$(archive_path_for_id "$bucket_id" "$archived_dir")
-    if [[ -f "$archive_path" ]]; then
-        local tar_match
-        tar_match=$(_search_tar_gz "$archive_path" "$pattern")
+    # O(1) lookup: try .tar.zst first, then .tar.gz
+    local zst_path gz_path tar_match
+    zst_path=$(archive_path_for_id "$bucket_id" "$archived_dir")
+    if [[ -f "$zst_path" ]]; then
+        tar_match=$(_search_archive "$zst_path" "$pattern")
         if [[ -n "$tar_match" ]]; then
-            echo "ARCHIVED_TASK_TAR_GZ:${archive_path}:${tar_match}"
+            echo "ARCHIVED_TASK_ARCHIVE:${zst_path}:${tar_match}"
+            return
+        fi
+    fi
+    gz_path="${zst_path%.tar.zst}.tar.gz"
+    if [[ -f "$gz_path" ]]; then
+        tar_match=$(_search_archive "$gz_path" "$pattern")
+        if [[ -n "$tar_match" ]]; then
+            echo "ARCHIVED_TASK_ARCHIVE:${gz_path}:${tar_match}"
             return
         fi
     fi
 
-    # Fallback: legacy old.tar.gz
-    local legacy_path="${archived_dir}/old.tar.gz"
-    if [[ -f "$legacy_path" ]]; then
-        local tar_match
-        tar_match=$(_search_tar_gz "$legacy_path" "$pattern")
-        if [[ -n "$tar_match" ]]; then
-            echo "ARCHIVED_TASK_TAR_GZ:${legacy_path}:${tar_match}"
-            return
+    # Fallback: legacy archives (.tar.zst then .tar.gz)
+    local legacy
+    for legacy in "$archived_dir/old.tar.zst" "$archived_dir/old.tar.gz"; do
+        if [[ -f "$legacy" ]]; then
+            tar_match=$(_search_archive "$legacy" "$pattern")
+            if [[ -n "$tar_match" ]]; then
+                echo "ARCHIVED_TASK_ARCHIVE:${legacy}:${tar_match}"
+                return
+            fi
         fi
-    fi
+    done
 
     echo "NOT_FOUND"
 }
@@ -135,6 +152,7 @@ search_archived_task() {
 # ============================================================================
 
 # Iterate all files across all numbered archives and legacy archive.
+# Searches .tar.zst first, then .tar.gz (skipping .tar.gz if .tar.zst exists).
 # Args: $1=archived_dir, $2=callback_cmd
 #   callback_cmd is invoked as: $callback_cmd "$archive_path" "$filename_in_tar"
 # Returns: 0 on success
@@ -144,22 +162,30 @@ iter_all_archived_files() {
 
     # Numbered archives (sorted for deterministic order)
     local archive
-    for archive in "$archived_dir"/_b*/old*.tar.gz; do
+    for archive in "$archived_dir"/_b*/old*.tar.zst "$archived_dir"/_b*/old*.tar.gz; do
         [[ -f "$archive" ]] || continue
+        # Skip .tar.gz if corresponding .tar.zst exists
+        if [[ "$archive" == *.tar.gz ]]; then
+            local zst_variant="${archive%.tar.gz}.tar.zst"
+            [[ -f "$zst_variant" ]] && continue
+        fi
         while IFS= read -r entry; do
             [[ -z "$entry" || "$entry" == "." || "$entry" == "./" ]] && continue
             # Skip directory entries
             [[ "$entry" == */ ]] && continue
             "$callback_cmd" "$archive" "$entry"
-        done < <(tar -tzf "$archive" 2>/dev/null)
+        done < <(_archive_list "$archive")
     done
 
-    # Legacy archive
-    if [[ -f "$archived_dir/old.tar.gz" ]]; then
+    # Legacy archive (.tar.zst then .tar.gz)
+    local legacy
+    for legacy in "$archived_dir/old.tar.zst" "$archived_dir/old.tar.gz"; do
+        [[ -f "$legacy" ]] || continue
         while IFS= read -r entry; do
             [[ -z "$entry" || "$entry" == "." || "$entry" == "./" ]] && continue
             [[ "$entry" == */ ]] && continue
-            "$callback_cmd" "$archived_dir/old.tar.gz" "$entry"
-        done < <(tar -tzf "$archived_dir/old.tar.gz" 2>/dev/null)
-    fi
+            "$callback_cmd" "$legacy" "$entry"
+        done < <(_archive_list "$legacy")
+        break  # Only process the first existing legacy archive
+    done
 }
