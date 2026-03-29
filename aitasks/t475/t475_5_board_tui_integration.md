@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: medium
-depends: [t475_4]
+depends: [t475_1, t475_3]
 issue_type: feature
 status: Ready
 labels: [aitask_monitor, tui]
 created_at: 2026-03-29 10:41
-updated_at: 2026-03-29 10:41
+updated_at: 2026-03-29 10:58
 ---
 
 ## Board TUI Integration
