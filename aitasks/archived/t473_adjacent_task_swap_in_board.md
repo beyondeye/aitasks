@@ -3,12 +3,14 @@ priority: low
 effort: low
 depends: []
 issue_type: performance
-status: Implementing
+status: Done
 labels: [aitask_board]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-27 17:01
-updated_at: 2026-03-29 08:33
+updated_at: 2026-03-29 08:43
+completed_at: 2026-03-29 08:43
+boardidx: 90
 ---
 
 Follow-up to t472 (per-column refresh). Add a dedicated swap operation for adjacent tasks within a column that avoids rebuilding the entire column.
