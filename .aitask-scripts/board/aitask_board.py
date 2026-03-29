@@ -756,7 +756,7 @@ class KanbanColumn(VerticalScroll):
         self.col_title = title
         self.col_color = color
         self.manager = manager
-        self.expanded_tasks = expanded_tasks or set()
+        self.expanded_tasks = expanded_tasks if expanded_tasks is not None else set()
         self.collapsed = collapsed
 
     def compose(self):
