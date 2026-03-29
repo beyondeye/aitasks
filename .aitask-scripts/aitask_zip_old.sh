@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-# aitask_zip_old.sh - Archive old task and plan files to numbered tar.gz archives
-# Groups files by 100-task bundles into _bN/oldM.tar.gz
+# aitask_zip_old.sh - Archive old task and plan files to numbered tar.zst archives
+# Groups files by 100-task bundles into _bN/oldM.tar.zst
 #
 # Numbering scheme:
 #   bundle = task_id / 100
 #   dir    = bundle / 10
-#   path   = archived/_b{dir}/old{bundle}.tar.gz
+#   path   = archived/_b{dir}/old{bundle}.tar.zst
 
 set -euo pipefail
 
@@ -46,8 +46,8 @@ usage() {
 Usage: $(basename "$0") [OPTIONS]
        $(basename "$0") unpack <task_number>
 
-Archive old task and plan files to numbered tar.gz archives.
-Groups files by 100-task bundles into _bN/oldM.tar.gz.
+Archive old task and plan files to numbered tar.zst archives.
+Groups files by 100-task bundles into _bN/oldM.tar.zst.
 Skips files still relevant to active work (siblings of active children, dependencies).
 
 Options:
@@ -236,7 +236,7 @@ _archive_single_bundle() {
     # Extract existing archive to merge
     if [[ -f "$archive_path" ]]; then
         verbose "Merging with existing archive: $archive_path"
-        if ! tar -xzf "$archive_path" -C "$temp_dir" 2>/dev/null; then
+        if ! _archive_extract_all "$archive_path" "$temp_dir" 2>/dev/null; then
             warn "Warning: Existing archive corrupted. Creating backup."
             mv "$archive_path" "${archive_path}.bak"
         fi
@@ -258,8 +258,8 @@ _archive_single_bundle() {
 
     # Create archive and verify
     mkdir -p "$(dirname "$archive_path")"
-    tar -czf "$archive_path" -C "$temp_dir" .
-    tar -tzf "$archive_path" > /dev/null 2>&1 || die "Archive verification failed: $archive_path"
+    tar -cf - -C "$temp_dir" . | zstd -q -f -o "$archive_path"
+    _archive_verify "$archive_path" || die "Archive verification failed: $archive_path"
 
     # Remove originals
     while IFS= read -r f; do
@@ -382,23 +382,25 @@ cmd_unpack() {
         IFS='|' read -r base_dir prefix output_tag <<< "$entry"
 
         # Compute numbered archive path, plus legacy fallback
-        local archive_path legacy_path
+        local archive_path
         archive_path=$(archive_path_for_id "$num" "$base_dir")
-        legacy_path="$base_dir/old.tar.gz"
+        local legacy_zst="$base_dir/old.tar.zst"
+        local legacy_gz="$base_dir/old.tar.gz"
 
         local search_list=()
         [[ -f "$archive_path" ]] && search_list+=("$archive_path")
-        [[ -f "$legacy_path" ]] && search_list+=("$legacy_path")
+        [[ -f "$legacy_zst" ]] && search_list+=("$legacy_zst")
+        [[ -f "$legacy_gz" ]] && search_list+=("$legacy_gz")
 
         for arch in "${search_list[@]}"; do
             local matches
-            matches=$(tar -tzf "$arch" 2>/dev/null \
+            matches=$(_archive_list "$arch" \
                 | grep -E "(^|/)${prefix}${num}_[^/]*\.md$|(^|/)${prefix}${num}/${prefix}${num}_[^/]*\.md$" || true)
             [[ -z "$matches" ]] && continue
 
             local temp_dir
             temp_dir=$(mktemp -d)
-            tar -xzf "$arch" -C "$temp_dir"
+            _archive_extract_all "$arch" "$temp_dir"
 
             while IFS= read -r match; do
                 [[ -z "$match" ]] && continue
@@ -426,7 +428,10 @@ cmd_unpack() {
                 bdir=$(dirname "$arch")
                 [[ -d "$bdir" ]] && rmdir "$bdir" 2>/dev/null || true
             else
-                tar -czf "$arch" -C "$temp_dir" .
+                local new_arch="${arch%.tar.gz}"
+                new_arch="${new_arch%.tar.zst}.tar.zst"
+                tar -cf - -C "$temp_dir" . | zstd -q -f -o "$new_arch"
+                [[ "$arch" != "$new_arch" ]] && rm -f "$arch"
             fi
 
             rm -rf "$temp_dir"
@@ -529,8 +534,8 @@ main() {
     # --- Git commit ---
     if ! $NO_COMMIT; then
         verbose "Committing changes to git..."
-        task_git add "$TASK_ARCHIVED_DIR"/_b*/old*.tar.gz 2>/dev/null || true
-        task_git add "$PLAN_ARCHIVED_DIR"/_b*/old*.tar.gz 2>/dev/null || true
+        task_git add "$TASK_ARCHIVED_DIR"/_b*/old*.tar.zst 2>/dev/null || true
+        task_git add "$PLAN_ARCHIVED_DIR"/_b*/old*.tar.zst 2>/dev/null || true
         task_git add -u "$TASK_ARCHIVED_DIR/" "$PLAN_ARCHIVED_DIR/" 2>/dev/null || true
 
         local commit_msg="ait: Archive old files to numbered bundles

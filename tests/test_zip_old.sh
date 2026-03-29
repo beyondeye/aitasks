@@ -286,13 +286,13 @@ TMPDIR_9="$(setup_test_env)"
     git add -A && git commit -m "Add test files" --quiet
 )
 (cd "$TMPDIR_9" && bash .aitask-scripts/aitask_zip_old.sh --no-commit 2>&1 >/dev/null)
-assert_file_exists "Test 9: task tar.gz created" "$TMPDIR_9/aitasks/archived/_b0/old0.tar.gz"
-assert_file_exists "Test 9: plan tar.gz created" "$TMPDIR_9/aiplans/archived/_b0/old0.tar.gz"
+assert_file_exists "Test 9: task tar.zst created" "$TMPDIR_9/aitasks/archived/_b0/old0.tar.zst"
+assert_file_exists "Test 9: plan tar.zst created" "$TMPDIR_9/aiplans/archived/_b0/old0.tar.zst"
 assert_file_not_exists "Test 9: t50 removed" "$TMPDIR_9/aitasks/archived/t50_old.md"
 assert_file_not_exists "Test 9: t51 removed" "$TMPDIR_9/aitasks/archived/t51_old.md"
 assert_file_not_exists "Test 9: p50 removed" "$TMPDIR_9/aiplans/archived/p50_old.md"
 # Verify tar.gz contents
-tar_contents_9=$(tar -tzf "$TMPDIR_9/aitasks/archived/_b0/old0.tar.gz" 2>/dev/null)
+tar_contents_9=$(zstd -dc "$TMPDIR_9/aitasks/archived/_b0/old0.tar.zst" 2>/dev/null | tar -tf -)
 assert_contains "Test 9: tar contains t50" "t50_old.md" "$tar_contents_9"
 assert_contains "Test 9: tar contains t51" "t51_old.md" "$tar_contents_9"
 rm -rf "$TMPDIR_9"
@@ -311,7 +311,7 @@ TMPDIR_10="$(setup_test_env)"
     create_archived_file aitasks/archived/t51_second.md
 )
 (cd "$TMPDIR_10" && bash .aitask-scripts/aitask_zip_old.sh --no-commit 2>&1 >/dev/null)
-tar_contents_10=$(tar -tzf "$TMPDIR_10/aitasks/archived/_b0/old0.tar.gz" 2>/dev/null)
+tar_contents_10=$(zstd -dc "$TMPDIR_10/aitasks/archived/_b0/old0.tar.zst" 2>/dev/null | tar -tf -)
 assert_contains "Test 10: tar still has first batch" "t50_first.md" "$tar_contents_10"
 assert_contains "Test 10: tar has second batch" "t51_second.md" "$tar_contents_10"
 rm -rf "$TMPDIR_10"
@@ -359,7 +359,7 @@ TMPDIR_13="$(setup_test_env)"
 # Check that there's no new commit (HEAD should still be "Setup")
 last_commit_13=$(cd "$TMPDIR_13" && git log -1 --pretty=%s)
 assert_eq "Test 13: no git commit made" "Setup" "$last_commit_13"
-assert_file_exists "Test 13: archive still created" "$TMPDIR_13/aitasks/archived/_b0/old0.tar.gz"
+assert_file_exists "Test 13: archive still created" "$TMPDIR_13/aitasks/archived/_b0/old0.tar.zst"
 rm -rf "$TMPDIR_13"
 
 # --- Test 14: Verbose output ---
@@ -477,8 +477,8 @@ echo ""
 echo "=== Testing unpack subcommand ==="
 echo ""
 
-# --- Test 20: Unpack parent task from tar.gz ---
-echo "--- Test 20: Unpack parent task from tar.gz ---"
+# --- Test 20: Unpack parent task from tar.zst ---
+echo "--- Test 20: Unpack parent task from tar.zst ---"
 TMPDIR_20="$(setup_test_env)"
 (
     cd "$TMPDIR_20"
@@ -486,7 +486,7 @@ TMPDIR_20="$(setup_test_env)"
     staging=$(mktemp -d)
     echo "task 50 content" > "$staging/t50_old_feature.md"
     echo "task 51 content" > "$staging/t51_other.md"
-    tar -czf aitasks/archived/old.tar.gz -C "$staging" .
+    tar -cf - -C "$staging" . | zstd -q -o aitasks/archived/old.tar.zst
     rm -rf "$staging"
     git add -A && git commit -m "Setup" --quiet
 )
@@ -494,8 +494,8 @@ output_20=$(cd "$TMPDIR_20" && bash .aitask-scripts/aitask_zip_old.sh unpack 50 
 assert_contains "Test 20: reports unpacked task" "UNPACKED_TASK:" "$output_20"
 assert_contains "Test 20: correct filename" "t50_old_feature.md" "$output_20"
 assert_file_exists "Test 20: file extracted to filesystem" "$TMPDIR_20/aitasks/archived/t50_old_feature.md"
-# Verify tar.gz still has the other task
-tar_contents_20=$(tar -tzf "$TMPDIR_20/aitasks/archived/old.tar.gz" 2>/dev/null)
+# Verify tar.zst still has the other task
+tar_contents_20=$(zstd -dc "$TMPDIR_20/aitasks/archived/old.tar.zst" 2>/dev/null | tar -tf -)
 assert_contains "Test 20: tar still has t51" "t51_other.md" "$tar_contents_20"
 assert_not_contains "Test 20: tar no longer has t50" "t50_old_feature" "$tar_contents_20"
 rm -rf "$TMPDIR_20"
@@ -510,7 +510,7 @@ TMPDIR_21="$(setup_test_env)"
     mkdir -p "$staging/t50"
     echo "child 1" > "$staging/t50/t50_1_child.md"
     echo "child 2" > "$staging/t50/t50_2_child.md"
-    tar -czf aitasks/archived/old.tar.gz -C "$staging" .
+    tar -cf - -C "$staging" . | zstd -q -o aitasks/archived/old.tar.zst
     rm -rf "$staging"
     git add -A && git commit -m "Setup" --quiet
 )
@@ -528,12 +528,12 @@ TMPDIR_22="$(setup_test_env)"
     # Task archive
     staging_t=$(mktemp -d)
     echo "task 50" > "$staging_t/t50_feature.md"
-    tar -czf aitasks/archived/old.tar.gz -C "$staging_t" .
+    tar -cf - -C "$staging_t" . | zstd -q -o aitasks/archived/old.tar.zst
     rm -rf "$staging_t"
     # Plan archive
     staging_p=$(mktemp -d)
     echo "plan 50" > "$staging_p/p50_feature.md"
-    tar -czf aiplans/archived/old.tar.gz -C "$staging_p" .
+    tar -cf - -C "$staging_p" . | zstd -q -o aiplans/archived/old.tar.zst
     rm -rf "$staging_p"
     git add -A && git commit -m "Setup" --quiet
 )
@@ -565,21 +565,21 @@ output_24=$(cd "$TMPDIR_24" && bash .aitask-scripts/aitask_zip_old.sh unpack 999
 assert_eq "Test 24: reports not in archive" "NOT_IN_ARCHIVE" "$output_24"
 rm -rf "$TMPDIR_24"
 
-# --- Test 25: Tar.gz deleted when emptied ---
-echo "--- Test 25: Tar.gz deleted when emptied ---"
+# --- Test 25: Archive deleted when emptied ---
+echo "--- Test 25: Archive deleted when emptied ---"
 TMPDIR_25="$(setup_test_env)"
 (
     cd "$TMPDIR_25"
     # Only one task in the archive
     staging=$(mktemp -d)
     echo "only task" > "$staging/t50_only.md"
-    tar -czf aitasks/archived/old.tar.gz -C "$staging" .
+    tar -cf - -C "$staging" . | zstd -q -o aitasks/archived/old.tar.zst
     rm -rf "$staging"
     git add -A && git commit -m "Setup" --quiet
 )
 (cd "$TMPDIR_25" && bash .aitask-scripts/aitask_zip_old.sh unpack 50 2>&1 >/dev/null)
 assert_file_exists "Test 25: file extracted" "$TMPDIR_25/aitasks/archived/t50_only.md"
-assert_file_not_exists "Test 25: tar.gz deleted (was only entry)" "$TMPDIR_25/aitasks/archived/old.tar.gz"
+assert_file_not_exists "Test 25: archive deleted (was only entry)" "$TMPDIR_25/aitasks/archived/old.tar.zst"
 rm -rf "$TMPDIR_25"
 
 # --- Test 26: t prefix accepted ---
@@ -589,7 +589,7 @@ TMPDIR_26="$(setup_test_env)"
     cd "$TMPDIR_26"
     staging=$(mktemp -d)
     echo "task 50" > "$staging/t50_prefix_test.md"
-    tar -czf aitasks/archived/old.tar.gz -C "$staging" .
+    tar -cf - -C "$staging" . | zstd -q -o aitasks/archived/old.tar.zst
     rm -rf "$staging"
     git add -A && git commit -m "Setup" --quiet
 )

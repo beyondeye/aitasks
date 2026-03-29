@@ -9,10 +9,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# shellcheck source=lib/archive_utils.sh
+source "$SCRIPT_DIR/lib/archive_utils.sh"
 
 TASK_DIR="aitasks"
 ARCHIVED_DIR="aitasks/archived"
-ARCHIVE_FILE="aitasks/archived/old.tar.gz"
+if [[ -f "aitasks/archived/old.tar.zst" ]]; then
+    ARCHIVE_FILE="aitasks/archived/old.tar.zst"
+elif [[ -f "aitasks/archived/old.tar.gz" ]]; then
+    ARCHIVE_FILE="aitasks/archived/old.tar.gz"
+else
+    ARCHIVE_FILE=""
+fi
 
 # Batch mode variables
 BATCH_MODE=false
@@ -184,11 +192,11 @@ get_next_child_number() {
     fi
 
     # Check compressed archive for children
-    if [[ -f "$ARCHIVE_FILE" ]]; then
+    if [[ -n "$ARCHIVE_FILE" && -f "$ARCHIVE_FILE" ]]; then
         while IFS= read -r line; do
             num=$(echo "$line" | grep -oE "t${parent_num}_[0-9]+" | head -1 | sed "s/t${parent_num}_//")
             [[ -n "$num" && "$num" -gt "$max_child" ]] && max_child="$num"
-        done < <(tar -tzf "$ARCHIVE_FILE" 2>/dev/null | grep -E "t${parent_num}/t${parent_num}_[0-9]+")
+        done < <(_archive_list "$ARCHIVE_FILE" | grep -E "t${parent_num}/t${parent_num}_[0-9]+")
     fi
 
     echo $((max_child + 1))
@@ -656,11 +664,11 @@ get_next_task_number_local() {
         done
     fi
 
-    if [[ -f "$ARCHIVE_FILE" ]]; then
+    if [[ -n "$ARCHIVE_FILE" && -f "$ARCHIVE_FILE" ]]; then
         while IFS= read -r line; do
             num=$(echo "$line" | grep -oE 't[0-9]+' | head -1 | sed 's/t//')
             [[ -n "$num" && "$num" -gt "$max_num" ]] && max_num="$num"
-        done < <(tar -tzf "$ARCHIVE_FILE" 2>/dev/null | grep -E 't[0-9]+')
+        done < <(_archive_list "$ARCHIVE_FILE" | grep -E 't[0-9]+')
     fi
 
     echo $((max_num + 1))
