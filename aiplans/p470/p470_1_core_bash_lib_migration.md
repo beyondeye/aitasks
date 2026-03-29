@@ -205,3 +205,15 @@ shellcheck .aitask-scripts/lib/archive_utils.sh .aitask-scripts/lib/archive_scan
 
 ## Step 9 Reference
 Post-implementation: user review, commit, archive task, push.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented all 11 steps from the plan exactly as specified. Added 5 format-aware helpers (`_archive_list`, `_archive_extract_file`, `_archive_extract_all`, `_archive_create`, `_archive_verify`), renamed and updated all public functions, migrated both test files, added backward compat test group.
+- **Deviations from plan:** None — the plan was accurate and matched the codebase exactly.
+- **Issues encountered:** None.
+- **Key decisions:** Used `create_test_archive_gz()` helper in tests for legacy/backward-compat test fixtures (Tests H2, H3 for legacy, Tests 5/6/9/12 in archive_scan). The `_archive_create()` helper always creates `.tar.zst` — no `.tar.gz` creation path needed in the helpers.
+- **Notes for sibling tasks:**
+  - The new helper functions `_archive_list()`, `_archive_extract_file()`, `_archive_extract_all()`, `_archive_create()`, `_archive_verify()` are available for use by consumer scripts (t470_2) and zip_old (t470_3).
+  - Output prefix changed: `ARCHIVED_TASK_TAR_GZ:` → `ARCHIVED_TASK_ARCHIVE:` — consumers parsing this output must update (t470_2).
+  - Function renames: `_search_tar_gz()` → `_search_archive()`, `_extract_from_tar_gz()` → `_extract_from_archive()` — consumers must update (t470_2).
+  - All lookup functions now try `.tar.zst` first, then fall back to `.tar.gz` — backward compat is handled at the library level.
+  - `archive_path_for_id()` now returns `.tar.zst` — downstream code that computes archive paths from this function will get the new extension automatically.
