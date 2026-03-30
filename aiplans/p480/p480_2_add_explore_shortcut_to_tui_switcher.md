@@ -75,6 +75,13 @@ Key design decisions:
 5. Open switcher again, press `x` — new `agent-explore-2` window should appear (not switch to first)
 6. Both explore windows should appear under "Code Agents" group in the switcher
 
+## Final Implementation Notes
+- **Actual work done:** All 3 planned changes implemented exactly as specified in a single file (`tui_switcher.py`) — no deviations needed
+- **Deviations from plan:** None. All line numbers and patterns were accurate
+- **Issues encountered:** None
+- **Key decisions:** Used `agent-explore-{N}` naming with incrementing N based on `self._running_names` set. The `agent-` prefix ensures `_classify_window()` groups these under "Code Agents" in the switcher list
+- **Notes for sibling tasks:** The explore shortcut is now functional. The `action_shortcut_explore()` method demonstrates the pattern for adding non-TUI shortcuts that always create new windows (as opposed to TUI shortcuts that toggle/switch). This pattern can be reused for future agent-launching shortcuts
+
 ## Step 9 (Post-Implementation)
 
 Archive task and push changes per shared workflow.
