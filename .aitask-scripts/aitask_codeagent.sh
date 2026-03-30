@@ -21,7 +21,7 @@ METADATA_DIR="${TASK_DIR:-aitasks}/metadata"
 DEFAULT_AGENT_STRING="claudecode/opus4_6"
 DEFAULT_COAUTHOR_DOMAIN="aitasks.io"
 SUPPORTED_AGENTS=(claudecode geminicli codex opencode)
-SUPPORTED_OPERATIONS=(pick explain batch-review qa raw)
+SUPPORTED_OPERATIONS=(pick explain batch-review qa explore raw)
 
 # --- Global flags (set by argument parser) ---
 
@@ -530,6 +530,9 @@ build_invoke_command() {
                     # claude --model <id> "/aitask-qa <args>"
                     CMD+=("/aitask-qa ${args[*]}")
                     ;;
+                explore)
+                    CMD+=("/aitask-explore")
+                    ;;
                 batch-review)
                     CMD+=("--print" "${args[@]}")
                     ;;
@@ -549,6 +552,9 @@ build_invoke_command() {
                 qa)
                     CMD+=("/aitask-qa ${args[*]}")
                     ;;
+                explore)
+                    CMD+=("/aitask-explore")
+                    ;;
                 batch-review|raw)
                     CMD+=("${args[@]}")
                     ;;
@@ -565,6 +571,9 @@ build_invoke_command() {
                 qa)
                     CMD+=("\$aitask-qa ${args[*]}")
                     ;;
+                explore)
+                    CMD+=("\$aitask-explore")
+                    ;;
                 batch-review|raw)
                     CMD+=("${args[@]}")
                     ;;
@@ -580,6 +589,9 @@ build_invoke_command() {
                     ;;
                 qa)
                     CMD+=("--prompt" "/aitask-qa ${args[*]}")
+                    ;;
+                explore)
+                    CMD+=("--prompt" "/aitask-explore")
                     ;;
                 batch-review|raw)
                     CMD+=("${args[@]}")
@@ -641,7 +653,7 @@ Options:
   --dry-run              Print command without executing (for invoke)
   -h, --help             Show this help
 
-Operations: pick, explain, batch-review, qa, raw
+Operations: pick, explain, batch-review, qa, explore, raw
 Agent string format: <agent>/<model> (e.g., claudecode/opus4_6, geminicli/gemini3pro)
 
 Resolution chain (highest priority first):
