@@ -3,12 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_monitor]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-30 11:09
-updated_at: 2026-03-30 11:41
+updated_at: 2026-03-30 11:43
+completed_at: 2026-03-30 11:43
 ---
 
 Fix arrow keys (up/down) not working in the TUI Switcher (jump dialog) when opened from the monitor TUI. The keys work correctly when the switcher is opened from other TUIs (board, codebrowser, settings, brainstorm).
