@@ -9,6 +9,8 @@ from pathlib import Path
 
 # Allow importing sibling packages (brainstorm, agentcrew)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+from tui_switcher import TuiSwitcherMixin  # noqa: E402
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -579,7 +581,7 @@ class ProcessRow(Static, can_focus=True):
 # ---------------------------------------------------------------------------
 
 
-class BrainstormApp(App):
+class BrainstormApp(TuiSwitcherMixin, App):
     """Textual app for interactive brainstorm session orchestration."""
 
     TITLE = "ait brainstorm"
@@ -905,6 +907,7 @@ class BrainstormApp(App):
     """
 
     BINDINGS = [
+        *TuiSwitcherMixin.SWITCHER_BINDINGS,
         Binding("q", "quit", "Quit"),
         Binding("d", "tab_dashboard", "Dashboard"),
         Binding("g", "tab_graph", "Graph"),
@@ -915,6 +918,7 @@ class BrainstormApp(App):
 
     def __init__(self, task_num: str):
         super().__init__()
+        self.current_tui_name = "brainstorm"
         self.task_num = task_num
         self.session_path = crew_worktree(task_num)
         self.session_data: dict = {}

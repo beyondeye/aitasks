@@ -17,6 +17,7 @@ import yaml
 
 # Add .aitask-scripts/lib to path for config_utils
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+from tui_switcher import TuiSwitcherMixin  # noqa: E402
 
 from config_utils import (  # noqa: E402
     EXPORT_EXTENSION,
@@ -1773,7 +1774,7 @@ class SaveProfileConfirmScreen(ModalScreen):
 # ---------------------------------------------------------------------------
 # Main App
 # ---------------------------------------------------------------------------
-class SettingsApp(App):
+class SettingsApp(TuiSwitcherMixin, App):
     """aitasks Settings TUI."""
 
     CSS = """
@@ -1860,6 +1861,7 @@ class SettingsApp(App):
     TITLE = "aitasks settings"
 
     BINDINGS = [
+        *TuiSwitcherMixin.SWITCHER_BINDINGS,
         Binding("q", "quit", "Quit"),
         Binding("e", "export_configs", "Export"),
         Binding("i", "import_configs", "Import"),
@@ -1868,6 +1870,7 @@ class SettingsApp(App):
 
     def __init__(self):
         super().__init__()
+        self.current_tui_name = "settings"
         self.config_mgr = ConfigManager()
         self._profile_id_map: dict[str, str] = {}  # safe_id -> filename
         self._selected_profile: str | None = None  # currently selected profile filename

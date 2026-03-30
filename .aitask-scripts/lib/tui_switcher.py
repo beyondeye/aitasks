@@ -143,13 +143,18 @@ class TuiSwitcherOverlay(ModalScreen):
         running_names = {name for _, name in running_windows}
 
         list_view = self.query_one("#switcher_list", ListView)
-        for name, label, _cmd in KNOWN_TUIS:
+        first_selectable_idx = None
+        for idx, (name, label, _cmd) in enumerate(KNOWN_TUIS):
             is_current = name == self._current_tui
             running = name in running_names
             item = _TuiListItem(name, label, running, is_current)
             if is_current:
                 item.disabled = True
+            elif first_selectable_idx is None:
+                first_selectable_idx = idx
             list_view.append(item)
+        if first_selectable_idx is not None:
+            list_view.index = first_selectable_idx
 
     def action_dismiss_overlay(self) -> None:
         self.dismiss(None)

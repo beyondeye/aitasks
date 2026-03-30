@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for
 from agent_command_screen import AgentCommandScreen
 from agent_launch_utils import find_terminal, resolve_dry_run_command, TmuxLaunchConfig, launch_in_tmux
+from tui_switcher import TuiSwitcherMixin, TuiSwitcherOverlay
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
@@ -2545,7 +2546,7 @@ class KanbanCommandProvider(Provider):
 
 # --- Main Application ---
 
-class KanbanApp(App):
+class KanbanApp(TuiSwitcherMixin, App):
     CSS = """
     Screen { align: center middle; }
     #detail_dialog {
@@ -2718,6 +2719,7 @@ class KanbanApp(App):
     COMMANDS = App.COMMANDS | {KanbanCommandProvider}
 
     BINDINGS = [
+        *TuiSwitcherMixin.SWITCHER_BINDINGS,
         Binding("q", "quit", "Quit"),
         Binding("tab", "focus_search", "Search", show=False, priority=True),
         Binding("escape", "focus_board", "Board", show=False, priority=True),
@@ -2760,6 +2762,7 @@ class KanbanApp(App):
 
     def __init__(self):
         super().__init__()
+        self.current_tui_name = "board"
         self.manager = TaskManager()
         self.search_filter = ""
         self.view_mode = "all"
@@ -2769,6 +2772,9 @@ class KanbanApp(App):
 
     def check_action(self, action: str, parameters) -> bool | None:
         """Control visibility of conditional actions in the footer bar."""
+        # Let TuiSwitcherOverlay's ListView handle arrow keys natively
+        if action in ("nav_up", "nav_down", "nav_left", "nav_right") and isinstance(self.screen, TuiSwitcherOverlay):
+            return False
         if action == "commit_selected":
             focused = self._focused_card()
             if not focused or not self.manager.is_modified(focused.task_data):

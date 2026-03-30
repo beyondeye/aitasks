@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from agent_command_screen import AgentCommandScreen
 from agent_launch_utils import find_terminal as _find_terminal, resolve_dry_run_command, TmuxLaunchConfig, launch_in_tmux
+from tui_switcher import TuiSwitcherMixin
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -75,7 +76,7 @@ class GoToLineScreen(ModalScreen):
         self.dismiss(None)
 
 
-class CodeBrowserApp(App):
+class CodeBrowserApp(TuiSwitcherMixin, App):
     CSS = """
     #file_tree {
         width: 35;
@@ -127,6 +128,7 @@ class CodeBrowserApp(App):
     TITLE = "aitasks codebrowser"
 
     BINDINGS = [
+        *TuiSwitcherMixin.SWITCHER_BINDINGS,
         Binding("escape", "handle_escape_key", "Escape", show=False, priority=True),
         Binding("q", "quit", "Quit"),
         Binding("tab", "toggle_focus", "Toggle Focus"),
@@ -145,6 +147,7 @@ class CodeBrowserApp(App):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.current_tui_name = "codebrowser"
         self._project_root: Path | None = None
         self.explain_manager: ExplainManager | None = None
         self._current_explain_data: dict | None = None
