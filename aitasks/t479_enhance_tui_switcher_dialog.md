@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [tui, tmux]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-30 10:36
-updated_at: 2026-03-30 10:36
+updated_at: 2026-03-30 10:37
 ---
 
 ## Enhance TUI Switcher Dialog
