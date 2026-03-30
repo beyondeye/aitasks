@@ -1,9 +1,8 @@
 """monitor_app - TUI for monitoring tmux panes running code agents.
 
-Shows all tmux panes categorized as agents, TUIs, or other. Maintains an
-attention queue for idle agent panes (likely awaiting user input). Uses a
-zone-based navigation model: Tab cycles between 3 zones (attention, pane list,
-preview), Up/Down navigates within zones, and the preview zone forwards all
+Shows all tmux panes categorized as agents, TUIs, or other. Uses a zone-based
+navigation model: Tab cycles between 2 zones (pane list, preview), Up/Down
+navigates within the pane list zone, and the preview zone forwards all
 keystrokes directly to the tmux session being previewed.
 
 Usage:
@@ -47,12 +46,11 @@ from textual.widgets import Button, Footer, Header, Label, Markdown, Static  # n
 # -- Zone model ---------------------------------------------------------------
 
 class Zone(Enum):
-    ATTENTION = "attention"
     PANE_LIST = "pane_list"
     PREVIEW = "preview"
 
 
-ZONE_ORDER = [Zone.ATTENTION, Zone.PANE_LIST, Zone.PREVIEW]
+ZONE_ORDER = [Zone.PANE_LIST, Zone.PREVIEW]
 
 # Preview pane size presets: (section_max_height, preview_max_height, label)
 PREVIEW_SIZES = [
@@ -98,14 +96,6 @@ _TEXTUAL_TO_TMUX = {
 class SessionBar(Static):
     """One-line bar showing session name, pane count, idle count."""
     pass
-
-
-class AttentionCard(Static, can_focus=True):
-    """Card for an idle agent pane in the attention queue."""
-
-    def __init__(self, pane_id: str, text: str, **kwargs) -> None:
-        super().__init__(text, **kwargs)
-        self.pane_id = pane_id
 
 
 class PaneCard(Static, can_focus=True):
@@ -400,38 +390,6 @@ class MonitorApp(TuiSwitcherMixin, App):
         text-style: bold;
     }
 
-    #attention-section {
-        height: auto;
-        max-height: 12;
-        border-bottom: solid $primary-darken-2;
-    }
-
-    #attention-section.zone-active {
-        border: solid $accent;
-    }
-
-    #attention-header {
-        padding: 0 1;
-        text-style: bold;
-        color: $warning;
-    }
-
-    AttentionCard {
-        height: auto;
-        padding: 0 1;
-        margin: 0 0;
-    }
-
-    AttentionCard:focus {
-        background: $accent;
-        color: $text;
-    }
-
-    #no-attention {
-        padding: 0 1;
-        color: $text-muted;
-    }
-
     #pane-list {
         height: 1fr;
     }
@@ -514,7 +472,6 @@ class MonitorApp(TuiSwitcherMixin, App):
         self._idle_threshold = idle_threshold
         self._agent_prefixes = agent_prefixes
         self._tui_names = tui_names
-        self.attention_queue: list[str] = []
         self._snapshots: dict[str, PaneSnapshot] = {}
         self._focused_pane_id: str | None = None
         self._monitor: TmuxMonitor | None = None
@@ -526,11 +483,6 @@ class MonitorApp(TuiSwitcherMixin, App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield SessionBar(id="session-bar")
-        yield VerticalScroll(
-            Static("[bold yellow]NEEDS ATTENTION[/]", id="attention-header"),
-            Static("[dim]No idle agents[/]", id="no-attention"),
-            id="attention-section",
-        )
         yield VerticalScroll(id="pane-list")
         yield VerticalScroll(
             Static("[bold]Content Preview[/]", id="content-header"),
@@ -619,9 +571,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         saved_zone = self._active_zone
 
         self._snapshots = self._monitor.capture_all()
-        self._update_attention_queue()
         self._rebuild_session_bar()
-        self._rebuild_attention_section()
         self._rebuild_pane_list()
         self._update_content_preview()
 
@@ -649,78 +599,19 @@ class MonitorApp(TuiSwitcherMixin, App):
             return
         if pane_id is None:
             return
-        # Search the saved zone first so we don't jump between zones
-        if zone == Zone.ATTENTION:
-            primary, fallback = "#attention-section AttentionCard", "#pane-list PaneCard"
-        else:
-            primary, fallback = "#pane-list PaneCard", "#attention-section AttentionCard"
-        for selector in (primary, fallback):
-            for card in self.query(selector):
-                if hasattr(card, "pane_id") and card.pane_id == pane_id:
-                    card.focus()
-                    return
-
-    def _update_attention_queue(self) -> None:
-        idle_pane_ids = {
-            pid for pid, snap in self._snapshots.items()
-            if snap.is_idle and snap.pane.category == PaneCategory.AGENT
-        }
-
-        # Remove panes that are no longer idle
-        self.attention_queue = [pid for pid in self.attention_queue if pid in idle_pane_ids]
-
-        # Add new idle panes at the end
-        for pid in idle_pane_ids:
-            if pid not in self.attention_queue:
-                self.attention_queue.append(pid)
+        for card in self.query("#pane-list PaneCard"):
+            if hasattr(card, "pane_id") and card.pane_id == pane_id:
+                card.focus()
+                return
 
     def _rebuild_session_bar(self) -> None:
         total = len(self._snapshots)
-        idle = len(self.attention_queue)
         bar = self.query_one("#session-bar", SessionBar)
         bar.update(
             f"tmux Monitor — session: {self._session} "
-            f"({total} pane{'s' if total != 1 else ''}, {idle} idle)"
+            f"({total} pane{'s' if total != 1 else ''})"
             f"  [dim]Tab: switch pane[/]"
         )
-
-    def _rebuild_attention_section(self) -> None:
-        container = self.query_one("#attention-section", VerticalScroll)
-        # Remove old cards
-        for card in list(container.query(AttentionCard)):
-            card.remove()
-
-        no_attn = container.query_one("#no-attention", Static)
-
-        if not self.attention_queue:
-            no_attn.display = True
-            return
-
-        no_attn.display = False
-        for pid in self.attention_queue:
-            snap = self._snapshots.get(pid)
-            if snap is None:
-                continue
-            # Get last non-empty line of content
-            lines = [l for l in snap.content.rstrip().splitlines() if l.strip()]
-            last_line = lines[-1].strip() if lines else "(empty)"
-            if len(last_line) > 70:
-                last_line = last_line[:67] + "..."
-
-            idle_s = int(snap.idle_seconds)
-            text = (
-                f"[bold yellow]![/] "
-                f"{snap.pane.window_index}:{snap.pane.window_name} "
-                f"(pane {snap.pane.pane_index}) — "
-                f"[yellow]idle {idle_s}s[/]  "
-                f"[dim]{last_line}[/]"
-            )
-            task_id = self._task_cache.get_task_id(snap.pane.window_name)
-            if task_id:
-                info = self._task_cache.get_task_info(task_id)
-                if info:
-                    text += f"\n     [dim italic]t{task_id}: {info.title}[/]"
-            container.mount(AttentionCard(pid, text))
 
     def _rebuild_pane_list(self) -> None:
         container = self.query_one("#pane-list", VerticalScroll)
@@ -800,9 +691,6 @@ class MonitorApp(TuiSwitcherMixin, App):
         """Cycle active zone forward or backward."""
         idx = ZONE_ORDER.index(self._active_zone)
         new_idx = (idx + direction) % len(ZONE_ORDER)
-        # Skip attention zone if empty
-        if ZONE_ORDER[new_idx] == Zone.ATTENTION and not self.attention_queue:
-            new_idx = (new_idx + direction) % len(ZONE_ORDER)
         self._active_zone = ZONE_ORDER[new_idx]
         self._focus_first_in_zone()
         self._manage_preview_timer()
@@ -810,11 +698,7 @@ class MonitorApp(TuiSwitcherMixin, App):
 
     def _focus_first_in_zone(self) -> None:
         """Focus the first focusable widget in the active zone."""
-        if self._active_zone == Zone.ATTENTION:
-            cards = list(self.query("#attention-section AttentionCard"))
-            if cards:
-                cards[0].focus()
-        elif self._active_zone == Zone.PANE_LIST:
+        if self._active_zone == Zone.PANE_LIST:
             cards = list(self.query("#pane-list PaneCard"))
             if cards:
                 cards[0].focus()
@@ -827,7 +711,6 @@ class MonitorApp(TuiSwitcherMixin, App):
     def _update_zone_indicators(self) -> None:
         """Update visual indicators showing which zone is active."""
         for section_id, zone in [
-            ("#attention-section", Zone.ATTENTION),
             ("#pane-list", Zone.PANE_LIST),
             ("#content-section", Zone.PREVIEW),
         ]:
@@ -846,9 +729,7 @@ class MonitorApp(TuiSwitcherMixin, App):
 
     def _nav_within_zone(self, direction: int) -> None:
         """Move focus up/down within the current zone's cards."""
-        if self._active_zone == Zone.ATTENTION:
-            cards = list(self.query("#attention-section AttentionCard"))
-        elif self._active_zone == Zone.PANE_LIST:
+        if self._active_zone == Zone.PANE_LIST:
             cards = list(self.query("#pane-list PaneCard"))
         else:
             return  # No card navigation in preview zone
@@ -930,13 +811,7 @@ class MonitorApp(TuiSwitcherMixin, App):
 
     def on_descendant_focus(self, event) -> None:
         widget = event.widget
-        if isinstance(widget, AttentionCard):
-            self._active_zone = Zone.ATTENTION
-            self._focused_pane_id = widget.pane_id
-            self._update_content_preview()
-            self._manage_preview_timer()
-            self._update_zone_indicators()
-        elif isinstance(widget, PaneCard):
+        if isinstance(widget, PaneCard):
             self._active_zone = Zone.PANE_LIST
             self._focused_pane_id = widget.pane_id
             self._update_content_preview()
@@ -950,9 +825,7 @@ class MonitorApp(TuiSwitcherMixin, App):
     def _get_focused_pane_id(self) -> str | None:
         """Get pane_id from the currently focused widget."""
         focused = self.focused
-        if isinstance(focused, AttentionCard):
-            return focused.pane_id
-        elif isinstance(focused, PaneCard):
+        if isinstance(focused, PaneCard):
             return focused.pane_id
         return None
 
