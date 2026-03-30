@@ -204,6 +204,7 @@ class TuiSwitcherOverlay(ModalScreen):
         Binding("c", "shortcut_codebrowser", "Code Browser", show=False),
         Binding("s", "shortcut_settings", "Settings", show=False),
         Binding("r", "shortcut_brainstorm", "Brainstorm", show=False),
+        Binding("x", "shortcut_explore", "Explore", show=False),
     ]
 
     def __init__(self, session: str, current_tui: str = "") -> None:
@@ -217,7 +218,7 @@ class TuiSwitcherOverlay(ModalScreen):
             yield Label("TUI Switcher", id="switcher_title")
             yield _WrappingListView(id="switcher_list")
             yield Label(
-                "[dim]b[/]oard  [dim]c[/]ode  [dim]s[/]ettings  b[dim]r[/]ainstorm\n"
+                "[dim]b[/]oard  [dim]c[/]ode  [dim]s[/]ettings  b[dim]r[/]ainstorm  e[dim]x[/]plore\n"
                 "[dim]Enter[/] switch  [dim]j/Esc[/] close",
                 id="switcher_hint",
             )
@@ -322,6 +323,23 @@ class TuiSwitcherOverlay(ModalScreen):
 
     def action_shortcut_brainstorm(self) -> None:
         self._shortcut_switch("brainstorm")
+
+    def action_shortcut_explore(self) -> None:
+        """Launch a new explore agent session (always new window)."""
+        n = 1
+        while f"agent-explore-{n}" in self._running_names:
+            n += 1
+        window_name = f"agent-explore-{n}"
+        try:
+            subprocess.Popen(
+                ["tmux", "new-window", "-t", f"{self._session}:",
+                 "-n", window_name, "ait codeagent invoke explore"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except (FileNotFoundError, OSError):
+            self.app.notify("Failed to launch explore", severity="error")
+            return
+        self.dismiss(window_name)
 
     def _switch_to(self, name: str, running: bool, window_index: str | None = None) -> None:
         try:
