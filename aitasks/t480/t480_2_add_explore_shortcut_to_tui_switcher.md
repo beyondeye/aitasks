@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t480_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_explore, tmux]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-30 12:25
-updated_at: 2026-03-30 12:25
+updated_at: 2026-03-30 21:52
 ---
 
 ## Summary
