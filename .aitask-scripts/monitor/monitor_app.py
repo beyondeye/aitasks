@@ -700,8 +700,16 @@ class MonitorApp(TuiSwitcherMixin, App):
         """Focus the first focusable widget in the active zone."""
         if self._active_zone == Zone.PANE_LIST:
             cards = list(self.query("#pane-list PaneCard"))
-            if cards:
-                cards[0].focus()
+            if not cards:
+                return
+            # Restore previously focused card if possible
+            if self._focused_pane_id:
+                for card in cards:
+                    if card.pane_id == self._focused_pane_id:
+                        card.focus()
+                        return
+            # Fall back to first card
+            cards[0].focus()
         elif self._active_zone == Zone.PREVIEW:
             try:
                 self.query_one("#content-preview", PreviewPane).focus()
