@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
@@ -21,6 +23,7 @@ from pathlib import Path
 _SCRIPT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_SCRIPT_DIR))
 sys.path.insert(0, str(_SCRIPT_DIR / "lib"))
+sys.path.insert(0, str(_SCRIPT_DIR / "board"))
 
 from monitor.tmux_monitor import (  # noqa: E402
     PaneCategory,
@@ -28,6 +31,7 @@ from monitor.tmux_monitor import (  # noqa: E402
     TmuxMonitor,
     load_monitor_config,
 )
+from task_yaml import parse_frontmatter  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 
 import subprocess  # noqa: E402
@@ -37,7 +41,7 @@ from textual.binding import Binding  # noqa: E402
 from textual.containers import Container, VerticalScroll  # noqa: E402
 from textual.screen import ModalScreen  # noqa: E402
 from textual.timer import Timer  # noqa: E402
-from textual.widgets import Button, Footer, Header, Label, Static  # noqa: E402
+from textual.widgets import Button, Footer, Header, Label, Markdown, Static  # noqa: E402
 
 
 # -- Zone model ---------------------------------------------------------------
@@ -115,6 +119,201 @@ class PaneCard(Static, can_focus=True):
 class PreviewPane(Static, can_focus=True):
     """Focusable content preview — forwards keystrokes to tmux when active."""
     pass
+
+
+# -- Task context --------------------------------------------------------------
+
+_TASK_ID_RE = re.compile(r'^agent-(?:pick|qa)-(\d+(?:_\d+)?)$')
+
+
+@dataclass
+class TaskInfo:
+    """Resolved task metadata and content for display in the monitor."""
+    task_id: str
+    task_file: str
+    title: str
+    priority: str
+    effort: str
+    issue_type: str
+    status: str
+    body: str
+    plan_content: str | None
+
+
+class TaskInfoCache:
+    """Cache for resolved task info — avoids file I/O on every refresh."""
+
+    def __init__(self, project_root: Path):
+        self._project_root = project_root
+        self._cache: dict[str, TaskInfo | None] = {}
+        self._window_to_task_id: dict[str, str | None] = {}
+
+    def get_task_id(self, window_name: str) -> str | None:
+        """Extract task ID from agent window name. Cached."""
+        if window_name not in self._window_to_task_id:
+            m = _TASK_ID_RE.match(window_name)
+            self._window_to_task_id[window_name] = m.group(1) if m else None
+        return self._window_to_task_id[window_name]
+
+    def get_task_info(self, task_id: str) -> TaskInfo | None:
+        """Resolve task info from task ID. Cached after first lookup."""
+        if task_id not in self._cache:
+            self._cache[task_id] = self._resolve(task_id)
+        return self._cache[task_id]
+
+    def invalidate(self, task_id: str) -> None:
+        self._cache.pop(task_id, None)
+
+    def _resolve(self, task_id: str) -> TaskInfo | None:
+        """Look up task file and parse its content. Pure Python, no subprocess."""
+        tasks_dir = self._project_root / "aitasks"
+        plans_dir = self._project_root / "aiplans"
+
+        if "_" in task_id:
+            parent, child = task_id.split("_", 1)
+            pattern = f"t{parent}_{child}_*.md"
+            search_dir = tasks_dir / f"t{parent}"
+        else:
+            pattern = f"t{task_id}_*.md"
+            search_dir = tasks_dir
+
+        if not search_dir.is_dir():
+            return None
+        matches = list(search_dir.glob(pattern))
+        if not matches:
+            return None
+
+        task_path = matches[0]
+        try:
+            raw = task_path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+
+        parsed = parse_frontmatter(raw)
+        if parsed is None:
+            return None
+        metadata, body, _ = parsed
+
+        # Extract title: first markdown heading or derive from filename
+        title = None
+        for line in body.splitlines():
+            line_s = line.strip()
+            if line_s.startswith("# "):
+                title = line_s[2:].strip()
+                break
+        if not title:
+            stem = task_path.stem
+            parts = stem.split("_", 1)
+            title = parts[1].replace("_", " ") if len(parts) > 1 else stem
+
+        # Find plan file
+        plan_content = None
+        if "_" in task_id:
+            parent, child = task_id.split("_", 1)
+            plan_pattern = f"p{parent}_{child}_*.md"
+            plan_dir = plans_dir / f"p{parent}"
+        else:
+            plan_pattern = f"p{task_id}_*.md"
+            plan_dir = plans_dir
+
+        if plan_dir.is_dir():
+            plan_matches = list(plan_dir.glob(plan_pattern))
+            if plan_matches:
+                try:
+                    plan_raw = plan_matches[0].read_text(encoding="utf-8")
+                    if plan_raw.startswith("---"):
+                        fm_parts = plan_raw.split("---", 2)
+                        if len(fm_parts) >= 3:
+                            plan_content = fm_parts[2].strip()
+                        else:
+                            plan_content = plan_raw
+                    else:
+                        plan_content = plan_raw
+                except OSError:
+                    pass
+
+        return TaskInfo(
+            task_id=task_id,
+            task_file=str(task_path.relative_to(self._project_root)),
+            title=title,
+            priority=str(metadata.get("priority", "")),
+            effort=str(metadata.get("effort", "")),
+            issue_type=str(metadata.get("issue_type", "")),
+            status=str(metadata.get("status", "")),
+            body=body,
+            plan_content=plan_content,
+        )
+
+
+class TaskDetailDialog(ModalScreen):
+    """Read-only dialog showing task content and optional plan."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss_dialog", "Close", show=False),
+        Binding("q", "dismiss_dialog", "Close", show=False),
+        Binding("p", "toggle_plan", "Plan/Task", show=True),
+    ]
+
+    DEFAULT_CSS = """
+    TaskDetailDialog { align: center middle; }
+    #task-detail-dialog {
+        width: 90%;
+        height: 85%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #task-detail-header { text-style: bold; margin: 0 0 1 0; }
+    #task-detail-meta { margin: 0 0 1 0; color: $text-muted; }
+    #task-detail-scroll { height: 1fr; }
+    #task-detail-footer { dock: bottom; height: 1; color: $text-muted; }
+    """
+
+    def __init__(self, info: TaskInfo) -> None:
+        super().__init__()
+        self._info = info
+        self._showing_plan = False
+
+    def compose(self) -> ComposeResult:
+        info = self._info
+        with Container(id="task-detail-dialog"):
+            yield Static(
+                f"[bold]t{info.task_id}: {info.title}[/]",
+                id="task-detail-header",
+            )
+            yield Static(
+                f"Priority: {info.priority}  Effort: {info.effort}  "
+                f"Type: {info.issue_type}  Status: {info.status}",
+                id="task-detail-meta",
+            )
+            yield VerticalScroll(
+                Markdown(info.body or "*No content*"),
+                id="task-detail-scroll",
+            )
+            plan_hint = "  [dim]p: switch plan/task[/]" if info.plan_content else ""
+            yield Static(
+                f"[dim]q/Esc: close[/]{plan_hint}",
+                id="task-detail-footer",
+            )
+
+    def action_dismiss_dialog(self) -> None:
+        self.dismiss()
+
+    def action_toggle_plan(self) -> None:
+        if not self._info.plan_content:
+            self.app.notify("No plan file found", severity="warning")
+            return
+        self._showing_plan = not self._showing_plan
+        content = self._info.plan_content if self._showing_plan else self._info.body
+        label = "Plan" if self._showing_plan else "Task"
+
+        scroll = self.query_one("#task-detail-scroll", VerticalScroll)
+        for child in list(scroll.children):
+            child.remove()
+        scroll.mount(Markdown(content or "*No content*"))
+
+        header = self.query_one("#task-detail-header", Static)
+        header.update(f"[bold]t{self._info.task_id}: {self._info.title}[/] [{label}]")
 
 
 class SessionRenameDialog(ModalScreen):
@@ -289,6 +488,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         Binding("j", "tui_switcher", "Jump TUI"),
         Binding("q", "quit", "Quit"),
         Binding("s", "switch_to", "Switch"),
+        Binding("i", "show_task_info", "Task Info"),
         Binding("r", "refresh", "Refresh"),
         Binding("f5", "refresh", "Refresh", show=False),
         Binding("z", "cycle_preview_size", "Zoom"),
@@ -297,6 +497,7 @@ class MonitorApp(TuiSwitcherMixin, App):
     def __init__(
         self,
         session: str,
+        project_root: Path,
         refresh_seconds: int = 3,
         capture_lines: int = 30,
         idle_threshold: float = 5.0,
@@ -320,6 +521,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         self._active_zone: Zone = Zone.PANE_LIST
         self._preview_timer: Timer | None = None
         self._preview_size_idx: int = PREVIEW_DEFAULT_SIZE
+        self._task_cache = TaskInfoCache(project_root)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -513,6 +715,11 @@ class MonitorApp(TuiSwitcherMixin, App):
                 f"[yellow]idle {idle_s}s[/]  "
                 f"[dim]{last_line}[/]"
             )
+            task_id = self._task_cache.get_task_id(snap.pane.window_name)
+            if task_id:
+                info = self._task_cache.get_task_info(task_id)
+                if info:
+                    text += f"\n     [dim italic]t{task_id}: {info.title}[/]"
             container.mount(AttentionCard(pid, text))
 
     def _rebuild_pane_list(self) -> None:
@@ -547,6 +754,11 @@ class MonitorApp(TuiSwitcherMixin, App):
                     f" {dot} {snap.pane.window_index}:{snap.pane.window_name} "
                     f"({snap.pane.pane_index})  {status}"
                 )
+                task_id = self._task_cache.get_task_id(snap.pane.window_name)
+                if task_id:
+                    info = self._task_cache.get_task_info(task_id)
+                    if info:
+                        text += f"\n     [dim italic]t{task_id}: {info.title}[/]"
                 container.mount(PaneCard(snap.pane.pane_id, text))
 
         if others:
@@ -776,6 +988,27 @@ class MonitorApp(TuiSwitcherMixin, App):
         preview.styles.max_height = preview_h
         self.notify(f"Preview size: {label}")
 
+    def action_show_task_info(self) -> None:
+        """Show task detail dialog for the focused agent pane."""
+        pane_id = self._get_focused_pane_id()
+        if not pane_id:
+            self.notify("Focus an agent pane first", severity="warning")
+            return
+        snap = self._snapshots.get(pane_id)
+        if not snap:
+            return
+        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        if not task_id:
+            self.notify("No task ID in window name", severity="warning")
+            return
+        # Force refresh cache to get latest content
+        self._task_cache.invalidate(task_id)
+        info = self._task_cache.get_task_info(task_id)
+        if not info:
+            self.notify(f"Task t{task_id} not found", severity="error")
+            return
+        self.push_screen(TaskDetailDialog(info))
+
 
 def _detect_tmux_session() -> str | None:
     """Auto-detect the current tmux session name, or None if not inside tmux."""
@@ -839,6 +1072,7 @@ def main() -> None:
 
     app = MonitorApp(
         session=session,
+        project_root=project_root,
         refresh_seconds=refresh_seconds,
         capture_lines=capture_lines,
         idle_threshold=config.get("idle_threshold", 5.0),
