@@ -605,7 +605,9 @@ cmd_invoke() {
     build_invoke_command "$operation" "$@"
 
     if [[ "$OPT_DRY_RUN" == true ]]; then
-        echo "DRY_RUN: ${CMD[*]}"
+        printf 'DRY_RUN:'
+        printf ' %q' "${CMD[@]}"
+        printf '\n'
         return
     fi
 
