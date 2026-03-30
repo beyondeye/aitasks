@@ -189,6 +189,22 @@ class TmuxMonitor:
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
 
+    def send_keys(self, pane_id: str, keys: str, literal: bool = False) -> bool:
+        """Send arbitrary key(s) to a tmux pane.
+
+        If literal=True, uses -l flag to send raw text without interpretation.
+        If literal=False, sends as tmux key name (Enter, Up, C-c, etc.).
+        """
+        try:
+            cmd = ["tmux", "send-keys", "-t", pane_id]
+            if literal:
+                cmd.append("-l")
+            cmd.append(keys)
+            result = subprocess.run(cmd, capture_output=True, timeout=5)
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return False
+
     def switch_to_pane(self, pane_id: str) -> bool:
         pane = self._pane_cache.get(pane_id)
         if pane is None:

@@ -1,8 +1,10 @@
 """monitor_app - TUI for monitoring tmux panes running code agents.
 
 Shows all tmux panes categorized as agents, TUIs, or other. Maintains an
-attention queue for idle agent panes (likely awaiting user input) and allows
-confirming (sending Enter), deferring, or switching to those panes.
+attention queue for idle agent panes (likely awaiting user input). Uses a
+zone-based navigation model: Tab cycles between 3 zones (attention, pane list,
+preview), Up/Down navigates within zones, and the preview zone forwards all
+keystrokes directly to the tmux session being previewed.
 
 Usage:
     python monitor_app.py [--session NAME] [--interval SECS] [--lines N]
@@ -12,6 +14,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from enum import Enum
 from pathlib import Path
 
 # Set up import paths before any local imports
@@ -33,8 +36,60 @@ from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import Container, VerticalScroll  # noqa: E402
 from textual.screen import ModalScreen  # noqa: E402
+from textual.timer import Timer  # noqa: E402
 from textual.widgets import Button, Footer, Header, Label, Static  # noqa: E402
 
+
+# -- Zone model ---------------------------------------------------------------
+
+class Zone(Enum):
+    ATTENTION = "attention"
+    PANE_LIST = "pane_list"
+    PREVIEW = "preview"
+
+
+ZONE_ORDER = [Zone.ATTENTION, Zone.PANE_LIST, Zone.PREVIEW]
+
+# Preview pane size presets: (section_max_height, preview_max_height, label)
+PREVIEW_SIZES = [
+    (12, 10, "S"),
+    (24, 22, "M"),
+    (40, 38, "L"),
+]
+PREVIEW_DEFAULT_SIZE = 1  # Medium
+
+# Textual key name → tmux send-keys argument (for special keys)
+_TEXTUAL_TO_TMUX = {
+    "enter": "Enter",
+    "escape": "Escape",
+    "backspace": "BSpace",
+    "up": "Up",
+    "down": "Down",
+    "left": "Left",
+    "right": "Right",
+    "space": "Space",
+    "delete": "DC",
+    "home": "Home",
+    "end": "End",
+    "pageup": "PPage",
+    "pagedown": "NPage",
+    "insert": "IC",
+    "f1": "F1",
+    "f2": "F2",
+    "f3": "F3",
+    "f4": "F4",
+    "f5": "F5",
+    "f6": "F6",
+    "f7": "F7",
+    "f8": "F8",
+    "f9": "F9",
+    "f10": "F10",
+    "f11": "F11",
+    "f12": "F12",
+}
+
+
+# -- Widgets ------------------------------------------------------------------
 
 class SessionBar(Static):
     """One-line bar showing session name, pane count, idle count."""
@@ -55,6 +110,11 @@ class PaneCard(Static, can_focus=True):
     def __init__(self, pane_id: str, text: str, **kwargs) -> None:
         super().__init__(text, **kwargs)
         self.pane_id = pane_id
+
+
+class PreviewPane(Static, can_focus=True):
+    """Focusable content preview — forwards keystrokes to tmux when active."""
+    pass
 
 
 class SessionRenameDialog(ModalScreen):
@@ -124,6 +184,8 @@ class SessionRenameDialog(ModalScreen):
         self.dismiss(False)
 
 
+# -- Main app -----------------------------------------------------------------
+
 class MonitorApp(TuiSwitcherMixin, App):
     """Textual app for monitoring tmux panes running code agents."""
 
@@ -143,6 +205,10 @@ class MonitorApp(TuiSwitcherMixin, App):
         height: auto;
         max-height: 12;
         border-bottom: solid $primary-darken-2;
+    }
+
+    #attention-section.zone-active {
+        border: solid $accent;
     }
 
     #attention-header {
@@ -171,6 +237,10 @@ class MonitorApp(TuiSwitcherMixin, App):
         height: 1fr;
     }
 
+    #pane-list.zone-active {
+        border: solid $accent;
+    }
+
     .section-header {
         padding: 0 1;
         text-style: bold;
@@ -189,9 +259,13 @@ class MonitorApp(TuiSwitcherMixin, App):
 
     #content-section {
         height: auto;
-        max-height: 12;
+        max-height: 24;
         min-height: 3;
         border-top: solid $primary-darken-2;
+    }
+
+    #content-section.zone-active {
+        border: solid $warning;
     }
 
     #content-header {
@@ -200,22 +274,24 @@ class MonitorApp(TuiSwitcherMixin, App):
         color: $text-muted;
     }
 
-    #content-preview {
-        padding: 0 1;
+    PreviewPane {
         height: auto;
-        max-height: 10;
+        max-height: 22;
+        padding: 0 1;
+    }
+
+    PreviewPane:focus {
+        background: $surface-lighten-1;
     }
     """
 
     BINDINGS = [
         Binding("j", "tui_switcher", "Jump TUI"),
         Binding("q", "quit", "Quit"),
-        Binding("enter", "confirm", "Confirm"),
-        Binding("c", "confirm", "Confirm", show=False),
-        Binding("d", "decide_later", "Later"),
         Binding("s", "switch_to", "Switch"),
         Binding("r", "refresh", "Refresh"),
         Binding("f5", "refresh", "Refresh", show=False),
+        Binding("z", "cycle_preview_size", "Zoom"),
     ]
 
     def __init__(
@@ -241,6 +317,9 @@ class MonitorApp(TuiSwitcherMixin, App):
         self._snapshots: dict[str, PaneSnapshot] = {}
         self._focused_pane_id: str | None = None
         self._monitor: TmuxMonitor | None = None
+        self._active_zone: Zone = Zone.PANE_LIST
+        self._preview_timer: Timer | None = None
+        self._preview_size_idx: int = PREVIEW_DEFAULT_SIZE
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -253,7 +332,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         yield VerticalScroll(id="pane-list")
         yield VerticalScroll(
             Static("[bold]Content Preview[/]", id="content-header"),
-            Static("", id="content-preview"),
+            PreviewPane("", id="content-preview"),
             id="content-section",
         )
         yield Footer()
@@ -327,9 +406,15 @@ class MonitorApp(TuiSwitcherMixin, App):
         self.call_later(self._refresh_data)
         self.set_interval(self._refresh_seconds, self._refresh_data)
 
+    # -- Data refresh ----------------------------------------------------------
+
     async def _refresh_data(self) -> None:
         if self._monitor is None:
             return
+
+        # Save focus state before rebuild
+        saved_pane_id = self._focused_pane_id
+        saved_zone = self._active_zone
 
         self._snapshots = self._monitor.capture_all()
         self._update_attention_queue()
@@ -337,6 +422,41 @@ class MonitorApp(TuiSwitcherMixin, App):
         self._rebuild_attention_section()
         self._rebuild_pane_list()
         self._update_content_preview()
+
+        # Defer focus restoration until after Textual processes the DOM changes
+        # from remove()/mount(). Immediate restore fails because removed widgets
+        # haven't been fully detached yet.
+        self.call_after_refresh(self._restore_focus, saved_pane_id, saved_zone)
+
+    async def _fast_preview_refresh(self) -> None:
+        """Lightweight refresh — only re-capture the focused pane for preview."""
+        if self._monitor is None or self._focused_pane_id is None:
+            return
+        snap = self._monitor.capture_pane(self._focused_pane_id)
+        if snap is not None:
+            self._snapshots[self._focused_pane_id] = snap
+            self._update_content_preview()
+
+    def _restore_focus(self, pane_id: str | None, zone: Zone) -> None:
+        """Re-focus the previously focused widget after a rebuild."""
+        if zone == Zone.PREVIEW:
+            try:
+                self.query_one("#content-preview", PreviewPane).focus()
+            except Exception:
+                pass
+            return
+        if pane_id is None:
+            return
+        # Search the saved zone first so we don't jump between zones
+        if zone == Zone.ATTENTION:
+            primary, fallback = "#attention-section AttentionCard", "#pane-list PaneCard"
+        else:
+            primary, fallback = "#pane-list PaneCard", "#attention-section AttentionCard"
+        for selector in (primary, fallback):
+            for card in self.query(selector):
+                if hasattr(card, "pane_id") and card.pane_id == pane_id:
+                    card.focus()
+                    return
 
     def _update_attention_queue(self) -> None:
         idle_pane_ids = {
@@ -438,31 +558,177 @@ class MonitorApp(TuiSwitcherMixin, App):
                 container.mount(PaneCard(snap.pane.pane_id, text))
 
     def _update_content_preview(self) -> None:
-        preview = self.query_one("#content-preview", Static)
+        preview = self.query_one("#content-preview", PreviewPane)
         header = self.query_one("#content-header", Static)
 
         if self._focused_pane_id and self._focused_pane_id in self._snapshots:
             snap = self._snapshots[self._focused_pane_id]
-            header.update(
-                f"[bold]Content Preview[/] "
-                f"({snap.pane.window_index}:{snap.pane.window_name})"
-            )
+            pane_label = f"({snap.pane.window_index}:{snap.pane.window_name})"
+            if self._active_zone == Zone.PREVIEW:
+                header.update(
+                    f"[bold]Content Preview[/] {pane_label} [bold green]LIVE[/]"
+                )
+            else:
+                header.update(f"[bold]Content Preview[/] {pane_label}")
             # Show last N lines, strip trailing whitespace
             lines = snap.content.rstrip().splitlines()
-            display_lines = lines[-15:] if len(lines) > 15 else lines
+            # Show lines proportional to the current preview size
+            _, max_h, _ = PREVIEW_SIZES[self._preview_size_idx]
+            show_n = max_h - 1  # leave 1 line for header
+            display_lines = lines[-show_n:] if len(lines) > show_n else lines
             preview.update("\n".join(display_lines) if display_lines else "[dim](empty)[/]")
         else:
             header.update("[bold]Content Preview[/]")
             preview.update("[dim]Focus an agent or pane to see its output[/]")
 
+    # -- Zone navigation -------------------------------------------------------
+
+    def _switch_zone(self, direction: int = 1) -> None:
+        """Cycle active zone forward or backward."""
+        idx = ZONE_ORDER.index(self._active_zone)
+        new_idx = (idx + direction) % len(ZONE_ORDER)
+        # Skip attention zone if empty
+        if ZONE_ORDER[new_idx] == Zone.ATTENTION and not self.attention_queue:
+            new_idx = (new_idx + direction) % len(ZONE_ORDER)
+        self._active_zone = ZONE_ORDER[new_idx]
+        self._focus_first_in_zone()
+        self._manage_preview_timer()
+        self._update_zone_indicators()
+
+    def _focus_first_in_zone(self) -> None:
+        """Focus the first focusable widget in the active zone."""
+        if self._active_zone == Zone.ATTENTION:
+            cards = list(self.query("#attention-section AttentionCard"))
+            if cards:
+                cards[0].focus()
+        elif self._active_zone == Zone.PANE_LIST:
+            cards = list(self.query("#pane-list PaneCard"))
+            if cards:
+                cards[0].focus()
+        elif self._active_zone == Zone.PREVIEW:
+            try:
+                self.query_one("#content-preview", PreviewPane).focus()
+            except Exception:
+                pass
+
+    def _update_zone_indicators(self) -> None:
+        """Update visual indicators showing which zone is active."""
+        for section_id, zone in [
+            ("#attention-section", Zone.ATTENTION),
+            ("#pane-list", Zone.PANE_LIST),
+            ("#content-section", Zone.PREVIEW),
+        ]:
+            widget = self.query_one(section_id)
+            widget.set_class(self._active_zone == zone, "zone-active")
+        # Refresh the preview header (LIVE indicator)
+        self._update_content_preview()
+
+    def _manage_preview_timer(self) -> None:
+        """Start/stop the fast preview timer based on active zone."""
+        if self._active_zone == Zone.PREVIEW and self._preview_timer is None:
+            self._preview_timer = self.set_interval(0.3, self._fast_preview_refresh)
+        elif self._active_zone != Zone.PREVIEW and self._preview_timer is not None:
+            self._preview_timer.stop()
+            self._preview_timer = None
+
+    def _nav_within_zone(self, direction: int) -> None:
+        """Move focus up/down within the current zone's cards."""
+        if self._active_zone == Zone.ATTENTION:
+            cards = list(self.query("#attention-section AttentionCard"))
+        elif self._active_zone == Zone.PANE_LIST:
+            cards = list(self.query("#pane-list PaneCard"))
+        else:
+            return  # No card navigation in preview zone
+
+        if not cards:
+            return
+        focused = self.focused
+        try:
+            idx = cards.index(focused)
+        except ValueError:
+            cards[0].focus()
+            return
+        new_idx = max(0, min(len(cards) - 1, idx + direction))
+        cards[new_idx].focus()
+
+    # -- Key handling ----------------------------------------------------------
+
+    def on_key(self, event) -> None:
+        key = event.key
+
+        # Tab/Shift+Tab always cycle zones (in all zones including preview)
+        if key == "tab":
+            self._switch_zone(1)
+            event.stop()
+            event.prevent_default()
+            return
+        if key == "shift+tab":
+            self._switch_zone(-1)
+            event.stop()
+            event.prevent_default()
+            return
+
+        # In preview zone: forward everything to tmux
+        if self._active_zone == Zone.PREVIEW:
+            if self._focused_pane_id and self._monitor:
+                self._forward_key_to_tmux(event)
+            event.stop()
+            event.prevent_default()
+            return
+
+        # In non-preview zones: Up/Down navigate within zone
+        if key == "up":
+            self._nav_within_zone(-1)
+            event.stop()
+            event.prevent_default()
+        elif key == "down":
+            self._nav_within_zone(1)
+            event.stop()
+            event.prevent_default()
+
+    def _forward_key_to_tmux(self, event) -> None:
+        """Map a Textual key event to tmux send-keys and forward it."""
+        key = event.key
+        pane_id = self._focused_pane_id
+
+        # Check special key mapping
+        if key in _TEXTUAL_TO_TMUX:
+            self._monitor.send_keys(pane_id, _TEXTUAL_TO_TMUX[key])
+            self.call_later(self._fast_preview_refresh)
+            return
+
+        # Ctrl+key → C-key in tmux
+        if key.startswith("ctrl+"):
+            char = key[5:]
+            self._monitor.send_keys(pane_id, f"C-{char}")
+            self.call_later(self._fast_preview_refresh)
+            return
+
+        # Regular character
+        if event.character and len(event.character) == 1:
+            self._monitor.send_keys(pane_id, event.character, literal=True)
+            self.call_later(self._fast_preview_refresh)
+
+    # -- Focus tracking --------------------------------------------------------
+
     def on_descendant_focus(self, event) -> None:
         widget = event.widget
         if isinstance(widget, AttentionCard):
+            self._active_zone = Zone.ATTENTION
             self._focused_pane_id = widget.pane_id
             self._update_content_preview()
+            self._manage_preview_timer()
+            self._update_zone_indicators()
         elif isinstance(widget, PaneCard):
+            self._active_zone = Zone.PANE_LIST
             self._focused_pane_id = widget.pane_id
             self._update_content_preview()
+            self._manage_preview_timer()
+            self._update_zone_indicators()
+        elif isinstance(widget, PreviewPane):
+            self._active_zone = Zone.PREVIEW
+            self._manage_preview_timer()
+            self._update_zone_indicators()
 
     def _get_focused_pane_id(self) -> str | None:
         """Get pane_id from the currently focused widget."""
@@ -473,38 +739,7 @@ class MonitorApp(TuiSwitcherMixin, App):
             return focused.pane_id
         return None
 
-    def action_confirm(self) -> None:
-        """Send Enter to the focused idle agent pane."""
-        if self._monitor is None:
-            return
-        pane_id = self._get_focused_pane_id()
-        if pane_id is None:
-            self.notify("Focus an agent pane first", severity="warning")
-            return
-        if pane_id not in self.attention_queue:
-            self.notify("Pane is not in the attention queue", severity="warning")
-            return
-        if self._monitor.send_enter(pane_id):
-            self.attention_queue = [p for p in self.attention_queue if p != pane_id]
-            snap = self._snapshots.get(pane_id)
-            name = f"{snap.pane.window_name}" if snap else pane_id
-            self.notify(f"Sent Enter to {name}")
-            self.call_later(self._refresh_data)
-        else:
-            self.notify("Failed to send Enter", severity="error")
-
-    def action_decide_later(self) -> None:
-        """Move the focused pane to the end of the attention queue."""
-        pane_id = self._get_focused_pane_id()
-        if pane_id is None or pane_id not in self.attention_queue:
-            self.notify("Focus an attention card first", severity="warning")
-            return
-        self.attention_queue = [p for p in self.attention_queue if p != pane_id]
-        self.attention_queue.append(pane_id)
-        self._rebuild_attention_section()
-        snap = self._snapshots.get(pane_id)
-        name = f"{snap.pane.window_name}" if snap else pane_id
-        self.notify(f"Moved {name} to end of queue")
+    # -- Actions ---------------------------------------------------------------
 
     def action_switch_to(self) -> None:
         """Switch tmux focus to the focused pane."""
@@ -525,6 +760,16 @@ class MonitorApp(TuiSwitcherMixin, App):
         """Force an immediate data refresh."""
         self.call_later(self._refresh_data)
         self.notify("Refreshed")
+
+    def action_cycle_preview_size(self) -> None:
+        """Cycle the preview pane through S/M/L sizes."""
+        self._preview_size_idx = (self._preview_size_idx + 1) % len(PREVIEW_SIZES)
+        section_h, preview_h, label = PREVIEW_SIZES[self._preview_size_idx]
+        section = self.query_one("#content-section")
+        preview = self.query_one("#content-preview", PreviewPane)
+        section.styles.max_height = section_h
+        preview.styles.max_height = preview_h
+        self.notify(f"Preview size: {label}")
 
 
 def _detect_tmux_session() -> str | None:
