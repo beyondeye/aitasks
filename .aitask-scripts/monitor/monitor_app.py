@@ -479,6 +479,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         bar.update(
             f"tmux Monitor — session: {self._session} "
             f"({total} pane{'s' if total != 1 else ''}, {idle} idle)"
+            f"  [dim]Tab: switch pane[/]"
         )
 
     def _rebuild_attention_section(self) -> None:
