@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [ui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-30 12:12
-updated_at: 2026-03-30 12:12
+updated_at: 2026-03-30 12:17
 ---
 
 ## Problem
