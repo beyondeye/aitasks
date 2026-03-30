@@ -140,8 +140,8 @@ class _TuiListItem(ListItem):
             indicator = "[bold cyan]\u25b6[/]"
             style = "bold cyan"
         elif self.running:
-            indicator = "[green]\u25cf[/]"
-            style = "green"
+            indicator = "[bright_green]\u25cf[/]"
+            style = "bright_green"
         else:
             indicator = "[dim]\u25cb[/]"
             style = "dim"
@@ -160,7 +160,7 @@ class _WindowListItem(ListItem):
         self.window_index = window_index
 
     def compose(self):
-        yield Static(f" [green]\u25cf[/]  {self.window_name}")
+        yield Static(f" [bright_green]\u25cf[/]  {self.window_name}")
 
 
 class TuiSwitcherOverlay(ModalScreen):
