@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -127,11 +128,16 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> subprocess.Popen:
         return proc
     elif config.new_window:
         tmux_cmd = [
-            "tmux", "new-window", "-t", config.session,
+            "tmux", "new-window", "-t", f"{config.session}:",
             "-n", config.window,
             command,
         ]
-        return subprocess.Popen(tmux_cmd)
+        proc = subprocess.Popen(tmux_cmd, stderr=subprocess.PIPE)
+        proc.wait()
+        if proc.returncode != 0:
+            stderr = proc.stderr.read().decode() if proc.stderr else ""
+            print(f"tmux new-window failed: {stderr}", file=sys.stderr)
+        return proc
     else:
         # Split existing window into a new pane
         split_flag = "-h" if config.split_direction == "horizontal" else "-v"
@@ -140,7 +146,12 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> subprocess.Popen:
             "tmux", "split-window", split_flag, "-t", target,
             command,
         ]
-        return subprocess.Popen(tmux_cmd)
+        proc = subprocess.Popen(tmux_cmd, stderr=subprocess.PIPE)
+        proc.wait()
+        if proc.returncode != 0:
+            stderr = proc.stderr.read().decode() if proc.stderr else ""
+            print(f"tmux split-window failed: {stderr}", file=sys.stderr)
+        return proc
 
 
 def load_tmux_defaults(project_root: Path) -> dict:
