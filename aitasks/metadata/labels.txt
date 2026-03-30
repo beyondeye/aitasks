@@ -54,6 +54,7 @@ stats_ui
 task-archive
 task_workflow
 testing
+tmux
 tui
 verifiedstats
 web_site
