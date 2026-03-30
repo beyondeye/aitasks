@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_explore, ait_settings]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-30 12:19
-updated_at: 2026-03-30 12:19
+updated_at: 2026-03-30 21:40
 ---
 
 ## Summary
