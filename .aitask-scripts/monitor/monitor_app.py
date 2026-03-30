@@ -662,8 +662,11 @@ class MonitorApp(TuiSwitcherMixin, App):
                 container.mount(PaneCard(snap.pane.pane_id, text))
 
     def _update_content_preview(self) -> None:
-        preview = self.query_one("#content-preview", PreviewPane)
-        header = self.query_one("#content-header", Static)
+        try:
+            preview = self.query_one("#content-preview", PreviewPane)
+            header = self.query_one("#content-header", Static)
+        except Exception:
+            return
 
         if self._focused_pane_id and self._focused_pane_id in self._snapshots:
             snap = self._snapshots[self._focused_pane_id]
@@ -718,12 +721,15 @@ class MonitorApp(TuiSwitcherMixin, App):
 
     def _update_zone_indicators(self) -> None:
         """Update visual indicators showing which zone is active."""
-        for section_id, zone in [
-            ("#pane-list", Zone.PANE_LIST),
-            ("#content-section", Zone.PREVIEW),
-        ]:
-            widget = self.query_one(section_id)
-            widget.set_class(self._active_zone == zone, "zone-active")
+        try:
+            for section_id, zone in [
+                ("#pane-list", Zone.PANE_LIST),
+                ("#content-section", Zone.PREVIEW),
+            ]:
+                widget = self.query_one(section_id)
+                widget.set_class(self._active_zone == zone, "zone-active")
+        except Exception:
+            return
         # Refresh the preview header (LIVE indicator)
         self._update_content_preview()
 
