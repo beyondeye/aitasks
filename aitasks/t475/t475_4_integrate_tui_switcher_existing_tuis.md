@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [aitask_monitor, tui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-29 10:41
-updated_at: 2026-03-30 09:52
+updated_at: 2026-03-30 09:56
 ---
 
 ## Integrate TUI Switcher into Existing TUIs
