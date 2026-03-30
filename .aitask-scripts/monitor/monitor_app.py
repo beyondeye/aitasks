@@ -656,6 +656,10 @@ class MonitorApp(TuiSwitcherMixin, App):
     def on_key(self, event) -> None:
         key = event.key
 
+        # Let modal screens (e.g. TuiSwitcherOverlay) handle their own keys
+        if isinstance(self.screen, ModalScreen):
+            return
+
         # Tab/Shift+Tab always cycle zones (in all zones including preview)
         if key == "tab":
             self._switch_zone(1)
