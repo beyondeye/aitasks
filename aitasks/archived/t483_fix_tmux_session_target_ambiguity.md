@@ -3,12 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ui, tmux]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-30 11:41
-updated_at: 2026-03-30 11:43
+updated_at: 2026-03-30 11:48
+completed_at: 2026-03-30 11:48
 ---
 
 Fix `launch_in_tmux()` in `agent_launch_utils.py` silently failing when the tmux session name matches a window name.
