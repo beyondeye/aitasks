@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [aitask_monitor]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-30 11:02
-updated_at: 2026-03-30 11:02
+updated_at: 2026-03-30 11:47
 ---
 
 Add "Tab" to the keyboard shortcuts displayed in the Textual Footer of the `ait monitor` TUI.
