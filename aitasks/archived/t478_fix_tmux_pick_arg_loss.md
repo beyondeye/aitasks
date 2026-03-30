@@ -3,11 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [board, tmux]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-30 10:14
-updated_at: 2026-03-30 10:15
+updated_at: 2026-03-30 10:21
+completed_at: 2026-03-30 10:21
 ---
 
 ## Bug: tmux execution path drops task argument from claude command
