@@ -6,8 +6,9 @@ issue_type: chore
 status: Implementing
 labels: [aitask_monitor]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-30 11:02
-updated_at: 2026-03-30 11:47
+updated_at: 2026-03-30 11:49
 ---
 
 Add "Tab" to the keyboard shortcuts displayed in the Textual Footer of the `ait monitor` TUI.
