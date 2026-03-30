@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t475_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_monitor, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-29 10:41
-updated_at: 2026-03-29 10:58
+updated_at: 2026-03-30 09:52
 ---
 
 ## Integrate TUI Switcher into Existing TUIs
