@@ -45,3 +45,13 @@ Replace `ListView` with `_WrappingListView` in `compose()`.
 2. Verify TUI/Agent/Other grouping with running windows
 3. Test `b`/`c`/`s`/`r` shortcuts
 4. Test switching to non-TUI windows
+
+## Final Implementation Notes
+- **Actual work done:** All three features implemented in a single file (`.aitask-scripts/lib/tui_switcher.py`), growing from 233 to ~280 lines
+- **Deviations from plan:** None — implementation matched plan exactly
+- **Key decisions:**
+  - Used "save old index, call super, check if changed" pattern for wrap-around detection rather than manual boundary checks — more robust with disabled items
+  - Stored `_running_names` on the overlay instance so keyboard shortcuts can check running state without re-querying tmux
+  - Classification constants (`_AGENT_PREFIXES`, `_TUI_NAMES`) replicated inline from `tmux_monitor.py` to avoid importing the heavy monitoring module
+  - Shortcut hints shown inline next to TUI names (e.g., `Task Board (b)`) plus a summary line at the bottom
+  - No changes needed in any integrating apps — the mixin and overlay interface remain backwards-compatible
