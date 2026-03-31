@@ -566,6 +566,7 @@ class MonitorApp(TuiSwitcherMixin, App):
     """
 
     BINDINGS = [
+        Binding("tab", "switch_zone", "← Back (Tab)", show=True),
         Binding("j", "tui_switcher", "Jump TUI"),
         Binding("q", "quit", "Quit"),
         Binding("s", "switch_to", "Switch"),
@@ -866,6 +867,17 @@ class MonitorApp(TuiSwitcherMixin, App):
             return
         # Refresh the preview header (LIVE indicator)
         self._update_content_preview()
+        # Update footer to show/hide bindings based on active zone
+        self.refresh_bindings()
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        """Show/hide footer bindings based on active zone."""
+        if self._active_zone == Zone.PREVIEW:
+            return action == "switch_zone"
+        return action != "switch_zone"
+
+    def action_switch_zone(self) -> None:
+        """No-op — Tab is handled in on_key. Exists for Footer display only."""
 
     def _manage_preview_timer(self) -> None:
         """Start/stop the fast preview timer based on active zone."""
