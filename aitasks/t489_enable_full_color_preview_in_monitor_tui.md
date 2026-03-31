@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_monitor]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-30 22:22
-updated_at: 2026-03-30 22:22
+updated_at: 2026-03-31 06:36
 ---
 
 ## Problem
