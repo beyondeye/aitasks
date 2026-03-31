@@ -2775,6 +2775,11 @@ class KanbanApp(TuiSwitcherMixin, App):
         # Let TuiSwitcherOverlay's ListView handle arrow keys natively
         if action in ("nav_up", "nav_down", "nav_left", "nav_right") and isinstance(self.screen, TuiSwitcherOverlay):
             return False
+        # Let Select dropdown overlay handle arrow keys natively
+        if action in ("nav_up", "nav_down"):
+            from textual.widgets._select import SelectOverlay
+            if isinstance(self.app.focused, SelectOverlay):
+                return False
         if action == "commit_selected":
             focused = self._focused_card()
             if not focused or not self.manager.is_modified(focused.task_data):
@@ -3233,7 +3238,9 @@ class KanbanApp(TuiSwitcherMixin, App):
                                 if pick_result == "run":
                                     self.run_aitask_pick(focused.task_data.filename)
                                 elif isinstance(pick_result, TmuxLaunchConfig):
-                                    launch_in_tmux(screen.full_command, pick_result)
+                                    _, err = launch_in_tmux(screen.full_command, pick_result)
+                                    if err:
+                                        self.notify(err, severity="error")
                                 self.refresh_board(refocus_filename=focused.task_data.filename)
                             self.push_screen(screen, on_pick_result)
                             return
@@ -3297,7 +3304,9 @@ class KanbanApp(TuiSwitcherMixin, App):
                 if pick_result == "run":
                     self.run_aitask_pick(focused.task_data.filename)
                 elif isinstance(pick_result, TmuxLaunchConfig):
-                    launch_in_tmux(screen.full_command, pick_result)
+                    _, err = launch_in_tmux(screen.full_command, pick_result)
+                    if err:
+                        self.notify(err, severity="error")
                 self.refresh_board(refocus_filename=focused.task_data.filename)
             self.push_screen(screen, on_pick_result)
         else:
@@ -3435,7 +3444,9 @@ class KanbanApp(TuiSwitcherMixin, App):
             if create_result == "run":
                 self._run_create_in_terminal()
             elif isinstance(create_result, TmuxLaunchConfig):
-                launch_in_tmux(screen.full_command, create_result)
+                _, err = launch_in_tmux(screen.full_command, create_result)
+                if err:
+                    self.notify(err, severity="error")
             self.manager.load_tasks()
             self.refresh_board()
         self.push_screen(screen, on_create_result)

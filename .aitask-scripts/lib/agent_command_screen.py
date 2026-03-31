@@ -35,6 +35,7 @@ from textual.containers import Container, Horizontal, VerticalScroll
 from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select, Static, TabbedContent, TabPane
+from textual.widgets._select import SelectOverlay
 
 # Add lib dir to path for agent_launch_utils import
 _LIB_DIR = str(Path(__file__).resolve().parent)
@@ -326,22 +327,13 @@ class AgentCommandScreen(ModalScreen):
             (f"\u2726 New window", _NEW_WINDOW_SENTINEL),
         ]
         options.extend(
-            (f"{idx}: {name}", f"{idx}:{name}") for idx, name in windows
+            (f"{idx}: {name}", f"{idx}") for idx, name in windows
         )
 
         win_select.set_options(options)
 
-        # Select last used or default to new window
-        if AgentCommandScreen._last_window and AgentCommandScreen._last_session == session:
-            # Try to find the last window
-            for _, val in options:
-                if val == AgentCommandScreen._last_window:
-                    win_select.value = val
-                    break
-            else:
-                win_select.value = _NEW_WINDOW_SENTINEL
-        else:
-            win_select.value = _NEW_WINDOW_SENTINEL
+        # Always default to new window
+        win_select.value = _NEW_WINDOW_SENTINEL
 
         self._on_window_changed(win_select.value)
 
@@ -487,8 +479,8 @@ class AgentCommandScreen(ModalScreen):
 
     def on_key(self, event) -> None:
         focused = self.app.focused
-        if isinstance(focused, (Input, Select)):
-            return  # Let input/select handle the key
+        if isinstance(focused, (Input, Select, SelectOverlay)):
+            return  # Let input/select/overlay handle the key
         if not self._tmux_available:
             return
         # Tab navigation shortcuts (only when no Input/Select focused)

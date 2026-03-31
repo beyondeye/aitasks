@@ -695,7 +695,9 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
                 if result == "run":
                     self._run_agent_command("explain", arg)
                 elif isinstance(result, TmuxLaunchConfig):
-                    launch_in_tmux(screen.full_command, result)
+                    _, err = launch_in_tmux(screen.full_command, result)
+                    if err:
+                        self.notify(err, severity="error")
             self.push_screen(screen, on_result)
         else:
             # Fallback: direct launch without modal

@@ -286,7 +286,9 @@ class HistoryScreen(Screen):
                 if result == "run":
                     self._run_qa_command(task_id)
                 elif isinstance(result, TmuxLaunchConfig):
-                    launch_in_tmux(screen.full_command, result)
+                    _, err = launch_in_tmux(screen.full_command, result)
+                    if err:
+                        self.app.notify(err, severity="error")
             self.app.push_screen(screen, on_result)
         else:
             self._run_qa_command(task_id)

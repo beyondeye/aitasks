@@ -108,10 +108,10 @@ def get_tmux_windows(session: str) -> list[tuple[str, str]]:
         return []
 
 
-def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> subprocess.Popen:
+def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[subprocess.Popen, str | None]:
     """Launch a command in tmux according to the given config.
 
-    Returns the Popen object for the tmux command.
+    Returns (Popen object, error message or None on success).
     """
     if config.new_session:
         # Create new session with a window, then switch to it
@@ -120,12 +120,15 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> subprocess.Popen:
             "-s", config.session, "-n", config.window,
             command,
         ]
-        proc = subprocess.Popen(tmux_cmd)
+        proc = subprocess.Popen(tmux_cmd, stderr=subprocess.PIPE)
         proc.wait()
+        if proc.returncode != 0:
+            stderr = proc.stderr.read().decode() if proc.stderr else ""
+            return proc, f"tmux new-session failed: {stderr}"
         # Try to switch client (works if we're inside tmux)
         if os.environ.get("TMUX"):
             subprocess.Popen(["tmux", "switch-client", "-t", config.session])
-        return proc
+        return proc, None
     elif config.new_window:
         tmux_cmd = [
             "tmux", "new-window", "-t", f"{config.session}:",
@@ -136,8 +139,8 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> subprocess.Popen:
         proc.wait()
         if proc.returncode != 0:
             stderr = proc.stderr.read().decode() if proc.stderr else ""
-            print(f"tmux new-window failed: {stderr}", file=sys.stderr)
-        return proc
+            return proc, f"tmux new-window failed: {stderr}"
+        return proc, None
     else:
         # Split existing window into a new pane
         split_flag = "-h" if config.split_direction == "horizontal" else "-v"
@@ -150,8 +153,10 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> subprocess.Popen:
         proc.wait()
         if proc.returncode != 0:
             stderr = proc.stderr.read().decode() if proc.stderr else ""
-            print(f"tmux split-window failed: {stderr}", file=sys.stderr)
-        return proc
+            return proc, f"tmux split-window failed: {stderr}"
+        # Switch to the target window so the user sees the new pane
+        subprocess.Popen(["tmux", "select-window", "-t", target])
+        return proc, None
 
 
 def load_tmux_defaults(project_root: Path) -> dict:
