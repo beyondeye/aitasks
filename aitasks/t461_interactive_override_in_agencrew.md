@@ -7,7 +7,7 @@ status: Implementing
 labels: [agentcrew, brainstorming]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-25 09:41
-updated_at: 2026-03-26 09:26
+updated_at: 2026-03-31 08:58
 boardidx: 20
 ---
 

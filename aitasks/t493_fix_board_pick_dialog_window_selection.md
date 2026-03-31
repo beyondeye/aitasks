@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [ui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-03-31 08:36
-updated_at: 2026-03-31 08:37
+updated_at: 2026-03-31 08:42
 ---
 
 ## Problem
