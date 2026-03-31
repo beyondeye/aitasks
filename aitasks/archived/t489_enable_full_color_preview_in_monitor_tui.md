@@ -3,12 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_monitor]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-30 22:22
-updated_at: 2026-03-31 06:41
+updated_at: 2026-03-31 08:19
+completed_at: 2026-03-31 08:19
 ---
 
 ## Problem
