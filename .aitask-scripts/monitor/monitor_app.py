@@ -37,10 +37,11 @@ import subprocess  # noqa: E402
 
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
-from textual.containers import Container, VerticalScroll  # noqa: E402
+from textual.containers import Container, ScrollableContainer, VerticalScroll  # noqa: E402
 from textual.screen import ModalScreen  # noqa: E402
 from textual.timer import Timer  # noqa: E402
 from textual.widgets import Button, Footer, Header, Label, Markdown, Static  # noqa: E402
+from rich.text import Text  # noqa: E402
 
 
 # -- Zone model ---------------------------------------------------------------
@@ -422,7 +423,7 @@ class MonitorApp(TuiSwitcherMixin, App):
     }
 
     #content-section.zone-active {
-        border: solid $warning;
+        border-top: solid $warning;
     }
 
     #content-header {
@@ -431,10 +432,14 @@ class MonitorApp(TuiSwitcherMixin, App):
         color: $text-muted;
     }
 
+    #preview-scroll {
+        height: 1fr;
+        max-height: 22;
+    }
+
     PreviewPane {
         height: auto;
         max-height: 22;
-        padding: 0 1;
     }
 
     PreviewPane:focus {
@@ -484,9 +489,12 @@ class MonitorApp(TuiSwitcherMixin, App):
         yield Header()
         yield SessionBar(id="session-bar")
         yield VerticalScroll(id="pane-list")
-        yield VerticalScroll(
+        yield Container(
             Static("[bold]Content Preview[/]", id="content-header"),
-            PreviewPane("", id="content-preview"),
+            ScrollableContainer(
+                PreviewPane("", id="content-preview"),
+                id="preview-scroll",
+            ),
             id="content-section",
         )
         yield Footer()
@@ -683,9 +691,17 @@ class MonitorApp(TuiSwitcherMixin, App):
             _, max_h, _ = PREVIEW_SIZES[self._preview_size_idx]
             show_n = max_h - 1  # leave 1 line for header
             display_lines = lines[-show_n:] if len(lines) > show_n else lines
-            preview.update("\n".join(display_lines) if display_lines else "[dim](empty)[/]")
+            if display_lines:
+                content = Text(no_wrap=True)
+                content.append("\n".join(display_lines))
+                preview.styles.min_width = snap.pane.width
+                preview.update(content)
+            else:
+                preview.styles.min_width = 0
+                preview.update("[dim](empty)[/]")
         else:
             header.update("[bold]Content Preview[/]")
+            preview.styles.min_width = 0
             preview.update("[dim]Focus an agent or pane to see its output[/]")
 
     # -- Zone navigation -------------------------------------------------------
@@ -870,8 +886,10 @@ class MonitorApp(TuiSwitcherMixin, App):
         self._preview_size_idx = (self._preview_size_idx + 1) % len(PREVIEW_SIZES)
         section_h, preview_h, label = PREVIEW_SIZES[self._preview_size_idx]
         section = self.query_one("#content-section")
+        scroll = self.query_one("#preview-scroll", ScrollableContainer)
         preview = self.query_one("#content-preview", PreviewPane)
         section.styles.max_height = section_h
+        scroll.styles.max_height = preview_h
         preview.styles.max_height = preview_h
         self.notify(f"Preview size: {label}")
 
