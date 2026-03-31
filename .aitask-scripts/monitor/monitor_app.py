@@ -42,6 +42,36 @@ from textual.screen import ModalScreen  # noqa: E402
 from textual.timer import Timer  # noqa: E402
 from textual.widgets import Button, Footer, Header, Label, Markdown, Static  # noqa: E402
 from rich.text import Text  # noqa: E402
+from rich.style import Style  # noqa: E402
+
+
+# Dark background for terminal preview — hard-coded because we're rendering
+# actual tmux terminal content (always dark) regardless of the TUI theme.
+_DARK_BG_ANSI = "\033[48;2;26;26;26m"
+_ANSI_RESET_RE = re.compile(r'\033\[0?m')
+_ANSI_DEFAULT_BG_RE = re.compile(r'\033\[49m')
+
+
+def _ansi_to_rich_text(ansi_str: str) -> Text:
+    """Convert ANSI text to Rich Text with a forced dark background.
+
+    Pre-processes the raw ANSI to inject a dark background (#1a1a1a) at the
+    start and after every SGR reset, so areas that would otherwise show the
+    terminal's default background render correctly in the TUI preview.
+    """
+    # Set dark bg at start of every line
+    lines = ansi_str.split("\n")
+    patched = []
+    for line in lines:
+        # Inject dark bg at start
+        line = _DARK_BG_ANSI + line
+        # After every reset (\033[0m or \033[m), re-apply dark bg
+        line = _ANSI_RESET_RE.sub(lambda m: m.group(0) + _DARK_BG_ANSI, line)
+        # Replace default-bg-only (\033[49m) with our dark bg
+        line = _ANSI_DEFAULT_BG_RE.sub(_DARK_BG_ANSI, line)
+        patched.append(line)
+    text = Text.from_ansi("\n".join(patched))
+    return text
 
 
 # -- Zone model ---------------------------------------------------------------
@@ -374,6 +404,92 @@ class SessionRenameDialog(ModalScreen):
         self.dismiss(False)
 
 
+class KillConfirmDialog(ModalScreen):
+    """Confirmation dialog before killing a tmux pane."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss_dialog", "Close", show=False),
+    ]
+
+    DEFAULT_CSS = """
+    KillConfirmDialog { align: center middle; }
+    #kill-dialog {
+        width: 80%;
+        height: auto;
+        max-height: 85%;
+        background: $surface;
+        border: thick $error;
+        padding: 1 2;
+    }
+    #kill-header { text-style: bold; color: $error; margin: 0 0 1 0; }
+    #kill-details { margin: 0 0 1 0; }
+    #kill-preview-label { text-style: bold; color: $text-muted; margin: 1 0 0 0; }
+    #kill-preview { max-height: 17; margin: 0 0 1 0; background: #1a1a1a; color: #d4d4d4; padding: 0 1; }
+    #kill-buttons { width: 100%; height: auto; layout: horizontal; }
+    #kill-buttons Button { margin: 0 1; }
+    """
+
+    def __init__(self, snap: PaneSnapshot, task_info: TaskInfo | None) -> None:
+        super().__init__()
+        self._snap = snap
+        self._task_info = task_info
+
+    def compose(self) -> ComposeResult:
+        snap = self._snap
+        pane = snap.pane
+
+        if snap.is_idle:
+            idle_s = int(snap.idle_seconds)
+            status = f"[yellow]IDLE ({idle_s}s)[/]"
+        else:
+            status = "[green]Active[/]"
+
+        with Container(id="kill-dialog"):
+            yield Static(
+                "[bold red]Kill Agent Confirmation[/]",
+                id="kill-header",
+            )
+
+            detail_parts = [
+                f"Window:   [bold]{pane.window_index}:{pane.window_name}[/] (pane {pane.pane_index})",
+            ]
+            if self._task_info:
+                info = self._task_info
+                detail_parts.append(
+                    f"Task:     [bold]t{info.task_id}[/]: {info.title}"
+                )
+                detail_parts.append(
+                    f"          Priority: {info.priority}  Status: {info.status}"
+                )
+            detail_parts.append(f"Status:   {status}")
+            detail_parts.append(f"Process:  {pane.current_command} (PID {pane.pane_pid})")
+
+            yield Static("\n".join(detail_parts), id="kill-details")
+
+            lines = snap.content.rstrip().splitlines()
+            preview_lines = lines[-15:] if len(lines) > 15 else lines
+            if preview_lines:
+                preview_content = _ansi_to_rich_text("\n".join(preview_lines))
+            else:
+                preview_content = "(empty)"
+
+            yield Static("[bold]Window Content Preview:[/]", id="kill-preview-label")
+            yield Static(preview_content, id="kill-preview")
+
+            with Container(id="kill-buttons"):
+                yield Button("Kill", variant="error", id="btn-kill")
+                yield Button("Cancel", variant="default", id="btn-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-kill":
+            self.dismiss(True)
+        else:
+            self.dismiss(False)
+
+    def action_dismiss_dialog(self) -> None:
+        self.dismiss(False)
+
+
 # -- Main app -----------------------------------------------------------------
 
 class MonitorApp(TuiSwitcherMixin, App):
@@ -440,10 +556,12 @@ class MonitorApp(TuiSwitcherMixin, App):
     PreviewPane {
         height: auto;
         max-height: 22;
+        background: #1a1a1a;
+        color: #d4d4d4;
     }
 
     PreviewPane:focus {
-        background: $surface-lighten-1;
+        background: #1a1a1a;
     }
     """
 
@@ -455,6 +573,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         Binding("r", "refresh", "Refresh"),
         Binding("f5", "refresh", "Refresh", show=False),
         Binding("z", "cycle_preview_size", "Zoom"),
+        Binding("k", "kill_pane", "Kill"),
     ]
 
     def __init__(
@@ -692,8 +811,7 @@ class MonitorApp(TuiSwitcherMixin, App):
             show_n = max_h - 1  # leave 1 line for header
             display_lines = lines[-show_n:] if len(lines) > show_n else lines
             if display_lines:
-                content = Text(no_wrap=True)
-                content.append("\n".join(display_lines))
+                content = _ansi_to_rich_text("\n".join(display_lines))
                 preview.styles.min_width = snap.pane.width
                 preview.update(content)
             else:
@@ -913,6 +1031,42 @@ class MonitorApp(TuiSwitcherMixin, App):
             self.notify(f"Task t{task_id} not found", severity="error")
             return
         self.push_screen(TaskDetailDialog(info))
+
+    def action_kill_pane(self) -> None:
+        """Show kill confirmation dialog for the focused pane."""
+        if self._monitor is None:
+            return
+        pane_id = self._get_focused_pane_id()
+        if not pane_id:
+            self.notify("Focus a pane first", severity="warning")
+            return
+        snap = self._snapshots.get(pane_id)
+        if not snap:
+            return
+        task_info = None
+        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        if task_id:
+            task_info = self._task_cache.get_task_info(task_id)
+        self.push_screen(
+            KillConfirmDialog(snap, task_info),
+            callback=self._on_kill_confirmed,
+        )
+
+    def _on_kill_confirmed(self, confirmed: bool | None) -> None:
+        """Callback after kill confirmation dialog."""
+        if not confirmed:
+            return
+        pane_id = self._focused_pane_id
+        if pane_id is None or self._monitor is None:
+            return
+        snap = self._snapshots.get(pane_id)
+        name = snap.pane.window_name if snap else pane_id
+        if self._monitor.kill_pane(pane_id):
+            self._focused_pane_id = None
+            self.notify(f"Killed {name}")
+            self.call_later(self._refresh_data)
+        else:
+            self.notify(f"Failed to kill {name}", severity="error")
 
 
 def _detect_tmux_session() -> str | None:

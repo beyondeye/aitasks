@@ -133,7 +133,7 @@ class TmuxMonitor:
             return None
         try:
             result = subprocess.run(
-                ["tmux", "capture-pane", "-p", "-t", pane_id, "-S", f"-{self.capture_lines}"],
+                ["tmux", "capture-pane", "-p", "-e", "-t", pane_id, "-S", f"-{self.capture_lines}"],
                 capture_output=True, text=True, timeout=5,
             )
             if result.returncode != 0:
@@ -220,6 +220,22 @@ class TmuxMonitor:
                 capture_output=True, timeout=5,
             )
             return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return False
+
+    def kill_pane(self, pane_id: str) -> bool:
+        """Kill a tmux pane by its ID."""
+        try:
+            result = subprocess.run(
+                ["tmux", "kill-pane", "-t", pane_id],
+                capture_output=True, timeout=5,
+            )
+            if result.returncode == 0:
+                self._pane_cache.pop(pane_id, None)
+                self._last_content.pop(pane_id, None)
+                self._last_change_time.pop(pane_id, None)
+                return True
+            return False
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
 
