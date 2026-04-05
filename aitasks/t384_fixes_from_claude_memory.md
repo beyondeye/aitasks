@@ -7,7 +7,7 @@ status: Ready
 labels: [task_workflow]
 created_at: 2026-03-12 23:49
 updated_at: 2026-03-12 23:49
-boardidx: 10
+boardidx: 40
 boardcol: next
 ---
 
