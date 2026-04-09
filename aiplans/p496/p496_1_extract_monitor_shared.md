@@ -72,5 +72,12 @@ DEFAULT_TUI_NAMES = {"board", "codebrowser", "settings", "brainstorm", "monitor"
 2. `ait monitor` — full monitor still works identically
 3. `python -c "from monitor.tmux_monitor import TmuxMonitor; m = TmuxMonitor('x'); print(hasattr(m, 'discover_window_panes'))"`
 
+## Final Implementation Notes
+- **Actual work done:** Extracted 7 items (3 constants, 1 function, 1 dataclass, 3 classes) from `monitor_app.py` into new `monitor_shared.py`. Added `"minimonitor"` to `DEFAULT_TUI_NAMES` and `discover_window_panes()` method to `tmux_monitor.py`. Cleaned up unused imports in `monitor_app.py` (`re`, `dataclass`, `parse_frontmatter`, `Markdown`, `Text`, `Style`).
+- **Deviations from plan:** None — plan was accurate. Verified against post-t501 codebase (PreviewPane→PreviewPanel rename had no impact on extracted items).
+- **Issues encountered:** None.
+- **Key decisions:** `monitor_shared.py` imports `PaneSnapshot` from `tmux_monitor` (needed by `KillConfirmDialog`). `_ansi_to_rich_text` is imported back into `monitor_app.py` since it's used by both `KillConfirmDialog` (extracted) and `MonitorApp._update_content_preview` (stays).
+- **Notes for sibling tasks:** The `monitor_shared.py` module provides `_ansi_to_rich_text`, `_TASK_ID_RE`, `TaskInfo`, `TaskInfoCache`, `TaskDetailDialog`, `KillConfirmDialog` — all importable from `monitor.monitor_shared`. The mini monitor (t496_2) should import shared widgets from there. `discover_window_panes(window_id)` is available on `TmuxMonitor` for window-scoped pane discovery without `-s` flag.
+
 ## Step 9: Post-Implementation
 Archive task, push changes, collect feedback.
