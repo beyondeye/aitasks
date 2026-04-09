@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [aitask_monitor, aitask_monitormini]
-children_to_implement: [t496_1, t496_2, t496_3]
+children_to_implement: [t496_2, t496_3]
 created_at: 2026-04-05 10:53
-updated_at: 2026-04-09 09:07
+updated_at: 2026-04-09 09:51
 boardidx: 60
 ---
 
