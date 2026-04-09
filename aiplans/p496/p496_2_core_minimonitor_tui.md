@@ -77,5 +77,12 @@ Add `minimonitor` to `tmux.monitor.tui_window_names` list.
 7. Narrow terminal (40 cols) — renders correctly
 8. Kill all other panes in same window → minimonitor auto-closes after ~5s
 
+## Final Implementation Notes
+- **Actual work done:** Created minimonitor_app.py (~310 LOC) with MiniPaneCard and MiniMonitorApp classes. Created aitask_minimonitor.sh launcher. Updated ait dispatcher (help, skip list, dispatch case), tui_switcher.py (KNOWN_TUIS), and project_config.yaml (tui_window_names). All per plan.
+- **Deviations from plan:** Removed kill (`k`) action per user request — minimonitor has no kill binding or KillConfirmDialog usage. Key hints updated accordingly.
+- **Issues encountered:** None.
+- **Key decisions:** Kept `show=False` on all bindings since the minimonitor uses a static key hints bar instead of Textual's Footer widget. Used `_TASK_ID_RE` from monitor_shared for task ID extraction (consistent with full monitor).
+- **Notes for sibling tasks:** The minimonitor is launchable via `ait minimonitor`. It appears in KNOWN_TUIS as `("minimonitor", "Mini Monitor", "ait minimonitor")`. The auto-close logic uses `discover_window_panes(own_window_id)` with a 5-second grace period. t496_3 (autospawn) should call `ait minimonitor` in a horizontal split after agent launch.
+
 ## Step 9: Post-Implementation
 Archive task, push changes, collect feedback.
