@@ -62,6 +62,7 @@ KNOWN_TUIS = [
     ("brainstorm", "Brainstorm", "ait brainstorm"),
     ("settings", "Settings", "ait settings"),
     ("monitor", "tmux Monitor", "ait monitor"),
+    ("minimonitor", "Mini Monitor", "ait minimonitor"),
     ("diffviewer", "Diff Viewer", "ait diffviewer"),
 ]
 
