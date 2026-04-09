@@ -266,6 +266,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         Binding("f5", "refresh", "Refresh", show=False),
         Binding("z", "cycle_preview_size", "Zoom"),
         Binding("k", "kill_pane", "Kill"),
+        Binding("enter", "send_enter", "Send ↵", show=True),
     ]
 
     def __init__(
@@ -570,6 +571,9 @@ class MonitorApp(TuiSwitcherMixin, App):
     def action_switch_zone(self) -> None:
         """No-op — Tab is handled in on_key. Exists for Footer display only."""
 
+    def action_send_enter(self) -> None:
+        """No-op — Enter is handled in on_key. Exists for Footer display only."""
+
     def _manage_preview_timer(self) -> None:
         """Start/stop the fast preview timer based on active zone."""
         if self._active_zone == Zone.PREVIEW and self._preview_timer is None:
@@ -613,6 +617,15 @@ class MonitorApp(TuiSwitcherMixin, App):
             return
         if key == "shift+tab":
             self._switch_zone(-1)
+            event.stop()
+            event.prevent_default()
+            return
+
+        # In pane-list zone: Enter sends Enter to the focused agent's tmux pane
+        if key == "enter" and self._active_zone == Zone.PANE_LIST:
+            if self._focused_pane_id and self._monitor:
+                self._monitor.send_keys(self._focused_pane_id, "Enter")
+                self.call_later(self._fast_preview_refresh)
             event.stop()
             event.prevent_default()
             return
