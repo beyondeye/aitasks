@@ -62,7 +62,6 @@ KNOWN_TUIS = [
     ("brainstorm", "Brainstorm", "ait brainstorm"),
     ("settings", "Settings", "ait settings"),
     ("monitor", "tmux Monitor", "ait monitor"),
-    ("minimonitor", "Mini Monitor", "ait minimonitor"),
     ("diffviewer", "Diff Viewer", "ait diffviewer"),
 ]
 
@@ -337,6 +336,8 @@ class TuiSwitcherOverlay(ModalScreen):
                  "-n", window_name, "ait codeagent invoke explore"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
+            from agent_launch_utils import maybe_spawn_minimonitor
+            maybe_spawn_minimonitor(self._session, window_name)
         except (FileNotFoundError, OSError):
             self.app.notify("Failed to launch explore", severity="error")
             return

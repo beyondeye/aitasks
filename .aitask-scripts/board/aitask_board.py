@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for
 from agent_command_screen import AgentCommandScreen
-from agent_launch_utils import find_terminal, find_window_by_name, resolve_dry_run_command, TmuxLaunchConfig, launch_in_tmux
+from agent_launch_utils import find_terminal, find_window_by_name, resolve_dry_run_command, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor
 from tui_switcher import TuiSwitcherMixin, TuiSwitcherOverlay
 
 from textual.app import App, ComposeResult
@@ -3336,6 +3336,8 @@ class KanbanApp(TuiSwitcherMixin, App):
                                     _, err = launch_in_tmux(screen.full_command, pick_result)
                                     if err:
                                         self.notify(err, severity="error")
+                                    elif pick_result.new_window:
+                                        maybe_spawn_minimonitor(pick_result.session, pick_result.window)
                                 self.refresh_board(refocus_filename=focused.task_data.filename)
                             self.push_screen(screen, on_pick_result)
                             return
@@ -3416,6 +3418,8 @@ class KanbanApp(TuiSwitcherMixin, App):
                     _, err = launch_in_tmux(screen.full_command, pick_result)
                     if err:
                         self.notify(err, severity="error")
+                    elif pick_result.new_window:
+                        maybe_spawn_minimonitor(pick_result.session, pick_result.window)
                 self.refresh_board(refocus_filename=focused.task_data.filename)
             self.push_screen(screen, on_pick_result)
         else:

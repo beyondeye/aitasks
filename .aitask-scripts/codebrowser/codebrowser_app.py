@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from agent_command_screen import AgentCommandScreen
-from agent_launch_utils import find_terminal as _find_terminal, resolve_dry_run_command, TmuxLaunchConfig, launch_in_tmux
+from agent_launch_utils import find_terminal as _find_terminal, resolve_dry_run_command, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor
 from tui_switcher import TuiSwitcherMixin
 
 from textual.app import App, ComposeResult
@@ -698,6 +698,8 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
                     _, err = launch_in_tmux(screen.full_command, result)
                     if err:
                         self.notify(err, severity="error")
+                    elif result.new_window:
+                        maybe_spawn_minimonitor(result.session, result.window)
             self.push_screen(screen, on_result)
         else:
             # Fallback: direct launch without modal

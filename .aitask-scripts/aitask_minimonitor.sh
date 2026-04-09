@@ -39,4 +39,15 @@ fi
 # Check terminal capabilities (warn on incapable terminals)
 ait_warn_if_incapable_terminal
 
+# Single-instance guard: skip if another minimonitor/monitor runs in the same window
+if [[ -n "${TMUX:-}" ]]; then
+    while IFS=: read -r pane_pid pane_cmd; do
+        [[ "$pane_pid" == "$$" ]] && continue
+        if [[ "$pane_cmd" == *minimonitor* || "$pane_cmd" == *monitor_app* ]]; then
+            echo "A monitor is already running in this window. Exiting."
+            exit 0
+        fi
+    done < <(tmux list-panes -F "#{pane_pid}:#{pane_current_command}" 2>/dev/null || true)
+fi
+
 exec "$PYTHON" "$SCRIPT_DIR/monitor/minimonitor_app.py" "$@"

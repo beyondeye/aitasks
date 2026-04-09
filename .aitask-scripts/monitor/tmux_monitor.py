@@ -29,6 +29,29 @@ class PaneCategory(Enum):
 DEFAULT_AGENT_PREFIXES = ["agent-"]
 DEFAULT_TUI_NAMES = {"board", "codebrowser", "settings", "brainstorm", "monitor", "minimonitor", "diffviewer"}
 
+_COMPANION_KEYWORDS = ("minimonitor", "monitor_app")
+
+
+def _is_companion_process(pid: int) -> bool:
+    """Check if a process is a companion pane (minimonitor/monitor) via cmdline."""
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            cmdline = f.read().decode("utf-8", errors="replace")
+        return any(kw in cmdline for kw in _COMPANION_KEYWORDS)
+    except (OSError, PermissionError):
+        pass
+    # Fallback for non-Linux (macOS)
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "args="],
+            capture_output=True, text=True, timeout=2,
+        )
+        if result.returncode == 0:
+            return any(kw in result.stdout for kw in _COMPANION_KEYWORDS)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    return False
+
 
 @dataclass
 class TmuxPaneInfo:
@@ -112,6 +135,10 @@ class TmuxMonitor:
             except ValueError:
                 continue
             window_name = parts[1]
+            category = self.classify_pane(window_name)
+            # Filter companion panes (minimonitor/monitor) in agent windows
+            if category == PaneCategory.AGENT and _is_companion_process(pane_pid):
+                continue
             pane = TmuxPaneInfo(
                 window_index=parts[0],
                 window_name=window_name,
@@ -121,7 +148,7 @@ class TmuxMonitor:
                 current_command=parts[5],
                 width=width,
                 height=height,
-                category=self.classify_pane(window_name),
+                category=category,
             )
             panes.append(pane)
             self._pane_cache[pane_id] = pane
