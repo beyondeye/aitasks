@@ -1,8 +1,8 @@
 """monitor_app - TUI for monitoring tmux panes running code agents.
 
 Shows all tmux panes categorized as agents, TUIs, or other. Uses a zone-based
-navigation model: Tab cycles between 2 zones (pane list, preview), Up/Down
-navigates within the pane list zone, and the preview zone forwards all
+navigation model: Tab cycles between 2 panels (session list, preview), Up/Down
+navigates within the session list panel, and the preview panel forwards all
 keystrokes directly to the tmux session being previewed.
 
 Usage:
@@ -83,7 +83,7 @@ class Zone(Enum):
 
 ZONE_ORDER = [Zone.PANE_LIST, Zone.PREVIEW]
 
-# Preview pane size presets: (section_max_height, preview_max_height, label)
+# Preview panel size presets: (section_max_height, preview_max_height, label)
 PREVIEW_SIZES = [
     (12, 10, "S"),
     (24, 22, "M"),
@@ -137,8 +137,8 @@ class PaneCard(Static, can_focus=True):
         self.pane_id = pane_id
 
 
-class PreviewPane(Static, can_focus=True):
-    """Focusable content preview — forwards keystrokes to tmux when active."""
+class PreviewPanel(Static, can_focus=True):
+    """Focusable content preview panel — forwards keystrokes to tmux when active."""
     pass
 
 
@@ -553,14 +553,14 @@ class MonitorApp(TuiSwitcherMixin, App):
         max-height: 22;
     }
 
-    PreviewPane {
+    PreviewPanel {
         height: auto;
         max-height: 22;
         background: #1a1a1a;
         color: #d4d4d4;
     }
 
-    PreviewPane:focus {
+    PreviewPanel:focus {
         background: #1a1a1a;
     }
     """
@@ -612,7 +612,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         yield Container(
             Static("[bold]Content Preview[/]", id="content-header"),
             ScrollableContainer(
-                PreviewPane("", id="content-preview"),
+                PreviewPanel("", id="content-preview"),
                 id="preview-scroll",
             ),
             id="content-section",
@@ -721,7 +721,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         """Re-focus the previously focused widget after a rebuild."""
         if zone == Zone.PREVIEW:
             try:
-                self.query_one("#content-preview", PreviewPane).focus()
+                self.query_one("#content-preview", PreviewPanel).focus()
             except Exception:
                 pass
             return
@@ -738,7 +738,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         bar.update(
             f"tmux Monitor — session: {self._session} "
             f"({total} pane{'s' if total != 1 else ''})"
-            f"  [dim]Tab: switch pane[/]"
+            f"  [dim]Tab: switch panel[/]"
         )
 
     def _rebuild_pane_list(self) -> None:
@@ -791,7 +791,7 @@ class MonitorApp(TuiSwitcherMixin, App):
 
     def _update_content_preview(self) -> None:
         try:
-            preview = self.query_one("#content-preview", PreviewPane)
+            preview = self.query_one("#content-preview", PreviewPanel)
             header = self.query_one("#content-header", Static)
         except Exception:
             return
@@ -850,7 +850,7 @@ class MonitorApp(TuiSwitcherMixin, App):
             cards[0].focus()
         elif self._active_zone == Zone.PREVIEW:
             try:
-                self.query_one("#content-preview", PreviewPane).focus()
+                self.query_one("#content-preview", PreviewPanel).focus()
             except Exception:
                 pass
 
@@ -977,7 +977,7 @@ class MonitorApp(TuiSwitcherMixin, App):
             self._update_content_preview()
             self._manage_preview_timer()
             self._update_zone_indicators()
-        elif isinstance(widget, PreviewPane):
+        elif isinstance(widget, PreviewPanel):
             self._active_zone = Zone.PREVIEW
             self._manage_preview_timer()
             self._update_zone_indicators()
@@ -1017,7 +1017,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         section_h, preview_h, label = PREVIEW_SIZES[self._preview_size_idx]
         section = self.query_one("#content-section")
         scroll = self.query_one("#preview-scroll", ScrollableContainer)
-        preview = self.query_one("#content-preview", PreviewPane)
+        preview = self.query_one("#content-preview", PreviewPanel)
         section.styles.max_height = section_h
         scroll.styles.max_height = preview_h
         preview.styles.max_height = preview_h
