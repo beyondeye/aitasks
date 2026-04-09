@@ -20,4 +20,5 @@ tmux:
       - settings
       - brainstorm
       - monitor
+      - minimonitor
       - diffviewer
