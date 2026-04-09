@@ -1351,7 +1351,9 @@ run_batch_mode() {
         [[ -z "$sanitized_name" ]] && die "Invalid task name after sanitization"
 
         local new_filename="t${BATCH_TASK_NUM}_${sanitized_name}.md"
-        final_path="$TASK_DIR/$new_filename"
+        local parent_dir
+        parent_dir=$(dirname "$file_path")
+        final_path="$parent_dir/$new_filename"
 
         if [[ "$file_path" != "$final_path" ]]; then
             mv "$file_path" "$final_path"
