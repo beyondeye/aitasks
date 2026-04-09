@@ -111,3 +111,11 @@ Proceed to Step 9 (Post-Implementation) for archival.
 - `python3 -c "import sys; sys.path.insert(0, '.aitask-scripts/lib'); from agent_launch_utils import detect_git_tuis; print(detect_git_tuis())"` — should list installed tools
 - `grep git_tui seed/project_config.yaml` — should show the new field
 - `grep '"git"' .aitask-scripts/monitor/tmux_monitor.py` — should appear in DEFAULT_TUI_NAMES
+- `python3 -m unittest tests.test_git_tui_config -v` — all 11 tests pass
+
+## Final Implementation Notes
+- **Actual work done:** Implemented all 6 steps from the plan exactly as specified, plus added 11 automated unit tests. Added `KNOWN_GIT_TUIS` list and `detect_git_tuis()` function using `shutil.which()`, extended `load_tmux_defaults()` with `git_tui` key, added `"git"` to both `DEFAULT_TUI_NAMES` and `_TUI_NAMES`, added documented `tmux:` section to seed config, and updated active config with `git_tui: lazygit`.
+- **Deviations from plan:** Added `tests/test_git_tui_config.py` with 11 unit tests (not in original plan, requested during review). Tests cover `detect_git_tuis()` with mocked `shutil.which()`, `load_tmux_defaults()` git_tui field with temp config files, and set membership assertions.
+- **Issues encountered:** None — all file paths and line numbers matched the plan exactly.
+- **Key decisions:** Used `str(tmux["git_tui"] or "")` pattern to handle YAML null values, converting them to empty string for consistency.
+- **Notes for sibling tasks:** The `detect_git_tuis()` function is importable from `agent_launch_utils` — t507_2 (ait setup) should call it for detection prompts. The `load_tmux_defaults()` function now returns `git_tui` key — t507_3 (settings TUI) and t507_4 (switcher) should use this to read the configured tool. The `"git"` window name is now recognized by both monitor and switcher classification sets — t507_4 just needs to add the dynamic KNOWN_TUIS entry and shortcut binding.
