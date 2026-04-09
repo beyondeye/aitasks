@@ -3,11 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [aitask_monitor, aitask_monitormini]
-children_to_implement: [t496_3]
 created_at: 2026-04-05 10:53
-updated_at: 2026-04-09 11:23
+updated_at: 2026-04-09 12:53
+completed_at: 2026-04-09 12:53
 boardidx: 60
 ---
 
