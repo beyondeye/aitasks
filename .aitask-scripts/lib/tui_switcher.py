@@ -64,6 +64,19 @@ KNOWN_TUIS = [
     ("diffviewer", "Diff Viewer", "ait diffviewer"),
 ]
 
+
+def _build_tui_list():
+    """Build TUI list including dynamic git TUI entry from config."""
+    tuis = list(KNOWN_TUIS)
+    try:
+        defaults = load_tmux_defaults(Path.cwd())
+        git_tui = defaults.get("git_tui", "")
+        if git_tui and git_tui != "none":
+            tuis.append(("git", f"Git ({git_tui})", git_tui))
+    except Exception:
+        pass
+    return tuis
+
 # Classification constants (mirrors tmux_monitor.py without importing it)
 _AGENT_PREFIXES = ["agent-"]
 _TUI_NAMES = {name for name, _, _ in KNOWN_TUIS} | {"git"}
@@ -74,6 +87,7 @@ _TUI_SHORTCUTS = {
     "board": "b",
     "codebrowser": "c",
     "settings": "s",
+    "git": "g",
 }
 
 
@@ -224,6 +238,7 @@ class TuiSwitcherOverlay(ModalScreen):
         Binding("s", "shortcut_settings", "Settings", show=False),
         Binding("r", "shortcut_brainstorm", "Brainstorm", show=False),
         Binding("x", "shortcut_explore", "Explore", show=False),
+        Binding("g", "shortcut_git", "Git", show=False),
     ]
 
     def __init__(self, session: str, current_tui: str = "") -> None:
@@ -237,7 +252,7 @@ class TuiSwitcherOverlay(ModalScreen):
             yield Label("TUI Switcher", id="switcher_title")
             yield _WrappingListView(id="switcher_list")
             yield Label(
-                "[dim]b[/]oard  [dim]c[/]ode  [dim]s[/]ettings  b[dim]r[/]ainstorm  e[dim]x[/]plore\n"
+                "[dim]b[/]oard  [dim]c[/]ode  [dim]s[/]ettings  b[dim]r[/]ainstorm  [dim]g[/]it  e[dim]x[/]plore\n"
                 "[dim]Enter[/] switch  [dim]j/Esc[/] close",
                 id="switcher_hint",
             )
@@ -255,7 +270,7 @@ class TuiSwitcherOverlay(ModalScreen):
         list_view.append(_GroupHeader("TUIs"))
         item_idx += 1
 
-        for name, label, _cmd in KNOWN_TUIS:
+        for name, label, _cmd in _build_tui_list():
             is_current = name == self._current_tui
             running = name in self._running_names
             item = _TuiListItem(name, label, running, is_current)
@@ -369,6 +384,12 @@ class TuiSwitcherOverlay(ModalScreen):
                 return
         self.app.notify("No brainstorm session running", severity="warning")
 
+    def action_shortcut_git(self) -> None:
+        """Switch to git TUI if configured, no-op otherwise."""
+        if not any(name == "git" for name, _, _ in _build_tui_list()):
+            return
+        self._shortcut_switch("git")
+
     def action_shortcut_explore(self) -> None:
         """Launch a new explore agent session (always new window)."""
         n = 1
@@ -410,7 +431,7 @@ class TuiSwitcherOverlay(ModalScreen):
 
     @staticmethod
     def _get_launch_command(name: str) -> str:
-        for tui_name, _, cmd in KNOWN_TUIS:
+        for tui_name, _, cmd in _build_tui_list():
             if tui_name == name:
                 return cmd
         if name.startswith(_BRAINSTORM_PREFIX):
