@@ -122,3 +122,10 @@ Proceed to Step 9 (Post-Implementation) for archival.
 5. Press `g` → switches directly to git window
 6. Set `tmux.git_tui:` (empty) → press `j` → git entry should NOT appear
 7. Press `g` with empty config → should be no-op
+
+## Final Implementation Notes
+- **Actual work done:** Implemented all 7 steps from the verified plan. Added `_build_tui_list()` function that dynamically includes the git TUI from config, added `g` shortcut key to shortcuts dict and BINDINGS, added `action_shortcut_git()` with guard for unconfigured git, updated `on_mount()` and `_get_launch_command()` to use the dynamic list, and added `[dim]g[/]it` to the hint label.
+- **Deviations from original plan:** (1) Plan verification corrected `load_tmux_defaults()` call to require `Path.cwd()` argument (original plan omitted it). (2) Removed lazy import from `_build_tui_list()` since `load_tmux_defaults` and `Path` are already module-level imports. (3) Preserved brainstorm prefix handler and generic fallback in `_get_launch_command()` (original plan removed them). (4) Used inline guard in `action_shortcut_git()` instead of modifying `_shortcut_switch()`.
+- **Issues encountered:** None — all file paths matched, code compiled and loaded cleanly.
+- **Key decisions:** Used `any(name == "git" for name, _, _ in _build_tui_list())` guard in `action_shortcut_git()` to make `g` a clean no-op when git TUI is not configured, rather than modifying the shared `_shortcut_switch()` method.
+- **Notes for sibling tasks:** This was the final child task (t507_4). All t507 siblings are complete. The git TUI integration is now functional end-to-end: t507_1 added config/detection, t507_2 added setup detection, t507_3 added settings TUI field, and this task connected it to the TUI switcher.
