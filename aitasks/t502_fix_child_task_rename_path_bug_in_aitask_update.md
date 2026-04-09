@@ -3,11 +3,12 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [cli]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-09 08:53
-updated_at: 2026-04-09 08:53
-boardidx: 90
+updated_at: 2026-04-09 09:50
+boardidx: 10
 ---
 
 In aitask_update.sh line 1353-1354, the rename logic constructs the new path as:
