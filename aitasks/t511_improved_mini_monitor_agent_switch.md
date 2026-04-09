@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_monitormini]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-09 22:04
-updated_at: 2026-04-09 22:04
+updated_at: 2026-04-09 22:53
 boardidx: 20
 ---
 
