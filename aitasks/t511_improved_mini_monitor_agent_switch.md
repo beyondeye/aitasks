@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [aitask_monitormini]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-04-09 22:04
-updated_at: 2026-04-09 22:53
+updated_at: 2026-04-09 23:14
 boardidx: 20
 ---
 

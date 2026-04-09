@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [aitask_monitor]
-children_to_implement: [t507_3, t507_4]
+children_to_implement: [t507_4]
 created_at: 2026-04-09 10:36
-updated_at: 2026-04-09 22:38
+updated_at: 2026-04-09 23:35
 boardidx: 10
 ---
 

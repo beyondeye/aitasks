@@ -5,22 +5,22 @@ default_profiles:
   explore: fast
   pick: fast
 tmux:
-  default_session: aitasks
-  default_split: horizontal
-  prefer_tmux: true
-  git_tui: lazygit
   monitor:
     refresh_seconds: 3
     idle_threshold_seconds: 5
     capture_lines: 30
     agent_window_prefixes:
-      - "agent-"
+    - agent-
     tui_window_names:
-      - board
-      - codebrowser
-      - settings
-      - brainstorm
-      - monitor
-      - minimonitor
-      - diffviewer
-      - git
+    - board
+    - codebrowser
+    - settings
+    - brainstorm
+    - monitor
+    - minimonitor
+    - diffviewer
+    - git
+  default_session: aitasks
+  default_split: horizontal
+  prefer_tmux: false
+  git_tui: lazygit
