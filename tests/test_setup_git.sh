@@ -275,6 +275,8 @@ git clone --quiet "$TMPDIR_9/remote.git" "$TMPDIR_9/local"
     cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
     chmod +x .aitask-scripts/aitask_claim_id.sh .aitask-scripts/aitask_setup.sh
     echo "---" > aitasks/t1_test.md
     git add -A && git commit -m "init" --quiet && git push --quiet 2>/dev/null

@@ -2431,6 +2431,146 @@ commit_framework_files() {
     esac
 }
 
+# --- Git TUI detection and configuration ---
+_set_git_tui_config() {
+    local config_file="$1" value="$2"
+    local tmpf
+    tmpf=$(mktemp)
+
+    if grep -qE '^[[:space:]]*git_tui:' "$config_file"; then
+        # Update existing git_tui line
+        sed "s/^\([[:space:]]*\)git_tui:.*/\1git_tui: $value/" "$config_file" > "$tmpf" && mv "$tmpf" "$config_file"
+    else
+        # Append tmux section with git_tui
+        {
+            cat "$config_file"
+            printf '\ntmux:\n  git_tui: %s\n' "$value"
+        } > "$tmpf" && mv "$tmpf" "$config_file"
+    fi
+}
+
+_install_lazygit_from_github() {
+    local version arch
+    version=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" \
+        | grep '"tag_name"' | head -1 | sed -E 's/.*"v([^"]+)".*/\1/')
+    if [[ -z "$version" ]]; then
+        warn "Could not determine latest lazygit version."
+        return 1
+    fi
+    case "$(uname -m)" in
+        x86_64)  arch="x86_64" ;;
+        aarch64) arch="arm64" ;;
+        armv*)   arch="armv6" ;;
+        *)       warn "Unsupported architecture: $(uname -m)"; return 1 ;;
+    esac
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    curl -Lo "$tmpdir/lazygit.tar.gz" \
+        "https://github.com/jesseduffield/lazygit/releases/latest/download/lazygit_${version}_Linux_${arch}.tar.gz"
+    tar xf "$tmpdir/lazygit.tar.gz" -C "$tmpdir" lazygit
+    sudo install "$tmpdir/lazygit" /usr/local/bin/lazygit
+    rm -rf "$tmpdir"
+}
+
+_install_lazygit() {
+    info "Installing lazygit..."
+    case "$OS" in
+        arch)
+            sudo pacman -S --needed --noconfirm lazygit ;;
+        debian)
+            _install_lazygit_from_github ;;
+        fedora)
+            sudo dnf install -y lazygit ;;
+        macos)
+            brew install lazygit ;;
+        *)
+            warn "Unsupported OS ($OS) for automatic lazygit installation."
+            info "Install manually: https://github.com/jesseduffield/lazygit#installation"
+            return 1 ;;
+    esac
+}
+
+setup_git_tui() {
+    local project_dir="$SCRIPT_DIR/.."
+    local config_file="$project_dir/aitasks/metadata/project_config.yaml"
+
+    if [[ ! -f "$config_file" ]]; then
+        info "No project_config.yaml found — skipping git TUI setup."
+        return
+    fi
+
+    # Check if already configured (non-empty value)
+    local current
+    current=$(grep -E '^[[:space:]]*git_tui:' "$config_file" 2>/dev/null | sed 's/.*git_tui:[[:space:]]*//' || true)
+    if [[ -n "$current" ]]; then
+        success "Git TUI already configured: $current"
+        return
+    fi
+
+    info "Configuring git management TUI..."
+
+    local detected=()
+    for tool in lazygit gitui tig; do
+        if command -v "$tool" &>/dev/null; then
+            detected+=("$tool")
+        fi
+    done
+
+    local selected=""
+
+    if [[ ${#detected[@]} -eq 0 ]]; then
+        info "No git management TUI detected (lazygit, gitui, tig)."
+        if [[ -t 0 ]]; then
+            printf "  Install lazygit? [Y/n] "
+            read -r answer
+        else
+            info "(non-interactive: skipping git TUI installation)"
+            return
+        fi
+        if [[ "${answer,,}" != "n" ]]; then
+            _install_lazygit
+            if command -v lazygit &>/dev/null; then
+                selected="lazygit"
+            else
+                warn "lazygit installation may have failed. Skipping git TUI config."
+                return
+            fi
+        else
+            info "Skipping git TUI configuration."
+            return
+        fi
+    elif [[ ${#detected[@]} -eq 1 ]]; then
+        selected="${detected[0]}"
+        info "Detected git TUI: $selected"
+    else
+        info "Multiple git TUIs detected: ${detected[*]}"
+        if [[ -t 0 ]]; then
+            local i=1
+            for tool in "${detected[@]}"; do
+                printf "  %d) %s\n" "$i" "$tool"
+                ((i++))
+            done
+            printf "  Select git TUI [1]: "
+            read -r choice_num
+            choice_num="${choice_num:-1}"
+            if [[ "$choice_num" =~ ^[0-9]+$ ]] && (( choice_num >= 1 && choice_num <= ${#detected[@]} )); then
+                selected="${detected[$((choice_num - 1))]}"
+            else
+                selected="${detected[0]}"
+            fi
+        else
+            # Non-interactive: prefer first detected (lazygit > gitui > tig)
+            selected="${detected[0]}"
+            info "(non-interactive: auto-selecting $selected)"
+        fi
+    fi
+
+    if [[ -n "$selected" ]]; then
+        _set_git_tui_config "$config_file" "$selected"
+        success "Git TUI configured: $selected"
+    fi
+}
+
 # --- Per-user config (userconfig.yaml) ---
 setup_userconfig() {
     local project_dir
@@ -2529,6 +2669,9 @@ main() {
     echo ""
 
     ensure_project_config_defaults
+    echo ""
+
+    setup_git_tui
     echo ""
 
     setup_userconfig
