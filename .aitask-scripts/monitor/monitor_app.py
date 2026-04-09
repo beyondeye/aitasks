@@ -199,6 +199,7 @@ class MonitorApp(TuiSwitcherMixin, App):
 
     #pane-list {
         height: 1fr;
+        border: solid $primary-darken-2;
     }
 
     #pane-list.zone-active {
