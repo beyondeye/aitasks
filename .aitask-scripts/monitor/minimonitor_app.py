@@ -122,12 +122,13 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         self._task_cache = TaskInfoCache(project_root)
         self._mount_time: float = 0.0
         self._own_window_id: str | None = None
+        self._own_window_index: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Static(id="mini-session-bar")
         yield VerticalScroll(id="mini-pane-list")
         yield Static(
-            "j:jump s:switch i:info q:quit r:refresh",
+            "j:jump s/\u2191\u2193:switch i:info q:quit r:refresh",
             id="mini-key-hints",
         )
 
@@ -140,15 +141,20 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             )
             return
 
-        # Detect own window ID for auto-close check
+        # Detect own window ID and index for auto-close and auto-selection
+        own_pane = os.environ.get("TMUX_PANE", "")
         try:
             result = subprocess.run(
-                ["tmux", "display-message", "-p", "-t",
-                 os.environ.get("TMUX_PANE", ""), "#{window_id}"],
+                ["tmux", "display-message", "-p", "-t", own_pane,
+                 "#{window_id}\t#{window_index}"],
                 capture_output=True, text=True, timeout=5,
             )
             if result.returncode == 0 and result.stdout.strip():
-                self._own_window_id = result.stdout.strip()
+                parts = result.stdout.strip().split("\t")
+                if len(parts) >= 1:
+                    self._own_window_id = parts[0]
+                if len(parts) >= 2:
+                    self._own_window_index = parts[1]
         except Exception:
             pass
 
@@ -207,12 +213,27 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
 
     def _restore_focus(self, pane_id: str | None) -> None:
         """Re-focus the previously focused card after a rebuild."""
-        if pane_id is None:
+        if pane_id is not None:
+            for card in self.query("#mini-pane-list MiniPaneCard"):
+                if hasattr(card, "pane_id") and card.pane_id == pane_id:
+                    card.focus()
+                    return
+        # Fallback: auto-select the card matching this window's agent
+        self._auto_select_own_window()
+
+    def _auto_select_own_window(self) -> None:
+        """Focus the card whose agent shares this minimonitor's window."""
+        if not self._own_window_index:
             return
         for card in self.query("#mini-pane-list MiniPaneCard"):
-            if hasattr(card, "pane_id") and card.pane_id == pane_id:
+            snap = self._snapshots.get(card.pane_id)
+            if snap and snap.pane.window_index == self._own_window_index:
                 card.focus()
                 return
+
+    def on_app_focus(self) -> None:
+        """Auto-select own window's agent when this pane regains terminal focus."""
+        self._auto_select_own_window()
 
     def _rebuild_session_bar(self) -> None:
         agents = [
@@ -291,7 +312,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             event.prevent_default()
 
     def _nav(self, direction: int) -> None:
-        """Move focus up/down within the pane list."""
+        """Move focus up/down within the pane list and switch tmux window."""
         cards = list(self.query("#mini-pane-list MiniPaneCard"))
         if not cards:
             return
@@ -303,6 +324,9 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             return
         new_idx = max(0, min(len(cards) - 1, idx + direction))
         cards[new_idx].focus()
+        # Switch tmux to the newly focused agent's window (prefer minimonitor pane)
+        if self._monitor is not None and new_idx != idx:
+            self._monitor.switch_to_pane(cards[new_idx].pane_id, prefer_companion=True)
 
     # -- Focus tracking --------------------------------------------------------
 
@@ -321,14 +345,14 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
     # -- Actions ---------------------------------------------------------------
 
     def action_switch_to(self) -> None:
-        """Switch tmux focus to the focused pane."""
+        """Switch tmux focus to the focused pane's window (prefer minimonitor pane)."""
         if self._monitor is None:
             return
         pane_id = self._get_focused_pane_id()
         if pane_id is None:
             self.notify("Focus a pane first", severity="warning")
             return
-        if self._monitor.switch_to_pane(pane_id):
+        if self._monitor.switch_to_pane(pane_id, prefer_companion=True):
             snap = self._snapshots.get(pane_id)
             name = f"{snap.pane.window_name}" if snap else pane_id
             self.notify(f"Switched to {name}")

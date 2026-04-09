@@ -281,7 +281,7 @@ class TmuxMonitor:
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
 
-    def switch_to_pane(self, pane_id: str) -> bool:
+    def switch_to_pane(self, pane_id: str, prefer_companion: bool = False) -> bool:
         pane = self._pane_cache.get(pane_id)
         if pane is None:
             return False
@@ -291,13 +291,43 @@ class TmuxMonitor:
                 ["tmux", "select-window", "-t", f"{self.session}:{pane.window_index}"],
                 capture_output=True, timeout=5,
             )
+            target_pane = pane_id
+            if prefer_companion:
+                companion = self.find_companion_pane_id(pane.window_index)
+                if companion:
+                    target_pane = companion
             result = subprocess.run(
-                ["tmux", "select-pane", "-t", pane_id],
+                ["tmux", "select-pane", "-t", target_pane],
                 capture_output=True, timeout=5,
             )
             return result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
+
+    def find_companion_pane_id(self, window_index: str) -> str | None:
+        """Find the minimonitor/companion pane ID in a given window."""
+        fmt = "#{pane_id}\t#{pane_pid}"
+        try:
+            result = subprocess.run(
+                ["tmux", "list-panes", "-t", f"{self.session}:{window_index}", "-F", fmt],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode != 0:
+                return None
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return None
+        for line in result.stdout.strip().splitlines():
+            parts = line.split("\t")
+            if len(parts) != 2:
+                continue
+            pane_id_str, pid_str = parts
+            try:
+                pid = int(pid_str)
+            except ValueError:
+                continue
+            if _is_companion_process(pid):
+                return pane_id_str
+        return None
 
     def kill_pane(self, pane_id: str) -> bool:
         """Kill a tmux pane by its ID."""
