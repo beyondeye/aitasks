@@ -294,6 +294,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         self._monitor: TmuxMonitor | None = None
         self._active_zone: Zone = Zone.PANE_LIST
         self._preview_timer: Timer | None = None
+        self._delayed_refresh_timer: Timer | None = None
         self._preview_size_idx: int = PREVIEW_DEFAULT_SIZE
         self._task_cache = TaskInfoCache(project_root)
 
@@ -408,6 +409,22 @@ class MonitorApp(TuiSwitcherMixin, App):
         if snap is not None:
             self._snapshots[self._focused_pane_id] = snap
             self._update_content_preview()
+
+    def _schedule_delayed_refresh(self, delay: float = 0.3) -> None:
+        """Schedule a one-shot preview refresh after *delay* seconds.
+
+        Cancels any pending delayed refresh to avoid stacking.
+        """
+        if self._delayed_refresh_timer is not None:
+            self._delayed_refresh_timer.stop()
+        self._delayed_refresh_timer = self.set_timer(
+            delay, self._fire_delayed_refresh
+        )
+
+    async def _fire_delayed_refresh(self) -> None:
+        """Fire the delayed refresh and clear the timer reference."""
+        self._delayed_refresh_timer = None
+        await self._fast_preview_refresh()
 
     def _restore_focus(self, pane_id: str | None, zone: Zone) -> None:
         """Re-focus the previously focused widget after a rebuild."""
@@ -625,7 +642,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         if key == "enter" and self._active_zone == Zone.PANE_LIST:
             if self._focused_pane_id and self._monitor:
                 self._monitor.send_keys(self._focused_pane_id, "Enter")
-                self.call_later(self._fast_preview_refresh)
+                self._schedule_delayed_refresh()
             event.stop()
             event.prevent_default()
             return
