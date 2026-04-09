@@ -108,6 +108,18 @@ def get_tmux_windows(session: str) -> list[tuple[str, str]]:
         return []
 
 
+def find_window_by_name(name: str) -> tuple[str, str] | None:
+    """Find a tmux window by name across all sessions.
+
+    Returns (session, window_index) if found, None otherwise.
+    """
+    for session in get_tmux_sessions():
+        for idx, win_name in get_tmux_windows(session):
+            if win_name == name:
+                return (session, idx)
+    return None
+
+
 def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[subprocess.Popen, str | None]:
     """Launch a command in tmux according to the given config.
 

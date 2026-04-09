@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for
 from agent_command_screen import AgentCommandScreen
-from agent_launch_utils import find_terminal, resolve_dry_run_command, TmuxLaunchConfig, launch_in_tmux
+from agent_launch_utils import find_terminal, find_window_by_name, resolve_dry_run_command, TmuxLaunchConfig, launch_in_tmux
 from tui_switcher import TuiSwitcherMixin, TuiSwitcherOverlay
 
 from textual.app import App, ComposeResult
@@ -1846,7 +1846,7 @@ class TaskDetailScreen(ModalScreen):
             with Container(id="detail_buttons_area"):
                 with Horizontal(id="detail_buttons_workflow"):
                     yield Button("(P)ick", variant="warning", id="btn_pick", disabled=is_done_or_ro)
-                    yield Button("(B)rainstorm", variant="primary", id="btn_brainstorm", disabled=self.read_only)
+                    yield Button("(B)rainstorm", variant="primary", id="btn_brainstorm", disabled=self.read_only or is_locked)
                     yield Button("\U0001f512 (L)ock", variant="primary", id="btn_lock",
                                  disabled=is_done_or_ro or is_locked)
                     yield Button("\U0001f513 (U)nlock", variant="warning", id="btn_unlock",
@@ -3344,21 +3344,7 @@ class KanbanApp(TuiSwitcherMixin, App):
                     task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
                     if task_num:
                         num = task_num.lstrip("t")
-                        full_cmd = f"./{BRAINSTORM_TUI_SCRIPT} {num}"
-                        prompt_str = f"ait brainstorm {num}"
-                        screen = AgentCommandScreen(
-                            f"Brainstorm Task t{num}", full_cmd, prompt_str,
-                            default_window_name=f"brainstorm-{num}",
-                        )
-                        def on_brainstorm_result(brainstorm_result):
-                            if brainstorm_result == "run":
-                                self._run_brainstorm_in_terminal(num, focused.task_data.filename)
-                            elif isinstance(brainstorm_result, TmuxLaunchConfig):
-                                _, err = launch_in_tmux(screen.full_command, brainstorm_result)
-                                if err:
-                                    self.notify(err, severity="error")
-                            self.refresh_board(refocus_filename=focused.task_data.filename)
-                        self.push_screen(screen, on_brainstorm_result)
+                        self._launch_brainstorm(num, focused.task_data.filename)
                         return
                 elif result == "rename":
                     def on_rename_result(rename_result):
@@ -3435,6 +3421,35 @@ class KanbanApp(TuiSwitcherMixin, App):
         else:
             self.run_aitask_pick(focused.task_data.filename)
 
+    def _launch_brainstorm(self, num: str, filename: str):
+        """Launch brainstorm, switching to existing tmux window if found."""
+        window_name = f"brainstorm-{num}"
+        existing = find_window_by_name(window_name)
+        if existing:
+            sess, idx = existing
+            subprocess.Popen(
+                ["tmux", "select-window", "-t", f"{sess}:{idx}"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            self.notify(f"Switched to existing brainstorm for t{num}")
+            self.refresh_board(refocus_filename=filename)
+            return
+        full_cmd = f"./{BRAINSTORM_TUI_SCRIPT} {num}"
+        prompt_str = f"ait brainstorm {num}"
+        screen = AgentCommandScreen(
+            f"Brainstorm Task t{num}", full_cmd, prompt_str,
+            default_window_name=window_name,
+        )
+        def on_brainstorm_result(brainstorm_result):
+            if brainstorm_result == "run":
+                self._run_brainstorm_in_terminal(num, filename)
+            elif isinstance(brainstorm_result, TmuxLaunchConfig):
+                _, err = launch_in_tmux(screen.full_command, brainstorm_result)
+                if err:
+                    self.notify(err, severity="error")
+            self.refresh_board(refocus_filename=filename)
+        self.push_screen(screen, on_brainstorm_result)
+
     def action_brainstorm_task(self):
         """Open brainstorm command dialog for the focused task."""
         if self._modal_is_active():
@@ -3446,21 +3461,10 @@ class KanbanApp(TuiSwitcherMixin, App):
         if not task_num:
             return
         num = task_num.lstrip("t")
-        full_cmd = f"./{BRAINSTORM_TUI_SCRIPT} {num}"
-        prompt_str = f"ait brainstorm {num}"
-        screen = AgentCommandScreen(
-            f"Brainstorm Task t{num}", full_cmd, prompt_str,
-            default_window_name=f"brainstorm-{num}",
-        )
-        def on_brainstorm_result(brainstorm_result):
-            if brainstorm_result == "run":
-                self._run_brainstorm_in_terminal(num, focused.task_data.filename)
-            elif isinstance(brainstorm_result, TmuxLaunchConfig):
-                _, err = launch_in_tmux(screen.full_command, brainstorm_result)
-                if err:
-                    self.notify(err, severity="error")
-            self.refresh_board(refocus_filename=focused.task_data.filename)
-        self.push_screen(screen, on_brainstorm_result)
+        if num in self.manager.lock_map:
+            self.notify("Task is locked — brainstorm disabled", severity="warning")
+            return
+        self._launch_brainstorm(num, focused.task_data.filename)
 
     @work(exclusive=True)
     async def run_editor(self, filepath):
