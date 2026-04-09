@@ -1857,7 +1857,7 @@ class TaskDetailScreen(ModalScreen):
                     yield Button("(R)evert", variant="error", id="btn_revert",
                                  disabled=is_done_or_ro or not is_modified)
                     yield Button("(E)dit", variant="primary", id="btn_edit", disabled=is_done_or_ro)
-                    yield Button("(N)ame", variant="primary", id="btn_rename", disabled=is_done_or_ro)
+                    yield Button("(N)ame", variant="primary", id="btn_rename", disabled=is_done_or_ro or is_locked)
                     can_delete = (not is_done and not is_folded and not self.read_only
                                   and self.task_data.metadata.get("status", "") != "Implementing")
                     yield Button("(D)elete/Archive", variant="error", id="btn_delete",
