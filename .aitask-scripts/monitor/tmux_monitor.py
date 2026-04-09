@@ -27,7 +27,7 @@ class PaneCategory(Enum):
 
 
 DEFAULT_AGENT_PREFIXES = ["agent-"]
-DEFAULT_TUI_NAMES = {"board", "codebrowser", "settings", "brainstorm", "monitor", "diffviewer"}
+DEFAULT_TUI_NAMES = {"board", "codebrowser", "settings", "brainstorm", "monitor", "minimonitor", "diffviewer"}
 
 
 @dataclass
@@ -125,6 +125,53 @@ class TmuxMonitor:
             )
             panes.append(pane)
             self._pane_cache[pane_id] = pane
+        return panes
+
+    def discover_window_panes(self, window_id: str) -> list[TmuxPaneInfo]:
+        """Discover panes in a specific window (not session-wide).
+
+        Uses 'tmux list-panes -t window_id' (no -s flag).
+        Does not filter by exclude_pane or update _pane_cache.
+        """
+        fmt = "\t".join([
+            "#{window_index}", "#{window_name}", "#{pane_index}",
+            "#{pane_id}", "#{pane_pid}", "#{pane_current_command}",
+            "#{pane_width}", "#{pane_height}",
+        ])
+        try:
+            result = subprocess.run(
+                ["tmux", "list-panes", "-t", window_id, "-F", fmt],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode != 0:
+                return []
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return []
+
+        panes: list[TmuxPaneInfo] = []
+        for line in result.stdout.strip().splitlines():
+            parts = line.split("\t")
+            if len(parts) != 8:
+                continue
+            try:
+                pane_pid = int(parts[4])
+                width = int(parts[6])
+                height = int(parts[7])
+            except ValueError:
+                continue
+            window_name = parts[1]
+            pane = TmuxPaneInfo(
+                window_index=parts[0],
+                window_name=window_name,
+                pane_index=parts[2],
+                pane_id=parts[3],
+                pane_pid=pane_pid,
+                current_command=parts[5],
+                width=width,
+                height=height,
+                category=self.classify_pane(window_name),
+            )
+            panes.append(pane)
         return panes
 
     def capture_pane(self, pane_id: str) -> PaneSnapshot | None:
