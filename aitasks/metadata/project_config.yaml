@@ -8,6 +8,7 @@ tmux:
   default_session: aitasks
   default_split: horizontal
   prefer_tmux: true
+  git_tui: lazygit
   monitor:
     refresh_seconds: 3
     idle_threshold_seconds: 5
@@ -22,3 +23,4 @@ tmux:
       - monitor
       - minimonitor
       - diffviewer
+      - git
