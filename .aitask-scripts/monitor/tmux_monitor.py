@@ -27,7 +27,7 @@ class PaneCategory(Enum):
 
 
 DEFAULT_AGENT_PREFIXES = ["agent-"]
-DEFAULT_TUI_NAMES = {"board", "codebrowser", "settings", "brainstorm", "monitor", "minimonitor", "diffviewer"}
+DEFAULT_TUI_NAMES = {"board", "codebrowser", "settings", "brainstorm", "monitor", "minimonitor", "diffviewer", "git"}
 
 _COMPANION_KEYWORDS = ("minimonitor", "monitor_app")
 

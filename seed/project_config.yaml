@@ -170,3 +170,30 @@ lint_command:
 # ──────────────────────────────────────────────────────────────────────
 
 default_profiles:
+
+# ──────────────────────────────────────────────────────────────────────
+# tmux — Tmux integration settings.
+#
+# These settings control how aitasks integrates with tmux sessions.
+# ──────────────────────────────────────────────────────────────────────
+
+tmux:
+  # ──────────────────────────────────────────────────────────────────
+  # git_tui — External git management TUI for the TUI switcher.
+  #
+  # Integrates an external git TUI (like lazygit, gitui, or tig) as a
+  # "pseudo-native" TUI in the aitasks TUI switcher (press 'j' / 'g').
+  # Only one instance runs per tmux session (singleton behavior).
+  #
+  # Set to the tool name (e.g., "lazygit") or leave empty to disable.
+  # Detected automatically during `ait setup`.
+  #
+  # Supported tools:
+  #   - lazygit  (recommended, most popular)
+  #   - gitui    (Rust-based, fast)
+  #   - tig      (ncurses-based, lightweight)
+  #
+  # Example:
+  #   git_tui: lazygit
+  # ──────────────────────────────────────────────────────────────────
+  git_tui:

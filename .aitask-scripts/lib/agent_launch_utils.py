@@ -19,6 +19,14 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+# Known git management TUIs in preference order
+KNOWN_GIT_TUIS = ["lazygit", "gitui", "tig"]
+
+
+def detect_git_tuis() -> list[str]:
+    """Return list of installed git TUI tool names."""
+    return [tool for tool in KNOWN_GIT_TUIS if shutil.which(tool)]
+
 
 @dataclass
 class TmuxLaunchConfig:
@@ -261,13 +269,14 @@ def maybe_spawn_minimonitor(session: str, window_name: str) -> bool:
 def load_tmux_defaults(project_root: Path) -> dict:
     """Load tmux defaults from project_config.yaml.
 
-    Returns dict with keys: default_session, default_split, prefer_tmux.
+    Returns dict with keys: default_session, default_split, prefer_tmux, git_tui.
     Falls back to hardcoded defaults if config is absent.
     """
     defaults = {
         "default_session": "aitasks",
         "default_split": "horizontal",
         "prefer_tmux": False,
+        "git_tui": "",
     }
     config_path = project_root / "aitasks" / "metadata" / "project_config.yaml"
     if not config_path.is_file():
@@ -286,6 +295,8 @@ def load_tmux_defaults(project_root: Path) -> dict:
                     defaults["default_split"] = val
             if "prefer_tmux" in tmux:
                 defaults["prefer_tmux"] = bool(tmux["prefer_tmux"])
+            if "git_tui" in tmux:
+                defaults["git_tui"] = str(tmux["git_tui"] or "")
     except Exception:
         pass
     return defaults

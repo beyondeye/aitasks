@@ -66,7 +66,7 @@ KNOWN_TUIS = [
 
 # Classification constants (mirrors tmux_monitor.py without importing it)
 _AGENT_PREFIXES = ["agent-"]
-_TUI_NAMES = {name for name, _, _ in KNOWN_TUIS}
+_TUI_NAMES = {name for name, _, _ in KNOWN_TUIS} | {"git"}
 _BRAINSTORM_PREFIX = "brainstorm-"
 
 # Shortcut keys for specific TUIs: (key, tui_name)
