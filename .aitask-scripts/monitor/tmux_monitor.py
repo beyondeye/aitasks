@@ -102,6 +102,8 @@ class TmuxMonitor:
                 return PaneCategory.AGENT
         if window_name in self.tui_names:
             return PaneCategory.TUI
+        if window_name.startswith("brainstorm-"):
+            return PaneCategory.TUI
         return PaneCategory.OTHER
 
     def discover_panes(self) -> list[TmuxPaneInfo]:

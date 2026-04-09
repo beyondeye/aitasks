@@ -59,7 +59,6 @@ def _detect_current_session() -> str | None:
 KNOWN_TUIS = [
     ("board", "Task Board", "ait board"),
     ("codebrowser", "Code Browser", "ait codebrowser"),
-    ("brainstorm", "Brainstorm", "ait brainstorm"),
     ("settings", "Settings", "ait settings"),
     ("monitor", "tmux Monitor", "ait monitor"),
     ("diffviewer", "Diff Viewer", "ait diffviewer"),
@@ -68,19 +67,39 @@ KNOWN_TUIS = [
 # Classification constants (mirrors tmux_monitor.py without importing it)
 _AGENT_PREFIXES = ["agent-"]
 _TUI_NAMES = {name for name, _, _ in KNOWN_TUIS}
+_BRAINSTORM_PREFIX = "brainstorm-"
 
 # Shortcut keys for specific TUIs: (key, tui_name)
 _TUI_SHORTCUTS = {
     "board": "b",
     "codebrowser": "c",
     "settings": "s",
-    "brainstorm": "r",
 }
+
+
+def _discover_brainstorm_sessions() -> list[str]:
+    """Scan .aitask-crews/crew-brainstorm-*/ for existing brainstorm sessions.
+
+    Returns list of task numbers with existing sessions.
+    """
+    crews_dir = Path(".aitask-crews")
+    if not crews_dir.is_dir():
+        return []
+    prefix = "crew-brainstorm-"
+    sessions = []
+    for entry in sorted(crews_dir.iterdir()):
+        if entry.is_dir() and entry.name.startswith(prefix):
+            session_file = entry / "br_session.yaml"
+            if session_file.is_file():
+                sessions.append(entry.name[len(prefix):])
+    return sessions
 
 
 def _classify_window(name: str) -> str:
     """Classify a tmux window name as 'tui', 'agent', or 'other'."""
     if name in _TUI_NAMES:
+        return "tui"
+    if name.startswith(_BRAINSTORM_PREFIX):
         return "tui"
     for prefix in _AGENT_PREFIXES:
         if name.startswith(prefix):
@@ -247,6 +266,25 @@ class TuiSwitcherOverlay(ModalScreen):
             list_view.append(item)
             item_idx += 1
 
+        # --- Dynamic brainstorm session entries ---
+        brainstorm_sessions = _discover_brainstorm_sessions()
+        all_brainstorm_nums = set(brainstorm_sessions)
+        for name in self._running_names:
+            if name.startswith(_BRAINSTORM_PREFIX):
+                all_brainstorm_nums.add(name[len(_BRAINSTORM_PREFIX):])
+        for task_num in sorted(all_brainstorm_nums):
+            win_name = f"{_BRAINSTORM_PREFIX}{task_num}"
+            label = f"Brainstorm (t{task_num})"
+            running = win_name in self._running_names
+            is_current = win_name == self._current_tui
+            item = _TuiListItem(win_name, label, running, is_current)
+            if is_current:
+                item.disabled = True
+            elif first_selectable_idx is None:
+                first_selectable_idx = item_idx
+            list_view.append(item)
+            item_idx += 1
+
         # --- Classify non-TUI windows ---
         agents = []
         others = []
@@ -322,7 +360,14 @@ class TuiSwitcherOverlay(ModalScreen):
         self._shortcut_switch("settings")
 
     def action_shortcut_brainstorm(self) -> None:
-        self._shortcut_switch("brainstorm")
+        """Switch to first running brainstorm window, or notify if none running."""
+        for name in sorted(self._running_names):
+            if name.startswith(_BRAINSTORM_PREFIX):
+                if name == self._current_tui:
+                    return
+                self._switch_to(name, True)
+                return
+        self.app.notify("No brainstorm session running", severity="warning")
 
     def action_shortcut_explore(self) -> None:
         """Launch a new explore agent session (always new window)."""
@@ -368,6 +413,9 @@ class TuiSwitcherOverlay(ModalScreen):
         for tui_name, _, cmd in KNOWN_TUIS:
             if tui_name == name:
                 return cmd
+        if name.startswith(_BRAINSTORM_PREFIX):
+            task_num = name[len(_BRAINSTORM_PREFIX):]
+            return f"ait brainstorm {task_num}"
         return f"ait {name}"
 
 

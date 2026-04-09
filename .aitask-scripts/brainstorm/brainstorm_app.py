@@ -918,7 +918,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
 
     def __init__(self, task_num: str):
         super().__init__()
-        self.current_tui_name = "brainstorm"
+        self.current_tui_name = f"brainstorm-{task_num}"
         self.task_num = task_num
         self.session_path = crew_worktree(task_num)
         self.session_data: dict = {}
