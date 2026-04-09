@@ -35,6 +35,7 @@ from monitor.monitor_shared import (  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 
 import subprocess  # noqa: E402
+from agent_launch_utils import resolve_dry_run_command, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor  # noqa: E402
 
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
@@ -180,6 +181,65 @@ class SessionRenameDialog(ModalScreen):
         self.dismiss(False)
 
 
+class NextSiblingDialog(ModalScreen):
+    """Dialog for picking next sibling task."""
+
+    BINDINGS = [Binding("escape", "dismiss_dialog", "Close", show=False)]
+
+    DEFAULT_CSS = """
+    NextSiblingDialog { align: center middle; }
+    #next-sib-dialog { width: 70%; height: auto; background: $surface; border: thick $warning; padding: 1 2; }
+    #next-sib-header { text-style: bold; color: $warning; margin: 0 0 1 0; }
+    #next-sib-details { margin: 0 0 1 0; }
+    #next-sib-buttons { width: 100%; height: auto; layout: horizontal; }
+    #next-sib-buttons Button { margin: 0 1; }
+    """
+
+    def __init__(
+        self,
+        current_task_id: str,
+        current_title: str,
+        current_status: str,
+        suggested_id: str,
+        suggested_title: str,
+        parent_id: str,
+    ) -> None:
+        super().__init__()
+        self._current_task_id = current_task_id
+        self._current_title = current_title
+        self._current_status = current_status
+        self._suggested_id = suggested_id
+        self._suggested_title = suggested_title
+        self._parent_id = parent_id
+
+    def compose(self) -> ComposeResult:
+        will_kill = self._current_status == "Done"
+        with Container(id="next-sib-dialog"):
+            yield Static("[bold yellow]Pick Next Sibling[/]", id="next-sib-header")
+            lines = [
+                f"Current:   [bold]t{self._current_task_id}[/]: {self._current_title}  (Status: {self._current_status})",
+                f"Suggested: [bold]t{self._suggested_id}[/]: {self._suggested_title}",
+            ]
+            if will_kill:
+                lines.append("\n[yellow]Current agent pane will be killed (task is Done)[/]")
+            yield Static("\n".join(lines), id="next-sib-details")
+            with Container(id="next-sib-buttons"):
+                yield Button(f"Pick t{self._suggested_id}", variant="warning", id="btn-pick-suggested")
+                yield Button("Choose child", variant="primary", id="btn-choose-child")
+                yield Button("Cancel", variant="default", id="btn-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-pick-suggested":
+            self.dismiss(("pick", self._suggested_id))
+        elif event.button.id == "btn-choose-child":
+            self.dismiss(("choose", self._parent_id))
+        else:
+            self.dismiss(None)
+
+    def action_dismiss_dialog(self) -> None:
+        self.dismiss(None)
+
+
 # -- Main app -----------------------------------------------------------------
 
 class MonitorApp(TuiSwitcherMixin, App):
@@ -266,6 +326,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         Binding("f5", "refresh", "Refresh", show=False),
         Binding("z", "cycle_preview_size", "Zoom"),
         Binding("k", "kill_pane", "Kill"),
+        Binding("n", "pick_next_sibling", "Next Sibling"),
         Binding("enter", "send_enter", "Send ↵", show=True),
     ]
 
@@ -289,6 +350,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         self._idle_threshold = idle_threshold
         self._agent_prefixes = agent_prefixes
         self._tui_names = tui_names
+        self._project_root = project_root
         self._snapshots: dict[str, PaneSnapshot] = {}
         self._focused_pane_id: str | None = None
         self._monitor: TmuxMonitor | None = None
@@ -800,6 +862,92 @@ class MonitorApp(TuiSwitcherMixin, App):
             self.call_later(self._refresh_data)
         else:
             self.notify(f"Failed to kill {name}", severity="error")
+
+    def action_pick_next_sibling(self) -> None:
+        """Find and launch next sibling task for the focused agent pane."""
+        if self._monitor is None:
+            return
+        pane_id = self._get_focused_pane_id()
+        if not pane_id:
+            self.notify("Focus an agent pane first", severity="warning")
+            return
+        snap = self._snapshots.get(pane_id)
+        if not snap:
+            return
+        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        if not task_id:
+            self.notify("No task ID in window name", severity="warning")
+            return
+        if "_" not in task_id:
+            self.notify("Not a child task — no siblings", severity="warning")
+            return
+
+        self._task_cache.invalidate(task_id)
+        current_info = self._task_cache.get_task_info(task_id)
+        # If task file not found, it was likely archived (Done) — still allow sibling pick
+        current_title = current_info.title if current_info else f"(archived t{task_id})"
+        current_status = current_info.status if current_info else "Done"
+
+        result = self._task_cache.find_next_sibling(task_id)
+        if not result:
+            self.notify("No ready siblings found", severity="warning")
+            return
+        suggested_id, suggested_title = result
+        parent_id = self._task_cache.get_parent_id(task_id)
+
+        self.push_screen(
+            NextSiblingDialog(
+                task_id, current_title, current_status,
+                suggested_id, suggested_title, parent_id,
+            ),
+            callback=self._on_next_sibling_result,
+        )
+
+    def _on_next_sibling_result(self, result: tuple[str, str] | None) -> None:
+        """Callback after next-sibling dialog."""
+        if result is None:
+            return
+        action, target_id = result
+
+        pane_id = self._focused_pane_id
+        if pane_id is None or self._monitor is None:
+            return
+        snap = self._snapshots.get(pane_id)
+        if not snap:
+            return
+        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        if not task_id:
+            return
+        current_info = self._task_cache.get_task_info(task_id)
+
+        # Resolve pick command: specific child or parent for selection
+        full_cmd = resolve_dry_run_command(self._project_root, "pick", target_id)
+        if not full_cmd:
+            self.notify(f"Failed to resolve pick command for t{target_id}", severity="error")
+            return
+
+        # Kill current pane if task is Done (or archived — info is None)
+        if not current_info or current_info.status == "Done":
+            old_name = snap.pane.window_name
+            self._monitor.kill_pane(pane_id)
+            self._focused_pane_id = None
+            self.notify(f"Killed {old_name}")
+
+        # Launch new agent in tmux
+        window_name = f"agent-pick-{target_id}"
+        config = TmuxLaunchConfig(
+            session=self._session,
+            window=window_name,
+            new_session=False,
+            new_window=True,
+        )
+        _, err = launch_in_tmux(full_cmd, config)
+        if err:
+            self.notify(f"Launch failed: {err}", severity="error")
+            return
+        maybe_spawn_minimonitor(self._session, window_name)
+        self.notify(f"Launched agent for t{target_id}")
+        self.call_later(self._refresh_data)
 
 
 def _detect_tmux_session() -> str | None:

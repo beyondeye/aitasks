@@ -100,6 +100,61 @@ class TaskInfoCache:
     def invalidate(self, task_id: str) -> None:
         self._cache.pop(task_id, None)
 
+    def get_parent_id(self, task_id: str) -> str | None:
+        """Extract parent task number from a child task ID."""
+        if "_" not in task_id:
+            return None
+        return task_id.split("_", 1)[0]
+
+    def find_next_sibling(self, task_id: str) -> tuple[str, str] | None:
+        """Find the next Ready sibling for a child task.
+
+        Returns (sibling_task_id, sibling_title) or None.
+        """
+        if "_" not in task_id:
+            return None
+        parent, _child = task_id.split("_", 1)
+        search_dir = self._project_root / "aitasks" / f"t{parent}"
+        if not search_dir.is_dir():
+            return None
+
+        candidates = []
+        child_re = re.compile(rf'^t{re.escape(parent)}_(\d+)_')
+        for path in sorted(search_dir.glob(f"t{parent}_*_*.md")):
+            m = child_re.match(path.stem)
+            if not m:
+                continue
+            sib_child = m.group(1)
+            sib_id = f"{parent}_{sib_child}"
+            if sib_id == task_id:
+                continue
+            try:
+                raw = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            parsed = parse_frontmatter(raw)
+            if parsed is None:
+                continue
+            metadata, body, _ = parsed
+            if str(metadata.get("status", "")).strip() != "Ready":
+                continue
+            title = None
+            for line in body.splitlines():
+                ls = line.strip()
+                if ls.startswith("# "):
+                    title = ls[2:].strip()
+                    break
+            if not title:
+                parts = path.stem.split("_", 2)
+                title = parts[2].replace("_", " ") if len(parts) > 2 else path.stem
+            candidates.append((int(sib_child), sib_id, title))
+
+        if not candidates:
+            return None
+        candidates.sort(key=lambda x: x[0])
+        _, sib_id, title = candidates[0]
+        return (sib_id, title)
+
     def _resolve(self, task_id: str) -> TaskInfo | None:
         """Look up task file and parse its content. Pure Python, no subprocess."""
         tasks_dir = self._project_root / "aitasks"
