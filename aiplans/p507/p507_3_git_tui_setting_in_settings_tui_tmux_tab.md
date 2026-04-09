@@ -97,3 +97,10 @@ Proceed to Step 9 (Post-Implementation) for archival.
 1. Open `ait settings` → Tmux tab → verify `git_tui` field appears with cycle options
 2. Save settings → verify `tmux.monitor` section is preserved (the bug fix)
 3. Change git_tui → save → check `project_config.yaml` has the value under `tmux.git_tui`
+
+## Final Implementation Notes
+- **Actual work done:** Implemented all 3 steps exactly as planned. Fixed the save_tmux_settings() data-loss bug (merge instead of overwrite), added git_tui enum field to TMUX_CONFIG_SCHEMA, and added dynamic option detection via detect_git_tuis() import. All automated verifications passed: detect_git_tuis() returns installed tools, schema loads correctly, and the save logic preserves tmux.monitor sub-dict.
+- **Deviations from plan:** None — all file paths, line numbers, and code patterns matched the plan exactly.
+- **Issues encountered:** None.
+- **Key decisions:** Dynamic detection filters options to only installed tools + "none", falling back to the full static list if no tools are detected. This means the CycleField will only show relevant options.
+- **Notes for sibling tasks:** The `detect_git_tuis` import is now available in settings_app.py. t507_4 (TUI switcher) should use `load_tmux_defaults()` to read the configured git_tui value, not the schema. The save bug fix means tmux.monitor and any future sub-dicts under tmux will be preserved when saving schema-tracked fields.
