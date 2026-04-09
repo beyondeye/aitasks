@@ -18,6 +18,7 @@ import yaml
 # Add .aitask-scripts/lib to path for config_utils
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
+from agent_launch_utils import detect_git_tuis  # noqa: E402
 
 from config_utils import (  # noqa: E402
     EXPORT_EXTENSION,
@@ -396,6 +397,17 @@ TMUX_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
         ),
         "type": "bool",
         "default": "false",
+    },
+    "git_tui": {
+        "summary": "Git management TUI",
+        "detail": (
+            "External git TUI to integrate in the TUI switcher (j/g shortcut). "
+            "Only one instance runs per tmux session. "
+            "Set to 'none' to disable."
+        ),
+        "type": "enum",
+        "options": "lazygit,gitui,tig,none",
+        "default": "none",
     },
 }
 
@@ -2674,6 +2686,10 @@ class SettingsApp(TuiSwitcherMixin, App):
                 ))
             elif stype == "enum":
                 options = info["options"].split(",")
+                if key == "git_tui":
+                    installed = detect_git_tuis()
+                    if installed:
+                        options = installed + ["none"]
                 cur_val = str(current) if current is not None else info["default"]
                 if cur_val not in options:
                     cur_val = info["default"]
@@ -2738,9 +2754,17 @@ class SettingsApp(TuiSwitcherMixin, App):
 
         data = dict(self.config_mgr.project_config)
         if tmux_data:
-            data["tmux"] = tmux_data
+            existing_tmux = dict(data.get("tmux") or {})
+            existing_tmux.update(tmux_data)
+            data["tmux"] = existing_tmux
         else:
-            data.pop("tmux", None)
+            existing_tmux = dict(data.get("tmux") or {})
+            for key in TMUX_CONFIG_SCHEMA:
+                existing_tmux.pop(key, None)
+            if existing_tmux:
+                data["tmux"] = existing_tmux
+            else:
+                data.pop("tmux", None)
         self.config_mgr.save_project_settings(data)
         self.config_mgr.load_all()
         self._populate_tmux_tab()
