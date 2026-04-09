@@ -54,6 +54,14 @@ def _task_git_cmd() -> list[str]:
         return ["git", "-C", str(DATA_WORKTREE)]
     return ["git"]
 
+def _sanitize_name(name: str) -> str:
+    """Sanitize task name: lowercase, underscores, alphanumeric only, max 60 chars."""
+    name = name.lower().replace(" ", "_")
+    name = re.sub(r'[^a-z0-9_]', '', name)
+    name = re.sub(r'_+', '_', name)
+    name = name.strip("_")
+    return name[:60]
+
 def _load_task_types() -> list:
     """Load valid task types from task_types.txt, with fallback defaults."""
     try:
@@ -1670,6 +1678,8 @@ class TaskDetailScreen(ModalScreen):
         Binding("E", "edit", "Edit", show=False),
         Binding("d", "delete", "Delete", show=False),
         Binding("D", "delete", "Delete", show=False),
+        Binding("n", "rename", "Rename", show=False),
+        Binding("N", "rename", "Rename", show=False),
         Binding("v", "toggle_view", "Toggle View", show=False),
         Binding("V", "toggle_view", "Toggle View", show=False),
     ]
@@ -1847,6 +1857,7 @@ class TaskDetailScreen(ModalScreen):
                     yield Button("(R)evert", variant="error", id="btn_revert",
                                  disabled=is_done_or_ro or not is_modified)
                     yield Button("(E)dit", variant="primary", id="btn_edit", disabled=is_done_or_ro)
+                    yield Button("(N)ame", variant="primary", id="btn_rename", disabled=is_done_or_ro)
                     can_delete = (not is_done and not is_folded and not self.read_only
                                   and self.task_data.metadata.get("status", "") != "Implementing")
                     yield Button("(D)elete/Archive", variant="error", id="btn_delete",
@@ -1949,6 +1960,10 @@ class TaskDetailScreen(ModalScreen):
             indicator.update("[b]Viewing:[/b] Task")
             btn_view.label = "(V)iew Plan"
             md_view.styles.border = None
+
+    @on(Button.Pressed, "#btn_rename")
+    def rename_task(self):
+        self.dismiss("rename")
 
     @on(Button.Pressed, "#btn_delete")
     def delete_task(self):
@@ -2100,10 +2115,55 @@ class TaskDetailScreen(ModalScreen):
         if not btn.disabled:
             self.toggle_view()
 
+    def action_rename(self):
+        btn = self.query_one("#btn_rename", Button)
+        if not btn.disabled:
+            self.rename_task()
+
     def action_delete(self):
         btn = self.query_one("#btn_delete", Button)
         if not btn.disabled:
             self.delete_task()
+
+class RenameTaskScreen(ModalScreen):
+    """Modal dialog to rename a task (change the description part of the filename)."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, task_filename: str):
+        super().__init__()
+        self.task_filename = task_filename
+        self.task_num, self.current_name = TaskCard._parse_filename(task_filename)
+
+    def compose(self):
+        with Container(id="rename_dialog"):
+            yield Label(f"Rename Task {self.task_num}", id="rename_title")
+            yield Label(f"Prefix: [b]{self.task_num}_[/b] (fixed)")
+            yield Input(value=self.current_name.replace(" ", "_"), id="rename_input",
+                        placeholder="new_task_name", select_on_focus=False)
+            with Horizontal(id="detail_buttons"):
+                yield Button("Rename", variant="success", id="btn_do_rename")
+                yield Button("Cancel", variant="default", id="btn_rename_cancel")
+
+    @on(Button.Pressed, "#btn_do_rename")
+    def do_rename(self):
+        new_name = self.query_one("#rename_input", Input).value.strip()
+        if not new_name:
+            return
+        self.dismiss(("rename", new_name))
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.do_rename()
+
+    @on(Button.Pressed, "#btn_rename_cancel")
+    def cancel(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
 
 class CommitMessageScreen(ModalScreen):
     """Modal dialog to enter a commit message and confirm git commit."""
@@ -2649,6 +2709,19 @@ class KanbanApp(TuiSwitcherMixin, App):
         padding: 0 1;
         color: $text-muted;
     }
+    #rename_dialog {
+        width: 60%;
+        height: auto;
+        max-height: 40%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #rename_title {
+        text-align: center;
+        padding: 0 0 1 0;
+        text-style: bold;
+    }
     #column_edit_dialog {
         width: 60%;
         height: auto;
@@ -2774,6 +2847,9 @@ class KanbanApp(TuiSwitcherMixin, App):
         """Control visibility of conditional actions in the footer bar."""
         # Let TuiSwitcherOverlay's ListView handle arrow keys natively
         if action in ("nav_up", "nav_down", "nav_left", "nav_right") and isinstance(self.screen, TuiSwitcherOverlay):
+            return False
+        # Let Input widgets handle arrow keys natively
+        if action in ("nav_up", "nav_down", "nav_left", "nav_right") and isinstance(self.app.focused, Input):
             return False
         # Let Select dropdown overlay handle arrow keys natively
         if action in ("nav_up", "nav_down"):
@@ -3245,6 +3321,14 @@ class KanbanApp(TuiSwitcherMixin, App):
                             self.push_screen(screen, on_pick_result)
                             return
                     self.run_aitask_pick(focused.task_data.filename)
+                elif result == "rename":
+                    def on_rename_result(rename_result):
+                        if rename_result and rename_result[0] == "rename":
+                            new_name = rename_result[1]
+                            self._rename_task(focused.task_data, new_name)
+                    self.push_screen(
+                        RenameTaskScreen(focused.task_data.filename), on_rename_result)
+                    return
                 elif result == "delete_archive":
                     task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
                     is_child = focused.task_data.filepath.parent.name.startswith("t")
@@ -4070,6 +4154,88 @@ class KanbanApp(TuiSwitcherMixin, App):
 
         self.app.call_from_thread(self.manager.load_tasks)
         self.app.call_from_thread(self.refresh_board)
+
+    def _rename_task(self, task: Task, new_name: str):
+        """Rename a task (and its plan file if present), commit, and sync."""
+        sanitized = _sanitize_name(new_name)
+        if not sanitized:
+            self.notify("Invalid name after sanitization", severity="error")
+            return
+
+        task_num, _ = TaskCard._parse_filename(task.filename)
+        new_task_filename = f"{task_num}_{sanitized}.md"
+
+        if new_task_filename == task.filename:
+            self.notify("Name unchanged", severity="warning")
+            return
+
+        # Compute new task path (preserving parent directory for child tasks)
+        new_task_path = task.filepath.parent / new_task_filename
+
+        # Compute plan paths
+        old_plan_path = self._resolve_plan_path_for(task)
+        new_plan_path = None
+        if old_plan_path and old_plan_path.exists():
+            new_plan_filename = "p" + new_task_filename[1:]
+            new_plan_path = old_plan_path.parent / new_plan_filename
+
+        self.push_screen(LoadingOverlay("Renaming..."))
+        self._do_rename_task(
+            task.filepath, new_task_path,
+            old_plan_path, new_plan_path,
+            task_num, sanitized.replace("_", " "),
+            new_task_filename,
+        )
+
+    @work(thread=True)
+    def _do_rename_task(self, old_task: Path, new_task: Path,
+                        old_plan: Path | None, new_plan: Path | None,
+                        task_num: str, humanized_name: str,
+                        new_filename: str):
+        """Rename task/plan files, commit, and sync in a background thread."""
+        try:
+            # Rename task file
+            old_task.rename(new_task)
+
+            # Git add old (removal) and new task paths
+            subprocess.run(
+                [*_task_git_cmd(), "add", str(old_task), str(new_task)],
+                capture_output=True, text=True, timeout=10,
+            )
+
+            # Rename plan file if present
+            if old_plan and new_plan:
+                old_plan.rename(new_plan)
+                subprocess.run(
+                    [*_task_git_cmd(), "add", str(old_plan), str(new_plan)],
+                    capture_output=True, text=True, timeout=10,
+                )
+
+            # Commit
+            commit_msg = f"ait: Rename {task_num}: {humanized_name}"
+            result = subprocess.run(
+                [*_task_git_cmd(), "commit", "-m", commit_msg],
+                capture_output=True, text=True, timeout=15,
+            )
+            if result.returncode == 0:
+                self.app.call_from_thread(
+                    self.notify, f"Renamed to {new_filename}", severity="information")
+            else:
+                error = result.stderr.strip() or result.stdout.strip()
+                self.app.call_from_thread(
+                    self.notify, f"Commit failed: {error}", severity="error")
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+            self.app.call_from_thread(
+                self.notify, f"Rename failed: {e}", severity="error")
+        finally:
+            self.app.call_from_thread(self.pop_screen)  # dismiss LoadingOverlay
+
+        # Sync
+        self._run_sync(show_notification=True)
+
+        # Reload and refresh board
+        self.app.call_from_thread(self.manager.load_tasks)
+        self.app.call_from_thread(self.refresh_board, refocus_filename=new_filename)
 
     def _git_commit_tasks(self, tasks: list[Task], message: str):
         """Stage and commit specific task files (shows loading overlay)."""
