@@ -44,6 +44,7 @@ USERCONFIG_FILE = TASKS_DIR / "metadata" / "userconfig.yaml"
 EMAILS_FILE = TASKS_DIR / "metadata" / "emails.txt"
 CODEAGENT_SCRIPT = Path(".aitask-scripts") / "aitask_codeagent.sh"
 CREATE_SCRIPT = Path(".aitask-scripts") / "aitask_create.sh"
+BRAINSTORM_TUI_SCRIPT = Path(".aitask-scripts") / "aitask_brainstorm_tui.sh"
 
 def _task_git_cmd() -> list[str]:
     """Return git command prefix for task data operations.
@@ -1682,6 +1683,8 @@ class TaskDetailScreen(ModalScreen):
         Binding("N", "rename", "Rename", show=False),
         Binding("v", "toggle_view", "Toggle View", show=False),
         Binding("V", "toggle_view", "Toggle View", show=False),
+        Binding("b", "brainstorm", "Brainstorm", show=False),
+        Binding("B", "brainstorm", "Brainstorm", show=False),
     ]
 
     def __init__(self, task: Task, manager: TaskManager = None, read_only: bool = False):
@@ -1843,6 +1846,7 @@ class TaskDetailScreen(ModalScreen):
             with Container(id="detail_buttons_area"):
                 with Horizontal(id="detail_buttons_workflow"):
                     yield Button("(P)ick", variant="warning", id="btn_pick", disabled=is_done_or_ro)
+                    yield Button("(B)rainstorm", variant="primary", id="btn_brainstorm", disabled=self.read_only)
                     yield Button("\U0001f512 (L)ock", variant="primary", id="btn_lock",
                                  disabled=is_done_or_ro or is_locked)
                     yield Button("\U0001f513 (U)nlock", variant="warning", id="btn_unlock",
@@ -1973,6 +1977,10 @@ class TaskDetailScreen(ModalScreen):
     def pick_task(self):
         self.dismiss("pick")
 
+    @on(Button.Pressed, "#btn_brainstorm")
+    def brainstorm_task(self):
+        self.dismiss("brainstorm")
+
     @on(Button.Pressed, "#btn_lock")
     def lock_task(self):
         """Lock this task via aitask_lock.sh."""
@@ -2081,6 +2089,11 @@ class TaskDetailScreen(ModalScreen):
         btn = self.query_one("#btn_pick", Button)
         if not btn.disabled:
             self.pick_task()
+
+    def action_brainstorm(self):
+        btn = self.query_one("#btn_brainstorm", Button)
+        if not btn.disabled:
+            self.brainstorm_task()
 
     def action_lock(self):
         btn = self.query_one("#btn_lock", Button)
@@ -2818,6 +2831,8 @@ class KanbanApp(TuiSwitcherMixin, App):
         Binding("n", "create_task", "New Task"),
         # Pick task (shown conditionally via check_action)
         Binding("p", "pick_task", "Pick"),
+        # Brainstorm task (shown conditionally via check_action)
+        Binding("b", "brainstorm_task", "Brainstorm"),
         # Expand/Collapse children (shown conditionally via check_action)
         Binding("x", "toggle_children", "Toggle Children"),
         # Column Movement
@@ -2873,6 +2888,10 @@ class KanbanApp(TuiSwitcherMixin, App):
             if not self.manager.get_child_tasks_for_parent(task_num):
                 return None
         elif action == "pick_task":
+            focused = self._focused_card()
+            if not focused:
+                return None
+        elif action == "brainstorm_task":
             focused = self._focused_card()
             if not focused:
                 return None
@@ -3321,6 +3340,26 @@ class KanbanApp(TuiSwitcherMixin, App):
                             self.push_screen(screen, on_pick_result)
                             return
                     self.run_aitask_pick(focused.task_data.filename)
+                elif result == "brainstorm":
+                    task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
+                    if task_num:
+                        num = task_num.lstrip("t")
+                        full_cmd = f"./{BRAINSTORM_TUI_SCRIPT} {num}"
+                        prompt_str = f"ait brainstorm {num}"
+                        screen = AgentCommandScreen(
+                            f"Brainstorm Task t{num}", full_cmd, prompt_str,
+                            default_window_name=f"brainstorm-{num}",
+                        )
+                        def on_brainstorm_result(brainstorm_result):
+                            if brainstorm_result == "run":
+                                self._run_brainstorm_in_terminal(num, focused.task_data.filename)
+                            elif isinstance(brainstorm_result, TmuxLaunchConfig):
+                                _, err = launch_in_tmux(screen.full_command, brainstorm_result)
+                                if err:
+                                    self.notify(err, severity="error")
+                            self.refresh_board(refocus_filename=focused.task_data.filename)
+                        self.push_screen(screen, on_brainstorm_result)
+                        return
                 elif result == "rename":
                     def on_rename_result(rename_result):
                         if rename_result and rename_result[0] == "rename":
@@ -3395,6 +3434,33 @@ class KanbanApp(TuiSwitcherMixin, App):
             self.push_screen(screen, on_pick_result)
         else:
             self.run_aitask_pick(focused.task_data.filename)
+
+    def action_brainstorm_task(self):
+        """Open brainstorm command dialog for the focused task."""
+        if self._modal_is_active():
+            return
+        focused = self._focused_card()
+        if not focused:
+            return
+        task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
+        if not task_num:
+            return
+        num = task_num.lstrip("t")
+        full_cmd = f"./{BRAINSTORM_TUI_SCRIPT} {num}"
+        prompt_str = f"ait brainstorm {num}"
+        screen = AgentCommandScreen(
+            f"Brainstorm Task t{num}", full_cmd, prompt_str,
+            default_window_name=f"brainstorm-{num}",
+        )
+        def on_brainstorm_result(brainstorm_result):
+            if brainstorm_result == "run":
+                self._run_brainstorm_in_terminal(num, focused.task_data.filename)
+            elif isinstance(brainstorm_result, TmuxLaunchConfig):
+                _, err = launch_in_tmux(screen.full_command, brainstorm_result)
+                if err:
+                    self.notify(err, severity="error")
+            self.refresh_board(refocus_filename=focused.task_data.filename)
+        self.push_screen(screen, on_brainstorm_result)
 
     @work(exclusive=True)
     async def run_editor(self, filepath):
@@ -3546,6 +3612,19 @@ class KanbanApp(TuiSwitcherMixin, App):
                 subprocess.call([str(CREATE_SCRIPT)])
             self.manager.load_tasks()
             self.refresh_board()
+
+    @work(exclusive=True)
+    async def _run_brainstorm_in_terminal(self, task_num: str, filename: str):
+        """Launch brainstorm TUI in a terminal or via suspend."""
+        terminal = find_terminal()
+        brainstorm_cmd = str(BRAINSTORM_TUI_SCRIPT)
+        if terminal:
+            subprocess.Popen([terminal, "--", brainstorm_cmd, task_num])
+        else:
+            with self.suspend():
+                subprocess.call([brainstorm_cmd, task_num])
+            self.manager.load_tasks()
+            self.refresh_board(refocus_filename=filename)
 
     # --- Expand/Collapse Children ---
 
