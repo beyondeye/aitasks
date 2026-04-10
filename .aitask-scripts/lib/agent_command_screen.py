@@ -26,6 +26,7 @@ Usage:
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -241,8 +242,8 @@ class AgentCommandScreen(ModalScreen):
 
         if self._tmux_available:
             self._populate_tmux_tab()
-            # Pre-select tmux tab if prefer_tmux is enabled
-            if self._tmux_defaults.get("prefer_tmux"):
+            # Pre-select tmux tab if prefer_tmux is enabled or running inside tmux
+            if self._tmux_defaults.get("prefer_tmux") or os.environ.get("TMUX"):
                 try:
                     self.query_one("#agent_cmd_tabs", TabbedContent).active = "tab_tmux"
                 except Exception:
