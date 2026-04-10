@@ -1892,6 +1892,8 @@ class SettingsApp(TuiSwitcherMixin, App):
         self._editing_layer: str = "project"  # track which layer is being edited
         self._editing_project_key: str | None = None
         self._repop_counter: int = 0  # ensures unique widget IDs across repopulations
+        self._tmux_tab_rc: int = 0  # counter snapshot for tmux tab widgets
+        self._profiles_tab_rc: int = 0  # counter snapshot for profiles tab widgets
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -2661,6 +2663,7 @@ class SettingsApp(TuiSwitcherMixin, App):
 
         self._repop_counter += 1
         rc = self._repop_counter
+        self._tmux_tab_rc = rc
 
         container.mount(Label("Tmux Settings", classes="section-header"))
         container.mount(Label(
@@ -2726,10 +2729,10 @@ class SettingsApp(TuiSwitcherMixin, App):
     def save_tmux_settings(self):
         container = self.query_one("#tmux_content", VerticalScroll)
         tmux_data: dict = {}
+        rc = self._tmux_tab_rc
 
         for key, info in TMUX_CONFIG_SCHEMA.items():
             stype = info.get("type", "string")
-            rc = self._repop_counter
 
             if stype == "string":
                 widget_id = f"tmux_cfg_{_safe_id(key)}_{rc}"
@@ -2783,7 +2786,7 @@ class SettingsApp(TuiSwitcherMixin, App):
 
         row_id = getattr(self, "_editing_tmux_row_id", None)
         if not row_id:
-            rc = self._repop_counter
+            rc = self._tmux_tab_rc
             row_id = f"tmux_cfg_{_safe_id(key)}_{rc}"
         try:
             row = self.query_one(f"#{row_id}", ConfigRow)
@@ -2905,6 +2908,7 @@ class SettingsApp(TuiSwitcherMixin, App):
         self._profile_id_map = {}
         self._repop_counter += 1
         rc = self._repop_counter
+        self._profiles_tab_rc = rc
         self._profiles_focus_target = focus_widget_id
 
         # --- Explanation ---
@@ -3142,7 +3146,7 @@ class SettingsApp(TuiSwitcherMixin, App):
     def _save_profile(self, filename: str):
         data = dict(self.config_mgr.profiles.get(filename, {}))
         safe_fn = _safe_id(filename)
-        rc = self._repop_counter
+        rc = self._profiles_tab_rc
 
         for key, (ktype, options) in PROFILE_SCHEMA.items():
             widget_id = f"profile_{key}__{safe_fn}_{rc}"
@@ -3279,7 +3283,7 @@ class SettingsApp(TuiSwitcherMixin, App):
         key = result["key"]
         value = result["value"]
 
-        rc = self._repop_counter
+        rc = self._profiles_tab_rc
         str_widget_id = f"profile_str_{key}__{_safe_id(profile_filename)}_{rc}"
         try:
             row = self.query_one(f"#{str_widget_id}", ConfigRow)
