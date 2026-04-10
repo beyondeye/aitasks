@@ -58,9 +58,9 @@ def _detect_current_session() -> str | None:
 # window_name must match what tmux uses (the -n flag when creating the window)
 KNOWN_TUIS = [
     ("board", "Task Board", "ait board"),
+    ("monitor", "tmux Monitor", "ait monitor"),
     ("codebrowser", "Code Browser", "ait codebrowser"),
     ("settings", "Settings", "ait settings"),
-    ("monitor", "tmux Monitor", "ait monitor"),
     ("diffviewer", "Diff Viewer", "ait diffviewer"),
 ]
 
@@ -72,7 +72,7 @@ def _build_tui_list():
         defaults = load_tmux_defaults(Path.cwd())
         git_tui = defaults.get("git_tui", "")
         if git_tui and git_tui != "none":
-            tuis.append(("git", f"Git ({git_tui})", git_tui))
+            tuis.insert(2, ("git", f"Git ({git_tui})", git_tui))
     except Exception:
         pass
     return tuis
