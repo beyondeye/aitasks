@@ -180,7 +180,7 @@ class _TuiListItem(ListItem):
             style = "dim"
         # Show shortcut hint if this TUI has one
         shortcut = _TUI_SHORTCUTS.get(self.tui_name)
-        hint = f" [dim]({shortcut})[/]" if shortcut and not self.is_current else ""
+        hint = f" [bold bright_cyan]({shortcut})[/]" if shortcut and not self.is_current else ""
         yield Static(f" {indicator}  [{style}]{self.tui_label}[/]{hint}")
 
 
@@ -239,6 +239,7 @@ class TuiSwitcherOverlay(ModalScreen):
         Binding("r", "shortcut_brainstorm", "Brainstorm", show=False),
         Binding("x", "shortcut_explore", "Explore", show=False),
         Binding("g", "shortcut_git", "Git", show=False),
+        Binding("n", "shortcut_create", "New Task", show=False),
     ]
 
     def __init__(self, session: str, current_tui: str = "") -> None:
@@ -252,8 +253,8 @@ class TuiSwitcherOverlay(ModalScreen):
             yield Label("TUI Switcher", id="switcher_title")
             yield _WrappingListView(id="switcher_list")
             yield Label(
-                "[dim]b[/]oard  [dim]c[/]ode  [dim]s[/]ettings  b[dim]r[/]ainstorm  [dim]g[/]it  e[dim]x[/]plore\n"
-                "[dim]Enter[/] switch  [dim]j/Esc[/] close",
+                "[bold bright_cyan](b)[/]oard  [bold bright_cyan](c)[/]ode  [bold bright_cyan](s)[/]ettings  b[bold bright_cyan](r)[/]ainstorm  [bold bright_cyan](g)[/]it  e[bold bright_cyan](x)[/]plore  [bold bright_cyan](n)[/]ew task\n"
+                "[bold bright_cyan]Enter[/] switch  [bold bright_cyan]j/Esc[/] close",
                 id="switcher_hint",
             )
 
@@ -408,6 +409,19 @@ class TuiSwitcherOverlay(ModalScreen):
             self.app.notify("Failed to launch explore", severity="error")
             return
         self.dismiss(window_name)
+
+    def action_shortcut_create(self) -> None:
+        """Launch ait create in a new tmux window."""
+        try:
+            subprocess.Popen(
+                ["tmux", "new-window", "-t", f"{self._session}:",
+                 "-n", "create-task", "ait create"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except (FileNotFoundError, OSError):
+            self.app.notify("Failed to launch create", severity="error")
+            return
+        self.dismiss("create-task")
 
     def _switch_to(self, name: str, running: bool, window_index: str | None = None) -> None:
         try:
