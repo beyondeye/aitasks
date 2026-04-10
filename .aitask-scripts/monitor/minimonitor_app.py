@@ -312,7 +312,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             event.prevent_default()
 
     def _nav(self, direction: int) -> None:
-        """Move focus up/down within the pane list and switch tmux window."""
+        """Move focus up/down within the pane list."""
         cards = list(self.query("#mini-pane-list MiniPaneCard"))
         if not cards:
             return
@@ -324,9 +324,6 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             return
         new_idx = max(0, min(len(cards) - 1, idx + direction))
         cards[new_idx].focus()
-        # Switch tmux to the newly focused agent's window (prefer minimonitor pane)
-        if self._monitor is not None and new_idx != idx:
-            self._monitor.switch_to_pane(cards[new_idx].pane_id, prefer_companion=True)
 
     # -- Focus tracking --------------------------------------------------------
 
