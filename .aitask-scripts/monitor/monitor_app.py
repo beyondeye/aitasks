@@ -329,6 +329,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         Binding("k", "kill_pane", "Kill"),
         Binding("n", "pick_next_sibling", "Next Sibling"),
         Binding("enter", "send_enter", "Send ↵", show=True),
+        Binding("a", "toggle_auto_switch", "Auto"),
     ]
 
     def __init__(
@@ -360,6 +361,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         self._delayed_refresh_timer: Timer | None = None
         self._preview_size_idx: int = PREVIEW_DEFAULT_SIZE
         self._task_cache = TaskInfoCache(project_root)
+        self._auto_switch: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -455,6 +457,12 @@ class MonitorApp(TuiSwitcherMixin, App):
         saved_zone = self._active_zone
 
         self._snapshots = self._monitor.capture_all()
+
+        # Auto-switch: if enabled and in pane list, move to most-idle agent
+        if self._auto_switch and saved_zone == Zone.PANE_LIST:
+            if self._maybe_auto_switch():
+                saved_pane_id = self._focused_pane_id
+
         self._rebuild_session_bar()
         self._rebuild_pane_list()
         self._update_content_preview()
@@ -489,6 +497,30 @@ class MonitorApp(TuiSwitcherMixin, App):
         self._delayed_refresh_timer = None
         await self._fast_preview_refresh()
 
+    def _maybe_auto_switch(self) -> bool:
+        """Switch focus to the most-idle agent if the current agent is active.
+
+        Returns True if focus was switched, False otherwise.
+        """
+        if self._focused_pane_id is None:
+            return False
+        current_snap = self._snapshots.get(self._focused_pane_id)
+        if current_snap is None or current_snap.pane.category != PaneCategory.AGENT:
+            return False
+        # If focused agent is idle, keep it — it needs attention
+        if current_snap.is_idle:
+            return False
+        # Find idle agents, sorted by most idle first
+        idle_agents = [
+            snap for snap in self._snapshots.values()
+            if snap.pane.category == PaneCategory.AGENT and snap.is_idle
+        ]
+        if not idle_agents:
+            return False
+        idle_agents.sort(key=lambda s: s.idle_seconds, reverse=True)
+        self._focused_pane_id = idle_agents[0].pane.pane_id
+        return True
+
     def _restore_focus(self, pane_id: str | None, zone: Zone) -> None:
         """Re-focus the previously focused widget after a rebuild."""
         if zone == Zone.PREVIEW:
@@ -507,9 +539,11 @@ class MonitorApp(TuiSwitcherMixin, App):
     def _rebuild_session_bar(self) -> None:
         total = len(self._snapshots)
         bar = self.query_one("#session-bar", SessionBar)
+        auto_tag = "  [bold yellow][AUTO][/]" if self._auto_switch else ""
         bar.update(
             f"tmux Monitor — session: {self._session} "
             f"({total} pane{'s' if total != 1 else ''})"
+            f"{auto_tag}"
             f"  [dim]Tab: switch panel[/]"
         )
 
@@ -532,7 +566,8 @@ class MonitorApp(TuiSwitcherMixin, App):
         others.sort(key=lambda s: (s.pane.window_index, s.pane.pane_index))
 
         if agents:
-            container.mount(Static(f"[bold]CODE AGENTS ({len(agents)})[/]", classes="section-header"))
+            auto_label = "  [bold yellow]⟳ AUTO[/]" if self._auto_switch else ""
+            container.mount(Static(f"[bold]CODE AGENTS ({len(agents)})[/]{auto_label}", classes="section-header"))
             for snap in agents:
                 if snap.is_idle:
                     idle_s = int(snap.idle_seconds)
@@ -814,6 +849,16 @@ class MonitorApp(TuiSwitcherMixin, App):
         scroll.styles.max_height = preview_h
         preview.styles.max_height = preview_h
         self.notify(f"Preview size: {label}")
+
+    def action_toggle_auto_switch(self) -> None:
+        """Toggle auto-switch mode on/off."""
+        self._auto_switch = not self._auto_switch
+        if self._auto_switch:
+            self.notify("Auto-switch ON: preview follows idle agents needing attention")
+        else:
+            self.notify("Auto-switch OFF: manual selection only")
+        self._rebuild_session_bar()
+        self._rebuild_pane_list()
 
     def action_show_task_info(self) -> None:
         """Show task detail dialog for the focused agent pane."""
