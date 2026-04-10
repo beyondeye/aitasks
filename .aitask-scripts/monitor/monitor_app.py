@@ -286,14 +286,15 @@ class MonitorApp(TuiSwitcherMixin, App):
         height: auto;
         max-height: 24;
         min-height: 3;
-        border-top: solid $primary-darken-2;
+        border-bottom: solid $primary-darken-2;
     }
 
     #content-section.zone-active {
-        border-top: solid $warning;
+        border-bottom: solid $warning;
     }
 
     #content-header {
+        dock: bottom;
         padding: 0 1;
         text-style: bold;
         color: $text-muted;
@@ -365,11 +366,11 @@ class MonitorApp(TuiSwitcherMixin, App):
         yield SessionBar(id="session-bar")
         yield VerticalScroll(id="pane-list")
         yield Container(
-            Static("[bold]Content Preview[/]", id="content-header"),
             ScrollableContainer(
                 PreviewPanel("", id="content-preview"),
                 id="preview-scroll",
             ),
+            Static("[bold]Content Preview[/]", id="content-header"),
             id="content-section",
         )
         yield Footer()
@@ -570,9 +571,17 @@ class MonitorApp(TuiSwitcherMixin, App):
         if self._focused_pane_id and self._focused_pane_id in self._snapshots:
             snap = self._snapshots[self._focused_pane_id]
             pane_label = f"({snap.pane.window_index}:{snap.pane.window_name})"
+            task_id = self._task_cache.get_task_id(snap.pane.window_name)
+            if task_id:
+                info = self._task_cache.get_task_info(task_id)
+                if info:
+                    if self._active_zone == Zone.PREVIEW:
+                        pane_label += f" [bold]t{task_id}: {info.title}[/]"
+                    else:
+                        pane_label += f" [dim italic]t{task_id}: {info.title}[/]"
             if self._active_zone == Zone.PREVIEW:
                 header.update(
-                    f"[bold]Content Preview[/] {pane_label} [bold green]LIVE[/]"
+                    f"[bold white]Content Preview[/] {pane_label} [bold green]LIVE[/]"
                 )
             else:
                 header.update(f"[bold]Content Preview[/] {pane_label}")
@@ -580,7 +589,7 @@ class MonitorApp(TuiSwitcherMixin, App):
             lines = snap.content.rstrip().splitlines()
             # Show lines proportional to the current preview size
             _, max_h, _ = PREVIEW_SIZES[self._preview_size_idx]
-            show_n = max_h - 1  # leave 1 line for header
+            show_n = max_h - 1  # leave 1 line for footer
             display_lines = lines[-show_n:] if len(lines) > show_n else lines
             if display_lines:
                 content = _ansi_to_rich_text("\n".join(display_lines))
