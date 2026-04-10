@@ -191,6 +191,9 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
 
         self._snapshots = self._monitor.capture_all()
 
+        # Keep window index fresh (handles tmux renumber-windows)
+        self._update_own_window_info()
+
         # Auto-close check (with 5-second grace period after mount)
         if self._own_window_id and (time.monotonic() - self._mount_time) > 5.0:
             self._check_auto_close()
@@ -198,8 +201,8 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         self._rebuild_session_bar()
         self._rebuild_pane_list()
 
-        # Defer focus restoration until after Textual processes DOM changes
-        self.call_after_refresh(self._restore_focus, saved_pane_id)
+        # Restore focus immediately — cards are in the DOM after mount()
+        self._restore_focus(saved_pane_id)
 
     def _check_auto_close(self) -> None:
         """Exit if no other panes remain in our window (besides ourselves)."""
@@ -210,6 +213,26 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         other_panes = [p for p in panes if p.pane_id != own_pane]
         if not other_panes:
             self.exit()
+
+    def _update_own_window_info(self) -> None:
+        """Re-query own window index (handles tmux renumber-windows)."""
+        own_pane = os.environ.get("TMUX_PANE", "")
+        if not own_pane:
+            return
+        try:
+            result = subprocess.run(
+                ["tmux", "display-message", "-p", "-t", own_pane,
+                 "#{window_id}\t#{window_index}"],
+                capture_output=True, text=True, timeout=2,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                parts = result.stdout.strip().split("\t")
+                if len(parts) >= 1:
+                    self._own_window_id = parts[0]
+                if len(parts) >= 2:
+                    self._own_window_index = parts[1]
+        except Exception:
+            pass
 
     def _restore_focus(self, pane_id: str | None) -> None:
         """Re-focus the previously focused card after a rebuild."""
