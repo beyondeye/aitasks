@@ -22,5 +22,5 @@ tmux:
     - git
   default_session: aitasks
   default_split: horizontal
-  prefer_tmux: true
+  prefer_tmux: false
   git_tui: lazygit
