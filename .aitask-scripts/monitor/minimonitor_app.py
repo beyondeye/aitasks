@@ -92,6 +92,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
 
     BINDINGS = [
         Binding("tab", "focus_sibling_pane", "Focus agent", show=False),
+        Binding("enter", "send_enter_to_sibling", "Send Enter", show=False),
         Binding("j", "tui_switcher", "Jump TUI", show=False),
         Binding("q", "quit", "Quit", show=False),
         Binding("s", "switch_to", "Switch", show=False),
@@ -130,7 +131,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         yield VerticalScroll(id="mini-pane-list")
         yield Static(
             "tab:agent  s/\u2191\u2193:switch  i:info\n"
-            "j:jump     r:refresh  q:quit",
+            "j:jump     r:refresh  q:quit  enter:send",
             id="mini-key-hints",
         )
 
@@ -346,6 +347,12 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             event.prevent_default()
             return
 
+        if key == "enter":
+            self._send_enter_to_sibling()
+            event.stop()
+            event.prevent_default()
+            return
+
         # Up/Down navigate within pane list
         if key == "up":
             self._nav(-1)
@@ -370,12 +377,16 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         new_idx = max(0, min(len(cards) - 1, idx + direction))
         cards[new_idx].focus()
 
-    def _focus_sibling_pane(self) -> None:
-        """Move tmux focus to the sibling pane in the minimonitor's window."""
+    def _find_sibling_pane_id(self) -> str | None:
+        """Return the pane_id of the first non-minimonitor pane in our window.
+
+        Notifies and returns None on failure (not in tmux, tmux error, no
+        sibling). Shared by the Tab focus handler and the Enter send handler.
+        """
         own_pane = os.environ.get("TMUX_PANE", "")
         if not own_pane or not self._own_window_id:
             self.notify("Not inside tmux", severity="warning")
-            return
+            return None
         try:
             result = subprocess.run(
                 ["tmux", "list-panes", "-t", self._own_window_id,
@@ -384,20 +395,27 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             )
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             self.notify("tmux error", severity="error")
-            return
+            return None
         if result.returncode != 0:
             self.notify("tmux list-panes failed", severity="error")
-            return
+            return None
         other_panes = [
             line.strip() for line in result.stdout.strip().splitlines()
             if line.strip() and line.strip() != own_pane
         ]
         if not other_panes:
             self.notify("No other pane in this window", severity="warning")
+            return None
+        return other_panes[0]
+
+    def _focus_sibling_pane(self) -> None:
+        """Move tmux focus to the sibling pane in the minimonitor's window."""
+        sibling = self._find_sibling_pane_id()
+        if sibling is None:
             return
         try:
             sel = subprocess.run(
-                ["tmux", "select-pane", "-t", other_panes[0]],
+                ["tmux", "select-pane", "-t", sibling],
                 capture_output=True, timeout=5,
             )
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
@@ -405,6 +423,17 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             return
         if sel.returncode != 0:
             self.notify("select-pane failed", severity="error")
+
+    def _send_enter_to_sibling(self) -> None:
+        """Send an Enter keystroke to the sibling pane in our tmux window."""
+        if self._monitor is None:
+            self.notify("Monitor not ready", severity="warning")
+            return
+        sibling = self._find_sibling_pane_id()
+        if sibling is None:
+            return
+        if not self._monitor.send_keys(sibling, "Enter"):
+            self.notify("send-keys failed", severity="error")
 
     # -- Focus tracking --------------------------------------------------------
 
@@ -424,6 +453,9 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
 
     def action_focus_sibling_pane(self) -> None:
         """No-op — Tab is handled in on_key. Exists for Binding registration."""
+
+    def action_send_enter_to_sibling(self) -> None:
+        """No-op — Enter is handled in on_key. Exists for Binding registration."""
 
     def action_switch_to(self) -> None:
         """Switch tmux focus to the focused pane's window (prefer minimonitor pane)."""
