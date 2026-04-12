@@ -5,7 +5,7 @@ depends: []
 issue_type: chore
 status: Implementing
 labels: [aitask_fold, task_workflow]
-children_to_implement: [t522_1, t522_2]
+children_to_implement: [t522_1, t522_2, t522_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-12 08:08
 updated_at: 2026-04-12 09:55
