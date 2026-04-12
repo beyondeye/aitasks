@@ -252,3 +252,30 @@ Append to this plan under "Final Implementation Notes" before archival, includin
 - Documenting `diffviewer` (explicitly excluded per project memory).
 - Updating `tuis/_index.md` landing page prose to introduce monitor (t519_6).
 - Capturing actual screenshots (follow-up task — HTML comment placeholders mark where they go).
+
+## Final Implementation Notes
+
+- **Actual work done:** Created three new files under `website/content/docs/tuis/monitor/`:
+  - `_index.md` (75 lines) — Tutorial: Launching, Understanding the Layout, Navigating, Jumping to Another TUI.
+  - `how-to.md` (157 lines) — 14 `### How to …` sections covering start/stop, pane list reading, zone navigation, preview-zone keystroke forwarding, send-enter shortcut, switch/kill/info/next-sibling agent actions, preview zoom, refresh, auto-switch, and session-name mismatch handling.
+  - `reference.md` (164 lines) — Keyboard shortcuts (split into Zone Navigation / Pane Interaction / Monitor Controls), Zone Model, Pane Classification, Preview Size Presets (S/M/L with exact heights from `PREVIEW_SIZES`), full Configuration table, Command-line Options (`--session`, `--interval`, `--lines`), Session-Name Fallback Dialog decision logic (6 steps), Environment Variables, Related Commands and TUIs.
+- **Weight chosen:** `15`. Rendered sidebar order (verified via generated HTML): board(10) → **monitor(15)** → codebrowser(20) → settings(30).
+- **Deviations from plan:**
+  - `_index.md` layout list changed from "four areas" to five: Header, Session bar, Pane list, Preview, Footer (the plan's outline missed the SessionBar widget — confirmed present via `monitor_app.py:373`).
+  - `{{< relref "/docs/commands/ide" >}}` was changed to `{{< relref "/docs/workflows/tmux-ide" >}}` in three places because no dedicated `ait ide` command page exists yet; the tmux-ide workflow page (from sibling t519_3) is the canonical cross-reference for the ide launcher. If t519_6 or a later task creates `/docs/commands/ide`, these relrefs can be re-pointed.
+- **Issues encountered:**
+  - First Hugo build failed with three `REF_NOT_FOUND` errors for `/docs/commands/ide`. Fixed by retargeting the cross-references to `/docs/workflows/tmux-ide` (which exists).
+- **Key decisions:**
+  - Documented all 12 BINDINGS exhaustively in the reference — plan's initial outline only listed 5. Split the key table into three logical sub-tables (Zone Navigation, Pane Interaction, Monitor Controls) for readability.
+  - Followed project memory `project_diffviewer_brainstorm.md` strictly: `diffviewer` is NOT mentioned in any of the three new pages, even though it is present in `DEFAULT_TUI_NAMES` and `KNOWN_TUIS`. The TUI classification rule is described without enumerating the default list.
+  - `brainstorm-` prefix behavior is explicitly called out in both how-to (pane list section) and reference (Pane Classification), so readers understand that brainstorm workspaces match by prefix rather than by literal name.
+  - Described the "Send Enter to a Blocked Agent" pattern as its own how-to section because it is a very common workflow pattern that deserves dedicated visibility (rather than being buried in the zone-navigation section).
+- **Notes for sibling tasks:**
+  - **t519_5 (minimonitor docs):** The three-file structure, shortcode conventions, and weight scheme used here are directly reusable. Pick weight `16` or `17` to place minimonitor adjacent to monitor in the sidebar. Copy the configuration table format from `reference.md`. Minimonitor shares the same pane-classification rules via `tmux_monitor.py`, so that entire section can be near-identically reproduced. The `j` TUI switcher shortcut is also present in minimonitor (via `TuiSwitcherMixin`), so the "How to Jump to Another TUI" section can be lifted almost verbatim.
+  - **t519_6 (TUI switcher docs + footer label):** Exact relref paths for the new monitor pages:
+    - `{{< relref "/docs/tuis/monitor" >}}` — overview
+    - `{{< relref "/docs/tuis/monitor/how-to" >}}` — how-to guides
+    - `{{< relref "/docs/tuis/monitor/reference" >}}` — reference
+    Updating `tuis/_index.md` to introduce monitor in the landing-page prose is still pending and belongs to t519_6. The parent `tuis/_index.md` currently only describes board, codebrowser, and settings.
+  - **`ait ide` command page:** There is no `/docs/commands/ide` page. All current mentions of `ait ide` in the docs (getting-started, workflows/tmux-ide, commands/_index) link to `workflows/tmux-ide` or `installation/terminal-setup`. If a later task creates a dedicated command reference page, update the three `relref` calls in `tuis/monitor/_index.md`, `tuis/monitor/reference.md` (×2) from `/docs/workflows/tmux-ide` to `/docs/commands/ide`.
+- **Build verification:** `hugo --gc --minify` reports 124 pages, zero errors, zero warnings. HTML comment screenshot placeholders are stripped from the rendered HTML by the minifier (verified: `grep -c SCREENSHOT public/docs/tuis/monitor/*.html` returns 0). All internal `relref` links resolve.
