@@ -264,3 +264,58 @@ Manual test inside an `aitasks` tmux session (same setup as t524):
 After implementation and user review (Step 8), follow task-workflow Step 9:
 commit code changes separately from the plan file, archive via
 `./.aitask-scripts/aitask_archive.sh 526`, and push.
+
+## Final Implementation Notes
+
+- **Actual work done:** All six plan steps implemented exactly as designed in a
+  single file, `.aitask-scripts/monitor/minimonitor_app.py`:
+  1. Extracted `_find_sibling_pane_id() -> str | None` from the existing
+     `_focus_sibling_pane()` body. The helper owns all "not in tmux", "tmux
+     error", and "no sibling pane" notifications so both Tab and Enter
+     handlers produce consistent UX. `_focus_sibling_pane()` now calls the
+     helper and only keeps the `tmux select-pane` logic.
+  2. Added `_send_enter_to_sibling()` — guards on `self._monitor is None`,
+     calls the shared helper to find the sibling, then delegates to
+     `self._monitor.send_keys(sibling, "Enter")` (reusing the same
+     `TmuxMonitor.send_keys` helper `monitor_app.py:754` uses). Failure from
+     `send_keys` triggers a `self.notify("send-keys failed", severity="error")`.
+  3. Added `Binding("enter", "send_enter_to_sibling", "Send Enter", show=False)`
+     immediately after the existing Tab binding in `BINDINGS`, keeping the two
+     pane-targeting bindings adjacent.
+  4. Added no-op `action_send_enter_to_sibling` alongside
+     `action_focus_sibling_pane` (required for Binding registration — real
+     logic lives in `on_key`).
+  5. Added an `enter` branch in `on_key` immediately after the existing `tab`
+     branch (both sit after the modal-screen guard so `TaskDetailDialog`'s own
+     Enter handling is preserved). Calls `_send_enter_to_sibling()` then
+     stops/prevents the event.
+  6. Updated the `#mini-key-hints` footer's second line from
+     `"j:jump     r:refresh  q:quit"` to
+     `"j:jump     r:refresh  q:quit  enter:send"`, using the open slot t524's
+     plan explicitly left for this follow-up.
+- **Deviations from plan:** None. Every step landed exactly as drafted.
+- **Issues encountered:** None. `python -m py_compile` passed on the first
+  attempt.
+- **Key decisions:**
+  - Shared helper signature returns `str | None` rather than raising — this
+    keeps the two callers simple (`if sibling is None: return`) and lets the
+    helper own user-facing notifications so both Tab and Enter remain
+    UX-consistent.
+  - Used `self._monitor.send_keys(sibling, "Enter")` instead of a third
+    direct `subprocess.run(["tmux", "send-keys", ...])` call in this file.
+    This matches the `monitor_app.py:754` pattern, avoids duplicating
+    tmux-subprocess plumbing, and keeps only one pattern in this file for
+    "run tmux directly" (the list-panes/select-pane calls in the focus
+    helper).
+  - Guarded `_send_enter_to_sibling` on `self._monitor is None` even though
+    `_start_monitoring` normally runs in `on_mount` — the minimonitor early-
+    returns from `on_mount` when not inside tmux, which leaves `_monitor`
+    None. The guard mirrors the pattern used elsewhere in this file (e.g.
+    `action_switch_to`).
+  - Inserted the Enter branch after the Tab branch in `on_key` to keep the
+    two pane-targeting bindings visually grouped; order doesn't matter for
+    correctness since Tab and Enter are distinct keys.
+- **Verification:** `python -m py_compile .aitask-scripts/monitor/minimonitor_app.py`
+  passed. Manual test inside tmux was left to the user — the implementation
+  is a textual-layer refactor + a single new event branch that delegates to
+  pre-existing infrastructure, so functional risk is low.
