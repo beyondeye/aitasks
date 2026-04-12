@@ -12,47 +12,56 @@ Base branch: main
 
 ## Goal
 
-Create a new `website/content/docs/tuis/monitor/` directory with three files (`_index.md`, `how-to.md`, `reference.md`) that fully document the `ait monitor` TUI. There is currently ZERO documentation for this centerpiece TUI.
+Create a new `website/content/docs/tuis/monitor/` directory with three files (`_index.md`, `how-to.md`, `reference.md`) that fully document the `ait monitor` TUI — the orchestrator TUI of the ait tmux-based IDE workflow. There is currently ZERO documentation for this centerpiece TUI.
+
+## Verification notes (from pre-implementation plan verification)
+
+Sibling TUI docs at `website/content/docs/tuis/`:
+
+| TUI | weight | title | linkTitle |
+|-----|--------|-------|-----------|
+| `board` | 10 | Kanban Board | Board |
+| `codebrowser` | 20 | Code Browser | Code Browser |
+| `settings` | 30 | Settings | Settings |
+
+- No existing `monitor/` directory.
+- Inner pages use `weight: 10` for how-to and `weight: 20` for reference (consistent).
+- Shortcodes used: `{{< static-img src="imgs/aitasks_<tui>_<feature>.svg" alt="…" caption="…" >}}` for real screenshots; `<!-- SCREENSHOT: … -->` HTML comments for planned screenshots. Cross-links via `{{< relref "/docs/…" >}}`. Hugo docsy theme sorts by `weight` alone.
+- `_index.md` structure uses a `## Tutorial` H2 with H3 subsections (Launching, Understanding layout, Navigating, …). `how-to.md` uses `### How to …` H3 sections. `reference.md` uses H3 sections with markdown tables.
+
+Source-of-truth references (`.aitask-scripts/monitor/`):
+
+- `monitor_app.py`
+  - `BINDINGS` list at **lines 325–338** (12 bindings — see Step 4 table).
+  - `Zone` enum at **lines 52–57** → `PANE_LIST`, `PREVIEW`.
+  - `SessionRenameDialog` at **lines 118–182** (single block).
+  - `_detect_tmux_session()` at **lines 1019–1032**; main() session-resolution logic at **lines 1049–1088**.
+- `tmux_monitor.py`
+  - `DEFAULT_TUI_NAMES` at **line 30**.
+  - Pane classification in `discover_panes()` at **lines 99–107**.
+- `lib/tui_switcher.py`
+  - `KNOWN_TUIS` at **lines 59–65**: `board`, `monitor`, `codebrowser`, `settings`, `diffviewer`. Note: `brainstorm` is NOT a static entry — handled as a `brainstorm-*` prefix in `tmux_monitor.py`. `minimonitor` is a TUI via prefix/name.
+- `aitask_ide.sh` — sibling t519_1 launcher, already archived. Takes `--session NAME`, resolves from `project_config.yaml → tmux.default_session` (default `"aitasks"`). Always passes an explicit session name, bypassing `SessionRenameDialog`.
+
+Configuration (confirmed paths in `aitasks/metadata/project_config.yaml`):
+- `tmux.default_session`, `tmux.default_split`, `tmux.prefer_tmux`, `tmux.git_tui`
+- `tmux.monitor.refresh_seconds`, `tmux.monitor.idle_threshold_seconds`, `tmux.monitor.capture_lines`
+- `tmux.monitor.agent_window_prefixes` (default `["agent-"]`)
+- `tmux.monitor.tui_window_names` (default includes `board`, `codebrowser`, `settings`, `brainstorm`, `monitor`, `minimonitor`, `diffviewer`, `git`)
+
+**Documentation policy:** per project memory (`project_diffviewer_brainstorm.md`), `diffviewer` must NOT be documented on the website even though it appears in the code-level TUI lists. Docs describe the config-driven classification rule without listing diffviewer by name.
 
 ## Step-by-step implementation
 
-### Step 1 — Inspect existing TUI docs structure
-
-```bash
-ls website/content/docs/tuis/
-ls website/content/docs/tuis/board/
-cat website/content/docs/tuis/board/_index.md
-cat website/content/docs/tuis/board/how-to.md
-cat website/content/docs/tuis/board/reference.md
-```
-
-Note:
-- Front-matter fields used (title, description, weight, aliases).
-- H2 heading conventions.
-- Shortcode usage (`{{< static-img >}}`, tables, code blocks).
-- Existing `weight:` values in sibling `_index.md` files — pick a value for monitor that places it deliberately in the sidebar order.
-
-### Step 2 — Read the source of truth
-
-Read carefully:
-- `.aitask-scripts/monitor/monitor_app.py` — especially:
-  - Top of file for app class layout.
-  - `BINDINGS` list for key bindings.
-  - Lines 118–165, 402–435 for `SessionRenameDialog`.
-  - Lines 1019–1074 for session-name resolution.
-- `.aitask-scripts/monitor/tmux_monitor.py` — `discover_panes()` and pane classification logic.
-- `.aitask-scripts/lib/tui_switcher.py` — the `j` key integration (monitor uses the mixin too).
-- `.aitask-scripts/aitask_monitor.sh` — the launcher.
-
-Build a mental model of exactly what the user sees and what each key does. Do NOT rely on the earlier exploration summary alone — the code is the source of truth.
-
-### Step 3 — Create the directory
+### Step 1 — Create directory
 
 ```bash
 mkdir -p website/content/docs/tuis/monitor
 ```
 
-### Step 4 — Write `_index.md`
+### Step 2 — Write `_index.md` (weight: 15)
+
+Weight `15` places monitor between `board` (10) and `codebrowser` (20) for prominent sidebar positioning without collisions.
 
 Front-matter:
 
@@ -60,134 +69,175 @@ Front-matter:
 ---
 title: "Monitor"
 linkTitle: "Monitor"
-description: "tmux pane monitor and orchestrator TUI"
-weight: <pick deliberately; verify against board/codebrowser/settings weights>
+description: "tmux pane monitor and orchestrator TUI — the dashboard of the ait tmux IDE"
+weight: 15
 ---
 ```
 
-**Do not** add `aliases:` unless you've verified uniqueness.
+Do NOT add `aliases:`.
 
-Body outline:
+Body outline (match `tuis/board/_index.md` conventions):
 
-- **H2 Purpose** — what monitor is, why you want it. Key phrase: "the dashboard of the ait tmux-based IDE".
-- **H2 When to use** — you're inside tmux and want a live overview of running code agents, open TUIs, and other panes.
-- **H2 At a glance** — bullets:
-  - Two-zone layout: session list + live preview.
-  - Classifies tmux panes as agents, TUIs, or others.
-  - Preview panel shows live content and forwards keystrokes to the pane.
-  - `j` opens the TUI switcher (navigate to board, minimonitor, codebrowser, settings, brainstorm).
-- HTML comment placeholder: `<!-- TODO screenshot: aitasks_monitor_main_view.svg -->`
-- **H2 Next steps** — link to how-to and reference.
+- Short intro paragraph: monitor is the dashboard of the ait tmux-based IDE — a single live view of all running code agents, open TUIs, and other tmux panes, with keystroke forwarding into the focused pane.
+- `<!-- SCREENSHOT: aitasks_monitor_main_view.svg — monitor dashboard showing agents and TUIs -->`
+- `## Tutorial`
+  - `### Launching` — recommended path: `ait ide` starts/attaches to the configured tmux session and opens monitor in one step. Standalone: `ait monitor` from inside an existing tmux session. Link to how-to via `{{< relref "/docs/tuis/monitor/how-to" >}}` for details.
+  - `### Understanding the layout` — two zones (pane list + preview). The pane list classifies tmux panes as **agents**, **TUIs**, or **others**. The preview panel shows the live content of the focused pane and forwards keystrokes directly into it.
+  - `### Navigating` — `Tab` cycles zones; `Up`/`Down` move within the pane list; `Enter` in the preview sends an Enter keystroke.
+  - `### Jumping between TUIs` — pressing `j` opens the TUI switcher overlay (list of known TUIs). Brief mention; deep dive in how-to and reference.
+- `## See also` — links to `how-to.md` and `reference.md` via `{{< relref >}}`.
 
-### Step 5 — Write `how-to.md`
+### Step 3 — Write `how-to.md` (weight: 10)
 
-Body outline:
+Front-matter:
 
-1. **H2 Starting monitor**
-   - Recommended: `ait ide` (creates/attaches to the session and opens monitor in one step).
+```yaml
+---
+title: "How-to"
+linkTitle: "How-to"
+description: "Task-oriented guide for using ait monitor"
+weight: 10
+---
+```
+
+Body outline (H3 `### How to …` sections):
+
+1. **How to start monitor**
+   - Recommended: `ait ide` — it resolves the session name from config and avoids the rename dialog.
    - Standalone: from inside tmux, run `ait monitor`.
-   - Brief mention of the session-rename fallback dialog + link to the reference page for details.
+   - Mention that launching inside a tmux session whose name differs from `tmux.default_session` triggers the session-rename dialog; cross-link to reference for details.
 
-2. **H2 Understanding the panels**
-   - The session list zone (left/top) — shows agents, TUIs, and others with idle indicators.
-   - The preview zone (right/main) — live view of the currently-selected pane. Verify layout against `monitor_app.py`.
-   - Pane classification:
-     - **Agents** — windows matching agent naming patterns (check `tmux_monitor.py` for exact regex).
-     - **TUIs** — windows named `board`, `monitor`, `codebrowser`, `settings`, `brainstorm`, `minimonitor`. **Do not document diffviewer** per project direction.
-     - **Others** — shells, logs, anything else.
+2. **How to read the pane list**
+   - Three groups: **agents** (running code agents), **TUIs** (board, monitor, minimonitor, codebrowser, settings, brainstorm), **others** (shells, logs, anything else).
+   - Idle indicators highlight panes that haven't produced new output recently.
+   - Classification is config-driven — see reference for exact rules.
 
-3. **H2 Navigating**
-   - `Tab` — cycle between session-list and preview zones.
-   - `Up`/`Down` — move within the session list.
-   - `Enter` (in preview) — send an Enter keystroke to the focused pane.
-   - In preview, all other keystrokes are forwarded — you can interact with whatever is running in the pane.
+3. **How to navigate**
+   - `Tab` — cycle between pane list and preview zones.
+   - `Up`/`Down` — move within the pane list.
+   - `Enter` (preview zone) — send an Enter keystroke to the focused pane.
+   - In the preview zone, other keystrokes are forwarded directly to the pane so you can interact with whatever is running in it.
 
-4. **H2 Jumping to another TUI**
+4. **How to jump to another TUI**
    - Press `j` → TUI switcher dialog appears.
-   - Select any of: board, monitor, minimonitor, codebrowser, settings, brainstorm.
-   - The switcher either selects an existing tmux window or creates a new one.
-   - HTML comment placeholder: `<!-- TODO screenshot: aitasks_tui_switcher_dialog.svg -->`
+   - Pick a target from the list (board, monitor, minimonitor, codebrowser, settings, brainstorm). The switcher either selects an existing tmux window or creates a new one running that TUI.
+   - `<!-- SCREENSHOT: aitasks_tui_switcher_dialog.svg -->`
+   - Do NOT list `diffviewer` here (per project direction).
 
-5. **H2 Session-name mismatch**
-   - Short explanation: if you launched tmux without a session name (or with a mismatched one), monitor offers to rename the session to match the configured `default_session`.
-   - Recommendation: use `ait ide` to avoid the dialog entirely.
+5. **How to refresh, zoom, and manage panes**
+   - `r` (or `F5`) — refresh the pane list.
+   - `z` — cycle preview size (zoom in/out on the preview panel).
+   - `k` — kill the focused pane.
+   - `s` — switch tmux to the focused pane.
+   - `i` — show task info for the focused pane (if it's a code agent working on a task).
+   - `n` — pick the next sibling task.
+   - `a` — toggle auto-switch.
 
-6. **H2 Quitting**
-   - `q` — quit.
+6. **How to quit**
+   - `q` — quits monitor; the tmux window closes.
 
-### Step 6 — Write `reference.md`
+7. **How to handle a session-name mismatch**
+   - What triggers it: running `ait monitor` in a tmux session whose name differs from `tmux.default_session` AND the configured session does not already exist.
+   - What it does: `SessionRenameDialog` offers to rename the current session.
+   - Recommended fix: use `ait ide` which always passes an explicit session name.
 
-Body outline:
+### Step 4 — Write `reference.md` (weight: 20)
 
-1. **H2 Key bindings**
+Front-matter:
 
-   Table format — cross-reference `monitor_app.py` `BINDINGS` list for completeness:
+```yaml
+---
+title: "Reference"
+linkTitle: "Reference"
+description: "Complete reference for ait monitor keybindings and configuration"
+weight: 20
+---
+```
+
+Body outline (H3 sections + tables):
+
+1. **Keyboard shortcuts**
+
+   Complete table — verify against `monitor_app.py:325-338` while writing:
 
    | Key | Action | Scope |
    |-----|--------|-------|
    | `Tab` | Cycle zones | Global |
-   | `Up` / `Down` | Navigate pane list | Session list zone |
-   | `Enter` | Send Enter to focused pane | Preview zone |
+   | `Up` / `Down` | Navigate pane list | Pane list zone |
+   | `Enter` | Send Enter keystroke to focused pane | Preview zone |
    | `j` | Open TUI switcher | Global |
+   | `s` | Switch to focused pane | Pane list zone |
+   | `i` | Show task info for focused pane | Pane list zone |
+   | `r` / `F5` | Refresh pane list | Global |
+   | `z` | Cycle preview size (zoom) | Global |
+   | `k` | Kill focused pane | Pane list zone |
+   | `n` | Pick next sibling task | Global |
+   | `a` | Toggle auto-switch | Global |
    | `q` | Quit monitor | Global |
-   | (any others from BINDINGS) | ... | ... |
 
-2. **H2 Configuration**
+   In the preview zone, all non-bound keystrokes are forwarded to the focused tmux pane.
 
-   Settings that affect monitor, from `aitasks/metadata/project_config.yaml`:
-   - `tmux.default_session` — the session name monitor expects and uses.
+2. **Configuration**
+
+   Settings from `aitasks/metadata/project_config.yaml`:
+
+   - `tmux.default_session` — expected tmux session name; monitor refuses to rename if absent.
    - `tmux.default_split` — how new panes are split.
    - `tmux.prefer_tmux` — whether tmux-based workflows are the default.
-   - `tmux.git_tui` — which git TUI the switcher jumps to.
+   - `tmux.git_tui` — which git TUI (e.g., `lazygit`) the switcher opens.
+   - `tmux.monitor.refresh_seconds` — pane-list refresh cadence.
+   - `tmux.monitor.idle_threshold_seconds` — idle-marker threshold for the pane list.
+   - `tmux.monitor.capture_lines` — preview capture depth.
+   - `tmux.monitor.agent_window_prefixes` — window-name prefixes that mark a pane as an agent.
+   - `tmux.monitor.tui_window_names` — window names classified as TUIs.
 
-   Mention that these can be edited interactively via `ait settings` → Tmux tab.
+   All editable interactively via `{{< relref "/docs/tuis/settings" >}}` → Tmux tab.
 
-3. **H2 Session-name fallback dialog**
+3. **Pane classification**
 
-   Describe `SessionRenameDialog`:
-   - **When it fires:** the current tmux session name differs from the configured `default_session`, AND the configured session does not already exist.
-   - **What it does:** offers to rename the current tmux session to the configured name.
-   - **How to avoid it:** use `ait ide`, which always passes an explicit session name.
+   `discover_panes()` categorizes each tmux window:
+
+   - **Agent** — window name starts with any prefix from `tmux.monitor.agent_window_prefixes` (default `agent-`).
+   - **TUI** — window name is listed in `tmux.monitor.tui_window_names`, OR starts with `brainstorm-` (prefix-based special case for brainstorm workspaces).
+   - **Other** — anything else (shells, logs, ad-hoc windows).
+
+   Document the rule only; do not enumerate the default TUI name list verbatim and do not mention `diffviewer`.
+
+4. **Session-name fallback dialog**
+
+   - **When it fires:** the current tmux session name differs from `tmux.default_session`, AND the configured session does not already exist.
+   - **What it does:** `SessionRenameDialog` offers to rename the current tmux session to the configured name.
+   - **Avoid it:** use `ait ide`, which always passes an explicit session name.
    - **Manual workaround:** `tmux rename-session -t $OLD $NEW`.
 
-4. **H2 Pane classification rules**
-
-   Describe briefly how `discover_panes()` categorizes panes. Verify against `tmux_monitor.py`:
-   - Pattern-based window name matching for agents.
-   - Known-TUI list for TUIs.
-   - Everything else falls into "others".
-
-   Keep this section short — link to the source file for exact logic.
-
-### Step 7 — Verification
+### Step 5 — Verification
 
 ```bash
 cd website && hugo --gc --minify
 ```
 
-- No build errors.
-- No broken internal links.
-- No missing-image warnings.
+- Zero build errors or warnings (missing-image, broken `relref`, etc.).
 
 ```bash
 cd website && ./serve.sh
 ```
 
-- `/docs/tuis/monitor/` renders correctly.
-- `/docs/tuis/monitor/how-to/` renders.
-- `/docs/tuis/monitor/reference/` renders.
-- Sidebar weight places monitor where expected.
+- `/docs/tuis/monitor/`, `/docs/tuis/monitor/how-to/`, `/docs/tuis/monitor/reference/` all render.
+- Sidebar places monitor between board and codebrowser (weight 15).
 - HTML comment placeholders are NOT rendered as visible text.
-- All cross-links resolve (where target pages exist).
+- All internal `relref` links resolve (board/codebrowser/settings targets exist).
+- No missing-image warnings (we don't add any live `{{< static-img >}}` without matching asset files).
 
-### Step 8 — Final plan notes
+### Step 6 — Final implementation notes
 
-Add Final Implementation Notes before archival:
-- The exact weight value chosen.
-- Any BINDINGS discovered in `monitor_app.py` that weren't in the outline above.
-- Any session-rename or pane-classification nuances discovered while reading the source.
-- Notes for t519_5 (minimonitor shares conventions; point out reusable copy).
-- Notes for t519_6 (the `tuis/_index.md` update must link to these new pages — give the exact URL paths).
+Append to this plan under "Final Implementation Notes" before archival, including:
+
+- Final weight chosen (15).
+- Any additional `BINDINGS` found in `monitor_app.py` beyond the 12 listed above.
+- Any nuances in `SessionRenameDialog` or `_detect_tmux_session()` discovered while writing.
+- Reusable conventions for sibling tasks:
+  - **t519_5** (minimonitor): same three-file structure and shortcode conventions. Pick an adjacent weight (16 or 17).
+  - **t519_6** (TUI switcher + footer label): exact relref paths for the new monitor pages: `/docs/tuis/monitor/`, `/docs/tuis/monitor/how-to/`, `/docs/tuis/monitor/reference/`.
 
 ## Files to create
 
@@ -197,7 +247,8 @@ Add Final Implementation Notes before archival:
 
 ## Out of scope
 
-- Documenting minimonitor (t519_5).
+- Documenting `minimonitor` (t519_5).
 - Documenting the TUI switcher itself (t519_6).
-- Documenting diffviewer (explicitly excluded).
-- Screenshots (follow-up task).
+- Documenting `diffviewer` (explicitly excluded per project memory).
+- Updating `tuis/_index.md` landing page prose to introduce monitor (t519_6).
+- Capturing actual screenshots (follow-up task — HTML comment placeholders mark where they go).
