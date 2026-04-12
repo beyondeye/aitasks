@@ -298,3 +298,64 @@ Expected: 4 modified files (`aitask_board.py`, `codebrowser_app.py`,
 Per task-workflow Step 9: after implementation + review, run
 `./.aitask-scripts/aitask_archive.sh 521_3`. This is the last sibling of
 t521, so the archive script will auto-archive the parent t521.
+
+## Final Implementation Notes
+
+- **Actual work done:** Extended the `agent_launch_utils` import with
+  `resolve_agent_string` in 4 files. Threaded `project_root`, `operation`,
+  `operation_args`, `default_agent_string` through 4 existing
+  `AgentCommandScreen` call sites (2 pick in `aitask_board.py`, explain
+  in `codebrowser_app.py`, qa in `history_screen.py`). For `monitor_app.py`
+  — which previously launched directly via `launch_in_tmux` with no
+  dialog — added a new `AgentCommandScreen` modal wrapper around the
+  next-sibling pick flow, moving the tmux launch into the screen
+  callback. Also applied a small CSS touch-up to
+  `lib/agent_command_screen.py` to vertically center the agent row
+  label against the (A)gent button (originally shipped with t521_2).
+- **Deviations from plan:** Original draft plan claimed 6
+  `AgentCommandScreen` call sites including one in `monitor_app.py` at
+  line 978. Verification at pick time showed zero uses of
+  `AgentCommandScreen` in monitor — it launched tmux directly. Per user
+  direction during plan verification, the monitor change became a
+  dialog **insertion** (not a thread-through), mirroring the board pick
+  pattern. A second small deviation: the plan did not explicitly list
+  the brainstorm call site at `aitask_board.py:3443`, which was left
+  unchanged because brainstorm is not a code-agent operation and the
+  agent row should stay hidden.
+- **Issues encountered:** None technical. One small UX issue surfaced
+  during user review (agent label vertically misaligned with button),
+  fixed in the same commit (see Post-Review Changes below).
+- **Key decisions:**
+  - For monitor, the pane-kill step stays **before** pushing the
+    dialog so the old pane is gone whether or not the user confirms
+    launch — preserves current UX.
+  - `pick_result == "run"` (run-in-current-terminal) is not supported
+    in monitor's dialog callback since the previous direct-launch
+    flow had no equivalent path.
+  - For `aitask_board.py` call sites, used `Path(".")` for
+    `project_root` (no `self._project_root` available), matching how
+    existing `resolve_dry_run_command` calls work in that file.
+- **Notes for sibling tasks:** This was the last sibling of t521 —
+  parent will be auto-archived. Pattern for threading the picker
+  through any future TUI that launches code agents: extend the
+  `agent_launch_utils` import with `resolve_agent_string`, pass
+  `operation`, `operation_args`, `project_root`, and
+  `default_agent_string` to `AgentCommandScreen(...)`, and keep the
+  existing tmux launch callback unchanged — the dialog handles
+  everything. For TUIs that don't currently use the dialog (like
+  monitor did), wrap the launch in a dialog and move the tmux call
+  into the `on_pick_result` callback.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-04-12 12:xx)
+- **Requested by user:** Style fix — the single-line `Agent:` label in
+  the dialog's agent row was top-aligned, while the `(A)gent` button
+  occupies 3 rows. Label should be vertically centered against the
+  button.
+- **Changes made:** Updated `#agent_row Label` CSS in
+  `.aitask-scripts/lib/agent_command_screen.py` to add `height: 3` and
+  `content-align: left middle` so the label spans the row and centers
+  its text vertically. This is a cross-task touch-up on t521_2's CSS,
+  noted here because the issue was surfaced while reviewing t521_3.
+- **Files affected:** `.aitask-scripts/lib/agent_command_screen.py`
