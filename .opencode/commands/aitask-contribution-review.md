@@ -1,0 +1,13 @@
+---
+description: Analyze a contribution issue, find related issues, and import as grouped or single task.
+---
+
+@.opencode/skills/opencode_tool_mapping.md
+
+@.opencode/skills/opencode_planmode_prereqs.md
+
+Execute the following Claude Code skill workflow.
+
+Arguments: $ARGUMENTS
+
+@.claude/skills/aitask-contribution-review/SKILL.md
