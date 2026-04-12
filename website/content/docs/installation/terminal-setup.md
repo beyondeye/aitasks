@@ -1,52 +1,90 @@
 ---
-title: "Terminal Setup & Monitoring"
+title: "Terminal Setup"
 linkTitle: "Terminal Setup"
 weight: 30
-description: "Multi-tab terminal workflow and monitoring during implementation"
+description: "Terminal emulator choice, tmux, and the ait ide workflow"
 ---
 
-## Multi-Tab Terminal Workflow
+## Terminal emulator vs. terminal multiplexer
 
-The aitasks framework is built for terminal-centric development. Using a terminal emulator that supports multiple tabs or panes — switchable with keyboard shortcuts — makes the workflow significantly more efficient.
+Two distinct pieces of software cooperate when you use aitasks from the terminal:
 
-**Some good terminal emulators:**
+- A **terminal emulator** is the GUI application you run — Ghostty, WezTerm, Alacritty, kitty, iTerm2, Konsole, gnome-terminal, and so on.
+- A **terminal multiplexer** runs *inside* a terminal emulator and splits your single terminal window into multiple independent sessions, windows, and panes. [**tmux**](https://github.com/tmux/tmux/wiki) is the multiplexer aitasks integrates with.
 
-- [**Warp**](https://www.warp.dev/) — Modern terminal with built-in Claude Code integration, multi-tab support, and real-time diff viewing. Available for Linux, macOS, and Windows
-- [**tmux**](https://github.com/tmux/tmux/wiki) — Terminal multiplexer with split panes and sessions. Works everywhere
-- [**Ghostty**](https://ghostty.org/) — Fast GPU-accelerated terminal with tabs and splits
-- [**WezTerm**](https://wezfurlong.org/wezterm/) — Highly configurable GPU-accelerated terminal with built-in multiplexer, tabs, and panes. Available for Linux, macOS, and Windows
+tmux is **not** a terminal emulator — it always runs inside one.
 
-**Typical tab layout:**
+## Requirements
 
-| Tab | Purpose |
-|-----|---------|
-| Tab 1 | Main code agent session (Claude Code, Gemini CLI, Codex CLI, OpenCode, etc.) running [`/aitask-pick`](../skills/aitask-pick/) |
-| Tab 2 | [`ait board`](../commands/board-stats/#ait-board) for visual task management and triage |
-| Tab 3 | [`ait create`](../commands/task-management/#ait-create) ready to launch for capturing new ideas |
-| Tab 4 | Git status / diff viewer ([lazygit](https://github.com/jesseduffield/lazygit), [delta](https://github.com/dandavison/delta), or plain `git diff`) for monitoring implementation changes |
-| Tab 5 | [`/aitask-explore`](../skills/aitask-explore/) session for exploring the codebase and capturing ideas from findings |
-| Tab 6+ | Additional code agent sessions — run multiple agents in parallel on different tasks (e.g., Claude Code on one task, Gemini CLI or Codex CLI on another) |
+- **A terminal emulator** — any modern choice works. Good options include [Ghostty](https://ghostty.org/), [WezTerm](https://wezfurlong.org/wezterm/), [Alacritty](https://alacritty.org/), [kitty](https://sw.kovidgoyal.net/kitty/), [iTerm2](https://iterm2.com/), [Konsole](https://konsole.kde.org/), or [gnome-terminal](https://help.gnome.org/users/gnome-terminal/stable/). They are listed without ranking — pick whatever you already use.
+- **[tmux](https://github.com/tmux/tmux/wiki) 3.x or newer** — required for the recommended workflow below. Install with your package manager (`brew install tmux`, `apt install tmux`, `pacman -S tmux`, etc.).
+- **ait** — installed and `ait setup` already run in your project. See the [installation overview]({{< relref "_index" >}}) if you haven't done that yet.
 
-**IDE alternative:** You can also run a terminal inside your IDE (VS Code, IntelliJ, etc.) and use another pane to watch file changes in real time. However, dedicated terminal emulators with keyboard-driven tab switching tend to be faster for this workflow.
+## Recommended workflow — `ait ide`
 
----
+The recommended way to start working on a project is a single command:
 
-## Monitoring While Implementing
+```bash
+cd /path/to/your/project
+ait ide
+```
 
-While [`/aitask-pick`](../skills/aitask-pick/) is running — especially during the exploration or implementation phases which can take several minutes — you can stay productive in other terminal tabs.
+That's it. `ait ide` is the headline entry point into the aitasks "IDE" — a single command that opens tmux, creates the session, and launches `ait monitor` in one go.
 
-**What to do while waiting:**
+Here's what happens under the hood:
 
-- **Triage tasks** — Open [`ait board`](../commands/board-stats/#ait-board) in another tab to review priorities, move tasks between kanban columns, update metadata (priority, effort, labels), and adjust dependencies. See the [Board documentation](../tuis/board/) for all available operations and keyboard shortcuts
-- **Capture new ideas** — As ideas come up during the implementation (which they often do while watching the agent work), quickly switch to a tab with [`ait create`](../commands/task-management/#ait-create) and write them down, or use [`/aitask-explore`](../skills/aitask-explore/) to investigate a hunch before turning it into a task. The key shortcut `n` in [`ait board`](../commands/board-stats/#ait-board) also launches task creation directly
-- **Review progress** — Watch the current diff in another tab to understand what changes are being made. [lazygit](https://github.com/jesseduffield/lazygit), Warp's built-in diff viewer, or a plain `git diff` all work well for this
+1. `ait ide` reads the tmux session name from `aitasks/metadata/project_config.yaml` under `tmux.default_session` (defaults to `aitasks` if unset), then attaches to — or creates — a tmux session with that exact name. Because the session name is always explicit, `ait monitor` never has to fall back to its interactive `SessionRenameDialog` on the happy path.
+2. A `monitor` window is created (or focused) inside the session, running [`ait monitor`](../../tuis/monitor/). From the monitor you get a live dashboard of running code agents, open TUIs, and other panes in the session.
+3. Inside any aitasks TUI — `ait board`, `ait monitor`, `ait minimonitor`, `ait codebrowser`, `ait settings`, `ait brainstorm` — pressing **`j`** opens the **TUI switcher** dialog, which lets you jump directly to any of the other TUIs without leaving tmux.
 
-This parallel workflow means the human never becomes a bottleneck waiting for the AI agent to finish. You are always either reviewing the agent's output, managing your task backlog, or capturing the next set of ideas.
+<!-- TODO screenshot: aitasks_ait_ide_startup.svg — the monitor dashboard immediately after running `ait ide` -->
 
-### Context Monitoring
+### Flags
 
-One of the key advantages of decomposing work into small connected tasks is reduced context usage — whichever code agent you use will generally perform better when it has more room in its context window. Monitoring context usage in real time helps you understand when a task is getting too large and should be split.
+`ait ide` is intentionally minimal:
 
-**Recommended plugin:**
+- `--session NAME` — use `NAME` instead of the configured `tmux.default_session`. Useful for running multiple projects side-by-side (see the gotcha below).
+- `-h`, `--help` — print usage and the shared-session note.
 
-- [**claude-hud**](https://github.com/jarrodwatts/claude-hud) — Claude Code plugin that displays real-time context window usage directly in your terminal. Useful if Claude Code is your primary agent. Shows token count, percentage filled, and alerts when context is getting large
+If you are already inside a tmux session whose name matches the configured one, `ait ide` just selects (or creates) the `monitor` window in your current session. If you are inside a tmux session whose name *differs*, `ait ide` refuses to nest — it prints a warning and exits non-zero rather than silently picking the wrong session.
+
+### One gotcha: `ait ide` is one view of a shared session
+
+This is the single most common source of confusion, so it is worth calling out on its own.
+
+tmux sessions are **shared across terminal clients**. If you open a second terminal and run `ait ide` again, you do **not** get a separate IDE — you get another view of the same session, showing the same windows, panes, and TUIs. Opening a window, resizing a pane, or switching TUIs in one terminal is immediately visible in all the others.
+
+To work on two projects in parallel, give each one its own session:
+
+```bash
+# Project A — uses the default session name
+cd ~/code/project-a
+ait ide
+
+# Project B — different session
+cd ~/code/project-b
+ait ide --session project-b
+```
+
+Or, better, configure a distinct `tmux.default_session` per project in each project's `aitasks/metadata/project_config.yaml`. Then a plain `ait ide` in each project root just works.
+
+## Minimal / non-tmux workflow
+
+If you cannot or do not want to use tmux, aitasks still runs. Open your terminal, `cd` to the project, and invoke each `ait` command directly in whichever terminal window or tab you prefer:
+
+```bash
+cd /path/to/your/project
+ait board      # or: ait monitor, ait codebrowser, ait settings, ...
+```
+
+This path is a fallback, not a recommendation. Without tmux you lose:
+
+- The TUI switcher (`j` key) — you cannot jump between TUIs in one keystroke.
+- Persistent agent windows — agents launched from the board terminate when you close their terminal, instead of surviving inside a persistent tmux session.
+- The unified `ait monitor` dashboard view of all running agents and TUIs.
+
+## Next steps
+
+- [Getting Started](../../getting-started/) — a walkthrough of a first task.
+- [The tmux IDE workflow](../../workflows/tmux-ide/) — end-to-end daily use of the `ait ide` session.
+- [Monitor TUI](../../tuis/monitor/) — full details of `ait monitor`, including the agent window list and the TUI switcher.
