@@ -27,15 +27,21 @@ Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-
 
 If this skill is invoked with arguments (e.g., `/aitask-fold 106,108,112` or `/aitask-fold 106 108 112`):
 
-- **Parse task IDs:** Split the argument string by commas and/or spaces to extract individual task IDs. Each ID should be a number (e.g., `106`) — child task IDs (e.g., `106_2`) are not supported for folding.
+- **Parse task IDs:** Split the argument string by commas and/or spaces to extract individual task IDs. Each ID can be either a parent task number (e.g., `106`) or a child task ID in the `<parent>_<child>` format (e.g., `106_2`).
 
 - **Validate each task ID:**
   For each parsed ID:
-  - Find the task file:
-    ```bash
-    ./.aitask-scripts/aitask_query_files.sh task-file <id>
-    ```
-    Parse the output: `TASK_FILE:<path>` means found (use that path), `NOT_FOUND` means not found.
+  - Find the task file — the resolution command depends on the ID format:
+    - **Parent task ID** (plain number, e.g., `106`):
+      ```bash
+      ./.aitask-scripts/aitask_query_files.sh task-file <id>
+      ```
+      Parse the output: `TASK_FILE:<path>` means found, `NOT_FOUND` means not found.
+    - **Child task ID** (matches `<parent>_<child>`, e.g., `106_2`):
+      ```bash
+      ./.aitask-scripts/aitask_query_files.sh child-file <parent> <child>
+      ```
+      Parse the output: `CHILD_FILE:<path>` means found, `NOT_FOUND` means not found.
   - If not found: warn "t\<id\>: file not found — skipping" and exclude.
   - If found, read the task file's frontmatter and check eligibility:
     - **Status check:** Must be `Ready` or `Editing`. If not, warn "t\<id\>: status is \<status\> — skipping" and exclude.
@@ -43,8 +49,7 @@ If this skill is invoked with arguments (e.g., `/aitask-fold 106,108,112` or `/a
       ```bash
       ./.aitask-scripts/aitask_query_files.sh has-children <id>
       ```
-      Parse the output: `HAS_CHILDREN:<count>` means it has children — warn "t\<id\>: has children — skipping" and exclude. `NO_CHILDREN` means eligible.
-    - **Child task check:** Must not be a child task itself (the filename must match `t<number>_*.md` with a single number, not `t<parent>_<child>_*.md`). If it's a child task, warn "t\<id\>: is a child task — skipping" and exclude.
+      Parse the output: `HAS_CHILDREN:<count>` means it has children — warn "t\<id\>: has children — skipping" and exclude. `NO_CHILDREN` means eligible. (Child tasks never have children — this check returns `NO_CHILDREN` for them.)
 
 - **Check remaining count:** If fewer than 2 valid tasks remain after filtering, inform user "Need at least 2 eligible tasks to fold. Only \<N\> valid task(s) found." and abort the workflow.
 
@@ -154,8 +159,8 @@ Set the following context variables from the primary task, then read and follow 
 ## Notes
 
 - This skill merges existing tasks — unlike `/aitask-explore` which creates a new task and folds others into it, `/aitask-fold` selects one existing task as the "primary" and merges others into it
-- Only standalone parent-level tasks without children and with status `Ready` or `Editing` are eligible for folding
-- Child tasks cannot be folded — they are part of a parent task hierarchy and folding would break that structure
+- Tasks with status `Ready` or `Editing` and without children are eligible for folding — both standalone parent tasks and child tasks
+- When a child task is folded, it is automatically removed from its original parent's `children_to_implement` list via the Task Fold Marking Procedure. The child's content is merged into the primary task (which can be any other task — a standalone parent, the same original parent via a sibling, or an unrelated task)
 - When a task ID is invalid or ineligible, it is excluded with a warning rather than aborting the entire operation. The workflow only aborts if fewer than 2 valid tasks remain
 - If the primary task already has a `folded_tasks` frontmatter field (e.g., from a previous fold operation), new IDs are appended to the existing list
 - The `explore_auto_continue` profile key controls whether to ask the user about continuing to implementation (default: `false`, always ask). This is the same key used by `/aitask-explore`

@@ -50,6 +50,19 @@ For each task ID in `folded_task_ids`, set its status to `Folded` and add the `f
 ./.aitask-scripts/aitask_update.sh --batch <folded_task_num> --status Folded --folded-into <primary_task_num>
 ```
 
+### Step 4b: Remove Folded Child Tasks from Parent's children_to_implement
+
+For each task ID in `folded_task_ids` that is a **child task** (i.e., the ID contains an underscore such as `16_2`), remove it from its parent's `children_to_implement` list so the parent immediately reflects the correct pending children:
+
+```bash
+# Only for child task IDs matching <parent>_<child> (e.g., 16_2)
+./.aitask-scripts/aitask_update.sh --batch <child_parent_num> --remove-child t<child_parent_num>_<child_num>
+```
+
+Where `<child_parent_num>` is the first part of the ID (e.g., `16`) and `<child_num>` is the second part (e.g., `2`). Skip this step for standalone parent task IDs (no underscore).
+
+**Note:** This keeps the child's original parent (`<child_parent_num>`) consistent — the primary task (`<primary_task_num>`) may be different from the child's original parent. A child task can be folded into any other task (parent or standalone), not just its siblings.
+
 ### Step 5: Update Transitive Tasks
 
 **Skip this step if `handle_transitive` is `false` or no transitive tasks were found.**

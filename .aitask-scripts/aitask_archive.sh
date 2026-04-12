@@ -346,6 +346,13 @@ handle_folded_tasks() {
             continue
         fi
 
+        # If folded task is a child, remove from its parent's children_to_implement
+        # (safety-net — normally handled at fold time by Task Fold Marking Procedure)
+        if [[ "$folded_id" =~ ^([0-9]+)_([0-9]+)$ ]]; then
+            local fold_parent="${BASH_REMATCH[1]}"
+            "$SCRIPT_DIR/aitask_update.sh" --batch "$fold_parent" --remove-child "t${folded_id}" --silent 2>/dev/null || true
+        fi
+
         # Delete folded task file and plan
         task_git rm "$folded_file" --quiet
         # Delete plan file (handles both parent and child task IDs)

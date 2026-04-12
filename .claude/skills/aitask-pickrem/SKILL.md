@@ -214,6 +214,7 @@ While in plan mode:
 
 - Explore the codebase to understand the relevant architecture
 - **Folded Tasks Note:** If the task has a `folded_tasks` frontmatter field, the task description already contains all relevant content from the folded tasks. No need to read the original folded task files.
+- **Ad-Hoc Fold Request:** If the task description contains a request to fold other tasks (e.g., "fold t42 and t43 into this task") — including child task IDs like `16_2` — execute the **Ad-Hoc Fold Procedure** from `.claude/skills/task-workflow/planning.md`. Remote mode is non-interactive: **skip the user confirmation step** and proceed automatically if all validations pass. If no valid tasks remain after validation, continue planning without folding.
 - **Complexity:** Always implement as a single task (do NOT break into child subtasks — child creation requires interactive prompts not available in remote mode)
 - **Testing requirement:** When the task involves code changes (not documentation/config-only tasks), the implementation plan MUST include a "Verification" section specifying:
   - What automated tests to write or update

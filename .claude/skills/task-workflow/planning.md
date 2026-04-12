@@ -64,6 +64,57 @@ While in plan mode:
 - Ask the user clarifying questions about the task requirements
 - Explore the codebase to understand the relevant architecture
 - **Folded Tasks Note:** If the task has a `folded_tasks` frontmatter field, the task description already contains all relevant content from the folded tasks (their content was incorporated at creation time by aitask-explore). There is no need to read the original folded task files during planning — they exist only as references for post-implementation cleanup (deletion in Step 9).
+- **Ad-Hoc Fold Request:** If the task description contains a request to fold other tasks into this one (e.g., "fold t42 and t43 into this task", "merge t16_2 here", "incorporate t42") OR the user explicitly requests folding during the planning conversation, execute the **Ad-Hoc Fold Procedure** below before continuing with planning. Both standalone parent tasks (e.g., `42`) and child tasks (e.g., `16_2`) can be folded.
+
+  **Ad-Hoc Fold Procedure:**
+
+  1. **Parse the requested task IDs** from the description text or the user's message. Accept both parent IDs (plain number, e.g., `42`) and child IDs (`<parent>_<child>`, e.g., `16_2`).
+
+  2. **Resolve each task file:**
+     - Parent ID (plain number):
+       ```bash
+       ./.aitask-scripts/aitask_query_files.sh task-file <id>
+       ```
+       Parse `TASK_FILE:<path>` or `NOT_FOUND`.
+     - Child ID (contains underscore, e.g., `16_2`):
+       ```bash
+       ./.aitask-scripts/aitask_query_files.sh child-file <parent> <child>
+       ```
+       Parse `CHILD_FILE:<path>` or `NOT_FOUND`.
+
+  3. **Validate each task** (same checks as aitask-fold Step 0b, minus the child-task exclusion):
+     - If not found: warn "t\<id\>: file not found — skipping" and exclude.
+     - Read frontmatter: status must be `Ready` or `Editing`. Otherwise warn "t\<id\>: status is \<status\> — skipping" and exclude.
+     - Check for children (only relevant for parent IDs):
+       ```bash
+       ./.aitask-scripts/aitask_query_files.sh has-children <id>
+       ```
+       If `HAS_CHILDREN:<count>`, warn "t\<id\>: has children — skipping" and exclude.
+     - The current task (the one being planned) cannot fold itself. Skip if requested.
+
+  4. **Confirm** — If no valid tasks remain, inform the user and continue planning without folding. Otherwise, present the list of valid tasks and use `AskUserQuestion`:
+     - Question: "The following tasks will be folded into t\<current\>: \<list\>. Proceed?"
+     - Header: "Fold"
+     - Options: "Yes, fold them" / "No, skip folding"
+
+  5. **Execute fold** (only if user confirmed):
+     - Execute the **Task Fold Content Procedure** (see `task-fold-content.md`) with:
+       - `primary_description`: the current task's description body (everything after the frontmatter)
+       - `folded_task_files`: the validated task file paths
+     - Update the current task's description with the merged result:
+       ```bash
+       ./.aitask-scripts/aitask_update.sh --batch <current_task_id> --desc-file - <<'TASK_DESC'
+       <merged description>
+       TASK_DESC
+       ```
+     - Execute the **Task Fold Marking Procedure** (see `task-fold-marking.md`) with:
+       - `primary_task_num`: current `task_id` from context
+       - `folded_task_ids`: the validated task IDs
+       - `handle_transitive`: `true`
+       - `commit_mode`: `"fresh"`
+       - Note: this procedure automatically removes folded child tasks from their parent's `children_to_implement` in Step 4b.
+
+  6. **Resume planning** — Re-read the updated task file to pick up the merged content, then continue planning with the enriched description.
 - **Complexity Assessment:**
   - After initial exploration, assess implementation complexity
   - If the complexity appears HIGH for a parent task, use `AskUserQuestion`:
