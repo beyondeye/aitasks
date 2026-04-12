@@ -166,39 +166,6 @@ release_lock() {
     "$SCRIPT_DIR/aitask_lock.sh" --unlock "$task_num" 2>/dev/null || true
 }
 
-# --- Helper: read a YAML field from frontmatter ---
-read_yaml_field() {
-    local file_path="$1"
-    local field_name="$2"
-    local in_yaml=false
-
-    while IFS= read -r line; do
-        if [[ "$line" == "---" ]]; then
-            if [[ "$in_yaml" == true ]]; then
-                break
-            else
-                in_yaml=true
-                continue
-            fi
-        fi
-        if [[ "$in_yaml" == true && "$line" =~ ^${field_name}:[[:space:]]*(.*) ]]; then
-            local value="${BASH_REMATCH[1]}"
-            # Trim whitespace
-            value=$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-            echo "$value"
-            return
-        fi
-    done < "$file_path"
-
-    echo ""
-}
-
-# --- Helper: read status of a folded task ---
-read_task_status() {
-    local file_path="$1"
-    read_yaml_field "$file_path" "status"
-}
-
 # --- Archive a parent task ---
 archive_parent() {
     local task_num="$1"
