@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: [t519_2]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [website, tmux, documentation]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-12 15:15
-updated_at: 2026-04-12 15:15
+updated_at: 2026-04-12 16:40
 ---
 
 ## Context
