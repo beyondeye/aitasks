@@ -1,92 +1,22 @@
-# Task Fold Marking Procedure
+# Task Fold Marking (reference)
 
-This shared procedure handles the frontmatter updates that mark tasks as folded:
-setting `folded_tasks` on the primary, updating each folded task's status to
-`Folded`, and handling transitive folds. It is referenced by aitask-fold (Step 3),
-aitask-explore (Step 3), aitask-pr-import (Step 5), and aitask-contribution-review
-(Step 6).
+Marking tasks as folded (updating `folded_tasks` on the primary, setting `status: Folded` and `folded_into` on each folded task, handling transitive folds, removing folded child tasks from their parent's `children_to_implement`, and committing) is handled by `.aitask-scripts/aitask_fold_mark.sh`. See that script for the canonical implementation.
 
-## Parameters
-
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `primary_task_num` | Task ID of the primary task receiving the folded tasks | `42` |
-| `folded_task_ids` | List of task IDs being folded into the primary | `[12, 15]` |
-| `handle_transitive` | Whether to check folded tasks for their own `folded_tasks` and re-point them to the primary (default: `true`) | `true` |
-| `commit_mode` | How to commit the changes: `"fresh"` (new commit), `"amend"` (amend previous commit), or `"none"` (caller handles commit) | `"fresh"` |
-
-## Procedure
-
-### Step 1: Check Existing folded_tasks
-
-Read the primary task file's frontmatter. If it already has a `folded_tasks` field, note the existing IDs — new IDs will be appended (merged), not replaced.
-
-### Step 2: Handle Transitive Folded Tasks
-
-**Skip this step if `handle_transitive` is `false`.**
-
-For each task ID in `folded_task_ids`:
-1. Read its frontmatter
-2. Check if it has a `folded_tasks` field (e.g., `folded_tasks: [B, C]`)
-3. If yes, collect those transitive task IDs
-
-Include all transitive IDs in the primary's full `folded_tasks` list.
-
-**Example:** Folding task A (which has `folded_tasks: [B, C]`) into primary D → D gets `folded_tasks: [A, B, C]`, and B/C's `folded_into` must be updated to point to D.
-
-### Step 3: Set folded_tasks Frontmatter
-
-Build the complete list: existing `folded_tasks` (from Step 1) + new `folded_task_ids` + transitive IDs (from Step 2).
+## Usage
 
 ```bash
-./.aitask-scripts/aitask_update.sh --batch <primary_task_num> --folded-tasks "<comma-separated list of all IDs>"
+./.aitask-scripts/aitask_fold_mark.sh [--no-transitive] [--commit-mode fresh|amend|none] <primary_id> <folded_id1> <folded_id2> ...
 ```
 
-### Step 4: Update Each Folded Task
+**Commit modes:**
+- `fresh` (default) — stage `aitasks/` and create a new commit `ait: Fold tasks into t<primary>: merge t<id1>, t<id2>, ...`. Emits `COMMITTED:<short_hash>`.
+- `amend` — stage `aitasks/` and `git commit --amend --no-edit` (folds the marking into the previous commit, used by callers that just created or updated the primary). Emits `AMENDED`.
+- `none` — skip commit (the caller stages and commits). Emits `NO_COMMIT`.
 
-For each task ID in `folded_task_ids`, set its status to `Folded` and add the `folded_into` reference:
+**Transitive handling:** by default, if a folded task already has its own `folded_tasks`, those transitive IDs are appended to the primary's list and their `folded_into` is re-pointed at the primary. Pass `--no-transitive` to disable.
 
-```bash
-./.aitask-scripts/aitask_update.sh --batch <folded_task_num> --status Folded --folded-into <primary_task_num>
-```
+**Child task cleanup:** for each folded ID in `<parent>_<child>` format, the script automatically removes the child from its parent's `children_to_implement` list (via `aitask_update.sh --remove-child`).
 
-### Step 4b: Remove Folded Child Tasks from Parent's children_to_implement
+## Structured Output
 
-For each task ID in `folded_task_ids` that is a **child task** (i.e., the ID contains an underscore such as `16_2`), remove it from its parent's `children_to_implement` list so the parent immediately reflects the correct pending children:
-
-```bash
-# Only for child task IDs matching <parent>_<child> (e.g., 16_2)
-./.aitask-scripts/aitask_update.sh --batch <child_parent_num> --remove-child t<child_parent_num>_<child_num>
-```
-
-Where `<child_parent_num>` is the first part of the ID (e.g., `16`) and `<child_num>` is the second part (e.g., `2`). Skip this step for standalone parent task IDs (no underscore).
-
-**Note:** This keeps the child's original parent (`<child_parent_num>`) consistent — the primary task (`<primary_task_num>`) may be different from the child's original parent. A child task can be folded into any other task (parent or standalone), not just its siblings.
-
-### Step 5: Update Transitive Tasks
-
-**Skip this step if `handle_transitive` is `false` or no transitive tasks were found.**
-
-For each transitive task ID (B, C from the example), update `folded_into` to point to the primary:
-
-```bash
-./.aitask-scripts/aitask_update.sh --batch <transitive_task_num> --folded-into <primary_task_num>
-```
-
-### Step 6: Commit
-
-Based on `commit_mode`:
-
-**If `"fresh"`:**
-```bash
-./ait git add aitasks/
-./ait git commit -m "ait: Fold tasks into t<primary_task_num>: merge t<id1>, t<id2>, ..."
-```
-
-**If `"amend"`:**
-```bash
-./ait git add aitasks/
-./ait git commit --amend --no-edit
-```
-
-**If `"none"`:** Skip commit — the caller will handle it.
+The script emits one line per action: `PRIMARY_UPDATED:<primary_id>`, `FOLDED:<id>`, `CHILD_REMOVED:<parent>_<child>`, `TRANSITIVE:<id>`, and one of `COMMITTED:<hash>` / `AMENDED` / `NO_COMMIT`.

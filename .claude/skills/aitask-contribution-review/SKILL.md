@@ -240,20 +240,14 @@ After import completes:
    - Merge import: output contains `Merged N issues into: <filepath>`
 2. Extract the task number from the filename (e.g., `t42` from `aitasks/t42_foo.md`)
 3. Read the created task file's description body
-4. Execute the **Task Fold Content Procedure** (see `.claude/skills/task-workflow/task-fold-content.md`) with:
-   - **primary_description:** The imported task's description body
-   - **folded_task_files:** File paths of each selected overlapping task from Step 5b
-5. Update the imported task's description with the returned merged content:
+4. Merge and mark in two script calls (the primary task was just created by the import flow, so pass its body via `--primary-stdin`; `--commit-mode amend` folds the marking into the description-update commit):
    ```bash
-   ./.aitask-scripts/aitask_update.sh --batch <new_task_num> --desc-file - <<'TASK_DESC'
-   <merged description>
-   TASK_DESC
+   merged_desc=$(printf '%s\n' "<imported task description body>" | \
+     ./.aitask-scripts/aitask_fold_content.sh --primary-stdin <folded_file1> <folded_file2> ...)
+   ./.aitask-scripts/aitask_update.sh --batch <new_task_num> --desc-file - <<<"$merged_desc"
+
+   ./.aitask-scripts/aitask_fold_mark.sh --commit-mode amend <new_task_num> <folded_id1> <folded_id2> ...
    ```
-6. Execute the **Task Fold Marking Procedure** (see `.claude/skills/task-workflow/task-fold-marking.md`) with:
-   - **primary_task_num:** `<new_task_num>`
-   - **folded_task_ids:** Selected overlapping task IDs from Step 5b
-   - **handle_transitive:** `true`
-   - **commit_mode:** `"fresh"`
 
 **Key constraint:** The skill produces at most **ONE task** per invocation. To process multiple unrelated contribution issues, run the skill multiple times.
 

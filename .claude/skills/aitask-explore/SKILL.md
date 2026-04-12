@@ -150,11 +150,14 @@ Use `AskUserQuestion` to confirm or modify:
 - Ask the user what to change via `AskUserQuestion` or free text
 - Apply their modifications
 
-**If folded_tasks is non-empty:** Execute the **Task Fold Content Procedure** (see `.claude/skills/task-workflow/task-fold-content.md`) with:
-- **primary_description:** The task description based on exploration findings
-- **folded_task_files:** File paths of each selected folded task
+**If folded_tasks is non-empty:** Build the merged description using `aitask_fold_content.sh` with `--primary-stdin` (the primary task does not exist yet):
 
-Use the returned merged description as the task description for the creation procedure below.
+```bash
+merged_desc=$(printf '%s\n' "<primary description from exploration>" | \
+  ./.aitask-scripts/aitask_fold_content.sh --primary-stdin <folded_file1> <folded_file2> ...)
+```
+
+Use `$merged_desc` as the `description` argument for the Batch Task Creation Procedure below.
 
 **Create the task:**
 
@@ -172,11 +175,13 @@ Read back the created task file to confirm the assigned task ID:
 ./ait git log -1 --name-only --pretty=format:'' | grep '^aitasks/t'
 ```
 
-**If folded_tasks is non-empty**, execute the **Task Fold Marking Procedure** (see `.claude/skills/task-workflow/task-fold-marking.md`) with:
-- **primary_task_num:** `<task_num>` (from the created task)
-- **folded_task_ids:** The `folded_tasks` list
-- **handle_transitive:** `true`
-- **commit_mode:** `"amend"`
+**If folded_tasks is non-empty**, mark the folded tasks using `aitask_fold_mark.sh` with `--commit-mode amend` so the marking folds into the task-creation commit:
+
+```bash
+./.aitask-scripts/aitask_fold_mark.sh --commit-mode amend <new_task_num> <folded_id1> <folded_id2> ...
+```
+
+The script automatically handles transitive folds and removes folded child tasks from their parent's `children_to_implement`.
 
 ### Step 3b: Select Execution Profile
 

@@ -1,62 +1,25 @@
-# Task Fold Content Procedure
+# Task Fold Content (reference)
 
-This shared procedure builds a structured merged description by incorporating
-folded task content into a primary task's description. It is referenced by
-aitask-fold (Step 3), aitask-explore (Step 3), aitask-pr-import (Step 5),
-and aitask-contribution-review (Step 6).
+Building the merged description body is handled by `.aitask-scripts/aitask_fold_content.sh`. See that script for the canonical implementation.
 
-## Parameters
+## Usage
 
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `primary_description` | The primary task's current description body (everything after frontmatter) | Task description text |
-| `folded_task_files` | List of file paths for tasks being folded in | `["aitasks/t12_fix_login.md", "aitasks/t15_auth_timeout.md"]` |
+**Merging into an existing primary task** (aitask-fold, planning ad-hoc fold):
 
-## Procedure
-
-### Step 1: Read Folded Task Content
-
-For each file path in `folded_task_files`:
-- Read the full file (frontmatter + description body)
-- Extract the task number and name from the filename (e.g., `t12` and `fix_login` from `t12_fix_login.md`)
-- Extract the description body (everything after the frontmatter `---` closing delimiter)
-
-### Step 2: Build Merged Description
-
-Construct the merged description with this structure:
-
-1. **Primary description unchanged at the top** — preserve the original `primary_description` exactly as-is
-
-2. **Append each folded task's content** under clearly labeled headers:
-   ```markdown
-   ## Merged from t<N>: <task_name>
-
-   <full description body of the folded task>
-   ```
-
-   Where `<task_name>` is the human-readable name extracted from the filename (underscores replaced with spaces, e.g., `fix_login` → `fix login`).
-
-3. **Append the Folded Tasks reference section** at the end:
-   ```markdown
-   ## Folded Tasks
-
-   The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
-
-   - **t<N>** (`<filename>`)
-   - ...
-   ```
-
-### Step 3: Return
-
-Return the complete merged description text.
-
-## Usage by Callers
-
-**"Merge into existing" callers** (aitask-fold, contribution-review): The primary task already exists. After calling this procedure, update the primary task's description:
 ```bash
-./.aitask-scripts/aitask_update.sh --batch <primary_num> --desc-file - <<'TASK_DESC'
-<merged description>
-TASK_DESC
+./.aitask-scripts/aitask_fold_content.sh <primary_task_file> <folded_file1> <folded_file2> ...
 ```
 
-**"Incorporate during creation" callers** (aitask-explore, aitask-pr-import): The primary task is being created. Use the returned merged description as the `description` parameter for the **Batch Task Creation Procedure** (see `task-creation-batch.md`).
+**Building content for a new primary task** (aitask-explore, aitask-pr-import, aitask-contribution-review):
+
+```bash
+printf '%s\n' "<description from exploration>" | \
+  ./.aitask-scripts/aitask_fold_content.sh --primary-stdin <folded_file1> <folded_file2> ...
+```
+
+The script writes the merged description body to stdout in a structured format:
+- Primary body preserved at the top
+- `## Merged from t<N>: <name>` section for each folded task
+- `## Folded Tasks` reference section at the end
+
+Callers typically pipe the output into `aitask_update.sh --batch <id> --desc-file -` (for existing primaries) or pass it as the `description` argument to the **Batch Task Creation Procedure** (for new primaries).

@@ -29,27 +29,13 @@ If this skill is invoked with arguments (e.g., `/aitask-fold 106,108,112` or `/a
 
 - **Parse task IDs:** Split the argument string by commas and/or spaces to extract individual task IDs. Each ID can be either a parent task number (e.g., `106`) or a child task ID in the `<parent>_<child>` format (e.g., `106_2`).
 
-- **Validate each task ID:**
-  For each parsed ID:
-  - Find the task file — the resolution command depends on the ID format:
-    - **Parent task ID** (plain number, e.g., `106`):
-      ```bash
-      ./.aitask-scripts/aitask_query_files.sh task-file <id>
-      ```
-      Parse the output: `TASK_FILE:<path>` means found, `NOT_FOUND` means not found.
-    - **Child task ID** (matches `<parent>_<child>`, e.g., `106_2`):
-      ```bash
-      ./.aitask-scripts/aitask_query_files.sh child-file <parent> <child>
-      ```
-      Parse the output: `CHILD_FILE:<path>` means found, `NOT_FOUND` means not found.
-  - If not found: warn "t\<id\>: file not found — skipping" and exclude.
-  - If found, read the task file's frontmatter and check eligibility:
-    - **Status check:** Must be `Ready` or `Editing`. If not, warn "t\<id\>: status is \<status\> — skipping" and exclude.
-    - **Children check:** Must not have children:
-      ```bash
-      ./.aitask-scripts/aitask_query_files.sh has-children <id>
-      ```
-      Parse the output: `HAS_CHILDREN:<count>` means it has children — warn "t\<id\>: has children — skipping" and exclude. `NO_CHILDREN` means eligible. (Child tasks never have children — this check returns `NO_CHILDREN` for them.)
+- **Validate task IDs:** Run the fold validator and parse its structured output:
+  ```bash
+  ./.aitask-scripts/aitask_fold_validate.sh <id1> <id2> ...
+  ```
+  For each output line:
+  - `VALID:<id>:<path>` — keep this task in the valid set.
+  - `INVALID:<id>:<reason>` — warn "t\<id\>: \<reason\> — skipping" and exclude. `<reason>` values: `not_found`, `status_<status>`, `has_children`, `is_self`.
 
 - **Check remaining count:** If fewer than 2 valid tasks remain after filtering, inform user "Need at least 2 eligible tasks to fold. Only \<N\> valid task(s) found." and abort the workflow.
 
@@ -92,29 +78,18 @@ Use `AskUserQuestion`:
 
 **Pagination:** If more than 4 tasks are selected, paginate with the same pattern as Step 1c.
 
-### Step 3: Merge Content
+### Step 3: Merge Content and Mark Folded Tasks
 
-#### 3a-3c: Incorporate Folded Task Content
-
-Execute the **Task Fold Content Procedure** (see `.claude/skills/task-workflow/task-fold-content.md`) with:
-- **primary_description:** The primary task's current description body
-- **folded_task_files:** All non-primary task file paths
-
-Update the primary task's description with the returned merged content:
+Merge the folded task content into the primary and update frontmatter in two script calls:
 
 ```bash
-./.aitask-scripts/aitask_update.sh --batch <primary_num> --desc-file - <<'TASK_DESC'
-<merged description>
-TASK_DESC
+./.aitask-scripts/aitask_fold_content.sh <primary_file> <folded_file1> <folded_file2> ... \
+  | ./.aitask-scripts/aitask_update.sh --batch <primary_num> --desc-file -
+
+./.aitask-scripts/aitask_fold_mark.sh --commit-mode fresh <primary_num> <folded_id1> <folded_id2> ...
 ```
 
-#### 3d-3f: Mark Folded Tasks
-
-Execute the **Task Fold Marking Procedure** (see `.claude/skills/task-workflow/task-fold-marking.md`) with:
-- **primary_task_num:** `<primary_num>`
-- **folded_task_ids:** All non-primary task IDs
-- **handle_transitive:** `true`
-- **commit_mode:** `"fresh"`
+Parse the `aitask_fold_mark.sh` output for a `COMMITTED:<hash>` line confirming the fold was committed.
 
 ### Step 4: Decision Point
 
