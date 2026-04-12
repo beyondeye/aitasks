@@ -225,3 +225,69 @@ Expected: 1 new file (`lib/agent_model_picker.py`), 1 modified file (`settings/s
 
 Per task-workflow Step 9: after implementation + review, run
 `./.aitask-scripts/aitask_archive.sh 521_1`. No worktree cleanup (fast profile).
+
+## Final Implementation Notes
+
+- **Actual work done:** Pure code-movement refactor as planned. Created
+  `.aitask-scripts/lib/agent_model_picker.py` (488 lines) containing
+  `MODEL_FILES`, `_bucket_avg`, `_format_op_stats`, `FuzzyOption`,
+  `FuzzySelect`, `AgentModelPickerScreen` (verbatim copies from
+  `settings/settings_app.py`), plus the new `load_all_models(project_root)`
+  helper required by t521_2. Updated `.aitask-scripts/settings/settings_app.py`
+  to remove the 436 lines of moved definitions and import the five public
+  names back (`AgentModelPickerScreen`, `FuzzySelect`, `MODEL_FILES`,
+  `_bucket_avg`, `_format_op_stats`). Net diff: `settings_app.py` −436/+8.
+- **Deviations from plan:** None. Verification run in plan mode confirmed
+  every line number, usage site, and dependency in the canonical plan.
+- **Issues encountered:** None. The one subtlety worth recording for
+  t521_2/t521_3: `FuzzyOption` is NOT imported back into `settings_app.py`
+  — it is only ever constructed internally by `FuzzySelect._render_options`,
+  and the `FuzzyOption { … }` CSS rule inside `SettingsApp.DEFAULT_CSS`
+  continues to match at runtime because Textual type selectors resolve by
+  `type(widget).__name__`, which is unaffected by where the class is
+  defined. Don't be tempted to add a needless `FuzzyOption` import.
+- **Key decisions:**
+  - Kept `METADATA_DIR = Path("aitasks") / "metadata"` in `settings_app.py`
+    (it's still used by `CODEAGENT_CONFIG`, `BOARD_CONFIG`, `PROJECT_CONFIG`,
+    `PROFILES_DIR`) and duplicated the one-line constant in
+    `agent_model_picker.py`. Avoids a circular import.
+  - The new `agent_model_picker` module uses the same
+    `sys.path.insert(_LIB_DIR)` → `from config_utils import _load_json`
+    pattern as `lib/agent_command_screen.py`, keeping the two `lib/` modules
+    architecturally consistent.
+- **Notes for sibling tasks:**
+  - t521_2 should import the picker via
+    `from agent_model_picker import AgentModelPickerScreen, load_all_models`
+    (both are already defined and exported). `load_all_models(project_root)`
+    is the clean way to get the `all_models` dict without instantiating
+    `ConfigManager` from the settings app.
+  - `AgentModelPickerScreen.__init__` takes
+    `(operation, current_agent="", current_model="", all_models=None)` and
+    dismisses with `{"key": operation, "value": "<agent>/<model>"}` on
+    selection, or `None` on cancel — t521_2's `_on_agent_picked` callback
+    should read `result.get("value")`.
+  - The picker's CSS lives in `SettingsApp.DEFAULT_CSS` (not in the new
+    module). t521_2's `AgentCommandScreen` already has its own
+    `DEFAULT_CSS`, so the picker's CSS rules (`#picker_dialog`,
+    `#picker_step_label`, `#top_picker`, `#agent_picker`, `#model_picker`,
+    `FuzzySelect`, `FuzzyOption`) will need to be copied there when the
+    launch dialog pushes the picker — or, simpler, copy them into the new
+    `agent_model_picker` module as `AgentModelPickerScreen.DEFAULT_CSS` so
+    every caller picks them up automatically. Deferring this micro-decision
+    to t521_2 since it's the one that uncovers whether the rules render
+    correctly in a non-settings context.
+- **Verification performed:**
+  - `python3 -m py_compile` on both files → OK.
+  - Import smoke test for all seven public names in `agent_model_picker`.
+  - Runtime smoke test: `_bucket_avg({"runs": 4, "score_sum": 380}) == 95`;
+    `_format_op_stats` returns `"96 (9 runs, 2 this mo)"` for a synthetic
+    bucket.
+  - Headless Textual `SettingsApp.run_test()` — all 6 tab panes compose
+    (`tab_agent`, `tab_board`, `tab_project`, `tab_tmux`, `tab_models`,
+    `tab_profiles`), CSS parses without warnings.
+  - Headless `app.push_screen(AgentModelPickerScreen('pick', all_models=…))`
+    → 1 `FuzzySelect` (the `top_picker`) mounted with 4 `FuzzyOption`
+    widgets (3 top-verified + "Browse all models…"). Confirms the class
+    extraction, CSS matching, and `_build_top_verified` (which exercises
+    both re-imported helpers) all work end-to-end.
+
