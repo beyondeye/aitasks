@@ -132,4 +132,24 @@ Root cause: commit ab3c60b5 (t355_6 "feature: Add contribution review skill and 
 
 ## Final Implementation Notes
 
-_(To be filled in after Step 8 per task-workflow.)_
+- **Actual work done:** Zero code/file edits. Task was a verification pass only. Ran the full inventory command from the task description across `.agents/`, `.gemini/`, `.codex/`, `.opencode/`; read every mirror SKILL.md and command wrapper; confirmed all mirrors are thin delegators that inherit t522_2's `.claude/` edits automatically. Verified via `grep -rn "Task Fold Content Procedure\|Task Fold Marking Procedure" .agents .gemini .codex .opencode` → zero matches.
+
+- **Deviations from plan:** None. Plan was a verification-only plan; execution matched it exactly.
+
+- **Issues encountered:**
+  - **Orphan parent plan.** On picking the task, discovered `aiplans/p522_encapsulate_fold_logic_in_scripts.md` was present on disk but untracked in the `aitask-data` branch — leftover from a previous planning session that had not committed it. Would have caused the archive script to fail or strand the file when parent t522 auto-archives. Committed it separately as `ait: Add t522 parent plan file` (commit 8baf9c3b) before this plan's own commit. Worth noting as a general pattern: parent plans created during the original planning session should be committed immediately; subsequent sessions picking the last child need to watch for orphan parent plans.
+  - **Discovered gap: aitask-contribution-review has no mirrors.** All four frontends (.agents, .opencode, .gemini/commands, .opencode/commands) are missing wrappers for this user-invocable skill. Tracked to commit ab3c60b5 (t355_6) which created the Claude Code skill without adding mirrors. User decision (via AskUserQuestion): handle in a separate follow-up task, not within t522_3, to keep this task narrowly scoped to "mirror fold-caller updates". Follow-up task should be created after t522_3 archival.
+
+- **Key decisions:**
+  - **Confirmed no-op, did not write any "just in case" mirror edits.** Every mirror SKILL.md in `.agents/skills/` and `.opencode/skills/` is a prose "Source of Truth: .claude/skills/<skill>/SKILL.md" pointer with no procedural content, and every `.gemini/commands/*.toml` and `.opencode/commands/*.md` wrapper uses `@.claude/skills/<skill>/SKILL.md` to inline the authoritative file. There was nothing to port.
+  - **Held the scope line on the aitask-contribution-review gap.** Even though t522_3's task description's Expected Edits list mentioned `.agents/skills/aitask-contribution-review/SKILL.md` (implying the author assumed a mirror existed), opted not to add wrappers opportunistically within t522_3. A dedicated follow-up task gives the gap proper visibility and traceability.
+
+- **Notes for sibling tasks:** N/A — t522_3 is the last child; parent t522 auto-archives with this task.
+
+- **Notes for future fold-related or SKILL.md-touching tasks:**
+  - The CLAUDE.md "WORKING ON SKILLS / CUSTOM COMMANDS" guidance about updating mirrors is **currently a no-op** for all skills that follow the thin-delegator mirror pattern. Any future task description that says "mirror X into .agents/ and .opencode/" should first run this same inventory+grep verification before scheduling real work — the answer will almost always be "no work needed".
+  - A potential follow-up doc task (out of scope here) would update CLAUDE.md to note the delegator architecture and short-circuit future "mirror updates" subtasks.
+  - The orphan-parent-plan gotcha (above) is worth considering for the workflow — Step 6's Save Plan step could be enforced to include an immediate `./ait git commit` for parent plans to prevent the orphan state.
+
+- **Follow-up tasks to create:**
+  1. Add `aitask-contribution-review` wrappers to `.agents/skills/`, `.opencode/skills/`, `.gemini/commands/`, and `.opencode/commands/` — matching the existing thin-delegator patterns.
