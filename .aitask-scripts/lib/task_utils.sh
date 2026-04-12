@@ -229,7 +229,7 @@ resolve_task_file() {
 
         # Tier 3: numbered archives (computed path, then legacy fallback)
         if [[ -z "$files" ]]; then
-            local archive_path tar_match
+            local archive_path="" tar_match=""
             archive_path=$(_find_archive_for_task "$parent_num" "$ARCHIVED_DIR")
             if [[ -n "$archive_path" ]]; then
                 tar_match=$(_search_archive "$archive_path" "(^|/)t${parent_num}/t${parent_num}_${child_num}_.*\.md$")
@@ -262,7 +262,7 @@ resolve_task_file() {
 
         # Tier 3: numbered archives (computed path, then legacy fallback)
         if [[ -z "$files" ]]; then
-            local archive_path tar_match
+            local archive_path="" tar_match=""
             archive_path=$(_find_archive_for_task "$task_id" "$ARCHIVED_DIR")
             if [[ -n "$archive_path" ]]; then
                 tar_match=$(_search_archive "$archive_path" "(^|/)t${task_id}_.*\.md$")
@@ -321,7 +321,7 @@ resolve_plan_file() {
 
         # Tier 3: numbered archives (computed path, then legacy fallback)
         if [[ -z "$files" ]]; then
-            local archive_path tar_match
+            local archive_path="" tar_match=""
             archive_path=$(_find_archive_for_task "$parent_num" "$ARCHIVED_PLAN_DIR")
             if [[ -n "$archive_path" ]]; then
                 tar_match=$(_search_archive "$archive_path" "(^|/)p${parent_num}/p${parent_num}_${child_num}_.*\.md$")
@@ -350,7 +350,7 @@ resolve_plan_file() {
 
         # Tier 3: numbered archives (computed path, then legacy fallback)
         if [[ -z "$files" ]]; then
-            local archive_path tar_match
+            local archive_path="" tar_match=""
             archive_path=$(_find_archive_for_task "$task_id" "$ARCHIVED_PLAN_DIR")
             if [[ -n "$archive_path" ]]; then
                 tar_match=$(_search_archive "$archive_path" "(^|/)p${task_id}_.*\.md$")
