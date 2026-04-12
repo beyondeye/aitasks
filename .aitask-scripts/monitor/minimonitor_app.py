@@ -199,9 +199,11 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             self._check_auto_close()
 
         self._rebuild_session_bar()
-        self._rebuild_pane_list()
+        # Await the rebuild so remove_children/mount_all complete before
+        # focus restoration — Textual's remove/mount/focus are all deferred,
+        # so a direct call into _restore_focus would race the DOM updates.
+        await self._rebuild_pane_list()
 
-        # Restore focus immediately — cards are in the DOM after mount()
         self._restore_focus(saved_pane_id)
 
     def _check_auto_close(self) -> None:
@@ -240,6 +242,10 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             for card in self.query("#mini-pane-list MiniPaneCard"):
                 if hasattr(card, "pane_id") and card.pane_id == pane_id:
                     card.focus()
+                    # Widget.focus() is deferred, so on_descendant_focus may
+                    # not fire before the next refresh cycle. Set directly to
+                    # avoid a stale saved_pane_id on the next tick.
+                    self._focused_pane_id = card.pane_id
                     return
         # Fallback: auto-select the card matching this window's agent
         self._auto_select_own_window()
@@ -256,6 +262,10 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
 
     def on_app_focus(self) -> None:
         """Auto-select own window's agent when this pane regains terminal focus."""
+        # Don't stomp an existing user selection — only auto-pick when no
+        # MiniPaneCard is currently focused.
+        if isinstance(self.focused, MiniPaneCard):
+            return
         self._auto_select_own_window()
 
     def _rebuild_session_bar(self) -> None:
@@ -272,11 +282,11 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             f"{self._session}  {total} agent{'s' if total != 1 else ''}{idle_str}"
         )
 
-    def _rebuild_pane_list(self) -> None:
+    async def _rebuild_pane_list(self) -> None:
         container = self.query_one("#mini-pane-list", VerticalScroll)
-        # Clear existing content
-        for widget in list(container.children):
-            widget.remove()
+        # Clear existing content and wait for the prune to complete before
+        # mounting new cards — otherwise focus restoration can race removal.
+        await container.remove_children()
 
         # Only show AGENT panes, sorted by window_index
         agents = [
@@ -285,6 +295,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         ]
         agents.sort(key=lambda s: (s.pane.window_index, s.pane.pane_index))
 
+        cards: list[MiniPaneCard] = []
         for snap in agents:
             if snap.is_idle:
                 idle_s = int(snap.idle_seconds)
@@ -313,7 +324,10 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
                         title = title[:29] + "\u2026"
                     line1 += f"\n  [dim]{title}[/]"
 
-            container.mount(MiniPaneCard(snap.pane.pane_id, line1))
+            cards.append(MiniPaneCard(snap.pane.pane_id, line1))
+
+        if cards:
+            await container.mount_all(cards)
 
     # -- Key handling ----------------------------------------------------------
 
