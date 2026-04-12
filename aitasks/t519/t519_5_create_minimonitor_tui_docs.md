@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t519_4]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [website, tmux, aitask_monitor, documentation]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-12 15:16
-updated_at: 2026-04-12 15:16
+updated_at: 2026-04-12 17:44
 ---
 
 ## Context
