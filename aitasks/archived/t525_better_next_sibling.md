@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_monitor]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-04-12 09:58
-updated_at: 2026-04-12 10:17
+updated_at: 2026-04-12 10:35
+completed_at: 2026-04-12 10:35
 ---
 
 in ait monitor tui we have the (n)next sibling command that allow to automate the sequence of command of terminating a codeagent session and automatically opening a new one for the next sibling of a child task. this currently work only when the selected codeagent is a child task. it should also work when a task is a parent task with children and simply select the one of the children with logic similar to the one to select between siblings as defined already for the next sibling command
