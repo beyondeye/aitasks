@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [524]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_monitormini]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-12 10:49
-updated_at: 2026-04-12 10:49
+updated_at: 2026-04-12 11:01
 ---
 
 In `ait minimonitor`, add an `Enter` keyboard shortcut that sends an `Enter` keystroke to the **sibling codeagent pane that sits next to the minimonitor in the same tmux window** — i.e. the same target pane that t524's `Tab` binding switches focus to. The Enter is NOT routed to whichever MiniPaneCard happens to be focused in the minimonitor's card list. The card selection in the minimonitor is irrelevant to this action; the target is always the physically adjacent pane.
