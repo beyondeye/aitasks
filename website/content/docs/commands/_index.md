@@ -22,6 +22,7 @@ description: "Complete CLI reference for all ait subcommands"
 |---------|-------------|
 | [`ait board`](board-stats/#ait-board) | Open the kanban-style TUI board |
 | [`ait codebrowser`](board-stats/#ait-codebrowser) | Launch the code browser TUI |
+| [`ait ide`](../installation/terminal-setup/) | Start (or attach to) the configured tmux session and launch `ait monitor` — one view of a shared session; see `ait ide --help` |
 | [`ait settings`](../tuis/settings/) | Open the settings TUI for configuration management |
 
 ### Integration
