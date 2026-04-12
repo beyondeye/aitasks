@@ -3,11 +3,13 @@ priority: low
 effort: low
 depends: [t522_2]
 issue_type: chore
-status: Implementing
+status: Done
 labels: [aitask_fold, task_workflow]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-04-12 09:55
-updated_at: 2026-04-12 12:09
+updated_at: 2026-04-12 12:37
+completed_at: 2026-04-12 12:37
 ---
 
 ## Context

@@ -3,11 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: chore
-status: Ready
+status: Done
 labels: [aitask_fold, task_workflow]
-children_to_implement: [t522_3]
 created_at: 2026-04-12 08:08
-updated_at: 2026-04-12 11:59
+updated_at: 2026-04-12 12:37
+completed_at: 2026-04-12 12:37
 ---
 
 Several folding procedures (task-fold-content.md, task-fold-marking.md, the new ad-hoc fold procedure in planning.md, and the validation logic in aitask-fold/SKILL.md Step 0b) currently express their logic as step-by-step instructions for Claude Code. This means each caller has to execute several shell commands in sequence and parse their outputs.
