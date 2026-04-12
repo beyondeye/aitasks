@@ -5,9 +5,10 @@ depends: []
 issue_type: chore
 status: Implementing
 labels: [aitask_fold, task_workflow]
+children_to_implement: [t522_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-12 08:08
-updated_at: 2026-04-12 09:22
+updated_at: 2026-04-12 09:53
 ---
 
 Several folding procedures (task-fold-content.md, task-fold-marking.md, the new ad-hoc fold procedure in planning.md, and the validation logic in aitask-fold/SKILL.md Step 0b) currently express their logic as step-by-step instructions for Claude Code. This means each caller has to execute several shell commands in sequence and parse their outputs.
