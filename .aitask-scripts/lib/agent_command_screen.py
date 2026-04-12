@@ -49,6 +49,7 @@ from agent_launch_utils import (  # noqa: E402
     get_tmux_windows,
     is_tmux_available,
     load_tmux_defaults,
+    resolve_dry_run_command,
 )
 
 
@@ -80,6 +81,20 @@ class AgentCommandScreen(ModalScreen):
     }
     #agent_cmd_input {
         margin: 0 0 1 0;
+    }
+    #agent_row {
+        height: 3;
+        width: 100%;
+        align: left middle;
+        margin: 0 0 1 0;
+    }
+    #agent_row Label {
+        padding: 0 1;
+    }
+    #agent_row Button {
+        margin: 0 1;
+        width: auto;
+        min-width: 10;
     }
     #agent_cmd_tabs {
         height: auto;
@@ -172,6 +187,8 @@ class AgentCommandScreen(ModalScreen):
     # Class-level state remembered across dialog opens
     _last_session: str | None = None
     _last_window: str | None = None
+    # Per-operation remembered agent override (process lifetime)
+    _last_agent_override: dict[str, str] = {}
 
     def __init__(
         self,
@@ -180,14 +197,21 @@ class AgentCommandScreen(ModalScreen):
         prompt_str: str,
         default_window_name: str = "",
         project_root: Path | None = None,
+        operation: str | None = None,
+        operation_args: list[str] | None = None,
+        default_agent_string: str | None = None,
     ):
         super().__init__()
         self.title_text = title
         self.full_command = full_command
         self.prompt_str = prompt_str
         self.default_window_name = default_window_name
+        self._project_root = project_root or Path.cwd()
+        self.operation = operation
+        self.operation_args: list[str] = list(operation_args or [])
+        self.current_agent_string: str | None = default_agent_string
         self._tmux_available = is_tmux_available()
-        self._tmux_defaults = load_tmux_defaults(project_root or Path.cwd())
+        self._tmux_defaults = load_tmux_defaults(self._project_root)
         self._split_horizontal = self._tmux_defaults["default_split"] == "horizontal"
         self._selected_session: str | None = None
         self._selected_window: str | None = None
@@ -195,6 +219,21 @@ class AgentCommandScreen(ModalScreen):
     def compose(self):
         with Container(id="agent_cmd_dialog"):
             yield Label(self.title_text, id="agent_cmd_title")
+            if self.operation:
+                with Horizontal(id="agent_row"):
+                    yield Label(
+                        f"Agent: {self.current_agent_string or '(unknown)'}",
+                        id="agent_row_label",
+                    )
+                    yield Button(
+                        "(A)gent", variant="primary", id="btn_change_agent",
+                    )
+                    yield Button(
+                        "",
+                        variant="default",
+                        id="btn_use_last_agent",
+                        classes="hidden",
+                    )
             yield Label("Command:")
             yield Input(
                 value=self.full_command,
@@ -248,6 +287,8 @@ class AgentCommandScreen(ModalScreen):
                     self.query_one("#agent_cmd_tabs", TabbedContent).active = "tab_tmux"
                 except Exception:
                     pass
+
+        self._refresh_agent_row()
 
     def _populate_tmux_tab(self) -> None:
         tmux = self.query_one("#tmux_content")
@@ -478,10 +519,107 @@ class AgentCommandScreen(ModalScreen):
             except Exception:
                 pass
 
+    def action_change_agent(self) -> None:
+        if not self.operation:
+            return
+        from agent_model_picker import AgentModelPickerScreen, load_all_models
+        all_models = load_all_models(self._project_root)
+        current_agent, current_model = "", ""
+        if self.current_agent_string and "/" in self.current_agent_string:
+            current_agent, current_model = self.current_agent_string.split("/", 1)
+        picker = AgentModelPickerScreen(
+            self.operation,
+            current_agent,
+            current_model,
+            all_models=all_models,
+        )
+        self.app.push_screen(picker, self._on_agent_picked)
+
+    def _on_agent_picked(self, result) -> None:
+        if not result or not isinstance(result, dict):
+            return
+        new_agent_string = result.get("value")
+        if not new_agent_string:
+            return
+        self._apply_agent_override(new_agent_string)
+        if self.operation:
+            AgentCommandScreen._last_agent_override[self.operation] = new_agent_string
+        self._refresh_agent_row()
+
+    def action_use_last_agent(self) -> None:
+        if not self.operation:
+            return
+        last = AgentCommandScreen._last_agent_override.get(self.operation)
+        if last and last != self.current_agent_string:
+            self._apply_agent_override(last)
+            self._refresh_agent_row()
+
+    def _apply_agent_override(self, agent_string: str) -> None:
+        self.current_agent_string = agent_string
+        if not self.operation:
+            return
+        new_cmd = resolve_dry_run_command(
+            self._project_root,
+            self.operation,
+            *self.operation_args,
+            agent_string=agent_string,
+        )
+        if new_cmd:
+            self.full_command = new_cmd
+            try:
+                self.query_one("#agent_cmd_input", Input).value = new_cmd
+            except Exception:
+                pass
+        else:
+            self.app.notify(
+                f"Failed to resolve command for {agent_string}",
+                severity="error",
+            )
+
+    def _refresh_agent_row(self) -> None:
+        if not self.operation:
+            return
+        try:
+            label = self.query_one("#agent_row_label", Label)
+            label.update(
+                f"Agent: {self.current_agent_string or '(unknown)'}"
+            )
+        except Exception:
+            return
+        try:
+            use_last_btn = self.query_one("#btn_use_last_agent", Button)
+        except Exception:
+            return
+        last = AgentCommandScreen._last_agent_override.get(self.operation)
+        if last and last != self.current_agent_string:
+            use_last_btn.label = f"(U)se last: {last}"
+            use_last_btn.remove_class("hidden")
+        else:
+            use_last_btn.add_class("hidden")
+
+    @on(Button.Pressed, "#btn_change_agent")
+    def _btn_change_agent(self) -> None:
+        self.action_change_agent()
+
+    @on(Button.Pressed, "#btn_use_last_agent")
+    def _btn_use_last_agent(self) -> None:
+        self.action_use_last_agent()
+
     def on_key(self, event) -> None:
         focused = self.app.focused
         if isinstance(focused, (Input, Select, SelectOverlay)):
             return  # Let input/select/overlay handle the key
+        # Agent override shortcuts — must run regardless of tmux availability
+        if event.key in ("a", "A"):
+            if self.operation:
+                self.action_change_agent()
+            event.prevent_default()
+            return
+        if event.key in ("u", "U"):
+            if self.operation:
+                self.action_use_last_agent()
+            event.prevent_default()
+            return
         if not self._tmux_available:
             return
         # Tab navigation shortcuts (only when no Input/Select focused)

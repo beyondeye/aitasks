@@ -225,6 +225,21 @@ class FuzzySelect(Container):
 class AgentModelPickerScreen(ModalScreen):
     """Multi-step picker: top verified -> code agent -> model name."""
 
+    DEFAULT_CSS = """
+    #picker_dialog {
+        width: 65%;
+        height: auto;
+        max-height: 70%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #picker_step_label { padding: 0 0 1 1; color: $accent; }
+    FuzzySelect { height: auto; max-height: 20; }
+    FuzzySelect VerticalScroll { height: auto; max-height: 15; }
+    FuzzyOption { height: 1; width: 100%; padding: 0 1; }
+    """
+
     BINDINGS = [Binding("escape", "go_back", "Back/Cancel", show=False)]
 
     def __init__(self, operation: str, current_agent: str = "",

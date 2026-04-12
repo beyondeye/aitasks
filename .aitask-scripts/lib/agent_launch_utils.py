@@ -5,7 +5,7 @@ resolution, and tmux session/window management.
 
 Usage:
     from agent_launch_utils import (
-        find_terminal, resolve_dry_run_command,
+        find_terminal, resolve_dry_run_command, resolve_agent_string,
         is_tmux_available, get_tmux_sessions, get_tmux_windows,
         launch_in_tmux, load_tmux_defaults, TmuxLaunchConfig,
     )
@@ -55,15 +55,24 @@ def find_terminal() -> str | None:
 
 
 def resolve_dry_run_command(
-    project_root: Path, operation: str, *args: str
+    project_root: Path,
+    operation: str,
+    *args: str,
+    agent_string: str | None = None,
 ) -> str | None:
     """Resolve the full agent command via --dry-run.
 
     Calls aitask_codeagent.sh --dry-run invoke <operation> <args> and parses
-    the DRY_RUN: <cmd> output. Returns the command string or None on failure.
+    the DRY_RUN: <cmd> output. When `agent_string` is provided, prepends
+    `--agent-string <value>` before --dry-run so the wrapper resolves the
+    command for a non-default agent/model. Returns the command string or
+    None on failure.
     """
     wrapper = str(project_root / ".aitask-scripts" / "aitask_codeagent.sh")
-    cmd = [wrapper, "--dry-run", "invoke", operation] + list(args)
+    cmd = [wrapper]
+    if agent_string:
+        cmd += ["--agent-string", agent_string]
+    cmd += ["--dry-run", "invoke", operation] + list(args)
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=10,
@@ -76,6 +85,28 @@ def resolve_dry_run_command(
         return None
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return None
+
+
+def resolve_agent_string(project_root: Path, operation: str) -> str | None:
+    """Return the resolved agent string for an operation.
+
+    Shells `aitask_codeagent.sh resolve <operation>` and parses the
+    `AGENT_STRING:<value>` line. Returns the agent string or None on failure.
+    """
+    wrapper = str(project_root / ".aitask-scripts" / "aitask_codeagent.sh")
+    try:
+        result = subprocess.run(
+            [wrapper, "resolve", operation],
+            capture_output=True, text=True, timeout=10,
+            cwd=str(project_root),
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if line.startswith("AGENT_STRING:"):
+                    return line[len("AGENT_STRING:"):].strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    return None
 
 
 def is_tmux_available() -> bool:
