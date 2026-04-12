@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [claudeskills, codexcli, geminicli, opencode]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-12 12:39
-updated_at: 2026-04-12 12:39
+updated_at: 2026-04-12 12:42
 ---
 
 ## Context
