@@ -2,7 +2,7 @@
 Task: t521_3_update_agent_command_screen_callers.md
 Parent Task: aitasks/t521_change_default_codeagent_at_run_time.md
 Sibling Tasks: aitasks/t521/t521_1_extract_agent_model_picker_to_lib.md, aitasks/t521/t521_2_wire_agent_picker_into_launch_dialog.md
-Archived Sibling Plans: (none — all siblings pending)
+Archived Sibling Plans: aiplans/archived/p521/p521_1_extract_agent_model_picker_to_lib.md, aiplans/archived/p521/p521_2_wire_agent_picker_into_launch_dialog.md
 Worktree: (none — working on current branch per fast profile)
 Branch: main
 Base branch: main
@@ -12,71 +12,77 @@ Base branch: main
 
 ## Context
 
-Third and final step of t521. Sibling task t521_2 added the agent/model
-picker to the shared launch dialog `AgentCommandScreen` behind new optional
-constructor params (`project_root`, `operation`, `operation_args`,
-`default_agent_string`). This task threads those params through every call
-site so the picker becomes usable from all TUIs (board, codebrowser, monitor).
+Third and final step of t521. Sibling t521_2 added per-run agent/model
+picker hooks to the shared launch dialog `AgentCommandScreen` behind new
+optional constructor params (`project_root`, `operation`, `operation_args`,
+`default_agent_string`) and introduced a `resolve_agent_string(project_root,
+operation)` helper in `agent_launch_utils.py`. This task threads those
+params through every **code-agent** call site so the picker becomes usable
+from the board, codebrowser, and monitor TUIs.
 
 **Depends on:** t521_1 (lib/agent_model_picker.py) and t521_2
-(AgentCommandScreen param additions, `resolve_agent_string` helper).
+(AgentCommandScreen param additions, `resolve_agent_string`).
 
-**One call site is intentionally left alone:**
-`aitask_board.action_create_task` (around line 3597) — it uses the dialog to
-launch `./aitask_create.sh`, not a code agent. The dialog must stay unchanged
-there (no `operation` param → agent row hidden).
+## Plan verification findings (vs. original draft)
+
+Plan was verified at task pick time (2026-04-12). Findings:
+
+- `AgentCommandScreen.__init__` signature confirmed at
+  `.aitask-scripts/lib/agent_command_screen.py:193–203`.
+- `resolve_agent_string` confirmed at
+  `.aitask-scripts/lib/agent_launch_utils.py:90–109`.
+- 5 actual `AgentCommandScreen(` call sites exist in the codebase:
+  - `aitask_board.py:3331` — TaskDetailScreen pick callback (UPDATE)
+  - `aitask_board.py:3413` — `action_pick_task` (UPDATE)
+  - `aitask_board.py:3443` — `_launch_brainstorm` (**LEAVE UNCHANGED** —
+    brainstorm is not a code-agent operation; agent row hidden)
+  - `aitask_board.py:3597` — `action_create_task` (**LEAVE UNCHANGED** per
+    original plan)
+  - `codebrowser_app.py:693` — explain (UPDATE)
+  - `history_screen.py:284` — qa (UPDATE)
+- **monitor_app.py:978 has NO `AgentCommandScreen` call.** The next-sibling
+  pick flow currently resolves the dry-run command and launches directly via
+  `launch_in_tmux`, bypassing the launch dialog entirely. Per user direction,
+  this task **inserts** a new `AgentCommandScreen` modal wrapping the
+  launch, mirroring the board pick pattern.
+
+Net scope: **4 updates to existing call sites + 1 new dialog insertion in
+monitor** + import additions in 4 files.
 
 ## Files to Modify
 
-| File | Call site(s) | Operation | Args source |
-|------|--------------|-----------|-------------|
-| `.aitask-scripts/board/aitask_board.py` | ~3331 (task detail pick) | `"pick"` | `num` (task number string) |
-| `.aitask-scripts/board/aitask_board.py` | ~3413 (`action_pick_task`) | `"pick"` | `num` |
-| `.aitask-scripts/board/aitask_board.py` | ~3597 (`action_create_task`) | — | **LEAVE UNCHANGED** |
-| `.aitask-scripts/codebrowser/codebrowser_app.py` | ~693 (explain) | `"explain"` | existing arg passed to `resolve_dry_run_command` |
-| `.aitask-scripts/codebrowser/history_screen.py` | ~284 (qa) | `"qa"` | `task_id` |
-| `.aitask-scripts/monitor/monitor_app.py` | ~978 (pick) | `"pick"` | `target_id` |
+| File | What changes |
+|------|--------------|
+| `.aitask-scripts/board/aitask_board.py` | Extend agent_launch_utils import with `resolve_agent_string`; update 2 pick call sites (3331, 3413). Leave 3443 (brainstorm) and 3597 (create_task) unchanged. |
+| `.aitask-scripts/codebrowser/codebrowser_app.py` | Extend agent_launch_utils import; update explain call site (693). |
+| `.aitask-scripts/codebrowser/history_screen.py` | Extend agent_launch_utils import; update qa call site (284). |
+| `.aitask-scripts/monitor/monitor_app.py` | Add `from agent_command_screen import AgentCommandScreen`; extend agent_launch_utils import; refactor `_on_next_sibling_result` to push a launch dialog instead of launching directly. |
 
-Line numbers are approximate — grep each file for `AgentCommandScreen(`
-before editing.
+All four files already import `from pathlib import Path`.
 
 ## Implementation Steps
 
-### 0. Discovery
+### 1. `board/aitask_board.py` — two pick call sites
 
-```bash
-grep -rn "AgentCommandScreen(" .aitask-scripts/
-```
-
-Confirm the 6 call sites in the table above. If additional sites exist,
-update them with the appropriate `operation` (or leave them unchanged if
-they don't invoke a code agent).
-
-### 1. `board/aitask_board.py` — two pick sites
-
-At the top of the file, update the existing agent_launch_utils import to
-include `resolve_agent_string`:
+Extend the existing `agent_launch_utils` import (line 16) to add
+`resolve_agent_string`:
 
 ```python
 from agent_launch_utils import (
     find_terminal,
     find_window_by_name,
     resolve_dry_run_command,
-    resolve_agent_string,  # NEW
+    resolve_agent_string,
     TmuxLaunchConfig,
     launch_in_tmux,
     maybe_spawn_minimonitor,
 )
 ```
 
-At the two pick call sites (inside TaskDetailScreen callback and inside
-`action_pick_task`), replace:
+At **line 3331** (TaskDetailScreen pick callback), replace:
 
 ```python
-screen = AgentCommandScreen(
-    f"Pick Task t{num}", full_cmd, prompt_str,
-    default_window_name=f"agent-pick-{num}",
-)
+screen = AgentCommandScreen(f"Pick Task t{num}", full_cmd, prompt_str, default_window_name=f"agent-pick-{num}")
 ```
 
 with:
@@ -93,35 +99,35 @@ screen = AgentCommandScreen(
 )
 ```
 
-`Path` is already imported in `aitask_board.py`; confirm via grep before
-adding a fresh import.
+At **line 3413** (`action_pick_task`), apply the same transformation
+(identical local variables: `num`, `full_cmd`, `prompt_str`).
 
-**Do NOT touch** the `action_create_task` site at line ~3597.
+**Do NOT touch** the brainstorm call site at line 3443 or the create_task
+site at 3597 — both are non-codeagent and should keep the agent row hidden
+(`operation=None`).
 
 ### 2. `codebrowser/codebrowser_app.py` — explain
 
-Update the import:
+Extend the import (line 13):
 
 ```python
 from agent_launch_utils import (
     find_terminal as _find_terminal,
     resolve_dry_run_command,
-    resolve_agent_string,  # NEW
+    resolve_agent_string,
     TmuxLaunchConfig,
     launch_in_tmux,
     maybe_spawn_minimonitor,
 )
 ```
 
-At the explain call site (~line 693):
+At **line 693** replace the one-line call with:
 
 ```python
-full_cmd = resolve_dry_run_command(self._project_root, "explain", arg)
-# ... existing code ...
 agent_string = resolve_agent_string(self._project_root, "explain")
 screen = AgentCommandScreen(
     title, full_cmd, prompt_str,
-    default_window_name=window_name,
+    default_window_name=f"agent-explain-{rel_path.name}",
     project_root=self._project_root,
     operation="explain",
     operation_args=[arg],
@@ -129,20 +135,19 @@ screen = AgentCommandScreen(
 )
 ```
 
-Copy the existing `arg` value used in `resolve_dry_run_command` as the
-`operation_args` entry — don't re-derive it.
+`arg` is the exact value already passed to
+`resolve_dry_run_command(self._project_root, "explain", arg)` at line 690
+— copy it, do not re-derive.
 
 ### 3. `codebrowser/history_screen.py` — qa
 
-Update the import (same pattern). At the qa call site (~line 284):
+Extend the import (line 11) with `resolve_agent_string`. At **line 284**:
 
 ```python
-full_cmd = resolve_dry_run_command(self._project_root, "qa", task_id)
-# ... existing code ...
 agent_string = resolve_agent_string(self._project_root, "qa")
 screen = AgentCommandScreen(
-    title, full_cmd, prompt_str,
-    default_window_name=window_name,
+    f"QA for t{task_id}", full_cmd, prompt_str,
+    default_window_name=f"agent-qa-{task_id}",
     project_root=self._project_root,
     operation="qa",
     operation_args=[task_id],
@@ -150,29 +155,94 @@ screen = AgentCommandScreen(
 )
 ```
 
-### 4. `monitor/monitor_app.py` — pick
+### 4. `monitor/monitor_app.py` — insert launch dialog around direct launch
 
-Update the import (same pattern). At the pick call site (~line 978):
+Current code at lines 977–1006 resolves the dry-run command and immediately
+launches via `launch_in_tmux`. Refactor to show the `AgentCommandScreen`
+dialog first and move the tmux launch into the screen callback (mirroring
+the board pick pattern).
+
+**Import additions.** Extend the `from agent_launch_utils import ...`
+at line 38 with `resolve_agent_string`, and add an
+`AgentCommandScreen` import:
 
 ```python
+from agent_launch_utils import (
+    resolve_dry_run_command,
+    resolve_agent_string,
+    TmuxLaunchConfig,
+    launch_in_tmux,
+    maybe_spawn_minimonitor,
+)  # noqa: E402
+from agent_command_screen import AgentCommandScreen  # noqa: E402
+```
+
+`sys.path` already contains `_SCRIPT_DIR / "lib"` (line 22), so the
+`agent_command_screen` module resolves without further setup.
+
+**Refactor `_on_next_sibling_result`** (lines 960–1006). Existing
+side-effects — killing the old pane when appropriate, spawning the
+minimonitor after launch — must be preserved. Replace the direct-launch
+block starting at line 977 with:
+
+```python
+# Resolve pick command: specific child or parent for selection
 full_cmd = resolve_dry_run_command(self._project_root, "pick", target_id)
-# ... existing code ...
+if not full_cmd:
+    self.notify(f"Failed to resolve pick command for t{target_id}", severity="error")
+    return
+
+# Kill current pane if task is Done, archived (info is None), or a
+# parent task whose implementation has moved to its children.
+is_parent_with_children = "_" not in task_id
+if is_parent_with_children or not current_info or current_info.status == "Done":
+    old_name = snap.pane.window_name
+    self._monitor.kill_pane(pane_id)
+    self._focused_pane_id = None
+    self.notify(f"Killed {old_name}")
+
+prompt_str = f"/aitask-pick {target_id}"
+window_name = f"agent-pick-{target_id}"
 agent_string = resolve_agent_string(self._project_root, "pick")
 screen = AgentCommandScreen(
-    title, full_cmd, prompt_str,
+    f"Pick Task t{target_id}", full_cmd, prompt_str,
     default_window_name=window_name,
     project_root=self._project_root,
     operation="pick",
     operation_args=[target_id],
     default_agent_string=agent_string,
 )
+
+def on_pick_result(pick_result):
+    if isinstance(pick_result, TmuxLaunchConfig):
+        _, err = launch_in_tmux(screen.full_command, pick_result)
+        if err:
+            self.notify(f"Launch failed: {err}", severity="error")
+            return
+        if pick_result.new_window:
+            maybe_spawn_minimonitor(pick_result.session, pick_result.window)
+        self.notify(f"Launched agent for t{target_id}")
+    self.call_later(self._refresh_data)
+
+self.push_screen(screen, on_pick_result)
 ```
 
-### 5. Verify `Path` is imported
+Notes on the refactor:
+- The pane-kill step stays **before** pushing the dialog so the old pane
+  is gone whether or not the user confirms launch (matches current UX).
+- The hardcoded tmux config construction disappears — the dialog now
+  collects session/window/new_window choices and returns a
+  `TmuxLaunchConfig`, same as the board pick flow.
+- `self.call_later(self._refresh_data)` runs for every dialog outcome
+  (launch, cancel, or run-in-current-terminal).
+- "Run in current terminal" (`pick_result == "run"`) is unsupported in
+  monitor: the dialog accepts the fall-through but only tmux launches
+  actually do anything. Existing monitor code had no such path, so this
+  preserves behaviour.
 
-For each file modified, confirm `from pathlib import Path` is already
-imported (needed for `Path(".")` in aitask_board.py). All other files use
-`self._project_root` which is already a Path.
+### 5. Verify `Path` availability
+
+Already-imported in all four files. No changes needed.
 
 ## Verification
 
@@ -184,42 +254,47 @@ python3 -m py_compile .aitask-scripts/codebrowser/history_screen.py
 python3 -m py_compile .aitask-scripts/monitor/monitor_app.py
 ```
 
-### End-to-end smoke test (all TUIs)
+### Grep confirmation
 
-1. **`ait board` pick (task detail path)**
-   - Open a task detail → press pick → dialog shows `Agent: claudecode/opus4_6` status row.
-   - Press `a` → picker opens → pick `claudecode/sonnet4_6` → command Input updates.
-   - Close dialog. Re-open pick on another task → `(U)se last: claudecode/sonnet4_6` button visible.
-   - Press `u` → command refreshes to sonnet.
+After edits, `grep -n "AgentCommandScreen(" .aitask-scripts/**/*.py`
+should show 6 constructions (5 existing + 1 new monitor), and
+`grep -n "resolve_agent_string" .aitask-scripts/**/*.py` should show 5
+call sites (2 board pick + explain + qa + monitor pick).
 
-2. **`ait board` pick (action_pick_task keyboard path)**
-   - Focus a task card, press the pick shortcut directly → same behavior as above.
+### End-to-end smoke test
 
-3. **`ait codebrowser` explain**
-   - Run explain on a source file → status row shows explain's default agent (e.g. `claudecode/sonnet4_6`).
-   - Picker + use-last work.
-
-4. **`ait codebrowser` history_screen qa**
-   - Open history → run qa on a task → same behavior with qa's default.
-
-5. **`ait monitor` pick**
-   - Pick a task from monitor → same behavior.
-
-6. **`ait board` create task — no regression**
-   - Open create dialog → **no** agent row. Dialog behaves identically to before.
-
-7. **No disk persistence**
-   - Open `ait settings` → Agent Defaults tab → pick row still shows original global default (`claudecode/opus4_6`).
-   - Quit all TUIs, restart `ait board`, open pick dialog → `(U)se last` button gone.
+1. **`ait board` pick (task detail path)** — Open a task detail → press
+   pick. Dialog shows `Agent: claudecode/opus4_6` status row. Press `a`
+   → picker opens → pick `claudecode/sonnet4_6` → command Input updates.
+   Close. Re-open pick on another task → `(U)se last: claudecode/sonnet4_6`
+   button visible. Press `u` → command refreshes.
+2. **`ait board` pick (`action_pick_task` keyboard)** — Same behavior.
+3. **`ait board` brainstorm** — Open brainstorm dialog. **No agent row
+   shown.** Regression check.
+4. **`ait board` create task** — Open create dialog. **No agent row
+   shown.** Regression check.
+5. **`ait codebrowser` explain** — Run explain on a source file → status
+   row with explain's default agent. Picker + use-last work.
+6. **`ait codebrowser` history qa** — Open history → run qa on a task →
+   status row with qa's default. Picker + use-last work.
+7. **`ait monitor` next-sibling pick** — Trigger next-sibling. The new
+   launch dialog appears (UX change — previously launched directly).
+   Status row shows current agent. Press `a` → pick a model → command
+   updates. Select a tmux session/window → launch. Verify new pane
+   appears with the correct agent and minimonitor spawns.
+8. **No disk persistence** — Open `ait settings` → Agent Defaults tab →
+   pick row still shows the original global default. Quit all TUIs and
+   restart `ait board` → `(U)se last` button gone.
 
 ### Git sanity
 ```bash
 ./ait git status
 ```
-Expected: 4 modified files (`aitask_board.py`, `codebrowser_app.py`, `history_screen.py`, `monitor_app.py`). No new files.
+Expected: 4 modified files (`aitask_board.py`, `codebrowser_app.py`,
+`history_screen.py`, `monitor_app.py`). No new files.
 
 ## Step 9 reference
 
 Per task-workflow Step 9: after implementation + review, run
-`./.aitask-scripts/aitask_archive.sh 521_3`. This is the last sibling, so
-the archive script will auto-archive the parent t521 as well.
+`./.aitask-scripts/aitask_archive.sh 521_3`. This is the last sibling of
+t521, so the archive script will auto-archive the parent t521.
