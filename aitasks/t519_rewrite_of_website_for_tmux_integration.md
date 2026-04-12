@@ -5,7 +5,7 @@ depends: []
 issue_type: documentation
 status: Implementing
 labels: [aitask_monitor, tmux]
-children_to_implement: [t519_1]
+children_to_implement: [t519_1, t519_2]
 folded_tasks: [494]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-10 17:38
