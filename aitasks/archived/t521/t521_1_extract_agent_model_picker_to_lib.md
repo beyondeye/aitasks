@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [codeagent, aitask_board]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-04-12 09:43
-updated_at: 2026-04-12 10:34
+updated_at: 2026-04-12 10:50
+completed_at: 2026-04-12 10:50
 ---
 
 ## Context
