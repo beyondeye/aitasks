@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: [t519_4]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [website, tmux, aitask_monitor, documentation]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-04-12 15:16
-updated_at: 2026-04-12 17:44
+updated_at: 2026-04-12 18:56
+completed_at: 2026-04-12 18:56
 ---
 
 ## Context
