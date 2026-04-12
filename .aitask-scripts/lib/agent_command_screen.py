@@ -89,7 +89,9 @@ class AgentCommandScreen(ModalScreen):
         margin: 0 0 1 0;
     }
     #agent_row Label {
+        height: 3;
         padding: 0 1;
+        content-align: left middle;
     }
     #agent_row Button {
         margin: 0 1;

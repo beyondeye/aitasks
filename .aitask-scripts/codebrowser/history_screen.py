@@ -8,7 +8,7 @@ from typing import List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from agent_command_screen import AgentCommandScreen
-from agent_launch_utils import find_terminal as _find_terminal, resolve_dry_run_command, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor
+from agent_launch_utils import find_terminal as _find_terminal, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -281,7 +281,15 @@ class HistoryScreen(Screen):
         full_cmd = resolve_dry_run_command(self._project_root, "qa", task_id)
         if full_cmd:
             prompt_str = f"/aitask-qa {task_id}"
-            screen = AgentCommandScreen(f"QA for t{task_id}", full_cmd, prompt_str, default_window_name=f"agent-qa-{task_id}")
+            agent_string = resolve_agent_string(self._project_root, "qa")
+            screen = AgentCommandScreen(
+                f"QA for t{task_id}", full_cmd, prompt_str,
+                default_window_name=f"agent-qa-{task_id}",
+                project_root=self._project_root,
+                operation="qa",
+                operation_args=[task_id],
+                default_agent_string=agent_string,
+            )
             def on_result(result):
                 if result == "run":
                     self._run_qa_command(task_id)

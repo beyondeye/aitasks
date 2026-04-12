@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for
 from agent_command_screen import AgentCommandScreen
-from agent_launch_utils import find_terminal, find_window_by_name, resolve_dry_run_command, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor
+from agent_launch_utils import find_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor
 from tui_switcher import TuiSwitcherMixin, TuiSwitcherOverlay
 
 from textual.app import App, ComposeResult
@@ -3328,7 +3328,15 @@ class KanbanApp(TuiSwitcherMixin, App):
                         if full_cmd:
                             num = task_num.lstrip("t")
                             prompt_str = f"/aitask-pick {num}"
-                            screen = AgentCommandScreen(f"Pick Task t{num}", full_cmd, prompt_str, default_window_name=f"agent-pick-{num}")
+                            agent_string = resolve_agent_string(Path("."), "pick")
+                            screen = AgentCommandScreen(
+                                f"Pick Task t{num}", full_cmd, prompt_str,
+                                default_window_name=f"agent-pick-{num}",
+                                project_root=Path("."),
+                                operation="pick",
+                                operation_args=[num],
+                                default_agent_string=agent_string,
+                            )
                             def on_pick_result(pick_result):
                                 if pick_result == "run":
                                     self.run_aitask_pick(focused.task_data.filename)
@@ -3410,7 +3418,15 @@ class KanbanApp(TuiSwitcherMixin, App):
         if full_cmd:
             num = task_num.lstrip("t")
             prompt_str = f"/aitask-pick {num}"
-            screen = AgentCommandScreen(f"Pick Task t{num}", full_cmd, prompt_str, default_window_name=f"agent-pick-{num}")
+            agent_string = resolve_agent_string(Path("."), "pick")
+            screen = AgentCommandScreen(
+                f"Pick Task t{num}", full_cmd, prompt_str,
+                default_window_name=f"agent-pick-{num}",
+                project_root=Path("."),
+                operation="pick",
+                operation_args=[num],
+                default_agent_string=agent_string,
+            )
             def on_pick_result(pick_result):
                 if pick_result == "run":
                     self.run_aitask_pick(focused.task_data.filename)

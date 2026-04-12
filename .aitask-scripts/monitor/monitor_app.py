@@ -35,7 +35,8 @@ from monitor.monitor_shared import (  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 
 import subprocess  # noqa: E402
-from agent_launch_utils import resolve_dry_run_command, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor  # noqa: E402
+from agent_launch_utils import resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor  # noqa: E402
+from agent_command_screen import AgentCommandScreen  # noqa: E402
 
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
@@ -989,21 +990,30 @@ class MonitorApp(TuiSwitcherMixin, App):
             self._focused_pane_id = None
             self.notify(f"Killed {old_name}")
 
-        # Launch new agent in tmux
+        prompt_str = f"/aitask-pick {target_id}"
         window_name = f"agent-pick-{target_id}"
-        config = TmuxLaunchConfig(
-            session=self._session,
-            window=window_name,
-            new_session=False,
-            new_window=True,
+        agent_string = resolve_agent_string(self._project_root, "pick")
+        screen = AgentCommandScreen(
+            f"Pick Task t{target_id}", full_cmd, prompt_str,
+            default_window_name=window_name,
+            project_root=self._project_root,
+            operation="pick",
+            operation_args=[target_id],
+            default_agent_string=agent_string,
         )
-        _, err = launch_in_tmux(full_cmd, config)
-        if err:
-            self.notify(f"Launch failed: {err}", severity="error")
-            return
-        maybe_spawn_minimonitor(self._session, window_name)
-        self.notify(f"Launched agent for t{target_id}")
-        self.call_later(self._refresh_data)
+
+        def on_pick_result(pick_result):
+            if isinstance(pick_result, TmuxLaunchConfig):
+                _, err = launch_in_tmux(screen.full_command, pick_result)
+                if err:
+                    self.notify(f"Launch failed: {err}", severity="error")
+                    return
+                if pick_result.new_window:
+                    maybe_spawn_minimonitor(pick_result.session, pick_result.window)
+                self.notify(f"Launched agent for t{target_id}")
+            self.call_later(self._refresh_data)
+
+        self.push_screen(screen, on_pick_result)
 
 
 def _detect_tmux_session() -> str | None:
