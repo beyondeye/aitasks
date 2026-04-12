@@ -107,13 +107,21 @@ class TaskInfoCache:
         return task_id.split("_", 1)[0]
 
     def find_next_sibling(self, task_id: str) -> tuple[str, str] | None:
-        """Find the next Ready sibling for a child task.
+        """Find the next Ready sibling/child task.
 
-        Returns (sibling_task_id, sibling_title) or None.
+        If task_id is a child (e.g. "123_4"), returns the next Ready sibling
+        under the same parent, excluding the current task. If task_id is a
+        parent (e.g. "123"), returns the first Ready child of that parent.
+
+        Returns (task_id, title) or None.
         """
-        if "_" not in task_id:
-            return None
-        parent, _child = task_id.split("_", 1)
+        if "_" in task_id:
+            parent, _child = task_id.split("_", 1)
+            exclude_id: str | None = task_id
+        else:
+            parent = task_id
+            exclude_id = None
+
         search_dir = self._project_root / "aitasks" / f"t{parent}"
         if not search_dir.is_dir():
             return None
@@ -126,7 +134,7 @@ class TaskInfoCache:
                 continue
             sib_child = m.group(1)
             sib_id = f"{parent}_{sib_child}"
-            if sib_id == task_id:
+            if exclude_id is not None and sib_id == exclude_id:
                 continue
             try:
                 raw = path.read_text(encoding="utf-8")

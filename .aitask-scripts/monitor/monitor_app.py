@@ -213,7 +213,8 @@ class NextSiblingDialog(ModalScreen):
         self._parent_id = parent_id
 
     def compose(self) -> ComposeResult:
-        will_kill = self._current_status == "Done"
+        is_parent_with_children = "_" not in self._current_task_id
+        will_kill = self._current_status == "Done" or is_parent_with_children
         with Container(id="next-sib-dialog"):
             yield Static("[bold yellow]Pick Next Sibling[/]", id="next-sib-header")
             lines = [
@@ -221,7 +222,10 @@ class NextSiblingDialog(ModalScreen):
                 f"Suggested: [bold]t{self._suggested_id}[/]: {self._suggested_title}",
             ]
             if will_kill:
-                lines.append("\n[yellow]Current agent pane will be killed (task is Done)[/]")
+                if is_parent_with_children:
+                    lines.append("\n[yellow]Parent agent pane will be killed (parent is split into children)[/]")
+                else:
+                    lines.append("\n[yellow]Current agent pane will be killed (task is Done)[/]")
             yield Static("\n".join(lines), id="next-sib-details")
             with Container(id="next-sib-buttons"):
                 yield Button(f"Pick t{self._suggested_id}", variant="warning", id="btn-pick-suggested")
@@ -932,10 +936,6 @@ class MonitorApp(TuiSwitcherMixin, App):
         if not task_id:
             self.notify("No task ID in window name", severity="warning")
             return
-        if "_" not in task_id:
-            self.notify("Not a child task — no siblings", severity="warning")
-            return
-
         self._task_cache.invalidate(task_id)
         current_info = self._task_cache.get_task_info(task_id)
         # If task file not found, it was likely archived (Done) — still allow sibling pick
@@ -944,10 +944,10 @@ class MonitorApp(TuiSwitcherMixin, App):
 
         result = self._task_cache.find_next_sibling(task_id)
         if not result:
-            self.notify("No ready siblings found", severity="warning")
+            self.notify("No ready siblings or children found", severity="warning")
             return
         suggested_id, suggested_title = result
-        parent_id = self._task_cache.get_parent_id(task_id)
+        parent_id = self._task_cache.get_parent_id(task_id) or task_id
 
         self.push_screen(
             NextSiblingDialog(
@@ -980,8 +980,10 @@ class MonitorApp(TuiSwitcherMixin, App):
             self.notify(f"Failed to resolve pick command for t{target_id}", severity="error")
             return
 
-        # Kill current pane if task is Done (or archived — info is None)
-        if not current_info or current_info.status == "Done":
+        # Kill current pane if task is Done, archived (info is None), or a
+        # parent task whose implementation has moved to its children.
+        is_parent_with_children = "_" not in task_id
+        if is_parent_with_children or not current_info or current_info.status == "Done":
             old_name = snap.pane.window_name
             self._monitor.kill_pane(pane_id)
             self._focused_pane_id = None
