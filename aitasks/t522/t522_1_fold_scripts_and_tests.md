@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [aitask_fold, task_workflow]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-12 09:53
-updated_at: 2026-04-12 09:53
+updated_at: 2026-04-12 10:47
 ---
 
 ## Context
