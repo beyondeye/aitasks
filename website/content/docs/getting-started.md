@@ -27,15 +27,24 @@ ait setup
 
 See the [Installation guide](../installation/) for platform-specific details and troubleshooting.
 
-## 2. Review Settings
+## 2. Start the ait IDE
 
-After setup, review and configure framework settings with the interactive TUI:
+From your terminal, go to the project you just set up and start the integrated aitasks workspace:
 
 ```bash
-ait settings
+cd /path/to/your/project
+ait ide
 ```
 
-The Settings TUI provides centralized management of:
+`ait ide` attaches to (or creates) a tmux session and opens the **monitor** TUI — the dashboard for all running code agents, open TUIs, and other panes in your session. Every command in the rest of this guide assumes you are running inside the tmux session started by `ait ide`.
+
+From any main TUI, press **`j`** to open the **TUI switcher** dialog and jump directly to `ait board`, `ait monitor`, `ait codebrowser`, `ait settings`, or a running code agent window without leaving tmux.
+
+> Can't use tmux? See the [minimal / non-tmux workflow](../installation/terminal-setup/#minimal--non-tmux-workflow) in the Terminal Setup page for the fallback path.
+
+## 3. Review Settings
+
+From inside the `ait ide` session, press **`j`** in the monitor TUI and pick **settings** in the switcher. This opens `ait settings`, which provides centralized management of:
 
 - **Agent Defaults** — Which code agent and model is used when launching tasks from the [Board](../tuis/board/) TUI and when running explain from the [Code Browser](../tuis/codebrowser/) TUI
 - **Board** — Auto-refresh interval and sync behavior
@@ -45,9 +54,9 @@ The Settings TUI provides centralized management of:
 
 We recommend reviewing settings early — they affect how the Board and Code Browser TUIs invoke code agents and which models are used. See the [Settings documentation](../tuis/settings/) for details.
 
-## 3. Create Your First Task
+## 4. Create Your First Task
 
-Launch the interactive task creator:
+Open a new tmux window and launch the interactive task creator:
 
 ```bash
 ait create
@@ -57,19 +66,15 @@ Walk through the prompts to set priority, effort, labels, and write a descriptio
 
 Your task is saved as a local draft in `aitasks/new/`. Select "Finalize now" to assign it a permanent ID and commit to git.
 
-## 4. View Tasks on the Board
+## 5. View Tasks on the Board
 
-Open the kanban board to see your tasks visually:
+Press **`j`** from any TUI and select **board** to open the kanban view of your tasks. Use the arrow keys to navigate, **Shift+arrows** to move tasks between columns, and **Enter** to view task details. See the [Board documentation](../tuis/board/) for the full guide.
 
-```bash
-ait board
-```
+## 6. Pick and Implement a Task
 
-Use arrow keys to navigate, **Shift+arrows** to move tasks between columns, and **Enter** to view task details. See the [Board documentation](../tuis/board/) for the full guide.
+From the board, press **`p`** on a task to launch a code agent on it — a new tmux window is created for the agent and the picked task appears in the `ait monitor` dashboard. Press **`j`** → **monitor** at any point to watch the agent progress.
 
-## 5. Pick and Implement a Task
-
-Start your code agent and run the pick skill:
+You can also start the pick skill directly from a code agent prompt in any tmux window:
 
 ```
 /aitask-pick
@@ -91,16 +96,17 @@ This launches the full development workflow:
 4. **Review** — You review changes, request adjustments if needed, then commit
 5. **Archive** — Task and plan files are archived automatically
 
-## 6. Iterate
+## 7. Iterate
 
-The core loop is: **create tasks** (with `ait create`, `/aitask-create`, or `$aitask-create`) → **triage** (with `ait board`) → **implement** (with `/aitask-pick` or `$aitask-pick`).
+The core loop is: **create tasks** (with `ait create`, `/aitask-create`, or `$aitask-create`) → **triage** (with `ait board`) → **implement** (with `/aitask-pick` or `$aitask-pick`). All of it happens inside the single `ait ide` tmux session, with `j` as the one keystroke that moves you between TUIs.
 
 As you work, explore these features:
 
+- [The tmux IDE workflow](../workflows/tmux-ide/) — Full end-to-end daily walkthrough, from `ait ide` startup to commit
 - [Workflow Guides](../workflows/) — Common patterns like capturing ideas fast, task decomposition, and parallel development
 - [Code Agent Skills](../skills/) — All available agent skills (`/aitask-pick` in Claude Code, Gemini CLI, and OpenCode; `$aitask-pick` in Codex CLI, etc.)
 - [Command Reference](../commands/) — Full CLI reference for all `ait` subcommands
 
 ---
 
-**Next:** [TUI Applications]({{< relref "tuis" >}})
+**Next:** [The tmux IDE workflow]({{< relref "workflows/tmux-ide" >}})
