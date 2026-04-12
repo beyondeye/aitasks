@@ -1,5 +1,50 @@
 # Changelog
 
+## v0.15.0
+
+### Features
+
+- **Monitor TUI** (t475_1–t475_4, t477, t485, t486, t487, t490–t492, t501, t504, t505, t516, t518): New `ait monitor` command opens a full-screen dashboard listing tmux code-agent panes with a live content preview. Supports zone-based navigation, direct keystroke forwarding (Tab/Enter), kill-agent via `k`, inline task titles and a task detail dialog, preview size cycling, auto-switch to agents needing attention, and a live task name in the preview footer.
+- **Minimonitor TUI** (t496_1–t496_3, t511, t524, t526): New compact `ait minimonitor` companion pane auto-spawns alongside agent windows. Shows a narrow agent list with Tab to focus the sibling agent pane and Enter to send Enter to it.
+- **TUI switcher** (t475_2, t475_4, t479, t495, t510, t514): Reusable `j` keybinding opens a TUI switcher overlay across board, monitor, minimonitor, codebrowser, settings, and brainstorm. Includes inline shortcut hints, wrap-around navigation, dynamic brainstorm session discovery, and prioritized ordering.
+- **`ait ide` launcher** (t519_1): New `ait ide` subcommand starts a tmux session (or attaches to an existing one) and opens an `ait monitor` window in a single step.
+- **Explore operation and shortcut** (t480_1, t480_2): New `explore` codeagent operation, launchable via `x` in the TUI switcher to spin up an exploration agent window.
+- **Git TUI integration** (t507_1–t507_4): Configure lazygit, gitui, or tig as a first-class TUI. Auto-detected during `ait setup` (with lazygit install prompt), selectable in the Settings TUI, and launchable via `g` from the switcher.
+- **Brainstorm from board** (t497, t509): Launch brainstorm sessions directly from the board TUI with automatic tmux window dedup and a lock guard.
+- **Rename task from board** (t500, t503): New `N` keybinding in the board TUI opens a modal to rename tasks with git commit and sync; disabled for locked tasks.
+- **Per-run agent/model override** (t521_2, t521_3): The launch dialog gains `(A)gent` and `(U)se last` buttons so you can pick a different agent/model per run, wired through board, codebrowser, history, and monitor launch flows.
+- **Pick next sibling from monitor** (t506, t525): Press `n` in monitor to pick the next ready sibling or child task. Works for both parent and child tasks and auto-kills the current agent pane when moving on.
+- **Better folding support** (t520): Skills and scripts now support ad-hoc folding and folding of child tasks into unrelated parents.
+
+### Bug Fixes
+
+- **Fix tmux pick arg loss** (t478): Dry-run output now preserves task arguments via `printf '%q'` quoting.
+- **Fix tmux session target ambiguity** (t483): Launching tmux windows now disambiguates session vs window targets correctly.
+- **Fix board pick dialog** (t493): Arrow keys work in the Select dropdown, window targets are valid, tmux errors are surfaced, the dialog defaults to "New window", and the board auto-switches to the target window after split.
+- **Fix child task rename path** (t502): `aitask update` now correctly handles child task file paths during rename.
+- **Fix tmux detection in board** (t512): Board now correctly pre-selects the tmux tab when running inside a tmux session.
+- **Fix tmux settings save** (t515): Saving tmux settings no longer wipes unrelated keys like `git_tui` or the `monitor` sub-dict.
+- **Fix `tar_match` unbound variable** (t527): `task_utils.sh` no longer crashes under `set -u` when archive lookups return empty.
+- **Monitor TUI fixes** (t482, t488, t492, t501, t504, t508): Arrow keys in modal dialogs, crash guards during widget rebuild, footer hides when preview is focused, panel vs pane terminology disambiguated, stable panel border, and delayed preview refresh after sending Enter.
+- **Minimonitor fixes** (t513, t517, t523): No more auto-switch on arrow navigation, correct window index after tmux window moves, and stable agent selection across refreshes.
+- **TUI switcher visual fixes** (t484): Higher-contrast `bright_green` for selected items.
+
+### Improvements
+
+- **Extract monitor shared widgets** (t496_1): Shared monitor components moved to `monitor_shared.py` for reuse by the minimonitor.
+- **Extract agent model picker** (t521_1): `AgentModelPickerScreen` extracted to `lib/agent_model_picker.py` so other TUIs can reuse it.
+
+### Documentation
+
+- **Terminal setup rewrite** (t519_2): Terminal setup page now focuses on the `ait ide` workflow, clarifies terminal emulator vs multiplexer, and calls out the shared-session gotcha.
+- **Getting started + tmux-ide workflow** (t519_3): Getting-started guide uses `ait ide` as the primary entry point, and a new `workflows/tmux-ide` page walks through a daily session end-to-end.
+- **Monitor TUI docs** (t519_4): New `tuis/monitor/` section with overview, how-to, and reference pages.
+- **Minimonitor TUI docs** (t519_5): New `tuis/minimonitor/` section with overview and how-to pages.
+
+### Maintenance
+
+- **Fold helper scripts** (t481, t522_1, t522_2, t528): New `aitask_fold_validate.sh`, `aitask_fold_content.sh`, `aitask_fold_mark.sh` scripts with shared `read_yaml_field` helper; Claude Code fold callers migrated to invoke them directly. Monitor session bar now includes an inline Tab hint. Added `aitask-contribution-review` wrappers for alt-agent frontends.
+
 ## v0.14.0
 
 ### Features
