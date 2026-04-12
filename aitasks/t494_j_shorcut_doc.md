@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Folded
 labels: [aitask_board, codebrowser, ait_settings]
+folded_into: 519
 created_at: 2026-04-05 07:52
-updated_at: 2026-04-05 07:52
+updated_at: 2026-04-12 15:12
 boardidx: 10
 ---
 
