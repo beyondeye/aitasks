@@ -364,6 +364,42 @@ call-site updates.
 - `ait board` → create task → dialog has no agent row (create call site
   doesn't pass `operation`).
 
+## Verification-pass Addendum (2026-04-12)
+
+Plan re-verified against the current codebase before implementation. Two
+refinements discovered, not in the canonical 13 steps above:
+
+### R1. Picker CSS must be self-contained on `AgentModelPickerScreen`
+
+t521_1's Final Implementation Notes deferred this micro-decision. The picker's
+CSS rules currently live in `SettingsApp.DEFAULT_CSS` (`settings_app.py:1401–1421`):
+
+```
+#picker_dialog { width: 65%; height: auto; max-height: 70%;
+                 background: $surface; border: thick $accent; padding: 1 2; }
+#picker_step_label { padding: 0 0 1 1; color: $accent; }
+FuzzySelect { height: auto; max-height: 20; }
+FuzzySelect VerticalScroll { height: auto; max-height: 15; }
+FuzzyOption { height: 1; width: 100%; padding: 0 1; }
+```
+
+When the picker is pushed from `AgentCommandScreen` (which runs inside
+`ait board` / `ait codebrowser` / `ait monitor`, not `ait settings`), these
+rules would not apply and the modal would render unstyled.
+
+**Fix:** add `DEFAULT_CSS` to `AgentModelPickerScreen` in
+`.aitask-scripts/lib/agent_model_picker.py` containing the rules above.
+`settings_app.py`'s copy can stay or be dropped — duplicate rules with
+identical specificity are a no-op.
+
+### R2. `on_key` ordering for `a` / `u`
+
+The existing `on_key` handler at `agent_command_screen.py:481-517` returns
+early when `not self._tmux_available`. The new `a`/`u` interception must be
+placed **above** that early return so the override works outside tmux too.
+Still guard against `Input`/`Select`/`SelectOverlay` focus (same pattern as
+existing `t`/`s`/`n`/`w`/`m`).
+
 ## Step 9 reference
 
 Per task-workflow Step 9: after implementation + review, run
