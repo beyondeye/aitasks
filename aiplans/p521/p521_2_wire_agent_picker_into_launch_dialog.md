@@ -404,3 +404,107 @@ existing `t`/`s`/`n`/`w`/`m`).
 
 Per task-workflow Step 9: after implementation + review, run
 `./.aitask-scripts/aitask_archive.sh 521_2`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the 13 canonical steps plus the two
+  verification-pass refinements (R1 picker `DEFAULT_CSS`, R2 `on_key`
+  ordering). Three files changed:
+  - `.aitask-scripts/lib/agent_launch_utils.py` (+39 lines): extended
+    `resolve_dry_run_command` with keyword-only `agent_string=None` and
+    added new `resolve_agent_string(project_root, operation)` helper that
+    shells `aitask_codeagent.sh resolve <op>` and parses the
+    `AGENT_STRING:` line.
+  - `.aitask-scripts/lib/agent_model_picker.py` (+15 lines): added
+    `DEFAULT_CSS` to `AgentModelPickerScreen` with rules copied from
+    `settings_app.py:1401-1421` (`#picker_dialog`, `#picker_step_label`,
+    `FuzzySelect`, `FuzzySelect VerticalScroll`, `FuzzyOption`). The
+    settings_app.py copy is left in place — duplicate rules with identical
+    specificity are a no-op.
+  - `.aitask-scripts/lib/agent_command_screen.py` (+140 lines): added
+    `resolve_dry_run_command` to the import block; new `#agent_row` CSS
+    rules; new `_last_agent_override: dict[str, str]` class var; extended
+    `__init__` with `operation`, `operation_args`, `default_agent_string`
+    kwargs + stored `self._project_root`; conditional `#agent_row` in
+    `compose()` with Label + `(A)gent` Button + hidden `(U)se last` Button;
+    `on_mount` ends with `self._refresh_agent_row()`; `on_key` intercepts
+    `a`/`A`/`u`/`U` **before** the tmux-availability early-return so the
+    override works outside tmux; new methods `action_change_agent`,
+    `_on_agent_picked`, `action_use_last_agent`, `_apply_agent_override`,
+    `_refresh_agent_row`; new button handlers `_btn_change_agent` and
+    `_btn_use_last_agent`.
+- **Deviations from plan:** None beyond the two verification-pass
+  refinements already documented in the Addendum section above. The
+  `agent_model_picker.AgentModelPickerScreen` now owns its CSS so future
+  callers don't need to duplicate it.
+- **Issues encountered:**
+  - The headless Textual test harness (Textual on Python 3.14) crashes
+    inside `_populate_tmux_tab` → `_update_window_options` →
+    `Select.set_options` with `NoMatches: No nodes match 'SelectOverlay'`.
+    This is a **pre-existing** issue in the code path that isn't exercised
+    in production TUIs; it only shows up in `App.run_test()` because the
+    SelectOverlay hasn't finished mounting before `set_options` runs.
+    Worked around in the smoke test by stubbing
+    `agent_command_screen.is_tmux_available = lambda: False` so
+    `_populate_tmux_tab` never runs. Not fixed here (out of scope).
+  - Minor test ergonomics: `App.query()` on `run_test()` contexts does not
+    reach into modal screens unless the modal has been fully mounted —
+    capture the screen reference via closure and query `screen.query(...)`
+    directly.
+- **Key decisions:**
+  - Put `DEFAULT_CSS` on `AgentModelPickerScreen` (refinement R1) rather
+    than duplicating the rules inside `AgentCommandScreen.DEFAULT_CSS`.
+    Rationale: makes the picker self-contained and reusable from any app
+    without each caller re-pasting the same selectors. `settings_app.py`'s
+    existing copy is idempotent — no regression there.
+  - Intercept `a`/`u` in `on_key` **above** the `if not self._tmux_available:
+    return` guard (refinement R2). Rationale: override flow should work in
+    environments where tmux is absent (non-interactive CI, minimal
+    terminals, non-tmux users). The Input/Select/SelectOverlay focus guard
+    is still respected so the shortcuts don't interfere with text entry.
+  - Added an early `return` after calling `action_change_agent` /
+    `action_use_last_agent` in `on_key` so subsequent tmux-specific key
+    handlers (`t`, `s`, `n`, `w`, `m`) don't also fire.
+- **Notes for sibling tasks (t521_3):**
+  - All four existing `AgentCommandScreen` / `resolve_dry_run_command` call
+    sites are backward compatible — the new constructor kwargs default to
+    None and the old positional-only call sites keep working unchanged.
+    t521_3 needs to update the pick/explain/qa sites to pass:
+    ```python
+    project_root=Path("."),
+    operation="pick",  # or "explain" / "qa"
+    operation_args=[...],
+    default_agent_string=resolve_agent_string(Path("."), "pick"),
+    ```
+    `resolve_agent_string` is the canonical way to obtain the baseline
+    agent string for the initial dialog display.
+  - The `_last_agent_override` dict is keyed by operation string
+    (`"pick"` / `"explain"` / `"qa"`), so each operation remembers its own
+    last override independently. This means a user can pick
+    `claudecode/sonnet4_6` for a pick task without affecting what `(U)se
+    last` shows in an explain dialog. Call sites must pass the exact
+    operation name.
+  - The create-task dialog path (`aitask_board.py:3597`) does **not** pass
+    `operation`, so the agent row never renders there. Confirmed by the
+    non-regression headless test in the Verification section.
+  - The picker inherits its CSS from the module now, so `ait board` and
+    `ait codebrowser` and `ait monitor` will render it correctly without
+    any additional CSS plumbing.
+- **Verification performed:**
+  - `python3 -m py_compile` on all three modified files → OK.
+  - Unit smoke of `resolve_agent_string(Path('.'), 'pick')` →
+    `claudecode/opus4_6`; `resolve_dry_run_command` with and without
+    `agent_string=claudecode/sonnet4_6` → commands differ by `--model
+    claude-opus-4-6` vs `claude-sonnet-4-6` (correct).
+  - Headless Textual mount test (tmux stubbed off):
+    - With `operation="pick"`: agent row mounts (1 match), label reads
+      `Agent: claudecode/opus4_6`, `(U)se last` button starts hidden.
+    - With `operation=None`: agent row does not mount (0 matches). No
+      regression on the create-task dialog path.
+  - Headless end-to-end override flow: picker dismissal with
+    `{'key': 'pick', 'value': 'claudecode/sonnet4_6'}` → command input
+    updates to the re-resolved command, label updates, dict state captured
+    in `_last_agent_override`. After manually resetting
+    `current_agent_string`, the `(U)se last: claudecode/sonnet4_6` button
+    appears; calling `action_use_last_agent()` re-resolves the command.
+    All assertions passed.
