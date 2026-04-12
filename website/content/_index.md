@@ -38,9 +38,9 @@ Git worktrees, atomic task locking, and branch management enable multiple develo
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.15.0: One-step startup with `ait ide`, Live monitor TUI for agent panes, and Minimonitor side panel](blog/v0150-one-step-startup-with-ait-ide-live-monitor-tui-for-agent-panes-minimonitor/)** -- Apr 12, 2026
 - **[v0.14.0: Browse Your Completed Tasks, Process Monitoring and Hard Kill, and Unified Launch Dialog with tmux Support](blog/v0140-browse-your-completed-tasks-process-monitoring-and-hard-kill-unified-launc/)** -- Mar 29, 2026
 - **[v0.13.0: Diff Viewer TUI, Brainstorm Engine & TUI, and Standalone QA Skill](blog/v0130-diff-viewer-tui-brainstorm-engine-tui-standalone-qa-skill/)** -- Mar 23, 2026
-- **[v0.12.2: macOS Compatibility Fix](blog/v0122-macos-compatibility-fix/)** -- Mar 18, 2026
 
 [All releases &rarr;](blog/)
 
