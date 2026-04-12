@@ -123,3 +123,41 @@ Add Final Implementation Notes before archival:
 - A separate `reference.md` file — minimonitor is simple enough to document in two pages.
 - Screenshots (follow-up task).
 - Updating `tuis/_index.md` to link to minimonitor (that's t519_6).
+
+## Final Implementation Notes
+
+- **Actual work done:** Created two new files under `website/content/docs/tuis/minimonitor/`:
+  - `_index.md` — Purpose, Relationship to monitor (comparison table), Auto-spawn from the board, When to use. Front-matter `weight: 17`, `linkTitle: "Minimonitor"`.
+  - `how-to.md` — 12 `### How to ...` sections: Start minimonitor, Read the agent list, Navigate the agent list, Focus the sibling agent pane, Send Enter to the sibling agent, Switch to the selected agent, Show task info, Jump to another TUI, Refresh, Quit, Pair with monitor, Configure auto-spawn, plus a Key Bindings quick reference table.
+- **Weight chosen:** `17`. Verified sidebar order via generated HTML: board(10) → monitor(15) → **minimonitor(17)** → codebrowser(20) → settings(30).
+- **Deviations from plan:**
+  - **Tab binding description corrected.** The original plan said Tab "cycles agents"; the actual behavior in `minimonitor_app.py:93-101` is that Tab focuses the sibling tmux pane (moves tmux focus to the first non-minimonitor pane in the same window). Up/Down are the actual in-list navigation keys. The how-to documents this correctly and also documents the Enter-to-sibling-pane shortcut (not in the original outline).
+  - **Single-instance guard corrected.** The plan said repeated `ait minimonitor` invocations "attach to the existing instance". In reality, `aitask_minimonitor.sh:43-51` silently exits if another monitor or minimonitor is running **in the same tmux window** (per-window, not per-session). Documented as such: "prints a short message and exits". The per-window scope is explicitly called out so the user knows they can still have minimonitor split alongside each agent window.
+  - **Auto-close behavior added** (not in plan). Minimonitor exits automatically when it is the last pane left in its tmux window, with a 5-second grace period after mount (`_check_auto_close` in `minimonitor_app.py:212-220`). Called out in the "How to Quit" section.
+  - **Config keys documented** (not in plan). The auto-spawn helper reads `tmux.minimonitor.auto_spawn` and `tmux.minimonitor.width` from `project_config.yaml` (`agent_launch_utils.py:234-243`). Added a "Configuring Auto-Spawn" how-to section covering both keys.
+  - **Relationship-to-monitor comparison table** replaced the plan's prose "H2 Relationship to monitor" — easier to scan and reflects the same information more densely.
+- **Issues encountered:** None. Build was clean on first attempt (127 pages, zero errors, zero warnings).
+- **Key decisions:**
+  - Two-file structure per plan — no `reference.md`. The key bindings quick reference at the bottom of `how-to.md` doubles as the reference.
+  - Linked to `/docs/tuis/monitor/reference/#configuration` for shared config keys instead of duplicating the full monitor configuration table in minimonitor docs. Only the minimonitor-specific keys (`tmux.minimonitor.auto_spawn`, `tmux.minimonitor.width`) are documented inline.
+  - Per project memory `project_diffviewer_brainstorm.md`, `diffviewer` is not mentioned anywhere in the new pages.
+  - Followed sibling t519_4's conventions: title-case section headings, `{{< relref >}}` for internal links, HTML comments for screenshot placeholders.
+- **Notes for sibling tasks:**
+  - **t519_6 (TUI switcher docs + footer label):** Exact relref paths for the new minimonitor pages:
+    - `{{< relref "/docs/tuis/minimonitor" >}}` — overview
+    - `{{< relref "/docs/tuis/minimonitor/how-to" >}}` — how-to guides
+    - The `how-to.md` page has an H3 anchor `#pairing-minimonitor-with-monitor` that t519_6 can link from the tmux integration sections of other TUIs.
+    - `tuis/_index.md` landing page still needs a mention for both monitor (from t519_4) and minimonitor (this task) — that remains part of t519_6's scope.
+  - The `maybe_spawn_minimonitor` logic only fires when the window name starts with `agent-`; t519_6 should reflect this if it touches the agent launch flow docs.
+- **Build verification:** `hugo --gc --minify` reports 127 pages (up from 124 for monitor-only), zero errors, zero warnings. HTML comment screenshot placeholders are stripped by the minifier (verified: `grep -c SCREENSHOT public/docs/tuis/minimonitor/*.html` returns 0 for both files). All internal `relref` links resolve (board, monitor, monitor/reference, monitor/how-to, settings).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-04-12 19:15)
+
+- **Requested by user:** Reframe the docs so auto-spawn is clearly the primary mode (not just a "from the board" side-note), call out that auto-spawn happens from board AND codebrowser AND monitor's next-sibling (`n`) command, and document that minimonitor auto-despawns when its companion agent pane exits.
+- **Verification:** `grep maybe_spawn_minimonitor .aitask-scripts/**/*.py` confirmed the helper is called from `board/aitask_board.py` (two sites), `codebrowser/codebrowser_app.py`, `codebrowser/history_screen.py`, `monitor/monitor_app.py` (the `n`/next-sibling handler at `monitor_app.py:1012`), and `lib/tui_switcher.py` (explore launch). The auto-despawn behavior is implemented in `minimonitor_app.py:212-220` (`_check_auto_close`) and documented accordingly.
+- **Changes made:**
+  - `_index.md`: added a lead paragraph calling out auto-spawn as the primary mode. Replaced "Auto-spawn from the board" section with "Auto-spawn and auto-despawn" covering all four call sites (board, codebrowser, monitor's `n`, TUI switcher explore launch) and the auto-despawn lifecycle. Added a "When to launch manually" section listing the rare cases where `ait minimonitor` should be invoked directly.
+  - `how-to.md`: replaced the single "How to Start Minimonitor" section with two sections: "How Minimonitor Is Auto-Spawned" (primary — lists all launch points and the auto-despawn behavior) and "How to Start Minimonitor Manually" (escape hatch). Updated "How to Quit" to frame manual quit as rare because auto-despawn handles the common case. Updated the "Configuring Auto-Spawn" intro to mention all call sites.
+- **Files affected:** `website/content/docs/tuis/minimonitor/_index.md`, `website/content/docs/tuis/minimonitor/how-to.md`
