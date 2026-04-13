@@ -3,11 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [ui, agentcrew]
-children_to_implement: [t447_5]
 created_at: 2026-03-23 19:35
-updated_at: 2026-03-24 12:20
+updated_at: 2026-04-13 13:26
+completed_at: 2026-04-13 13:26
 boardidx: 40
 ---
 
