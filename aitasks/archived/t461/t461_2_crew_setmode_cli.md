@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t461_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [agentcrew]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-04-13 11:43
-updated_at: 2026-04-13 13:26
+updated_at: 2026-04-13 13:33
+completed_at: 2026-04-13 13:33
 ---
 
 ## Context
