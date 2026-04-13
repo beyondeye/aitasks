@@ -82,3 +82,10 @@ Add the same four Claude Code entries directly. This is the user's active workin
 ## Step 9 (Post-Implementation)
 
 Follow the standard task-workflow Step 9: commit as `bug: Add fold and plan_externalize scripts to code-agent whitelists (t538)` per the `issue_type: bug` in the frontmatter, then run `aitask_archive.sh 538` and push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added four new whitelist entries (`aitask_fold_content.sh`, `aitask_fold_mark.sh`, `aitask_fold_validate.sh`, `aitask_plan_externalize.sh`) to three seed whitelists (`seed/claude_settings.local.json`, `seed/opencode_config.seed.json`, `seed/geminicli_policies/aitasks-whitelist.toml`) and to the aitasks repo's own `.claude/settings.local.json`. JSON validated with `jq` on all three JSON files.
+- **Deviations from plan:** None for the task-scoped changes. The aitasks repo's local `.claude/settings.local.json` also carried 2 pre-existing uncommitted additions (`Bash(tmux list-sessions:*)`, `Bash(./ait create:*)`) that were already in the working tree before the task started. Per user approval, these were bundled into the same t538 commit rather than leaving them dangling.
+- **Issues encountered:** None. The `seed/codex_config.seed.toml` file was intentionally not modified because Codex CLI `prefix_rules` only support `prompt` / `forbidden` decisions and have no allow-list concept (documented inline in that file).
+- **Key decisions:** Alphabetical placement of the new entries inside each whitelist file to keep them grouped with their nearest neighbors (e.g., `aitask_fold_*` inserted right after `aitask_find_files.sh`, `aitask_plan_externalize.sh` right after `aitask_pick_own.sh`). Same placement logic applied uniformly across all three Claude/OpenCode/Gemini seed files.
