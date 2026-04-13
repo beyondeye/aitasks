@@ -1278,25 +1278,56 @@ class DeleteConfirmScreen(ModalScreen):
 
 
 class DeleteArchiveConfirmScreen(ModalScreen):
-    """Confirmation dialog offering Delete or Archive for a task."""
+    """Confirmation dialog offering Delete or Archive for a task.
+
+    Renders explicit ARCHIVED / DELETED sections so the user can see exactly
+    what each button will do — never just a flat "files affected" list.
+    Disables the Archive button when blocking children prevent a cascade.
+    """
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
     ]
 
-    def __init__(self, task_name: str, files_to_delete: list,
-                 dep_warnings: list, related_tasks: list,
-                 is_child: bool):
+    def __init__(self, task_name: str,
+                 delete_files: list,
+                 archive_kept: list,
+                 archive_deleted: list,
+                 dep_warnings: list,
+                 related_tasks: list,
+                 is_child: bool,
+                 blocking_files: list = None,
+                 blocked_reason: str | None = None):
         super().__init__()
         self.task_name = task_name
-        self.files_to_delete = files_to_delete
-        self.dep_warnings = dep_warnings
-        self.related_tasks = related_tasks
+        self.delete_files = delete_files or []
+        self.archive_kept = archive_kept or []
+        self.archive_deleted = archive_deleted or []
+        self.dep_warnings = dep_warnings or []
+        self.related_tasks = related_tasks or []
         self.is_child = is_child
+        self.blocking_files = blocking_files or []
+        self.blocked_reason = blocked_reason
+
+    @staticmethod
+    def _format_section(title: str, items: list) -> list[str]:
+        if not items:
+            return []
+        out = [title]
+        for path, annotation in items:
+            if annotation:
+                out.append(f"    {path}    [{annotation}]")
+            else:
+                out.append(f"    {path}")
+        return out
 
     def compose(self):
-        lines = []
-        # Explicit dependency section — always shown
+        lines: list[str] = []
+
+        if self.blocked_reason:
+            lines.append(f"[!] {self.blocked_reason}")
+            lines.append("")
+
         if self.dep_warnings:
             lines.append("[!] Explicit dependencies found:")
             for w in self.dep_warnings:
@@ -1304,17 +1335,36 @@ class DeleteArchiveConfirmScreen(ModalScreen):
         else:
             lines.append("[ok] No explicit dependencies found.")
         lines.append("")
-        # Related tasks for manual review
+
         if self.related_tasks:
             label = "Sibling" if self.is_child else "Related"
             lines.append(f"{label} tasks — please verify no implicit dependencies:")
             for t in self.related_tasks:
                 lines.append(f"    {t}")
             lines.append("")
-        # Files affected
-        lines.append("Files affected:")
-        for f in self.files_to_delete:
-            lines.append(f"    {f}")
+
+        lines.append("On Delete:")
+        if self.delete_files:
+            lines.extend(self._format_section("  Files to remove:", self.delete_files))
+        else:
+            lines.append("  (nothing to remove)")
+        lines.append("")
+
+        lines.append("On Archive:")
+        if self.blocked_reason:
+            lines.append(f"  [!] {self.blocked_reason}")
+            if self.blocking_files:
+                lines.extend(self._format_section("  Blocking children:", self.blocking_files))
+        else:
+            if self.archive_kept:
+                lines.extend(self._format_section(
+                    "  Will be ARCHIVED (moved to archived/):", self.archive_kept))
+            if self.archive_deleted:
+                lines.extend(self._format_section(
+                    "  Will be DELETED (cascade cleanup):", self.archive_deleted))
+            if not self.archive_kept and not self.archive_deleted:
+                lines.append("  (nothing to archive)")
+
         with Container(id="dep_picker_dialog"):
             yield Label(
                 f"Delete or Archive '{self.task_name}'?\n\n" + "\n".join(lines),
@@ -1322,7 +1372,10 @@ class DeleteArchiveConfirmScreen(ModalScreen):
             )
             with Horizontal(id="detail_buttons"):
                 yield Button("Delete", variant="error", id="btn_do_delete")
-                yield Button("Archive", variant="warning", id="btn_do_archive")
+                archive_btn = Button("Archive", variant="warning", id="btn_do_archive")
+                if self.blocked_reason:
+                    archive_btn.disabled = True
+                yield archive_btn
                 yield Button("Cancel", variant="default", id="btn_do_cancel")
 
     @on(Button.Pressed, "#btn_do_delete")
@@ -1331,6 +1384,9 @@ class DeleteArchiveConfirmScreen(ModalScreen):
 
     @on(Button.Pressed, "#btn_do_archive")
     def do_archive(self):
+        if self.blocked_reason:
+            self.app.notify(self.blocked_reason, severity="warning")
+            return
         self.dismiss("archive")
 
     @on(Button.Pressed, "#btn_do_cancel")
@@ -1339,6 +1395,54 @@ class DeleteArchiveConfirmScreen(ModalScreen):
 
     def action_cancel(self):
         self.dismiss("cancel")
+
+
+class OrphanParentArchiveScreen(ModalScreen):
+    """Prompt to archive a parent task that has just become orphaned (its
+    last pending child was deleted). Lists the parent file and plan that
+    will be moved to archived/."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, parent_name: str, parent_status: str,
+                 archive_kept: list):
+        super().__init__()
+        self.parent_name = parent_name
+        self.parent_status = parent_status
+        self.archive_kept = archive_kept or []
+
+    def compose(self):
+        lines = [
+            f"Parent '{self.parent_name}' has no more pending children.",
+            "",
+            "Will be ARCHIVED (moved to archived/):",
+        ]
+        for path, annotation in self.archive_kept:
+            if annotation:
+                lines.append(f"    {path}    [{annotation}]")
+            else:
+                lines.append(f"    {path}")
+        lines.append("")
+        lines.append("Archive it as completed now?")
+
+        with Container(id="dep_picker_dialog"):
+            yield Label("\n".join(lines), id="orphan_parent_label")
+            with Horizontal(id="detail_buttons"):
+                yield Button("Yes, archive parent", variant="warning", id="btn_orphan_yes")
+                yield Button("No, leave it", variant="default", id="btn_orphan_no")
+
+    @on(Button.Pressed, "#btn_orphan_yes")
+    def confirm(self):
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#btn_orphan_no")
+    def decline(self):
+        self.dismiss(False)
+
+    def action_cancel(self):
+        self.dismiss(False)
 
 
 class DepPickerItem(Static):
@@ -3367,22 +3471,33 @@ class KanbanApp(TuiSwitcherMixin, App):
                 elif result == "delete_archive":
                     task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
                     is_child = focused.task_data.filepath.parent.name.startswith("t")
-                    display_names, paths = self._collect_delete_files(focused.task_data)
+                    _, paths = self._collect_delete_files(focused.task_data)
                     dep_warnings, related = self._check_task_dependencies(focused.task_data, is_child)
+                    fate = self._build_fate_buckets(focused.task_data)
+                    cascade_children = fate["cascade_children"]
+                    captured_task = focused.task_data
 
                     def on_action_chosen(action):
                         if action == "delete":
-                            self._execute_delete(task_num, paths, focused.task_data)
+                            self._execute_delete(task_num, paths, captured_task)
                         elif action == "archive":
-                            self._execute_archive(task_num, focused.task_data)
+                            self._execute_archive(task_num, captured_task,
+                                                  cascade_children=cascade_children)
                         else:
                             self.apply_filter()
-                            self.call_after_refresh(self._refocus_card, focused.task_data.filename)
+                            self.call_after_refresh(self._refocus_card, captured_task.filename)
 
                     self.push_screen(
                         DeleteArchiveConfirmScreen(
-                            focused.task_data.filename, display_names,
-                            dep_warnings, related, is_child,
+                            focused.task_data.filename,
+                            delete_files=fate["delete_files"],
+                            archive_kept=fate["archive_kept"],
+                            archive_deleted=fate["archive_deleted"],
+                            dep_warnings=dep_warnings,
+                            related_tasks=related,
+                            is_child=is_child,
+                            blocking_files=fate["blocking_files"],
+                            blocked_reason=fate["blocked_reason"],
                         ),
                         on_action_chosen,
                     )
@@ -4079,6 +4194,108 @@ class KanbanApp(TuiSwitcherMixin, App):
             plan_path = Path("aiplans") / plan_name
         return plan_path if plan_path.exists() else None
 
+    def _categorize_pending_children(self, parent_num: str) -> dict:
+        """Bucket a parent's pending children by status.
+
+        Returns a dict with keys:
+          - "disposable":      Ready / Postponed / Editing (safe to cascade-delete)
+          - "blocking":        Implementing (cascade refused)
+          - "unarchived_done": Done but not yet archived (cascade refused)
+        """
+        buckets = {"disposable": [], "blocking": [], "unarchived_done": []}
+        for child in self.manager.get_child_tasks_for_parent(parent_num):
+            status = child.metadata.get("status", "Ready")
+            if status in ("Ready", "Postponed", "Editing"):
+                buckets["disposable"].append(child)
+            elif status == "Implementing":
+                buckets["blocking"].append(child)
+            elif status == "Done":
+                buckets["unarchived_done"].append(child)
+            else:
+                buckets["blocking"].append(child)
+        return buckets
+
+    def _build_fate_buckets(self, task: Task):
+        """Build (delete_files, archive_kept, archive_deleted, blocking_files) for
+        a task as labelled (path, annotation) tuples. Used by DeleteArchiveConfirmScreen
+        and by the cascade execution path so they share one source of truth.
+
+        Returns a dict with:
+          - delete_files:   files removed when user clicks Delete
+          - archive_kept:   files moved to archived/ when user clicks Archive
+          - archive_deleted: files removed when user clicks Archive (cascade)
+          - blocking_files: blocking children that prevent archive
+          - cascade_children: list[Task] of disposable children for the cascade executor
+          - blocked_reason: str | None — reason archive is blocked, or None
+        """
+        task_num, _ = TaskCard._parse_filename(task.filename)
+        is_child = task.filepath.parent.name.startswith("t")
+        status = task.metadata.get("status", "Ready")
+
+        delete_files = []
+        archive_kept = []
+        archive_deleted = []
+        blocking_files = []
+        cascade_children = []
+        blocked_reason = None
+
+        if is_child:
+            # Self
+            self_annot = f"child — {status}"
+            delete_files.append((str(task.filepath), self_annot))
+            archive_kept.append((str(task.filepath), self_annot))
+            plan_path = self._resolve_plan_path_for(task)
+            if plan_path:
+                delete_files.append((str(plan_path), ""))
+                archive_kept.append((str(plan_path), ""))
+        else:
+            # Parent self
+            self_annot = f"parent — {status}"
+            delete_files.append((str(task.filepath), self_annot))
+            archive_kept.append((str(task.filepath), self_annot))
+            parent_plan = self._resolve_plan_path_for(task)
+            if parent_plan:
+                delete_files.append((str(parent_plan), ""))
+                archive_kept.append((str(parent_plan), ""))
+
+            # Pending children
+            buckets = self._categorize_pending_children(task_num)
+            for child in buckets["disposable"]:
+                child_status = child.metadata.get("status", "Ready")
+                delete_files.append((str(child.filepath), child_status))
+                archive_deleted.append((str(child.filepath), child_status))
+                child_plan = self._resolve_plan_path_for(child)
+                if child_plan:
+                    delete_files.append((str(child_plan), ""))
+                    archive_deleted.append((str(child_plan), ""))
+                cascade_children.append(child)
+            for child in buckets["blocking"]:
+                child_status = child.metadata.get("status", "Ready")
+                delete_files.append((str(child.filepath), child_status))
+                blocking_files.append((str(child.filepath), child_status))
+            for child in buckets["unarchived_done"]:
+                delete_files.append((str(child.filepath), "Done — archive it first"))
+                blocking_files.append((str(child.filepath), "Done — archive it first"))
+
+            n_blocking = len(buckets["blocking"])
+            n_done = len(buckets["unarchived_done"])
+            if n_blocking or n_done:
+                parts = []
+                if n_blocking:
+                    parts.append(f"{n_blocking} child(ren) Implementing")
+                if n_done:
+                    parts.append(f"{n_done} child(ren) Done but unarchived (archive them first)")
+                blocked_reason = "Cannot archive parent: " + "; ".join(parts) + "."
+
+        return {
+            "delete_files": delete_files,
+            "archive_kept": archive_kept,
+            "archive_deleted": archive_deleted,
+            "blocking_files": blocking_files,
+            "cascade_children": cascade_children,
+            "blocked_reason": blocked_reason,
+        }
+
     def _collect_delete_files(self, task: Task):
         """Collect files to delete for a task (including children and plans).
         Returns (display_names, paths_to_delete)."""
@@ -4164,21 +4381,86 @@ class KanbanApp(TuiSwitcherMixin, App):
 
         return dep_warnings, related_summaries
 
-    def _execute_archive(self, task_num: str, task: Task):
-        """Archive a task as superseded (shows loading overlay)."""
+    def _execute_archive(self, task_num: str, task: Task,
+                         cascade_children: list = None):
+        """Archive a task as superseded (shows loading overlay).
+
+        If cascade_children is non-empty, those disposable children are
+        removed from the parent's children_to_implement and their files
+        deleted before the archive script runs (so the archived parent has
+        a clean children_to_implement and the deletions land in the same
+        archive commit).
+        """
+        cascade_paths = []
+        cascade_ids = []
+        for child in cascade_children or []:
+            child_id, _ = TaskCard._parse_filename(child.filename)
+            cascade_ids.append(child_id)
+            cascade_paths.append(str(child.filepath))
+            child_plan = self._resolve_plan_path_for(child)
+            if child_plan:
+                cascade_paths.append(str(child_plan))
         self.push_screen(LoadingOverlay("Archiving task..."))
-        self._do_archive(task_num)
+        self._do_archive(task_num, cascade_ids, cascade_paths)
 
     @work(thread=True)
-    def _do_archive(self, task_num: str):
-        """Run archive subprocess in a thread worker."""
+    def _do_archive(self, task_num: str,
+                    cascade_ids: list[str], cascade_paths: list[str]):
+        """Run archive subprocess in a thread worker.
+
+        cascade_ids:   child task IDs (with 't' prefix, e.g. 't475_3') to remove
+                       from the parent's children_to_implement before archiving.
+        cascade_paths: child task/plan file paths to git-rm before archiving.
+        """
         try:
+            parent_num_bare = task_num.lstrip("t")
+
+            # Remove disposable children from parent's children_to_implement
+            # (does not commit — runs without --commit; the archive script's
+            #  commit will pick up the staged changes).
+            for child_id in cascade_ids:
+                subprocess.run(
+                    ["./.aitask-scripts/aitask_update.sh", "--batch", parent_num_bare,
+                     "--remove-child", child_id, "--silent"],
+                    capture_output=True, text=True, timeout=10
+                )
+
+            # git rm the disposable child files (task + plan)
+            for path in cascade_paths:
+                rm_result = subprocess.run(
+                    [*_task_git_cmd(), "rm", "-f", path],
+                    capture_output=True, text=True, timeout=10
+                )
+                if rm_result.returncode != 0:
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+
+            # Best-effort cleanup of empty child directories
+            if cascade_paths:
+                child_task_dir = TASKS_DIR / task_num
+                if child_task_dir.is_dir():
+                    try:
+                        os.rmdir(child_task_dir)
+                    except OSError:
+                        pass
+                child_plan_dir = Path("aiplans") / task_num.replace("t", "p", 1)
+                if child_plan_dir.is_dir():
+                    try:
+                        os.rmdir(child_plan_dir)
+                    except OSError:
+                        pass
+
             result = subprocess.run(
                 ["./.aitask-scripts/aitask_archive.sh", "--superseded", task_num],
                 capture_output=True, text=True, timeout=30
             )
             if result.returncode == 0:
-                self.app.call_from_thread(self.notify, f"Archived {task_num} as superseded", severity="information")
+                msg = f"Archived {task_num} as superseded"
+                if cascade_ids:
+                    msg += f" (cascade-deleted {len(cascade_ids)} child(ren))"
+                self.app.call_from_thread(self.notify, msg, severity="information")
             else:
                 error = result.stderr.strip() or result.stdout.strip()
                 self.app.call_from_thread(self.notify, f"Archive failed: {error}", severity="error")
@@ -4196,20 +4478,40 @@ class KanbanApp(TuiSwitcherMixin, App):
         """Delete task files (shows loading overlay)."""
         paths_str = [str(p) for p in paths]
         folded_ids = []
+        parent_num = None
         if task:
             folded_ids = [str(fid).lstrip("t") for fid in task.metadata.get("folded_tasks", [])]
+            if task.filepath.parent.name.startswith("t"):
+                parent_num = task.filepath.parent.name
         self.push_screen(LoadingOverlay("Deleting task..."))
-        self._do_delete(task_num, paths_str, folded_ids)
+        self._do_delete(task_num, paths_str, folded_ids, parent_num)
 
     @work(thread=True)
-    def _do_delete(self, task_num: str, paths: list[str], folded_ids: list[str]):
-        """Run delete subprocess in a thread worker."""
+    def _do_delete(self, task_num: str, paths: list[str], folded_ids: list[str],
+                   parent_num: str | None):
+        """Run delete subprocess in a thread worker.
+
+        If parent_num is set, this is a child-task delete: the child is
+        first removed from the parent's children_to_implement (so the
+        parent's metadata stays consistent), and after the commit lands
+        the parent is checked for orphan status to prompt archival.
+        """
         try:
             # Unfold folded tasks before deleting
             for fid_str in folded_ids:
                 subprocess.run(
                     ["./.aitask-scripts/aitask_update.sh", "--batch", fid_str,
                      "--status", "Ready", "--folded-into", ""],
+                    capture_output=True, text=True, timeout=10
+                )
+
+            # If deleting a child task, remove its reference from the parent's
+            # children_to_implement list before the file disappears.
+            if parent_num:
+                parent_bare = parent_num.lstrip("t")
+                subprocess.run(
+                    ["./.aitask-scripts/aitask_update.sh", "--batch", parent_bare,
+                     "--remove-child", task_num, "--silent"],
                     capture_output=True, text=True, timeout=10
                 )
 
@@ -4257,6 +4559,41 @@ class KanbanApp(TuiSwitcherMixin, App):
 
         self.app.call_from_thread(self.manager.load_tasks)
         self.app.call_from_thread(self.refresh_board)
+
+        # After the parent has been reloaded, check for orphan-archive prompt.
+        if parent_num:
+            self.app.call_from_thread(self._maybe_prompt_orphan_parent_archive, parent_num)
+
+    def _maybe_prompt_orphan_parent_archive(self, parent_num: str):
+        """If the parent has no more pending children and is not Done,
+        offer to archive it as completed."""
+        parent_task = self.manager.find_task_by_id(parent_num)
+        if parent_task is None:
+            return
+        children_to_implement = parent_task.metadata.get("children_to_implement") or []
+        if children_to_implement:
+            return
+        if parent_task.metadata.get("status") == "Done":
+            return
+        # Also skip if there are still discoverable child files on disk
+        # (defensive — children_to_implement may be stale)
+        if self.manager.get_child_tasks_for_parent(parent_num):
+            return
+
+        parent_status = parent_task.metadata.get("status", "Ready")
+        archive_kept = [(str(parent_task.filepath), f"parent — {parent_status}")]
+        parent_plan = self._resolve_plan_path_for(parent_task)
+        if parent_plan:
+            archive_kept.append((str(parent_plan), ""))
+
+        def on_orphan_decision(confirmed):
+            if confirmed:
+                self._execute_archive(parent_num, parent_task, cascade_children=None)
+
+        self.push_screen(
+            OrphanParentArchiveScreen(parent_task.filename, parent_status, archive_kept),
+            on_orphan_decision,
+        )
 
     def _rename_task(self, task: Task, new_name: str):
         """Rename a task (and its plan file if present), commit, and sync."""
