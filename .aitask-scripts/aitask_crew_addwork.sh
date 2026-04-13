@@ -24,6 +24,7 @@ WORK2DO_FILE=""
 DEPENDS_CSV=""
 AGENT_TYPE=""
 GROUP=""
+LAUNCH_MODE="headless"
 # shellcheck disable=SC2034  # reserved for interactive mode
 BATCH_MODE=false
 
@@ -43,6 +44,7 @@ Required:
 Options:
   --depends <a,b>           Comma-separated list of agent names this agent depends on
   --group <name>            Operation group name (e.g. explore_001)
+  --launch-mode <mode>      Launch mode: 'headless' (default) or 'interactive'
   --batch                   Non-interactive mode (no prompts)
   --help                    Show this help
 
@@ -77,6 +79,9 @@ while [[ $# -gt 0 ]]; do
         --group)
             [[ -z "${2:-}" ]] && die "--group requires a value"
             GROUP="$2"; shift 2 ;;
+        --launch-mode)
+            [[ -z "${2:-}" ]] && die "--launch-mode requires a value"
+            LAUNCH_MODE="$2"; shift 2 ;;
         --batch)
             BATCH_MODE=true; shift ;;
         --help|-h)
@@ -91,6 +96,9 @@ done
 [[ -z "$AGENT_NAME" ]] && die "Missing required --name. Run 'ait crew addwork --help' for usage."
 [[ -z "$WORK2DO_FILE" ]] && die "Missing required --work2do. Run 'ait crew addwork --help' for usage."
 [[ -z "$AGENT_TYPE" ]] && die "Missing required --type. Run 'ait crew addwork --help' for usage."
+
+[[ "$LAUNCH_MODE" =~ ^(headless|interactive)$ ]] || \
+    die "--launch-mode must be 'headless' or 'interactive' (got '$LAUNCH_MODE')"
 
 validate_crew_id "$CREW_ID"
 validate_agent_name "$AGENT_NAME"
@@ -160,6 +168,7 @@ write_yaml_file "$WT_PATH/${AGENT_NAME}_work2do.md" "$WORK2DO_CONTENT"
 STATUS_CONTENT="agent_name: ${AGENT_NAME}
 agent_type: ${AGENT_TYPE}
 group: ${GROUP}
+launch_mode: ${LAUNCH_MODE}
 status: ${AGENT_STATUS_WAITING}
 depends_on: ${DEPENDS_YAML}
 created_at: ${NOW}

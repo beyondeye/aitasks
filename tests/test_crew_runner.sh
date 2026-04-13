@@ -104,6 +104,7 @@ setup_test_repo() {
 
         cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/agent_launch_utils.py" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/aitask_crew_init.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/aitask_crew_addwork.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/aitask_crew_command.sh" .aitask-scripts/

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import signal
 import socket
 import subprocess
@@ -30,6 +31,16 @@ from agentcrew.agentcrew_utils import (
     update_yaml_field,
     validate_agent_transition,
     write_yaml,
+)
+from lib.agent_launch_utils import (
+    TmuxLaunchConfig,
+    find_terminal,
+    get_tmux_sessions,
+    get_tmux_windows,
+    is_tmux_available,
+    launch_in_tmux,
+    load_tmux_defaults,
+    maybe_spawn_minimonitor,
 )
 
 # ---------------------------------------------------------------------------
@@ -408,6 +419,13 @@ def launch_agent(worktree: str, name: str, agents: dict[str, dict],
     type_config = agent_types_config.get(atype, {})
     agent_string = type_config.get("agent_string", "")
 
+    # Resolve launch mode: per-agent yaml > per-type config (t461_5) > framework default
+    launch_mode = (
+        agent_data.get("launch_mode")
+        or type_config.get("launch_mode")
+        or "headless"
+    )
+
     if not agent_string:
         log(f"WARNING: No agent_string for type '{atype}', skipping agent '{name}'", batch)
         return
@@ -462,32 +480,119 @@ def launch_agent(worktree: str, name: str, agents: dict[str, dict],
             agents[name]["status"] = "Running"
 
     # Launch the agent process
-    log(f"Launching agent '{name}' (type={atype}, string={agent_string})", batch)
-    try:
-        # Capture agent stdout/stderr to a per-agent log file
-        log_path = os.path.join(worktree, f"{name}_log.txt")
-        log_fh = open(log_path, "a")
-        ait_cmd = os.path.join(_repo_root, "ait") if _repo_root else "./ait"
-        short_prompt = f"Read and follow all instructions in the file: {prompt_rel}"
-        cmd = [ait_cmd, "codeagent", "--agent-string", agent_string,
-               "invoke", "raw", "-p", short_prompt]
-        log_fh.write(f"=== Agent: {name} | Type: {atype} | String: {agent_string} ===\n")
-        log_fh.write(f"=== Started: {now_utc()} ===\n")
-        log_fh.write(f"=== Prompt file: {prompt_rel} ===\n")
-        log_fh.write(f"=== Command: {' '.join(cmd)} ===\n")
-        log_fh.write(f"{'=' * 60}\n")
-        log_fh.flush()
+    log(f"Launching agent '{name}' (type={atype}, string={agent_string}, "
+        f"launch_mode={launch_mode})", batch)
+    log_path = os.path.join(worktree, f"{name}_log.txt")
+    ait_cmd = os.path.join(_repo_root, "ait") if _repo_root else "./ait"
+    short_prompt = f"Read and follow all instructions in the file: {prompt_rel}"
+    alive_path = os.path.join(worktree, f"{name}_alive.yaml")
 
-        proc = subprocess.Popen(cmd, cwd=_repo_root or ".", stdout=log_fh, stderr=log_fh)
-        _log_handles[name] = log_fh
-        update_yaml_field(status_file, "pid", proc.pid)
-        agents[name]["pid"] = proc.pid
-        # Write initial heartbeat so agent isn't considered stale before it
-        # writes its own first heartbeat
-        alive_path = os.path.join(worktree, f"{name}_alive.yaml")
-        update_yaml_field(alive_path, "last_heartbeat", now_utc())
-        if batch:
-            print(f"LAUNCHED:{name}:{proc.pid}")
+    try:
+        if launch_mode == "headless":
+            # Capture agent stdout/stderr to a per-agent log file
+            log_fh = open(log_path, "a")
+            cmd = [ait_cmd, "codeagent", "--agent-string", agent_string,
+                   "invoke", "raw", "-p", short_prompt]
+            log_fh.write(f"=== Agent: {name} | Type: {atype} | String: {agent_string} ===\n")
+            log_fh.write(f"=== Started: {now_utc()} ===\n")
+            log_fh.write(f"=== Prompt file: {prompt_rel} ===\n")
+            log_fh.write(f"=== Command: {' '.join(cmd)} ===\n")
+            log_fh.write(f"{'=' * 60}\n")
+            log_fh.flush()
+
+            proc = subprocess.Popen(cmd, cwd=_repo_root or ".",
+                                    stdout=log_fh, stderr=log_fh)
+            _log_handles[name] = log_fh
+            update_yaml_field(status_file, "pid", proc.pid)
+            agents[name]["pid"] = proc.pid
+            # Write initial heartbeat so agent isn't considered stale before
+            # it writes its own first heartbeat
+            update_yaml_field(alive_path, "last_heartbeat", now_utc())
+            if batch:
+                print(f"LAUNCHED:{name}:{proc.pid}")
+
+        elif launch_mode == "interactive":
+            # Drop -p: pass prompt as positional so Claude Code opens
+            # interactively with it as the first user message.
+            cmd = [ait_cmd, "codeagent", "--agent-string", agent_string,
+                   "invoke", "raw", short_prompt]
+            cmd_str = " ".join(shlex.quote(c) for c in cmd)
+
+            launched = False
+            proc = None
+
+            # Preferred path: tmux window in the project session
+            if is_tmux_available():
+                tmux_defaults = load_tmux_defaults(Path(_repo_root or "."))
+                session = tmux_defaults["default_session"]
+                window_name = f"agent-{name}"
+                new_session = session not in get_tmux_sessions()
+                config = TmuxLaunchConfig(
+                    session=session, window=window_name,
+                    new_session=new_session, new_window=True,
+                )
+                proc, err = launch_in_tmux(cmd_str, config)
+                if err is None:
+                    launched = True
+                    # Mirror pane output to log_path via tmux pipe-pane so
+                    # the monitor/minimonitor can tail the same file the
+                    # headless path uses.
+                    windows = get_tmux_windows(session)
+                    win_idx = next(
+                        (idx for idx, n in windows if n == window_name),
+                        None,
+                    )
+                    if win_idx is not None:
+                        pp = subprocess.run(
+                            ["tmux", "pipe-pane", "-O", "-o",
+                             "-t", f"{session}:{win_idx}.0",
+                             f"cat >> {shlex.quote(log_path)}"],
+                            capture_output=True, text=True, check=False,
+                        )
+                        if pp.returncode != 0:
+                            log(f"WARN: pipe-pane failed for {name}: "
+                                f"{pp.stderr.strip()}", batch)
+                    maybe_spawn_minimonitor(session, window_name)
+                else:
+                    log(f"WARN: tmux launch failed for {name}: {err}", batch)
+
+            # Fallback path: standalone terminal. Note: no log mirroring
+            # here — pipe-pane has no out-of-tmux equivalent, so the log
+            # file stays empty in this branch.
+            if not launched:
+                term = find_terminal()
+                if term is not None:
+                    log(f"WARN: falling back to standalone terminal ({term}) "
+                        f"for {name} — no monitor integration", batch)
+                    proc = subprocess.Popen(
+                        [term, "-e", "sh", "-c", cmd_str],
+                        cwd=_repo_root or ".",
+                    )
+                    launched = True
+
+            if not launched:
+                err_msg = ("Interactive launch requires tmux or a terminal "
+                           "emulator")
+                log(f"ERROR: {err_msg} (agent {name})", batch)
+                update_yaml_field(status_file, "status", "Error")
+                update_yaml_field(status_file, "error_message", err_msg)
+                update_yaml_field(status_file, "completed_at", now_utc())
+                agents[name]["status"] = "Error"
+                return
+
+            # Stored pid is the wrapper pid (tmux CLI or terminal launcher),
+            # NOT the Claude Code pid. Runner liveness checks use heartbeat
+            # files, so this distinction is safe for polling.
+            update_yaml_field(status_file, "pid", proc.pid)
+            agents[name]["pid"] = proc.pid
+            update_yaml_field(alive_path, "last_heartbeat", now_utc())
+            if batch:
+                print(f"LAUNCHED:{name}:{proc.pid}")
+
+        else:
+            log(f"WARNING: Unknown launch_mode '{launch_mode}' for agent "
+                f"'{name}', skipping", batch)
+            return
     except OSError as e:
         log(f"ERROR: Failed to launch agent '{name}': {e}", batch)
         update_yaml_field(status_file, "status", "Error")
