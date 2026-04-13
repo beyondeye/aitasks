@@ -184,6 +184,7 @@ case "${1:-help}" in
         case "$subcmd" in
             init)      exec "$SCRIPTS_DIR/aitask_crew_init.sh" "$@" ;;
             addwork)   exec "$SCRIPTS_DIR/aitask_crew_addwork.sh" "$@" ;;
+            setmode)   exec "$SCRIPTS_DIR/aitask_crew_setmode.sh" "$@" ;;
             status)    exec "$SCRIPTS_DIR/aitask_crew_status.sh" "$@" ;;
             command)   exec "$SCRIPTS_DIR/aitask_crew_command.sh" "$@" ;;
             runner)    exec "$SCRIPTS_DIR/aitask_crew_runner.sh" "$@" ;;
@@ -196,6 +197,7 @@ case "${1:-help}" in
                 echo "Available subcommands:"
                 echo "  init        Initialize a new agentcrew"
                 echo "  addwork     Add an agent to an existing crew"
+                echo "  setmode     Change launch_mode of a Waiting agent (headless|interactive)"
                 echo "  status      Get/set agent and crew status"
                 echo "  command     Send commands to agents"
                 echo "  runner      Start/check the crew runner orchestrator"
@@ -206,7 +208,7 @@ case "${1:-help}" in
                 echo "Run 'ait crew <subcommand> --help' for subcommand-specific help."
                 exit 0
                 ;;
-            *)         echo "ait crew: unknown subcommand '$subcmd'" >&2; echo "Available: init, addwork, status, command, runner, report, cleanup, dashboard" >&2; exit 1 ;;
+            *)         echo "ait crew: unknown subcommand '$subcmd'" >&2; echo "Available: init, addwork, setmode, status, command, runner, report, cleanup, dashboard" >&2; exit 1 ;;
         esac
         ;;
     brainstorm)
