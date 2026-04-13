@@ -336,6 +336,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         Binding("f5", "refresh", "Refresh", show=False),
         Binding("z", "cycle_preview_size", "Zoom"),
         Binding("b", "toggle_scrollbar", "Scrollbar"),
+        Binding("t", "scroll_preview_tail", "Tail"),
         Binding("k", "kill_pane", "Kill"),
         Binding("n", "pick_next_sibling", "Next Sibling"),
         Binding("enter", "send_enter", "Send ↵", show=True),
@@ -365,6 +366,11 @@ class MonitorApp(TuiSwitcherMixin, App):
         self._project_root = project_root
         self._snapshots: dict[str, PaneSnapshot] = {}
         self._focused_pane_id: str | None = None
+        # Per-pane scroll memory: pane_id → (distance_from_bottom, was_at_bottom).
+        # Distance-from-bottom is robust against the captured scrollback rolling
+        # off the top while the pane is unfocused.
+        self._preview_scroll_state: dict[str, tuple[float, bool]] = {}
+        self._last_preview_pane_id: str | None = None
         self._monitor: TmuxMonitor | None = None
         self._active_zone: Zone = Zone.PANE_LIST
         self._preview_timer: Timer | None = None
@@ -468,6 +474,19 @@ class MonitorApp(TuiSwitcherMixin, App):
         saved_zone = self._active_zone
 
         self._snapshots = self._monitor.capture_all()
+
+        # Drop saved scroll state for panes that no longer exist.
+        stale = [
+            pid for pid in self._preview_scroll_state
+            if pid not in self._snapshots
+        ]
+        for pid in stale:
+            del self._preview_scroll_state[pid]
+        if (
+            self._last_preview_pane_id is not None
+            and self._last_preview_pane_id not in self._snapshots
+        ):
+            self._last_preview_pane_id = None
 
         # Auto-switch: if enabled and in pane list, move to most-idle agent
         if self._auto_switch and saved_zone == Zone.PANE_LIST:
@@ -615,6 +634,22 @@ class MonitorApp(TuiSwitcherMixin, App):
         except Exception:
             return
 
+        pane_changed = self._focused_pane_id != self._last_preview_pane_id
+
+        # Snapshot the scroll state of the previously displayed pane before
+        # we swap its content out — once the content is replaced, scroll_y
+        # is meaningless for the old pane.
+        if pane_changed and self._last_preview_pane_id is not None:
+            prev_at_bottom = (
+                scroll.max_scroll_y <= 0
+                or scroll.scroll_y >= scroll.max_scroll_y - 1
+            )
+            prev_distance = max(0.0, scroll.max_scroll_y - scroll.scroll_y)
+            self._preview_scroll_state[self._last_preview_pane_id] = (
+                prev_distance,
+                prev_at_bottom,
+            )
+
         if self._focused_pane_id and self._focused_pane_id in self._snapshots:
             snap = self._snapshots[self._focused_pane_id]
             pane_label = f"({snap.pane.window_index}:{snap.pane.window_name})"
@@ -633,22 +668,42 @@ class MonitorApp(TuiSwitcherMixin, App):
             else:
                 header.update(f"[bold]Content Preview[/] {pane_label}")
             # Render the full captured scrollback and let the
-            # ScrollableContainer handle overflow. Tail-follow the bottom
-            # when the user was already scrolled to the end so live
-            # updates keep flowing; otherwise preserve scroll position.
+            # ScrollableContainer handle overflow. On pane switch, restore
+            # the per-pane scroll memory; on same-pane refresh, tail-follow
+            # the bottom when already there, otherwise leave scroll_y alone.
             lines = snap.content.rstrip().splitlines()
             if lines:
-                was_at_bottom = (
-                    scroll.max_scroll_y <= 0
-                    or scroll.scroll_y >= scroll.max_scroll_y - 1
-                )
                 content = _ansi_to_rich_text("\n".join(lines))
                 preview.styles.min_width = snap.pane.width
                 preview.update(content)
-                if was_at_bottom:
-                    self.call_after_refresh(
-                        lambda: scroll.scroll_end(animate=False)
+
+                if pane_changed:
+                    saved = self._preview_scroll_state.get(self._focused_pane_id)
+                    if saved is None:
+                        # First view of this pane in this session — start at bottom.
+                        self.call_after_refresh(
+                            lambda: scroll.scroll_end(animate=False)
+                        )
+                    else:
+                        distance, was_at_bottom = saved
+                        if was_at_bottom:
+                            self.call_after_refresh(
+                                lambda: scroll.scroll_end(animate=False)
+                            )
+                        else:
+                            def _restore(d=distance):
+                                target = max(0.0, scroll.max_scroll_y - d)
+                                scroll.scroll_to(y=target, animate=False)
+                            self.call_after_refresh(_restore)
+                else:
+                    was_at_bottom = (
+                        scroll.max_scroll_y <= 0
+                        or scroll.scroll_y >= scroll.max_scroll_y - 1
                     )
+                    if was_at_bottom:
+                        self.call_after_refresh(
+                            lambda: scroll.scroll_end(animate=False)
+                        )
             else:
                 preview.styles.min_width = 0
                 preview.update("[dim](empty)[/]")
@@ -656,6 +711,8 @@ class MonitorApp(TuiSwitcherMixin, App):
             header.update("[bold]Content Preview[/]")
             preview.styles.min_width = 0
             preview.update("[dim]Focus an agent or pane to see its output[/]")
+
+        self._last_preview_pane_id = self._focused_pane_id
 
     # -- Zone navigation -------------------------------------------------------
 
@@ -887,6 +944,17 @@ class MonitorApp(TuiSwitcherMixin, App):
         # Immediately repopulate the (possibly larger) preview without
         # waiting for the next 3s refresh cycle.
         self._update_content_preview()
+
+    def action_scroll_preview_tail(self) -> None:
+        """Jump preview to the bottom and re-engage tail-follow."""
+        try:
+            scroll = self.query_one("#preview-scroll", ScrollableContainer)
+        except Exception:
+            return
+        scroll.scroll_end(animate=False)
+        if self._focused_pane_id is not None:
+            self._preview_scroll_state[self._focused_pane_id] = (0.0, True)
+        self.notify("Tail follow")
 
     def action_toggle_scrollbar(self) -> None:
         """Toggle the vertical scrollbar on the preview panel."""
