@@ -228,6 +228,28 @@ assert_contains "REPO variable in shim" "beyondeye/aitasks" "$(cat "$SHIM_PATH_8
 
 rm -rf "$TMPDIR_8"
 
+# --- Test 9: Walk-up exec clears _AIT_SHIM_ACTIVE before dispatching ---
+echo "--- Test 9: Walk-up exec unsets shim guard ---"
+
+TMPDIR_9="$(mktemp -d)"
+SHIM_PATH_9="$(generate_test_shim "$TMPDIR_9/shimbin")"
+
+mkdir -p "$TMPDIR_9/project/.aitask-scripts"
+cat > "$TMPDIR_9/project/ait" << 'EOF'
+#!/usr/bin/env bash
+# Record whether _AIT_SHIM_ACTIVE leaked into this child process.
+env | grep -c '^_AIT_SHIM_ACTIVE=' > "$(dirname "$0")/guard_count"
+echo "local ait called"
+EOF
+chmod +x "$TMPDIR_9/project/ait"
+
+output=$(cd "$TMPDIR_9/project" && "$SHIM_PATH_9" ls 2>&1)
+
+guard_count="$(cat "$TMPDIR_9/project/guard_count" 2>/dev/null | tr -d ' ')"
+assert_eq "Guard variable not leaked to child ait" "0" "$guard_count"
+
+rm -rf "$TMPDIR_9"
+
 # --- Summary ---
 echo ""
 echo "==============================="

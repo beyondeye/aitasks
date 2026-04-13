@@ -572,6 +572,7 @@ export _AIT_SHIM_ACTIVE=1
 dir="$PWD"
 while [[ "$dir" != "/" ]]; do
     if [[ -x "$dir/ait" && -d "$dir/.aitask-scripts" ]]; then
+        unset _AIT_SHIM_ACTIVE
         exec "$dir/ait" "$@"
     fi
     dir="$(dirname "$dir")"
