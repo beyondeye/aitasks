@@ -3,11 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [agentcrew, brainstorming]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-04-13 17:26
-updated_at: 2026-04-13 17:29
+updated_at: 2026-04-13 18:55
+completed_at: 2026-04-13 18:55
 ---
 
 When running an agentcrew agent interactively from a brainstorm session (e.g. 'detailer_001' in crew 'brainstorm-427'), the agent's attempts to call './ait crew status ...' fail with:
