@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [agentcrew, brainstorming]
-children_to_implement: [t461_1]
+children_to_implement: [t461_1, t461_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-25 09:41
 updated_at: 2026-04-13 11:43
