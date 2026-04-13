@@ -488,6 +488,24 @@ class MonitorApp(TuiSwitcherMixin, App):
         ):
             self._last_preview_pane_id = None
 
+        # Focus request from minimonitor (via tmux session env var). Explicit
+        # requests take priority over auto-switch heuristics. If the target
+        # pane isn't yet in the snapshot (startup race), leave the env var
+        # in place so the next refresh can retry.
+        target_name = self._consume_focus_request()
+        if target_name:
+            for pid, snap in self._snapshots.items():
+                if (
+                    snap.pane.category == PaneCategory.AGENT
+                    and snap.pane.window_name == target_name
+                ):
+                    self._focused_pane_id = pid
+                    saved_pane_id = pid
+                    saved_zone = Zone.PANE_LIST
+                    self._active_zone = Zone.PANE_LIST
+                    self._clear_focus_request()
+                    break
+
         # Auto-switch: if enabled and in pane list, move to most-idle agent
         if self._auto_switch and saved_zone == Zone.PANE_LIST:
             if self._maybe_auto_switch():
@@ -526,6 +544,43 @@ class MonitorApp(TuiSwitcherMixin, App):
         """Fire the delayed refresh and clear the timer reference."""
         self._delayed_refresh_timer = None
         await self._fast_preview_refresh()
+
+    def _consume_focus_request(self) -> str | None:
+        """Read the `AITASK_MONITOR_FOCUS_WINDOW` tmux session env var.
+
+        Returns the target window name if set, or None. Does NOT clear the
+        variable — use `_clear_focus_request()` after a successful match so
+        that a startup race (target pane not yet in snapshot) can be retried
+        on the next refresh tick.
+        """
+        try:
+            result = subprocess.run(
+                ["tmux", "show-environment", "-t", self._session,
+                 "AITASK_MONITOR_FOCUS_WINDOW"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return None
+        if result.returncode != 0:
+            return None
+        line = result.stdout.strip()
+        if not line or "=" not in line:
+            return None
+        # tmux emits "-VAR" for unset markers; those have no "=".
+        _, _, value = line.partition("=")
+        value = value.strip()
+        return value or None
+
+    def _clear_focus_request(self) -> None:
+        """Unset the tmux session focus-request env var."""
+        try:
+            subprocess.run(
+                ["tmux", "set-environment", "-t", self._session, "-u",
+                 "AITASK_MONITOR_FOCUS_WINDOW"],
+                capture_output=True, timeout=5,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
 
     def _maybe_auto_switch(self) -> bool:
         """Switch focus to the most-idle agent if the current agent is active.

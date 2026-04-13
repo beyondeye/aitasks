@@ -98,6 +98,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         Binding("s", "switch_to", "Switch", show=False),
         Binding("i", "show_task_info", "Task Info", show=False),
         Binding("r", "refresh", "Refresh", show=False),
+        Binding("m", "switch_to_monitor", "Full Monitor", show=False),
     ]
 
     def __init__(
@@ -125,13 +126,15 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         self._mount_time: float = 0.0
         self._own_window_id: str | None = None
         self._own_window_index: str | None = None
+        self._own_window_name: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Static(id="mini-session-bar")
         yield VerticalScroll(id="mini-pane-list")
         yield Static(
             "tab:agent  s/\u2191\u2193:switch  i:info\n"
-            "j:jump     r:refresh  q:quit  enter:send",
+            "j:jump     r:refresh  q:quit  enter:send\n"
+            "m:full monitor",
             id="mini-key-hints",
         )
 
@@ -144,12 +147,13 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             )
             return
 
-        # Detect own window ID and index for auto-close and auto-selection
+        # Detect own window ID, index, and name for auto-close, auto-selection,
+        # and the "switch to full monitor" handoff.
         own_pane = os.environ.get("TMUX_PANE", "")
         try:
             result = subprocess.run(
                 ["tmux", "display-message", "-p", "-t", own_pane,
-                 "#{window_id}\t#{window_index}"],
+                 "#{window_id}\t#{window_index}\t#{window_name}"],
                 capture_output=True, text=True, timeout=5,
             )
             if result.returncode == 0 and result.stdout.strip():
@@ -158,6 +162,8 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
                     self._own_window_id = parts[0]
                 if len(parts) >= 2:
                     self._own_window_index = parts[1]
+                if len(parts) >= 3:
+                    self._own_window_name = parts[2]
         except Exception:
             pass
 
@@ -220,14 +226,15 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             self.exit()
 
     def _update_own_window_info(self) -> None:
-        """Re-query own window index (handles tmux renumber-windows)."""
+        """Re-query own window index/name (handles tmux renumber-windows and
+        window renames)."""
         own_pane = os.environ.get("TMUX_PANE", "")
         if not own_pane:
             return
         try:
             result = subprocess.run(
                 ["tmux", "display-message", "-p", "-t", own_pane,
-                 "#{window_id}\t#{window_index}"],
+                 "#{window_id}\t#{window_index}\t#{window_name}"],
                 capture_output=True, text=True, timeout=2,
             )
             if result.returncode == 0 and result.stdout.strip():
@@ -236,6 +243,8 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
                     self._own_window_id = parts[0]
                 if len(parts) >= 2:
                     self._own_window_index = parts[1]
+                if len(parts) >= 3:
+                    self._own_window_name = parts[2]
         except Exception:
             pass
 
@@ -497,6 +506,71 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             self.notify(f"Task t{task_id} not found", severity="error")
             return
         self.push_screen(TaskDetailDialog(info))
+
+    def action_switch_to_monitor(self) -> None:
+        """Switch to the full monitor window with the companion agent focused.
+
+        Writes the companion agent's window name to the tmux session
+        environment so the full monitor can auto-focus the matching card on
+        its next refresh, then selects (or creates) the monitor window.
+        """
+        if not os.environ.get("TMUX"):
+            self.notify("Not inside tmux", severity="warning")
+            return
+        if not self._own_window_name:
+            self.notify("Own window not detected yet", severity="warning")
+            return
+
+        # Record the focus request on the tmux session so monitor_app can
+        # pick it up on its next refresh.
+        try:
+            set_env = subprocess.run(
+                ["tmux", "set-environment", "-t", self._session,
+                 "AITASK_MONITOR_FOCUS_WINDOW", self._own_window_name],
+                capture_output=True, timeout=5,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            self.notify("tmux set-environment failed", severity="error")
+            return
+        if set_env.returncode != 0:
+            self.notify("tmux set-environment failed", severity="error")
+            return
+
+        # Does the monitor window already exist in the session?
+        monitor_running = False
+        try:
+            lw = subprocess.run(
+                ["tmux", "list-windows", "-t", self._session,
+                 "-F", "#{window_name}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if lw.returncode == 0:
+                names = lw.stdout.strip().splitlines()
+                monitor_running = "monitor" in names
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            self.notify("tmux list-windows failed", severity="error")
+            return
+
+        try:
+            if monitor_running:
+                sel = subprocess.run(
+                    ["tmux", "select-window", "-t",
+                     f"{self._session}:monitor"],
+                    capture_output=True, timeout=5,
+                )
+                if sel.returncode != 0:
+                    self.notify("select-window failed", severity="error")
+            else:
+                # Trailing colon forces tmux to treat the target as a session.
+                nw = subprocess.run(
+                    ["tmux", "new-window", "-t", f"{self._session}:",
+                     "-n", "monitor", "ait monitor"],
+                    capture_output=True, timeout=5,
+                )
+                if nw.returncode != 0:
+                    self.notify("new-window failed", severity="error")
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            self.notify("tmux switch failed", severity="error")
 
 
 def _detect_tmux_session() -> str | None:
