@@ -213,3 +213,51 @@ cd /home/ddt/Work/aitasks && bash tests/test_agentcrew_pythonpath.sh
 ## Step 9 Post-Implementation reference
 
 Standard archival flow per task-workflow SKILL.md Step 9.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Added `from pathlib import Path` and
+    `sys.path.insert(0, str(Path(__file__).resolve().parent.parent))` to
+    `.aitask-scripts/agentcrew/agentcrew_status.py` (3 new lines), mirroring
+    the existing pattern in `agentcrew_runner.py:16`. This makes the
+    `from agentcrew.agentcrew_utils import ...` resolve correctly regardless
+    of cwd or invocation style.
+  - Created `tests/test_agentcrew_pythonpath.sh` — a 9-assertion regression
+    test covering `ait crew status` invocation from the repo root, a
+    tempdir, and `/`, plus a sanity check that `ait crew runner --help`
+    still works. All 9 assertions pass.
+  - Created follow-up task **t539**
+    (`aitasks/t539_unify_agentcrew_package_imports.md`) for refactoring
+    `agentcrew_dashboard.py` and `agentcrew_report.py` to use the same
+    package-style import pattern. This was committed via
+    `aitask_create.sh --batch --commit`.
+
+- **Deviations from plan:**
+  - **CLAUDE.md not updated** in this commit. The plan called for adding
+    the new test file to the testing list in `CLAUDE.md`, but the file has
+    a pre-existing unstaged modification from another session
+    (adding `tests/test_plan_externalize.sh` to the same list). Mixing
+    these two changes in one commit would misattribute work, and I didn't
+    want to touch the other session's in-progress change. Leaving the
+    CLAUDE.md entry to be added as part of whatever task owns the
+    `test_plan_externalize.sh` work, or as a follow-up.
+
+- **Issues encountered:**
+  - The task description said "running from the repo root happens to work
+    because of cwd-relative sys.path behavior". That turned out to be
+    incorrect — the bug reproduces from every cwd, including the repo
+    root. What fooled the reporter was likely the bash wrapper's
+    `--help` short-circuit, which returns its own usage string before
+    Python runs. The regression test now exercises the actual Python
+    body path, not `--help`.
+
+- **Key decisions:**
+  - Chose to fix in the Python script (sys.path insert) rather than the
+    bash wrapper (PYTHONPATH export) for consistency with the existing
+    pattern in `agentcrew_runner.py:16`. Single source of truth for the
+    fix style — when t539 lands, all four agentcrew scripts will use the
+    same pattern.
+  - Kept the fix minimal (3 lines) and the test broad (repo root,
+    tempdir, `/`, plus a runner sanity check) rather than the opposite.
+
