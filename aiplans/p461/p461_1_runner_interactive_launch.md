@@ -209,3 +209,62 @@ that exists at `launch_agent()`'s current end.
   slot the resolution line already reads.
 - **t461_6 (log viewer)** renders the ANSI stream produced by `pipe-pane`.
   Any format decisions made here affect the viewer's fidelity.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `aitask_crew_addwork.sh`: added `LAUNCH_MODE="headless"` default near
+    other defaults, `--launch-mode` arg parsing, post-parse validation
+    (`^(headless|interactive)$`), `launch_mode: ${LAUNCH_MODE}` line in the
+    `STATUS_CONTENT` heredoc (placed right after `group:`), and a help-text
+    entry.
+  - `agentcrew_runner.py`: added `import shlex` and a new
+    `from lib.agent_launch_utils import (...)` block; resolved
+    `launch_mode` immediately after `type_config` is loaded
+    (per-agent → per-type → "headless"); split `launch_agent()` into
+    headless / interactive / unknown branches inside a single
+    `try/except OSError`. Headless branch is byte-identical in behavior to
+    the previous code (Popen with redirected log_fh, same banner writes,
+    same heartbeat write, same `LAUNCHED:` print). Interactive branch:
+    tmux preferred (window `agent-<name>`, `pipe-pane` mirroring,
+    `maybe_spawn_minimonitor`), terminal fallback (`find_terminal`,
+    no log mirroring, WARN logged), Error path with the documented
+    message if neither works.
+  - `tests/test_launch_mode_field.sh`: new — 5 cases, 7 assertions, all
+    PASS. Covers default, explicit headless, interactive, invalid value,
+    missing value.
+  - `tests/test_crew_runner.sh`: added one line so `setup_test_repo()`
+    also copies `lib/agent_launch_utils.py` into the sandbox — without it
+    the runner import fails at module load.
+
+- **Deviations from plan:**
+  - Plan suggested an example import like `from .aitask_scripts.lib.agent_launch_utils import …` with an "adjust as needed" note. The correct form is `from lib.agent_launch_utils import …` — `agentcrew_runner.py` line 15 already inserts `.aitask-scripts/` into `sys.path`, so `lib.*` is the right import root. Verified with a standalone `python3 -c` before editing.
+  - Plan had the `try/except` wrap both branches; in the actual code the headless branch starts inside `try:` directly so the existing OSError handler at the bottom catches Popen failures from both branches without code duplication. Same effect, slightly cleaner layout.
+  - Added an `else` clause logging "Unknown launch_mode" and returning, instead of letting it silently fall through.
+
+- **Issues encountered:**
+  - First run of `tests/test_crew_runner.sh` hung at Test 2: the runner module failed to import inside the sandbox because `lib/agent_launch_utils.py` wasn't being copied. The Python error was being swallowed by `>/dev/null 2>&1` higher up the call chain — visible only when removing redirection. Fix was the one-line `cp` addition to the test fixture.
+
+- **Key decisions:**
+  - Pid stored in interactive branch is the wrapper pid (tmux CLI or terminal launcher), not the Claude Code pid. This is documented inline as a comment, and is safe because runner liveness checks use heartbeat files.
+  - Log mirroring via `tmux pipe-pane` happens after `launch_in_tmux` returns success; `pipe-pane` failures emit a WARN but don't abort the launch (the agent is already running at that point).
+  - Standalone-terminal fallback explicitly logs that monitor integration is lost (no log file mirroring).
+
+- **Verification results:**
+  - `shellcheck .aitask-scripts/aitask_crew_addwork.sh`: 3 pre-existing
+    informational issues (SC1091 x2, SC2001), no new ones.
+  - `shellcheck tests/test_launch_mode_field.sh`: clean.
+  - `python3 -m py_compile agentcrew_runner.py`: OK.
+  - `bash tests/test_launch_mode_field.sh`: 7/7 PASS.
+  - `bash tests/test_crew_init.sh`: 32/32 PASS (no regressions).
+  - `bash tests/test_crew_runner.sh`: 31/31 PASS (no regressions).
+  - Live tmux/terminal verification (manual steps in plan §4-§6) was not
+    performed in this session — those need a live tmux session and are
+    documented for the human reviewer.
+
+- **Notes for sibling tasks:**
+  - The validation regex in `aitask_crew_addwork.sh` is `^(headless|interactive)$`. **t461_2 (setmode CLI)** must extend this set in lock-step if it ever introduces a new mode (e.g., `monitored`).
+  - The yaml field name is `launch_mode` (snake_case), located between `group:` and `status:` in `_status.yaml`. **t461_3 (wizard toggle)** should pass `--launch-mode` through `brainstorm_crew._run_addwork()` rather than writing the field directly, so the addwork validator catches typos.
+  - `type_config.get("launch_mode")` is the slot **t461_5 (per-type defaults)** fills. The resolution chain already prefers per-agent yaml over per-type, so per-type acts as a fallback default — exactly what t461_5 needs.
+  - The pipe-pane mirror writes the **raw tmux pane output** (ANSI + cursor codes) to `<name>_log.txt`. **t461_6 (log viewer)** must therefore render ANSI; piping through `cat`/`less -R` will not be sufficient.
+  - Stored `pid` for interactive agents is the tmux CLI / terminal wrapper pid, not the Claude Code pid. Anything that wants to introspect the actual agent (e.g., a future "attach" command) needs to walk the tmux pane, not `proc.pid`.
