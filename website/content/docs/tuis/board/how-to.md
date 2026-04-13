@@ -421,3 +421,17 @@ If the sync detects merge conflicts (e.g., the same task was edited on two machi
 **No network:**
 
 If the remote is unreachable (timeout after 10 seconds), the board shows a warning notification and continues working with local data. No partial state is left behind.
+
+### tmux integration
+
+When you run `ait board` inside tmux, you can jump to any other integrated TUI with a single keystroke via the **TUI switcher**:
+
+1. Press **`j`** to open the TUI switcher dialog.
+2. Select the target TUI — Monitor, Minimonitor, Code Browser, Settings, or Brainstorm — or one of the running code agent windows.
+3. The switcher either focuses the existing tmux window running that TUI or creates a new window and launches it.
+
+A typical flow from the board is: triage a task, press `j`, pick **monitor** to watch the agents running on other panes, or pick **codebrowser** to review the diff produced for a completed task.
+
+<!-- TODO screenshot: aitasks_tui_switcher_dialog.svg -->
+
+The TUI switcher requires a tmux session. If you are not running inside tmux yet, see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}). For the full daily workflow, see [The tmux IDE workflow]({{< relref "/docs/workflows/tmux-ide" >}}).

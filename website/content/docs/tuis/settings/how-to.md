@@ -148,3 +148,17 @@ The export bundle can be shared with team members or used as a backup.
 4. Select which files to import
 5. Choose whether to overwrite existing files
 6. Imported configs are applied immediately
+
+## tmux integration
+
+When you run `ait settings` inside tmux, you can jump to any other integrated TUI with a single keystroke via the **TUI switcher**:
+
+1. Press **`j`** to open the TUI switcher dialog.
+2. Select the target TUI — Monitor, Minimonitor, Board, Code Browser, or Brainstorm — or one of the running code agent windows.
+3. The switcher either focuses the existing tmux window running that TUI or creates a new window and launches it.
+
+The settings TUI also hosts the **Tmux** tab, where you can edit the integration defaults (session name, split direction, refresh interval, monitor thresholds) shared by `ait ide`, `ait monitor`, and the TUI switcher itself.
+
+<!-- TODO screenshot: aitasks_tui_switcher_dialog.svg -->
+
+The TUI switcher requires a tmux session. If you are not running inside tmux yet, see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}). For the full daily workflow, see [The tmux IDE workflow]({{< relref "/docs/workflows/tmux-ide" >}}).

@@ -93,7 +93,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
     BINDINGS = [
         Binding("tab", "focus_sibling_pane", "Focus agent", show=False),
         Binding("enter", "send_enter_to_sibling", "Send Enter", show=False),
-        Binding("j", "tui_switcher", "Jump TUI", show=False),
+        Binding("j", "tui_switcher", "TUI switcher", show=False),
         Binding("q", "quit", "Quit", show=False),
         Binding("s", "switch_to", "Switch", show=False),
         Binding("i", "show_task_info", "Task Info", show=False),

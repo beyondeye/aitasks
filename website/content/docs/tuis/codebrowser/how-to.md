@@ -182,3 +182,17 @@ You can run QA analysis on any completed task directly from the history screen:
 5. If no terminal is detected, the codebrowser suspends and runs QA in the current terminal
 
 The QA agent uses the model configured for the `qa` operation in `ait settings` (Agent Defaults tab). By default, this is `claudecode/sonnet4_6`.
+
+### tmux integration
+
+When you run `ait codebrowser` inside tmux, you can jump to any other integrated TUI with a single keystroke via the **TUI switcher**:
+
+1. Press **`j`** to open the TUI switcher dialog.
+2. Select the target TUI — Monitor, Minimonitor, Board, Settings, or Brainstorm — or one of the running code agent windows.
+3. The switcher either focuses the existing tmux window running that TUI or creates a new window and launches it.
+
+A typical flow is: pick a task on the board, let a code agent implement it, then press **`j`** in the codebrowser to hop to **monitor** and watch the agent, or back to **board** to move the task to the next column once the review is complete.
+
+<!-- TODO screenshot: aitasks_tui_switcher_dialog.svg -->
+
+The TUI switcher requires a tmux session. If you are not running inside tmux yet, see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}). For the full daily workflow, see [The tmux IDE workflow]({{< relref "/docs/workflows/tmux-ide" >}}).

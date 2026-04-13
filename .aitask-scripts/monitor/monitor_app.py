@@ -324,7 +324,7 @@ class MonitorApp(TuiSwitcherMixin, App):
 
     BINDINGS = [
         Binding("tab", "switch_zone", "← Back (Tab)", show=True),
-        Binding("j", "tui_switcher", "Jump TUI"),
+        Binding("j", "tui_switcher", "TUI switcher"),
         Binding("q", "quit", "Quit"),
         Binding("s", "switch_to", "Switch"),
         Binding("i", "show_task_info", "Task Info"),

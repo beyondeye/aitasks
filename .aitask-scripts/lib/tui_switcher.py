@@ -469,7 +469,7 @@ class TuiSwitcherMixin:
     """
 
     SWITCHER_BINDINGS = [
-        Binding("j", "tui_switcher", "Jump TUI", show=False),
+        Binding("j", "tui_switcher", "TUI switcher", show=False),
     ]
 
     def action_tui_switcher(self) -> None:

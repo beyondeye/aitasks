@@ -9,12 +9,23 @@ aliases:
   - /docs/board/reference/
 ---
 
-The aitasks framework includes several terminal-based user interfaces (TUIs) built with [Textual](https://textual.textualize.io/). Although grouped together here, they serve different stages of the typical workflow.
+The aitasks framework includes several terminal-based user interfaces (TUIs) built with [Textual](https://textual.textualize.io/). Together they form the core of the ait tmux-based development environment: you launch them inside a single tmux session (typically via [`ait ide`]({{< relref "/docs/workflows/tmux-ide" >}})) and hop between them with a single keystroke.
 
-**[Kanban Board](board/)** (`ait board`) — Used at the **beginning** of the workflow: triage tasks, set priorities, organize work into columns, and decide what to implement next. The board is your task management hub before code gets written.
+## Available TUIs
 
-**[Code Browser](codebrowser/)** (`ait codebrowser`) — Used at the **end** of the workflow, or when onboarding to unfamiliar code: browse files with syntax highlighting and task-aware annotations that show which aitasks contributed to each section of code. Includes a **completed tasks history** screen (press `h`) for browsing all archived tasks with metadata, commit links, affected files, and plan content — directly from the codebrowser. The code browser helps you understand *what was done* and *why*, rebuilding knowledge about AI-generated code through the structured records that aitasks creates during implementation.
-
-**[Settings](settings/)** (`ait settings`) — Configure code agent defaults, board settings, browse available models, and manage execution profiles. The settings TUI provides a centralized interface for all aitasks configuration that would otherwise require editing JSON and YAML files directly.
+- **[Monitor](monitor/)** (`ait monitor`) — Dashboard of every pane in the current tmux session, categorized into code agents, TUIs, and other panes, with a live preview of the focused pane and keystroke forwarding. This is the home screen of the ait IDE.
+- **[Minimonitor](minimonitor/)** (`ait minimonitor`) — Narrow sidebar variant of monitor, designed to sit next to a code agent pane so you can watch siblings and launch follow-up work without giving up screen real estate.
+- **[Board](board/)** (`ait board`) — Kanban-style task board used at the **beginning** of the workflow: triage tasks, set priorities, organize work into columns, and decide what to implement next.
+- **[Code Browser](codebrowser/)** (`ait codebrowser`) — Code navigation and diff review with task-aware annotations showing which aitasks contributed to each section. Includes a **completed tasks history** screen (press `h`) for browsing archived tasks with metadata, commits, and plan content. Used at the **end** of the workflow, or when onboarding to unfamiliar code.
+- **[Settings](settings/)** (`ait settings`) — Configuration editor for code agent defaults, board settings, available models, and execution profiles. Also hosts the Tmux tab for editing integration settings.
+- **Brainstorm** (`ait brainstorm`) — Interactive planning/brainstorming TUI for drafting new tasks. Dedicated documentation is pending.
 
 All TUIs require the shared Python virtual environment installed by [`ait setup`]({{< relref "/docs/commands/setup-install" >}}).
+
+## Navigating between TUIs
+
+When you run the TUIs inside tmux, pressing **`j`** in any main TUI opens the **TUI switcher** dialog. The switcher lists the other integrated TUIs (Monitor, Minimonitor, Board, Code Browser, Settings, Brainstorm) along with any running code agent windows. Selecting a target either focuses the existing tmux window running that TUI or creates a new window and launches it — in one keystroke, without leaving tmux.
+
+<!-- TODO screenshot: aitasks_tui_switcher_dialog.svg -->
+
+The switcher only works inside tmux. If you are not running inside tmux yet, see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}) for how to set it up, and [The tmux IDE workflow]({{< relref "/docs/workflows/tmux-ide" >}}) for the recommended daily flow.
