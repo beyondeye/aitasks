@@ -8,6 +8,7 @@ labels: [claudeskills, whitelists]
 created_at: 2026-03-24 21:07
 updated_at: 2026-03-24 21:07
 boardidx: 90
+boardcol: now
 ---
 
 in several aitasks claude code skills there are calls to bash scripts that require explicit user consent, that are not currently whiteisted and cannot be. need to investigate all skills for this issue: here I will report what I found manually
