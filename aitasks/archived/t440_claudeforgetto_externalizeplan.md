@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [task_workflow]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-03-23 12:26
-updated_at: 2026-04-13 15:51
+updated_at: 2026-04-13 18:55
+completed_at: 2026-04-13 18:55
 boardidx: 30
 ---
 
