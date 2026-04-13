@@ -63,6 +63,7 @@ from brainstorm.brainstorm_crew import (
     register_patcher,
     register_synthesizer,
 )
+from agent_launch_utils import is_tmux_available
 from agentcrew.agentcrew_utils import list_agent_files, format_elapsed, read_yaml
 from agentcrew.agentcrew_log_utils import (
     list_agent_logs,
@@ -108,6 +109,22 @@ AGENT_STATUS_COLORS = {
 }
 
 _NODE_SELECT_OPS = {"explore", "detail", "patch"}
+
+_WIZARD_OP_TO_AGENT_TYPE = {
+    "explore": "explorer",
+    "compare": "comparator",
+    "hybridize": "synthesizer",
+    "detail": "detailer",
+    "patch": "patcher",
+}
+
+
+def _brainstorm_launch_mode_default(wizard_op: str) -> str:
+    from brainstorm.brainstorm_crew import BRAINSTORM_AGENT_TYPES
+    agent_type = _WIZARD_OP_TO_AGENT_TYPE.get(wizard_op, "")
+    return BRAINSTORM_AGENT_TYPES.get(agent_type, {}).get(
+        "launch_mode", "headless"
+    )
 
 _DESIGN_OPS = [
     ("explore", "Explore", "Create new design variants from a base node"),
@@ -1053,6 +1070,15 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     event.prevent_default()
                     event.stop()
                     return
+            # Up/down: cycle focus among focusable widgets on the confirm step
+            if (
+                event.key in ("up", "down")
+                and self._wizard_step == self._wizard_total_steps
+            ):
+                if self._cycle_confirm_focus(1 if event.key == "down" else -1):
+                    event.prevent_default()
+                    event.stop()
+                    return
 
         # Enter key handlers for various focusable rows
         if event.key == "enter":
@@ -1268,6 +1294,37 @@ class BrainstormApp(TuiSwitcherMixin, App):
 
         focusable[new_idx].focus()
         focusable[new_idx].scroll_visible()
+        return True
+
+    def _cycle_confirm_focus(self, direction: int) -> bool:
+        """Cycle focus among focusable descendants of the confirm step container.
+
+        direction: +1 down, -1 up. Returns True if focus moved.
+        """
+        try:
+            container = self.query_one("#actions_content", VerticalScroll)
+        except Exception:
+            return False
+
+        focusable = [
+            w for w in container.query("*")
+            if getattr(w, "can_focus", False) and not getattr(w, "disabled", False)
+        ]
+        if not focusable:
+            return False
+
+        current = self.focused
+        if current in focusable:
+            idx = focusable.index(current)
+            new_idx = (idx + direction) % len(focusable)
+        else:
+            new_idx = 0 if direction == 1 else len(focusable) - 1
+
+        focusable[new_idx].focus()
+        try:
+            focusable[new_idx].scroll_visible()
+        except Exception:
+            pass
         return True
 
     def on_mount(self) -> None:
@@ -2074,6 +2131,25 @@ class BrainstormApp(TuiSwitcherMixin, App):
         container.mount(Static("\n".join(summary_lines), classes="actions_summary"))
 
         is_session_op = self._wizard_op in ("pause", "resume", "finalize", "archive")
+        if not is_session_op:
+            default_mode = _brainstorm_launch_mode_default(self._wizard_op)
+            container.mount(
+                CycleField(
+                    "Launch mode",
+                    ["headless", "interactive"],
+                    initial=default_mode,
+                    id="launch-mode-field",
+                )
+            )
+            if not is_tmux_available():
+                container.mount(
+                    Static(
+                        "[dim]tmux not installed — interactive will fall back "
+                        "to a standalone terminal (no monitor integration)[/]",
+                        classes="actions_hint",
+                    )
+                )
+
         btn_label = "Confirm" if is_session_op else "Launch"
         container.mount(
             Horizontal(
@@ -2082,6 +2158,18 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 classes="actions_buttons",
             )
         )
+        self.call_after_refresh(self._focus_confirm_start)
+
+    def _focus_confirm_start(self) -> None:
+        """Move focus to the first focusable widget on the confirm screen."""
+        try:
+            container = self.query_one("#actions_content", VerticalScroll)
+        except Exception:
+            return
+        for w in container.query("*"):
+            if getattr(w, "can_focus", False) and not getattr(w, "disabled", False):
+                w.focus()
+                return
 
     def _build_summary(self) -> list[str]:
         """Build summary lines for step 3 display."""
@@ -2117,6 +2205,10 @@ class BrainstormApp(TuiSwitcherMixin, App):
             lines.append(f"HEAD node [bold]{head}[/] plan will be copied to aiplans/.")
         elif op == "archive":
             lines.append("Session will be archived.")
+
+        if op not in ("pause", "resume", "finalize", "archive"):
+            default_mode = _brainstorm_launch_mode_default(op)
+            lines.append(f"[bold]Launch mode:[/] {default_mode} (editable below)")
 
         return lines
 
@@ -2236,6 +2328,11 @@ class BrainstormApp(TuiSwitcherMixin, App):
         if status == "init":
             save_session(self.task_num, {"status": "active"})
             self.session_data["status"] = "active"
+        try:
+            field = self.query_one("#launch-mode-field", CycleField)
+            self._wizard_config["launch_mode"] = field.current_value
+        except Exception:
+            self._wizard_config["launch_mode"] = "headless"
         self._run_design_op()
 
     @work(thread=True)
@@ -2245,6 +2342,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         cfg = self._wizard_config
         crew_id = self.session_data.get("crew_id", f"brainstorm-{self.task_num}")
         group_name = self._next_group_name(op)
+        launch_mode = cfg.get("launch_mode", "headless")
 
         try:
             if op == "explore":
@@ -2256,6 +2354,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     agent = register_explorer(
                         self.session_path, crew_id, cfg["mandate"],
                         cfg["base_node"], group_name, agent_suffix=suffix,
+                        launch_mode=launch_mode,
                     )
                     agents.append(agent)
                 msg = f"Registered {len(agents)} explorer(s): {', '.join(agents)}"
@@ -2263,24 +2362,28 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 agent = register_comparator(
                     self.session_path, crew_id, cfg["nodes"],
                     cfg["dimensions"], group_name,
+                    launch_mode=launch_mode,
                 )
                 msg = f"Registered comparator: {agent}"
             elif op == "hybridize":
                 agent = register_synthesizer(
                     self.session_path, crew_id, cfg["nodes"],
                     cfg["merge_rules"], group_name,
+                    launch_mode=launch_mode,
                 )
                 msg = f"Registered synthesizer: {agent}"
             elif op == "detail":
                 agent = register_detailer(
                     self.session_path, crew_id, cfg["node"],
                     ["."], group_name,
+                    launch_mode=launch_mode,
                 )
                 msg = f"Registered detailer: {agent}"
             elif op == "patch":
                 agent = register_patcher(
                     self.session_path, crew_id, cfg["node"],
                     cfg["patch_request"], group_name,
+                    launch_mode=launch_mode,
                 )
                 msg = f"Registered patcher: {agent}"
             else:

@@ -89,6 +89,7 @@ def _run_addwork(
     agent_type: str,
     group_name: str,
     work2do_path: Path,
+    launch_mode: str = "headless",
 ) -> str:
     """Register agent via subprocess call to ait crew addwork.
 
@@ -107,6 +108,8 @@ def _run_addwork(
         "--group", group_name,
         "--batch",
     ]
+    if launch_mode == "interactive":
+        cmd.extend(["--launch-mode", "interactive"])
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(
@@ -334,6 +337,7 @@ def register_explorer(
     base_node_id: str,
     group_name: str,
     agent_suffix: str = "",
+    launch_mode: str = "headless",
 ) -> str:
     """Register an Explorer agent in the brainstorm crew.
 
@@ -344,6 +348,7 @@ def register_explorer(
         base_node_id: Node ID to explore from (baseline).
         group_name: Operation group name (e.g., "explore_001").
         agent_suffix: Optional letter suffix for parallel explorers (e.g., "a").
+        launch_mode: Launch mode for the agent ("headless" or "interactive").
 
     Returns:
         Agent name (e.g., "explorer_001a").
@@ -359,7 +364,10 @@ def register_explorer(
     )
 
     work2do_path = TEMPLATE_DIR / "explorer.md"
-    _run_addwork(crew_id, agent_name, "explorer", group_name, work2do_path)
+    _run_addwork(
+        crew_id, agent_name, "explorer", group_name, work2do_path,
+        launch_mode=launch_mode,
+    )
     _write_agent_input(session_dir, agent_name, input_content)
 
     return agent_name
@@ -371,6 +379,7 @@ def register_comparator(
     node_ids: list[str],
     dimensions: list[str],
     group_name: str,
+    launch_mode: str = "headless",
 ) -> str:
     """Register a Comparator agent in the brainstorm crew.
 
@@ -380,6 +389,7 @@ def register_comparator(
         node_ids: List of node IDs to compare.
         dimensions: List of dimension keys to compare across nodes.
         group_name: Operation group name (e.g., "compare_001").
+        launch_mode: Launch mode for the agent ("headless" or "interactive").
 
     Returns:
         Agent name (e.g., "comparator_001").
@@ -390,7 +400,10 @@ def register_comparator(
     input_content = _assemble_input_comparator(session_dir, node_ids, dimensions)
 
     work2do_path = TEMPLATE_DIR / "comparator.md"
-    _run_addwork(crew_id, agent_name, "comparator", group_name, work2do_path)
+    _run_addwork(
+        crew_id, agent_name, "comparator", group_name, work2do_path,
+        launch_mode=launch_mode,
+    )
     _write_agent_input(session_dir, agent_name, input_content)
 
     return agent_name
@@ -402,6 +415,7 @@ def register_synthesizer(
     parent_node_ids: list[str],
     merge_rules: str,
     group_name: str,
+    launch_mode: str = "headless",
 ) -> str:
     """Register a Synthesizer agent in the brainstorm crew.
 
@@ -411,6 +425,7 @@ def register_synthesizer(
         parent_node_ids: List of source node IDs to merge.
         merge_rules: User's merge instructions.
         group_name: Operation group name (e.g., "hybridize_001").
+        launch_mode: Launch mode for the agent ("headless" or "interactive").
 
     Returns:
         Agent name (e.g., "synthesizer_001").
@@ -423,7 +438,10 @@ def register_synthesizer(
     )
 
     work2do_path = TEMPLATE_DIR / "synthesizer.md"
-    _run_addwork(crew_id, agent_name, "synthesizer", group_name, work2do_path)
+    _run_addwork(
+        crew_id, agent_name, "synthesizer", group_name, work2do_path,
+        launch_mode=launch_mode,
+    )
     _write_agent_input(session_dir, agent_name, input_content)
 
     return agent_name
@@ -435,6 +453,7 @@ def register_detailer(
     node_id: str,
     codebase_paths: list[str],
     group_name: str,
+    launch_mode: str = "headless",
 ) -> str:
     """Register a Detailer agent in the brainstorm crew.
 
@@ -444,6 +463,7 @@ def register_detailer(
         node_id: Node ID to create an implementation plan for.
         codebase_paths: List of project context file paths.
         group_name: Operation group name (e.g., "detail_001").
+        launch_mode: Launch mode for the agent ("headless" or "interactive").
 
     Returns:
         Agent name (e.g., "detailer_001").
@@ -454,7 +474,10 @@ def register_detailer(
     input_content = _assemble_input_detailer(session_dir, node_id, codebase_paths)
 
     work2do_path = TEMPLATE_DIR / "detailer.md"
-    _run_addwork(crew_id, agent_name, "detailer", group_name, work2do_path)
+    _run_addwork(
+        crew_id, agent_name, "detailer", group_name, work2do_path,
+        launch_mode=launch_mode,
+    )
     _write_agent_input(session_dir, agent_name, input_content)
 
     return agent_name
@@ -466,6 +489,7 @@ def register_patcher(
     node_id: str,
     tweak_request: str,
     group_name: str,
+    launch_mode: str = "headless",
 ) -> str:
     """Register a Plan Patcher agent in the brainstorm crew.
 
@@ -475,6 +499,7 @@ def register_patcher(
         node_id: Node ID whose plan needs patching.
         tweak_request: User's specific edit request.
         group_name: Operation group name (e.g., "patch_001").
+        launch_mode: Launch mode for the agent ("headless" or "interactive").
 
     Returns:
         Agent name (e.g., "patcher_001").
@@ -485,7 +510,10 @@ def register_patcher(
     input_content = _assemble_input_patcher(session_dir, node_id, tweak_request)
 
     work2do_path = TEMPLATE_DIR / "patcher.md"
-    _run_addwork(crew_id, agent_name, "patcher", group_name, work2do_path)
+    _run_addwork(
+        crew_id, agent_name, "patcher", group_name, work2do_path,
+        launch_mode=launch_mode,
+    )
     _write_agent_input(session_dir, agent_name, input_content)
 
     return agent_name
