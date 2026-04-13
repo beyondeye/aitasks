@@ -3,12 +3,12 @@ priority: high
 effort: high
 depends: []
 issue_type: documentation
-status: Ready
+status: Done
 labels: [aitask_monitor, tmux]
-children_to_implement: [t519_6]
 folded_tasks: [494]
 created_at: 2026-04-10 17:38
-updated_at: 2026-04-12 18:56
+updated_at: 2026-04-13 10:32
+completed_at: 2026-04-13 10:32
 boardidx: 20
 ---
 

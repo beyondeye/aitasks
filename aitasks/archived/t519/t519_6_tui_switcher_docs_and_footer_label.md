@@ -3,11 +3,13 @@ priority: high
 effort: medium
 depends: [t519_5]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [website, tmux, aitask_board, codebrowser, ait_settings, documentation]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-04-12 15:17
-updated_at: 2026-04-13 10:14
+updated_at: 2026-04-13 10:32
+completed_at: 2026-04-13 10:32
 ---
 
 ## Context
