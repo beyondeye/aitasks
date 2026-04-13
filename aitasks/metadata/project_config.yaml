@@ -8,7 +8,7 @@ tmux:
   monitor:
     refresh_seconds: 3
     idle_threshold_seconds: 5
-    capture_lines: 30
+    capture_lines: 200
     agent_window_prefixes:
     - agent-
     tui_window_names:
