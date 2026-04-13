@@ -5,10 +5,10 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [agentcrew, brainstorming]
-children_to_implement: [t461_1, t461_2, t461_3, t461_4, t461_5]
+children_to_implement: [t461_1, t461_2, t461_3, t461_4, t461_5, t461_6]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-25 09:41
-updated_at: 2026-04-13 11:45
+updated_at: 2026-04-13 11:46
 boardidx: 10
 ---
 
