@@ -3,11 +3,10 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Ready
 labels: [task_workflow]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-03-23 12:26
-updated_at: 2026-04-13 13:16
+updated_at: 2026-04-13 13:43
 boardidx: 30
 ---
 
