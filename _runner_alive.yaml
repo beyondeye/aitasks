@@ -1,8 +1,8 @@
-status: running
+status: stopped
 pid: 135794
 hostname: omg16
 started_at: '2026-04-13 14:18:47'
-last_heartbeat: '2026-04-13 14:20:23'
-next_check_at: '2026-04-13 14:20:53'
+last_heartbeat: '2026-04-13 14:20:55'
+next_check_at: ''
 interval: 30
 requested_action: null

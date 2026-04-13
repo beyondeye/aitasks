@@ -1,1 +1,7 @@
-pending_commands: []
+pending_commands:
+- command: kill
+  sent_at: '2026-04-13 14:20:29'
+  sent_by: user
+- command: kill
+  sent_at: '2026-04-13 14:20:55'
+  sent_by: user
