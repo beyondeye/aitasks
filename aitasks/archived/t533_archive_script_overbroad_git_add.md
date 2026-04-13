@@ -3,11 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [bash_scripts, task-archive, git-integration]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-04-13 13:46
-updated_at: 2026-04-13 14:40
+updated_at: 2026-04-13 15:42
+completed_at: 2026-04-13 15:42
 ---
 
 ## Bug
