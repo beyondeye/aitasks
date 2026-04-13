@@ -152,3 +152,35 @@ After review and approval in Step 8, the shared task-workflow will handle:
   `ait: Update plan for t530`.
 - Running `./.aitask-scripts/aitask_archive.sh 530` to archive task + plan.
 - Pushing via `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added a single `unset _AIT_SHIM_ACTIVE` line inside
+  the shim's walk-up loop in `.aitask-scripts/aitask_setup.sh` (just before
+  `exec "$dir/ait" "$@"`), and added `Test 9` to `tests/test_global_shim.sh`
+  that asserts the project-local `ait` receives zero `_AIT_SHIM_ACTIVE`
+  entries in its env. All 16 tests pass (was 15 before).
+- **Deviations from plan:** None. Implementation matches the plan exactly.
+- **Issues encountered:** During Step 8 review the user noted that
+  `ait ide` was still failing after the code fix. Root cause: the installed
+  shim at `~/.local/bin/ait` was generated before this fix and still
+  contained the buggy walk-up loop. Fixed by regenerating it with
+  `source .aitask-scripts/aitask_setup.sh --source-only && install_global_shim`.
+  Verified the regenerated shim contains the `unset` line at line 15.
+  The current Claude Code shell still has `_AIT_SHIM_ACTIVE=1` leaked from
+  the original pre-fix invocation, so `ait ls` from this shell still trips
+  the guard — but `env -u _AIT_SHIM_ACTIVE ait ls` (fresh-shell simulation)
+  dispatches correctly, and any fresh terminal will work.
+- **Key decisions:**
+  - Placed `unset _AIT_SHIM_ACTIVE` immediately before `exec` (not at loop
+    entry) so the in-process recursion guard still fires if the walk-up
+    fails to find a project and re-entry ever happens.
+  - Used `env | grep -c '^_AIT_SHIM_ACTIVE='` in the regression test (not
+    `[[ -v _AIT_SHIM_ACTIVE ]]`) to avoid bash-version/portability issues
+    and to match the style of surrounding tests.
+  - Stripped `grep -c` output with `tr -d ' '` per CLAUDE.md's macOS `wc
+    -l`/`grep -c` portability note.
+- **User-facing follow-up:** Existing users who installed the shim before
+  this fix need to re-run `ait setup` (or `install_global_shim`) to
+  regenerate it. This should be mentioned in the changelog entry for the
+  next release.
