@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [bash_scripts, task-archive, git-integration]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-13 13:46
-updated_at: 2026-04-13 13:46
+updated_at: 2026-04-13 14:40
 ---
 
 ## Bug
