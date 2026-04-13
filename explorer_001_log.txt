@@ -28,3 +28,4 @@ I need your approval to run commands. Could you please approve the `gh repo view
 === Prompt file: .aitask-crews/crew-brainstorm-427/explorer_001_prompt.md ===
 === Command: /home/ddt/Work/aitasks/ait codeagent --agent-string claudecode/opus4_6 invoke raw -p Read and follow all instructions in the file: .aitask-crews/crew-brainstorm-427/explorer_001_prompt.md ===
 ============================================================
+[2026-03-25 13:03:42] HARD_KILL: Process 1588993 killed by user (was_alive: True)

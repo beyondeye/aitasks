@@ -1,11 +1,11 @@
 agent_name: explorer_001
 agent_type: explorer
 group: explore_001
-status: Running
+status: Aborted
 depends_on: []
 created_at: 2026-03-23 17:08:10
 started_at: '2026-03-25 13:02:27'
-completed_at: ''
+completed_at: '2026-03-25 13:03:42'
 progress: 0
 pid: 1588993
-error_message: ''
+error_message: Hard killed by user
