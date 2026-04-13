@@ -2,7 +2,7 @@ id: brainstorm-427
 name: Brainstorm t427
 created_at: 2026-03-23 16:39:37
 created_by: dario-e@beyond-eye.com
-agents: [explorer_001]
+agents: [explorer_001, detailer_001]
 agent_types:
   explorer:
     agent_string: claudecode/opus4_6
