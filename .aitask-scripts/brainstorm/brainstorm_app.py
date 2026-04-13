@@ -2163,6 +2163,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
     @on(Button.Pressed, ".btn_runner_start")
     def _on_runner_start(self, event: Button.Pressed) -> None:
         """Start the crew runner process."""
+        event.button.disabled = True
         crew_id = self.session_data.get("crew_id", "")
         if crew_id and start_runner(crew_id):
             self.notify("Runner started")
@@ -2173,6 +2174,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
     @on(Button.Pressed, ".btn_runner_stop")
     def _on_runner_stop(self, event: Button.Pressed) -> None:
         """Request the crew runner to stop."""
+        event.button.disabled = True
         crew_id = self.session_data.get("crew_id", "")
         if crew_id and stop_runner(crew_id):
             self.notify("Runner stop requested")
