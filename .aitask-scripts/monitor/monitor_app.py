@@ -57,10 +57,14 @@ class Zone(Enum):
 ZONE_ORDER = [Zone.PANE_LIST, Zone.PREVIEW]
 
 # Preview panel size presets: (section_max_height, preview_max_height, label)
+# A value of "fullscreen" for the heights means: resolve from self.size.height
+# at apply time, leaving PREVIEW_FULLSCREEN_RESERVE lines for the rest of the UI.
+PREVIEW_FULLSCREEN_RESERVE = 10
 PREVIEW_SIZES = [
     (12, 10, "S"),
     (24, 22, "M"),
     (40, 38, "L"),
+    ("fullscreen", "fullscreen", "XL"),
 ]
 PREVIEW_DEFAULT_SIZE = 1  # Medium
 
@@ -308,11 +312,11 @@ class MonitorApp(TuiSwitcherMixin, App):
     #preview-scroll {
         height: 1fr;
         max-height: 22;
+        scrollbar-gutter: stable;
     }
 
     PreviewPanel {
         height: auto;
-        max-height: 22;
         background: #1a1a1a;
         color: #d4d4d4;
     }
@@ -331,6 +335,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         Binding("r", "refresh", "Refresh"),
         Binding("f5", "refresh", "Refresh", show=False),
         Binding("z", "cycle_preview_size", "Zoom"),
+        Binding("b", "toggle_scrollbar", "Scrollbar"),
         Binding("k", "kill_pane", "Kill"),
         Binding("n", "pick_next_sibling", "Next Sibling"),
         Binding("enter", "send_enter", "Send ↵", show=True),
@@ -342,7 +347,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         session: str,
         project_root: Path,
         refresh_seconds: int = 3,
-        capture_lines: int = 30,
+        capture_lines: int = 200,
         idle_threshold: float = 5.0,
         agent_prefixes: list[str] | None = None,
         tui_names: set[str] | None = None,
@@ -365,6 +370,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         self._preview_timer: Timer | None = None
         self._delayed_refresh_timer: Timer | None = None
         self._preview_size_idx: int = PREVIEW_DEFAULT_SIZE
+        self._show_scrollbar: bool = True
         self._task_cache = TaskInfoCache(project_root)
         self._auto_switch: bool = False
 
@@ -605,6 +611,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         try:
             preview = self.query_one("#content-preview", PreviewPanel)
             header = self.query_one("#content-header", Static)
+            scroll = self.query_one("#preview-scroll", ScrollableContainer)
         except Exception:
             return
 
@@ -625,16 +632,23 @@ class MonitorApp(TuiSwitcherMixin, App):
                 )
             else:
                 header.update(f"[bold]Content Preview[/] {pane_label}")
-            # Show last N lines, strip trailing whitespace
+            # Render the full captured scrollback and let the
+            # ScrollableContainer handle overflow. Tail-follow the bottom
+            # when the user was already scrolled to the end so live
+            # updates keep flowing; otherwise preserve scroll position.
             lines = snap.content.rstrip().splitlines()
-            # Show lines proportional to the current preview size
-            _, max_h, _ = PREVIEW_SIZES[self._preview_size_idx]
-            show_n = max_h - 1  # leave 1 line for footer
-            display_lines = lines[-show_n:] if len(lines) > show_n else lines
-            if display_lines:
-                content = _ansi_to_rich_text("\n".join(display_lines))
+            if lines:
+                was_at_bottom = (
+                    scroll.max_scroll_y <= 0
+                    or scroll.scroll_y >= scroll.max_scroll_y - 1
+                )
+                content = _ansi_to_rich_text("\n".join(lines))
                 preview.styles.min_width = snap.pane.width
                 preview.update(content)
+                if was_at_bottom:
+                    self.call_after_refresh(
+                        lambda: scroll.scroll_end(animate=False)
+                    )
             else:
                 preview.styles.min_width = 0
                 preview.update("[dim](empty)[/]")
@@ -844,16 +858,53 @@ class MonitorApp(TuiSwitcherMixin, App):
         self.notify("Refreshed")
 
     def action_cycle_preview_size(self) -> None:
-        """Cycle the preview pane through S/M/L sizes."""
+        """Cycle the preview pane through S/M/L/XL sizes."""
         self._preview_size_idx = (self._preview_size_idx + 1) % len(PREVIEW_SIZES)
+        self._apply_preview_size()
+
+    def _apply_preview_size(self) -> None:
+        """Apply the current preview size index to the preview widgets."""
         section_h, preview_h, label = PREVIEW_SIZES[self._preview_size_idx]
-        section = self.query_one("#content-section")
-        scroll = self.query_one("#preview-scroll", ScrollableContainer)
-        preview = self.query_one("#content-preview", PreviewPanel)
+
+        if section_h == "fullscreen":
+            # self.size may be (0, 0) before the first layout pass.
+            screen_h = self.size.height or 40
+            section_h = max(10, screen_h - PREVIEW_FULLSCREEN_RESERVE)
+            preview_h = max(8, section_h - 2)
+
+        try:
+            section = self.query_one("#content-section")
+            scroll = self.query_one("#preview-scroll", ScrollableContainer)
+        except Exception:
+            return
+
+        # Cap the section and scroll container heights only. The inner
+        # PreviewPanel (Static) must remain free to grow to its content
+        # height so the ScrollableContainer has overflow to scroll over.
         section.styles.max_height = section_h
         scroll.styles.max_height = preview_h
-        preview.styles.max_height = preview_h
         self.notify(f"Preview size: {label}")
+        # Immediately repopulate the (possibly larger) preview without
+        # waiting for the next 3s refresh cycle.
+        self._update_content_preview()
+
+    def action_toggle_scrollbar(self) -> None:
+        """Toggle the vertical scrollbar on the preview panel."""
+        self._show_scrollbar = not self._show_scrollbar
+        try:
+            scroll = self.query_one("#preview-scroll", ScrollableContainer)
+        except Exception:
+            return
+        scroll.styles.scrollbar_size_vertical = 1 if self._show_scrollbar else 0
+        self.notify(
+            f"Scrollbar: {'shown' if self._show_scrollbar else 'hidden'}"
+        )
+
+    def on_resize(self, event) -> None:
+        """Recompute XL sizing when the terminal is resized."""
+        section_spec, _, _ = PREVIEW_SIZES[self._preview_size_idx]
+        if section_spec == "fullscreen":
+            self._apply_preview_size()
 
     def action_toggle_auto_switch(self) -> None:
         """Toggle auto-switch mode on/off."""
@@ -1074,7 +1125,7 @@ def main() -> None:
             expected_session = None
 
     refresh_seconds = args.interval if args.interval is not None else tmux_config.get("monitor", {}).get("refresh_seconds", 3)
-    capture_lines = args.lines if args.lines is not None else config.get("capture_lines", 30)
+    capture_lines = args.lines if args.lines is not None else config.get("capture_lines", 200)
 
     app = MonitorApp(
         session=session,

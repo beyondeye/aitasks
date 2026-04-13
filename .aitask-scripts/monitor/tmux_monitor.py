@@ -79,7 +79,7 @@ class TmuxMonitor:
     def __init__(
         self,
         session: str,
-        capture_lines: int = 30,
+        capture_lines: int = 200,
         idle_threshold: float = 5.0,
         exclude_pane: str | None = None,
         agent_prefixes: list[str] | None = None,
@@ -372,7 +372,7 @@ def load_monitor_config(project_root: Path) -> dict:
     Returns dict suitable for passing as kwargs to TmuxMonitor (minus session).
     """
     defaults = {
-        "capture_lines": 30,
+        "capture_lines": 200,
         "idle_threshold": 5.0,
         "agent_prefixes": list(DEFAULT_AGENT_PREFIXES),
         "tui_names": set(DEFAULT_TUI_NAMES),
