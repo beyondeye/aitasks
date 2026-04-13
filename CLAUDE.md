@@ -26,6 +26,7 @@ bash tests/test_verified_update_flags.sh
 bash tests/test_archive_scan.sh
 bash tests/test_archive_utils.sh
 bash tests/test_crew_setmode.sh
+bash tests/test_archive_no_overbroad_add.sh
 ```
 No test runner — each file is self-contained with `assert_eq`/`assert_contains` helpers and prints PASS/FAIL summary.
 

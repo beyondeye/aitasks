@@ -230,7 +230,12 @@ archive_parent() {
             plan_basename=$(basename "$plan_file")
             task_git add "$ARCHIVED_PLAN_DIR/$plan_basename" 2>/dev/null || true
         fi
-        task_git add -u "$TASK_DIR/" "$PLAN_DIR/" 2>/dev/null || true
+        # Stage deletion of original task/plan paths (files already moved by archive_move).
+        # Narrow to specific paths so we don't sweep in unrelated in-progress edits by sibling agents.
+        task_git add -u "$task_file" 2>/dev/null || true
+        if [[ -n "$plan_file" ]]; then
+            task_git add -u "$plan_file" 2>/dev/null || true
+        fi
 
         if [[ "$NO_COMMIT" != true ]]; then
             task_git commit -m "ait: Archive completed t${task_num} task and plan files" --quiet
@@ -359,6 +364,11 @@ archive_child() {
     local parent_task_basename
     parent_task_basename=$(basename "$parent_task_file")
 
+    # Function-scoped parent plan paths, populated later if the parent gets auto-archived.
+    # Declared here so the commit section can see the original (pre-move) path for staging.
+    local parent_plan_file=""
+    local parent_plan_basename=""
+
     info "Archiving child task: $child_task_basename (parent: $parent_task_basename)"
 
     # Cache parent issue/PR/related_issues BEFORE --remove-child rewrites the file
@@ -458,14 +468,15 @@ archive_child() {
         archive_move "$parent_task_file" "$ARCHIVED_DIR"
         echo "PARENT_ARCHIVED:$ARCHIVED_DIR/$parent_task_basename"
 
-        # Archive parent plan (if exists)
-        local parent_plan_file
+        # Archive parent plan (if exists). Assigns the function-scoped parent_plan_file
+        # and parent_plan_basename so the commit section can reference the original path.
         parent_plan_file=$(resolve_plan_file "$parent_num")
         if [[ -n "$parent_plan_file" && -f "$parent_plan_file" ]]; then
-            local parent_plan_basename
             parent_plan_basename=$(basename "$parent_plan_file")
             archive_move "$parent_plan_file" "$ARCHIVED_PLAN_DIR"
             echo "ARCHIVED_PLAN:$ARCHIVED_PLAN_DIR/$parent_plan_basename"
+        else
+            parent_plan_file=""
         fi
 
         # Release parent lock
@@ -483,20 +494,22 @@ archive_child() {
             task_git add "$ARCHIVED_PLAN_DIR/p${parent_num}/$child_plan_basename" 2>/dev/null || true
         fi
 
-        # Stage updates to active directories
-        task_git add -u "$TASK_DIR/t${parent_num}/" 2>/dev/null || true
-        task_git add -u "$PLAN_DIR/p${parent_num}/" 2>/dev/null || true
-        task_git add -u "$TASK_DIR/" "$PLAN_DIR/" 2>/dev/null || true
+        # Stage deletion of original child task/plan paths (files already moved by archive_move).
+        # Narrowed to specific paths so we don't sweep in unrelated in-progress edits by sibling agents.
+        task_git add -u "$child_task_file" 2>/dev/null || true
+        if [[ -n "${child_plan_file:-}" ]]; then
+            task_git add -u "$child_plan_file" 2>/dev/null || true
+        fi
+        # Stage parent task file: in-place modification from --remove-child,
+        # or deletion if parent was also archived (both cases handled by a single add -u on the original path).
+        task_git add -u "$parent_task_file" 2>/dev/null || true
 
         # Stage parent archival if applicable
         if [[ "$parent_archived" == true ]]; then
             task_git add "$ARCHIVED_DIR/$parent_task_basename" 2>/dev/null || true
-            local parent_plan_file
-            parent_plan_file=$(resolve_plan_file "$parent_num")
-            if [[ -n "$parent_plan_file" ]]; then
-                local parent_plan_basename
-                parent_plan_basename=$(basename "$parent_plan_file")
+            if [[ -n "$parent_plan_basename" ]]; then
                 task_git add "$ARCHIVED_PLAN_DIR/$parent_plan_basename" 2>/dev/null || true
+                task_git add -u "$parent_plan_file" 2>/dev/null || true
             fi
         fi
 
