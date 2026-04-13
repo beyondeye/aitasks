@@ -49,6 +49,7 @@
       "Bash(./.aitask-scripts/aitask_archive.sh:*)",
       "Bash(./.aitask-scripts/aitask_opencode_models.sh:*)",
       "Bash(./.aitask-scripts/aitask_pick_own.sh:*)",
+      "Bash(./.aitask-scripts/aitask_plan_externalize.sh:*)",
       "Bash(./.aitask-scripts/aitask_verified_update.sh:*)",
       "WebFetch(domain:docs.gitlab.com)",
       "Bash(glab issue list:*)",
@@ -83,6 +84,9 @@
       "Bash(./ait explain-runs:*)",
       "Bash(/home/ddt/Work/aitasks/.aitask-scripts/aitask_pick_own.sh:*)",
       "Bash(./.aitask-scripts/aitask_find_files.sh:*)",
+      "Bash(./.aitask-scripts/aitask_fold_content.sh:*)",
+      "Bash(./.aitask-scripts/aitask_fold_mark.sh:*)",
+      "Bash(./.aitask-scripts/aitask_fold_validate.sh:*)",
       "Bash(./ait git:*)",
       "Bash(./.aitask-scripts/aitask_init_data.sh:*)",
       "Bash(./.aitask-scripts/aitask_web_merge.sh:*)",
@@ -106,7 +110,9 @@
       "Bash(./aiscripts/aitask_review_detect_env.sh:*)",
       "Bash(./aiscripts/aitask_archive.sh:*)",
       "WebFetch(domain:developer.atlassian.com)",
-      "WebFetch(domain:support.atlassian.com)"
+      "WebFetch(domain:support.atlassian.com)",
+      "Bash(tmux list-sessions:*)",
+      "Bash(./ait create:*)"
     ]
   }
 }
