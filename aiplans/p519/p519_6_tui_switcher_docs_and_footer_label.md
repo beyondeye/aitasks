@@ -192,3 +192,35 @@ Add Final Implementation Notes before archival:
 - Renaming code identifiers or methods — only user-visible label strings.
 - Creating brainstorm TUI docs from scratch if they don't exist.
 - Screenshots (follow-up task created at parent archival time).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Rewrote `website/content/docs/tuis/_index.md`: kept existing front-matter (including `aliases`); new body with a short intro, an **Available TUIs** bullet list (Monitor, Minimonitor, Board, Code Browser, Settings, Brainstorm — diffviewer intentionally omitted; brainstorm has no docs yet, mentioned without a link), and a **Navigating between TUIs** section documenting the `j` TUI switcher with a screenshot placeholder and links to Terminal Setup and the tmux-ide workflow page.
+  - Appended a **tmux integration** section to `tuis/board/how-to.md`, `tuis/codebrowser/how-to.md`, and `tuis/settings/how-to.md`. Each section explains the `j` keystroke, lists the switcher targets (minus diffviewer), adds a per-TUI typical-flow paragraph, includes the screenshot placeholder, and links to Terminal Setup + tmux-ide workflow.
+  - Renamed the `j` binding label from `"Jump TUI"` to `"TUI switcher"` in **three** files (plan mentioned only `lib/tui_switcher.py`, but `grep` found two more that also needed the rename to stay consistent):
+    - `.aitask-scripts/lib/tui_switcher.py:472` — `SWITCHER_BINDINGS` mixin (used by board, codebrowser, settings, brainstorm; `show=False`, so not visible in footers, but renamed for consistency).
+    - `.aitask-scripts/monitor/monitor_app.py:327` — monitor's own `j` binding (`show=True`, **user-visible** in the monitor footer).
+    - `.aitask-scripts/monitor/minimonitor_app.py:96` — minimonitor's own `j` binding (`show=False`).
+  - `grep -rn "Jump TUI" .` after the rename returned zero matches.
+  - No snapshot tests referenced the old string.
+
+- **Deviations from plan:**
+  - Plan pointed at `lib/tui_switcher.py` only for the rename, but `monitor_app.py` and `minimonitor_app.py` define their own `j` bindings (not reusing `SWITCHER_BINDINGS`) and also had the old label. Updated all three.
+  - Plan's example snippet used action name `open_switcher`; the actual action is `tui_switcher` (unchanged — only the label string was modified).
+  - Plan said "append a new H2 section". Board and codebrowser how-to files use **H3** (`###`) throughout; settings uses **H2** (`##`). To preserve each file's existing heading hierarchy, the new section uses **H3 on board/codebrowser** and **H2 on settings**.
+  - Initial `tuis/_index.md` draft linked `ait ide` to `/docs/commands/ide` (no such page exists — no `commands/ide.md`). Hugo build surfaced the broken ref. Changed the link target to `/docs/workflows/tmux-ide`, matching the convention already used by `tuis/monitor/_index.md` line 16.
+
+- **Issues encountered:**
+  - Hugo build error: `REF_NOT_FOUND: Ref "/docs/commands/ide"`. Fixed by pointing `ait ide` to the workflow page (`/docs/workflows/tmux-ide`). Second build: 128 pages, zero errors.
+
+- **Key decisions:**
+  - Brainstorm: no docs directory exists under `website/content/docs/tuis/`, so the brainstorm how-to update was skipped (per plan). Parent task should track this gap if/when brainstorm docs are authored.
+  - Diffviewer: kept out of all doc lists — confirmed still present in `lib/tui_switcher.py` `KNOWN_TUIS` for functional reasons but never surfaced in docs, per project direction.
+  - Heading levels: matched each file's local convention rather than imposing H2 uniformly, to avoid breaking the existing hierarchy/TOC.
+  - Renamed the label in monitor/minimonitor too even though the plan only named the mixin file, because the inconsistency would have been immediately visible in `ait monitor`'s footer.
+
+- **Notes for sibling tasks:**
+  - This is the final child of t519; no more siblings follow.
+  - Parent archival should still create the screenshot follow-up task (placeholders now live in five files: `tuis/_index.md`, `tuis/board/how-to.md`, `tuis/codebrowser/how-to.md`, `tuis/settings/how-to.md`, plus any from prior children).
+  - When brainstorm gets its own docs subdirectory later, the same "tmux integration" section should be added there for consistency.
