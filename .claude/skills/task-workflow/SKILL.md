@@ -271,6 +271,7 @@ After implementation is complete, the user MUST be given the opportunity to revi
     - "Abort task" (description: "Discard changes and revert task status")
 
 - **If "Commit changes":**
+  - **Verify the plan file exists externally (Claude Code only):** If running in Claude Code, execute the **Plan Externalization Procedure** (see `plan-externalization.md`) as a reactive safety fallback before touching the plan file. It is a no-op (`PLAN_EXISTS`) if the plan was already externalized in Step 6, and it recovers from `~/.claude/plans/` if Step 6 was skipped. If the procedure reports `NOT_FOUND:no_internal_files` / `no_internal_dir`, warn the user: "No plan file exists in `aiplans/` and no recent internal plan was found. The implementation will be committed without a plan file update." and skip the consolidation and plan-commit sub-steps below. Other code agents write plans directly to `aiplans/` and skip this check.
   - **Consolidate the plan file** before committing:
     - Read the current plan file from `aiplans/`
     - Review `git diff --stat` against the plan to identify any changes not yet documented
@@ -482,6 +483,7 @@ The following procedures are in individual files — read on demand when referen
 - **PR Close/Decline Procedure** (`pr-close-decline.md`) — Close/decline linked pull requests during archival. Referenced from Step 9.
 - **Contributor Attribution Procedure** (`contributor-attribution.md`) — Credit PR contributors in commit messages. Referenced from Step 8.
 - **Code-Agent Commit Attribution Procedure** (`code-agent-commit-attribution.md`) — Resolve code-agent Co-Authored-By trailer. Referenced from Step 8.
+- **Plan Externalization Procedure** (`plan-externalization.md`) — **Claude Code only.** Copy the approved internal plan file to `aiplans/` and parse externalize helper output. Referenced from planning.md (Step 6) and Step 8.
 - **Model Self-Detection Sub-Procedure** (`model-self-detection.md`) — Detect the current code agent and model. Referenced from Agent Attribution and Satisfaction Feedback.
 - **Agent Attribution Procedure** (`agent-attribution.md`) — Record implementing code agent and model. Referenced from Step 7.
 - **Satisfaction Feedback Procedure** (`satisfaction-feedback.md`) — Collect user feedback and update verified model scores. Referenced from Step 9b and standalone skills.

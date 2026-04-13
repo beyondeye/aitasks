@@ -170,7 +170,9 @@ When creating child tasks, each task file MUST include detailed context that ena
 
 ## Save Plan to External File
 
-Immediately after the user approves the plan via `ExitPlanMode`, save it to an external file.
+**If running in Claude Code,** execute the **Plan Externalization Procedure** (see `plan-externalization.md`) immediately after `ExitPlanMode` and before proceeding to the Checkpoint. Claude Code's `EnterPlanMode` writes the plan to an internal file at `~/.claude/plans/<random>.md` and `ExitPlanMode` does **not** copy it to `aiplans/` automatically — the procedure file details the externalize helper, output parsing, and error handling. Other code agents write plans directly to `aiplans/` and skip this step.
+
+If the externalize helper reports `NOT_FOUND:no_internal_files` / `no_internal_dir`, fall back to writing the plan manually with the Write tool using the naming convention and metadata header below. These subsections remain the source of truth for the plan file format regardless of how it is created.
 
 **File naming convention:**
 
