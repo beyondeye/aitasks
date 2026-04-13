@@ -18,18 +18,18 @@
       "verifiedstats": {
         "pick": {
           "all_time": {
-            "runs": 238,
-            "score_sum": 23200
+            "runs": 239,
+            "score_sum": 23300
           },
           "month": {
             "period": "2026-04",
-            "runs": 53,
-            "score_sum": 5240
+            "runs": 54,
+            "score_sum": 5340
           },
           "week": {
             "period": "2026-W16",
-            "runs": 5,
-            "score_sum": 500
+            "runs": 6,
+            "score_sum": 600
           }
         },
         "changelog": {
