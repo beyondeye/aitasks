@@ -101,3 +101,10 @@ The crew-copied copy at `.aitask-crews/crew-brainstorm-427/.aitask-scripts/brain
 ## Step 9 reference
 
 After approval and implementation, proceed to Step 9 (Post-Implementation): user review, commit (`feature: Add task info to brainstorm TUI title bar (t537)`), plan commit via `./ait git`, then archive with `./.aitask-scripts/aitask_archive.sh 537` and `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added two private methods to `BrainstormApp` in `.aitask-scripts/brainstorm/brainstorm_app.py`: `_resolve_task_file_path()` (prefers `session_data["task_file"]`, falls back to globbing `aitasks/t<num>_*.md`) and `_update_title_from_task()` (sets `self.sub_title` to `f"t{num} — {name_part}"` or just `f"t{num}"` as fallback). Called the helper at the end of `__init__` and again in `_load_existing_session()` after session data is loaded. Total: +23 lines.
+- **Deviations from plan:** None. Implementation matched the plan exactly.
+- **Issues encountered:** `tests/test_brainstorm_cli.sh` was already failing on clean `main` (pre-existing issue, unrelated to this change) — verified by stashing changes and re-running. Python syntax check (`py_compile`) and headless `BrainstormApp` instantiation both confirm correctness for existing task (`t537 — task_information_in_brainstorm_tui`) and missing task (`t9999` fallback).
+- **Key decisions:** Used `self.sub_title` rather than touching the class-level `TITLE` constant so the app identity ("ait brainstorm") stays intact and task context lives in the subtitle. Resolution order (session_data → glob → fallback) handles both existing and pre-init sessions uniformly. The frozen per-crew copy at `.aitask-crews/crew-brainstorm-427/.aitask-scripts/brainstorm/brainstorm_app.py` was intentionally not touched — it's a point-in-time snapshot that will pick up the change on the next crew spawn.
