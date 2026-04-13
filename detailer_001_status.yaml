@@ -2,11 +2,11 @@ agent_name: detailer_001
 agent_type: detailer
 group: detail_001
 launch_mode: interactive
-status: Waiting
+status: Running
 depends_on: []
 created_at: 2026-04-13 13:49:01
-started_at:
-completed_at:
+started_at: '2026-04-13 14:18:49'
+completed_at: null
 progress: 0
-pid:
-error_message:
+pid: 135897
+error_message: null
