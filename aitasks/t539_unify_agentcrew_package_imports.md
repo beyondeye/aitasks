@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-13 18:51
-updated_at: 2026-04-13 18:51
+updated_at: 2026-04-14 00:29
 ---
 
 Refactor agentcrew_dashboard.py and agentcrew_report.py to use the package-style
