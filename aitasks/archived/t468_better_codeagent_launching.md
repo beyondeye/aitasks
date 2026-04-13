@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Done
+archived_reason: superseded
 labels: [codebrowser]
-children_to_implement: [t468_6, t468_7]
 created_at: 2026-03-26 09:34
-updated_at: 2026-03-29 09:36
+updated_at: 2026-04-13 13:11
+completed_at: 2026-04-13 13:11
 boardidx: 60
 ---
 
