@@ -8,7 +8,7 @@
         "batch-review": 0,
         "pick": 97,
         "explain": 80,
-        "changelog": 96,
+        "changelog": 97,
         "explore": 98,
         "revert": 100,
         "test_414_flags": 90,
@@ -34,16 +34,16 @@
         },
         "changelog": {
           "all_time": {
-            "runs": 5,
-            "score_sum": 480
+            "runs": 6,
+            "score_sum": 580
           },
           "month": {
             "period": "2026-04",
-            "runs": 1,
-            "score_sum": 100
+            "runs": 2,
+            "score_sum": 200
           },
           "week": {
-            "period": "2026-W15",
+            "period": "2026-W16",
             "runs": 1,
             "score_sum": 100
           }
