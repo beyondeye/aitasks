@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.15.1
+
+### Features
+
+- **Monitor preview scrollback and zoom** (t529): The monitor TUI preview now supports mouse-wheel scrolling through 200 lines of scrollback, an XL zoom preset that fills the terminal, and a `b` toggle for the scrollbar. Tail-follow keeps the view pinned to the latest output unless you scroll up.
+
+### Bug Fixes
+
+- **Fix shim active guard leak** (t530): The global `ait` shim no longer leaks `_AIT_SHIM_ACTIVE` into the project-local `ait` it execs, fixing spurious shim-loop errors when chaining commands like `ait ide`. Existing users should re-run `ait setup` to regenerate their installed shim.
+
+### Documentation
+
+- **TUI switcher docs and footer label** (t519_6): New "Available TUIs" overview page lists all built-in TUIs, and board/codebrowser/settings how-to pages now document the `j` TUI switcher. The monitor footer label is renamed from "Jump TUI" to "TUI switcher" for clarity.
+
 ## v0.15.0
 
 ### Features
