@@ -947,6 +947,28 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._expanded_groups: set[str] = set()
         self._status_refresh_timer = None
         self._processes_synced: bool = False
+        self._update_title_from_task()
+
+    def _resolve_task_file_path(self) -> Path | None:
+        """Return the task file path for self.task_num, or None if not found."""
+        tf = self.session_data.get("task_file") if self.session_data else None
+        if tf:
+            p = Path(tf)
+            if p.exists():
+                return p
+        matches = sorted(Path("aitasks").glob(f"t{self.task_num}_*.md"))
+        return matches[0] if matches else None
+
+    def _update_title_from_task(self) -> None:
+        """Set sub_title to include task id and full task name."""
+        path = self._resolve_task_file_path()
+        if path is not None:
+            stem = path.stem
+            prefix = f"t{self.task_num}_"
+            name_part = stem[len(prefix):] if stem.startswith(prefix) else stem
+            self.sub_title = f"t{self.task_num} — {name_part}"
+        else:
+            self.sub_title = f"t{self.task_num}"
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -1340,6 +1362,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
     def _load_existing_session(self) -> None:
         """Load session data and update the dashboard."""
         self.session_data = load_session(self.task_num)
+        self._update_title_from_task()
         status = self.session_data.get("status", "")
         if status in ("completed", "archived"):
             self.read_only = True
