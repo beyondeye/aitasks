@@ -164,3 +164,19 @@ The persistence runs on every interactive create regardless of whether the user 
 ## Post-implementation
 
 Standard archival via `./.aitask-scripts/aitask_archive.sh 540_6` per task-workflow Step 9. Include a Final Implementation Notes section on commit (before archival) per the child-task documentation conventions in `task-workflow/SKILL.md`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `get_last_used_labels` and `set_last_used_labels` helpers to `.aitask-scripts/lib/task_utils.sh` immediately after `get_user_email`. Extended `get_labels_interactive` in `.aitask-scripts/aitask_create.sh` with a pre-loop read of the previous label CSV, a one-time menu entry `>> Use labels from previous task (…)`, and a selection branch that seeds `selected_labels` with the prior list then `continue`s the loop so the menu redraws without the entry. Added the persistence call `set_last_used_labels "$labels"` right after the call site in `run_draft_interactive`. Wrote `tests/test_last_used_labels.sh` covering the 7 cases the plan specified (15 assertions total) and verified PASS.
+- **Deviations from plan:** None material. The plan instructed `sed_inplace` for in-place update; used it with `|` as the delimiter since sanitized labels never contain `|`, `/`, or `&`. The reader uses a temp-variable pipeline instead of a raw `grep | sed` chain so it stays safe under `set -euo pipefail` (matches the `grep … || true` idiom). Labels are sanitized to `[a-z0-9_-]`, so no escape concerns for either helper.
+- **Issues encountered:** The test had to `unset SCRIPT_DIR` before sourcing `task_utils.sh`, because task_utils.sh uses `SCRIPT_DIR="${SCRIPT_DIR:-…}"` and the test's own `SCRIPT_DIR` (pointing at `tests/`) would have misled the internal `source` calls to look for `tests/lib/terminal_compat.sh`. Documented as a short comment in the test.
+- **Key decisions:**
+  - Empty CSV writes `last_used_labels: []` rather than deleting the field. The reader returns empty for both the absent and `[]` cases, so the menu suppression behaves identically either way — the stored field doubles as a durable record of the most recent selection.
+  - `offered_prev` guards the menu entry in the same session and also guarantees `continue` never loops the user into the prev-labels option again after they already used it.
+  - Persistence runs unconditionally after `get_labels_interactive`, so even an empty final selection overwrites a stale stored list — the stored value always matches the latest selection.
+  - Batch mode (`--batch --labels ...`) is deliberately untouched per the plan's out-of-scope note; CLI automation should not mutate userconfig.
+- **Notes for sibling tasks:**
+  - `get_last_used_labels` / `set_last_used_labels` live in `lib/task_utils.sh` and can be reused by any future skill that wants to suggest labels from userconfig (e.g., aitask-update, codebrowser task creation).
+  - The `sed_inplace` + `|` delimiter pattern with a sanitized value is a safe template for other `userconfig.yaml` field updaters (e.g., if we later persist `last_used_file_references` or similar per-user convenience defaults).
+  - Sourcing `task_utils.sh` in a test requires `unset SCRIPT_DIR` first — future helper tests that need the library directly should follow the pattern in `tests/test_last_used_labels.sh`.
+
