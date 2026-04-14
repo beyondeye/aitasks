@@ -752,7 +752,8 @@ class ConfigRow(Static):
 
     def __init__(self, key: str, value: str, config_layer: str = "project",
                  row_key: str = "", id: str | None = None,
-                 subordinate: bool = False, raw_value: str | None = None):
+                 subordinate: bool = False, raw_value: str | None = None,
+                 extra_indent: int = 0):
         super().__init__(id=id)
         self.key = key
         self.value = value
@@ -760,6 +761,7 @@ class ConfigRow(Static):
         self.config_layer = config_layer
         self.row_key = row_key or key
         self.subordinate = subordinate
+        self.extra_indent = extra_indent
 
     def render(self) -> str:
         if self.config_layer == "user":
@@ -767,13 +769,15 @@ class ConfigRow(Static):
         else:
             badge = "[#50FA7B][PROJECT][/]"
 
+        pad = " " * self.extra_indent
+
         if self.subordinate:
             # Indented subordinate row (user override under project)
             has_override = self.value not in ("(inherits project)", "(not set)", "")
             clear_hint = "  [dim](d to remove)[/dim]" if has_override else ""
-            return f"      \u2514 {badge}  {self.value}{clear_hint}"
+            return f"      {pad}\u2514 {badge}  {self.value}{clear_hint}"
 
-        return f"  {badge}  [bold]{self.key}:[/bold]  {self.value}"
+        return f"  {pad}{badge}  [bold]{self.key}:[/bold]  {self.value}"
 
     def on_focus(self):
         self.add_class("row-focused")
@@ -1894,11 +1898,13 @@ class SettingsApp(TuiSwitcherMixin, App):
             else:
                 proj_raw_lm = framework_default
                 proj_display_lm = f"{framework_default}  [dim](framework default)[/dim]"
+            launch_label = f"brainstorm-{atype} launch_mode"
             container.mount(ConfigRow(
-                "launch_mode", proj_display_lm,
+                launch_label, proj_display_lm,
                 config_layer="project", row_key=lm_key,
                 id=f"agent_proj_brainstorm_launch_{atype}_{rc}",
                 raw_value=proj_raw_lm,
+                extra_indent=4,
             ))
 
             if local_lm is not None:
@@ -1908,17 +1914,18 @@ class SettingsApp(TuiSwitcherMixin, App):
                 user_raw_lm = "(inherits project)"
                 user_display_lm = user_raw_lm
             container.mount(ConfigRow(
-                "launch_mode", user_display_lm,
+                launch_label, user_display_lm,
                 config_layer="user", row_key=lm_key,
                 id=f"agent_user_brainstorm_launch_{atype}_{rc}",
                 subordinate=True,
                 raw_value=user_raw_lm,
+                extra_indent=4,
             ))
 
             desc_lm = OPERATION_DESCRIPTIONS.get(lm_key, "")
             if desc_lm:
                 container.mount(Label(
-                    f"[dim italic]{desc_lm}[/dim italic]", classes="op-desc",
+                    f"    [dim italic]{desc_lm}[/dim italic]", classes="op-desc",
                 ))
 
         brainstorm_header_shown = False
