@@ -242,3 +242,70 @@ Follow `task-workflow/SKILL.md` Step 9: commit code changes (script +
 procedure doc + test file) as a `feature: ...` commit with `(t542)` suffix,
 commit the consolidated plan file via `./ait git`, then archive via
 `./.aitask-scripts/aitask_archive.sh 542` and push with `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned across the three
+  target files. Added `--force` flag to `aitask_plan_externalize.sh`,
+  documented the flag and new `OVERWRITTEN` output token in
+  `plan-externalization.md` (including a "When to use `--force`" note that
+  assigns Step 6 → force, Step 8 → no force), and appended three new tests
+  (10/11/12) to `tests/test_plan_externalize.sh`.
+- **Script changes:**
+  - Header comment block + `usage()` now list `[--force]` and the new
+    `OVERWRITTEN:<external_path>:<source>` output line.
+  - Arg parser gained a `--force` case that sets `FORCE=true` (default
+    `false`).
+  - The "no-op if already externalized" block now tracks `EXISTED_BEFORE`
+    and only short-circuits with `PLAN_EXISTS` when `FORCE != true`.
+  - Final output line switches between `EXTERNALIZED` (fresh) and
+    `OVERWRITTEN` (replaced an existing file) based on `EXISTED_BEFORE`.
+- **Procedure doc changes:** Split the canonical invocation example into
+  two forms (Step 6 proactive with `--force`, Step 8 safety fallback
+  without). Added `OVERWRITTEN` to the output-parsing list. Added the
+  "When to use `--force`" section and updated the commit-message guidance
+  to use `ait: Add plan ...` for `EXTERNALIZED` and `ait: Update plan ...`
+  for `OVERWRITTEN`.
+- **Tests added:**
+  - **Test 10** — `--force` replaces an existing external plan with new
+    content (asserts `OVERWRITTEN:` prefix and a unique marker grep).
+  - **Test 11** — `--force` against a missing external plan still emits
+    `EXTERNALIZED:` (backward compat) and explicitly asserts `OVERWRITTEN`
+    is NOT present in the output.
+  - **Test 12** — `--force` combined with an empty internal plans dir
+    emits `NOT_FOUND:no_internal_files` AND leaves the existing external
+    plan file byte-for-byte unchanged (md5sum before/after). This proves
+    the destructive contract is bounded: we only overwrite when there is
+    real new content.
+- **Deviations from plan:** None substantive. Test 11 additionally adds
+  an explicit "OVERWRITTEN not present" assertion (inline `PASS`/`FAIL`
+  counter bump, matching the existing helper style), which was not spelled
+  out in the plan but keeps the backward-compat guarantee testable.
+- **Issues encountered:** None. First test run showed 27/27 assertions
+  passing (12 tests). `shellcheck` reports only the pre-existing SC1091
+  info about the sourced `lib/terminal_compat.sh` file — unrelated and
+  unchanged by this task.
+- **Key decisions:**
+  - **Separate `OVERWRITTEN` token instead of reusing `EXTERNALIZED`**:
+    preserves the information needed for accurate commit messages
+    (`Add` vs `Update`) and keeps the caller contract explicit. Callers
+    treat both tokens as "success, proceed" so the handling code is
+    symmetric.
+  - **`--force` does not destroy on empty source**: when the internal
+    plans dir has no eligible files, `--force` falls through to
+    `NOT_FOUND:no_internal_files` and leaves the existing external file
+    intact. Callers can pass `--force` unconditionally in Step 6 without
+    fearing data loss if the helper is re-run in a stale session.
+    Test 12 locks this behavior in.
+  - **Step 6 always passes `--force`, Step 8 never does**: documented in
+    `plan-externalization.md` under "When to use `--force`". The two
+    call sites have different intents (proactive update vs idempotent
+    safety fallback), so making the policy caller-specific keeps
+    Step 8's idempotence intact while fixing Step 6's stale-plan bug.
+- **Files committed:**
+  - `.aitask-scripts/aitask_plan_externalize.sh`
+  - `.claude/skills/task-workflow/plan-externalization.md`
+  - `tests/test_plan_externalize.sh`
+  Pre-existing uncommitted changes in `aitask_create.sh`,
+  `aitask_update.sh`, and `lib/task_utils.sh` (an unrelated
+  `file_references` feature) were deliberately left untouched.
