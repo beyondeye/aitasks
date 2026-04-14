@@ -102,6 +102,8 @@ setup_draft_project() {
         cp "$PROJECT_DIR/.aitask-scripts/aitask_ls.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/ 2>/dev/null || true
+        cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/ 2>/dev/null || true
         chmod +x .aitask-scripts/aitask_create.sh .aitask-scripts/aitask_claim_id.sh .aitask-scripts/aitask_update.sh .aitask-scripts/aitask_ls.sh
 
         # Create task types file
