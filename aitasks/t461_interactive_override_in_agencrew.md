@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [agentcrew, brainstorming]
-children_to_implement: [t461_7, t461_8]
+children_to_implement: [t461_8]
 created_at: 2026-03-25 09:41
 updated_at: 2026-04-14 12:49
 boardidx: 10
