@@ -266,6 +266,72 @@ class NodeDetailModal(ModalScreen):
         self.dismiss(None)
 
 
+class AgentModeEditModal(ModalScreen):
+    """Modal to toggle an agent's launch_mode between headless and interactive."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(
+        self,
+        agent_name: str,
+        agent_status: str,
+        current_mode: str,
+    ):
+        super().__init__()
+        self.agent_name = agent_name
+        self.agent_status = agent_status
+        self.current_mode = current_mode
+
+    def compose(self) -> ComposeResult:
+        with Container(id="mode_modal_dialog"):
+            yield Label(
+                f"Launch mode: {self.agent_name}",
+                id="mode_modal_title",
+            )
+            yield Static(
+                f"Current: [bold]{self.current_mode}[/bold]  "
+                f"Status: {self.agent_status}",
+                id="mode_modal_current",
+            )
+            if self.agent_status != "Waiting":
+                yield Static(
+                    "[dim]launch_mode can only be changed on Waiting agents. "
+                    "Close this dialog and reset the agent first if needed.[/]",
+                    id="mode_modal_note",
+                )
+                with Horizontal(id="mode_modal_buttons"):
+                    yield Button("Close", variant="default", id="btn_mode_close")
+            else:
+                with Horizontal(id="mode_modal_buttons"):
+                    yield Button(
+                        "Headless",
+                        variant="primary" if self.current_mode == "headless" else "default",
+                        id="btn_mode_headless",
+                    )
+                    yield Button(
+                        "Interactive",
+                        variant="primary" if self.current_mode == "interactive" else "default",
+                        id="btn_mode_interactive",
+                    )
+                    yield Button("Cancel", variant="default", id="btn_mode_cancel")
+
+    @on(Button.Pressed, "#btn_mode_headless")
+    def _pick_headless(self) -> None:
+        self.dismiss("headless")
+
+    @on(Button.Pressed, "#btn_mode_interactive")
+    def _pick_interactive(self) -> None:
+        self.dismiss("interactive")
+
+    @on(Button.Pressed, "#btn_mode_cancel")
+    @on(Button.Pressed, "#btn_mode_close")
+    def _cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class LogDetailModal(ModalScreen):
     """Modal for viewing agent log file content with Tail/Full tabs."""
 
@@ -533,8 +599,11 @@ class AgentStatusRow(Static, can_focus=True):
 
     def render(self) -> str:
         line = self._display_line
-        if self.has_focus and self.agent_status == "Error":
-            line += "  [dim](w: reset)[/dim]"
+        if self.has_focus:
+            if self.agent_status == "Error":
+                line += "  [dim](w: reset)[/dim]"
+            elif self.agent_status == "Waiting":
+                line += "  [dim](e: edit mode)[/dim]"
         return line
 
     def on_click(self) -> None:
@@ -882,6 +951,35 @@ class BrainstormApp(TuiSwitcherMixin, App):
         align: center middle;
     }
 
+    /* Agent launch-mode edit modal */
+    #mode_modal_dialog {
+        width: 60;
+        height: auto;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+    }
+
+    #mode_modal_title {
+        text-style: bold;
+        text-align: center;
+        width: 100%;
+        padding-bottom: 1;
+    }
+
+    #mode_modal_current {
+        padding-bottom: 1;
+    }
+
+    #mode_modal_note {
+        padding-bottom: 1;
+    }
+
+    #mode_modal_buttons {
+        height: 3;
+        align: center middle;
+    }
+
     /* Log browsing widgets (t439_4) */
     StatusLogRow { height: 1; padding: 0 1; }
     StatusLogRow:focus { background: $accent 20%; }
@@ -1167,6 +1265,22 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     )
                 else:
                     self._reset_agent(focused)
+                event.prevent_default()
+                event.stop()
+                return
+
+        # e: edit launch_mode on a Waiting agent
+        if event.key == "e":
+            focused = self.focused
+            if isinstance(focused, AgentStatusRow):
+                if focused.agent_status != "Waiting":
+                    self.notify(
+                        f"Can only edit launch_mode on Waiting agents "
+                        f"(current: {focused.agent_status})",
+                        severity="warning",
+                    )
+                else:
+                    self._edit_agent_mode(focused)
                 event.prevent_default()
                 event.stop()
                 return
@@ -1551,6 +1665,63 @@ class BrainstormApp(TuiSwitcherMixin, App):
             self._delayed_refresh_status()
         else:
             self.notify(f"Status file not found for {name}", severity="error")
+
+    def _edit_agent_mode(self, row: "AgentStatusRow") -> None:
+        """Open the launch_mode edit modal for a Waiting agent row."""
+        import os
+
+        name = row.agent_name
+        sf = os.path.join(str(self.session_path), f"{name}_status.yaml")
+        if not os.path.isfile(sf):
+            self.notify(
+                f"Status file not found for {name}",
+                severity="error",
+            )
+            return
+        data = read_yaml(sf) or {}
+        current_mode = data.get("launch_mode", "headless")
+        status = data.get("status", row.agent_status)
+        self.push_screen(
+            AgentModeEditModal(
+                agent_name=name,
+                agent_status=status,
+                current_mode=current_mode,
+            ),
+            lambda result, _name=name, _current=current_mode:
+                self._on_mode_edit_result(_name, _current, result),
+        )
+
+    def _on_mode_edit_result(
+        self, agent_name: str, current_mode: str, new_mode
+    ) -> None:
+        """Callback after AgentModeEditModal closes."""
+        if new_mode is None or new_mode == current_mode:
+            return
+        crew_id = self.session_data.get("crew_id", "")
+        if not crew_id:
+            self.notify("No crew_id in session", severity="error")
+            return
+        try:
+            result = subprocess.run(
+                [
+                    AIT_PATH, "crew", "setmode",
+                    "--crew", crew_id,
+                    "--name", agent_name,
+                    "--mode", new_mode,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError as e:
+            self.notify(f"setmode failed to launch: {e}", severity="error")
+            return
+        if result.returncode == 0 and f"UPDATED:{agent_name}:{new_mode}" in result.stdout:
+            self.notify(f"Launch mode → {new_mode} for {agent_name}")
+            self._delayed_refresh_status()
+        else:
+            err = (result.stderr or result.stdout).strip() or "unknown error"
+            self.notify(f"setmode failed: {err}", severity="error")
 
     def _delayed_refresh_status(self) -> None:
         """Show a loading notification then refresh the status tab after 2 seconds."""
