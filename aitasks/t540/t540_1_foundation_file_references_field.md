@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [aitask-create, bash_scripts]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-04-14 10:12
-updated_at: 2026-04-14 10:32
+updated_at: 2026-04-14 10:59
 ---
 
 Foundation for t540: add a structured `file_references` frontmatter field
