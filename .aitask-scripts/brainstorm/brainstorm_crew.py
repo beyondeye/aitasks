@@ -37,11 +37,11 @@ from .brainstorm_dag import (  # noqa: E402
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 BRAINSTORM_AGENT_TYPES = {
-    "explorer": {"agent_string": "claudecode/opus4_6", "max_parallel": 2},
-    "comparator": {"agent_string": "claudecode/sonnet4_6", "max_parallel": 1},
-    "synthesizer": {"agent_string": "claudecode/opus4_6", "max_parallel": 1},
-    "detailer": {"agent_string": "claudecode/opus4_6", "max_parallel": 1},
-    "patcher": {"agent_string": "claudecode/sonnet4_6", "max_parallel": 1},
+    "explorer": {"agent_string": "claudecode/opus4_6", "max_parallel": 2, "launch_mode": "headless"},
+    "comparator": {"agent_string": "claudecode/sonnet4_6", "max_parallel": 1, "launch_mode": "headless"},
+    "synthesizer": {"agent_string": "claudecode/opus4_6", "max_parallel": 1, "launch_mode": "headless"},
+    "detailer": {"agent_string": "claudecode/opus4_6", "max_parallel": 1, "launch_mode": "interactive"},
+    "patcher": {"agent_string": "claudecode/sonnet4_6", "max_parallel": 1, "launch_mode": "headless"},
 }
 
 
@@ -108,8 +108,11 @@ def _run_addwork(
         "--group", group_name,
         "--batch",
     ]
-    if launch_mode == "interactive":
-        cmd.extend(["--launch-mode", "interactive"])
+    type_default = BRAINSTORM_AGENT_TYPES.get(agent_type, {}).get(
+        "launch_mode", "headless"
+    )
+    if launch_mode != type_default:
+        cmd.extend(["--launch-mode", launch_mode])
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(

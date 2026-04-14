@@ -106,16 +106,27 @@ print('$default_val')
     echo "$val"
 }
 
+# --- Resolve brainstorm per-type launch_mode default from BRAINSTORM_AGENT_TYPES ---
+_get_brainstorm_launch_mode() {
+    local agent_type="$1"
+    "$PYTHON" -c "
+import sys
+sys.path.insert(0, '$SCRIPT_DIR')
+from brainstorm.brainstorm_crew import BRAINSTORM_AGENT_TYPES
+print(BRAINSTORM_AGENT_TYPES.get('$agent_type', {}).get('launch_mode', 'headless'))
+" 2>/dev/null || echo "headless"
+}
+
 # --- Create AgentCrew crew ---
 info "Creating brainstorm crew for task $TASK_NUM..."
 crew_output=$(bash "$SCRIPT_DIR/aitask_crew_init.sh" \
     --id "brainstorm-${TASK_NUM}" \
     --name "Brainstorm t${TASK_NUM}" \
-    --add-type "explorer:$(_get_brainstorm_agent_string explorer claudecode/opus4_6)" \
-    --add-type "comparator:$(_get_brainstorm_agent_string comparator claudecode/sonnet4_6)" \
-    --add-type "synthesizer:$(_get_brainstorm_agent_string synthesizer claudecode/opus4_6)" \
-    --add-type "detailer:$(_get_brainstorm_agent_string detailer claudecode/opus4_6)" \
-    --add-type "patcher:$(_get_brainstorm_agent_string patcher claudecode/sonnet4_6)" \
+    --add-type "explorer:$(_get_brainstorm_agent_string explorer claudecode/opus4_6):$(_get_brainstorm_launch_mode explorer)" \
+    --add-type "comparator:$(_get_brainstorm_agent_string comparator claudecode/sonnet4_6):$(_get_brainstorm_launch_mode comparator)" \
+    --add-type "synthesizer:$(_get_brainstorm_agent_string synthesizer claudecode/opus4_6):$(_get_brainstorm_launch_mode synthesizer)" \
+    --add-type "detailer:$(_get_brainstorm_agent_string detailer claudecode/opus4_6):$(_get_brainstorm_launch_mode detailer)" \
+    --add-type "patcher:$(_get_brainstorm_agent_string patcher claudecode/sonnet4_6):$(_get_brainstorm_launch_mode patcher)" \
     --batch 2>&1) || {
     die "Failed to create crew: $crew_output"
 }

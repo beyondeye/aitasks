@@ -38,8 +38,11 @@ Required:
 
 Options:
   --name <display_name>     Human-readable name (defaults to id)
-  --add-type <id>:<agent>   Register an agent type (repeatable)
+  --add-type <id>:<agent>[:<launch_mode>]
+                            Register an agent type (repeatable). Optional
+                            third field sets launch_mode (headless|interactive).
                             Example: --add-type impl:claudecode/sonnet4_6
+                                     --add-type detailer:claudecode/opus4_6:interactive
   --batch                   Non-interactive mode (no prompts)
   --help                    Show this help
 
@@ -47,7 +50,7 @@ Output (batch mode):
   CREATED:<id>              Crew successfully initialized
 
 Example:
-  ait crew init --id sprint1 --add-type impl:claudecode/opus4_6 --add-type review:claudecode/sonnet4_6 --batch
+  ait crew init --id sprint1 --add-type impl:claudecode/opus4_6 --add-type review:claudecode/sonnet4_6:interactive --batch
 HELP
 }
 
@@ -62,7 +65,7 @@ while [[ $# -gt 0 ]]; do
             [[ -z "${2:-}" ]] && die "--name requires a value"
             CREW_DISPLAY_NAME="$2"; shift 2 ;;
         --add-type)
-            [[ -z "${2:-}" ]] && die "--add-type requires a value in format type_id:agent_string"
+            [[ -z "${2:-}" ]] && die "--add-type requires a value in format type_id:agent_string[:launch_mode]"
             ADD_TYPES+=("$2"); shift 2 ;;
         --batch)
             BATCH_MODE=true; shift ;;
@@ -81,8 +84,8 @@ validate_crew_id "$CREW_ID"
 
 # Validate --add-type format
 for at in "${ADD_TYPES[@]+"${ADD_TYPES[@]}"}"; do
-    if ! [[ "$at" =~ ^[a-z0-9_]+:.+$ ]]; then
-        die "Invalid --add-type format '$at': expected type_id:agent_string (e.g., impl:claudecode/opus4_6)"
+    if ! [[ "$at" =~ ^[a-z0-9_]+:[^:]+(:(headless|interactive))?$ ]]; then
+        die "Invalid --add-type format '$at': expected type_id:agent_string[:launch_mode] (e.g., impl:claudecode/opus4_6 or detailer:claudecode/opus4_6:interactive)"
     fi
 done
 
@@ -113,12 +116,15 @@ git worktree add "$WT_PATH" "$BRANCH_NAME" --quiet
 AGENT_TYPES_YAML=""
 if [[ ${#ADD_TYPES[@]} -gt 0 ]]; then
     for at in "${ADD_TYPES[@]}"; do
-        local_type_id="${at%%:*}"
-        local_agent_string="${at#*:}"
+        IFS=':' read -r local_type_id local_agent_string local_launch_mode <<< "$at"
         AGENT_TYPES_YAML="${AGENT_TYPES_YAML}  ${local_type_id}:
     agent_string: ${local_agent_string}
     max_parallel: 0
 "
+        if [[ -n "${local_launch_mode:-}" ]]; then
+            AGENT_TYPES_YAML="${AGENT_TYPES_YAML}    launch_mode: ${local_launch_mode}
+"
+        fi
     done
 fi
 
