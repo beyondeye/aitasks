@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [aitask_monitor]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-04-14 12:32
-updated_at: 2026-04-14 12:38
+updated_at: 2026-04-14 12:49
 ---
 
 In `ait monitor` the arrow-key navigation in the agent list is responsive in general (fixed by t544 — tmux captures now run via asyncio), but a residual race remains: if the user presses up/down arrow at exactly the moment a refresh tick fires, the keystroke appears lost — as if the arrow was never pressed. The selection does not move.

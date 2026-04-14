@@ -10,6 +10,7 @@
     "brainstorm-comparator": "claudecode/sonnet4_6",
     "brainstorm-synthesizer": "claudecode/opus4_6",
     "brainstorm-detailer": "claudecode/opus4_6",
-    "brainstorm-patcher": "claudecode/sonnet4_6"
+    "brainstorm-patcher": "claudecode/sonnet4_6",
+    "brainstorm-explorer-launch-mode": "headless"
   }
 }
