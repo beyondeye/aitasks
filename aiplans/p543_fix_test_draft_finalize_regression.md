@@ -62,3 +62,11 @@ Spot-check that no other test file is silently relying on the same harness — `
 - Plan file: this plan documents the fix; final implementation notes will be added during Step 8 consolidation.
 - Run `./.aitask-scripts/aitask_archive.sh 543` to archive task and plan.
 - Push with `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added the two missing `cp` lines for `archive_utils.sh` and `archive_scan.sh` to `setup_draft_project()` in `tests/test_draft_finalize.sh`, mirroring the pattern from `tests/test_file_references.sh:91-92` (with the `2>/dev/null || true` guard).
+- **Deviations from plan:** None. The fix matches the plan exactly — two-line addition to one file.
+- **Issues encountered:** None.
+- **Key decisions:** Used the `2>/dev/null || true` guard form (matching the reference test) rather than a hard `cp`, so the harness remains resilient if a future branch drops these libs.
+- **Verification result:** `bash tests/test_draft_finalize.sh` → `Results: 35 passed, 0 failed, 35 total` / `ALL TESTS PASSED`.
