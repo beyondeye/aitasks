@@ -222,6 +222,58 @@ result=$(run_externalize "$TMPDIR9" "$TMPDIR9/fakehome/.claude/plans" 12345)
 assert_contains "unknown task: NOT_FOUND:no_task_file" "NOT_FOUND:no_task_file" "$result"
 rm -rf "$TMPDIR9"
 
+# --- Test 10: --force overwrites existing external plan → OVERWRITTEN ---
+echo "--- Test 10: --force overwrites existing plan ---"
+TMPDIR10=$(new_sandbox)
+make_fresh_internal "$TMPDIR10/fakehome/.claude/plans/first.md"
+run_externalize "$TMPDIR10" "$TMPDIR10/fakehome/.claude/plans" 999 >/dev/null
+# Replace the internal plan with new content that carries a unique marker
+cat > "$TMPDIR10/fakehome/.claude/plans/first.md" <<'EOF'
+# Sandbox plan v2
+
+UNIQUE_MARKER_FORCE_OVERWRITE_LINE
+- Revised step 1
+- Revised step 2
+EOF
+result=$(run_externalize "$TMPDIR10" "$TMPDIR10/fakehome/.claude/plans" 999 --force)
+assert_contains "force: OVERWRITTEN prefix" "OVERWRITTEN:aiplans/p999_sandbox_task.md:" "$result"
+marker=$(grep 'UNIQUE_MARKER_FORCE_OVERWRITE_LINE' "$TMPDIR10/aiplans/p999_sandbox_task.md" || true)
+assert_contains "force: overwritten file contains new content" "UNIQUE_MARKER_FORCE_OVERWRITE_LINE" "$marker"
+rm -rf "$TMPDIR10"
+
+# --- Test 11: --force with no existing external plan → EXTERNALIZED ---
+echo "--- Test 11: --force with no existing plan ---"
+TMPDIR11=$(new_sandbox)
+make_fresh_internal "$TMPDIR11/fakehome/.claude/plans/fresh.md"
+result=$(run_externalize "$TMPDIR11" "$TMPDIR11/fakehome/.claude/plans" 999 --force)
+assert_contains "force fresh: EXTERNALIZED prefix" "EXTERNALIZED:aiplans/p999_sandbox_task.md:" "$result"
+assert_file_exists "force fresh: external plan created" "$TMPDIR11/aiplans/p999_sandbox_task.md"
+# Ensure OVERWRITTEN is NOT emitted for a fresh externalize (backward compat)
+if echo "$result" | grep -q 'OVERWRITTEN:'; then
+    FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1))
+    echo "FAIL: force fresh: did not expect OVERWRITTEN token"
+    echo "  actual: $result"
+else
+    PASS=$((PASS + 1)); TOTAL=$((TOTAL + 1))
+fi
+rm -rf "$TMPDIR11"
+
+# --- Test 12: --force with no internal source preserves existing external plan ---
+echo "--- Test 12: --force with empty internal dir preserves existing plan ---"
+TMPDIR12=$(new_sandbox)
+make_fresh_internal "$TMPDIR12/fakehome/.claude/plans/original.md"
+run_externalize "$TMPDIR12" "$TMPDIR12/fakehome/.claude/plans" 999 >/dev/null
+# Capture the externalized plan's checksum before the force attempt
+before_hash=$(md5sum "$TMPDIR12/aiplans/p999_sandbox_task.md" | awk '{print $1}')
+# Empty the internal plans dir so nothing is eligible
+rm -f "$TMPDIR12/fakehome/.claude/plans/original.md"
+result=$(run_externalize "$TMPDIR12" "$TMPDIR12/fakehome/.claude/plans" 999 --force)
+assert_contains "force empty src: NOT_FOUND:no_internal_files" "NOT_FOUND:no_internal_files" "$result"
+assert_file_exists "force empty src: external plan still exists" "$TMPDIR12/aiplans/p999_sandbox_task.md"
+after_hash=$(md5sum "$TMPDIR12/aiplans/p999_sandbox_task.md" | awk '{print $1}')
+assert_eq "force empty src: external plan unchanged" "$before_hash" "$after_hash"
+rm -rf "$TMPDIR12"
+
 # --- Results ---
 
 echo ""

@@ -9,11 +9,13 @@
 # prepends the required metadata header when missing.
 #
 # Usage:
-#   aitask_plan_externalize.sh <task_id> [--internal <path>]
+#   aitask_plan_externalize.sh <task_id> [--internal <path>] [--force]
 #
 # Arguments:
 #   <task_id>            Task number (e.g. 16, t16) or child id (e.g. 16_2)
 #   --internal <path>    Explicit internal plan file path (skips scan)
+#   --force              Overwrite an existing external plan file
+#                        (default: no-op, emits PLAN_EXISTS)
 #
 # Environment:
 #   AIT_PLAN_EXTERNALIZE_INTERNAL_DIR   Override internal plans dir
@@ -24,6 +26,7 @@
 # Output lines (exit 0):
 #   PLAN_EXISTS:<external_path>
 #   EXTERNALIZED:<external_path>:<source>
+#   OVERWRITTEN:<external_path>:<source>
 #   MULTIPLE_CANDIDATES:<path1>|<path2>|...
 #   NOT_FOUND:<reason>
 #
@@ -51,17 +54,20 @@ MAX_AGE_SECS="${AIT_PLAN_EXTERNALIZE_MAX_AGE_SECS:-3600}"
 
 usage() {
     cat <<'EOF'
-Usage: aitask_plan_externalize.sh <task_id> [--internal <path>]
+Usage: aitask_plan_externalize.sh <task_id> [--internal <path>] [--force]
 
 Externalize a Claude Code internal plan file to aiplans/.
 
 Arguments:
   <task_id>            Task number (e.g. 16, t16) or child id (e.g. 16_2)
   --internal <path>    Explicit internal plan file path (skips auto-scan)
+  --force              Overwrite an existing external plan file
+                       (default: no-op, emits PLAN_EXISTS)
 
 Output (exit 0):
   PLAN_EXISTS:<path>                  Already externalized (no-op)
   EXTERNALIZED:<path>:<source>        Copied successfully
+  OVERWRITTEN:<path>:<source>         Existing file replaced (--force)
   MULTIPLE_CANDIDATES:<p1>|<p2>|...   Ambiguous; caller disambiguates
   NOT_FOUND:<reason>                  Could not externalize
 EOF
@@ -71,6 +77,7 @@ EOF
 
 TASK_ID=""
 INTERNAL_OVERRIDE=""
+FORCE=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -78,6 +85,10 @@ while [[ $# -gt 0 ]]; do
             [[ $# -ge 2 ]] || die "--internal requires a path argument"
             INTERNAL_OVERRIDE="$2"
             shift 2
+            ;;
+        --force)
+            FORCE=true
+            shift
             ;;
         --help|-h)
             usage
@@ -144,11 +155,15 @@ else
     EXTERNAL_PLAN="$PLAN_DIR/${PLAN_BASENAME}"
 fi
 
-# --- No-op if already externalized ---
+# --- No-op if already externalized (unless --force) ---
 
+EXISTED_BEFORE=false
 if [[ -f "$EXTERNAL_PLAN" ]]; then
-    echo "PLAN_EXISTS:$EXTERNAL_PLAN"
-    exit 0
+    if [[ "$FORCE" != true ]]; then
+        echo "PLAN_EXISTS:$EXTERNAL_PLAN"
+        exit 0
+    fi
+    EXISTED_BEFORE=true
 fi
 
 # --- Locate source internal plan ---
@@ -307,4 +322,8 @@ fi
 
 mv "$tmp_target" "$EXTERNAL_PLAN"
 
-echo "EXTERNALIZED:${EXTERNAL_PLAN}:${SOURCE}"
+if [[ "$EXISTED_BEFORE" == true ]]; then
+    echo "OVERWRITTEN:${EXTERNAL_PLAN}:${SOURCE}"
+else
+    echo "EXTERNALIZED:${EXTERNAL_PLAN}:${SOURCE}"
+fi
