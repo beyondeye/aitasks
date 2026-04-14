@@ -192,3 +192,56 @@ Per the task-workflow, after user approval in Step 8 the task will be
 committed with message `feature: Add opened-file history pane to codebrowser (t541)`
 and archived via `./.aitask-scripts/aitask_archive.sh 541`. No branch/merge
 step because the `fast` profile set `create_worktree: false`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. New widgets in
+  `file_tree.py`: `RecentFilesStore`, `RecentFileSelected` message,
+  `_focus_neighbor` helper, `RecentFileItem`, `RecentFilesList`, and
+  `LeftSidebar`. `codebrowser_app.py` swapped the bare `ProjectFileTree`
+  for `LeftSidebar`, renamed the `#file_tree` CSS block to `#left_sidebar`,
+  updated `on_resize`/`_apply_detail_width`/`_open_file_by_path`/
+  `_apply_focus`/`on_directory_tree_file_selected` to call
+  `recent.record(path)`, and rewrote `action_toggle_focus` to cycle
+  `recent → tree → code → detail (if visible) → recent`. A new
+  `on_recent_file_selected` handler opens files when a recent row is
+  activated. `history_screen.py` got `priority=True` on the tab binding
+  plus a three-group `action_toggle_focus` (task_list → recent_list →
+  detail).
+- **Deviations from plan:** None of substance. Named the message
+  `RecentFileSelected` (not `FileSelectedMessage`) so Textual's
+  snake_case handler convention maps to `on_recent_file_selected` — this
+  avoids colliding with `on_directory_tree_file_selected`. The
+  `_focus_neighbor` helper was duplicated inside `file_tree.py` rather
+  than exported from `history_list.py`; the two copies are 15 lines each
+  and splitting a shared utilities module felt heavier than the code
+  duplication saved.
+- **Issues encountered:** The on-load validation kept being moved later
+  in the plan after the user flagged that non-existent entries must be
+  dropped on load. The final shape is: `RecentFilesList` calls
+  `store.load_and_prune()` in `on_mount`, which filters missing files
+  and rewrites the JSON in one pass. Malformed JSON is treated as an
+  empty list. `Textual.run_test`-based pilot initially failed on the
+  history screen's cached-index fast path (`#history_list` not mounted
+  yet); polling for the widget with `pilot.pause(delay=0.1)` got past
+  the race. Not a real-app bug.
+- **Key decisions:**
+  - Reused `.aitask-history/` (already gitignored) for the new
+    `recently_opened_files.json` — zero new ignore rules.
+  - Capped recent files at 15 (vs. 10 for the history screen's recent
+    tasks) because filenames are shorter and the main sidebar can fit
+    more rows comfortably.
+  - Used `\u2026` left-ellipsis truncation for deep paths so the
+    basename stays visible.
+  - Preserved the `#file_tree` id on the inner `ProjectFileTree` so all
+    existing queries (`_apply_focus`, `_open_file_by_path`,
+    `action_toggle_focus`) continue to work without churn.
+- **Verification performed:** headless Textual pilot tests covering:
+  store pruning (valid/missing/duplicate/malformed), app mounting with
+  `LeftSidebar`, `_open_file_by_path` recording and move-to-top,
+  three-way focus cycling in the main app, three-way focus cycling in
+  the history screen (via push_screen + polling), tab binding metadata
+  (`priority=True`, `show=True`), injected-bogus-entry pruning with
+  rewrite-to-disk, and the `--focus README.md:1-5` regression path.
+  Full interactive TUI (click/keypress) was not exercised in this
+  session.
