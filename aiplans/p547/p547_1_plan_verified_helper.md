@@ -318,3 +318,27 @@ Child 3 consumes this helper. The interface contract — command names, argument
 Malformed entry tolerance: the `read` subcommand MUST silently skip malformed list items without crashing, so that a manually-edited plan file with a typo doesn't brick `aitask-pick`.
 
 BSD/GNU date portability is the main portability risk. Both branches are exercised in the tests — run them on Linux first, then on macOS if available.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `.aitask-scripts/aitask_plan_verified.sh` with three subcommands (`read`, `append`, `decide`), each exposing the structured KEY:value output specified in the plan. Added `plan_verified: []` emission to `build_header()` in `aitask_plan_externalize.sh` so every newly externalized plan starts with an empty list. Created `tests/test_plan_verified.sh` with 39 assertions covering all the cases in the plan table, plus basic sanity checks (header fence count, idempotent reads after append).
+
+- **Deviations from plan:**
+  - **No double-sourcing guard.** The plan's boilerplate included the `return 0 2>/dev/null || exit 0` guard plus `_AIT_PLAN_VERIFIED_LOADED=1`. This script is only ever invoked via `./.aitask-scripts/aitask_plan_verified.sh <subcommand>` (never sourced), so the guard is dead code and shellcheck flagged it as SC2317. Removed it to keep shellcheck happy without disable comments.
+  - **`cmd_append` uses a bash streaming rewrite instead of `sed_inplace`.** The plan proposed `sed_inplace "${header_end}i\\..."` style multi-line insertions. BSD and GNU sed have meaningfully different rules for multi-line `i\`/`a\`/`c\` continuations, and composing them portably is fragile. Instead the function streams the file through a `while IFS= read -r line` loop, tracks header state (`none` / `found_pv` / `in_pv_list` / `done`), writes to a `mktemp` file, and `mv`s on success. This is more straightforward to reason about and avoids the BSD/GNU sed edge cases entirely.
+  - **`cmd_read` avoids awk.** The plan used awk `match()` with capture arrays, which is a gawk extension. macOS ships BSD awk, so instead the reader uses a bash `while IFS= read -r line` loop with `[[ =~ ]]` and `BASH_REMATCH` for the list-item pattern. Works on bash 4+ on both Linux and macOS.
+  - **`parse_ts` failure handling.** With `set -euo pipefail`, `local entry_ts=$(parse_ts "$ts") || continue` does not branch on parse_ts's exit status (the `local` command itself succeeds). Instead the code captures with `entry_ts=$(parse_ts "$timestamp" 2>/dev/null || true)` and branches on `[[ -z "$entry_ts" ]]`. parse_ts still `return 1`s on failure so direct callers can check the exit status.
+
+- **Issues encountered:**
+  - Initial `shellcheck` run reported SC2317 on the double-sourcing guard's `exit 0` (correctly — it's unreachable in sourced mode). Removed the guard since the script is never sourced. Shellcheck now reports only SC1091 (same as the sibling `aitask_plan_externalize.sh`), which is a project-wide informational about `source` path resolution and is tolerated by the existing conventions.
+
+- **Key decisions:**
+  - Strict timestamp comparison for `LAST`: the code uses `entry_ts -gt $last_ts` (not `-ge`), so when multiple entries share the same `YYYY-MM-DD HH:MM` minute, the first one wins as "most recent". This is visible in tests and live verification (two appends in the same minute both show the first as `LAST:`). For the decide logic this is harmless — `last_entry` is only used in the human-readable `DISPLAY:` line, not for fresh/stale counting.
+  - Header state machine recognises four termination signals for the pv list: a non-indented line, a blank line, a new top-level YAML key, or the closing `---` of the header. This matches the plan's tolerance requirements.
+
+- **Notes for sibling tasks (Child 2 & 3):**
+  - **Interface is stable.** `read`, `append`, `decide` output formats are locked in and tested. Child 3 should parse the 8 KEY:value lines by splitting on the first `:` and branching on `DECISION:`.
+  - **`DECISION` values** are exactly `VERIFY`, `SKIP`, `ASK_STALE`. No other values are emitted. `VERIFY` fires for both "no plan file" and "zero entries in plan".
+  - **`append` is idempotent-unsafe** — each call adds an entry even if one with the same agent/timestamp already exists. Child 3 should only call `append` when verification genuinely occurred, not on every pick.
+  - **The `plan_verified: []` seed** in `build_header()` only affects plans created *after* this commit. Existing plans without the field will read as zero entries (correctly → `DECISION:VERIFY`) and will get the field on the first `append`. No migration needed.
+  - **Date portability** for fresh/stale testing: tests use `date '+%Y-%m-%d %H:%M'` for fresh and `date -d "48 hours ago"` with `date -v-48H` fallback for stale. Sibling tests touching timestamps should reuse this pattern rather than hardcoding dates (hardcoded dates would drift into "stale" over time).
