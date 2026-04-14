@@ -20,10 +20,10 @@ from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, VerticalScroll
+from textual.containers import Container, Horizontal, VerticalScroll
 from textual.message import Message
 from textual.screen import ModalScreen
-from textual.widgets import Input, Label, Static
+from textual.widgets import Button, Input, Label, Static
 
 # Add sibling lib dir to path so config_utils resolves when this module is
 # imported from outside .aitask-scripts/lib.
@@ -501,3 +501,60 @@ class AgentModelPickerScreen(ModalScreen):
 
     # FuzzySelect.Selected and Cancelled are handled by
     # on_fuzzy_select_selected / on_fuzzy_select_cancelled above
+
+
+class LaunchModePickerScreen(ModalScreen):
+    """Pick headless/interactive launch mode for a brainstorm agent type."""
+
+    DEFAULT_CSS = """
+    #lm_dialog {
+        width: 50%;
+        height: auto;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #lm_buttons { margin-top: 1; height: auto; }
+    #lm_buttons Button { margin: 0 1; }
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(self, operation: str, current: str = "headless"):
+        super().__init__()
+        self.operation = operation
+        self.current = current if current in ("headless", "interactive") else "headless"
+
+    def compose(self) -> ComposeResult:
+        with Container(id="lm_dialog"):
+            yield Label(
+                f"Launch mode for: [bold]{self.operation}[/bold]",
+                id="lm_title",
+            )
+            yield Label(
+                f"Current: [#FFB86C]{self.current}[/]",
+                id="lm_current",
+            )
+            with Horizontal(id="lm_buttons"):
+                yield Button(
+                    "Headless",
+                    variant=("primary" if self.current == "headless" else "default"),
+                    id="lm_headless",
+                )
+                yield Button(
+                    "Interactive",
+                    variant=("primary" if self.current == "interactive" else "default"),
+                    id="lm_interactive",
+                )
+                yield Button("Cancel", variant="default", id="lm_cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "lm_headless":
+            self.dismiss({"key": self.operation, "value": "headless"})
+        elif event.button.id == "lm_interactive":
+            self.dismiss({"key": self.operation, "value": "interactive"})
+        else:
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)

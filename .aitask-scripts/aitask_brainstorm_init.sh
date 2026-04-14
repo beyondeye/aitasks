@@ -106,14 +106,15 @@ print('$default_val')
     echo "$val"
 }
 
-# --- Resolve brainstorm per-type launch_mode default from BRAINSTORM_AGENT_TYPES ---
+# --- Resolve brainstorm per-type launch_mode default (config overlaid) ---
 _get_brainstorm_launch_mode() {
     local agent_type="$1"
     "$PYTHON" -c "
 import sys
+from pathlib import Path
 sys.path.insert(0, '$SCRIPT_DIR')
-from brainstorm.brainstorm_crew import BRAINSTORM_AGENT_TYPES
-print(BRAINSTORM_AGENT_TYPES.get('$agent_type', {}).get('launch_mode', 'headless'))
+from brainstorm.brainstorm_crew import get_agent_types
+print(get_agent_types(config_root=Path('.')).get('$agent_type', {}).get('launch_mode', 'headless'))
 " 2>/dev/null || echo "headless"
 }
 

@@ -120,11 +120,12 @@ _WIZARD_OP_TO_AGENT_TYPE = {
 
 
 def _brainstorm_launch_mode_default(wizard_op: str) -> str:
-    from brainstorm.brainstorm_crew import BRAINSTORM_AGENT_TYPES
+    from pathlib import Path
+    from brainstorm.brainstorm_crew import get_agent_types
     agent_type = _WIZARD_OP_TO_AGENT_TYPE.get(wizard_op, "")
-    return BRAINSTORM_AGENT_TYPES.get(agent_type, {}).get(
-        "launch_mode", "headless"
-    )
+    return get_agent_types(config_root=Path(".")).get(
+        agent_type, {}
+    ).get("launch_mode", "headless")
 
 _DESIGN_OPS = [
     ("explore", "Explore", "Create new design variants from a base node"),

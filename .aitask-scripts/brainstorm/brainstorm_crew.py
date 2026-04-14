@@ -44,12 +44,15 @@ BRAINSTORM_AGENT_TYPES = {
     "patcher": {"agent_string": "claudecode/sonnet4_6", "max_parallel": 1, "launch_mode": "headless"},
 }
 
+VALID_LAUNCH_MODES = frozenset({"headless", "interactive"})
+
 
 def get_agent_types(config_root: Path | None = None) -> dict[str, dict]:
-    """Return brainstorm agent types with agent_string from codeagent config.
+    """Return brainstorm agent types with overrides from codeagent config.
 
-    Reads brainstorm-* keys from codeagent_config.json (layered: project <- local).
-    Falls back to BRAINSTORM_AGENT_TYPES hardcoded defaults for missing keys.
+    Reads brainstorm-<type> and brainstorm-<type>-launch-mode keys from
+    codeagent_config.json (layered: project <- local). Falls back to
+    BRAINSTORM_AGENT_TYPES hardcoded defaults for missing or invalid keys.
 
     Args:
         config_root: Repository root path. Defaults to two levels up from this file.
@@ -66,6 +69,18 @@ def get_agent_types(config_root: Path | None = None) -> dict[str, dict]:
             config_key = f"brainstorm-{agent_type}"
             if config_key in defaults:
                 info["agent_string"] = defaults[config_key]
+            launch_key = f"brainstorm-{agent_type}-launch-mode"
+            if launch_key in defaults:
+                val = defaults[launch_key]
+                if isinstance(val, str) and val in VALID_LAUNCH_MODES:
+                    info["launch_mode"] = val
+                else:
+                    print(
+                        f"warning: invalid {launch_key}={val!r}, expected one of "
+                        f"{sorted(VALID_LAUNCH_MODES)}; falling back to framework "
+                        f"default ({info.get('launch_mode', 'headless')})",
+                        file=sys.stderr,
+                    )
     except Exception:
         pass  # Fall back to hardcoded defaults
     return result

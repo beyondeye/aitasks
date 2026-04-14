@@ -408,6 +408,56 @@ class TestGetAgentTypes(unittest.TestCase):
         self.assertEqual(result["detailer"]["agent_string"], "codex/o3")
         self.assertNotIn("pick", result)
 
+    def test_launch_mode_override_from_project(self):
+        """Project config overlays brainstorm-<type>-launch-mode."""
+        config = {"defaults": {"brainstorm-detailer-launch-mode": "headless"}}
+        (self.config_dir / "codeagent_config.json").write_text(json.dumps(config))
+        result = get_agent_types(config_root=Path(self.tmpdir))
+        self.assertEqual(result["detailer"]["launch_mode"], "headless")
+        # Others unchanged
+        self.assertEqual(result["explorer"]["launch_mode"], "headless")
+
+    def test_launch_mode_local_overrides_project(self):
+        """Local launch_mode overrides project layer."""
+        proj = {"defaults": {"brainstorm-explorer-launch-mode": "headless"}}
+        local = {"defaults": {"brainstorm-explorer-launch-mode": "interactive"}}
+        (self.config_dir / "codeagent_config.json").write_text(json.dumps(proj))
+        (self.config_dir / "codeagent_config.local.json").write_text(json.dumps(local))
+        result = get_agent_types(config_root=Path(self.tmpdir))
+        self.assertEqual(result["explorer"]["launch_mode"], "interactive")
+
+    def test_launch_mode_invalid_value_falls_back(self):
+        """Invalid launch_mode value warns and falls back to framework default."""
+        config = {"defaults": {"brainstorm-explorer-launch-mode": "bogus"}}
+        (self.config_dir / "codeagent_config.json").write_text(json.dumps(config))
+        # Capture stderr to verify warning
+        import io
+        import contextlib
+        stderr_buf = io.StringIO()
+        with contextlib.redirect_stderr(stderr_buf):
+            result = get_agent_types(config_root=Path(self.tmpdir))
+        self.assertEqual(result["explorer"]["launch_mode"], "headless")
+        stderr_text = stderr_buf.getvalue()
+        self.assertIn("brainstorm-explorer-launch-mode", stderr_text)
+        self.assertIn("bogus", stderr_text)
+
+    def test_launch_mode_default_when_unset(self):
+        """Framework defaults are preserved when no config is set."""
+        result = get_agent_types(config_root=Path(self.tmpdir))
+        self.assertEqual(result["detailer"]["launch_mode"], "interactive")
+        self.assertEqual(result["explorer"]["launch_mode"], "headless")
+        self.assertEqual(result["comparator"]["launch_mode"], "headless")
+        self.assertEqual(result["synthesizer"]["launch_mode"], "headless")
+        self.assertEqual(result["patcher"]["launch_mode"], "headless")
+
+    def test_launch_mode_does_not_clobber_agent_string(self):
+        """Setting launch_mode in config doesn't affect agent_string."""
+        config = {"defaults": {"brainstorm-explorer-launch-mode": "interactive"}}
+        (self.config_dir / "codeagent_config.json").write_text(json.dumps(config))
+        result = get_agent_types(config_root=Path(self.tmpdir))
+        self.assertEqual(result["explorer"]["agent_string"], "claudecode/opus4_6")
+        self.assertEqual(result["explorer"]["launch_mode"], "interactive")
+
 
 if __name__ == "__main__":
     unittest.main()

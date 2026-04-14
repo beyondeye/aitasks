@@ -17,12 +17,15 @@ import yaml
 
 # Add .aitask-scripts/lib to path for config_utils
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+# Add .aitask-scripts to path for sibling packages (e.g. brainstorm)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from agent_launch_utils import detect_git_tuis  # noqa: E402
 
 from agent_model_picker import (  # noqa: E402
     AgentModelPickerScreen,
     FuzzySelect,
+    LaunchModePickerScreen,
     MODEL_FILES,
     _bucket_avg,
     _format_op_stats,
@@ -128,6 +131,11 @@ OPERATION_DESCRIPTIONS: dict[str, str] = {
     "brainstorm-synthesizer": "Model for merging and synthesizing design proposals",
     "brainstorm-detailer": "Model for creating detailed implementation plans from designs",
     "brainstorm-patcher": "Model for applying targeted tweaks to brainstorm plans",
+    "brainstorm-explorer-launch-mode": "Default launch mode (headless | interactive) for the explorer brainstorm agent type",
+    "brainstorm-comparator-launch-mode": "Default launch mode (headless | interactive) for the comparator brainstorm agent type",
+    "brainstorm-synthesizer-launch-mode": "Default launch mode (headless | interactive) for the synthesizer brainstorm agent type",
+    "brainstorm-detailer-launch-mode": "Default launch mode (headless | interactive) for the detailer brainstorm agent type",
+    "brainstorm-patcher-launch-mode": "Default launch mode (headless | interactive) for the patcher brainstorm agent type",
 }
 
 # Config file descriptions shown during import
@@ -1592,12 +1600,30 @@ class SettingsApp(TuiSwitcherMixin, App):
             if fid.startswith("agent_proj_") or fid.startswith("agent_user_"):
                 key = focused.row_key
                 current_val = focused.raw_value
-                current_agent, current_model = "", ""
-                if "/" in current_val and current_val != "(inherits project)":
-                    current_agent, current_model = current_val.split("/", 1)
                 self._editing_layer = (
                     "project" if fid.startswith("agent_proj_") else "user"
                 )
+                if "brainstorm_launch_" in fid:
+                    # Launch mode picker for brainstorm-<type>-launch-mode rows
+                    project_defaults = self.config_mgr.codeagent_project.get(
+                        "defaults", {}
+                    )
+                    if current_val == "(inherits project)":
+                        current_mode = str(project_defaults.get(key, "headless"))
+                    else:
+                        current_mode = current_val
+                    if current_mode not in ("headless", "interactive"):
+                        current_mode = "headless"
+                    self.push_screen(
+                        LaunchModePickerScreen(key, current_mode),
+                        callback=self._handle_launch_mode_pick,
+                    )
+                    event.prevent_default()
+                    event.stop()
+                    return
+                current_agent, current_model = "", ""
+                if "/" in current_val and current_val != "(inherits project)":
+                    current_agent, current_model = current_val.split("/", 1)
                 self.push_screen(
                     AgentModelPickerScreen(
                         key, current_agent, current_model,
@@ -1825,6 +1851,8 @@ class SettingsApp(TuiSwitcherMixin, App):
         return result
 
     def _populate_agent_tab(self):
+        from brainstorm.brainstorm_crew import BRAINSTORM_AGENT_TYPES
+
         container = self.query_one("#agent_content", VerticalScroll)
         container.remove_children()
 
@@ -1847,8 +1875,58 @@ class SettingsApp(TuiSwitcherMixin, App):
             list(project_defaults.keys()) + list(local_defaults.keys())
         ))
 
+        launch_mode_emitted: set[str] = set()
+
+        def _emit_launch_mode_rows(atype: str) -> None:
+            if atype in launch_mode_emitted:
+                return
+            launch_mode_emitted.add(atype)
+            lm_key = f"brainstorm-{atype}-launch-mode"
+            framework_default = BRAINSTORM_AGENT_TYPES.get(atype, {}).get(
+                "launch_mode", "headless"
+            )
+            proj_lm = project_defaults.get(lm_key)
+            local_lm = local_defaults.get(lm_key)
+
+            if proj_lm is not None:
+                proj_raw_lm = str(proj_lm)
+                proj_display_lm = proj_raw_lm
+            else:
+                proj_raw_lm = framework_default
+                proj_display_lm = f"{framework_default}  [dim](framework default)[/dim]"
+            container.mount(ConfigRow(
+                "launch_mode", proj_display_lm,
+                config_layer="project", row_key=lm_key,
+                id=f"agent_proj_brainstorm_launch_{atype}_{rc}",
+                raw_value=proj_raw_lm,
+            ))
+
+            if local_lm is not None:
+                user_raw_lm = str(local_lm)
+                user_display_lm = user_raw_lm
+            else:
+                user_raw_lm = "(inherits project)"
+                user_display_lm = user_raw_lm
+            container.mount(ConfigRow(
+                "launch_mode", user_display_lm,
+                config_layer="user", row_key=lm_key,
+                id=f"agent_user_brainstorm_launch_{atype}_{rc}",
+                subordinate=True,
+                raw_value=user_raw_lm,
+            ))
+
+            desc_lm = OPERATION_DESCRIPTIONS.get(lm_key, "")
+            if desc_lm:
+                container.mount(Label(
+                    f"[dim italic]{desc_lm}[/dim italic]", classes="op-desc",
+                ))
+
         brainstorm_header_shown = False
         for key in all_keys:
+            # Skip launch-mode keys — they render under their paired agent-string row
+            if key.endswith("-launch-mode"):
+                continue
+
             # Insert brainstorm section header before first brainstorm key
             if key.startswith("brainstorm-") and not brainstorm_header_shown:
                 container.mount(Label(""))  # spacer
@@ -1908,6 +1986,55 @@ class SettingsApp(TuiSwitcherMixin, App):
                     f"[dim italic]{desc}[/dim italic]", classes="op-desc",
                 ))
 
+            # Paired launch_mode rows for brainstorm agent types
+            if key.startswith("brainstorm-") and key in (
+                f"brainstorm-{t}" for t in BRAINSTORM_AGENT_TYPES
+            ):
+                atype = key[len("brainstorm-"):]
+                _emit_launch_mode_rows(atype)
+
+        # Safety-net: emit launch_mode rows for brainstorm types that have a
+        # launch_mode override in config but no agent_string in either layer.
+        for atype in BRAINSTORM_AGENT_TYPES:
+            if atype in launch_mode_emitted:
+                continue
+            lm_key = f"brainstorm-{atype}-launch-mode"
+            if lm_key not in project_defaults and lm_key not in local_defaults:
+                continue
+            if not brainstorm_header_shown:
+                container.mount(Label(""))  # spacer
+                container.mount(Label(
+                    "Default Code Agents for Brainstorming",
+                    classes="section-header",
+                ))
+                container.mount(Label(
+                    "[dim]Models used by brainstorm agent types "
+                    "during design exploration.[/dim]",
+                    classes="section-hint",
+                ))
+                brainstorm_header_shown = True
+            # Synthetic agent-string row pair so the launch_mode pair has
+            # a visual parent.
+            synth_key = f"brainstorm-{atype}"
+            sk = _safe_id(synth_key)
+            container.mount(ConfigRow(
+                synth_key, "(not set)", config_layer="project", row_key=synth_key,
+                id=f"agent_proj_{sk}_{rc}",
+                raw_value="(not set)",
+            ))
+            container.mount(ConfigRow(
+                synth_key, "(inherits project)", config_layer="user", row_key=synth_key,
+                id=f"agent_user_{sk}_{rc}",
+                subordinate=True,
+                raw_value="(inherits project)",
+            ))
+            desc = OPERATION_DESCRIPTIONS.get(synth_key, "")
+            if desc:
+                container.mount(Label(
+                    f"[dim italic]{desc}[/dim italic]", classes="op-desc",
+                ))
+            _emit_launch_mode_rows(atype)
+
         # --- Verified Skill Stats (non-default skills) ---
         skill_stats = self._collect_non_default_skill_stats()
         if skill_stats:
@@ -1941,6 +2068,37 @@ class SettingsApp(TuiSwitcherMixin, App):
         ))
 
     def _handle_agent_pick(self, result):
+        if result is None:
+            return
+        key = result["key"]
+        value = result["value"]
+        layer = self._editing_layer
+
+        if layer == "user":
+            local_data = dict(self.config_mgr.codeagent_local)
+            if "defaults" not in local_data:
+                local_data["defaults"] = {}
+            local_data["defaults"][key] = value
+            self.config_mgr.save_codeagent(
+                self.config_mgr.codeagent_project, local_data,
+            )
+        else:
+            project_data = dict(self.config_mgr.codeagent_project)
+            if "defaults" not in project_data:
+                project_data["defaults"] = {}
+            project_data["defaults"][key] = value
+            local_data = dict(self.config_mgr.codeagent_local)
+            if "defaults" in local_data and key in local_data["defaults"]:
+                del local_data["defaults"][key]
+                if not local_data["defaults"]:
+                    del local_data["defaults"]
+            self.config_mgr.save_codeagent(project_data, local_data)
+
+        self.config_mgr.load_all()
+        self._populate_agent_tab()
+        self.notify(f"Saved {key} = {value} ({layer})")
+
+    def _handle_launch_mode_pick(self, result):
         if result is None:
             return
         key = result["key"]
