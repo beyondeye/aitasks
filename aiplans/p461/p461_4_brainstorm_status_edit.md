@@ -424,3 +424,105 @@ inventing new style rules.
   show its own badge or to decide whether to offer log tail), this
   task's edit flow will pick up the cached value "for free" since
   `_delayed_refresh_status` re-mounts all rows.
+
+## Final Implementation Notes
+
+- **Actual work done:** All 6 edits to
+  `.aitask-scripts/brainstorm/brainstorm_app.py` as planned, no other
+  files touched. Diff: +173/-2.
+  1. New `AgentModeEditModal(ModalScreen)` inserted after
+     `NodeDetailModal` (uses `Container`/`Horizontal` from the
+     already-imported textual.containers, `@on(Button.Pressed, ...)`
+     decorators to dispatch dismiss values).
+  2. `AgentStatusRow.render()` extended with an `elif` for the
+     Waiting state that appends `  [dim](e: edit mode)[/dim]`. The
+     existing `if ... == "Error"` branch is preserved unchanged.
+  3. New `e` key branch in `BrainstormApp.on_key()`, mirroring the
+     `w` branch exactly (same shape, same warn-on-wrong-state
+     pattern, same `event.prevent_default(); event.stop(); return`).
+  4. `_edit_agent_mode()` reads the status yaml via `read_yaml`
+     (already imported at line 67), extracts `launch_mode` (default
+     `"headless"`) and `status`, and pushes
+     `AgentModeEditModal` with a lambda callback that captures the
+     current mode so the callback can no-op when the user picks the
+     same mode.
+  5. `_on_mode_edit_result()` shells out to `AIT_PATH, "crew",
+     "setmode", ...` with `capture_output=True, text=True,
+     check=False`, checks for `UPDATED:<name>:<mode>` in stdout, and
+     either toasts success + `_delayed_refresh_status()` or an
+     error with stderr/stdout tail. `OSError` is caught so an
+     exec failure (missing script) cannot crash the TUI.
+  6. CSS block `#mode_modal_dialog` added right after
+     `#node_detail_buttons`, using the same `thick $primary` border
+     and `$surface` background as the existing node-detail modal but
+     with `width: 60; height: auto` since the content is small.
+
+- **Deviations from plan:** None material. CSS used `thick $primary`
+  (not `solid $primary`) and `width: 60; height: auto` (no `align`
+  property on the dialog itself — `ModalScreen` centers children by
+  default; adding `align: center middle` on the dialog would misalign
+  the inner column layout). `width: 60` chosen to match the
+  `60`-column visual weight of button-row dialogs in the file; the
+  absolute value (not percentage) keeps the modal compact regardless
+  of terminal size.
+
+- **Issues encountered:** None. Static checks passed on the first
+  run (`python3 -m py_compile` + smoke import asserting
+  `AgentModeEditModal`, `_edit_agent_mode`, `_on_mode_edit_result`
+  all exist).
+
+- **Key decisions:**
+  - **Shell out, don't reimplement.** The callback calls `./ait crew
+    setmode` rather than mutating yaml in-process. This keeps the
+    validation regex, Waiting-state gate, and auto-commit logic in a
+    single place (`aitask_crew_setmode.sh` from t461_2). A bug in
+    mode validation or commit-message format fixes in one place, not
+    two.
+  - **No `cwd=` on the subprocess call.** setmode calls
+    `resolve_crew` which uses the project-relative
+    `.aitask-crews/crew-<id>` layout, independent of cwd. Passing
+    cwd explicitly would add a failure mode (e.g., `session_path`
+    happens to be a crew worktree, not the repo root) for zero
+    benefit.
+  - **No-op guard on same-mode selection.** The lambda captures
+    `current_mode` so if the user opens the modal on a headless
+    agent and picks Headless, no subprocess runs and no toast fires.
+    setmode's own commit guard would also catch this, but avoiding
+    the fork is cleaner.
+  - **Hint gated to Waiting state only.** The `(e: edit mode)` hint
+    does not show on Running / Error / Completed rows because the
+    setmode CLI rejects those — showing the hint would advertise a
+    feature that errors immediately. Error rows still get their
+    existing `(w: reset)` hint.
+  - **Badge left out.** Adding an `[interactive]` badge to row
+    labels would require extending `AgentStatusRow.__init__` to
+    accept `launch_mode` and plumbing it through `_mount_agent_row`
+    — a second refactor that's orthogonal to the edit flow. The
+    modal shows the current mode prominently on open, which is the
+    information the user actually needs at decision time. Revisit
+    if user feedback asks for at-a-glance mode visibility.
+
+- **Notes for sibling tasks:**
+  - **t461_5 (per-type defaults)** can rely on this task's read
+    path: `_edit_agent_mode` calls `read_yaml` and falls back to
+    `"headless"` when `launch_mode` is absent. Once t461_5 writes
+    per-type defaults into the yaml at `addwork` time, the modal
+    picks up those values for free.
+  - **t461_6 (log viewer)** — when wiring `L` on `AgentStatusRow`,
+    add a new `if event.key == "L":` branch in
+    `BrainstormApp.on_key()` after the `e` branch. Do NOT add class
+    `BINDINGS` to `AgentStatusRow` — the row has none, by
+    convention. The `@on(Button.Pressed, "#some_id")` decorator
+    pattern used in `AgentModeEditModal` is the cleanest way to
+    wire modal buttons; `LogDetailModal` already uses the same
+    pattern so both TUIs will be consistent.
+  - The `subprocess.run([AIT_PATH, "crew", ...])` pattern in
+    `_on_mode_edit_result` is the template for any future TUI →
+    CLI bridge. Capture stdout/stderr, check for a structured
+    success marker (`UPDATED:...`), fall back to error toast with
+    `stderr or stdout` tail. Swallow `OSError` so the TUI never
+    dies from an exec failure.
+  - CSS: `#mode_modal_dialog` uses `width: 60` (columns, not
+    percent) — small dialogs with short content look better with
+    absolute width than with `%`. Copy this pattern for other
+    future small modals.
