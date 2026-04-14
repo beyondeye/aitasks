@@ -297,6 +297,67 @@ def maybe_spawn_minimonitor(session: str, window_name: str) -> bool:
         return False
 
 
+def launch_or_focus_codebrowser(
+    session: str,
+    focus_value: str,
+    window_name: str = "codebrowser",
+) -> tuple[bool, str | None]:
+    """Set the focus env var and bring the codebrowser to the given range.
+
+    If a window named *window_name* already exists in *session*, selects
+    it; otherwise creates a new window running ``./ait codebrowser --focus
+    <focus_value>``. The env var is set first so both the reuse and the
+    cold-launch paths see it.
+
+    Returns ``(success, error_message)``. On success, error_message is None.
+    """
+    try:
+        result = subprocess.run(
+            ["tmux", "set-environment", "-t", session,
+             "AITASK_CODEBROWSER_FOCUS", focus_value],
+            capture_output=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return False, "tmux set-environment failed"
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        return False, f"tmux set-environment error: {e}"
+
+    try:
+        lw = subprocess.run(
+            ["tmux", "list-windows", "-t", session,
+             "-F", "#{window_name}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if lw.returncode != 0:
+            return False, "tmux list-windows failed"
+        names = lw.stdout.strip().splitlines()
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        return False, f"tmux list-windows error: {e}"
+
+    try:
+        if window_name in names:
+            sel = subprocess.run(
+                ["tmux", "select-window", "-t",
+                 f"{session}:{window_name}"],
+                capture_output=True, timeout=5,
+            )
+            if sel.returncode != 0:
+                return False, "tmux select-window failed"
+        else:
+            nw = subprocess.run(
+                ["tmux", "new-window", "-t", f"{session}:",
+                 "-n", window_name,
+                 "./ait", "codebrowser", "--focus", focus_value],
+                capture_output=True, timeout=5,
+            )
+            if nw.returncode != 0:
+                return False, "tmux new-window failed"
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        return False, f"tmux switch error: {e}"
+
+    return True, None
+
+
 def load_tmux_defaults(project_root: Path) -> dict:
     """Load tmux defaults from project_config.yaml.
 

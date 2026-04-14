@@ -1,3 +1,19 @@
+"""Codebrowser TUI entry point.
+
+Supports a programmatic focus mechanism so other tools can ask the
+codebrowser to "open this file at these lines":
+
+- ``--focus PATH[:RANGE_SPEC]`` CLI flag for cold launches.
+- ``AITASK_CODEBROWSER_FOCUS`` tmux session env var for hot handoffs to
+  an already-running instance. Polled once per second; consumed and
+  cleared on read.
+
+``RANGE_SPEC`` is ``N``, ``N-M``, or ``N-M^K-L^...`` (matching the
+t540_1 ``file_references`` format). Multi-range entries collapse to
+the outer span ``min(starts)..max(ends)`` for display, since the code
+viewer holds a single contiguous selection.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -145,7 +161,7 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
     DETAIL_DEFAULT_WIDTH = 30
     CODE_MIN_WIDTH = 80
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, initial_focus: str | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.current_tui_name = "codebrowser"
         self._project_root: Path | None = None
@@ -166,6 +182,195 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         self._history_showing_plan = False  # plan/task view toggle state
         self._history_scroll_y = 0         # task list scroll position
         self._history_active_labels: set = set()  # label filter state
+        self._initial_focus: str | None = initial_focus
+        self._tmux_session: str | None = self._detect_tmux_session()
+        # Path whose next FileSelected event should be ignored because the
+        # focus mechanism has already loaded the file. Cleared after one
+        # event so subsequent user clicks behave normally.
+        self._suppress_next_file_selected: Path | None = None
+
+    @staticmethod
+    def _detect_tmux_session() -> str | None:
+        """Return the current tmux session name, or None if not in tmux."""
+        if not os.environ.get("TMUX"):
+            return None
+        try:
+            result = subprocess.run(
+                ["tmux", "display-message", "-p", "#S"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
+        return None
+
+    @staticmethod
+    def _parse_focus_value(
+        value: str,
+    ) -> tuple[str, int | None, int | None] | None:
+        """Parse PATH[:RANGE_SPEC] into (path, start, end) or None on error.
+
+        RANGE_SPEC is N, N-M, or N-M^K-L^... — multi-range collapses to
+        the outer span min(starts)..max(ends).
+        """
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        path, sep, rest = value.partition(":")
+        if not path:
+            return None
+        if not sep:
+            return (path, None, None)
+        rest = rest.strip()
+        if not rest:
+            return (path, None, None)
+        starts: list[int] = []
+        ends: list[int] = []
+        for segment in rest.split("^"):
+            segment = segment.strip()
+            if not segment:
+                return None
+            if "-" in segment:
+                a, _, b = segment.partition("-")
+                try:
+                    s = int(a)
+                    e = int(b)
+                except ValueError:
+                    return None
+                if s < 1 or e < 1 or e < s:
+                    return None
+                starts.append(s)
+                ends.append(e)
+            else:
+                try:
+                    n = int(segment)
+                except ValueError:
+                    return None
+                if n < 1:
+                    return None
+                starts.append(n)
+                ends.append(n)
+        if not starts:
+            return None
+        return (path, min(starts), max(ends))
+
+    def _consume_codebrowser_focus(self) -> str | None:
+        """Read AITASK_CODEBROWSER_FOCUS from the tmux session env, or None."""
+        if not self._tmux_session:
+            return None
+        try:
+            result = subprocess.run(
+                ["tmux", "show-environment", "-t", self._tmux_session,
+                 "AITASK_CODEBROWSER_FOCUS"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return None
+        if result.returncode != 0:
+            return None
+        line = result.stdout.strip()
+        if not line or "=" not in line:
+            return None
+        _, _, val = line.partition("=")
+        val = val.strip()
+        return val or None
+
+    def _clear_codebrowser_focus(self) -> None:
+        """Unset AITASK_CODEBROWSER_FOCUS on the tmux session."""
+        if not self._tmux_session:
+            return
+        try:
+            subprocess.run(
+                ["tmux", "set-environment", "-t", self._tmux_session, "-u",
+                 "AITASK_CODEBROWSER_FOCUS"],
+                capture_output=True, timeout=5,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
+
+    def _apply_focus(self, focus_value: str) -> None:
+        """Parse a focus value and navigate the viewer to it."""
+        parsed = self._parse_focus_value(focus_value)
+        if parsed is None:
+            self.notify(
+                f"Invalid focus value: {focus_value}", severity="warning"
+            )
+            return
+        rel_path, start, end = parsed
+        if self._project_root is None:
+            return
+        candidate = (self._project_root / rel_path).resolve()
+        try:
+            candidate.relative_to(self._project_root.resolve())
+        except ValueError:
+            self.notify(
+                f"Focus path outside project root: {rel_path}",
+                severity="warning",
+            )
+            return
+        if not candidate.is_file():
+            self.notify(
+                f"Focus path not found: {rel_path}", severity="warning"
+            )
+            return
+        # Mark this path so the FileSelected event from tree.select_path
+        # below does NOT clobber the cursor state we are about to set.
+        self._suppress_next_file_selected = candidate
+        self._open_file_by_path(str(candidate.relative_to(self._project_root)))
+        if start is None or end is None:
+            return
+        # The Static.update() inside load_file is queued for the next
+        # render cycle, so the VerticalScroll's virtual_size won't
+        # reflect the new content until then. A short timer lets the
+        # render pipeline settle before scroll_to() is called.
+        self.set_timer(0.15, lambda: self._apply_focus_range(start, end))
+
+    def _apply_focus_range(self, start: int, end: int) -> None:
+        """Set cursor + selection on the viewer; called after layout."""
+        try:
+            code_viewer = self.query_one("#code_viewer", CodeViewer)
+        except Exception:
+            return
+        if code_viewer._total_lines == 0:
+            return
+        last = code_viewer._total_lines
+        clamped_start = max(1, min(start, last))
+        clamped_end = max(clamped_start, min(end, last))
+        code_viewer._cursor_line = clamped_end - 1
+        if clamped_start != clamped_end:
+            code_viewer._selection_start = clamped_start - 1
+            code_viewer._selection_end = clamped_end - 1
+            code_viewer._selection_active = True
+        else:
+            code_viewer._selection_start = None
+            code_viewer._selection_end = None
+            code_viewer._selection_active = False
+        code_viewer._ensure_viewport_contains_cursor()
+        code_viewer._rebuild_display()
+        code_viewer._scroll_cursor_visible()
+        code_viewer.post_message(
+            code_viewer.CursorMoved(clamped_end, code_viewer._total_lines)
+        )
+
+    def _consume_and_apply_focus(self) -> None:
+        """Poll callback: consume the env var (if any) and apply it."""
+        value = self._consume_codebrowser_focus()
+        if not value:
+            return
+        self._clear_codebrowser_focus()
+        self._apply_focus(value)
+
+    def on_mount(self) -> None:
+        """Apply any pending focus and start the env-var poll."""
+        if self._initial_focus:
+            pending = self._initial_focus
+            self._initial_focus = None
+            self.call_after_refresh(self._apply_focus, pending)
+        self.call_after_refresh(self._consume_and_apply_focus)
+        self.set_interval(1.0, self._consume_and_apply_focus)
 
     def action_handle_escape_key(self) -> None:
         """Escape: delegate to screen's handle_escape if available, dismiss modals, or no-op."""
@@ -257,6 +462,15 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
     def on_directory_tree_file_selected(
         self, event: DirectoryTree.FileSelected
     ) -> None:
+        # If this event was triggered by the focus mechanism's tree.select_path
+        # call, the file is already loaded and cursor state has been set —
+        # skip the reload to avoid clobbering it.
+        if (
+            self._suppress_next_file_selected is not None
+            and event.path == self._suppress_next_file_selected
+        ):
+            self._suppress_next_file_selected = None
+            return
         self._current_file_path = event.path
         code_viewer = self.query_one("#code_viewer", CodeViewer)
         code_viewer.load_file(event.path)
@@ -727,6 +941,24 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
                                 cwd=str(self._project_root))
 
 
-if __name__ == "__main__":
-    app = CodeBrowserApp()
+def main() -> None:
+    import argparse
+    parser = argparse.ArgumentParser(prog="codebrowser")
+    parser.add_argument(
+        "--focus",
+        metavar="PATH[:RANGE_SPEC]",
+        default=None,
+        help=(
+            "Open the codebrowser focused on PATH at the given line range. "
+            "RANGE_SPEC is N, N-M, or N-M^K-L (multi-range collapses to "
+            "outer span). Also consumable via the AITASK_CODEBROWSER_FOCUS "
+            "tmux session env var."
+        ),
+    )
+    args = parser.parse_args()
+    app = CodeBrowserApp(initial_focus=args.focus)
     app.run()
+
+
+if __name__ == "__main__":
+    main()
