@@ -90,7 +90,7 @@ _BOARD_USER_KEYS = {"settings"}
 DEFAULT_REFRESH_OPTIONS = ["0", "1", "2", "5", "10", "15", "30"]
 
 # Profile schema: key -> (type, options)
-# type: "bool", "enum", "string"
+# type: "bool", "enum", "string", "int"
 PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
     "name": ("string", None),
     "description": ("string", None),
@@ -100,6 +100,8 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
     "base_branch": ("string", None),
     "plan_preference": ("enum", ["use_current", "verify", "create_new"]),
     "plan_preference_child": ("enum", ["use_current", "verify", "create_new"]),
+    "plan_verification_required": ("int", None),
+    "plan_verification_stale_after_hours": ("int", None),
     "post_plan_action": ("enum", ["start_implementation"]),
     "enableFeedbackQuestions": ("bool", None),
     "test_followup_task": ("enum", ["yes", "no", "ask"]),
@@ -208,6 +210,17 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "Takes priority over plan_preference when the current task is a child. "
         "Useful for e.g. always verifying child plans while reusing parent plans."
     ),
+    "plan_verification_required": (
+        "Fresh verifications needed to skip re-verification",
+        "Number of fresh (non-stale) plan_verified entries that must exist in a "
+        "plan file for the verify path to SKIP re-verification. Only consulted "
+        "when plan_preference (or plan_preference_child) is 'verify'. Default: 1."
+    ),
+    "plan_verification_stale_after_hours": (
+        "Hours before a verification is considered stale",
+        "Age (in hours) after which a plan_verified entry is considered stale "
+        "and no longer counts toward the required fresh count. Default: 24."
+    ),
     "post_plan_action": (
         "After plan approval: start_implementation = skip checkpoint",
         "Controls what happens after the plan is approved (Step 6 checkpoint):\n"
@@ -310,7 +323,13 @@ PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
     ("Identity", ["name", "description"]),
     ("Task Selection", ["skip_task_confirmation", "default_email"]),
     ("Branch & Worktree", ["create_worktree", "base_branch"]),
-    ("Planning", ["plan_preference", "plan_preference_child", "post_plan_action"]),
+    ("Planning", [
+        "plan_preference",
+        "plan_preference_child",
+        "plan_verification_required",
+        "plan_verification_stale_after_hours",
+        "post_plan_action",
+    ]),
     ("Feedback", ["enableFeedbackQuestions"]),
     ("Post-Implementation", ["test_followup_task"]),
     ("QA Analysis", ["qa_mode", "qa_run_tests"]),
@@ -1688,8 +1707,8 @@ class SettingsApp(TuiSwitcherMixin, App):
                 event.stop()
                 return
 
-            # Profile string editing
-            if fid.startswith("profile_str_"):
+            # Profile string/int editing
+            if fid.startswith("profile_str_") or fid.startswith("profile_int_"):
                 parts = fid.split("__", 1)
                 if len(parts) == 2:
                     safe_fn_with_rc = parts[1]
@@ -1735,6 +1754,8 @@ class SettingsApp(TuiSwitcherMixin, App):
                     ktype = PROFILE_SCHEMA.get(field_key, ("", None))[0]
                     if ktype == "string":
                         new_wid = f"profile_str_{field_key}__{sf}_{next_rc}"
+                    elif ktype == "int":
+                        new_wid = f"profile_int_{field_key}__{sf}_{next_rc}"
                     else:
                         new_wid = f"profile_{field_key}__{sf}_{next_rc}"
                     self._populate_profiles_tab(focus_widget_id=new_wid)
@@ -2761,6 +2782,20 @@ class SettingsApp(TuiSwitcherMixin, App):
                         id=f"profile_str_{key}__{safe_fn}_{rc}",
                     )
                     container.mount(row)
+                elif ktype == "int":
+                    if isinstance(current_raw, bool):
+                        current = ""
+                    elif isinstance(current_raw, (int, float)):
+                        current = str(int(current_raw))
+                    elif current_raw is None:
+                        current = ""
+                    else:
+                        current = str(current_raw)
+                    row = ConfigRow(
+                        key, current, config_layer="project", row_key=key,
+                        id=f"profile_int_{key}__{safe_fn}_{rc}",
+                    )
+                    container.mount(row)
 
                 # Field description
                 info = PROFILE_FIELD_INFO.get(key)
@@ -2911,6 +2946,32 @@ class SettingsApp(TuiSwitcherMixin, App):
                         data.pop(key, None)
                 except Exception:
                     pass
+            elif ktype == "int":
+                int_widget_id = f"profile_int_{key}__{safe_fn}_{rc}"
+                try:
+                    row = self.query_one(f"#{int_widget_id}", ConfigRow)
+                    val = (row.value or "").strip()
+                    if not val:
+                        data.pop(key, None)
+                    else:
+                        try:
+                            iv = int(val)
+                            if iv < 0:
+                                self.notify(
+                                    f"{key}: must be >= 0, got '{val}' "
+                                    "— not saved",
+                                    severity="error",
+                                )
+                            else:
+                                data[key] = iv
+                        except ValueError:
+                            self.notify(
+                                f"{key}: '{val}' is not an integer "
+                                "— not saved",
+                                severity="error",
+                            )
+                except Exception:
+                    pass
 
         layer = self.config_mgr.profile_layers.get(filename, "project")
         self.config_mgr.save_profile(filename, data, layer=layer)
@@ -3021,9 +3082,11 @@ class SettingsApp(TuiSwitcherMixin, App):
         value = result["value"]
 
         rc = self._profiles_tab_rc
-        str_widget_id = f"profile_str_{key}__{_safe_id(profile_filename)}_{rc}"
+        ktype = PROFILE_SCHEMA.get(key, ("string", None))[0]
+        prefix = "profile_int_" if ktype == "int" else "profile_str_"
+        widget_id = f"{prefix}{key}__{_safe_id(profile_filename)}_{rc}"
         try:
-            row = self.query_one(f"#{str_widget_id}", ConfigRow)
+            row = self.query_one(f"#{widget_id}", ConfigRow)
             row.value = value
             row.refresh()
         except Exception:
