@@ -492,6 +492,12 @@ priority = 100
 
 [[rule]]
 toolName = "run_shell_command"
+commandPrefix = "./.aitask-scripts/aitask_plan_verified.sh"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
 commandPrefix = "./ait git"
 decision = "allow"
 priority = 100

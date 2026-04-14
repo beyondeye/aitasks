@@ -40,6 +40,7 @@
       "./.aitask-scripts/aitask_opencode_models.sh *": "allow",
       "./.aitask-scripts/aitask_pick_own.sh *": "allow",
       "./.aitask-scripts/aitask_plan_externalize.sh *": "allow",
+      "./.aitask-scripts/aitask_plan_verified.sh *": "allow",
       "./.aitask-scripts/aitask_verified_update.sh *": "allow",
       "./.aitask-scripts/aitask_pr_close.sh *": "allow",
       "./.aitask-scripts/aitask_pr_import.sh *": "allow",

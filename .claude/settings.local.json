@@ -50,6 +50,7 @@
       "Bash(./.aitask-scripts/aitask_opencode_models.sh:*)",
       "Bash(./.aitask-scripts/aitask_pick_own.sh:*)",
       "Bash(./.aitask-scripts/aitask_plan_externalize.sh:*)",
+      "Bash(./.aitask-scripts/aitask_plan_verified.sh:*)",
       "Bash(./.aitask-scripts/aitask_verified_update.sh:*)",
       "WebFetch(domain:docs.gitlab.com)",
       "Bash(glab issue list:*)",
