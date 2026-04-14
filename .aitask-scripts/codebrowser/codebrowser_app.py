@@ -41,7 +41,13 @@ from agent_utils import resolve_agent_binary
 from code_viewer import CodeViewer
 from detail_pane import DetailPane
 from explain_manager import ExplainManager
-from file_tree import ProjectFileTree, get_project_root
+from file_tree import (
+    LeftSidebar,
+    ProjectFileTree,
+    RecentFileSelected,
+    RecentFilesList,
+    get_project_root,
+)
 
 
 class GoToLineScreen(ModalScreen):
@@ -94,7 +100,7 @@ class GoToLineScreen(ModalScreen):
 
 class CodeBrowserApp(TuiSwitcherMixin, App):
     CSS = """
-    #file_tree {
+    #left_sidebar {
         width: 35;
         border-right: thick $primary;
         background: $surface;
@@ -319,7 +325,8 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         # Mark this path so the FileSelected event from tree.select_path
         # below does NOT clobber the cursor state we are about to set.
         self._suppress_next_file_selected = candidate
-        self._open_file_by_path(str(candidate.relative_to(self._project_root)))
+        rel = str(candidate.relative_to(self._project_root))
+        self._open_file_by_path(rel)
         if start is None or end is None:
             return
         # The Static.update() inside load_file is queued for the next
@@ -387,9 +394,9 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
             try:
                 self._project_root = get_project_root()
                 self.explain_manager = ExplainManager(self._project_root)
-                yield ProjectFileTree(self._project_root, id="file_tree")
+                yield LeftSidebar(self._project_root, id="left_sidebar")
             except RuntimeError:
-                with Container(id="file_tree"):
+                with Container(id="left_sidebar"):
                     yield Static("Error: not inside a git repository")
             with Container(id="code_pane"):
                 yield Static("No file selected", id="file_info_bar")
@@ -398,18 +405,18 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         yield Footer()
 
     def on_resize(self, event) -> None:
-        """Adjust file tree and detail pane widths for terminal size."""
+        """Adjust sidebar and detail pane widths for terminal size."""
         width = event.size.width
         try:
-            file_tree = self.query_one("#file_tree")
+            sidebar = self.query_one("#left_sidebar")
         except Exception:
             return
         if width >= 120:
-            file_tree.styles.width = 35
+            sidebar.styles.width = 35
         elif width >= 80:
-            file_tree.styles.width = 28
+            sidebar.styles.width = 28
         else:
-            file_tree.styles.width = 22
+            sidebar.styles.width = 22
         if self._detail_visible:
             self._apply_detail_width()
 
@@ -419,16 +426,16 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
             return
         try:
             detail = self.query_one("#detail_pane", DetailPane)
-            file_tree = self.query_one("#file_tree")
+            sidebar = self.query_one("#left_sidebar")
         except Exception:
             return
 
         total_width = self.size.width
-        tree_width = 35
-        if file_tree.styles.width and file_tree.styles.width.value:
-            tree_width = int(file_tree.styles.width.value)
-        # Available width after tree and border gaps
-        available = total_width - tree_width - 2
+        sidebar_width = 35
+        if sidebar.styles.width and sidebar.styles.width.value:
+            sidebar_width = int(sidebar.styles.width.value)
+        # Available width after sidebar and border gaps
+        available = total_width - sidebar_width - 2
 
         if self._detail_expanded:
             desired_detail = total_width // 2
@@ -470,6 +477,7 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
             and event.path == self._suppress_next_file_selected
         ):
             self._suppress_next_file_selected = None
+            self._record_recent_file(event.path)
             return
         self._current_file_path = event.path
         code_viewer = self.query_one("#code_viewer", CodeViewer)
@@ -486,6 +494,20 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
 
         if self.explain_manager:
             self._load_explain_data(event.path)
+
+        self._record_recent_file(event.path)
+
+    def _record_recent_file(self, abs_path: Path) -> None:
+        """Append a file to the recent-files pane, if mounted."""
+        try:
+            recent = self.query_one("#recent_files", RecentFilesList)
+        except Exception:
+            return
+        recent.record(abs_path)
+
+    def on_recent_file_selected(self, event: RecentFileSelected) -> None:
+        """A row in the recent-files pane was activated."""
+        self._open_file_by_path(event.path)
 
     def on_directory_tree_directory_selected(
         self, event: DirectoryTree.DirectorySelected
@@ -765,20 +787,61 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         self._apply_detail_width()
 
     def action_toggle_focus(self) -> None:
-        file_tree = self.query_one("#file_tree")
+        """Cycle focus: recent_files → file_tree → code_viewer → detail (if visible) → recent_files."""
+        try:
+            recent = self.query_one("#recent_files", RecentFilesList)
+        except Exception:
+            recent = None
+        try:
+            file_tree = self.query_one("#file_tree")
+        except Exception:
+            file_tree = None
         code_viewer = self.query_one("#code_viewer")
-        if file_tree.has_focus_within:
+
+        if recent is not None and recent.has_focus_within:
+            if file_tree is not None:
+                file_tree.focus()
+            else:
+                code_viewer.focus()
+            return
+
+        if file_tree is not None and file_tree.has_focus_within:
             code_viewer.focus()
-        elif code_viewer.has_focus_within:
+            return
+
+        if code_viewer.has_focus_within:
             if self._detail_visible:
                 try:
                     self.query_one("#detail_pane", DetailPane).focus()
+                    return
                 except Exception:
-                    file_tree.focus()
-            else:
+                    pass
+            if recent is not None:
+                recent.focus()
+                return
+            if file_tree is not None:
                 file_tree.focus()
-        else:
+            return
+
+        if self._detail_visible:
+            try:
+                detail = self.query_one("#detail_pane", DetailPane)
+                if detail.has_focus_within:
+                    if recent is not None:
+                        recent.focus()
+                    elif file_tree is not None:
+                        file_tree.focus()
+                    return
+            except Exception:
+                pass
+
+        # Fallback: focus the recent files pane, then the tree, then code
+        if recent is not None:
+            recent.focus()
+        elif file_tree is not None:
             file_tree.focus()
+        else:
+            code_viewer.focus()
 
     def action_toggle_history(self) -> None:
         """Push the history screen to browse completed tasks."""
@@ -873,8 +936,13 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         if self.explain_manager:
             self._load_explain_data(full_path)
 
-        tree = self.query_one("#file_tree", ProjectFileTree)
-        tree.select_path(full_path)
+        try:
+            tree = self.query_one("#file_tree", ProjectFileTree)
+            tree.select_path(full_path)
+        except Exception:
+            pass
+
+        self._record_recent_file(full_path)
 
     def action_launch_agent(self) -> None:
         """Launch the configured code agent with the explain skill for the current file."""

@@ -29,7 +29,7 @@ class HistoryScreen(Screen):
         Binding("h", "dismiss_screen", "Back to browser"),
         Binding("escape", "dismiss_screen", "Back to browser"),
         Binding("q", "quit", "Quit"),
-        Binding("tab", "toggle_focus", "Toggle Focus"),
+        Binding("tab", "toggle_focus", "Toggle Focus", priority=True),
         Binding("left", "focus_left", "Focus list"),
         Binding("right", "focus_right", "Focus detail"),
         Binding("v", "toggle_view", "Toggle task/plan"),
@@ -321,15 +321,32 @@ class HistoryScreen(Screen):
                 )
 
     def action_toggle_focus(self) -> None:
+        """Cycle focus: history_list → recent_list → detail → history_list."""
         try:
-            left = self.query_one("#history_left")
-            detail = self.query_one("#history_detail")
+            left = self.query_one("#history_left", HistoryLeftPane)
+            detail = self.query_one("#history_detail", HistoryDetailPane)
         except Exception:
             return
-        if left.has_focus_within:
+        try:
+            task_list = left.query_one("#history_list", HistoryTaskList)
+            recent_list = left.query_one("#recent_list")
+        except Exception:
+            return
+
+        if task_list.has_focus_within:
+            self._focus_in_list(recent_list)
+            return
+
+        if recent_list.has_focus_within:
             detail.focus()
-        else:
-            left.focus()
+            return
+
+        if detail.has_focus_within:
+            self._focus_in_list(task_list)
+            return
+
+        # Fallback: focus the task list
+        self._focus_in_list(task_list)
 
     def action_focus_right(self) -> None:
         """Move focus to first focusable field in the detail pane."""
