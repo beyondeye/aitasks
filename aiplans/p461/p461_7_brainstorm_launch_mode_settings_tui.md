@@ -646,6 +646,21 @@ t461_7 — do not skip it, and do not merge it into the t461_7 diff
   goes through `get_agent_types()`, so the wizard initial value picks
   up config overrides without any further plumbing.
 
+## Post-Review Changes
+
+**Round 1 — `ait settings` startup crash** (reported during Step 8 review):
+
+- Symptom: launching `./ait settings` raised `ModuleNotFoundError: No module named 'brainstorm'` at
+  `settings_app.py:1852` inside `_populate_agent_tab()`.
+- Root cause: `settings_app.py` only adds `.aitask-scripts/lib` to `sys.path`
+  (line 19). The new lazy import `from brainstorm.brainstorm_crew import
+  BRAINSTORM_AGENT_TYPES` requires `.aitask-scripts` itself on the path so the
+  `brainstorm` sibling package is resolvable.
+- Fix: added a second `sys.path.insert(0, str(Path(__file__).resolve().parent.parent))`
+  immediately after the existing `lib` insertion in `settings_app.py`.
+- Verification: headless `SettingsApp().run_test()` boots cleanly; all 33
+  `test_brainstorm_crew.py` tests still pass.
+
 ## Step 9 (Post-Implementation)
 
 Follow the standard task-workflow Step 9 with one **mandatory extra
