@@ -191,6 +191,7 @@ case "${1:-help}" in
             report)    exec "$SCRIPTS_DIR/aitask_crew_report.sh" "$@" ;;
             cleanup)   exec "$SCRIPTS_DIR/aitask_crew_cleanup.sh" "$@" ;;
             dashboard) exec "$SCRIPTS_DIR/aitask_crew_dashboard.sh" "$@" ;;
+            logview)   exec "$SCRIPTS_DIR/aitask_crew_logview.sh" "$@" ;;
             --help|-h|"")
                 echo "Usage: ait crew <subcommand> [options]"
                 echo ""
@@ -204,11 +205,12 @@ case "${1:-help}" in
                 echo "  report      Report crew summary, agent details, outputs"
                 echo "  cleanup     Remove completed crew worktrees and branches"
                 echo "  dashboard   TUI dashboard for monitoring and managing crews"
+                echo "  logview     ANSI-aware agent log viewer TUI"
                 echo ""
                 echo "Run 'ait crew <subcommand> --help' for subcommand-specific help."
                 exit 0
                 ;;
-            *)         echo "ait crew: unknown subcommand '$subcmd'" >&2; echo "Available: init, addwork, setmode, status, command, runner, report, cleanup, dashboard" >&2; exit 1 ;;
+            *)         echo "ait crew: unknown subcommand '$subcmd'" >&2; echo "Available: init, addwork, setmode, status, command, runner, report, cleanup, dashboard, logview" >&2; exit 1 ;;
         esac
         ;;
     brainstorm)

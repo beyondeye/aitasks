@@ -341,6 +341,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         Binding("n", "pick_next_sibling", "Next Sibling"),
         Binding("enter", "send_enter", "Send ↵", show=True),
         Binding("a", "toggle_auto_switch", "Auto"),
+        Binding("L", "open_log", "Log"),
     ]
 
     def __init__(
@@ -1059,6 +1060,46 @@ class MonitorApp(TuiSwitcherMixin, App):
             self.notify(f"Task t{task_id} not found", severity="error")
             return
         self.push_screen(TaskDetailDialog(info))
+
+    def action_open_log(self) -> None:
+        """Open the ANSI-aware log viewer for the focused agent pane."""
+        pane_id = self._get_focused_pane_id()
+        if not pane_id:
+            self.notify("Focus an agent pane first", severity="warning")
+            return
+        snap = self._snapshots.get(pane_id)
+        if not snap:
+            return
+        window_name = snap.pane.window_name
+        if not window_name.startswith("agent-"):
+            self.notify("Not an agent pane", severity="warning")
+            return
+        agent_name = window_name[len("agent-"):]
+        if agent_name.startswith("pick-"):
+            self.notify("Pick launcher panes have no agent log")
+            return
+        crews_root = self._project_root / ".aitask-crews"
+        log_path = None
+        if crews_root.exists():
+            for crew_dir in sorted(crews_root.glob("crew-*")):
+                candidate = crew_dir / f"{agent_name}_log.txt"
+                if candidate.exists():
+                    log_path = candidate
+                    break
+        if log_path is None:
+            self.notify(
+                f"No log file found for {agent_name}",
+                severity="warning",
+            )
+            return
+        try:
+            subprocess.Popen(
+                ["./ait", "crew", "logview", "--path", str(log_path)],
+                cwd=str(self._project_root),
+            )
+            self.notify(f"Opening log for {agent_name}")
+        except OSError as exc:
+            self.notify(f"Failed to launch log viewer: {exc}", severity="error")
 
     def action_kill_pane(self) -> None:
         """Show kill confirmation dialog for the focused pane."""

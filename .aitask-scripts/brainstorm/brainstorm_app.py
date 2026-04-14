@@ -600,10 +600,16 @@ class AgentStatusRow(Static, can_focus=True):
     def render(self) -> str:
         line = self._display_line
         if self.has_focus:
+            hints = []
             if self.agent_status == "Error":
-                line += "  [dim](w: reset)[/dim]"
+                hints.append("w: reset")
             elif self.agent_status == "Waiting":
-                line += "  [dim](e: edit mode)[/dim]"
+                hints.append("e: edit mode")
+            log_path = Path(crew_worktree(self.crew_id)) / f"{self.agent_name}_log.txt"
+            if log_path.exists():
+                hints.append("L: log")
+            if hints:
+                line += "  [dim](" + " | ".join(hints) + ")[/dim]"
         return line
 
     def on_click(self) -> None:
@@ -1281,6 +1287,32 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     )
                 else:
                     self._edit_agent_mode(focused)
+                event.prevent_default()
+                event.stop()
+                return
+
+        # L: open log viewer for focused agent row
+        if event.key == "L":
+            focused = self.focused
+            if isinstance(focused, AgentStatusRow):
+                crew_dir = crew_worktree(focused.crew_id)
+                log_path = Path(crew_dir) / f"{focused.agent_name}_log.txt"
+                if not log_path.exists():
+                    self.notify(
+                        f"No log yet for {focused.agent_name}",
+                        severity="warning",
+                    )
+                else:
+                    try:
+                        subprocess.Popen(
+                            ["./ait", "crew", "logview", "--path", str(log_path)],
+                        )
+                        self.notify(f"Opening log for {focused.agent_name}")
+                    except OSError as exc:
+                        self.notify(
+                            f"Failed to open log viewer: {exc}",
+                            severity="error",
+                        )
                 event.prevent_default()
                 event.stop()
                 return
