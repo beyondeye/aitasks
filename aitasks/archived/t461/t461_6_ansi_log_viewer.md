@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [ui, agentcrew]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-04-13 11:46
-updated_at: 2026-04-14 11:11
+updated_at: 2026-04-14 11:37
+completed_at: 2026-04-14 11:37
 ---
 
 ## Context
