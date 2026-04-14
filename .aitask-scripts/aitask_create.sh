@@ -43,6 +43,7 @@ BATCH_PULL_REQUEST=""
 BATCH_CONTRIBUTOR=""
 BATCH_CONTRIBUTOR_EMAIL=""
 BATCH_FILE_REFS=()
+BATCH_AUTO_MERGE=false
 
 # Draft/finalize mode variables
 BATCH_FINALIZE=""
@@ -74,6 +75,12 @@ Batch mode (for automation):
   --file-ref REF         Append a file reference; repeatable. REF format:
                          PATH | PATH:N | PATH:N-M | PATH:N-M^N-M^...
                          (^ joins multiple ranges on the same path).
+  --auto-merge           When used with --file-ref and --commit, fold any
+                         pending Ready/Editing task that already references
+                         the same file path(s) into the new task. Reuses
+                         the aitask_fold_* scripts.
+  --no-auto-merge        (default) Warn about matching tasks but do NOT
+                         fold them. Use with --file-ref to preview.
   --parent, -P NUM       Create as child of specified parent task number
   --no-sibling-dep       Don't auto-add dependency on previous sibling (for child tasks)
   --commit               Claim real ID and commit to git immediately (auto-finalize)
@@ -137,6 +144,8 @@ parse_args() {
             --contributor) BATCH_CONTRIBUTOR="$2"; shift 2 ;;
             --contributor-email) BATCH_CONTRIBUTOR_EMAIL="$2"; shift 2 ;;
             --file-ref) validate_file_ref "$2"; BATCH_FILE_REFS+=("$2"); shift 2 ;;
+            --auto-merge) BATCH_AUTO_MERGE=true; shift ;;
+            --no-auto-merge) BATCH_AUTO_MERGE=false; shift ;;
             --commit) BATCH_COMMIT=true; shift ;;
             --finalize) BATCH_FINALIZE="$2"; shift 2 ;;
             --finalize-all) BATCH_FINALIZE_ALL=true; shift ;;
@@ -1182,6 +1191,126 @@ dedup_file_refs() {
     echo "${unique[*]}"
 }
 
+# run_auto_merge_if_needed <new_id> <new_file>
+#
+# After a task has been created + committed, scan the task's file_references
+# frontmatter for paths that match any existing pending task via
+# aitask_find_by_file.sh. If matches are found, honor --auto-merge by
+# delegating to the aitask_fold_* scripts; otherwise warn and skip.
+#
+# This helper is only invoked from the --batch --commit paths. It is a
+# no-op for any of these conditions:
+#   - the new task has no file_references
+#   - no pending tasks reference any of those paths
+#   - BATCH_AUTO_MERGE is false AND there are matches (warn + skip)
+run_auto_merge_if_needed() {
+    local new_id="$1"
+    local new_file="$2"
+    new_id="${new_id#t}"
+
+    [[ -f "$new_file" ]] || return 0
+
+    # Collect distinct path-only portions from the new task's file_references.
+    local -a paths=()
+    local -A seen_paths=()
+    local entry entry_path
+    while IFS= read -r entry; do
+        [[ -z "$entry" ]] && continue
+        entry_path="${entry%%:*}"
+        [[ -z "$entry_path" ]] && continue
+        if [[ -z "${seen_paths[$entry_path]:-}" ]]; then
+            seen_paths[$entry_path]=1
+            paths+=("$entry_path")
+        fi
+    done < <(get_file_references "$new_file")
+
+    [[ ${#paths[@]} -eq 0 ]] && return 0
+
+    # Union candidate task IDs across all paths, dedup by id, exclude new_id.
+    local -A cand_seen=()
+    local -a cand_ids=()
+    local -a cand_files=()
+    local -A cand_paths_by_id=()
+    local p find_out line tid tfile
+    for p in "${paths[@]}"; do
+        find_out=$("$SCRIPT_DIR/aitask_find_by_file.sh" "$p" 2>/dev/null || true)
+        [[ -z "$find_out" ]] && continue
+        while IFS= read -r line; do
+            [[ "$line" == TASK:* ]] || continue
+            tid="${line#TASK:}"
+            tfile="${tid#*:}"
+            tid="${tid%%:*}"
+            [[ -z "$tid" ]] && continue
+            [[ "$tid" == "$new_id" ]] && continue
+            if [[ -z "${cand_seen[$tid]:-}" ]]; then
+                cand_seen[$tid]=1
+                cand_ids+=("$tid")
+                cand_files+=("$tfile")
+                cand_paths_by_id[$tid]="$p"
+            fi
+        done <<< "$find_out"
+    done
+
+    [[ ${#cand_ids[@]} -eq 0 ]] && return 0
+
+    if [[ "$BATCH_AUTO_MERGE" != true ]]; then
+        warn "Found ${#cand_ids[@]} pending task(s) that already reference this file:"
+        local i
+        for ((i = 0; i < ${#cand_ids[@]}; i++)); do
+            warn "  - t${cand_ids[$i]} (${cand_paths_by_id[${cand_ids[$i]}]}) → ${cand_files[$i]}"
+        done
+        warn "Auto-merge skipped (pass --auto-merge to fold them into this task)."
+        return 0
+    fi
+
+    # Validate the candidate set. Exclude-self is belt + braces.
+    local validate_out
+    validate_out=$("$SCRIPT_DIR/aitask_fold_validate.sh" --exclude-self "$new_id" "${cand_ids[@]}" 2>/dev/null || true)
+
+    local -a valid_ids=()
+    local -a valid_files=()
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        case "$line" in
+            VALID:*)
+                local rest="${line#VALID:}"
+                local vid="${rest%%:*}"
+                local vfile="${rest#*:}"
+                valid_ids+=("$vid")
+                valid_files+=("$vfile")
+                ;;
+            INVALID:*)
+                local rest="${line#INVALID:}"
+                local iid="${rest%%:*}"
+                local ireason="${rest#*:}"
+                warn "Auto-merge: skipping t${iid} (${ireason})"
+                ;;
+        esac
+    done <<< "$validate_out"
+
+    [[ ${#valid_ids[@]} -eq 0 ]] && return 0
+
+    info "Auto-merging ${#valid_ids[@]} task(s) into t${new_id}..."
+
+    # Body merge: fold_content → update --desc-file -
+    "$SCRIPT_DIR/aitask_fold_content.sh" "$new_file" "${valid_files[@]}" \
+        | "$SCRIPT_DIR/aitask_update.sh" --batch "$new_id" --desc-file - --silent >/dev/null
+
+    # Mark + commit: fold_mark
+    "$SCRIPT_DIR/aitask_fold_mark.sh" --commit-mode fresh "$new_id" "${valid_ids[@]}" >/dev/null
+
+    local joined=""
+    local vid
+    for vid in "${valid_ids[@]}"; do
+        if [[ -n "$joined" ]]; then
+            joined="${joined}, t${vid}"
+        else
+            joined="t${vid}"
+        fi
+    done
+    success "Folded ${joined} into t${new_id}"
+}
+
 create_task_file() {
     local task_num="$1"
     local task_name="$2"
@@ -1392,6 +1521,8 @@ run_batch_mode() {
             task_git add "$LABELS_FILE" 2>/dev/null || true
             task_git commit -m "ait: Add child task ${task_id}: ${humanized_name}"
 
+            run_auto_merge_if_needed "${BATCH_PARENT}_${child_num}" "$filepath"
+
             release_child_lock "$BATCH_PARENT"
             trap - EXIT
         else
@@ -1425,6 +1556,8 @@ run_batch_mode() {
             task_git add "$filepath"
             task_git add "$LABELS_FILE" 2>/dev/null || true
             task_git commit -m "ait: Add task ${task_id}: ${humanized_name}"
+
+            run_auto_merge_if_needed "$claimed_id" "$filepath"
         fi
     else
         # Default: create as draft in aitasks/new/ (no network needed)
