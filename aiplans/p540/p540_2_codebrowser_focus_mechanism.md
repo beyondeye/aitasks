@@ -366,3 +366,112 @@ will call `_open_file_by_path` and the focus helpers), and for t540_5
 Implementation Notes must capture: the exact CodeViewer selection-state
 mutation pattern, any deviations in tmux session detection, and any
 issues with the `set_interval` poll cadence.
+
+## Final Implementation Notes
+
+Implemented mostly as designed. Two non-obvious discoveries during smoke
+testing that future siblings (t540_4, t540_5) need to be aware of:
+
+### 1. `tree.select_path` re-fires `FileSelected` and clobbers state
+
+`_open_file_by_path` ends with `tree.select_path(full_path)`, which is
+an `@work(exclusive=True, group="select_path")` async worker on
+`ProjectFileTree`. After walking the tree it calls `select_node`, which
+fires `DirectoryTree.FileSelected`. The app's
+`on_directory_tree_file_selected` handler then calls
+`code_viewer.load_file(event.path)` again, and `load_file` ends with
+`scroll_home(animate=False)` — wiping the cursor/selection/scroll
+state that `_apply_focus_range` had just set.
+
+**Fix:** added a `_suppress_next_file_selected: Path | None` sentinel
+on `CodeBrowserApp`. `_apply_focus` sets it to the resolved path
+before calling `_open_file_by_path`, and
+`on_directory_tree_file_selected` short-circuits (clearing the
+sentinel) if the incoming `event.path` matches. One-shot — subsequent
+user clicks behave normally.
+
+### 2. `VerticalScroll.virtual_size` lags one render cycle behind `Static.update()`
+
+`code_viewer.load_file` calls `_rebuild_display` → `Static.update(table)`,
+which queues a render but does NOT synchronously update the
+`VerticalScroll`'s `virtual_size`. If `_apply_focus_range` runs in the
+same call frame, `_scroll_cursor_visible` calls `scroll_to(y=78)` but
+`max_scroll_y` is still based on the old (empty) content height, so it
+gets clamped to 0. The viewport stays at the top.
+
+**Fix:** `_apply_focus` schedules `_apply_focus_range` via
+`self.set_timer(0.15, ...)`. By the time the timer fires, the next
+render has run and `virtual_size` reflects the new content. The 150ms
+delay is invisible in practice (file-load + tree-expand time already
+dominates cold-launch latency).
+
+Smoking gun from a debug log captured before applying the fix:
+```
+pre-scroll:  vsize=Size(width=188, height=54)  scroll_y=0.0
+post-scroll: vsize=Size(width=188, height=54)  scroll_y=0.0  max_scroll_y=0
+pre-scroll:  vsize=Size(width=190, height=160) scroll_y=78
+post-scroll: vsize=Size(width=190, height=160) scroll_y=78  max_scroll_y=106
+```
+First run is the initial-focus path (virtual_size still 54). Second run
+is the env-var poll one second later (virtual_size now 160 — scroll
+succeeds). The 0.15s timer makes the first run see the updated size.
+
+### 3. Hot env-var on cold launch is consumed twice (harmless)
+
+`launch_or_focus_codebrowser` sets `AITASK_CODEBROWSER_FOCUS` BEFORE
+spawning a new codebrowser window — and also passes `--focus VALUE`
+to the cold-launch CLI. So a fresh codebrowser will:
+1. Apply `initial_focus` from `--focus` (cold-launch path)
+2. Apply the env var via `_consume_and_apply_focus` in `on_mount`
+
+The env var is consumed and cleared on the second pass so there's no
+leak, and the second call is idempotent (same path, same range).
+Considered passing only one of `--focus` or env var but kept both:
+the env var seeds future re-focus polls, and the `--focus` arg makes
+the cold-launch flow self-contained for non-tmux invocations and
+debugging.
+
+### 4. CodeViewer state mutation pattern (for sibling tasks)
+
+`_apply_focus_range` directly mutates private fields on the
+`CodeViewer`. This avoids creating a new public API just for the focus
+mechanism. Siblings that need the same behavior (e.g., t540_4's
+"create task from current selection" keybinding) should either call
+`_apply_focus(value)` if they have a value string, or replicate the
+field-mutation pattern below:
+
+```python
+code_viewer._cursor_line = end - 1
+if start != end:
+    code_viewer._selection_start = start - 1
+    code_viewer._selection_end   = end - 1
+    code_viewer._selection_active = True
+else:
+    code_viewer._selection_start = None
+    code_viewer._selection_end   = None
+    code_viewer._selection_active = False
+code_viewer._ensure_viewport_contains_cursor()
+code_viewer._rebuild_display()
+code_viewer._scroll_cursor_visible()
+code_viewer.post_message(
+    code_viewer.CursorMoved(end, code_viewer._total_lines)
+)
+```
+
+The `post_message(CursorMoved(...))` is what drives the info-bar
+`Line N/M | Sel S–E` text. Without it the state is mutated but the
+user sees no feedback.
+
+### 5. Verification results (all paths green)
+
+| Path | Result |
+|---|---|
+| Parser unit tests (10 cases) | All pass |
+| `./ait codebrowser` (no args) | TUI launches, no regression |
+| `--focus aitask_create.sh:100-150` | Viewport on lines 99-106, `Sel 100–150` |
+| `--focus aitask_create.sh:50-60^120-130` (multi-range) | Outer span 50-130, `Sel 50–130` |
+| `--focus aitask_create.sh:42` (single line) | Line 42 visible, no selection |
+| `--focus README.md` (path-only) | Opens at line 1, no selection |
+| Hot env-var via `tmux set-environment` | Consumed within 1s, env var cleared |
+| Helper window-reuse (call helper twice) | Same window, focus updates |
+| Invalid `nonexistent_file.py:1-5` and `path:abc` | Notify warning, no crash, env cleared |
