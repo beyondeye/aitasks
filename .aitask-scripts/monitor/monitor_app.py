@@ -474,7 +474,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         saved_pane_id = self._focused_pane_id
         saved_zone = self._active_zone
 
-        self._snapshots = self._monitor.capture_all()
+        self._snapshots = await self._monitor.capture_all_async()
 
         # Drop saved scroll state for panes that no longer exist.
         stale = [
@@ -525,7 +525,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         """Lightweight refresh — only re-capture the focused pane for preview."""
         if self._monitor is None or self._focused_pane_id is None:
             return
-        snap = self._monitor.capture_pane(self._focused_pane_id)
+        snap = await self._monitor.capture_pane_async(self._focused_pane_id)
         if snap is not None:
             self._snapshots[self._focused_pane_id] = snap
             self._update_content_preview()

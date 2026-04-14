@@ -12,6 +12,8 @@ Usage:
 """
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import os
 import subprocess
 import time
@@ -51,6 +53,34 @@ def _is_companion_process(pid: int) -> bool:
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
     return False
+
+
+async def _run_tmux_async(args: list[str], timeout: float = 5.0) -> tuple[int, str]:
+    """Run `tmux <args>` asynchronously. Returns (returncode, stdout_text).
+
+    Returns (-1, "") on FileNotFoundError / OSError / timeout, matching the
+    error semantics of the synchronous tmux helpers (they just return empty
+    on failure).
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "tmux", *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except (FileNotFoundError, OSError):
+        return (-1, "")
+    try:
+        stdout_bytes, _ = await asyncio.wait_for(
+            proc.communicate(), timeout=timeout
+        )
+    except asyncio.TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        with contextlib.suppress(Exception):
+            await proc.wait()
+        return (-1, "")
+    return (proc.returncode or 0, stdout_bytes.decode("utf-8", errors="replace"))
 
 
 @dataclass
@@ -106,24 +136,15 @@ class TmuxMonitor:
             return PaneCategory.TUI
         return PaneCategory.OTHER
 
-    def discover_panes(self) -> list[TmuxPaneInfo]:
-        fmt = "\t".join([
-            "#{window_index}", "#{window_name}", "#{pane_index}",
-            "#{pane_id}", "#{pane_pid}", "#{pane_current_command}",
-            "#{pane_width}", "#{pane_height}",
-        ])
-        try:
-            result = subprocess.run(
-                ["tmux", "list-panes", "-s", "-t", self.session, "-F", fmt],
-                capture_output=True, text=True, timeout=5,
-            )
-            if result.returncode != 0:
-                return []
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            return []
+    _LIST_PANES_FORMAT = "\t".join([
+        "#{window_index}", "#{window_name}", "#{pane_index}",
+        "#{pane_id}", "#{pane_pid}", "#{pane_current_command}",
+        "#{pane_width}", "#{pane_height}",
+    ])
 
+    def _parse_list_panes(self, stdout: str) -> list[TmuxPaneInfo]:
         panes: list[TmuxPaneInfo] = []
-        for line in result.stdout.strip().splitlines():
+        for line in stdout.strip().splitlines():
             parts = line.split("\t")
             if len(parts) != 8:
                 continue
@@ -155,6 +176,28 @@ class TmuxMonitor:
             panes.append(pane)
             self._pane_cache[pane_id] = pane
         return panes
+
+    def discover_panes(self) -> list[TmuxPaneInfo]:
+        try:
+            result = subprocess.run(
+                ["tmux", "list-panes", "-s", "-t", self.session,
+                 "-F", self._LIST_PANES_FORMAT],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode != 0:
+                return []
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return []
+        return self._parse_list_panes(result.stdout)
+
+    async def discover_panes_async(self) -> list[TmuxPaneInfo]:
+        rc, stdout = await _run_tmux_async(
+            ["list-panes", "-s", "-t", self.session,
+             "-F", self._LIST_PANES_FORMAT],
+        )
+        if rc != 0:
+            return []
+        return self._parse_list_panes(stdout)
 
     def discover_window_panes(self, window_id: str) -> list[TmuxPaneInfo]:
         """Discover panes in a specific window (not session-wide).
@@ -203,22 +246,11 @@ class TmuxMonitor:
             panes.append(pane)
         return panes
 
-    def capture_pane(self, pane_id: str) -> PaneSnapshot | None:
-        pane = self._pane_cache.get(pane_id)
-        if pane is None:
-            return None
-        try:
-            result = subprocess.run(
-                ["tmux", "capture-pane", "-p", "-e", "-t", pane_id, "-S", f"-{self.capture_lines}"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if result.returncode != 0:
-                return None
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            return None
-
+    def _finalize_capture(
+        self, pane: TmuxPaneInfo, content: str
+    ) -> PaneSnapshot:
         now = time.monotonic()
-        content = result.stdout
+        pane_id = pane.pane_id
 
         prev_content = self._last_content.get(pane_id)
         if prev_content is None or content != prev_content:
@@ -227,7 +259,11 @@ class TmuxMonitor:
 
         last_change = self._last_change_time.get(pane_id, now)
         idle_seconds = now - last_change
-        is_idle = idle_seconds > self.idle_threshold if pane.category == PaneCategory.AGENT else False
+        is_idle = (
+            idle_seconds > self.idle_threshold
+            if pane.category == PaneCategory.AGENT
+            else False
+        )
 
         return PaneSnapshot(
             pane=pane,
@@ -237,21 +273,66 @@ class TmuxMonitor:
             is_idle=is_idle,
         )
 
-    def capture_all(self) -> dict[str, PaneSnapshot]:
-        panes = self.discover_panes()
-        current_ids = {p.pane_id for p in panes}
+    def _capture_args(self, pane_id: str) -> list[str]:
+        return [
+            "capture-pane", "-p", "-e", "-t", pane_id,
+            "-S", f"-{self.capture_lines}",
+        ]
 
-        # Clean stale entries
+    def capture_pane(self, pane_id: str) -> PaneSnapshot | None:
+        pane = self._pane_cache.get(pane_id)
+        if pane is None:
+            return None
+        try:
+            result = subprocess.run(
+                ["tmux", *self._capture_args(pane_id)],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode != 0:
+                return None
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return None
+        return self._finalize_capture(pane, result.stdout)
+
+    async def capture_pane_async(self, pane_id: str) -> PaneSnapshot | None:
+        pane = self._pane_cache.get(pane_id)
+        if pane is None:
+            return None
+        rc, content = await _run_tmux_async(self._capture_args(pane_id))
+        if rc != 0:
+            return None
+        return self._finalize_capture(pane, content)
+
+    def _clean_stale(self, current_ids: set[str]) -> None:
         stale = [pid for pid in self._last_content if pid not in current_ids]
         for pid in stale:
             del self._last_content[pid]
             self._last_change_time.pop(pid, None)
             self._pane_cache.pop(pid, None)
 
+    def capture_all(self) -> dict[str, PaneSnapshot]:
+        panes = self.discover_panes()
+        self._clean_stale({p.pane_id for p in panes})
+
         snapshots: dict[str, PaneSnapshot] = {}
         for pane in panes:
             snap = self.capture_pane(pane.pane_id)
             if snap is not None:
+                snapshots[pane.pane_id] = snap
+        return snapshots
+
+    async def capture_all_async(self) -> dict[str, PaneSnapshot]:
+        panes = await self.discover_panes_async()
+        self._clean_stale({p.pane_id for p in panes})
+
+        # Capture all panes concurrently; skip any that error out.
+        results = await asyncio.gather(
+            *(self.capture_pane_async(p.pane_id) for p in panes),
+            return_exceptions=True,
+        )
+        snapshots: dict[str, PaneSnapshot] = {}
+        for pane, snap in zip(panes, results):
+            if isinstance(snap, PaneSnapshot):
                 snapshots[pane.pane_id] = snap
         return snapshots
 

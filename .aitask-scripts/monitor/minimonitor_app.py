@@ -198,7 +198,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         # Save focus state before rebuild
         saved_pane_id = self._focused_pane_id
 
-        self._snapshots = self._monitor.capture_all()
+        self._snapshots = await self._monitor.capture_all_async()
 
         # Keep window index fresh (handles tmux renumber-windows)
         self._update_own_window_info()
