@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [settings_tui, task_workflow]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-04-14 17:07
-updated_at: 2026-04-14 17:19
+updated_at: 2026-04-14 17:24
+completed_at: 2026-04-14 17:24
 ---
 
 ## Context
