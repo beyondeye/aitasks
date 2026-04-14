@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codebrowser, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-14 10:13
-updated_at: 2026-04-14 10:13
+updated_at: 2026-04-14 11:49
 ---
 
 t540_2: give `ait codebrowser` a first-class way to be told "open this
