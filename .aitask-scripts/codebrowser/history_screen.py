@@ -338,7 +338,8 @@ class HistoryScreen(Screen):
             return
 
         if recent_list.has_focus_within:
-            detail.focus()
+            if not detail._focus_first_field():
+                detail.focus()
             return
 
         if detail.has_focus_within:

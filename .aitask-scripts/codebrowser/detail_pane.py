@@ -16,6 +16,9 @@ class DetailPane(VerticalScroll):
         border-left: thick $primary;
         background: $surface;
     }
+    DetailPane:focus, DetailPane:focus-within {
+        border-left: thick $accent;
+    }
     DetailPane #detail_header {
         height: 1;
         dock: top;

@@ -576,6 +576,9 @@ class HistoryDetailPane(VerticalScroll):
     HistoryDetailPane {
         background: $surface;
     }
+    HistoryDetailPane:focus, HistoryDetailPane:focus-within {
+        border-left: thick $accent;
+    }
     HistoryDetailPane #detail_placeholder {
         color: $text-muted;
         text-align: center;
@@ -636,13 +639,14 @@ class HistoryDetailPane(VerticalScroll):
             self._render_task(prev)
             self._focus_first_field()
 
-    def _focus_first_field(self) -> None:
-        """Focus the first focusable field in this pane."""
+    def _focus_first_field(self) -> bool:
+        """Focus the first focusable field in this pane. Returns True if focused."""
         for child in self.children:
             if child.can_focus and child.display and child.styles.display != "none":
                 child.focus()
                 child.scroll_visible()
-                return
+                return True
+        return False
 
     def clear_stack(self) -> None:
         """Reset navigation stack."""

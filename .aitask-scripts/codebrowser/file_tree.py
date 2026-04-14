@@ -257,6 +257,9 @@ class RecentFilesList(VerticalScroll):
     RecentFilesList {
         max-height: 10;
     }
+    RecentFilesList:focus, RecentFilesList:focus-within {
+        border-left: thick $accent;
+    }
     """
 
     def __init__(self, project_root: Path, **kwargs) -> None:

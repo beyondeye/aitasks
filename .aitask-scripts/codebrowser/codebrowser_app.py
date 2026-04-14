@@ -153,7 +153,7 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         *TuiSwitcherMixin.SWITCHER_BINDINGS,
         Binding("escape", "handle_escape_key", "Escape", show=False, priority=True),
         Binding("q", "quit", "Quit"),
-        Binding("tab", "toggle_focus", "Toggle Focus"),
+        Binding("tab", "toggle_focus", "Toggle Focus", priority=True),
         Binding("r", "refresh_explain", "Refresh annotations"),
         Binding("t", "toggle_annotations", "Toggle annotations"),
         Binding("g", "go_to_line", "Go to line"),
@@ -508,6 +508,13 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
     def on_recent_file_selected(self, event: RecentFileSelected) -> None:
         """A row in the recent-files pane was activated."""
         self._open_file_by_path(event.path)
+        # Restore focus: clicking the recent-file row focused it, then
+        # _refresh_display removed and re-mounted the row, orphaning focus.
+        # Move focus to the code viewer so Tab cycling keeps working.
+        try:
+            self.query_one("#code_viewer").focus()
+        except Exception:
+            pass
 
     def on_directory_tree_directory_selected(
         self, event: DirectoryTree.DirectorySelected
@@ -788,15 +795,24 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
 
     def action_toggle_focus(self) -> None:
         """Cycle focus: recent_files → file_tree → code_viewer → detail (if visible) → recent_files."""
+        from textual.actions import SkipAction
+        # Scope queries to the current screen — App.query_one walks the entire
+        # screen stack, so a pushed screen (e.g. HistoryScreen) would otherwise
+        # still find #code_viewer in the underlying main screen and consume the
+        # key, preventing the active screen's own tab binding from running.
+        screen = self.screen
         try:
-            recent = self.query_one("#recent_files", RecentFilesList)
+            code_viewer = screen.query_one("#code_viewer")
+        except Exception:
+            raise SkipAction()
+        try:
+            recent = screen.query_one("#recent_files", RecentFilesList)
         except Exception:
             recent = None
         try:
-            file_tree = self.query_one("#file_tree")
+            file_tree = screen.query_one("#file_tree")
         except Exception:
             file_tree = None
-        code_viewer = self.query_one("#code_viewer")
 
         if recent is not None and recent.has_focus_within:
             if file_tree is not None:
@@ -812,33 +828,37 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         if code_viewer.has_focus_within:
             if self._detail_visible:
                 try:
-                    self.query_one("#detail_pane", DetailPane).focus()
+                    detail = screen.query_one("#detail_pane", DetailPane)
+                    detail.focus()
                     return
                 except Exception:
                     pass
-            if recent is not None:
-                recent.focus()
-                return
-            if file_tree is not None:
-                file_tree.focus()
+            self._focus_recent_or_tree(recent, file_tree, code_viewer)
             return
 
         if self._detail_visible:
             try:
                 detail = self.query_one("#detail_pane", DetailPane)
                 if detail.has_focus_within:
-                    if recent is not None:
-                        recent.focus()
-                    elif file_tree is not None:
-                        file_tree.focus()
+                    self._focus_recent_or_tree(recent, file_tree, code_viewer)
                     return
             except Exception:
                 pass
 
         # Fallback: focus the recent files pane, then the tree, then code
+        self._focus_recent_or_tree(recent, file_tree, code_viewer)
+
+    def _focus_recent_or_tree(self, recent, file_tree, code_viewer) -> None:
+        """Focus the recent files pane (first child item, then container), else tree/code."""
         if recent is not None:
+            for child in recent.children:
+                if child.can_focus and child.display and child.styles.display != "none":
+                    child.focus()
+                    child.scroll_visible()
+                    return
             recent.focus()
-        elif file_tree is not None:
+            return
+        if file_tree is not None:
             file_tree.focus()
         else:
             code_viewer.focus()
