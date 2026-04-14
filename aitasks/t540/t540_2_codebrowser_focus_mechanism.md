@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [codebrowser, tui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-04-14 10:13
-updated_at: 2026-04-14 11:49
+updated_at: 2026-04-14 12:12
 ---
 
 t540_2: give `ait codebrowser` a first-class way to be told "open this
