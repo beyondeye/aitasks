@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [settings_tui, task_workflow]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-14 17:07
-updated_at: 2026-04-14 17:07
+updated_at: 2026-04-14 17:12
 ---
 
 ## Context
