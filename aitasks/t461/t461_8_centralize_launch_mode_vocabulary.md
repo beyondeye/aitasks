@@ -3,11 +3,10 @@ priority: medium
 effort: medium
 depends: [t461_7, t461_7]
 issue_type: refactor
-status: Implementing
+status: Ready
 labels: [agentcrew, refactor]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-14 12:49
-updated_at: 2026-04-14 12:51
+updated_at: 2026-04-14 14:28
 ---
 
 ## Context
