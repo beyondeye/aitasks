@@ -27,6 +27,8 @@ BATCH_LABELS=""
 BATCH_LABELS_SET=false
 BATCH_ADD_LABELS=()
 BATCH_REMOVE_LABELS=()
+BATCH_ADD_FILE_REFS=()
+BATCH_REMOVE_FILE_REFS=()
 BATCH_DESC=""
 BATCH_DESC_FILE=""
 BATCH_NAME=""
@@ -77,6 +79,7 @@ CURRENT_CONTRIBUTOR_EMAIL=""
 CURRENT_FOLDED_TASKS=""
 CURRENT_FOLDED_INTO=""
 CURRENT_IMPLEMENTED_WITH=""
+CURRENT_FILE_REFERENCES=""
 
 # --- Helper Functions ---
 
@@ -132,6 +135,12 @@ Child task options (batch mode):
   --remove-child CHILD_ID Remove child from children_to_implement list
   --children CHILDREN    Set children_to_implement (comma-separated, replaces all)
 
+File reference options (batch mode):
+  --file-ref REF         Append a file reference; repeatable. REF format:
+                         PATH | PATH:N | PATH:N-M | PATH:N-M^N-M^... (^ joins ranges).
+                         Dedup is exact-string only (order-sensitive).
+  --remove-file-ref REF  Remove a file reference by exact-string match; repeatable.
+
 Other options:
   --name, -n NAME        Rename task (changes filename, sanitizes input)
   --commit               Automatically commit changes to git
@@ -186,6 +195,8 @@ parse_args() {
             --labels|-l) BATCH_LABELS="$2"; BATCH_LABELS_SET=true; shift 2 ;;
             --add-label) BATCH_ADD_LABELS+=("$2"); shift 2 ;;
             --remove-label) BATCH_REMOVE_LABELS+=("$2"); shift 2 ;;
+            --file-ref) validate_file_ref "$2"; BATCH_ADD_FILE_REFS+=("$2"); shift 2 ;;
+            --remove-file-ref) validate_file_ref "$2"; BATCH_REMOVE_FILE_REFS+=("$2"); shift 2 ;;
             --description|-d) BATCH_DESC="$2"; shift 2 ;;
             --desc-file) BATCH_DESC_FILE="$2"; shift 2 ;;
             --name|-n) BATCH_NAME="$2"; shift 2 ;;
@@ -280,6 +291,7 @@ parse_yaml_frontmatter() {
     CURRENT_FOLDED_TASKS=""
     CURRENT_FOLDED_INTO=""
     CURRENT_IMPLEMENTED_WITH=""
+    CURRENT_FILE_REFERENCES=""
 
     # Read entire file content
     local file_content
@@ -346,6 +358,9 @@ parse_yaml_frontmatter() {
                     ;;
                 folded_into) CURRENT_FOLDED_INTO="$value" ;;
                 implemented_with) CURRENT_IMPLEMENTED_WITH="$value" ;;
+                file_references)
+                    CURRENT_FILE_REFERENCES=$(parse_yaml_list "$value")
+                    ;;
             esac
         fi
     done <<< "$yaml_content"
@@ -408,6 +423,7 @@ write_task_file() {
     local contributor="${18:-}"
     local contributor_email="${19:-}"
     local implemented_with="${20:-}"
+    local file_references="${21:-}"
 
     local updated_at
     updated_at=$(get_timestamp)
@@ -427,6 +443,12 @@ write_task_file() {
         echo "issue_type: $issue_type"
         echo "status: $status"
         echo "labels: $labels_yaml"
+        # Only write file_references if present
+        if [[ -n "$file_references" ]]; then
+            local file_references_yaml
+            file_references_yaml=$(format_yaml_list "$file_references")
+            echo "file_references: $file_references_yaml"
+        fi
         # Only write children_to_implement if present
         if [[ -n "$children_to_implement" ]]; then
             local children_yaml
@@ -634,6 +656,59 @@ process_children_operations() {
     echo "${children_array[*]}"
 }
 
+# --- File References Management ---
+
+process_file_references_operations() {
+    local current_refs="$1"
+    local -n add_refs_ref=$2
+    local -n remove_refs_ref=$3
+
+    # Convert current to array
+    local -a refs_array=()
+    if [[ -n "$current_refs" ]]; then
+        IFS=',' read -ra refs_array <<< "$current_refs"
+    fi
+
+    # Append (exact-string dedup)
+    local ref
+    for ref in "${add_refs_ref[@]}"; do
+        local found=false
+        local existing
+        for existing in "${refs_array[@]}"; do
+            if [[ "$existing" == "$ref" ]]; then
+                found=true
+                break
+            fi
+        done
+        if [[ "$found" == false ]]; then
+            refs_array+=("$ref")
+        fi
+    done
+
+    # Remove (exact-string match)
+    if [[ ${#remove_refs_ref[@]} -gt 0 ]]; then
+        local -a new_array=()
+        local existing
+        for existing in "${refs_array[@]}"; do
+            local should_remove=false
+            local r
+            for r in "${remove_refs_ref[@]}"; do
+                if [[ "$existing" == "$r" ]]; then
+                    should_remove=true
+                    break
+                fi
+            done
+            if [[ "$should_remove" == false ]]; then
+                new_array+=("$existing")
+            fi
+        done
+        refs_array=("${new_array[@]}")
+    fi
+
+    local IFS=','
+    echo "${refs_array[*]}"
+}
+
 # Handle child task completion - update parent's children_to_implement
 handle_child_task_completion() {
     local task_id="$1"
@@ -690,7 +765,7 @@ handle_child_task_completion() {
         "$CURRENT_DESCRIPTION" "$new_children" "$CURRENT_ASSIGNED_TO" \
         "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE" "$CURRENT_FOLDED_TASKS" \
         "$CURRENT_FOLDED_INTO" "$CURRENT_PULL_REQUEST" "$CURRENT_CONTRIBUTOR" \
-        "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH"
+        "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES"
 
     if [[ -z "$new_children" ]]; then
         success "All children of t$parent_num are complete! Parent can now be completed."
@@ -1142,7 +1217,7 @@ run_interactive_mode() {
         "$CURRENT_CHILDREN_TO_IMPLEMENT" "$CURRENT_ASSIGNED_TO" \
         "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE" "$CURRENT_FOLDED_TASKS" \
         "$CURRENT_FOLDED_INTO" "$CURRENT_PULL_REQUEST" "$CURRENT_CONTRIBUTOR" \
-        "$CURRENT_CONTRIBUTOR_EMAIL"
+        "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES"
 
     # Handle child task completion
     if [[ "$new_status" == "Done" ]]; then
@@ -1218,6 +1293,8 @@ run_batch_mode() {
     [[ "$BATCH_FOLDED_TASKS_SET" == true ]] && has_update=true
     [[ "$BATCH_FOLDED_INTO_SET" == true ]] && has_update=true
     [[ "$BATCH_IMPLEMENTED_WITH_SET" == true ]] && has_update=true
+    [[ ${#BATCH_ADD_FILE_REFS[@]} -gt 0 ]] && has_update=true
+    [[ ${#BATCH_REMOVE_FILE_REFS[@]} -gt 0 ]] && has_update=true
 
     if [[ "$has_update" == false ]]; then
         die "No update parameters specified. Use --help for usage."
@@ -1340,6 +1417,10 @@ run_batch_mode() {
         new_implemented_with="$BATCH_IMPLEMENTED_WITH"
     fi
 
+    # Process file_references
+    local new_file_references
+    new_file_references=$(process_file_references_operations "$CURRENT_FILE_REFERENCES" BATCH_ADD_FILE_REFS BATCH_REMOVE_FILE_REFS)
+
     # Validate parent completion (cannot complete parent with pending children)
     validate_parent_completion "$BATCH_TASK_NUM" "$new_status" "$new_children"
 
@@ -1365,7 +1446,7 @@ run_batch_mode() {
         "$new_type" "$new_status" "$new_labels" "$CURRENT_CREATED_AT" "$new_description" \
         "$new_children" "$new_assigned_to" "$new_boardcol" "$new_boardidx" "$new_issue" \
         "$new_folded_tasks" "$new_folded_into" "$new_pull_request" "$new_contributor" \
-        "$new_contributor_email" "$new_implemented_with"
+        "$new_contributor_email" "$new_implemented_with" "$new_file_references"
 
     # Handle child task completion (update parent if needed)
     if [[ "$new_status" == "Done" ]]; then

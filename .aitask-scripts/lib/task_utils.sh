@@ -439,6 +439,48 @@ extract_pr_url() {
     echo ""
 }
 
+# Extract file_references entries from a task file's YAML frontmatter
+# Input: task file path
+# Output: one entry per line (newline-separated), empty if missing/empty
+# Each entry is returned verbatim: "path", "path:N", "path:N-M",
+# or compact multi-range "path:N-M^N-M^...".
+get_file_references() {
+    local file_path="$1"
+    local in_yaml=false
+
+    while IFS= read -r line; do
+        if [[ "$line" == "---" ]]; then
+            if [[ "$in_yaml" == true ]]; then break
+            else in_yaml=true; continue; fi
+        fi
+        if [[ "$in_yaml" == true && "$line" =~ ^file_references:[[:space:]]*(.*) ]]; then
+            local raw="${BASH_REMATCH[1]}"
+            raw="${raw#\[}" ; raw="${raw%\]}"
+            if [[ -z "$raw" ]]; then return; fi
+            while IFS=',' read -ra items; do
+                for item in "${items[@]}"; do
+                    item=$(echo "$item" | sed 's/^[[:space:]"]*//;s/[[:space:]"]*$//')
+                    [[ -n "$item" ]] && echo "$item"
+                done
+            done <<< "$raw"
+            return
+        fi
+    done < "$file_path"
+}
+
+# Validate a single file_reference entry string.
+# Accepted: "path" | "path:N" | "path:N-M" | "path:N-M^N-M^..."
+# Line numbers are 1-indexed. Die with a clear error on malformed input.
+validate_file_ref() {
+    local ref="$1"
+    if [[ -z "$ref" ]]; then
+        die "Empty file reference"
+    fi
+    if [[ ! "$ref" =~ ^[^:]+(:[0-9]+(-[0-9]+)?(\^[0-9]+(-[0-9]+)?)*)?$ ]]; then
+        die "Invalid file reference: '$ref' (expected PATH[:N[-M][^N[-M]]...])"
+    fi
+}
+
 # Extract related issue URLs from a task file's YAML frontmatter
 # Input: task file path
 # Output: one URL per line (newline-separated), empty if missing/empty

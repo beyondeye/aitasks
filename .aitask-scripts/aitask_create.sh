@@ -42,6 +42,7 @@ BATCH_ISSUE=""
 BATCH_PULL_REQUEST=""
 BATCH_CONTRIBUTOR=""
 BATCH_CONTRIBUTOR_EMAIL=""
+BATCH_FILE_REFS=()
 
 # Draft/finalize mode variables
 BATCH_FINALIZE=""
@@ -70,6 +71,9 @@ Batch mode (for automation):
   --issue URL            Issue tracker URL (e.g., GitHub issue URL)
   --labels, -l LABELS    Comma-separated labels
   --deps DEPS            Comma-separated dependency task numbers
+  --file-ref REF         Append a file reference; repeatable. REF format:
+                         PATH | PATH:N | PATH:N-M | PATH:N-M^N-M^...
+                         (^ joins multiple ranges on the same path).
   --parent, -P NUM       Create as child of specified parent task number
   --no-sibling-dep       Don't auto-add dependency on previous sibling (for child tasks)
   --commit               Claim real ID and commit to git immediately (auto-finalize)
@@ -132,6 +136,7 @@ parse_args() {
             --pull-request) BATCH_PULL_REQUEST="$2"; shift 2 ;;
             --contributor) BATCH_CONTRIBUTOR="$2"; shift 2 ;;
             --contributor-email) BATCH_CONTRIBUTOR_EMAIL="$2"; shift 2 ;;
+            --file-ref) validate_file_ref "$2"; BATCH_FILE_REFS+=("$2"); shift 2 ;;
             --commit) BATCH_COMMIT=true; shift ;;
             --finalize) BATCH_FINALIZE="$2"; shift 2 ;;
             --finalize-all) BATCH_FINALIZE_ALL=true; shift ;;
@@ -350,6 +355,7 @@ create_child_task_file() {
     local pull_request="${12:-}"
     local contributor="${13:-}"
     local contributor_email="${14:-}"
+    local file_references="${15:-}"
 
     local child_dir="$TASK_DIR/t${parent_num}"
     mkdir -p "$child_dir"
@@ -376,6 +382,12 @@ create_child_task_file() {
         echo "issue_type: $issue_type"
         echo "status: $status"
         echo "labels: $labels_yaml"
+        # Only write file_references if present
+        if [[ -n "$file_references" ]]; then
+            local file_refs_yaml
+            file_refs_yaml=$(format_file_references_yaml "$file_references")
+            echo "file_references: $file_refs_yaml"
+        fi
         # Only write issue if present
         if [[ -n "$issue" ]]; then
             echo "issue: $issue"
@@ -425,6 +437,7 @@ create_draft_file() {
     local pull_request="${12:-}"
     local contributor="${13:-}"
     local contributor_email="${14:-}"
+    local file_references="${15:-}"
 
     mkdir -p "$DRAFT_DIR"
 
@@ -449,6 +462,11 @@ create_draft_file() {
         echo "issue_type: $issue_type"
         echo "status: $status"
         echo "labels: $labels_yaml"
+        if [[ -n "$file_references" ]]; then
+            local file_refs_yaml
+            file_refs_yaml=$(format_file_references_yaml "$file_references")
+            echo "file_references: $file_refs_yaml"
+        fi
         echo "draft: true"
         if [[ -n "$assigned_to" ]]; then
             echo "assigned_to: $assigned_to"
@@ -1017,6 +1035,9 @@ get_task_definition() {
         info "Pre-populated description with your earlier text. You can add more or finish." >&2
     fi
 
+    # Track file refs across all outer rounds (for structured file_references output)
+    local -a all_file_refs=()
+
     while true; do
         # Step 4: Get description block
         echo "" >&2
@@ -1055,10 +1076,17 @@ $desc_block"
                     task_desc=$(echo "$task_desc" | grep -vxF "$remove_file")
                     # Remove from tracking array
                     local -a new_refs=()
+                    local ref
                     for ref in "${current_round_refs[@]}"; do
                         [[ "$ref" != "$remove_file" ]] && new_refs+=("$ref")
                     done
                     current_round_refs=("${new_refs[@]}")
+                    # Also remove from the persistent all_file_refs list
+                    local -a new_all=()
+                    for ref in "${all_file_refs[@]}"; do
+                        [[ "$ref" != "$remove_file" ]] && new_all+=("$ref")
+                    done
+                    all_file_refs=("${new_all[@]}")
                     success "Removed: $remove_file" >&2
                 fi
                 continue
@@ -1077,6 +1105,7 @@ $selected_file"
                     task_desc="$selected_file"
                 fi
                 current_round_refs+=("$selected_file")
+                all_file_refs+=("$selected_file")
                 success "Added: $selected_file" >&2
             fi
         done
@@ -1090,7 +1119,14 @@ $selected_file"
         fi
     done
 
+    # Output task_desc followed by marker line and structured file refs.
+    # The caller (run_draft_interactive) splits on __FILE_REFS_MARKER__.
     echo "$task_desc"
+    echo "__FILE_REFS_MARKER__"
+    local ref
+    for ref in "${all_file_refs[@]}"; do
+        echo "$ref"
+    done
 }
 
 # --- Step 6: Create Task File ---
@@ -1119,6 +1155,33 @@ format_labels_yaml() {
     fi
 }
 
+format_file_references_yaml() {
+    # Converts "foo.py,bar.py:10-20" to "[foo.py, bar.py:10-20]" for YAML
+    local input="$1"
+    if [[ -z "$input" ]]; then
+        echo "[]"
+    else
+        echo "[$(echo "$input" | sed 's/,/, /g')]"
+    fi
+}
+
+# Deduplicate a bash array of file-reference strings by exact-string match,
+# preserving order of first occurrence. Prints a comma-separated string.
+dedup_file_refs() {
+    local -n arr_ref=$1
+    local -A seen=()
+    local -a unique=()
+    local item
+    for item in "${arr_ref[@]}"; do
+        if [[ -z "${seen[$item]:-}" ]]; then
+            seen[$item]=1
+            unique+=("$item")
+        fi
+    done
+    local IFS=','
+    echo "${unique[*]}"
+}
+
 create_task_file() {
     local task_num="$1"
     local task_name="$2"
@@ -1134,6 +1197,7 @@ create_task_file() {
     local pull_request="${12:-}"
     local contributor="${13:-}"
     local contributor_email="${14:-}"
+    local file_references="${15:-}"
 
     local filename="t${task_num}_${task_name}.md"
     local filepath="$TASK_DIR/$filename"
@@ -1156,6 +1220,12 @@ create_task_file() {
         echo "issue_type: $issue_type"
         echo "status: $status"
         echo "labels: $labels_yaml"
+        # Only write file_references if present
+        if [[ -n "$file_references" ]]; then
+            local file_refs_yaml
+            file_refs_yaml=$(format_file_references_yaml "$file_references")
+            echo "file_references: $file_refs_yaml"
+        fi
         # Only write assigned_to if present
         if [[ -n "$assigned_to" ]]; then
             echo "assigned_to: $assigned_to"
@@ -1304,10 +1374,13 @@ run_batch_mode() {
                 fi
             fi
 
+            local deduped_file_refs
+            deduped_file_refs=$(dedup_file_refs BATCH_FILE_REFS)
             filepath=$(create_child_task_file "$BATCH_PARENT" "$child_num" "$task_name" \
                 "$BATCH_PRIORITY" "$BATCH_EFFORT" "$BATCH_DEPS" "$BATCH_DESC" \
                 "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" "$BATCH_ISSUE" \
-                "$BATCH_PULL_REQUEST" "$BATCH_CONTRIBUTOR" "$BATCH_CONTRIBUTOR_EMAIL")
+                "$BATCH_PULL_REQUEST" "$BATCH_CONTRIBUTOR" "$BATCH_CONTRIBUTOR_EMAIL" \
+                "$deduped_file_refs")
 
             task_id="t${BATCH_PARENT}_${child_num}"
             update_parent_children_to_implement "$BATCH_PARENT" "$task_id"
@@ -1334,9 +1407,12 @@ run_batch_mode() {
             }
             rm -f "$claim_stderr" 2>/dev/null
 
+            local deduped_file_refs
+            deduped_file_refs=$(dedup_file_refs BATCH_FILE_REFS)
             filepath=$(create_task_file "$claimed_id" "$task_name" "$BATCH_PRIORITY" "$BATCH_EFFORT" \
                 "$BATCH_DEPS" "$BATCH_DESC" "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" "$BATCH_ASSIGNED_TO" "$BATCH_ISSUE" \
-                "$BATCH_PULL_REQUEST" "$BATCH_CONTRIBUTOR" "$BATCH_CONTRIBUTOR_EMAIL")
+                "$BATCH_PULL_REQUEST" "$BATCH_CONTRIBUTOR" "$BATCH_CONTRIBUTOR_EMAIL" \
+                "$deduped_file_refs")
 
             if [[ -n "$BATCH_ASSIGNED_TO" ]]; then
                 add_email_to_file "$BATCH_ASSIGNED_TO"
@@ -1352,10 +1428,13 @@ run_batch_mode() {
         fi
     else
         # Default: create as draft in aitasks/new/ (no network needed)
+        local deduped_file_refs
+        deduped_file_refs=$(dedup_file_refs BATCH_FILE_REFS)
         filepath=$(create_draft_file "$task_name" "$BATCH_PRIORITY" "$BATCH_EFFORT" \
             "$BATCH_DEPS" "$BATCH_DESC" "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" \
             "$BATCH_ASSIGNED_TO" "$BATCH_ISSUE" "$BATCH_PARENT" \
-            "$BATCH_PULL_REQUEST" "$BATCH_CONTRIBUTOR" "$BATCH_CONTRIBUTOR_EMAIL")
+            "$BATCH_PULL_REQUEST" "$BATCH_CONTRIBUTOR" "$BATCH_CONTRIBUTOR_EMAIL" \
+            "$deduped_file_refs")
     fi
 
     # Output
@@ -1503,8 +1582,18 @@ main() {
 
     # Step 4-5: Get task definition
     info "Enter task definition..."
-    local task_desc
-    task_desc=$(get_task_definition "$predesc_text")
+    local raw_definition task_desc
+    raw_definition=$(get_task_definition "$predesc_text")
+
+    # Split the raw output at the __FILE_REFS_MARKER__ line: the portion
+    # above is the description body; the portion below is one file ref per line.
+    task_desc=$(sed '/^__FILE_REFS_MARKER__$/,$d' <<< "$raw_definition")
+    local -a collected_refs=()
+    while IFS= read -r _ref_line; do
+        [[ -n "$_ref_line" ]] && collected_refs+=("$_ref_line")
+    done < <(sed '1,/^__FILE_REFS_MARKER__$/d' <<< "$raw_definition")
+    local deduped_file_refs
+    deduped_file_refs=$(dedup_file_refs collected_refs)
 
     if [[ -z "$task_desc" ]]; then
         die "Task definition cannot be empty"
@@ -1515,7 +1604,7 @@ main() {
     filepath=$(create_draft_file "$task_name" "$priority" "$effort" "$deps" \
         "$task_desc" "$issue_type" "$status" "$labels" "" "" \
         "$([[ "$is_child_task" == true ]] && echo "$parent_num" || echo "")" \
-        "" "" "")
+        "" "" "" "$deduped_file_refs")
 
     success "Draft created: $filepath"
     echo ""
