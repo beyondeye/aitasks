@@ -5,9 +5,9 @@ depends: []
 issue_type: refactor
 status: Ready
 labels: [aitask_pick, task_workflow]
-children_to_implement: [t547_1, t547_2, t547_3]
+children_to_implement: [t547_2, t547_3]
 created_at: 2026-04-14 14:08
-updated_at: 2026-04-14 16:12
+updated_at: 2026-04-14 16:44
 ---
 
 recent changes to claude code has dramatically increased token usage for planning. plan quality has also improved. the problem is that now, after planning phase, llm context is almost full already, this causes us to reach llm context usage level that require compact for completing the task. this is very bad, both because of delays because of compacting and also loss of context and potential break down of the requested workflow. as a work around to this issue, we need to rethink how automatic plan verification work in task workflow. we need to be able to run aitask-pick allowing the user to skip plan verification. But running plan verification at least once is very good practice: almost always this produce better plans, with gotchas detected before implementation. note that this a claude code specific issue, and specific to the current claude code 200k token window, that can expand in the future. codex has already a much larger context window, and worse planning phase by the way. Note also that plan_verification (to run it or not) is part of execution profile settings (plan_preference and plan_preference_child) ; for faat execution profile it is 1)verify for child, use current for normal task.
