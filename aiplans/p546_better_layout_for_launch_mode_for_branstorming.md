@@ -110,3 +110,27 @@ The label is now both visually indented and explicitly named for its agent type.
 ## Step 9 (Post-Implementation)
 
 After implementation: review changes with the user, commit with `feature: <description> (t546)`, archive with `./.aitask-scripts/aitask_archive.sh 546`, push with `./ait git push`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-04-14 14:10)
+- **Requested by user:** Add left padding also to the help/description label below the launch_mode row, not just the row itself.
+- **Changes made:** Prepended 4 spaces to the `desc_lm` label string at line 1922 so the dim italic help text aligns with the indented launch_mode label above it.
+- **Files affected:** `.aitask-scripts/settings/settings_app.py`
+
+### Change Request 2 (2026-04-14 14:14)
+- **Requested by user:** The "(inherits project)" subordinate row of the launch_mode setting also needs the left padding — currently only the project row was indented.
+- **Changes made:** Replaced the ad-hoc 4-space prefix in the launch_label string with a new explicit `extra_indent: int = 0` parameter on `ConfigRow`. `ConfigRow.render()` now prepends `" " * extra_indent` to the rendered output for both the project (non-subordinate) and user (subordinate) branches. Both launch_mode `ConfigRow` mounts now pass `extra_indent=4`. The `launch_label` string was simplified back to `f"brainstorm-{atype} launch_mode"` (no leading spaces) since the parameter handles the padding uniformly.
+- **Files affected:** `.aitask-scripts/settings/settings_app.py`
+
+### Change Request 3 (2026-04-14 14:17)
+- **Requested by user:** The `└` (L-shape) corner glyph at the start of the subordinate row still does not move right with the rest of the launch_mode indent — the padding was inserted between the glyph and the badge, not before the glyph.
+- **Changes made:** Moved `{pad}` to before `\u2514` in the subordinate render branch, so the entire L corner shifts right by `extra_indent` spaces. The fixed 6-space prefix that aligns the L under the parent row is still preserved.
+- **Files affected:** `.aitask-scripts/settings/settings_app.py`
+
+## Final Implementation Notes
+
+- **Actual work done:** Added an explicit `extra_indent: int = 0` parameter to `ConfigRow` (lines 753–763, 776, 778, 783) and rendered it as `" " * extra_indent` prepended to both the subordinate and non-subordinate render branches. In the subordinate branch the padding is placed BEFORE the `└` corner glyph so the entire glyph shifts right with the indent. The two `ConfigRow` mounts in `_emit_launch_mode_rows()` now use `launch_label = f"brainstorm-{atype} launch_mode"` (specific per agent type) and `extra_indent=4`. The dim-italic help text label (`desc_lm`) below them is also prepended with 4 spaces of literal padding so it aligns with the indented row above. `row_key=lm_key` is unchanged for both rows so all keyboard handlers and config lookups continue to work.
+- **Deviations from plan:** The original plan only added cosmetic leading spaces inside the `key` argument string and only to the project row. After three review iterations the user asked for the help label, the user-layer subordinate row, and the L-glyph itself to all shift right too. The cleanest way to handle all three was to introduce a generic `extra_indent` parameter on `ConfigRow` rather than continue prepending whitespace ad-hoc. This is a slightly larger surface change (two new lines on `ConfigRow.__init__`, two-line tweak to `render()`) but the call site is now declarative and all four affected glyphs (bold key, badge, value on the project row; L-corner, badge, value on the user row) line up consistently.
+- **Issues encountered:** None. Each change request was a small additive fix. Python AST syntax was verified after every edit with `python3 -c "import ast; ast.parse(...)"`.
+- **Key decisions:** Chose an explicit `extra_indent` int parameter over auto-detecting leading whitespace from `self.key`, for clarity at the call site and to keep the displayed key string clean. `extra_indent` defaults to 0 so all existing `ConfigRow` callers (agent-string rows, codeagent rows, env var rows, etc.) are unaffected.
