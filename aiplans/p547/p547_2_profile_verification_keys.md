@@ -104,3 +104,30 @@ The description file should include:
 6. No shellcheck (no bash changes)
 
 After verification, proceed to **Step 8** (User Review) and then **Step 9** (Post-Implementation) per the task-workflow skill — commit code files with `feature: ... (t547_2)`, commit the plan with `ait: Update plan for t547_2`, archive via `./.aitask-scripts/aitask_archive.sh 547_2`, then push.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Added two rows (`plan_verification_required`, `plan_verification_stale_after_hours`) to the Profile Schema Reference table in `.claude/skills/task-workflow/profiles.md`, positioned immediately after the `plan_preference_child` row so readers encounter them in the planning-related block.
+  - Added a descriptive blockquote paragraph right after the "Only `name` and `description`..." sentence, explaining how the two keys interact with `plan_preference`/`plan_preference_child` and referencing `aitask_plan_verified.sh decide` as the computation source.
+  - Added the two keys to `aitasks/metadata/profiles/fast.yaml` immediately after `plan_preference_child: verify` with explicit default values (`1` and `24`).
+  - Left `aitasks/metadata/profiles/default.yaml` and `aitasks/metadata/profiles/remote.yaml` untouched (verified via `./ait git diff HEAD`).
+  - Ran `./.aitask-scripts/aitask_scan_profiles.sh` after the edits — all 3 profiles still parse cleanly with no INVALID entries, confirming that the scanner ignores unknown keys (it only reads `name` and `description`).
+
+- **Deviations from plan:**
+  - None. The verify pass in Step 6 confirmed the plan matched the current codebase; implementation followed the plan step-for-step.
+  - Note: `.claude/skills/task-workflow/profiles.md` is the source of truth per CLAUDE.md. Corresponding updates to `.gemini/skills/`, `.agents/skills/`, and `.opencode/skills/` adapters were not made here and should be handled as separate follow-up aitasks if those trees are kept in sync — this is the standard convention in this repo.
+
+- **Issues encountered:** None.
+
+- **Key decisions:**
+  - Placed the new rows in the schema table (compact inline form) AND added a separate descriptive paragraph, because the keys' semantics depend on plan file metadata (`plan_verified`) that the table rows alone cannot fully explain. The paragraph references the concrete helper script (`aitask_plan_verified.sh decide`) so Child 3's integration is easy to audit against the docs.
+  - Set the values in `fast.yaml` explicitly to their defaults (`1` and `24`) rather than omitting them. This surfaces the intent to anyone reading `fast.yaml` without forcing them to cross-reference `profiles.md` for defaults, at the minor cost of two extra lines.
+  - Deferred settings TUI integration to a follow-up task (see Notes below). The TUI schema currently supports only `bool`/`enum`/`string` — adding a new `int` widget type with validation is a separate, non-trivial change that should not block Child 3.
+
+- **Notes for sibling tasks:**
+  - **Canonical key names are locked in:** `plan_verification_required` and `plan_verification_stale_after_hours`. Child 3 (`t547_3_workflow_verify_integration`) must use these exact strings when reading the profile for the verify decision.
+  - **Defaults are documented in two places:** `profiles.md` (canonical) and `fast.yaml` (explicit). If Child 3's profile loader does not see either key, it should fall back to `1` and `24` respectively. Child 1's `aitask_plan_verified.sh decide` subcommand requires both values as explicit arguments — it does not assume defaults — so Child 3 must pass them.
+  - **No `_child` variants:** both keys apply uniformly to parent and child tasks. If that proves too coarse in practice, Child 3 can still special-case based on `is_child` in the workflow markdown without touching these canonical keys.
+  - **Scanner compatibility confirmed:** `aitask_scan_profiles.sh` parses only `name`/`description`, so adding new profile keys is a zero-risk operation. Child 3 can add new keys freely without touching the scanner.
+  - **Settings TUI lag:** a follow-up task was created to add `int`-type widget support to `.aitask-scripts/settings/settings_app.py` and register both keys there. This is parallel-safe with Child 3 (different files).

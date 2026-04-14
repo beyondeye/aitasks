@@ -5,6 +5,8 @@ default_email: userconfig
 create_worktree: false
 plan_preference: use_current
 plan_preference_child: verify
+plan_verification_required: 1
+plan_verification_stale_after_hours: 24
 post_plan_action: start_implementation
 post_plan_action_for_child: ask
 enableFeedbackQuestions: true
