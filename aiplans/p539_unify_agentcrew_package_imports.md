@@ -83,3 +83,11 @@ All four commands must exit 0 with no `ModuleNotFoundError`.
 
 - No separate branch was created (profile `fast` → `create_worktree: false`), so no merge/worktree-cleanup.
 - Run `./.aitask-scripts/aitask_archive.sh 539` to archive the task after user approval.
+
+## Final Implementation Notes
+
+- **Actual work done:** Rewrote sibling-style imports in `agentcrew_dashboard.py` (4 imports: `agentcrew_utils`, `agentcrew_log_utils`, `agentcrew_runner_control`, `agentcrew_process_stats`) and `agentcrew_report.py` (1 import: `agentcrew_utils`) to package-style `from agentcrew.<module> import ...`. Fixed dashboard's existing `sys.path.insert(..., parent)` to `parent.parent`. Added a fresh `from pathlib import Path` + `sys.path.insert(0, str(Path(__file__).resolve().parent.parent))` prelude to `agentcrew_report.py`, which previously had neither.
+- **Deviations from plan:** None. Changes matched the plan 1:1.
+- **Issues encountered:** None.
+- **Key decisions:** `agentcrew_dashboard.py` already had a `# Ensure agentcrew package is importable` comment; kept it since the corrected `parent.parent` version matches the comment's intent. No new comment added to `agentcrew_report.py` to keep the prelude consistent with `agentcrew_runner.py` / `agentcrew_status.py`, which also don't have one.
+- **Verification:** All four checks passed — `./ait crew dashboard --help` and `./ait crew report --help`, both from repo root and from `/tmp` cwd, exit 0 and print the expected usage banner. No `ModuleNotFoundError`.
