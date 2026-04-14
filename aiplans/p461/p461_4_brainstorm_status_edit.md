@@ -1,173 +1,426 @@
 ---
 Task: t461_4_brainstorm_status_edit.md
 Parent Task: aitasks/t461_interactive_override_in_agencrew.md
-Sibling Tasks: aitasks/t461/t461_1_*.md, aitasks/t461/t461_2_*.md, aitasks/t461/t461_3_*.md, aitasks/t461/t461_5_*.md, aitasks/t461/t461_6_*.md
+Sibling Tasks: aitasks/t461/t461_5_*.md, aitasks/t461/t461_6_*.md
 Archived Sibling Plans: aiplans/archived/p461/p461_1_*.md, aiplans/archived/p461/p461_2_*.md, aiplans/archived/p461/p461_3_*.md
 Worktree: (current branch)
 Branch: (current branch)
 Base branch: main
 ---
 
-# p461_4 — Brainstorm status-tab edit launch_mode
+# p461_4 — Brainstorm status-tab: edit `launch_mode` on an agent
+
+## Context
+
+Task 461 adds interactive launch mode for agentcrew code agents.
+Sibling t461_1 added the `launch_mode` schema + runner branch; t461_2
+added the `ait crew setmode` CLI; t461_3 added the brainstorm wizard
+toggle (sets mode at agent creation time).
+
+This task closes the remaining gap: let the user change the launch
+mode of an **existing** agent from inside the brainstorm TUI, without
+leaving to the shell. Typical flow: the user creates an agent headless
+via the wizard, then decides mid-session "I want to watch this one
+live" — they focus the agent row on the Status tab, press `e`, pick
+Interactive, and the next runner tick launches that agent in a tmux
+window.
+
+The TUI mutation path must shell out to `ait crew setmode` (not
+rewrite the yaml directly), so CLI and TUI share a single mutation
+code path, validation set, and commit audit trail.
 
 ## Goal
 
-On the brainstorm TUI's status tab, let the user press `e` on a
-focused `AgentStatusRow` to open a small modal that toggles the
-agent's `launch_mode` between `headless` and `interactive`. The modal
-shells out to `ait crew setmode` (from t461_2) so the CLI and TUI
-share one mutation code path.
+- Press `e` on a focused `AgentStatusRow` in the brainstorm Status tab
+  → open a modal showing current mode and two buttons (Headless /
+  Interactive).
+- Modal dismiss → `./ait crew setmode` is invoked; on success, toast
+  + delayed refresh of the status tab; on failure, error toast with
+  stderr.
+- Read-only modal for non-Waiting agents (setmode would refuse
+  anyway), with an explanatory line.
+- Row help hint `(e: edit mode)` appears when a Waiting agent is
+  focused (matching the existing `(w: reset)` hint pattern).
 
-## Files
+Note: A `[interactive]` badge on the row label is **out of scope for
+this task** — rows currently don't cache `launch_mode`, adding it
+requires plumbing through `_mount_agent_row()` → `AgentStatusRow`
+which bloats the change. The modal itself already shows current mode
+on open, which is where users actually check. A follow-up task can
+add the badge if it turns out to be needed.
 
-### Modified
+## Files to modify
 
-1. `.aitask-scripts/brainstorm/brainstorm_app.py`
-   - `AgentStatusRow` class (~507-521): add `e` keybinding
-   - New `AgentModeEditModal(ModalScreen)` class near
-     `NodeDetailModal` (~164-248) as a structural template
-   - New action handler on the row / app
-   - `_mount_agent_row()` / row label — optional visual badge for
-     current mode
-   - Status tab footer / help strings
+1. `.aitask-scripts/brainstorm/brainstorm_app.py` — all changes are
+   in this file:
+   - New `AgentModeEditModal` class (near `NodeDetailModal`, ~line 181)
+   - `AgentStatusRow.render()` (lines 534-538) — conditional hint for
+     Waiting agents
+   - `BrainstormApp.on_key()` (~line 1159) — new `e` key branch after
+     the `w` branch
+   - New `_edit_agent_mode()` method on `BrainstormApp` (near
+     `_reset_agent`, ~line 1539)
+   - New callback `_on_mode_edit_result()` on `BrainstormApp`
+   - Small CSS block for `#mode_modal_dialog` (near `#node_detail_dialog`
+     CSS)
+
+No other files need to change. `ait crew setmode` (t461_2) already
+supplies the mutation + commit; `read_yaml` (from
+`agentcrew.agentcrew_utils`) is already imported.
+
+## Key facts verified against the current codebase
+
+- `AgentStatusRow` — lines 524-548, `class AgentStatusRow(Static,
+  can_focus=True)`, fields `agent_name`, `agent_status`, `crew_id`,
+  `_display_line`. **No class-level `BINDINGS`** — keybindings for
+  focused rows are handled centrally in `BrainstormApp.on_key()`.
+- `BrainstormApp.on_key()` — the `w` key handler is at lines 1159-1172
+  and is the template to mirror for `e`.
+- `_reset_agent()` — lines 1539-1553. Uses `self.session_path` (Path),
+  `update_yaml_field`, then calls `self._delayed_refresh_status()`
+  which schedules `self._refresh_status_tab` after 2 seconds.
+- `NodeDetailModal` — lines 181-267, uses `ModalScreen`, `Container`,
+  `Horizontal`, `Label`, `Button`, `Static`. **`Vertical` is NOT
+  imported** — the imports block at lines 17-36 has only `Container`,
+  `Horizontal`, `VerticalScroll` from `textual.containers`.
+- `read_yaml` is already imported from `agentcrew.agentcrew_utils`
+  (line 67). **Do not `import yaml`** — use `read_yaml(str(path))`.
+- `AIT_PATH` module constant exists at line 92:
+  `str(Path(__file__).resolve().parent.parent.parent / "ait")`.
+- `BrainstormApp` attributes: `self.session_path` (Path, not
+  `session_dir`), `self.session_data` (dict; `crew_id` is
+  `self.session_data.get("crew_id", "")`). There is no
+  `self.repo_root` — use `AIT_PATH`'s parent directory if a cwd is
+  needed, or simply omit `cwd=` and rely on the default (setmode
+  resolves the crew via its own lookup, so cwd does not matter).
+- `ait crew setmode` CLI — flags `--crew`, `--name`, `--mode`; stdout
+  `UPDATED:<name>:<mode>` on success; non-zero exit + stderr message
+  when the agent is not in Waiting state. Verified at
+  `.aitask-scripts/aitask_crew_setmode.sh`.
+- Agent status yaml carries `launch_mode` (added by t461_1's
+  `aitask_crew_addwork.sh`), between `group:` and `status:`.
 
 ## Implementation steps
 
-### 1. `AgentModeEditModal`
+### 1. New class `AgentModeEditModal`
 
-Structure:
+Insert immediately after `NodeDetailModal` (around line 268), before
+`class ConfirmDialog`. Use `Container` (not `Vertical`), mirror
+`NodeDetailModal`'s compose/CSS structure.
+
 ```python
-class AgentModeEditModal(ModalScreen[Optional[str]]):
-    BINDINGS = [Binding("escape", "dismiss(None)")]
+class AgentModeEditModal(ModalScreen):
+    """Modal to toggle an agent's launch_mode between headless and interactive."""
 
-    def __init__(self, crew_id: str, agent_name: str,
-                 current_mode: str, agent_status: str):
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(
+        self,
+        agent_name: str,
+        agent_status: str,
+        current_mode: str,
+    ):
         super().__init__()
-        self.crew_id = crew_id
         self.agent_name = agent_name
-        self.current_mode = current_mode
         self.agent_status = agent_status
+        self.current_mode = current_mode
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="mode-modal"):
-            yield Label(f"Agent: {self.agent_name}")
-            yield Label(f"Status: {self.agent_status}")
+        with Container(id="mode_modal_dialog"):
+            yield Label(
+                f"Launch mode: {self.agent_name}",
+                id="mode_modal_title",
+            )
+            yield Static(
+                f"Current: [bold]{self.current_mode}[/bold]  "
+                f"Status: {self.agent_status}",
+                id="mode_modal_current",
+            )
             if self.agent_status != "Waiting":
                 yield Static(
-                    "Launch mode can only be changed on Waiting agents.",
-                    id="mode-readonly-note",
+                    "[dim]launch_mode can only be changed on Waiting agents. "
+                    "Close this dialog and reset the agent first if needed.[/]",
+                    id="mode_modal_note",
                 )
-                yield Button("Close", id="close", variant="primary")
+                with Horizontal(id="mode_modal_buttons"):
+                    yield Button("Close", variant="default", id="btn_mode_close")
             else:
-                yield Label(f"Current: {self.current_mode}")
-                with Horizontal():
+                with Horizontal(id="mode_modal_buttons"):
                     yield Button(
                         "Headless",
-                        id="mode-headless",
                         variant="primary" if self.current_mode == "headless" else "default",
+                        id="btn_mode_headless",
                     )
                     yield Button(
                         "Interactive",
-                        id="mode-interactive",
                         variant="primary" if self.current_mode == "interactive" else "default",
+                        id="btn_mode_interactive",
                     )
-                yield Button("Cancel", id="cancel")
+                    yield Button("Cancel", variant="default", id="btn_mode_cancel")
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "mode-headless":
-            self.dismiss("headless")
-        elif event.button.id == "mode-interactive":
-            self.dismiss("interactive")
-        else:
-            self.dismiss(None)
+    @on(Button.Pressed, "#btn_mode_headless")
+    def _pick_headless(self) -> None:
+        self.dismiss("headless")
+
+    @on(Button.Pressed, "#btn_mode_interactive")
+    def _pick_interactive(self) -> None:
+        self.dismiss("interactive")
+
+    @on(Button.Pressed, "#btn_mode_cancel")
+    @on(Button.Pressed, "#btn_mode_close")
+    def _cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 ```
 
-Add minimal CSS (follow `NodeDetailModal`'s pattern).
+The dismiss value is the selected mode string, or `None` on cancel/
+close/non-Waiting.
 
-### 2. Bind `e` on `AgentStatusRow`
+### 2. `AgentStatusRow.render()` — conditional hint for Waiting agents
+
+Update lines 534-538 to also show the `e: edit mode` hint when the
+focused agent is in Waiting state. Keep the existing Error/reset hint
+untouched:
 
 ```python
-class AgentStatusRow(Static):
-    BINDINGS = [
-        Binding("w", "reset_agent", "Reset error"),
-        Binding("e", "edit_mode", "Edit mode"),
-    ]
-
-    def action_edit_mode(self) -> None:
-        app = self.app  # type: BrainstormApp
-        # Read current status / launch_mode from yaml
-        status_path = app.session_dir / f"{self.agent_name}_status.yaml"
-        import yaml
-        data = yaml.safe_load(status_path.read_text()) or {}
-        current_mode = data.get("launch_mode", "headless")
-        agent_status = data.get("status", "Unknown")
-        crew_id = app.crew_id  # or wherever crew_id is stored
-        modal = AgentModeEditModal(
-            crew_id=crew_id, agent_name=self.agent_name,
-            current_mode=current_mode, agent_status=agent_status,
-        )
-        app.push_screen(modal, self._on_mode_result)
-
-    def _on_mode_result(self, new_mode: Optional[str]) -> None:
-        if new_mode is None:
-            return
-        app = self.app
-        result = subprocess.run(
-            ["./ait", "crew", "setmode",
-             "--crew", app.crew_id,
-             "--name", self.agent_name,
-             "--mode", new_mode],
-            capture_output=True, text=True, cwd=str(app.repo_root),
-        )
-        if result.returncode == 0 and "UPDATED:" in result.stdout:
-            app.notify(f"Launch mode updated → {new_mode}")
-            app._refresh_status_tab()
-        else:
-            app.notify(
-                f"setmode failed: {result.stderr.strip() or 'unknown error'}",
-                severity="error",
-            )
+def render(self) -> str:
+    line = self._display_line
+    if self.has_focus:
+        if self.agent_status == "Error":
+            line += "  [dim](w: reset)[/dim]"
+        elif self.agent_status == "Waiting":
+            line += "  [dim](e: edit mode)[/dim]"
+    return line
 ```
 
-Note: replace `app.crew_id`, `app.session_dir`, `app.repo_root` with
-whatever attribute names `BrainstormApp` already exposes (read the
-class to find them).
+The hint is only shown for Waiting agents, which matches the actual
+capability of setmode and avoids promising a feature that will reject.
 
-### 3. Row badge for current mode
+### 3. `BrainstormApp.on_key()` — new `e` key branch
 
-In the row label format string, append:
-- nothing when `launch_mode == "headless"` (default, don't clutter)
-- `  [interactive]` in a subtle color when `launch_mode == "interactive"`
+Insert immediately after the existing `w` branch (after line 1172):
 
-Read `launch_mode` from the cached agent data the row already tracks.
+```python
+        # e: edit launch_mode on a Waiting agent
+        if event.key == "e":
+            focused = self.focused
+            if isinstance(focused, AgentStatusRow):
+                if focused.agent_status != "Waiting":
+                    self.notify(
+                        f"Can only edit launch_mode on Waiting agents "
+                        f"(current: {focused.agent_status})",
+                        severity="warning",
+                    )
+                else:
+                    self._edit_agent_mode(focused)
+                event.prevent_default()
+                event.stop()
+                return
+```
 
-### 4. Footer / help text
+### 4. `BrainstormApp._edit_agent_mode()` — push the modal
 
-Add `e: Edit mode` to the status-tab help footer next to the existing
-`w: Reset error` entry.
+Insert near `_reset_agent` (around line 1539). Reads the current mode
+from the status yaml using the already-imported `read_yaml`, then
+pushes the modal with a callback:
+
+```python
+    def _edit_agent_mode(self, row: "AgentStatusRow") -> None:
+        """Open the launch_mode edit modal for a Waiting agent row."""
+        import os
+
+        name = row.agent_name
+        sf = os.path.join(str(self.session_path), f"{name}_status.yaml")
+        if not os.path.isfile(sf):
+            self.notify(
+                f"Status file not found for {name}",
+                severity="error",
+            )
+            return
+        data = read_yaml(sf) or {}
+        current_mode = data.get("launch_mode", "headless")
+        status = data.get("status", row.agent_status)
+        self.push_screen(
+            AgentModeEditModal(
+                agent_name=name,
+                agent_status=status,
+                current_mode=current_mode,
+            ),
+            lambda result, _name=name, _current=current_mode:
+                self._on_mode_edit_result(_name, _current, result),
+        )
+```
+
+The lambda captures `name` and `current_mode` so the callback can
+no-op when the user picked the same mode (idempotent; the CLI
+would also no-op but we avoid a subprocess round-trip).
+
+### 5. `BrainstormApp._on_mode_edit_result()` — apply via setmode CLI
+
+Insert immediately after `_edit_agent_mode`:
+
+```python
+    def _on_mode_edit_result(
+        self, agent_name: str, current_mode: str, new_mode
+    ) -> None:
+        """Callback after AgentModeEditModal closes."""
+        if new_mode is None or new_mode == current_mode:
+            return
+        crew_id = self.session_data.get("crew_id", "")
+        if not crew_id:
+            self.notify("No crew_id in session", severity="error")
+            return
+        try:
+            result = subprocess.run(
+                [
+                    AIT_PATH, "crew", "setmode",
+                    "--crew", crew_id,
+                    "--name", agent_name,
+                    "--mode", new_mode,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError as e:
+            self.notify(f"setmode failed to launch: {e}", severity="error")
+            return
+        if result.returncode == 0 and f"UPDATED:{agent_name}:{new_mode}" in result.stdout:
+            self.notify(f"Launch mode → {new_mode} for {agent_name}")
+            self._delayed_refresh_status()
+        else:
+            err = (result.stderr or result.stdout).strip() or "unknown error"
+            self.notify(f"setmode failed: {err}", severity="error")
+```
+
+Notes:
+- `subprocess` is already imported at the top of the file (line 5).
+- `AIT_PATH` is the module constant at line 92.
+- No `cwd=` is passed: setmode uses `resolve_crew` to find the
+  worktree, which does not depend on cwd.
+- Success path calls `_delayed_refresh_status()` — reuses the same
+  2-second refresh used by `_reset_agent`, so the Status tab picks up
+  the new value. The modal has already dismissed by the time this
+  runs.
+
+### 6. CSS for the modal
+
+Find the existing CSS block that styles `#node_detail_dialog`
+(grep for `#node_detail_dialog` in `brainstorm_app.py`). Add a
+sibling block near it:
+
+```css
+#mode_modal_dialog {
+    align: center middle;
+    width: 60;
+    height: auto;
+    padding: 1 2;
+    background: $surface;
+    border: solid $primary;
+}
+
+#mode_modal_title {
+    text-style: bold;
+    padding-bottom: 1;
+}
+
+#mode_modal_current {
+    padding-bottom: 1;
+}
+
+#mode_modal_note {
+    padding-bottom: 1;
+}
+
+#mode_modal_buttons {
+    height: auto;
+    align: center middle;
+}
+
+#mode_modal_buttons Button {
+    margin: 0 1;
+}
+```
+
+Match the exact CSS indentation and selectors used by the existing
+`#node_detail_dialog` block — copy-paste and tweak rather than
+inventing new style rules.
 
 ## Verification
 
-1. Open `ait brainstorm <task>` on a crew with a Waiting agent.
-2. Focus the row, press `e`. Modal opens with current mode shown.
-3. Click Interactive. Modal closes, toast "Launch mode updated →
-   interactive" appears, row re-renders with the `[interactive]` badge.
-4. Grep the status yaml: `launch_mode: interactive`.
-5. `git log -1`: a commit `ait: Set launch_mode=interactive ...` from
-   the setmode script.
-6. With a Running agent (you may need to let the runner start one),
-   press `e`: modal opens in read-only mode with the explanatory note.
-7. Rename the setmode script temporarily and press `e`: confirm error
-   toast appears with the underlying error.
+### Static
+
+1. `python3 -m py_compile .aitask-scripts/brainstorm/brainstorm_app.py` — must pass.
+2. `python3 -c "import sys; sys.path.insert(0, '.aitask-scripts'); import brainstorm.brainstorm_app as ba; assert hasattr(ba, 'AgentModeEditModal'); assert hasattr(ba.BrainstormApp, '_edit_agent_mode'); assert hasattr(ba.BrainstormApp, '_on_mode_edit_result'); print('OK')"` — smoke import.
+
+### Manual (requires a live brainstorm crew with a Waiting agent)
+
+3. `./ait brainstorm <task>` on a task whose session has at least one
+   Waiting agent (e.g., create an explorer and do not start the
+   runner yet).
+4. Switch to the Status tab. Focus the agent row via arrow/tab.
+5. Confirm the help hint `(e: edit mode)` appears next to the row.
+6. Press `e`. The modal opens; current mode is shown; `Headless` and
+   `Interactive` buttons appear, with the current one styled as
+   primary.
+7. Click `Interactive` (or use keyboard). The modal dismisses. Toast:
+   "Launch mode → interactive for \<name\>". 2 seconds later the
+   status tab re-renders.
+8. Verify the yaml: `grep launch_mode .aitask-crews/crew-<id>/<name>_status.yaml`
+   → `launch_mode: interactive`.
+9. Verify the commit: `cd .aitask-crews/crew-<id> && git log -1`
+   → message contains `Set launch_mode=interactive`.
+10. Press `e` again on the same (now interactive) row. Modal opens
+    with Interactive styled primary. Click Cancel. No toast, no
+    commit.
+11. Click the row through to a Running state (start the runner briefly
+    or synthetically set status=Running in yaml). Press `e`. Modal
+    opens in read-only form with the explanatory note and a single
+    Close button. Close it; no mutation.
+12. Rename `aitask_crew_setmode.sh` temporarily and press `e` on a
+    Waiting agent, pick Interactive. Confirm an error toast appears
+    and the app does not crash.
+
+### Regression
+
+13. Press `w` on an Error-state agent; confirm the reset flow still
+    works unchanged.
+14. Existing brainstorm tests are smoke-only (py_compile); ensure the
+    py_compile step above still passes.
+
+## Step 9 — Post-implementation
+
+- No worktree created — work is on `main`.
+- On commit, follow the standard task-workflow Step 9 archival via
+  `./.aitask-scripts/aitask_archive.sh 461_4`. Commit message for the
+  code change: `feature: Add launch_mode edit modal to brainstorm status tab (t461_4)`.
+- The child plan file will be archived to `aiplans/archived/p461/`
+  by the archive script. `t461_5` is next in line (it depends on
+  `t461_4`).
 
 ## Dependencies
 
-- Hard: t461_2 for the `ait crew setmode` CLI.
-- Soft: t461_1 for the `launch_mode` field; without it the badge just
-  shows empty / headless.
+- t461_2 (merged) — provides `ait crew setmode`. The modal only
+  works because this CLI exists.
+- t461_1 (merged) — provides the `launch_mode` yaml field that the
+  modal reads.
 
-## Notes for sibling tasks
+## Notes for sibling tasks (t461_5, t461_6)
 
-- This edit flow only handles Waiting agents. A follow-up task could
-  add in-flight mode changes (stop agent, flip mode, restart) but that
-  is out of scope for t461.
+- The modal reads `launch_mode` fresh from yaml each time via
+  `read_yaml` — so once t461_5 ships per-type defaults, the modal
+  will automatically reflect whatever effective mode the runner would
+  use (because t461_5 stores the effective value in the same yaml).
+- If t461_6 (ANSI log viewer) wants to bind its own key on
+  `AgentStatusRow`, follow the same pattern: add a branch in
+  `BrainstormApp.on_key()` after the `e` branch, not a class-level
+  `BINDINGS` on the row. The row has no BINDINGS; all focused-row
+  keybindings go in `on_key()`.
+- A `[interactive]` badge on the row label was considered and
+  deliberately left out of this task to keep the diff minimal. If
+  t461_6 adds a `launch_mode` field to `AgentStatusRow` (e.g. to
+  show its own badge or to decide whether to offer log tail), this
+  task's edit flow will pick up the cached value "for free" since
+  `_delayed_refresh_status` re-mounts all rows.
