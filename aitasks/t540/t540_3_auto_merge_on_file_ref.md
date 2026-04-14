@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t540_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask-create, aitask_fold, bash_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-14 10:14
-updated_at: 2026-04-14 10:14
+updated_at: 2026-04-14 13:06
 ---
 
 t540_3: when `aitask_create.sh` is invoked with one or more
