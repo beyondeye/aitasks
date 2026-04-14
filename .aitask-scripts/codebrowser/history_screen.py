@@ -3,6 +3,7 @@
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -12,14 +13,37 @@ from agent_launch_utils import find_terminal as _find_terminal, resolve_dry_run_
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal
-from textual.screen import Screen
-from textual.widgets import Header, Footer, LoadingIndicator
+from textual.containers import Container, Horizontal
+from textual.screen import ModalScreen, Screen
+from textual.widgets import Footer, Header, LoadingIndicator, Static
 from textual import work
 
 from history_list import HistoryLeftPane, HistoryTaskList, HistoryTaskItem, TaskSelected
 from history_detail import HistoryDetailPane, NavigateToFile, HistoryBrowseEvent
 from history_data import load_task_index, load_task_index_progressive, detect_platform_info, CompletedTask, PlatformInfo
+
+
+class HistoryRefreshModal(ModalScreen):
+    """Blocking loading indicator shown while the history refresh runs."""
+
+    DEFAULT_CSS = """
+    HistoryRefreshModal {
+        align: center middle;
+        background: $background 60%;
+    }
+    HistoryRefreshModal #refresh_box {
+        width: 40;
+        height: 5;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+        content-align: center middle;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Container(id="refresh_box"):
+            yield Static("⟳ Refreshing history…")
 
 
 class HistoryScreen(Screen):
@@ -35,8 +59,8 @@ class HistoryScreen(Screen):
         Binding("v", "toggle_view", "Toggle task/plan"),
         Binding("l", "label_filter", "Label filter"),
         Binding("a", "launch_qa", "Launch QA"),
+        Binding("r", "refresh_history", "Refresh"),
         # Override codebrowser app bindings to hide them from footer
-        Binding("r", "noop", show=False),
         Binding("t", "noop", show=False),
         Binding("g", "noop", show=False),
         Binding("e", "noop", show=False),
@@ -73,6 +97,9 @@ class HistoryScreen(Screen):
         self._restore_scroll_y = restore_scroll_y
         self._restore_labels = restore_labels
         self._navigate_to_task_id = navigate_to_task_id
+        self._refreshing = False
+        self._refresh_modal: Optional[HistoryRefreshModal] = None
+        self._refresh_start_time = 0.0
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -138,6 +165,14 @@ class HistoryScreen(Screen):
         for index_chunk in load_task_index_progressive(self._project_root):
             self.app.call_from_thread(self._on_index_chunk, index_chunk, platform)
 
+    @work(thread=True, exclusive=True, group="history_reload")
+    def _reload_data(self) -> None:
+        platform = detect_platform_info(self._project_root)
+        first = True
+        for index_chunk in load_task_index_progressive(self._project_root):
+            self.app.call_from_thread(self._on_reload_chunk, index_chunk, platform, first)
+            first = False
+
     def _on_index_chunk(self, index, platform) -> None:
         # Always cache on app (even if screen dismissed, so re-open is fast)
         self.app._history_index = index
@@ -177,6 +212,63 @@ class HistoryScreen(Screen):
                 detail._task_index = index
             except Exception:
                 pass
+
+    def _on_reload_chunk(self, index, platform, is_first: bool) -> None:
+        self.app._history_index = index
+        self.app._history_platform = platform
+        if not self.is_mounted:
+            return
+        self._task_index = index
+        self._platform_info = platform
+        try:
+            left = self.query_one("#history_left", HistoryLeftPane)
+            detail = self.query_one("#history_detail", HistoryDetailPane)
+        except Exception:
+            return
+        if is_first:
+            try:
+                task_list = left.query_one("#history_list", HistoryTaskList)
+                saved_scroll = int(task_list.scroll_y)
+                saved_labels = set(task_list._active_labels)
+            except Exception:
+                saved_scroll = 0
+                saved_labels = set()
+            saved_task_id = detail._nav_stack[-1] if detail._nav_stack else None
+            saved_showing_plan = detail._showing_plan
+            left.set_data(index)
+            detail.set_context(self._project_root, index, platform)
+            if saved_labels:
+                left.apply_label_filter(saved_labels)
+            if saved_task_id:
+                detail.show_task(saved_task_id, is_explicit_browse=False)
+                if saved_showing_plan:
+                    detail._showing_plan = True
+            if saved_scroll > 0:
+                self._restore_scroll_y = saved_scroll
+                self.set_timer(0.1, self._restore_scroll)
+            elapsed = time.monotonic() - self._refresh_start_time
+            remaining = max(0.0, 1.0 - elapsed)
+            if remaining > 0.0:
+                self.set_timer(remaining, self._dismiss_refresh_modal)
+            else:
+                self._dismiss_refresh_modal()
+        else:
+            try:
+                left.update_index(index)
+                detail._task_index = index
+            except Exception:
+                pass
+
+    def _dismiss_refresh_modal(self) -> None:
+        modal = self._refresh_modal
+        self._refresh_modal = None
+        self._refreshing = False
+        if modal is not None:
+            try:
+                modal.dismiss()
+            except Exception:
+                pass
+        self.notify("History refreshed", timeout=2)
 
     def _save_state_to_app(self) -> None:
         """Save current view state to the app for restoration on re-open."""
@@ -225,6 +317,19 @@ class HistoryScreen(Screen):
     def action_noop(self) -> None:
         """No-op action to suppress inherited codebrowser bindings."""
         pass
+
+    def action_refresh_history(self) -> None:
+        """Re-scan aitasks/archived and refresh the history list in place."""
+        if self._task_index is None:
+            self.notify("History is still loading…", severity="warning", timeout=2)
+            return
+        if self._refreshing:
+            return
+        self._refreshing = True
+        self._refresh_start_time = time.monotonic()
+        self._refresh_modal = HistoryRefreshModal()
+        self.app.push_screen(self._refresh_modal)
+        self._reload_data()
 
     def action_label_filter(self) -> None:
         """Open the label filter modal dialog."""
