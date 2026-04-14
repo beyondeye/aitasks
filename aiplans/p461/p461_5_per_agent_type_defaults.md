@@ -1,48 +1,105 @@
 ---
 Task: t461_5_per_agent_type_defaults.md
 Parent Task: aitasks/t461_interactive_override_in_agencrew.md
-Sibling Tasks: aitasks/t461/t461_1_*.md, aitasks/t461/t461_2_*.md, aitasks/t461/t461_3_*.md, aitasks/t461/t461_4_*.md, aitasks/t461/t461_6_*.md
+Sibling Tasks: aitasks/t461/t461_6_*.md
 Archived Sibling Plans: aiplans/archived/p461/p461_1_*.md, aiplans/archived/p461/p461_2_*.md, aiplans/archived/p461/p461_3_*.md, aiplans/archived/p461/p461_4_*.md
 Worktree: (current branch)
 Branch: (current branch)
 Base branch: main
 ---
 
-# p461_5 — Per-agent-type launch_mode defaults
+# p461_5 — Per-agent-type `launch_mode` defaults
 
-## Goal
+## Context
 
-Let each agent type (e.g., brainstorm's `explorer`, `detailer`) declare
-its own `launch_mode` default in `_crew_meta.yaml`. The runner's
-resolution (added in t461_1) already reads this path; this task fills
-it with sensible defaults for brainstorm agents and teaches
-`aitask_crew_init.sh` to emit the field.
+Siblings t461_1–t461_4 added the end-to-end plumbing for a per-agent
+`launch_mode` (headless|interactive): addwork accepts `--launch-mode`,
+setmode can mutate it, the runner resolves it when launching, the
+brainstorm wizard exposes a toggle, and the status tab lets users edit
+it post-creation. What's missing is the **per-agent-type default layer**:
+every brainstorm agent currently starts `headless` unless the user
+explicitly toggles or edits. The `detailer` in particular produces a
+long inner-loop plan the user wants to watch live, so making the user
+remember to flip the toggle every time is tedious.
 
-## Files
+This task adds the missing layer so that `_crew_meta.yaml` carries a
+`launch_mode` per agent type, the runner already reads it (t461_1 wired
+the lookup), and the wizard's initial value reflects the type default.
 
-### Modified
+## Current state (verified 2026-04-14)
 
-1. `.aitask-scripts/agentcrew/agentcrew_runner.py` — confirm the
-   resolution line is present (added in t461_1):
+1. **Runner resolution — DONE (t461_1).**
+   `agentcrew_runner.py:419-427` already has the exact fallback chain:
    ```python
+   type_config = agent_types_config.get(atype, {})
+   # Resolve launch mode: per-agent yaml > per-type config (t461_5) > framework default
    launch_mode = (
        agent_data.get("launch_mode")
        or type_config.get("launch_mode")
        or "headless"
    )
    ```
-2. `.aitask-scripts/aitask_crew_init.sh` — writes `_crew_meta.yaml`.
-   Allow a `launch_mode` key on agent-type entries.
-3. `.aitask-scripts/brainstorm/brainstorm_crew.py` —
-   `BRAINSTORM_AGENT_TYPES` (lines 39-45) and its emitter into
-   `_crew_meta.yaml` (if brainstorm customizes the init).
-4. `.aitask-scripts/brainstorm/brainstorm_crew.py` — `_run_addwork()`
-   already reads this via the filter from t461_3, so this task just
-   populates the source.
+   Nothing to change here — verified in place.
+
+2. **`aitask_crew_init.sh` emitter — HARDCODED, no launch_mode.**
+   Lines 82-87 validate `--add-type` as `type_id:agent_string` (first
+   colon only). Lines 115-122 build the YAML block with `agent_string`
+   and `max_parallel: 0` hardcoded. No `launch_mode` field.
+
+3. **`aitask_brainstorm_init.sh` — PASSES no launch_mode.**
+   Lines 111-121 call `aitask_crew_init.sh --add-type` with only
+   `type:agent_string`. Helper `_get_brainstorm_agent_string` (lines
+   88-107) resolves `agent_string` via `codeagent_config.json`; no
+   parallel helper for launch_mode.
+
+4. **`BRAINSTORM_AGENT_TYPES` — MISSING launch_mode keys.**
+   `brainstorm/brainstorm_crew.py:39-45` has only `agent_string` and
+   `max_parallel` per entry. `get_agent_types()` (lines 48-71) overlays
+   `agent_string` from `codeagent_config.json` but doesn't touch
+   `launch_mode`.
+
+5. **`_run_addwork()` redundancy filter — NOT YET USING TYPE DEFAULT.**
+   `brainstorm/brainstorm_crew.py:111-112` currently emits
+   `--launch-mode interactive` whenever the wizard asks for
+   interactive, regardless of the per-type default. Headless requests
+   are silently omitted. A proper redundancy filter should compare the
+   wizard value against the per-type default and emit only on mismatch
+   — so a "detailer + interactive" call (which matches the type
+   default) does not write a redundant override into the status yaml.
+
+6. **Wizard default helper — ALREADY READS FROM `BRAINSTORM_AGENT_TYPES`.**
+   `brainstorm_app.py:122-127` defines:
+   ```python
+   def _brainstorm_launch_mode_default(wizard_op: str) -> str:
+       from brainstorm.brainstorm_crew import BRAINSTORM_AGENT_TYPES
+       agent_type = _WIZARD_OP_TO_AGENT_TYPE.get(wizard_op, "")
+       return BRAINSTORM_AGENT_TYPES.get(agent_type, {}).get(
+           "launch_mode", "headless"
+       )
+   ```
+   It gracefully degrades to `"headless"` today. As soon as t461_5
+   populates `launch_mode` in the dict, `detailer` will start returning
+   `"interactive"` automatically. No change needed here.
+
+## Files to modify
+
+1. `.aitask-scripts/brainstorm/brainstorm_crew.py` — add `launch_mode`
+   to `BRAINSTORM_AGENT_TYPES` entries; fix `_run_addwork()` redundancy
+   filter.
+2. `.aitask-scripts/aitask_crew_init.sh` — accept optional third
+   colon-separated field on `--add-type` (`type_id:agent_string:mode`),
+   validate it, emit `launch_mode` into the YAML block.
+3. `.aitask-scripts/aitask_brainstorm_init.sh` — add
+   `_get_brainstorm_launch_mode()` helper that reads from
+   `BRAINSTORM_AGENT_TYPES` via a Python one-liner, then extend the
+   five `--add-type` args to include launch_mode per type.
 
 ## Implementation steps
 
-### 1. Decide the defaults
+### Step 1 — Populate `BRAINSTORM_AGENT_TYPES`
+
+In `.aitask-scripts/brainstorm/brainstorm_crew.py:39-45`, add
+`launch_mode` per entry:
 
 ```python
 BRAINSTORM_AGENT_TYPES = {
@@ -54,88 +111,202 @@ BRAINSTORM_AGENT_TYPES = {
 }
 ```
 
-Rationale: detailer produces long plans the user wants to watch live
-(it's the "inner loop" of brainstorm). Others often run in parallel
-and would clutter tmux with windows.
+Rationale: detailer is the "inner loop" of brainstorm — it produces the
+long plan the user wants to watch live. Others run in parallel and
+would clutter tmux with windows.
 
-### 2. `aitask_crew_init.sh` emitter
+No change needed to `get_agent_types()` — its deep-copy already carries
+the new key through. `launch_mode` is not config-overridable via
+`codeagent_config.json` in this iteration (scope: minimal, see
+follow-up task t461_7).
 
-Find the block that writes `agent_types:` in `_crew_meta.yaml`. It
-probably looks like:
-```bash
-cat > "$META_FILE" <<EOF
-...
-agent_types:
-  explorer:
-    agent_string: claudecode/opus4_6
-    max_parallel: 0
-...
-EOF
-```
+### Step 2 — Redundancy filter in `_run_addwork()`
 
-Refactor to support an optional `launch_mode` line per type. Options:
-- Pass agent type definitions as a structured arg to the script (hard).
-- Make the brainstorm crew init path write `_crew_meta.yaml` directly
-  from Python using `BRAINSTORM_AGENT_TYPES` (cleaner).
+In `.aitask-scripts/brainstorm/brainstorm_crew.py`, replace lines
+111-112 with a redundancy filter that emits `--launch-mode` only when
+the wizard value differs from the per-type default:
 
-Prefer option 2: `brainstorm_crew.py` already calls `_run_init()`; have
-it pass the dict through and write the yaml in Python via
-`yaml.safe_dump`. If that is too invasive, add a minimal
-`--agent-types-file <yaml>` flag to `aitask_crew_init.sh` so callers
-supply the whole block verbatim.
-
-### 3. Runner resolution — verify
-
-Check that t461_1's change is correctly resolving from `type_config`.
-Write a small Python test or manual verification:
-- Load a `_crew_meta.yaml` with `launch_mode: interactive` on
-  `detailer`.
-- Call `launch_agent()` (or the internal resolution helper) with a
-  detailer agent whose status yaml has no `launch_mode` key.
-- Assert the effective mode is `interactive`.
-
-### 4. `_run_addwork()` redundancy filter (already added in t461_3)
-
-Confirm the filter is active:
 ```python
-type_default = BRAINSTORM_AGENT_TYPES.get(agent_type, {}).get("launch_mode", "headless")
+type_default = BRAINSTORM_AGENT_TYPES.get(agent_type, {}).get(
+    "launch_mode", "headless"
+)
 if launch_mode != type_default:
     cmd.extend(["--launch-mode", launch_mode])
 ```
-This keeps the per-agent status yaml clean of redundant overrides.
 
-### 5. Brainstorm wizard initial value (already added in t461_3)
+Effect:
+- Wizard "interactive" + detailer (type default interactive) → no
+  `--launch-mode` flag → status yaml has no per-agent override → runner
+  falls through to type config → launches interactive. Clean.
+- Wizard "headless" + detailer → `--launch-mode headless` emitted →
+  override stored on the agent → runner respects it.
+- Wizard "interactive" + explorer (type default headless) →
+  `--launch-mode interactive` emitted → override stored → interactive.
 
-`_brainstorm_type_default()` helper reads from
-`BRAINSTORM_AGENT_TYPES`. After this task, `detailer` will report
-`interactive` as its default.
+### Step 3 — Extend `--add-type` parsing in `aitask_crew_init.sh`
+
+**3a. Update validation regex** at line 84. Allow optional third
+colon-separated field:
+```bash
+if ! [[ "$at" =~ ^[a-z0-9_]+:[^:]+(:(headless|interactive))?$ ]]; then
+    die "Invalid --add-type format '$at': expected type_id:agent_string[:launch_mode] (e.g., impl:claudecode/opus4_6 or detailer:claudecode/opus4_6:interactive)"
+fi
+```
+
+**3b. Update the emitter loop** at lines 115-122 to parse three fields
+and emit `launch_mode` when present:
+```bash
+for at in "${ADD_TYPES[@]}"; do
+    IFS=':' read -r local_type_id local_agent_string local_launch_mode <<< "$at"
+    AGENT_TYPES_YAML="${AGENT_TYPES_YAML}  ${local_type_id}:
+    agent_string: ${local_agent_string}
+    max_parallel: 0
+"
+    if [[ -n "${local_launch_mode:-}" ]]; then
+        AGENT_TYPES_YAML="${AGENT_TYPES_YAML}    launch_mode: ${local_launch_mode}
+"
+    fi
+done
+```
+
+Note: `IFS=':' read -r` splits agent_string on any colon. Current
+agent strings use `/` (e.g., `claudecode/opus4_6`) so this is safe. If
+a future agent string grows a colon, callers must not pass the third
+field via `--add-type` — use separate plumbing.
+
+**3c. Update the help text** at line 50 to show the extended format:
+```bash
+ait crew init --id sprint1 --add-type impl:claudecode/opus4_6 --add-type review:claudecode/sonnet4_6:interactive --batch
+```
+
+### Step 4 — Pass launch_mode from `aitask_brainstorm_init.sh`
+
+**4a. Add a helper** after `_get_brainstorm_agent_string` (around line
+108), mirroring its shape but reading directly from
+`BRAINSTORM_AGENT_TYPES` as the source of truth:
+```bash
+_get_brainstorm_launch_mode() {
+    local agent_type="$1"
+    "$PYTHON" -c "
+import sys
+sys.path.insert(0, '$SCRIPT_DIR')
+from brainstorm.brainstorm_crew import BRAINSTORM_AGENT_TYPES
+print(BRAINSTORM_AGENT_TYPES.get('$agent_type', {}).get('launch_mode', 'headless'))
+" 2>/dev/null || echo "headless"
+}
+```
+
+**4b. Update the `aitask_crew_init.sh` call** at lines 111-121 to
+append launch_mode per type:
+```bash
+crew_output=$(bash "$SCRIPT_DIR/aitask_crew_init.sh" \
+    --id "brainstorm-${TASK_NUM}" \
+    --name "Brainstorm t${TASK_NUM}" \
+    --add-type "explorer:$(_get_brainstorm_agent_string explorer claudecode/opus4_6):$(_get_brainstorm_launch_mode explorer)" \
+    --add-type "comparator:$(_get_brainstorm_agent_string comparator claudecode/sonnet4_6):$(_get_brainstorm_launch_mode comparator)" \
+    --add-type "synthesizer:$(_get_brainstorm_agent_string synthesizer claudecode/opus4_6):$(_get_brainstorm_launch_mode synthesizer)" \
+    --add-type "detailer:$(_get_brainstorm_agent_string detailer claudecode/opus4_6):$(_get_brainstorm_launch_mode detailer)" \
+    --add-type "patcher:$(_get_brainstorm_agent_string patcher claudecode/sonnet4_6):$(_get_brainstorm_launch_mode patcher)" \
+    --batch 2>&1) || {
+    die "Failed to create crew: $crew_output"
+}
+```
+
+### Step 5 — Unit/integration check (quick)
+
+`tests/` already has `test_launch_mode_field.sh` (added by t461_1) and
+`test_crew_setmode.sh` (t461_2). Neither covers the `aitask_crew_init.sh`
+emitter extension. Run `shellcheck` and the existing tests; defer
+dedicated coverage to `/aitask-qa` afterwards.
 
 ## Verification
 
-1. Create a fresh brainstorm crew. `cat _crew_meta.yaml` — confirm
-   `launch_mode: interactive` on `detailer` and `launch_mode: headless`
-   on `explorer`.
-2. Run a `detail` op without touching the wizard toggle. Confirm the
-   detailer agent launches in a tmux window `agent-detailer_NNN`.
-3. Run an `explore` op without touching the toggle. Confirm explorers
-   launch headless (logs only, no tmux window).
-4. Toggle the wizard OFF for a `detail` op. Confirm per-agent override
-   wins — detailer launches headless. Verify `_status.yaml` has
-   `launch_mode: headless` (because the filter recognizes the user
-   override differs from the type default, so it is written).
-5. Toggle the wizard ON for an `explore` op. Confirm explorer launches
-   interactively. Verify `_status.yaml` has `launch_mode: interactive`.
-6. `shellcheck .aitask-scripts/aitask_crew_init.sh` passes.
+1. **Fresh brainstorm crew**:
+   ```bash
+   ./ait brainstorm init <some_test_task>
+   cat .aitask-crews/crew-brainstorm-<task>/_crew_meta.yaml
+   ```
+   Confirm `agent_types.detailer.launch_mode: interactive` and
+   `agent_types.explorer.launch_mode: headless`.
+
+2. **Detail op without toggle**: Launch a `detail` op in the brainstorm
+   TUI, leave the wizard toggle at its default. Confirm:
+   - The agent launches in a tmux window named `agent-detailer_NNN`
+     (not headless).
+   - The agent's `_status.yaml` does NOT contain a `launch_mode` key
+     (the redundancy filter dropped it because the wizard value matches
+     the type default).
+
+3. **Explore op without toggle**: Launch an `explore` op. Confirm all
+   explorer agents launch headless (no tmux window), and their status
+   yamls have no `launch_mode` key.
+
+4. **Override per-agent**: Toggle the wizard OFF for a `detail` op.
+   Launch. Confirm the detailer launches headless (per-agent override
+   wins). The status yaml MUST contain `launch_mode: headless` since
+   the wizard value differs from the type default.
+
+5. **Override other direction**: Toggle the wizard ON for an `explore`
+   op. Launch. Confirm explorers launch interactively. Status yaml has
+   `launch_mode: interactive`.
+
+6. **Shellcheck**: `shellcheck .aitask-scripts/aitask_crew_init.sh
+   .aitask-scripts/aitask_brainstorm_init.sh` must pass.
+
+7. **Existing tests**: Re-run `bash tests/test_launch_mode_field.sh`
+   and `bash tests/test_crew_setmode.sh` — both must still pass.
 
 ## Dependencies
 
-- t461_1: runner resolution line.
-- t461_3: wizard filter that consults `BRAINSTORM_AGENT_TYPES` for
-  the redundancy check and initial value.
+- t461_1 (archived) — runner resolution line: DONE.
+- t461_2 (archived) — `crew setmode` CLI: DONE.
+- t461_3 (archived) — wizard toggle + `_brainstorm_launch_mode_default()`:
+  DONE. Will automatically start returning `"interactive"` for
+  detailer once Step 1 lands.
+- t461_4 (archived) — status-tab edit: DONE.
 
-## Notes for sibling tasks
+## Out of scope (follow-up task t461_7)
 
-- **Adding a new brainstorm agent type later**: remember to add
-  `launch_mode` to its `BRAINSTORM_AGENT_TYPES` entry. Missing keys
-  fall back to `headless`.
-- **t461_6 (log viewer)**: no interaction with this task.
+The `ait settings` TUI currently exposes brainstorm agent-string
+defaults via per-type ConfigRows (project/user layered, reads
+`codeagent_config.json` under `defaults.brainstorm-*`). Adding a
+matching row for `launch_mode` per type would let users edit defaults
+without touching code — a natural UX extension.
+
+This is **deferred to a follow-up child task t461_7** to keep t461_5
+minimal. During archival of t461_5, create `t461_7` via the Batch Task
+Creation Procedure with a description that references:
+- The settings TUI pattern in `.aitask-scripts/settings/settings_app.py`
+  around lines 1850-1892 (project/user ConfigRow pair + AgentModelPicker
+  modal for editing).
+- The config overlay storage approach: add flat keys
+  `brainstorm-<type>-launch-mode` to `codeagent_config.json` under
+  `defaults`, parallel to existing `brainstorm-<type>` keys.
+- Teach `get_agent_types()` in `brainstorm/brainstorm_crew.py` to
+  overlay `launch_mode` from those config keys (lines 48-71).
+- Teach `_get_brainstorm_launch_mode()` in
+  `aitask_brainstorm_init.sh` to also read from config (so the crew
+  yaml picks up user overrides at init time).
+- A small modal for headless/interactive selection (or reuse
+  CycleField pattern from t461_3).
+
+## Notes for sibling tasks (t461_6, t461_7)
+
+- `t461_6` (ANSI log viewer) is independent of this task.
+- `t461_7` (TUI exposure — to be created during t461_5 archival) will
+  build on the dict + config plumbing this task lays down.
+- **Schema stability**: `launch_mode` is now a documented per-type
+  key in `_crew_meta.yaml`. If a future agent type is added to
+  `BRAINSTORM_AGENT_TYPES`, include a `launch_mode` value (missing =
+  `headless` fallback but explicit is better).
+- **Mode validation regex**: `^(headless|interactive)$` is now
+  enforced in FOUR places — `aitask_crew_addwork.sh`,
+  `aitask_crew_setmode.sh`, `agentcrew_runner.py`, and now
+  `aitask_crew_init.sh`. Keep in lock-step.
+
+## Step 9 (Post-Implementation)
+
+Follow the standard task-workflow Step 9: review → commit code changes
+(plain `git`) → commit plan file (`./ait git`) → ask before merging →
+run archive script → push. Use commit prefix `feature:` since
+`issue_type: feature`.
