@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_workflow, aitask_pick]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-14 16:11
-updated_at: 2026-04-14 16:11
+updated_at: 2026-04-14 16:48
 ---
 
 ## Context
