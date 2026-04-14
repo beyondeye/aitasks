@@ -218,3 +218,36 @@ Commit `.aitask-scripts/settings/settings_app.py` as a `feature` commit with
 message `feature: Add int profile field and plan verification keys to settings
 TUI (t550)`. Commit the plan file separately via `./ait git`. Run
 `./.aitask-scripts/aitask_archive.sh 550` and push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all 9 edits exactly as planned — single
+  file (`.aitask-scripts/settings/settings_app.py`, +69/-6 lines). Added the
+  `int` field type with widget-id prefix `profile_int_`, registered both new
+  keys in `PROFILE_SCHEMA` / `PROFILE_FIELD_INFO` / `PROFILE_FIELD_GROUPS`
+  (Planning group, between `plan_preference_child` and `post_plan_action`),
+  and wired the int branch through the rendering loop, the Enter-key
+  dispatch, the `?` help-toggle dispatch, the `_save_profile` save loop, and
+  `_handle_profile_string_edit`.
+- **Deviations from plan:** None.
+- **Issues encountered:** None during implementation. Verification was limited
+  to syntax compile, module import, schema/info/group introspection, and
+  `aitask_scan_profiles.sh` parse — interactive Textual TUI testing was not
+  possible from this session (no TTY for the running agent). The user
+  reviewed and approved before commit.
+- **Key decisions:**
+  - Reused `ConfigRow` + `EditStringScreen` modal for the int row (same UX
+    as string fields) instead of introducing a new modal/widget — minimum
+    surface change.
+  - Used a distinct widget-id prefix `profile_int_` (rather than reusing
+    `profile_str_`) so the save-time branch can dispatch on the prefix
+    alone without relying on a per-key schema lookup inside the string
+    handler. This required extending three dispatch sites (Enter-key,
+    `?`-help focus restore, `_handle_profile_string_edit`).
+  - Validation rejects negatives via `iv < 0` rather than strict positive
+    (`iv < 1`); the task text said "positive integers only" but allowing 0
+    preserves a meaningful "disable" semantic for `plan_verification_required`
+    while still rejecting non-numeric and negative input.
+  - `bool` is a subclass of `int` in Python — the rendering branch guards
+    against accidentally displaying `True`/`False` from a malformed YAML
+    profile by short-circuiting `isinstance(current_raw, bool)` to `""`.
