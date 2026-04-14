@@ -832,6 +832,17 @@ get_labels_interactive() {
     SELECTED_LABELS=""
     local selected_labels=()
 
+    # Offer the previous-task labels as a one-time menu entry in the first
+    # iteration. If the user selects it, we seed the selection with those
+    # labels and suppress the entry on subsequent loops.
+    local prev_labels_csv=""
+    local prev_labels_display=""
+    local offered_prev=false
+    prev_labels_csv=$(get_last_used_labels 2>/dev/null || true)
+    if [[ -n "$prev_labels_csv" ]]; then
+        prev_labels_display=">> Use labels from previous task (${prev_labels_csv})"
+    fi
+
     while true; do
         # Build options list, filtering out already selected labels
         local existing_labels
@@ -864,6 +875,9 @@ get_labels_interactive() {
         else
             options=">> Done adding labels"$'\n'">> Add new label"
         fi
+        if [[ -n "$prev_labels_display" && "$offered_prev" == "false" ]]; then
+            options="${prev_labels_display}"$'\n'"${options}"
+        fi
 
         # Select label using fzf
         local selected
@@ -872,7 +886,20 @@ get_labels_interactive() {
         if [[ -n "$selected" ]]; then
             local label=""
 
-            if [[ "$selected" == ">> Done adding labels" ]]; then
+            if [[ -n "$prev_labels_display" && "$selected" == "$prev_labels_display" ]]; then
+                # Seed current selection with the previous labels and continue
+                # the loop; the entry is suppressed on subsequent iterations.
+                local _prev_split=()
+                IFS=',' read -ra _prev_split <<< "$prev_labels_csv"
+                for _pl in "${_prev_split[@]}"; do
+                    if [[ -n "$_pl" ]]; then
+                        selected_labels+=("$_pl")
+                        success "Added label: $_pl"
+                    fi
+                done
+                offered_prev=true
+                continue
+            elif [[ "$selected" == ">> Done adding labels" ]]; then
                 break
             elif [[ "$selected" == ">> Add new label" ]]; then
                 local new_label
@@ -1695,6 +1722,7 @@ main() {
 
     get_labels_interactive
     local labels="$SELECTED_LABELS"
+    set_last_used_labels "$labels"
 
     local deps
     deps=$(select_dependencies "$parent_num")

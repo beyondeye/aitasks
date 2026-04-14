@@ -169,6 +169,53 @@ get_user_email() {
     fi
 }
 
+# Read the last-used labels list from userconfig.yaml (per-user).
+# Output: CSV string (e.g. "ui,backend"), empty when field or file is absent.
+get_last_used_labels() {
+    local config="${TASK_DIR:-aitasks}/metadata/userconfig.yaml"
+    [[ -f "$config" ]] || return 0
+    local line
+    line=$(grep '^last_used_labels:' "$config" 2>/dev/null) || true
+    [[ -z "$line" ]] && return 0
+    echo "$line" | sed -e 's/^last_used_labels:[[:space:]]*//' \
+                       -e 's/^\[//' \
+                       -e 's/\][[:space:]]*$//' \
+                       -e 's/[[:space:]]//g'
+}
+
+# Write the last-used labels list to userconfig.yaml (per-user).
+# Input: CSV string (e.g. "ui,backend") — empty is valid and writes "[]".
+# Creates the file with the standard header if it does not exist.
+# Replaces the field in-place when present, otherwise appends it.
+set_last_used_labels() {
+    local csv="${1:-}"
+    local config="${TASK_DIR:-aitasks}/metadata/userconfig.yaml"
+    local dir
+    dir="$(dirname "$config")"
+    mkdir -p "$dir"
+
+    local yaml_list
+    if [[ -z "$csv" ]]; then
+        yaml_list="[]"
+    else
+        yaml_list="[$(echo "$csv" | sed 's/,/, /g')]"
+    fi
+
+    if [[ ! -f "$config" ]]; then
+        {
+            echo "# Local user configuration (gitignored, not shared)"
+            echo "last_used_labels: $yaml_list"
+        } > "$config"
+        return 0
+    fi
+
+    if grep -q '^last_used_labels:' "$config" 2>/dev/null; then
+        sed_inplace "s|^last_used_labels:.*\$|last_used_labels: ${yaml_list}|" "$config"
+    else
+        echo "last_used_labels: $yaml_list" >> "$config"
+    fi
+}
+
 # --- Platform Detection ---
 
 # Detect git remote platform from origin URL
