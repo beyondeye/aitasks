@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [codebrowser, aitask-create]
-children_to_implement: [t540_1, t540_2, t540_3, t540_4, t540_5]
+children_to_implement: [t540_1, t540_2, t540_3, t540_4, t540_5, t540_6]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-14 09:26
 updated_at: 2026-04-14 10:15
