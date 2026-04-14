@@ -349,3 +349,14 @@ Manual smoke test (this is a TUI, no automated test covers it):
 - Plan commit: `ait: Update plan for t552`
 - Archive via `./.aitask-scripts/aitask_archive.sh 552`
 - Push via `./ait git push`
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Added `HistoryRefreshModal(ModalScreen)` above `HistoryScreen`, rewired the `r` binding from the hidden `noop` override to a visible `refresh_history` action, added `_refreshing` / `_refresh_modal` / `_refresh_start_time` instance fields in `__init__`, added `action_refresh_history` (with early-outs for still-loading and in-progress cases), added `_reload_data` worker (`@work(thread=True, exclusive=True, group="history_reload")`), added `_on_reload_chunk` that does a full `left.set_data` rebuild on the first chunk plus the usual `update_index` progressive path on subsequent chunks, and added `_dismiss_refresh_modal` that fires the dismissal + "History refreshed" toast. Modal dismissal honors a `max(0, 1.0 - elapsed)` timer so the indicator is always visible for at least a second. All edits in `.aitask-scripts/codebrowser/history_screen.py` (+109 / -4).
+- **Deviations from plan:** None. One incidental tidy-up — the `from textual.widgets import Header, Footer, LoadingIndicator` import was rewritten as `from textual.widgets import Footer, Header, LoadingIndicator, Static` (alphabetized while adding `Static`). Functionally identical.
+- **Issues encountered:** None. `python -m py_compile` clean on first attempt; module import test confirmed `HistoryScreen.BINDINGS` now contains `r → refresh_history` and the label shows in the footer.
+- **Key decisions:**
+  - Kept a separate `_on_reload_chunk` path rather than teaching `_on_index_chunk` a "refresh mode" — the initial handler has a "first chunk mounts UI" branch that we don't want touched, and keeping the two paths separate avoids a double-mount race while the progressive loader is still running.
+  - Reused the existing `_restore_scroll_y` / `_restore_scroll()` plumbing from `_populate_and_restore` rather than introducing a new scroll-restore field. `_populate_and_restore` runs exactly once during `on_mount` and a refresh can only happen after that, so overwriting `_restore_scroll_y` later is safe.
+  - The modal's 1-second minimum display time uses `time.monotonic()` captured at `action_refresh_history` entry and compared at first-chunk handling; this gives both a consistent visual cue on fast machines and a natural "typeahead guard" (while the modal is up, keypresses can't reach `HistoryScreen`).
+- **Verification:** `python -m py_compile .aitask-scripts/codebrowser/history_screen.py` ✔. Module import via a one-shot Python harness confirmed `HistoryRefreshModal` class exists and `HistoryScreen.BINDINGS` lists `r → refresh_history` with description "Refresh" and `show=True`. User confirmed live smoke test in `./ait codebrowser → h` before approving the commit.
