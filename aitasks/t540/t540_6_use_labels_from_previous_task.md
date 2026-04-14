@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask-create, bash_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-14 10:15
-updated_at: 2026-04-14 18:19
+updated_at: 2026-04-14 18:21
 ---
 
 t540_6: add a "use labels from previous task" option to the interactive
