@@ -65,5 +65,33 @@ the whitelist ordering local/related and makes future diffs easier to read.
 ## Step 9 (Post-Implementation)
 
 Standard task-workflow archival: commit with
-`chore: Whitelist aitask_plan_verified.sh (t551)`, then archive via
-`./.aitask-scripts/aitask_archive.sh 551`.
+`bug: Whitelist aitask_plan_verified.sh (t551)` (task `issue_type: bug`),
+then archive via `./.aitask-scripts/aitask_archive.sh 551`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added one whitelist entry for
+  `./.aitask-scripts/aitask_plan_verified.sh` to all five target files:
+  `seed/claude_settings.local.json`, `seed/opencode_config.seed.json`,
+  `seed/geminicli_policies/aitasks-whitelist.toml`,
+  `.claude/settings.local.json`, and `.gemini/policies/aitasks-whitelist.toml`.
+  Each new entry was placed next to `aitask_plan_externalize.sh` /
+  `aitask_verified_update.sh` (same "plan verification" sibling group).
+- **Deviations from plan:** None on the 5 target files. The installed
+  `.gemini/policies/aitasks-whitelist.toml` happens to be older than the seed
+  and does not yet contain an `aitask_plan_externalize.sh` rule, so the new
+  block was anchored next to the existing `aitask_verified_update.sh` rule
+  instead. Not a semantic change — priority and decision are identical to
+  the surrounding rules.
+- **Issues encountered:** Pre-existing uncommitted changes in
+  `.aitask-scripts/aitask_create.sh` and `.aitask-scripts/lib/task_utils.sh`
+  (and an untracked `tests/test_last_used_labels.sh`) were detected in the
+  working tree — unrelated label-picker work. They were excluded from the
+  t551 commit via explicit `git add` of only the 5 whitelist files.
+- **Key decisions:** Used `Edit` with an anchored two-line context (sibling
+  rule) rather than rewriting whole files; this keeps each diff to a single
+  added block and preserves the surrounding ordering conventions.
+- **Verification performed:** `python3 -c 'import json; json.load(...)'`
+  on all three JSON files (all parse), `python3 -c 'import tomllib; ...'`
+  on both TOML files (all parse), and a Grep across the 5 files confirming
+  exactly one `aitask_plan_verified` match per file.
