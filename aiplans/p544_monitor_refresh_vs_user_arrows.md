@@ -265,3 +265,52 @@ python3 -m py_compile \
 Follow task-workflow Step 9: review → commit on main (no worktree) with
 message `bug: Make monitor TUI tmux refresh async (t544)` → `aitask_archive.sh 544`
 → `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned in all three files.
+  - `.aitask-scripts/monitor/tmux_monitor.py`: added `asyncio` + `contextlib` imports,
+    module-level `_run_tmux_async()` helper (uses `create_subprocess_exec` +
+    `wait_for`), extracted shared helpers `_parse_list_panes()`,
+    `_finalize_capture()`, `_capture_args()`, `_clean_stale()`, and added the
+    async method trio `discover_panes_async()` / `capture_pane_async()` /
+    `capture_all_async()`. `capture_all_async()` dispatches all per-pane
+    captures concurrently via `asyncio.gather(..., return_exceptions=True)`.
+    Sync methods (`discover_panes`, `capture_pane`, `capture_all`) remain as
+    thin wrappers around the shared helpers — byte-for-byte equivalent
+    behavior.
+  - `.aitask-scripts/monitor/monitor_app.py`: `_refresh_data` now awaits
+    `capture_all_async()` (line 477); `_fast_preview_refresh` now awaits
+    `capture_pane_async()` (line 528).
+  - `.aitask-scripts/monitor/minimonitor_app.py`: `_refresh_data` now awaits
+    `capture_all_async()` (line 201).
+- **Deviations from plan:** None. Small bonus: added `_capture_args()` /
+  `_clean_stale()` helpers so the sync and async capture paths share even
+  more code than the plan specified. The planned extractions were
+  `_parse_list_panes` and `_finalize_capture`; these two extras fell out
+  naturally and keep the sync + async pairs symmetric.
+- **Issues encountered:** None during implementation. `py_compile` passed
+  first time. A live smoke test (`python3 -c "…asyncio.run(m.capture_all_async())"`)
+  returned the same set of 8 pane IDs as the sync `capture_all()` on the
+  running `aitasks` tmux session, confirming the async path is behaviorally
+  equivalent.
+- **Key decisions:** Kept the sync methods in place rather than deleting
+  them (the module's public surface includes them; removing would be
+  unnecessary churn for this task). Left `_consume_focus_request()`,
+  `send_keys`, `send_enter`, `discover_window_panes`, and
+  `_update_own_window_info` as sync — they are sub-10 ms tmux calls that
+  don't contribute to the freeze and rewriting them is out of scope.
+- **Verification performed:** `python3 -m py_compile` on all three files
+  passed; `python3 tests/test_git_tui_config.py` (only test that imports
+  `tmux_monitor`) still passes; manual smoke test against live tmux
+  confirmed sync and async paths return identical pane sets; user
+  confirmed responsiveness is good in real `ait monitor` use.
+- **Known residual issue (follow-up):** User reported that if an arrow
+  key is pressed at exactly the moment a refresh tick fires, the keystroke
+  is lost and the selection does not advance. This is a separate
+  DOM-rebuild race — `_rebuild_pane_list()` in `monitor_app.py` still
+  tears down and remounts all `PaneCard` widgets synchronously on every
+  tick, and `call_after_refresh(self._restore_focus, …)` can overwrite an
+  in-flight user navigation. Filed as follow-up task
+  **t545 — `t545_monitor_arrow_key_lost_on_refresh_race.md`** with
+  hypothesis, investigation steps, and four candidate fixes.
