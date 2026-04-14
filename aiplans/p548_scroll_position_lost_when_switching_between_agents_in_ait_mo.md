@@ -204,3 +204,52 @@ so validation is exclusively manual through the scenarios above.
 
 After implementation, follow task-workflow Step 9 (commit, archive via
 `./.aitask-scripts/aitask_archive.sh 548`, merge).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-04-14 16:40)
+- **Requested by user:** First-pass implementation regressed two scenarios:
+  (C) mouse-wheel up from tail-follow did not disengage tail — view snapped
+  back to bottom on the next 3 s refresh; (D) after restoring to a
+  non-tail position, the first refresh shifted the scroll by a few lines
+  before stabilising. Also reported: pressing `b` to hide the scrollbar
+  causes the preview content to disappear — confirmed pre-existing (same
+  `action_toggle_scrollbar` body as on `main`), so out of scope for t548.
+- **Root cause:** `self.scroll_y` / `self.max_scroll_y` read synchronously
+  inside `_on_mouse_scroll_*` / `_on_scroll_*` return the *pre-scroll* value
+  — Textual commits the scroll update on the next refresh frame, not inside
+  the handler. Distance captured for tail-disengage ended up ~1 line (or 0),
+  so `(distance, at_bottom)` recorded as `(~0, True)`, which on the next
+  tick snaps back to tail. The few-line drift in scenario D was the same
+  bug at a different magnitude.
+- **Changes made:** `PreviewScrollContainer._schedule_notify` now defers
+  `on_user_scroll` via `self.call_after_refresh(...)` instead of calling it
+  synchronously. This guarantees `_record_preview_scroll` reads `scroll_y`
+  after Textual has committed the scroll. `_on_*` handler bodies simplified
+  to call `_schedule_notify`; `_notify_user_scroll` renamed accordingly.
+- **Files affected:** `.aitask-scripts/monitor/monitor_app.py`
+- **Follow-up (out of scope):** `b` toggles `scrollbar_size_vertical` to 0
+  and the preview content visually disappears. Not introduced by t548 —
+  should be handled in a separate task.
+
+### Change Request 2 (2026-04-14 16:58)
+- **Requested by user:** After the first fix, scenario D (scroll jitter)
+  was resolved but the underlying behavior was wrong: when the agent kept
+  emitting new lines, the scroll position drifted with the rolling tmux
+  capture — the lines the user was reading kept moving past the viewport.
+- **Root cause:** The plan's "distance from bottom" anchor (`distance =
+  max_scroll_y - scroll_y`) only keeps the view stable against *appending*.
+  In `ait monitor`, `tmux capture-pane` returns a *rolling window* of
+  `capture_lines` — once the buffer is full, `max_scroll_y` is constant and
+  new lines appearing at the bottom cause old lines to roll off the top.
+  A fixed distance-from-bottom then slides continuously past the content
+  the user was reading.
+- **Changes made:** Replaced the numeric anchor with a content anchor.
+  State tuple is now `(was_at_bottom, anchor_text)` where `anchor_text` is
+  the text of the topmost visible line captured at user-scroll time.
+  `_update_content_preview` calls a new `_locate_anchor(lines, anchor)`
+  helper that returns `lines.index(anchor_text)`, and scrolls to that
+  index via `call_after_refresh`. If the anchor has rolled off the top of
+  the capture buffer entirely, the view snaps to tail to avoid getting
+  stuck on a stale state.
+- **Files affected:** `.aitask-scripts/monitor/monitor_app.py`
