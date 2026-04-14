@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [task_workflow, aitask_pick]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-04-14 16:12
-updated_at: 2026-04-14 17:27
+updated_at: 2026-04-14 17:36
 ---
 
 ## Context
