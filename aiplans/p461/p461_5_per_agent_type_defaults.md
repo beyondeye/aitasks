@@ -310,3 +310,76 @@ Follow the standard task-workflow Step 9: review → commit code changes
 (plain `git`) → commit plan file (`./ait git`) → ask before merging →
 run archive script → push. Use commit prefix `feature:` since
 `issue_type: feature`.
+
+## Final Implementation Notes
+
+- **Actual work done:** All four implementation steps landed exactly
+  as planned. `BRAINSTORM_AGENT_TYPES` now carries `launch_mode` per
+  entry (detailer=interactive, others=headless).
+  `brainstorm_crew.py:_run_addwork()` uses a type-default redundancy
+  filter so `--launch-mode` is emitted only when the wizard value
+  differs from the per-type default. `aitask_crew_init.sh` accepts
+  the extended `type_id:agent_string[:launch_mode]` format on
+  `--add-type`, validates the optional mode, and emits it into the
+  YAML block when present. `aitask_brainstorm_init.sh` grew a
+  `_get_brainstorm_launch_mode()` helper that reads directly from
+  `BRAINSTORM_AGENT_TYPES` via Python (source of truth), and all
+  five `--add-type` calls pass the resolved launch_mode as the third
+  field.
+- **Deviations from plan:** None. No scope changes, no skipped steps.
+- **Issues encountered:** None during implementation. During the
+  verification phase I discovered pre-existing uncommitted changes
+  in `.aitask-scripts/aitask_update.sh` and
+  `.aitask-scripts/lib/task_utils.sh` (an in-progress `file_references`
+  field feature) — these are unrelated to t461_5 and were left
+  untouched. The t461_5 commit deliberately staged only the three
+  files modified by this task.
+- **Key decisions:**
+  - **Config-overlay deferred to follow-up**: `launch_mode` is NOT
+    read from `codeagent_config.json` in this iteration. Only
+    `agent_string` remains config-overridable for now. Making
+    `launch_mode` config-overridable (and exposing it in the
+    settings TUI) is deferred to t461_7.
+  - **Three-field colon format for `--add-type`**: Chose this over a
+    new `--agent-types-file <yaml>` flag or a separate
+    `--type-launch-mode` flag because it keeps brainstorm's single
+    call site clean and the format stays readable. Agent strings use
+    `/` (not `:`) as the internal separator, so a three-field
+    colon split is unambiguous. Documented as a caller constraint
+    in the plan (no colons allowed in `agent_string` if the third
+    field is used).
+  - **Source of truth for shell→Python bridge**: The new
+    `_get_brainstorm_launch_mode()` helper reads directly from the
+    Python `BRAINSTORM_AGENT_TYPES` dict (not a duplicated shell
+    mapping). This keeps one source of truth and mirrors the
+    existing pattern of `_get_brainstorm_agent_string` shelling to
+    Python. The helper falls back to `"headless"` on any Python
+    import failure, matching `agent_data.get(...) or ... or "headless"`
+    runtime fallback.
+- **Notes for sibling tasks:**
+  - `t461_7` (TUI exposure, to be created) should add flat keys
+    `brainstorm-<type>-launch-mode` in `codeagent_config.json` under
+    `defaults`, teach `get_agent_types()` in `brainstorm_crew.py`
+    (around line 48-71) to overlay these keys, and teach
+    `_get_brainstorm_launch_mode()` in `aitask_brainstorm_init.sh`
+    to also consult the config layer (probably by rewriting the
+    helper to shell into `get_agent_types()` instead of directly
+    reading `BRAINSTORM_AGENT_TYPES`).
+  - The `^(headless|interactive)$` regex now lives in FOUR places:
+    `aitask_crew_addwork.sh`, `aitask_crew_setmode.sh`,
+    `agentcrew_runner.py`, and **newly**
+    `aitask_crew_init.sh` (in the `--add-type` validator). Any
+    future third mode (e.g., `monitored`) must update all four.
+  - The `IFS=':' read -r` split in the init emitter is safe today
+    because all known `agent_string` values use `/` as internal
+    separator. If a future agent string grows a colon, callers must
+    not use the third `--add-type` field — add a separate flag
+    instead of breaking the current format.
+- **Build verification:** `shellcheck --severity=warning` clean on
+  both `aitask_crew_init.sh` and `aitask_brainstorm_init.sh`.
+  `tests/test_launch_mode_field.sh` (7/7 PASS) and
+  `tests/test_crew_setmode.sh` (21/21 PASS) still pass. Direct
+  invocation of `aitask_crew_init.sh` with mixed
+  `--add-type` forms (with and without third field) produced the
+  expected `_crew_meta.yaml` structure (launch_mode emitted only
+  for types that specified it).
