@@ -8,9 +8,9 @@ import sys
 from pathlib import Path
 
 # Ensure agentcrew package is importable
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agentcrew_utils import (
+from agentcrew.agentcrew_utils import (
     AGENT_STATUSES,
     AGENTCREW_DIR,
     CREW_STATUSES,
@@ -23,13 +23,13 @@ from agentcrew_utils import (
     read_yaml,
     topo_sort,
 )
-from agentcrew_log_utils import (
+from agentcrew.agentcrew_log_utils import (
     list_agent_logs,
     read_log_tail,
     read_log_full,
     format_log_size,
 )
-from agentcrew_runner_control import (
+from agentcrew.agentcrew_runner_control import (
     RUNNER_STALE_SECONDS,
     _elapsed_since,
     _heartbeat_age,
@@ -39,7 +39,7 @@ from agentcrew_runner_control import (
     start_runner as _start_runner,
     stop_runner as _stop_runner,
 )
-from agentcrew_process_stats import (
+from agentcrew.agentcrew_process_stats import (
     get_all_agent_processes,
     get_runner_process_info,
     sync_stale_processes,

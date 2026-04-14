@@ -6,8 +6,11 @@ import argparse
 import os
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
-from agentcrew_utils import (
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from agentcrew.agentcrew_utils import (
     AGENTCREW_DIR,
     check_agent_alive,
     crew_worktree_path,
