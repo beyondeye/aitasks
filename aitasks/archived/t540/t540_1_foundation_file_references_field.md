@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask-create, bash_scripts]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-04-14 10:12
-updated_at: 2026-04-14 10:59
+updated_at: 2026-04-14 11:27
+completed_at: 2026-04-14 11:27
 ---
 
 Foundation for t540: add a structured `file_references` frontmatter field
