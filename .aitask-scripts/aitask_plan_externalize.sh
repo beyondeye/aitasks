@@ -305,6 +305,7 @@ build_header() {
     fi
 
     echo "Base branch: main"
+    echo "plan_verified: []"
     echo "---"
     echo ""
 }
