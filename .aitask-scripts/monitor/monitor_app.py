@@ -615,11 +615,26 @@ class MonitorApp(TuiSwitcherMixin, App):
             except Exception:
                 pass
             return
+        # If the user already navigated to a valid PaneCard during this
+        # refresh cycle, respect their selection instead of reverting to the
+        # saved id. Fixes the "arrow-keypress lost on refresh" race (t545).
+        focused = self.focused
+        if (
+            isinstance(focused, PaneCard)
+            and focused.pane_id in self._snapshots
+        ):
+            self._focused_pane_id = focused.pane_id
+            return
         if pane_id is None:
             return
         for card in self.query("#pane-list PaneCard"):
             if hasattr(card, "pane_id") and card.pane_id == pane_id:
                 card.focus()
+                # Widget.focus() is deferred; on_descendant_focus may not
+                # fire before the next refresh tick, leaving saved_pane_id
+                # stale. Set _focused_pane_id directly so the next tick sees
+                # the real state.
+                self._focused_pane_id = card.pane_id
                 return
 
     def _rebuild_session_bar(self) -> None:
@@ -633,11 +648,33 @@ class MonitorApp(TuiSwitcherMixin, App):
             f"  [dim]Tab: switch panel[/]"
         )
 
+    def _format_agent_card_text(self, snap: PaneSnapshot) -> str:
+        if snap.is_idle:
+            idle_s = int(snap.idle_seconds)
+            dot = "[yellow]\u25cf[/]"
+            status = f"[yellow]IDLE {idle_s}s[/]"
+        else:
+            dot = "[green]\u25cf[/]"
+            status = "[green]Active[/]"
+        text = (
+            f" {dot} {snap.pane.window_index}:{snap.pane.window_name} "
+            f"({snap.pane.pane_index})  {status}"
+        )
+        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        if task_id:
+            info = self._task_cache.get_task_info(task_id)
+            if info:
+                text += f"\n     [dim italic]t{task_id}: {info.title}[/]"
+        return text
+
+    def _format_other_card_text(self, snap: PaneSnapshot) -> str:
+        return (
+            f" [dim]\u25cb[/] {snap.pane.window_index}:{snap.pane.window_name} "
+            f"({snap.pane.pane_index})  [dim]{snap.pane.current_command}[/]"
+        )
+
     def _rebuild_pane_list(self) -> None:
         container = self.query_one("#pane-list", VerticalScroll)
-        # Clear existing content
-        for widget in list(container.children):
-            widget.remove()
 
         agents: list[PaneSnapshot] = []
         others: list[PaneSnapshot] = []
@@ -651,36 +688,72 @@ class MonitorApp(TuiSwitcherMixin, App):
         agents.sort(key=lambda s: (s.pane.window_index, s.pane.pane_index))
         others.sort(key=lambda s: (s.pane.window_index, s.pane.pane_index))
 
+        # Fast path: same pane set and order → update text in place, no DOM
+        # churn. This keeps the focused PaneCard alive across ticks so arrow
+        # keypresses that arrive during a refresh still resolve against a
+        # stable card list. Fixes t545 (arrow-keypress lost on refresh race).
+        desired_ids = (
+            [s.pane.pane_id for s in agents]
+            + [s.pane.pane_id for s in others]
+        )
+        current_cards = [
+            w for w in container.children if isinstance(w, PaneCard)
+        ]
+        current_ids = [c.pane_id for c in current_cards]
+        if desired_ids and desired_ids == current_ids:
+            # Header counts are unchanged (set is identical), but the
+            # agents-section header's AUTO tag can flip via
+            # action_toggle_auto_switch(). Update the agents header text in
+            # place so the "⟳ AUTO" indicator stays in sync.
+            headers = [
+                w for w in container.children
+                if isinstance(w, Static) and not isinstance(w, PaneCard)
+            ]
+            if agents and headers:
+                auto_label = (
+                    "  [bold yellow]⟳ AUTO[/]" if self._auto_switch else ""
+                )
+                headers[0].update(
+                    f"[bold]CODE AGENTS ({len(agents)})[/]{auto_label}"
+                )
+            by_id = {c.pane_id: c for c in current_cards}
+            for snap in agents:
+                by_id[snap.pane.pane_id].update(
+                    self._format_agent_card_text(snap)
+                )
+            for snap in others:
+                by_id[snap.pane.pane_id].update(
+                    self._format_other_card_text(snap)
+                )
+            return
+
+        # Slow path (structural change): full rebuild. Arrow loss in this
+        # window is tolerable because the pane set actually changed.
+        for widget in list(container.children):
+            widget.remove()
+
         if agents:
             auto_label = "  [bold yellow]⟳ AUTO[/]" if self._auto_switch else ""
-            container.mount(Static(f"[bold]CODE AGENTS ({len(agents)})[/]{auto_label}", classes="section-header"))
+            container.mount(Static(
+                f"[bold]CODE AGENTS ({len(agents)})[/]{auto_label}",
+                classes="section-header",
+            ))
             for snap in agents:
-                if snap.is_idle:
-                    idle_s = int(snap.idle_seconds)
-                    dot = "[yellow]\u25cf[/]"
-                    status = f"[yellow]IDLE {idle_s}s[/]"
-                else:
-                    dot = "[green]\u25cf[/]"
-                    status = "[green]Active[/]"
-                text = (
-                    f" {dot} {snap.pane.window_index}:{snap.pane.window_name} "
-                    f"({snap.pane.pane_index})  {status}"
-                )
-                task_id = self._task_cache.get_task_id(snap.pane.window_name)
-                if task_id:
-                    info = self._task_cache.get_task_info(task_id)
-                    if info:
-                        text += f"\n     [dim italic]t{task_id}: {info.title}[/]"
-                container.mount(PaneCard(snap.pane.pane_id, text))
+                container.mount(PaneCard(
+                    snap.pane.pane_id,
+                    self._format_agent_card_text(snap),
+                ))
 
         if others:
-            container.mount(Static(f"[bold]OTHER ({len(others)})[/]", classes="section-header"))
+            container.mount(Static(
+                f"[bold]OTHER ({len(others)})[/]",
+                classes="section-header",
+            ))
             for snap in others:
-                text = (
-                    f" [dim]\u25cb[/] {snap.pane.window_index}:{snap.pane.window_name} "
-                    f"({snap.pane.pane_index})  [dim]{snap.pane.current_command}[/]"
-                )
-                container.mount(PaneCard(snap.pane.pane_id, text))
+                container.mount(PaneCard(
+                    snap.pane.pane_id,
+                    self._format_other_card_text(snap),
+                ))
 
     def _update_content_preview(self) -> None:
         try:
