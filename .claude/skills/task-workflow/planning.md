@@ -28,9 +28,38 @@ Parse the output: `PLAN_FILE:<path>` means found, `NOT_FOUND` means not found.
 
 **Profile check:** If the active profile has `plan_preference` set (or `plan_preference_child` for child tasks — `plan_preference_child` takes priority when the current task is a child task):
 - If `"use_current"`: Skip to the **Checkpoint** at the end of Step 6. Display: "Profile '\<name\>': using existing plan"
-- If `"verify"`: Enter verification mode (step 6.1). Display: "Profile '\<name\>': verifying existing plan"
+- If `"verify"`: Run the **Verify Decision** sub-procedure below, then branch on its result. Display: "Profile '\<name\>': checking verification status"
 - If `"create_new"`: Proceed with step 6.1 as normal. Display: "Profile '\<name\>': creating plan from scratch"
 - Skip the AskUserQuestion below
+
+**Verify Decision sub-procedure** (profile-driven verify path only):
+
+1. Read `plan_verification_required` from the active profile (default `1` if key absent).
+2. Read `plan_verification_stale_after_hours` from the active profile (default `24` if key absent).
+3. Run:
+   ```bash
+   ./.aitask-scripts/aitask_plan_verified.sh decide <plan_file> <required> <stale_after_hours>
+   ```
+4. Parse the 8-line structured output (`KEY:value` per line):
+   - `TOTAL:<N>` / `FRESH:<M>` / `STALE:<K>` / `LAST:<agent @ timestamp>` (or `LAST:NONE`)
+   - `REQUIRED:<R>` / `STALE_AFTER_HOURS:<H>`
+   - `DISPLAY:<human-readable summary>` — print this line verbatim to the user
+   - `DECISION:<SKIP|ASK_STALE|VERIFY>`
+5. Branch on `DECISION:`:
+   - **`SKIP`** → skip verification entirely; jump to the **Checkpoint** at the end of Step 6 (same as `use_current`).
+   - **`ASK_STALE`** → use `AskUserQuestion`:
+     - Question: the `DISPLAY:` line plus " How would you like to proceed?"
+     - Header: "Stale plan"
+     - Options:
+       - "Verify now" (description: "Enter verify mode; a fresh entry will be appended on exit")
+       - "Skip verification" (description: "Use the existing plan as-is, without refreshing")
+       - "Create plan from scratch" (description: "Discard the existing plan and start fresh")
+     - "Verify now" → enter verification mode (step 6.1 via the verify path).
+     - "Skip verification" → jump to the **Checkpoint** (same as `use_current`).
+     - "Create plan from scratch" → proceed with step 6.1 as normal, ignoring the existing plan.
+   - **`VERIFY`** → enter verification mode directly (step 6.1 via the verify path). Display: "Profile '\<name\>': no fresh verifications — entering verify mode."
+
+The interactive (no-profile) path below is unchanged — the `decide` helper is only invoked when `plan_preference` resolves to `"verify"` via a profile.
 
 Otherwise, use `AskUserQuestion`:
 - Question: "An existing implementation plan was found at `<plan_path>`. How would you like to proceed?"
@@ -51,6 +80,21 @@ Otherwise, use `AskUserQuestion`:
 Use the `EnterPlanMode` tool to enter Claude Code's plan mode.
 
 **If entering from the "Verify plan" path in 6.0:** Start by reading the existing plan file. Then explore the current codebase to check if the plan's assumptions, file paths, and approach are still valid. Focus on identifying what changed since the plan was written. Update the plan if needed, or confirm it is still sound and exit plan mode.
+
+**After `ExitPlanMode` on the verify path (post-externalization, pre-commit):**
+
+When the verify path is taken (either via the `"verify"` profile setting that returned `DECISION:VERIFY` or `ASK_STALE → Verify now`, or via the interactive "Verify plan" option), a fresh `plan_verified` entry must be appended to the external plan file. This is the signal future picks use to decide whether to re-verify.
+
+Sequence (runs inside the **Save Plan to External File** section, after the externalize helper emits `EXTERNALIZED:` / `OVERWRITTEN:` but before the `./ait git add`):
+
+1. Execute the **Model Self-Detection Sub-Procedure** (see `model-self-detection.md`) to obtain `agent_string` (e.g., `claudecode/opus4_6`).
+2. Run:
+   ```bash
+   ./.aitask-scripts/aitask_plan_verified.sh append <external_plan_path> "<agent_string>"
+   ```
+3. The append modifies the plan file in place. The subsequent `./ait git add aiplans/<plan_file>` and `./ait git commit` (per the Plan Externalization Procedure) include the new entry in the same commit automatically.
+
+This step only fires on the verify path — NOT on "Create plan from scratch", "Use current plan", "Skip verification", or first-time plan creation.
 
 **For child tasks:** Include context links to related files (in priority order):
 - Parent task file: `aitasks/t<parent>_<name>.md`
@@ -172,6 +216,8 @@ When creating child tasks, each task file MUST include detailed context that ena
 
 **If running in Claude Code,** execute the **Plan Externalization Procedure** (see `plan-externalization.md`) immediately after `ExitPlanMode` and before proceeding to the Checkpoint. Claude Code's `EnterPlanMode` writes the plan to an internal file at `~/.claude/plans/<random>.md` and `ExitPlanMode` does **not** copy it to `aiplans/` automatically — the procedure file details the externalize helper, output parsing, and error handling. Other code agents write plans directly to `aiplans/` and skip this step.
 
+**Verify-path append reminder:** If you arrived here via the verify path (profile `"verify"` resolved to `DECISION:VERIFY` / `ASK_STALE → Verify now`, or the interactive "Verify plan" option), after the externalize helper emits `EXTERNALIZED:` / `OVERWRITTEN:` and **before** you run `./ait git add aiplans/<plan_file>`, run the plan-verified append step described in §6.1 ("After `ExitPlanMode` on the verify path"). The append modifies the plan file in place so the subsequent commit picks it up in the same commit.
+
 If the externalize helper reports `NOT_FOUND:no_internal_files` / `no_internal_dir`, fall back to writing the plan manually with the Write tool using the naming convention and metadata header below. These subsections remain the source of truth for the plan file format regardless of how it is created.
 
 **File naming convention:**
@@ -228,7 +274,29 @@ Otherwise, use `AskUserQuestion`:
 - Options:
   - "Start implementation" (description: "Begin implementing the approved plan")
   - "Revise plan" (description: "Re-enter plan mode to make changes")
+  - "Approve and stop here" (description: "Approve the plan, release the lock, revert task to Ready, and end the workflow — pick it up later in a fresh context")
   - "Abort task" (description: "Stop and revert task status")
 
 If "Revise plan": Return to the beginning of Step 6.
+
+If "Approve and stop here":
+
+1. Ensure the plan file is committed (idempotent — may be a no-op if the Plan Externalization Procedure already committed it):
+   ```bash
+   ./ait git add aiplans/<plan_file>
+   ./ait git commit -m "ait: Add plan for t<task_id>" 2>/dev/null || true
+   ```
+2. Release the task lock via the **Lock Release Procedure** (see `lock-release.md`).
+3. Revert the task status to `Ready` and clear `assigned_to`:
+   ```bash
+   ./.aitask-scripts/aitask_update.sh --batch <task_num> --status Ready --assigned-to ""
+   ```
+4. Commit the status revert and push:
+   ```bash
+   ./ait git add aitasks/
+   ./ait git commit -m "ait: Revert t<task_num> to Ready after plan approval" 2>/dev/null || true
+   ./ait git push
+   ```
+5. Display: "Plan approved and committed. Task t\<task_num\> reverted to Ready — pick it up later with `/aitask-pick <task_num>` in a fresh context." End the workflow (do **NOT** proceed to Step 7). The "Approve and stop here" option is always available (not profile-gated); it replaces the infeasible context-usage auto-detection by letting the user make the call based on their own HUD.
+
 If "Abort": Execute the **Task Abort Procedure** (see `task-abort.md`).
