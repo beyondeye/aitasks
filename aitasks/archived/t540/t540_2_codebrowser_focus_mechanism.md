@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [codebrowser, tui]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-04-14 10:13
-updated_at: 2026-04-14 12:12
+updated_at: 2026-04-14 12:58
+completed_at: 2026-04-14 12:58
 ---
 
 t540_2: give `ait codebrowser` a first-class way to be told "open this
