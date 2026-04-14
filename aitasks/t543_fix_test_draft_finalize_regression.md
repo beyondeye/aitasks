@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [testing, bash_scripts]
 file_references: [tests/test_draft_finalize.sh, .aitask-scripts/aitask_create.sh:13]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-14 11:27
-updated_at: 2026-04-14 11:27
+updated_at: 2026-04-14 11:30
 ---
 
 tests/test_draft_finalize.sh fails with 25/35 failing on main (pre-existing, not caused by t540_1).
