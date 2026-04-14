@@ -3,10 +3,9 @@ priority: medium
 effort: high
 depends: []
 issue_type: refactor
-status: Implementing
+status: Ready
 labels: [aitask_pick, task_workflow]
 children_to_implement: [t547_1, t547_2, t547_3]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-14 14:08
 updated_at: 2026-04-14 16:12
 ---
