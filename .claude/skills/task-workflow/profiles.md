@@ -28,6 +28,8 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `base_branch` | string | no | Branch name (e.g., `"main"`) | Step 5 |
 | `plan_preference` | string | no | `"use_current"`, `"verify"`, or `"create_new"` | Step 6.0 |
 | `plan_preference_child` | string | no | Same values as `plan_preference`; overrides `plan_preference` for child tasks. Defaults to `plan_preference` if omitted | Step 6.0 |
+| `plan_verification_required` | int | no | Positive integer; default `1` | Step 6.0 |
+| `plan_verification_stale_after_hours` | int | no | Positive integer; default `24` | Step 6.0 |
 | `post_plan_action` | string | no | `"start_implementation"` = skip to impl; `"ask"` = always show checkpoint; omit = ask | Step 6 checkpoint |
 | `post_plan_action_for_child` | string | no | Same values as `post_plan_action`; overrides `post_plan_action` when the current task is a child task. Defaults to `post_plan_action` if omitted | Step 6 checkpoint |
 | `enableFeedbackQuestions` | bool | no | `false` = skip satisfaction feedback prompts; omit or `true` = ask them | Satisfaction Feedback Procedure |
@@ -36,6 +38,8 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `qa_tier` | string | no | `"quick"`, `"standard"` (default), `"exhaustive"` | aitask-qa Step 1c |
 
 Only `name` and `description` are required. Omitting any other key means the corresponding question is asked interactively.
+
+> **Plan verification tracking (`plan_verification_required`, `plan_verification_stale_after_hours`):** When `plan_preference` (or `plan_preference_child`) is `"verify"`, the workflow consults the plan file's `plan_verified` metadata list to decide whether a fresh verification is actually needed. `plan_verification_required` is the number of fresh (non-stale) entries required to skip re-verification — default `1` means a single prior verification is sufficient. `plan_verification_stale_after_hours` is how old (in hours) an entry may be before it no longer counts as fresh — default `24`. Both keys apply uniformly to parent and child tasks — there are no `_child` variants. The actual decision (skip / verify / ask) is computed by `./.aitask-scripts/aitask_plan_verified.sh decide`, which returns a structured report the workflow parses directly.
 
 > **Remote-specific profile fields** (e.g., `done_task_action`, `review_action`, `issue_action`) are documented in the `aitask-pickrem` skill. They are only recognized by that skill and ignored by this workflow.
 
