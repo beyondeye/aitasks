@@ -254,3 +254,44 @@ Follow Step 9 of `.claude/skills/task-workflow/SKILL.md`:
 - Commit as `bug: Fix monitor arrow-key loss on refresh race (t545)`.
 - Archive task via `./.aitask-scripts/aitask_archive.sh 545`.
 - Push via `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Applied all three changes as planned, in
+  `.aitask-scripts/monitor/monitor_app.py`:
+  1. Extracted `_format_agent_card_text(snap)` and
+     `_format_other_card_text(snap)` helpers above `_rebuild_pane_list`
+     (lines 651-674). Behavior is byte-identical to the inline text-building
+     logic that previously lived inside `_rebuild_pane_list`.
+  2. Added a fast path at the top of `_rebuild_pane_list` (lines 691-728)
+     that compares the desired pane-id sequence against the currently-
+     mounted `PaneCard` sequence. On match, it updates the agents-section
+     header (to pick up `⟳ AUTO` toggling) and each card's text via
+     `.update(...)`, then returns early — zero DOM mutations. The slow path
+     (lines 730-756) is the previous full-rebuild logic, routed through the
+     new helpers.
+  3. Tightened `_restore_focus` (lines 610-638): first, if `self.focused`
+     is already a valid `PaneCard` (present in `self._snapshots`), respect
+     the user's selection and just sync `_focused_pane_id`. Second, after
+     the fallback `card.focus()`, set `self._focused_pane_id = card.pane_id`
+     directly (matches `minimonitor_app.py:259-260` pattern) so the next
+     tick's `saved_pane_id` reflects reality instead of lagging by one tick.
+- **Deviations from plan:** None. The plan was followed exactly. Diff is
+  +100/-27 lines, concentrated entirely in `monitor_app.py`.
+- **Issues encountered:** None during implementation. `py_compile` passed
+  on first try. The Explore agent initially mis-reported a second caller
+  (`action_toggle_auto_switch`) at the wrong line number (522 instead of
+  1041); I verified the correct location with `grep` before editing, and
+  the fast path's header re-render correctly handles the auto-switch toggle
+  path.
+- **Key decisions:** Chose the in-place fast-path approach over the
+  alternative of making `_rebuild_pane_list` async (like minimonitor). The
+  async approach only narrows the race window; the fast path closes it
+  completely for the common case (stable pane set) because no widget is
+  ever removed. The slow path retains the existing behavior for structural
+  changes (pane added/removed), where brief arrow-loss is acceptable.
+- **Build verification:** `python -m py_compile
+  .aitask-scripts/monitor/monitor_app.py` → OK. No monitor tests exist in
+  `tests/` so no automated test run was possible; manual verification of
+  the fast path, slow path, and auto-switch toggle was confirmed by the
+  user in Step 8 review.
