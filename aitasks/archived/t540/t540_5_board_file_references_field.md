@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: [t540_1, t540_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_board, codebrowser, tui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-04-14 10:15
-updated_at: 2026-04-15 11:56
+updated_at: 2026-04-15 12:09
+completed_at: 2026-04-15 12:09
 ---
 
 t540_5: teach the `ait board` task detail modal about the new
