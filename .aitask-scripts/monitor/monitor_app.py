@@ -298,6 +298,60 @@ class NextSiblingDialog(ModalScreen):
         self.dismiss(None)
 
 
+class RestartConfirmDialog(ModalScreen):
+    """Confirmation dialog for restarting the task in the focused agent pane."""
+
+    BINDINGS = [Binding("escape", "dismiss_dialog", "Close", show=False)]
+
+    DEFAULT_CSS = """
+    RestartConfirmDialog { align: center middle; }
+    #restart-dialog { width: 70%; height: auto; background: $surface; border: thick $warning; padding: 1 2; }
+    #restart-header { text-style: bold; color: $warning; margin: 0 0 1 0; }
+    #restart-details { margin: 0 0 1 0; }
+    #restart-buttons { width: 100%; height: auto; layout: horizontal; }
+    #restart-buttons Button { margin: 0 1; }
+    """
+
+    def __init__(
+        self,
+        task_id: str,
+        title: str,
+        status: str,
+        idle_seconds: float,
+    ) -> None:
+        super().__init__()
+        self._task_id = task_id
+        self._title = title
+        self._status = status
+        self._idle_seconds = idle_seconds
+
+    def compose(self) -> ComposeResult:
+        with Container(id="restart-dialog"):
+            yield Static("[bold yellow]Restart Task[/]", id="restart-header")
+            lines = [
+                f"Current:   [bold]t{self._task_id}[/]: {self._title}  (Status: {self._status})",
+                f"Terminal:  idle for {int(self._idle_seconds)}s",
+            ]
+            if self._status != "Ready":
+                lines.append(
+                    f"\n[yellow]⚠ Task status is '{self._status}' (not Ready) — "
+                    f"pick workflow may behave unexpectedly[/]"
+                )
+            lines.append(
+                "\n[dim]The current pane will be killed after you confirm the spawn dialog.[/]"
+            )
+            yield Static("\n".join(lines), id="restart-details")
+            with Container(id="restart-buttons"):
+                yield Button("Restart", variant="warning", id="btn-restart")
+                yield Button("Cancel", variant="default", id="btn-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "btn-restart")
+
+    def action_dismiss_dialog(self) -> None:
+        self.dismiss(False)
+
+
 # -- Main app -----------------------------------------------------------------
 
 class MonitorApp(TuiSwitcherMixin, App):
@@ -388,6 +442,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         Binding("t", "scroll_preview_tail", "Tail"),
         Binding("k", "kill_pane", "Kill"),
         Binding("n", "pick_next_sibling", "Next Sibling"),
+        Binding("R", "restart_task", "Restart"),
         Binding("enter", "send_enter", "Send ↵", show=True),
         Binding("a", "toggle_auto_switch", "Auto"),
         Binding("L", "open_log", "Log"),
@@ -1411,6 +1466,94 @@ class MonitorApp(TuiSwitcherMixin, App):
                 if pick_result.new_window:
                     maybe_spawn_minimonitor(pick_result.session, pick_result.window)
                 self.notify(f"Launched agent for t{target_id}")
+            self.call_later(self._refresh_data)
+
+        self.push_screen(screen, on_pick_result)
+
+    def action_restart_task(self) -> None:
+        """Kill the focused idle agent pane and re-run pick for the same task."""
+        if self._monitor is None:
+            return
+        pane_id = self._get_focused_pane_id()
+        if not pane_id:
+            self.notify("Focus an agent pane first", severity="warning")
+            return
+        snap = self._snapshots.get(pane_id)
+        if not snap:
+            return
+        if not snap.is_idle:
+            self.notify(
+                "Restart only available when the terminal is idle",
+                severity="warning",
+            )
+            return
+        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        if not task_id:
+            self.notify("No task ID in window name", severity="warning")
+            return
+        self._task_cache.invalidate(task_id)
+        info = self._task_cache.get_task_info(task_id)
+        title = info.title if info else f"(archived t{task_id})"
+        status = info.status if info else "Done"
+
+        self.push_screen(
+            RestartConfirmDialog(task_id, title, status, snap.idle_seconds),
+            callback=lambda ok: self._on_restart_confirmed(ok, pane_id, task_id),
+        )
+
+    def _on_restart_confirmed(
+        self, confirmed: bool | None, pane_id: str, task_id: str
+    ) -> None:
+        if not confirmed:
+            return
+        if self._monitor is None:
+            return
+        snap = self._snapshots.get(pane_id)
+        if not snap:
+            self.notify("Focused pane no longer exists", severity="warning")
+            return
+
+        full_cmd = resolve_dry_run_command(self._project_root, "pick", task_id)
+        if not full_cmd:
+            self.notify(
+                f"Failed to resolve pick command for t{task_id}",
+                severity="error",
+            )
+            return
+
+        prompt_str = f"/aitask-pick {task_id}"
+        window_name = f"agent-pick-{task_id}"
+        agent_string = resolve_agent_string(self._project_root, "pick")
+        screen = AgentCommandScreen(
+            f"Pick Task t{task_id}", full_cmd, prompt_str,
+            default_window_name=window_name,
+            project_root=self._project_root,
+            operation="pick",
+            operation_args=[task_id],
+            default_agent_string=agent_string,
+        )
+
+        old_window_name = snap.pane.window_name
+
+        def on_pick_result(pick_result):
+            if isinstance(pick_result, TmuxLaunchConfig):
+                # Kill the old window BEFORE launching. The new window reuses
+                # the same `agent-pick-<id>` name, and maybe_spawn_minimonitor
+                # resolves the window name against the first match in
+                # `tmux list-windows`. If the old window still exists, its
+                # minimonitor gets a second companion pane and the new window
+                # is left without one.
+                if self._monitor and self._monitor.kill_window(pane_id):
+                    if self._focused_pane_id == pane_id:
+                        self._focused_pane_id = None
+                    self.notify(f"Killed {old_window_name}")
+                _, err = launch_in_tmux(screen.full_command, pick_result)
+                if err:
+                    self.notify(f"Launch failed: {err}", severity="error")
+                    return
+                if pick_result.new_window:
+                    maybe_spawn_minimonitor(pick_result.session, pick_result.window)
+                self.notify(f"Restarted agent for t{task_id}")
             self.call_later(self._refresh_data)
 
         self.push_screen(screen, on_pick_result)

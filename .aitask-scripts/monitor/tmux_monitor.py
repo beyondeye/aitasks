@@ -426,6 +426,22 @@ class TmuxMonitor:
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
 
+    def kill_window(self, pane_id: str) -> bool:
+        """Kill the entire tmux window containing the given pane."""
+        try:
+            result = subprocess.run(
+                ["tmux", "kill-window", "-t", pane_id],
+                capture_output=True, timeout=5,
+            )
+            if result.returncode == 0:
+                self._pane_cache.pop(pane_id, None)
+                self._last_content.pop(pane_id, None)
+                self._last_change_time.pop(pane_id, None)
+                return True
+            return False
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return False
+
     def spawn_tui(self, tui_name: str) -> bool:
         try:
             result = subprocess.run(
