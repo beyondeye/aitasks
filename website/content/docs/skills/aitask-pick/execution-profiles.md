@@ -12,7 +12,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They are loaded 
 ## Shipped Profiles
 
 - **default** -- All questions asked normally (empty profile, serves as a template)
-- **fast** -- Skip confirmations, use userconfig email, stay on the current branch, and keep feedback questions enabled
+- **fast** -- Skip confirmations, use userconfig email, stay on the current branch, stop after plan approval, and keep feedback questions enabled
 
 ## Standard Profile Fields
 
