@@ -3,11 +3,10 @@ priority: medium
 effort: medium
 depends: [t540_1, t540_2]
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [aitask_board, codebrowser, tui]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-14 10:15
-updated_at: 2026-04-15 11:35
+updated_at: 2026-04-15 11:50
 ---
 
 t540_5: teach the `ait board` task detail modal about the new
