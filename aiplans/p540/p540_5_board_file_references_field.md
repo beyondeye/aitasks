@@ -340,3 +340,85 @@ Standard archival via `./.aitask-scripts/aitask_archive.sh 540_5`
 surprises in Textual key propagation, picker focus behavior, or tmux
 session discovery edge cases, so t540_7 and t540_8 pick up the context
 cleanly.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned — all changes are
+  isolated to `.aitask-scripts/board/aitask_board.py` (+133 lines):
+  - Extended the `agent_launch_utils` import at L16 to add
+    `launch_or_focus_codebrowser`.
+  - Added `_current_tmux_session()` helper immediately after
+    `FoldedTasksField` (L1098), mirroring the `tmux display-message -p
+    '#S'` pattern used elsewhere.
+  - Added `FileReferencesField(Static)` class (read-only, focusable,
+    enter-only key handler, multi-entry → picker path, single-entry →
+    direct launch). Uses the same `ro-focused` focus class as
+    `DependsField` / `ChildrenField` / `FoldedTasksField`, so no CSS
+    additions were needed.
+  - Added `FileReferenceItem(Static)` + `FileReferencePickerScreen(
+    ModalScreen)` after `FoldedTaskPickerScreen` (around L1717). Picker
+    reuses the existing `#dep_picker_dialog` / `#dep_picker_title` /
+    `#btn_dep_cancel` ids so existing CSS applies unchanged.
+  - Wired `FileReferencesField` into `TaskDetailScreen.compose()`
+    immediately after the "Folded Into" block at L2046, guarded by
+    `if self.manager:` to match the surrounding field pattern. The
+    field is always yielded (even when `file_references` is absent),
+    so the focus cycle is stable and the field is discoverable as a
+    `(none)` row.
+
+- **Deviations from plan:** None. Every file change, line range, and
+  helper signature matched the verified plan.
+
+- **Issues encountered:** None during implementation. Syntax check via
+  `ast.parse` and an import smoke-test (loaded `aitask_board` module and
+  confirmed the three new class names + helper are reachable at module
+  scope) both passed. `render()` was unit-tested in isolation with four
+  inputs: `[]` (dim `(none)`), `['foo.py:10-20']`, two-entry list (joins
+  with `, `), and compact multi-range `'foo.py:10-20^30-40'` — all
+  produced the expected Rich markup.
+
+- **Key decisions:**
+  - **Always-rendered empty row.** The plan already called this out, but
+    reaffirming here: the widget yields even for `file_references: []`
+    or missing-field, so the tab cycle stays consistent regardless of
+    task content. The dim `(none)` placeholder also makes the feature
+    discoverable to users who've never added a file ref.
+  - **Picker dismiss with `None` on cancel.** The
+    `FileReferencePickerScreen` passes `None` to `self.dismiss()` on
+    both the `#btn_dep_cancel` path and `action_close_picker`. The
+    caller's `on_picked` callback explicitly checks `if entry:` before
+    launching, so cancellation cleanly short-circuits without trying to
+    open an empty path.
+  - **Session discovery is inline, not a lib.** `_current_tmux_session`
+    is a module-level helper next to `FileReferencesField` rather than
+    going into `agent_launch_utils.py`. There's no existing
+    session-discovery helper in that lib, and `codebrowser_app.py`,
+    `monitor_app.py`, and `minimonitor_app.py` all use their own inline
+    version. Keeping it inline here matches the established pattern and
+    avoids introducing a cross-TUI shared helper in scope t540_5
+    doesn't need.
+
+- **Notes for sibling tasks:**
+  - **t540_7 (fold-time union):** the board now renders
+    `file_references` in the task detail modal. Any fold that touches
+    this field will be immediately visible to the user in the
+    `File Refs:` row of the primary task — useful for sanity-checking
+    a fold visually without having to cat the task file. The field is
+    whitespace-preserving (joins with `, `), so fold output that
+    lengthens the list beyond one terminal row will wrap naturally via
+    the modal's existing layout.
+  - **t540_8 (finalize draft auto-merge hook):** when draft finalization
+    emits new `file_references`, the board picks them up on next
+    refresh — no additional board wiring needed.
+  - **Focus-cycle note (for any future TUI field):** the new field
+    sits between the "Folded Into" block and the "Lock status" block
+    in the compose order. Any subsequent metadata field added in that
+    area should be inserted *after* `FileReferencesField` to keep the
+    visual grouping ("metadata" → "file refs" → "lock state") coherent.
+  - **Codebrowser handoff path** (from t540_2) works as designed from
+    the board: `launch_or_focus_codebrowser(session, entry)` sets the
+    tmux env var and either reuses an existing `codebrowser` window or
+    cold-launches one via `./ait codebrowser --focus <entry>`. Single
+    integration point — no direct CodeViewer state mutation from the
+    board side, which matches the t540_2 final notes' recommendation
+    to go through `_apply_focus` rather than poking private fields.
