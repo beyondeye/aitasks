@@ -1073,6 +1073,10 @@ get_task_definition() {
 
     # Track file refs across all outer rounds (for structured file_references output)
     local -a all_file_refs=()
+    if [[ ${#BATCH_FILE_REFS[@]} -gt 0 ]]; then
+        all_file_refs=("${BATCH_FILE_REFS[@]}")
+        info "Pre-populated file references: ${all_file_refs[*]}" >&2
+    fi
 
     while true; do
         # Step 4: Get description block

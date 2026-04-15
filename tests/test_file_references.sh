@@ -291,8 +291,28 @@ assert_exit_nonzero "Reject non-numeric range in update" \
     bash -c "cd '$TMPDIR_11/local' && ./.aitask-scripts/aitask_update.sh --batch $task11_num --file-ref 'foo.py:xyz'"
 rm -rf "$TMPDIR_11"
 
-# --- Test 12: Syntax check on all touched scripts ---
-echo "--- Test 12: Syntax check ---"
+# --- Test 12: Interactive mode seeds all_file_refs from BATCH_FILE_REFS ---
+echo "--- Test 12: Interactive seed from BATCH_FILE_REFS ---"
+TMPDIR_12="$(setup_project)"
+seed_out=$(cd "$TMPDIR_12/local" && bash -c '
+set +e
+fzf() { :; }
+info() { :; }
+success() { :; }
+warn() { :; }
+die() { :; }
+func_src=$(sed -n "/^get_task_definition() {/,/^}\$/p" .aitask-scripts/aitask_create.sh)
+eval "$func_src"
+BATCH_FILE_REFS=("foo.py:10-20" "bar.py")
+get_task_definition </dev/null
+' 2>/dev/null)
+seed_refs=$(echo "$seed_out" | awk '/__FILE_REFS_MARKER__/{flag=1;next} flag')
+assert_contains "Pre-seeded foo.py:10-20 flows through interactive path" "foo.py:10-20" "$seed_refs"
+assert_contains "Pre-seeded bar.py flows through interactive path" "bar.py" "$seed_refs"
+rm -rf "$TMPDIR_12"
+
+# --- Test 13: Syntax check on all touched scripts ---
+echo "--- Test 13: Syntax check ---"
 TOTAL=$((TOTAL + 1))
 if bash -n "$PROJECT_DIR/.aitask-scripts/aitask_create.sh" && \
    bash -n "$PROJECT_DIR/.aitask-scripts/aitask_update.sh" && \

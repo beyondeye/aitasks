@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -162,6 +163,7 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         Binding("D", "expand_detail", "Expand detail"),
         Binding("h", "toggle_history", "History"),
         Binding("H", "history_for_task", "History for task"),
+        Binding("n", "create_task", "New task"),
     ]
 
     DETAIL_DEFAULT_WIDTH = 30
@@ -1027,6 +1029,69 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
             with self.suspend():
                 subprocess.call([wrapper, "invoke", operation, arg],
                                 cwd=str(self._project_root))
+
+    def action_create_task(self) -> None:
+        """Launch aitask_create.sh with --file-ref pre-populated from the current file and selection."""
+        if not self._current_file_path:
+            self.notify("No file selected", severity="warning")
+            return
+        if not self._project_root:
+            self.notify("Project root not resolved", severity="warning")
+            return
+
+        rel_path = self._current_file_path.relative_to(self._project_root)
+        code_viewer = self.query_one("#code_viewer", CodeViewer)
+        selected = code_viewer.get_selected_range()
+
+        if selected and selected[0] != selected[1]:
+            ref_arg = f"{rel_path}:{selected[0]}-{selected[1]}"
+            title = f"Create task — {rel_path} (lines {selected[0]}-{selected[1]})"
+        elif selected:
+            ref_arg = f"{rel_path}:{selected[0]}"
+            title = f"Create task — {rel_path} (line {selected[0]})"
+        else:
+            line_1indexed = code_viewer._cursor_line + 1
+            ref_arg = f"{rel_path}:{line_1indexed}"
+            title = f"Create task — {rel_path} (line {line_1indexed})"
+
+        create_script = str(self._project_root / ".aitask-scripts" / "aitask_create.sh")
+        full_cmd = f"{create_script} --file-ref {shlex.quote(ref_arg)}"
+        prompt_str = f"ait create --file-ref {ref_arg}"
+
+        window_name = f"create-{rel_path.name}"
+
+        screen = AgentCommandScreen(
+            title, full_cmd, prompt_str,
+            default_window_name=window_name,
+        )
+
+        def on_result(result):
+            if result == "run":
+                self._run_create_from_selection(ref_arg)
+            elif isinstance(result, TmuxLaunchConfig):
+                _, err = launch_in_tmux(screen.full_command, result)
+                if err:
+                    self.notify(err, severity="error")
+
+        self.push_screen(screen, on_result)
+
+    @work(exclusive=True)
+    async def _run_create_from_selection(self, ref_arg: str) -> None:
+        """Launch aitask_create.sh in a terminal (or via suspend), then refresh annotations."""
+        create_script = str(self._project_root / ".aitask-scripts" / "aitask_create.sh")
+        terminal = _find_terminal()
+        if terminal:
+            subprocess.Popen(
+                [terminal, "--", create_script, "--file-ref", ref_arg],
+                cwd=str(self._project_root),
+            )
+        else:
+            with self.suspend():
+                subprocess.call(
+                    [create_script, "--file-ref", ref_arg],
+                    cwd=str(self._project_root),
+                )
+            self.action_refresh_explain()
 
 
 def main() -> None:
