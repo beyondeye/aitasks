@@ -729,8 +729,11 @@ class TaskCard(Static):
         if priority == "medium": return "yellow"
         return "gray"
 
+    def _idle_border_style(self):
+        return "dashed" if self.is_child else "solid"
+
     def on_mount(self):
-        self.styles.border = ("solid", self._priority_border_color())
+        self.styles.border = (self._idle_border_style(), self._priority_border_color())
         self.styles.padding = (0, 1)
         if self.is_child:
             self.styles.margin = (0, 0, 1, 0)
@@ -742,7 +745,7 @@ class TaskCard(Static):
         self.scroll_visible()
 
     def on_blur(self):
-        self.styles.border = ("solid", self._priority_border_color())
+        self.styles.border = (self._idle_border_style(), self._priority_border_color())
 
     def on_click(self, event):
         self.focus()
