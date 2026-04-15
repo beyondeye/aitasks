@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [codebrowser, aitask-create]
-children_to_implement: [t540_7, t540_8]
+children_to_implement: [t540_7]
 created_at: 2026-04-14 09:26
-updated_at: 2026-04-15 12:09
+updated_at: 2026-04-15 12:18
 boardidx: 30
 ---
 
