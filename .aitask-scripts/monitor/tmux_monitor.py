@@ -442,6 +442,49 @@ class TmuxMonitor:
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
 
+    def kill_agent_pane_smart(self, pane_id: str) -> tuple[bool, bool]:
+        """Kill an agent pane, collapsing the window if it was the last agent.
+
+        Returns (ok, killed_window). If no other agent panes remain in the
+        window after removing this one, the whole window is killed — which
+        also cleans up any companion minimonitor pane. Otherwise only the
+        requested pane is killed, preserving the minimonitor for surviving
+        siblings.
+        """
+        pane = self._pane_cache.get(pane_id)
+        if pane is None:
+            return self.kill_pane(pane_id), False
+
+        window_target = f"{self.session}:{pane.window_index}"
+        others = 0
+        try:
+            result = subprocess.run(
+                ["tmux", "list-panes", "-t", window_target,
+                 "-F", "#{pane_id}\t#{pane_pid}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode != 0:
+                return self.kill_pane(pane_id), False
+            for line in result.stdout.strip().splitlines():
+                parts = line.split("\t")
+                if len(parts) != 2:
+                    continue
+                other_id, pid_str = parts
+                if other_id == pane_id:
+                    continue
+                try:
+                    pid = int(pid_str)
+                except ValueError:
+                    continue
+                if not _is_companion_process(pid):
+                    others += 1
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return self.kill_pane(pane_id), False
+
+        if others == 0:
+            return self.kill_window(pane_id), True
+        return self.kill_pane(pane_id), False
+
     def spawn_tui(self, tui_name: str) -> bool:
         try:
             result = subprocess.run(

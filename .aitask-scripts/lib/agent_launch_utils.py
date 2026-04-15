@@ -259,8 +259,7 @@ def maybe_spawn_minimonitor(session: str, window_name: str) -> bool:
             if ":" in line:
                 idx, name = line.split(":", 1)
                 if name == window_name:
-                    win_index = idx
-                    break
+                    win_index = idx  # keep looping — pick the *last* match
         if win_index is None:
             return False
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):

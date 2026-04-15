@@ -1370,7 +1370,8 @@ class MonitorApp(TuiSwitcherMixin, App):
             return
         snap = self._snapshots.get(pane_id)
         name = snap.pane.window_name if snap else pane_id
-        if self._monitor.kill_pane(pane_id):
+        ok, _ = self._monitor.kill_agent_pane_smart(pane_id)
+        if ok:
             self._focused_pane_id = None
             self.notify(f"Killed {name}")
             self.call_later(self._refresh_data)
@@ -1441,7 +1442,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         is_parent_with_children = "_" not in task_id
         if is_parent_with_children or not current_info or current_info.status == "Done":
             old_name = snap.pane.window_name
-            self._monitor.kill_pane(pane_id)
+            self._monitor.kill_agent_pane_smart(pane_id)
             self._focused_pane_id = None
             self.notify(f"Killed {old_name}")
 
@@ -1537,16 +1538,21 @@ class MonitorApp(TuiSwitcherMixin, App):
 
         def on_pick_result(pick_result):
             if isinstance(pick_result, TmuxLaunchConfig):
-                # Kill the old window BEFORE launching. The new window reuses
-                # the same `agent-pick-<id>` name, and maybe_spawn_minimonitor
-                # resolves the window name against the first match in
-                # `tmux list-windows`. If the old window still exists, its
-                # minimonitor gets a second companion pane and the new window
-                # is left without one.
-                if self._monitor and self._monitor.kill_window(pane_id):
-                    if self._focused_pane_id == pane_id:
-                        self._focused_pane_id = None
-                    self.notify(f"Killed {old_window_name}")
+                # Tear down the old agent before launching. In the common
+                # single-agent-per-window case, kill_agent_pane_smart kills
+                # the whole window (matching the behaviour added in t556) so
+                # the new `agent-pick-<id>` window does not collide with a
+                # stale one of the same name. In the rare multi-agent-split
+                # case, only the restarted pane dies and siblings survive;
+                # maybe_spawn_minimonitor's last-match window lookup keeps
+                # the new companion attached to the correct window even if
+                # two windows share a name transiently.
+                if self._monitor:
+                    ok, _ = self._monitor.kill_agent_pane_smart(pane_id)
+                    if ok:
+                        if self._focused_pane_id == pane_id:
+                            self._focused_pane_id = None
+                        self.notify(f"Killed {old_window_name}")
                 _, err = launch_in_tmux(screen.full_command, pick_result)
                 if err:
                     self.notify(f"Launch failed: {err}", severity="error")
