@@ -266,3 +266,15 @@ Per the task-workflow SKILL.md Step 9:
 - Commit with `feature: Add task restart action to ait monitor TUI (t556)`.
 - Archive via `./.aitask-scripts/aitask_archive.sh 556` (no linked issue, no folded tasks).
 - Push via `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `Binding("R", "restart_task", "Restart")` and a `RestartConfirmDialog` modal (alongside `NextSiblingDialog`) in `.aitask-scripts/monitor/monitor_app.py`. Added `action_restart_task` / `_on_restart_confirmed` handlers following the plan. Also added `TmuxMonitor.kill_window(pane_id)` in `.aitask-scripts/monitor/tmux_monitor.py` — see the deviation below.
+- **Deviations from plan:** The plan called `kill_pane` inside the `on_pick_result` callback, ordered **after** `launch_in_tmux`. Review caught a bug: since the restart target reuses the same `agent-pick-<id>` window name, `maybe_spawn_minimonitor` (which resolves the target by first-matching name in `tmux list-windows`) would attach the new minimonitor to the still-alive old window, leaving the new window without a companion pane. The fix flips the ordering and uses `kill_window` instead of `kill_pane`: the old window (including any leftover minimonitor split) is destroyed first, then `launch_in_tmux` creates the new window, then `maybe_spawn_minimonitor` attaches cleanly. `kill_window` was added to `TmuxMonitor` for symmetry with `kill_pane`; it runs `tmux kill-window -t <pane_id>` (tmux resolves a pane target to its window).
+- **Issues encountered:** The window-name ambiguity in `maybe_spawn_minimonitor` is a latent issue that affects any code path that reuses an `agent-pick-<id>` name before the previous instance is torn down. Fixed locally here via ordering + `kill_window`; a broader review was split out as t557 (see Notes for sibling tasks).
+- **Key decisions:**
+  - Used uppercase `R` for the binding (lowercase `r` is Refresh).
+  - Idle gate is enforced in `action_restart_task` with a warning notification rather than dynamically hiding the binding, matching the pattern of other conditionally-valid actions (e.g., `action_pick_next_sibling` reporting "No ready siblings").
+  - Captured `pane_id` / `task_id` in a closure for the confirmation callback so focus changes mid-flow don't redirect the restart.
+  - Re-fetch `snap` inside `_on_restart_confirmed` so the code is resilient to the pane disappearing between the idle check and the user confirming.
+- **Notes for sibling tasks:** Follow-up task **t557** was created to investigate minimonitor lifecycle across all agent-spawn flows. Key questions: (1) can two agent panes coexist in a single window today; (2) should `_on_next_sibling_result`'s `kill_pane` path also use `kill_window`; (3) what is the detection rule for orphaned minimonitor panes. t557 depends on t556.
