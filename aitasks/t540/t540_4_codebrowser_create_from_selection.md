@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t540_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codebrowser, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-14 10:14
-updated_at: 2026-04-14 10:14
+updated_at: 2026-04-15 09:14
 ---
 
 t540_4: add a `c` keybinding to `ait codebrowser` that spawns
