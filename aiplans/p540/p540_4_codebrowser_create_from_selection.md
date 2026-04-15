@@ -234,10 +234,27 @@ The plan's original step 1 proposed hoisting the board's launcher. It's already 
 
 Run `./.aitask-scripts/aitask_archive.sh 540_4` per task-workflow Step 9. The archived plan file will serve as primary reference for t540_5 (board field widget), which may want to mirror the "launch a helper command with a file ref pre-seeded" pattern.
 
-## Implementation Notes template (fill in during Step 8)
+## Final Implementation Notes
 
-- **Actual work done:** …
-- **Deviations from plan:** …
-- **Issues encountered:** …
-- **Key decisions:** …
-- **Notes for sibling tasks:** …
+- **Actual work done:**
+  - `.aitask-scripts/aitask_create.sh:1075` — seeded `all_file_refs` from `BATCH_FILE_REFS` with an `info()` banner, gated on `${#BATCH_FILE_REFS[@]} -gt 0`. Four lines added; no other changes.
+  - `.aitask-scripts/codebrowser/codebrowser_app.py:21` — added `import shlex` (absent previously).
+  - `.aitask-scripts/codebrowser/codebrowser_app.py:165` — added `Binding("n", "create_task", "New task")` at the end of the `BINDINGS` list.
+  - `.aitask-scripts/codebrowser/codebrowser_app.py:1033-1094` — appended `action_create_task` (mirrors `action_launch_agent` shape) and `@work(exclusive=True)` worker `_run_create_from_selection`. Fall-back hierarchy: multi-line selection → `path:start-end`; single-line selection → `path:N`; no selection → `path:cursor_line`.
+  - `tests/test_file_references.sh` — added Test 12 "Interactive seed from BATCH_FILE_REFS". Uses a `sed -n '/^get_task_definition() {/,/^}$/p'` extraction to source just the function with stubbed `fzf/info/success/warn/die`, then asserts the pre-seeded refs appear after the `__FILE_REFS_MARKER__` line in stdout. Test 12's prior slot ("Syntax check") renumbered to Test 13.
+
+- **Deviations from plan:** none substantive. The plan's awk-based extraction suggestion was implemented with `sed -n '/.../,/.../p'` (equivalent, more idiomatic for the existing test harness).
+
+- **Issues encountered:** none. Syntax checks, file_references test suite (23/23), verified_update_flags regression (6/6), and shellcheck all clean on first pass.
+
+- **Key decisions:**
+  - **`n` over `c` for the binding.** The task spec originally said `c`, but the verification pass before implementation picked `n` to match `aitask_board.py:2938` and `tui_switcher.py:242`, consistent with the repo-wide "new task" convention.
+  - **No auto-merge integration.** The codebrowser launches interactive `aitask_create.sh`, which goes through `finalize_draft` — a path that t540_3 explicitly left out of scope for auto-merge. Adding finalize_draft auto-merge is deferred to a follow-up sibling (see Notes for sibling tasks).
+  - **Test harness via sed extraction, not main-sourcing.** `aitask_create.sh` has no `if __name__` guard (`main "$@"` runs unconditionally at EOF), so full sourcing would execute the script. Extracting just `get_task_definition` and `eval`-ing it into a subshell with stubs is cheap, robust, and does not touch the script under test.
+  - **`@work(exclusive=True)` on the suspend path only refreshes annotations after `subprocess.call` returns.** On the `Popen` / tmux paths the subprocess runs concurrently, so post-refresh would race against the commit; we intentionally match `action_launch_agent`'s behavior of no auto-refresh there (user presses `r`).
+
+- **Notes for sibling tasks:**
+  - **Follow-up: finalize_draft auto-merge hook.** Created as a new t540 child after this task ships. The hook should read `file_references` back from the finalized task file (because `BATCH_FILE_REFS` is consumed at draft time), then call `run_auto_merge_if_needed` from `aitask_create.sh`. Relevant anchor: the interactive commit site in `finalize_draft()` near `aitask_create.sh:1780-1823`. The helper `run_auto_merge_if_needed` is already defined in the same file (lines ~1220+) and wired into the batch `--commit` paths.
+  - **t540_5 (board widget):** no interaction. `file_references` frontmatter is populated the same way regardless of entry point.
+  - **t540_7 (fold-time union):** orthogonal; when t540_7 lands it will union `file_references` across folded tasks automatically.
+  - **Manual smoke test gap:** the codebrowser TUI has no python test harness in this repo (matching t540_2's verification approach). The binding + action behavior needs human verification per the plan's Verification section.
