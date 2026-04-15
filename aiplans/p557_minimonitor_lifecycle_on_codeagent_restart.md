@@ -238,3 +238,42 @@ app has no test suite; adding one for this change is out of scope.
    - Press `R` on one of the agents.
    - Confirm only the restarted agent's pane dies; the sibling agent and the
      minimonitor remain.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the plan as written. Added
+  `TmuxMonitor.kill_agent_pane_smart` in `tmux_monitor.py` (new method right
+  after `kill_window`). It looks up the pane in `_pane_cache`, runs
+  `tmux list-panes -t <session>:<window_index>`, counts sibling panes whose
+  pid is not a companion process, and dispatches to `kill_window` (zero
+  siblings) or `kill_pane` (one or more siblings). Changed the window lookup
+  in `maybe_spawn_minimonitor` (`agent_launch_utils.py`) to keep iterating
+  after the first name match so it returns the *last* window of that name,
+  which is the most recently created one. Updated the three `monitor_app.py`
+  call sites: `_on_kill_confirmed` (`k`), the Done/archived/parent branch of
+  `_on_next_sibling_result` (`n`), and the `on_pick_result` closure inside
+  `_on_restart_confirmed` (`R`). The restart path's comment block was
+  rewritten to describe the smart behaviour and mention that last-match
+  lookup covers the transient duplicate-name window.
+- **Deviations from plan:** None in behaviour. Two minor shape changes from
+  the plan snippet:
+  - `kill_agent_pane_smart` uses an early `return` on the `list-panes` rc
+    check instead of dropping into the loop; semantics are identical (the
+    plan snippet gated the loop on `returncode == 0`).
+  - `_on_restart_confirmed` was originally a single `if self._monitor and
+    self._monitor.kill_window(pane_id):` line inside a closure. The smart
+    helper returns a tuple, so the rewrite is a nested `if self._monitor:` +
+    `ok, _ = ...; if ok:` — behaviourally the same as the one-liner in the
+    plan, just nested one more level than the plan example showed.
+- **Issues encountered:** None. `python -m py_compile` passed on the three
+  files; the full `tests/test_*.sh` sweep shows 52 pass / 21 fail with the
+  same 21 failures present on an unchanged working tree (`git stash` +
+  re-run), so no regressions were introduced by this task. The 21 failures
+  are pre-existing infrastructure issues (missing `archive_utils.sh` copy in
+  isolated test setups, unrelated scripts) outside this task's scope.
+- **Key decisions:** Kept the caller-side enforcement of the lifecycle rule
+  as originally planned rather than adding an orphan sweep in `TmuxMonitor`.
+  Left the "return last match" fix in `maybe_spawn_minimonitor` as the
+  one-line defensive belt even though the call-site fixes now prevent most
+  duplicate-name situations — the cost is zero and it keeps the companion
+  attachment correct if orphans ever appear via an external path.
