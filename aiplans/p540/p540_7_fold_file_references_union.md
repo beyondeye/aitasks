@@ -221,3 +221,76 @@ assertions). Test cases:
 ## Post-implementation
 
 Archive via `./.aitask-scripts/aitask_archive.sh 540_7`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `union_file_references` helper to
+  `lib/task_utils.sh` (after `validate_file_ref`, reusing
+  `get_file_references`) and extended `aitask_fold_mark.sh` to collect
+  direct+transitive folded file paths via the existing
+  `resolve_file_by_id`, compute the CSV union, split it into repeated
+  `--file-ref <entry>` flags, and pass them alongside `--folded-tasks`
+  in the single `aitask_update.sh --batch` call. Added
+  `tests/test_fold_file_refs_union.sh` with 5 scenarios + syntax
+  check (13 asserts total).
+- **Deviations from plan:** None of substance. The plan specified
+  passing repeated `--file-ref` to piggyback on
+  `process_file_references_operations`' exact-string dedup, and that
+  is exactly what the code does. One small refinement:
+  `union_file_references` returns early (empty stdout) when no
+  entries are collected, so the caller's empty-`union_csv` branch
+  leaves `file_ref_args` empty and the `aitask_update.sh` call is
+  unchanged — preserving the test_fold_mark behavior where primary
+  tasks without any file_references gain no line.
+- **Issues encountered:**
+  - `set -u` under bash with empty arrays: expanding
+    `${folded_files[@]}` when empty raises "unbound variable". Used
+    the `${arr[@]+"${arr[@]}"}` idiom both for the
+    `union_file_references` argument expansion and for the
+    `file_ref_args` expansion on the `aitask_update.sh` call. Matches
+    the defensive pattern already used elsewhere in the fold script.
+  - `process_file_references_operations` ordering verification: the
+    helper iterates `add_refs_ref` in the order they arrive and only
+    appends new entries, preserving the existing `refs_array` order.
+    Passing the full union (primary's entries included, in order,
+    first) means the dedup-skip on primary entries is a no-op and the
+    folded entries land after them in fold-argument order. Verified
+    with the basic_union test by stripping bracket/quote decoration
+    and comparing CSV order byte-for-byte.
+- **Key decisions:**
+  - **Where the helper lives:** `lib/task_utils.sh`, next to
+    `get_file_references` and `validate_file_ref`, so all
+    file_references primitives are colocated.
+  - **No new `aitask_update.sh` flags:** piggybacking on repeated
+    `--file-ref` deliberately avoided introducing a new flag surface.
+    This keeps the external contract of `aitask_update.sh`
+    stable for sibling t540_3 auto-merge flows.
+  - **Empty union is a no-op:** when both primary and every folded
+    task have no `file_references`, `file_ref_args` stays empty and
+    no `file_references:` line is written. Confirmed by the
+    `empty_union_leaves_primary_untouched` test.
+- **Notes for sibling tasks:**
+  - **Pattern for calling `union_file_references`:** pass the
+    primary file FIRST, then direct folded files, then transitive
+    folded files (argument order is the dedup tie-breaker, and the
+    plan specifies primary-first ordering).
+  - **Pattern for passing arrays to `aitask_update.sh`:** use the
+    `${arr[@]+"${arr[@]}"}` idiom when the array may be empty under
+    `set -u`. Repeated `--file-ref <entry>` flags are the right
+    integration point for any fold-adjacent flow that needs to add
+    refs in bulk.
+  - **Resolver reuse:** `resolve_file_by_id` is defined locally in
+    `aitask_fold_mark.sh` but returns empty string for missing files.
+    Always guard with `[[ -n "$f" ]]` before appending.
+  - **Test harness:** `tests/test_fold_file_refs_union.sh` follows
+    the `test_fold_mark.sh` bare-repo clone pattern — use it as the
+    template for any future fold-side test that needs to exercise the
+    real `aitask_update.sh` rather than mocks.
+- **Verification results:**
+  - `bash tests/test_fold_file_refs_union.sh` — 13/13 passed.
+  - `bash tests/test_fold_mark.sh` — 26/26 passed (no regression).
+  - `bash tests/test_file_references.sh` — 23/23 passed (sanity on
+    `--file-ref` append/dedup semantics).
+  - `shellcheck` — no new warnings on touched code. Pre-existing
+    warnings (SC1091 source tracking, SC2012 ls-vs-find in
+    `resolve_file_by_id`, SC2034 `CONTRIBUTE_AREAS`) are unrelated.
