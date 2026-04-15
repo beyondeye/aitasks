@@ -741,3 +741,84 @@ implementation Step 0, feed it into `aitask_create.sh --batch` (via
 the `--desc-file -` flag or a heredoc) to materialize
 `aitasks/t461/t461_9_unified_launch_mode_consumers.md`, then `./ait git
 add` / commit.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly per plan. New files
+  `lib/launch_modes.py` (source of truth with `VALID_LAUNCH_MODES =
+  {headless, interactive, openshell}`, `DEFAULT_LAUNCH_MODE`,
+  `validate_launch_mode`, `normalize_launch_mode`, `launch_modes_pipe`)
+  and `lib/launch_modes_sh.sh` (shell bridge). New test
+  `tests/test_launch_modes.py` covering module, shell-bridge parity,
+  and extensibility. Migrated all 5 primary + 7 opportunistic call
+  sites: `brainstorm_crew.py`, `agentcrew_runner.py`,
+  `aitask_crew_addwork.sh`, `aitask_crew_setmode.sh`,
+  `aitask_crew_init.sh`, `settings_app.py` (2 sites),
+  `brainstorm_app.py` (5 sites), `lib/agent_model_picker.py`.
+- **Deviations from plan:** One non-cosmetic deviation in the three
+  shell scripts: the plan specified sourcing `launch_modes_sh.sh`
+  *after* `agentcrew_utils.sh`. In practice this breaks, because
+  `agentcrew_utils.sh` reassigns `SCRIPT_DIR` on source to its own lib
+  directory, so the subsequent `source "$SCRIPT_DIR/lib/launch_modes_sh.sh"`
+  line resolves to `.aitask-scripts/lib/lib/launch_modes_sh.sh`
+  (double `lib/`) and fails with "No such file or directory". Fix:
+  source `launch_modes_sh.sh` *before* `agentcrew_utils.sh`, while
+  `SCRIPT_DIR` still points at the script's own directory. Pattern
+  also applied to test-repo fixtures that copy helper scripts.
+- **Test-fixture updates:** `tests/test_crew_init.sh`,
+  `tests/test_crew_setmode.sh`, `tests/test_launch_mode_field.sh` all
+  had `setup_test_repo` helpers that explicitly copy helper lib files
+  into the temp repo. Added `launch_modes_sh.sh` and `launch_modes.py`
+  to those copy lists — without this, every test that sources the
+  crew shell scripts fails at import time in the sandbox. The
+  `test_crew_setmode.sh` error-message assertion was also updated
+  from the old "must be 'headless' or 'interactive'" literal to the
+  new "must be one of:" prefix used by the dynamic pipe-based
+  validators.
+- **Issues encountered:**
+  1. First shell-script test run hung because the pipe-to-/dev/null
+     in `seed_crew_with_agent` swallowed the SCRIPT_DIR-clobber error
+     and the outer `set -e` exited silently. Root-caused by re-running
+     the failing command directly with stderr captured.
+  2. Shellcheck flagged `LAUNCH_MODES_REGEX` as SC2034 (appears
+     unused) because the bridge file is analysed in isolation.
+     Resolved with an inline `# shellcheck disable=SC2034` and an
+     explanatory comment noting that the variable is consumed by
+     caller scripts.
+- **Key decisions:**
+  - Kept `BRAINSTORM_AGENT_TYPES` dict literals and
+    `brainstorm_crew.py` function signature defaults as-is
+    (explicitly deferred to t461_9).
+  - Used a local function-level import in `agent_model_picker.py` to
+    avoid disturbing its intricate Textual-related top-of-file import
+    ordering, matching the pattern the plan suggested.
+  - Help-text heredocs in the three crew scripts were left static
+    (still mention `headless|interactive`) as deliberate deferred
+    staleness — consistent with the plan and t461_9's scope.
+- **Smoke test (openshell canary):** Ran a manual end-to-end test in
+  a temp sandbox covering `crew init --add-type impl:...:openshell`,
+  `crew addwork --launch-mode openshell`, `crew setmode --mode
+  openshell`, and confirmed the error path (`--mode bogusmode`)
+  produces the new dynamic "must be one of: headless, interactive,
+  openshell" message. All three validators accept openshell; the
+  agentcrew_runner dispatch block left intact per plan will emit its
+  documented "Unknown launch_mode" warning when openshell actually
+  reaches launch time (expected behaviour until t461_9).
+- **Verification results:** all tests green —
+  `python3 tests/test_launch_modes.py` 8/8,
+  `python3 tests/test_brainstorm_crew.py` 33/33,
+  `python3 tests/test_brainstorm_dag.py` 24/24,
+  `bash tests/test_crew_setmode.sh` 21/21,
+  `bash tests/test_crew_init.sh` 32/32,
+  `bash tests/test_launch_mode_field.sh` 7/7. Shellcheck clean on
+  modified crew scripts and the new `launch_modes_sh.sh`.
+- **Notes for sibling tasks:** When t461_9 starts, the single source
+  of truth plumbing is already in place — just import from
+  `launch_modes` / source `launch_modes_sh.sh`. Remember the
+  SCRIPT_DIR ordering gotcha: if you add any new script that sources
+  both `launch_modes_sh.sh` and `agentcrew_utils.sh`, the launch_modes
+  source must come first. The runner-registry refactor in t461_9
+  should replace the `if launch_mode == "headless" / elif "interactive"
+  / else WARNING` chain in `agentcrew_runner.py:491-595`; the warning
+  branch is what currently keeps the openshell canary from crashing
+  at launch time.
