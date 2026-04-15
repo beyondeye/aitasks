@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for
 from agent_command_screen import AgentCommandScreen
-from agent_launch_utils import find_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor
+from agent_launch_utils import find_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, launch_or_focus_codebrowser, maybe_spawn_minimonitor
 from tui_switcher import TuiSwitcherMixin, TuiSwitcherOverlay
 
 from textual.app import App, ComposeResult
@@ -1095,6 +1095,81 @@ class FoldedTasksField(Static):
         self.remove_class("ro-focused")
 
 
+def _current_tmux_session() -> str | None:
+    """Return the current tmux session name, or None if not in tmux."""
+    try:
+        result = subprocess.run(
+            ["tmux", "display-message", "-p", "#S"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if result.returncode == 0:
+            name = result.stdout.strip()
+            return name or None
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    return None
+
+
+class FileReferencesField(Static):
+    """Focusable, read-only file_references field.
+
+    Enter navigates to the entry in codebrowser (picker if multi).
+    No add/remove keybindings — use aitask_update.sh --file-ref /
+    --remove-file-ref or the codebrowser create-task flow instead.
+    """
+
+    can_focus = True
+
+    def __init__(self, file_refs: list, manager: "TaskManager",
+                 owner_task: "Task", **kwargs):
+        super().__init__(**kwargs)
+        self.file_refs = list(file_refs or [])
+        self.manager = manager
+        self.owner_task = owner_task
+
+    def render(self) -> str:
+        if not self.file_refs:
+            return "  [b]File Refs:[/b] [dim](none)[/dim]"
+        return f"  [b]File Refs:[/b] {', '.join(self.file_refs)}"
+
+    def on_key(self, event):
+        if event.key == "enter":
+            self._navigate()
+            event.prevent_default()
+            event.stop()
+
+    def _navigate(self):
+        if not self.file_refs:
+            return
+        if len(self.file_refs) == 1:
+            self._launch_codebrowser(self.file_refs[0])
+        else:
+            def on_picked(entry):
+                if entry:
+                    self._launch_codebrowser(entry)
+            self.app.push_screen(
+                FileReferencePickerScreen(self.file_refs),
+                on_picked,
+            )
+
+    def _launch_codebrowser(self, entry: str):
+        session = _current_tmux_session()
+        if not session:
+            self.app.notify(
+                "Codebrowser focus requires tmux", severity="warning")
+            return
+        ok, err = launch_or_focus_codebrowser(session, entry)
+        if not ok:
+            self.app.notify(
+                f"Codebrowser launch failed: {err}", severity="error")
+
+    def on_focus(self):
+        self.add_class("ro-focused")
+
+    def on_blur(self):
+        self.remove_class("ro-focused")
+
+
 class FoldedIntoField(Static):
     """Focusable folded_into field. Enter opens the target task detail."""
 
@@ -1639,6 +1714,58 @@ class FoldedTaskPickerScreen(ModalScreen):
         self.dismiss()
 
 
+class FileReferenceItem(Static):
+    """A selectable file-reference entry in the picker."""
+
+    can_focus = True
+
+    def __init__(self, entry: str, **kwargs):
+        super().__init__(**kwargs)
+        self.entry = entry
+
+    def render(self) -> str:
+        return f"  {self.entry}"
+
+    def on_key(self, event):
+        if event.key == "enter":
+            self.screen.dismiss(self.entry)
+            event.prevent_default()
+            event.stop()
+
+    def on_focus(self):
+        self.add_class("dep-item-focused")
+
+    def on_blur(self):
+        self.remove_class("dep-item-focused")
+
+
+class FileReferencePickerScreen(ModalScreen):
+    """Popup to select which file_references entry to open."""
+
+    BINDINGS = [
+        Binding("escape", "close_picker", "Close", show=False),
+    ]
+
+    def __init__(self, entries: list):
+        super().__init__()
+        self.entries = list(entries)
+
+    def compose(self):
+        with Container(id="dep_picker_dialog"):
+            yield Label(
+                "Select file reference to open:", id="dep_picker_title")
+            for entry in self.entries:
+                yield FileReferenceItem(entry)
+            yield Button("Cancel", variant="default", id="btn_dep_cancel")
+
+    @on(Button.Pressed, "#btn_dep_cancel")
+    def cancel(self):
+        self.dismiss(None)
+
+    def action_close_picker(self):
+        self.dismiss(None)
+
+
 class LockEmailScreen(ModalScreen):
     """Modal dialog to enter email for locking a task."""
 
@@ -1915,6 +2042,13 @@ class TaskDetailScreen(ModalScreen):
                 else:
                     yield ReadOnlyField(
                         f"[b]Folded Into:[/b] t{folded_into_num}", classes="meta-ro")
+
+            # File references field (read-only, navigate via enter)
+            if self.manager:
+                file_refs = meta.get("file_references") or []
+                yield FileReferencesField(
+                    file_refs, self.manager, self.task_data,
+                    classes="meta-ro")
 
             # Lock status
             if self.manager:
