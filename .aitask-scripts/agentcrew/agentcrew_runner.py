@@ -10,8 +10,10 @@ import socket
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -42,7 +44,7 @@ from lib.agent_launch_utils import (
     load_tmux_defaults,
     maybe_spawn_minimonitor,
 )
-from lib.launch_modes import DEFAULT_LAUNCH_MODE
+from lib.launch_modes import DEFAULT_LAUNCH_MODE, VALID_LAUNCH_MODES
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -407,6 +409,133 @@ def enforce_type_limits(ready: list[str], agents: dict[str, dict],
     return filtered
 
 
+class LaunchError(Exception):
+    """Raised by launcher functions when a launch precondition fails
+    (e.g. no tmux/terminal available, openshell not implemented).
+    Caller translates this into the standard Error-state bookkeeping."""
+
+
+@dataclass
+class LaunchContext:
+    """Bundle of everything a launcher function needs. Built in
+    launch_agent after all shared setup."""
+    name: str
+    agent_string: str
+    short_prompt: str
+    prompt_rel: str
+    atype: str
+    log_path: str
+    alive_path: str
+    status_file: str
+    ait_cmd: str
+    worktree: str
+    batch: bool
+
+
+def _launch_headless(ctx: LaunchContext) -> subprocess.Popen:
+    log_fh = open(ctx.log_path, "a")
+    cmd = [ctx.ait_cmd, "codeagent", "--agent-string", ctx.agent_string,
+           "invoke", "raw", "-p", ctx.short_prompt]
+    log_fh.write(f"=== Agent: {ctx.name} | Type: {ctx.atype} | "
+                 f"String: {ctx.agent_string} ===\n")
+    log_fh.write(f"=== Started: {now_utc()} ===\n")
+    log_fh.write(f"=== Prompt file: {ctx.prompt_rel} ===\n")
+    log_fh.write(f"=== Command: {' '.join(cmd)} ===\n")
+    log_fh.write(f"{'=' * 60}\n")
+    log_fh.flush()
+    proc = subprocess.Popen(cmd, cwd=_repo_root or ".",
+                            stdout=log_fh, stderr=log_fh)
+    _log_handles[ctx.name] = log_fh
+    return proc
+
+
+def _launch_interactive(ctx: LaunchContext) -> subprocess.Popen:
+    cmd = [ctx.ait_cmd, "codeagent", "--agent-string", ctx.agent_string,
+           "invoke", "raw", ctx.short_prompt]
+    cmd_str = " ".join(shlex.quote(c) for c in cmd)
+
+    launched = False
+    proc: subprocess.Popen | None = None
+
+    if is_tmux_available():
+        tmux_defaults = load_tmux_defaults(Path(_repo_root or "."))
+        session = tmux_defaults["default_session"]
+        window_name = f"agent-{ctx.name}"
+        new_session = session not in get_tmux_sessions()
+        config = TmuxLaunchConfig(
+            session=session, window=window_name,
+            new_session=new_session, new_window=True,
+        )
+        proc, err = launch_in_tmux(cmd_str, config)
+        if err is None:
+            launched = True
+            windows = get_tmux_windows(session)
+            win_idx = next(
+                (idx for idx, n in windows if n == window_name),
+                None,
+            )
+            if win_idx is not None:
+                pp = subprocess.run(
+                    ["tmux", "pipe-pane", "-O", "-o",
+                     "-t", f"{session}:{win_idx}.0",
+                     f"cat >> {shlex.quote(ctx.log_path)}"],
+                    capture_output=True, text=True, check=False,
+                )
+                if pp.returncode != 0:
+                    log(f"WARN: pipe-pane failed for {ctx.name}: "
+                        f"{pp.stderr.strip()}", ctx.batch)
+            maybe_spawn_minimonitor(session, window_name)
+        else:
+            log(f"WARN: tmux launch failed for {ctx.name}: {err}",
+                ctx.batch)
+
+    if not launched:
+        term = find_terminal()
+        if term is not None:
+            log(f"WARN: falling back to standalone terminal ({term}) "
+                f"for {ctx.name} — no monitor integration", ctx.batch)
+            proc = subprocess.Popen(
+                [term, "-e", "sh", "-c", cmd_str],
+                cwd=_repo_root or ".",
+            )
+            launched = True
+
+    if not launched or proc is None:
+        raise LaunchError(
+            "Interactive launch requires tmux or a terminal emulator"
+        )
+
+    return proc
+
+
+def _launch_openshell_headless(ctx: LaunchContext) -> subprocess.Popen:
+    raise LaunchError(
+        "openshell_headless launch mode is not yet implemented — "
+        "tracked in follow-up task"
+    )
+
+
+def _launch_openshell_interactive(ctx: LaunchContext) -> subprocess.Popen:
+    raise LaunchError(
+        "openshell_interactive launch mode is not yet implemented — "
+        "tracked in follow-up task"
+    )
+
+
+LAUNCHERS: dict[str, Callable[[LaunchContext], subprocess.Popen]] = {
+    "headless": _launch_headless,
+    "interactive": _launch_interactive,
+    "openshell_headless": _launch_openshell_headless,
+    "openshell_interactive": _launch_openshell_interactive,
+}
+
+assert set(LAUNCHERS.keys()) == set(VALID_LAUNCH_MODES), (
+    "LAUNCHERS registry out of sync with VALID_LAUNCH_MODES: "
+    f"missing={set(VALID_LAUNCH_MODES) - set(LAUNCHERS.keys())}, "
+    f"extra={set(LAUNCHERS.keys()) - set(VALID_LAUNCH_MODES)}"
+)
+
+
 def launch_agent(worktree: str, name: str, agents: dict[str, dict],
                  meta: dict, dry_run: bool, batch: bool) -> None:
     """Launch a single agent: transition Waiting→Ready→Running and start process."""
@@ -488,118 +617,48 @@ def launch_agent(worktree: str, name: str, agents: dict[str, dict],
     short_prompt = f"Read and follow all instructions in the file: {prompt_rel}"
     alive_path = os.path.join(worktree, f"{name}_alive.yaml")
 
+    ctx = LaunchContext(
+        name=name,
+        agent_string=agent_string,
+        short_prompt=short_prompt,
+        prompt_rel=prompt_rel,
+        atype=atype,
+        log_path=log_path,
+        alive_path=alive_path,
+        status_file=status_file,
+        ait_cmd=ait_cmd,
+        worktree=worktree,
+        batch=batch,
+    )
+
+    launcher = LAUNCHERS.get(launch_mode)
+    if launcher is None:
+        log(f"WARNING: Unknown launch_mode '{launch_mode}' for agent "
+            f"'{name}', skipping", batch)
+        return
+
     try:
-        if launch_mode == "headless":
-            # Capture agent stdout/stderr to a per-agent log file
-            log_fh = open(log_path, "a")
-            cmd = [ait_cmd, "codeagent", "--agent-string", agent_string,
-                   "invoke", "raw", "-p", short_prompt]
-            log_fh.write(f"=== Agent: {name} | Type: {atype} | String: {agent_string} ===\n")
-            log_fh.write(f"=== Started: {now_utc()} ===\n")
-            log_fh.write(f"=== Prompt file: {prompt_rel} ===\n")
-            log_fh.write(f"=== Command: {' '.join(cmd)} ===\n")
-            log_fh.write(f"{'=' * 60}\n")
-            log_fh.flush()
-
-            proc = subprocess.Popen(cmd, cwd=_repo_root or ".",
-                                    stdout=log_fh, stderr=log_fh)
-            _log_handles[name] = log_fh
-            update_yaml_field(status_file, "pid", proc.pid)
-            agents[name]["pid"] = proc.pid
-            # Write initial heartbeat so agent isn't considered stale before
-            # it writes its own first heartbeat
-            update_yaml_field(alive_path, "last_heartbeat", now_utc())
-            if batch:
-                print(f"LAUNCHED:{name}:{proc.pid}")
-
-        elif launch_mode == "interactive":
-            # Drop -p: pass prompt as positional so Claude Code opens
-            # interactively with it as the first user message.
-            cmd = [ait_cmd, "codeagent", "--agent-string", agent_string,
-                   "invoke", "raw", short_prompt]
-            cmd_str = " ".join(shlex.quote(c) for c in cmd)
-
-            launched = False
-            proc = None
-
-            # Preferred path: tmux window in the project session
-            if is_tmux_available():
-                tmux_defaults = load_tmux_defaults(Path(_repo_root or "."))
-                session = tmux_defaults["default_session"]
-                window_name = f"agent-{name}"
-                new_session = session not in get_tmux_sessions()
-                config = TmuxLaunchConfig(
-                    session=session, window=window_name,
-                    new_session=new_session, new_window=True,
-                )
-                proc, err = launch_in_tmux(cmd_str, config)
-                if err is None:
-                    launched = True
-                    # Mirror pane output to log_path via tmux pipe-pane so
-                    # the monitor/minimonitor can tail the same file the
-                    # headless path uses.
-                    windows = get_tmux_windows(session)
-                    win_idx = next(
-                        (idx for idx, n in windows if n == window_name),
-                        None,
-                    )
-                    if win_idx is not None:
-                        pp = subprocess.run(
-                            ["tmux", "pipe-pane", "-O", "-o",
-                             "-t", f"{session}:{win_idx}.0",
-                             f"cat >> {shlex.quote(log_path)}"],
-                            capture_output=True, text=True, check=False,
-                        )
-                        if pp.returncode != 0:
-                            log(f"WARN: pipe-pane failed for {name}: "
-                                f"{pp.stderr.strip()}", batch)
-                    maybe_spawn_minimonitor(session, window_name)
-                else:
-                    log(f"WARN: tmux launch failed for {name}: {err}", batch)
-
-            # Fallback path: standalone terminal. Note: no log mirroring
-            # here — pipe-pane has no out-of-tmux equivalent, so the log
-            # file stays empty in this branch.
-            if not launched:
-                term = find_terminal()
-                if term is not None:
-                    log(f"WARN: falling back to standalone terminal ({term}) "
-                        f"for {name} — no monitor integration", batch)
-                    proc = subprocess.Popen(
-                        [term, "-e", "sh", "-c", cmd_str],
-                        cwd=_repo_root or ".",
-                    )
-                    launched = True
-
-            if not launched:
-                err_msg = ("Interactive launch requires tmux or a terminal "
-                           "emulator")
-                log(f"ERROR: {err_msg} (agent {name})", batch)
-                update_yaml_field(status_file, "status", "Error")
-                update_yaml_field(status_file, "error_message", err_msg)
-                update_yaml_field(status_file, "completed_at", now_utc())
-                agents[name]["status"] = "Error"
-                return
-
-            # Stored pid is the wrapper pid (tmux CLI or terminal launcher),
-            # NOT the Claude Code pid. Runner liveness checks use heartbeat
-            # files, so this distinction is safe for polling.
-            update_yaml_field(status_file, "pid", proc.pid)
-            agents[name]["pid"] = proc.pid
-            update_yaml_field(alive_path, "last_heartbeat", now_utc())
-            if batch:
-                print(f"LAUNCHED:{name}:{proc.pid}")
-
-        else:
-            log(f"WARNING: Unknown launch_mode '{launch_mode}' for agent "
-                f"'{name}', skipping", batch)
-            return
+        proc = launcher(ctx)
+    except LaunchError as e:
+        log(f"ERROR: {e} (agent {name})", batch)
+        update_yaml_field(status_file, "status", "Error")
+        update_yaml_field(status_file, "error_message", str(e))
+        update_yaml_field(status_file, "completed_at", now_utc())
+        agents[name]["status"] = "Error"
+        return
     except OSError as e:
         log(f"ERROR: Failed to launch agent '{name}': {e}", batch)
         update_yaml_field(status_file, "status", "Error")
         update_yaml_field(status_file, "error_message", f"Launch failed: {e}")
         update_yaml_field(status_file, "completed_at", now_utc())
         agents[name]["status"] = "Error"
+        return
+
+    update_yaml_field(status_file, "pid", proc.pid)
+    agents[name]["pid"] = proc.pid
+    update_yaml_field(alive_path, "last_heartbeat", now_utc())
+    if batch:
+        print(f"LAUNCHED:{name}:{proc.pid}")
 
 
 def recompute_crew_status(worktree: str, agents: dict[str, dict]) -> None:

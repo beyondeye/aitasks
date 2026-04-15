@@ -2,8 +2,8 @@
 # launch_modes_sh.sh - Shell bridge to lib/launch_modes.py.
 #
 # Sources cleanly into a caller shell script and exports:
-#   LAUNCH_MODES_PIPE   - e.g. "headless|interactive|openshell" (sorted)
-#   LAUNCH_MODES_REGEX  - e.g. "^(headless|interactive|openshell)$"
+#   LAUNCH_MODES_PIPE   - e.g. "headless|interactive|openshell_headless|openshell_interactive" (sorted)
+#   LAUNCH_MODES_REGEX  - e.g. "^(headless|interactive|openshell_headless|openshell_interactive)$"
 #
 # Both values are derived at runtime by shelling out to
 # lib/launch_modes.py, so adding a mode there automatically propagates

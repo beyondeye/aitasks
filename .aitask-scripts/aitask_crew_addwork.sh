@@ -46,7 +46,9 @@ Required:
 Options:
   --depends <a,b>           Comma-separated list of agent names this agent depends on
   --group <name>            Operation group name (e.g. explore_001)
-  --launch-mode <mode>      Launch mode: 'headless' (default) or 'interactive'
+  --launch-mode <mode>      Launch mode (default: headless). One of:
+                            headless, interactive, openshell_headless,
+                            openshell_interactive.
   --batch                   Non-interactive mode (no prompts)
   --help                    Show this help
 

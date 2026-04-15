@@ -42,7 +42,9 @@ Options:
   --name <display_name>     Human-readable name (defaults to id)
   --add-type <id>:<agent>[:<launch_mode>]
                             Register an agent type (repeatable). Optional
-                            third field sets launch_mode (headless|interactive).
+                            third field sets launch_mode, one of:
+                            headless, interactive, openshell_headless,
+                            openshell_interactive.
                             Example: --add-type impl:claudecode/sonnet4_6
                                      --add-type detailer:claudecode/opus4_6:interactive
   --batch                   Non-interactive mode (no prompts)

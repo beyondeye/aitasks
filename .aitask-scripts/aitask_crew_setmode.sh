@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # aitask_crew_setmode.sh - Change launch_mode for a Waiting agent in a crew.
 #
-# Usage: ait crew setmode --crew <id> --name <agent> --mode <headless|interactive>
+# Usage: ait crew setmode --crew <id> --name <agent> --mode <MODE>
 #
 # Refuses to mutate agents not in the Waiting state — launch_mode only
 # influences pending launches. Used both from the command line and from the
@@ -29,7 +29,7 @@ MODE=""
 # --- Usage ---
 show_help() {
     cat <<'HELP'
-Usage: ait crew setmode --crew <id> --name <agent> --mode <headless|interactive>
+Usage: ait crew setmode --crew <id> --name <agent> --mode <MODE>
 
 Change the launch_mode of a Waiting agent in a crew. Refuses to mutate
 agents in Running/Completed/Error/Aborted/Paused states (launch_mode only
@@ -38,7 +38,8 @@ applies to pending launches).
 Required:
   --crew <id>       Crew identifier
   --name <agent>    Agent name
-  --mode <mode>     New launch mode: 'headless' or 'interactive'
+  --mode <MODE>     New launch mode. One of: headless, interactive,
+                    openshell_headless, openshell_interactive.
 
 Options:
   --help            Show this help

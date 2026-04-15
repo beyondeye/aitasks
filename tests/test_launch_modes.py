@@ -24,12 +24,14 @@ class TestModule(unittest.TestCase):
     def test_seed_vocabulary(self):
         self.assertIn("headless", launch_modes.VALID_LAUNCH_MODES)
         self.assertIn("interactive", launch_modes.VALID_LAUNCH_MODES)
-        self.assertIn("openshell", launch_modes.VALID_LAUNCH_MODES)
+        self.assertIn("openshell_headless", launch_modes.VALID_LAUNCH_MODES)
+        self.assertIn("openshell_interactive", launch_modes.VALID_LAUNCH_MODES)
 
     def test_validate(self):
         self.assertTrue(launch_modes.validate_launch_mode("headless"))
         self.assertTrue(launch_modes.validate_launch_mode("interactive"))
-        self.assertTrue(launch_modes.validate_launch_mode("openshell"))
+        self.assertTrue(launch_modes.validate_launch_mode("openshell_headless"))
+        self.assertTrue(launch_modes.validate_launch_mode("openshell_interactive"))
         self.assertFalse(launch_modes.validate_launch_mode("bogus"))
         self.assertFalse(launch_modes.validate_launch_mode(""))
 
@@ -90,7 +92,8 @@ class TestExtensibility(unittest.TestCase):
             sandbox = Path(td)
             (sandbox / "launch_modes.py").write_text(textwrap.dedent("""
                 VALID_LAUNCH_MODES = frozenset(
-                    {"headless", "interactive", "openshell", "futuremode"}
+                    {"headless", "interactive", "openshell_headless",
+                     "openshell_interactive", "futuremode"}
                 )
                 DEFAULT_LAUNCH_MODE = "headless"
                 def launch_modes_pipe():
@@ -110,7 +113,8 @@ class TestExtensibility(unittest.TestCase):
             self.assertIn("futuremode", result.stdout)
             self.assertIn("headless", result.stdout)
             self.assertIn("interactive", result.stdout)
-            self.assertIn("openshell", result.stdout)
+            self.assertIn("openshell_headless", result.stdout)
+            self.assertIn("openshell_interactive", result.stdout)
             parts = result.stdout.split("|")
             self.assertEqual(parts, sorted(parts))
 

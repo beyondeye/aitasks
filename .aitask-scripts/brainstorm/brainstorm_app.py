@@ -269,7 +269,7 @@ class NodeDetailModal(ModalScreen):
 
 
 class AgentModeEditModal(ModalScreen):
-    """Modal to toggle an agent's launch_mode between headless and interactive."""
+    """Modal to pick an agent's launch_mode from VALID_LAUNCH_MODES."""
 
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
 
@@ -305,29 +305,28 @@ class AgentModeEditModal(ModalScreen):
                     yield Button("Close", variant="default", id="btn_mode_close")
             else:
                 with Horizontal(id="mode_modal_buttons"):
-                    yield Button(
-                        "Headless",
-                        variant="primary" if self.current_mode == "headless" else "default",
-                        id="btn_mode_headless",
-                    )
-                    yield Button(
-                        "Interactive",
-                        variant="primary" if self.current_mode == "interactive" else "default",
-                        id="btn_mode_interactive",
-                    )
+                    for mode in sorted(VALID_LAUNCH_MODES):
+                        yield Button(
+                            mode.replace("_", " ").title(),
+                            variant=(
+                                "primary"
+                                if self.current_mode == mode
+                                else "default"
+                            ),
+                            id=f"btn_mode_{mode}",
+                        )
                     yield Button("Cancel", variant="default", id="btn_mode_cancel")
 
-    @on(Button.Pressed, "#btn_mode_headless")
-    def _pick_headless(self) -> None:
-        self.dismiss("headless")
-
-    @on(Button.Pressed, "#btn_mode_interactive")
-    def _pick_interactive(self) -> None:
-        self.dismiss("interactive")
-
-    @on(Button.Pressed, "#btn_mode_cancel")
-    @on(Button.Pressed, "#btn_mode_close")
-    def _cancel(self) -> None:
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        bid = event.button.id or ""
+        if bid in ("btn_mode_cancel", "btn_mode_close"):
+            self.dismiss(None)
+            return
+        if bid.startswith("btn_mode_"):
+            mode = bid[len("btn_mode_"):]
+            if mode in VALID_LAUNCH_MODES:
+                self.dismiss(mode)
+                return
         self.dismiss(None)
 
     def action_cancel(self) -> None:

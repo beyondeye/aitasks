@@ -527,6 +527,7 @@ class LaunchModePickerScreen(ModalScreen):
         self.current = normalize_launch_mode(current)
 
     def compose(self) -> ComposeResult:
+        from launch_modes import VALID_LAUNCH_MODES
         with Container(id="lm_dialog"):
             yield Label(
                 f"Launch mode for: [bold]{self.operation}[/bold]",
@@ -537,25 +538,28 @@ class LaunchModePickerScreen(ModalScreen):
                 id="lm_current",
             )
             with Horizontal(id="lm_buttons"):
-                yield Button(
-                    "Headless",
-                    variant=("primary" if self.current == "headless" else "default"),
-                    id="lm_headless",
-                )
-                yield Button(
-                    "Interactive",
-                    variant=("primary" if self.current == "interactive" else "default"),
-                    id="lm_interactive",
-                )
+                for mode in sorted(VALID_LAUNCH_MODES):
+                    yield Button(
+                        mode.replace("_", " ").title(),
+                        variant=(
+                            "primary" if self.current == mode else "default"
+                        ),
+                        id=f"lm_{mode}",
+                    )
                 yield Button("Cancel", variant="default", id="lm_cancel")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "lm_headless":
-            self.dismiss({"key": self.operation, "value": "headless"})
-        elif event.button.id == "lm_interactive":
-            self.dismiss({"key": self.operation, "value": "interactive"})
-        else:
+        from launch_modes import VALID_LAUNCH_MODES
+        bid = event.button.id or ""
+        if bid == "lm_cancel":
             self.dismiss(None)
+            return
+        if bid.startswith("lm_"):
+            mode = bid[len("lm_"):]
+            if mode in VALID_LAUNCH_MODES:
+                self.dismiss({"key": self.operation, "value": mode})
+                return
+        self.dismiss(None)
 
     def action_cancel(self) -> None:
         self.dismiss(None)
