@@ -8,7 +8,7 @@ labels: [agentcrew, brainstorming]
 children_to_implement: [t461_9]
 created_at: 2026-03-25 09:41
 updated_at: 2026-04-15 10:37
-boardidx: 10
+boardidx: 20
 ---
 
 When running code agents in agentcrew allow to set an override (using ait crew commands) for a code agent work defiintion or (perhaps in its command file?) that instruct the runner that this codeagent must be started
