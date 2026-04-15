@@ -42,6 +42,7 @@ from lib.agent_launch_utils import (
     load_tmux_defaults,
     maybe_spawn_minimonitor,
 )
+from lib.launch_modes import DEFAULT_LAUNCH_MODE
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -423,7 +424,7 @@ def launch_agent(worktree: str, name: str, agents: dict[str, dict],
     launch_mode = (
         agent_data.get("launch_mode")
         or type_config.get("launch_mode")
-        or "headless"
+        or DEFAULT_LAUNCH_MODE
     )
 
     if not agent_string:

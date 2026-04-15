@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
 
 from config_utils import load_layered_config  # noqa: E402
+from launch_modes import DEFAULT_LAUNCH_MODE, VALID_LAUNCH_MODES  # noqa: E402
 
 from .brainstorm_dag import (  # noqa: E402
     NODES_DIR,
@@ -43,9 +44,6 @@ BRAINSTORM_AGENT_TYPES = {
     "detailer": {"agent_string": "claudecode/opus4_6", "max_parallel": 1, "launch_mode": "interactive"},
     "patcher": {"agent_string": "claudecode/sonnet4_6", "max_parallel": 1, "launch_mode": "headless"},
 }
-
-VALID_LAUNCH_MODES = frozenset({"headless", "interactive"})
-
 
 def get_agent_types(config_root: Path | None = None) -> dict[str, dict]:
     """Return brainstorm agent types with overrides from codeagent config.
@@ -78,7 +76,7 @@ def get_agent_types(config_root: Path | None = None) -> dict[str, dict]:
                     print(
                         f"warning: invalid {launch_key}={val!r}, expected one of "
                         f"{sorted(VALID_LAUNCH_MODES)}; falling back to framework "
-                        f"default ({info.get('launch_mode', 'headless')})",
+                        f"default ({info.get('launch_mode', DEFAULT_LAUNCH_MODE)})",
                         file=sys.stderr,
                     )
     except Exception:

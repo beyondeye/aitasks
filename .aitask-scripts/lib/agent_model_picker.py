@@ -520,10 +520,11 @@ class LaunchModePickerScreen(ModalScreen):
 
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
 
-    def __init__(self, operation: str, current: str = "headless"):
+    def __init__(self, operation: str, current: str | None = None):
         super().__init__()
+        from launch_modes import normalize_launch_mode
         self.operation = operation
-        self.current = current if current in ("headless", "interactive") else "headless"
+        self.current = normalize_launch_mode(current)
 
     def compose(self) -> ComposeResult:
         with Container(id="lm_dialog"):

@@ -16,6 +16,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+# shellcheck source=lib/launch_modes_sh.sh
+source "$SCRIPT_DIR/lib/launch_modes_sh.sh"
 # shellcheck source=lib/agentcrew_utils.sh
 source "$SCRIPT_DIR/lib/agentcrew_utils.sh"
 
@@ -73,8 +75,8 @@ done
 [[ -z "$AGENT_NAME" ]] && die "Missing required --name. Run 'ait crew setmode --help' for usage."
 [[ -z "$MODE" ]] && die "Missing required --mode. Run 'ait crew setmode --help' for usage."
 
-[[ "$MODE" =~ ^(headless|interactive)$ ]] || \
-    die "--mode must be 'headless' or 'interactive' (got '$MODE')"
+[[ "$MODE" =~ $LAUNCH_MODES_REGEX ]] || \
+    die "--mode must be one of: ${LAUNCH_MODES_PIPE//|/, } (got '$MODE')"
 
 validate_crew_id "$CREW_ID"
 validate_agent_name "$AGENT_NAME"

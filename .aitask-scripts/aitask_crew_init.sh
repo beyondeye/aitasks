@@ -16,6 +16,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+# shellcheck source=lib/launch_modes_sh.sh
+source "$SCRIPT_DIR/lib/launch_modes_sh.sh"
 # shellcheck source=lib/agentcrew_utils.sh
 source "$SCRIPT_DIR/lib/agentcrew_utils.sh"
 
@@ -83,9 +85,10 @@ validate_crew_id "$CREW_ID"
 [[ -z "$CREW_DISPLAY_NAME" ]] && CREW_DISPLAY_NAME="$CREW_ID"
 
 # Validate --add-type format
+add_type_regex="^[a-z0-9_]+:[^:]+(:(${LAUNCH_MODES_PIPE}))?$"
 for at in "${ADD_TYPES[@]+"${ADD_TYPES[@]}"}"; do
-    if ! [[ "$at" =~ ^[a-z0-9_]+:[^:]+(:(headless|interactive))?$ ]]; then
-        die "Invalid --add-type format '$at': expected type_id:agent_string[:launch_mode] (e.g., impl:claudecode/opus4_6 or detailer:claudecode/opus4_6:interactive)"
+    if ! [[ "$at" =~ $add_type_regex ]]; then
+        die "Invalid --add-type format '$at': expected type_id:agent_string[:launch_mode] (launch_mode one of: ${LAUNCH_MODES_PIPE//|/, })"
     fi
 done
 

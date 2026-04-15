@@ -64,6 +64,7 @@ from brainstorm.brainstorm_crew import (
     register_synthesizer,
 )
 from agent_launch_utils import is_tmux_available
+from launch_modes import DEFAULT_LAUNCH_MODE, VALID_LAUNCH_MODES
 from agentcrew.agentcrew_utils import list_agent_files, format_elapsed, read_yaml
 from agentcrew.agentcrew_log_utils import (
     list_agent_logs,
@@ -125,7 +126,7 @@ def _brainstorm_launch_mode_default(wizard_op: str) -> str:
     agent_type = _WIZARD_OP_TO_AGENT_TYPE.get(wizard_op, "")
     return get_agent_types(config_root=Path(".")).get(
         agent_type, {}
-    ).get("launch_mode", "headless")
+    ).get("launch_mode", DEFAULT_LAUNCH_MODE)
 
 _DESIGN_OPS = [
     ("explore", "Explore", "Create new design variants from a base node"),
@@ -1712,7 +1713,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
             )
             return
         data = read_yaml(sf) or {}
-        current_mode = data.get("launch_mode", "headless")
+        current_mode = data.get("launch_mode", DEFAULT_LAUNCH_MODE)
         status = data.get("status", row.agent_status)
         self.push_screen(
             AgentModeEditModal(
@@ -2363,7 +2364,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
             container.mount(
                 CycleField(
                     "Launch mode",
-                    ["headless", "interactive"],
+                    sorted(VALID_LAUNCH_MODES),
                     initial=default_mode,
                     id="launch-mode-field",
                 )
@@ -2559,7 +2560,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
             field = self.query_one("#launch-mode-field", CycleField)
             self._wizard_config["launch_mode"] = field.current_value
         except Exception:
-            self._wizard_config["launch_mode"] = "headless"
+            self._wizard_config["launch_mode"] = DEFAULT_LAUNCH_MODE
         self._run_design_op()
 
     @work(thread=True)
@@ -2569,7 +2570,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         cfg = self._wizard_config
         crew_id = self.session_data.get("crew_id", f"brainstorm-{self.task_num}")
         group_name = self._next_group_name(op)
-        launch_mode = cfg.get("launch_mode", "headless")
+        launch_mode = cfg.get("launch_mode", DEFAULT_LAUNCH_MODE)
 
         try:
             if op == "explore":

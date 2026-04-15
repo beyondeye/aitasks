@@ -83,6 +83,8 @@ setup_test_repo() {
 
         cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/launch_modes_sh.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/launch_modes.py"    .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/aitask_crew_init.sh"    .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/aitask_crew_addwork.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/aitask_crew_setmode.sh" .aitask-scripts/
@@ -227,7 +229,7 @@ TMPDIR_T5="$(setup_test_repo)"
         _inc_fail
         echo "FAIL: bad mode did not exit non-zero"
     fi
-    assert_contains "validation error message" "must be 'headless' or 'interactive'" "$err_output"
+    assert_contains "validation error message" "must be one of:" "$err_output"
 )
 cleanup_test_repo "$TMPDIR_T5"
 

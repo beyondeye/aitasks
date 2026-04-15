@@ -46,6 +46,7 @@ from config_utils import (  # noqa: E402
     split_config,
     validate_export_bundle,
 )
+from launch_modes import DEFAULT_LAUNCH_MODE, normalize_launch_mode  # noqa: E402
 
 from textual import on  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
@@ -1632,11 +1633,10 @@ class SettingsApp(TuiSwitcherMixin, App):
                         "defaults", {}
                     )
                     if current_val == "(inherits project)":
-                        current_mode = str(project_defaults.get(key, "headless"))
+                        current_mode = str(project_defaults.get(key, DEFAULT_LAUNCH_MODE))
                     else:
                         current_mode = current_val
-                    if current_mode not in ("headless", "interactive"):
-                        current_mode = "headless"
+                    current_mode = normalize_launch_mode(current_mode)
                     self.push_screen(
                         LaunchModePickerScreen(key, current_mode),
                         callback=self._handle_launch_mode_pick,
@@ -1908,7 +1908,7 @@ class SettingsApp(TuiSwitcherMixin, App):
             launch_mode_emitted.add(atype)
             lm_key = f"brainstorm-{atype}-launch-mode"
             framework_default = BRAINSTORM_AGENT_TYPES.get(atype, {}).get(
-                "launch_mode", "headless"
+                "launch_mode", DEFAULT_LAUNCH_MODE
             )
             proj_lm = project_defaults.get(lm_key)
             local_lm = local_defaults.get(lm_key)
