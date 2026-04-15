@@ -81,3 +81,10 @@ With:
 ## Step 9 (Post-Implementation)
 
 After user approval in Step 8, proceed with Step 9 (archive and push) per the shared task-workflow.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `_idle_border_style()` helper to `TaskCard` returning `"dashed"` for child tasks and `"solid"` for parent tasks. Updated `on_mount` and `on_blur` to call the helper; `on_focus` still sets `("double", "cyan")` unchanged.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Syntax check passed; TUI was not launched from the agent (user-verified interactively).
+- **Key decisions:** Introduced a tiny helper instead of inlining the conditional in two places — keeps the two idle-state setters in sync if the style rule ever changes.
