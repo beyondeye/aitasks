@@ -6,8 +6,9 @@ issue_type: refactor
 status: Implementing
 labels: [aitask_monitor]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-04-15 10:48
-updated_at: 2026-04-15 11:25
+updated_at: 2026-04-15 11:34
 boardidx: 10
 ---
 
