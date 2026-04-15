@@ -245,8 +245,36 @@ assert_eq "T7: y7 created Ready" "Ready" "$(get_field "$y7_file" status)"
 assert_eq "T7: y7 has no folded_tasks" "" "$(get_field "$y7_file" folded_tasks)"
 rm -rf "$TMPDIR_7"
 
-# --- Test 8: Syntax check on aitask_create.sh ---
-echo "--- Test 8: Syntax check ---"
+# --- Test 8: Finalize-path auto-merge via --batch --finalize ---
+echo "--- Test 8: Finalize-path auto-merge ---"
+TMPDIR_8="$(setup_project)"
+# Step 1: Create A with --commit so there's an existing match.
+(cd "$TMPDIR_8/local" && \
+    ./.aitask-scripts/aitask_create.sh --batch --commit --name "a8" \
+        --desc "first" --file-ref "foo.py" >/dev/null 2>&1)
+a8_file=$(find_task_file "$TMPDIR_8/local" a8)
+a8_id=$(task_num_from_file "$a8_file")
+
+# Step 2: Create a draft (batch, no --commit) that references the same file.
+(cd "$TMPDIR_8/local" && \
+    ./.aitask-scripts/aitask_create.sh --batch --name "b8" \
+        --desc "second" --file-ref "foo.py" >/dev/null 2>&1)
+draft_file=$(ls "$TMPDIR_8/local/aitasks/new"/draft_*_b8.md 2>/dev/null | head -1)
+
+# Step 3: Finalize the draft with --auto-merge.
+(cd "$TMPDIR_8/local" && \
+    ./.aitask-scripts/aitask_create.sh --batch --finalize "$(basename "$draft_file")" \
+        --auto-merge >/dev/null 2>&1)
+b8_file=$(find_task_file "$TMPDIR_8/local" b8)
+b8_id=$(task_num_from_file "$b8_file")
+
+assert_eq "T8: a8 status is Folded (finalize path)" "Folded" "$(get_field "$a8_file" status)"
+assert_eq "T8: a8 folded_into points to b8" "$b8_id" "$(get_field "$a8_file" folded_into)"
+assert_contains "T8: b8 folded_tasks contains a8" "$a8_id" "$(get_field "$b8_file" folded_tasks)"
+rm -rf "$TMPDIR_8"
+
+# --- Test 9: Syntax check on aitask_create.sh ---
+echo "--- Test 9: Syntax check ---"
 TOTAL=$((TOTAL + 1))
 if bash -n "$PROJECT_DIR/.aitask-scripts/aitask_create.sh"; then
     PASS=$((PASS + 1))

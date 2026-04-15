@@ -584,6 +584,8 @@ finalize_draft() {
         humanized_name=$(echo "$task_name" | tr '_' ' ')
         task_git commit -m "ait: Add child task ${task_id}: ${humanized_name}"
 
+        run_auto_merge_if_needed "${parent_num}_${child_num}" "$filepath"
+
         release_child_lock "$parent_num"
         trap - EXIT
     else
@@ -642,6 +644,8 @@ finalize_draft() {
         local humanized_name
         humanized_name=$(echo "$task_name" | tr '_' ' ')
         task_git commit -m "ait: Add task ${task_id}: ${humanized_name}"
+
+        run_auto_merge_if_needed "$claimed_id" "$filepath"
     fi
 
     if [[ "$silent" == "true" ]]; then
@@ -1283,6 +1287,21 @@ run_auto_merge_if_needed() {
     done
 
     [[ ${#cand_ids[@]} -eq 0 ]] && return 0
+
+    if [[ "$BATCH_AUTO_MERGE" != true && "$BATCH_MODE" != true && -t 0 ]]; then
+        info "Found ${#cand_ids[@]} pending task(s) that already reference this file:"
+        local prompt_i
+        for ((prompt_i = 0; prompt_i < ${#cand_ids[@]}; prompt_i++)); do
+            info "  - t${cand_ids[$prompt_i]} (${cand_paths_by_id[${cand_ids[$prompt_i]}]}) → ${cand_files[$prompt_i]}"
+        done
+        local merge_choice
+        merge_choice=$(printf 'Yes, fold them into this task\nNo, keep separate\n' \
+            | fzf --prompt="Auto-merge? " --height=6 --no-info \
+                  --header="Fold ${#cand_ids[@]} matching task(s) into t${new_id}") || true
+        if [[ "$merge_choice" == Yes* ]]; then
+            BATCH_AUTO_MERGE=true
+        fi
+    fi
 
     if [[ "$BATCH_AUTO_MERGE" != true ]]; then
         warn "Found ${#cand_ids[@]} pending task(s) that already reference this file:"
