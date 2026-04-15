@@ -3,7 +3,8 @@ Task: t461_9_unified_launch_mode_consumers.md
 Parent Task: aitasks/t461_interactive_override_in_agencrew.md
 Archived Sibling Plans: aiplans/archived/p461/p461_1_runner_interactive_launch.md, aiplans/archived/p461/p461_2_crew_setmode_cli.md, aiplans/archived/p461/p461_3_brainstorm_wizard_toggle.md, aiplans/archived/p461/p461_4_brainstorm_status_edit.md, aiplans/archived/p461/p461_5_per_agent_type_defaults.md, aiplans/archived/p461/p461_6_ansi_log_viewer.md, aiplans/archived/p461/p461_7_brainstorm_launch_mode_settings_tui.md, aiplans/archived/p461/p461_8_centralize_launch_mode_vocabulary.md
 Base branch: main
-plan_verified: []
+plan_verified:
+  - claudecode/opus4_6 @ 2026-04-15 11:59
 ---
 
 # t461_9 — Unified Launch Mode Consumers (with openshell split)
@@ -29,6 +30,13 @@ Real launch semantics for both openshell variants remain stubbed;
 implementing them is a follow-up task created during Step 9. Task
 t456 (per-agent permissions) stays separate — it's an orthogonal
 concern with a different config surface.
+
+**Plan verification (2026-04-15):** All assumptions about current
+code state (file paths, line numbers, hardcoded patterns, imports,
+CSS widths, help-text heredoc form) have been confirmed against the
+actual codebase. No drift detected. Line numbers match within ±1 line
+(brainstorm_app.py AgentModeEditModal is at 271-335, plan cited
+270-333). Plan is ready for execution as written.
 
 ## Design decisions (confirmed with user)
 
@@ -473,7 +481,7 @@ bump to `60%` if necessary (note in Final Implementation Notes).
 **Caller** (`settings/settings_app.py`): no changes — the returned
 dict shape (`{"key": operation, "value": mode}`) is preserved.
 
-### 3.2 `AgentModeEditModal` (brainstorm_app.py, lines 271–334)
+### 3.2 `AgentModeEditModal` (brainstorm_app.py, lines 271–335)
 
 `VALID_LAUNCH_MODES` is already imported at line 67.
 
