@@ -387,3 +387,52 @@ After implementation and manual verification, follow task-workflow
 Step 9 (commit + archive via `./.aitask-scripts/aitask_archive.sh 553`
 + push). No separate branch / worktree was created (profile `fast`:
 `create_worktree: false`), so the merge sub-steps are skipped.
+
+## Final Implementation Notes
+
+- **Actual work done:** All five documented changes applied to
+  `.aitask-scripts/monitor/monitor_app.py` exactly as specified in the
+  Design / Changes sections:
+  1. `PreviewScrollContainer` — added `user_is_scrolling: bool = False`
+     class attribute with explanatory comment; set to `True` at the top
+     of every `_on_*` handler before `super()`.
+  2. `MonitorApp.__init__` — added `self._preview_rendered_lines: list[str] = []`
+     initialization immediately after `_last_preview_pane_id`.
+  3. `_record_preview_scroll` — rewritten to read anchor from
+     `self._preview_rendered_lines`, capture the previous detach state,
+     commit new state, clear `scroll.user_is_scrolling`, and fire
+     `call_later(self._fast_preview_refresh)` on re-attach transition.
+  4. `_update_content_preview` — full rewrite. Early-return empty branch
+     clears `_preview_rendered_lines`. Header built once per call with
+     `PAUSED` (yellow) superseding `LIVE` (green) when the saved state
+     is `(False, anchor)`. Frozen branch (`same_pane AND (is_paused OR
+     scroll.user_is_scrolling)`) returns before touching preview / scroll.
+     Active branch renders content, stores `lines` into
+     `_preview_rendered_lines`, and restores scroll via the existing
+     tail-follow / anchor / snap-to-tail logic.
+  5. `action_scroll_preview_tail` — `query_one` retyped to
+     `PreviewScrollContainer`; `call_later(self._fast_preview_refresh)`
+     fires when `_focused_pane_id` is not `None`, so tail re-engagement
+     pulls a fresh snapshot instead of sitting on frozen content.
+- **Deviations from plan:** None. The edits match the plan verbatim
+  modulo whitespace/import context. The plan's "No changes needed for"
+  section (`_refresh_data`, `_fast_preview_refresh`, `_manage_preview_timer`,
+  `action_toggle_scrollbar`) was respected — those functions were not
+  touched.
+- **Issues encountered:** None during implementation. `ast.parse` on
+  `monitor_app.py` succeeded after the edits. Pre-existing unrelated
+  uncommitted changes to `.aitask-scripts/brainstorm/brainstorm_crew.py`
+  and untracked `.aitask-scripts/lib/launch_modes.py` /
+  `launch_modes_sh.sh` / `tests/test_launch_modes.py` were noticed and
+  deliberately excluded from the t553 commit (they belong to a different
+  in-progress task).
+- **Key decisions:** None beyond what the plan already decided. The
+  freeze-entirely-when-detached approach (as confirmed in the Context
+  section of the plan) is the shipped behavior. PAUSED badge lives in
+  `_update_content_preview`'s header block rather than in a separate
+  reactive watcher.
+- **Build verification:** `python3 -c "import ast;
+  ast.parse(open('.aitask-scripts/monitor/monitor_app.py').read())"`
+  passes. Project has no automated test suite for the Textual monitor
+  TUI; full functional verification (scenarios 1–10) is manual in a
+  real tmux session per the plan's Verification section.
