@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t540_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_fold, bash_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-14 10:16
-updated_at: 2026-04-14 10:16
+updated_at: 2026-04-15 12:20
 ---
 
 t540_7: extend `aitask_fold_mark.sh` so that when tasks are folded
