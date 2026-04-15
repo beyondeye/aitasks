@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.16.0
+
+### Features
+
+- **Interactive agent launch mode** (t461_1–t461_9): Agentcrew agents can now run in `interactive` mode (spawned in a tmux window you can attach to) alongside the existing `headless` mode. Brainstorm wizard gains a launch-mode toggle on the confirm screen, the Status tab shows an `e` shortcut to edit an agent's mode, per-agent-type defaults are configurable in the Settings TUI, and a new `ait crew setmode` CLI flips a Waiting agent between modes. Also introduces two new `openshell_headless` / `openshell_interactive` modes (launch semantics tracked as follow-up).
+- **File references frontmatter field** (t540_1–t540_8): Tasks can now carry a `file_references` list pointing at specific files (and optional line ranges like `foo.py:10-20^30-40`). Codebrowser gains an `n` keybinding to create a task from the current selection or cursor line, an opened-file history pane, and a focus mechanism for jumping to specific ranges. The board TaskDetail modal shows a File Refs row that launches the codebrowser on press. Creating a task with `--file-ref` can auto-merge related pending tasks that touch the same file, and folds union file references across merged tasks.
+- **Plan verification tracking** (t547_1–t547_3, t550): Plans now carry a `plan_verified` list recording which agents verified them against the current codebase. Profile keys `plan_verification_required` and `plan_verification_stale_after_hours` (exposed as int fields in the Settings TUI) let picks auto-skip verification when a plan has been validated recently by another agent.
+- **ANSI log viewer** (t461_6): New `ait crew logview` TUI renders agent log files with ANSI color support, live tailing, search, and raw-mode toggle. Launchable via `L` from the brainstorm Status tab and monitor.
+- **Task restart from monitor** (t556): Press `R` on an idle agent pane in `ait monitor` to kill the window and re-launch the task in a fresh agent.
+- **Opened-file history in codebrowser** (t541): New left-sidebar recent-files list (capped at 15) persists across sessions. Three-way focus cycling between recent list, file tree, and code viewer.
+- **Jump from minimonitor to full monitor** (t534): Press `m` in minimonitor to open `ait monitor` with the companion agent pane pre-focused.
+- **Cascade archive/delete for parent tasks** (t531): Archiving or deleting a parent task from the board now cascades to its children with a transparent confirm dialog listing each affected file and its fate.
+- **Use labels from previous task** (t540_6): Interactive task creation offers a `>> Use labels from previous task` menu entry that seeds the picker with your last selection, persisted per-user in `userconfig.yaml`.
+- **Brainstorm TUI task context** (t537): The brainstorm TUI title bar now shows the owning task ID and name.
+- **Refresh codebrowser history** (t552): Press `r` in the codebrowser history screen to reload archived task data with a progress modal and completion toast.
+- **Plan externalize --force flag** (t542): The plan-externalize helper gains `--force` to overwrite an existing external plan file, used proactively at Step 6 while Step 8 remains idempotent.
+- **Child task border style** (t554): Child task cards on the board use a dashed border (parents stay solid) for at-a-glance hierarchy visibility.
+
+### Bug Fixes
+
+- **Claude Code plan externalization** (t440): Claude's internal plan file is now externalized to `aiplans/` before archival via a shared `aitask_plan_externalize.sh` helper, preventing plan loss when Claude forgets.
+- **Monitor preview per-pane scroll** (t532, t548, t553): Scroll position is now preserved per-pane when switching focus in `ait monitor`, anchored by top-line text so it survives content refresh. Preview freezes with a `PAUSED` badge when you scroll away from the tail, and a `t` key re-engages tail-follow. An async tmux refresh (t544) and an in-place fast rebuild path (t545) eliminate freezes and arrow-key loss during refresh ticks.
+- **Narrow git add in archive script** (t533): `aitask_archive.sh` no longer stages unrelated sibling task/plan changes during archival — each file is added by explicit path.
+- **Agentcrew import error from any cwd** (t536, t539): `ait crew status`, `dashboard`, and `report` now resolve imports correctly regardless of working directory; all four agentcrew scripts share a single package-style import pattern.
+- **Codebrowser tab focus cycling** (t549): Fixed focus loops between sidebar, file tree, code viewer, and detail pane.
+- **Fast profile stops after plan approval** (t555): The `fast` execution profile now defaults to `post_plan_action: ask` so you can approve or abort a plan before implementation starts.
+- **Disable runner buttons after press** (t447_5): Brainstorm Status tab Start/Stop runner buttons are immediately disabled on press to prevent double-clicks.
+- **Brainstorm launch-mode layout** (t546): Settings TUI indents the per-agent-type launch-mode rows and adds specific labels so they visually nest under the parent setting.
+- **Draft finalize test harness** (t543): Fixed `test_draft_finalize.sh` regression caused by missing helper lib copies.
+- **Script whitelists** (t538, t551): Added `aitask_fold_*`, `aitask_plan_externalize.sh`, and `aitask_plan_verified.sh` to Claude, OpenCode, and Gemini CLI whitelists.
+
+### Improvements
+
+- **Centralized launch mode vocabulary** (t461_8): Single source of truth in `lib/launch_modes.py` + `lib/launch_modes_sh.sh` so adding a new launch mode requires touching one file.
+- **Minimonitor lifecycle on agent kill/restart** (t557): Introduced `kill_agent_pane_smart` so killing, restarting, or moving to a sibling agent correctly tears down the agent window (and its minimonitor companion) vs just the pane, depending on sibling count.
+
+### Maintenance
+
+- **Unify agentcrew package imports** (t539): All four agentcrew scripts use `from agentcrew.<module> import ...` with consistent sys.path setup.
+
 ## v0.15.1
 
 ### Features
