@@ -148,7 +148,44 @@ if [[ ${#all_list[@]} -gt 0 ]]; then
     full_csv=$(IFS=','; echo "${all_list[*]}")
 fi
 
-"$SCRIPT_DIR/aitask_update.sh" --batch "$primary_id" --folded-tasks "$full_csv" --silent >/dev/null
+# Collect file paths for direct folded tasks
+folded_files=()
+for fid in "${folded_ids[@]}"; do
+    fid="${fid#t}"
+    f=$(resolve_file_by_id "$fid")
+    [[ -n "$f" ]] && folded_files+=("$f")
+done
+
+# Collect file paths for transitive folded tasks
+transitive_files=()
+for tid in "${transitive_ids[@]}"; do
+    tid="${tid#t}"
+    [[ -z "$tid" ]] && continue
+    f=$(resolve_file_by_id "$tid")
+    [[ -n "$f" ]] && transitive_files+=("$f")
+done
+
+# Compute deduped union of file_references across primary + folded + transitive.
+# Passing primary first preserves its existing entries and order; folded entries
+# are appended in fold-argument order via process_file_references_operations'
+# exact-string dedup in aitask_update.sh.
+union_csv=$(union_file_references "$primary_file" \
+    ${folded_files[@]+"${folded_files[@]}"} \
+    ${transitive_files[@]+"${transitive_files[@]}"})
+
+file_ref_args=()
+if [[ -n "$union_csv" ]]; then
+    IFS=',' read -ra union_entries <<< "$union_csv"
+    for entry in "${union_entries[@]}"; do
+        [[ -z "$entry" ]] && continue
+        file_ref_args+=(--file-ref "$entry")
+    done
+fi
+
+"$SCRIPT_DIR/aitask_update.sh" --batch "$primary_id" \
+    --folded-tasks "$full_csv" \
+    ${file_ref_args[@]+"${file_ref_args[@]}"} \
+    --silent >/dev/null
 echo "PRIMARY_UPDATED:${primary_id}"
 
 # Step 4: mark each new folded task

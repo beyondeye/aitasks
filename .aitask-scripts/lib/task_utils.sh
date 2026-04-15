@@ -528,6 +528,45 @@ validate_file_ref() {
     fi
 }
 
+# union_file_references <primary_file> [<folded_file> ...]
+# Reads file_references from primary first, then each folded file in
+# argument order. Dedupes by first-occurrence exact-string match.
+# Prints the unioned list as CSV on stdout (empty if nothing to emit).
+union_file_references() {
+    local primary_file="$1"
+    shift
+    local -a merged=()
+    declare -A seen=()
+    local entry f
+
+    if [[ -n "$primary_file" && -f "$primary_file" ]]; then
+        while IFS= read -r entry; do
+            [[ -z "$entry" ]] && continue
+            if [[ -z "${seen[$entry]:-}" ]]; then
+                seen[$entry]=1
+                merged+=("$entry")
+            fi
+        done < <(get_file_references "$primary_file")
+    fi
+
+    for f in "$@"; do
+        [[ -z "$f" || ! -f "$f" ]] && continue
+        while IFS= read -r entry; do
+            [[ -z "$entry" ]] && continue
+            if [[ -z "${seen[$entry]:-}" ]]; then
+                seen[$entry]=1
+                merged+=("$entry")
+            fi
+        done < <(get_file_references "$f")
+    done
+
+    if [[ ${#merged[@]} -eq 0 ]]; then
+        return 0
+    fi
+    local IFS=','
+    echo "${merged[*]}"
+}
+
 # Extract related issue URLs from a task file's YAML frontmatter
 # Input: task file path
 # Output: one URL per line (newline-separated), empty if missing/empty
