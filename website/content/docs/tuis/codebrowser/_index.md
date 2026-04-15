@@ -100,11 +100,18 @@ A terminal emulator is opened automatically. If none is found, the codebrowser s
 
 This is useful when you want a deeper, conversational explanation of a code section — the codebrowser provides the visual overview, and `/aitask-explain` provides the detailed narrative.
 
+### Creating Tasks from Code
+
+Press **n** to spawn a new task pre-seeded with a reference to the current file and selected lines. Navigate to the file, select a range (or just place the cursor on a line), press **n**, and an `AgentCommandScreen` opens with `aitask_create.sh --file-ref <relpath>:<start>-<end>` pre-filled. Choose **Run** or **Run in tmux** and the normal interactive create flow walks you through the remaining metadata, finishing with a committed task whose `file_references` frontmatter points at the exact range you chose.
+
+If the new task references a file that any existing `Ready`/`Editing` task already references, the create script detects the overlap and offers to fold those tasks into the new one — see [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}) for the full flow.
+
 ---
 
 **See also:**
 - [`/aitask-explain`]({{< relref "/docs/skills/aitask-explain" >}}) — The skill that generates annotation data and provides conversational code explanations
 - [Understanding Code with Explain]({{< relref "/docs/workflows/explain" >}}) — Workflow guide covering use cases and the cognitive debt framing
+- [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}) — Workflow guide: codebrowser → file-range → task, with auto-merge
 - [`ait explain-runs` and `ait explain-cleanup`]({{< relref "/docs/commands/explain" >}}) — Commands for managing explain run data
 - [`ait codeagent`]({{< relref "/docs/commands/codeagent" >}}) — Configures which agent and model the code browser uses for explain sessions
 

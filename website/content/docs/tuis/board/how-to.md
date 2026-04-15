@@ -264,6 +264,7 @@ The task detail dialog shows several relationship fields. Each is focusable — 
 | **Parent** | Opens the parent task's detail dialog. |
 | **Folded Tasks** | Opens the folded task's detail dialog in **read-only** mode. If multiple, shows a picker list. |
 | **Folded Into** | Opens the target task that this task was folded into. |
+| **File Refs** | Opens `ait codebrowser` focused on the referenced file and line range. With 0 entries, no-op. With 1 entry, opens directly. With 2+ entries, a picker appears first. Requires a running tmux session to reuse an existing codebrowser window. |
 | **Issue** | Opens the issue URL in your default web browser. |
 | **Pull Request** | Opens the pull request URL in your default web browser. |
 

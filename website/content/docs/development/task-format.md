@@ -46,6 +46,7 @@ Detailed description of what needs to be done.
 | `boardidx` | integer | Board UI sort index within column |
 | `folded_tasks` | `[138, 129_5]` | Task IDs folded into this task by `/aitask-explore` or `/aitask-fold` (deleted on archival) |
 | `folded_into` | task number | Task this was folded into (set by `/aitask-fold` or `/aitask-explore`) |
+| `file_references` | `[path, path:N, path:N-M, path:N-M^N-M]` | Structured pointers to source files / line ranges. 1-indexed, inclusive. Exact-string dedup. See [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}) |
 
 ---
 

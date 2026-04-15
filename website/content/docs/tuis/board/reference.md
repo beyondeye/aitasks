@@ -192,6 +192,7 @@ The board reads and displays the following frontmatter fields from task files:
 | `children_to_implement` | list | Read-only | Child task IDs for parent tasks |
 | `folded_tasks` | list | Read-only | Task IDs that were merged into this task |
 | `folded_into` | string | Read-only | Task ID this task was folded into |
+| `file_references` | list | Read-only | Pointers to source files / line ranges (e.g., `foo.py:10-20`). Pressing **Enter** on a focused row opens `ait codebrowser` at the referenced location. See [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}). |
 | `boardcol` | string | Auto-managed | Column ID (set by board operations) |
 | `boardidx` | integer | Auto-managed | Sort index within column (set by board operations) |
 

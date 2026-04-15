@@ -35,6 +35,20 @@ For non-interactive task creation (e.g., scripting or automation), use the under
 
 Run `./.aitask-scripts/aitask_create.sh --help` for the full list of flags.
 
+**File references and auto-merge:**
+
+```bash
+./.aitask-scripts/aitask_create.sh --batch --commit \
+    --name "fix_login" --desc "..." \
+    --file-ref "lib/login.py:42-68" \
+    --auto-merge
+```
+
+- `--file-ref PATH[:N[-M][^N[-M]...]]` (repeatable) attaches a structured pointer to source lines in the new task's `file_references` frontmatter.
+- `--auto-merge` folds any `Ready`/`Editing` task that already references the same path into the new one. The default (`--no-auto-merge`) warns and skips instead.
+
+See the [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}) workflow guide for the full walkthrough, including the interactive codebrowser `n` flow.
+
 ## Workflows
 
 For workflow guides, see [Capturing Ideas](../../workflows/capturing-ideas/) and [Follow-Up Tasks](../../workflows/follow-up-tasks/).

@@ -103,6 +103,19 @@ The codebrowser integrates directly with the [`/aitask-explain`]({{< relref "/do
 
 This is the recommended workflow for going deeper: use the codebrowser's visual annotations to identify interesting code sections, then press **e** to get a full narrative explanation from your configured agent.
 
+### How to Create a Task from a Selection
+
+Capture a task whose `file_references` frontmatter points at exactly the lines you're looking at:
+
+1. Open a file in the code viewer
+2. Optionally select a range (**Shift+Up / Shift+Down** or mouse drag). No selection is fine — the cursor line is used as a fallback
+3. Press **n**
+4. An `AgentCommandScreen` appears with the title `Create task — <relpath> (lines N-M)` and a pre-filled command `aitask_create.sh --file-ref <relpath>:N-M`
+5. Choose **Run** (new terminal) or **Run in tmux** (tmux window). You can also edit the command before running — for example, append `--auto-merge` to fold pending tasks that already reference this file
+6. Walk through the interactive create flow as usual. At the top you will see a `Pre-populated file references: <relpath>:N-M` banner
+
+The finalized task file contains `file_references: [<relpath>:N-M]` in its frontmatter. Fallback behavior: no selection produces `path:<cursor_line>`; a single-line selection produces `path:N` (not `path:N-N`). For the full story — including how auto-merge detects and folds overlapping pending tasks — see [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}).
+
 ### How to Navigate from Code to Task History
 
 When viewing annotated code, you can jump directly to a specific task in the history screen:

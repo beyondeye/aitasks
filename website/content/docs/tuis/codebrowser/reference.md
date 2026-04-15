@@ -61,6 +61,7 @@ description: "Keyboard shortcuts, annotation pipeline, and technical details"
 | `Shift+Up` | Extend selection upward | Code viewer |
 | `Shift+Down` | Extend selection downward | Code viewer |
 | `Escape` | Clear selection | Code viewer |
+| `n` | Create a task with `file_references` seeded from the selection or cursor line | Code viewer |
 | `PageUp` | Move cursor up by one screen | Code viewer |
 | `PageDown` | Move cursor down by one screen | Code viewer |
 
