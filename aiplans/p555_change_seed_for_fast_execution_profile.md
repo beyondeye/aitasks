@@ -94,3 +94,16 @@ Per `task-workflow/SKILL.md` Step 9: commit code changes and plan file separatel
 - `aitasks/metadata/profiles/fast.yaml` (2 lines)
 - `seed/profiles/fast.yaml` (2 lines)
 - `website/content/docs/skills/aitask-pick/execution-profiles.md` (1 line)
+
+## Final Implementation Notes
+
+- **Actual work done:** Applied the plan exactly. Changed `post_plan_action: start_implementation` → `post_plan_action: ask` and updated `description` in both `aitasks/metadata/profiles/fast.yaml` (live) and `seed/profiles/fast.yaml` (template). Updated the fast profile bullet on `website/content/docs/skills/aitask-pick/execution-profiles.md` line 15 to mention "stop after plan approval".
+- **Deviations from plan:** None.
+- **Issues encountered:** None.
+- **Key decisions:**
+  - Used explicit `post_plan_action: ask` instead of deleting the key. Both work (the schema in `profiles.md` says omission defaults to asking), but `ask` is clearer for readers scanning the profile file.
+  - Left the example `worktree` profile on line 50 of `execution-profiles.md` unchanged — it's a hypothetical template, not the shipped fast profile, and the docs page presents it as a custom example where the author may have chosen `start_implementation` deliberately.
+  - Did not touch `.claude/skills/task-workflow/planning.md` or `task-abort.md`. Confirmed with the user via AskUserQuestion during planning that the existing four checkpoint options are sufficient — `Abort task` already routes to `task-abort.md` which asks keep/delete for the plan file, satisfying the task's second requirement.
+  - Did not touch `aitasks/metadata/profiles/remote.yaml` or the `aitask-pickrem` / `aitask-pickweb` skills — those remain autonomous by design and must keep `post_plan_action: start_implementation`.
+- **Stale asset note:** `website/static/imgs/aitasks_settings_execution_profiles_tab.svg` (a Settings TUI screenshot) may show the old fast-profile description. Regenerating it is out of scope for this task; flagging for a future follow-up if someone refreshes docs screenshots.
+- **Mirror dirs:** `.gemini/`, `.agents/`, `.codex/`, `.opencode/` do not ship `fast.yaml`, so no mirror task is needed per `CLAUDE.md`'s rule.
