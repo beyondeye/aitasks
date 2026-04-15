@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t540_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [codebrowser, tui]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-04-14 10:14
-updated_at: 2026-04-15 10:52
+updated_at: 2026-04-15 11:30
+completed_at: 2026-04-15 11:30
 ---
 
 t540_4: add a `c` keybinding to `ait codebrowser` that spawns
