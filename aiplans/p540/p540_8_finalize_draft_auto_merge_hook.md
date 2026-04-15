@@ -213,3 +213,22 @@ Renumber the existing Test 8 syntax check to "Test 9: Syntax check".
 ## Post-implementation (Step 9 reference)
 
 Run `./.aitask-scripts/aitask_archive.sh 540_8` per task-workflow Step 9. The archived plan file is the primary reference for any sibling task that needs to understand the finalize_draft auto-merge contract (e.g., t540_5 board widget, or a future task that changes the interactive prompt UX).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Wired `run_auto_merge_if_needed` into `finalize_draft()` in `.aitask-scripts/aitask_create.sh`:
+    - Child path: inserted after the child commit at `:585`, before `release_child_lock` at `:589` — uses `"${parent_num}_${child_num}"` as the task id (both variables are in scope from earlier in the child branch).
+    - Parent path: inserted after the parent commit at `:646`, before the closing `fi` at `:649` — uses `"$claimed_id"` (bare numeric, matches the pattern in `run_batch_mode`).
+  - Added the interactive fzf prompt block inside `run_auto_merge_if_needed` between the empty-candidates guard at `:1289` and the existing warn gate at `:1306`. Gated on `BATCH_AUTO_MERGE != true && BATCH_MODE != true && -t 0`. On "Yes", flips `BATCH_AUTO_MERGE=true` locally so the existing fold pipeline below runs unchanged. Used a distinct loop variable name `prompt_i` (not `i`) to avoid shadowing the `local i` declared later in the warn-gate branch.
+  - Extended `tests/test_auto_merge_file_ref.sh`: added Test 8 exercising the finalize path (`aitask_create.sh --batch --finalize <draft> --auto-merge` folds a pre-existing matching task into the newly finalized task). Renamed the existing syntax check to Test 9. Full run: 24 cases pass (up from 21).
+- **Deviations from plan:** None substantive. Loop variable renamed `i` → `prompt_i` in the new interactive prompt block to avoid clash with the `local i` used in the existing warn branch.
+- **Issues encountered:** None. Plan line-number claims were verified ahead of implementation via an Explore agent; all 16 claims matched the current code exactly. The verify-pass overwrote the external plan file via `aitask_plan_externalize.sh --force`, which was recovered by restoring from `./ait git show b54a6851:...` before the `plan_verified` append. Future verify passes should be aware that `--force` replaces the external plan with the internal plan-mode file, so the internal file must either contain the full plan content or the original must be restored post-append.
+- **Key decisions:**
+  - Keep the child-path helper call **inside** the child lock (before `release_child_lock`), matching the `run_batch_mode` child path pattern — preserves the invariant that child-scoped writes are serialized per parent.
+  - Use `info()` (not `warn()`) for the pre-prompt candidate listing to keep the interactive tone non-scary; if the user declines, the existing `warn()` branch still fires with its own list (minor duplication, acceptable).
+  - `-t 0` guard on stdin ensures the fzf prompt never fires from piped invocations (e.g., `echo y | aitask_create.sh`), which would break fzf under `set -e`.
+- **Notes for sibling tasks:**
+  - **t540_7 (fold file_references union):** the auto-merge path this task wires in will feed directly into whatever `aitask_fold_mark.sh` does to the primary's `file_references`. Today the unioning is NOT done (only body merge + `folded_tasks`). Once t540_7 lands, the finalize-path auto-merge will automatically produce a correct unioned `file_references` without any change on the t540_8 side. This was confirmed mid-review as the answer to a user question about whether folded tasks' line ranges are carried into the primary.
+  - **t540_5 (board file_references widget):** no interaction — the board reads `file_references` from disk via the same helper. As soon as t540_7 lands, the widget picks up the unioned list for free.
+  - **Interactive prompt UX future work:** the `info()` + `warn()` duplication on decline is tracked as an explicit "future follow-up" in the plan's Design section. If it becomes a papercut, add a `_printed_candidates` flag to dedupe.
