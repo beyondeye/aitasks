@@ -787,3 +787,68 @@ must capture:
   task can reference them)
 - The follow-up task's ID and its registered scope
 - Any test assertions that needed updates beyond Phase 1.3
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all 5 phases exactly as planned. Split
+  `openshell` into `openshell_headless` + `openshell_interactive` in
+  `VALID_LAUNCH_MODES`. Refactored the runner dispatch into a registry
+  (`LAUNCHERS`) keyed on the mode name, with a `LaunchContext` dataclass
+  bundling shared state and a `LaunchError` exception for precondition
+  failures. Both picker modals now iterate `sorted(VALID_LAUNCH_MODES)`
+  dynamically. `brainstorm_crew.py` signatures and fallback use
+  `DEFAULT_LAUNCH_MODE`. Help heredocs enumerate all four modes.
+- **Deviations from plan:** None of substance. The
+  `brainstorm_crew.py` signature changes used `replace_all: true` on a
+  single shared literal (`launch_mode: str = "headless",`) covering all
+  6 occurrences in one edit rather than 6 separate edits — line
+  numbers in the plan (107/358/400/436/474/510) matched the actual
+  file exactly, no drift.
+- **Issues encountered:** None. All targeted tests passed on the first
+  run after implementation. Acceptance grep matched only the exempt
+  files (`lib/launch_modes.py`, `lib/launch_modes_sh.sh`) which is the
+  expected outcome.
+- **Key decisions:**
+  - Reused `replace_all: true` for the docstring change
+    (`launch_mode: Launch mode for the agent ("headless" or
+    "interactive").`) since all 5 register docstrings had the same
+    wording — one edit replaced all 5.
+  - Left the BRAINSTORM_AGENT_TYPES dict literals unchanged (business
+    logic per-type defaults), as the plan specified.
+  - CSS widths were not touched — neither `#lm_dialog` (50%) nor
+    `#mode_modal_dialog` (60) was bumped. The existing `Button { margin:
+    0 1; }` rule remains generic enough for 5 buttons (4 modes +
+    Cancel). Visual verification deferred to the next hands-on TUI
+    session; the plan explicitly called this out as "bump only if
+    overflow" and noted the values to adjust to. If the layout does
+    overflow in practice, bump `#lm_dialog` width to `60%` and
+    `#mode_modal_dialog` width to `80`.
+  - Used `mode.replace("_", " ").title()` for button labels (produces
+    "Openshell Headless" / "Openshell Interactive"), as specified.
+- **LaunchError wording** (for the follow-up task to reference):
+  - `"openshell_headless launch mode is not yet implemented — tracked in follow-up task"`
+  - `"openshell_interactive launch mode is not yet implemented — tracked in follow-up task"`
+- **Follow-up task:** `t562_openshell_launch_semantics` — created via
+  `aitask_create.sh --batch --commit`, covers real launch semantics
+  for both openshell variants in a single task (they'll share the
+  sandbox/subprocess plumbing). Description enumerates open design
+  questions (sandboxing approach, prompt delivery, lifecycle
+  ownership) for the planning phase.
+- **Test assertion updates beyond Phase 1.3:** None. Only
+  `tests/test_launch_modes.py` needed changes. `test_brainstorm_crew.py`,
+  `test_crew_setmode.sh`, `test_crew_init.sh`,
+  `test_launch_mode_field.sh`, and `test_brainstorm_dag.py` all passed
+  unchanged.
+- **Notes for sibling tasks:** When adding a new launch mode, the
+  single edit is `VALID_LAUNCH_MODES` in
+  `.aitask-scripts/lib/launch_modes.py`. Everything else propagates:
+  picker modals iterate the set, the runner's import-time assertion
+  (`assert set(LAUNCHERS.keys()) == set(VALID_LAUNCH_MODES)`) will
+  hard-fail on module import if a launcher registration is missed —
+  which is the early-signal failure mode t461_8 set up and t461_9
+  exercises. The only file that needs a new function is
+  `agentcrew_runner.py` (add `_launch_<mode>` and add it to
+  `LAUNCHERS`). Help heredocs in the three crew scripts are static
+  and will need manual updates (this was a deliberate call — the
+  plan considered interpolation via the shell bridge and opted for
+  static to avoid heredoc expansion hazards).
