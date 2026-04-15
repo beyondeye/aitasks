@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t540_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_fold, bash_scripts]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_6
 created_at: 2026-04-14 10:16
-updated_at: 2026-04-15 12:39
+updated_at: 2026-04-15 13:06
+completed_at: 2026-04-15 13:06
 ---
 
 t540_7: extend `aitask_fold_mark.sh` so that when tasks are folded
