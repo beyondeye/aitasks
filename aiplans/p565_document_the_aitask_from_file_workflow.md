@@ -370,3 +370,54 @@ sibling tasks for `.gemini/skills/`, `.agents/skills/`, and
 `.opencode/skills/` if any corresponding custom commands or workflow docs
 exist for alt-agent frontends — per CLAUDE.md's "WORKING ON SKILLS / CUSTOM
 COMMANDS" guidance (skill changes propagate from Claude Code first).
+
+## Final Implementation Notes
+
+- **Actual work done:** Added one new workflow page
+  `website/content/docs/workflows/create-tasks-from-code.md` (~135 lines)
+  walking through the file_references field, the codebrowser `n` flow,
+  auto-merge semantics (with the three safety layers: Ready/Editing filter,
+  fold validator, explicit opt-in), the reverse direction from the board's
+  File Refs row via `launch_or_focus_codebrowser`, and CLI examples.
+  Applied 7 targeted edits to existing pages:
+  - `development/task-format.md` — new row in the frontmatter fields table.
+  - `tuis/codebrowser/_index.md` — new "Creating Tasks from Code" Tutorial
+    subsection plus a "See also" bullet.
+  - `tuis/codebrowser/how-to.md` — new "How to Create a Task from a
+    Selection" section inserted between Explain and Task History sections.
+  - `tuis/codebrowser/reference.md` — new `n` row in the Code Viewer
+    keybinding table.
+  - `tuis/board/how-to.md` — new "File Refs" row in the Navigate Task
+    Relationships table.
+  - `tuis/board/reference.md` — new `file_references` row in the Task
+    Metadata Fields table.
+  - `skills/aitask-create.md` — new "File references and auto-merge" block
+    under Batch Mode with a cross-link to the workflow page.
+- **Deviations from plan:** None of substance. Two minor wording choices:
+  wrote the relationship-table description as "2+ entries" instead of the
+  "≥2 entries" in the plan outline (plain ASCII reads better across the
+  existing tables), and the board reference row mentions pressing **Enter**
+  on a focused row (slightly more specific than the plan text). The new
+  workflow page uses `2+` in its dispatch table for the same reason.
+- **Issues encountered:** After running `hugo --gc --minify` inside
+  `website/`, the shell was still in that directory when the Step 8 plan
+  externalization call ran, which made the relative script path fail. Fixed
+  by running the script with an absolute `cd /home/ddt/Work/aitasks &&`
+  prefix. Not a plan issue — just a sequencing nit.
+- **Key decisions:**
+  - Kept the doc forward-only per the memory: no "this used to..." framing,
+    no references to t461/t540 in the reader-facing copy.
+  - Treated the codebrowser `n` flow as the primary path and the CLI flags
+    as the power-user alternative, matching how `aitask-explore` and other
+    workflow pages present dual interactive/batch surfaces.
+  - Did not generate screenshots. Left no placeholders either — the
+    existing workflow pages (`follow-up-tasks.md`, `capturing-ideas.md`) do
+    not embed screenshots, so the new page follows their style.
+  - Did not touch `_index.md` in `workflows/` — it is a bare section index
+    and discovery works via the Docsy sidebar + weight frontmatter.
+- **Verification results:** `cd website && hugo --gc --minify` succeeds
+  with 131 pages rendered, no relref errors, no missing-page warnings.
+- **Alt-agent follow-up:** t565 touches only website docs, so there is no
+  Gemini CLI / Codex CLI / OpenCode skill version to update. The user may
+  still want a sibling task to port any future changes to the corresponding
+  alt-agent skill docs if/when those exist.
