@@ -131,24 +131,35 @@ class PreviewScrollContainer(ScrollableContainer):
     """
 
     on_user_scroll: Callable[[], None] | None = None
+    # Set synchronously inside each _on_* handler; cleared by
+    # _record_preview_scroll after the deferred state update commits.
+    # Read by _update_content_preview to skip content updates + scroll
+    # restoration on the same frame as a user scroll event, avoiding a
+    # race where the refresh tick would undo the user's scroll.
+    user_is_scrolling: bool = False
 
     def _on_mouse_scroll_up(self, event) -> None:
+        self.user_is_scrolling = True
         super()._on_mouse_scroll_up(event)
         self._schedule_notify()
 
     def _on_mouse_scroll_down(self, event) -> None:
+        self.user_is_scrolling = True
         super()._on_mouse_scroll_down(event)
         self._schedule_notify()
 
     def _on_scroll_up(self, event) -> None:
+        self.user_is_scrolling = True
         super()._on_scroll_up(event)
         self._schedule_notify()
 
     def _on_scroll_down(self, event) -> None:
+        self.user_is_scrolling = True
         super()._on_scroll_down(event)
         self._schedule_notify()
 
     def _on_scroll_to(self, message) -> None:
+        self.user_is_scrolling = True
         super()._on_scroll_to(message)
         self._schedule_notify()
 
@@ -412,6 +423,10 @@ class MonitorApp(TuiSwitcherMixin, App):
         # which is stable against tmux's rolling capture window.
         self._preview_scroll_state: dict[str, tuple[bool, str | None]] = {}
         self._last_preview_pane_id: str | None = None
+        # Lines last passed to preview.update() for the focused pane. Used by
+        # _record_preview_scroll to resolve int(scroll_y) to anchor_text without
+        # mixing rendered-view coordinates with live-snapshot coordinates.
+        self._preview_rendered_lines: list[str] = []
         self._monitor: TmuxMonitor | None = None
         self._active_zone: Zone = Zone.PANE_LIST
         self._preview_timer: Timer | None = None
@@ -530,9 +545,10 @@ class MonitorApp(TuiSwitcherMixin, App):
     def _record_preview_scroll(self) -> None:
         """Record user scroll intent for the focused pane.
 
-        Called from PreviewScrollContainer after the user mouse-wheels, drags
-        the scrollbar thumb, or page-scrolls. Anchors by the text of the
-        topmost visible line — stable against tmux's rolling capture.
+        Called (via PreviewScrollContainer.call_after_refresh) once the user's
+        mouse wheel / scrollbar drag / page click has committed scroll_y.
+        Anchors by the text of the topmost visible line in the currently
+        rendered content — stable against tmux's rolling capture.
         """
         if self._focused_pane_id is None:
             return
@@ -545,13 +561,19 @@ class MonitorApp(TuiSwitcherMixin, App):
         at_bottom = max_y <= 0 or scroll_y >= max_y - 1
         anchor_text: str | None = None
         if not at_bottom:
-            snap = self._snapshots.get(self._focused_pane_id)
-            if snap is not None:
-                snap_lines = snap.content.rstrip().splitlines()
-                idx = int(scroll_y)
-                if 0 <= idx < len(snap_lines):
-                    anchor_text = snap_lines[idx]
+            idx = int(scroll_y)
+            if 0 <= idx < len(self._preview_rendered_lines):
+                anchor_text = self._preview_rendered_lines[idx]
+
+        prev = self._preview_scroll_state.get(self._focused_pane_id)
+        was_detached = prev is not None and not prev[0]
+
         self._preview_scroll_state[self._focused_pane_id] = (at_bottom, anchor_text)
+        scroll.user_is_scrolling = False
+
+        # Re-attach → pull a fresh snapshot so tail-follow resumes on latest output.
+        if was_detached and at_bottom:
+            self.call_later(self._fast_preview_refresh)
 
     # -- Data refresh ----------------------------------------------------------
 
@@ -852,69 +874,82 @@ class MonitorApp(TuiSwitcherMixin, App):
         except Exception:
             return
 
-        if self._focused_pane_id and self._focused_pane_id in self._snapshots:
-            snap = self._snapshots[self._focused_pane_id]
-            pane_label = f"({snap.pane.window_index}:{snap.pane.window_name})"
-            task_id = self._task_cache.get_task_id(snap.pane.window_name)
-            if task_id:
-                info = self._task_cache.get_task_info(task_id)
-                if info:
-                    if self._active_zone == Zone.PREVIEW:
-                        pane_label += f" [bold]t{task_id}: {info.title}[/]"
-                    else:
-                        pane_label += f" [dim italic]t{task_id}: {info.title}[/]"
-            if self._active_zone == Zone.PREVIEW:
-                header.update(
-                    f"[bold white]Content Preview[/] {pane_label} [bold green]LIVE[/]"
+        if not (self._focused_pane_id and self._focused_pane_id in self._snapshots):
+            header.update("[bold]Content Preview[/]")
+            preview.styles.min_width = 0
+            preview.update("[dim]Focus an agent or pane to see its output[/]")
+            self._preview_rendered_lines = []
+            self._last_preview_pane_id = self._focused_pane_id
+            return
+
+        snap = self._snapshots[self._focused_pane_id]
+        saved = self._preview_scroll_state.get(self._focused_pane_id)
+        is_paused = saved is not None and not saved[0]
+        same_pane = (self._focused_pane_id == self._last_preview_pane_id)
+
+        # -- Header (always refreshed so PAUSED/LIVE badge stays current) --
+        pane_label = f"({snap.pane.window_index}:{snap.pane.window_name})"
+        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        if task_id:
+            info = self._task_cache.get_task_info(task_id)
+            if info:
+                if self._active_zone == Zone.PREVIEW:
+                    pane_label += f" [bold]t{task_id}: {info.title}[/]"
+                else:
+                    pane_label += f" [dim italic]t{task_id}: {info.title}[/]"
+
+        if is_paused:
+            tag = " [bold yellow]PAUSED[/]"
+        elif self._active_zone == Zone.PREVIEW:
+            tag = " [bold green]LIVE[/]"
+        else:
+            tag = ""
+
+        if self._active_zone == Zone.PREVIEW:
+            header.update(f"[bold white]Content Preview[/] {pane_label}{tag}")
+        else:
+            header.update(f"[bold]Content Preview[/] {pane_label}{tag}")
+
+        # -- Frozen branch: skip content + scroll updates entirely --
+        # Same pane as last tick AND (user detached OR user scroll in flight):
+        # do not call preview.update() (no layout recompute, no scroll clamp)
+        # and do not call scroll_end/scroll_to (no fighting the user).
+        if same_pane and (is_paused or scroll.user_is_scrolling):
+            self._last_preview_pane_id = self._focused_pane_id
+            return
+
+        # -- Active branch: render fresh content and restore scroll --
+        lines = snap.content.rstrip().splitlines()
+        if lines:
+            content = _ansi_to_rich_text("\n".join(lines))
+            preview.styles.min_width = snap.pane.width
+            preview.update(content)
+            self._preview_rendered_lines = lines
+
+            if saved is None or saved[0]:
+                # Tail follow (first view of this pane or at-bottom).
+                self.call_after_refresh(
+                    lambda: scroll.scroll_end(animate=False)
                 )
             else:
-                header.update(f"[bold]Content Preview[/] {pane_label}")
-            # Render the full captured scrollback and let the
-            # ScrollableContainer handle overflow. Scroll intent is recorded
-            # in _preview_scroll_state by PreviewScrollContainer at the moment
-            # the user scrolls. On every tick we re-locate the anchor line
-            # in the new content so the same line stays at the top of the
-            # viewport — stable against tmux's rolling capture window.
-            lines = snap.content.rstrip().splitlines()
-            if lines:
-                content = _ansi_to_rich_text("\n".join(lines))
-                preview.styles.min_width = snap.pane.width
-                preview.update(content)
-
-                saved = self._preview_scroll_state.get(self._focused_pane_id)
-                if saved is None:
-                    # First view of this pane in this session — start at bottom.
+                anchor_text = saved[1]
+                target_idx = self._locate_anchor(lines, anchor_text)
+                if target_idx is None:
+                    # Anchor rolled off the capture buffer — snap to tail so
+                    # we don't get stuck on a stale position on pane-return.
                     self.call_after_refresh(
                         lambda: scroll.scroll_end(animate=False)
                     )
                 else:
-                    was_at_bottom, anchor_text = saved
-                    if was_at_bottom:
-                        self.call_after_refresh(
-                            lambda: scroll.scroll_end(animate=False)
-                        )
-                    else:
-                        target_idx = self._locate_anchor(lines, anchor_text)
-                        if target_idx is None:
-                            # Anchor rolled off the top of the capture buffer
-                            # — snap to bottom so we don't get stuck on a
-                            # stale position.
-                            self.call_after_refresh(
-                                lambda: scroll.scroll_end(animate=False)
-                            )
-                        else:
-                            target_f = float(target_idx)
+                    target_f = float(target_idx)
 
-                            def _restore(t=target_f):
-                                scroll.scroll_to(y=t, animate=False)
-                            self.call_after_refresh(_restore)
-            else:
-                preview.styles.min_width = 0
-                preview.update("[dim](empty)[/]")
+                    def _restore(t=target_f):
+                        scroll.scroll_to(y=t, animate=False)
+                    self.call_after_refresh(_restore)
         else:
-            header.update("[bold]Content Preview[/]")
             preview.styles.min_width = 0
-            preview.update("[dim]Focus an agent or pane to see its output[/]")
+            preview.update("[dim](empty)[/]")
+            self._preview_rendered_lines = []
 
         self._last_preview_pane_id = self._focused_pane_id
 
@@ -1152,12 +1187,14 @@ class MonitorApp(TuiSwitcherMixin, App):
     def action_scroll_preview_tail(self) -> None:
         """Jump preview to the bottom and re-engage tail-follow."""
         try:
-            scroll = self.query_one("#preview-scroll", ScrollableContainer)
+            scroll = self.query_one("#preview-scroll", PreviewScrollContainer)
         except Exception:
             return
         scroll.scroll_end(animate=False)
         if self._focused_pane_id is not None:
             self._preview_scroll_state[self._focused_pane_id] = (True, None)
+            # Pull fresh content so tail-follow resumes on the latest output.
+            self.call_later(self._fast_preview_refresh)
         self.notify("Tail follow")
 
     def action_toggle_scrollbar(self) -> None:
