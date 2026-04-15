@@ -6,8 +6,9 @@ issue_type: refactor
 status: Implementing
 labels: [agentcrew, refactor]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-04-15 09:27
-updated_at: 2026-04-15 11:36
+updated_at: 2026-04-15 12:01
 ---
 
 ## Context

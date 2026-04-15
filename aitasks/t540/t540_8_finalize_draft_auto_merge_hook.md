@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [aitask-create]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-04-15 11:31
-updated_at: 2026-04-15 11:57
+updated_at: 2026-04-15 12:04
 ---
 
 Wire `run_auto_merge_if_needed` into the interactive `finalize_draft` commit path so that any invocation of `aitask_create.sh --file-ref <path>` (interactive or `--batch --finalize`) triggers the same auto-merge detection that `--batch --commit --auto-merge` already has.
