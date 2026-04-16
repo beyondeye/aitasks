@@ -313,9 +313,9 @@ class TestBrainstormAgentTypes(unittest.TestCase):
 
     def test_agent_types_structure(self):
         for name, config in BRAINSTORM_AGENT_TYPES.items():
-            self.assertIn("agent_string", config, f"{name} missing agent_string")
+            self.assertNotIn("agent_string", config, f"{name} should not have agent_string (comes from config)")
             self.assertIn("max_parallel", config, f"{name} missing max_parallel")
-            self.assertIsInstance(config["agent_string"], str)
+            self.assertIn("launch_mode", config, f"{name} missing launch_mode")
             self.assertIsInstance(config["max_parallel"], int)
 
     def test_template_files_exist(self):
@@ -349,7 +349,15 @@ class TestAgentNaming(unittest.TestCase):
 
 
 class TestGetAgentTypes(unittest.TestCase):
-    """Test that get_agent_types reads from codeagent config correctly."""
+    """Test that get_agent_types reads agent_string from codeagent config."""
+
+    FULL_DEFAULTS = {
+        "brainstorm-explorer": "claudecode/opus4_6",
+        "brainstorm-comparator": "claudecode/sonnet4_6",
+        "brainstorm-synthesizer": "claudecode/opus4_6",
+        "brainstorm-detailer": "claudecode/opus4_6",
+        "brainstorm-patcher": "claudecode/sonnet4_6",
+    }
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp(prefix="brainstorm_config_test_")
@@ -359,78 +367,81 @@ class TestGetAgentTypes(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_defaults_when_no_config(self):
-        """Falls back to BRAINSTORM_AGENT_TYPES when config file is missing."""
-        result = get_agent_types(config_root=Path(self.tmpdir))
-        for agent_type, info in BRAINSTORM_AGENT_TYPES.items():
-            self.assertEqual(result[agent_type]["agent_string"], info["agent_string"])
-            self.assertEqual(result[agent_type]["max_parallel"], info["max_parallel"])
+    def _write_full_config(self, overrides=None):
+        defaults = dict(self.FULL_DEFAULTS)
+        if overrides:
+            defaults.update(overrides)
+        (self.config_dir / "codeagent_config.json").write_text(
+            json.dumps({"defaults": defaults})
+        )
+
+    def test_missing_config_raises(self):
+        """Raises RuntimeError when codeagent_config.json is missing."""
+        with self.assertRaises(RuntimeError) as ctx:
+            get_agent_types(config_root=Path(self.tmpdir))
+        self.assertIn("codeagent_config.json", str(ctx.exception))
+
+    def test_partial_config_raises_for_missing_type(self):
+        """Raises RuntimeError when config is missing a brainstorm-<type> key."""
+        config = {"defaults": {"brainstorm-explorer": "claudecode/opus4_6"}}
+        (self.config_dir / "codeagent_config.json").write_text(json.dumps(config))
+        with self.assertRaises(RuntimeError) as ctx:
+            get_agent_types(config_root=Path(self.tmpdir))
+        self.assertIn("brainstorm-comparator", str(ctx.exception))
 
     def test_reads_project_config(self):
         """Reads brainstorm-* keys from project codeagent_config.json."""
-        config = {"defaults": {"brainstorm-explorer": "geminicli/gemini_2_5_pro"}}
-        (self.config_dir / "codeagent_config.json").write_text(json.dumps(config))
+        self._write_full_config({"brainstorm-explorer": "geminicli/gemini_2_5_pro"})
         result = get_agent_types(config_root=Path(self.tmpdir))
         self.assertEqual(result["explorer"]["agent_string"], "geminicli/gemini_2_5_pro")
-        # Others unchanged
         self.assertEqual(result["comparator"]["agent_string"], "claudecode/sonnet4_6")
 
     def test_local_overrides_project(self):
         """Local config overrides project config for brainstorm agents."""
-        proj = {"defaults": {"brainstorm-explorer": "claudecode/opus4_6"}}
+        self._write_full_config()
         local = {"defaults": {"brainstorm-explorer": "codex/o3"}}
-        (self.config_dir / "codeagent_config.json").write_text(json.dumps(proj))
         (self.config_dir / "codeagent_config.local.json").write_text(json.dumps(local))
         result = get_agent_types(config_root=Path(self.tmpdir))
         self.assertEqual(result["explorer"]["agent_string"], "codex/o3")
 
-    def test_partial_config_only_overrides_present_keys(self):
-        """Only brainstorm keys present in config are overridden."""
-        config = {"defaults": {"brainstorm-patcher": "claudecode/opus4_6"}}
-        (self.config_dir / "codeagent_config.json").write_text(json.dumps(config))
+    def test_full_config_populates_all_types(self):
+        """All five agent types get agent_string from config."""
+        self._write_full_config()
         result = get_agent_types(config_root=Path(self.tmpdir))
-        self.assertEqual(result["patcher"]["agent_string"], "claudecode/opus4_6")
-        self.assertEqual(result["explorer"]["agent_string"], "claudecode/opus4_6")  # default
-        self.assertEqual(result["comparator"]["agent_string"], "claudecode/sonnet4_6")  # default
+        for agent_type in BRAINSTORM_AGENT_TYPES:
+            self.assertIn("agent_string", result[agent_type])
 
     def test_max_parallel_preserved(self):
         """Config only changes agent_string, not max_parallel."""
-        config = {"defaults": {"brainstorm-explorer": "codex/o3"}}
-        (self.config_dir / "codeagent_config.json").write_text(json.dumps(config))
+        self._write_full_config({"brainstorm-explorer": "codex/o3"})
         result = get_agent_types(config_root=Path(self.tmpdir))
         self.assertEqual(result["explorer"]["max_parallel"], 2)
 
     def test_non_brainstorm_keys_ignored(self):
         """Non-brainstorm keys in config don't affect agent types."""
-        config = {"defaults": {"pick": "claudecode/opus4_6", "brainstorm-detailer": "codex/o3"}}
-        (self.config_dir / "codeagent_config.json").write_text(json.dumps(config))
+        self._write_full_config({"pick": "claudecode/opus4_6", "brainstorm-detailer": "codex/o3"})
         result = get_agent_types(config_root=Path(self.tmpdir))
         self.assertEqual(result["detailer"]["agent_string"], "codex/o3")
         self.assertNotIn("pick", result)
 
     def test_launch_mode_override_from_project(self):
         """Project config overlays brainstorm-<type>-launch-mode."""
-        config = {"defaults": {"brainstorm-detailer-launch-mode": "headless"}}
-        (self.config_dir / "codeagent_config.json").write_text(json.dumps(config))
+        self._write_full_config({"brainstorm-detailer-launch-mode": "headless"})
         result = get_agent_types(config_root=Path(self.tmpdir))
         self.assertEqual(result["detailer"]["launch_mode"], "headless")
-        # Others unchanged
         self.assertEqual(result["explorer"]["launch_mode"], "headless")
 
     def test_launch_mode_local_overrides_project(self):
         """Local launch_mode overrides project layer."""
-        proj = {"defaults": {"brainstorm-explorer-launch-mode": "headless"}}
+        self._write_full_config({"brainstorm-explorer-launch-mode": "headless"})
         local = {"defaults": {"brainstorm-explorer-launch-mode": "interactive"}}
-        (self.config_dir / "codeagent_config.json").write_text(json.dumps(proj))
         (self.config_dir / "codeagent_config.local.json").write_text(json.dumps(local))
         result = get_agent_types(config_root=Path(self.tmpdir))
         self.assertEqual(result["explorer"]["launch_mode"], "interactive")
 
     def test_launch_mode_invalid_value_falls_back(self):
         """Invalid launch_mode value warns and falls back to framework default."""
-        config = {"defaults": {"brainstorm-explorer-launch-mode": "bogus"}}
-        (self.config_dir / "codeagent_config.json").write_text(json.dumps(config))
-        # Capture stderr to verify warning
+        self._write_full_config({"brainstorm-explorer-launch-mode": "bogus"})
         import io
         import contextlib
         stderr_buf = io.StringIO()
@@ -441,8 +452,9 @@ class TestGetAgentTypes(unittest.TestCase):
         self.assertIn("brainstorm-explorer-launch-mode", stderr_text)
         self.assertIn("bogus", stderr_text)
 
-    def test_launch_mode_default_when_unset(self):
-        """Framework defaults are preserved when no config is set."""
+    def test_launch_mode_default_when_config_present(self):
+        """Framework launch_mode defaults are preserved when config has no overrides."""
+        self._write_full_config()
         result = get_agent_types(config_root=Path(self.tmpdir))
         self.assertEqual(result["detailer"]["launch_mode"], "interactive")
         self.assertEqual(result["explorer"]["launch_mode"], "headless")
@@ -452,8 +464,7 @@ class TestGetAgentTypes(unittest.TestCase):
 
     def test_launch_mode_does_not_clobber_agent_string(self):
         """Setting launch_mode in config doesn't affect agent_string."""
-        config = {"defaults": {"brainstorm-explorer-launch-mode": "interactive"}}
-        (self.config_dir / "codeagent_config.json").write_text(json.dumps(config))
+        self._write_full_config({"brainstorm-explorer-launch-mode": "interactive"})
         result = get_agent_types(config_root=Path(self.tmpdir))
         self.assertEqual(result["explorer"]["agent_string"], "claudecode/opus4_6")
         self.assertEqual(result["explorer"]["launch_mode"], "interactive")

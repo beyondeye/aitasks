@@ -42,19 +42,23 @@ from .brainstorm_schemas import extract_dimensions  # noqa: E402
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 BRAINSTORM_AGENT_TYPES = {
-    "explorer": {"agent_string": "claudecode/opus4_6", "max_parallel": 2, "launch_mode": "headless"},
-    "comparator": {"agent_string": "claudecode/sonnet4_6", "max_parallel": 1, "launch_mode": "headless"},
-    "synthesizer": {"agent_string": "claudecode/opus4_6", "max_parallel": 1, "launch_mode": "headless"},
-    "detailer": {"agent_string": "claudecode/opus4_6", "max_parallel": 1, "launch_mode": "interactive"},
-    "patcher": {"agent_string": "claudecode/sonnet4_6", "max_parallel": 1, "launch_mode": "headless"},
+    "explorer": {"max_parallel": 2, "launch_mode": "headless"},
+    "comparator": {"max_parallel": 1, "launch_mode": "headless"},
+    "synthesizer": {"max_parallel": 1, "launch_mode": "headless"},
+    "detailer": {"max_parallel": 1, "launch_mode": "interactive"},
+    "patcher": {"max_parallel": 1, "launch_mode": "headless"},
 }
 
 def get_agent_types(config_root: Path | None = None) -> dict[str, dict]:
-    """Return brainstorm agent types with overrides from codeagent config.
+    """Return brainstorm agent types with agent_string from codeagent config.
 
-    Reads brainstorm-<type> and brainstorm-<type>-launch-mode keys from
-    codeagent_config.json (layered: project <- local). Falls back to
-    BRAINSTORM_AGENT_TYPES hardcoded defaults for missing or invalid keys.
+    Each type's agent_string MUST come from codeagent_config.json (layered:
+    project <- local) under the brainstorm-<type> key.  Resource defaults
+    (max_parallel, launch_mode) are hardcoded in BRAINSTORM_AGENT_TYPES;
+    launch_mode can be overridden via brainstorm-<type>-launch-mode config key.
+
+    Raises RuntimeError if codeagent_config.json is unreadable or missing
+    a required brainstorm-<type> key.
 
     Args:
         config_root: Repository root path. Defaults to two levels up from this file.
@@ -66,25 +70,32 @@ def get_agent_types(config_root: Path | None = None) -> dict[str, dict]:
     config_path = config_root / "aitasks" / "metadata" / "codeagent_config.json"
     try:
         config = load_layered_config(str(config_path))
-        defaults = config.get("defaults", {})
-        for agent_type, info in result.items():
-            config_key = f"brainstorm-{agent_type}"
-            if config_key in defaults:
-                info["agent_string"] = defaults[config_key]
-            launch_key = f"brainstorm-{agent_type}-launch-mode"
-            if launch_key in defaults:
-                val = defaults[launch_key]
-                if isinstance(val, str) and val in VALID_LAUNCH_MODES:
-                    info["launch_mode"] = val
-                else:
-                    print(
-                        f"warning: invalid {launch_key}={val!r}, expected one of "
-                        f"{sorted(VALID_LAUNCH_MODES)}; falling back to framework "
-                        f"default ({info.get('launch_mode', DEFAULT_LAUNCH_MODE)})",
-                        file=sys.stderr,
-                    )
-    except Exception:
-        pass  # Fall back to hardcoded defaults
+    except Exception as exc:
+        raise RuntimeError(
+            f"Cannot load codeagent_config.json at {config_path}: {exc}. "
+            "Run 'ait setup' or create the file manually."
+        ) from exc
+    defaults = config.get("defaults", {})
+    for agent_type, info in result.items():
+        config_key = f"brainstorm-{agent_type}"
+        if config_key not in defaults:
+            raise RuntimeError(
+                f"Missing codeagent_config.json default for {config_key}; "
+                "run 'ait setup' or add the key manually."
+            )
+        info["agent_string"] = defaults[config_key]
+        launch_key = f"brainstorm-{agent_type}-launch-mode"
+        if launch_key in defaults:
+            val = defaults[launch_key]
+            if isinstance(val, str) and val in VALID_LAUNCH_MODES:
+                info["launch_mode"] = val
+            else:
+                print(
+                    f"warning: invalid {launch_key}={val!r}, expected one of "
+                    f"{sorted(VALID_LAUNCH_MODES)}; falling back to framework "
+                    f"default ({info.get('launch_mode', DEFAULT_LAUNCH_MODE)})",
+                    file=sys.stderr,
+                )
     return result
 
 

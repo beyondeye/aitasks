@@ -87,7 +87,7 @@ fi
 # --- Resolve brainstorm agent strings from config ---
 _get_brainstorm_agent_string() {
     local agent_type="$1"
-    local default_val="$2"
+    local default_val="${2:-}"
     local config_key="brainstorm-${agent_type}"
     local val
     val=$("$PYTHON" -c "
@@ -101,8 +101,11 @@ for p in ['aitasks/metadata/codeagent_config.local.json', 'aitasks/metadata/code
             sys.exit(0)
     except (FileNotFoundError, json.JSONDecodeError):
         pass
-print('$default_val')
+print('${default_val}')
 " 2>/dev/null) || val="$default_val"
+    if [[ -z "$val" ]]; then
+        die "No agent_string for brainstorm type '$agent_type': missing '$config_key' in codeagent_config.json. Run 'ait setup' or add the key manually."
+    fi
     echo "$val"
 }
 
@@ -123,11 +126,11 @@ info "Creating brainstorm crew for task $TASK_NUM..."
 crew_output=$(bash "$SCRIPT_DIR/aitask_crew_init.sh" \
     --id "brainstorm-${TASK_NUM}" \
     --name "Brainstorm t${TASK_NUM}" \
-    --add-type "explorer:$(_get_brainstorm_agent_string explorer claudecode/opus4_6):$(_get_brainstorm_launch_mode explorer)" \
-    --add-type "comparator:$(_get_brainstorm_agent_string comparator claudecode/sonnet4_6):$(_get_brainstorm_launch_mode comparator)" \
-    --add-type "synthesizer:$(_get_brainstorm_agent_string synthesizer claudecode/opus4_6):$(_get_brainstorm_launch_mode synthesizer)" \
-    --add-type "detailer:$(_get_brainstorm_agent_string detailer claudecode/opus4_6):$(_get_brainstorm_launch_mode detailer)" \
-    --add-type "patcher:$(_get_brainstorm_agent_string patcher claudecode/sonnet4_6):$(_get_brainstorm_launch_mode patcher)" \
+    --add-type "explorer:$(_get_brainstorm_agent_string explorer):$(_get_brainstorm_launch_mode explorer)" \
+    --add-type "comparator:$(_get_brainstorm_agent_string comparator):$(_get_brainstorm_launch_mode comparator)" \
+    --add-type "synthesizer:$(_get_brainstorm_agent_string synthesizer):$(_get_brainstorm_launch_mode synthesizer)" \
+    --add-type "detailer:$(_get_brainstorm_agent_string detailer):$(_get_brainstorm_launch_mode detailer)" \
+    --add-type "patcher:$(_get_brainstorm_agent_string patcher):$(_get_brainstorm_launch_mode patcher)" \
     --batch 2>&1) || {
     die "Failed to create crew: $crew_output"
 }

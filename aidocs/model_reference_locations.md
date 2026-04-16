@@ -53,8 +53,7 @@ Notes:
 | File | Line | Context | Tag |
 |---|---|---|---|
 | `.aitask-scripts/aitask_codeagent.sh` | 21 | `DEFAULT_AGENT_STRING="claudecode/opus4_6"` — fallback when no config resolves | `needed_for_promote` (claudecode-only) |
-| `.aitask-scripts/brainstorm/brainstorm_crew.py` | 45–49 | `BRAINSTORM_AGENT_TYPES` dict: explorer/comparator/synthesizer/detailer/patcher agent_strings | `needed_for_promote` (brainstorm ops) |
-| `.aitask-scripts/brainstorm/templates/crew_meta_template.yaml` | 7,10,13,16,19 | Brainstorm type defaults mirrored from the python dict | `needed_for_promote` (brainstorm ops) |
+| `.aitask-scripts/brainstorm/brainstorm_crew.py` | 44–50 | `BRAINSTORM_AGENT_TYPES` dict: resource defaults only (agent_string removed — now read exclusively from codeagent_config.json) | `covered_by_refresh` (via config) |
 
 ### 4. Help text and examples in scripts (format illustrations)
 
@@ -194,15 +193,12 @@ Add mode does NOT touch §2, §3, §4, §5, or §7.
    - `.aitask-scripts/aitask_codeagent.sh` line 663: replace the human-readable
      "Hardcoded default: ..." line.
 7. If any promote-op starts with `brainstorm-`:
-   - `.aitask-scripts/brainstorm/brainstorm_crew.py`: update the relevant
-     `BRAINSTORM_AGENT_TYPES` keys (e.g., `brainstorm-explorer` →
-     `explorer` key in the dict).
-   - `.aitask-scripts/brainstorm/templates/crew_meta_template.yaml`: update
-     the matching `agent_string:` values.
-   - `.aitask-scripts/aitask_brainstorm_init.sh` lines 126–130: update the
-     fallback defaults passed to `_get_brainstorm_agent_string`.
+   - No source-code changes needed — `brainstorm_crew.py` reads
+     `agent_string` exclusively from `codeagent_config.json` (updated
+     in step 4 above). `crew_meta_template.yaml` was deleted (t579_5).
+     `aitask_brainstorm_init.sh` no longer passes hardcoded fallbacks.
 8. Commit code changes as one commit:
-   - `git add .aitask-scripts/aitask_codeagent.sh .aitask-scripts/brainstorm/brainstorm_crew.py .aitask-scripts/brainstorm/templates/crew_meta_template.yaml .aitask-scripts/aitask_brainstorm_init.sh seed/codeagent_config.json`
+   - `git add .aitask-scripts/aitask_codeagent.sh .aitask-scripts/brainstorm/brainstorm_crew.py .aitask-scripts/aitask_brainstorm_init.sh seed/codeagent_config.json`
    - `git commit -m "feature: Promote <agent>/<name> to default for <ops>"`
    - Config (metadata) commit separately via `./ait git`
 
@@ -271,7 +267,7 @@ Subcommands for testability:
 | `add-json --agent <a> --name <n> --cli-id <id> --notes <s> [--dry-run]` | Append entry to `models_<agent>.json` and sync seed |
 | `promote-config --agent <a> --name <n> --ops <csv> [--dry-run]` | Update `codeagent_config.json` + seed |
 | `promote-default-agent-string --agent <a> --name <n> [--dry-run]` | Update `DEFAULT_AGENT_STRING` (claudecode only); error if not claudecode |
-| `promote-brainstorm --agent <a> --name <n> --ops <csv> [--dry-run]` | Update `BRAINSTORM_AGENT_TYPES` + `crew_meta_template.yaml` + `aitask_brainstorm_init.sh` fallbacks for the specified brainstorm ops |
+| `promote-brainstorm --agent <a> --name <n> --ops <csv> [--dry-run]` | No-op after t579_5: brainstorm agent_strings now come exclusively from codeagent_config.json (updated by `promote-config`) |
 | `promote-aidocs --agent <a> --name <n> --display-name <s> --cli-id <id> [--dry-run]` | Update `aidocs/claudecode_tools.md` line 5 |
 | `emit-manual-review --agent <a> --old-name <n> --new-name <n>` | Print the manual-review list |
 
