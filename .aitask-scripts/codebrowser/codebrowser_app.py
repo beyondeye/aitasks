@@ -42,6 +42,7 @@ from agent_utils import resolve_agent_binary
 from code_viewer import CodeViewer
 from detail_pane import DetailPane
 from explain_manager import ExplainManager
+from file_search import FileSearchWidget
 from file_tree import (
     LeftSidebar,
     ProjectFileTree,
@@ -112,9 +113,10 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
     }
     #file_info_bar {
         height: 1;
-        dock: top;
         background: $surface-lighten-1;
         padding: 0 1;
+        text-style: bold;
+        color: $text;
     }
     #code_viewer {
         height: 1fr;
@@ -397,9 +399,23 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
             self.call_after_refresh(self._apply_focus, pending)
         self.call_after_refresh(self._consume_and_apply_focus)
         self.set_interval(1.0, self._consume_and_apply_focus)
+        try:
+            tree = self.query_one("#file_tree", ProjectFileTree)
+            search = self.query_one("#file_search", FileSearchWidget)
+            search.set_files(sorted(tree._tracked_files))
+        except Exception:
+            pass
 
     def action_handle_escape_key(self) -> None:
-        """Escape: delegate to screen's handle_escape if available, dismiss modals, or no-op."""
+        """Escape: clear search if active, delegate to screen's handle_escape, dismiss modals, or no-op."""
+        try:
+            search = self.query_one("#file_search", FileSearchWidget)
+            search_input = self.query_one("#file_search_input", Input)
+            if search_input.has_focus and search_input.value:
+                search.action_dismiss_search()
+                return
+        except Exception:
+            pass
         if hasattr(self.screen, "handle_escape"):
             self.screen.handle_escape()
         elif isinstance(self.screen, ModalScreen):
@@ -418,6 +434,7 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
                 with Container(id="left_sidebar"):
                     yield Static("Error: not inside a git repository")
             with Container(id="code_pane"):
+                yield FileSearchWidget(id="file_search")
                 yield Static("No file selected", id="file_info_bar")
                 yield CodeViewer(id="code_viewer")
             yield DetailPane(id="detail_pane", classes="hidden")
@@ -530,6 +547,16 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         # Restore focus: clicking the recent-file row focused it, then
         # _refresh_display removed and re-mounted the row, orphaning focus.
         # Move focus to the code viewer so Tab cycling keeps working.
+        try:
+            self.query_one("#code_viewer").focus()
+        except Exception:
+            pass
+
+    def on_file_search_widget_file_opened(
+        self, event: FileSearchWidget.FileOpened
+    ) -> None:
+        """Open the file selected from the fuzzy search widget."""
+        self._open_file_by_path(event.path)
         try:
             self.query_one("#code_viewer").focus()
         except Exception:
@@ -813,7 +840,7 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         self._apply_detail_width()
 
     def action_toggle_focus(self) -> None:
-        """Cycle focus: recent_files → file_tree → code_viewer → detail (if visible) → recent_files."""
+        """Cycle focus: recent_files → file_tree → search → code_viewer → detail (if visible) → recent_files."""
         from textual.actions import SkipAction
         # Scope queries to the current screen — App.query_one walks the entire
         # screen stack, so a pushed screen (e.g. HistoryScreen) would otherwise
@@ -832,6 +859,10 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
             file_tree = screen.query_one("#file_tree")
         except Exception:
             file_tree = None
+        try:
+            search_input = screen.query_one("#file_search_input", Input)
+        except Exception:
+            search_input = None
 
         if recent is not None and recent.has_focus_within:
             if file_tree is not None:
@@ -841,6 +872,13 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
             return
 
         if file_tree is not None and file_tree.has_focus_within:
+            if search_input is not None:
+                search_input.focus()
+            else:
+                code_viewer.focus()
+            return
+
+        if search_input is not None and search_input.has_focus:
             code_viewer.focus()
             return
 
