@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: [t579_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codeagent, ait_settings, model_selection]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-16 23:26
-updated_at: 2026-04-16 23:26
+updated_at: 2026-04-16 23:55
 ---
 
 ## Context
