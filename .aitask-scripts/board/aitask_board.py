@@ -2087,7 +2087,7 @@ class TaskDetailScreen(ModalScreen):
             with Container(id="detail_buttons_area"):
                 with Horizontal(id="detail_buttons_workflow"):
                     yield Button("(P)ick", variant="warning", id="btn_pick", disabled=is_done_or_ro)
-                    yield Button("(B)rainstorm", variant="primary", id="btn_brainstorm", disabled=self.read_only or is_locked)
+                    yield Button("(B)rainstorm", variant="primary", id="btn_brainstorm", disabled=is_done_or_ro or is_locked)
                     yield Button("\U0001f512 (L)ock", variant="primary", id="btn_lock",
                                  disabled=is_done_or_ro or is_locked)
                     yield Button("\U0001f513 (U)nlock", variant="warning", id="btn_unlock",
