@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [1, 2, 3, 4, 5]
 issue_type: documentation
 status: Ready
 labels: [brainstorming, ait_brainstorm]
