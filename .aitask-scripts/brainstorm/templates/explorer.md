@@ -19,6 +19,13 @@ references, read the cached file; if the cache is missing, fetch via WebFetch.
 
 ## Output
 
+### Section Format
+Wrap each major section of your proposal in structured section markers using HTML comments:
+  Opening: `<!-- section: name [dimensions: dim1, dim2] -->`
+  Closing: `<!-- /section: name -->`
+Dimensions reference the dimension keys from the "Dimension Keys" block in your input (if present).
+Section names must be lowercase_snake_case.
+
 You must produce exactly two items, written to your `_output.md` file using
 clear delimiters:
 
@@ -42,13 +49,47 @@ drop a dimension.
 
 ### File 2: Proposal (Markdown)
 
-A complete proposal following the template with these required sections:
-- Overview: What this approach does and how it differs from the baseline
-- Architecture: Detailed system design with component responsibilities
-- Data Flow: How data moves through the system
-- Components: One subsection per component with technology and configuration
-- Assumptions: All assumptions, flagging which are inherited vs new
-- Tradeoffs: Advantages, disadvantages, and risks with mitigations
+A complete proposal with these required sections, each wrapped in section markers:
+
+<!-- section: overview -->
+## Overview
+What this approach does and how it differs from the baseline
+<!-- /section: overview -->
+
+<!-- section: architecture -->
+## Architecture
+Detailed system design with component responsibilities
+<!-- /section: architecture -->
+
+<!-- section: data_flow -->
+## Data Flow
+How data moves through the system
+<!-- /section: data_flow -->
+
+<!-- section: components [dimensions: component_*] -->
+## Components
+One subsection per component with technology and configuration.
+For individual components, use nested sub-sections:
+<!-- section: component_<name> [dimensions: component_<name>] -->
+### <Component Name>
+...
+<!-- /section: component_<name> -->
+Link ALL component_* dimension keys from your input's Dimension Keys block.
+<!-- /section: components -->
+
+<!-- section: assumptions [dimensions: assumption_*] -->
+## Assumptions
+All assumptions, flagging which are inherited vs new.
+Link ALL assumption_* dimension keys.
+<!-- /section: assumptions -->
+
+<!-- section: tradeoffs [dimensions: tradeoff_pros, tradeoff_cons] -->
+## Tradeoffs
+Advantages, disadvantages, and risks with mitigations.
+Link tradeoff_pros and tradeoff_cons dimension keys.
+<!-- /section: tradeoffs -->
+
+If no "Dimension Keys" block is present in your input, omit the [dimensions: ...] attributes but still use the section markers.
 
 ## Rules
 

@@ -34,6 +34,7 @@ from .brainstorm_dag import (  # noqa: E402
     _read_graph_state,
     read_node,
 )
+from .brainstorm_schemas import extract_dimensions  # noqa: E402
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
@@ -216,6 +217,14 @@ def _assemble_input_explorer(
         ", ".join(active_dimensions) if active_dimensions else "(none)",
     ])
 
+    # Dimension keys for section markers
+    dims = extract_dimensions(node_data)
+    if dims:
+        lines.extend(["", "## Dimension Keys",
+                      "Use these dimension keys in section markers:"])
+        for k in sorted(dims.keys()):
+            lines.append(f"- {k}")
+
     return "\n".join(lines) + "\n"
 
 
@@ -257,6 +266,7 @@ def _assemble_input_synthesizer(
 
     all_refs: list[str] = []
     seen_refs: set[str] = set()
+    all_dims: dict[str, object] = {}
 
     for nid in parent_node_ids:
         node_data = read_node(session_path, nid)
@@ -270,12 +280,21 @@ def _assemble_input_synthesizer(
             if ref not in seen_refs:
                 seen_refs.add(ref)
                 all_refs.append(ref)
+        for dk, dv in extract_dimensions(node_data).items():
+            if dk not in all_dims:
+                all_dims[dk] = dv
 
     lines.append("## Reference Files (merged from all source nodes, deduplicated)")
     if all_refs:
         lines.append(_format_reference_files(all_refs))
     else:
         lines.append("No reference files.")
+
+    if all_dims:
+        lines.extend(["", "## Dimension Keys",
+                      "Use these dimension keys in section markers:"])
+        for k in sorted(all_dims.keys()):
+            lines.append(f"- {k}")
 
     return "\n".join(lines) + "\n"
 
@@ -306,6 +325,14 @@ def _assemble_input_detailer(
     lines.extend(["", "## Project Context"])
     for cp in codebase_paths:
         lines.append(f"- {cp}")
+
+    # Dimension keys for section markers
+    dims = extract_dimensions(node_data)
+    if dims:
+        lines.extend(["", "## Dimension Keys",
+                      "Use these dimension keys in section markers:"])
+        for k in sorted(dims.keys()):
+            lines.append(f"- {k}")
 
     return "\n".join(lines) + "\n"
 

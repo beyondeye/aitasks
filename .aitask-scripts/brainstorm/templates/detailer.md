@@ -18,14 +18,24 @@ Use your tools to explore the codebase further as needed.
 
 ## Output
 
-Write a single Markdown file to `_output.md` with these required sections:
+### Section Format
+Wrap each major section of your plan in structured section markers using HTML comments:
+  Opening: `<!-- section: name [dimensions: dim1, dim2] -->`
+  Closing: `<!-- /section: name -->`
+Dimensions reference the dimension keys from the "Dimension Keys" block in your input (if present).
+Section names must be lowercase_snake_case.
 
+Write a single Markdown file to `_output.md` with these required sections, each wrapped in section markers:
+
+<!-- section: prerequisites -->
 ### Prerequisites
 - Tools, libraries, and versions required
 - Environment variables and configuration
 - Infrastructure provisioning (if needed)
 - Access or permissions
+<!-- /section: prerequisites -->
 
+<!-- section: step_by_step [dimensions: component_*] -->
 ### Step-by-Step Changes
 For each step:
 - **Step number and description**
@@ -37,16 +47,31 @@ For each step:
 Steps must be in dependency order — no step should reference a file or
 component created in a later step.
 
+For per-component groups of steps, use nested sub-sections:
+<!-- section: steps_<component_name> [dimensions: component_<name>] -->
+#### Steps for <Component Name>
+...
+<!-- /section: steps_<component_name> -->
+Link ALL component_* dimension keys from your input's Dimension Keys block.
+<!-- /section: step_by_step -->
+
+<!-- section: testing -->
 ### Testing
 - Unit test strategy per component
 - Integration test strategy
 - Performance benchmarks that validate the node's assumptions
   (e.g., "Verify sub-100ms latency under 1000 concurrent connections")
+<!-- /section: testing -->
 
+<!-- section: verification [dimensions: assumption_*] -->
 ### Verification Checklist
 A checkable list of criteria that confirm the implementation matches the
 architecture. Every assumption from the node's YAML must map to at least
-one verification step.
+one verification step. Link each verification item to the assumption_*
+dimensions it validates.
+<!-- /section: verification -->
+
+If no "Dimension Keys" block is present in your input, omit the [dimensions: ...] attributes but still use the section markers.
 
 ## Rules
 

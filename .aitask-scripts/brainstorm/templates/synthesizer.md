@@ -17,6 +17,13 @@ Read all referenced files using your tools (Read, Glob, Grep).
 
 ## Output
 
+### Section Format
+Wrap each major section of your proposal in structured section markers using HTML comments:
+  Opening: `<!-- section: name [dimensions: dim1, dim2] -->`
+  Closing: `<!-- /section: name -->`
+Dimensions reference the dimension keys from the "Dimension Keys" block in your input (if present).
+Section names must be lowercase_snake_case.
+
 You must produce exactly two items, written to your `_output.md` file using
 clear delimiters (same format as Explorer):
 
@@ -28,8 +35,14 @@ clear delimiters (same format as Explorer):
   component references added and dropped component references removed
 
 ### File 2: Proposal (Markdown)
-A unified proposal following the standard template with a dedicated
-"Conflict Resolutions" subsection.
+A unified proposal with all standard sections wrapped in section markers (same format as Explorer), plus:
+
+<!-- section: conflict_resolutions -->
+## Conflict Resolutions
+Document each conflict identified and how it was resolved.
+<!-- /section: conflict_resolutions -->
+
+See the Section Format block above for marker syntax. Use the same section names as Explorer (overview, architecture, data_flow, components, assumptions, tradeoffs) plus conflict_resolutions. Link dimension keys from your input's "Dimension Keys" block if present.
 
 ## Conflict Resolution Process
 
