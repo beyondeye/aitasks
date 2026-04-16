@@ -1,41 +1,67 @@
 ---
 Task: t571_3_section_aware_operation_infrastructure.md
 Parent Task: aitasks/t571_more_structured_brainstorming_created_plan.md
-Sibling Tasks: aitasks/t571/t571_1_*.md, aitasks/t571/t571_2_*.md, aitasks/t571/t571_4_*.md, aitasks/t571/t571_5_*.md
-Archived Sibling Plans: aiplans/archived/p571/p571_*_*.md
-Worktree: (current branch)
-Branch: (current branch)
+Sibling Tasks: aitasks/t571/t571_4_section_selection_brainstorm_tui_wizard.md, aitasks/t571/t571_5_shared_section_viewer_tui_integration.md, aitasks/t571/t571_6_update_brainstorm_design_docs.md
+Archived Sibling Plans: aiplans/archived/p571/p571_1_section_parser_module.md, aiplans/archived/p571/p571_2_update_agent_templates_emit_sections.md
 Base branch: main
+plan_verified:
+  - claudecode/opus4_6 @ 2026-04-16 18:30
 ---
 
-# Plan: t571_3 — Section-Aware Operation Infrastructure
+# Plan: t571_3 — Section-Aware Operation Infrastructure (Verified)
 
-## Overview
+## Context
 
-Add `target_sections: list[str] | None = None` parameter to all brainstorm operation registration and input assembly functions. When sections are specified, agents receive focused section content instead of (or in addition to) full content references.
+Add `target_sections: list[str] | None = None` parameter to all brainstorm operation registration and input assembly functions in `brainstorm_crew.py`. When sections are specified, agents receive focused section content/advisory blocks. Templates get conditional instructions for section-aware behavior.
 
-## Step 1: Add Import
+Verified against current codebase — the existing plan (`aiplans/p571/p571_3_section_aware_operation_infrastructure.md`) is sound with minor corrections noted below.
+
+## Verification Notes
+
+- `brainstorm_sections.py` exists with `parse_sections()`, `get_section_by_name()`, `ContentSection`, `ParsedContent` — confirmed
+- `read_proposal()` at `brainstorm_dag.py:200`, `read_plan()` at `:206` — both present, NOT imported in `brainstorm_crew.py` yet
+- Current `brainstorm_crew.py` imports from `brainstorm_dag`: `NODES_DIR`, `PLANS_DIR`, `PROPOSALS_DIR`, `_read_graph_state`, `read_node` (line 30-36)
+- Already imports `extract_dimensions` from `brainstorm_schemas` (added by t571_2)
+- Function line numbers shifted from task description (pre-t571_2) but plan file targets by name — all correct
+- Templates already have section markers from t571_2; patcher/comparator do NOT have them (as expected)
+- `_section_format.md` include exists as shared section format reference
+
+## Implementation
+
+### Step 1: Add Imports to `brainstorm_crew.py`
 
 **File:** `.aitask-scripts/brainstorm/brainstorm_crew.py`
 
-At the top, add:
+Add `parse_sections, get_section_by_name` import (new line after existing imports):
 ```python
 from .brainstorm_sections import parse_sections, get_section_by_name
 ```
 
-Also import `read_proposal` from `brainstorm_dag` if not already imported.
+Add `read_proposal, read_plan` to existing `brainstorm_dag` import block (line 30-36):
+```python
+from .brainstorm_dag import (
+    NODES_DIR,
+    PLANS_DIR,
+    PROPOSALS_DIR,
+    _read_graph_state,
+    read_node,
+    read_plan,
+    read_proposal,
+)
+```
 
-## Step 2: Update `_assemble_input_explorer()`
-
-**File:** `.aitask-scripts/brainstorm/brainstorm_crew.py` (~line 179)
+### Step 2: Update `_assemble_input_explorer()` (line 180)
 
 Add `target_sections: list[str] | None = None` parameter.
 
-When `target_sections` is provided:
+When `target_sections` is provided, after the existing content, add targeted section blocks. **Deviation from original plan:** Wrap `read_proposal` in try/except since it raises on missing file:
+
 ```python
 if target_sections:
-    # Read and parse baseline proposal
-    proposal_text = read_proposal(session_path, node_id)
+    try:
+        proposal_text = read_proposal(session_path, base_node_id)
+    except FileNotFoundError:
+        proposal_text = None
     if proposal_text:
         parsed = parse_sections(proposal_text)
         targeted = [s for s in parsed.sections if s.name in target_sections]
@@ -44,9 +70,8 @@ if target_sections:
                          "Focus exploration on these sections from the baseline:"])
             for s in targeted:
                 dim_str = f" [dimensions: {', '.join(s.dimensions)}]" if s.dimensions else ""
-                lines.extend([f"", f"### Section: {s.name}{dim_str}", s.content])
-    # Also check baseline plan
-    plan_text = read_plan(session_path, node_id)
+                lines.extend(["", f"### Section: {s.name}{dim_str}", s.content])
+    plan_text = read_plan(session_path, base_node_id)
     if plan_text:
         parsed_plan = parse_sections(plan_text)
         targeted_plan = [s for s in parsed_plan.sections if s.name in target_sections]
@@ -54,16 +79,16 @@ if target_sections:
             lines.extend(["", "## Targeted Plan Section Content"])
             for s in targeted_plan:
                 dim_str = f" [dimensions: {', '.join(s.dimensions)}]" if s.dimensions else ""
-                lines.extend([f"", f"### Section: {s.name}{dim_str}", s.content])
+                lines.extend(["", f"### Section: {s.name}{dim_str}", s.content])
 ```
 
-## Step 3: Update `_assemble_input_comparator()`
+Insert before the final `return "\n".join(lines) + "\n"`.
 
-**File:** `.aitask-scripts/brainstorm/brainstorm_crew.py` (~line 222)
+### Step 3: Update `_assemble_input_comparator()` (line 231)
 
 Add `target_sections: list[str] | None = None` parameter.
 
-When provided, add advisory block:
+Append advisory block before return:
 ```python
 if target_sections:
     lines.extend(["", "## Section Focus",
@@ -72,13 +97,11 @@ if target_sections:
         lines.append(f"- {name}")
 ```
 
-## Step 4: Update `_assemble_input_detailer()`
-
-**File:** `.aitask-scripts/brainstorm/brainstorm_crew.py` (~line 283)
+### Step 4: Update `_assemble_input_detailer()` (line 302)
 
 Add `target_sections: list[str] | None = None` parameter.
 
-When provided:
+Append advisory block before return:
 ```python
 if target_sections:
     lines.extend(["", "## Target Sections",
@@ -86,19 +109,16 @@ if target_sections:
                   "Leave other sections unchanged:"])
     for name in target_sections:
         lines.append(f"- {name}")
-    # Include current plan path so agent can read existing sections
     plan_path = session_path / PLANS_DIR / f"{node_id}_plan.md"
     if plan_path.is_file():
-        lines.append(f"- Current plan: {plan_path}")
+        lines.append(f"\nCurrent plan: {plan_path}")
 ```
 
-## Step 5: Update `_assemble_input_patcher()`
-
-**File:** `.aitask-scripts/brainstorm/brainstorm_crew.py` (~line 313)
+### Step 5: Update `_assemble_input_patcher()` (line 340)
 
 Add `target_sections: list[str] | None = None` parameter.
 
-When provided:
+Append advisory block before return:
 ```python
 if target_sections:
     lines.extend(["", "## Target Sections",
@@ -108,38 +128,69 @@ if target_sections:
         lines.append(f"- {name}")
 ```
 
-## Step 6: Update All `register_*()` Functions
+### Step 6: Update all `register_*()` functions
 
-Each function gets `target_sections: list[str] | None = None` parameter, passed through to its `_assemble_input_*` call.
+Each gets `target_sections: list[str] | None = None` parameter, passed to its `_assemble_input_*` call:
 
-- `register_explorer()` (~line 349): Add param, pass to `_assemble_input_explorer()`
-- `register_comparator()` (~line 393): Add param, pass to `_assemble_input_comparator()`
-- `register_detailer()` (~line 469): Add param, pass to `_assemble_input_detailer()`
-- `register_patcher()` (~line 506): Add param, pass to `_assemble_input_patcher()`
+- `register_explorer()` (line 376): Add param, pass to `_assemble_input_explorer(..., target_sections=target_sections)`
+- `register_comparator()` (line 420): Add param, pass to `_assemble_input_comparator(..., target_sections=target_sections)`
+- `register_detailer()` (line 496): Add param, pass to `_assemble_input_detailer(..., target_sections=target_sections)`
+- `register_patcher()` (line 533): Add param, pass to `_assemble_input_patcher(..., target_sections=target_sections)`
 
-## Step 7: Update Templates
+**Note:** `register_synthesizer()` is NOT updated — synthesizers merge multiple nodes and section targeting doesn't apply to merge operations.
 
-Add a small conditional instruction section to each template.
+### Step 7: Update Templates
 
-### 7.1 `explorer.md`
-Add after Rules: "## Section-Targeted Exploration (Optional)\nIf 'Targeted Section Content' is present in your input, focus your architectural exploration on the aspects covered by those sections. Your output proposal should still be complete, but the exploration mandate applies primarily to the targeted areas."
+Add conditional instruction section to each template, inserted between the Rules section and the `---` separator.
 
-### 7.2 `comparator.md`
-Add: "## Section-Focused Comparison (Optional)\nIf a 'Section Focus' block is present in your input, compare the listed sections across nodes. Read proposal content for those sections specifically."
+**`explorer.md`** — After line 107 (last rule), before `---` at line 109:
+```markdown
 
-### 7.3 `detailer.md`
-Add: "## Section-Targeted Re-Detailing (Optional)\nIf 'Target Sections' are specified in your input, re-detail only those sections of the existing plan. Read the current plan file, keep all non-targeted sections unchanged, and rewrite only the targeted sections."
+## Section-Targeted Exploration (Optional)
+If "Targeted Section Content" is present in your input, focus your
+architectural exploration on the aspects covered by those sections. Your
+output proposal should still be complete, but the exploration mandate
+applies primarily to the targeted areas.
+```
 
-### 7.4 `patcher.md`
-Add: "## Section-Targeted Patching (Optional)\nIf a 'Target Sections' block is present in your input, apply the patch ONLY to the listed sections. Leave all other sections of the plan unchanged."
+**`comparator.md`** — After line 53 (last rule), before `---` at line 55:
+```markdown
+
+## Section-Focused Comparison (Optional)
+If a "Section Focus" block is present in your input, compare the listed
+sections across nodes. Read proposal content for those sections specifically.
+Your comparison matrix should still cover the requested dimensions.
+```
+
+**`detailer.md`** — After line 84 (last rule), before `---` at line 86:
+```markdown
+
+## Section-Targeted Re-Detailing (Optional)
+If "Target Sections" are specified in your input, re-detail only those
+sections of the existing plan. Read the current plan file, keep all
+non-targeted sections unchanged, and rewrite only the targeted sections.
+```
+
+**`patcher.md`** — After line 69 (last rule), before `---` at line 71:
+```markdown
+
+## Section-Targeted Patching (Optional)
+If a "Target Sections" block is present in your input, apply the patch ONLY
+to the listed sections. Leave all other sections of the plan unchanged.
+If the patch request conflicts with the section scope, note the conflict
+in your output.
+```
 
 ## Verification
 
-1. Call `register_explorer()` with `target_sections=["overview", "components"]` — verify input contains "Targeted Section Content"
-2. Call `register_patcher()` with `target_sections=["step_database"]` — verify "Target Sections" block
-3. Call without `target_sections` — verify identical behavior to before
-4. Test with content that has no sections — graceful fallback (no crash)
-5. All four templates contain their section-aware instruction
+1. All four `_assemble_input_*` functions accept and handle `target_sections`
+2. All four `register_*` functions pass `target_sections` through
+3. Calling any function WITHOUT `target_sections` produces identical output to before
+4. Explorer with `target_sections` on content with sections produces "Targeted Section Content" block
+5. Explorer with `target_sections` on content with NO sections gracefully produces no extra block
+6. `read_proposal` failure (missing file) doesn't crash — handled by try/except
+7. All four templates contain their section-aware instruction
+8. Existing tests still pass: `python -m pytest tests/test_brainstorm_sections.py -v`
 
 ## Step 9: Post-Implementation
 
