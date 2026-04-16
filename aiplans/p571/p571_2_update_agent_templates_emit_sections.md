@@ -102,6 +102,13 @@ Merge dimension keys from ALL source nodes (deduplicate), then add "## Dimension
 4. Run a test by reading the input assembly output — verify "## Dimension Keys" appears
 5. Manually create a proposal/plan following the updated format and parse with `parse_sections()` from t571_1
 
+## Final Implementation Notes
+- **Actual work done:** Updated all 3 agent templates (explorer, synthesizer, detailer) with Section Format reference blocks and section-marker-wrapped output format instructions. Updated `brainstorm_crew.py` with `extract_dimensions` import and "## Dimension Keys" blocks in all 3 input assembly functions (explorer, synthesizer, detailer). Synthesizer merges dimensions from all source nodes.
+- **Deviations from plan:** Import placed at module level instead of inline in functions (cleaner). Dimension Keys sections placed after the last existing section in each assembly function (after "## Active Dimensions" in explorer, after "## Project Context" in detailer, after "## Reference Files" in synthesizer) rather than all after "## Reference Files" as originally planned.
+- **Issues encountered:** None.
+- **Key decisions:** Templates include fallback guidance ("If no Dimension Keys block is present, omit dimensions but still use markers") for backward compatibility with sessions that predate this change. Nested sub-section markers (e.g., `component_<name>` within `components`) are shown as instructional examples in templates — the t571_1 parser treats them as content within the parent section, which is correct behavior.
+- **Notes for sibling tasks:** The `_OPEN_RE`/`_CLOSE_RE` patterns from `brainstorm_sections.py` match the exact marker format used in templates. Agent-produced output following these templates will parse correctly with `parse_sections()`. Nested sub-sections (e.g., `component_database` inside `components`) appear as part of the parent section's content in the current parser — t571_3 may need to extend parsing for nested sections if section-aware operations require sub-section granularity. The "## Dimension Keys" input block is only emitted when the node has dimension fields; older sessions without dimensions will produce templates without this block, and agents will omit `[dimensions: ...]` attributes per the fallback guidance.
+
 ## Step 9: Post-Implementation
 
 Follow Step 9 from the shared workflow for archival and cleanup.
