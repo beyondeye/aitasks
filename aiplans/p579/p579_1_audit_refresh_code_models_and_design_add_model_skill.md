@@ -135,3 +135,72 @@ git commit -m "documentation: Audit refresh-code-models and design add-model ski
 ## Step 9
 
 Archive via `./.aitask-scripts/aitask_archive.sh 579_1`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `aidocs/model_reference_locations.md`
+  containing (1) a categorised inventory of every file in the repo that
+  references a specific Claude model name or default agent string, tagged
+  with `covered_by_refresh` / `needed_for_add` / `needed_for_promote` /
+  `informational_only`, and (2) a full design spec for the new
+  `aitask-add-model` skill covering API, mode contracts, multi-agent
+  handling, dry-run semantics, commit strategy, helper subcommands, and
+  unit-test cases.
+
+- **Deviations from plan:** Expanded the design-spec section beyond the
+  minimum listed in the plan to include an "Open questions" section (4
+  concrete questions for t579_2 to resolve), an "Implementation order" list
+  for t579_2, and a specific sub-file list per promote-mode step (e.g.,
+  `aitask_codeagent.sh` line 21 AND line 663; `aitask_brainstorm_init.sh`
+  lines 126-130 as additional fallback — not originally in the parent
+  plan's gap analysis but found during the inventory sweep).
+
+- **Issues encountered:**
+  - The grep sweep produced ~191 hits; SVG asset files under
+    `website/static/imgs/` contain embedded model strings inside
+    XML-encoded paths — these were excluded as generated assets.
+  - `aitask_codeagent.sh` line 663 ("Hardcoded default: claudecode/opus4_6")
+    was initially flagged `informational_only` because it looks like help
+    text, but it's actually a human-readable reflection of the real
+    DEFAULT_AGENT_STRING — promoted to `needed_for_promote` in the
+    inventory.
+  - `aitask_brainstorm_init.sh` lines 126-130 were flagged as additional
+    fallback defaults (not just examples) — the shell script uses them as
+    real fallbacks when the config and the python hardcoded defaults both
+    miss. Added to `needed_for_promote`.
+  - The `ait codeagent coauthor` resolver rejects fallback agent strings
+    like `claudecode/claude-opus-4-7` (it expects the short-name form
+    `claudecode/opus4_7`). This is expected because opus4_7 isn't in the
+    registry yet — t579_3 fixes it. No coauthor trailer was added to this
+    task's commit.
+
+- **Key decisions:**
+  - Recommended refusing `--agent opencode` in the new skill (point users
+    to `aitask-refresh-code-models` instead) because opencode's model list
+    is provider-gated and CLI-discovered.
+  - Recommended `aidocs/claudecode_tools.md` line 5 is updated
+    automatically by the skill (promote-mode + claudecode + pick op)
+    rather than deferred to the manual-review list — it's a simple
+    one-line default reflection, always the same format.
+  - Recommended `aitask_brainstorm_init.sh` fallback lines 126-130 are
+    updated by `promote-brainstorm` subcommand — they're real fallback
+    defaults not examples.
+
+- **Notes for sibling tasks:**
+  - **For t579_2:** Follow the 10-step implementation order at the end of
+    the design spec. Build subcommands bottom-up and test each before
+    moving on. Use `jq` for ALL JSON, `sed_inplace` (from
+    `lib/terminal_compat.sh`) for text, anchored regex only.
+  - **For t579_3:** The full file set the skill should change is in §2, §3
+    of the inventory, plus `aidocs/claudecode_tools.md:5`. After running
+    the skill, capture the emitted manual-review block verbatim for
+    t579_4.
+  - **For t579_4:** The default-sensitive tests are
+    `tests/test_codeagent.sh` and `tests/test_brainstorm_crew.py`. The
+    docs work is concentrated in
+    `website/content/docs/commands/codeagent.md` (defaults table lines
+    54-57, hardcoded-default line 167). The
+    `aitask-refresh-code-models.md` naming-convention example is
+    `informational_only` — do NOT update. Many test files pass
+    `claudecode/opus4_6` as an incidental stable argument — these are
+    `informational_only` fixtures and should stay untouched.
