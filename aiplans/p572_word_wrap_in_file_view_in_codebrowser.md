@@ -144,6 +144,8 @@ In `_reset_state()` (code_viewer.py, line 77), do NOT reset `_wrap_mode` — the
 9. Verify cursor movement (up/down) works correctly in all three modes
 10. Check info bar shows "mode: wrap" or "mode: scroll" when not in truncate
 
-## Step 9: Post-Implementation
-
-Follow SKILL.md Step 9 for archival and cleanup.
+## Final Implementation Notes
+- **Actual work done:** Implemented a two-mode toggle (truncate/wrap) instead of three modes. The scroll mode (horizontal scrollbar) was attempted twice — first via Textual's `overflow-x: auto` (which leaked to the parent layout, scrolling the entire file+detail pane), then via a horizontal viewport offset with left/right arrow keys (user found it unusable). The final implementation is a simple truncate/wrap toggle using `w` key.
+- **Deviations from plan:** Scroll mode removed entirely per user feedback. The feature is now a simple two-state toggle rather than a three-mode cycle.
+- **Issues encountered:** Textual's `VerticalScroll` container does not properly support dynamic `overflow-x: auto` — setting it propagates horizontal expansion to parent layout containers instead of adding a scrollbar within the CodeViewer widget.
+- **Key decisions:** Used Rich Table's `no_wrap=False` for wrap mode, which handles word wrapping natively within the column width. Wrap mode persists across file loads (intentional UX choice).
