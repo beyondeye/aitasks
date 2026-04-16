@@ -122,6 +122,14 @@ Update `TestGetAgentTypes` class:
 4. `grep -n 'DEFAULT_AGENT_STRING' .aitask-scripts/aitask_codeagent.sh` — still present (retained)
 5. `./ait crew init --help` — same interface
 
+## Final Implementation Notes
+
+- **Actual work done:** Removed `agent_string` from `BRAINSTORM_AGENT_TYPES` dict, rewrote `get_agent_types()` to require config (raises `RuntimeError` on missing keys), deleted unused `crew_meta_template.yaml`, made bash fallback argument optional with error on empty, updated all 12+ test assertions and added 2 new error-path tests.
+- **Deviations from plan:** Found an additional test class (`TestBrainstormAgentTypes.test_agent_types_structure`) at line 314 that also asserted `agent_string` in the dict — updated to assert its absence. Not originally listed in the plan's test sites.
+- **Issues encountered:** None — codebase matched all plan assumptions exactly.
+- **Key decisions:** `get_agent_types()` raises `RuntimeError` (not returns sentinel) on missing config — fail-fast is clearer for callers. Added `_write_full_config()` test helper to reduce fixture boilerplate.
+- **Notes for sibling tasks:** `promote-brainstorm` subcommand in `aidocs/model_reference_locations.md` is now documented as a no-op — t579_2's `aitask-add-model` skill only needs to patch `codeagent_config.json` (+ seed) for brainstorm ops. `_get_brainstorm_agent_string` in bash still accepts an optional second arg for backwards compat — the skill can still pass one if needed.
+
 ## Step 9
 
 Archive via `./.aitask-scripts/aitask_archive.sh 579_5`.
