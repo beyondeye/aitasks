@@ -192,6 +192,7 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         self._history_active_labels: set = set()  # label filter state
         self._initial_focus: str | None = initial_focus
         self._tmux_session: str | None = self._detect_tmux_session()
+        self._tmux_window: str | None = self._detect_tmux_window()
         # Path whose next FileSelected event should be ignored because the
         # focus mechanism has already loaded the file. Cleared after one
         # event so subsequent user clicks behave normally.
@@ -205,6 +206,22 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         try:
             result = subprocess.run(
                 ["tmux", "display-message", "-p", "#S"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
+        return None
+
+    @staticmethod
+    def _detect_tmux_window() -> str | None:
+        """Return the current tmux window index, or None if not in tmux."""
+        if not os.environ.get("TMUX"):
+            return None
+        try:
+            result = subprocess.run(
+                ["tmux", "display-message", "-p", "#{window_index}"],
                 capture_output=True, text=True, timeout=5,
             )
             if result.returncode == 0 and result.stdout.strip():
@@ -1032,37 +1049,45 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
 
     def action_create_task(self) -> None:
         """Launch aitask_create.sh with --file-ref pre-populated from the current file and selection."""
-        if not self._current_file_path:
-            self.notify("No file selected", severity="warning")
-            return
         if not self._project_root:
             self.notify("Project root not resolved", severity="warning")
             return
 
-        rel_path = self._current_file_path.relative_to(self._project_root)
-        code_viewer = self.query_one("#code_viewer", CodeViewer)
-        selected = code_viewer.get_selected_range()
-
-        if selected and selected[0] != selected[1]:
-            ref_arg = f"{rel_path}:{selected[0]}-{selected[1]}"
-            title = f"Create task — {rel_path} (lines {selected[0]}-{selected[1]})"
-        elif selected:
-            ref_arg = f"{rel_path}:{selected[0]}"
-            title = f"Create task — {rel_path} (line {selected[0]})"
-        else:
-            line_1indexed = code_viewer._cursor_line + 1
-            ref_arg = f"{rel_path}:{line_1indexed}"
-            title = f"Create task — {rel_path} (line {line_1indexed})"
-
         create_script = str(self._project_root / ".aitask-scripts" / "aitask_create.sh")
-        full_cmd = f"{create_script} --file-ref {shlex.quote(ref_arg)}"
-        prompt_str = f"ait create --file-ref {ref_arg}"
+        ref_arg: str | None = None
+        window_name = "create-task"
 
-        window_name = f"create-{rel_path.name}"
+        if self._current_file_path:
+            rel_path = self._current_file_path.relative_to(self._project_root)
+            code_viewer = self.query_one("#code_viewer", CodeViewer)
+            selected = code_viewer.get_selected_range()
+
+            if selected and selected[0] != selected[1]:
+                ref_arg = f"{rel_path}:{selected[0]}-{selected[1]}"
+                title = f"Create task — {rel_path} (lines {selected[0]}-{selected[1]})"
+            else:
+                total = code_viewer._total_lines
+                if total > 0:
+                    ref_arg = f"{rel_path}:1-{total}"
+                    title = f"Create task — {rel_path} (full file)"
+                else:
+                    ref_arg = str(rel_path)
+                    title = f"Create task — {rel_path}"
+            window_name = f"create-{rel_path.name}"
+        else:
+            title = "Create task"
+
+        if ref_arg:
+            full_cmd = f"{create_script} --file-ref {shlex.quote(ref_arg)}"
+            prompt_str = f"ait create --file-ref {ref_arg}"
+        else:
+            full_cmd = create_script
+            prompt_str = "ait create"
 
         screen = AgentCommandScreen(
             title, full_cmd, prompt_str,
             default_window_name=window_name,
+            default_tmux_window=self._tmux_window,
         )
 
         def on_result(result):
@@ -1076,21 +1101,21 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         self.push_screen(screen, on_result)
 
     @work(exclusive=True)
-    async def _run_create_from_selection(self, ref_arg: str) -> None:
+    async def _run_create_from_selection(self, ref_arg: str | None) -> None:
         """Launch aitask_create.sh in a terminal (or via suspend), then refresh annotations."""
         create_script = str(self._project_root / ".aitask-scripts" / "aitask_create.sh")
+        cmd: list[str] = [create_script]
+        if ref_arg:
+            cmd.extend(["--file-ref", ref_arg])
         terminal = _find_terminal()
         if terminal:
             subprocess.Popen(
-                [terminal, "--", create_script, "--file-ref", ref_arg],
+                [terminal, "--"] + cmd,
                 cwd=str(self._project_root),
             )
         else:
             with self.suspend():
-                subprocess.call(
-                    [create_script, "--file-ref", ref_arg],
-                    cwd=str(self._project_root),
-                )
+                subprocess.call(cmd, cwd=str(self._project_root))
             self.action_refresh_explain()
 
 

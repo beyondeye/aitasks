@@ -202,6 +202,7 @@ class AgentCommandScreen(ModalScreen):
         operation: str | None = None,
         operation_args: list[str] | None = None,
         default_agent_string: str | None = None,
+        default_tmux_window: str | None = None,
     ):
         super().__init__()
         self.title_text = title
@@ -212,6 +213,7 @@ class AgentCommandScreen(ModalScreen):
         self.operation = operation
         self.operation_args: list[str] = list(operation_args or [])
         self.current_agent_string: str | None = default_agent_string
+        self._default_tmux_window: str | None = default_tmux_window
         self._tmux_available = is_tmux_available()
         self._tmux_defaults = load_tmux_defaults(self._project_root)
         self._split_horizontal = self._tmux_defaults["default_split"] == "horizontal"
@@ -376,8 +378,17 @@ class AgentCommandScreen(ModalScreen):
 
         win_select.set_options(options)
 
-        # Always default to new window
-        win_select.value = _NEW_WINDOW_SENTINEL
+        # Default to the caller's tmux window (split pane) if available,
+        # otherwise fall back to creating a new window.
+        if self._default_tmux_window:
+            matching = [idx for idx, _name in windows
+                        if idx == self._default_tmux_window]
+            if matching:
+                win_select.value = matching[0]
+            else:
+                win_select.value = _NEW_WINDOW_SENTINEL
+        else:
+            win_select.value = _NEW_WINDOW_SENTINEL
 
         self._on_window_changed(win_select.value)
 
