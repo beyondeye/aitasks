@@ -210,21 +210,55 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[subprocess.P
         return proc, None
 
 
-def maybe_spawn_minimonitor(session: str, window_name: str) -> bool:
-    """Spawn a minimonitor split pane if no monitor exists in the target window.
+def _lookup_window_name(session: str, window_index: str) -> str | None:
+    """Look up a tmux window name from its index."""
+    try:
+        result = subprocess.run(
+            ["tmux", "list-windows", "-t", session,
+             "-F", "#{window_index}:#{window_name}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        for line in result.stdout.strip().splitlines():
+            if ":" in line:
+                idx, name = line.split(":", 1)
+                if idx == window_index:
+                    return name
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    return None
 
-    Called after launch_in_tmux() creates a new agent window. Checks if a
-    monitor/minimonitor already runs in that window, and if not, creates a
-    horizontal split with a configurable-width minimonitor pane.
+
+_DEFAULT_TUI_NAMES = {"board", "codebrowser", "settings", "brainstorm",
+                      "monitor", "minimonitor", "diffviewer", "git"}
+
+
+def maybe_spawn_minimonitor(
+    session: str,
+    window_name: str,
+    *,
+    window_index: str | None = None,
+) -> bool:
+    """Spawn a minimonitor split pane if conditions are met.
+
+    Called after launch_in_tmux() creates a new window or splits into an
+    existing one. Spawns a companion minimonitor pane when the window name
+    matches a configured prefix and the window does not already contain a
+    monitor/minimonitor or TUI process.
+
+    Args:
+        session: tmux session name
+        window_name: tmux window name (for prefix matching and TUI exclusion)
+        window_index: if provided, skip the name→index lookup (existing-window case)
 
     Returns True if minimonitor was spawned, False otherwise.
     """
-    if not window_name.startswith("agent-"):
-        return False
-
     # Read config from project_config.yaml
     auto_spawn = True
     width = 40
+    companion_prefixes = ["agent-", "create-"]
+    tui_names = set(_DEFAULT_TUI_NAMES)
     config_path = Path.cwd() / "aitasks" / "metadata" / "project_config.yaml"
     if config_path.is_file():
         try:
@@ -239,33 +273,48 @@ def maybe_spawn_minimonitor(session: str, window_name: str) -> bool:
                         auto_spawn = bool(mm["auto_spawn"])
                     if "width" in mm:
                         width = int(mm["width"])
+                    if "companion_window_prefixes" in mm:
+                        companion_prefixes = list(mm["companion_window_prefixes"])
+                monitor = tmux.get("monitor", {})
+                if isinstance(monitor, dict):
+                    if "tui_window_names" in monitor:
+                        tui_names = set(monitor["tui_window_names"])
         except Exception:
             pass
 
     if not auto_spawn:
         return False
 
-    # Find window index
-    try:
-        result = subprocess.run(
-            ["tmux", "list-windows", "-t", session,
-             "-F", "#{window_index}:#{window_name}"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode != 0:
-            return False
-        win_index = None
-        for line in result.stdout.strip().splitlines():
-            if ":" in line:
-                idx, name = line.split(":", 1)
-                if name == window_name:
-                    win_index = idx  # keep looping — pick the *last* match
-        if win_index is None:
-            return False
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+    # Check window name matches an eligible companion prefix
+    if not any(window_name.startswith(p) for p in companion_prefixes):
         return False
 
-    # Check existing panes for monitor/minimonitor
+    # Exclude TUI windows (board, codebrowser, monitor, etc.)
+    if window_name in tui_names or window_name.startswith("brainstorm-"):
+        return False
+
+    # Resolve window index
+    win_index = window_index
+    if win_index is None:
+        try:
+            result = subprocess.run(
+                ["tmux", "list-windows", "-t", session,
+                 "-F", "#{window_index}:#{window_name}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode != 0:
+                return False
+            for line in result.stdout.strip().splitlines():
+                if ":" in line:
+                    idx, name = line.split(":", 1)
+                    if name == window_name:
+                        win_index = idx  # keep looping — pick the *last* match
+            if win_index is None:
+                return False
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return False
+
+    # Check existing panes for monitor/minimonitor and pane count
     try:
         result = subprocess.run(
             ["tmux", "list-panes", "-t", f"{session}:{win_index}",
@@ -273,9 +322,13 @@ def maybe_spawn_minimonitor(session: str, window_name: str) -> bool:
             capture_output=True, text=True, timeout=5,
         )
         if result.returncode == 0:
-            for cmd_line in result.stdout.strip().splitlines():
+            pane_lines = result.stdout.strip().splitlines()
+            for cmd_line in pane_lines:
                 if "minimonitor" in cmd_line or "monitor_app" in cmd_line:
                     return False
+            # Avoid overcrowding: skip if 3+ panes already exist
+            if len(pane_lines) >= 3:
+                return False
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
 
@@ -286,7 +339,7 @@ def maybe_spawn_minimonitor(session: str, window_name: str) -> bool:
              "-t", f"{session}:{win_index}", "ait", "minimonitor"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
-        # Refocus the agent pane (left pane)
+        # Refocus the original pane (left pane)
         subprocess.Popen(
             ["tmux", "select-pane", "-t", f"{session}:{win_index}.0"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

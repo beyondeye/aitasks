@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for
 from agent_command_screen import AgentCommandScreen
-from agent_launch_utils import find_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, launch_or_focus_codebrowser, maybe_spawn_minimonitor
+from agent_launch_utils import find_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, launch_or_focus_codebrowser, maybe_spawn_minimonitor, _lookup_window_name
 from tui_switcher import TuiSwitcherMixin, TuiSwitcherOverlay
 
 from textual.app import App, ComposeResult
@@ -3873,6 +3873,15 @@ class KanbanApp(TuiSwitcherMixin, App):
                 _, err = launch_in_tmux(screen.full_command, create_result)
                 if err:
                     self.notify(err, severity="error")
+                elif create_result.new_window:
+                    maybe_spawn_minimonitor(create_result.session, create_result.window)
+                else:
+                    win_name = _lookup_window_name(create_result.session, create_result.window)
+                    if win_name:
+                        maybe_spawn_minimonitor(
+                            create_result.session, win_name,
+                            window_index=create_result.window,
+                        )
             self.manager.load_tasks()
             self.refresh_board()
         self.push_screen(screen, on_create_result)

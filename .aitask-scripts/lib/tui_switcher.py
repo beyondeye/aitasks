@@ -413,11 +413,14 @@ class TuiSwitcherOverlay(ModalScreen):
     def action_shortcut_create(self) -> None:
         """Launch ait create in a new tmux window."""
         try:
-            subprocess.Popen(
+            proc = subprocess.Popen(
                 ["tmux", "new-window", "-t", f"{self._session}:",
                  "-n", "create-task", "ait create"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
+            proc.wait()
+            from agent_launch_utils import maybe_spawn_minimonitor
+            maybe_spawn_minimonitor(self._session, "create-task")
         except (FileNotFoundError, OSError):
             self.app.notify("Failed to launch create", severity="error")
             return
