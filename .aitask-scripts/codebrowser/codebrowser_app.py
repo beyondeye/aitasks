@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from agent_command_screen import AgentCommandScreen
-from agent_launch_utils import find_terminal as _find_terminal, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor
+from agent_launch_utils import find_terminal as _find_terminal, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, _lookup_window_name
 from tui_switcher import TuiSwitcherMixin
 
 from textual.app import App, ComposeResult
@@ -275,7 +275,6 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         self._history_active_labels: set = set()  # label filter state
         self._initial_focus: str | None = initial_focus
         self._tmux_session: str | None = self._detect_tmux_session()
-        self._tmux_window: str | None = self._detect_tmux_window()
         # Path whose next FileSelected event should be ignored because the
         # focus mechanism has already loaded the file. Cleared after one
         # event so subsequent user clicks behave normally.
@@ -1224,7 +1223,7 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         screen = AgentCommandScreen(
             title, full_cmd, prompt_str,
             default_window_name=window_name,
-            default_tmux_window=self._tmux_window,
+            default_tmux_window=self._detect_tmux_window(),
         )
 
         def on_result(result):
@@ -1234,6 +1233,15 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
                 _, err = launch_in_tmux(screen.full_command, result)
                 if err:
                     self.notify(err, severity="error")
+                elif result.new_window:
+                    maybe_spawn_minimonitor(result.session, result.window)
+                else:
+                    win_name = _lookup_window_name(result.session, result.window)
+                    if win_name:
+                        maybe_spawn_minimonitor(
+                            result.session, win_name,
+                            window_index=result.window,
+                        )
 
         self.push_screen(screen, on_result)
 
