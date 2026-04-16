@@ -18,12 +18,7 @@ Use your tools to explore the codebase further as needed.
 
 ## Output
 
-### Section Format
-Wrap each major section of your plan in structured section markers using HTML comments:
-  Opening: `<!-- section: name [dimensions: dim1, dim2] -->`
-  Closing: `<!-- /section: name -->`
-Dimensions reference the dimension keys from the "Dimension Keys" block in your input (if present).
-Section names must be lowercase_snake_case.
+<!-- include: _section_format.md -->
 
 Write a single Markdown file to `_output.md` with these required sections, each wrapped in section markers:
 

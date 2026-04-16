@@ -41,6 +41,8 @@ Required:
   --crew <id>               Crew identifier
   --name <agent_name>       Agent name (lowercase alphanumeric, underscores)
   --work2do <file>          Path to the work-to-do markdown file (or "-" for stdin)
+                            Supports <!-- include: filename --> directives that are
+                            resolved relative to the file's directory (one level only).
   --type <type_id>          Agent type ID (must exist in crew's agent_types)
 
 Options:
@@ -152,6 +154,12 @@ else
         die "Work2do file not found: $WORK2DO_FILE"
     fi
     WORK2DO_CONTENT="$(cat "$WORK2DO_FILE")"
+fi
+
+# --- Resolve template includes ---
+if [[ "$WORK2DO_FILE" != "-" && "$WORK2DO_FILE" != "/dev/null" && -n "$WORK2DO_CONTENT" ]]; then
+    WORK2DO_DIR="$(cd "$(dirname "$WORK2DO_FILE")" && pwd)"
+    WORK2DO_CONTENT="$(printf '%s\n' "$WORK2DO_CONTENT" | resolve_template_includes "$WORK2DO_DIR")"
 fi
 
 # --- Create agent files ---

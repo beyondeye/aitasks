@@ -137,6 +137,29 @@ write_yaml_file() {
     printf '%s\n' "$content" > "$file"
 }
 
+# resolve_template_includes <base_dir>
+# Reads template content from stdin, writes resolved content to stdout.
+# Resolves <!-- include: filename --> directives relative to base_dir.
+# One-level only (included files are not scanned for further includes).
+# Missing includes emit a warning and preserve the directive line as-is.
+resolve_template_includes() {
+    local base_dir="$1"
+    local line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ \<\!--[[:space:]]+include:[[:space:]]+([^[:space:]]+)[[:space:]]+--\> ]]; then
+            local inc_file="$base_dir/${BASH_REMATCH[1]}"
+            if [[ -f "$inc_file" ]]; then
+                cat "$inc_file"
+            else
+                warn "Template include not found: $inc_file"
+                printf '%s\n' "$line"
+            fi
+        else
+            printf '%s\n' "$line"
+        fi
+    done
+}
+
 # append_yaml_list_item <file> <field> <value>
 # Appends a value to a YAML inline list field [a, b] -> [a, b, c].
 # If the field has an empty list [], sets it to [value].

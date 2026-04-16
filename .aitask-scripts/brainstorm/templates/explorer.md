@@ -19,12 +19,7 @@ references, read the cached file; if the cache is missing, fetch via WebFetch.
 
 ## Output
 
-### Section Format
-Wrap each major section of your proposal in structured section markers using HTML comments:
-  Opening: `<!-- section: name [dimensions: dim1, dim2] -->`
-  Closing: `<!-- /section: name -->`
-Dimensions reference the dimension keys from the "Dimension Keys" block in your input (if present).
-Section names must be lowercase_snake_case.
+<!-- include: _section_format.md -->
 
 You must produce exactly two items, written to your `_output.md` file using
 clear delimiters:
