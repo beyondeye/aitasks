@@ -780,6 +780,7 @@ class MonitorApp(TuiSwitcherMixin, App):
                 self.query_one("#content-preview", PreviewPanel).focus()
             except Exception:
                 pass
+            self._update_content_preview()
             return
         # If the user already navigated to a valid PaneCard during this
         # refresh cycle, respect their selection instead of reverting to the
@@ -790,18 +791,22 @@ class MonitorApp(TuiSwitcherMixin, App):
             and focused.pane_id in self._snapshots
         ):
             self._focused_pane_id = focused.pane_id
-            return
-        if pane_id is None:
-            return
-        for card in self.query("#pane-list PaneCard"):
-            if hasattr(card, "pane_id") and card.pane_id == pane_id:
-                card.focus()
-                # Widget.focus() is deferred; on_descendant_focus may not
-                # fire before the next refresh tick, leaving saved_pane_id
-                # stale. Set _focused_pane_id directly so the next tick sees
-                # the real state.
-                self._focused_pane_id = card.pane_id
-                return
+        elif pane_id is not None:
+            for card in self.query("#pane-list PaneCard"):
+                if hasattr(card, "pane_id") and card.pane_id == pane_id:
+                    card.focus()
+                    # Widget.focus() is deferred; on_descendant_focus may not
+                    # fire before the next refresh tick, leaving saved_pane_id
+                    # stale. Set _focused_pane_id directly so the next tick sees
+                    # the real state.
+                    self._focused_pane_id = card.pane_id
+                    break
+        # Sync preview with the final focus state. The _update_content_preview
+        # call in _refresh_data (line 683) may have rendered with a stale
+        # _focused_pane_id if DOM events during _rebuild_pane_list shifted
+        # focus. This second call corrects the preview. On the fast path it's
+        # cheap (same_pane check short-circuits). Fixes t576.
+        self._update_content_preview()
 
     def _rebuild_session_bar(self) -> None:
         total = len(self._snapshots)
