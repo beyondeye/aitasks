@@ -68,6 +68,12 @@ Output one of:
 4. If the user's request is ambiguous (e.g., "make step 3 faster"), ask for
    clarification in the output rather than guessing.
 
+## Section-Targeted Patching (Optional)
+If a "Target Sections" block is present in your input, apply the patch ONLY
+to the listed sections. Leave all other sections of the plan unchanged.
+If the patch request conflicts with the section scope, note the conflict
+in your output.
+
 ---
 
 ## Phase 1: Read Input

@@ -83,6 +83,11 @@ If no "Dimension Keys" block is present in your input, omit the [dimensions: ...
 5. Do not include architectural discussion — that belongs in the proposal.
    The plan is purely operational: what to do, in what order, how to verify.
 
+## Section-Targeted Re-Detailing (Optional)
+If "Target Sections" are specified in your input, re-detail only those
+sections of the existing plan. Read the current plan file, keep all
+non-targeted sections unchanged, and rewrite only the targeted sections.
+
 ---
 
 ## Phase 1: Read Input and Explore

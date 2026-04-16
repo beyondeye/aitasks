@@ -106,6 +106,12 @@ If no "Dimension Keys" block is present in your input, omit the [dimensions: ...
    WebFetch) to discover additional relevant references not in the
    baseline's list.
 
+## Section-Targeted Exploration (Optional)
+If "Targeted Section Content" is present in your input, focus your
+architectural exploration on the aspects covered by those sections. Your
+output proposal should still be complete, but the exploration mandate
+applies primarily to the targeted areas.
+
 ---
 
 ## Phase 1: Read Baseline

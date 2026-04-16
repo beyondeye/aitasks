@@ -51,6 +51,11 @@ After the table, write a "Delta Summary" that highlights:
 4. Keep the output concise. The comparison should fit on a single screen for
    2-3 nodes across 4-6 dimensions.
 
+## Section-Focused Comparison (Optional)
+If a "Section Focus" block is present in your input, compare the listed
+sections across nodes. Read proposal content for those sections specifically.
+Your comparison matrix should still cover the requested dimensions.
+
 ---
 
 ## Phase 1: Read Input

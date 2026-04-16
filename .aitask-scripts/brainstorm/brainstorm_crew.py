@@ -33,7 +33,10 @@ from .brainstorm_dag import (  # noqa: E402
     PROPOSALS_DIR,
     _read_graph_state,
     read_node,
+    read_plan,
+    read_proposal,
 )
+from .brainstorm_sections import parse_sections, get_section_by_name  # noqa: E402
 from .brainstorm_schemas import extract_dimensions  # noqa: E402
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -182,6 +185,7 @@ def _assemble_input_explorer(
     base_node_id: str,
     mandate: str,
     active_dimensions: list[str],
+    target_sections: list[str] | None = None,
 ) -> str:
     """Assemble explorer _input.md content with file path references."""
     node_data = read_node(session_path, base_node_id)
@@ -225,6 +229,30 @@ def _assemble_input_explorer(
         for k in sorted(dims.keys()):
             lines.append(f"- {k}")
 
+    if target_sections:
+        try:
+            proposal_text = read_proposal(session_path, base_node_id)
+        except FileNotFoundError:
+            proposal_text = None
+        if proposal_text:
+            parsed = parse_sections(proposal_text)
+            targeted = [s for s in parsed.sections if s.name in target_sections]
+            if targeted:
+                lines.extend(["", "## Targeted Section Content",
+                             "Focus exploration on these sections from the baseline:"])
+                for s in targeted:
+                    dim_str = f" [dimensions: {', '.join(s.dimensions)}]" if s.dimensions else ""
+                    lines.extend(["", f"### Section: {s.name}{dim_str}", s.content])
+        plan_text = read_plan(session_path, base_node_id)
+        if plan_text:
+            parsed_plan = parse_sections(plan_text)
+            targeted_plan = [s for s in parsed_plan.sections if s.name in target_sections]
+            if targeted_plan:
+                lines.extend(["", "## Targeted Plan Section Content"])
+                for s in targeted_plan:
+                    dim_str = f" [dimensions: {', '.join(s.dimensions)}]" if s.dimensions else ""
+                    lines.extend(["", f"### Section: {s.name}{dim_str}", s.content])
+
     return "\n".join(lines) + "\n"
 
 
@@ -232,6 +260,7 @@ def _assemble_input_comparator(
     session_path: Path,
     node_ids: list[str],
     dimensions: list[str],
+    target_sections: list[str] | None = None,
 ) -> str:
     """Assemble comparator _input.md with node file paths and dimension list."""
     lines = [
@@ -245,6 +274,12 @@ def _assemble_input_comparator(
     ]
     for nid in node_ids:
         lines.append(f"- {session_path}/{NODES_DIR}/{nid}.yaml")
+
+    if target_sections:
+        lines.extend(["", "## Section Focus",
+                      "Compare only content within these sections across nodes:"])
+        for name in target_sections:
+            lines.append(f"- {name}")
 
     return "\n".join(lines) + "\n"
 
@@ -303,6 +338,7 @@ def _assemble_input_detailer(
     session_path: Path,
     node_id: str,
     codebase_paths: list[str],
+    target_sections: list[str] | None = None,
 ) -> str:
     """Assemble detailer _input.md with node paths and codebase context."""
     node_data = read_node(session_path, node_id)
@@ -334,6 +370,16 @@ def _assemble_input_detailer(
         for k in sorted(dims.keys()):
             lines.append(f"- {k}")
 
+    if target_sections:
+        lines.extend(["", "## Target Sections",
+                      "Re-detail only these sections of the existing plan.",
+                      "Leave other sections unchanged:"])
+        for name in target_sections:
+            lines.append(f"- {name}")
+        plan_path = session_path / PLANS_DIR / f"{node_id}_plan.md"
+        if plan_path.is_file():
+            lines.append(f"\nCurrent plan: {plan_path}")
+
     return "\n".join(lines) + "\n"
 
 
@@ -341,6 +387,7 @@ def _assemble_input_patcher(
     session_path: Path,
     node_id: str,
     tweak_request: str,
+    target_sections: list[str] | None = None,
 ) -> str:
     """Assemble patcher _input.md with current node paths and patch request."""
     lines = [
@@ -365,6 +412,13 @@ def _assemble_input_patcher(
         " (read-only, for impact analysis)"
     )
 
+    if target_sections:
+        lines.extend(["", "## Target Sections",
+                      "Focus the patch on these sections only.",
+                      "Leave all other sections unchanged:"])
+        for name in target_sections:
+            lines.append(f"- {name}")
+
     return "\n".join(lines) + "\n"
 
 
@@ -381,6 +435,7 @@ def register_explorer(
     group_name: str,
     agent_suffix: str = "",
     launch_mode: str = DEFAULT_LAUNCH_MODE,
+    target_sections: list[str] | None = None,
 ) -> str:
     """Register an Explorer agent in the brainstorm crew.
 
@@ -404,7 +459,8 @@ def register_explorer(
     active_dimensions = gs.get("active_dimensions", []) or []
 
     input_content = _assemble_input_explorer(
-        session_dir, base_node_id, mandate, active_dimensions
+        session_dir, base_node_id, mandate, active_dimensions,
+        target_sections=target_sections,
     )
 
     work2do_path = TEMPLATE_DIR / "explorer.md"
@@ -424,6 +480,7 @@ def register_comparator(
     dimensions: list[str],
     group_name: str,
     launch_mode: str = DEFAULT_LAUNCH_MODE,
+    target_sections: list[str] | None = None,
 ) -> str:
     """Register a Comparator agent in the brainstorm crew.
 
@@ -442,7 +499,10 @@ def register_comparator(
     seq = _group_seq(group_name)
     agent_name = f"comparator_{seq}"
 
-    input_content = _assemble_input_comparator(session_dir, node_ids, dimensions)
+    input_content = _assemble_input_comparator(
+        session_dir, node_ids, dimensions,
+        target_sections=target_sections,
+    )
 
     work2do_path = TEMPLATE_DIR / "comparator.md"
     _run_addwork(
@@ -500,6 +560,7 @@ def register_detailer(
     codebase_paths: list[str],
     group_name: str,
     launch_mode: str = DEFAULT_LAUNCH_MODE,
+    target_sections: list[str] | None = None,
 ) -> str:
     """Register a Detailer agent in the brainstorm crew.
 
@@ -518,7 +579,10 @@ def register_detailer(
     seq = _group_seq(group_name)
     agent_name = f"detailer_{seq}"
 
-    input_content = _assemble_input_detailer(session_dir, node_id, codebase_paths)
+    input_content = _assemble_input_detailer(
+        session_dir, node_id, codebase_paths,
+        target_sections=target_sections,
+    )
 
     work2do_path = TEMPLATE_DIR / "detailer.md"
     _run_addwork(
@@ -537,6 +601,7 @@ def register_patcher(
     tweak_request: str,
     group_name: str,
     launch_mode: str = DEFAULT_LAUNCH_MODE,
+    target_sections: list[str] | None = None,
 ) -> str:
     """Register a Plan Patcher agent in the brainstorm crew.
 
@@ -555,7 +620,10 @@ def register_patcher(
     seq = _group_seq(group_name)
     agent_name = f"patcher_{seq}"
 
-    input_content = _assemble_input_patcher(session_dir, node_id, tweak_request)
+    input_content = _assemble_input_patcher(
+        session_dir, node_id, tweak_request,
+        target_sections=target_sections,
+    )
 
     work2do_path = TEMPLATE_DIR / "patcher.md"
     _run_addwork(
