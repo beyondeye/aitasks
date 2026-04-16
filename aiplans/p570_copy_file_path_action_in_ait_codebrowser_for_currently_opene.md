@@ -140,6 +140,12 @@ def action_copy_file_path(self) -> None:
 6. Reopen with `c`, press Escape or click Cancel — dialog closes without copying
 7. Press `c` with no file open — "No file selected" warning notification
 
+## Final Implementation Notes
+- **Actual work done:** Implemented exactly as planned — added `CopyFilePathScreen` modal class, CSS styles, `c` keybinding, and `action_copy_file_path` method, all in `codebrowser_app.py`
+- **Deviations from plan:** None — implementation matched the plan 1:1
+- **Issues encountered:** None
+- **Key decisions:** Reused `GoToLineScreen` modal pattern for consistency; keyboard shortcuts `r`/`a` match the button labels for discoverability
+
 ## Post-Implementation
 
 Step 9: archive task, commit, push per task-workflow SKILL.md.
