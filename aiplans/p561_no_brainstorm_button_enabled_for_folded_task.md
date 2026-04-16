@@ -33,3 +33,9 @@ yield Button("(B)rainstorm", variant="primary", id="btn_brainstorm", disabled=is
 2. Launch `ait board`, open a folded task, verify the brainstorm button is grayed out / disabled
 3. Open a normal "Ready" task and verify brainstorm button is still enabled
 4. Open a "Done" task and verify brainstorm button is disabled
+
+## Final Implementation Notes
+- **Actual work done:** Changed the brainstorm button's `disabled` condition from `self.read_only or is_locked` to `is_done_or_ro or is_locked` at line 2090 of `aitask_board.py`. This is exactly what was planned.
+- **Deviations from plan:** None
+- **Issues encountered:** None
+- **Key decisions:** Reused the existing `is_done_or_ro` composite variable (which already includes `is_folded`) rather than adding a separate `is_folded` check, keeping consistency with other buttons in the same section.
