@@ -3,10 +3,9 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [codeagent, ait_settings, model_selection]
 children_to_implement: [t579_1, t579_2, t579_3, t579_4]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-16 18:48
 updated_at: 2026-04-16 23:27
 ---
