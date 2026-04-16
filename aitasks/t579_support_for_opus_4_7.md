@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [codeagent, ait_settings, model_selection]
-children_to_implement: [t579_2, t579_3, t579_4, t579_5]
+children_to_implement: [t579_5, t579_2, t579_3, t579_4]
 created_at: 2026-04-16 18:48
 updated_at: 2026-04-17 00:25
 ---

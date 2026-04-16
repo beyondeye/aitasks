@@ -1,7 +1,7 @@
 ---
 priority: high
 effort: low
-depends: []
+depends: [t579_1]
 issue_type: refactor
 status: Ready
 labels: [codeagent, ait_settings, model_selection]
