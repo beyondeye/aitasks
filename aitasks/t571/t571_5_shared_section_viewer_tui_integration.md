@@ -1,7 +1,7 @@
 ---
 priority: high
 effort: high
-depends: []
+depends: [1]
 issue_type: refactor
 status: Ready
 labels: [brainstorming, ait_brainstorm, ui, codebrowser]
