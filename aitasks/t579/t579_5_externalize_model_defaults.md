@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: [t579_1]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [codeagent, ait_settings, model_selection]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-17 00:25
-updated_at: 2026-04-17 00:25
+updated_at: 2026-04-17 00:31
 ---
 
 ## Context
