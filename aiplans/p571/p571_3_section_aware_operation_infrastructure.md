@@ -192,6 +192,13 @@ in your output.
 7. All four templates contain their section-aware instruction
 8. Existing tests still pass: `python -m pytest tests/test_brainstorm_sections.py -v`
 
+## Final Implementation Notes
+- **Actual work done:** Added `target_sections: list[str] | None = None` parameter to all 4 `_assemble_input_*` functions and all 4 `register_*` functions (explorer, comparator, detailer, patcher). Added imports for `parse_sections`, `get_section_by_name` from `brainstorm_sections` and `read_proposal`, `read_plan` from `brainstorm_dag`. Added section-aware conditional instruction blocks to all 4 agent templates (explorer, comparator, detailer, patcher). `register_synthesizer` intentionally NOT updated — synthesizers merge nodes and section targeting doesn't apply.
+- **Deviations from plan:** Added `try/except FileNotFoundError` around `read_proposal()` in the explorer assembly — the original task plan assumed `if proposal_text:` would suffice, but `read_proposal()` raises on missing file rather than returning None (unlike `read_plan()` which returns None).
+- **Issues encountered:** None.
+- **Key decisions:** Explorer gets the richest section-aware behavior (inline section content from both proposal and plan). Comparator, detailer, and patcher get advisory blocks only (section names listed, agent reads content itself). This matches the different agent roles — explorer needs content upfront for exploration, while others work with existing files.
+- **Notes for sibling tasks:** The `target_sections` parameter is now available on all registration functions but no caller passes it yet. t571_4 (TUI wizard) should add UI for selecting sections and pass them through to `register_*()` calls. The parameter uses `list[str]` with section names matching `ContentSection.name` from `brainstorm_sections.py`. All functions are backward-compatible — omitting `target_sections` produces identical output to before.
+
 ## Step 9: Post-Implementation
 
 Follow Step 9 from the shared workflow for archival and cleanup.
