@@ -273,11 +273,11 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
                 return
 
     def on_app_focus(self) -> None:
-        """Auto-select own window's agent when this pane regains terminal focus."""
-        # Don't stomp an existing user selection — only auto-pick when no
-        # MiniPaneCard is currently focused.
-        if isinstance(self.focused, MiniPaneCard):
-            return
+        """Auto-select own window's agent when this pane regains terminal focus.
+
+        Always re-selects the card matching this window's agent so that after
+        an "s" switch the target minimonitor highlights the correct agent.
+        """
         self._auto_select_own_window()
 
     def _rebuild_session_bar(self) -> None:
