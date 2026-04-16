@@ -166,6 +166,7 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         Binding("h", "toggle_history", "History"),
         Binding("H", "history_for_task", "History for task"),
         Binding("n", "create_task", "New task"),
+        Binding("w", "toggle_wrap_mode", "Wrap mode"),
     ]
 
     DETAIL_DEFAULT_WIDTH = 30
@@ -500,6 +501,8 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
             parts.append(self._cursor_info)
         if self._annotation_info:
             parts.append(self._annotation_info)
+        if code_viewer._wrap_mode != "truncate":
+            parts.append(f"mode: {code_viewer._wrap_mode}")
         self.query_one("#file_info_bar", Static).update(" | ".join(parts))
 
     def on_directory_tree_file_selected(
@@ -718,6 +721,13 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         """Toggle annotation gutter visibility."""
         code_viewer = self.query_one("#code_viewer", CodeViewer)
         code_viewer.toggle_annotations()
+
+    def action_toggle_wrap_mode(self) -> None:
+        """Cycle the code viewer's wrap mode (truncate/wrap/scroll)."""
+        code_viewer = self.query_one("#code_viewer", CodeViewer)
+        new_mode = code_viewer.cycle_wrap_mode()
+        self._update_info_bar()
+        self.notify(f"Wrap mode: {new_mode}", timeout=2)
 
     def action_refresh_explain(self) -> None:
         """Refresh explain data for the current file's directory."""

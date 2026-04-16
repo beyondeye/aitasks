@@ -70,6 +70,8 @@ class CodeViewer(VerticalScroll):
         self._viewport_size: int = 200
         self._viewport_threshold: int = 2000
         self._viewport_margin: int = 30
+        # Wrap mode: "truncate" (default) or "wrap"
+        self._wrap_mode: str = "truncate"
 
     def compose(self):
         yield Static("Select a file to view", id="code_display")
@@ -243,6 +245,13 @@ class CodeViewer(VerticalScroll):
             return 10
         return 12
 
+    def cycle_wrap_mode(self) -> str:
+        """Toggle between truncate and wrap modes and rebuild display."""
+        self._wrap_mode = "wrap" if self._wrap_mode == "truncate" else "truncate"
+        if self._total_lines > 0:
+            self._rebuild_display()
+        return self._wrap_mode
+
     def _rebuild_display(self) -> None:
         """Build and render the line-number + code + annotation table."""
         t0 = time.perf_counter()
@@ -261,7 +270,10 @@ class CodeViewer(VerticalScroll):
             pad_edge=False,
         )
         table.add_column(style="dim", justify="right", width=LINE_NUM_WIDTH, no_wrap=True)
-        table.add_column(no_wrap=True, width=code_max_width)
+        if self._wrap_mode == "wrap":
+            table.add_column(no_wrap=False, width=code_max_width)
+        else:
+            table.add_column(no_wrap=True, width=code_max_width)
         table.add_column(width=ann_width, no_wrap=True, justify="left")
 
         # Determine line range to render
@@ -296,11 +308,12 @@ class CodeViewer(VerticalScroll):
                 row_style = CURSOR_STYLE
             elif sel_min is not None and sel_min <= file_idx <= sel_max:
                 row_style = SELECTION_STYLE
-            effective_max = min(self.MAX_LINE_WIDTH, code_max_width)
-            if len(line) > effective_max:
-                line = line.copy()
-                line.truncate(effective_max)
-                line.append("\u2026", style="dim")
+            if self._wrap_mode == "truncate":
+                effective_max = min(self.MAX_LINE_WIDTH, code_max_width)
+                if len(line) > effective_max:
+                    line = line.copy()
+                    line.truncate(effective_max)
+                    line.append("\u2026", style="dim")
             table.add_row(
                 Text(str(file_idx + 1), style="dim"), line, ann_text, style=row_style
             )
