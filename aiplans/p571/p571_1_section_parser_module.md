@@ -118,6 +118,13 @@ Follows the existing pattern from `tests/test_brainstorm_dag.py`: `unittest.Test
 1. All automated tests pass: `python -m pytest tests/test_brainstorm_sections.py -v`
 2. Manual smoke test: `python -c "from brainstorm.brainstorm_sections import parse_sections; ..."` from `.aitask-scripts/`
 
+## Final Implementation Notes
+- **Actual work done:** Created `brainstorm_sections.py` (165 LOC) with all 7 planned components (2 dataclasses, 2 regex patterns, parser, validator, 4 query/generation helpers). Created `test_brainstorm_sections.py` with 20 unit tests across 4 test classes — all passing.
+- **Deviations from plan:** None — implemented exactly as planned.
+- **Issues encountered:** None.
+- **Key decisions:** Content between sections (not inside any section) is accumulated into epilogue, keeping preamble strictly as content before the first section. Unclosed section detection uses a separate raw-text re-scan rather than relying on parser state, making validation independent of parse order.
+- **Notes for sibling tasks:** The `_OPEN_RE` and `_CLOSE_RE` patterns are module-level constants that t571_2 (agent templates) should use as the canonical format reference. The `format_section_header()`/`format_section_footer()` helpers should be used by t571_2 when generating section markers in templates. The `parse_sections()` function is the entry point for t571_3 (section-aware operations) and t571_5 (TUI viewer). Dimensions are validated via `is_dimension_field()` from `brainstorm_schemas` — any new dimension prefixes added there will automatically be recognized.
+
 ## Post-Implementation
 
 Follow Step 9 from the shared workflow for archival and cleanup.
