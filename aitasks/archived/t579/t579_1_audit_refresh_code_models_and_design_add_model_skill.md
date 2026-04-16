@@ -3,11 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [codeagent, ait_settings, documentation]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/claude-opus-4-7
 created_at: 2026-04-16 23:25
-updated_at: 2026-04-16 23:30
+updated_at: 2026-04-16 23:53
+completed_at: 2026-04-16 23:53
 ---
 
 ## Context
