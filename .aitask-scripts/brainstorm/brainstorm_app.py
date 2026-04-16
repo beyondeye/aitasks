@@ -141,6 +141,7 @@ _SESSION_OPS = [
     ("resume", "Resume", "Resume a paused session"),
     ("finalize", "Finalize", "Copy HEAD plan to aiplans/ and mark completed"),
     ("archive", "Archive", "Mark completed session as archived"),
+    ("delete", "Delete", "Permanently delete session, worktree, and branch"),
 ]
 
 
@@ -173,6 +174,55 @@ class InitSessionModal(ModalScreen):
         self.dismiss(True)
 
     @on(Button.Pressed, "#btn_cancel")
+    def cancel(self) -> None:
+        self.dismiss(False)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
+class DeleteSessionModal(ModalScreen):
+    """Double-confirmation modal for deleting a brainstorm session."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(self, task_num: str):
+        super().__init__()
+        self.task_num = task_num
+        self._confirmed_once = False
+
+    def compose(self) -> ComposeResult:
+        with Container(id="delete_dialog"):
+            yield Label(
+                f"Delete brainstorm session for t{self.task_num}?",
+                id="delete_title",
+            )
+            yield Label(
+                "This will permanently destroy:\n"
+                "  \u2022 All session data (nodes, proposals, plans)\n"
+                "  \u2022 The crew worktree directory\n"
+                "  \u2022 The git branch (local and remote)",
+                id="delete_details",
+            )
+            with Horizontal(id="delete_buttons"):
+                yield Button("Delete", variant="error", id="btn_delete")
+                yield Button("Cancel", variant="default", id="btn_delete_cancel")
+
+    @on(Button.Pressed, "#btn_delete")
+    def on_delete(self) -> None:
+        if not self._confirmed_once:
+            self._confirmed_once = True
+            self.query_one("#delete_title", Label).update(
+                "Are you sure? This cannot be undone."
+            )
+            self.query_one("#delete_details", Label).update(
+                f"All brainstorm data for t{self.task_num} will be permanently lost."
+            )
+            self.query_one("#btn_delete", Button).label = "Yes, delete permanently"
+        else:
+            self.dismiss(True)
+
+    @on(Button.Pressed, "#btn_delete_cancel")
     def cancel(self) -> None:
         self.dismiss(False)
 
@@ -902,6 +952,29 @@ class BrainstormApp(TuiSwitcherMixin, App):
         background: $surface-lighten-1;
     }
 
+    /* Delete session modal */
+    #delete_dialog {
+        width: 60;
+        height: auto;
+        max-height: 50%;
+        background: $surface;
+        border: thick $error;
+        padding: 1 2;
+    }
+
+    #delete_title {
+        text-style: bold;
+        text-align: center;
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #delete_buttons {
+        height: 3;
+        align: center middle;
+        margin-top: 1;
+    }
+
     /* Init modal */
     #init_dialog {
         width: 60;
@@ -1168,7 +1241,12 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 if isinstance(focused, OperationRow) and not focused.op_disabled:
                     self._wizard_op = focused.op_key
                     self._set_total_steps()
-                    if self._wizard_op in ("pause", "resume", "finalize", "archive"):
+                    if self._wizard_op == "delete":
+                        self.push_screen(
+                            DeleteSessionModal(self.task_num),
+                            self._on_delete_result,
+                        )
+                    elif self._wizard_op in ("pause", "resume", "finalize", "archive"):
                         self._wizard_config = {"confirmed": True}
                         self._actions_show_confirm()
                     else:
@@ -2106,6 +2184,8 @@ class BrainstormApp(TuiSwitcherMixin, App):
             return status != "active" or head is None
         if op_key == "archive":
             return status != "completed"
+        if op_key == "delete":
+            return False
         return False
 
     def _mount_recent_ops(self, container: VerticalScroll) -> None:
@@ -2510,7 +2590,12 @@ class BrainstormApp(TuiSwitcherMixin, App):
         if self._wizard_step == 1:
             self._wizard_op = row.op_key
             self._set_total_steps()
-            if self._wizard_op in ("pause", "resume", "finalize", "archive"):
+            if self._wizard_op == "delete":
+                self.push_screen(
+                    DeleteSessionModal(self.task_num),
+                    self._on_delete_result,
+                )
+            elif self._wizard_op in ("pause", "resume", "finalize", "archive"):
                 self._wizard_config = {"confirmed": True}
                 self._actions_show_confirm()
             else:
@@ -2638,6 +2723,31 @@ class BrainstormApp(TuiSwitcherMixin, App):
         existing = [k for k in groups if k.startswith(f"{op}_")]
         seq = len(existing) + 1
         return f"{op}_{seq:03d}"
+
+    def _on_delete_result(self, confirmed: bool | None) -> None:
+        """Handle DeleteSessionModal result."""
+        if confirmed:
+            self._run_delete_session()
+        else:
+            self._actions_show_step1()
+
+    @work(thread=True)
+    def _run_delete_session(self) -> None:
+        """Run ait brainstorm delete in a background thread, then exit."""
+        result = subprocess.run(
+            [AIT_PATH, "brainstorm", "delete", self.task_num, "--yes"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            self.call_from_thread(self.exit)
+        else:
+            self.call_from_thread(
+                self.notify,
+                f"Delete failed: {result.stderr.strip()}",
+                severity="error",
+            )
+            self.call_from_thread(self._actions_show_step1)
 
     def _on_init_result(self, confirmed: bool | None) -> None:
         """Handle InitSessionModal result."""
