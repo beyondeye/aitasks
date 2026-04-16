@@ -100,6 +100,58 @@ class GoToLineScreen(ModalScreen):
         self.dismiss(None)
 
 
+class CopyFilePathScreen(ModalScreen):
+    """Modal dialog to copy the current file path."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+        Binding("a", "copy_absolute", "Copy absolute", show=False),
+        Binding("r", "copy_relative", "Copy relative", show=False),
+    ]
+
+    def __init__(self, absolute_path: str, relative_path: str):
+        super().__init__()
+        self.absolute_path = absolute_path
+        self.relative_path = relative_path
+
+    def compose(self):
+        with Container(id="copy_path_dialog"):
+            yield Label("Copy file path:")
+            with Horizontal(classes="copy-path-row"):
+                yield Label(self.relative_path, id="copy_path_rel_label", classes="copy-path-value")
+                yield Button("Copy (R)el", variant="primary", id="btn_copy_rel")
+            with Horizontal(classes="copy-path-row"):
+                yield Label(self.absolute_path, id="copy_path_abs_label", classes="copy-path-value")
+                yield Button("Copy (A)bs", variant="primary", id="btn_copy_abs")
+            with Horizontal(id="copy_path_buttons"):
+                yield Button("Cancel", variant="default", id="btn_copy_cancel")
+
+    @on(Button.Pressed, "#btn_copy_rel")
+    def copy_relative(self) -> None:
+        self.app.copy_to_clipboard(self.relative_path)
+        self.app.notify(f"Copied: {self.relative_path}", timeout=2)
+        self.dismiss(None)
+
+    @on(Button.Pressed, "#btn_copy_abs")
+    def copy_absolute(self) -> None:
+        self.app.copy_to_clipboard(self.absolute_path)
+        self.app.notify(f"Copied: {self.absolute_path}", timeout=2)
+        self.dismiss(None)
+
+    @on(Button.Pressed, "#btn_copy_cancel")
+    def cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_copy_absolute(self) -> None:
+        self.copy_absolute()
+
+    def action_copy_relative(self) -> None:
+        self.copy_relative()
+
+
 class CodeBrowserApp(TuiSwitcherMixin, App):
     CSS = """
     #left_sidebar {
@@ -148,6 +200,33 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
     #goto_buttons Button {
         margin-right: 1;
     }
+    CopyFilePathScreen {
+        align: center middle;
+    }
+    #copy_path_dialog {
+        width: 80;
+        height: auto;
+        padding: 1 2;
+        background: $surface;
+        border: thick $primary;
+    }
+    .copy-path-row {
+        height: 3;
+        width: 100%;
+        align: left middle;
+    }
+    .copy-path-value {
+        width: 1fr;
+        overflow: hidden;
+    }
+    .copy-path-row Button {
+        width: auto;
+        min-width: 14;
+    }
+    #copy_path_buttons {
+        margin-top: 1;
+        height: auto;
+    }
     """
 
     TITLE = "aitasks codebrowser"
@@ -167,6 +246,7 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         Binding("H", "history_for_task", "History for task"),
         Binding("n", "create_task", "New task"),
         Binding("w", "toggle_wrap_mode", "Wrap mode"),
+        Binding("c", "copy_file_path", "Copy path"),
     ]
 
     DETAIL_DEFAULT_WIDTH = 30
@@ -728,6 +808,15 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         new_mode = code_viewer.cycle_wrap_mode()
         self._update_info_bar()
         self.notify(f"Wrap mode: {new_mode}", timeout=2)
+
+    def action_copy_file_path(self) -> None:
+        """Open copy-file-path modal for the currently opened file."""
+        if not self._current_file_path:
+            self.notify("No file selected", severity="warning")
+            return
+        abs_path = str(self._current_file_path)
+        rel_path = str(self._current_file_path.relative_to(self._project_root))
+        self.push_screen(CopyFilePathScreen(abs_path, rel_path))
 
     def action_refresh_explain(self) -> None:
         """Refresh explain data for the current file's directory."""
