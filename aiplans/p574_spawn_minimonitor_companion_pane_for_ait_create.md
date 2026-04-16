@@ -184,5 +184,11 @@ def on_result(result):
 8. **Existing window — crowded**: split `ait create` into window with 3+ panes → verify NO companion spawns (pane-count guard)
 9. **Auto-despawn**: in all cases where companion spawned, exit `ait create` → verify minimonitor auto-closes
 
+## Final Implementation Notes
+- **Actual work done:** Implemented all 5 steps as planned. Generalized `maybe_spawn_minimonitor` with configurable prefix list, TUI exclusion, pane-count guard, and optional `window_index` parameter. Added `_lookup_window_name` helper. Added companion spawn calls in tui_switcher, board, and codebrowser — all three handle both new-window and existing-window cases.
+- **Deviations from plan:** Added `proc.wait()` in tui_switcher's `action_shortcut_create` to prevent a race condition where the minimonitor spawn runs before the window is registered by tmux. The explore shortcut has the same potential race (pre-existing, not fixed here).
+- **Issues encountered:** User initially reported the feature not working — this was because the running TUI processes had the old code cached from before the changes. After restart, the feature worked correctly.
+- **Key decisions:** Used `_lookup_window_name` as a module-level helper (prefixed with underscore) rather than making it private to keep the import clean for board/codebrowser callers that need it for the existing-window path.
+
 ## Step 9 (Post-Implementation)
 Archive task, push, handle issues per workflow.
