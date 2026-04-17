@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [claudeskills, documentation]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-17 11:03
-updated_at: 2026-04-17 11:06
+updated_at: 2026-04-17 11:19
+completed_at: 2026-04-17 11:19
 ---
 
 ## Context
