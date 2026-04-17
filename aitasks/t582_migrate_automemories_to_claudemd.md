@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [claudeskills, documentation]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-17 11:03
-updated_at: 2026-04-17 11:03
+updated_at: 2026-04-17 11:06
 ---
 
 ## Context
