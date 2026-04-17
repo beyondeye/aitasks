@@ -173,6 +173,20 @@
         "explain": 0
       },
       "verifiedstats": {}
+    },
+    {
+      "name": "opus4_7",
+      "cli_id": "claude-opus-4-7",
+      "notes": "Most capable model, complex reasoning + agentic coding, 128K output, adaptive thinking",
+      "verified": {},
+      "verifiedstats": {}
+    },
+    {
+      "name": "opus4_7_1m",
+      "cli_id": "claude-opus-4-7[1m]",
+      "notes": "Most capable model, 1M context, complex reasoning + agentic coding, 128K output, adaptive thinking",
+      "verified": {},
+      "verifiedstats": {}
     }
   ]
 }

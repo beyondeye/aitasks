@@ -1,15 +1,15 @@
 {
   "defaults": {
-    "pick": "claudecode/opus4_6",
+    "pick": "claudecode/opus4_7_1m",
     "explain": "claudecode/sonnet4_6",
     "batch-review": "claudecode/sonnet4_6",
     "qa": "claudecode/sonnet4_6",
     "raw": "claudecode/sonnet4_6",
-    "explore": "claudecode/opus4_6",
-    "brainstorm-explorer": "claudecode/opus4_6",
+    "explore": "claudecode/opus4_7_1m",
+    "brainstorm-explorer": "claudecode/opus4_7_1m",
     "brainstorm-comparator": "claudecode/sonnet4_6",
-    "brainstorm-synthesizer": "claudecode/opus4_6",
-    "brainstorm-detailer": "claudecode/opus4_6",
+    "brainstorm-synthesizer": "claudecode/opus4_7_1m",
+    "brainstorm-detailer": "claudecode/opus4_7_1m",
     "brainstorm-patcher": "claudecode/sonnet4_6",
     "brainstorm-explorer-launch-mode": "headless"
   }
