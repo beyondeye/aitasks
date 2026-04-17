@@ -347,3 +347,15 @@ Add to the project's Python test runner (`tests/run_all_python_tests.sh`) if tha
 ## Step 9 (Post-Implementation)
 
 Standard archival via `aitask_archive.sh 580` after review + commit; commit message `bug: Add file tree refresh in codebrowser (t580)`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned.
+  - `.aitask-scripts/codebrowser/file_tree.py`: added `asyncio` + `DirEntry` imports, added module-level `compute_tracked_sets()` helper and `TrackedFilesRefreshed` message, refactored `ProjectFileTree.__init__` to use the helper, added `refresh_tracked_files`, `_populate_node` override (skip redundant expand), `_on_tree_node_expanded` override (refresh on re-expand), and `action_reset_tree`. Switched `_do_select_path` from `reload_node` to `_add_to_load_queue` + explicit `expand()` to avoid the `_reload`-path's redundant `NodeExpanded` firing.
+  - `.aitask-scripts/codebrowser/codebrowser_app.py`: imported `TrackedFilesRefreshed`, added `Binding("R", "reset_file_tree", ...)`, added async `action_reset_file_tree` and `on_tracked_files_refreshed` handler that re-seeds `FileSearchWidget`.
+  - `tests/test_file_tree_refresh.py`: new unittest file with 5 cases covering initial scan, untracked exclusion, new-file pickup, deleted-file pickup, and empty repo.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. All 414 Python tests pass on first run.
+- **Key decisions:**
+  - Overriding `_populate_node` instead of using a guard flag was chosen because Textual's base implementation unconditionally calls `node.expand()` even when already expanded, which would cascade into our refresh handler. Skipping the redundant expand when `node.is_expanded` is already true avoids the loop without flags.
+  - `action_reset_tree` keeps the root expanded (calls `_add_to_load_queue(self.root)` directly) rather than collapsing it, so the user immediately sees top-level files; descendants' expansion state is naturally discarded because their nodes were removed.
