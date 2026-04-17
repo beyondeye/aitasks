@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import subprocess
 from collections.abc import Iterable
@@ -10,6 +11,7 @@ from textual import work
 from textual.containers import Container, VerticalScroll
 from textual.message import Message
 from textual.widgets import DirectoryTree, Static
+from textual.widgets._directory_tree import DirEntry
 
 
 EXCLUDED_NAMES = {"__pycache__", "node_modules", ".git"}
@@ -28,6 +30,38 @@ def get_project_root() -> Path:
     if result.returncode != 0:
         raise RuntimeError("Not inside a git repository")
     return Path(result.stdout.strip())
+
+
+def compute_tracked_sets(root: Path) -> tuple[set[str], set[str]]:
+    """Run `git ls-files` at root; return (tracked_files, tracked_dirs).
+
+    Both sets contain project-root-relative POSIX paths. Tracked dirs are all
+    parent directories of tracked files (excluding ".").
+    """
+    result = subprocess.run(
+        ["git", "ls-files"],
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
+    files: set[str] = set()
+    dirs: set[str] = set()
+    if result.returncode == 0:
+        for line in result.stdout.strip().splitlines():
+            if line:
+                files.add(line)
+                p = Path(line)
+                for parent in p.parents:
+                    parent_str = str(parent)
+                    if parent_str == ".":
+                        break
+                    dirs.add(parent_str)
+    return files, dirs
+
+
+class TrackedFilesRefreshed(Message):
+    """Posted by ProjectFileTree after re-running git ls-files."""
+    pass
 
 
 class ProjectFileTree(DirectoryTree):
@@ -54,7 +88,7 @@ class ProjectFileTree(DirectoryTree):
         for i, part in enumerate(rel_parts):
             # Ensure this directory's children are loaded
             if node.data and not node.data.loaded:
-                await self.reload_node(node)
+                await self._add_to_load_queue(node)
 
             found = None
             for child in node.children:
@@ -67,8 +101,9 @@ class ProjectFileTree(DirectoryTree):
             if i < len(rel_parts) - 1:
                 # Intermediate directory — ensure expanded and loaded
                 if found.data and not found.data.loaded:
-                    # reload_node loads children AND expands the node
-                    await self.reload_node(found)
+                    await self._add_to_load_queue(found)
+                    if not found.is_expanded:
+                        found.expand()
                 elif not found.is_expanded:
                     # Already loaded but collapsed — just expand
                     found.expand()
@@ -79,25 +114,65 @@ class ProjectFileTree(DirectoryTree):
 
     def __init__(self, path: str | Path, **kwargs) -> None:
         root = Path(path)
-        result = subprocess.run(
-            ["git", "ls-files"],
-            capture_output=True,
-            text=True,
-            cwd=root,
-        )
-        self._tracked_files: set[str] = set()
-        self._tracked_dirs: set[str] = set()
-        if result.returncode == 0:
-            for line in result.stdout.strip().splitlines():
-                if line:
-                    self._tracked_files.add(line)
-                    p = Path(line)
-                    for parent in p.parents:
-                        parent_str = str(parent)
-                        if parent_str == ".":
-                            break
-                        self._tracked_dirs.add(parent_str)
+        self._tracked_files, self._tracked_dirs = compute_tracked_sets(root)
         super().__init__(path, **kwargs)
+
+    def refresh_tracked_files(self) -> None:
+        """Re-run git ls-files and notify listeners."""
+        self._tracked_files, self._tracked_dirs = compute_tracked_sets(
+            Path(self.path)
+        )
+        self.post_message(TrackedFilesRefreshed())
+
+    def _populate_node(self, node, content):
+        """Populate children; skip re-firing NodeExpanded when already expanded.
+
+        The base DirectoryTree._populate_node unconditionally calls
+        node.expand() after adding children. That posts NodeExpanded even when
+        the node was already expanded by the user's click, which would re-fire
+        our refresh handler and loop. node.add() already invalidates the tree,
+        so skipping the redundant expand still renders correctly.
+        """
+        node.remove_children()
+        for path in content:
+            node.add(
+                path.name,
+                data=DirEntry(path),
+                allow_expand=self._safe_is_dir(path),
+            )
+        if not node.is_expanded:
+            node.expand()
+
+    async def _on_tree_node_expanded(self, event):
+        """Force a refresh when a previously-loaded directory is re-expanded.
+
+        First-time expansion: dir_entry.loaded is False → fall through to the
+        normal load path. Second time (user collapsed then re-expanded): loaded
+        is True → re-run git ls-files, clear cached children, mark unloaded,
+        and re-queue the load.
+        """
+        event.stop()
+        dir_entry = event.node.data
+        if dir_entry is None:
+            return
+        if not await asyncio.to_thread(self._safe_is_dir, dir_entry.path):
+            if event.node.data is not None:
+                self.post_message(self.FileSelected(event.node, dir_entry.path))
+            return
+        if dir_entry.loaded:
+            self.refresh_tracked_files()
+            event.node.remove_children()
+            dir_entry.loaded = False
+        await self._add_to_load_queue(event.node)
+
+    async def action_reset_tree(self) -> None:
+        """Refresh git ls-files, clear all cached children, reload root."""
+        self.refresh_tracked_files()
+        self.root.remove_children()
+        if self.root.data:
+            self.root.data.loaded = False
+        self.cursor_line = 0
+        await self._add_to_load_queue(self.root)
 
     def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
         root = Path(self.path)

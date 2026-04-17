@@ -48,6 +48,7 @@ from file_tree import (
     ProjectFileTree,
     RecentFileSelected,
     RecentFilesList,
+    TrackedFilesRefreshed,
     get_project_root,
 )
 
@@ -237,6 +238,7 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         Binding("q", "quit", "Quit"),
         Binding("tab", "toggle_focus", "Toggle Focus", priority=True),
         Binding("r", "refresh_explain", "Refresh annotations"),
+        Binding("R", "reset_file_tree", "Reset file tree"),
         Binding("t", "toggle_annotations", "Toggle annotations"),
         Binding("g", "go_to_line", "Go to line"),
         Binding("e", "launch_agent", "Explain"),
@@ -821,6 +823,24 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         """Refresh explain data for the current file's directory."""
         if self._current_file_path and self.explain_manager:
             self._refresh_explain_data(self._current_file_path)
+
+    async def action_reset_file_tree(self) -> None:
+        """Refresh the file tree's git-tracked cache and reload the root."""
+        try:
+            tree = self.query_one("#file_tree", ProjectFileTree)
+        except Exception:
+            return
+        await tree.action_reset_tree()
+        self.notify("File tree refreshed", timeout=2)
+
+    def on_tracked_files_refreshed(self, event: TrackedFilesRefreshed) -> None:
+        """Keep the fuzzy-search widget's file list in sync after a refresh."""
+        try:
+            tree = self.query_one("#file_tree", ProjectFileTree)
+            search = self.query_one("#file_search", FileSearchWidget)
+            search.set_files(sorted(tree._tracked_files))
+        except Exception:
+            pass
 
     @work(exclusive=True)
     async def _refresh_explain_data(self, file_path: Path) -> None:
