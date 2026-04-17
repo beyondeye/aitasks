@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [codeagent, ait_settings]
+assigned_to: daelyasy@hotmail.com
 created_at: 2026-04-17 09:02
-updated_at: 2026-04-17 09:02
+updated_at: 2026-04-17 09:05
 ---
 
 ## Context
