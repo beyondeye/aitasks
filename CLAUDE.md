@@ -4,30 +4,13 @@ This file provides guidance when working with code in this repository.
 
 ## Project Overview
 
-**aitasks**  is a file-based task management framework for AI coding agents, primarily Claude Code. Tasks are markdown files with YAML frontmatter stored in git — no backend infrastructure required. The `ait` CLI dispatcher routes to shell scripts in `.aitask-scripts/`.
+**aitasks**  is a file-based task management framework for AI coding agents. Tasks are markdown files with YAML frontmatter stored in git — no backend infrastructure required. The `ait` CLI dispatcher routes to shell scripts in `.aitask-scripts/`.
 
 
 ### Testing
-Tests are bash scripts run individually:
+Tests are bash scripts run individually: for example
 ```bash
 bash tests/test_claim_id.sh
-bash tests/test_detect_env.sh
-bash tests/test_draft_finalize.sh
-bash tests/test_task_lock.sh
-bash tests/test_terminal_compat.sh
-bash tests/test_zip_old.sh
-bash tests/test_setup_git.sh
-bash tests/test_resolve_tar_zst.sh
-bash tests/test_t167_integration.sh
-bash tests/test_global_shim.sh
-bash tests/test_sed_compat.sh
-bash tests/test_resolve_detected_agent.sh
-bash tests/test_verified_update_flags.sh
-bash tests/test_archive_scan.sh
-bash tests/test_archive_utils.sh
-bash tests/test_crew_setmode.sh
-bash tests/test_archive_no_overbroad_add.sh
-bash tests/test_plan_externalize.sh
 ```
 No test runner — each file is self-contained with `assert_eq`/`assert_contains` helpers and prints PASS/FAIL summary.
 
@@ -132,15 +115,6 @@ lives on a separate branch.
 
 In legacy mode (no separate branch), `ait git` passes through to plain `git`.
 
-## Debugging Conventions
-
-When a command fails, debug **that exact command** — do not spend cycles reproducing the symptom by testing its components in isolation.
-
-- First action: run the failing command under tracing (`bash -x`, `2>/tmp/log`, `tee`). Do not run a simplified version.
-- For commands that take over the terminal (`exec tmux`, `exec $EDITOR`), wrap in a log-keeping shell so fd 2 stays redirected through the exec.
-- When isolated components all pass but the composed command fails, the fault is in composition (env vars, shim state, PATH resolution, caller context). Stop re-testing components.
-- When symptoms vary by invocation path (`./ait ide` vs `ait ide`, direct vs wrapper), compare the paths systematically — the delta is usually the cause.
-
 ## Documentation Writing
 
 User-facing docs (website, README-level content) describe the **current state only**.
@@ -148,18 +122,6 @@ User-facing docs (website, README-level content) describe the **current state on
 - No "earlier versions of this page said…", "previously we recommended…", "this used to be wrong", "this corrects an earlier mistake".
 - State correct behavior positively. Version history belongs in git and PR descriptions, not in doc bodies.
 - Internal plan files (`aiplans/`) may still record deviations from earlier plans — the rule applies to user-facing content.
-
-## UI & Dialog Conventions
-
-Destructive-action confirmations (delete, archive, cascade) must make each affected item's fate explicit.
-
-- Group affected items under labelled sections: `Will be ARCHIVED (moved to …)`, `Will be DELETED`, `Will be UPDATED`, `Blocking (must be handled first)`.
-- Annotate each row with useful status metadata (e.g., `[Ready]`, `[Implementing]`, `[parent — status: …]`).
-- Include every section even when an action is refused, so the user sees what *would* have happened.
-- Centralize the formatting in one helper so every dialog variant stays consistent.
-- Never collapse multi-fate operations into a single opaque "N files affected" list.
-
-Applies to Textual `ModalScreen` dialogs in `ait board`, AskUserQuestion prompts, bash confirm prompts — anywhere an action touches more than one item or more than one fate.
 
 ## TUI (Textual) Conventions
 
