@@ -18,7 +18,7 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 # --- Constants ---
 
 METADATA_DIR="${TASK_DIR:-aitasks}/metadata"
-DEFAULT_AGENT_STRING="claudecode/opus4_6"
+DEFAULT_AGENT_STRING="claudecode/opus4_7_1m"
 DEFAULT_COAUTHOR_DOMAIN="aitasks.io"
 SUPPORTED_AGENTS=(claudecode geminicli codex opencode)
 SUPPORTED_OPERATIONS=(pick explain batch-review qa explore raw)
@@ -660,7 +660,7 @@ Resolution chain (highest priority first):
   1. --agent-string flag
   2. aitasks/metadata/codeagent_config.local.json (per-user, gitignored)
   3. aitasks/metadata/codeagent_config.json (per-project, git-tracked)
-  4. Hardcoded default: claudecode/opus4_6
+  4. Hardcoded default: claudecode/opus4_7_1m
 
 Examples:
   ait codeagent list-agents
