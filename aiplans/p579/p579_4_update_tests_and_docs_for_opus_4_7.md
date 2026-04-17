@@ -328,14 +328,89 @@ git commit -m "documentation: Update tests and docs for Opus 4.7 default (t579_4
 ## Step 9 (Post-Implementation)
 
 Standard archival via `./.aitask-scripts/aitask_archive.sh 579_4`.
-Parent t579 auto-archives since all children are then complete. Final
-Implementation Notes (to be filled at commit time) should cover:
+Parent t579 auto-archives since all children are then complete.
 
-- Which tests required updates vs which already passed
-- The exact list of `opus4_6` references intentionally kept and why
-  (from the final sweep)
-- Whether the website build was verified locally
-- Confirmation that parent t579 auto-archived
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `tests/test_codeagent.sh`: fixed pre-existing `archive_utils.sh`
+    copy bug in `setup_test_env()`, updated Test 5 resolve asserts
+    (opus4_6→opus4_7_1m, CLI_ID→`claude-opus-4-7[1m]`), updated
+    Test 11 dry-run assert to match `claude-opus-4-7`, added two new
+    list-models asserts for `opus4_7` and `opus4_7_1m`. Final: 74/74.
+  - `tests/test_resolve_detected_agent.sh`: added two new exact-match
+    tests (`claude-opus-4-7`→`opus4_7`, `claude-opus-4-7[1m]`→
+    `opus4_7_1m`). Kept original opus4_6 tests intact. Final: 13/13.
+  - `tests/test_aitask_stats_py.py`: added `opus4_7` entry alongside
+    `opus4_6` in three claudecode model fixtures (empty
+    `verifiedstats`/`verified` dicts). 18/18 pass.
+  - `tests/test_brainstorm_crew.py`: updated FULL_DEFAULTS fixture
+    (explorer/synthesizer/detailer → opus4_7_1m), updated two
+    corresponding test assertions. 34/34 pass.
+  - `aidocs/claudecode_tools.md:5`: `Opus 4.6 (claude-opus-4-6)` →
+    `Opus 4.7 (claude-opus-4-7)`.
+  - `website/content/docs/commands/codeagent.md`: rebuilt operational
+    defaults table against real `codeagent_config.json` (including
+    previously-missing `explore` and `qa` rows; renamed `task-pick`
+    → `pick`), updated hardcoded-default list (line 167), updated
+    resolve example output to show `opus4_7_1m` / `claude-opus-4-7[1m]`,
+    updated project/user config JSON examples from `task-pick` to
+    `pick` with the new default.
+  - `website/content/docs/tuis/settings/reference.md:156–157`: bumped
+    model-entry schema example to `opus4_7_1m`.
+  - `website/content/docs/skills/aitask-add-model.md` (NEW):
+    created manual mirror following the style of
+    `aitask-refresh-code-models.md` — frontmatter + usage + two-mode
+    comparison + supported-agents table + manual-review list mention
+    + related links.
+
+- **Deviations from original plan:**
+  - Original plan text referenced promoting to `claudecode/opus4_7` —
+    actual promoted default is `claudecode/opus4_7_1m` (set by
+    t579_3). Used `opus4_7_1m` throughout.
+  - Resolve test covers BOTH variants (`claude-opus-4-7` and
+    `claude-opus-4-7[1m]`) instead of only the non-1M variant, since
+    both are registered.
+  - Preserved existing opus4_6 test coverage in
+    `test_codeagent.sh` (coauthor Tests 15–26, list-models Test 3)
+    and `test_resolve_detected_agent.sh` (exact-match test) —
+    opus4_6 is still a valid registered model, not deprecated.
+  - Kept `task-pick` → `pick` scope narrow: fixed only the operation
+    names immediately adjacent to the defaults refresh. Other
+    `task-pick` occurrences (TUI integration prose, verified-dict
+    schema example) left as-is to avoid scope creep.
+
+- **Issues encountered:**
+  - `grep -qi` with bracketed patterns: `CLI_ID:claude-opus-4-7[1m]`
+    requires BRE escaping as `\[1m\]`. Test 5 uses this pattern.
+    Test 11 (dry-run output) contains printf-%q-escaped brackets
+    (`\[1m\]` with literal backslashes), so its pattern was
+    simplified to match just `claude-opus-4-7`.
+  - Pre-existing `test_codeagent.sh` setup bug (archive_utils.sh not
+    copied) was fixed as planned — it was masked by `set -e` exiting
+    silently at Test 2.
+
+- **Key decisions:**
+  - `aidocs/claudecode_tools.md` line 5 uses `claude-opus-4-7`
+    (without `[1m]`) since it describes the model identity, not the
+    client-side context signal.
+  - Did NOT update `tests/test_verified_update_flags.sh` or
+    `tests/test_verified_update.sh` — per
+    `aidocs/model_reference_locations.md:101–102` these are tagged
+    `informational_only` (pinned fixtures).
+
+- **Final sweep — residual opus4_6 references:** All documented in
+  `aidocs/model_reference_locations.md` as `informational_only` or
+  legitimate retained model-specific references (coauthor tests,
+  opus4_6 registry entries, architecture examples, format demos,
+  pinned fixtures). No unexpected hits.
+
+- **Website build:** `cd website && hugo build --gc --minify`
+  succeeded (132 pages, 844ms).
+
+- **Archival expectation:** Since this is the last pending child
+  (parent's `children_to_implement: [t579_4]`), archival of t579_4
+  will auto-archive parent t579.
 
 ## Critical files to be modified
 
