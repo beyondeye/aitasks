@@ -1,10 +1,10 @@
 {
   "defaults": {
-    "pick": "claudecode/opus4_6",
+    "pick": "claudecode/opus4_7_1m",
     "explain": "claudecode/sonnet4_6",
     "batch-review": "claudecode/sonnet4_6",
     "qa": "claudecode/sonnet4_6",
     "raw": "claudecode/sonnet4_6",
-    "explore": "claudecode/opus4_6"
+    "explore": "claudecode/opus4_7_1m"
   }
 }
