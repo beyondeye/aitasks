@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t579_3]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [codeagent, ait_settings, documentation, test]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-16 23:27
-updated_at: 2026-04-17 09:35
+updated_at: 2026-04-17 10:12
 ---
 
 ## Context
