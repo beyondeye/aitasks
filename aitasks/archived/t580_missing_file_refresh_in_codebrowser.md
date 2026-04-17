@@ -6,7 +6,7 @@ issue_type: bug
 status: Done
 labels: [codebrowser]
 assigned_to: dario-e@beyond-eye.com
-implemented_with: claudecode/opus4_6
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-17 09:00
 updated_at: 2026-04-17 10:42
 completed_at: 2026-04-17 10:42
