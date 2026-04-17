@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [codeagent, ait_settings, model_selection]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/claude-opus-4-7
 created_at: 2026-04-16 23:26
-updated_at: 2026-04-17 08:03
+updated_at: 2026-04-17 08:15
 ---
 
 ## Context

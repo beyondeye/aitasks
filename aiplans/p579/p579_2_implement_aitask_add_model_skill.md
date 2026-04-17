@@ -122,7 +122,23 @@ git commit -m "feature: Add aitask-add-model skill for known-model registration 
 ```
 Plan file update (Final Implementation Notes) committed separately via `./ait git`.
 
-## Step 9 (Post-Implementation)
+## Final Implementation Notes
+
+- **Actual work done:** Created all 3 deliverables — `.aitask-scripts/aitask_add_model.sh` (3 subcommands: `add-json`, `promote-config`, `promote-default-agent-string`), `.claude/skills/aitask-add-model/SKILL.md` (7-step workflow), and `tests/test_add_model.sh` (6 test groups, 30 individual assertions, all passing).
+- **Deviations from plan:** None. 3 subcommands + 6 test cases + 7-step skill exactly as planned post-simplification. Test count ended at 6 groups / 30 assertions (plan said "8/8 PASS" in an earlier draft of the verification step — that was stale from the pre-simplification count; actual count is 6 groups).
+- **Issues encountered:**
+  - Initial shellcheck produced SC1091 info. Aligned to `aitask_verified_update.sh` convention: `# shellcheck disable=SC1091` before the `source` line. Exit 0 after.
+  - Silent test-suite failure traced to `set -e` + AND-OR list gotcha: `validate_cli_id` ended with `[[ -z "$id" ]] && die "..."`. On success (non-empty id), the AND-OR returns 1, making the function return 1, tripping the caller's `set -e`. Fixed by inverting to `[[ -n "$id" ]] || die "..."`. The other validators were safe because they end with `return 0` or `|| die`.
+- **Key decisions:**
+  - `promote-config` uses `jq reduce ... has($op)` to silently skip ops missing from a given config file. This keeps seed (6 canonical ops) clean when promoting brainstorm-* keys in the main config.
+  - Shell-file patching uses `cat tmp > src` rather than `mv tmp src` to preserve the executable bit on `aitask_codeagent.sh`.
+  - Tests use `AITASK_REPO_ROOT` env override for TMPDIR isolation — no pollution of real repo files.
+  - `--dry-run` prints unified diffs via `diff -u --label` against tempfiles; tests verify `git diff --quiet` holds after dry-runs.
+- **Notes for sibling tasks:**
+  - **t579_3** (add opus4_7 as new default) invokes this skill with `--promote --promote-ops pick,explore,brainstorm-explorer --agent claudecode --name opus4_7 --cli-id claude-opus-4-7`. The skill prints the manual-review block listing files NOT auto-patched (`aidocs/claudecode_tools.md:5`, `tests/test_codeagent.sh`, `tests/test_brainstorm_crew.py`, `website/content/docs/commands/codeagent.md`).
+  - **t579_4** (tests/docs update) is the scope that actually edits the files in the manual-review block. The skill intentionally does not touch them — they are enumerated in `aidocs/model_reference_locations.md`.
+
+## Step 9
 
 Archive via `./.aitask-scripts/aitask_archive.sh 579_2`. The archived
 plan (with Final Implementation Notes) becomes the reference for
