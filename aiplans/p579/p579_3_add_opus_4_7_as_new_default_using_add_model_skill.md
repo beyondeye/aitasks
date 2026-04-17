@@ -157,6 +157,36 @@ Record in Final Implementation Notes:
 - Exact notes strings used for both variants
 - Commit hashes
 
+## Final Implementation Notes
+
+- **Actual work done:** Registered two Opus 4.7 variants in `models_claudecode.json` (+ seed sync): `opus4_7` (standard, `claude-opus-4-7`) and `opus4_7_1m` (1M context, `claude-opus-4-7[1m]`). Promoted `opus4_7_1m` to default for 5 ops (pick, explore, brainstorm-explorer, brainstorm-synthesizer, brainstorm-detailer) in `codeagent_config.json` and `DEFAULT_AGENT_STRING`.
+- **Deviations from original plan:** Original task planned a single `opus4_7` model. Updated during verification to register two variants (standard + 1M) per user input. The `[1m]` suffix is a Claude Code client-side signal stripped before API calls. Also corrected stale file expectations — `brainstorm_crew.py` and `crew_meta_template.yaml` are NOT touched (t579_5 externalized those).
+- **Issues encountered:**
+  - `test_codeagent.sh` fails with a **pre-existing bug** (not caused by this task): `setup_test_env()` at line 73 doesn't copy `archive_utils.sh` which `task_utils.sh` now sources. This breaks the test even on clean main. t579_4 should fix this alongside the expected default-change assertion updates.
+  - `./ait codeagent --list-models` syntax is wrong — correct syntax is `./ait codeagent list-models` (no `--` prefix on subcommand).
+- **Key decisions:** Used `opus4_7_1m` as the promoted default (not `opus4_7`) because the 1M context variant is preferred for agentic workflows. Standard variant registered for users who want explicit non-1M context.
+- **Exact notes strings used:**
+  - `opus4_7`: "Most capable model, complex reasoning + agentic coding, 128K output, adaptive thinking"
+  - `opus4_7_1m`: "Most capable model, 1M context, complex reasoning + agentic coding, 128K output, adaptive thinking"
+- **Notes for sibling tasks:**
+  - **t579_4** must fix `tests/test_codeagent.sh` setup: add `cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" "$tmpdir/.aitask-scripts/lib/"` after line 75. Then update default-change assertions (opus4_6 → opus4_7_1m for promoted ops).
+  - `tests/test_resolve_detected_agent.sh` needs a mapping test for `claude-opus-4-7 → claudecode/opus4_7` AND `claude-opus-4-7[1m] → claudecode/opus4_7_1m` (if the resolve script handles `[1m]` suffix).
+  - Update `aidocs/claudecode_tools.md:5` to reference Opus 4.7.
+
+### Manual review follow-ups for t579_4
+
+```
+Manual review needed — the following files reference the default model
+string but are NOT patched by this skill:
+
+  - aidocs/claudecode_tools.md:5         (display name + cli_id)
+  - tests/test_codeagent.sh              (model-resolution assertions + setup bug)
+  - tests/test_brainstorm_crew.py        (default agent_string fixtures)
+  - website/content/docs/commands/codeagent.md  (user-facing docs)
+
+Full audit: aidocs/model_reference_locations.md
+```
+
 ## Step 9
 
 Archive via `./.aitask-scripts/aitask_archive.sh 579_3`.
