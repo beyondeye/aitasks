@@ -3,11 +3,13 @@ priority: high
 effort: low
 depends: [t579_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [codeagent, ait_settings, model_selection]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_6
 created_at: 2026-04-16 23:26
-updated_at: 2026-04-17 09:08
+updated_at: 2026-04-17 10:06
+completed_at: 2026-04-17 10:06
 ---
 
 ## Context
