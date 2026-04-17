@@ -1,134 +1,129 @@
 ---
 Task: t579_2_implement_aitask_add_model_skill.md
 Parent Task: aitasks/t579_support_for_opus_4_7.md
-Sibling Tasks: aitasks/t579/t579_1_*.md, aitasks/t579/t579_3_*.md, aitasks/t579/t579_4_*.md, aitasks/t579/t579_5_*.md
-Archived Sibling Plans: aiplans/archived/p579/p579_*_*.md
-Worktree: (none — profile fast sets create_worktree: false)
-Branch: main
+Sibling Tasks: aitasks/t579/t579_3_add_opus_4_7_as_new_default_using_add_model_skill.md, aitasks/t579/t579_4_update_tests_and_docs_for_opus_4_7.md
+Archived Sibling Plans: aiplans/archived/p579/p579_1_audit_refresh_code_models_and_design_add_model_skill.md, aiplans/archived/p579/p579_5_externalize_model_defaults.md
 Base branch: main
+plan_verified:
+  - claudecode/claude-opus-4-7 @ 2026-04-17 08:15
 ---
 
-# Plan: t579_2 — Implement aitask-add-model skill (simplified post-t579_5)
+# Plan: t579_2 — Implement `aitask-add-model` skill (verified)
 
 ## Context
 
-Ship the new `aitask-add-model` skill per the design spec from t579_1
-(`aidocs/model_reference_locations.md`). Depends on t579_5 (externalization
-refactor) having landed; post-refactor, brainstorm agent defaults live
-solely in `codeagent_config.json`, so the skill no longer needs a
-`promote-brainstorm` subcommand. Does NOT add opus4_7 — that's t579_3's
-validation exercise.
+Child task of t579 (Opus 4.7 support). Ships a new skill
+`aitask-add-model` that complements `aitask-refresh-code-models`:
+register a known new model in `models_<agent>.json` (add mode) and
+optionally promote it to default across `codeagent_config.json`,
+`DEFAULT_AGENT_STRING`, and the claudecode pick-model doc reference
+(promote mode). Opus 4.7 itself is NOT added here — t579_3 validates the
+skill end-to-end with it.
 
-Read first:
-- Parent plan: `aiplans/p579_support_for_opus_4_7.md`
-- Design spec: `aidocs/model_reference_locations.md` (§3 Design spec)
-- Reference skill: `.claude/skills/aitask-refresh-code-models/SKILL.md`
-- Prereq refactor plan (archived): `aiplans/archived/p579/p579_5_*.md`
+This task was picked via `/aitask-pick 579_2` with the `fast` execution
+profile (default for `pick`). `plan_preference_child: verify` triggered
+verification of the existing plan at
+`aiplans/p579/p579_2_implement_aitask_add_model_skill.md`.
 
-## Step 1 — Scaffold the skill
+## Verification findings (verify path)
 
-Create:
-- `.claude/skills/aitask-add-model/SKILL.md` (frontmatter: name, description)
-- `.aitask-scripts/aitask_add_model.sh` (`#!/usr/bin/env bash`, `set -euo
-  pipefail`, source `lib/terminal_compat.sh` + `lib/task_utils.sh`)
-- `tests/test_add_model.sh`
+The existing plan was checked against the current codebase. All
+assumptions hold:
 
-## Step 2 — SKILL.md workflow (7 steps)
+- **`aitask_codeagent.sh:21`** — `DEFAULT_AGENT_STRING="claudecode/opus4_6"` (confirmed).
+- **`aitask_codeagent.sh:663`** — `"4. Hardcoded default: claudecode/opus4_6"` (confirmed).
+- **`aidocs/claudecode_tools.md:5`** — `**Model:** Claude Opus 4.6 (\`claude-opus-4-6\`)` (confirmed).
+- **`aitasks/metadata/codeagent_config.json`** — contains `pick`, `explain`, `batch-review`, `qa`, `raw`, `explore`, `brainstorm-*` keys plus `brainstorm-explorer-launch-mode`. Config is the sole source of truth for brainstorm agent strings post-t579_5.
+- **`seed/`** exists with `codeagent_config.json`, `models_*.json` — seed sync targets are live.
+- **t579_5 prerequisite is complete** — `agent_string` removed from `BRAINSTORM_AGENT_TYPES`; `crew_meta_template.yaml` deleted; `aitask_brainstorm_init.sh` fallbacks dropped. Confirms `promote-brainstorm` subcommand is NOT needed (per the post-t579_5 simplification documented in the plan).
+- **Reference patterns available:**
+  - `.claude/skills/aitask-refresh-code-models/SKILL.md` for skill structure.
+  - `.aitask-scripts/aitask_verified_update.sh` for `jq`-based JSON patching with tempfile `mv` atomicity and `ensure_model_exists` pattern.
+  - `tests/test_verified_update_flags.sh` for test scaffolding (`assert_eq`, `assert_contains`, PASS/FAIL summary).
+  - `.aitask-scripts/lib/terminal_compat.sh` provides `sed_inplace`, `die`, `warn`, `info`, `success`.
 
-Mirror the structure of `refresh-code-models/SKILL.md`:
+No plan updates needed. Proceeding with the existing plan as-is.
 
-1. **Parse inputs** — CLI flags or `AskUserQuestion` prompts
-2. **Validate** — agent ∈ {claudecode, geminicli, codex}; `--agent
-   opencode` refused with pointer to `aitask-refresh-code-models`;
-   `name` matches `[a-z][a-z0-9_]*`; `cli_id` non-empty; `name` not
-   already in `models_<agent>.json`
-3. **Compute proposed changes** per mode
-4. **Dry-run or apply** — `--dry-run` calls helpers with `--dry-run` to
-   emit diffs and returns
-5. **Emit manual-review list** — after a real apply only (promote-mode)
-6. **Commit** per the split in the design spec §3.5
-7. **Satisfaction Feedback** — `satisfaction-feedback.md` with
-   `skill_name="add-model"`
+## Simplification from the original plan
 
-## Step 3 — Helper script `aitask_add_model.sh`
+The original plan (archived from t579_1 design spec) had 5 subcommands
+and 8 test cases. After user review: drop `promote-aidocs` and
+`emit-manual-review` as over-engineered.
 
-Subcommands (5, down from 6 pre-t579_5):
+- **`promote-aidocs`**: one-line sed to `aidocs/claudecode_tools.md:5`,
+  only fires for claudecode+pick. Doc updates belong in t579_4's docs
+  scope (which already enumerates this file). Move to the manual-review
+  list instead.
+- **`emit-manual-review`**: prints a static block of text with no real
+  logic. Inline as a heredoc in SKILL.md after apply.
 
-| Subcommand | Purpose |
-|---|---|
-| `add-json` | Append model entry to `models_<agent>.json` (+ seed sync); jq |
-| `promote-config` | Update `codeagent_config.json` defaults for specified ops (+ seed). Handles pick/explain/batch-review/qa/raw/explore AND brainstorm-* ops uniformly — all are plain config keys post-t579_5 |
-| `promote-default-agent-string` | Update line 21 + line 663 in `aitask_codeagent.sh` (claudecode only; error otherwise) |
-| `promote-aidocs` | Update `aidocs/claudecode_tools.md:5` (pick op + claudecode only; auto-derived display name, `--display-name` override) |
-| `emit-manual-review` | Print the post-apply manual-review block |
+Net: 3 subcommands, 6 test cases, same end-user behavior.
 
-Shared flags: `--agent`, `--name`, `--cli-id`, `--notes`, `--ops`,
-`--dry-run`, `--display-name`.
+## Implementation summary
 
-Portability (per `CLAUDE.md`):
-- `sed_inplace` for in-place edits
-- Anchored regex: `^DEFAULT_AGENT_STRING=`, `^\*\*Model:\*\* `
-- `jq` for all JSON; NEVER sed on JSON
-- No GNU-only sed (`\U`, `/pattern/a`), no `grep -P`
+### Files to CREATE (3)
 
-## Step 4 — Tests `tests/test_add_model.sh`
+1. **`.aitask-scripts/aitask_add_model.sh`** — bash helper with **3 subcommands**:
+   | Subcommand | Purpose |
+   |---|---|
+   | `add-json --agent --name --cli-id --notes [--dry-run]` | Append model entry to `models_<agent>.json` + sync `seed/models_<agent>.json` |
+   | `promote-config --agent --name --ops <csv> [--dry-run]` | Update `codeagent_config.json` defaults for listed ops (including `brainstorm-*`) + sync seed |
+   | `promote-default-agent-string --agent --name [--dry-run]` | Update `aitask_codeagent.sh` line 21 + line 663 (claudecode-only; error otherwise) |
 
-Follow the `test_verified_update_flags.sh` structure:
-- `TMPDIR`-isolated fixture copies
-- Helpers: `assert_eq`, `assert_contains`, `setup_fixture`, `teardown`
-- PASS/FAIL counter + summary
+   Portability: `jq` for JSON only, `sed_inplace` for text, anchored regex (`^DEFAULT_AGENT_STRING=`), no GNU-only sed/grep features. All subcommands idempotent; `--dry-run` prints unified diff and exits 0 without writing.
 
-Cases (8, down from 9 pre-t579_5):
-1. `add-json` appends entry, preserves existing `verified`/`verifiedstats`
-2. `add-json` idempotent-with-error: second run errors
-3. `promote-config` updates only listed ops (including brainstorm-* ops —
-   all are plain config keys now)
-4. `promote-default-agent-string` errors if agent != claudecode
-5. `promote-default-agent-string` replaces lines 21 + 663 correctly
-6. `--dry-run` across all subcommands emits diffs AND leaves fs unchanged
-   (verify via `git diff --quiet`)
-7. `jq .` succeeds on every produced JSON
-8. Invalid inputs fail with clear errors:
-   - unknown agent
-   - malformed `name` (uppercase, spaces)
-   - empty `cli_id`
-   - `--agent opencode` → "Use aitask-refresh-code-models for opencode"
+2. **`.claude/skills/aitask-add-model/SKILL.md`** — 7-step workflow:
+   1. Parse inputs (CLI flags or `AskUserQuestion`)
+   2. Validate: agent ∈ {claudecode, geminicli, codex}; refuse opencode with pointer to `aitask-refresh-code-models`; `name` matches `[a-z][a-z0-9_]*`; `cli_id` non-empty; `name` unique in target registry
+   3. Compute proposed changes per mode
+   4. Dry-run (emit diffs) OR apply (invoke helper subcommands)
+   5. Print static manual-review block inline via heredoc (promote-mode post-apply only). Block lists `aidocs/claudecode_tools.md:5`, `tests/test_codeagent.sh`, `tests/test_brainstorm_crew.py`, `website/content/docs/commands/codeagent.md`, with a pointer to `aidocs/model_reference_locations.md` for the full audit.
+   6. Commit: `./ait git` for `aitasks/metadata/` and seed metadata; plain `git` for `.aitask-scripts/`; split per the design spec §3.5
+   7. Satisfaction Feedback (`satisfaction-feedback.md`, `skill_name="add-model"`)
 
-## Step 5 — Verify
+3. **`tests/test_add_model.sh`** — **6 test cases** (TMPDIR-isolated fixtures, patterned on `test_verified_update_flags.sh`):
+   1. `add-json` appends entry preserving existing `verified`/`verifiedstats`
+   2. `add-json` errors on second run (idempotent-with-error)
+   3. `promote-config` updates only listed ops (including `brainstorm-*`)
+   4. `promote-default-agent-string` errors if agent != claudecode; replaces lines 21 AND 663 correctly when agent == claudecode
+   5. `--dry-run` across all subcommands emits diffs AND leaves filesystem unchanged; `jq .` succeeds on every produced JSON
+   6. Invalid inputs fail with clear errors (unknown agent, malformed name, malformed cli_id, `--agent opencode` rejection)
 
-```bash
-shellcheck .aitask-scripts/aitask_add_model.sh
-bash tests/test_add_model.sh
+### Files NOT touched in this task
+- `models_*.json`, `codeagent_config.json`, `aitask_codeagent.sh`, `aidocs/claudecode_tools.md`, brainstorm files — these are only modified when the skill is invoked (t579_3). `aidocs/claudecode_tools.md:5` is now part of t579_4's docs scope (already enumerated there).
 
-# Add-mode dry-run
-/aitask-add-model --dry-run --agent claudecode --name opus4_7 \
-  --cli-id claude-opus-4-7 --notes "test"
+## Verification steps
 
-# Promote-mode dry-run (brainstorm ops included)
-/aitask-add-model --dry-run --promote --agent claudecode --name opus4_7 \
-  --cli-id claude-opus-4-7 --notes "test" \
-  --promote-ops pick,explore,brainstorm-explorer,brainstorm-synthesizer
-```
+1. `shellcheck .aitask-scripts/aitask_add_model.sh` exits 0
+2. `bash tests/test_add_model.sh` — 8/8 PASS
+3. Add-mode dry-run smoke (no real model added):
+   ```
+   /aitask-add-model --dry-run --agent claudecode --name opus4_7 \
+     --cli-id claude-opus-4-7 --notes "test"
+   ```
+   Shows 2 proposed writes (metadata + seed).
+4. Promote-mode dry-run smoke:
+   ```
+   /aitask-add-model --dry-run --promote --agent claudecode --name opus4_7 \
+     --cli-id claude-opus-4-7 --notes "test" \
+     --promote-ops pick,explore,brainstorm-explorer
+   ```
+   Shows 4 proposed writes (metadata + seed for models AND config, + `aitask_codeagent.sh`) plus the static manual-review block. NO python/yaml patching, NO aidocs patching (deferred to t579_4).
+5. `git diff --quiet` holds after any dry-run invocation.
+6. `git status` at end of task shows ONLY the 3 new files (skill dir + helper + test). No opus4_7 entries anywhere.
 
-Expect:
-- Add-mode dry-run: 2 proposed writes (metadata + seed)
-- Promote-mode dry-run: ~5 proposed writes (models + seed + codeagent_config
-  + seed + aitask_codeagent.sh + aidocs/claudecode_tools.md) plus manual-
-  review block. NO python/yaml patching (thanks to t579_5).
-- `git status` at end shows only new skill dir + helper + test file.
-
-## Step 6 — Commit
+## Commit
 
 ```bash
 git add .claude/skills/aitask-add-model/SKILL.md \
         .aitask-scripts/aitask_add_model.sh \
         tests/test_add_model.sh
 git commit -m "feature: Add aitask-add-model skill for known-model registration and default promotion (t579_2)"
-./ait git push
 ```
+Plan file update (Final Implementation Notes) committed separately via `./ait git`.
 
 ## Step 9 (Post-Implementation)
 
-Archive via `./.aitask-scripts/aitask_archive.sh 579_2`. Final
-Implementation Notes must include the final SKILL.md API surface so t579_3
-has the exact flag syntax ready.
+Archive via `./.aitask-scripts/aitask_archive.sh 579_2`. The archived
+plan (with Final Implementation Notes) becomes the reference for
+t579_3 to invoke the skill with opus4_7 inputs.
