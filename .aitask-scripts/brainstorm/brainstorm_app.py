@@ -46,6 +46,7 @@ from brainstorm.brainstorm_dag import (
     set_head,
 )
 from brainstorm.brainstorm_schemas import extract_dimensions
+from brainstorm.brainstorm_sections import parse_sections
 from brainstorm.brainstorm_dag_display import DAGDisplay
 from brainstorm.brainstorm_session import (
     archive_session,
@@ -127,6 +128,23 @@ def _brainstorm_launch_mode_default(wizard_op: str) -> str:
     return get_agent_types(config_root=Path(".")).get(
         agent_type, {}
     ).get("launch_mode", DEFAULT_LAUNCH_MODE)
+
+
+def _sections_intersection(node_sections: dict[str, list[str]]) -> list[str]:
+    """Return sorted section names present in every node in the mapping.
+
+    Used by the compare wizard step to derive sections comparable across the
+    currently-checked nodes. Empty mapping or any empty per-node list returns [].
+    """
+    if not node_sections:
+        return []
+    sets = [set(names) for names in node_sections.values()]
+    return sorted(set.intersection(*sets))
+
+
+def _parse_section_label(label: str) -> str:
+    """Extract a section name from a checkbox label (may include '[dims]' suffix)."""
+    return label.split(" ", 1)[0]
 
 _DESIGN_OPS = [
     ("explore", "Explore", "Create new design variants from a base node"),
@@ -1122,6 +1140,8 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._wizard_total_steps: int = 3
         self._wizard_op: str = ""
         self._wizard_config: dict = {}
+        self._wizard_has_sections: bool = False
+        self._cmp_section_checks: dict[str, bool] = {}
         self._expanded_groups: set[str] = set()
         self._status_refresh_timer = None
         self._processes_synced: bool = False
@@ -1219,18 +1239,32 @@ class BrainstormApp(TuiSwitcherMixin, App):
         if tabbed.active == "tab_actions" and self._wizard_step > 0:
             # Esc: go back to previous wizard step
             if event.key == "escape" and self._wizard_step > 1:
-                if self._wizard_step == self._wizard_total_steps:
+                step = self._wizard_step
+                total = self._wizard_total_steps
+                if step == total:
                     # From confirm step
-                    if self._wizard_op in ("explore", "patch"):
+                    if self._wizard_op == "detail":
+                        if self._wizard_has_sections:
+                            self._actions_show_section_select()
+                        else:
+                            self._actions_show_node_select()
+                    elif self._wizard_op in ("explore", "patch", "compare", "hybridize"):
                         self._actions_show_config()
-                    elif self._wizard_op == "detail":
-                        self._actions_show_node_select()
                     else:
                         self._actions_show_config()
-                elif self._wizard_step == 3 and self._wizard_op in ("explore", "patch"):
-                    # From config step (step 3 of 4)
+                elif (
+                    step == total - 1
+                    and self._wizard_op in ("explore", "patch")
+                ):
+                    # From config step
+                    if self._wizard_has_sections:
+                        self._actions_show_section_select()
+                    else:
+                        self._actions_show_node_select()
+                elif step == 3 and self._wizard_has_sections:
+                    # From section-select step
                     self._actions_show_node_select()
-                elif self._wizard_step == 2:
+                elif step == 2:
                     self._actions_show_step1()
                 event.prevent_default()
                 event.stop()
@@ -2129,6 +2163,8 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._wizard_step = 1
         self._wizard_op = ""
         self._wizard_config = {}
+        self._wizard_has_sections = False
+        self._cmp_section_checks = {}
 
         container = self.query_one("#actions_content", VerticalScroll)
         container.remove_children()
@@ -2214,6 +2250,8 @@ class BrainstormApp(TuiSwitcherMixin, App):
             self._wizard_total_steps = 4
         else:
             self._wizard_total_steps = 3
+        self._wizard_has_sections = False
+        self._cmp_section_checks = {}
 
     def _actions_show_step2(self) -> None:
         """Route to node selection or config based on operation type."""
@@ -2267,13 +2305,45 @@ class BrainstormApp(TuiSwitcherMixin, App):
         )
         self.call_after_refresh(self._focus_first_operation)
 
+    def _actions_show_section_select(self) -> None:
+        """Optional step 3: pick sections to target for the selected node."""
+        node = self._wizard_config.get("_selected_node", "")
+        secs = self._node_sections(node)
+
+        self._wizard_has_sections = True
+        if self._wizard_op in ("explore", "patch"):
+            self._wizard_total_steps = 5
+        elif self._wizard_op == "detail":
+            self._wizard_total_steps = 4
+        self._wizard_step = 3
+
+        container = self.query_one("#actions_content", VerticalScroll)
+        container.remove_children()
+
+        total = self._wizard_total_steps
+        container.mount(
+            Label(
+                f"Step 3 of {total} \u2014 Select Sections for {node}  (Esc: Back)",
+                classes="actions_step_indicator",
+            )
+        )
+        container.mount(
+            Label("[dim]Leave all unchecked to target the whole document.[/]")
+        )
+        for s in secs:
+            dims = f" [dim][{', '.join(s.dimensions)}][/]" if s.dimensions else ""
+            container.mount(Checkbox(f"{s.name}{dims}", classes="chk_section"))
+        container.mount(
+            Button("Next \u25b6", variant="primary", classes="btn_actions_next")
+        )
+
     def _actions_show_config(self) -> None:
         """Render config step: operation-specific configuration form."""
         op = self._wizard_op
         if op in ("explore", "patch"):
-            self._wizard_step = 3  # Step 3 of 4
+            self._wizard_step = self._wizard_total_steps - 1
         else:
-            self._wizard_step = 2  # Step 2 of 3
+            self._wizard_step = 2
 
         container = self.query_one("#actions_content", VerticalScroll)
         container.remove_children()
@@ -2306,7 +2376,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
 
     def _config_compare(self, container: VerticalScroll) -> None:
-        """Compare config: multi-node checkboxes + dimension checkboxes."""
+        """Compare config: multi-node checkboxes + dimension checkboxes + sections."""
         nodes = list_nodes(self.session_path)
 
         container.mount(Label("[bold]Select Nodes to Compare (2+)[/]"))
@@ -2321,7 +2391,46 @@ class BrainstormApp(TuiSwitcherMixin, App):
         else:
             container.mount(Label("[dim]No dimensions found[/]"))
 
+        container.mount(Label("[bold]Target Sections (optional)[/]", id="cmp_sections_label"))
+        container.mount(Container(id="cmp_sections_box"))
+
         container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+
+        self._cmp_section_checks = {}
+        self.call_after_refresh(self._refresh_compare_sections)
+
+    def _refresh_compare_sections(self) -> None:
+        """(Re)mount compare section checkboxes based on currently checked nodes."""
+        try:
+            box = self.query_one("#cmp_sections_box", Container)
+        except Exception:
+            return
+
+        for cb in box.query("Checkbox.chk_section"):
+            self._cmp_section_checks[_parse_section_label(str(cb.label))] = bool(cb.value)
+        box.remove_children()
+
+        checked: list[str] = []
+        for cb in self.query("Checkbox.chk_node"):
+            if cb.value:
+                checked.append(str(cb.label))
+
+        if len(checked) < 1:
+            box.mount(Label("[dim]Select nodes to see comparable sections.[/]"))
+            return
+
+        per_node: dict[str, list[str]] = {
+            nid: [s.name for s in self._node_sections(nid)] for nid in checked
+        }
+        inter = _sections_intersection(per_node)
+
+        if not inter:
+            box.mount(Label("[dim]No sections are present in all selected nodes.[/]"))
+            return
+
+        for name in inter:
+            value = self._cmp_section_checks.get(name, False)
+            box.mount(Checkbox(name, value=value, classes="chk_section"))
 
     def _config_hybridize(self, container: VerticalScroll) -> None:
         """Hybridize config: multi-node checkboxes + merge rules."""
@@ -2366,14 +2475,40 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     seen.add(k)
         return all_dims
 
+    def _node_sections(self, node_id: str) -> list:
+        """Return the list of ContentSection for a node (plan preferred, else proposal)."""
+        try:
+            plan = read_plan(self.session_path, node_id)
+        except FileNotFoundError:
+            plan = None
+        if plan:
+            secs = parse_sections(plan).sections
+            if secs:
+                return secs
+        try:
+            proposal = read_proposal(self.session_path, node_id)
+        except FileNotFoundError:
+            proposal = None
+        if proposal:
+            return parse_sections(proposal).sections
+        return []
+
+    def _node_has_sections(self, node_id: str) -> bool:
+        """True when the node's plan or proposal has structured sections."""
+        return bool(self._node_sections(node_id))
+
     def _actions_collect_config(self) -> bool:
         """Collect and validate config from config step widgets. Returns True if valid."""
         op = self._wizard_op
         # Preserve _selected_node from node selection step
         selected_node = self._wizard_config.get("_selected_node")
+        # Preserve target_sections already chosen in the section-select step
+        prior_target_sections = self._wizard_config.get("target_sections")
         config: dict = {}
         if selected_node:
             config["_selected_node"] = selected_node
+        if prior_target_sections is not None:
+            config["target_sections"] = prior_target_sections
         container = self.query_one("#actions_content", VerticalScroll)
 
         if op == "explore":
@@ -2396,6 +2531,13 @@ class BrainstormApp(TuiSwitcherMixin, App):
             config["nodes"] = [str(lbl) for lbl in selected]
             dim_cbs = container.query("Checkbox.chk_dim")
             config["dimensions"] = [str(cb.label) for cb in dim_cbs if cb.value]
+            try:
+                box = self.query_one("#cmp_sections_box", Container)
+                sec_cbs = box.query("Checkbox.chk_section")
+                sel_secs = [str(cb.label) for cb in sec_cbs if cb.value]
+                config["target_sections"] = sel_secs or None
+            except Exception:
+                config["target_sections"] = None
 
         elif op == "hybridize":
             node_cbs = container.query("Checkbox.chk_node")
@@ -2424,6 +2566,15 @@ class BrainstormApp(TuiSwitcherMixin, App):
 
         self._wizard_config = config
         return True
+
+    def _collect_target_sections(self) -> None:
+        """Collect checked section names from the section-select step into wizard config."""
+        container = self.query_one("#actions_content", VerticalScroll)
+        names: list[str] = []
+        for cb in container.query("Checkbox.chk_section"):
+            if cb.value:
+                names.append(_parse_section_label(str(cb.label)))
+        self._wizard_config["target_sections"] = names or None
 
     def _actions_show_confirm(self) -> None:
         """Render final confirm step: summary + launch/confirm button."""
@@ -2513,11 +2664,22 @@ class BrainstormApp(TuiSwitcherMixin, App):
         elif op == "archive":
             lines.append("Session will be archived.")
 
+        ts = cfg.get("target_sections")
+        if ts:
+            lines.append(f"[bold]Sections:[/] {', '.join(ts)}")
+
         if op not in ("pause", "resume", "finalize", "archive"):
             default_mode = _brainstorm_launch_mode_default(op)
             lines.append(f"[bold]Launch mode:[/] {default_mode} (editable below)")
 
         return lines
+
+    @on(Checkbox.Changed, ".chk_node")
+    def _on_cmp_node_changed(self, event: Checkbox.Changed) -> None:
+        """Re-render compare section checkboxes when node selection changes."""
+        if self._wizard_op != "compare":
+            return
+        self._refresh_compare_sections()
 
     @on(Button.Pressed, ".btn_actions_launch")
     def _on_actions_launch(self) -> None:
@@ -2530,10 +2692,13 @@ class BrainstormApp(TuiSwitcherMixin, App):
     @on(Button.Pressed, ".btn_actions_back")
     def _on_actions_back(self) -> None:
         """Handle Back button in confirm step."""
-        if self._wizard_op in ("explore", "patch"):
+        if self._wizard_op == "detail":
+            if self._wizard_has_sections:
+                self._actions_show_section_select()
+            else:
+                self._actions_show_node_select()
+        elif self._wizard_op in ("explore", "patch", "compare", "hybridize"):
             self._actions_show_config()
-        elif self._wizard_op == "detail":
-            self._actions_show_node_select()
         else:
             self._actions_show_config()
 
@@ -2547,6 +2712,9 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 if not node:
                     self.notify("Select a node first", severity="warning")
                     return
+                if self._node_has_sections(node):
+                    self._actions_show_section_select()
+                    return
                 if self._wizard_op == "detail":
                     self._wizard_config["node"] = node
                     self._actions_show_confirm()
@@ -2554,8 +2722,20 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     self._actions_show_config()
             elif self._actions_collect_config():
                 self._actions_show_confirm()
-        elif self._wizard_step == 3 and self._wizard_op in ("explore", "patch"):
-            # Step 3 is config for 4-step ops
+        elif (
+            self._wizard_step == 3
+            and self._wizard_has_sections
+            and self._wizard_op in _NODE_SELECT_OPS
+        ):
+            # Section-select step: collect sections, then go to config (explore/patch) or confirm (detail)
+            self._collect_target_sections()
+            if self._wizard_op == "detail":
+                self._wizard_config["node"] = self._wizard_config.get("_selected_node", "")
+                self._actions_show_confirm()
+            else:
+                self._actions_show_config()
+        elif self._wizard_step == self._wizard_total_steps - 1 and self._wizard_op in ("explore", "patch"):
+            # Config step for 4- or 5-step ops
             if self._actions_collect_config():
                 self._actions_show_confirm()
 
@@ -2655,6 +2835,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         crew_id = self.session_data.get("crew_id", f"brainstorm-{self.task_num}")
         group_name = self._next_group_name(op)
         launch_mode = cfg.get("launch_mode", DEFAULT_LAUNCH_MODE)
+        target_sections = cfg.get("target_sections")
 
         try:
             if op == "explore":
@@ -2667,6 +2848,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                         self.session_path, crew_id, cfg["mandate"],
                         cfg["base_node"], group_name, agent_suffix=suffix,
                         launch_mode=launch_mode,
+                        target_sections=target_sections,
                     )
                     agents.append(agent)
                 msg = f"Registered {len(agents)} explorer(s): {', '.join(agents)}"
@@ -2675,6 +2857,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     self.session_path, crew_id, cfg["nodes"],
                     cfg["dimensions"], group_name,
                     launch_mode=launch_mode,
+                    target_sections=target_sections,
                 )
                 msg = f"Registered comparator: {agent}"
             elif op == "hybridize":
@@ -2689,6 +2872,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     self.session_path, crew_id, cfg["node"],
                     ["."], group_name,
                     launch_mode=launch_mode,
+                    target_sections=target_sections,
                 )
                 msg = f"Registered detailer: {agent}"
             elif op == "patch":
@@ -2696,6 +2880,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     self.session_path, crew_id, cfg["node"],
                     cfg["patch_request"], group_name,
                     launch_mode=launch_mode,
+                    target_sections=target_sections,
                 )
                 msg = f"Registered patcher: {agent}"
             else:
