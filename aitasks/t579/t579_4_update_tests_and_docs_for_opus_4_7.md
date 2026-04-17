@@ -6,33 +6,46 @@ issue_type: documentation
 status: Ready
 labels: [codeagent, ait_settings, documentation, test]
 created_at: 2026-04-16 23:27
-updated_at: 2026-04-16 23:27
+updated_at: 2026-04-17 09:35
 ---
 
 ## Context
 
 This is child 4 of 4 for parent task t579 (adding Opus 4.7 support). Depends on
-t579_3, which registered opus4_7 and promoted it to default via the new
-`aitask-add-model` skill.
+t579_3, which registered TWO Opus 4.7 variants and promoted the 1M context
+variant to default via the `aitask-add-model` skill:
+- `opus4_7` / `claude-opus-4-7` — standard variant (registered, not promoted)
+- `opus4_7_1m` / `claude-opus-4-7[1m]` — 1M context variant (**promoted as default**)
+
+The `[1m]` suffix is a Claude Code client-side signal for 1M context; the API
+model ID is always `claude-opus-4-7`. The promoted default is `opus4_7_1m`.
 
 The `aitask-add-model` skill intentionally does NOT edit prose documentation or
 test fixtures — those require human curation. This task consumes the
 "manual review list" emitted by the skill in t579_3 (captured in that task's
-Final Implementation Notes) and updates tests and docs to reflect opus4_7 as
+Final Implementation Notes) and updates tests and docs to reflect opus4_7_1m as
 the new default. It also adds skill documentation for `aitask-add-model` if
 the website auto-generation needs a stub.
 
 ## Key Files to Modify
 
 ### Tests (update fixtures + add explicit 4.7 coverage)
-- `tests/test_codeagent.sh` — replace `opus4_6` fixture expectations with
-  `opus4_7`; add a case asserting the new `DEFAULT_AGENT_STRING`
-- `tests/test_resolve_detected_agent.sh` — add a mapping test for
-  `claude-opus-4-7 → claudecode/opus4_7`
+- `tests/test_codeagent.sh` — **TWO fixes needed:**
+  1. **Pre-existing setup bug:** `setup_test_env()` (line ~73) doesn't copy
+     `archive_utils.sh` which `task_utils.sh` now sources. Add:
+     `cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" "$tmpdir/.aitask-scripts/lib/"`
+     after line 75. This bug causes the test to fail on clean main (before any
+     Opus 4.7 changes).
+  2. **Default assertions:** Replace `opus4_6` fixture expectations with
+     `opus4_7_1m`; update `DEFAULT_AGENT_STRING` assertion.
+- `tests/test_resolve_detected_agent.sh` — add mapping tests for BOTH:
+  `claude-opus-4-7 → claudecode/opus4_7` AND
+  `claude-opus-4-7[1m] → claudecode/opus4_7_1m` (if the resolve script
+  handles the `[1m]` suffix)
 - `tests/test_aitask_stats_py.py` — add opus4_7 fixture (empty
   `verifiedstats`) alongside opus4_6
 - `tests/test_brainstorm_crew.py` — update expected defaults for explorer,
-  synthesizer, detailer (now opus4_7)
+  synthesizer, detailer (now `opus4_7_1m`)
 - `tests/test_verified_update_flags.sh` — update ONLY if fixtures reference
   `opus4_6` as the *current default*; leave references that are purely about
   an older model version alone
