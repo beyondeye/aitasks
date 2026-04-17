@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: [t579_3]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [codeagent, ait_settings, documentation, test]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-16 23:27
-updated_at: 2026-04-17 10:12
+updated_at: 2026-04-17 10:50
+completed_at: 2026-04-17 10:50
 ---
 
 ## Context
