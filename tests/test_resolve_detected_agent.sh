@@ -56,6 +56,14 @@ echo "=== Test: exact match claudecode ==="
 result=$(AITASK_AGENT_STRING="" bash "$RESOLVE_SCRIPT" --agent claudecode --cli-id claude-opus-4-6 2>&1)
 assert_eq "claudecode exact match" "AGENT_STRING:claudecode/opus4_6" "$result"
 
+echo "=== Test: exact match claudecode opus4_7 ==="
+result=$(AITASK_AGENT_STRING="" bash "$RESOLVE_SCRIPT" --agent claudecode --cli-id claude-opus-4-7 2>&1)
+assert_eq "claudecode opus4_7 exact match" "AGENT_STRING:claudecode/opus4_7" "$result"
+
+echo "=== Test: exact match claudecode opus4_7_1m ==="
+result=$(AITASK_AGENT_STRING="" bash "$RESOLVE_SCRIPT" --agent claudecode --cli-id 'claude-opus-4-7[1m]' 2>&1)
+assert_eq "claudecode opus4_7_1m exact match" "AGENT_STRING:claudecode/opus4_7_1m" "$result"
+
 echo "=== Test: exact match geminicli ==="
 result=$(AITASK_AGENT_STRING="" bash "$RESOLVE_SCRIPT" --agent geminicli --cli-id gemini-3.1-pro-preview 2>&1)
 assert_eq "geminicli exact match" "AGENT_STRING:geminicli/gemini3_1pro" "$result"

@@ -153,8 +153,8 @@ Each model in `models_<agent>.json`:
 
 ```json
 {
-  "name": "opus4_6",
-  "cli_id": "claude-opus-4-6",
+  "name": "opus4_7_1m",
+  "cli_id": "claude-opus-4-7[1m]",
   "notes": "Most intelligent model for agents and coding",
   "verified": {
     "pick": 80,

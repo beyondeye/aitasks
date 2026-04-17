@@ -73,6 +73,7 @@ setup_test_env() {
     cp "$PROJECT_DIR/.aitask-scripts/aitask_codeagent.sh" "$tmpdir/.aitask-scripts/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$tmpdir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" "$tmpdir/.aitask-scripts/lib/"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" "$tmpdir/.aitask-scripts/lib/"
     chmod +x "$tmpdir/.aitask-scripts/aitask_codeagent.sh"
 
     # Copy model configs
@@ -127,6 +128,8 @@ output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" list-models claudecode 2>&1)
 assert_contains "list-models shows opus4_6" "MODEL:opus4_6" "$output"
 assert_contains "list-models shows sonnet4_6" "MODEL:sonnet4_6" "$output"
 assert_contains "list-models shows haiku4_5" "MODEL:haiku4_5" "$output"
+assert_contains "list-models shows opus4_7" "MODEL:opus4_7" "$output"
+assert_contains "list-models shows opus4_7_1m" "MODEL:opus4_7_1m" "$output"
 assert_contains "list-models shows cli_id" "CLI_ID:claude-opus-4-6" "$output"
 assert_contains "list-models shows notes" "NOTES:" "$output"
 assert_contains "list-models shows verified" "VERIFIED:" "$output"
@@ -135,13 +138,13 @@ assert_contains "list-models shows verified" "VERIFIED:" "$output"
 echo "--- Test 4: list-models invalid agent ---"
 assert_exit_nonzero "list-models with invalid agent" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' list-models notanagent"
 
-# Test 5: resolve pick returns claude/opus4_6
+# Test 5: resolve pick returns claudecode/opus4_7_1m (current default)
 echo "--- Test 5: resolve pick ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve pick 2>&1)
-assert_contains "resolve returns opus4_6 for pick" "AGENT_STRING:claudecode/opus4_6" "$output"
+assert_contains "resolve returns opus4_7_1m for pick" "AGENT_STRING:claudecode/opus4_7_1m" "$output"
 assert_contains "resolve returns agent" "AGENT:claudecode" "$output"
-assert_contains "resolve returns model" "MODEL:opus4_6" "$output"
-assert_contains "resolve returns cli_id" "CLI_ID:claude-opus-4-6" "$output"
+assert_contains "resolve returns model" "MODEL:opus4_7_1m" "$output"
+assert_contains "resolve returns cli_id" "CLI_ID:claude-opus-4-7\[1m\]" "$output"
 
 # Test 6: resolve with --agent-string override
 echo "--- Test 6: resolve with --agent-string override ---"
@@ -190,7 +193,7 @@ echo "--- Test 11: --dry-run invoke ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --dry-run invoke pick 42 2>&1)
 assert_contains "dry-run starts with DRY_RUN:" "DRY_RUN:" "$output"
 assert_contains "dry-run contains claude" "claude" "$output"
-assert_contains "dry-run contains model flag" "claude-opus-4-6" "$output"
+assert_contains "dry-run contains model flag" "claude-opus-4-7" "$output"
 assert_contains "dry-run contains aitask-pick" "aitask-pick" "$output"
 assert_contains "dry-run contains task number" "42" "$output"
 

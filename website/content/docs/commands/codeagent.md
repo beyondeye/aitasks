@@ -51,9 +51,11 @@ Each operation maps to a different use case with its own default model:
 
 | Operation | Description | Default |
 |-----------|-------------|---------|
-| `task-pick` | Picking and implementing tasks | `claudecode/opus4_6` |
+| `pick` | Picking and implementing tasks | `claudecode/opus4_7_1m` |
 | `explain` | Explaining or documenting code | `claudecode/sonnet4_6` |
+| `explore` | Exploring the codebase | `claudecode/opus4_7_1m` |
 | `batch-review` | Batch code review | `claudecode/sonnet4_6` |
+| `qa` | Test coverage analysis | `claudecode/sonnet4_6` |
 | `raw` | Direct/ad-hoc invocations (passthrough) | `claudecode/sonnet4_6` |
 
 ### Subcommands
@@ -97,15 +99,15 @@ MODEL:gemini2_5pro CLI_ID:gemini-2.5-pro NOTES:Stable, best for complex tasks VE
 Returns the configured agent string for an operation after applying the full resolution chain.
 
 ```bash
-ait codeagent resolve task-pick
+ait codeagent resolve pick
 ```
 
 Output:
 ```
-AGENT_STRING:claudecode/opus4_6
+AGENT_STRING:claudecode/opus4_7_1m
 AGENT:claudecode
-MODEL:opus4_6
-CLI_ID:claude-opus-4-6
+MODEL:opus4_7_1m
+CLI_ID:claude-opus-4-7[1m]
 BINARY:claude
 MODEL_FLAG:--model
 ```
@@ -164,7 +166,7 @@ The agent/model for each operation is resolved through a 4-level chain (highest 
 1. **`--agent-string` flag** -- CLI override for a single invocation
 2. **Per-user config** -- `aitasks/metadata/codeagent_config.local.json` (gitignored)
 3. **Per-project config** -- `aitasks/metadata/codeagent_config.json` (git-tracked)
-4. **Hardcoded default** -- `claudecode/opus4_6`
+4. **Hardcoded default** -- `claudecode/opus4_7_1m`
 
 #### Project config (`codeagent_config.json`)
 
@@ -173,7 +175,7 @@ Shared across the team, checked into git. Sets the default agent/model for each 
 ```json
 {
   "defaults": {
-    "task-pick": "claudecode/opus4_6",
+    "pick": "claudecode/opus4_7_1m",
     "explain": "claudecode/sonnet4_6",
     "batch-review": "claudecode/sonnet4_6",
     "raw": "claudecode/sonnet4_6"
@@ -188,12 +190,12 @@ Per-user overrides, gitignored. Same schema as the project config. Only include 
 ```json
 {
   "defaults": {
-    "task-pick": "geminicli/gemini2_5pro"
+    "pick": "geminicli/gemini2_5pro"
   }
 }
 ```
 
-This user would use Gemini for task-pick but inherit the project defaults for all other operations.
+This user would use Gemini for pick but inherit the project defaults for all other operations.
 
 Both config files can be edited directly or through the [Settings TUI](../../tuis/settings/).
 

@@ -78,7 +78,10 @@ class TestCollection(unittest.TestCase):
             encoding="utf-8",
         )
         (metadata / "models_claudecode.json").write_text(
-            json.dumps({"models": [{"name": "opus4_6", "cli_id": "claude-opus-4-6"}]}),
+            json.dumps({"models": [
+                {"name": "opus4_6", "cli_id": "claude-opus-4-6"},
+                {"name": "opus4_7", "cli_id": "claude-opus-4-7", "verifiedstats": {}},
+            ]}),
             encoding="utf-8",
         )
         (metadata / "models_geminicli.json").write_text(
@@ -389,7 +392,7 @@ class TestVerifiedRankings(unittest.TestCase):
             encoding="utf-8",
         )
 
-        # claudecode: opus with pick stats
+        # claudecode: opus with pick stats (opus4_6) + newly-registered opus4_7 with empty stats
         (metadata / "models_claudecode.json").write_text(
             json.dumps({
                 "models": [
@@ -403,7 +406,12 @@ class TestVerifiedRankings(unittest.TestCase):
                             }
                         },
                         "verified": {"pick": 96},
-                    }
+                    },
+                    {
+                        "name": "opus4_7", "cli_id": "claude-opus-4-7",
+                        "verifiedstats": {},
+                        "verified": {},
+                    },
                 ]
             }),
             encoding="utf-8",
@@ -496,7 +504,10 @@ class TestVerifiedRankings(unittest.TestCase):
             encoding="utf-8",
         )
         (metadata / "models_claudecode.json").write_text(
-            json.dumps({"models": [{"name": "opus4_6", "cli_id": "claude-opus-4-6"}]}),
+            json.dumps({"models": [
+                {"name": "opus4_6", "cli_id": "claude-opus-4-6"},
+                {"name": "opus4_7", "cli_id": "claude-opus-4-7", "verifiedstats": {}},
+            ]}),
             encoding="utf-8",
         )
         (metadata / "models_opencode.json").write_text(
