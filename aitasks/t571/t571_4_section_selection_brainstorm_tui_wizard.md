@@ -6,8 +6,9 @@ issue_type: refactor
 status: Implementing
 labels: [brainstorming, ait_brainstorm, ui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-16 11:58
-updated_at: 2026-04-17 10:32
+updated_at: 2026-04-17 11:37
 ---
 
 ## Context

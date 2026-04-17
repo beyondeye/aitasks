@@ -625,3 +625,24 @@ When t571_5 (shared section viewer) is implemented, its own in-person checklist 
 ## Step 9: Post-Implementation
 
 Follow Step 9 from the shared task-workflow for archival, merge, and cleanup.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the full plan in `.aitask-scripts/brainstorm/brainstorm_app.py`. Added `parse_sections` import, module-level helpers `_sections_intersection` and `_parse_section_label`, instance helpers `_node_sections` / `_node_has_sections` / `_refresh_compare_sections` / `_collect_target_sections`, the new `_actions_show_section_select` step, new wizard state (`_wizard_has_sections`, `_cmp_section_checks`), dynamic step numbering (explore/patch becomes 5-step and detail becomes 4-step when sections exist), section-step wiring in `_on_actions_next` / `_on_actions_back` / the Esc key handler, compare-step dynamic intersection checkboxes with preserved state, and `target_sections` threaded through all four `register_*` calls in `_run_design_op` (including the parallel explore loop). Synthesizer deliberately untouched.
+- **Deviations from plan:**
+  - `_node_sections` needed `FileNotFoundError` guards around `read_plan` / `read_proposal` — `read_proposal` raises on missing files rather than returning None (plan had it returning a string). Caught by the `test_has_sections_false_when_node_missing` unit test.
+  - `_actions_collect_config` now preserves a previously-stored `target_sections` (set by the section-select step) when rebuilding the config dict on the config step for explore/patch. Without this the section selections would be dropped on Next from the config step.
+- **Issues encountered:** One test failure during initial run (missing-file case); fixed by wrapping `read_plan` / `read_proposal` in try/except.
+- **Key decisions:**
+  - Compare section MVP changed to dynamic intersection (per user feedback during plan review) instead of a static union. Node-checkbox changes re-render the section box; previously-checked section values are preserved in `self._cmp_section_checks`.
+  - Initial call to `_refresh_compare_sections` uses `call_after_refresh` so Textual is ready to query widgets.
+  - Pilot-driven wizard tests were deferred to the manual checklist (PI-1 sibling `t571_7`). Only pure-logic + `_node_sections` helper tests are automated here; the Textual TUI end-to-end flow lives in the manual verification task.
+- **Notes for sibling tasks:**
+  - `t571_5` (shared section viewer) can reuse the `parse_sections` import pattern already added to `brainstorm_app.py` (alongside the other `from brainstorm.brainstorm_* import ...` lines). The sys.path setup for sibling imports is at the top of the file.
+  - `t571_5` should append its own manual checklist to `t571_7` under a `## t571_5` heading, update deps, and replace inline "Verification" with a pointer to `t571_7`.
+  - `t571_6` (docs) should describe the wizard flow introduced here: node → optional sections → config/confirm for explore/detail/patch; sections box in compare step re-renders on node toggle. Reference the `_WIZARD_OP_TO_AGENT_TYPE` constant (not `_OP_TO_TYPE`).
+  - Checkbox label convention: `name [dim1, dim2]` for node-select op sections (dim tags rendered as Rich dim markup); bare name for compare sections. `_parse_section_label` strips anything after the first space.
+- **Automated tests:** `tests/test_brainstorm_wizard_sections.py` — 16 tests, all pass. `python3 -m unittest tests.test_brainstorm_wizard_sections -v`. Related suite (brainstorm_sections, brainstorm_crew, brainstorm_dag, brainstorm_cli_python) — 88 tests, all pass.
+- **Pre-Implementation tasks created (before any code changes):**
+  - `aitasks/t571/t571_7_manual_verification_structured_brainstorming.md` — aggregate manual verification (deps: t571_4, t571_5)
+  - `aitasks/t583_manual_verification_module_for_task_workflow.md` — meta-task for formalizing the pattern into a `/aitask-pick` module
