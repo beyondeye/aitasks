@@ -207,3 +207,45 @@ After commit, the task-workflow Step 9 flow proceeds: no branch/worktree
 cleanup (fast profile kept us on `main`), then
 `./.aitask-scripts/aitask_archive.sh 582` handles status → Done, archival,
 lock release, and the archival commit; then `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added 10 sections/bullets to `CLAUDE.md` covering
+  folded task semantics, new frontmatter propagation, platform CLI and
+  archive encapsulation (Shell Conventions), debugging conventions,
+  documentation writing, UI & dialog conventions, TUI (Textual)
+  conventions, model attribution, QA workflow, skill authoring
+  conventions, and project-specific notes (diffviewer). Deleted all 13
+  promoted memory files and reset `MEMORY.md` to a header-only index.
+- **Deviations from plan:** None. Wrote `CLAUDE.md` with the Write tool
+  (plan's preferred option — cleaner than multiple Edits for
+  interleaved additions).
+- **Issues encountered:**
+  - Plan externalization initially returned `MULTIPLE_CANDIDATES` because
+    three recent Claude Code plan files fell within the recency window.
+    Resolved by re-running with `--internal <chosen-path>`.
+  - `feedback_archive_encapsulation.md` on disk was missing (stale
+    `MEMORY.md` reference). Reconstructed the rule from the index's
+    one-line summary and the parallel `feedback_platform_commands.md`
+    pattern — now expressed as the "Archive format details" bullet under
+    Shell Conventions.
+- **Key decisions:**
+  - All 13 memories classified PROMOTE; none KEEP-AS-MEMORY; none DROP.
+    Every memory encoded a durable team convention or project fact.
+  - The `model_switch_mid_session` rule was promoted to a new "Model
+    Attribution" section in CLAUDE.md rather than folded into
+    `.claude/skills/task-workflow/model-self-detection.md`. A follow-up
+    aitask can codify the fix in the procedure file itself (noted in
+    the plan's Step 7 follow-up).
+  - `project_diffviewer_brainstorm` promoted to a "Project-Specific
+    Notes" section rather than kept as a memory — the "don't document
+    in website docs" rule is still team-wide guidance useful for anyone
+    editing the Hugo site.
+- **Verification:**
+  - `ls ~/.claude/projects/-home-ddt-Work-aitasks/memory/` confirms only
+    `MEMORY.md` remains (15 bytes, header only).
+  - `git diff --stat CLAUDE.md` shows `+70 insertions` (within the
+    predicted 60–80 range).
+  - `.claude/settings.local.json` was touched by permission approvals
+    during the session and is excluded from this commit (uncommitted
+    working-tree change).
