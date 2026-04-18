@@ -38,9 +38,9 @@ Git worktrees, atomic task locking, and branch management enable multiple develo
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.16.1: Claude Opus 4.7 is now the default, Fuzzy file search in the codebrowser, and Structured brainstorming](blog/v0161-claude-opus-4-7-is-now-the-default-fuzzy-file-search-in-the-codebrowser-st/)** -- Apr 18, 2026
 - **[v0.16.0: Interactive agent launch mode, File references on tasks, and Plan verification tracking](blog/v0160-interactive-agent-launch-mode-file-references-on-tasks-plan-verification-t/)** -- Apr 15, 2026
 - **[v0.15.1: Scroll back through your agent's output, `ait ide` from a fresh shell just works, TUI switcher, and  now documented](blog/v0151-scroll-back-through-your-agent-s-output-ait-ide-from-a-fresh-shell-just-wo/)** -- Apr 13, 2026
-- **[v0.15.0: One-step startup with `ait ide`, Live monitor TUI for agent panes, and Minimonitor side panel](blog/v0150-one-step-startup-with-ait-ide-live-monitor-tui-for-agent-panes-minimonitor/)** -- Apr 12, 2026
 
 [All releases &rarr;](blog/)
 
