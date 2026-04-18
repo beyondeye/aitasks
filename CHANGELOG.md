@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.16.1
+
+### Features
+
+- **Fuzzy file search in codebrowser** (t566): Added an in-TUI fuzzy file search box so you can quickly jump to any tracked file by partial name using recursive multi-alignment scoring.
+- **Delete session from brainstorm TUI** (t568): Added a "Delete" session operation with double-confirmation modal so brainstorm sessions can be killed directly from the TUI.
+- **Copy file path in codebrowser** (t570): Press `c` to copy the currently open file's relative or absolute path to the clipboard.
+- **Word wrap toggle in codebrowser** (t572): Press `w` to toggle between truncate and wrap modes for long lines in the file view.
+- **Minimonitor companion pane for `ait create`** (t574): Launching `ait create` from the board, codebrowser, or TUI switcher now automatically spawns a minimonitor companion pane alongside the new window.
+- **`aitask-add-model` skill** (t579_2): New skill for registering AI code models and promoting them to defaults, with dry-run diffs, shared config/seed sync, and manual-review reporting.
+- **Claude Opus 4.7 registered and promoted to default** (t579_3): Added both `opus4_7` and `opus4_7_1m` (1M context) variants; `opus4_7_1m` is now the default for pick, explore, and brainstorm ops.
+
+### Bug Fixes
+
+- **Enable brainstorm button for folded tasks** (t561): The brainstorm button in the board TUI is no longer disabled for folded tasks (only for Done/read-only/locked ones).
+- **Fix `n` shortcut in codebrowser with no file selected** (t567): `n` now works with no file selected, defaults to the full file range, and opens the new window in the current tmux window.
+- **Fix stale tmux window index in codebrowser** (t575): The codebrowser re-detects its tmux window index at action time, so `ait create` companion spawns always target the correct window.
+- **Sync monitor preview after refresh** (t576): The monitor's content preview now updates correctly after focus is restored during auto-refresh.
+- **Fix minimonitor auto-selection on window switch** (t577): The minimonitor now re-selects its own window's agent whenever the pane regains focus.
+- **File tree refresh in codebrowser** (t580): Press `R` to refresh the codebrowser file tree against the current tracked-file set, picking up newly created or deleted files.
+
+### Improvements
+
+- **Section parser for brainstorm plans** (t571_1): New parser and validator for structured section markers in brainstorm proposal/plan files.
+- **Structured section markers in brainstorm templates** (t571_2): Brainstorm agents now emit and consume structured section markers so downstream operations can target individual sections.
+- **Section-aware brainstorm operations** (t571_3): `target_sections` parameter threaded through explore/compare/detail/patch operations for focused refinement.
+- **Section selection in brainstorm TUI wizard** (t571_4): New wizard step lets you pick which sections of a proposal or plan to explore, compare, detail, or patch — enabling focused refinement of individual parts of a design.
+- **Shared section-format reference for crew templates** (t578): Crew templates now support include directives, with the section-format reference extracted to a single shared partial reused by all brainstorm agents.
+- **Add-model skill design audit** (t579_1): Catalogued every model reference in the repo and designed the `aitask-add-model` skill API.
+- **Externalized brainstorm agent defaults** (t579_5): Brainstorm agent defaults now come from `codeagent_config.json` — model swaps only touch one file.
+
+### Documentation
+
+- **Document the aitask-from-file workflow** (t565): New "Create Tasks from Code" workflow page covering the `file_references` field, the codebrowser `n` flow, auto-merge safety layers, and reverse navigation from the board's File Refs row.
+- **Update tests and docs for Opus 4.7 default** (t579_4): Updated all tests, aidocs, and user-facing documentation to reflect `opus4_7_1m` as the new default Claude Code model.
+
+### Maintenance
+
+- **Migrate persistent guidance from auto-memory to CLAUDE.md** (t582): Consolidated 13 durable team conventions and project facts from auto-memory into the project `CLAUDE.md` for reliable in-context guidance.
+
 ## v0.16.0
 
 ### Features
