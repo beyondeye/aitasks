@@ -3,10 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_workflow, framework, skill]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-17 11:20
-updated_at: 2026-04-17 11:20
+updated_at: 2026-04-18 22:02
+boardidx: 10
 ---
 
 ## Context
