@@ -6,8 +6,9 @@ issue_type: documentation
 status: Implementing
 labels: []
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-19 17:10
-updated_at: 2026-04-19 17:23
+updated_at: 2026-04-19 17:37
 ---
 
 Pilot child of t594. Sweep the 15 pages under `website/content/docs/tuis/` for factual drift against the TUI source code and coherence issues, with no structural edits.
