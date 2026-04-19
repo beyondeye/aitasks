@@ -64,9 +64,16 @@ After a task is selected and confirmed, perform these checks before proceeding t
   - If "Yes, archive it" → skip Steps 4-8, proceed directly to **Step 9** (Post-Implementation) for parent task archival
   - If "No, skip" → end the workflow
 
-**Note:** These checks should NOT set the task status to "Implementing" — the task is already done. Skip Step 4 (Assign Task) entirely when archiving via this step.
+**Check 3 - Manual-verification task:**
+- Read the task file's frontmatter `issue_type` field
+- If `issue_type` is `manual_verification`:
+  - Execute the **Manual Verification Procedure** (see `manual-verification.md`)
+  - Skip Steps 6-8; proceed to Step 9 after the procedure returns
+  - Steps 4 (ownership) and 5 (worktree) still run before dispatch — manual verification is work that should be owned and locked
 
-If neither check triggers, proceed to Step 4 as normal.
+**Note:** Check 1 and Check 2 should NOT set the task status to "Implementing" — the task is already done. Skip Step 4 (Assign Task) entirely when archiving via Check 1 or Check 2. Check 3 does run Step 4 as normal.
+
+If none of the checks trigger, proceed to Step 4 as normal.
 
 ### Step 3b: refresh execution profile
 If `active_profile` was provided and is non-null, re-read the profile YAML file using the stored filename: `cat aitasks/metadata/profiles/<active_profile_filename>`. Display: "Refreshing profile: \<name\>". If the file cannot be read (missing or invalid), warn: "Warning: Could not refresh profile '\<name\>', proceeding without profile" and set `active_profile` to null.
@@ -488,6 +495,7 @@ The following procedures are in individual files — read on demand when referen
 - **Agent Attribution Procedure** (`agent-attribution.md`) — Record implementing code agent and model. Referenced from Step 7.
 - **Satisfaction Feedback Procedure** (`satisfaction-feedback.md`) — Collect user feedback and update verified model scores. Referenced from Step 9b and standalone skills.
 - **Lock Release Procedure** (`lock-release.md`) — Release task locks. Referenced from Task Abort Procedure.
+- **Manual Verification Procedure** (`manual-verification.md`) — Interactive checklist runner for `issue_type: manual_verification` tasks. Referenced from Step 3 (Check 3).
 - **Execution Profile Selection Procedure** (`execution-profile-selection.md`) — Interactive profile scan and selection. Referenced from Step 0a in calling skills and Step 3b.
 - **Execution Profile Selection Procedure — Auto-Select** (`execution-profile-selection-auto.md`) — Non-interactive auto-select for remote/web skills. Referenced from Step 1 in aitask-pickrem/aitask-pickweb.
 - **Batch Task Creation Procedure** (`task-creation-batch.md`) — Canonical command templates for creating tasks via `aitask_create.sh --batch`. Referenced from planning.md and multiple skills (explore, review, qa, wrap, pr-import, revert).
