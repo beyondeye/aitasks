@@ -163,3 +163,28 @@ Performed during plan verification before implementation (fast-profile `plan_pre
 - **Item 1:** Narrowed scope to cross-cutting pages; t594_1 already normalized the TUI section, so those pages should not be rewritten.
 
 Implementing agent (for `plan_verified` append): recorded via Model Self-Detection at externalization time.
+
+## Final Implementation Notes
+
+- **Actual work done:** 11 files touched under `website/content/docs/`:
+  - **Item 1 (TUI switcher canonical wording):** Applied canonical short sentence to three cross-cutting pages — `getting-started.md:41`, `installation/terminal-setup.md:38`, `workflows/tmux-ide.md:33`. Preserved context-specific trailing clauses in each. Did NOT touch t594_1-normalized TUI-section pages.
+  - **Item 2 (curl command):** Verified byte-equality across `installation/_index.md:17`, `getting-started.md:17`, `installation/windows-wsl.md:43` — all three already match `install.sh:5`. No edits needed.
+  - **Item 3 (project-root warning):** Unified lead sentence to `**Run from the project root.** aitasks expects to be invoked from the directory containing \`.git/\` — the root of your project's git repository.` applied to `installation/_index.md:12`, `getting-started.md:20`, `skills/_index.md:14`. Per-page trailing justification preserved (installer-specific / narrative / skills-specific).
+  - **Item 4 (task-format intro):** Aligned `concepts/tasks.md:8` lead sentence to share the `markdown file with YAML frontmatter in the aitasks/ directory` shape with `development/task-format.md:7`. Cross-reference line at `concepts/tasks.md:18` already existed — no new line added.
+  - **Item 5 (pick variants step names):** Unified core shared labels across the three skill pages: `Profile selection`, `Task status checks`, `Assignment`, `Environment setup`, `Planning`, `Implementation`, `Post-implementation`. Changed `pickrem.md` step 2 (`Load execution profile` → `Profile selection`), step 3 (`Resolve task file` → `Task resolution`), step 6 (`Assign task` → `Assignment`), step 8 (`Create implementation plan` → `Planning`), step 9 (`Implement and auto-commit` → `Implementation (auto-commit)`), step 10 (`Archive and push` → `Post-implementation (archive and push)`). Changed `pickweb.md` step 2/3/6/7 to match. Changed `pick/_index.md` step 4 (`Status checks` → `Task status checks`). Variant-specific steps preserved as-is.
+  - **Item 7 (fast profile contradiction):** Replaced `stop after plan approval` with `pause for confirmation after plan approval` in `concepts/execution-profiles.md:17` (table row) and `skills/aitask-pick/execution-profiles.md:15` (bullet list). `fast.yaml` unchanged.
+- **Deviations from plan:** None — plan was already verified-and-corrected before implementation began (the Verification Updates section at the top of this file documents the pre-implementation deviations from the original plan).
+- **Issues encountered:**
+  1. After running `cd website && hugo build` during verification, the Bash working directory persisted to `website/`; subsequent `./.aitask-scripts/...` calls failed with "No such file". Resolved by prefixing `cd /home/ddt/Work/aitasks &&` on the first post-build script call.
+  2. Plan verification surfaced 4 stale items in the original plan (see top-of-file `Verification Updates` section). Dropping/re-scoping them prevented wasted work.
+- **Key decisions:**
+  - Canonical TUI switcher phrasing preserves each page's context-specific trailing clause (listing applicable TUIs, or "Select **board**" follow-up in tmux-ide.md) rather than flattening to a single terse sentence. Matches the parent plan's "conservative dedup" stance.
+  - Project-root warning: kept page-specific trailing sentences (installer paths vs relative skill paths vs git-integration) because each page has a genuinely different justification. Only the **lead sentence** was unified.
+  - Step-name unification: used parenthetical qualifiers (e.g., `Implementation (auto-commit)`) to keep variant-specific behavior visible while sharing the core label with `/aitask-pick`. Did NOT force identical wording on variant-specific steps (Initialize data branch, Sync with remote, Read-only lock check, Write completion marker) because they describe genuinely distinct operations.
+- **Notes for sibling tasks (t594_4/5/6):**
+  - **Canonical "Run from project root" lead sentence** is now: `**Run from the project root.** aitasks expects to be invoked from the directory containing \`.git/\` — the root of your project's git repository.` Use this exact form for any new mentions. Per-page justification sentences follow.
+  - **Canonical TUI switcher short sentence** (for cross-cutting / brief mentions): `Press **\`j\`** inside any main TUI to open the **TUI switcher** dialog and jump to another TUI.` Long-form canonical (authoritative, set by t594_1) remains at `tuis/_index.md:27`.
+  - **Fast profile behavior:** say "pause for confirmation after plan approval" (matches `fast.yaml: post_plan_action: ask`). Never say "stops after plan approval" / "auto-stops".
+  - **Pick variants shared vocabulary:** `Profile selection`, `Task status checks`, `Assignment`, `Environment setup`, `Planning`, `Implementation`, `Post-implementation`. If t594_4 (skills sweep) adds more variant comparisons, use this vocabulary as the common denominator.
+  - **Verification discipline pays off:** pre-implementation `verify` mode caught 4 stale plan items (dropped/re-scoped before work began) — follow the same pattern for the remaining children.
+- **Build verification:** `cd website && hugo build --gc --minify` — 148 pages, 0 warnings, 802 ms.
