@@ -223,6 +223,14 @@ class ContextualFooter(Footer):
             action_to_bindings[binding.action].append((binding, enabled, tooltip))
         self.styles.grid_size_columns = len(action_to_bindings)
 
+        # Match the padding of the parent Footer. The parent calls
+        # .data_bind(compact=Footer.compact) on each FooterKey; that
+        # trips a ReactiveError under our recompose path (active message
+        # pump is the Screen, not our Footer, so the isinstance check
+        # against reactive.owner=Footer fails). Assigning compact
+        # directly achieves the same visual result without the binding.
+        fk_compact = self.compact
+
         for group, multi_bindings_iterable in groupby(
             action_to_bindings.values(),
             lambda mb: mb[0][0].group,
@@ -232,7 +240,7 @@ class ContextualFooter(Footer):
                 with KeyGroup(classes="-compact" if group.compact else ""):
                     for mb in multi_bindings:
                         binding, enabled, tooltip = mb[0]
-                        yield FooterKey(
+                        fk = FooterKey(
                             binding.key,
                             self.app.get_key_display(binding),
                             "",
@@ -241,11 +249,13 @@ class ContextualFooter(Footer):
                             tooltip=tooltip or binding.description,
                             classes="-grouped",
                         )
+                        fk.compact = fk_compact
+                        yield fk
                 yield FooterLabel(group.description)
             else:
                 for mb in multi_bindings:
                     binding, enabled, tooltip = mb[0]
-                    yield FooterKey(
+                    fk = FooterKey(
                         binding.key,
                         self.app.get_key_display(binding),
                         binding.description,
@@ -253,6 +263,8 @@ class ContextualFooter(Footer):
                         disabled=not enabled,
                         tooltip=tooltip,
                     )
+                    fk.compact = fk_compact
+                    yield fk
 
         if self.show_command_palette and self.app.ENABLE_COMMAND_PALETTE:
             try:
@@ -262,7 +274,7 @@ class ContextualFooter(Footer):
             except KeyError:
                 pass
             else:
-                yield FooterKey(
+                fk = FooterKey(
                     binding.key,
                     self.app.get_key_display(binding),
                     binding.description,
@@ -271,6 +283,8 @@ class ContextualFooter(Footer):
                     disabled=not enabled,
                     tooltip=binding.tooltip or binding.description,
                 )
+                fk.compact = fk_compact
+                yield fk
 
 
 class CodeBrowserApp(TuiSwitcherMixin, App):
