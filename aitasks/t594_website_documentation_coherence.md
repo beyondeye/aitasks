@@ -5,7 +5,7 @@ depends: []
 issue_type: documentation
 status: Implementing
 labels: []
-children_to_implement: [t594_1, t594_2, t594_3]
+children_to_implement: [t594_1, t594_2, t594_3, t594_4]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-19 16:13
 updated_at: 2026-04-19 17:11
