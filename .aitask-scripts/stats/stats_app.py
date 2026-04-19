@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """ait stats TUI — sidebar-driven viewer for archive statistics.
 
-Skeleton task (t597_2): wires up the Textual app, sidebar navigation, manual
-refresh, and the TUI switcher. Pane widgets land in t597_3 and the config
-modal lands in t597_4. The sidebar is currently populated from a hardcoded
-stub list that t597_4 will replace with a config-driven layout.
+The sidebar is populated from `HARDCODED_LAYOUT`; t597_4 replaces this with
+a config-driven layout resolved from persisted preferences.
 """
 from __future__ import annotations
 
@@ -22,14 +20,14 @@ from textual.containers import Container, Horizontal  # noqa: E402
 from textual.widgets import Footer, Header, Label, ListItem, ListView, Static  # noqa: E402
 
 from lib.tui_switcher import TuiSwitcherMixin  # noqa: E402
+from stats.panes import PANE_DEFS  # noqa: E402
 from stats.stats_data import StatsData, collect_stats  # noqa: E402
 
-# Stub layout — t597_3 swaps for PANE_DEFS-driven panes, t597_4 swaps for
-# config-driven layout. Each entry is (pane_id, sidebar_label).
-STUB_PANES: list[tuple[str, str]] = [
-    ("overview.summary", "Summary"),
-    ("overview.daily", "Daily completions"),
-    ("overview.weekday", "Weekday distribution"),
+# Hardcoded layout — t597_4 replaces with config-driven resolution.
+HARDCODED_LAYOUT: list[str] = [
+    "overview.summary",
+    "overview.daily",
+    "overview.weekday",
 ]
 
 
@@ -68,14 +66,11 @@ class StatsApp(TuiSwitcherMixin, App):
         padding: 1 2;
     }
 
-    .pane_placeholder_title {
-        text-style: bold;
-        color: $accent;
-        padding: 0 0 1 0;
-    }
-
-    .pane_placeholder_body {
-        color: $text-muted;
+    .summary_card {
+        width: 1fr;
+        content-align: center middle;
+        padding: 1 2;
+        border: tall $accent;
     }
     """
 
@@ -91,7 +86,7 @@ class StatsApp(TuiSwitcherMixin, App):
         self.current_tui_name = "stats"
         self.stats_data: StatsData | None = None
         # t597_4 will replace with config.resolve_active_layout(config).
-        self.active_layout: list[tuple[str, str]] = list(STUB_PANES)
+        self.active_layout: list[str] = [pid for pid in HARDCODED_LAYOUT if pid in PANE_DEFS]
 
     # ─── Layout ────────────────────────────────────────────────────────────
 
@@ -100,8 +95,8 @@ class StatsApp(TuiSwitcherMixin, App):
         with Horizontal(id="main_container"):
             yield ListView(
                 *[
-                    ListItem(Label(label), id=_pane_id_to_widget_id(pane_id))
-                    for pane_id, label in self.active_layout
+                    ListItem(Label(PANE_DEFS[pid].title), id=_pane_id_to_widget_id(pid))
+                    for pid in self.active_layout
                 ],
                 id="sidebar",
             )
@@ -111,7 +106,7 @@ class StatsApp(TuiSwitcherMixin, App):
     def on_mount(self) -> None:
         self._load_data()
         if self.active_layout:
-            self._show_pane(self.active_layout[0][0])
+            self._show_pane(self.active_layout[0])
             sidebar = self.query_one("#sidebar", ListView)
             sidebar.index = 0
             sidebar.focus()
@@ -123,26 +118,16 @@ class StatsApp(TuiSwitcherMixin, App):
         # this from the persisted config.
         self.stats_data = collect_stats(date.today(), 1)
 
-    # ─── Pane rendering (stub — t597_3 replaces with PANE_DEFS dispatch) ──
+    # ─── Pane rendering ────────────────────────────────────────────────────
 
     def _show_pane(self, pane_id: str) -> None:
         content = self.query_one("#content", Container)
         content.remove_children()
-        label = next((lbl for pid, lbl in self.active_layout if pid == pane_id), pane_id)
-        content.mount(Static(label, classes="pane_placeholder_title"))
-        if self.stats_data is None:
-            content.mount(Static("(no data loaded yet)", classes="pane_placeholder_body"))
+        pane = PANE_DEFS.get(pane_id)
+        if pane is None or self.stats_data is None:
+            content.mount(Static("[dim]Pane unavailable[/dim]"))
             return
-        # Stub body: a couple of headline counters so the skeleton is visibly
-        # alive before t597_3 lands the real pane widgets.
-        body_lines = [
-            f"Total tasks completed: {self.stats_data.total_tasks}",
-            f"Completed in last 7 days: {self.stats_data.tasks_7d}",
-            f"Completed in last 30 days: {self.stats_data.tasks_30d}",
-            "",
-            "(real pane widgets land in t597_3)",
-        ]
-        content.mount(Static("\n".join(body_lines), classes="pane_placeholder_body"))
+        pane.render(self.stats_data, content)
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if event.item is not None and event.item.id is not None:
@@ -162,7 +147,7 @@ class StatsApp(TuiSwitcherMixin, App):
         sidebar = self.query_one("#sidebar", ListView)
         idx = sidebar.index if sidebar.index is not None else 0
         if 0 <= idx < len(self.active_layout):
-            self._show_pane(self.active_layout[idx][0])
+            self._show_pane(self.active_layout[idx])
         self.notify("Refreshed", timeout=1)
 
     def action_config(self) -> None:
