@@ -31,6 +31,13 @@ def _load_stats_module():
 
 stats = cast(Any, _load_stats_module())
 
+# After the data-extraction split (t597_1), constants TASK_DIR / ARCHIVE_DIR /
+# TASK_TYPES_FILE live in `stats.stats_data` and are re-exported from
+# `aitask_stats`. Tests that patch the constants must mutate the source module
+# so functions defined there (e.g. collect_stats, load_verified_rankings) pick
+# up the temp paths.
+stats_data_mod = cast(Any, sys.modules["stats.stats_data"])
+
 
 class TestWeekStart(unittest.TestCase):
     def test_resolve_week_start_prefix(self):
@@ -180,14 +187,19 @@ class TestCollection(unittest.TestCase):
         self.orig_archive_dir = stats.ARCHIVE_DIR
         self.orig_task_types = stats.TASK_TYPES_FILE
 
-        stats.TASK_DIR = self.base / "aitasks"
-        stats.ARCHIVE_DIR = stats.TASK_DIR / "archived"
-        stats.TASK_TYPES_FILE = stats.TASK_DIR / "metadata" / "task_types.txt"
+        new_task_dir = self.base / "aitasks"
+        new_archive_dir = new_task_dir / "archived"
+        new_task_types = new_task_dir / "metadata" / "task_types.txt"
+        for mod in (stats, stats_data_mod):
+            mod.TASK_DIR = new_task_dir
+            mod.ARCHIVE_DIR = new_archive_dir
+            mod.TASK_TYPES_FILE = new_task_types
 
     def tearDown(self):
-        stats.TASK_DIR = self.orig_task_dir
-        stats.ARCHIVE_DIR = self.orig_archive_dir
-        stats.TASK_TYPES_FILE = self.orig_task_types
+        for mod in (stats, stats_data_mod):
+            mod.TASK_DIR = self.orig_task_dir
+            mod.ARCHIVE_DIR = self.orig_archive_dir
+            mod.TASK_TYPES_FILE = self.orig_task_types
         self.tmp.cleanup()
 
     def test_collect_stats_includes_archived_and_tar(self):
@@ -444,10 +456,13 @@ class TestVerifiedRankings(unittest.TestCase):
         )
 
         self.orig_task_dir = stats.TASK_DIR
-        stats.TASK_DIR = self.base / "aitasks"
+        new_task_dir = self.base / "aitasks"
+        for mod in (stats, stats_data_mod):
+            mod.TASK_DIR = new_task_dir
 
     def tearDown(self):
-        stats.TASK_DIR = self.orig_task_dir
+        for mod in (stats, stats_data_mod):
+            mod.TASK_DIR = self.orig_task_dir
         self.tmp.cleanup()
 
     def test_load_verified_rankings_structure(self):
