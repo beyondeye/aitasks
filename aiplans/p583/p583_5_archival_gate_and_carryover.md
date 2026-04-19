@@ -260,3 +260,88 @@ Test cases:
 Per `.claude/skills/task-workflow/SKILL.md`. Commit message:
 `feature: Add archival gate and carry-over for manual-verification (t583_5)`.
 Plan file commits use the `ait:` prefix.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-04-19 — extend scope to fix pre-existing failing tests)
+
+- **Requested by user:** While running the adjacent archive tests as part of
+  the verification step, both `tests/test_archive_folded.sh` and
+  `tests/test_archive_related_issues.sh` failed on clean main with silent
+  early exit. Root cause: their `setup_archive_project()` helpers copy
+  `task_utils.sh` but not the libraries it transitively sources
+  (`archive_utils.sh` at `task_utils.sh:14`) nor the one
+  `aitask_archive.sh` sources directly (`agentcrew_utils.sh` at
+  `aitask_archive.sh:31`). User asked to extend the task's scope and fix
+  these alongside the main implementation.
+- **Changes made:** Added `cp .../lib/archive_utils.sh` and
+  `cp .../lib/agentcrew_utils.sh` to both `setup_archive_project()` helpers
+  after the existing `task_utils.sh` copy. No other test changes; the test
+  logic itself was already correct. Both tests now pass:
+  - `tests/test_archive_folded.sh` → 8/8 passed
+  - `tests/test_archive_related_issues.sh` → 18/18 passed
+- **Files affected:**
+  - `tests/test_archive_folded.sh`
+  - `tests/test_archive_related_issues.sh`
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `.aitask-scripts/aitask_archive.sh`: added `WITH_DEFERRED_CARRYOVER`
+    config + `--with-deferred-carryover` flag, two new helpers
+    (`verification_gate_and_carryover` and `create_carryover_task`), hooked
+    the gate into `main()` before dispatch, and expanded `show_help()` with
+    the new flag, a new `CARRYOVER_CREATED:` output line, and an `Exit codes`
+    block documenting `0/1/2` semantics.
+  - `tests/test_archive_verification_gate.sh` (new, 34 assertions across
+    7 scenarios): pending-blocks, deferred-without-flag, all-terminal,
+    non-manual_verification no-op, missing-checklist no-op, carry-over
+    success (with a stubbed `aitask_create.sh` so the test stays hermetic —
+    no remote counter), and child-task gate.
+  - `tests/test_archive_folded.sh` + `tests/test_archive_related_issues.sh`:
+    fixed pre-existing silent failures (see Post-Review Changes above).
+- **Deviations from plan:**
+  - Added `[[ "$DRY_RUN" == true ]]` guard inside the gate's
+    carry-over branch so `--dry-run` reports the intent without writing
+    files. The original plan did not mention dry-run semantics.
+  - In `create_carryover_task`, used the project's `task_git` helper (from
+    `task_utils.sh`) instead of a raw `./ait git` call — `task_git` is what
+    `aitask_archive.sh` already uses everywhere else, keeps the data-branch
+    abstraction, and is gated by `NO_COMMIT`.
+  - One test-only tweak: the carry-over checklist assertion uses `\[ \]`
+    instead of `- \[ \]` because the leading dash confuses `grep -q` into
+    treating the pattern as a flag.
+- **Issues encountered:**
+  - `test_archive_folded.sh` / `test_archive_related_issues.sh` exit 1 on
+    clean main because their `setup_archive_project()` helpers don't copy
+    `archive_utils.sh` (sourced by `task_utils.sh:14`) or `agentcrew_utils.sh`
+    (sourced directly by `aitask_archive.sh:31`). Fixed both under the
+    Post-Review Changes scope extension.
+  - `aitask_create.sh --batch --commit` hard-fails in batch mode when the
+    atomic ID counter isn't reachable, so it's not drop-in usable inside a
+    hermetic test repo. Worked around by stubbing `aitask_create.sh` in the
+    test harness for the carry-over test only.
+- **Key decisions:**
+  - Placed the gate in `main()` before dispatch rather than inside
+    `archive_parent()` / `archive_child()`. This keeps the gate a single
+    location, and is sufficient because `main()` is invoked once per archive.
+    Known limitation documented in the plan: when `archive_child()` triggers
+    an implicit parent archival for the last child, the *parent* is not
+    re-gated. Parent tasks carrying a `## Verification Checklist` are rare;
+    t583_9 (meta-dogfood) will exercise that path if it matters.
+  - Kept the seed-and-commit for the carry-over task split into two commits
+    (`aitask_create.sh --commit` does one, then we commit the seeded body
+    with `ait: Seed carry-over checklist on t<id>`). t583_7's
+    `aitask_create_manual_verification.sh` will later merge these into one.
+- **Notes for sibling tasks:**
+  - The `CARRYOVER_CREATED:<task_id>:<path>` output line is a new structured
+    output. Any downstream consumer of `aitask_archive.sh` output (e.g.,
+    task-workflow Step 9 dispatcher) that wants to surface the carry-over
+    to the user should parse this line. Not yet wired into SKILL.md — t583_4
+    / t583_8 should do that.
+  - The gate exits **2** (not 1) on verification failure. Callers should
+    distinguish exit codes: 2 = "user needs to finish verification", 1 =
+    "genuine error".
+  - The in-test stub for `aitask_create.sh` can be reused by other sibling
+    tests that want to exercise `create_carryover_task` behavior without
+    depending on the real task creation pipeline.
