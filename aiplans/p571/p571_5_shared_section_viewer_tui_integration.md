@@ -237,3 +237,26 @@ __all__ = [
 Follow Step 9 from the shared workflow for commit, archival, and push. After archival, hand off to sibling tasks t571_8 / t571_9 / t571_10 for TUI integration.
 
 <!-- /section: post_implementation -->
+
+<!-- section: final_implementation_notes [dimensions: retrospective] -->
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `.aitask-scripts/lib/section_viewer.py` (326 LOC) exporting the four widget classes (`SectionRow`, `SectionMinimap`, `SectionAwareMarkdown`, `SectionViewerScreen`) plus the `estimate_section_y` helper and convenience re-exports of `parse_sections`/`ParsedContent`/`ContentSection`. Module self-inserts `parent.parent` on `sys.path` so the brainstorm parser imports cleanly regardless of the host TUI's sys.path setup.
+- **Deviations from plan:**
+  - `_focus_sibling_row` helper was implemented inline in `section_viewer.py` instead of reusing `history_list._focus_neighbor` — keeps the lib module self-contained and avoids a dependency on the codebrowser tree.
+  - `SectionViewerScreen.action_focus_minimap` guard uses `focused is not content and focused not in content.walk_children()` rather than a simple identity check, so focus-on-descendants of the `SectionAwareMarkdown` (e.g., the inner `Markdown(id="section_md")`) still counts as "in content pane".
+  - Initial focus in `SectionViewerScreen.on_mount` goes to the minimap when sections are present, otherwise to content — keeps first-use keyboarding predictable.
+- **Issues encountered:**
+  - Pilot-test `enter` assertion initially failed because `SectionViewerScreen.on_section_minimap_section_selected` calls `event.stop()`, which prevents bubble to the `App`. Fixed in the test by subclassing and hooking at the screen level. No fix needed in production code — the stop is correct (the screen owns the scroll behavior).
+- **Key decisions:**
+  - `SectionMinimap` emits `ToggleFocus` as a Message rather than directly calling `focus_next()` so hosts can route focus to their specific companion widget (which is different in each TUI).
+  - `estimate_section_y` is exposed at module level (not as a method of `SectionAwareMarkdown`) so hosts that wrap a plain `Markdown` (codebrowser `DetailPane` in t571_8) can reuse the line-ratio math.
+  - `SectionRow.on_key` does NOT handle `tab` — lets Tab bubble up to `SectionMinimap.BINDINGS` so the `ToggleFocus` message fires.
+- **Notes for sibling tasks:**
+  - **Widget API contract for t571_8/9/10:** Import from `section_viewer`. Sibling tasks should (a) parse plan content with `parse_sections(text)`, (b) only mount a `SectionMinimap` when `parsed.sections` is non-empty, (c) handle `SectionMinimap.SectionSelected` (scroll content) and `SectionMinimap.ToggleFocus` (focus companion), and (d) add their own screen-level `Binding("tab", "focus_minimap", ...)` with a `SkipAction` guard that only fires when their companion content widget has focus AND a minimap is mounted. The guard is load-bearing — without it Tab would hijack form/file-tree navigation in the host.
+  - **Section position math:** call `estimate_section_y(parsed, name, text.count('\n') + 1, scroll.virtual_size.height)`. Cache `parsed` and the raw text on the host instance to avoid re-parsing on each minimap click.
+  - **Focus-return-index:** `SectionMinimap` tracks `_last_focused_row_index` via `on_descendant_focus`. When hosts call `focus_first_row()` from their Tab-back handler, the minimap returns to the last-highlighted row (not the first). This is the expected UX — users who tab out mid-scroll return to their reading position.
+  - **Dogfood test fixture:** this plan file itself contains 14 sections across 7 dimensions. Once the TUIs integrate, they can load this plan to verify real-world behavior with multiple dimension tags per row.
+
+<!-- /section: final_implementation_notes -->
