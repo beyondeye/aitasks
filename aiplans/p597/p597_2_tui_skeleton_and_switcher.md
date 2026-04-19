@@ -6,6 +6,8 @@ Archived Sibling Plans: aiplans/archived/p597/p597_*_*.md
 Worktree: (no worktree — current branch)
 Branch: main
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7 @ 2026-04-19 18:31
 ---
 
 # Plan: t597_2 — TUI skeleton + dispatcher + switcher integration
