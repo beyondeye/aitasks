@@ -34,15 +34,15 @@ A task ID argument is **required** — there is no interactive task browsing.
 ## Step-by-Step
 
 1. **Initialize data branch** — Ensures aitask-data worktree and symlinks are ready (required when `ait setup` hasn't been run). No-op for legacy repos
-2. **Load execution profile** — Auto-selects a profile (prefers one named `remote`; falls back to first available). Profile is required — aborts if none found
-3. **Resolve task file** — Validates the task ID argument, loads the task file. Parent tasks with children are rejected (must specify a child ID directly)
+2. **Profile selection** — Auto-selects a profile (prefers one named `remote`; falls back to first available). Profile is required — aborts if none found
+3. **Task resolution** — Validates the task ID argument, loads the task file. Parent tasks with children are rejected (must specify a child ID directly)
 4. **Sync with remote** — Best-effort sync to pick up changes from other machines
 5. **Task status checks** — Detects Done-but-unarchived tasks and orphaned parents. Handles them based on profile settings (`done_task_action`, `orphan_parent_action`)
-6. **Assign task** — Non-interactive email resolution (from task metadata → userconfig → profile). Claims ownership and acquires lock. Stale locks can be auto-force-unlocked via `force_unlock_stale` profile setting
+6. **Assignment** — Non-interactive email resolution (from task metadata → userconfig → profile). Claims ownership and acquires lock. Stale locks can be auto-force-unlocked via `force_unlock_stale` profile setting
 7. **Environment setup** — Always works on the current branch (no worktree/branch management)
-8. **Create implementation plan** — Uses `EnterPlanMode`/`ExitPlanMode` for plan creation and **user approval** (plan approval is always interactive and cannot be skipped by profiles). Can verify existing plans or create new ones. Always implements as single task (no child creation in remote mode)
-9. **Implement and auto-commit** — Follows the approved plan, runs tests and build verification, stages all changes, and commits with the standard `<issue_type>: <description> (t<task_id>)` format
-10. **Archive and push** — Archives task and plan files, handles linked issues per profile setting, pushes to remote
+8. **Planning** — Uses `EnterPlanMode`/`ExitPlanMode` for plan creation and **user approval** (plan approval is always interactive and cannot be skipped by profiles). Can verify existing plans or create new ones. Always implements as single task (no child creation in remote mode)
+9. **Implementation (auto-commit)** — Follows the approved plan, runs tests and build verification, stages all changes, and commits with the standard `<issue_type>: <description> (t<task_id>)` format
+10. **Post-implementation (archive and push)** — Archives task and plan files, handles linked issues per profile setting, pushes to remote
 
 ### Abort Handling
 

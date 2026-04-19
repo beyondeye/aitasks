@@ -30,7 +30,7 @@ From this point on every aitasks TUI is one keystroke away. `ait ide` is the onl
 
 ## 2. Jump to the board with `j`
 
-Press **`j`** anywhere in the monitor. The **TUI switcher** dialog appears, listing the main TUIs (`board`, `monitor`, `codebrowser`, `settings`) plus any running code agent windows and brainstorm sessions grouped underneath. Select **board** and the switcher opens (or focuses) the `ait board` window inside the same tmux session.
+Press **`j`** inside the monitor to open the **TUI switcher** dialog. The switcher lists the main TUIs (`board`, `monitor`, `codebrowser`, `settings`) plus any running code agent windows and brainstorm sessions grouped underneath. Select **board** and the switcher opens (or focuses) the `ait board` window inside the same tmux session.
 
 <!-- TODO screenshot: aitasks_tui_switcher_dialog.svg — the TUI switcher dialog opened from the monitor -->
 

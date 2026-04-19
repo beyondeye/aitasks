@@ -9,7 +9,7 @@ description: "Install aitasks and configure your development environment"
 
 > **macOS prerequisite:** [Homebrew](https://brew.sh) is required. Install it first if you haven't — `ait setup` uses it to install bash 5, Python 3, coreutils, and CLI tools.
 
-> **Important: Run from your project root.** The curl command (and `ait setup`) must be run from the root directory of your project — the directory that contains the `.git` folder. aitasks stores task files, plans, and configuration inside your repository, and relies on git for task IDs, locking, syncing, and archival. Installing in a subdirectory or a non-git directory will not work correctly.
+> **Run from the project root.** aitasks expects to be invoked from the directory containing `.git/` — the root of your project's git repository. The curl command (and `ait setup`) must be run from there. aitasks stores task files, plans, and configuration inside your repository and relies on git for task IDs, locking, syncing, and archival. Installing in a subdirectory or a non-git directory will not work correctly.
 
 Install into your project directory (the git repository root):
 

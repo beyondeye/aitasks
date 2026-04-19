@@ -14,7 +14,7 @@ Three profiles ship by default:
 | Profile | Behavior |
 |---------|----------|
 | `default` | Standard interactive workflow — every question is asked. |
-| `fast` | Minimal prompts — skip confirmations, use the existing plan when present, stop after plan approval. |
+| `fast` | Minimal prompts — skip confirmations, use the existing plan when present, pause for confirmation after plan approval. |
 | `remote` | Fully autonomous — no interactive prompts, suitable for Claude Code Web. |
 
 Per-skill defaults can be set in `userconfig.yaml` or `project_config.yaml` so that, for example, `/aitask-pick` always loads `fast` for you without having to pass `--profile`.

@@ -7,7 +7,7 @@ description: "Markdown files with YAML frontmatter — the core unit of work in 
 
 ## What it is
 
-A **task** is a single markdown file in `aitasks/` named `t<N>_<short_name>.md` (for example `aitasks/t130_add_login.md`). The file has a YAML frontmatter block — fields like `priority`, `effort`, `depends`, `status`, `labels`, `assigned_to`, `issue_type`, `boardcol` — and a free-form markdown body that describes the work. Tasks persist exactly the same way source code does: as files committed to git. Every CLI command, TUI, and code agent skill operates on those files directly.
+A **task** is a markdown file with YAML frontmatter in the `aitasks/` directory, named `t<N>_<short_name>.md` (for example `aitasks/t130_add_login.md`). The frontmatter block carries fields like `priority`, `effort`, `depends`, `status`, `labels`, `assigned_to`, `issue_type`, `boardcol`; the free-form markdown body describes the work. Tasks persist exactly the same way source code does: as files committed to git. Every CLI command, TUI, and code agent skill operates on those files directly.
 
 ## Why it exists
 

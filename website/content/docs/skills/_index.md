@@ -11,7 +11,7 @@ _Claude Code / Codex CLI / Gemini CLI / OpenCode (agent availability depends on 
 
 > **Multi-agent support:** Codex CLI and Gemini CLI wrappers are installed in `.agents/skills/`; OpenCode wrappers are installed in `.opencode/skills/`. Invoke skills with `/aitask-pick`, `/aitask-create`, etc. in Claude Code, Gemini CLI, and OpenCode, or with `$aitask-pick`, `$aitask-create`, etc. in Codex CLI. Run `ait setup` to install the wrappers detected for your agent. Interactive Codex skills require **plan mode** because `request_user_input` is only available there; OpenCode uses native `skill` and native `ask`, so this caveat does not apply there. However, if OpenCode is launched in plan mode, its read-only tool restriction may cause task locking to be skipped — see [Known Issues]({{< relref "/docs/installation/known-issues" >}}).
 
-> **Important: Run from the project root directory.** All skills use relative paths (e.g., `./.aitask-scripts/aitask_ls.sh`) and expect to start from the project root (the directory containing `ait` and `.aitask-scripts/`). Launching an agent from a subdirectory can break path-based permissions and wrapper assumptions, and in Claude Code it will also trigger repeated permission prompts. Always `cd` to the project root before launching your agent.
+> **Run from the project root.** aitasks expects to be invoked from the directory containing `.git/` — the root of your project's git repository. All skills use relative paths (e.g., `./.aitask-scripts/aitask_ls.sh`) and expect to start there. Launching an agent from a subdirectory can break path-based permissions and wrapper assumptions, and in Claude Code it will also trigger repeated permission prompts. Always `cd` there before launching your agent.
 
 ## Skill Overview
 

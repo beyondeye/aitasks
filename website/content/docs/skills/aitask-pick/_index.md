@@ -23,7 +23,7 @@ The central skill of the aitasks framework. This is a full development lifecycle
 1. **Profile selection** — Loads an execution profile from `aitasks/metadata/profiles/` to pre-answer skill questions and reduce prompts. See [Execution Profiles](execution-profiles/) for the profile schema and examples
 2. **Task selection** — Shows a prioritized list of tasks (sorted by priority, effort, blocked status) with pagination, or jumps directly to a task when a number argument is provided
 3. **Child task handling** — When a parent task with children is selected, drills down to show child subtasks. Gathers context from archived sibling plan files so each child task benefits from previous siblings' implementation experience
-4. **Status checks** — Detects edge cases: tasks marked Done but not yet archived, and orphaned parent tasks where all children are complete. Offers to archive them directly
+4. **Task status checks** — Detects edge cases: tasks marked Done but not yet archived, and orphaned parent tasks where all children are complete. Offers to archive them directly
 5. **Assignment** — Tracks who is working on the task via email, sets status to "Implementing", commits and pushes the status change
 6. **Environment setup** — Optionally creates a separate git branch and worktree (`aiwork/<task_name>/`) for isolated implementation, or works directly on the current branch
 7. **Planning** — Enters the agent planning flow to explore the codebase and create an implementation plan. If a plan already exists, offers three options: use as-is, verify against current code, or create from scratch. Complex tasks can be decomposed into child subtasks during this phase

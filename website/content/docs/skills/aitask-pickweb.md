@@ -50,12 +50,12 @@ A task ID argument is **required** — there is no interactive task browsing.
 ## Step-by-Step
 
 1. **Initialize data branch** — Ensures aitask-data worktree and symlinks are ready (required when `ait setup` hasn't been run). No-op for legacy repos
-2. **Load execution profile** — Auto-selects a profile (prefers one named `remote`; falls back to first available). Profile is required — aborts if none found
-3. **Resolve task file** — Validates the task ID argument, loads the task file. Parent tasks with children are rejected (must specify a child ID directly). For child tasks, gathers sibling context from archived plan files
+2. **Profile selection** — Auto-selects a profile (prefers one named `remote`; falls back to first available). Profile is required — aborts if none found
+3. **Task resolution** — Validates the task ID argument, loads the task file. Parent tasks with children are rejected (must specify a child ID directly). For child tasks, gathers sibling context from archived plan files
 4. **Read-only lock check** — Informational only. Reports if another user has the task locked, but always proceeds regardless. Does not acquire or modify locks
 5. **Task status checks** — Detects Done-but-unarchived tasks and orphaned parents. Unlike `/aitask-pickrem`, these cases abort with a message to use `/aitask-web-merge` locally (since archival requires cross-branch operations)
-6. **Create implementation plan** — Uses `EnterPlanMode`/`ExitPlanMode` for plan creation and **user approval** (plan approval is always interactive and cannot be skipped). Plan is saved to `.aitask-data-updated/plan_t<task_id>.md`. Always implements as single task (no child creation in web mode)
-7. **Implement** — Follows the approved plan, runs tests and build verification if configured
+6. **Planning** — Uses `EnterPlanMode`/`ExitPlanMode` for plan creation and **user approval** (plan approval is always interactive and cannot be skipped). Plan is saved to `.aitask-data-updated/plan_t<task_id>.md`. Always implements as single task (no child creation in web mode)
+7. **Implementation** — Follows the approved plan, runs tests and build verification if configured
 8. **Auto-commit** — Stages all changes (including `.aitask-data-updated/` files), commits with the standard `<issue_type>: <description> (t<task_id>)` format
 9. **Write completion marker** — Creates `.aitask-data-updated/completed_t<task_id>.json` as the signal for `/aitask-web-merge` to detect and process this branch
 

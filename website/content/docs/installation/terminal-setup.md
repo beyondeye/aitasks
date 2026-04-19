@@ -35,7 +35,7 @@ Here's what happens under the hood:
 
 1. `ait ide` reads the tmux session name from `aitasks/metadata/project_config.yaml` under `tmux.default_session` (defaults to `aitasks` if unset), then attaches to — or creates — a tmux session with that exact name. Because the session name is always explicit, `ait monitor` never has to fall back to its interactive `SessionRenameDialog` on the happy path.
 2. A `monitor` window is created (or focused) inside the session, running [`ait monitor`](../../tuis/monitor/). From the monitor you get a live dashboard of running code agents, open TUIs, and other panes in the session.
-3. Inside any aitasks TUI — `ait board`, `ait monitor`, `ait minimonitor`, `ait codebrowser`, `ait settings`, `ait brainstorm` — pressing **`j`** opens the **TUI switcher** dialog, which lets you jump directly to any of the other TUIs without leaving tmux.
+3. Press **`j`** inside any main aitasks TUI (`ait board`, `ait monitor`, `ait minimonitor`, `ait codebrowser`, `ait settings`, `ait brainstorm`) to open the **TUI switcher** dialog and jump to another TUI without leaving tmux.
 
 <!-- TODO screenshot: aitasks_ait_ide_startup.svg — the monitor dashboard immediately after running `ait ide` -->
 

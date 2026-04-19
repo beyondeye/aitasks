@@ -17,7 +17,7 @@ In your project directory (the root of the git repository, where `.git/` lives):
 curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash
 ```
 
-> **Why the project root?** aitasks is tightly integrated with git — it uses git branches for task IDs, locking, and syncing. Task and plan files are committed to your repository. Always run the installer and `ait setup` from the root directory of the git repo where you want to manage tasks.
+> **Run from the project root.** aitasks expects to be invoked from the directory containing `.git/` — the root of your project's git repository. aitasks is tightly integrated with git — it uses git branches for task IDs, locking, and syncing, and task and plan files are committed to your repository. Always run the installer and `ait setup` from there.
 
 Then run the setup to install dependencies and configure supported agent integrations:
 
@@ -38,7 +38,7 @@ ait ide
 
 `ait ide` attaches to (or creates) a tmux session and opens the **monitor** TUI — the dashboard for all running code agents, open TUIs, and other panes in your session. Every command in the rest of this guide assumes you are running inside the tmux session started by `ait ide`.
 
-From any main TUI, press **`j`** to open the **TUI switcher** dialog and jump directly to `ait board`, `ait monitor`, `ait codebrowser`, `ait settings`, or a running code agent window without leaving tmux.
+Press **`j`** inside any main TUI to open the **TUI switcher** dialog and jump directly to `ait board`, `ait monitor`, `ait codebrowser`, `ait settings`, or a running code agent window without leaving tmux.
 
 > Can't use tmux? See the [minimal / non-tmux workflow](../installation/terminal-setup/#minimal--non-tmux-workflow) in the Terminal Setup page for the fallback path.
 
