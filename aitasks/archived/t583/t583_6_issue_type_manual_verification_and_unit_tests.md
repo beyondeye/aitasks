@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: [t583_1, t583_2, t583_3]
 issue_type: test
-status: Implementing
+status: Done
 labels: [framework, skill, task_workflow, verification, testing]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-19 08:29
-updated_at: 2026-04-19 14:48
+updated_at: 2026-04-19 15:23
+completed_at: 2026-04-19 15:23
 ---
 
 ## Context
