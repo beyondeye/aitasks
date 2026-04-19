@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t585_1]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [web_site, positioning]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-19 11:17
-updated_at: 2026-04-19 12:45
+updated_at: 2026-04-19 13:47
+completed_at: 2026-04-19 13:47
 ---
 
 ## Context
