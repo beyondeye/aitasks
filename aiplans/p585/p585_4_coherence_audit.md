@@ -96,3 +96,19 @@ No edits in this step; it only validates that Steps 1–2 landed cleanly.
 ## Step 9 (Post-Implementation)
 
 Standard task-workflow Step 9: review → commit doc files using `git`, commit plan file using `./ait git`, archive with `./.aitask-scripts/aitask_archive.sh 585_4`, push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Two surgical edits as planned.
+  1. `website/content/about/_index.md` line 21 — replaced the "Inspired by [Conductor]…and [Beads]…" sentence with a paragraph that ties the repository-centric story directly to the new "agentic IDE in the terminal" positioning ("tasks, plans, review guides, long-term memory, and workflow automation all live inside the project repository itself … the codebase becomes the single source of truth for both the code and the agent's working context").
+  2. `website/content/docs/_index.md` line 10 — replaced "AI-powered task management for multi-agent development workflows" with "an agentic IDE in your terminal with task management, git-integrated workflows, code review, and multi-agent orchestration."
+- **Deviations from plan:** None of substance. The plan's Verification Findings (pre-implementation) section already pruned the work to these two spots, and the implementation matched 1:1.
+- **Issues encountered:** None. `hugo --gc --minify` produced 148 pages with zero errors and zero broken refs after the edits. Both confirmation greps (`Conductor|Beads`, `Speckit|spec-kit`) return zero matches in `website/content/`.
+- **Key decisions:**
+  - Rewrote the about-page paragraph rather than just deleting the sentence, so the "no external services / no databases / no daemons" payload survives — that line is the positioning bridge to the rest of the page.
+  - Kept the `docs/_index.md` line as a single sentence (not a manifesto) since it's a section description, not landing copy.
+- **Notes for sibling tasks (t585_5 README revamp):**
+  - **Conductor/Beads/Speckit are now zero across `website/content/`.** When revamping `README.md`, do the same removal sweep on the README itself — those references likely still exist there.
+  - The canonical positioning vocabulary established by t585_1 → t585_4 is captured in this plan's "Canonical Positioning Vocabulary" section above. Reuse those exact phrases in the README to keep README/website tonally identical.
+  - The about page now contains a self-contained 3-paragraph origin story (Intent Transfer → Light Spec → agentic IDE in the terminal). The README's "What is aitasks?" / origin section can pull from this directly without needing fresh copy.
+  - Pre-existing uncommitted change in `.aitask-scripts/aitask_archive.sh` was unrelated to this task and was deliberately left out of the commit.
