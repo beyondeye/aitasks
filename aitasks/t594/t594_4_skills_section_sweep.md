@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [t594_2]
 issue_type: documentation
 status: Ready
 labels: []
 created_at: 2026-04-19 17:11
-updated_at: 2026-04-19 17:11
+updated_at: 2026-04-19 17:12
 ---
 
 Child of t594. Sweep the 27 pages under `website/content/docs/skills/`. Depends on t594_2 so canonical wording for pick/pickrem/pickweb is already set.

@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t594_2]
 issue_type: documentation
 status: Ready
 labels: []
