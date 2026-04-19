@@ -135,3 +135,13 @@ The README already uses GitHub badges at the top (stargazers / last-commit / iss
 ## Step 9 (Post-Implementation)
 
 Standard task-workflow Step 9: review → commit `README.md` using regular `git`, commit plan file using `./ait git`, archive with `./.aitask-scripts/aitask_archive.sh 585_5`, push. Parent task t585 will auto-archive after this child completes (it is the last child).
+
+## Final Implementation Notes
+
+- **Actual work done:** `README.md` restructured in-place (15 insertions / 35 deletions). Tagline (line 8) replaced with the landing-page canonical "A full agentic IDE in your terminal. File-based, git-native, multi-agent." Intro paragraph (line 20) reframed to lead with "A full agentic IDE in your terminal — kanban board, code browser, agent monitoring, and AI-enhanced git workflows" and retains the 4-agent supported-agents list. Conductor/Beads "Inspired by" line removed entirely. 🎯 The Challenge trimmed to one tight paragraph anchored on intent transfer. 💡 Core Philosophy trimmed to intro sentence + 2 bullets, Speckit reference removed. 🏗️ Key Features & Architecture replaced end-to-end with the 6-theme block mirroring the landing page (Agentic IDE / Long-term memory / Tight git coupling / Task decomposition / AI-enhanced code review / Multi-agent support with verified scores). Dual-Mode CLI preserved as a distinct bullet under the 6-theme block (per sibling t585_3 precedent). Battle tested + Fully customizable workflow closing bullets retained and trimmed. "Claude Code optimized." standalone line removed (folded into theme 6). Platform Support table, Quick Install, What Gets Installed, Documentation, License — all untouched.
+- **Deviations from plan:** None. All 9 steps executed exactly as planned. Step 8 (GitHub CTA refresh) was no-op as expected — the README already uses badges for GitHub links, no prose CTA needed adjustment.
+- **Issues encountered:** None. Conductor/Beads/Speckit grep returns zero matches. All relative links, image srcsets, and badges remain intact. Emoji section-header style preserved (🎯 💡 🏗️ 🖥️ ⚡ 📦 📖 📄).
+- **Key decisions:**
+  - Retained the 🏗️ section header from the original README and added theme-specific emojis (🖥️, 🧠, 🔀, 🧩, 🔍, 🤖) to each bullet label for visual rhythm, consistent with the landing page's emoji-decorated style.
+  - Kept the "Built for maximizing development speed 🚀 AND human-to-agent intent transfer efficiency 💬" tagline below the intro paragraph — it's core positioning copy and survived sibling edits.
+- **Notes for sibling tasks:** None — this is the last child of t585. Parent auto-archives after this task completes.
