@@ -130,3 +130,31 @@ The `menu.main.weight: 25` is set in `_index.md` frontmatter from Step 1.
 ## Step 9 (Post-Implementation)
 
 Standard task-workflow Step 9: review → commit doc files using `git`, commit plan file using `./ait git`, archive with `./.aitask-scripts/aitask_archive.sh 585_2`, push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `website/content/docs/concepts/` with `_index.md` + 12 concept pages (tasks, plans, parent-child, folded-tasks, review-guides, execution-profiles, verified-scores, agent-attribution, locks, task-lifecycle, git-branching-model, ide-model, agent-memory). Each page follows the What/Why/How/See-also template, ≤80 lines. Added "See also: Concepts" cross-links to 4 existing pages (workflows/task-decomposition, workflows/parallel-development, workflows/tmux-ide, skills/aitask-fold). Total addition: 405 lines under `concepts/` plus 7 lines of cross-links elsewhere.
+- **Deviations from plan:** (1) Dropped the planned `menu.main.weight: 25` from `_index.md` because `blog/_index.md` already uses `weight: 25` (collision). The convention used by sibling docs subsections (workflows, skills, commands, development, tuis) is to omit `menu.main` entirely and rely on the docs sidebar — Concepts now follows that convention. Plan's verification report incorrectly claimed those subsections had top-nav entries; verified directly that they do not. (2) After user review, applied 4 content fixes (see Post-Review Changes). The fixes affected only 4 of the 13 new files; the remaining 9 pages were accepted as written.
+- **Issues encountered:** None at build time. The user review caught conceptual drift in the original draft — initial `tasks.md` recommended `/aitask-create` as the primary entry point, but the user clarified `ait create` (TUI-launched) is the recommended path with `/aitask-create` being one of many options. Reframed accordingly. Similarly, `git-branching-model.md` and `ide-model.md` initially over-emphasized terms ("branch mode", "fixed layout") that the user does not consider primary framing. The replacement framing in both is now driven by the actual implementation rather than legacy/historical wording.
+- **Key decisions:**
+  - Concept pages link to canonical docs via absolute `relref` (`/docs/...`), matching t585_1's convention.
+  - Three concept pages without canonical website docs (`plans`, `agent-attribution`, `task-lifecycle`) link to GitHub source files via plain markdown links rather than fabricating relrefs to non-existent pages.
+  - `folded-tasks.md` uses "merged into" / "incorporated" language exclusively, never "superseded" / "replaced", per the `feedback_folded_semantics` memory.
+- **Notes for sibling tasks:**
+  - **t585_3 (overview rewrite):** can now relref into `/docs/concepts/*` for definitional content. The 13 concept pages cover: tasks, plans, parent-child, folded-tasks, review-guides, execution-profiles, verified-scores, agent-attribution, locks, task-lifecycle, git-branching-model, ide-model, agent-memory. Whatever the rewritten overview cites conceptually, it can link there instead of redefining inline.
+  - **t585_4 (coherence audit):** when scanning website for stale concepts/inconsistent terms, check that doc pages match the concept-page framing — particularly for "folded" (always "merged"/"incorporated", never "superseded"/"replaced") and "branching model" (treat the multi-branch layout as default, not as a special "branch mode").
+  - **menu.main weight collision pattern:** before adding `menu.main.weight` to any new section index, run `grep -A2 "^menu:" website/content/**/_index.md` to verify the chosen weight is unused. The verification report I received earlier missed this and led to the deviation above. Better to subsection-default (no top-nav entry) unless top-level visibility is explicitly required.
+  - **`relref` style:** use absolute form `{{< relref "/docs/<section>/<page>" >}}` consistently. This is established by t585_1 + t585_2 and is the only form that resolves cleanly from any nesting depth.
+  - **Hugo build is fast and strict:** `cd website && hugo --gc --minify` finishes in ~700ms and errors on any broken `relref`. Use it as the verification gate after any docs change.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-04-19 13:30)
+
+- **Requested by user:** Tighten and correct four concept pages: (1) section index intro is too verbose/repetitive, (2) `tasks.md` "no separate database" framing is unclear and `/aitask-create` is wrongly recommended, (3) `git-branching-model.md` should not lead with "branch mode" (which is the default), (4) `ide-model.md` should not say "fixed layout" — the IDE is organized by tmux window-naming convention.
+- **Changes made:**
+  - `_index.md`: collapsed two-paragraph intro into one short sentence pointing at Workflows/Skills/Commands.
+  - `tasks.md`: reframed persistence as "tasks persist exactly the same way source code does: as files committed to git"; rewrote "How to use" to point at `ait create` (TUI-launched), `/aitask-explore`, `/aitask-wrap`, `/aitask-pr-import`, and the Capturing-ideas + Create-tasks-from-code workflow pages — `/aitask-create` no longer surfaced.
+  - `git-branching-model.md`: dropped "branch mode" / "legacy mode" framing; lead now states the multi-branch layout as the default; legacy fallback noted parenthetically at end.
+  - `ide-model.md`: removed "fixed layout" wording; lead now describes the reserved tmux window names (`monitor`, `board`, `codebrowser`, `settings`, `brainstorm`, `agent-<n>`) and how the integrated TUIs look up windows by name. `ait ide` reframed as a bootstrapper, not the only entry point.
+- **Files affected:** `website/content/docs/concepts/_index.md`, `website/content/docs/concepts/tasks.md`, `website/content/docs/concepts/git-branching-model.md`, `website/content/docs/concepts/ide-model.md`. Hugo strict build re-verified clean (148 pages, 0 errors).
