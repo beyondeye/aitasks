@@ -266,3 +266,41 @@ Step 9 (Post-Implementation) — commit/archive/push follows the standard workfl
 - Persistence (t597_4).
 - Removing `--plot` (t597_5).
 - Cross-pane visual QA (t597_6).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Added `.aitask-scripts/stats/panes/` package (6 files):
+    - `base.py` — `PaneDef` frozen dataclass, `PANE_DEFS` registry, `register()` helper, `render_chart(setup_fn, container, width=100, height=22)` (handles plotext import error, figure lifecycle, ANSI→`Text.from_ansi()`→`Static`), and `empty_state(container, message)` placeholder helper.
+    - `__init__.py` — re-exports `PANE_DEFS`/`PaneDef` and side-effect-imports the four category modules so `register()` fires at package import.
+    - `overview.py` — `overview.summary` (Horizontal of 4 counter cards using Rich markup `[bold]N[/bold]\n[dim]Label[/dim]`), `overview.daily` (line chart, 30 days, categorical x-positions + tick subsampling every 3), `overview.weekday` (bar chart, 7 weekdays starting Monday).
+    - `labels.py` — `labels.top` (horizontal bar of top 10 labels by `label_counts_total`), `labels.issue_types` (bar of `type_week_counts[(issue_type, 0)]` across `get_valid_task_types()`), `labels.heatmap` (zebra-striped `DataTable` of top 10 labels × 4 weeks).
+    - `agents.py` — `agents.per_agent` (bar via `chart_totals(codeagent_week_counts, codeagent_display_name, range(4))`), `agents.per_model` (horizontal bar via `chart_totals(model_week_counts, model_display_names.get, range(4), limit=10)`), `agents.verified` (zebra-striped `DataTable` from `load_verified_rankings()` for first operation × all-providers × all-time).
+    - `velocity.py` — `velocity.daily` (line, 30d), `velocity.rolling` (two-series line with 7-day trailing average), `velocity.parent_child` (grouped bar across last 4 weeks, `plt.multiple_bar()` with fallback to stacked single bars).
+  - Modified `.aitask-scripts/stats/stats_app.py`:
+    - Replaced `STUB_PANES: list[tuple[str, str]]` with `HARDCODED_LAYOUT: list[str]` (pane ids only).
+    - Changed `self.active_layout` type from `list[tuple[str, str]]` to `list[str]`, filtered against `PANE_DEFS` membership.
+    - Rewrote `compose()` sidebar to look up labels from `PANE_DEFS[pid].title`.
+    - Rewrote `_show_pane()` from the stub body to `pane.render(self.stats_data, content)` dispatch.
+    - Updated `on_mount()` and `action_refresh()` to index `active_layout` as `list[str]`.
+    - Replaced the two `pane_placeholder_*` CSS classes with a single `.summary_card` class used by `overview.summary`.
+    - Preserved `_pane_id_to_widget_id()` / `_widget_id_to_pane_id()` helpers (Textual widget ids cannot contain `.`).
+    - Preserved the `action_config()` stub and the memory-driven priority-binding comment (t597_4 territory).
+
+- **Deviations from plan:**
+  - `labels.top` and `agents.per_model` use horizontal bars (`plt.bar(..., orientation="horizontal")`) — the plan sketch implied vertical but horizontal is clearer for long label/model names within the TUI width.
+  - `agents.verified` added a "Provider" column. Rankings from the all-providers window already carry `provider="all_providers"` as a literal string, but per-agent provider labels can surface when switching operations/windows later — the column is harmless noise now and useful later. Can be reverted if the user prefers.
+  - The `render_chart()` default size is 100×22 rather than the plan's 80×20. The 28-cell sidebar leaves more width than the plan estimated; the larger figure uses the content area more effectively.
+
+- **Issues encountered:**
+  - None during implementation. The main risk the plan flagged — stale `StatsData` field names from the pre-t597_1 sibling draft — was already resolved at verification time (§"Verification findings vs. the original plan").
+
+- **Key decisions:**
+  - Used `rich.text.Text.from_ansi()` for plotext output rather than `Static(..., markup=False)`. plotext emits ANSI escape codes, not Rich markup, so `from_ansi()` is the correct conversion and preserves plot colors faithfully.
+  - Factored `_daily_series(stats, days)` helper inside `velocity.py` for shared use between `velocity.daily` and `velocity.rolling`. Not worth pulling to `base.py` yet.
+  - Each pane's empty-state guard keys on the field it actually consumes (`total_tasks`, `all_labels`, or `chart_totals` result), not on a generic `stats.is_empty`. Guards remain local to their renderers.
+
+- **Notes for sibling tasks:**
+  - **t597_4 (config modal):** The pane registry is populated at import of `stats.panes` before `StatsApp.__init__` runs, so `PANE_DEFS` is fully available when the config modal needs to build its list of available panes. Group by `pane.category` to build categorized selection UIs. To apply a chosen layout, assign `self.active_layout = [pid for pid in chosen if pid in PANE_DEFS]` and then rebuild the sidebar's `ListView` (or push a new screen). The `HARDCODED_LAYOUT` module constant is the right seed to persist as the default preset on first run — consider copying its value into the new config schema.
+  - **t597_5 (--plot removal):** `show_chart()`, `run_plot_summary()`, `run_verified_plots()`, `_import_plotext()`, `chart_plot_size()` in `aitask_stats.py` are now unreferenced outside `aitask_stats.py` itself. Safe to delete along with the `--plot` arg. `chart_totals`, `build_chart_title`, `codeagent_display_name` in `stats/stats_data.py` are now TUI-critical — do not remove them.
+  - **t597_6 (manual verification):** Temporarily override `HARDCODED_LAYOUT` in `stats_app.py` to list all 12 pane ids and walk them via ↑/↓; visual regressions should be caught there. Expect `plotext` bar charts to look ugly when the content area is narrower than ~60 columns — document that as the minimum useful terminal size.
