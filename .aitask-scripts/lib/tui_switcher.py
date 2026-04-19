@@ -85,6 +85,7 @@ _BRAINSTORM_PREFIX = "brainstorm-"
 # Shortcut keys for specific TUIs: (key, tui_name)
 _TUI_SHORTCUTS = {
     "board": "b",
+    "monitor": "m",
     "codebrowser": "c",
     "settings": "s",
     "git": "g",
@@ -234,6 +235,7 @@ class TuiSwitcherOverlay(ModalScreen):
         Binding("j", "dismiss_overlay", "Close", show=False),
         Binding("enter", "select_tui", "Switch", show=False),
         Binding("b", "shortcut_board", "Board", show=False),
+        Binding("m", "shortcut_monitor", "Monitor", show=False),
         Binding("c", "shortcut_codebrowser", "Code Browser", show=False),
         Binding("s", "shortcut_settings", "Settings", show=False),
         Binding("r", "shortcut_brainstorm", "Brainstorm", show=False),
@@ -253,7 +255,7 @@ class TuiSwitcherOverlay(ModalScreen):
             yield Label("TUI Switcher", id="switcher_title")
             yield _WrappingListView(id="switcher_list")
             yield Label(
-                "[bold bright_cyan](b)[/]oard  [bold bright_cyan](c)[/]ode  [bold bright_cyan](s)[/]ettings  b[bold bright_cyan](r)[/]ainstorm  [bold bright_cyan](g)[/]it  e[bold bright_cyan](x)[/]plore  [bold bright_cyan](n)[/]ew task\n"
+                "[bold bright_cyan](b)[/]oard  [bold bright_cyan](m)[/]onitor  [bold bright_cyan](c)[/]ode  [bold bright_cyan](s)[/]ettings  b[bold bright_cyan](r)[/]ainstorm  [bold bright_cyan](g)[/]it  e[bold bright_cyan](x)[/]plore  [bold bright_cyan](n)[/]ew task\n"
                 "[bold bright_cyan]Enter[/] switch  [bold bright_cyan]j/Esc[/] close",
                 id="switcher_hint",
             )
@@ -368,6 +370,9 @@ class TuiSwitcherOverlay(ModalScreen):
 
     def action_shortcut_board(self) -> None:
         self._shortcut_switch("board")
+
+    def action_shortcut_monitor(self) -> None:
+        self._shortcut_switch("monitor")
 
     def action_shortcut_codebrowser(self) -> None:
         self._shortcut_switch("codebrowser")
