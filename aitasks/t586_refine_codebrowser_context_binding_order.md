@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [codebrowser]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-19 10:48
-updated_at: 2026-04-19 10:48
+updated_at: 2026-04-19 11:53
 ---
 
 Follow-up from t584 (reorder keybindings in codebrowser footer).
