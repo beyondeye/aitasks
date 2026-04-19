@@ -3,11 +3,13 @@ priority: high
 effort: medium
 depends: [1]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [brainstorming, ait_brainstorm, ui, codebrowser]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7
 created_at: 2026-04-16 12:00
-updated_at: 2026-04-19 12:00
+updated_at: 2026-04-19 08:54
+completed_at: 2026-04-19 08:54
 ---
 
 <!-- section: context [dimensions: motivation] -->
