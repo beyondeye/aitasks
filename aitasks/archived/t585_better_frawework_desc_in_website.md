@@ -3,12 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Done
 labels: [web_site, positioning]
 file_references: [website/content/_index.md:54-63]
-children_to_implement: [t585_5]
 created_at: 2026-04-19 10:32
-updated_at: 2026-04-19 15:55
+updated_at: 2026-04-19 16:24
+completed_at: 2026-04-19 16:24
 boardidx: 10
 ---
 
