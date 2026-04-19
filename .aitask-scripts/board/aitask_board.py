@@ -1916,9 +1916,10 @@ class TaskDetailScreen(ModalScreen):
         Binding("n", "rename", "Rename", show=False),
         Binding("N", "rename", "Rename", show=False),
         Binding("v", "toggle_view", "Toggle View", show=False),
-        Binding("V", "toggle_view", "Toggle View", show=False),
+        Binding("V", "fullscreen_plan", "Fullscreen plan", show=False),
         Binding("b", "brainstorm", "Brainstorm", show=False),
         Binding("B", "brainstorm", "Brainstorm", show=False),
+        Binding("tab", "focus_minimap", "Minimap", show=False),
     ]
 
     def __init__(self, task: Task, manager: TaskManager = None, read_only: bool = False):
@@ -1936,6 +1937,8 @@ class TaskDetailScreen(ModalScreen):
         self._current_values = dict(self._original_values)
         self._showing_plan = False
         self._plan_path = self._resolve_plan_path() if manager else None
+        self._plan_parsed = None
+        self._plan_text = ""
 
     def _resolve_plan_path(self):
         """Resolve the plan file path for this task."""
@@ -2176,6 +2179,17 @@ class TaskDetailScreen(ModalScreen):
         else:
             self.dismiss("edit")
 
+    def _read_plan_content(self):
+        """Return plan content for the current task with YAML frontmatter stripped, or None."""
+        if not self._plan_path:
+            return None
+        content = self._plan_path.read_text(encoding="utf-8")
+        if content.startswith("---"):
+            parts = content.split("---", 2)
+            if len(parts) >= 3:
+                content = parts[2].strip()
+        return content
+
     @on(Button.Pressed, "#btn_view")
     def toggle_view(self):
         """Toggle between task content and plan content."""
@@ -2190,21 +2204,100 @@ class TaskDetailScreen(ModalScreen):
         md_view = self.query_one("#md_view", VerticalScroll)
 
         if self._showing_plan:
-            content = self._plan_path.read_text(encoding="utf-8")
-            # Strip YAML frontmatter from plan file if present
-            if content.startswith("---"):
-                parts = content.split("---", 2)
-                if len(parts) >= 3:
-                    content = parts[2].strip()
+            content = self._read_plan_content() or ""
             md_widget.update(content)
             indicator.update("[b]Viewing:[/b] [#FFB86C]Plan[/]")
             btn_view.label = "(V)iew Task"
             md_view.styles.border = ("solid", "#FFB86C")
+            self._mount_or_update_minimap(md_view, content)
         else:
             md_widget.update(self.task_data.content)
             indicator.update("[b]Viewing:[/b] Task")
             btn_view.label = "(V)iew Plan"
             md_view.styles.border = None
+            self._remove_minimap(md_view)
+
+    def _mount_or_update_minimap(self, md_view, plan_content):
+        """Mount or repopulate #board_minimap inside #md_view based on plan sections."""
+        try:
+            from brainstorm.brainstorm_sections import parse_sections
+            from section_viewer import SectionMinimap
+        except Exception as exc:
+            self.app.notify(f"Section viewer unavailable: {exc}", severity="warning")
+            return
+        parsed = parse_sections(plan_content)
+        if not parsed.sections:
+            self._plan_parsed = None
+            self._plan_text = ""
+            self._remove_minimap(md_view)
+            return
+        self._plan_parsed = parsed
+        self._plan_text = plan_content
+        existing = md_view.query("#board_minimap")
+        if not existing:
+            minimap = SectionMinimap(id="board_minimap")
+            md_view.mount(minimap, before="Markdown")
+        md_view.query_one("#board_minimap", SectionMinimap).populate(parsed)
+
+    def _remove_minimap(self, md_view):
+        """Remove #board_minimap from #md_view if present."""
+        for w in list(md_view.query("#board_minimap")):
+            w.remove()
+
+    def on_section_minimap_section_selected(self, event):
+        """Scroll the plan Markdown to the selected section."""
+        if self._plan_parsed is None or not self._plan_text:
+            return
+        try:
+            from section_viewer import estimate_section_y
+        except Exception:
+            return
+        md_view = self.query_one("#md_view", VerticalScroll)
+        total = self._plan_text.count("\n") + 1
+        y = estimate_section_y(
+            self._plan_parsed, event.section_name, total, md_view.virtual_size.height
+        )
+        if y is not None:
+            md_view.scroll_to(y=y, animate=True)
+        event.stop()
+
+    def on_section_minimap_toggle_focus(self, event):
+        """Minimap Tab -> focus plan Markdown."""
+        try:
+            md = self.query_one("#md_view Markdown", Markdown)
+        except Exception:
+            event.stop()
+            return
+        md.focus()
+        event.stop()
+
+    def action_fullscreen_plan(self):
+        """Push the full-screen SectionViewerScreen for the current plan."""
+        plan_content = self._read_plan_content()
+        if not plan_content:
+            self.app.notify("No plan file found", severity="warning")
+            return
+        try:
+            from section_viewer import SectionViewerScreen
+        except Exception as exc:
+            self.app.notify(f"Section viewer unavailable: {exc}", severity="warning")
+            return
+        task_num, _ = TaskCard._parse_filename(self.task_data.filename)
+        self.app.push_screen(
+            SectionViewerScreen(plan_content, title=f"Plan for {task_num}")
+        )
+
+    def action_focus_minimap(self):
+        """Tab from plan Markdown -> focus minimap. SkipAction guard keeps form Tab-nav intact."""
+        from textual.actions import SkipAction
+        try:
+            md = self.screen.query_one("#md_view Markdown", Markdown)
+        except Exception:
+            raise SkipAction()
+        minimaps = self.screen.query("#board_minimap")
+        if self.screen.focused is not md or not minimaps:
+            raise SkipAction()
+        minimaps.first().focus_first_row()
 
     @on(Button.Pressed, "#btn_rename")
     def rename_task(self):
