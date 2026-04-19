@@ -209,3 +209,7 @@ A typical flow is: pick a task on the board, let a code agent implement it, then
 <!-- TODO screenshot: aitasks_tui_switcher_dialog.svg -->
 
 The TUI switcher requires a tmux session. If you are not running inside tmux yet, see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}). For the full daily workflow, see [The tmux IDE workflow]({{< relref "/docs/workflows/tmux-ide" >}}).
+
+---
+
+**Next:** [Reference](../reference/) — keybindings, annotation pipeline, and configuration.

@@ -40,6 +40,8 @@ description: "Keyboard shortcuts, configuration, and technical details"
 | `x` | Toggle expand/collapse child tasks | Board (parent or child card) |
 | `c` | Commit focused modified task | Board (shown when task is modified) |
 | `C` | Commit all modified tasks | Board (shown when any task is modified) |
+| `p` | Pick the focused task (start implementation) | Board (context-dependent — shown when task is pickable) |
+| `b` | Launch brainstorm for the focused task | Board (context-dependent — shown when task is brainstormable) |
 
 #### Column Operations
 
@@ -288,3 +290,7 @@ Both files are auto-created with defaults if they don't exist.
 | `PYTHON` | `python3` | Python interpreter (used by launcher if shared venv is unavailable) |
 
 **Terminal auto-detection order:** `$TERMINAL`, then `x-terminal-emulator`, `xdg-terminal-exec`, `gnome-terminal`, `konsole`, `xfce4-terminal`, `lxterminal`, `mate-terminal`, `xterm`. If none found, the board suspends to run commands in the current terminal.
+
+---
+
+**Next:** [Monitor](../../monitor/) — the dashboard of every pane in your tmux session.

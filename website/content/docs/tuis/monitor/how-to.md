@@ -155,3 +155,7 @@ ait monitor
 ```
 
 See the [Session-name fallback dialog](reference/#session-name-fallback-dialog) in the reference for the full decision logic.
+
+---
+
+**Next:** [Reference](../reference/) — full keybinding list, configuration keys, and internals.

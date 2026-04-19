@@ -162,3 +162,7 @@ The settings TUI also hosts the **Tmux** tab, where you can edit the integration
 <!-- TODO screenshot: aitasks_tui_switcher_dialog.svg -->
 
 The TUI switcher requires a tmux session. If you are not running inside tmux yet, see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}). For the full daily workflow, see [The tmux IDE workflow]({{< relref "/docs/workflows/tmux-ide" >}}).
+
+---
+
+**Next:** [Reference](../reference/) — keybindings, config files, profile schema.

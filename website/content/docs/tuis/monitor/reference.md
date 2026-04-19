@@ -28,6 +28,8 @@ description: "Keyboard shortcuts, configuration, and technical details for ait m
 | `i` | Show the task detail dialog for the focused agent pane (requires a task ID in the window name) | Pane list zone |
 | `k` | Kill the focused pane after confirmation (`tmux kill-pane`) | Pane list zone |
 | `n` | Pick the next ready sibling task for the focused agent pane | Pane list zone |
+| `R` | Restart the task running in the focused agent pane | Pane list zone |
+| `L` | Open the log for the focused pane in a separate viewer | Pane list zone |
 
 #### Monitor Controls
 
@@ -37,6 +39,8 @@ description: "Keyboard shortcuts, configuration, and technical details for ait m
 | `r` | Refresh the pane list and preview immediately | Global |
 | `F5` | Refresh the pane list and preview immediately (alias for `r`, hidden in footer) | Global |
 | `z` | Cycle the preview size through S / M / L presets | Global |
+| `b` | Toggle the preview scrollbar visibility | Global |
+| `t` | Scroll the preview to its tail (newest output) | Global |
 | `a` | Toggle auto-switch mode (automatically focus idle agents needing attention) | Global |
 
 > **Note:** In the preview zone, every keystroke that is not handled by a global binding is forwarded to the tmux pane via `tmux send-keys`. Special keys (Enter, Escape, Backspace, arrows, Space, Delete, Home, End, PageUp/Down) and Ctrl-combinations are translated; regular characters are sent literally.
@@ -89,7 +93,7 @@ tmux:
   monitor:
     refresh_seconds: 3
     idle_threshold_seconds: 5
-    capture_lines: 30
+    capture_lines: 200
     agent_window_prefixes:
       - agent-
     tui_window_names:
@@ -109,7 +113,7 @@ tmux:
 | `tmux.git_tui` | string | `lazygit` | Which git TUI the switcher targets for git windows. |
 | `tmux.monitor.refresh_seconds` | int | `3` | Pane list refresh cadence in seconds. |
 | `tmux.monitor.idle_threshold_seconds` | int | `5` | Threshold for marking a pane as idle in the card view. |
-| `tmux.monitor.capture_lines` | int | `30` | Number of lines of pane output the preview captures per refresh. |
+| `tmux.monitor.capture_lines` | int | `200` (in the shipped config; `30` if the key is absent) | Number of lines of pane output the preview captures per refresh. |
 | `tmux.monitor.agent_window_prefixes` | list | `["agent-"]` | Window-name prefixes that classify a pane as an agent. |
 | `tmux.monitor.tui_window_names` | list | board, codebrowser, settings, brainstorm, monitor, minimonitor | Window names classified as TUIs. `brainstorm-*` prefix matches are handled in addition to this list. |
 
@@ -162,3 +166,7 @@ When monitor starts, it resolves which tmux session to watch using this decision
 | `ait board` | Kanban board for task management — target of the TUI switcher | [Board]({{< relref "/docs/tuis/board" >}}) |
 | `ait codebrowser` | Code browser TUI — target of the TUI switcher | [Code Browser]({{< relref "/docs/tuis/codebrowser" >}}) |
 | `ait settings` | Settings TUI — target of the TUI switcher; also hosts the Tmux tab for editing the configuration above | [Settings]({{< relref "/docs/tuis/settings" >}}) |
+
+---
+
+**Next:** [Minimonitor](../../minimonitor/) — the narrow sidebar variant of monitor.

@@ -144,3 +144,7 @@ You can edit these directly, or use [`ait settings`]({{< relref "/docs/tuis/sett
 | `q` | Quit minimonitor |
 
 Minimonitor inherits config keys (`tmux.default_session`, `tmux.monitor.refresh_seconds`, `tmux.monitor.idle_threshold_seconds`, `tmux.monitor.capture_lines`, `tmux.monitor.agent_window_prefixes`, `tmux.monitor.tui_window_names`) from the same `project_config.yaml` section monitor uses — see the [monitor reference]({{< relref "/docs/tuis/monitor/reference" >}}#configuration) for the full list.
+
+---
+
+**Next:** [Code Browser]({{< relref "/docs/tuis/codebrowser" >}}) — review diffs with task-aware annotations.

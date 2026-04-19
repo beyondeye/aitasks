@@ -106,3 +106,7 @@ Fields use type-appropriate controls: boolean keys toggle between `true`/`false`
 | **i** | Import configs from `.aitcfg.json` bundle |
 | **r** | Reload all configs from disk |
 | **q** | Quit |
+
+---
+
+**Next:** [How-To Guides](how-to/) — common tasks like editing agents, creating profiles, exporting bundles. Or jump to the [Reference](reference/) for the full tab/field/profile schemas.

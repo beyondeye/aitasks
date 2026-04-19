@@ -130,3 +130,7 @@ See [`ait explain-runs` and `ait explain-cleanup`]({{< relref "/docs/commands/ex
 - Falls back to system `python3` if venv not found (warns about missing packages)
 - Git repository (uses `git rev-parse --show-toplevel` and `git ls-files`)
 - Checks terminal capabilities and warns on legacy terminals
+
+---
+
+**Next:** [Settings](../../settings/) — the configuration editor for agents, models, and profiles.

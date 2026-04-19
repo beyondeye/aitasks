@@ -28,75 +28,23 @@ Task positions are stored in the `boardidx` field of each task file's frontmatte
 
 {{< static-img src="imgs/aitasks_board_customize_column.svg" alt="Column edit dialog with title input and color palette" caption="The column edit dialog lets you set a title and choose a color" >}}
 
-**Adding a new column:**
+The column operations — add, edit, delete, reorder, collapse, expand — are all available via keyboard, mouse, or the command palette (**Ctrl+Backslash**).
 
-1. Open the command palette with **Ctrl+Backslash**
-2. Select "Add Column"
-3. Enter a column title (e.g., "In Review")
-4. Click a color swatch to select the column color
-5. Click "Save"
+| Operation | Keyboard | Mouse | Command palette |
+|-----------|----------|-------|-----------------|
+| Add column | — | — | "Add Column" → enter title, pick color, Save |
+| Edit column | — | Click `✎` in column header | "Edit Column" → pick column |
+| Delete column | — | — | "Delete Column" → pick column → confirm (tasks move to Unsorted / Inbox) |
+| Reorder column | Focus any card in the column → **Ctrl+Right** / **Ctrl+Left** | — | — |
+| Collapse column | Focus any card in the column → **X** (Shift+X) | Click `▼` arrow in column header | "Collapse Column" → pick column |
+| Expand collapsed column | Focus the placeholder → **X** (Shift+X) | Click `▶` arrow in collapsed header | "Expand Column" → pick column |
 
-A unique column ID is auto-generated from the title (lowercased, non-ASCII stripped, spaces replaced with underscores).
+Notes:
 
-**Editing an existing column:**
-
-- **Option A:** Click the `✎` (pencil) button in the column header to open the edit dialog
-- **Option B:** Open the command palette (**Ctrl+Backslash**), select "Edit Column", then pick the column to edit
-
-You can change the title and color. The column ID is preserved.
-
-**Deleting a column:**
-
-1. Open the command palette (**Ctrl+Backslash**)
-2. Select "Delete Column"
-3. Pick the column to delete
-4. Confirm the deletion
-
-Any tasks in the deleted column are moved to the "Unsorted / Inbox" column.
-
-### How to Reorder Columns
-
-To change the position of a column on the board:
-
-1. Focus any task card in the column you want to move
-2. Press **Ctrl+Right** to move the column one position to the right
-3. Press **Ctrl+Left** to move it one position to the left
-
-The "Unsorted / Inbox" column cannot be reordered — it always appears on the far left when it contains tasks.
-
-### How to Collapse and Expand Columns
-
-Collapsing columns saves screen space by reducing them to a narrow strip showing only the column title and task count. Tasks in collapsed columns are not rendered, which also improves performance for boards with many tasks.
-
-**Collapsing a column (mouse):**
-
-1. Click the `▼` arrow button in the column header
-2. The column shrinks to a narrow strip showing the title and task count
-
-**Collapsing a column (keyboard):**
-
-1. Focus any task card in the column you want to collapse
-2. Press **X** (Shift+X) to collapse the column
-
-**Collapsing a column (command palette):**
-
-1. Open the command palette with **Ctrl+Backslash**
-2. Select "Collapse Column"
-3. Pick the column to collapse
-
-**Expanding a collapsed column (mouse):**
-
-1. Click the `▶` arrow button in the collapsed column header
-
-**Expanding a collapsed column (command palette):**
-
-1. Open the command palette with **Ctrl+Backslash**
-2. Select "Expand Column"
-3. Pick the column to expand
-
-Collapse/expand state is saved in `board_config.json` and persists across board restarts.
-
-> **Note:** Arrow-key navigation can reach collapsed columns (they show a focusable placeholder). Task movement (**Shift+Left/Right**) skips collapsed columns. Press **X** (Shift+X) on a collapsed column's placeholder to expand it.
+- Column IDs are auto-generated from the title (lowercased, non-ASCII stripped, spaces replaced with underscores). Editing a column preserves the ID.
+- The "Unsorted / Inbox" column always appears on the far left when it contains tasks — it cannot be reordered.
+- Collapse/expand state is saved in `board_config.json` and persists across restarts. Tasks in collapsed columns are not rendered (improves performance on large boards).
+- Arrow-key navigation can reach collapsed columns (they show a focusable placeholder). Task movement (**Shift+Left/Right**) skips collapsed columns.
 
 ### How to Edit Task Metadata
 
@@ -281,74 +229,21 @@ The "Pick" button is disabled for tasks with status "Done" or "Folded".
 
 ### How to Lock and Unlock Tasks
 
-Task locks are a lightweight reservation mechanism that signals to other users and AI agents that you intend to work on a task. Locks do not change task metadata -- they are stored separately on the `aitask-locks` branch.
+Task locks are a lightweight reservation mechanism that signals to other users and AI agents that you intend to work on a task. Locks do not change task metadata — they are stored on the `aitask-locks` branch and fetched on every board refresh (manual **r**, auto-refresh, or after lock/unlock operations).
 
-> **Note:** You do **not** need to manually lock a task before using `/aitask-pick` or `/aitask-pickrem`. These skills handle locking automatically as part of their workflow -- they acquire the lock, set the task status to Implementing, and update `assigned_to` all in one step. Board locks are a **manual pre-reservation tool** for specific use cases. See the [`ait lock` command reference]({{< relref "/docs/commands/lock#when-to-use-ait-lock" >}}) for when manual locking is useful.
+> **Note:** You do **not** need to manually lock a task before using `/aitask-pick` or `/aitask-pickrem`. These skills acquire the lock, set status to Implementing, and update `assigned_to` in one step. Board locks are a **manual pre-reservation tool** — useful for reserving a task ahead of time (including before sending it to `/aitask-pickweb`, which cannot acquire locks from Claude Code Web), or coordinating without the pick workflow. See the [`ait lock` command reference]({{< relref "/docs/commands/lock#when-to-use-ait-lock" >}}) for the full decision guide.
 
 <!-- SCREENSHOT: Task detail dialog showing lock status and Lock/Unlock buttons -->
 
-**Locking a task:**
+**Locking:** open the task detail dialog (**Enter**) → click "🔒 Lock" → confirm the email (defaults to `userconfig.yaml` or `emails.txt`) → Save. A notification confirms the lock. The button is disabled when the task is already locked or has status Done / Folded.
 
-1. Open the task detail dialog (**Enter**)
-2. Click the "🔒 Lock" button (in the workflow button row)
-3. A dialog appears asking for your email -- it defaults to the auto-detected email from `userconfig.yaml` or `emails.txt`
-4. Confirm the email and click "Lock"
-5. A notification confirms the lock; the detail dialog dismisses and the board refreshes
+**Unlocking:** open the task detail dialog → click "🔓 Unlock". If the lock belongs to you, it is released immediately. If it belongs to someone else, a confirmation dialog shows the lock details (owner, hostname, timestamp, staleness) and asks whether to force-unlock.
 
-The "🔒 Lock" button is disabled when the task is already locked or when the task has status "Done" or "Folded".
+**Identifying locks:** task cards display a `🔒 user@example.com` line when locked. In the detail dialog, the lock field shows `🔒 Locked: user@example.com on hostname since <timestamp>` (locks older than 24 hours are annotated "(may be stale)").
 
-**Unlocking a task:**
+**Multi-agent coordination:** `ait lock --list` shows all locks across the team; the board's search box filters by lock-owner email (owner strings are searchable along with other card metadata). Locks are advisory — they do not prevent force-unlocking, so coordinate with the owner before overriding a stale lock.
 
-1. Open the task detail dialog (**Enter**)
-2. Click the "🔓 Unlock" button
-3. If the lock belongs to you, the task is unlocked immediately
-4. If the lock belongs to a different user, a confirmation dialog appears showing the lock details (who locked it, from which machine, and when) and asks whether to force unlock
-5. A notification confirms the unlock; the detail dialog dismisses and the board refreshes
-
-**Identifying locked tasks on the board:**
-
-Locked tasks display a lock indicator line on their card: `🔒 user@example.com`. This is visible without opening the detail dialog.
-
-In the task detail dialog, the lock status is shown as a read-only field:
-- **Locked:** `🔒 Locked: user@example.com on hostname since 2026-02-24 14:30`
-- **Unlocked:** `🔓 Lock: Unlocked` (dimmed)
-
-Locks older than 24 hours display a "(may be stale)" warning in the detail view.
-
-> **Note:** The board refreshes its lock data on every board refresh (manual **r**, auto-refresh, or after lock/unlock operations). Locks are fetched from the remote `aitask-locks` branch, so they reflect the latest state across all machines and agents.
-
-For the underlying mechanism and CLI usage, see the [`ait lock` command reference]({{< relref "/docs/commands/lock" >}}).
-
-### How to Pre-Lock a Task for Claude Web Execution
-
-When using the [`/aitask-pickweb`]({{< relref "/docs/skills/aitask-pickweb" >}}) skill on Claude Code Web, the Web environment cannot acquire locks (it lacks push access to the `aitask-locks` branch). Pre-locking from the board prevents another agent from picking the same task concurrently.
-
-1. Find the task you plan to send to Claude Web
-2. Open its detail dialog (**Enter**)
-3. Click "🔒 Lock" and confirm your email
-4. Start the `/aitask-pickweb` session on Claude Code Web
-5. After the Web session completes and you merge the results locally, unlock the task from the board (or let `/aitask-web-merge` handle it)
-
-> **Note:** Pre-locking is recommended but not required. `/aitask-pickweb` will work without a lock, but there is no protection against another agent picking the same task. See the [`ait lock` pre-locking guide]({{< relref "/docs/commands/lock#pre-locking-for-claude-code-web" >}}) for the full workflow diagram.
-
-### How to Use Locks for Multi-Agent Coordination
-
-When multiple users or AI agents are working on tasks simultaneously, locks prevent duplicate work. Each lock is visible to all participants through the board and the `ait lock --list` command.
-
-> **Note:** `/aitask-pick` and `/aitask-pickrem` acquire locks automatically -- you only need manual locks when reserving tasks in advance or coordinating without the pick workflow.
-
-**Reserving a task before starting work:**
-
-1. Open the task on the board and click "🔒 Lock"
-2. Other users and agents will see the lock indicator on the card and in the task detail dialog
-3. When you are ready, pick the task -- `/aitask-pick` detects the existing lock and refreshes it
-4. After completion, the lock is released as part of the archival process
-
-**Checking who is working on what:**
-
-- Scan the board for 🔒 indicators on task cards
-- Use the search box to filter -- lock owner emails appear in the card, so searching for a name or email shows their locked tasks
-- Open any locked task's detail dialog to see the full lock info (email, hostname, timestamp, staleness)
+For the underlying mechanism, CLI usage, and the Claude Code Web pre-locking workflow, see the [`ait lock` command reference]({{< relref "/docs/commands/lock" >}}).
 
 > **Caution:** Locks are advisory -- they do not prevent force-unlocking. If a lock appears stale (older than 24 hours, marked with "(may be stale)"), coordinate with the lock owner before force-unlocking.
 
@@ -425,14 +320,14 @@ If the remote is unreachable (timeout after 10 seconds), the board shows a warni
 
 ### tmux integration
 
-When you run `ait board` inside tmux, you can jump to any other integrated TUI with a single keystroke via the **TUI switcher**:
+When you run `ait board` inside tmux, press **`j`** to open the **TUI switcher** dialog and jump to another integrated TUI (Monitor, Code Browser, Settings, a running code agent window, or a brainstorm session) — the switcher either focuses the existing tmux window or creates a new one.
 
-1. Press **`j`** to open the TUI switcher dialog.
-2. Select the target TUI — Monitor, Minimonitor, Code Browser, Settings, or Brainstorm — or one of the running code agent windows.
-3. The switcher either focuses the existing tmux window running that TUI or creates a new window and launches it.
-
-A typical flow from the board is: triage a task, press `j`, pick **monitor** to watch the agents running on other panes, or pick **codebrowser** to review the diff produced for a completed task.
+A typical flow from the board: triage a task, press `j`, switch to **monitor** to watch the agents running on other panes or to **codebrowser** to review the diff produced for a completed task.
 
 <!-- TODO screenshot: aitasks_tui_switcher_dialog.svg -->
 
-The TUI switcher requires a tmux session. If you are not running inside tmux yet, see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}). For the full daily workflow, see [The tmux IDE workflow]({{< relref "/docs/workflows/tmux-ide" >}}).
+The switcher requires a tmux session — see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}) and the [tmux IDE workflow]({{< relref "/docs/workflows/tmux-ide" >}}).
+
+---
+
+**Next:** [Reference](../reference/) — keybindings, configuration, and internals.

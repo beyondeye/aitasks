@@ -72,4 +72,4 @@ For the complete list of keybindings and configuration options, see the [Referen
 
 ---
 
-**Next:** [How-To Guides](how-to/) · [Reference](reference/)
+**Next:** [How-To Guides](how-to/) — step-by-step flows. Or go straight to the [Reference](reference/) for keybindings and configuration.

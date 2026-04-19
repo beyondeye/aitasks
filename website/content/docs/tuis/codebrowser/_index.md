@@ -117,4 +117,4 @@ If the new task references a file that any existing `Ready`/`Editing` task alrea
 
 ---
 
-**Next:** [Workflow Guides]({{< relref "/docs/workflows" >}})
+**Next:** [How-To Guides](how-to/) — common codebrowser operations. Or jump to the [Reference](reference/) for keybindings and annotation-pipeline internals.

@@ -60,4 +60,4 @@ For a full dashboard with previews, pane classification, and kill/switch control
 
 ---
 
-**Next:** [How-to guides](how-to/) · [Monitor]({{< relref "/docs/tuis/monitor" >}}) · [Board]({{< relref "/docs/tuis/board" >}})
+**Next:** [How-To Guides](how-to/) — layouts and launch recipes for the narrow sidebar.

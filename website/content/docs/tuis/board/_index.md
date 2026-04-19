@@ -80,4 +80,4 @@ If you work on tasks from multiple machines, the board can sync task data with a
 
 ---
 
-**Next:** [Workflow Guides]({{< relref "/docs/workflows" >}})
+**Next:** [How-To Guides](how-to/) — common operations (columns, tasks, locks, sync). Or skip ahead to the [Reference](reference/) for keybindings and configuration.

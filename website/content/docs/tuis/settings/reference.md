@@ -14,6 +14,7 @@ description: "Keyboard shortcuts, configuration files, and profile schema refere
 | **a** | Switch to Agent Defaults tab |
 | **b** | Switch to Board tab |
 | **c** | Switch to Project Config tab |
+| **t** | Switch to Tmux tab |
 | **m** | Switch to Models tab |
 | **p** | Switch to Profiles tab |
 | **e** | Export all configs |
@@ -37,6 +38,7 @@ description: "Keyboard shortcuts, configuration files, and profile schema refere
 | Agent Defaults | **a** | Yes | Default agent/model per operation, project and user layers |
 | Board | **b** | Partially | Columns (read-only), user settings (editable) |
 | Project Config | **c** | Yes | Shared values from `project_config.yaml` such as coauthor domain and build verification |
+| Tmux | **t** | Yes | Tmux integration settings (session name, split direction, monitor options, git TUI) |
 | Models | **m** | No | Available models per agent with verified scores |
 | Profiles | **p** | Yes | Execution profiles that pre-answer workflow questions |
 
@@ -229,3 +231,7 @@ Config bundles use the `.aitcfg.json` extension and contain:
 ```
 
 Bundles include only the files matching the default patterns: `*_config.json`, `*_config.local.json`, `models_*.json`, `models_*.local.json`.
+
+---
+
+**Next:** [Workflows]({{< relref "/docs/workflows" >}}) — end-to-end guides for using the TUIs together.
