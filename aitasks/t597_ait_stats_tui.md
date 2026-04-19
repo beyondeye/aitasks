@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [statistics, aitask_monitor]
-children_to_implement: [t597_1, t597_2]
+children_to_implement: [t597_1, t597_2, t597_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-19 17:22
 updated_at: 2026-04-19 17:51
