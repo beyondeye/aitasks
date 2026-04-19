@@ -130,4 +130,14 @@ Plan file commit (if revised here): `ait: Update plan for t583_6`.
 
 ## Final Implementation Notes
 
-_To be filled in during implementation._
+- **Actual work done:** Appended `manual_verification` to `aitasks/metadata/task_types.txt` and `seed/task_types.txt`. Wrote `tests/test_verification_followup.sh` exercising the followup helper across 5 cases + a syntax check — 28 assertions total, all passing. First-pass pass rate; no test fixture revisions needed.
+- **Deviations from plan:** Bug task asserts use `depends: [N]` (the helper passes the origin via `--deps`, which lands in the `depends:` frontmatter) rather than the plan's speculative `related: [N]` — the helper does not emit a `related:` field. Back-reference heading-count check was added to case (4) to guard against accidental section duplication when Final Implementation Notes already exists. Seed path corrected from the stale task-description path (`seed/aitasks/metadata/task_types.txt`) to the actual flat `seed/task_types.txt` at plan time.
+- **Issues encountered:** The `aitask_create.sh --commit` path used by the followup helper requires the atomic-ID counter branch (`aitask-ids`) to be initialized in the test env. Added `aitask_claim_id.sh --init` to `setup_project()` alongside copying `aitask_claim_id.sh` + `lib/archive_scan.sh` into the test repo. Without this the bug-task creation failed in batch mode with "Atomic ID counter failed".
+- **Key decisions:**
+  - Test env setup copies the minimal transitive script closure (`aitask_verification_followup.sh`, `aitask_verification_parse.{sh,py}`, `aitask_create.sh`, `aitask_update.sh`, `aitask_claim_id.sh`, `aitask_fold_mark.sh`, + `lib/{terminal_compat,task_utils,archive_utils,archive_scan}.sh`). Mirrors `test_verifies_field.sh` plus the claim_id chain needed for `--commit`.
+  - Bare-remote + local-clone pattern (same as `test_verifies_field.sh` and `test_claim_id.sh`) so `task_push` / `git push` inside the helper don't fail noisily.
+  - `./ait` is absent in the test env, so the helper's `./ait git add/commit` back-reference commit silently no-ops (`2>/dev/null || true`). The file mutation still happens, which is what the tests assert on.
+- **Notes for sibling tasks:**
+  - `tests/test_verification_parse.py` (31 tests, t583_1) and `tests/test_verifies_field.sh` (13 tests, t583_2) are the authoritative coverage for the parser and `verifies:` field; t583_6 does not duplicate them.
+  - The followup helper stores the origin as a `depends:` entry on the new bug task (via `aitask_create.sh --deps`). If t583_7 or later adds a distinct `related:` concept, update both the helper and this test.
+  - The bare-remote + claim-id init pattern used here is the canonical way to exercise `aitask_create.sh --commit` from a test. Reuse it when adding further integration tests against the create pipeline.
