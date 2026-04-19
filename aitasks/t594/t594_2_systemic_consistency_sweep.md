@@ -6,8 +6,9 @@ issue_type: documentation
 status: Implementing
 labels: []
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-19 17:10
-updated_at: 2026-04-19 18:29
+updated_at: 2026-04-19 18:51
 ---
 
 Cross-cutting child of t594. Align wording and resolve contradictions for 5 repeated concepts across the website, plus fix two narrative contradictions — all without removing repeated content (conservative dedup per user).
