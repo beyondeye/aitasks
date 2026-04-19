@@ -23,6 +23,8 @@ import shutil
 import subprocess
 import sys
 import time
+from collections import defaultdict
+from itertools import groupby
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
@@ -36,6 +38,9 @@ from textual.containers import Horizontal, Container
 from textual.screen import ModalScreen
 from textual.timer import Timer
 from textual.widgets import Button, Header, Footer, Input, Label, Static, DirectoryTree
+# FooterKey/FooterLabel/KeyGroup are private Textual APIs — pinned to 8.1.1
+# via ContextualFooter.compose() replication below.
+from textual.widgets._footer import FooterKey, FooterLabel, KeyGroup
 from textual import on, work
 
 from agent_utils import resolve_agent_binary
@@ -151,6 +156,121 @@ class CopyFilePathScreen(ModalScreen):
 
     def action_copy_relative(self) -> None:
         self.copy_relative()
+
+
+class ContextualFooter(Footer):
+    """Footer whose visible bindings are reordered based on which pane has focus.
+
+    compose() replicates Textual 8.1.1's Footer.compose() so we can sort the
+    binding list before grouping. The parent uses
+    .data_bind(compact=Footer.compact) on each FooterKey; we drop it because
+    during recompose() the active_message_pump is not our widget, which makes
+    the reactive-owner check (isinstance(parent, Footer)) fail. FooterKey's
+    own `compact` reactive retains its default (True).
+    """
+
+    DEFAULT_ORDER = ["h", "d", "e", "n", "g", "c"]
+
+    PANE_ORDERS = {
+        "file_tree":    ["R", "r", "n", "h", "g", "d", "e", "c"],
+        "recent_files": ["h", "H", "n", "d", "e", "c"],
+        "file_search":  ["n", "g", "e", "h"],
+        "code_viewer":  ["g", "w", "c", "e", "n", "h", "d", "t", "r"],
+        "detail_pane":  ["d", "D", "H", "h", "n", "e"],
+    }
+
+    def _focused_pane_id(self) -> str | None:
+        w = self.screen.focused
+        while w is not None:
+            if getattr(w, "id", None) in self.PANE_ORDERS:
+                return w.id
+            w = w.parent
+        return None
+
+    def _ordering(self) -> list[str]:
+        pane = self._focused_pane_id()
+        return self.PANE_ORDERS.get(pane, self.DEFAULT_ORDER)
+
+    def on_mount(self) -> None:
+        super().on_mount()
+        self.watch(self.screen, "focused", self._on_focus_change)
+
+    def _on_focus_change(self, _focused) -> None:
+        if self.is_attached:
+            self.call_after_refresh(self.recompose)
+
+    def compose(self) -> ComposeResult:
+        if not self._bindings_ready:
+            return
+        active_bindings = self.screen.active_bindings
+
+        ordering = self._ordering()
+        priority = {k: i for i, k in enumerate(ordering)}
+
+        def _sort_key(item):
+            binding, _enabled, _tooltip = item
+            return priority.get(binding.key, len(priority))
+
+        bindings = [
+            (binding, enabled, tooltip)
+            for (_, binding, enabled, tooltip) in active_bindings.values()
+            if binding.show
+        ]
+        bindings.sort(key=_sort_key)
+
+        action_to_bindings: defaultdict = defaultdict(list)
+        for binding, enabled, tooltip in bindings:
+            action_to_bindings[binding.action].append((binding, enabled, tooltip))
+        self.styles.grid_size_columns = len(action_to_bindings)
+
+        for group, multi_bindings_iterable in groupby(
+            action_to_bindings.values(),
+            lambda mb: mb[0][0].group,
+        ):
+            multi_bindings = list(multi_bindings_iterable)
+            if group is not None and len(multi_bindings) > 1:
+                with KeyGroup(classes="-compact" if group.compact else ""):
+                    for mb in multi_bindings:
+                        binding, enabled, tooltip = mb[0]
+                        yield FooterKey(
+                            binding.key,
+                            self.app.get_key_display(binding),
+                            "",
+                            binding.action,
+                            disabled=not enabled,
+                            tooltip=tooltip or binding.description,
+                            classes="-grouped",
+                        )
+                yield FooterLabel(group.description)
+            else:
+                for mb in multi_bindings:
+                    binding, enabled, tooltip = mb[0]
+                    yield FooterKey(
+                        binding.key,
+                        self.app.get_key_display(binding),
+                        binding.description,
+                        binding.action,
+                        disabled=not enabled,
+                        tooltip=tooltip,
+                    )
+
+        if self.show_command_palette and self.app.ENABLE_COMMAND_PALETTE:
+            try:
+                _node, binding, enabled, tooltip = active_bindings[
+                    self.app.COMMAND_PALETTE_BINDING
+                ]
+            except KeyError:
+                pass
+            else:
+                yield FooterKey(
+                    binding.key,
+                    self.app.get_key_display(binding),
+                    binding.description,
+                    binding.action,
+                    classes="-command-palette",
+                    disabled=not enabled,
+                    tooltip=binding.tooltip or binding.description,
+                )
 
 
 class CodeBrowserApp(TuiSwitcherMixin, App):
@@ -520,7 +640,7 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
                 yield Static("No file selected", id="file_info_bar")
                 yield CodeViewer(id="code_viewer")
             yield DetailPane(id="detail_pane", classes="hidden")
-        yield Footer()
+        yield ContextualFooter()
 
     def on_resize(self, event) -> None:
         """Adjust sidebar and detail pane widths for terminal size."""
