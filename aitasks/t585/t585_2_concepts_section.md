@@ -6,8 +6,9 @@ issue_type: documentation
 status: Implementing
 labels: [web_site, positioning]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-19 11:17
-updated_at: 2026-04-19 12:29
+updated_at: 2026-04-19 12:45
 ---
 
 ## Context

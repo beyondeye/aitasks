@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: [5]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [brainstorming, ait_brainstorm, ui, codebrowser]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-19 08:46
-updated_at: 2026-04-19 08:46
+updated_at: 2026-04-19 12:47
 ---
 
 <!-- section: context [dimensions: motivation, integration] -->
