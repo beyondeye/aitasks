@@ -161,3 +161,29 @@ python3 -c "from textual import __version__; print(__version__)"   # confirm Tex
 - Real pane widgets (t597_3 — sidebar populated from a hardcoded stub here).
 - Config modal logic (t597_4 — `c` is a stub).
 - Removing `--plot` (t597_5).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `.aitask-scripts/aitask_stats_tui.sh` (34 lines, executable): mirrors `aitask_board.sh` with venv-preferred Python, terminal-capability warning, and required-deps check (`textual`, `plotext`). Sets `PYTHONPATH="$SCRIPT_DIR:..."` so `from stats.stats_data import …` and `from lib.tui_switcher import …` both resolve.
+  - `ait` dispatcher: added `stats-tui)` case routing to the new wrapper, placed adjacent to the existing `stats)` entry so the related commands sit together.
+  - `.aitask-scripts/lib/tui_switcher.py`: appended `("stats", "Statistics", "ait stats-tui")` to `KNOWN_TUIS` (between `settings` and `diffviewer`) and added `"stats": "t"` to `_TUI_SHORTCUTS`. `t` was free.
+  - `.aitask-scripts/stats/stats_app.py` (173 lines): Textual `App` subclass `StatsApp(TuiSwitcherMixin, App)`. Layout: `Header` + `Horizontal(ListView#sidebar, Container#content)` + `Footer`. CSS gives the sidebar a fixed 28-cell width with a vertical accent border; content fills the remainder. Bindings: `r` refresh, `c` config (stub, notifies "coming in t597_4"), `q` quit, plus `*TuiSwitcherMixin.SWITCHER_BINDINGS` for `j`. Sidebar auto-focused at startup so `↑`/`↓` work immediately without a manual focus step. `on_list_view_selected` swaps the content container. Stub panes display `total_tasks` / `tasks_7d` / `tasks_30d` from `StatsData` so the skeleton shows live numbers, not just placeholder text.
+
+- **Deviations from plan:**
+  - Plan sketch used `Binding("up"/"down", "cursor_up"/"cursor_down", ...)` at the App level; in practice Textual's `ListView` already handles arrow-key navigation when focused, so the explicit bindings would be redundant. Removed them and instead focus the sidebar on mount — same UX, less surface area for binding conflicts when t597_4's modal lands.
+  - Two small id helpers (`_pane_id_to_widget_id` / `_widget_id_to_pane_id`) wrap a `pane_<replaced>` prefix: Textual widget ids cannot contain `.`, but pane ids are dotted (`overview.summary`). Encapsulating the conversion in two helpers keeps the round-trip in one place so t597_3 doesn't reinvent it.
+  - Wrapper: SC1091 from shellcheck on the `source lib/terminal_compat.sh` line — informational only (file exists; shellcheck just doesn't follow it without `-x`). Mirrored the `aitask_board.sh` style verbatim to stay consistent with how every other TUI wrapper is written.
+
+- **Issues encountered:**
+  - First parallel verification batch was cancelled because the dispatcher smoke test (`./ait stats-tui --help`) launched the actual TUI in the foreground (Textual ignores `--help` because the app's `BINDINGS`/argparse don't define one, and just runs). Re-ran the verifications individually and killed the background process.
+
+- **Key decisions:**
+  - Sidebar width 28 (not e.g. 25 or 32): wide enough for "Weekday distribution" without wrap, narrow enough that the content area dominates.
+  - Stub renderer reads `StatsData` instead of showing static placeholder text. Cheap, validates the data wire-up, and gives the user something to see when smoke-testing the skeleton.
+  - Did not subclass `Screen` separately — current scope fits in the App with one `compose()`. t597_4's config modal will push a `ModalScreen`; if that grows complex, extracting the main view to a `MainScreen` class is easy.
+
+- **Notes for sibling tasks:**
+  - **t597_3 (panes):** replace `_show_pane()` with `PANE_DEFS[pane_id].render(self.stats_data, content)`. Keep the `_pane_id_to_widget_id` / `_widget_id_to_pane_id` helpers — they're still needed because Textual ids can't contain `.`. The `active_layout` attribute is already a `list[tuple[str, str]]` of `(pane_id, label)` tuples; t597_4 keeps that shape but populates from config. To wire `PANE_DEFS` into the sidebar labels, the layout becomes `list[str]` of pane ids, and the label comes from `PANE_DEFS[pid].title`.
+  - **t597_4 (config modal):** the stub `action_config()` notifies "Config modal coming in t597_4" — replace with `self.push_screen(ConfigModal(self.config), self._on_config_done)`. The priority-binding caveat (memory `feedback_textual_priority_bindings`) is documented as a comment block above `action_refresh` for the implementer to reference.
+  - **t597_5 (--plot removal):** does not interact with this skeleton. The wrapper's deps check lists `plotext` because the panes (t597_3) need it.
