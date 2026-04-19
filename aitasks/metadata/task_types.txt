@@ -6,3 +6,4 @@ performance
 refactor
 style
 test
+manual_verification
