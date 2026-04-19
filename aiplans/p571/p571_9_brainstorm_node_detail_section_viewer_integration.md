@@ -1,95 +1,120 @@
 ---
 Task: t571_9_brainstorm_node_detail_section_viewer_integration.md
 Parent Task: aitasks/t571_more_structured_brainstorming_created_plan.md
-Sibling Tasks: aitasks/t571/t571_5_*.md, aitasks/t571/t571_6_*.md, aitasks/t571/t571_7_*.md, aitasks/t571/t571_8_*.md, aitasks/t571/t571_10_*.md
-Archived Sibling Plans: aiplans/archived/p571/p571_*_*.md
-Worktree: (current branch)
-Branch: (current branch)
+Sibling Tasks: aitasks/t571/t571_6_update_brainstorm_design_docs.md, aitasks/t571/t571_7_manual_verification_structured_brainstorming.md
+Archived Sibling Plans: aiplans/archived/p571/p571_10_board_task_detail_section_viewer_integration.md, aiplans/archived/p571/p571_11_fix_section_viewer_rendering_and_bindings.md, aiplans/archived/p571/p571_1_section_parser_module.md, aiplans/archived/p571/p571_2_update_agent_templates_emit_sections.md, aiplans/archived/p571/p571_3_section_aware_operation_infrastructure.md, aiplans/archived/p571/p571_4_section_selection_brainstorm_tui_wizard.md, aiplans/archived/p571/p571_5_shared_section_viewer_tui_integration.md, aiplans/archived/p571/p571_8_codebrowser_section_viewer_integration.md
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-04-19 16:08
 ---
 
 # Plan: t571_9 — Brainstorm NodeDetailModal Section Viewer Integration
 
-<!-- section: context [dimensions: motivation, integration] -->
-
 ## Context
 
-Integrate the shared `.aitask-scripts/lib/section_viewer.py` module (from t571_5) into the **brainstorm** TUI's `NodeDetailModal`. Both the Proposal tab and the Plan tab get their own independent `SectionMinimap` above the existing Markdown widget.
+Integrate the shared `.aitask-scripts/lib/section_viewer.py` module (from t571_5) into the **brainstorm** TUI's `NodeDetailModal`. Both the Proposal tab and the Plan tab get their own independent `SectionMinimap` above the existing `Markdown` widget, so exploring the DAG shows the dimensional structure of each node's proposal and plan at a glance.
 
-This closes the most important loop: brainstorming is where users actually author and iterate on sectioned proposals/plans, so seeing sections at a glance with their dimension tags makes DAG exploration substantially more ergonomic.
+**Depends on t571_5 (landed).** The lib exports `SectionMinimap`, `SectionViewerScreen`, `estimate_section_y`, `parse_sections`, verified present (326 LOC).
 
-**Depends on t571_5.** Do NOT start until `.aitask-scripts/lib/section_viewer.py` exists.
+## Verification Notes (2026-04-19)
 
-<!-- /section: context -->
+Verified the existing plan against the current codebase; all structural claims still hold:
 
-<!-- section: files_and_lines [dimensions: deliverables] -->
+- `.aitask-scripts/brainstorm/brainstorm_app.py`:
+  - `parse_sections` imported at line 49 (from `brainstorm.brainstorm_sections`). **Will be replaced by import from `section_viewer`** per the import-order rule below.
+  - sys.path inserts at lines 11–12 cover both `parent.parent` and `parent.parent/"lib"`.
+  - `NodeDetailModal` class at line 251; `BINDINGS = [Binding("escape", "close", "Close", show=False)]` at line 254.
+  - Tab structure at lines 266–281: `#tab_metadata` / `#tab_proposal` (`Markdown#proposal_content` wrapped in `VerticalScroll#proposal_scroll`) / `#tab_plan` (`Markdown#plan_content` wrapped in `VerticalScroll#plan_scroll`).
+  - `on_mount()` at lines 287–329 loads metadata/proposal/plan content.
+  - Existing imports cover `Binding`, `VerticalScroll`, `TabbedContent`, `Markdown`. `SkipAction` is NOT imported — will add lazily inside the action method (matches t571_8 / t571_10 pattern).
+
+Adjustments vs. original plan:
+
+1. **Use `self.node_id` for fullscreen title.** The plan referenced `self._node_name` but only `self.node_id` is stored (line 258); no separate human-readable name is available. Using `node_id` matches the existing `Label(f"Node Detail: {self.node_id}")` convention.
+2. **Use explicit scroll IDs `#proposal_scroll` / `#plan_scroll`** (present in the codebase) instead of descendant selectors `#tab_proposal VerticalScroll`. Same result, cleaner selector.
+3. **Critical import-order rule (inherited from t571_10 / t571_8 Final Notes):** import `parse_sections` from `section_viewer` (convenience re-export), NOT from `brainstorm.brainstorm_sections`. The lib self-inserts `.aitask-scripts/` into `sys.path` on first import, so a pre-existing `from brainstorm.brainstorm_sections import parse_sections` at the module top can still work (brainstorm_app.py IS in that package), but any new lazy import inside handlers must go through `section_viewer` to keep the pattern uniform across sibling TUIs. Since `parse_sections` is already imported at line 49 from `brainstorm.brainstorm_sections`, we keep that existing module-level import and additionally use `from section_viewer import SectionMinimap, estimate_section_y, SectionViewerScreen` lazily inside methods. No change to line 49.
+4. **Keep `animate=False`** on `scroll_to` (inherited from t571_11 fix) — already in the plan.
 
 ## Files and Line References
 
-- `.aitask-scripts/brainstorm/brainstorm_app.py`:
-  - `parse_sections` already imported at line 49
-  - sys.path inserts at lines 11–12 cover both `parent.parent` and `parent.parent/"lib"` — no sys.path changes needed
-  - `NodeDetailModal` class at line 251
-  - Tab structure at lines 266–281: `#tab_metadata`, `#tab_proposal` (contains `Markdown#proposal_content`), `#tab_plan` (contains `Markdown#plan_content`)
-  - `on_mount()` at lines 287–329 — loads proposal/plan content into those Markdowns
+- `.aitask-scripts/brainstorm/brainstorm_app.py` (lines 251–333 for `NodeDetailModal`).
 
-<!-- /section: files_and_lines -->
+No other files touched. `section_viewer` is already in the sys.path via existing line 12.
 
-<!-- section: on_mount_enhancement [dimensions: integration, widget-design] -->
-
-## 1. `NodeDetailModal.on_mount()` — mount per-tab minimaps
-
-After loading proposal content (`Markdown(id="proposal_content").update(proposal)`):
+## 1. `NodeDetailModal.__init__()` — initialize state (after line 259)
 
 ```python
+def __init__(self, node_id: str, session_path: Path):
+    super().__init__()
+    self.node_id = node_id
+    self.session_path = session_path
+    self._proposal_parsed = None
+    self._proposal_text = ""
+    self._plan_parsed = None
+    self._plan_text = ""
+```
+
+## 2. `NodeDetailModal.BINDINGS` — extend (line 254)
+
+```python
+BINDINGS = [
+    Binding("escape", "close", "Close", show=False),
+    Binding("tab", "focus_minimap", "Minimap"),
+    Binding("V", "fullscreen_plan", "Fullscreen plan"),
+]
+```
+
+## 3. `NodeDetailModal.on_mount()` — mount per-tab minimaps
+
+After each `.update()` call in the Proposal / Plan tab branches (lines 323 and 329), mount a minimap when the content has sections. Insert immediately after the existing Markdown update:
+
+```python
+# --- Proposal tab ---
+try:
+    proposal = read_proposal(self.session_path, self.node_id)
+except Exception:
+    proposal = "*No proposal found.*"
+self.query_one("#proposal_content", Markdown).update(proposal)
+# NEW:
 from section_viewer import SectionMinimap
 parsed = parse_sections(proposal)
 if parsed.sections:
     self._proposal_parsed = parsed
     self._proposal_text = proposal
-    prop_scroll = self.query_one("#tab_proposal VerticalScroll", VerticalScroll)
+    scroll = self.query_one("#proposal_scroll", VerticalScroll)
     minimap = SectionMinimap(id="proposal_minimap")
-    prop_scroll.mount(minimap, before="#proposal_content")
+    scroll.mount(minimap, before="#proposal_content")
     minimap.populate(parsed)
 ```
 
-Same pattern for plan content with id `plan_minimap`, and store `self._plan_parsed`, `self._plan_text`.
+Same pattern for the Plan tab: cache `self._plan_parsed` / `self._plan_text`, query `#plan_scroll`, mount `SectionMinimap(id="plan_minimap")` before `#plan_content`, populate.
 
-Initialize `self._proposal_parsed = None`, `self._proposal_text = ""`, `self._plan_parsed = None`, `self._plan_text = ""` in `__init__`.
+The existing module-level `from brainstorm.brainstorm_sections import parse_sections` (line 49) stays. Lazy `from section_viewer import SectionMinimap` inside `on_mount` keeps the module-top diff minimal.
 
-<!-- /section: on_mount_enhancement -->
-
-<!-- section: section_select_routing [dimensions: integration, scroll-estimation] -->
-
-## 2. Route `SectionSelected` by minimap id
+## 4. `on_section_minimap_section_selected` — route by minimap id
 
 ```python
 def on_section_minimap_section_selected(self, event) -> None:
     from section_viewer import estimate_section_y
     minimap_id = event.control.id
     if minimap_id == "proposal_minimap":
-        parsed, text, scroll_sel = self._proposal_parsed, self._proposal_text, "#tab_proposal VerticalScroll"
+        parsed, text, scroll_id = self._proposal_parsed, self._proposal_text, "#proposal_scroll"
     elif minimap_id == "plan_minimap":
-        parsed, text, scroll_sel = self._plan_parsed, self._plan_text, "#tab_plan VerticalScroll"
+        parsed, text, scroll_id = self._plan_parsed, self._plan_text, "#plan_scroll"
     else:
         return
     if parsed is None:
         return
-    scroll = self.query_one(scroll_sel, VerticalScroll)
-    total = text.count('\n') + 1
+    scroll = self.query_one(scroll_id, VerticalScroll)
+    total = text.count("\n") + 1
     y = estimate_section_y(parsed, event.section_name, total, scroll.virtual_size.height)
     if y is not None:
-        scroll.scroll_to(y=y, animate=False)  # nav, not animation — matches t571_11 fix; see section_viewer.py scroll_to_section
+        scroll.scroll_to(y=y, animate=False)  # nav, not animation (t571_11 rule)
     event.stop()
 ```
 
-<!-- /section: section_select_routing -->
+## 5. `on_section_minimap_toggle_focus` — minimap → content focus
 
-<!-- section: focus_routing [dimensions: focus-management, keybinding] -->
-
-## 3. Tab focus contract — both directions
-
-Minimap→content side:
 ```python
 def on_section_minimap_toggle_focus(self, event) -> None:
     if event.control.id == "proposal_minimap":
@@ -99,21 +124,22 @@ def on_section_minimap_toggle_focus(self, event) -> None:
     event.stop()
 ```
 
-Content→minimap side (screen-level Tab binding on `NodeDetailModal`):
-```python
-BINDINGS = [..., Binding("tab", "focus_minimap", "Minimap")]
+## 6. `action_focus_minimap` — content → minimap focus (Tab)
 
+```python
 def action_focus_minimap(self) -> None:
     from textual.actions import SkipAction
     tabbed = self.query_one(TabbedContent)
     focused = self.screen.focused
     if tabbed.active == "tab_proposal":
-        md = self.query_one("#proposal_content", Markdown)
-        mm_sel = "#proposal_minimap"
+        md_sel, mm_sel = "#proposal_content", "#proposal_minimap"
     elif tabbed.active == "tab_plan":
-        md = self.query_one("#plan_content", Markdown)
-        mm_sel = "#plan_minimap"
+        md_sel, mm_sel = "#plan_content", "#plan_minimap"
     else:
+        raise SkipAction()
+    try:
+        md = self.query_one(md_sel, Markdown)
+    except Exception:
         raise SkipAction()
     if focused is not md:
         raise SkipAction()
@@ -123,31 +149,19 @@ def action_focus_minimap(self) -> None:
     minimaps.first().focus_first_row()
 ```
 
-<!-- /section: focus_routing -->
+Scope is already the modal screen (`NodeDetailModal` is a `ModalScreen`), so `self.query_one` stays within the modal — not `App.query_one`. Matches the `feedback_textual_priority_bindings` memory.
 
-<!-- section: fullscreen_binding [dimensions: keybinding, integration] -->
-
-## 4. `V` → full-screen `SectionViewerScreen` (shared key)
-
-**Cross-TUI alignment:** `V` (uppercase / `shift+v`) is the shared fullscreen-viewer key across board (t571_10), codebrowser (t571_8), and brainstorm (this task). See p571_10's "Cross-TUI Keybinding Alignment" section.
-
-Add to `NodeDetailModal.BINDINGS`:
-
-```python
-Binding("V", "fullscreen_plan", "Fullscreen plan"),
-```
-
-Dispatch to the currently-active tab:
+## 7. `action_fullscreen_plan` — V → fullscreen viewer on active tab
 
 ```python
 def action_fullscreen_plan(self) -> None:
     tabbed = self.query_one(TabbedContent)
     if tabbed.active == "tab_proposal":
         content = self._proposal_text
-        title = f"Proposal: {self._node_name}"
+        title = f"Proposal: {self.node_id}"
     elif tabbed.active == "tab_plan":
         content = self._plan_text
-        title = f"Plan: {self._node_name}"
+        title = f"Plan: {self.node_id}"
     else:
         self.notify("Fullscreen viewer only works on Proposal or Plan tab", severity="warning")
         return
@@ -158,42 +172,35 @@ def action_fullscreen_plan(self) -> None:
         self.notify("No content on this tab", severity="warning")
 ```
 
-(Stores `self._node_name` as whatever human-readable name is already available on the modal — usually the DAG node title. Adjust to match the existing attribute.)
+Note: `self._proposal_text` / `self._plan_text` are populated in `on_mount` only when the content had sections. If a tab loaded successfully but had no section markers, `_*_text` stays empty and the fullscreen viewer will show "No content on this tab". If we want fullscreen to work regardless of sections, cache the text unconditionally in `on_mount` (outside the `if parsed.sections` guard). **Decision:** cache unconditionally — fullscreen is useful for plain markdown too.
 
-<!-- /section: fullscreen_binding -->
+Adjust `on_mount`: move `self._proposal_text = proposal` / `self._plan_text = plan` outside the `if parsed.sections:` block so fullscreen works on section-less content.
 
-<!-- section: graceful_fallback [dimensions: robustness] -->
+## 8. Graceful fallback
 
-## 5. Graceful fallback
-
-If a node's proposal or plan has no section markers, skip mounting the minimap for that tab. The tab's `VerticalScroll` holds only the Markdown, same as before. Tab key on that Markdown raises `SkipAction` → Textual's default tab-nav runs (e.g. cycle through visible focus targets).
-
-<!-- /section: graceful_fallback -->
-
-<!-- section: verification [dimensions: testing] -->
+When a node's proposal or plan has no section markers:
+- No minimap is mounted on that tab — the `VerticalScroll` holds only the Markdown, unchanged.
+- `Tab` on that Markdown → `action_focus_minimap` raises `SkipAction` (no minimap found) → Textual's default Tab-nav runs.
+- `V` → fullscreen viewer still opens with the content (text is cached unconditionally per §7).
 
 ## Verification
 
-Fixture content: the t571_5 plan (`aiplans/p571/p571_5_shared_section_viewer_tui_integration.md`) has ~11 sections across multiple dimensions. Copy its body (or craft a similar node proposal) into a brainstorm DAG node for testing, then:
+Fixture: `aiplans/p571/p571_5_shared_section_viewer_tui_integration.md` has ~11 sections across multiple dimensions. Copy its body (or craft a similar proposal) into a brainstorm DAG node for testing.
 
-1. `ait brainstorm` on the DAG, open `NodeDetailModal` on the test node
-2. Switch to the Proposal tab → minimap appears above the markdown; dimension tags visible
-3. Tab → focus moves to the Proposal Markdown. Tab again → focus returns to the last-highlighted row
-4. Up/Down on minimap → focus cycles through rows, no content scroll
-5. Enter on a row → proposal scrolls to that section
-6. Switch to the Plan tab → independent minimap state; repeat Tab/Arrow/Enter checks
-7. Switch back to Proposal tab → minimap state (last-highlighted row) preserved in-session
-8. Open a node with no section markers → no minimap on the respective tab; Tab navigation unaffected
-9. Press `V` (uppercase / `shift+v`) on the Proposal tab → `SectionViewerScreen` opens full-screen with proposal content. Escape closes.
-10. Switch to the Plan tab and press `V` → fullscreen viewer opens with plan content.
-11. Press `V` on the Metadata tab → notification "Fullscreen viewer only works on Proposal or Plan tab", no crash.
+1. `ait brainstorm` → open `NodeDetailModal` on the test node.
+2. Switch to Proposal tab → minimap appears above the markdown; dimension tags visible.
+3. Tab → focus moves to the Proposal Markdown. Tab again → focus returns to last-highlighted row.
+4. Up/Down on minimap → rows cycle focus, no content scroll.
+5. Enter on a row → proposal scrolls to that section (non-animated).
+6. Switch to Plan tab → independent minimap state; repeat steps 3–5.
+7. Switch back to Proposal tab → last-highlighted row preserved in-session.
+8. Node with no section markers → no minimap; Tab falls through to default nav.
+9. Press `V` on the Proposal tab → `SectionViewerScreen` opens full-screen with proposal content. Escape closes.
+10. Switch to Plan tab and press `V` → fullscreen opens with plan content.
+11. Press `V` on Metadata tab → notification "Fullscreen viewer only works on Proposal or Plan tab", no crash.
 
-<!-- /section: verification -->
-
-<!-- section: post_implementation [dimensions: workflow] -->
+Hand end-to-end keyboard-contract check to t571_7 (manual verification sibling task).
 
 ## Step 9: Post-Implementation
 
 Follow Step 9 from the shared workflow for commit, archival, and push.
-
-<!-- /section: post_implementation -->
