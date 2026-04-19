@@ -116,11 +116,13 @@ Guard: only fires when `#detail_markdown` is focused AND `#detail_minimap` exist
 
 <!-- section: app_binding [dimensions: keybinding, integration] -->
 
-## 4. `codebrowser_app.py` — `p` key opens `SectionViewerScreen`
+## 4. `codebrowser_app.py` — `V` key opens `SectionViewerScreen`
+
+**Cross-TUI alignment:** `V` (uppercase / `shift+v`) is the shared fullscreen-viewer key across board (t571_10), codebrowser (this task), and brainstorm (t571_9). See p571_10's "Cross-TUI Keybinding Alignment" section.
 
 Add to BINDINGS list:
 ```python
-Binding("p", "view_plan", "Plan viewer"),
+Binding("V", "view_plan", "Fullscreen plan"),
 ```
 
 Add method:
@@ -169,9 +171,9 @@ Test against real fixture content in the repo:
 3. Tab → focus moves to plan markdown. Tab again → focus returns to the last-highlighted row in the minimap
 4. Up/Down on minimap → focus cycles between rows without scrolling
 5. Enter on a row → plan scrolls to that section
-6. Press `p` → `SectionViewerScreen` opens as a modal with left minimap + right markdown. Contract holds. Escape closes
+6. Press `V` (uppercase / `shift+v`) → `SectionViewerScreen` opens as a modal with left minimap + right markdown. Contract holds. Escape closes
 7. Navigate to a file annotated by a task with NO section markers in its plan → detail pane renders without a minimap; Tab behavior falls through to Textual default
-8. Press `p` when no plan is available → warning notification, no crash
+8. Press `V` when no plan is available → warning notification, no crash
 
 <!-- /section: verification -->
 
