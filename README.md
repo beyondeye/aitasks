@@ -5,7 +5,7 @@
     <img alt="aitasks logo" src="imgs/aitasks_logo_light_theme_pil.png" width="400">
   </picture>
 
-  <h3><em>File-based task management for AI coding agents. No backend. Just markdown and git.</em></h3>
+  <h3><em>A full agentic IDE in your terminal. File-based, git-native, multi-agent.</em></h3>
 
   <p>
     <a href="https://aitasks.io/"><img src="https://img.shields.io/badge/docs-website-blue" alt="Documentation"/></a>
@@ -17,52 +17,32 @@
 
 ---
 
-A file-based task management system that integrates with AI code agents ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Codex CLI](https://github.com/openai/codex), [OpenCode](https://github.com/opencode-ai/opencode)) via skills. Tasks are markdown files with YAML frontmatter, organized in a kanban-style workflow. Includes a Python TUI board, GitHub issue integration, and completion statistics.
+A full agentic IDE in your terminal — kanban board, code browser, agent monitoring, and AI-enhanced git workflows — integrated with AI code agents ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Codex CLI](https://github.com/openai/codex), [OpenCode](https://github.com/opencode-ai/opencode)) via skills. Tasks are markdown files with YAML frontmatter stored in your repo alongside your code. No backend. No database. Just git.
 
 Built for maximizing development speed 🚀 AND human-to-agent intent transfer efficiency 💬.
 
-Inspired by [Conductor](https://github.com/gemini-cli-extensions/conductor), and [beads](https://github.com/steveyegge/beads)
-
 ## 🎯 The Challenge
-AI coding agents has reached a proficiency level where, given correct specs and intent, are almost always capable of handling a code-development task. The challenge is the transfer of intent from developer/designer to the AI agent. The challenge is two-fold:
-  1) Transfer intent in a structured way that optimize context building for the AI agent
-  2) Maximize speed so that the human in the loop does not become the bottle-neck for development speed
+AI coding agents are proficient enough to handle real development tasks. The bottleneck is **intent transfer** — getting structured, contextual instructions to the agent without the human becoming the slowdown. **aitasks** optimizes both the context the agent sees and the speed at which a human can steer it.
 
 ## 💡 Core Philosophy
-"Light Spec" engine: Unlike rigid Spec-Driven Development (e.g., [Speckit](https://github.com/github/spec-kit), tasks here are living documents:
-  - Raw Intent: A task starts as a simple Markdown file capturing the goal.
-  - Iterative Refinement: An included AI workflow refines task files in stages—expanding context, adding technical details, and verifying requirements—before code is written.
+"Light Spec" engine: unlike rigid Spec-Driven Development, tasks here are **living documents**.
+  - **Raw Intent:** a task starts as a simple Markdown file capturing the goal.
+  - **Iterative Refinement:** an AI workflow refines task files in stages — expanding context, adding technical details, and verifying requirements — before code is written.
 
 ## 🏗️ Key Features & Architecture
-- Repository-Centric (Inspired by Conductor)
-  - Tasks as Files: Every task is a Markdown file stored within the code repository.
 
-  - Self-Contained Metadata: Unlike Conductor, task metadata (status, priority, assignee) is stored directly in the file's YAML frontmatter.
+- **🖥️ Agentic IDE in your terminal** — Board, Code Browser, Monitor, Brainstorm, and Settings TUIs in one tmux session via `ait ide`. Press `j` to hop between them.
+- **🧠 Long-term memory for agents** — archived tasks and plans become queryable context; the Code Browser annotates each line back to the task/plan that introduced it.
+- **🔀 Tight git coupling, AI-enhanced** — PR import/close, issue tracker integration, contribution flow, changelog generation, and AI-assisted reverts — all rooted in git commits and task metadata.
+- **🧩 Task decomposition & parallelism** — auto-explode complex tasks into child tasks; sibling context propagates via archived plans; git worktrees + atomic locks for parallel agent work.
+- **🔍 AI-enhanced code review** — per-language review guides, batched multi-file reviews producing follow-up tasks, QA workflow with test-coverage analysis.
+- **🤖 Multi-agent support with verified scores** — unified `codeagent` wrapper over Claude Code / Gemini CLI / Codex CLI / OpenCode; per-model/per-operation scores accumulated from user feedback.
 
-- Daemon-less & Stateless (The Beads Evolution) No Infrastructure: No SQL backend, no background daemons. Just files and scripts.
+- **Dual-Mode CLI** — interactive mode for humans (optimized for flow, no context switching) and batch mode for agents (programmatic task/status updates).
 
-- Remote-Ready: Because the state is entirely in the file system, it works seamlessly in remote AI-agent sessions.
+- **Battle tested** — actively developed and used in real projects.
 
-- Dual-Mode CLI tools optimized for two distinct users:
-  - Interactive Mode (For Humans): Optimized for "Flow." Rapidly create, edit, and prioritize tasks without context switching.
-  - Batch Mode (For Agents): allowing AI agents to read specs, create tasks and update task status programmatically.
-
-- Hierarchical Execution
-  - Task Dependencies: Define task/task and task parent/task child relationships.
-
-  - Agent Decomposition: If a task is too risky or complex for a single run, the Agent can "explode" a parent task into child files.
-
-  - Parallelism: thanks to task status stored in git, and AI agents workflow that support git worktrees.
-
-- Visual Management
-TUI Board: A terminal-based visual interface (Kanban style) for visualizing and organizing tasks without leaving the terminal. See the [Board Documentation](https://aitasks.io/docs/board/) for full details.
-
-- Battle tested:
-Not a research experiment. actively developed and used in real projects
-
-- Claude Code optimized.
-
-- Fully customizable workflow for each project: all the scripts and workflow skills live in your project repo — modify them for your needs and contribute back with ease your enhancements to the project with the included AI-based `/aitask-contribute` skill. See the [Contribute and Manage Contributions workflow](https://aitasks.io/docs/workflows/contribute-and-manage/).
+- **Fully customizable workflow** — scripts and skills live in your project repo; modify them for your needs and contribute back via `/aitask-contribute`. See the [Contribute and Manage Contributions workflow](https://aitasks.io/docs/workflows/contribute-and-manage/).
 
 ## 🖥️ Platform Support
 
