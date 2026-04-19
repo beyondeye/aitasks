@@ -3,91 +3,135 @@ Task: t585_5_readme_revamp.md
 Parent Task: aitasks/t585_better_frawework_desc_in_website.md
 Sibling Tasks: aitasks/t585/t585_1_landing_page_redesign.md, aitasks/t585/t585_2_concepts_section.md, aitasks/t585/t585_3_overview_rewrite.md, aitasks/t585/t585_4_coherence_audit.md
 Archived Sibling Plans: aiplans/archived/p585/p585_*_*.md
-Worktree: aiwork/t585_5_readme_revamp
-Branch: aitask/t585_5_readme_revamp
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-04-19 16:19
 ---
 
-# t585_5 — README.md Revamp
+# t585_5 — README.md Revamp (Verified Plan)
 
 ## Context
 
-Update the project root `README.md` to mirror the new website positioning ("A full agentic IDE in your terminal"), restructure the feature highlights to match the website's 6 high-level themes, and remove all Conductor/Beads references.
+Update the project root `README.md` to mirror the new website positioning ("A full agentic IDE in your terminal"), restructure the feature highlights to match the website's 6 high-level themes, and remove all Conductor/Beads/Speckit references.
 
-Parent context: `aiplans/p585_better_frawework_desc_in_website.md`. Read archived sibling plans (`aiplans/archived/p585/p585_1_*.md`, `p585_3_*.md`) for the canonical positioning copy and the 6-theme structure to mirror.
+This is child 5 of parent task t585. Existing plan at `aiplans/p585/p585_5_readme_revamp.md` was reviewed against the current codebase — plan is largely sound but had two gaps:
+1. **Speckit reference at line 32** was not called out (sibling t585_3 removed it from the overview; t585_4 confirmed zero matches across `website/content/`).
+2. **Challenge/Core Philosophy sections** (lines 26-29, 31-34) were not explicitly scoped. User decision: keep both but tighten to 2-3 lines each and strip the Speckit reference.
+
+## Verification of Plan Assumptions (against current codebase, 2026-04-19)
+
+- `README.md:8` — tagline matches the replacement target.
+- `README.md:20-23` — intro paragraph matches; leads with "AI code agents" and "kanban-style workflow" (to be reframed around agentic IDE).
+- `README.md:24` — "Inspired by [Conductor]…, [beads]…" exactly as the plan documents.
+- `README.md:26-29` — 🎯 The Challenge section. **Gap in original plan** — now scoped (see Step 4).
+- `README.md:31-34` — 💡 Core Philosophy section, contains `(e.g., [Speckit](...))` parenthetical at line 32. **Gap in original plan** — now scoped (see Step 4, Step 5).
+- `README.md:36-65` — Key Features & Architecture matches plan description. Line 37 "Repository-Centric (Inspired by Conductor)", Line 42 "The Beads Evolution", Line 63 "Claude Code optimized." all present.
+- `README.md:67-160` — Platform Support / Quick Install / What Gets Installed / Documentation / License — all confirmed unchanged targets.
+- Landing page `website/content/_index.md` uses the 6-theme terminology verified in t585_1: **Agentic IDE in your terminal** · **Long-term memory for agents** · **Tight git coupling, AI-enhanced** · **Task decomposition & parallelism** · **AI-enhanced code review** · **Multi-agent support with verified scores**. README will mirror exactly.
+- Sibling t585_4 confirmed `Conductor|Beads|Speckit` are zero across `website/content/` — README is the last place these references live.
+- Emoji section-header style (🎯 💡 🏗️ 🖥️ ⚡ 📦 📖 📄) already used in current README — preserve this style.
+
+## Critical File
+
+- `README.md` (repo root) — restructured (only required edit)
 
 ## Implementation Plan
 
 ### Step 1 — Update tagline (line 8)
 
-Current:
-
+Replace:
 > *File-based task management for AI coding agents. No backend. Just markdown and git.*
 
-Replace with the canonical landing-page tagline (verify exact wording from `aiplans/archived/p585/p585_1_*.md`):
-
+With the landing-page canonical tagline:
 > *A full agentic IDE in your terminal. File-based, git-native, multi-agent.*
 
 ### Step 2 — Update intro paragraph (lines 20-23)
 
-Reframe around "agentic IDE in your terminal". Keep the supported-agents list (Claude Code, Gemini CLI, Codex CLI, OpenCode), but lead with the IDE positioning rather than "kanban-style workflow".
+Reframe around "agentic IDE in your terminal". Keep the supported-agents list ([Claude Code](...), [Gemini CLI](...), [Codex CLI](...), [OpenCode](...)) intact. Drop the "kanban-style workflow" framing — promote IDE positioning. The "Built for maximizing development speed 🚀 AND human-to-agent intent transfer efficiency 💬" line can stay (it is core positioning).
 
-### Step 3 — Remove Conductor/Beads references
+Draft:
+> A full agentic IDE in your terminal — kanban board, code browser, agent monitoring, and AI-enhanced git workflows — integrated with AI code agents ([Claude Code](...), [Gemini CLI](...), [Codex CLI](...), [OpenCode](...)) via skills. Tasks are markdown files with YAML frontmatter stored in your repo alongside your code. No backend. No database. Just git.
+>
+> Built for maximizing development speed 🚀 AND human-to-agent intent transfer efficiency 💬.
 
-- Delete line 24 ("Inspired by [Conductor]…") entirely. Do not replace.
-- Within "Key Features & Architecture" (Step 4 below), remove all parentheticals like "(Inspired by Conductor)" / "(The Beads Evolution)".
+### Step 3 — Remove line 24 (Conductor/Beads attribution)
 
-### Step 4 — Restructure "Key Features & Architecture" (lines 36-65)
+Delete the "Inspired by [Conductor]…, [beads]…" line entirely. Do not replace.
 
-Mirror the website's 6 themes. Each theme = 1-2 lines (README is much shorter than the website overview).
+### Step 4 — Tighten 🎯 The Challenge section (lines 26-29)
 
-1. **Agentic IDE in your terminal** — TUIs (Board, Code Browser, Monitor, Brainstorm, Settings) in tmux, switchable with `j`.
-2. **Long-term memory for agents** — archived tasks+plans queryable as context.
-3. **Tight git coupling, AI-enhanced** — PR/issue/contribute/changelog/revert workflows.
-4. **Task decomposition & parallelism** — child tasks, worktrees, atomic locking.
-5. **AI-enhanced code review** — review guides, batched reviews, QA workflow.
-6. **Multi-agent support with verified scores** — Claude Code, Gemini CLI, Codex CLI, OpenCode + per-model/per-operation scores.
+Trim to 2-3 lines. Current text is already close to good — preserve the intent-transfer framing, just tighten prose. Anchor explicitly on the "agentic IDE in your terminal" positioning so it connects to the new tagline.
 
-Keep the existing dual-mode CLI bullet ("Interactive Mode for Humans" / "Batch Mode for Agents") if it still fits — it's framework-relevant, not positioning-conflicting. Trim if too verbose.
+Draft:
+> ## 🎯 The Challenge
+> AI coding agents are proficient enough to handle real development tasks. The bottleneck is **intent transfer** — getting structured, contextual instructions to the agent without the human becoming the slowdown. **aitasks** optimizes both the context the agent sees and the speed at which a human can steer it.
 
-### Step 5 — Remove "Claude Code optimized." line (line 63)
+### Step 5 — Tighten 💡 Core Philosophy section (lines 31-34) and remove Speckit
 
-Multi-agent support is now first-class. Fold into theme 6.
+Trim to 2-3 lines. Remove `(e.g., [Speckit](https://github.com/github/spec-kit))` entirely — keep the "rigid Spec-Driven Development" contrast without naming a specific external framework.
 
-### Step 6 — Update GitHub references where applicable
+Draft:
+> ## 💡 Core Philosophy
+> "Light Spec" engine: unlike rigid Spec-Driven Development, tasks here are **living documents**.
+> - **Raw Intent:** a task starts as a simple Markdown file capturing the goal.
+> - **Iterative Refinement:** an AI workflow refines task files in stages — expanding context, adding technical details, and verifying requirements — before code is written.
 
-Optional: rephrase any "GitHub" link text used as a CTA to "⭐ Star on GitHub to support us!". The badges at the top of the README should remain unchanged.
+### Step 6 — Restructure "🏗️ Key Features & Architecture" (lines 36-65) to the 6-theme block
 
-### Step 7 — Keep these sections unchanged
+Mirror the website's 6 themes. Each theme = 1-2 lines (README is shorter than the website overview). Use the exact canonical terminology.
 
-- Platform Support table (lines 67-75)
-- Quick Install (lines 77-115)
-- What Gets Installed (lines 115-130)
-- Documentation links (lines 132-148)
-- License (lines 150-160)
+```markdown
+## 🏗️ Key Features & Architecture
 
-## Critical Files
+- **🖥️ Agentic IDE in your terminal** — Board, Code Browser, Monitor, Brainstorm, and Settings TUIs in one tmux session via `ait ide`. Press `j` to hop between them.
+- **🧠 Long-term memory for agents** — archived tasks and plans become queryable context; the Code Browser annotates each line back to the task/plan that introduced it.
+- **🔀 Tight git coupling, AI-enhanced** — PR import/close, issue tracker integration, contribution flow, changelog generation, and AI-assisted reverts — all rooted in git commits and task metadata.
+- **🧩 Task decomposition & parallelism** — auto-explode complex tasks into child tasks; sibling context propagates via archived plans; git worktrees + atomic locks for parallel agent work.
+- **🔍 AI-enhanced code review** — per-language review guides, batched multi-file reviews producing follow-up tasks, QA workflow with test-coverage analysis.
+- **🤖 Multi-agent support with verified scores** — unified `codeagent` wrapper over Claude Code / Gemini CLI / Codex CLI / OpenCode; per-model/per-operation scores accumulated from user feedback.
+```
 
-- `README.md` (repo root) — restructured
+Keep the Dual-Mode CLI bullet immediately below the 6-theme block (it's a distinct value prop — interactive-for-humans vs batch-for-agents — and sibling t585_3 overview preserved it as its own bullet):
 
-## Existing Patterns to Reuse
+```markdown
+- **Dual-Mode CLI** — Interactive mode for humans (optimized for flow, no context switching) and batch mode for agents (programmatic task/status updates).
+```
 
-- Section headers with emoji prefixes (🎯, 💡, 🏗️, 🖥️, ⚡, 📖, 📄) already used in current README — preserve this style.
-- Markdown bullet structure (top-level + nested) — preserve.
+Keep the closing bullets trimmed:
+- **Battle tested** — actively developed and used in real projects. (drop the "Not a research experiment" framing)
+- **Fully customizable workflow** — scripts and skills live in your project repo; modify them for your needs and contribute back via `/aitask-contribute`. ([Contribute workflow](https://aitasks.io/docs/workflows/contribute-and-manage/))
+
+### Step 7 — Remove "Claude Code optimized." (line 63)
+
+Multi-agent support is now first-class — folded into theme 6. Delete the standalone line.
+
+### Step 8 — GitHub CTA refresh (optional, minor)
+
+The README already uses GitHub badges at the top (stargazers / last-commit / issues) — keep those unchanged. If a prose CTA for "star the repo" is added elsewhere, use "⭐ Star on GitHub to support us!" (matching landing page wording, Unicode star). This is optional — only add if a natural spot presents during editing.
+
+### Step 9 — Keep these sections unchanged
+
+- 🖥️ Platform Support table (lines 67-75)
+- ⚡ Quick Install (lines 77-115)
+- 📦 What Gets Installed (lines 115-130)
+- 📖 Documentation (lines 132-148)
+- 📄 License (lines 150-160)
 
 ## Style Rules
 
-- README is shorter than website overview — keep theme bullets to 1-2 lines each.
-- Cross-check theme order and terminology against the latest landing page (`website/content/_index.md`) — should be identical.
-- Describe current state only — no "previously…" framing.
+- README is shorter than website overview — theme bullets stay to 1-2 lines each.
+- Theme order and terminology MUST match the landing page (`website/content/_index.md`) and the overview (`website/content/docs/overview.md`).
+- Emoji section-header style preserved: 🎯 💡 🏗️ 🖥️ ⚡ 📦 📖 📄.
+- Current state only — no "previously…" / "this used to be…" framing.
 
 ## Verification
 
-1. `Grep "Conductor\|Beads" README.md` — zero matches.
-2. Render the README via `glow README.md` (if available) or visit GitHub preview — confirm structure, links, and tone match the website.
-3. Confirm all relative links and badges still resolve.
-4. Cross-check theme order and terminology against the landing page (`website/content/_index.md`) — identical.
+1. `Grep -n "Conductor\|Beads\|Speckit\|spec-kit" README.md` — **zero** matches.
+2. Render the README with `glow README.md` (if available) or via the GitHub preview — structure, links, and tone match the website.
+3. Confirm all relative links, badges, and image srcsets still resolve.
+4. Cross-check theme order and terminology against `website/content/_index.md` (landing) and `website/content/docs/overview.md` (overview) — identical vocabulary in identical order.
+5. Sanity-scan the Key Features section — exactly 6 theme bullets, each 1-2 lines.
 
 ## Step 9 (Post-Implementation)
 
-Standard task-workflow Step 9: review → commit `README.md` using `git`, commit plan file using `./ait git`, archive with `./.aitask-scripts/aitask_archive.sh 585_5`, push. The parent task t585 will auto-archive after this child completes (last child).
+Standard task-workflow Step 9: review → commit `README.md` using regular `git`, commit plan file using `./ait git`, archive with `./.aitask-scripts/aitask_archive.sh 585_5`, push. Parent task t585 will auto-archive after this child completes (it is the last child).
