@@ -79,7 +79,7 @@ def on_section_minimap_section_selected(self, event) -> None:
     total = text.count('\n') + 1
     y = estimate_section_y(parsed, event.section_name, total, scroll.virtual_size.height)
     if y is not None:
-        scroll.scroll_to(y=y, animate=True)
+        scroll.scroll_to(y=y, animate=False)  # nav, not animation — matches t571_11 fix; see section_viewer.py scroll_to_section
     event.stop()
 ```
 

@@ -146,3 +146,50 @@ For t571_8 (`aiplans/p571/p571_8_codebrowser_section_viewer_integration.md`) and
 ## Step 9: Post-Implementation
 
 Follow Step 9 of the shared task-workflow for commit, archival, merge, and push. No worktree to tear down (fast profile, current branch).
+
+## Final Implementation Notes
+
+### Initial pass (bugs 1-4)
+
+- Bug 1 — `SectionMinimap.DEFAULT_CSS`: added `height: auto; max-height: 12;` and widened `max-width` from 35 → 50 for the default (inline) usage.
+- Bug 2 — `SectionRow.DEFAULT_CSS`: added `width: 100%; text-overflow: ellipsis;` on the compact variant.
+- Bug 3 — `animate=False` in `SectionAwareMarkdown.scroll_to_section()` (section_viewer.py) and `TaskDetailScreen.on_section_minimap_section_selected` (aitask_board.py). Downstream plans `p571_8` and `p571_9` updated with matching `animate=False` and a pointer comment.
+- Bug 4 — `SectionViewerScreen.action_focus_minimap` rewritten without `SkipAction`: the modal owns Tab and toggles between minimap and content.
+
+### Post-review iteration (after user feedback)
+
+User manual-tested and reported (a) Tab still unreliable in fullscreen (1st press no-op, 2nd press dismissed the modal), (b) arrow keys on the plan pane moved focus to the minimap rows instead of scrolling the content, (c) wanted richer minimap rows in fullscreen (2-line rows, name vs dimensions colored differently).
+
+**Root cause of (a) and (b):** `KanbanApp.BINDINGS` contains **priority=True** bindings for `tab → focus_search`, `up/down/left/right → nav_*`, which are App-level bindings and therefore preempt the screen's priority bindings. With `SectionViewerScreen` pushed:
+- `tab` fired `action_focus_search` (focuses the hidden search Input). Second press then triggered `action_focus_search` → `action_focus_board` → `screen.dismiss()`.
+- `up/down` fired `action_nav_up/down` which, for modals, call `screen.focus_previous/next` — stepping through the screen's focus chain (rows + content).
+
+**Fix:** `KanbanApp.check_action` now returns `False` for `focus_search`, `nav_up`, `nav_down`, `nav_left`, `nav_right` when `type(self.screen).__name__ == "SectionViewerScreen"`, disabling those App bindings so the modal's own bindings (priority Tab + `on_key` fallback + VerticalScroll's scroll_up/scroll_down) take over. `focus_board` (Escape) stays enabled — the App-level Escape handler correctly dismisses the modal.
+
+- **Robust Tab handling** — added `on_key` override on `SectionViewerScreen` as a belt-and-suspenders layer on top of the priority Tab binding. Both call a shared `_cycle_focus()` helper. Verified end-to-end with a headless Textual Pilot test: from a freshly opened `SectionViewerScreen`, four consecutive Tab presses cycle `SectionRow → SectionAwareMarkdown → SectionRow → SectionAwareMarkdown` with the modal staying on top of the stack (`app.screen` remains `SectionViewerScreen` throughout).
+- **Compact / expanded minimap rows** — added `compact: bool = True` parameter on `SectionRow` and `SectionMinimap`. Compact rows (default; used by host TUIs' inline minimap) are single-line with ellipsis. Expanded rows (used by `SectionViewerScreen`) are two lines: section name in **bold** on line 1, dimensions in `dim` style on line 2 (produced via Rich `Text` spans in `SectionRow.render()`). CSS classes `-compact` / `-expanded` drive the per-variant height / overflow rules.
+- **Fullscreen minimap width** — fullscreen no longer needs the generous 50-col width because dimensions moved to line 2. Added an explicit `SectionViewerScreen #sv_minimap { width: 32; max-width: 32; }` rule so the modal minimap stays narrow; the global `SectionMinimap` CSS keeps `max-width: 50` for inline host usage.
+- **Imports** — added `from rich.text import Text`. Removed the now-unused `from textual.actions import SkipAction`.
+
+### Deviations from plan
+
+- Bug 3 has 2 call sites (not 3). `SectionViewerScreen.on_section_minimap_section_selected` delegates to `scroll_to_section`, so fixing the latter transitively covered the fullscreen path.
+- Added a second round of changes (compact/expanded rows + `on_key` fallback) not in the original plan, in response to user feedback after the first-pass commit-review.
+
+### Issues encountered
+
+None blocking. Headless Pilot test was needed to confirm Bug 4 behavior (task description flagged this investigation step as useful and it caught nothing in the end — Tab cycling works with the fix).
+
+### Key decisions
+
+- `max-height: 12` on inline minimap caps host-TUI footprint so plan markdown stays visible.
+- Left board's `TaskDetailScreen.action_focus_minimap` with its SkipAction guard intact — that one legitimately needs fall-through so form Tab-nav still works when plan view isn't active.
+- Used CSS classes (`-compact` / `-expanded`) rather than two separate Widget subclasses to keep the rendering path single and avoid duplicating `SectionRow`.
+
+### Notes for sibling tasks (t571_8, t571_9)
+
+- Pass `animate=False` to `scroll_to()` in the `SectionSelected` handler (already reflected in both plan files).
+- `SectionMinimap` now auto-sizes via `height: auto; max-height: 12`, so host TUIs can mount it inside a parent `VerticalScroll` without extra sizing rules. Use the default `compact=True` — expanded rows are reserved for fullscreen.
+- **App-level priority-binding collisions:** if the host App (codebrowser, brainstorm) declares App-level `priority=True` bindings for `tab`, `up`, `down`, `left`, `right`, those bindings will preempt the modal's bindings and break Tab cycling + arrow-key scroll inside `SectionViewerScreen`. Mirror the fix from `KanbanApp.check_action`: return `False` for those actions when `type(self.screen).__name__ == "SectionViewerScreen"`. Leave `escape` / `focus_board` alone — the App escape handler is the right dismisser.
+- The fullscreen `SectionViewerScreen` owns Tab unconditionally (priority binding + `on_key` fallback); the caller just needs to stop its own App from stealing Tab first.
+- If you need to debug Tab / arrow keys in a pushed modal, a Pilot test that mocks the host App's conflicting priority bindings and asserts `type(app.screen).__name__` stays stable across several `pilot.press('tab')` / `pilot.press('up')` calls is a fast regression guard (see the mock-KanbanApp test used to verify t571_11).
