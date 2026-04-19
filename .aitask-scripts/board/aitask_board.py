@@ -988,6 +988,79 @@ def _remove_dep_from_task(task, dep_num):
     task.save_with_timestamp()
 
 
+class VerifiesField(Static):
+    """Focusable verifies field. Enter opens verified-task detail."""
+
+    can_focus = True
+
+    def __init__(self, verifies: list, manager: "TaskManager", owner_task: "Task", **kwargs):
+        super().__init__(**kwargs)
+        self.verifies = verifies
+        self.manager = manager
+        self.owner_task = owner_task
+
+    def render(self) -> str:
+        v_str = ", ".join(str(v) for v in self.verifies)
+        return f"  [b]Verifies:[/b] {v_str}"
+
+    def on_key(self, event):
+        if event.key == "enter":
+            self._open_verify()
+            event.prevent_default()
+            event.stop()
+
+    def _find_task_by_number(self, num):
+        num_str = str(num)
+        task_id = num_str if num_str.startswith('t') else f"t{num_str}"
+        return self.manager.find_task_by_id(task_id)
+
+    def _open_verify(self):
+        if len(self.verifies) == 1:
+            task = self._find_task_by_number(self.verifies[0])
+            if task:
+                self.app.push_screen(TaskDetailScreen(task, self.manager))
+            else:
+                self._ask_remove_verify(self.verifies[0])
+        else:
+            items = []
+            for v_num in self.verifies:
+                task = self._find_task_by_number(v_num)
+                v_label = str(v_num) if str(v_num).startswith('t') else f"t{v_num}"
+                if task:
+                    _, name = TaskCard._parse_filename(task.filename)
+                    items.append((v_num, task, f"{v_label} {name}"))
+                else:
+                    items.append((v_num, None, f"{v_label} (not found)"))
+            self.app.push_screen(
+                DependencyPickerScreen(items, self.manager, self.owner_task),
+            )
+
+    def _ask_remove_verify(self, v_num):
+        def on_result(remove):
+            if remove:
+                _remove_verify_from_task(self.owner_task, v_num)
+                _reload_detail_screen(self.app, self.owner_task, self.manager)
+        self.app.push_screen(
+            RemoveDepConfirmScreen(v_num),
+            on_result,
+        )
+
+    def on_focus(self):
+        self.add_class("ro-focused")
+
+    def on_blur(self):
+        self.remove_class("ro-focused")
+
+
+def _remove_verify_from_task(task, v_num):
+    """Remove a verifies entry from a task's metadata and save."""
+    if not task.load():
+        return
+    verifies = task.metadata.get("verifies", [])
+    task.metadata["verifies"] = [v for v in verifies if v != v_num]
+    task.save_with_timestamp()
+
+
 def _reload_detail_screen(app, task, manager):
     """Dismiss the current detail screen and re-push it with updated task data."""
     task.load()
@@ -1993,6 +2066,13 @@ class TaskDetailScreen(ModalScreen):
                 elif deps:
                     dep_str = ", ".join(str(d) for d in deps)
                     yield ReadOnlyField(f"[b]Depends:[/b] {dep_str}", classes="meta-ro")
+            if meta.get("verifies"):
+                verifies = meta["verifies"]
+                if verifies and self.manager:
+                    yield VerifiesField(verifies, self.manager, self.task_data, classes="meta-ro")
+                elif verifies:
+                    v_str = ", ".join(str(v) for v in verifies)
+                    yield ReadOnlyField(f"[b]Verifies:[/b] {v_str}", classes="meta-ro")
             if meta.get("assigned_to"):
                 yield ReadOnlyField(f"[b]Assigned to:[/b] {meta['assigned_to']}", classes="meta-ro")
             if meta.get("issue"):

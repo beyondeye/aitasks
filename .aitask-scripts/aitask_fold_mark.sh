@@ -182,9 +182,48 @@ if [[ -n "$union_csv" ]]; then
     done
 fi
 
+# Step 3b: union verifies lists from primary + directly folded tasks.
+# No transitive walk: verifies entries are feature-task references, not fold
+# chains, so deep traversal would pull in unrelated references.
+declare -A seen_verifies=()
+verifies_list=()
+
+add_to_verifies() {
+    local raw="$1"
+    raw="${raw#t}"
+    [[ -z "$raw" ]] && return 0
+    if [[ -z "${seen_verifies[$raw]:-}" ]]; then
+        seen_verifies[$raw]=1
+        verifies_list+=("$raw")
+    fi
+}
+
+primary_verifies_csv=$(parse_yaml_list "$(read_yaml_field "$primary_file" "verifies")")
+if [[ -n "$primary_verifies_csv" ]]; then
+    IFS=',' read -ra primary_verifies_parts <<< "$primary_verifies_csv"
+    for v in "${primary_verifies_parts[@]}"; do
+        add_to_verifies "$v"
+    done
+fi
+for ff in ${folded_files[@]+"${folded_files[@]}"}; do
+    fv_csv=$(parse_yaml_list "$(read_yaml_field "$ff" "verifies")")
+    [[ -z "$fv_csv" ]] && continue
+    IFS=',' read -ra fv_parts <<< "$fv_csv"
+    for v in "${fv_parts[@]}"; do
+        add_to_verifies "$v"
+    done
+done
+
+verifies_args=()
+if [[ ${#verifies_list[@]} -gt 0 ]]; then
+    verifies_csv=$(IFS=','; echo "${verifies_list[*]}")
+    verifies_args=(--verifies "$verifies_csv")
+fi
+
 "$SCRIPT_DIR/aitask_update.sh" --batch "$primary_id" \
     --folded-tasks "$full_csv" \
     ${file_ref_args[@]+"${file_ref_args[@]}"} \
+    ${verifies_args[@]+"${verifies_args[@]}"} \
     --silent >/dev/null
 echo "PRIMARY_UPDATED:${primary_id}"
 

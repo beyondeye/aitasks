@@ -33,6 +33,7 @@ BATCH_TYPE="feature"
 BATCH_STATUS="Ready"
 BATCH_LABELS=""
 BATCH_DEPS=""
+BATCH_VERIFIES=""
 BATCH_COMMIT=false
 BATCH_SILENT=false
 BATCH_PARENT=""
@@ -72,6 +73,8 @@ Batch mode (for automation):
   --issue URL            Issue tracker URL (e.g., GitHub issue URL)
   --labels, -l LABELS    Comma-separated labels
   --deps DEPS            Comma-separated dependency task numbers
+  --verifies VERIFIES    Comma-separated task IDs this task manually verifies
+                         (for issue_type: manual_verification)
   --file-ref REF         Append a file reference; repeatable. REF format:
                          PATH | PATH:N | PATH:N-M | PATH:N-M^N-M^...
                          (^ joins multiple ranges on the same path).
@@ -136,6 +139,7 @@ parse_args() {
             --status|-s) BATCH_STATUS="$2"; shift 2 ;;
             --labels|-l) BATCH_LABELS="$2"; shift 2 ;;
             --deps) BATCH_DEPS="$2"; shift 2 ;;
+            --verifies) BATCH_VERIFIES="$2"; shift 2 ;;
             --parent|-P) BATCH_PARENT="$2"; shift 2 ;;
             --no-sibling-dep) BATCH_NO_SIBLING_DEP=true; shift ;;
             --assigned-to|-a) BATCH_ASSIGNED_TO="$2"; shift 2 ;;
@@ -365,6 +369,7 @@ create_child_task_file() {
     local contributor="${13:-}"
     local contributor_email="${14:-}"
     local file_references="${15:-}"
+    local verifies="${16:-}"
 
     local child_dir="$TASK_DIR/t${parent_num}"
     mkdir -p "$child_dir"
@@ -391,6 +396,12 @@ create_child_task_file() {
         echo "issue_type: $issue_type"
         echo "status: $status"
         echo "labels: $labels_yaml"
+        # Only write verifies if present
+        if [[ -n "$verifies" ]]; then
+            local verifies_yaml
+            verifies_yaml=$(format_yaml_list "$verifies")
+            echo "verifies: $verifies_yaml"
+        fi
         # Only write file_references if present
         if [[ -n "$file_references" ]]; then
             local file_refs_yaml
@@ -447,6 +458,7 @@ create_draft_file() {
     local contributor="${13:-}"
     local contributor_email="${14:-}"
     local file_references="${15:-}"
+    local verifies="${16:-}"
 
     mkdir -p "$DRAFT_DIR"
 
@@ -471,6 +483,12 @@ create_draft_file() {
         echo "issue_type: $issue_type"
         echo "status: $status"
         echo "labels: $labels_yaml"
+        # Only write verifies if present
+        if [[ -n "$verifies" ]]; then
+            local verifies_yaml
+            verifies_yaml=$(format_yaml_list "$verifies")
+            echo "verifies: $verifies_yaml"
+        fi
         if [[ -n "$file_references" ]]; then
             local file_refs_yaml
             file_refs_yaml=$(format_file_references_yaml "$file_references")
@@ -1377,6 +1395,7 @@ create_task_file() {
     local contributor="${13:-}"
     local contributor_email="${14:-}"
     local file_references="${15:-}"
+    local verifies="${16:-}"
 
     local filename="t${task_num}_${task_name}.md"
     local filepath="$TASK_DIR/$filename"
@@ -1399,6 +1418,12 @@ create_task_file() {
         echo "issue_type: $issue_type"
         echo "status: $status"
         echo "labels: $labels_yaml"
+        # Only write verifies if present
+        if [[ -n "$verifies" ]]; then
+            local verifies_yaml
+            verifies_yaml=$(format_yaml_list "$verifies")
+            echo "verifies: $verifies_yaml"
+        fi
         # Only write file_references if present
         if [[ -n "$file_references" ]]; then
             local file_refs_yaml
@@ -1559,7 +1584,7 @@ run_batch_mode() {
                 "$BATCH_PRIORITY" "$BATCH_EFFORT" "$BATCH_DEPS" "$BATCH_DESC" \
                 "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" "$BATCH_ISSUE" \
                 "$BATCH_PULL_REQUEST" "$BATCH_CONTRIBUTOR" "$BATCH_CONTRIBUTOR_EMAIL" \
-                "$deduped_file_refs")
+                "$deduped_file_refs" "$BATCH_VERIFIES")
 
             task_id="t${BATCH_PARENT}_${child_num}"
             update_parent_children_to_implement "$BATCH_PARENT" "$task_id"
@@ -1593,7 +1618,7 @@ run_batch_mode() {
             filepath=$(create_task_file "$claimed_id" "$task_name" "$BATCH_PRIORITY" "$BATCH_EFFORT" \
                 "$BATCH_DEPS" "$BATCH_DESC" "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" "$BATCH_ASSIGNED_TO" "$BATCH_ISSUE" \
                 "$BATCH_PULL_REQUEST" "$BATCH_CONTRIBUTOR" "$BATCH_CONTRIBUTOR_EMAIL" \
-                "$deduped_file_refs")
+                "$deduped_file_refs" "$BATCH_VERIFIES")
 
             if [[ -n "$BATCH_ASSIGNED_TO" ]]; then
                 add_email_to_file "$BATCH_ASSIGNED_TO"
@@ -1617,7 +1642,7 @@ run_batch_mode() {
             "$BATCH_DEPS" "$BATCH_DESC" "$BATCH_TYPE" "$BATCH_STATUS" "$BATCH_LABELS" \
             "$BATCH_ASSIGNED_TO" "$BATCH_ISSUE" "$BATCH_PARENT" \
             "$BATCH_PULL_REQUEST" "$BATCH_CONTRIBUTOR" "$BATCH_CONTRIBUTOR_EMAIL" \
-            "$deduped_file_refs")
+            "$deduped_file_refs" "$BATCH_VERIFIES")
     fi
 
     # Output

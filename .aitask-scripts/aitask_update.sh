@@ -23,6 +23,10 @@ BATCH_STATUS=""
 BATCH_TYPE=""
 BATCH_DEPS=""
 BATCH_DEPS_SET=false
+BATCH_VERIFIES=""
+BATCH_VERIFIES_SET=false
+BATCH_ADD_VERIFIES=()
+BATCH_REMOVE_VERIFIES=()
 BATCH_LABELS=""
 BATCH_LABELS_SET=false
 BATCH_ADD_LABELS=()
@@ -63,6 +67,7 @@ BATCH_COMMIT=false
 CURRENT_PRIORITY=""
 CURRENT_EFFORT=""
 CURRENT_DEPS=""
+CURRENT_VERIFIES=""
 CURRENT_TYPE=""
 CURRENT_STATUS=""
 CURRENT_LABELS=""
@@ -103,6 +108,11 @@ Metadata options (batch mode):
   --status, -s STATUS    Status: Ready, Editing, Implementing, Postponed, Done, Folded
   --type TYPE            Issue type (see aitasks/metadata/task_types.txt)
   --deps DEPS            Dependencies (comma-separated task numbers, replaces all)
+
+Verifies options (batch mode, for manual-verification tasks):
+  --verifies VERIFIES    Verifies list (comma-separated task IDs, replaces all)
+  --add-verifies ID      Add a task ID to verifies (can be repeated)
+  --remove-verifies ID   Remove a task ID from verifies (can be repeated)
 
 Label options (batch mode):
   --labels, -l LABELS    Labels (comma-separated, replaces all existing labels)
@@ -192,6 +202,9 @@ parse_args() {
             --status|-s) BATCH_STATUS="$2"; shift 2 ;;
             --type) BATCH_TYPE="$2"; shift 2 ;;
             --deps) BATCH_DEPS="$2"; BATCH_DEPS_SET=true; shift 2 ;;
+            --verifies) BATCH_VERIFIES="$2"; BATCH_VERIFIES_SET=true; shift 2 ;;
+            --add-verifies) BATCH_ADD_VERIFIES+=("$2"); shift 2 ;;
+            --remove-verifies) BATCH_REMOVE_VERIFIES+=("$2"); shift 2 ;;
             --labels|-l) BATCH_LABELS="$2"; BATCH_LABELS_SET=true; shift 2 ;;
             --add-label) BATCH_ADD_LABELS+=("$2"); shift 2 ;;
             --remove-label) BATCH_REMOVE_LABELS+=("$2"); shift 2 ;;
@@ -336,6 +349,10 @@ parse_yaml_frontmatter() {
                     CURRENT_DEPS=$(parse_yaml_list "$value")
                     CURRENT_DEPS=$(normalize_task_ids "$CURRENT_DEPS")
                     ;;
+                verifies)
+                    CURRENT_VERIFIES=$(parse_yaml_list "$value")
+                    CURRENT_VERIFIES=$(normalize_task_ids "$CURRENT_VERIFIES")
+                    ;;
                 issue_type) CURRENT_TYPE="$value" ;;
                 status) CURRENT_STATUS="$value" ;;
                 labels)
@@ -424,6 +441,7 @@ write_task_file() {
     local contributor_email="${19:-}"
     local implemented_with="${20:-}"
     local file_references="${21:-}"
+    local verifies="${22:-}"
 
     local updated_at
     updated_at=$(get_timestamp)
@@ -443,6 +461,12 @@ write_task_file() {
         echo "issue_type: $issue_type"
         echo "status: $status"
         echo "labels: $labels_yaml"
+        # Only write verifies if present
+        if [[ -n "$verifies" ]]; then
+            local verifies_yaml
+            verifies_yaml=$(format_yaml_list "$verifies")
+            echo "verifies: $verifies_yaml"
+        fi
         # Only write file_references if present
         if [[ -n "$file_references" ]]; then
             local file_references_yaml
@@ -607,6 +631,62 @@ process_label_operations() {
     echo "${new_array[*]}"
 }
 
+# --- Verifies Management ---
+
+process_verifies_operations() {
+    local current_verifies="$1"
+    local new_verifies="$2"
+    local -n add_verifies_ref=$3
+    local -n remove_verifies_ref=$4
+    local verifies_flag_set="${5:-false}"
+
+    # If --verifies was specified, use it as base (replaces all)
+    if [[ "$verifies_flag_set" == true ]]; then
+        current_verifies="$new_verifies"
+    fi
+
+    local -a verifies_array=()
+    if [[ -n "$current_verifies" ]]; then
+        IFS=',' read -ra verifies_array <<< "$current_verifies"
+    fi
+
+    # Add ids (dedup)
+    for vid in "${add_verifies_ref[@]}"; do
+        local norm
+        norm="${vid#t}"
+        [[ -z "$norm" ]] && continue
+        local found=false
+        for existing in "${verifies_array[@]}"; do
+            if [[ "$existing" == "$norm" ]]; then
+                found=true
+                break
+            fi
+        done
+        [[ "$found" == false ]] && verifies_array+=("$norm")
+    done
+
+    # Remove ids
+    local -a new_array=()
+    for existing in "${verifies_array[@]}"; do
+        local should_remove=false
+        for vid in "${remove_verifies_ref[@]}"; do
+            local norm
+            norm="${vid#t}"
+            if [[ "$existing" == "$norm" ]]; then
+                should_remove=true
+                break
+            fi
+        done
+        [[ "$should_remove" == false ]] && new_array+=("$existing")
+    done
+
+    # Normalize (strip leading 't' on any remaining, ensure consistent CSV)
+    local joined
+    local IFS=','
+    joined="${new_array[*]}"
+    normalize_task_ids "$joined"
+}
+
 # --- Children Management ---
 
 process_children_operations() {
@@ -765,7 +845,8 @@ handle_child_task_completion() {
         "$CURRENT_DESCRIPTION" "$new_children" "$CURRENT_ASSIGNED_TO" \
         "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE" "$CURRENT_FOLDED_TASKS" \
         "$CURRENT_FOLDED_INTO" "$CURRENT_PULL_REQUEST" "$CURRENT_CONTRIBUTOR" \
-        "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES"
+        "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES" \
+        "$CURRENT_VERIFIES"
 
     if [[ -z "$new_children" ]]; then
         success "All children of t$parent_num are complete! Parent can now be completed."
@@ -1217,7 +1298,8 @@ run_interactive_mode() {
         "$CURRENT_CHILDREN_TO_IMPLEMENT" "$CURRENT_ASSIGNED_TO" \
         "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE" "$CURRENT_FOLDED_TASKS" \
         "$CURRENT_FOLDED_INTO" "$CURRENT_PULL_REQUEST" "$CURRENT_CONTRIBUTOR" \
-        "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES"
+        "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES" \
+        "$CURRENT_VERIFIES"
 
     # Handle child task completion
     if [[ "$new_status" == "Done" ]]; then
@@ -1275,6 +1357,9 @@ run_batch_mode() {
     [[ -n "$BATCH_STATUS" ]] && has_update=true
     [[ -n "$BATCH_TYPE" ]] && has_update=true
     [[ "$BATCH_DEPS_SET" == true ]] && has_update=true
+    [[ "$BATCH_VERIFIES_SET" == true ]] && has_update=true
+    [[ ${#BATCH_ADD_VERIFIES[@]} -gt 0 ]] && has_update=true
+    [[ ${#BATCH_REMOVE_VERIFIES[@]} -gt 0 ]] && has_update=true
     [[ "$BATCH_LABELS_SET" == true ]] && has_update=true
     [[ ${#BATCH_ADD_LABELS[@]} -gt 0 ]] && has_update=true
     [[ ${#BATCH_REMOVE_LABELS[@]} -gt 0 ]] && has_update=true
@@ -1349,6 +1434,10 @@ run_batch_mode() {
         new_deps="$BATCH_DEPS"
     fi
     new_deps=$(normalize_task_ids "$new_deps")
+
+    # Process verifies
+    local new_verifies
+    new_verifies=$(process_verifies_operations "$CURRENT_VERIFIES" "$BATCH_VERIFIES" BATCH_ADD_VERIFIES BATCH_REMOVE_VERIFIES "$BATCH_VERIFIES_SET")
 
     # Process labels
     local new_labels
@@ -1446,7 +1535,8 @@ run_batch_mode() {
         "$new_type" "$new_status" "$new_labels" "$CURRENT_CREATED_AT" "$new_description" \
         "$new_children" "$new_assigned_to" "$new_boardcol" "$new_boardidx" "$new_issue" \
         "$new_folded_tasks" "$new_folded_into" "$new_pull_request" "$new_contributor" \
-        "$new_contributor_email" "$new_implemented_with" "$new_file_references"
+        "$new_contributor_email" "$new_implemented_with" "$new_file_references" \
+        "$new_verifies"
 
     # Handle child task completion (update parent if needed)
     if [[ "$new_status" == "Done" ]]; then
