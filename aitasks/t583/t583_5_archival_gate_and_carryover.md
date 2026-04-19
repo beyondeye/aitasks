@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [framework, skill, task_workflow, verification]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-19 08:29
-updated_at: 2026-04-19 15:24
+updated_at: 2026-04-19 15:36
 ---
 
 ## Context
