@@ -5,10 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [task_workflow, framework, skill]
-children_to_implement: [t583_1, t583_2, t583_3, t583_4, t583_5, t583_6, t583_7, t583_8,
-  t583_9]
+children_to_implement: [t583_2, t583_3, t583_4, t583_5, t583_6, t583_7, t583_8]
 created_at: 2026-04-17 11:20
-updated_at: 2026-04-19 08:33
+updated_at: 2026-04-19 10:03
 boardidx: 20
 ---
 
