@@ -6,7 +6,7 @@ issue_type: documentation
 status: Implementing
 labels: [web_site, positioning]
 file_references: [website/content/_index.md:54-63]
-children_to_implement: [t585_1, t585_2, t585_3]
+children_to_implement: [t585_1, t585_2, t585_3, t585_4]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-19 10:32
 updated_at: 2026-04-19 11:18
