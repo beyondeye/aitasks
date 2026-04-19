@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t583_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [framework, skill, task_workflow, verification]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-19 08:29
-updated_at: 2026-04-19 08:29
+updated_at: 2026-04-19 11:50
 ---
 
 ## Context
