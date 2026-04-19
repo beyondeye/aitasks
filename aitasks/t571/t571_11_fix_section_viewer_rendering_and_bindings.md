@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: [t571_10, 5]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [brainstorming, ait_brainstorm, ui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-19 11:07
-updated_at: 2026-04-19 11:07
+updated_at: 2026-04-19 11:31
 ---
 
 <!-- section: context [dimensions: motivation] -->
