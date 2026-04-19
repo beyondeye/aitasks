@@ -6,69 +6,92 @@ Archived Sibling Plans: aiplans/archived/p585/p585_*_*.md
 Worktree: aiwork/t585_4_coherence_audit
 Branch: aitask/t585_4_coherence_audit
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-04-19 15:49
 ---
 
 # t585_4 — Coherence Audit + Conductor/Beads Removal Sweep
 
 ## Context
 
-After siblings t585_1 (landing), t585_2 (concepts), and t585_3 (overview) restructure the website around the new "agentic IDE in your terminal" positioning, sweep the rest of the website docs for:
+After t585_1 (landing), t585_2 (Concepts section), and t585_3 (Overview) restructured the website around the "agentic IDE in your terminal" positioning, two pockets of legacy framing remain:
 
-1. The remaining Conductor/Beads sentence on `about/_index.md`.
-2. Any other narrative pages whose framing conflicts with the new positioning.
-3. Confirm zero Conductor/Beads references in `website/content/`.
+1. The "Inspired by Conductor…and Beads…" sentence in `website/content/about/_index.md` (line 21).
+2. The `docs/_index.md` tagline — "AI-powered task management for multi-agent development workflows" (line 10) — still frames the framework as task management rather than an agentic IDE.
 
-Parent context: `aiplans/p585_better_frawework_desc_in_website.md`. Read archived sibling plans (`aiplans/archived/p585/p585_*_*.md`) — they contain the canonical positioning copy and the conceptual structure to align against.
+This task sweeps those two spots and confirms the rest is clean.
+
+## Verification Findings (pre-implementation)
+
+Ran exhaustive grep + page-by-page review. Confirmed:
+- **Conductor/Beads:** one occurrence — `about/_index.md:21`.
+- **Speckit / spec-kit:** zero occurrences (t585_3 already removed from overview).
+- **Narrative pages with positioning conflict:** only `docs/_index.md:10` (description field).
+- **Other narrative pages** (`docs/getting-started.md`, `docs/workflows/_index.md`, `docs/skills/_index.md`, `docs/tuis/_index.md`, `docs/commands/_index.md`) — all have neutral or aligned framing; no edits required.
+- **Concepts relrefs:** all 14 Concepts pages exist; `hugo --gc --minify` builds clean, no broken refs.
+
+## Canonical Positioning Vocabulary (for consistency checks)
+
+From archived sibling plans:
+- "agentic IDE in your terminal" (primary)
+- "long-term memory for agents" (via archived tasks/plans)
+- "tight git coupling, AI-enhanced"
+- "task decomposition & parallelism"
+- "AI-enhanced code review"
+- "multi-agent with verified scores"
+- Supporting: "Light Spec", "living documents", "queryable context", "verified scores", "repository-centric"
 
 ## Implementation Plan
 
-### Step 1 — Update `website/content/about/_index.md`
+### Step 1 — Rewrite Conductor/Beads paragraph in `about/_index.md`
 
-The page currently mentions "Inspired by [Conductor]…and [Beads]…" on line 21. Action:
+File: `website/content/about/_index.md` (lines 14–22 block, target line 21).
 
-- Remove the entire sentence beginning "Inspired by [Conductor]…".
-- Rewrite the surrounding "How aitasks Started" paragraph so the Light-Spec philosophy story stands on its own. Keep the Feb 2026 origin and the intent-transfer framing.
-- Verify the rest of the page (creator bio, license, links) is consistent with the new positioning. No structural changes needed unless something jumps out.
+- Remove the entire "Inspired by [Conductor](...)'s repository-centric model and [Beads](...)'s task-based workflow, **aitasks** combined these ideas..." sentence.
+- Rewrite the paragraph so the Light-Spec / repository-centric story stands on its own: keep the "tasks, plans, and workflow automation live inside the project repository — no external services, no databases, no daemons" framing (that content should survive — it's the positioning payload), but drop the external-framework attribution.
+- Leave the preceding paragraphs (Intent Transfer Problem, Light Spec) untouched unless they now read oddly after the final paragraph is rewritten.
+- Do not change creator bio, license, links, or other sections.
 
-### Step 2 — Audit narrative pages
+### Step 2 — Fix `docs/_index.md` description
 
-Limit scope to **landing-page-adjacent narrative pages**. Do NOT re-edit per-skill / per-command / per-TUI reference pages just to insert positioning copy.
+File: `website/content/docs/_index.md` (line 10, the `description:` frontmatter field, plus any matching body copy if present).
 
-Pages to check:
+- Replace "AI-powered task management for multi-agent development workflows" with a one-liner aligned to the new positioning. Candidate: "An agentic IDE in your terminal — task management, git-integrated workflows, code review, and multi-agent orchestration."
+- Keep the one-line format; this is a section description, not a manifesto.
 
-- `website/content/docs/_index.md` — one-line description; update if it conflicts with the new positioning.
-- `website/content/docs/getting-started.md` — only adjust the intro paragraph if its framing now feels off. Do NOT rewrite the walkthrough.
-- `website/content/docs/workflows/_index.md`, `skills/_index.md`, `tuis/_index.md`, `commands/_index.md` — check intro paragraphs only; adjust if positioning conflicts. Likely a 1-2 line tweak each at most.
+### Step 3 — Confirmation sweeps (verify, no edits expected)
 
-### Step 3 — Final removal sweep
+Run:
+- `Grep -rn "Conductor\|Beads" website/content/` → expect zero matches after Step 1.
+- `Grep -rn "Speckit\|spec-kit" website/content/` → expect zero matches (already clean).
 
-- Run: `Grep -r "Conductor|Beads" website/content/`
-  Confirm zero matches.
-- (If t585_3 chose to remove Speckit too): `Grep -r "Speckit|spec-kit" website/content/` — confirm zero matches. If t585_3 left Speckit, leave it.
+If either returns a non-zero result unexpectedly, investigate and either remove or document the exception in "Final Implementation Notes" before proceeding.
 
-### Step 4 — Coherence checks
+### Step 4 — Build verification
 
-- Confirm theme terminology is reused consistently across landing/overview/about (e.g., "agentic IDE", "long-term memory", "verified scores").
-- Confirm all `relref` links into the new Concepts section resolve (they should, since t585_2 has merged by the time this child runs).
+- `cd website && hugo --gc --minify` — strict build must pass with no broken refs and no template warnings.
+
+### Step 5 — Spot-check pass (read-only)
+
+Quickly re-skim these pages to confirm no surprise regressions introduced by edits:
+- `website/content/about/_index.md` (edited)
+- `website/content/docs/_index.md` (edited)
+- `website/content/_index.md` (landing, unchanged — spot for tonal coherence)
+- `website/content/docs/overview/_index.md` or equivalent (unchanged — tonal coherence)
+
+No edits in this step; it only validates that Steps 1–2 landed cleanly.
 
 ## Critical Files
 
-- `website/content/about/_index.md` — primary edit
-- `website/content/docs/_index.md` — minor edit (one line)
-- `website/content/docs/getting-started.md` — minor intro tweak only if needed
-- `website/content/docs/{workflows,skills,tuis,commands}/_index.md` — minor intro tweaks only if needed
-
-## Existing Patterns to Reuse
-
-- About page structure (cover → narrative → lead → 3-feature row → narrative → table → 3-link row) — preserve, only edit the narrative paragraph that contains the Conductor/Beads sentence.
+- `website/content/about/_index.md` — primary edit (Step 1)
+- `website/content/docs/_index.md` — minor edit (Step 2)
 
 ## Verification
 
 1. `Grep -rn "Conductor\|Beads" website/content/` — zero matches.
-2. (If applicable): `Grep -rn "Speckit\|spec-kit" website/content/` — zero matches.
-3. `cd website && hugo --gc --minify` — strict build passes with no broken refs.
-4. `./serve.sh` and visit `/about/`, `/docs/`, `/docs/overview/` — visual flow consistent with the redesigned landing page.
-5. Spot-check 3-5 narrative pages for tonal consistency.
+2. `Grep -rn "Speckit\|spec-kit" website/content/` — zero matches.
+3. `cd website && hugo --gc --minify` — strict build passes.
+4. Visual skim of `/about/`, `/docs/`, `/docs/overview/` via `./serve.sh` — tonal flow consistent with landing page.
 
 ## Step 9 (Post-Implementation)
 
