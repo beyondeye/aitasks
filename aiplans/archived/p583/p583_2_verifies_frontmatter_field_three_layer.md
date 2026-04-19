@@ -223,3 +223,4 @@ Standard post-implementation flow per `.claude/skills/task-workflow/SKILL.md` St
   - **t583_7 (plan-time generation)** populates `verifies:` at task creation time — pass `--verifies "id1,id2,..."` to `aitask_create.sh --batch`.
   - **Fold behavior:** `aitask_fold_mark.sh` unions `verifies` across primary + folded tasks, deduped, primary entries first. No transitive walk (unlike folded_tasks).
   - **Board widget:** `VerifiesField` is read-only (Enter navigates to the verified task or removes on confirm). For edit ergonomics, shell out to `aitask_update.sh --verifies`. If a later task wants a picker, reuse `DependencyPickerScreen` (already task-agnostic).
+- **Manual-verification failure:** item "sanity check alpha (traceability retest)" failed; follow-up task t593.
