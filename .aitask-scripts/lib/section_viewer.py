@@ -35,7 +35,8 @@ from brainstorm.brainstorm_sections import (  # noqa: E402
     parse_sections,
 )
 
-from textual.actions import SkipAction  # noqa: E402
+from rich.text import Text  # noqa: E402
+
 from textual.app import ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import Container, Horizontal, VerticalScroll  # noqa: E402
@@ -92,9 +93,16 @@ class SectionRow(Static):
 
     DEFAULT_CSS = """
     SectionRow {
-        height: 1;
+        width: 100%;
         padding: 0 1;
         background: $surface;
+    }
+    SectionRow.-compact {
+        height: 1;
+        text-overflow: ellipsis;
+    }
+    SectionRow.-expanded {
+        height: 2;
     }
     SectionRow:focus {
         background: $accent;
@@ -112,14 +120,24 @@ class SectionRow(Static):
             self.section_name = section_name
             super().__init__()
 
-    def __init__(self, name: str, dimensions: list[str], **kwargs) -> None:
+    def __init__(
+        self, name: str, dimensions: list[str], compact: bool = True, **kwargs
+    ) -> None:
         super().__init__(**kwargs)
         self.section_name = name
         self.dimensions = dimensions
+        self._compact = compact
+        self.add_class("-compact" if compact else "-expanded")
 
-    def render(self) -> str:
-        dim_str = f" [{', '.join(self.dimensions)}]" if self.dimensions else ""
-        return f" {self.section_name}{dim_str}"
+    def render(self):
+        if self._compact:
+            dim_str = f" [{', '.join(self.dimensions)}]" if self.dimensions else ""
+            return f" {self.section_name}{dim_str}"
+        text = Text()
+        text.append(f" {self.section_name}", style="bold")
+        if self.dimensions:
+            text.append(f"\n   {', '.join(self.dimensions)}", style="dim")
+        return text
 
     def on_click(self) -> None:
         self.post_message(self.Selected(self.section_name))
@@ -151,7 +169,9 @@ class SectionMinimap(VerticalScroll):
 
     DEFAULT_CSS = """
     SectionMinimap {
-        max-width: 35;
+        max-width: 50;
+        height: auto;
+        max-height: 12;
         border-right: solid $primary;
         background: $panel;
     }
@@ -167,15 +187,16 @@ class SectionMinimap(VerticalScroll):
     class ToggleFocus(Message):
         """Emitted when Tab is pressed while the minimap (or a row) has focus."""
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, compact: bool = True, **kwargs) -> None:
         super().__init__(**kwargs)
         self._last_focused_row_index: int = 0
+        self._compact = compact
 
     def populate(self, parsed: ParsedContent) -> None:
         """Replace all rows with one per section in *parsed*."""
         self.remove_children()
         for section in parsed.sections:
-            self.mount(SectionRow(section.name, section.dimensions))
+            self.mount(SectionRow(section.name, section.dimensions, compact=self._compact))
         self._last_focused_row_index = 0
 
     def _rows(self) -> list[SectionRow]:
@@ -231,7 +252,7 @@ class SectionAwareMarkdown(VerticalScroll):
         if ratio is None:
             return
         target_y = ratio * self.virtual_size.height
-        self.scroll_to(y=target_y, animate=True)
+        self.scroll_to(y=target_y, animate=False)
 
 
 class SectionViewerScreen(ModalScreen):
@@ -262,8 +283,22 @@ class SectionViewerScreen(ModalScreen):
         width: 100%;
         height: 1fr;
     }
+    SectionViewerScreen #sv_minimap {
+        width: 32;
+        max-width: 32;
+        max-height: 100%;
+        height: 1fr;
+        border-right: tall $panel;
+    }
+    SectionViewerScreen #sv_minimap:focus-within {
+        border-right: tall $accent;
+    }
     SectionViewerScreen #sv_content {
         width: 1fr;
+        border-left: tall $panel;
+    }
+    SectionViewerScreen #sv_content:focus {
+        border-left: tall $accent;
     }
     """
 
@@ -276,7 +311,7 @@ class SectionViewerScreen(ModalScreen):
         with Container(id="section_viewer"):
             yield Label(self._title, id="sv_title")
             with Horizontal(id="sv_split"):
-                yield SectionMinimap(id="sv_minimap")
+                yield SectionMinimap(id="sv_minimap", compact=False)
                 yield SectionAwareMarkdown(id="sv_content")
 
     def on_mount(self) -> None:
@@ -299,16 +334,28 @@ class SectionViewerScreen(ModalScreen):
         self.query_one("#sv_content", SectionAwareMarkdown).focus()
         event.stop()
 
-    def action_focus_minimap(self) -> None:
-        content = self.query_one("#sv_content", SectionAwareMarkdown)
-        focused = self.screen.focused
-        # Scope guard: only fire if focus is inside the content pane
-        if focused is None or (focused is not content and focused not in content.walk_children()):
-            raise SkipAction()
+    def on_key(self, event) -> None:
+        if event.key == "tab":
+            self._cycle_focus()
+            event.stop()
+            event.prevent_default()
+
+    def _cycle_focus(self) -> None:
         minimap = self.query_one("#sv_minimap", SectionMinimap)
-        if not minimap.display:
-            raise SkipAction()
-        minimap.focus_first_row()
+        content = self.query_one("#sv_content", SectionAwareMarkdown)
+        focused = self.focused
+        on_minimap_side = focused is minimap or (
+            focused is not None and focused in minimap.walk_children()
+        )
+        if on_minimap_side:
+            content.focus()
+        elif minimap.display:
+            minimap.focus_first_row()
+        else:
+            content.focus()
+
+    def action_focus_minimap(self) -> None:
+        self._cycle_focus()
 
     def action_close(self) -> None:
         self.dismiss()

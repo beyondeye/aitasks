@@ -2337,7 +2337,7 @@ class TaskDetailScreen(ModalScreen):
             self._plan_parsed, event.section_name, total, md_view.virtual_size.height
         )
         if y is not None:
-            md_view.scroll_to(y=y, animate=True)
+            md_view.scroll_to(y=y, animate=False)
         event.stop()
 
     def on_section_minimap_toggle_focus(self, event):
@@ -3283,6 +3283,12 @@ class KanbanApp(TuiSwitcherMixin, App):
         if action in ("nav_up", "nav_down"):
             from textual.widgets._select import SelectOverlay
             if isinstance(self.app.focused, SelectOverlay):
+                return False
+        # SectionViewerScreen owns its own Tab and arrow keys (cycles minimap <-> content,
+        # scrolls content, moves between minimap rows). Using type-name to avoid a circular
+        # import with section_viewer.
+        if type(self.screen).__name__ == "SectionViewerScreen":
+            if action in ("focus_search", "nav_up", "nav_down", "nav_left", "nav_right"):
                 return False
         if action == "commit_selected":
             focused = self._focused_card()
