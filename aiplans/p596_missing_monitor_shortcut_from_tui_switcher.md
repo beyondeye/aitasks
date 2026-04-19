@@ -96,3 +96,15 @@ No automated tests cover the switcher bindings (the file has no associated `test
 ## Step 9 (Post-Implementation) reminder
 
 After the user reviews the change in Step 8, archive the task using `./.aitask-scripts/aitask_archive.sh 596`, then `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Four edits to `.aitask-scripts/lib/tui_switcher.py`:
+  1. Added `"monitor": "m"` entry to `_TUI_SHORTCUTS` (shows the `(m)` hint next to the Monitor list item).
+  2. Added `Binding("m", "shortcut_monitor", "Monitor", show=False)` to `TuiSwitcherOverlay.BINDINGS`, placed between the `b` board and `c` codebrowser bindings.
+  3. Added `action_shortcut_monitor()` method delegating to `self._shortcut_switch("monitor")`, placed between `action_shortcut_board` and `action_shortcut_codebrowser`.
+  4. Updated the footer hint `Label` to include `(m)onitor` right after `(b)oard`, keeping core TUIs grouped at the start.
+- **Deviations from plan:** None.
+- **Issues encountered:** None.
+- **Key decisions:** Kept the new entries in the same board → monitor → code → settings order across `_TUI_SHORTCUTS`, `BINDINGS`, `action_*` methods, and the footer hint so code and UI stay visually aligned for future edits.
+- **Verification:** `python3 -c "import ast; ast.parse(...)"` parses cleanly. Manual TUI verification per the plan's Verification section is required — no automated tests exist for the switcher bindings.
