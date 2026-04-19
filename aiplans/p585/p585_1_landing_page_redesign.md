@@ -102,3 +102,33 @@ Standard task-workflow Step 9: review → commit code (`website/content/_index.m
 - Concepts pages referenced from this landing page (in Step 3): `ide-model`, `agent-memory`, `git-branching-model`. Sibling t585_2 should ensure those slugs exist, OR coordinate with this task to use slugs the t585_2 plan already commits to.
 - `relref` style adopted: absolute `/docs/...` (matches existing codebase pattern).
 - About page (`about/_index.md`) still references Conductor/Beads — that text is intentionally outside this task's scope; the user will decide separately whether to revise.
+- **Docsy `blocks/feature` icon gotcha:** the shortcode auto-prepends `fas ` (solid) unless the icon string already starts with `fas ` or `fab `. **Brand icons** (`fa-linux`, `fa-apple`, `fa-windows`, `fa-github`, etc.) **must be passed as `fab fa-...`** — passing them as `fa-...` alone produces a broken-glyph rectangle. Sibling tasks editing other pages with brand icons should follow the same convention.
+
+## Final Implementation Notes
+
+- **Actual work done:** `website/content/_index.md` rewritten end-to-end. New section order: hero (with revised tagline + ⭐ Star CTA) → 3 hero highlights row → Quick Install (light, moved up per user) → Task decomposition (white) → lead pull-quote (light) → Code review (white) → Multi-agent (light) → 3-platform strip (white) → Latest Releases (dark). No SCSS overrides were needed — Docsy stock styling looked fine after the rewrite.
+- **Deviations from plan:**
+  - Platform strip dropped from 5 features to 3 (Linux / macOS / Windows-via-WSL) per user post-review feedback.
+  - Hero subtagline reworded to remove the "all in tmux" reference (tmux is now mentioned only inside the "Agentic IDE in your terminal" feature card).
+  - `concepts/*` cross-links from Step 3 of the plan were intentionally **omitted** from the implementation — the plan said they would warn but build, but since concept slugs (`ide-model`, `agent-memory`, `git-branching-model`) are not yet committed by sibling t585_2, leaving them out keeps the build warning-free. Sibling t585_3 / t585_4 (the coherence audit) can revisit and add cross-links once concepts pages exist.
+  - Step 6 visual-modernization SCSS tweaks were not needed — visual rhythm and emoji-decorated headings (`⚡ Quick Install`, `🧩 Task decomposition`, `🔍 AI-enhanced code review`, `🤖 Multi-agent support`, `📦 Latest Releases`) provided enough modernization on their own.
+- **Issues encountered:**
+  - **Brand-icon rendering bug:** initial implementation used `icon="fa-linux"` etc. for the platform strip, which rendered as broken-glyph rectangles. Root cause: Docsy's `blocks/feature` shortcode auto-prepends `fas ` (solid) unless the icon argument starts with `fas ` or `fab `. Fix: pass brand icons as `icon="fab fa-linux"` etc. — see the gotcha note in "Notes for Sibling Tasks" below.
+- **Key decisions:**
+  - Adopted absolute `/docs/...` form for `relref` (matches existing codebase pattern in `tuis/_index.md`, `minimonitor/how-to.md`, etc.).
+  - Each platform card got a `url=` so the strip doubles as installation-platform navigation.
+  - Kept the "About" page reference to Conductor/Beads untouched — out of scope for this task; the user will decide separately.
+- **Notes for sibling tasks:** see the "Notes for Sibling Tasks" section above (concepts slug coordination, `relref` style, Docsy `fab `-prefix gotcha, About-page Conductor/Beads cleanup).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-04-19 12:01)
+- **Requested by user:**
+  1. Drop the "all in tmux" reference from the hero subtagline — keep tmux mentions confined to the "Agentic IDE in your terminal" feature card.
+  2. Platform strip icons rendered as broken-glyph rectangles.
+  3. Simplify the platform strip to just Linux / macOS / Windows (via WSL) instead of the original 5-platform layout.
+- **Changes made:**
+  1. Hero subtagline rewritten to `Kanban board, code browser, agent monitoring, and AI-enhanced git workflows.` (no tmux reference).
+  2. **Root cause** — Docsy's `blocks/feature` shortcode auto-prepends `fas ` (solid) unless the icon argument already starts with `fas ` or `fab `. Brand icons must use the `fab ` prefix. Fixed by passing `icon="fab fa-linux"`, `icon="fab fa-apple"`, `icon="fab fa-windows"`.
+  3. Platform strip collapsed from 5 features (Arch / Ubuntu / Fedora / macOS / WSL) to 3 (Linux / macOS / Windows-via-WSL). Each card links to the appropriate installation page (`docs/installation/` for Linux/macOS, `docs/installation/windows-wsl/` for Windows).
+- **Files affected:** `website/content/_index.md`
