@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: [t597_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [statistics, aitask_monitor]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7
 created_at: 2026-04-19 17:51
-updated_at: 2026-04-19 18:31
+updated_at: 2026-04-19 18:46
+completed_at: 2026-04-19 18:46
 ---
 
 ## Context
