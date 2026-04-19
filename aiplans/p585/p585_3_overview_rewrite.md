@@ -88,3 +88,19 @@ Keep `**Next:** [Installation]({{< relref "/docs/installation" >}})` (convert to
 ## Step 9 (Post-Implementation)
 
 Standard task-workflow Step 9: user review → commit overview doc using `git`, commit updated plan file using `./ait git`, archive with `./.aitask-scripts/aitask_archive.sh 585_3`, push.
+
+## Final Implementation Notes
+
+- **Actual work done:** `website/content/docs/overview.md` rewritten end-to-end. Final file is 95 lines. Kept frontmatter (weight, description) intact. Retained the "The Challenge" and "Core Philosophy" framing from the original file but tightened them (Challenge condensed to one ~4-line paragraph anchored on "agentic IDE in your terminal"; Core Philosophy reduced to intro sentence + 2 bullets with the Speckit reference removed). Replaced the entire mid-section bullet list (`Repository-Centric` / `Daemon-less & Stateless` / `Remote-Ready` / `Dual-Mode CLI` / `Hierarchical Execution` / `Visual Management` / `Multi-Agent Support`) with the 6-theme "Key Features" block mirroring the landing page (t585_1) in both order and terminology. Closing bullets (Battle tested, Fully customizable workflow) kept and trimmed; the Dual-Mode CLI bullet was **preserved** (per user review mid-plan) as its own bullet under a new "Additional properties" section since it's a distinct value prop not subsumed by any of the 6 themes. All `relref` shortcodes converted to absolute `/docs/...` form to match t585_1 / t585_2 convention.
+- **Deviations from plan:** (1) Added a small "Additional properties" section header to group Dual-Mode CLI + Battle tested + Fully customizable workflow — the plan said "keep closing bullets" without a section heading, but unheaded bullets after the 6-theme block felt orphaned, so a short section label was added for visual rhythm. (2) The plan's "Core Philosophy" step said to "trim to ~5 lines" — the final version is 4 lines (intro + 2 bullets) which still covers the Raw intent / Iterative refinement points.
+- **Issues encountered:** None. Hugo strict build (`hugo --gc --minify`) passed on first try with 148 pages, 0 warnings, 0 broken refs. Conductor/Beads/Speckit grep returns zero matches.
+- **Key decisions:**
+  - Preserved Dual-Mode CLI as an explicit standalone bullet (user call during plan review). Not subsumed into any 6-theme because the dual-audience framing (humans + agents) is orthogonal to the themes.
+  - Grouped remaining non-theme bullets under an "Additional properties" heading rather than leaving them floating.
+  - Absolute `{{< relref "/docs/..." >}}` form used everywhere, including the trailing "Next: Installation" link.
+  - Did NOT add `concepts/*` cross-links to the `See also` lines where concepts overlapped with workflows — always included the concepts link first (definitional), then the workflow link (how-to), then the skill/command link (entry point) where applicable.
+- **Notes for sibling tasks:**
+  - **t585_4 (coherence audit):** the overview now fully aligns with the landing page's 6-theme structure and terminology. Any remaining docs pages that still reference Conductor/Beads/Speckit or use the old 3-feature framing (Tasks-as-Files / Code Agent Integration / Parallel Development) should be brought in line. Particularly check `about/_index.md` (flagged by t585_1 as still containing Conductor/Beads references, intentionally out-of-scope for that task).
+  - **t585_5 (README revamp):** use the same 6-theme structure + section ordering as the landing page and this overview. The top-level `README.md` in the repo root is the logical target.
+  - **Absolute-relref convention now confirmed across 3 pages** (landing, concepts, overview). Sibling tasks should adopt without hesitation.
+  - **"Additional properties" section label** is a minor deviation — sibling tasks should feel free to use or drop it; it's not an established pattern.
