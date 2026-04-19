@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [web_site, positioning]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-19 11:17
-updated_at: 2026-04-19 11:17
+updated_at: 2026-04-19 11:33
 ---
 
 ## Context
