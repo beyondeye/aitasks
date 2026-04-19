@@ -114,3 +114,22 @@ Per CLAUDE.md: `documentation: Add manual-verification workflow procedure (t583_
 ## Step 9 reminder
 
 Post-implementation: user review → commit → archive via `aitask_archive.sh 583_4` → push.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Created `.claude/skills/task-workflow/manual-verification.md` — the 5-section procedure (Pre-loop check, Main loop, Post-loop checkpoint, Commit, Hand-off) mirroring the input-block + stepwise-script-invocation conventions of `satisfaction-feedback.md` and `task-abort.md`.
+  - Inserted **Check 3** into `SKILL.md` Step 3 after Check 2, with the explicit caveat that Steps 4 (ownership) and 5 (worktree) still run before dispatch (unlike Check 1/Check 2 which skip Step 4).
+  - Rewrote the trailing "These checks should NOT set status to Implementing" note to clarify it applies only to Check 1/Check 2 — Check 3 does run Step 4 normally.
+  - Added the "Manual Verification Procedure" entry to the Procedures registry (near the other Step-3-related entries — the registry is ordered by workflow step, not alphabetically, despite what the verification agent reported).
+- **Deviations from plan:** None substantive. The plan was verified in full before implementation (verify-path) and no gaps surfaced. Minor wording: the Check 3 block uses "Skip Steps 6-8" (not 4-8) to make the Steps-4-and-5-still-run caveat unambiguous.
+- **Issues encountered:** None. All dependencies (`aitask_verification_parse.sh`, `aitask_verification_followup.sh`, `aitask_archive.sh --with-deferred-carryover`, `manual_verification` task type) were already in place on `main` from t583_1/3/5/6.
+- **Key decisions:**
+  - "Stop without archiving" keeps the task `Implementing` with the lock held, rather than reverting to `Ready`. Rationale: only the original picker should be able to resume an in-flight verification; reverting would let another user start over and lose the deferred-item annotations.
+  - The procedure commits its own "Record verification state" commit before Step 9, separate from the archival commit. This keeps the state record durable even if the user chooses "Stop without archiving" later in the loop (the deferred state is already on disk and committed).
+  - Seeding from the plan's `## Verification` H2 is offered as a fallback when the task has `TOTAL:0` checklist items, rather than forcing the user to re-edit the task file by hand.
+- **Notes for sibling tasks:**
+  - **t583_7 (plan-time generation):** Should emit a `## Verification Checklist` block directly in new manual-verification tasks — this procedure's seed fallback exists for retrofitting older tasks, not as the primary path.
+  - **t583_8 (website/skill docs):** The user-facing docs should describe the full branch set (Pass / Fail / Skip / Defer) and the two post-loop outcomes (archive vs archive-with-carry-over vs stop). The skill docs for `/aitask-pick` also need a short "Manual-verification tasks" section pointing at this procedure.
+  - **t583_9 (meta-dogfood):** Use this procedure to verify the whole module end-to-end. The test task should include one item of each terminal fate to exercise all four branches.
+  - **Mirror follow-ups:** Per CLAUDE.md "WORKING ON SKILLS / CUSTOM COMMANDS", this task touched the Claude Code source of truth only. Separate follow-up tasks should port `manual-verification.md` and the SKILL.md edit to `.gemini/skills/task-workflow/`, `.agents/skills/task-workflow/`, and `.opencode/skills/task-workflow/`.
