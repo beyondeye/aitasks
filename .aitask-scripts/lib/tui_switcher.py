@@ -61,6 +61,7 @@ KNOWN_TUIS = [
     ("monitor", "tmux Monitor", "ait monitor"),
     ("codebrowser", "Code Browser", "ait codebrowser"),
     ("settings", "Settings", "ait settings"),
+    ("stats", "Statistics", "ait stats-tui"),
     ("diffviewer", "Diff Viewer", "ait diffviewer"),
 ]
 
@@ -88,6 +89,7 @@ _TUI_SHORTCUTS = {
     "monitor": "m",
     "codebrowser": "c",
     "settings": "s",
+    "stats": "t",
     "git": "g",
 }
 

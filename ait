@@ -167,6 +167,7 @@ case "${1:-help}" in
     ide)          shift; exec "$SCRIPTS_DIR/aitask_ide.sh" "$@" ;;
     settings)     shift; exec "$SCRIPTS_DIR/aitask_settings.sh" "$@" ;;
     stats)        shift; exec "$SCRIPTS_DIR/aitask_stats.sh" "$@" ;;
+    stats-tui)    shift; exec "$SCRIPTS_DIR/aitask_stats_tui.sh" "$@" ;;
     zip-old)      shift; exec "$SCRIPTS_DIR/aitask_zip_old.sh" "$@" ;;
     issue-update) shift; exec "$SCRIPTS_DIR/aitask_issue_update.sh" "$@" ;;
     setup)        shift; exec "$SCRIPTS_DIR/aitask_setup.sh" "$@" ;;
