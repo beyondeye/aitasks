@@ -3,10 +3,9 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [statistics, aitask_monitor]
 children_to_implement: [t597_1, t597_2, t597_3, t597_4, t597_5, t597_6]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-19 17:22
 updated_at: 2026-04-19 17:53
 ---

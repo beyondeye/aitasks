@@ -2,7 +2,7 @@
 priority: medium
 effort: low
 depends: [t597_5]
-issue_type: chore
+issue_type: manual_verification
 status: Ready
 labels: [statistics, aitask_monitor]
 created_at: 2026-04-19 17:53
