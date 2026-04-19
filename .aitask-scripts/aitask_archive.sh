@@ -36,6 +36,7 @@ unset _ARCHIVE_SCRIPT_DIR
 DRY_RUN=false
 NO_COMMIT=false
 SUPERSEDED=false
+WITH_DEFERRED_CARRYOVER=false
 TASK_NUM=""
 
 # --- Help ---
@@ -49,10 +50,14 @@ Arguments:
   task_num        Task number: 166 or t166 (parent), 16_2 or t16_2 (child)
 
 Options:
-  --dry-run       Preview actions without executing
-  --no-commit     Stage changes but don't commit
-  --superseded    Mark task as superseded (adds archived_reason: superseded)
-  --help, -h      Show this help
+  --dry-run                    Preview actions without executing
+  --no-commit                  Stage changes but don't commit
+  --superseded                 Mark task as superseded (adds archived_reason: superseded)
+  --with-deferred-carryover    For manual_verification tasks: archive even when
+                               deferred items remain, creating a new
+                               manual_verification task seeded with just those
+                               deferred items
+  --help, -h                   Show this help
 
 Output format (structured lines for skill parsing):
   ARCHIVED_TASK:<path>              Archived task file
@@ -67,6 +72,15 @@ Output format (structured lines for skill parsing):
   FOLDED_PR:<task_num>:<url>        Deleted folded task had linked PR
   FOLDED_WARNING:<task_num>:<status> Folded task skipped (active status)
   COMMITTED:<hash>                  Git commit hash
+  CARRYOVER_CREATED:<task_id>:<path> Carry-over manual_verification task
+                                    created for deferred items
+
+Exit codes:
+  0  Success
+  1  Generic error (invalid arguments, missing task, etc.)
+  2  Verification gate blocked archival (pending or deferred items on a
+     manual_verification task; see VERIFICATION_PENDING / VERIFICATION_DEFERRED
+     lines on stdout)
 
 Examples:
   ./.aitask-scripts/aitask_archive.sh 166          # Archive parent task t166
@@ -89,6 +103,10 @@ parse_args() {
                 ;;
             --superseded)
                 SUPERSEDED=true
+                shift
+                ;;
+            --with-deferred-carryover)
+                WITH_DEFERRED_CARRYOVER=true
                 shift
                 ;;
             --help|-h)
@@ -526,9 +544,109 @@ archive_child() {
     fi
 }
 
+# --- Helper: build a carry-over manual_verification task from deferred items ---
+# Prints CARRYOVER_CREATED:<task_id>:<path> on stdout on success.
+create_carryover_task() {
+    local orig_file="$1"
+
+    local items_tmp
+    items_tmp=$(mktemp "${TMPDIR:-/tmp}/ait_verify_defer_XXXXXX.txt")
+
+    ./.aitask-scripts/aitask_verification_parse.sh parse "$orig_file" \
+        | awk -F: '$3 == "defer" { sub(/^ITEM:[0-9]+:defer:[0-9]+:/, ""); print }' \
+        > "$items_tmp"
+
+    if [[ ! -s "$items_tmp" ]]; then
+        rm -f "$items_tmp"
+        return 0
+    fi
+
+    local orig_basename orig_name
+    orig_basename=$(basename "$orig_file" .md)
+    orig_name=$(echo "$orig_basename" | sed -E 's/^t[0-9]+(_[0-9]+)?_//')
+    local carryover_name="${orig_name}_deferred_carryover"
+
+    local orig_verifies_raw orig_verifies
+    orig_verifies_raw=$(read_yaml_field "$orig_file" "verifies")
+    orig_verifies=$(parse_yaml_list "$orig_verifies_raw")
+
+    local create_args=(--batch --commit --silent
+        --name "$carryover_name"
+        --type manual_verification
+        --priority medium --effort low)
+    if [[ -n "$orig_verifies" ]]; then
+        create_args+=(--verifies "$orig_verifies")
+    fi
+
+    local new_file
+    new_file=$(./.aitask-scripts/aitask_create.sh "${create_args[@]}")
+    if [[ -z "$new_file" || ! -f "$new_file" ]]; then
+        rm -f "$items_tmp"
+        die "Carry-over task creation failed"
+    fi
+
+    ./.aitask-scripts/aitask_verification_parse.sh seed "$new_file" --items "$items_tmp"
+
+    local new_id
+    new_id=$(basename "$new_file" .md | sed -E 's/^t([0-9]+(_[0-9]+)?)_.*/\1/')
+
+    if [[ "$NO_COMMIT" != true ]]; then
+        task_git add "$new_file"
+        task_git commit -m "ait: Seed carry-over checklist on t${new_id}" --quiet
+    fi
+
+    rm -f "$items_tmp"
+
+    echo "CARRYOVER_CREATED:${new_id}:${new_file}"
+}
+
+# --- Helper: pre-archive gate for manual_verification tasks ---
+# For non-manual_verification tasks, this is a no-op.
+# For manual_verification tasks:
+#   - Exits 2 with VERIFICATION_PENDING on stdout if any item is pending.
+#   - Exits 2 with VERIFICATION_DEFERRED on stdout if any item is deferred
+#     and --with-deferred-carryover was not passed.
+#   - When --with-deferred-carryover is passed and only deferred items remain,
+#     creates the carry-over task before archival proceeds.
+verification_gate_and_carryover() {
+    local task_num="$1"
+    local task_file
+    task_file=$(resolve_task_file "$task_num") || die "Task not found: $task_num"
+
+    local issue_type
+    issue_type=$(read_yaml_field "$task_file" "issue_type")
+    [[ "$issue_type" == "manual_verification" ]] || return 0
+
+    local gate_out gate_rc=0
+    gate_out=$(./.aitask-scripts/aitask_verification_parse.sh terminal_only "$task_file") || gate_rc=$?
+
+    if [[ "$gate_rc" -ne 0 ]]; then
+        if echo "$gate_out" | grep -q '^PENDING:'; then
+            echo "$gate_out"
+            echo "VERIFICATION_PENDING: cannot archive until all items are terminal (pass/fail/skip)"
+            exit 2
+        fi
+        if echo "$gate_out" | grep -q '^DEFERRED:' && [[ "$WITH_DEFERRED_CARRYOVER" != "true" ]]; then
+            echo "$gate_out"
+            echo "VERIFICATION_DEFERRED: use --with-deferred-carryover to archive with carry-over task"
+            exit 2
+        fi
+    fi
+
+    if [[ "$WITH_DEFERRED_CARRYOVER" == "true" ]] && echo "$gate_out" | grep -q '^DEFERRED:'; then
+        if [[ "$DRY_RUN" == true ]]; then
+            info "[dry-run] Would create carry-over task for deferred items in $task_file"
+        else
+            create_carryover_task "$task_file"
+        fi
+    fi
+}
+
 # --- Main ---
 main() {
     parse_args "$@"
+
+    verification_gate_and_carryover "$TASK_NUM"
 
     if [[ "$TASK_NUM" =~ ^([0-9]+)_([0-9]+)$ ]]; then
         local parent_num="${BASH_REMATCH[1]}"
