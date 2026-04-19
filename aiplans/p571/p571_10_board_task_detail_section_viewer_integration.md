@@ -274,3 +274,43 @@ Fixture content: t571_5's archived plan embeds ~14 sectioned entries — great t
 Follow Step 9 from the shared workflow for commit, archival, and push.
 
 <!-- /section: post_implementation -->
+
+<!-- section: final_implementation_notes [dimensions: retrospective] -->
+
+## Final Implementation Notes
+
+- **Actual work done:** Edited `TaskDetailScreen` in `.aitask-scripts/board/aitask_board.py`:
+  - Rebound `V` from `toggle_view` to new `fullscreen_plan` action (BINDINGS lines 1898–1923, one line changed).
+  - Added `tab` binding → `focus_minimap` with a `SkipAction` guard so form-field Tab navigation still works.
+  - Added instance state `self._plan_parsed = None`, `self._plan_text = ""` in `__init__`.
+  - Extracted `_read_plan_content()` helper from the inline plan-reading logic in `toggle_view()`.
+  - Added `_mount_or_update_minimap()` and `_remove_minimap()` helpers that wrap `SectionMinimap` lifecycle inside `#md_view`.
+  - Added message handlers `on_section_minimap_section_selected()` (scroll using `estimate_section_y`) and `on_section_minimap_toggle_focus()` (focus plan Markdown).
+  - Added `action_fullscreen_plan()` (push `SectionViewerScreen`) and `action_focus_minimap()` (Tab from plan Markdown → minimap, with scoped `SkipAction` guard via `self.screen.query_one`, per the `feedback_textual_priority_bindings` memory).
+
+- **Cross-TUI alignment propagated:**
+  - `aiplans/p571/p571_8_codebrowser_section_viewer_integration.md` — changed fullscreen binding from `p` to `V`; updated verification steps.
+  - `aiplans/p571/p571_9_brainstorm_node_detail_section_viewer_integration.md` — added a new §4 "Fullscreen binding" with `V` → `action_fullscreen_plan` dispatching to the currently-active `TabbedContent` tab (proposal or plan), plus matching verification steps.
+
+- **Deviations from plan:**
+  - Factored the plan-direction branch of `toggle_view()` into two private helpers (`_mount_or_update_minimap` + `_remove_minimap`) instead of inlining the code. Keeps `toggle_view()` readable and makes the task-direction branch trivially call `_remove_minimap(md_view)`.
+  - Wrapped `section_viewer` / `brainstorm_sections` imports in `try/except` with a `notify` on failure, so a missing/broken lib gracefully degrades to the old task/plan toggle behavior instead of crashing the modal.
+  - Button label was NOT changed from `(V)iew Plan` to `(v)iew plan` — the button still dispatches to `toggle_view` (inline toggle), which is triggered by lowercase `v`; the capitalized glyph in the button label is a codebase-wide visual convention matching all other buttons (`(P)ick`, `(L)ock`, `(E)dit`, …). Users who press `V` get the fullscreen viewer instead, which is also a "view plan" action, so the label remains intuitively correct.
+
+- **Issues encountered:**
+  - `.aitask-scripts/codebrowser/codebrowser_app.py` showed as modified in working tree but was pre-existing in-progress work from a parallel session (adding a `ContextualFooter` class). Excluded from this task's commit scope.
+
+- **Key decisions:**
+  - Chose `V` (uppercase / `shift+v`) as the cross-TUI fullscreen key after discussion with user. Board's existing BINDINGS listed every action as both lower- and upper-case; we broke that convention **only for the `v/V` pair** so `v` → inline toggle and `V` → fullscreen form a clean semantic pair. All other upper-case duplicates (P, L, U, C, S, R, E, D, N, B) are preserved.
+  - Scoped the Tab guard to `self.screen.query_one(...)` (per the feedback memory about Textual priority bindings): `App.query_one` walks the whole screen stack, so an unscoped guard can match widgets from underlying screens and consume the key. Using `self.screen.query_one` + `raise SkipAction()` on guard-miss lets the form's default Tab navigation proceed.
+  - Import of `SectionViewerScreen` / `SectionMinimap` / `estimate_section_y` / `parse_sections` is done lazily inside each handler to avoid touching module-level imports and keep the diff small.
+
+- **Notes for sibling tasks (t571_8, t571_9):**
+  - The `V` key is now the authoritative fullscreen binding. Both sibling plans have been updated to match — do not re-introduce `p` (t571_8) or skip the binding (t571_9).
+  - Pattern for `action_focus_minimap` with `SkipAction` guard is the same contract for all three TUIs. Scope guards to `self.screen.query_one` (or `self.query_one` inside a modal), NOT `self.query_one` on an `App`.
+  - `_read_plan_content()` helper is local to `TaskDetailScreen`; codebrowser and brainstorm have their own content-access paths (annotation data for t571_8, DAG node state for t571_9) — they do not need this helper.
+  - Board intentionally keeps the task↔plan inline toggle (`v` key); codebrowser and brainstorm auto-mount based on content availability. The difference is architectural, not a keybinding drift.
+
+- **Manual verification deferred:** TUI behavior (Tab focus cycling, Up/Down minimap nav, Enter scroll-to-section, `V` fullscreen push, Escape dismiss, regression on `p`/`v`) is handed off to t571_7 (manual verification sibling task). Code-level checks (syntax, imports, binding wiring, handler presence) all passed.
+
+<!-- /section: final_implementation_notes -->
