@@ -185,4 +185,3 @@ Follow `.claude/skills/task-workflow/SKILL.md` Step 9 for post-implementation me
   - The `set` command updates frontmatter `updated_at` as a side effect; siblings that mutate the same task file in the same workflow step should be aware that every `set` call refreshes this timestamp.
   - `test_verification_parse.py` already covers the parser layer. **t583_6 should not duplicate parser-level tests** — it should cover only the `issue_type: manual_verification` plumbing + workflow-level integration.
   - `seed` refuses to overwrite an existing `## Verification Checklist` section — callers must handle the "already seeded" case explicitly (exit code != 0, file unchanged).
-- **Manual-verification failure:** item "sanity check beta" failed; follow-up task t590.
