@@ -52,6 +52,7 @@
       "Bash(./.aitask-scripts/aitask_plan_externalize.sh:*)",
       "Bash(./.aitask-scripts/aitask_plan_verified.sh:*)",
       "Bash(./.aitask-scripts/aitask_verified_update.sh:*)",
+      "Bash(./.aitask-scripts/aitask_verification_followup.sh:*)",
       "Bash(./.aitask-scripts/aitask_verification_parse.sh:*)",
       "WebFetch(domain:docs.gitlab.com)",
       "Bash(glab issue list:*)",
