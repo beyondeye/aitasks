@@ -6,9 +6,9 @@ issue_type: documentation
 status: Ready
 labels: [web_site, positioning]
 file_references: [website/content/_index.md:54-63]
-children_to_implement: [t585_3, t585_4, t585_5]
+children_to_implement: [t585_4, t585_5]
 created_at: 2026-04-19 10:32
-updated_at: 2026-04-19 13:47
+updated_at: 2026-04-19 15:34
 boardidx: 10
 ---
 
