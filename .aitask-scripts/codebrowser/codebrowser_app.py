@@ -169,27 +169,28 @@ class ContextualFooter(Footer):
     own `compact` reactive retains its default (True).
     """
 
-    DEFAULT_ORDER = ["h", "d", "e", "n", "g", "c"]
+    PRIMARY_ORDER = ["q", "h", "n", "e", "g"]
 
-    PANE_ORDERS = {
-        "file_tree":    ["R", "r", "n", "h", "g", "d", "e", "c"],
-        "recent_files": ["h", "H", "n", "d", "e", "c"],
-        "file_search":  ["n", "g", "e", "h"],
-        "code_viewer":  ["g", "w", "c", "e", "n", "h", "d", "t", "r"],
-        "detail_pane":  ["d", "D", "H", "h", "n", "e"],
+    PANE_SUFFIX_ORDERS = {
+        "file_tree":    ["d", "c", "r", "R"],
+        "recent_files": ["d", "c"],
+        "file_search":  [],
+        "code_viewer":  ["w", "c", "t", "d", "r"],
+        "detail_pane":  ["d", "c", "D", "H"],
     }
 
     def _focused_pane_id(self) -> str | None:
         w = self.screen.focused
         while w is not None:
-            if getattr(w, "id", None) in self.PANE_ORDERS:
+            if getattr(w, "id", None) in self.PANE_SUFFIX_ORDERS:
                 return w.id
             w = w.parent
         return None
 
     def _ordering(self) -> list[str]:
         pane = self._focused_pane_id()
-        return self.PANE_ORDERS.get(pane, self.DEFAULT_ORDER)
+        suffix = self.PANE_SUFFIX_ORDERS.get(pane, [])
+        return self.PRIMARY_ORDER + suffix
 
     def on_mount(self) -> None:
         super().on_mount()
