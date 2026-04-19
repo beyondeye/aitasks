@@ -5,10 +5,10 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [task_workflow, framework, skill]
-children_to_implement: [t583_1, t583_2, t583_3, t583_4, t583_5, t583_6, t583_7]
+children_to_implement: [t583_1, t583_2, t583_3, t583_4, t583_5, t583_6, t583_7, t583_8]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-17 11:20
-updated_at: 2026-04-19 08:29
+updated_at: 2026-04-19 08:30
 boardidx: 10
 ---
 
