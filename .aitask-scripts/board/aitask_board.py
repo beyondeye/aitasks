@@ -2220,8 +2220,7 @@ class TaskDetailScreen(ModalScreen):
     def _mount_or_update_minimap(self, md_view, plan_content):
         """Mount or repopulate #board_minimap inside #md_view based on plan sections."""
         try:
-            from brainstorm.brainstorm_sections import parse_sections
-            from section_viewer import SectionMinimap
+            from section_viewer import SectionMinimap, parse_sections
         except Exception as exc:
             self.app.notify(f"Section viewer unavailable: {exc}", severity="warning")
             return
