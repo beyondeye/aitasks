@@ -46,8 +46,12 @@ def update_content(self, detail: TaskDetailContent | None) -> None:
     self._current_detail = detail  # NEW: expose on instance
     ...
     if content and detail and detail.has_plan:
-        from brainstorm.brainstorm_sections import parse_sections
-        from section_viewer import SectionMinimap
+        # IMPORTANT: import parse_sections from section_viewer (convenience re-export),
+        # NOT from brainstorm.brainstorm_sections. The lib module self-inserts
+        # `.aitask-scripts/` into sys.path on first import, so importing
+        # `brainstorm.*` directly before `section_viewer` fails with ModuleNotFoundError.
+        # See t571_10 Final Implementation Notes for the fix history.
+        from section_viewer import SectionMinimap, parse_sections
         parsed = parse_sections(content)
         if parsed.sections:
             self._cached_parsed = parsed
