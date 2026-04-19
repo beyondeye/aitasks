@@ -5,9 +5,9 @@ depends: []
 issue_type: refactor
 status: Ready
 labels: [brainstorming, ait_brainstorm]
-children_to_implement: [t571_6, t571_7, t571_8, t571_9, t571_11]
+children_to_implement: [t571_6, t571_7, t571_8, t571_9]
 created_at: 2026-04-16 09:50
-updated_at: 2026-04-19 11:07
+updated_at: 2026-04-19 12:30
 boardidx: 10
 ---
 

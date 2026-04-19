@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t571_10, 5]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [brainstorming, ait_brainstorm, ui]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-19 11:07
-updated_at: 2026-04-19 11:37
+updated_at: 2026-04-19 12:30
+completed_at: 2026-04-19 12:30
 ---
 
 <!-- section: context [dimensions: motivation] -->
