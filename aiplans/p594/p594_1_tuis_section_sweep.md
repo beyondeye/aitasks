@@ -6,6 +6,8 @@ Sibling Tasks: aitasks/t594/t594_{2,3,4,5,6}_*.md
 Worktree: (none — work on current branch)
 Branch: main
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-04-19 17:34
 ---
 
 # t594_1 — TUIs section coherence sweep (pilot)
@@ -30,12 +32,12 @@ This child sweeps all 15 pages under `website/content/docs/tuis/` — Board, Mon
 
 ## Concrete factual drift to fix (with source citations)
 
-1. **Board: remove fabricated `Ctrl+Backslash` command palette claim.**
-   - Doc: `website/content/docs/tuis/board/reference.md:51`.
-   - Source: `.aitask-scripts/board/aitask_board.py:3220-3262` — no binding for `Ctrl+Backslash`; no `action_command_palette` method. Remove the claim.
+1. **Board `Ctrl+Backslash` is real — do NOT remove it.** (Verify-pass correction.)
+   - Doc: `website/content/docs/tuis/board/reference.md:51` claims `Ctrl+Backslash` opens the command palette.
+   - Source: `.aitask-scripts/board/aitask_board.py:3218` registers `COMMANDS = App.COMMANDS | {KanbanCommandProvider}`. The command palette is Textual's built-in (bound to `Ctrl+Backslash` by the `App` base class, not in the subclass `BINDINGS` list). The doc is correct. Initial planning wrongly flagged this as fabricated — leave the entry in place. Optional: add a brief note to the doc that the palette provides context-aware commands via `KanbanCommandProvider`.
 
 2. **Board: add `p` and `b` to reference keybinding table.**
-   - Source: `.aitask-scripts/board/aitask_board.py:3246` (`p` → `pick_task`), `:3248` (`b` → `brainstorm_task`). These are shown conditionally in the footer but missing from the reference doc.
+   - Source: `.aitask-scripts/board/aitask_board.py:3246` (`p` → `pick_task`), `:3248` (`b` → `brainstorm_task`). These are shown conditionally in the footer (via `check_action`) but missing from the reference doc's keybinding tables. Add them to the "Task Operations" section with a "(context-dependent)" note.
 
 3. **Monitor: add `t`, `R`, `b`, `L` to reference keybinding table.**
    - Source: `.aitask-scripts/monitor/monitor_app.py:432-449` — `t`=scroll_preview_tail (442), `R`=restart_task (445), `b`=toggle_scrollbar (441), `L`=open_log (448). All absent from `website/content/docs/tuis/monitor/reference.md`.
@@ -81,7 +83,7 @@ This child sweeps all 15 pages under `website/content/docs/tuis/` — Board, Mon
    - List current doc keybinding table vs source.
    - Produce a per-TUI diff note (additions, removals, drift).
 
-2. **Apply drift fixes 1-6** from the list above.
+2. **Apply drift fixes 2-6** from the list above (item 1 is a verify-pass correction — leave the doc as-is, optionally enhance with a mention of `KanbanCommandProvider`).
 
 3. **`tuis/board/how-to.md` tightening:**
    - Replace the 8 "1. 2. 3." sections with a single keybinding reference table.
@@ -97,10 +99,10 @@ This child sweeps all 15 pages under `website/content/docs/tuis/` — Board, Mon
 ## Verification
 
 - `cd website && hugo build --gc --minify` passes with no warnings.
-- Launch each TUI and press every documented keybinding — all must fire. Especially verify removed `Ctrl+Backslash` is gone from docs, newly-added `p`/`b`/`t`/`R`/`L` work as described.
+- Launch each TUI and press every documented keybinding — all must fire. Especially verify newly-added `p`/`b`/`t`/`R`/`L` work as described, and `Ctrl+Backslash` opens the command palette.
 - `wc -l website/content/docs/tuis/board/how-to.md` ≤ 310.
 - Click every "Next:" link from `tuis/_index.md` through `settings/reference.md`; all resolve.
-- `grep -c "Ctrl+Backslash\|Ctrl+\\\\" website/content/docs/tuis/board/reference.md` returns 0.
+- `Ctrl+Backslash` entry remains in `tuis/board/reference.md` (verify-corrected; the palette is real).
 
 ## Step 9 reference
 

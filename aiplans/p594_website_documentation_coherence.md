@@ -22,7 +22,7 @@ The verification passes revealed concrete **factual drift** — cases where the 
 ### Concrete drift items found during planning (with citations)
 
 **TUIs (in-scope for t594_1):**
-- `tuis/board/reference.md:51` claims `Ctrl+Backslash` opens a command palette — **no such binding exists** in `.aitask-scripts/board/aitask_board.py:3220-3262`. Fabricated doc.
+- ~~`tuis/board/reference.md:51` claims `Ctrl+Backslash` opens a command palette — no such binding exists.~~ **Corrected during t594_1 verify pass:** `.aitask-scripts/board/aitask_board.py:3218` registers `COMMANDS = App.COMMANDS | {KanbanCommandProvider}`, and Textual's `App` class provides the `Ctrl+Backslash` command-palette binding by default (not in the subclass `BINDINGS`). The doc is correct; keep the entry.
 - Settings `t` key opens the Tmux tab (`.aitask-scripts/settings/settings_app.py:346-352`) — **absent from `tuis/settings/reference.md`**.
 - Board `p` (pick_task, line 3246) and `b` (brainstorm_task, line 3248) exist but are **not in the `tuis/board/reference.md` keybinding table**.
 - Monitor undocumented keys: `t` scroll_preview_tail (line 442), `R` restart_task (line 445), `b` toggle_scrollbar (line 441), `L` open_log (line 448) in `.aitask-scripts/monitor/monitor_app.py` — **none appear in `tuis/monitor/reference.md`**.
