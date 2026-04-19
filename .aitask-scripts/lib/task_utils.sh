@@ -108,6 +108,20 @@ parse_yaml_list() {
     echo "$value" | tr -d "[]'\"" | tr -d ' '
 }
 
+# --- YAML List Formatting ---
+
+# Format a comma-separated string as a YAML inline list.
+# "1,3,5" -> "[1, 3, 5]"; empty input -> "[]".
+# Inverse of parse_yaml_list.
+format_yaml_list() {
+    local input="$1"
+    if [[ -z "$input" ]]; then
+        echo "[]"
+    else
+        echo "[$(echo "$input" | sed 's/,/, /g')]"
+    fi
+}
+
 # --- Helper: read a YAML field from frontmatter ---
 read_yaml_field() {
     local file_path="$1"

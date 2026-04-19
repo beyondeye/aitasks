@@ -385,7 +385,7 @@ create_child_task_file() {
     deps_yaml=$(format_yaml_list "$deps")
 
     local labels_yaml
-    labels_yaml=$(format_labels_yaml "$labels")
+    labels_yaml=$(format_yaml_list "$labels")
 
     # Create the file with YAML front matter (same format as regular tasks)
     {
@@ -405,7 +405,7 @@ create_child_task_file() {
         # Only write file_references if present
         if [[ -n "$file_references" ]]; then
             local file_refs_yaml
-            file_refs_yaml=$(format_file_references_yaml "$file_references")
+            file_refs_yaml=$(format_yaml_list "$file_references")
             echo "file_references: $file_refs_yaml"
         fi
         # Only write issue if present
@@ -473,7 +473,7 @@ create_draft_file() {
     deps_yaml=$(format_yaml_list "$deps")
 
     local labels_yaml
-    labels_yaml=$(format_labels_yaml "$labels")
+    labels_yaml=$(format_yaml_list "$labels")
 
     {
         echo "---"
@@ -491,7 +491,7 @@ create_draft_file() {
         fi
         if [[ -n "$file_references" ]]; then
             local file_refs_yaml
-            file_refs_yaml=$(format_file_references_yaml "$file_references")
+            file_refs_yaml=$(format_yaml_list "$file_references")
             echo "file_references: $file_refs_yaml"
         fi
         echo "draft: true"
@@ -1197,36 +1197,6 @@ get_timestamp() {
     date '+%Y-%m-%d %H:%M'
 }
 
-format_yaml_list() {
-    # Converts "1,3,5" to "[1, 3, 5]" for YAML
-    local input="$1"
-    if [[ -z "$input" ]]; then
-        echo "[]"
-    else
-        echo "[$(echo "$input" | sed 's/,/, /g')]"
-    fi
-}
-
-format_labels_yaml() {
-    # Converts "ui,backend" to "[ui, backend]" for YAML
-    local input="$1"
-    if [[ -z "$input" ]]; then
-        echo "[]"
-    else
-        echo "[$(echo "$input" | sed 's/,/, /g')]"
-    fi
-}
-
-format_file_references_yaml() {
-    # Converts "foo.py,bar.py:10-20" to "[foo.py, bar.py:10-20]" for YAML
-    local input="$1"
-    if [[ -z "$input" ]]; then
-        echo "[]"
-    else
-        echo "[$(echo "$input" | sed 's/,/, /g')]"
-    fi
-}
-
 # Deduplicate a bash array of file-reference strings by exact-string match,
 # preserving order of first occurrence. Prints a comma-separated string.
 dedup_file_refs() {
@@ -1407,7 +1377,7 @@ create_task_file() {
     deps_yaml=$(format_yaml_list "$deps")
 
     local labels_yaml
-    labels_yaml=$(format_labels_yaml "$labels")
+    labels_yaml=$(format_yaml_list "$labels")
 
     # Create the file with YAML front matter
     {
@@ -1427,7 +1397,7 @@ create_task_file() {
         # Only write file_references if present
         if [[ -n "$file_references" ]]; then
             local file_refs_yaml
-            file_refs_yaml=$(format_file_references_yaml "$file_references")
+            file_refs_yaml=$(format_yaml_list "$file_references")
             echo "file_references: $file_refs_yaml"
         fi
         # Only write assigned_to if present

@@ -401,20 +401,8 @@ sanitize_name() {
     echo "$name" | tr '[:upper:]' '[:lower:]' | tr ' ' '_' | tr -cd 'a-z0-9_' | sed 's/__*/_/g' | sed 's/^_//;s/_$//' | cut -c1-60
 }
 
-# --- YAML Formatting ---
-
 get_timestamp() {
     date '+%Y-%m-%d %H:%M'
-}
-
-format_yaml_list() {
-    # Converts "1,3,5" to "[1, 3, 5]" for YAML
-    local input="$1"
-    if [[ -z "$input" ]]; then
-        echo "[]"
-    else
-        echo "[$(echo "$input" | sed 's/,/, /g')]"
-    fi
 }
 
 # --- File Writing ---
