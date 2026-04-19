@@ -43,6 +43,7 @@ model_selection
 modelvrapper
 opencode
 openshell
+positioning
 qa
 release_scripts
 remote
