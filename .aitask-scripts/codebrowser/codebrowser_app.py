@@ -379,6 +379,7 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         Binding("e", "launch_agent", "Explain"),
         Binding("d", "toggle_detail", "Toggle detail"),
         Binding("D", "expand_detail", "Expand detail"),
+        Binding("V", "view_plan", "Fullscreen plan"),
         Binding("h", "toggle_history", "History"),
         Binding("H", "history_for_task", "History for task"),
         Binding("n", "create_task", "New task"),
@@ -1092,6 +1093,55 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         self._detail_expanded = not self._detail_expanded
         self._apply_detail_width()
 
+    def action_view_plan(self) -> None:
+        """Open the SectionViewerScreen modal for the plan of the task in the active pane."""
+        from textual.css.query import NoMatches
+        from section_viewer import SectionViewerScreen
+
+        # Active screen decides which pane provides the plan:
+        # - HistoryScreen (modal) -> HistoryDetailPane shows the currently-browsed completed task
+        # - Main screen -> DetailPane shows the task annotating the current cursor line
+        screen = self.screen
+        try:
+            from history_detail import HistoryDetailPane
+            history_pane = screen.query_one(HistoryDetailPane)
+        except NoMatches:
+            history_pane = None
+
+        if history_pane is not None:
+            current = history_pane.get_current_plan()
+            if current is None:
+                self.notify(
+                    "Toggle to plan view (press 'v') before opening the fullscreen viewer.",
+                    severity="warning",
+                )
+                return
+            task_id, plan_content = current
+            self.push_screen(SectionViewerScreen(
+                plan_content, title=f"Plan for t{task_id}"))
+            return
+
+        try:
+            detail_pane = self.query_one("#detail_pane", DetailPane)
+        except NoMatches:
+            self.notify("Plan viewer not available from this view.", severity="warning")
+            return
+        detail = getattr(detail_pane, "_current_detail", None)
+        if detail is None:
+            self.notify(
+                "No task selected — move the cursor to an annotated line first.",
+                severity="warning",
+            )
+            return
+        if not (detail.has_plan and detail.plan_content):
+            self.notify(
+                f"Task t{detail.task_id} has no plan file.",
+                severity="warning",
+            )
+            return
+        self.push_screen(SectionViewerScreen(
+            detail.plan_content, title=f"Plan for t{detail.task_id}"))
+
     def action_toggle_focus(self) -> None:
         """Cycle focus: recent_files → file_tree → search → code_viewer → detail (if visible) → recent_files."""
         from textual.actions import SkipAction
@@ -1104,6 +1154,16 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
             code_viewer = screen.query_one("#code_viewer")
         except Exception:
             raise SkipAction()
+        # Let DetailPane's Tab binding handle Tab-from-markdown → minimap.
+        try:
+            md = screen.query_one("#detail_markdown")
+            minimaps = screen.query("#detail_minimap")
+            if screen.focused is md and minimaps:
+                raise SkipAction()
+        except SkipAction:
+            raise
+        except Exception:
+            pass
         try:
             recent = screen.query_one("#recent_files", RecentFilesList)
         except Exception:

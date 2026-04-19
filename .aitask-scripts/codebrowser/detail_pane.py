@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from textual.actions import SkipAction
+from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.widgets import Markdown, Static
 
@@ -35,9 +37,14 @@ class DetailPane(VerticalScroll):
     }
     """
 
+    BINDINGS = [Binding("tab", "focus_minimap", "Minimap")]
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._current_task_id: str | None = None
+        self._current_detail: TaskDetailContent | None = None
+        self._cached_parsed = None
+        self._cached_plan_text: str = ""
 
     def compose(self):
         yield Static("", id="detail_header")
@@ -54,16 +61,21 @@ class DetailPane(VerticalScroll):
         """Update the pane with new task detail content."""
         if detail is None:
             self._current_task_id = None
+            self._current_detail = None
+            self._cached_parsed = None
+            self._cached_plan_text = ""
             self.query_one("#detail_header", Static).update("")
             self.query_one("#detail_markdown", Markdown).update("")
             self.query_one("#detail_placeholder").display = True
             self.query_one("#detail_markdown").display = False
+            self._remove_minimap()
             return
 
         if detail.task_id == self._current_task_id:
             return  # Same task, skip redundant update
 
         self._current_task_id = detail.task_id
+        self._current_detail = detail
         self.query_one("#detail_placeholder").display = False
         self.query_one("#detail_markdown").display = True
 
@@ -80,11 +92,78 @@ class DetailPane(VerticalScroll):
 
         self.query_one("#detail_header", Static).update(header)
         self.query_one("#detail_markdown", Markdown).update(content)
+        self._sync_minimap(detail, content)
         self.scroll_home(animate=False)
+
+    def _sync_minimap(self, detail: TaskDetailContent, content: str) -> None:
+        """Mount/populate section minimap when the plan has sections; remove otherwise."""
+        if not (detail.has_plan and detail.plan_content):
+            self._cached_parsed = None
+            self._cached_plan_text = ""
+            self._remove_minimap()
+            return
+        # Import parse_sections via section_viewer (re-export), not directly from
+        # brainstorm.brainstorm_sections: section_viewer's import-time sys.path
+        # self-insert is what makes brainstorm.* reachable from this package.
+        from section_viewer import SectionMinimap, parse_sections
+
+        parsed = parse_sections(content)
+        if not parsed.sections:
+            self._cached_parsed = None
+            self._cached_plan_text = ""
+            self._remove_minimap()
+            return
+        self._cached_parsed = parsed
+        self._cached_plan_text = content
+        existing = self.query("#detail_minimap")
+        if existing:
+            minimap = existing.first()
+        else:
+            minimap = SectionMinimap(id="detail_minimap")
+            self.mount(minimap, before="#detail_markdown")
+        minimap.populate(parsed)
+
+    def _remove_minimap(self) -> None:
+        for w in list(self.query("#detail_minimap")):
+            w.remove()
+
+    def on_section_minimap_section_selected(self, event) -> None:
+        from section_viewer import estimate_section_y
+
+        if self._cached_parsed is None:
+            return
+        total = self._cached_plan_text.count("\n") + 1
+        y = estimate_section_y(
+            self._cached_parsed, event.section_name, total, self.virtual_size.height
+        )
+        if y is not None:
+            self.scroll_to(y=y, animate=False)
+        event.stop()
+
+    def on_section_minimap_toggle_focus(self, event) -> None:
+        self.query_one("#detail_markdown", Markdown).focus()
+        event.stop()
+
+    def action_focus_minimap(self) -> None:
+        focused = self.screen.focused
+        try:
+            markdown = self.query_one("#detail_markdown", Markdown)
+        except Exception:
+            raise SkipAction()
+        if focused is not markdown:
+            raise SkipAction()
+        minimaps = self.query("#detail_minimap")
+        if not minimaps:
+            raise SkipAction()
+        minimaps.first().focus_first_row()
 
     def show_multiple_tasks(self, task_ids: list[str]) -> None:
         """When selection spans multiple tasks, show a summary."""
         self._current_task_id = None
+        self._current_detail = None
+        self._cached_parsed = None
+        self._cached_plan_text = ""
+        self._remove_minimap()
         self.query_one("#detail_placeholder").display = False
         self.query_one("#detail_markdown").display = True
         self.query_one("#detail_header", Static).update(" Multiple tasks in selection")

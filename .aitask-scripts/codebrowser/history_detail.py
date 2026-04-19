@@ -569,7 +569,6 @@ class HistoryDetailPane(VerticalScroll):
 
     BINDINGS = [
         Binding("v", "toggle_view", "Toggle task/plan", show=False),
-        Binding("V", "toggle_view", "Toggle task/plan", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -599,6 +598,8 @@ class HistoryDetailPane(VerticalScroll):
         self._task_content_cache: dict[str, str | None] = {}
         self._plan_content_cache: dict[str, str | None] = {}
         self._body_md = None  # reference to current Markdown widget
+        self._cached_parsed = None
+        self._cached_plan_text: str = ""
 
     def compose(self):
         yield Static(
@@ -773,7 +774,9 @@ class HistoryDetailPane(VerticalScroll):
         )
 
         content = self._get_body_content(task_id)
-        md = Markdown(content or "*No content available*", classes="body-markdown")
+        rendered = content or "*No content available*"
+        self._mount_minimap_if_plan(rendered)
+        md = Markdown(rendered, classes="body-markdown")
         self._body_md = md
         self.mount(md)
 
@@ -781,6 +784,60 @@ class HistoryDetailPane(VerticalScroll):
 
         if focus_after:
             self._focus_first_field()
+
+    def _mount_minimap_if_plan(self, content: str) -> None:
+        """When showing a plan with section markers, mount a SectionMinimap above the body."""
+        if not self._showing_plan or not content:
+            self._cached_parsed = None
+            self._cached_plan_text = ""
+            return
+        from section_viewer import SectionMinimap, parse_sections
+
+        parsed = parse_sections(content)
+        if not parsed.sections:
+            self._cached_parsed = None
+            self._cached_plan_text = ""
+            return
+        self._cached_parsed = parsed
+        self._cached_plan_text = content
+        minimap = SectionMinimap(id="history_detail_minimap")
+        if self._body_md is not None and self._body_md.parent is self:
+            self.mount(minimap, before=self._body_md)
+        else:
+            self.mount(minimap)
+        minimap.populate(parsed)
+
+    def _remove_minimap(self) -> None:
+        for w in list(self.query("#history_detail_minimap")):
+            w.remove()
+
+    def on_section_minimap_section_selected(self, event) -> None:
+        from section_viewer import estimate_section_y
+
+        if self._cached_parsed is None or not self._cached_plan_text:
+            return
+        total = self._cached_plan_text.count("\n") + 1
+        y = estimate_section_y(
+            self._cached_parsed, event.section_name, total, self.virtual_size.height
+        )
+        if y is not None:
+            self.scroll_to(y=y, animate=False)
+        event.stop()
+
+    def on_section_minimap_toggle_focus(self, event) -> None:
+        if self._body_md is not None:
+            self._body_md.focus()
+        event.stop()
+
+    def get_current_plan(self) -> tuple[str, str] | None:
+        """Return (task_id, plan_content) if currently viewing a plan with content, else None."""
+        if not self._showing_plan or not self._nav_stack:
+            return None
+        task_id = self._nav_stack[-1]
+        raw = self._plan_content_cache.get(task_id)
+        if not raw:
+            return None
+        return task_id, self._strip_frontmatter(raw)
 
     def _get_body_content(self, task_id: str) -> str | None:
         """Return task or plan content based on current toggle state."""
@@ -828,8 +885,15 @@ class HistoryDetailPane(VerticalScroll):
 
         # Update markdown body
         content = self._get_body_content(task_id)
+        rendered = content or "*No content available*"
+        self._remove_minimap()
+        if self._showing_plan:
+            self._mount_minimap_if_plan(rendered)
+        else:
+            self._cached_parsed = None
+            self._cached_plan_text = ""
         if self._body_md is not None:
-            self._body_md.update(content or "*No content available*")
+            self._body_md.update(rendered)
 
     def _find_task(self, task_id: str) -> CompletedTask | None:
         """Find a task in the index by ID."""

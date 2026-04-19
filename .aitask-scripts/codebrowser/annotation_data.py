@@ -26,6 +26,7 @@ class TaskDetailContent:
     task_content: str = ""
     has_plan: bool = False
     has_task: bool = False
+    plan_sections: list | None = None
 
 
 @dataclass
