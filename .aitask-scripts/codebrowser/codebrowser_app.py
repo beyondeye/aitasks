@@ -176,7 +176,7 @@ class ContextualFooter(Footer):
         "recent_files": ["d", "c"],
         "file_search":  [],
         "code_viewer":  ["w", "c", "t", "d", "r"],
-        "detail_pane":  ["d", "c", "D", "H"],
+        "detail_pane":  ["d", "D", "c", "H"],
     }
 
     def _focused_pane_id(self) -> str | None:
