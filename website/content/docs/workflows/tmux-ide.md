@@ -79,3 +79,4 @@ See each TUI's documentation for its full key binding reference: [Board](../../t
 - [Getting Started](../../getting-started/) — the shorter first-task walkthrough.
 - [Monitor TUI](../../tuis/monitor/) — full details of `ait monitor`, the agent list, and the TUI switcher.
 - [One gotcha: `ait ide` is one view of a shared session](../../installation/terminal-setup/#one-gotcha-ait-ide-is-one-view-of-a-shared-session) — why two `ait ide` windows share state, and how to run parallel IDEs per project.
+- [Concepts: The IDE model]({{< relref "/docs/concepts/ide-model" >}}) — the conceptual overview of how `ait ide` is structured.

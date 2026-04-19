@@ -24,3 +24,5 @@ When implementing a child task, [`/aitask-pick`](../../skills/aitask-pick/) auto
 3. Define child tasks with descriptions and dependencies
 4. Implement children one at a time with `/aitask-pick <parent>_<child>` (e.g., `/aitask-pick 16_1`, `/aitask-pick 16_2`)
 5. When all children are complete, the parent is automatically archived
+
+**See also:** [Concepts: Parent and child tasks]({{< relref "/docs/concepts/parent-child" >}})

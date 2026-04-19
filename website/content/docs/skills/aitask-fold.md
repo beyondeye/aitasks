@@ -37,3 +37,5 @@ Identify and merge related tasks into a single task, then optionally execute it.
 ## Workflows
 
 For a full workflow guide, see [Task Consolidation](../../workflows/task-consolidation/).
+
+**See also:** [Concepts: Folded tasks]({{< relref "/docs/concepts/folded-tasks" >}})

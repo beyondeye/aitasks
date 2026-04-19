@@ -31,3 +31,5 @@ Complex tasks that need [child decomposition](../task-decomposition/) can have t
 ## Parallel Exploration
 
 `/aitask-explore` is read-only — it searches and reads code but never modifies source files. This makes it safe to run in a separate terminal tab while another agent session implements a task. Use this pattern to stay productive: explore and create new tasks while waiting for builds, tests, or ongoing implementations to complete.
+
+**See also:** [Concepts: Git branching model]({{< relref "/docs/concepts/git-branching-model" >}}), [Concepts: Locks]({{< relref "/docs/concepts/locks" >}})
