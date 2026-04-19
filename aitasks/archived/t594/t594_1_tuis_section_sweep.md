@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: []
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-19 17:10
-updated_at: 2026-04-19 17:37
+updated_at: 2026-04-19 18:25
+completed_at: 2026-04-19 18:25
 ---
 
 Pilot child of t594. Sweep the 15 pages under `website/content/docs/tuis/` for factual drift against the TUI source code and coherence issues, with no structural edits.
