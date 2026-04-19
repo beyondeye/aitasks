@@ -18,7 +18,7 @@ menu:
 
 Existing approaches fell into two extremes: heavyweight spec-driven systems that demanded upfront formality, and ad-hoc prompt engineering that didn't scale across tasks. **aitasks** carved out a middle path — **"Light Spec" task files** that start as raw intent and get iteratively refined by the AI agent itself before implementation begins.
 
-Inspired by [Conductor](https://github.com/gemini-cli-extensions/conductor)'s repository-centric model and [Beads](https://github.com/steveyegge/beads)' task-based workflow, **aitasks** combined these ideas with Claude Code's skill system to create a framework where tasks, plans, and workflow automation all live inside the project repository — no external services, no databases, no daemons.
+From there, **aitasks** grew into a full agentic IDE in the terminal: tasks, plans, review guides, long-term memory, and workflow automation all live inside the project repository itself — no external services, no databases, no daemons. The codebase becomes the single source of truth for both the code and the agent's working context.
 {{% /blocks/section %}}
 
 {{% blocks/lead color="light" %}}
