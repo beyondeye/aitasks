@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [1, 2, 3, 4, 5]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [brainstorming, ait_brainstorm]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-16 12:19
-updated_at: 2026-04-20 09:14
+updated_at: 2026-04-20 11:04
 ---
 
 ## Context
