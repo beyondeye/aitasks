@@ -7,7 +7,7 @@ description: "Pre-answered workflow questions that switch a skill from interacti
 
 ## What it is
 
-An **execution profile** is a YAML file in `aitasks/metadata/profiles/` that pre-answers the questions a skill would otherwise ask interactively. Each profile sets a handful of named keys — for example `skip_task_confirmation`, `default_email`, `create_worktree`, `plan_preference`, `post_plan_action`, `qa_mode` — that the skill then consults at each decision point. Profiles are picked at the start of a skill run (with `--profile <name>` or interactively from a list) and remain in effect for that session.
+An **execution profile** is a YAML file in `aitasks/metadata/profiles/` that pre-answers the questions a skill would otherwise ask interactively. Each profile sets a handful of named keys — for example `skip_task_confirmation`, `default_email`, `create_worktree`, `plan_preference`, `post_plan_action`, `qa_mode`, `manual_verification_followup_mode` — that the skill then consults at each decision point. Profiles are picked at the start of a skill run (with `--profile <name>` or interactively from a list) and remain in effect for that session.
 
 Three profiles ship by default:
 

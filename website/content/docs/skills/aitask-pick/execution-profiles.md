@@ -35,6 +35,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They are loaded 
 | `qa_mode` | string | `"ask"`, `"create_task"`, `"implement"`, or `"plan_only"` — used by [`/aitask-qa`](../../aitask-qa/) to control what happens with test proposals |
 | `qa_run_tests` | bool | `true` runs discovered tests, `false` skips test execution — used by [`/aitask-qa`](../../aitask-qa/) |
 | `qa_tier` | string | `"quick"`, `"standard"`, or `"exhaustive"` — pre-selects the QA analysis depth tier |
+| `manual_verification_followup_mode` | string | `"ask"` (default) or `"never"` — used by task-workflow Step 8c to control whether the post-implementation manual-verification follow-up prompt fires |
 
 Omitting a key means that question is asked interactively. `enableFeedbackQuestions` is enabled by default when the key is absent.
 

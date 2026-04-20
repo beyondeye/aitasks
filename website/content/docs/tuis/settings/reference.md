@@ -119,6 +119,12 @@ Execution profiles are YAML files with the following keys. All keys are optional
 | `qa_mode` | enum | `ask`, `create_task`, `implement`, `plan_only` | What to do with test proposals in [`/aitask-qa`](../../skills/aitask-qa/) |
 | `qa_run_tests` | bool | `true`, `false` | Whether to run discovered tests during QA analysis |
 
+### Manual Verification
+
+| Key | Type | Options | Description |
+|-----|------|---------|-------------|
+| `manual_verification_followup_mode` | enum | `ask`, `never` | Controls task-workflow Step 8c — whether to offer a manual-verification follow-up task after committing changes |
+
 ### Lock Management
 
 | Key | Type | Options | Description |

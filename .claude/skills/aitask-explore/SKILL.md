@@ -183,30 +183,6 @@ Read back the created task file to confirm the assigned task ID:
 
 The script automatically handles transitive folds and removes folded child tasks from their parent's `children_to_implement`.
 
-**Manual verification follow-up (optional):**
-
-Skip this prompt if the newly created task has `issue_type: manual_verification` — manual-verification tasks don't need follow-ups.
-
-Otherwise, use `AskUserQuestion`:
-- Question: "Does this task need a manual-verification follow-up — a separate task to cover behavior that only a human can validate (TUI flows, live agent launches, on-disk artifact inspection)?"
-- Header: "Manual verify"
-- Options:
-  - "No" (description: "Skip — no follow-up task")
-  - "Yes, create manual-verification follow-up" (description: "Create a standalone manual-verification task that will be picked after the new task archives")
-
-If "Yes":
-- Write a stub items file: `printf 'TODO: define verification for t<new_task_id>\n' > <tmp_checklist>` (explore-created tasks have no plan yet, so the user fills in the checklist when they later pick the follow-up).
-- Shell out to the seeder:
-  ```bash
-  ./.aitask-scripts/aitask_create_manual_verification.sh \
-    --related <new_task_id> \
-    --name manual_verification_<new_task_slug>_followup \
-    --verifies <new_task_id> \
-    --items <tmp_checklist>
-  ```
-  where `<new_task_slug>` is derived from the newly created task's filename.
-- Parse the `MANUAL_VERIFICATION_CREATED:<new_id>:<path>` line and display the new task ID to the user.
-
 ### Step 3b: Select Execution Profile
 
 Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-workflow/execution-profile-selection.md`) with:

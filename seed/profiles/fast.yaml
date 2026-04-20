@@ -10,3 +10,4 @@ post_plan_action_for_child: ask
 enableFeedbackQuestions: true
 test_followup_task: ask
 explore_auto_continue: false
+manual_verification_followup_mode: never

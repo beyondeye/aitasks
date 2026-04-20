@@ -320,7 +320,7 @@ After implementation is complete, the user MUST be given the opportunity to revi
     - **Plan/task file commits** use the `ait:` prefix (e.g., `ait: Update plan for t16`). Administrative commits (status changes, archival) also use `ait:` and must NOT include the `(t<task_id>)` tag.
     - **Never mix** code files and `aitasks/`/`aiplans/` files in the same `git add` or commit. Code uses regular `git`; task/plan files use `./ait git`. This separation is required when task data lives on a separate branch, and is safe in legacy mode where `./ait git` passes through to plain `git`.
   - **Note:** For test coverage analysis and test plan generation, run `/aitask-qa <task_id>` after implementation.
-  - Proceed to Step 9
+  - Proceed to Step 8c
 
 - **If "Need more changes":**
   - Ask user what needs to change
@@ -341,6 +341,16 @@ After implementation is complete, the user MUST be given the opportunity to revi
 
 - **If "Abort":**
   - Execute the **Task Abort Procedure** (see `task-abort.md`)
+
+### Step 8c: Manual Verification Follow-up
+
+Entered from Step 8 after the "Commit changes" branch has committed code and plan files. Offers the user a chance to queue a standalone manual-verification task that will be picked after this task archives.
+
+Execute the **Manual Verification Follow-up Procedure** (see `manual-verification-followup.md`) with:
+- `task_file`, `task_id`, `is_child`, `active_profile`, `parent_id` from the current context.
+- `task_slug` — filename stem with the `t<id>_` prefix stripped (e.g. `aitasks/t42_add_login.md` → `add_login`).
+
+When the procedure returns, proceed to Step 9.
 
 ### Step 9: Post-Implementation
 
@@ -496,6 +506,7 @@ The following procedures are in individual files — read on demand when referen
 - **Satisfaction Feedback Procedure** (`satisfaction-feedback.md`) — Collect user feedback and update verified model scores. Referenced from Step 9b and standalone skills.
 - **Lock Release Procedure** (`lock-release.md`) — Release task locks. Referenced from Task Abort Procedure.
 - **Manual Verification Procedure** (`manual-verification.md`) — Interactive checklist runner for `issue_type: manual_verification` tasks. Referenced from Step 3 (Check 3).
+- **Manual Verification Follow-up Procedure** (`manual-verification-followup.md`) — Post-implementation prompt offering to create a standalone manual-verification task, with multi-source candidate discovery. Referenced from Step 8c.
 - **Execution Profile Selection Procedure** (`execution-profile-selection.md`) — Interactive profile scan and selection. Referenced from Step 0a in calling skills and Step 3b.
 - **Execution Profile Selection Procedure — Auto-Select** (`execution-profile-selection-auto.md`) — Non-interactive auto-select for remote/web skills. Referenced from Step 1 in aitask-pickrem/aitask-pickweb.
 - **Batch Task Creation Procedure** (`task-creation-batch.md`) — Canonical command templates for creating tasks via `aitask_create.sh --batch`. Referenced from planning.md and multiple skills (explore, review, qa, wrap, pr-import, revert).

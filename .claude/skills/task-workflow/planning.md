@@ -292,7 +292,7 @@ Base branch: main
 
 **Profile check:** If the effective action is `"start_implementation"`:
 - Display: "Profile '\<name\>': proceeding to implementation"
-- Skip the AskUserQuestion below and proceed to the **Manual Verification Follow-up (single-task path)** sub-procedure below, then to Step 7
+- Skip the AskUserQuestion below and proceed to Step 7
 
 If the effective action is `"ask"`, or is not set (no profile / key omitted): show the interactive checkpoint below.
 
@@ -305,7 +305,7 @@ Otherwise, use `AskUserQuestion`:
   - "Approve and stop here" (description: "Approve the plan, release the lock, revert task to Ready, and end the workflow — pick it up later in a fresh context")
   - "Abort task" (description: "Stop and revert task status")
 
-If "Start implementation": Proceed to the **Manual Verification Follow-up (single-task path)** sub-procedure below, then to Step 7.
+If "Start implementation": Proceed to Step 7.
 
 If "Revise plan": Return to the beginning of Step 6.
 
@@ -331,37 +331,3 @@ If "Approve and stop here":
 
 If "Abort": Execute the **Task Abort Procedure** (see `task-abort.md`).
 
-### Manual Verification Follow-up (single-task path)
-
-This sub-procedure runs after plan approval (either via the profile's
-`"start_implementation"` short-circuit or the interactive "Start implementation"
-option) and **before** control enters Step 7. It lets the user queue a standalone
-manual-verification task that will be picked up after the current task archives,
-without bloating the current task file with verification prose.
-
-**Skip this sub-procedure entirely if any of these are true:**
-- `is_child` is `true` — child tasks are covered by the aggregate-sibling flow in the parent's planning phase.
-- The current task's `issue_type` is `manual_verification` — manual-verification tasks don't need follow-ups.
-- Child tasks were created during this planning session — the aggregate-sibling prompt already handled verification.
-
-Otherwise, use `AskUserQuestion`:
-- Question: "Does this task need a manual-verification follow-up — a separate task to cover behavior that only a human can validate (TUI flows, live agent launches, on-disk artifact inspection)?"
-- Header: "Manual verify"
-- Options:
-  - "No" (description: "Proceed to implementation without creating a follow-up")
-  - "Yes, create follow-up task (picked after this task archives)" (description: "Create a standalone manual-verification task that references this one")
-
-If "Yes":
-- Build a `<tmp_checklist>` file from the plan's `## Verification` section if present (one line per bullet, stripped of leading `- `); otherwise emit a single stub line: `TODO: define verification for t<this_task_id>`.
-- Shell out to the seeder:
-  ```bash
-  ./.aitask-scripts/aitask_create_manual_verification.sh \
-    --related <this_task_id> \
-    --name manual_verification_<this_task_slug>_followup \
-    --verifies <this_task_id> \
-    --items <tmp_checklist>
-  ```
-  where `<this_task_slug>` is derived from the current task's filename (e.g. `aitasks/t42_add_login.md` → `add_login`).
-- Parse the `MANUAL_VERIFICATION_CREATED:<new_id>:<path>` line and display the new task ID to the user. The seeder handles task creation, frontmatter, and the checklist commit.
-
-After the prompt resolves, proceed to Step 7.
