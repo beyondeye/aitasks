@@ -240,6 +240,7 @@ class TuiSwitcherOverlay(ModalScreen):
         Binding("m", "shortcut_monitor", "Monitor", show=False),
         Binding("c", "shortcut_codebrowser", "Code Browser", show=False),
         Binding("s", "shortcut_settings", "Settings", show=False),
+        Binding("t", "shortcut_stats", "Statistics", show=False),
         Binding("r", "shortcut_brainstorm", "Brainstorm", show=False),
         Binding("x", "shortcut_explore", "Explore", show=False),
         Binding("g", "shortcut_git", "Git", show=False),
@@ -257,7 +258,7 @@ class TuiSwitcherOverlay(ModalScreen):
             yield Label("TUI Switcher", id="switcher_title")
             yield _WrappingListView(id="switcher_list")
             yield Label(
-                "[bold bright_cyan](b)[/]oard  [bold bright_cyan](m)[/]onitor  [bold bright_cyan](c)[/]ode  [bold bright_cyan](s)[/]ettings  b[bold bright_cyan](r)[/]ainstorm  [bold bright_cyan](g)[/]it  e[bold bright_cyan](x)[/]plore  [bold bright_cyan](n)[/]ew task\n"
+                "[bold bright_cyan](b)[/]oard  [bold bright_cyan](m)[/]onitor  [bold bright_cyan](c)[/]ode  [bold bright_cyan](s)[/]ettings  s[bold bright_cyan](t)[/]ats  b[bold bright_cyan](r)[/]ainstorm  [bold bright_cyan](g)[/]it  e[bold bright_cyan](x)[/]plore  [bold bright_cyan](n)[/]ew task\n"
                 "[bold bright_cyan]Enter[/] switch  [bold bright_cyan]j/Esc[/] close",
                 id="switcher_hint",
             )
@@ -381,6 +382,9 @@ class TuiSwitcherOverlay(ModalScreen):
 
     def action_shortcut_settings(self) -> None:
         self._shortcut_switch("settings")
+
+    def action_shortcut_stats(self) -> None:
+        self._shortcut_switch("stats")
 
     def action_shortcut_brainstorm(self) -> None:
         """Switch to first running brainstorm window, or notify if none running."""
