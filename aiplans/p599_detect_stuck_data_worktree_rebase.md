@@ -252,3 +252,26 @@ bash tests/test_data_branch_migration.sh
 ## Step 9 — Post-Implementation
 
 After review approval: commit code with `bug: Detect stuck .aitask-data worktree state (t599)`, then `./ait git add aiplans/p599_detect_stuck_data_worktree_rebase.md` + `./ait git commit -m "ait: Update plan for t599"`. Run `./.aitask-scripts/aitask_archive.sh 599`. Push with `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned across the three files.
+  - `lib/task_utils.sh`: added `_ait_data_gitdir()`, `_ait_git_subcmd_is_readonly()`, `_ait_git_subcmd_is_recovery()`, `assert_data_worktree_clean()`, `task_git_health()`. Wired the assert into `task_git()` and `task_push()`.
+  - `aitask_verified_update.sh`: `current_task_branch()` now rejects the literal string `HEAD` with a recovery hint pointing at `./ait git-health`.
+  - `ait` dispatcher: registered `git-health` subcommand and added one line to `show_usage()` under "Task Management".
+- **Deviations from plan:** None. The classifier helpers used `local a` declarations inside the loops to silence shellcheck (no behavioral effect).
+- **Issues encountered:** Existing `tests/test_task_push.sh` (Tests 8 and 9) and `tests/test_verified_update.sh` (most cases) fail on `main` — confirmed by stash-pop comparison: the same 5+47 failures occur with and without this change. They look like environmental/date-sensitive setup issues in the test harness (missing `archive_utils.sh` copy in temp test dir; jq path mismatches against expected score JSON). Out of scope for t599; flagging here so they aren't attributed to this task.
+- **Key decisions:**
+  - The guard lives in `lib/task_utils.sh` next to `task_git()`/`task_push()` rather than in a separate `ait_git.sh` (no such file exists; minimal new surface).
+  - `task_push()` is invoked argless from the dispatcher, so the call site synthesizes `assert_data_worktree_clean push` for the classifier.
+  - `git-health` registered as a top-level subcommand (not `git health`) so the dispatcher case can branch cleanly without intercepting positional args inside `git)`.
+  - Recovery classifier accepts `--quit` (rebase) in addition to the four flags listed in the task description, since modern git uses it as the canonical "exit interactive rebase" verb.
+- **Verification (manual, end-to-end):**
+  - Clean state: `./ait git-health` reports "Clean", `./ait git status` and other commands pass through normally.
+  - Simulated stuck state via `mkdir -p .git/worktrees/-aitask-data/rebase-merge`:
+    - `./ait git status` still passes (read-only auto-bypass).
+    - `./ait git commit -m x` and `./ait git push` both fail fast with the recovery hint.
+    - `./ait git-health` reports `In-progress operations: rebase-merge`.
+    - `./ait git rebase --abort` is allowed through (recovery auto-bypass).
+    - `AIT_GIT_SKIP_STATE_CHECK=1 ./ait git status` works under wedged state (env escape).
+  - shellcheck: no new warnings in either modified script (pre-existing SC1091/SC2001/SC2086 noise unchanged).
