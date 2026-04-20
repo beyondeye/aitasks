@@ -5,8 +5,9 @@ depends: []
 issue_type: documentation
 status: Ready
 labels: []
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-19 17:11
-updated_at: 2026-04-19 17:11
+updated_at: 2026-04-20 09:14
 ---
 
 Child of t594. Add forward-reading flow and bridging content to the ~10 onboarding-path pages.
