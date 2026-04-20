@@ -145,3 +145,39 @@ Must succeed with zero errors. Warnings about unrelated broken links are accepta
 ## Step 9 reference
 
 Archive via `./.aitask-scripts/aitask_archive.sh 594_5`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-04-20 12:15)
+
+- **Requested by user:** Restructure the `_index.md` category grouping and delete `tmux-ide.md` entirely.
+  - Delete `website/content/docs/workflows/tmux-ide.md` and integrate its essential content into the existing `ait ide` documentation (`installation/terminal-setup.md`, `concepts/ide-model.md`, `getting-started.md`). The `--session` flag and session-sharing gotcha are already covered in `terminal-setup.md`, so "integrate" reduces to updating cross-references to point at those existing homes rather than at the deleted workflow page.
+  - Merge **Daily** and **Decomposition** into a single **Tasks** category.
+  - Rename **Integrations** to **Git**; move `releases` and `revert-changes` from **Advanced** into **Git**.
+  - Add a new **Parallel** category covering `parallel-development`, `parallel-planning`, `claude-web`.
+  - Add a new **Review & Quality** category covering `code-review`, `qa-testing`, `explain`.
+  - The **Advanced** category disappears (its three pages redistributed).
+- **Changes made:**
+  - `website/content/docs/workflows/tmux-ide.md` deleted.
+  - `website/content/docs/workflows/_index.md` rewritten with four categories: **Tasks / Parallel / Review & Quality / Git**. Preserved the `t594_7` note, updated to reference the new four-category layout.
+  - Cross-references to `workflows/tmux-ide` redirected in 10 files (references about *launching* the IDE point to `installation/terminal-setup/`; references about *daily flow* point to `getting-started/`).
+  - Removed the `tmux-ide → capturing-ideas` Next footer entry (gone with the file). Chain now starts at `capturing-ideas → retroactive-tracking → task-decomposition → task-consolidation (terminus)`.
+- **Files affected:** 12 website files (1 deletion, 11 edits) + this plan file.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Rewrote `workflows/_index.md` with the revised four-category structure (Tasks / Parallel / Review & Quality / Git). Kept the HTML comment noting t594_7 can consume these groupings as taxonomy source data.
+  - Aligned `tmux-ide.md`'s `ait ide` snippet with `aitask_ide.sh` (documented `--session NAME`) — then deleted the page entirely per the revision. The command-reference content is already in `installation/terminal-setup.md`.
+  - Added explore/fold cross-link to `task-decomposition.md` framing them as complementary patterns (explore for upfront, fold as inverse).
+  - Added "Next:" footers across `capturing-ideas → retroactive-tracking → task-decomposition → task-consolidation` (terminus points back to the workflows index).
+  - Redirected every `workflows/tmux-ide` cross-reference in the site.
+- **Deviations from plan:** Original plan kept `tmux-ide.md` and only canonicalized its `ait ide` block. User's post-review direction deleted the page and restructured categories. Scope grew from 6 edited files to 1 deletion + 12 edited files.
+- **Issues encountered:** Pre-existing uncommitted changes in `.claude/skills/aitask-explore/SKILL.md`, `.claude/skills/task-workflow/SKILL.md`, `.claude/skills/task-workflow/planning.md` are unrelated to t594_5 and were not staged.
+- **Key decisions:**
+  - Named the third category **Review & Quality** to capture `explain` naturally — understanding-driven reading supports quality review.
+  - Redirect cross-refs to `installation/terminal-setup/` as the long-term home for `ait ide` command reference (it already has the full flag reference + shared-session gotcha). Walkthrough content from `tmux-ide.md` was not copied elsewhere — user's "eventually integrate" language was interpreted as deferring richer walkthrough integration.
+- **Notes for sibling tasks:**
+  - **t594_6 (concepts/commands/development sweep):** `concepts/ide-model.md` has a "How to use" section that now points to `terminal-setup` (was `tmux-ide`). Consider folding a short walkthrough into `ide-model.md` during the concepts sweep if a canonical daily-flow narrative is needed.
+  - **t594_7 (Docsy labels):** the four workflow groupings (Tasks / Parallel / Review & Quality / Git) are candidate source data for a `workflow_category` taxonomy. The HTML-comment pointer in `_index.md` flags this explicitly.
+  - A follow-up task may be warranted to migrate the deleted `tmux-ide.md` walkthrough content into `ide-model.md` or `getting-started.md` as a richer daily-flow narrative. Scope is out-of-bounds for this task per user's "eventually" framing.
