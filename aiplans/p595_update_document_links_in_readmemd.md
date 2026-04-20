@@ -101,3 +101,11 @@ Standard single-task flow:
 - Push via `./ait git push`.
 
 No worktree cleanup (work was on current branch per `create_worktree: false` in the `fast` profile).
+
+## Final Implementation Notes
+
+- **Actual work done:** Replaced lines 112–128 of `README.md` as planned. Resulting section now has 9 bullets (was 7): Overview (new), Installation, Getting Started, Concepts (new), TUI Applications (replaces "Kanban Board"), Workflow Guides (with expanded description mentioning tmux IDE, code review, QA, PR), Code Agent Skills (renamed from "Claude Code Skills"), Command Reference, Development Guide. Ordering mirrors the website sidebar `weight:` values.
+- **Deviations from plan:** None. The target content was applied verbatim.
+- **Issues encountered:** None.
+- **Verification performed:** Ran `git diff README.md | grep -iE '(previously|used to|earlier|diffviewer)'` — returned no matches (PASS). Link paths cross-checked against `website/content/docs/` tree during planning; all nine targets exist. Diff is +7/-3 lines.
+- **Key decisions:** Kept the "Claude Code Skills → Code Agent Skills" rename ahead of leaving the old heading; the website page is already titled "Code Agent Skills" and the repositioning calls out multi-agent support (Claude Code, Gemini CLI, Codex CLI, OpenCode). Replaced "Kanban Board" with "TUI Applications" linking to `/docs/tuis/` so the IDE surface is visible from the README without needing a redirect.
