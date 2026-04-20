@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [git-integration, bash_scripts, ait_dispatcher]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7
 created_at: 2026-04-20 08:56
-updated_at: 2026-04-20 09:16
+updated_at: 2026-04-20 10:40
+completed_at: 2026-04-20 10:40
 ---
 
 ## Context
