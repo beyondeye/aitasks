@@ -167,6 +167,34 @@ While in plan mode:
         ./ait git add aiplans/p<parent>/
         ./ait git commit -m "ait: Add t<parent> child implementation plans"
         ```
+    - **Manual verification sibling (post-child-creation):**
+      After the child plans are committed, offer to add an aggregate manual-verification sibling that covers behavior only a human can validate (TUI flows, live agent launches, multi-screen navigation, etc.). Skip this step entirely if `<N>` (the number of children just created) is `1`.
+
+      Use `AskUserQuestion`:
+      - Question: "Do any of these children produce behavior that needs manual verification (TUI flows, live agent launches, on-disk artifact inspection, multi-screen navigation)?"
+      - Header: "Manual verify"
+      - Options:
+        - "No, not needed" (description: "Skip — no aggregate verification sibling")
+        - "Yes, add aggregate sibling covering all children (Recommended for TUI/UX-heavy work)" (description: "Create one manual-verification sibling that verifies every child task just created")
+        - "Yes, but let me choose which children it verifies" (description: "Create a manual-verification sibling narrowed to a subset of the children")
+
+      If "Yes, but let me choose": use a second `AskUserQuestion` with `multiSelect: true`, one option per child (label = child task filename, description = brief summary). The selected children form the `--verifies` list.
+
+      If either "Yes" option is chosen:
+      - Build a `<tmp_checklist>` file: for each selected child, read its plan file (`aiplans/p<parent>/p<parent>_<child>_<name>.md`) and extract bullet lines from its `## Verification` section (if present). Prefix each bullet with `[t<parent>_<child>] ` so the failure origin is visible at-a-glance. If a child's plan has no `## Verification` section, emit a single stub line: `TODO: define verification for t<parent>_<child>`.
+      - Shell out to the seeder:
+        ```bash
+        ./.aitask-scripts/aitask_create_manual_verification.sh \
+          --parent <parent_num> \
+          --name manual_verification_<parent_slug> \
+          --verifies <selected_child_ids_csv> \
+          --items <tmp_checklist>
+        ```
+        where `<parent_slug>` is derived from the parent task's filename (e.g. `aitasks/t571_structured_brainstorming.md` → `structured_brainstorming`). `<selected_child_ids_csv>` lists the verified children by bare ID (`571_4,571_5`).
+      - Parse the `MANUAL_VERIFICATION_CREATED:<new_id>:<path>` line and display the new task ID to the user. The seeder already commits the new task and its seeded checklist.
+      - The new sibling becomes the last child of the parent; it is automatically added to `children_to_implement` by `aitask_create.sh --parent`.
+
+      After this step, continue to the child task checkpoint below.
     - **Child task checkpoint (ALWAYS interactive — ignores `post_plan_action` profile setting):**
       Use `AskUserQuestion`:
       - Question: "Created <N> child tasks with implementation plans. How would you like to proceed?"
@@ -264,7 +292,7 @@ Base branch: main
 
 **Profile check:** If the effective action is `"start_implementation"`:
 - Display: "Profile '\<name\>': proceeding to implementation"
-- Skip the AskUserQuestion below and proceed directly to Step 7
+- Skip the AskUserQuestion below and proceed to the **Manual Verification Follow-up (single-task path)** sub-procedure below, then to Step 7
 
 If the effective action is `"ask"`, or is not set (no profile / key omitted): show the interactive checkpoint below.
 
@@ -276,6 +304,8 @@ Otherwise, use `AskUserQuestion`:
   - "Revise plan" (description: "Re-enter plan mode to make changes")
   - "Approve and stop here" (description: "Approve the plan, release the lock, revert task to Ready, and end the workflow — pick it up later in a fresh context")
   - "Abort task" (description: "Stop and revert task status")
+
+If "Start implementation": Proceed to the **Manual Verification Follow-up (single-task path)** sub-procedure below, then to Step 7.
 
 If "Revise plan": Return to the beginning of Step 6.
 
@@ -300,3 +330,38 @@ If "Approve and stop here":
 5. Display: "Plan approved and committed. Task t\<task_num\> reverted to Ready — pick it up later with `/aitask-pick <task_num>` in a fresh context." End the workflow (do **NOT** proceed to Step 7). The "Approve and stop here" option is always available (not profile-gated); it replaces the infeasible context-usage auto-detection by letting the user make the call based on their own HUD.
 
 If "Abort": Execute the **Task Abort Procedure** (see `task-abort.md`).
+
+### Manual Verification Follow-up (single-task path)
+
+This sub-procedure runs after plan approval (either via the profile's
+`"start_implementation"` short-circuit or the interactive "Start implementation"
+option) and **before** control enters Step 7. It lets the user queue a standalone
+manual-verification task that will be picked up after the current task archives,
+without bloating the current task file with verification prose.
+
+**Skip this sub-procedure entirely if any of these are true:**
+- `is_child` is `true` — child tasks are covered by the aggregate-sibling flow in the parent's planning phase.
+- The current task's `issue_type` is `manual_verification` — manual-verification tasks don't need follow-ups.
+- Child tasks were created during this planning session — the aggregate-sibling prompt already handled verification.
+
+Otherwise, use `AskUserQuestion`:
+- Question: "Does this task need a manual-verification follow-up — a separate task to cover behavior that only a human can validate (TUI flows, live agent launches, on-disk artifact inspection)?"
+- Header: "Manual verify"
+- Options:
+  - "No" (description: "Proceed to implementation without creating a follow-up")
+  - "Yes, create follow-up task (picked after this task archives)" (description: "Create a standalone manual-verification task that references this one")
+
+If "Yes":
+- Build a `<tmp_checklist>` file from the plan's `## Verification` section if present (one line per bullet, stripped of leading `- `); otherwise emit a single stub line: `TODO: define verification for t<this_task_id>`.
+- Shell out to the seeder:
+  ```bash
+  ./.aitask-scripts/aitask_create_manual_verification.sh \
+    --related <this_task_id> \
+    --name manual_verification_<this_task_slug>_followup \
+    --verifies <this_task_id> \
+    --items <tmp_checklist>
+  ```
+  where `<this_task_slug>` is derived from the current task's filename (e.g. `aitasks/t42_add_login.md` → `add_login`).
+- Parse the `MANUAL_VERIFICATION_CREATED:<new_id>:<path>` line and display the new task ID to the user. The seeder handles task creation, frontmatter, and the checklist commit.
+
+After the prompt resolves, proceed to Step 7.

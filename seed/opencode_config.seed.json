@@ -24,6 +24,7 @@
       "./.aitask-scripts/aitask_contribution_check.sh *": "allow",
       "./.aitask-scripts/aitask_contribution_review.sh *": "allow",
       "./.aitask-scripts/aitask_create.sh *": "allow",
+      "./.aitask-scripts/aitask_create_manual_verification.sh *": "allow",
       "./.aitask-scripts/aitask_explain_extract_raw_data.sh *": "allow",
       "./.aitask-scripts/aitask_explain_runs.sh *": "allow",
       "./.aitask-scripts/aitask_explain_cleanup.sh *": "allow",
