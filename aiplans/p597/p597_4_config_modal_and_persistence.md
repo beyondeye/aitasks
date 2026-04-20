@@ -370,3 +370,127 @@ flow. The TUI itself never commits or pushes.
 - Editing presets from within the TUI. Presets are shipped project state and
   remain read-only at runtime; a future task can add an explicit
   "publish preset" flow if that becomes useful.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-04-20)
+
+- **Requested by user:**
+  1. Replace the config modal with an inline layout-picker panel at the
+     bottom-left of the main screen; Tab to switch focus between the
+     sidebar (top-left) and the layout picker (bottom-left).
+  2. Remove the Enter-to-switch behavior for panes in the sidebar — highlight
+     alone should render the pane.
+  3. Give the config UI proper keyboard shortcuts for confirm (no mouse/button
+     reliance).
+  4. Fix: the TUI switcher's `t` shortcut didn't switch to the stats TUI.
+
+- **Changes made:**
+  - `stats_app.py` redesigned:
+    - Left column split with `Vertical` into `#sidebar` (top, 1fr) and
+      `#layout_panel` (bottom, max-height 50%). Right = content.
+    - `Tab` / `Shift+Tab` cycle focus between sidebar and layout picker.
+      `c` is a direct shortcut to focus the picker.
+    - Sidebar highlight now triggers `_show_pane` via
+      `on_list_view_highlighted` (no Enter needed).
+    - Layout picker: `Enter` applies the highlighted preset or custom;
+      `n` opens the new-custom flow; `e` edits a custom; `d` deletes one.
+      A `●` marker shows which layout is active.
+    - The old blocking config modal is replaced by this inline panel.
+  - `modals/config_modal.py` deleted. Replaced with
+    `modals/pane_selector.py` — a narrower modal shown only when
+    creating/editing a custom; `Space` toggles, `Enter` saves, `Esc`
+    cancels. `name_input.py` is unchanged.
+  - `lib/tui_switcher.py`: added `Binding("t", "shortcut_stats", ...)`,
+    `action_shortcut_stats()`, and the `(t)` hint in the footer label.
+
+- **Files affected:**
+  - `.aitask-scripts/stats/stats_app.py` (major rewrite)
+  - `.aitask-scripts/stats/modals/pane_selector.py` (new; replaces
+    `config_modal.py`)
+  - `.aitask-scripts/stats/modals/config_modal.py` (deleted)
+  - `.aitask-scripts/lib/tui_switcher.py` (added stats shortcut)
+
+### Change Request 2 (2026-04-20)
+
+- **Requested by user:** When pressing Enter to apply a new layout in the
+  layout picker, the sidebar showed the PREVIOUS layout's panes (stale).
+  Panes only caught up after focusing the sidebar and arrowing through it.
+
+- **Changes made:** `_rebuild_sidebar()` and its call sites were made `async`
+  so the sidebar's `ListView.clear()` and `extend()` awaitables complete
+  before the first pane is shown. The stale-highlight event from setting
+  `sidebar.index = 0` against not-yet-mounted items no longer wins against
+  the intended render. Updated callers: `_activate_layout_item`,
+  `action_delete_custom`, and the `PaneSelectorModal` `on_done` callback.
+
+- **Files affected:**
+  - `.aitask-scripts/stats/stats_app.py`
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Added `stats/stats_config.py` (layered load; `save()` writes only user
+    layer to `stats_config.local.json`; `resolve_active_layout()` falls back
+    to `overview` when missing).
+  - Added `stats/modals/name_input.py` (single-input modal; `enter` submits,
+    `escape` cancels).
+  - Added `stats/modals/pane_selector.py` (`SelectionList` of all 12 panes
+    grouped by category; category rows disabled; `space` toggles, `enter`
+    saves, `esc` cancels; preserves `PANE_DEFS` ordering for the returned
+    ids so the sidebar renders predictably).
+  - Redesigned `stats/stats_app.py`:
+    - Left column: `#sidebar` (top, 1fr) + `#layout_panel` (bottom, max
+      50%), right: `#content`. `Tab`/`Shift+Tab` cycle focus between the
+      two left lists; `c` jumps to the layout picker.
+    - Sidebar uses `_SidebarItem` carrying `pane_id` as an attribute; the
+      `ListView.Highlighted` handler renders the pane immediately (no
+      Enter).
+    - Layout panel lists presets + customs + `+ New custom`, with a `●`
+      marker on the active layout. `Enter` applies, `n` starts the
+      new-custom flow, `e` edits a custom, `d` deletes one.
+    - `_rebuild_sidebar()` is async and awaits clear+extend to avoid the
+      stale-pane bug.
+  - Shipped `aitasks/metadata/stats_config.json` (4 presets). Project file
+    is read-only at runtime; `.aitask-data/.gitignore` already covers
+    `aitasks/metadata/*.local.json`.
+  - Fixed `lib/tui_switcher.py`: added `t` → stats shortcut binding,
+    `action_shortcut_stats`, and the `(t)` hint in the footer.
+
+- **Deviations from plan:**
+  - Replaced the modal-first design in the original plan with an inline
+    bottom-left layout picker, per the user's redesign request (see
+    Post-Review Changes). The full-modal `ConfigModal` was deleted; its
+    role for creating/editing customs moved to the narrower
+    `PaneSelectorModal`.
+
+- **Issues encountered:**
+  - Stale highlight after Enter on a new layout — root cause: `ListView`
+    mutations are async; setting `index = 0` before clear/extend settled
+    fired the Highlighted event against stale items. Fix: make the
+    rebuild chain async and await the DOM updates.
+
+- **Key decisions:**
+  - User-only runtime save: `stats_config.save()` deliberately drops
+    project-scope keys so modal interactions never touch shared state
+    (per user feedback — no auto-commit/auto-push).
+  - Sidebar items use a `ListItem` subclass carrying `pane_id` as an
+    attribute instead of a widget id. This avoids `DuplicateIds` errors
+    during rebuild when panes overlap between layouts.
+  - `PaneSelectorModal` preserves `PANE_DEFS` iteration order for its
+    return value so custom layouts render in the same canonical order
+    as presets.
+
+- **Notes for sibling tasks:**
+  - **t597_5 (--plot removal):** README/docs edits should mention
+    `ait stats-tui` only; the TUI is now the interactive entry point for
+    charts.
+  - **t597_6 (manual verification):** Key flows to exercise:
+    `t` shortcut switches to stats from any other TUI; `Tab` cycles focus
+    between sidebar and layout picker; Enter on a preset/custom swaps
+    the sidebar immediately; `n` → NameInput → PaneSelector → save
+    persists to `stats_config.local.json`; `d` deletes a custom and
+    falls back to `overview` when the active layout was removed;
+    `cat aitasks/metadata/stats_config.json` should remain unchanged
+    after modal interactions; `git status` must never list
+    `stats_config.local.json`.
