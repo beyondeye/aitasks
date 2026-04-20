@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t597_4]
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [statistics, aitask_monitor]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-19 17:52
-updated_at: 2026-04-19 17:52
+updated_at: 2026-04-20 11:00
 ---
 
 ## Context
