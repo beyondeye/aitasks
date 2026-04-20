@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: [1, 2, 3, 4, 5]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [brainstorming, ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-16 12:19
-updated_at: 2026-04-20 11:04
+updated_at: 2026-04-20 12:03
+completed_at: 2026-04-20 12:03
 ---
 
 ## Context
