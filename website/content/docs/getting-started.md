@@ -102,11 +102,12 @@ The core loop is: **create tasks** (with `ait create`, `/aitask-create`, or `$ai
 
 As you work, explore these features:
 
-- [The tmux IDE workflow](../workflows/tmux-ide/) — Full end-to-end daily walkthrough, from `ait ide` startup to commit
+- [Terminal Setup](../installation/terminal-setup/) — full `ait ide` command reference: flags, session naming, and the shared-session gotcha.
+- [The IDE model]({{< relref "/docs/concepts/ide-model" >}}) — the conceptual overview of how `ait ide` organises tmux around the monitor TUI.
 - [Workflow Guides](../workflows/) — Common patterns like capturing ideas fast, task decomposition, and parallel development
 - [Code Agent Skills](../skills/) — All available agent skills (`/aitask-pick` in Claude Code, Gemini CLI, and OpenCode; `$aitask-pick` in Codex CLI, etc.)
 - [Command Reference](../commands/) — Full CLI reference for all `ait` subcommands
 
 ---
 
-**Next:** [The tmux IDE workflow]({{< relref "workflows/tmux-ide" >}})
+**Next:** [Workflow Guides]({{< relref "workflows" >}})

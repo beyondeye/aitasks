@@ -149,7 +149,7 @@ When monitor starts, it resolves which tmux session to watch using this decision
 
 **How to avoid it:**
 
-- Launch monitor via [`ait ide`]({{< relref "/docs/workflows/tmux-ide" >}}), which always passes an explicit session name.
+- Launch monitor via [`ait ide`]({{< relref "/docs/installation/terminal-setup" >}}), which always passes an explicit session name.
 - Manually rename the session before launching monitor: `tmux rename-session -t "$OLD" "$NEW"`.
 
 ### Environment Variables
@@ -163,7 +163,7 @@ When monitor starts, it resolves which tmux session to watch using this decision
 
 | Command / TUI | Purpose | Reference |
 |---------------|---------|-----------|
-| `ait ide` | One-command launcher that starts/attaches to the configured tmux session and opens monitor | [tmux IDE workflow]({{< relref "/docs/workflows/tmux-ide" >}}) |
+| `ait ide` | One-command launcher that starts/attaches to the configured tmux session and opens monitor | [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}) |
 | `ait board` | Kanban board for task management — target of the TUI switcher | [Board]({{< relref "/docs/tuis/board" >}}) |
 | `ait codebrowser` | Code browser TUI — target of the TUI switcher | [Code Browser]({{< relref "/docs/tuis/codebrowser" >}}) |
 | `ait settings` | Settings TUI — target of the TUI switcher; also hosts the Tmux tab for editing the configuration above | [Settings]({{< relref "/docs/tuis/settings" >}}) |

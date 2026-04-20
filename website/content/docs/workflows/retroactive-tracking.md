@@ -160,3 +160,7 @@ Both workflows produce the same artifacts (task file, plan file, properly format
 - **Review the auto-analysis** — The skill's suggested intent and metadata are inferences from the diff. They're usually accurate but always worth a quick check before confirming
 - **Check the archived plan** — After wrapping, the plan file is archived alongside the task. It contains a detailed record of what changed and why — useful for changelogs, code reviews, or when you need to understand a past change
 - **Mix workflows freely** — Wrap and create are complementary. A typical session might start with `/aitask-pick` for planned work, then end with `/aitask-wrap` to capture a quick fix discovered along the way
+
+---
+
+**Next:** [Task Decomposition](../task-decomposition/) — breaking complex tasks into manageable child subtasks.

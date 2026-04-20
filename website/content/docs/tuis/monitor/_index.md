@@ -13,7 +13,7 @@ The `ait monitor` command launches an interactive TUI that shows every pane in t
 
 ### Launching the Monitor
 
-The recommended way to start monitor is via [`ait ide`]({{< relref "/docs/workflows/tmux-ide" >}}):
+The recommended way to start monitor is via [`ait ide`]({{< relref "/docs/installation/terminal-setup" >}}):
 
 ```bash
 ait ide

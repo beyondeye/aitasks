@@ -86,7 +86,6 @@ This path is a fallback, not a recommendation. Without tmux you lose:
 ## Next steps
 
 - [Getting Started](../../getting-started/) — a walkthrough of a first task.
-- [The tmux IDE workflow](../../workflows/tmux-ide/) — end-to-end daily use of the `ait ide` session.
 - [Monitor TUI](../../tuis/monitor/) — full details of `ait monitor`, including the agent window list and the TUI switcher.
 
 ---

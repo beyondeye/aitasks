@@ -7,6 +7,8 @@ description: "Breaking complex tasks into manageable child subtasks"
 
 For tasks that are too large or risky for a single implementation run, the aitasks framework supports decomposition into child subtasks. This gives you controlled, disciplined execution of complex features while maintaining full context across all subtasks.
 
+Two complementary skills cover adjacent patterns: [`/aitask-explore`](../../skills/aitask-explore/) creates tasks (often multiple) from codebase exploration — useful when you need to discover the shape of the work before decomposing it — and [`/aitask-fold`](../../skills/aitask-fold/) is the inverse, merging overlapping tasks into one (see [Task Consolidation](../task-consolidation/)).
+
 ## How It Works
 
 - During the planning phase of [`/aitask-pick`](../../skills/aitask-pick/), if a task is assessed as high complexity, the skill automatically offers to break it into child subtasks
@@ -26,3 +28,7 @@ When implementing a child task, [`/aitask-pick`](../../skills/aitask-pick/) auto
 5. When all children are complete, the parent is automatically archived
 
 **See also:** [Concepts: Parent and child tasks]({{< relref "/docs/concepts/parent-child" >}})
+
+---
+
+**Next:** [Task Consolidation](../task-consolidation/) — merging overlapping or duplicate tasks into a single actionable task.

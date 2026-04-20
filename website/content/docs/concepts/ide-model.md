@@ -19,7 +19,7 @@ A code agent is most useful when it can be observed and steered without interrup
 
 ## How to use
 
-The end-to-end daily flow is documented in the [tmux IDE workflow]({{< relref "/docs/workflows/tmux-ide" >}}). The integrated TUI list lives in the [TUIs section]({{< relref "/docs/tuis" >}}).
+The command-line entry point — `ait ide`, its flags, and the session-sharing gotcha — is documented in [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}). The integrated TUI list lives in the [TUIs section]({{< relref "/docs/tuis" >}}).
 
 ## See also
 

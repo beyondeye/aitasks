@@ -36,3 +36,7 @@ This is conceptually the opposite of [task decomposition](../task-decomposition/
 3. Select the primary task — the one with the best description or broadest scope
 4. Review the merged result, then continue to implementation or save for later
 5. After implementation and archival, folded task files are automatically deleted
+
+---
+
+**Next:** [Workflows index](../) — browse other workflows by category, or continue to the [Code Agent Skills]({{< relref "skills" >}}) reference.

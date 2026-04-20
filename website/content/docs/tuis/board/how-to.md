@@ -326,7 +326,7 @@ A typical flow from the board: triage a task, press `j`, switch to **monitor** t
 
 <!-- TODO screenshot: aitasks_tui_switcher_dialog.svg -->
 
-The switcher requires a tmux session — see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}) and the [tmux IDE workflow]({{< relref "/docs/workflows/tmux-ide" >}}).
+The switcher requires a tmux session — see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}) for how to launch one with `ait ide`.
 
 ---
 

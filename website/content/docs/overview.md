@@ -28,7 +28,7 @@ Everything you need to plan, implement, review, and ship runs in one tmux sessio
 - **Brainstorm** / **Settings** — idea capture and profile/label management.
 - **`j`-switcher** — jump between TUIs without leaving the terminal.
 
-See also: {{< relref "/docs/concepts/ide-model" >}}, {{< relref "/docs/workflows/tmux-ide" >}}, {{< relref "/docs/tuis" >}}.
+See also: {{< relref "/docs/concepts/ide-model" >}}, {{< relref "/docs/installation/terminal-setup" >}}, {{< relref "/docs/tuis" >}}.
 
 ### 2. Long-term memory for agents
 

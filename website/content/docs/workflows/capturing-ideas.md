@@ -20,3 +20,7 @@ In interactive mode, `ait create` walks you through metadata selection (priority
 3. **Refine** — When picked for implementation with [`/aitask-pick`](../../skills/aitask-pick/), the planning phase explores the codebase and produces a structured implementation plan from your raw intent
 
 This pipeline means you never need to spend time writing perfect task descriptions upfront. The framework handles progressive refinement at each stage.
+
+---
+
+**Next:** [Retroactive Tracking](../retroactive-tracking/) — wrap ad-hoc changes into the aitasks framework after the fact.

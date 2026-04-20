@@ -9,7 +9,7 @@ aliases:
   - /docs/board/reference/
 ---
 
-The aitasks framework includes several terminal-based user interfaces (TUIs) built with [Textual](https://textual.textualize.io/). Together they form the core of the ait tmux-based development environment: you launch them inside a single tmux session (typically via [`ait ide`]({{< relref "/docs/workflows/tmux-ide" >}})) and hop between them with a single keystroke.
+The aitasks framework includes several terminal-based user interfaces (TUIs) built with [Textual](https://textual.textualize.io/). Together they form the core of the ait tmux-based development environment: you launch them inside a single tmux session (typically via [`ait ide`]({{< relref "/docs/installation/terminal-setup" >}})) and hop between them with a single keystroke.
 
 ## Available TUIs
 
@@ -29,7 +29,7 @@ When you run the TUIs inside tmux, pressing **`j`** in any main TUI opens the **
 
 <!-- TODO screenshot: aitasks_tui_switcher_dialog.svg -->
 
-The switcher only works inside tmux. If you are not running inside tmux yet, see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}) for how to set it up, and [The tmux IDE workflow]({{< relref "/docs/workflows/tmux-ide" >}}) for the recommended daily flow.
+The switcher only works inside tmux. If you are not running inside tmux yet, see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}) for how to set it up and launch the session via `ait ide`.
 
 ---
 
