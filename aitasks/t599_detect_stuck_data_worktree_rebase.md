@@ -44,7 +44,21 @@ check_data_worktree_clean_state() {
 
 Call this at the top of every `./ait git` invocation (or just for the mutating subcommands: commit, push, pull, rebase, merge, cherry-pick). The `die` helper already exists in `lib/terminal_compat.sh`.
 
-Consider exposing an env-var escape hatch (e.g. `AIT_GIT_SKIP_STATE_CHECK=1`) for the rare case where the user wants to drive interactive resolution through `./ait git` itself.
+**Required: override paths.** The guard MUST have both of these escape paths, because without them the user gets locked out of their own recovery:
+
+1. **Auto-bypass for recovery subcommands.** When the user runs `./ait git rebase --abort|--continue|--skip|--edit-todo`, `./ait git merge --abort|--continue`, `./ait git cherry-pick --abort|--continue|--skip`, `./ait git revert --abort|--continue|--skip`, or `./ait git bisect reset` — the guard must skip entirely. These are the commands that release the broken state, and refusing to run them would be self-defeating. Detect by inspecting the positional args.
+
+2. **Auto-bypass for read-only subcommands.** `status`, `log`, `show`, `diff`, `rev-parse`, `branch` (without `-d`/`-D`/`-m`), `ls-files`, `blame`, `grep`, `tag -l`, `stash list`, `reflog`. Users should be able to inspect a wedged worktree without the guard getting in the way.
+
+3. **Env-var escape hatch as final fallback.** Honor `AIT_GIT_SKIP_STATE_CHECK=1` to skip the check entirely. Used for (a) scripts that need to run in odd states (diagnostics), and (b) coverage gaps not matched by paths 1–2.
+
+Document all three in the error message itself so the user can recover without reading source:
+```
+Data worktree is stuck mid-rebase. Recover with:
+  ./ait git rebase --abort      (discard the in-progress rebase)
+  ./ait git rebase --continue   (resume if you were editing)
+Or set AIT_GIT_SKIP_STATE_CHECK=1 to bypass this check.
+```
 
 ### 2. Defense-in-depth in `aitask_verified_update.sh`
 
