@@ -344,3 +344,29 @@ cd website && hugo build --gc --minify 2>&1 | tail -20; cd -
 - Manual end-to-end TUI walkthrough — covered by sibling t597_6.
 - `how-to.md` or `reference.md` sub-pages under `website/content/docs/tuis/stats/` — only `_index.md` is created; deeper guides can be added later if needed.
 - Blog post `website/content/blog/v083-*.md` and `CHANGELOG*.md` — historical release notes, intentionally unchanged.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the plan as written. `.aitask-scripts/aitask_stats.py` shrunk from 641 → 461 lines: removed `--plot` argparse entry, the `if args.plot:` branch in `main()`, and five plot functions (`chart_plot_size`, `show_chart`, `_import_plotext`, `run_plot_summary`, `run_verified_plots`). Pruned now-unused imports (`shutil`, `Tuple`, `List`, `Optional`). Updated the module docstring to reference `ait stats-tui` instead of interactive plots. Deleted the two corresponding tests (`test_run_plot_summary_uses_descriptive_titles`, `test_verified_plots_chart_count`) from `tests/test_aitask_stats_py.py` and pruned its now-unused `types` and `unittest.mock.patch` imports. Flipped the `tests/test_stats_data.sh` assertion from "advertises `--plot`" to "no longer advertises `--plot`". Updated `aitask_setup.sh` prompt wording to reference `'ait stats-tui' chart panes`. Edited 5 website pages (`commands/board-stats.md`, `commands/setup-install.md`, `installation/_index.md`, `skills/aitask-stats.md`, `skills/verified-scores.md`) — strictly forward-only wording, no "this used to be --plot" phrasing. Created new TUI docs page `website/content/docs/tuis/stats/_index.md` with Launching / Purpose / Layout / Presets / Custom layouts / Config persistence / Navigating sections derived from the actual `stats_app.py` and `stats_config.py` source. Added a Stats entry to `tuis/_index.md` and included it in the switcher-list paragraph (Stats is already present in `KNOWN_TUIS` — verified before editing).
+- **Deviations from plan:** `List` and `Optional` from `typing` also became unused after deletion; pruned them along with the planned `Tuple`. `types` and `unittest.mock.patch` in `test_aitask_stats_py.py` became unused after deleting both plot tests — pruned (plan only called out the two tests, not their imports). These are trivial import-cleanup extensions, no behavior change.
+- **Issues encountered:** None.
+- **Key decisions:**
+  - Kept `import io` in `test_aitask_stats_py.py` because `io.BytesIO()` is still used in a remaining test (line 177); only `types` / `patch` were safe to drop.
+  - New docs page uses `weight: 35` to sit between Settings (30) and the unpublished Brainstorm, matching the ordering in `tuis/_index.md`.
+  - Did not touch `CHANGELOG*.md` or the versioned `blog/v083-*.md` release post — those are historical records per `feedback_doc_forward_only`.
+- **Notes for sibling tasks:**
+  - Sibling `t597_6` (manual verification) can now rely on `ait stats --plot` returning an argparse error and on `ait stats-tui` being the only interactive chart entry point.
+  - If future tasks add a `how-to.md` or `reference.md` under `website/content/docs/tuis/stats/`, the existing `_index.md` already follows the same page-layout conventions as `settings/` and can be extended without restructuring.
+  - The stats TUI's layered config (`aitasks/metadata/stats_config.json` read-only, `.local.json` user-writable) is documented in the new page — reuse the same split if adding more runtime-persistent settings.
+
+### Verification (post-implementation)
+
+- `bash tests/test_stats_data.sh` → 6/6 PASS (including the flipped `--plot` absence assertion).
+- `~/.aitask/venv/bin/python tests/test_aitask_stats_py.py` → 16/16 OK.
+- `./.aitask-scripts/aitask_stats.sh --plot` → `error: unrecognized arguments: --plot` (expected).
+- `./.aitask-scripts/aitask_stats.sh` (text) and `--csv` both work.
+- `shellcheck .aitask-scripts/aitask_stats.sh .aitask-scripts/aitask_setup.sh` → no new findings; pre-existing SC2295/SC2129 info/style lint in `aitask_setup.sh` untouched (not in scope).
+- `cd website && hugo build --gc --minify` → 150 pages built, no broken `relref`.
+- Regression grep for `show_chart|run_plot_summary|_import_plotext|run_verified_plots|chart_plot_size` across `.aitask-scripts/` and `tests/` → clean (only `.pyc` cache hit, which rebuilds).
+- Regression grep for `ait stats --plot` across `.aitask-scripts/`, `tests/`, `website/content/docs/`, `README.md` → only the intentional assertion in `tests/test_stats_data.sh:99`.
+- `plotext` still imported in `.aitask-scripts/stats/panes/base.py:52` and checked in `aitask_stats_tui.sh:21` — dependency correctly retained.
