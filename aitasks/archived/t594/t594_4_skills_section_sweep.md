@@ -3,11 +3,13 @@ priority: medium
 effort: high
 depends: [t594_2]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: []
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-19 17:11
-updated_at: 2026-04-20 10:41
+updated_at: 2026-04-20 11:12
+completed_at: 2026-04-20 11:12
 ---
 
 Child of t594. Sweep the 27 pages under `website/content/docs/skills/`. Depends on t594_2 so canonical wording for pick/pickrem/pickweb is already set.
