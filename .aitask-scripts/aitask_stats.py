@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Calculate and display AI task completion statistics.
 
-Supports text output, CSV export, and optional interactive terminal plots
-(when plotext is installed). Pure data extraction lives in
-`stats/stats_data.py` and is shared with the stats TUI.
+Supports text output and CSV export. Pure data extraction lives in
+`stats/stats_data.py` and is shared with the stats TUI (`ait stats-tui`).
 """
 
 from __future__ import annotations
@@ -12,7 +11,6 @@ import argparse
 import csv
 import io
 import os
-import shutil
 import sys
 
 # Make the stats package importable regardless of how this script is launched.
@@ -21,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Sequence
 
 from stats.stats_data import (
     AGENT_DISPLAY_NAMES,
@@ -143,11 +141,6 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         default=None,
         metavar="FILE",
         help="Export raw data to CSV (default: aitask_stats.csv)",
-    )
-    parser.add_argument(
-        "--plot",
-        action="store_true",
-        help="Show interactive terminal charts (requires optional plotext)",
     )
     return parser.parse_args(argv)
 
@@ -439,168 +432,6 @@ def write_csv(path: Path, rows: Sequence[Sequence[str]]) -> None:
             writer.writerow(row)
 
 
-def chart_plot_size() -> Tuple[int, int]:
-    size = shutil.get_terminal_size(fallback=(120, 40))
-    width = max(60, size.columns)
-    height = max(12, size.lines - 5)
-    return width, height
-
-
-def show_chart(
-    plt,
-    title: str,
-    x: List[str],
-    y: List[int],
-    kind: str = "bar",
-    force_categorical: bool = False,
-) -> None:
-    """Render a single plotext chart and wait for user input."""
-    if not x:
-        return
-    plt.clear_figure()
-    width, height = chart_plot_size()
-    if hasattr(plt, "plotsize"):
-        plt.plotsize(width, height)
-    plt.title(title)
-    if kind == "line":
-        # plotext attempts date parsing for strings like "02-27".
-        # Use numeric x-values and explicit tick labels for stable behavior.
-        if force_categorical:
-            x_positions = list(range(len(x)))
-            plt.plot(x_positions, y, marker="dot")
-            plt.xticks(x_positions, x)
-        else:
-            plt.plot(x, y, marker="dot")
-    else:
-        plt.bar(x, y)
-    plt.theme("pro")
-    plt.show()
-    if sys.stdin.isatty():
-        try:
-            input("Press Enter for next chart... ")
-        except EOFError:
-            pass
-    print()
-    print()
-
-
-def _import_plotext():
-    """Try to import plotext, return module or None."""
-    try:
-        import plotext as plt  # type: ignore
-        return plt
-    except Exception:
-        print(
-            "Warning: --plot requested but 'plotext' is not installed. "
-            "Install it via 'ait setup' (stats graph support).",
-            file=sys.stderr,
-        )
-        return None
-
-
-def run_plot_summary(data: StatsData, days: int, today: date, week_start_dow: int) -> None:
-    plt = _import_plotext()
-    if plt is None:
-        return
-
-    dseq = [today - timedelta(days=i) for i in range(days - 1, -1, -1)]
-    show_chart(
-        plt,
-        build_chart_title("Daily Completions", f"last {days} days"),
-        [d.isoformat()[5:] for d in dseq],
-        [data.daily_counts.get(d, 0) for d in dseq],
-        kind="line",
-        force_categorical=True,
-    )
-
-    week_dows = [((week_start_dow - 1 + j) % 7) + 1 for j in range(7)]
-    show_chart(
-        plt,
-        build_chart_title("Average Completions by Weekday", "last 30 days", week_start_dow),
-        [DAY_NAMES[dow] for dow in week_dows],
-        [data.dow_counts_30d.get(dow, 0) for dow in week_dows],
-    )
-
-    top_labels = sorted(data.all_labels, key=lambda lbl: (-data.label_counts_total.get(lbl, 0), lbl))[:8]
-    show_chart(
-        plt,
-        build_chart_title("Top Labels by Completed Tasks", "all time"),
-        top_labels,
-        [data.label_counts_total.get(lbl, 0) for lbl in top_labels],
-    )
-
-    types = get_valid_task_types()[:8]
-    show_chart(
-        plt,
-        build_chart_title("Issue Types", "this week", week_start_dow),
-        [t.capitalize() for t in types],
-        [data.type_week_counts.get((t, 0), 0) for t in types],
-    )
-
-    codeagent_4w_x, codeagent_4w_y = chart_totals(
-        data.codeagent_week_counts, codeagent_display_name, range(4)
-    )
-    show_chart(
-        plt,
-        build_chart_title("Code Agents by Completed Tasks", "last 4 weeks", week_start_dow),
-        codeagent_4w_x,
-        codeagent_4w_y,
-    )
-
-    codeagent_1w_x, codeagent_1w_y = chart_totals(
-        data.codeagent_week_counts, codeagent_display_name, [0]
-    )
-    show_chart(
-        plt,
-        build_chart_title("Code Agents by Completed Tasks", "this week", week_start_dow),
-        codeagent_1w_x,
-        codeagent_1w_y,
-    )
-
-    model_4w_x, model_4w_y = chart_totals(
-        data.model_week_counts, lambda key: data.model_display_names.get(key, "Unknown"), range(4), limit=8
-    )
-    show_chart(
-        plt,
-        build_chart_title("LLM Models by Completed Tasks", "last 4 weeks", week_start_dow),
-        model_4w_x,
-        model_4w_y,
-    )
-
-    model_1w_x, model_1w_y = chart_totals(
-        data.model_week_counts, lambda key: data.model_display_names.get(key, "Unknown"), [0], limit=8
-    )
-    show_chart(
-        plt,
-        build_chart_title("LLM Models by Completed Tasks", "this week", week_start_dow),
-        model_1w_x,
-        model_1w_y,
-    )
-
-
-def run_verified_plots(vdata: VerifiedRankingData) -> None:
-    """Show plotext bar charts for verified model rankings per operation."""
-    plt = _import_plotext()
-    if plt is None:
-        return
-
-    for op in vdata.operations:
-        op_data = vdata.by_window.get(op, {})
-        ap = op_data.get("all_providers", {})
-        at_entries = ap.get("all_time", [])
-        if not at_entries:
-            continue
-        top = at_entries[:5]
-        x = [e.display_name for e in top]
-        y = [e.score for e in top]
-        show_chart(
-            plt,
-            build_chart_title(f"Verified: {op}", "all providers, all time"),
-            x,
-            y,
-        )
-
-
 def main(argv: Sequence[str]) -> int:
     args = parse_args(argv)
 
@@ -627,11 +458,6 @@ def main(argv: Sequence[str]) -> int:
         csv_path = Path(args.csv)
         write_csv(csv_path, data.csv_rows)
         print(f"CSV exported to: {csv_path}")
-
-    if args.plot:
-        run_plot_summary(data, days=args.days, today=today, week_start_dow=week_start_dow)
-        if vdata.operations:
-            run_verified_plots(vdata)
 
     return 0
 

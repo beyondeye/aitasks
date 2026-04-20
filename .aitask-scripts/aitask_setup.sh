@@ -489,8 +489,8 @@ setup_python_venv() {
 
     local install_plotext=false
     if [[ -t 0 ]]; then
-        info "Optional dependency: stats graph support (plotext)"
-        printf "  Install plotext for 'ait stats --plot'? [y/N] "
+        info "Optional dependency: stats TUI chart panes (plotext)"
+        printf "  Install plotext for 'ait stats-tui' chart panes? [y/N] "
         read -r answer
         case "${answer:-N}" in
             [Yy]*) install_plotext=true ;;

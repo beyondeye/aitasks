@@ -80,7 +80,7 @@ else
     assert_fail "aitask_stats.py re-exports moved symbols" "missing re-export"
 fi
 
-# 4. CLI smoke: text report, --csv, --plot --help (avoid running --plot interactively).
+# 4. CLI smoke: text report, --csv. (--plot removed in t597_5; confirm it is gone.)
 if ./.aitask-scripts/aitask_stats.sh >/dev/null 2>&1; then
     assert_pass "ait stats (text report) exits 0"
 else
@@ -97,9 +97,9 @@ else
 fi
 
 if ./.aitask-scripts/aitask_stats.sh --help 2>&1 | grep -q -- "--plot"; then
-    assert_pass "ait stats --help still advertises --plot (kept until t597_5)"
+    assert_fail "ait stats --help no longer advertises --plot" "flag still present"
 else
-    assert_fail "ait stats --help still advertises --plot (kept until t597_5)" "missing flag"
+    assert_pass "ait stats --help no longer advertises --plot"
 fi
 
 echo

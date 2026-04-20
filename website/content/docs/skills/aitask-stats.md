@@ -29,8 +29,8 @@ Runs `./.aitask-scripts/aitask_stats.sh` and displays the results. Provides the 
   - All-providers aggregated view with per-provider breakdowns
   - Time-windowed display (all-time, this month)
 
-Supports all command-line options (`-d`, `-v`, `--csv`, `-w`, `--plot`).
-`--plot` shows interactive terminal charts when optional `plotext` is installed
-(can be enabled via `ait setup`), including the code agent and LLM model
-histograms and verified score ranking bar charts per skill.
+Supports all command-line options (`-d`, `-v`, `--csv`, `-w`). For interactive
+terminal charts (including code agent / LLM model histograms and verified score
+ranking bar charts per skill), run [`ait stats-tui`]({{< relref "/docs/tuis/stats" >}})
+or switch into it from any other aitasks TUI via the TUI switcher.
 For CSV export, provides guidance on opening the file in LibreOffice Calc with pivot tables and charts.

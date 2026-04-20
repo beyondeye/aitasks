@@ -18,13 +18,14 @@ The aitasks framework includes several terminal-based user interfaces (TUIs) bui
 - **[Board](board/)** (`ait board`) — Kanban-style task board used at the **beginning** of the workflow: triage tasks, set priorities, organize work into columns, and decide what to implement next.
 - **[Code Browser](codebrowser/)** (`ait codebrowser`) — Code navigation and diff review with task-aware annotations that show which aitasks contributed to each section, plus a **completed tasks history** screen (press `h`) for browsing archived work. Used at the **end** of the workflow or when onboarding to unfamiliar code.
 - **[Settings](settings/)** (`ait settings`) — Configuration editor for code agent defaults, board settings, available models, and execution profiles. Also hosts the Tmux tab for editing integration settings.
+- **[Stats](stats/)** (`ait stats-tui`) — Pane-based viewer for archived task completion statistics: summary, daily/weekly trends, label and issue-type breakdowns, code agent / LLM model histograms, and verified model score rankings. Swappable built-in layouts plus user-defined custom layouts.
 - **Brainstorm** (`ait brainstorm`) — Interactive planning/brainstorming TUI for drafting new tasks. Dedicated documentation is pending.
 
 All TUIs require the shared Python virtual environment installed by [`ait setup`]({{< relref "/docs/commands/setup-install" >}}).
 
 ## Navigating between TUIs
 
-When you run the TUIs inside tmux, pressing **`j`** in any main TUI opens the **TUI switcher** dialog. The switcher lists the core integrated TUIs (Monitor, Board, Code Browser, Settings) plus your configured git TUI, and appends any running code agent and brainstorm windows discovered in the tmux session. Selecting a target either focuses the existing tmux window running that TUI or creates a new window and launches it — in one keystroke, without leaving tmux. Minimonitor is not listed in the switcher itself — it is auto-spawned alongside other TUIs when configured.
+When you run the TUIs inside tmux, pressing **`j`** in any main TUI opens the **TUI switcher** dialog. The switcher lists the core integrated TUIs (Monitor, Board, Code Browser, Settings, Stats) plus your configured git TUI, and appends any running code agent and brainstorm windows discovered in the tmux session. Selecting a target either focuses the existing tmux window running that TUI or creates a new window and launches it — in one keystroke, without leaving tmux. Minimonitor is not listed in the switcher itself — it is auto-spawned alongside other TUIs when configured.
 
 <!-- TODO screenshot: aitasks_tui_switcher_dialog.svg -->
 

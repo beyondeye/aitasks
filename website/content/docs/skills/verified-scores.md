@@ -54,7 +54,8 @@ This aggregation is performed at read time -- no duplicate values are stored. `a
 ## Where Scores Appear
 
 - **[Settings TUI]({{< relref "/docs/tuis/settings" >}})** -- The Agent Defaults tab shows verified score context next to each model (`[96 (9 runs, 2 this mo)]`). The model picker opens with a Top Verified list. The Models tab shows per-operation scores with run counts and all-providers summaries
-- **[`ait stats`]({{< relref "/docs/skills/aitask-stats" >}})** -- Prints verified model score rankings per skill with all-providers aggregation and time-windowed display. With `--plot`, renders bar charts per skill
+- **[`ait stats`]({{< relref "/docs/skills/aitask-stats" >}})** -- Prints verified model score rankings per skill with all-providers aggregation and time-windowed display
+- **[`ait stats-tui`]({{< relref "/docs/tuis/stats" >}})** -- Renders verified score ranking bar charts per skill alongside the other stats panes
 
 ## Storage
 

@@ -52,9 +52,6 @@ ait stats                  # Basic stats (last 7 days)
 ait stats -d 14            # Extended daily view
 ait stats -v               # Verbose with task IDs
 ait stats --csv            # Export to CSV
-ait stats --plot           # Render interactive terminal charts (requires optional plotext)
-ait stats -d 30 --plot     # Charts over a longer date range
-ait stats --csv out.csv --plot  # Export CSV and render charts in the same run
 ait stats -w sun           # Week starts on Sunday
 ```
 
@@ -64,7 +61,6 @@ ait stats -w sun           # Week starts on Sunday
 | `-w, --week-start DAY` | First day of week: mon, sun, tue, etc. (default: Monday) |
 | `-v, --verbose` | Show individual task IDs in daily breakdown |
 | `--csv [FILE]` | Export raw data to CSV (default: aitask_stats.csv) |
-| `--plot` | Show interactive terminal chart summary (optional `plotext`) |
 
 **Statistics provided:**
 
@@ -82,9 +78,6 @@ ait stats -w sun           # Week starts on Sunday
 
 **CSV export format:** `date, day_of_week, week_offset, task_id, labels, issue_type, task_type, implemented_with, codeagent, llm_model`. Open in LibreOffice Calc for custom charts and pivot tables.
 
-**Plot mode (`--plot`):**
+**Interactive charts:**
 
-- Uses optional `plotext` to render interactive terminal charts.
-- Adds code agent and LLM model histograms for both the last 4 weeks and this week, alongside the existing charts.
-- If `plotext` is not installed, `ait stats` still runs and prints the normal text report, then shows a warning and skips chart rendering (no crash).
-- Enable it via `ait setup` in the Python venv step when prompted: `Install plotext for 'ait stats --plot'? [y/N]`.
+For interactive terminal charts (daily completions, weekday averages, top labels, issue types, code agents, LLM models), use [`ait stats-tui`]({{< relref "/docs/tuis/stats" >}}). The TUI is launched directly or switched into from any other aitasks TUI (`j` in the TUI switcher). It uses the optional `plotext` package, installed via `ait setup` when prompted.
