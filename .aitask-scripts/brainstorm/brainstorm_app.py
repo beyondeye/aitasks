@@ -251,12 +251,20 @@ class DeleteSessionModal(ModalScreen):
 class NodeDetailModal(ModalScreen):
     """Modal for viewing node details with tabbed content (Metadata, Proposal, Plan)."""
 
-    BINDINGS = [Binding("escape", "close", "Close", show=False)]
+    BINDINGS = [
+        Binding("escape", "close", "Close", show=False),
+        Binding("tab", "focus_minimap", "Minimap"),
+        Binding("V", "fullscreen_plan", "Fullscreen plan"),
+    ]
 
     def __init__(self, node_id: str, session_path: Path):
         super().__init__()
         self.node_id = node_id
         self.session_path = session_path
+        self._proposal_parsed = None
+        self._proposal_text = ""
+        self._plan_parsed = None
+        self._plan_text = ""
 
     def compose(self) -> ComposeResult:
         with Container(id="node_detail_dialog"):
@@ -321,12 +329,110 @@ class NodeDetailModal(ModalScreen):
         except Exception:
             proposal = "*No proposal found.*"
         self.query_one("#proposal_content", Markdown).update(proposal)
+        self._proposal_text = proposal
+        parsed_proposal = parse_sections(proposal)
+        if parsed_proposal.sections:
+            self._proposal_parsed = parsed_proposal
+            from section_viewer import SectionMinimap
+            prop_scroll = self.query_one("#proposal_scroll", VerticalScroll)
+            prop_minimap = SectionMinimap(id="proposal_minimap")
+            prop_scroll.mount(prop_minimap, before="#proposal_content")
+            prop_minimap.populate(parsed_proposal)
 
         # --- Plan tab ---
         plan = read_plan(self.session_path, self.node_id)
         if plan is None:
             plan = "*No plan generated.*"
         self.query_one("#plan_content", Markdown).update(plan)
+        self._plan_text = plan
+        parsed_plan = parse_sections(plan)
+        if parsed_plan.sections:
+            self._plan_parsed = parsed_plan
+            from section_viewer import SectionMinimap
+            plan_scroll = self.query_one("#plan_scroll", VerticalScroll)
+            plan_minimap = SectionMinimap(id="plan_minimap")
+            plan_scroll.mount(plan_minimap, before="#plan_content")
+            plan_minimap.populate(parsed_plan)
+
+    def on_section_minimap_section_selected(self, event) -> None:
+        """Scroll the active tab's Markdown to the selected section."""
+        from section_viewer import estimate_section_y
+        minimap_id = event.control.id
+        if minimap_id == "proposal_minimap":
+            parsed, text, scroll_id = (
+                self._proposal_parsed,
+                self._proposal_text,
+                "#proposal_scroll",
+            )
+        elif minimap_id == "plan_minimap":
+            parsed, text, scroll_id = (
+                self._plan_parsed,
+                self._plan_text,
+                "#plan_scroll",
+            )
+        else:
+            return
+        if parsed is None:
+            return
+        scroll = self.query_one(scroll_id, VerticalScroll)
+        total = text.count("\n") + 1
+        y = estimate_section_y(
+            parsed, event.section_name, total, scroll.virtual_size.height
+        )
+        if y is not None:
+            scroll.scroll_to(y=y, animate=False)
+        event.stop()
+
+    def on_section_minimap_toggle_focus(self, event) -> None:
+        """Minimap Tab → focus the matching tab's Markdown."""
+        if event.control.id == "proposal_minimap":
+            self.query_one("#proposal_content", Markdown).focus()
+        elif event.control.id == "plan_minimap":
+            self.query_one("#plan_content", Markdown).focus()
+        event.stop()
+
+    def action_focus_minimap(self) -> None:
+        """Tab from Markdown → focus the active tab's minimap. SkipAction falls through to default Tab-nav."""
+        from textual.actions import SkipAction
+        tabbed = self.query_one(TabbedContent)
+        focused = self.screen.focused
+        if tabbed.active == "tab_proposal":
+            md_sel, mm_sel = "#proposal_content", "#proposal_minimap"
+        elif tabbed.active == "tab_plan":
+            md_sel, mm_sel = "#plan_content", "#plan_minimap"
+        else:
+            raise SkipAction()
+        try:
+            md = self.query_one(md_sel, Markdown)
+        except Exception:
+            raise SkipAction()
+        if focused is not md:
+            raise SkipAction()
+        minimaps = self.query(mm_sel)
+        if not minimaps:
+            raise SkipAction()
+        minimaps.first().focus_first_row()
+
+    def action_fullscreen_plan(self) -> None:
+        """V → push SectionViewerScreen for the active tab's content."""
+        tabbed = self.query_one(TabbedContent)
+        if tabbed.active == "tab_proposal":
+            content = self._proposal_text
+            title = f"Proposal: {self.node_id}"
+        elif tabbed.active == "tab_plan":
+            content = self._plan_text
+            title = f"Plan: {self.node_id}"
+        else:
+            self.notify(
+                "Fullscreen viewer only works on Proposal or Plan tab",
+                severity="warning",
+            )
+            return
+        if not content:
+            self.notify("No content on this tab", severity="warning")
+            return
+        from section_viewer import SectionViewerScreen
+        self.app.push_screen(SectionViewerScreen(content, title=title))
 
     @on(Button.Pressed, "#btn_close_detail")
     def close_detail(self) -> None:
