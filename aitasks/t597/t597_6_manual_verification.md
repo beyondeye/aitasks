@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t597_5]
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [statistics, aitask_monitor]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-19 17:53
-updated_at: 2026-04-19 17:53
+updated_at: 2026-04-20 14:49
 ---
 
 ## Context
