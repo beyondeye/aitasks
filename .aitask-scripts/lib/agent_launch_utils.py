@@ -19,6 +19,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from tui_registry import TUI_NAMES as _DEFAULT_TUI_NAMES
+
 # Known git management TUIs in preference order
 KNOWN_GIT_TUIS = ["lazygit", "gitui", "tig"]
 
@@ -230,10 +232,6 @@ def _lookup_window_name(session: str, window_index: str) -> str | None:
     return None
 
 
-_DEFAULT_TUI_NAMES = {"board", "codebrowser", "settings", "brainstorm",
-                      "monitor", "minimonitor", "diffviewer", "git"}
-
-
 def maybe_spawn_minimonitor(
     session: str,
     window_name: str,
@@ -278,7 +276,9 @@ def maybe_spawn_minimonitor(
                 monitor = tmux.get("monitor", {})
                 if isinstance(monitor, dict):
                     if "tui_window_names" in monitor:
-                        tui_names = set(monitor["tui_window_names"])
+                        # Merge with registry defaults so new framework TUIs
+                        # are never masked by a stale override list.
+                        tui_names = set(_DEFAULT_TUI_NAMES) | set(monitor["tui_window_names"])
         except Exception:
             pass
 

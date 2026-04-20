@@ -36,6 +36,7 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 from agent_launch_utils import get_tmux_windows, load_tmux_defaults  # noqa: E402
+from tui_registry import BRAINSTORM_PREFIX as _BRAINSTORM_PREFIX, TUI_NAMES as _TUI_NAMES, switcher_tuis  # noqa: E402
 
 
 def _detect_current_session() -> str | None:
@@ -54,16 +55,10 @@ def _detect_current_session() -> str | None:
     return None
 
 
-# Registry of known TUIs: (window_name, display_label, launch_command)
-# window_name must match what tmux uses (the -n flag when creating the window)
-KNOWN_TUIS = [
-    ("board", "Task Board", "ait board"),
-    ("monitor", "tmux Monitor", "ait monitor"),
-    ("codebrowser", "Code Browser", "ait codebrowser"),
-    ("settings", "Settings", "ait settings"),
-    ("stats", "Statistics", "ait stats-tui"),
-    ("diffviewer", "Diff Viewer", "ait diffviewer"),
-]
+# Switcher-visible TUIs sourced from the central registry. See tui_registry.py
+# for the authoritative list and the non-switcher entries (brainstorm, minimonitor)
+# that classify as TUI windows but are not user-launchable from the switcher.
+KNOWN_TUIS = switcher_tuis()
 
 
 def _build_tui_list():
@@ -78,10 +73,8 @@ def _build_tui_list():
         pass
     return tuis
 
-# Classification constants (mirrors tmux_monitor.py without importing it)
+# Classification constants shared with tmux_monitor.py via tui_registry.
 _AGENT_PREFIXES = ["agent-"]
-_TUI_NAMES = {name for name, _, _ in KNOWN_TUIS} | {"git"}
-_BRAINSTORM_PREFIX = "brainstorm-"
 
 # Shortcut keys for specific TUIs: (key, tui_name)
 _TUI_SHORTCUTS = {

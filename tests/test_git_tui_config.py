@@ -120,6 +120,67 @@ class TestGitInTuiSets(unittest.TestCase):
         from tui_switcher import _TUI_NAMES
         self.assertIn("git", _TUI_NAMES)
 
+    def test_stats_in_default_tui_names(self):
+        """'stats' is in DEFAULT_TUI_NAMES in tmux_monitor."""
+        from tmux_monitor import DEFAULT_TUI_NAMES
+        self.assertIn("stats", DEFAULT_TUI_NAMES)
+
+    def test_stats_in_tui_switcher_names(self):
+        """'stats' is in _TUI_NAMES in tui_switcher."""
+        from tui_switcher import _TUI_NAMES
+        self.assertIn("stats", _TUI_NAMES)
+
+
+# ---------------------------------------------------------------------------
+# tui_registry — central source of truth
+# ---------------------------------------------------------------------------
+
+
+class TestTuiRegistry(unittest.TestCase):
+    def test_registry_contains_all_framework_tuis(self):
+        """TUI_NAMES covers every framework TUI window name."""
+        from tui_registry import TUI_NAMES
+        for name in ("board", "codebrowser", "settings", "brainstorm",
+                     "monitor", "minimonitor", "diffviewer", "stats", "git"):
+            self.assertIn(name, TUI_NAMES)
+
+    def test_switcher_excludes_non_switcher_entries(self):
+        """brainstorm and minimonitor classify as TUI but are hidden from the switcher."""
+        from tui_registry import switcher_tuis
+        switcher_names = {n for n, _, _ in switcher_tuis()}
+        self.assertNotIn("brainstorm", switcher_names)
+        self.assertNotIn("minimonitor", switcher_names)
+        self.assertIn("stats", switcher_names)
+
+
+# ---------------------------------------------------------------------------
+# load_monitor_config — tui_window_names merge semantics
+# ---------------------------------------------------------------------------
+
+
+class TestTuiWindowNamesMergeSemantics(unittest.TestCase):
+    def _write_config(self, tmpdir, content):
+        meta = Path(tmpdir) / "aitasks" / "metadata"
+        meta.mkdir(parents=True)
+        (meta / "project_config.yaml").write_text(content)
+        return Path(tmpdir)
+
+    def test_config_tui_names_merges_with_defaults(self):
+        """Custom tui_window_names in config augment (not replace) the registry defaults."""
+        from tmux_monitor import load_monitor_config
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = self._write_config(
+                tmpdir,
+                "tmux:\n  monitor:\n    tui_window_names:\n      - my_custom_tui\n",
+            )
+            result = load_monitor_config(root)
+        tui_names = result["tui_names"]
+        self.assertIn("my_custom_tui", tui_names)
+        # Registry defaults must still be present — new framework TUIs are
+        # never masked by a stale override list.
+        self.assertIn("stats", tui_names)
+        self.assertIn("board", tui_names)
+
 
 if __name__ == "__main__":
     unittest.main()

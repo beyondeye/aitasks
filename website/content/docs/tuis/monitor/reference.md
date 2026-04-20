@@ -63,7 +63,7 @@ Monitor uses a two-zone model. Focus lives in one of:
 | Category | Rule |
 |----------|------|
 | **Agent** | Window name starts with any prefix listed in `tmux.monitor.agent_window_prefixes` (default `agent-`) |
-| **TUI** | Window name is in `tmux.monitor.tui_window_names`, OR starts with `brainstorm-` |
+| **TUI** | Window name is one of the framework TUIs (board, codebrowser, settings, brainstorm, monitor, minimonitor, stats), a custom name listed in `tmux.monitor.tui_window_names`, OR starts with `brainstorm-` |
 | **Other** | Anything that does not match the rules above (shells, logs, ad-hoc windows) |
 
 Agent panes whose window name contains a task ID (e.g., `agent-t42-claudecode`) are linked to the corresponding task file — that is what powers the `i` (Task Info) and `n` (Next Sibling) shortcuts.
@@ -99,13 +99,11 @@ tmux:
     capture_lines: 200
     agent_window_prefixes:
       - agent-
+    # Optional — additional window names to classify as TUIs. The framework
+    # TUIs (board, codebrowser, settings, brainstorm, monitor, minimonitor,
+    # stats) are always classified regardless of this setting.
     tui_window_names:
-      - board
-      - codebrowser
-      - settings
-      - brainstorm
-      - monitor
-      - minimonitor
+      - my_custom_tui
 ```
 
 | Key | Type | Default | Description |
@@ -118,7 +116,7 @@ tmux:
 | `tmux.monitor.idle_threshold_seconds` | int | `5` | Threshold for marking a pane as idle in the card view. |
 | `tmux.monitor.capture_lines` | int | `200` (in the shipped config; `30` if the key is absent) | Number of lines of pane output the preview captures per refresh. |
 | `tmux.monitor.agent_window_prefixes` | list | `["agent-"]` | Window-name prefixes that classify a pane as an agent. |
-| `tmux.monitor.tui_window_names` | list | board, codebrowser, settings, brainstorm, monitor, minimonitor | Window names classified as TUIs. `brainstorm-*` prefix matches are handled in addition to this list. |
+| `tmux.monitor.tui_window_names` | list | *(empty)* | Additional window names classified as TUIs, beyond the framework defaults (board, codebrowser, settings, brainstorm, monitor, minimonitor, stats) which are always classified. `brainstorm-*` prefix matches are also always included. |
 
 All of these can be edited interactively via [`ait settings`]({{< relref "/docs/tuis/settings" >}}) → Tmux tab, which writes the same keys in `project_config.yaml`.
 

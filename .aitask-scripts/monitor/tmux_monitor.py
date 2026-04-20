@@ -16,10 +16,16 @@ import asyncio
 import contextlib
 import os
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+
+_LIB_DIR = str(Path(__file__).resolve().parent.parent / "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from tui_registry import BRAINSTORM_PREFIX, TUI_NAMES  # noqa: E402
 
 
 class PaneCategory(Enum):
@@ -29,7 +35,7 @@ class PaneCategory(Enum):
 
 
 DEFAULT_AGENT_PREFIXES = ["agent-"]
-DEFAULT_TUI_NAMES = {"board", "codebrowser", "settings", "brainstorm", "monitor", "minimonitor", "diffviewer", "git"}
+DEFAULT_TUI_NAMES = TUI_NAMES
 
 _COMPANION_KEYWORDS = ("minimonitor", "monitor_app")
 
@@ -132,7 +138,7 @@ class TmuxMonitor:
                 return PaneCategory.AGENT
         if window_name in self.tui_names:
             return PaneCategory.TUI
-        if window_name.startswith("brainstorm-"):
+        if window_name.startswith(BRAINSTORM_PREFIX):
             return PaneCategory.TUI
         return PaneCategory.OTHER
 
@@ -534,7 +540,9 @@ def load_monitor_config(project_root: Path) -> dict:
         if "agent_window_prefixes" in monitor:
             defaults["agent_prefixes"] = list(monitor["agent_window_prefixes"])
         if "tui_window_names" in monitor:
-            defaults["tui_names"] = set(monitor["tui_window_names"])
+            # Merge with registry defaults so new framework TUIs are never
+            # masked by a stale override list in project_config.yaml.
+            defaults["tui_names"] = set(TUI_NAMES) | set(monitor["tui_window_names"])
     except Exception:
         pass
     return defaults
