@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [framework, skill, task_workflow, verification]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-20 11:34
-updated_at: 2026-04-20 11:34
+updated_at: 2026-04-20 12:05
 ---
 
 ## Problem
