@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [t594_2]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: []
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-19 17:11
-updated_at: 2026-04-19 17:12
+updated_at: 2026-04-20 11:30
 ---
 
 Child of t594. Sweep the 21 pages under `website/content/docs/workflows/`. Depends on t594_2 for canonical wording.
