@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t597_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [statistics, aitask_monitor]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-19 17:52
-updated_at: 2026-04-19 17:52
+updated_at: 2026-04-20 09:09
 ---
 
 ## Context
