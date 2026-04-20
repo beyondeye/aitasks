@@ -37,11 +37,133 @@ _ait_detect_data_worktree() {
     fi
 }
 
+# Resolve the data worktree's git-dir. Empty when in legacy mode or when the
+# expected worktree git-dir is missing.
+_ait_data_gitdir() {
+    _ait_detect_data_worktree
+    if [[ "$_AIT_DATA_WORKTREE" == "." ]]; then
+        printf ''
+        return
+    fi
+    local gd=".git/worktrees/-aitask-data"
+    [[ -d "$gd" ]] && printf '%s' "$gd"
+}
+
+# Read-only git subcommands — the guard treats them as safe.
+_ait_git_subcmd_is_readonly() {
+    case "${1:-}" in
+        status|log|show|diff|rev-parse|ls-files|blame|grep|reflog) return 0 ;;
+        branch)
+            local a
+            for a in "${@:2}"; do
+                case "$a" in -d|-D|-m|-M|--delete|--move) return 1 ;; esac
+            done
+            return 0 ;;
+        tag)
+            local a
+            for a in "${@:2}"; do
+                case "$a" in -l|--list) return 0 ;; esac
+            done
+            return 1 ;;
+        stash)
+            [[ "${2:-}" == "list" || "${2:-}" == "show" ]] && return 0 || return 1 ;;
+    esac
+    return 1
+}
+
+# Recovery subcommands — must be allowed through even when the worktree is wedged.
+_ait_git_subcmd_is_recovery() {
+    case "${1:-}" in
+        rebase|merge|cherry-pick|revert)
+            local a
+            for a in "${@:2}"; do
+                case "$a" in --abort|--continue|--skip|--edit-todo|--quit) return 0 ;; esac
+            done
+            return 1 ;;
+        bisect)
+            [[ "${2:-}" == "reset" ]] && return 0 || return 1 ;;
+    esac
+    return 1
+}
+
+# Pre-flight: reject mutating ops while the data worktree is mid-rebase/merge/etc.
+# No-op in legacy mode and when the data worktree git-dir is missing.
+assert_data_worktree_clean() {
+    [[ "${AIT_GIT_SKIP_STATE_CHECK:-}" == "1" ]] && return 0
+    _ait_git_subcmd_is_recovery "$@" && return 0
+    _ait_git_subcmd_is_readonly "$@" && return 0
+
+    local gitdir
+    gitdir="$(_ait_data_gitdir)"
+    [[ -z "$gitdir" ]] && return 0
+
+    local state hit=""
+    for state in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG; do
+        if [[ -e "$gitdir/$state" ]]; then hit="$state"; break; fi
+    done
+    [[ -z "$hit" ]] && return 0
+
+    die "$(cat <<EOF
+Data worktree (.aitask-data) is stuck mid-${hit}.
+Recover with one of:
+  ./ait git rebase --abort        (discard the in-progress rebase)
+  ./ait git rebase --continue     (resume if you were editing)
+  ./ait git merge --abort
+  ./ait git cherry-pick --abort
+  ./ait git revert --abort
+  ./ait git bisect reset
+Set AIT_GIT_SKIP_STATE_CHECK=1 to bypass this check.
+Run './ait git-health' for a full diagnostic.
+EOF
+)"
+}
+
+# Print human-readable health of the .aitask-data worktree. Informational only.
+task_git_health() {
+    _ait_detect_data_worktree
+    if [[ "$_AIT_DATA_WORKTREE" == "." ]]; then
+        info "Mode: legacy (no separate .aitask-data worktree) — nothing to check."
+        return 0
+    fi
+
+    local gitdir branch head_ref state
+    local hits=()
+    gitdir="$(_ait_data_gitdir)"
+    branch="$(git -C .aitask-data rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
+    head_ref="$(git -C .aitask-data rev-parse --short HEAD 2>/dev/null || echo '?')"
+
+    info "Mode: branch (.aitask-data worktree present)"
+    info "Worktree path: .aitask-data"
+    info "Git-dir: ${gitdir:-<missing>}"
+    info "Branch (rev-parse --abbrev-ref HEAD): $branch"
+    info "HEAD commit: $head_ref"
+
+    if [[ -z "$gitdir" || ! -d "$gitdir" ]]; then
+        warn "Git-dir not found at expected path — worktree may be misregistered."
+        return 0
+    fi
+
+    for state in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG; do
+        [[ -e "$gitdir/$state" ]] && hits+=("$state")
+    done
+
+    if [[ "$branch" == "HEAD" ]]; then
+        warn "Detached HEAD."
+    fi
+    if (( ${#hits[@]} > 0 )); then
+        warn "In-progress operations: ${hits[*]}"
+        info "Recover with: ./ait git <rebase|merge|cherry-pick|revert> --abort  (or --continue)"
+    elif [[ "$branch" != "HEAD" ]]; then
+        success "Clean — no in-progress rebase/merge/cherry-pick/revert/bisect."
+    fi
+}
+
 # Run git commands targeting the task data worktree
 # In branch mode: git -C .aitask-data <args>
 # In legacy mode: git <args>
 task_git() {
     _ait_detect_data_worktree
+    assert_data_worktree_clean "$@"
     if [[ "$_AIT_DATA_WORKTREE" != "." ]]; then
         git -C "$_AIT_DATA_WORKTREE" "$@"
     else
@@ -64,6 +186,7 @@ task_sync() {
 # Push task data to remote with automatic pull-rebase on conflict.
 # Retries up to 3 times. Failures are non-fatal (best-effort push).
 task_push() {
+    assert_data_worktree_clean push
     local max_attempts=3
     local attempt
     for (( attempt=1; attempt<=max_attempts; attempt++ )); do

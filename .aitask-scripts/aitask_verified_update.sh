@@ -273,7 +273,12 @@ has_remote_tracking() {
 }
 
 current_task_branch() {
-    ./ait git rev-parse --abbrev-ref HEAD
+    local branch
+    branch="$(./ait git rev-parse --abbrev-ref HEAD)"
+    if [[ "$branch" == "HEAD" ]]; then
+        die "Data worktree is on a detached HEAD (possibly mid-rebase). Run './ait git-health' for diagnosis, then './ait git rebase --abort' or '--continue' to recover."
+    fi
+    printf '%s\n' "$branch"
 }
 
 current_task_remote() {

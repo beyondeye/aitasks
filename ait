@@ -34,6 +34,7 @@ Task Management:
   update         Update task metadata
   sync           Sync task data with remote (push/pull)
   git            Run git commands against task data (worktree-aware)
+  git-health     Diagnose the .aitask-data worktree state
   lock           Lock/unlock tasks to prevent concurrent work
 
 Integration:
@@ -248,6 +249,9 @@ case "${1:-help}" in
                   else
                       task_git "$@"
                   fi
+                  ;;
+    git-health)   shift; source "$SCRIPTS_DIR/lib/task_utils.sh"
+                  task_git_health "$@"
                   ;;
     help|--help|-h) show_usage ;;
     --version|-v)   show_version ;;
