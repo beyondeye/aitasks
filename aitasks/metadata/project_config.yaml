@@ -11,15 +11,6 @@ tmux:
     capture_lines: 200
     agent_window_prefixes:
     - agent-
-    tui_window_names:
-    - board
-    - codebrowser
-    - settings
-    - brainstorm
-    - monitor
-    - minimonitor
-    - diffviewer
-    - git
   default_session: aitasks
   default_split: horizontal
   prefer_tmux: true
