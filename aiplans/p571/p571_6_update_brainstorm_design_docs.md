@@ -1,60 +1,126 @@
 ---
 Task: t571_6_update_brainstorm_design_docs.md
 Parent Task: aitasks/t571_more_structured_brainstorming_created_plan.md
-Sibling Tasks: aitasks/t571/t571_1_*.md through t571_5_*.md
-Archived Sibling Plans: aiplans/archived/p571/p571_*_*.md
-Worktree: (current branch)
-Branch: (current branch)
+Sibling Tasks: aitasks/t571/t571_7_manual_verification_structured_brainstorming.md
+Archived Sibling Plans: aiplans/archived/p571/p571_10_board_task_detail_section_viewer_integration.md, aiplans/archived/p571/p571_11_fix_section_viewer_rendering_and_bindings.md, aiplans/archived/p571/p571_1_section_parser_module.md, aiplans/archived/p571/p571_2_update_agent_templates_emit_sections.md, aiplans/archived/p571/p571_3_section_aware_operation_infrastructure.md, aiplans/archived/p571/p571_4_section_selection_brainstorm_tui_wizard.md, aiplans/archived/p571/p571_5_shared_section_viewer_tui_integration.md, aiplans/archived/p571/p571_8_codebrowser_section_viewer_integration.md, aiplans/archived/p571/p571_9_brainstorm_node_detail_section_viewer_integration.md
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-04-20 11:32
 ---
 
-# Plan: t571_6 — Update Brainstorm Design Docs
+# Plan: t571_6 — Update Brainstorm Design Docs (Verified)
 
-## Overview
+## Context
 
-Update `aidocs/brainstorming/brainstorm_engine_architecture.md` to document the structured sections feature after all implementation siblings are complete. Describe current state only — no references to prior versions.
+All five implementation siblings of t571 (structured brainstorming sections) have landed and are archived:
 
-## Step 1: Read Current State
+- **t571_1** → `.aitask-scripts/brainstorm/brainstorm_sections.py` — parser, dataclasses, query helpers
+- **t571_2** → updated templates in `.aitask-scripts/brainstorm/templates/` + shared `_section_format.md`
+- **t571_3** → `target_sections` param on `register_*()` + filtered `_assemble_input_*` in `brainstorm_crew.py`
+- **t571_4** → wizard section-select step in `brainstorm_app.py`
+- **t571_5** → `.aitask-scripts/lib/section_viewer.py` (shared library)
+- **t571_8, t571_9, t571_10, t571_11** (also archived) → section-viewer integrations in codebrowser, brainstorm `NodeDetailModal`, and board `TaskDetailScreen`
 
-Read the implemented code to verify actual names, APIs, and behavior:
-- `.aitask-scripts/brainstorm/brainstorm_sections.py` — parser module
-- `.aitask-scripts/brainstorm/templates/*.md` — updated templates
-- `.aitask-scripts/brainstorm/brainstorm_crew.py` — target_sections parameter
-- `.aitask-scripts/brainstorm/brainstorm_app.py` — wizard section step
-- `.aitask-scripts/lib/section_viewer.py` — shared viewer
-- Read archived sibling plans for implementation details
+The authoritative architecture doc `aidocs/brainstorming/brainstorm_engine_architecture.md` currently has **no mention** of any of this — proposals/plans are still described as opaque markdown, templates shown in Section 4 lack section markers, and subagent prompt specs in Section 8 describe pre-section output formats. This task brings the doc into sync with current state (forward-only writing per `feedback_doc_forward_only`).
 
-## Step 2: Add "Structured Sections" Section
+## Critical File
 
-New top-level section in the architecture doc covering:
-- Section format (HTML comment markers)
-- Scope (proposals + plans)
-- Data model (ContentSection, ParsedContent)
-- Parser API (parse_sections, validate_sections, etc.)
-- Dimension linking conventions
+- **MODIFY:** `aidocs/brainstorming/brainstorm_engine_architecture.md`
 
-## Step 3: Update Agent Templates Section
+## Reference Files (for verifying current behavior while writing)
 
-Document section-aware template output format and dimension keys input block.
+- `.aitask-scripts/brainstorm/brainstorm_sections.py` — parser API surface (`parse_sections`, `validate_sections`, `get_section_by_name`, `get_sections_for_dimension`, `section_names`, `format_section_header`, `format_section_footer`; dataclasses `ContentSection`, `ParsedContent`)
+- `.aitask-scripts/brainstorm/templates/_section_format.md` — shared include describing marker syntax + lowercase_snake_case naming rule
+- `.aitask-scripts/brainstorm/templates/explorer.md`, `synthesizer.md`, `detailer.md`, `patcher.md`, `comparator.md` — current template wording for Output sections
+- `.aitask-scripts/brainstorm/brainstorm_crew.py` — `register_explorer/comparator/detailer/patcher` signatures with `target_sections: list[str] | None = None`; `_assemble_input_*` helpers that emit `## Targeted Section Content`, `## Target Sections`, `## Section Focus` blocks
+- `.aitask-scripts/brainstorm/brainstorm_app.py` — wizard section-select step (`_collect_target_sections`, `target_sections` in `_wizard_config`)
+- `.aitask-scripts/lib/section_viewer.py` — widgets (`SectionRow`, `SectionMinimap`, `SectionAwareMarkdown`, `SectionViewerScreen`), `estimate_section_y()` helper, keyboard contract in module docstring
+- Integration sites: `board/aitask_board.py` (around line 2303), `codebrowser/detail_pane.py`, `codebrowser/codebrowser_app.py`, `codebrowser/history_detail.py`, `brainstorm/brainstorm_app.py` (around line 336)
+- `aiplans/archived/p571/p571_{1..5,8..11}_*.md` — implementation records (use Final Implementation Notes for design intent and deviations)
 
-## Step 4: Update Operations Section
+## Implementation
 
-Document target_sections parameter flow: wizard → register → assemble → agent input.
+### Step 1: Verify current state before writing
 
-## Step 5: Add Viewer Documentation
+Re-read the sources listed above to confirm exact names, signatures, and output block headings. The doc must be accurate to the shipped code, not to the original design docs.
 
-Document section_viewer.py module, widgets, and integration points across TUIs.
+### Step 2: Add new top-level "Structured Sections" section
 
-## Step 6: Update Directory Layout
+Insert after existing Section 3 (Data Format Specifications) or as a new subsection under 3. Cover:
 
-Add new files to the file listing table.
+- **Scope** — applies to `br_proposals/` and `br_plans/`; not to node YAML or node metadata
+- **Marker syntax** — `<!-- section: name [dimensions: dim1, dim2] -->` … `<!-- /section: name -->`, `lowercase_snake_case` names, single-level (no nesting), dimensions optional; reference `_section_format.md` as the shared template include
+- **Data model** — `ContentSection(name, dimensions, content, start_line, end_line)` and `ParsedContent(sections, preamble, epilogue, raw)`
+- **Parser API** — `parse_sections`, `validate_sections` (duplicate-name, invalid-dimension, unclosed checks), `get_section_by_name`, `get_sections_for_dimension`, `section_names`, `format_section_header`, `format_section_footer`
+- **Dimension linking** — `dimensions` list references dimension keys (`component_*`, `assumption_*`, `requirements_*`, `tradeoff_*`); validated against `DIMENSION_PREFIXES` from `brainstorm_schemas`
+
+### Step 3: Refresh Section 4 (Proposal and Plan Templates)
+
+Update the existing proposal and plan template snippets to show actual section-marker wrapping as emitted by current agents. Keep them illustrative but aligned with `templates/*.md` shipping today.
+
+### Step 4: Update Section 6 (Context Assembly) for target_sections
+
+Document the new assembly blocks that each `_assemble_input_*` produces when `target_sections` is set:
+
+- Explorer/Detailer/Patcher → `## Targeted Section Content` (and `## Targeted Plan Section Content` for explorer when applicable)
+- Detailer/Patcher → `## Target Sections`
+- Comparator → `## Section Focus` (MVP: union/intersection of candidate nodes' sections)
+- Synthesizer → **not section-aware** (explicit note)
+
+### Step 5: Update Section 7 (Orchestration Flow) operation descriptions
+
+For explore, compare, detail, patch: note that each operation accepts `target_sections` from the wizard and that `register_*()` / `_assemble_input_*()` propagate it into the agent's `_input.md`. Document backward-compat: when `target_sections` is `None` or omitted, behavior is unchanged (whole proposal/plan).
+
+### Step 6: Refresh Section 8 (Subagent Prompt Specifications)
+
+The literal prompts shown in 8.1–8.5 must match the shipped templates:
+
+- Add the `<!-- include: _section_format.md -->` line where it appears in the real templates
+- Document the `## Dimension Keys` input block the templates now mention
+- Show that explorer/synthesizer/detailer wrap their outputs in section markers
+- Note patcher/comparator behavior when `## Target Sections` / `## Section Focus` is present
+- Preserve the "no winner unless scored" and other existing rules that are still in force
+
+### Step 7: Add "Section Viewer" documentation
+
+New subsection (likely under Section 2 or as a peer to Section 7). Cover:
+
+- Module location: `.aitask-scripts/lib/section_viewer.py`
+- Widgets: `SectionRow`, `SectionMinimap`, `SectionAwareMarkdown`, `SectionViewerScreen`; `estimate_section_y()` helper
+- Keyboard contract (from the module docstring): `tab` toggles minimap↔content focus, `up`/`down` move between rows, `enter` selects, `escape` dismisses `SectionViewerScreen`
+- Integration points:
+  - Codebrowser detail pane (minimap above plan/proposal) and `p` full-screen viewer
+  - Brainstorm `NodeDetailModal` Proposal and Plan tabs (minimaps) and `v` full-screen viewer
+  - Board `TaskDetailScreen` plan view (minimap) and `shift+v` full-screen viewer
+- Fallback: plans/proposals with no section markers render as plain markdown with no minimap
+
+### Step 8: Update Section 2 (Directory Structure / Directory Layout)
+
+Add the two new source files to the file listing:
+
+- `.aitask-scripts/brainstorm/brainstorm_sections.py` — section parser
+- `.aitask-scripts/lib/section_viewer.py` — shared section-aware viewer widgets
+- `.aitask-scripts/brainstorm/templates/_section_format.md` — shared template include
+
+### Step 9: Cross-check Table of Contents
+
+If any new top-level sections were added in Steps 2 or 7, update the TOC at the top of the doc accordingly.
+
+## Style Rules
+
+- **Forward-only** (`feedback_doc_forward_only`): describe current state. No "previously", "used to be", "earlier versions". Version history belongs in git.
+- **Match shipped code exactly** — function names, block headings in agent inputs, keyboard bindings, file paths. Cross-check each claim against the code before writing.
+- **No emojis.**
+- Keep the doc self-contained — no "see t571_X" references, no task IDs in prose.
 
 ## Verification
 
-1. All documented APIs match actual code
-2. No forward-looking or backward-looking language (current state only)
-3. File paths and function names are accurate
+1. `grep -n "section" aidocs/brainstorming/brainstorm_engine_architecture.md` → new coverage exists across the sections listed above
+2. Every API name, block heading, widget name, and keyboard binding mentioned in the doc matches a hit in the actual source (Grep in `.aitask-scripts/`)
+3. No "previously", "used to", "was", "now", "has been changed", or similar forward/backward-looking prose (grep `-iE 'previously|used to|has been|now supports'`)
+4. TOC entries resolve to actual in-doc anchors
+5. Read the updated doc end-to-end as a new reader — confirm it describes a coherent, self-contained system that matches the codebase
 
-## Step 9: Post-Implementation
+## Step 9 (Post-Implementation)
 
-Follow Step 9 from the shared workflow for archival and cleanup.
+Follow Step 9 from `task-workflow/SKILL.md` for archival, parent archival (since this is the penultimate child — t571_7 remains as a manual-verification task blocked on this one), and push.
