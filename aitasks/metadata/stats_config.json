@@ -1,0 +1,8 @@
+{
+  "presets": {
+    "overview": ["overview.summary", "overview.daily", "overview.weekday"],
+    "labels":   ["labels.top", "labels.issue_types", "labels.heatmap"],
+    "agents":   ["agents.per_agent", "agents.per_model", "agents.verified"],
+    "velocity": ["velocity.daily", "velocity.rolling", "velocity.parent_child"]
+  }
+}
