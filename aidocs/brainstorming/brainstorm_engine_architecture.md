@@ -9,11 +9,12 @@ This document is the single reference for data formats, orchestration flow, and 
 1. [Overview](#1-overview)
 2. [Directory Structure](#2-directory-structure)
 3. [Data Format Specifications](#3-data-format-specifications)
-4. [Proposal and Plan Templates](#4-proposal-and-plan-templates)
+4. [Structured Sections, Proposals, and Plans](#4-structured-sections-proposals-and-plans)
 5. [AgentCrew Integration](#5-agentcrew-integration)
 6. [Context Assembly](#6-context-assembly)
 7. [Orchestration Flow](#7-orchestration-flow)
 8. [Subagent Prompt Specifications](#8-subagent-prompt-specifications)
+9. [Section Viewer](#9-section-viewer)
 
 ---
 
@@ -148,6 +149,20 @@ All files live in the crew worktree at `.aitask-crews/crew-brainstorm-<task_num>
 - **Proposals:** `br_proposals/nXXX_name.md`
 - **Plans:** `br_plans/nXXX_name_plan.md`
 - **Crew worktree:** `.aitask-crews/crew-brainstorm-<task_num>/` where `<task_num>` matches the aitask number
+
+### Source Code Layout
+
+The brainstorm engine's Python modules live under `.aitask-scripts/` in the main repo (not in the crew worktree):
+
+| Path | Purpose |
+|------|---------|
+| `.aitask-scripts/brainstorm/brainstorm_dag.py` | DAG operations: `read_node`, `read_proposal`, `read_plan`, `_read_graph_state`, path constants (`NODES_DIR`, `PROPOSALS_DIR`, `PLANS_DIR`) |
+| `.aitask-scripts/brainstorm/brainstorm_schemas.py` | Dimension prefixes (`DIMENSION_PREFIXES`), `is_dimension_field()`, `extract_dimensions()` |
+| `.aitask-scripts/brainstorm/brainstorm_sections.py` | Section parser: `parse_sections`, `validate_sections`, `get_section_by_name`, `get_sections_for_dimension`, `section_names`, `format_section_header`, `format_section_footer`; dataclasses `ContentSection` and `ParsedContent` |
+| `.aitask-scripts/brainstorm/brainstorm_crew.py` | Agent registration (`register_explorer`, `register_comparator`, `register_synthesizer`, `register_detailer`, `register_patcher`) and `_assemble_input_*` helpers |
+| `.aitask-scripts/brainstorm/brainstorm_app.py` | Brainstorm TUI (wizard, node tree, `NodeDetailModal`) |
+| `.aitask-scripts/brainstorm/templates/` | Agent work2do templates (`explorer.md`, `comparator.md`, `synthesizer.md`, `detailer.md`, `patcher.md`) plus the shared include `_section_format.md` |
+| `.aitask-scripts/lib/section_viewer.py` | Shared Textual widgets for rendering section-structured markdown: `SectionRow`, `SectionMinimap`, `SectionAwareMarkdown`, `SectionViewerScreen`; helper `estimate_section_y()` |
 
 ---
 
@@ -295,11 +310,70 @@ tradeoff_cons:
 
 ---
 
-## 4. Proposal and Plan Templates
+## 4. Structured Sections, Proposals, and Plans
 
-### Proposal Template (br_proposals/nXXX_name.md)
+Proposals (`br_proposals/`) and plans (`br_plans/`) are Markdown documents partitioned into **structured sections** delimited by HTML comment markers. Sections are the unit of addressable content: agents can be steered to operate on a subset of them (via `target_sections`), and section-aware TUI widgets render them as a navigable minimap.
 
-Every proposal must follow this structure to ensure consistency for the Comparator and Synthesizer agents.
+Node metadata (`br_nodes/*.yaml`) is *not* sectioned — it is a flat key-value schema.
+
+### 4.1 Section Marker Format
+
+A section is a contiguous range of lines wrapped in paired HTML comment markers:
+
+```
+<!-- section: section_name [dimensions: component_database, assumption_scale] -->
+... markdown content ...
+<!-- /section: section_name -->
+```
+
+Rules:
+
+- **Names** are `lowercase_snake_case`. They must be unique within a document.
+- **Dimensions** (optional) are a comma-separated list following `dimensions:` inside square brackets. Each entry must start with one of the recognized dimension prefixes (`component_`, `assumption_`, `requirements_`, `tradeoff_`) — validated against `DIMENSION_PREFIXES` in `brainstorm_schemas.py`.
+- **No nesting.** An open marker that appears while another section is already open is ignored until the current section closes.
+- **Order is preserved.** `parse_sections()` returns sections in document order.
+- **Content outside markers** is preserved as `preamble` (before the first section) or `epilogue` (after the last close tag).
+
+The shared template include `.aitask-scripts/brainstorm/templates/_section_format.md` documents the same rules for agents and is pulled into every template that emits section-wrapped output via an `<!-- include: _section_format.md -->` directive.
+
+### 4.2 Parser API
+
+Defined in `.aitask-scripts/brainstorm/brainstorm_sections.py`:
+
+**Data structures:**
+
+```python
+@dataclass
+class ContentSection:
+    name: str                   # e.g. "database_layer"
+    dimensions: list[str]       # e.g. ["component_database", "assumption_scale"]
+    content: str                # raw markdown between open/close tags (no markers)
+    start_line: int             # 1-based; line of the opening tag
+    end_line: int               # 1-based; line of the closing tag
+
+@dataclass
+class ParsedContent:
+    sections: list[ContentSection]
+    preamble: str               # content before first section
+    epilogue: str               # content after last section
+    raw: str                    # original input, unmodified
+```
+
+**Functions:**
+
+| Function | Returns | Purpose |
+|---|---|---|
+| `parse_sections(text)` | `ParsedContent` | Parse a Markdown string into structured sections + preamble + epilogue |
+| `validate_sections(parsed)` | `list[str]` | Check for duplicate names, invalid dimensions, unclosed markers. Empty list = valid |
+| `get_section_by_name(parsed, name)` | `ContentSection \| None` | First section matching `name`, or `None` |
+| `get_sections_for_dimension(parsed, dim)` | `list[ContentSection]` | All sections whose `dimensions` list contains `dim` |
+| `section_names(parsed)` | `list[str]` | Ordered section names |
+| `format_section_header(name, dimensions=None)` | `str` | Emit an opening marker |
+| `format_section_footer(name)` | `str` | Emit a closing marker |
+
+### 4.3 Proposal Template (br_proposals/nXXX_name.md)
+
+Proposals follow a consistent set of sections. Explorer and Synthesizer wrap their output in section markers so downstream operations can target specific concerns:
 
 ```markdown
 # Proposal: <descriptive name>
@@ -308,55 +382,55 @@ Every proposal must follow this structure to ensure consistency for the Comparat
 **Parents:** nYYY_parent1, nZZZ_parent2
 **Created by:** <operation group>
 
+<!-- section: overview -->
 ## Overview
+<2-3 paragraph summary. What problem does it solve? How does it differ from the parents?>
+<!-- /section: overview -->
 
-<2-3 paragraph summary of the architectural approach. What problem does it solve?
-How does it differ from the parent node(s)?>
-
+<!-- section: architecture [dimensions: component_api_layer, component_database] -->
 ## Architecture
+<Major components, responsibilities, interactions, technology choices.>
+<!-- /section: architecture -->
 
-<Detailed description of the system architecture. Include:
-- Major components and their responsibilities
-- How components interact
-- Technology choices and justifications>
-
+<!-- section: data_flow -->
 ## Data Flow
+<Request/response flow, storage/retrieval patterns, caching strategy.>
+<!-- /section: data_flow -->
 
-<How data moves through the system. Include:
-- Request/response flow for primary use cases
-- Data storage and retrieval patterns
-- Caching strategy (if applicable)>
-
+<!-- section: components [dimensions: component_database, component_cache] -->
 ## Components
 
-### <Component 1 name>
+### <Component 1>
 <Description, technology, configuration>
 
-### <Component 2 name>
+### <Component 2>
 <Description, technology, configuration>
+<!-- /section: components -->
 
+<!-- section: assumptions [dimensions: assumption_scale, assumption_team_skill] -->
 ## Assumptions
+<All assumptions this proposal depends on. Flag inherited vs new.>
+<!-- /section: assumptions -->
 
-<List all assumptions this proposal depends on. Flag which ones
-are inherited from parents and which are new.>
-
+<!-- section: tradeoffs [dimensions: tradeoff_pros, tradeoff_cons] -->
 ## Tradeoffs
 
 ### Advantages
 - <Advantage 1>
-- <Advantage 2>
 
 ### Disadvantages
 - <Disadvantage 1>
-- <Disadvantage 2>
 
 ### Risks
-- <Risk 1 and mitigation strategy>
+- <Risk 1 and mitigation>
+<!-- /section: tradeoffs -->
 ```
 
-### Plan Template (br_plans/nXXX_name_plan.md)
+Section names are not prescribed by the parser — agents choose names that fit the content — but the set above is the conventional shape. The `dimensions:` annotation is optional; agents add it when a section maps cleanly to one or more node-metadata dimension keys.
 
-Implementation plans translate proposals into actionable steps. Not every node needs a plan — typically only the current head or finalized nodes get detailed plans.
+### 4.4 Plan Template (br_plans/nXXX_name_plan.md)
+
+Implementation plans translate proposals into actionable steps. Detailer wraps each plan section in markers so Patcher can apply surgical edits to a named subset:
 
 ```markdown
 # Implementation Plan: <descriptive name>
@@ -364,16 +438,18 @@ Implementation plans translate proposals into actionable steps. Not every node n
 **Node:** nXXX_name
 **Based on proposal:** br_proposals/nXXX_name.md
 
+<!-- section: prerequisites -->
 ## Prerequisites
-
-- <Required tools, libraries, or infrastructure>
+- <Required tools, libraries, infrastructure>
 - <Environment variables or configuration>
-- <Access or permissions needed>
+- <Access or permissions>
+<!-- /section: prerequisites -->
 
+<!-- section: steps [dimensions: component_database, component_cache] -->
 ## Step-by-Step Changes
 
 ### Step 1: <description>
-**Files:** `path/to/file1.ts`, `path/to/file2.ts`
+**Files:** `path/to/file1.ts`
 
 <Detailed instructions. Include code snippets for non-trivial changes.>
 
@@ -381,19 +457,30 @@ Implementation plans translate proposals into actionable steps. Not every node n
 **Files:** `path/to/file3.ts`
 
 <Detailed instructions.>
+<!-- /section: steps -->
 
+<!-- section: testing -->
 ## Testing
-
 - <How to verify each component works>
 - <Integration test strategy>
-- <Performance benchmarks to validate assumptions>
+- <Performance benchmarks that validate the proposal's assumptions>
+<!-- /section: testing -->
 
+<!-- section: verification -->
 ## Verification
-
 - [ ] <Verification checklist item 1>
-- [ ] <Verification checklist item 2>
 - [ ] <All assumptions from the proposal hold under test>
+<!-- /section: verification -->
 ```
+
+### 4.5 Dimension Linking
+
+The `dimensions:` annotation on a section declares which node-metadata dimension keys that section's content bears on. This linkage has two downstream uses:
+
+1. **Targeted operations** — The TUI wizard can ask the user "which sections should this operation act on?" and the selected names flow to the agent as `target_sections`. See §6 (Context Assembly) and §7 (Orchestration Flow).
+2. **Minimap annotations** — The shared section viewer widgets surface each section's dimension tags next to its name, so readers can see at a glance which architectural dimensions a section addresses. See §9 (Section Viewer).
+
+When a section's content does not map cleanly to a dimension key (e.g., `overview`, `data_flow`), omit the `dimensions:` annotation.
 
 ---
 
@@ -632,9 +719,37 @@ The session manager builds `_input.md` differently for each agent type:
 
 ## Active Dimensions
 <From br_graph_state.yaml — so the explorer knows which dimensions are in play>
+
+## Dimension Keys
+Use these dimension keys in section markers:
+- assumption_scale
+- component_api_layer
+- component_cache
+- component_database
+- component_auth
 ```
 
 The agent reads all referenced files using its own tools (Read, Glob, Grep). For remote references, it reads the cached file; if the cache miss occurs, it fetches via WebFetch.
+
+**Targeted variant** — when the user selects specific sections for the operation (see §7), two additional blocks are appended, each inlining just the selected sections from the baseline (so the agent does not need to parse the full proposal/plan to find them):
+
+```markdown
+## Targeted Section Content
+Focus exploration on these sections from the baseline:
+
+### Section: architecture [dimensions: component_api_layer, component_database]
+<inlined content of the `architecture` section>
+
+### Section: components [dimensions: component_database, component_cache]
+<inlined content of the `components` section>
+
+## Targeted Plan Section Content
+
+### Section: steps [dimensions: component_database, component_cache]
+<inlined content of the `steps` section from the baseline's plan>
+```
+
+The `## Targeted Plan Section Content` block appears only when the baseline has an associated plan that contains at least one of the selected sections.
 
 #### Comparator Input Assembly
 
@@ -651,6 +766,17 @@ Dimensions: component_database, assumption_scale, tradeoff_pros, tradeoff_cons
 ```
 
 **Key point:** The comparator reads only the YAML metadata files and extracts the requested dimension fields. No proposals, no plans, no codebase files — this keeps it fast and focused.
+
+**Targeted variant** — when the TUI passes `target_sections`, a `## Section Focus` block is appended listing the section names the comparator should concentrate on:
+
+```markdown
+## Section Focus
+Compare only content within these sections across nodes:
+- architecture
+- components
+```
+
+The wizard computes the candidate section list as the intersection of sections present across the selected nodes (a section must exist in every node being compared to be offered in the picker). The comparator itself still reads only the YAML metadata — the section-focus block is advisory and constrains which proposal sections the comparator cites in its output table.
 
 #### Synthesizer Input Assembly
 
@@ -678,7 +804,16 @@ Dimensions: component_database, assumption_scale, tradeoff_pros, tradeoff_cons
 ### Remote (cached)
 - br_url_cache/a1b2c3d4.md (source: https://www.postgresql.org/docs/current/ddl.html)
 - br_url_cache/f9g0h1i2.md (source: https://www.mongodb.com/docs/manual/core/document/)
+
+## Dimension Keys
+Use these dimension keys in section markers:
+- assumption_scale
+- component_api_layer
+- component_cache
+- component_database
 ```
+
+**Synthesizer is not section-aware.** Hybridization merges *whole proposals*, not subsets of sections, so the wizard does not expose a section picker for hybridize and `register_synthesizer()` has no `target_sections` parameter.
 
 #### Detailer Input Assembly
 
@@ -701,9 +836,28 @@ Dimensions: component_database, assumption_scale, tradeoff_pros, tradeoff_cons
 
 ## Project Context
 - CLAUDE.md (project conventions)
+
+## Dimension Keys
+Use these dimension keys in section markers:
+- assumption_scale
+- component_api_layer
+- component_cache
+- component_database
 ```
 
 **The Detailer gets the richest context** because it needs to write specific file paths, code snippets, and commands. In addition to reference_files, the session manager includes project-level context (CLAUDE.md, directory listings). The agent uses its tools to explore further as needed.
+
+**Targeted variant** — when the TUI passes `target_sections`, a `## Target Sections` block is appended and, when an existing plan is present, the path to it so the Detailer can re-render only the named sections and preserve the others byte-for-byte:
+
+```markdown
+## Target Sections
+Re-detail only these sections of the existing plan.
+Leave other sections unchanged:
+- steps
+- testing
+
+Current plan: .aitask-crews/crew-brainstorm-419/br_plans/n003_hybrid_db_plan.md
+```
 
 #### Patcher Input Assembly
 
@@ -717,6 +871,15 @@ Dimensions: component_database, assumption_scale, tradeoff_pros, tradeoff_cons
 - Metadata: br_nodes/n003_hybrid_db.yaml
 - Plan: br_plans/n003_hybrid_db_plan.md (this is what the patcher modifies)
 - Proposal: br_proposals/n003_hybrid_db.md (read-only, for impact analysis)
+```
+
+**Targeted variant** — when the TUI passes `target_sections`, a `## Target Sections` block is appended so the Patcher's surgical edits are constrained to the named sections:
+
+```markdown
+## Target Sections
+Focus the patch on these sections only.
+Leave all other sections unchanged:
+- steps
 ```
 
 ### Context Window Management
@@ -761,16 +924,17 @@ The agent's work2do instructs it to read files in priority order and manage its 
 **Trigger:** User requests architectural exploration (e.g., "explore two approaches for the data layer").
 
 **What the TUI does:**
-1. Parse the user's exploration request
+1. Parse the user's exploration request through the brainstorm wizard
 2. Determine how many explorers to spawn (one per approach)
-3. Create a new operation group: `explore_<seq>`
-4. For each explorer, prepare input: current HEAD node metadata + proposal + exploration mandate
+3. If the baseline node's proposal or plan has structured sections, insert a **section-select step** in the wizard so the user can narrow the exploration to specific sections (skipped when no sections exist)
+4. Create a new operation group: `explore_<seq>`
+5. For each explorer, call `register_explorer(..., target_sections=<selected>)`; `_assemble_input_explorer()` inlines the selected sections into the agent's `_input.md`
 
 **Agents created:**
 - Type: `explorer`
 - Count: 1 per requested approach (typically 1-3)
 - Dependencies: None (explorers are independent within a group)
-- Input: HEAD node's `.yaml` and `.md` files, plus the specific exploration mandate
+- Input: HEAD node's `.yaml` and `.md` files, the exploration mandate, and — when sections were selected — inlined `## Targeted Section Content` and `## Targeted Plan Section Content` blocks. All parallel explorers in the same group receive identical `target_sections`.
 
 **Agent work2do (per explorer):**
 
@@ -835,9 +999,10 @@ The agent's work2do instructs it to read files in priority order and manage its 
 
 **What the TUI does:**
 1. Collect the node IDs to compare and the dimensions of interest
-2. Extract only the requested dimension fields from each node's YAML
-3. Create operation group: `compare_<seq>`
-4. Register a single comparator agent
+2. Compute the candidate section list as the intersection of sections present across all selected nodes; display checkboxes for the user to pick any subset (the list updates live as nodes are added or removed from the selection, preserving previously-checked values for sections that remain in the intersection)
+3. Extract only the requested dimension fields from each node's YAML
+4. Create operation group: `compare_<seq>`
+5. Register a single comparator agent via `register_comparator(..., target_sections=<selected>)`; `_assemble_input_comparator()` appends a `## Section Focus` block when sections are selected
 
 **Agents created:**
 - Type: `comparator`
@@ -908,6 +1073,8 @@ The agent's work2do instructs it to read files in priority order and manage its 
 2. Read full YAML metadata and proposals for all source nodes
 3. Create operation group: `hybridize_<seq>`
 4. Register a single synthesizer agent
+
+**Hybridize is not section-aware:** the wizard does not present a section-select step, and `register_synthesizer()` does not accept `target_sections`. Hybridization always operates on whole proposals.
 
 **Agents created:**
 - Type: `synthesizer`
@@ -987,8 +1154,9 @@ The agent's work2do instructs it to read files in priority order and manage its 
 **What the TUI does:**
 1. Confirm the target node (usually current head)
 2. Gather the node's YAML, proposal, and relevant codebase context
-3. Create operation group: `detail_<seq>`
-4. Register a single detailer agent
+3. If the node's proposal has structured sections, offer a section-select step (for re-detailing only specific sections of an existing plan); skipped when no sections exist
+4. Create operation group: `detail_<seq>`
+5. Register a single detailer agent via `register_detailer(..., target_sections=<selected>)`; `_assemble_input_detailer()` appends a `## Target Sections` block and the current plan path when sections are selected
 
 **Agents created:**
 - Type: `detailer`
@@ -1066,9 +1234,10 @@ The agent's work2do instructs it to read files in priority order and manage its 
 
 **What the TUI does:**
 1. Identify the target node and its current plan
-2. Assess whether this is a purely local change or might have architectural impact
-3. Create operation group: `patch_<seq>`
-4. Register a single patcher agent
+2. If the plan has structured sections, offer a section-select step so the patch is scoped to the named sections; skipped when the plan has no sections
+3. Assess whether this is a purely local change or might have architectural impact
+4. Create operation group: `patch_<seq>`
+5. Register a single patcher agent via `register_patcher(..., target_sections=<selected>)`; `_assemble_input_patcher()` appends a `## Target Sections` block when sections are selected
 
 **Agents created:**
 - Type: `patcher`
@@ -1217,15 +1386,24 @@ the user through the orchestrator.
 ## Input
 
 You will receive in _input.md (assembled by the session manager):
-1. The baseline node's YAML metadata (flat key-value dimensions)
-2. The baseline node's proposal Markdown (full architectural narrative)
+1. The baseline node's YAML metadata path (flat key-value dimensions)
+2. The baseline node's proposal Markdown path (full architectural narrative)
 3. An exploration mandate describing what to explore or change
-4. Codebase context: contents of the baseline node's reference_files
+4. Codebase context: the baseline node's reference_files (local paths and cached URL paths)
 5. Active dimensions from br_graph_state.yaml
+6. Dimension Keys: the list of dimension keys you may reference from section markers
+7. (Optional) Targeted Section Content: if the user selected specific sections, their content is inlined under this heading; focus exploration on those sections
+8. (Optional) Targeted Plan Section Content: when the baseline has an associated plan, the selected sections from that plan are inlined under this heading
 
 ## Output
 
-You must produce exactly two files:
+Your output must be section-wrapped using the shared section marker format
+(see the `_section_format.md` include in the explorer template). Section
+names are `lowercase_snake_case`; dimensions (when present) must come from the
+"Dimension Keys" block above.
+
+You must produce exactly two items (YAML metadata and a Markdown proposal)
+written to `_output.md` with clear delimiters between them:
 
 ### File 1: Node Metadata (YAML)
 A flat YAML file following the node schema. Requirements:
@@ -1245,13 +1423,19 @@ modify values, add new dimensions, or keep them unchanged — but never silently
 drop a dimension.
 
 ### File 2: Proposal (Markdown)
-A complete proposal following the template with these required sections:
-- Overview: What this approach does and how it differs from the baseline
-- Architecture: Detailed system design with component responsibilities
-- Data Flow: How data moves through the system
-- Components: One subsection per component with technology and configuration
-- Assumptions: All assumptions, flagging which are inherited vs new
-- Tradeoffs: Advantages, disadvantages, and risks with mitigations
+A complete proposal with each major concern wrapped in a section marker.
+Required sections (each wrapped in `<!-- section: name [dimensions: ...] -->`
+... `<!-- /section: name -->`):
+- `overview`: What this approach does and how it differs from the baseline
+- `architecture` (dimensions: relevant `component_*` keys): Detailed system
+  design with component responsibilities
+- `data_flow`: How data moves through the system
+- `components` (dimensions: `component_*` keys): One subsection per component
+  with technology and configuration
+- `assumptions` (dimensions: `assumption_*` keys): All assumptions, flagging
+  which are inherited vs new
+- `tradeoffs` (dimensions: `tradeoff_pros`, `tradeoff_cons`): Advantages,
+  disadvantages, and risks with mitigations
 
 ## Rules
 
@@ -1272,6 +1456,12 @@ A complete proposal following the template with these required sections:
    component, remove its references. Use your tools (Read, Grep, Glob,
    WebFetch) to discover additional relevant references not in the
    baseline's list.
+7. Wrap each major concern in a section marker using `lowercase_snake_case`
+   names. Dimensions on the marker must come from the "Dimension Keys" block
+   in the input.
+8. When `Targeted Section Content` is present, focus your exploration on
+   those sections; reuse the same section names in your output so downstream
+   operations can target the same concerns.
 ```
 
 ### 8.2 Comparator
@@ -1291,6 +1481,9 @@ You will receive:
 2. The list of dimensions to compare
 3. Optional: a scoring metric from the user (e.g., "optimize for lowest
    latency")
+4. Optional: a `Section Focus` block listing section names that are present
+   across all nodes being compared. When present, scope your comparison to
+   content within those sections.
 
 ## Output
 
@@ -1340,22 +1533,36 @@ new node following the user's merge rules.
 ## Input
 
 You will receive:
-1. Full YAML metadata for each source node
-2. Full proposal Markdown for each source node
+1. Full YAML metadata paths for each source node
+2. Full proposal Markdown paths for each source node
 3. The user's merge rules: which components to take from which node
 4. The new node ID assigned by the orchestrator
+5. Reference files: merged and deduplicated from all source nodes
+6. Dimension Keys: merged union of dimension keys from all parents, for use in
+   section markers
+
+The synthesizer does not accept `target_sections` — hybridization always
+operates on whole proposals.
 
 ## Output
 
-You must produce exactly two files (same as the Explorer):
+You must produce exactly two items (same structure as the Explorer), written
+to `_output.md` with clear delimiters. The proposal must be section-wrapped
+using the same marker conventions as the Explorer.
 
 ### File 1: Node Metadata (YAML)
 - parents: List ALL source nodes
 - All dimension fields populated according to the merge rules
 - created_by_group: The operation group ID
+- reference_files: Merged from all parents, deduplicated, with references for
+  bridging components added and references for dropped components removed
 
 ### File 2: Proposal (Markdown)
-A unified proposal following the standard template.
+A unified proposal with the same required sections as the Explorer output
+(`overview`, `architecture`, `data_flow`, `components`, `assumptions`,
+`tradeoffs`), each wrapped in a section marker. Add a `conflict_resolutions`
+section (no dimensions) documenting how incompatibilities between parents
+were resolved.
 
 ## Conflict Resolution Process
 
@@ -1405,22 +1612,31 @@ implementation plan that a developer can follow without ambiguity.
 ## Input
 
 You will receive:
-1. The finalized node's YAML metadata
-2. The finalized node's proposal Markdown
+1. The finalized node's YAML metadata path
+2. The finalized node's proposal Markdown path
 3. Relevant codebase context: file listings, existing code that needs
    modification, project conventions
+4. Dimension Keys: the list of dimension keys you may reference from section
+   markers
+5. Optional: a `Target Sections` block and a path to an existing plan.
+   When present, re-render only the named sections of that plan and leave
+   all other sections byte-for-byte identical.
 
 ## Output
 
-A single Markdown file following the plan template with these required
-sections:
+A single Markdown file written to `_output.md`. Each major section of the
+plan must be wrapped in a section marker using the shared format (see the
+`_section_format.md` include). Required sections:
 
+<!-- section: prerequisites -->
 ### Prerequisites
 - Tools, libraries, and versions required
 - Environment variables and configuration
 - Infrastructure provisioning (if needed)
 - Access or permissions
+<!-- /section: prerequisites -->
 
+<!-- section: steps [dimensions: relevant component_* keys] -->
 ### Step-by-Step Changes
 For each step:
 - **Step number and description**
@@ -1431,16 +1647,24 @@ For each step:
 
 Steps must be in dependency order — no step should reference a file or
 component created in a later step.
+<!-- /section: steps -->
 
+<!-- section: testing -->
 ### Testing
 - Unit test strategy per component
 - Integration test strategy
 - Performance benchmarks that validate the node's assumptions
   (e.g., "Verify sub-100ms latency under 1000 concurrent connections")
+<!-- /section: testing -->
 
+<!-- section: verification -->
 ### Verification Checklist
 A checkable list of criteria that confirm the implementation matches the
 architecture.
+<!-- /section: verification -->
+
+Additional sections may be added with `lowercase_snake_case` names and
+optional `dimensions:` annotations.
 
 ## Rules
 
@@ -1471,9 +1695,13 @@ impact.
 ## Input
 
 You will receive:
-1. The current node's YAML metadata
-2. The current node's implementation plan (Markdown)
-3. The user's specific patch request
+1. The current node's YAML metadata path
+2. The current node's implementation plan path (this is what you modify)
+3. The current node's proposal path (read-only, for impact analysis)
+4. The user's specific patch request
+5. Optional: a `Target Sections` block listing section names. When present,
+   confine edits to those sections and leave every other section
+   byte-for-byte unchanged.
 
 ## Output
 
@@ -1527,6 +1755,70 @@ Output one of:
 4. If the user's request is ambiguous (e.g., "make step 3 faster"), ask for
    clarification in the output rather than guessing.
 ```
+
+---
+
+## 9. Section Viewer
+
+Section-structured proposals and plans are rendered in three aitasks TUIs (codebrowser, brainstorm, board) by a single shared library: `.aitask-scripts/lib/section_viewer.py`. Centralising the widgets keeps the keyboard contract and visual behaviour identical across hosts and avoids each TUI reinventing minimap rendering.
+
+### 9.1 Widgets
+
+| Widget | Base | Role |
+|---|---|---|
+| `SectionRow` | `Static` | One focusable row in a minimap — shows section name and italicised dimension tags |
+| `SectionMinimap` | `VerticalScroll` | Vertical list of `SectionRow` widgets; exposes `populate(parsed)` and `focus_first_row()` |
+| `SectionAwareMarkdown` | `VerticalScroll` | Markdown renderer with a `scroll_to_section(name)` helper that uses `estimate_section_y()` to position the view |
+| `SectionViewerScreen` | `ModalScreen` | Full-screen split-layout modal (minimap on the left, markdown on the right) |
+
+**Helper:** `estimate_section_y(parsed, name, total_lines, virtual_height) -> float | None` approximates the Y scroll offset of a section by the ratio `section.start_line / total_lines` against the virtual content height. Textual's `Markdown` widget does not expose per-line offsets, so the position is intentionally approximate.
+
+### 9.2 Events
+
+`SectionMinimap` emits two messages that the host screen consumes:
+
+- `SectionMinimap.SectionSelected(section_name)` — the user pressed Enter or clicked on a row; the host scrolls the companion markdown to that section.
+- `SectionMinimap.ToggleFocus()` — the user pressed Tab while focused on the minimap; the host moves focus to the companion markdown widget.
+
+`SectionRow` emits `SectionRow.Selected(section_name)` internally, which `SectionMinimap` re-emits as `SectionSelected`.
+
+### 9.3 Keyboard Contract
+
+Hosts that embed `SectionMinimap` must honour the following bindings:
+
+| Key | Target | Effect |
+|---|---|---|
+| `up` / `down` | On a `SectionRow` | Move focus to previous / next sibling row |
+| `enter` | On a `SectionRow` | Select the section (emit `SectionSelected`) |
+| `tab` | On a `SectionRow` / minimap | Emit `ToggleFocus` — host moves focus to the companion content widget |
+| `tab` | On the companion content widget | Host returns focus to the minimap via `focus_first_row()` |
+
+Inside `SectionViewerScreen` the bindings are self-contained:
+
+| Key | Effect |
+|---|---|
+| `tab` | Cycle focus between minimap and markdown (priority binding) |
+| `escape` | Close the modal |
+
+### 9.4 Host Integrations
+
+All three hosts bind `V` (shift+v) to open `SectionViewerScreen` for the plan they are currently showing:
+
+| Host | File | Where section widgets appear | Fullscreen binding |
+|---|---|---|---|
+| Codebrowser | `.aitask-scripts/codebrowser/detail_pane.py`, `codebrowser/codebrowser_app.py`, `codebrowser/history_detail.py` | Minimap above the detail pane's plan view; minimap above the history-screen plan detail | `V` → `action_view_plan` |
+| Brainstorm | `.aitask-scripts/brainstorm/brainstorm_app.py` | Minimap in `NodeDetailModal`'s Proposal and Plan tabs | `V` → `action_fullscreen_plan` |
+| Board | `.aitask-scripts/board/aitask_board.py` | Minimap in `TaskDetailScreen`'s plan view | `V` → `action_fullscreen_plan` |
+
+### 9.5 Graceful Fallback
+
+When a proposal or plan has **no** section markers:
+
+- The minimap is hidden (its `display` attribute is set to `False`) and the markdown renders in full width.
+- `SectionViewerScreen` opens as usual; the minimap is hidden and focus goes directly to the content pane.
+- Hosts fall back to their pre-section rendering — no minimap, normal markdown, scroll keys behave as usual.
+
+This keeps the widgets safe to embed in detail panes and modals that might receive either structured or unstructured content.
 
 ---
 
