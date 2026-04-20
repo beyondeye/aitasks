@@ -6,60 +6,98 @@ Archived Sibling Plans: aiplans/archived/p597/p597_*_*.md
 Worktree: (no worktree — current branch)
 Branch: main
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-04-20 09:40
 ---
 
 # Plan: t597_4 — Config modal + layered persistence
 
 ## Context
 
-Adds the pane-config modal (preset picker + custom layout builder) and the layered-config persistence (project presets in `aitasks/metadata/stats_config.json`, user state in `stats_config.local.json`). Replaces the hardcoded `ACTIVE_LAYOUT` from t597_3 with a config-driven sidebar.
+Adds the pane-config modal (preset picker + custom layout builder) and the
+layered-config persistence for the stats TUI. Replaces the `HARDCODED_LAYOUT`
+seed in `stats_app.py` with a config-driven `active_layout`.
 
-Mirrors the board's layered-config pattern (`aitask_board.py` lines 235–251) and the settings TUI's modal/profile picker pattern.
+This is child 4 of 6 for t597 (the stats TUI). Siblings t597_1 (data refactor),
+t597_2 (skeleton + switcher), t597_3 (12 pane widgets) are all archived. This
+task makes the TUI configurable; t597_5 then removes the obsolete `--plot`
+flag and t597_6 is the aggregate manual-verification sibling.
+
+## Verification Findings (2026-04-20)
+
+Assumptions in the existing plan were re-checked against the current tree:
+
+- ✅ `config_utils.py` exports every helper the plan uses: `load_layered_config`,
+  `split_config`, `save_project_config`, `save_local_config`, `local_path_for`
+  (lines 36, 74, 115, 124, 158).
+- ✅ `.aitask-data/.gitignore` line 8 already covers
+  `aitasks/metadata/*.local.json` — no `.gitignore` edit required.
+- ✅ `stats_app.py` has the `action_config()` stub (line 153) and the
+  priority-binding memory comment (lines 137–143); 12 panes register cleanly.
+- ✅ Board layered-config reference pattern at `aitask_board.py:229–251`.
+- ✅ Modal reference patterns at `settings_app.py` lines 1221 (ProfilePicker),
+  1259 (NewProfile), 1349 (SaveProfileConfirm).
+- ❗ `aitasks/metadata/stats_config.json` does not exist yet — new file.
+- ❗ `stats_config.json` must be committed via `./ait git` (it lives under
+  `aitasks/metadata/`, a symlink to `.aitask-data/`). The commit goes in a
+  separate `./ait git` commit from the Python code changes.
 
 ## Implementation Plan
 
 ### 1. `stats_config.py` — schema + I/O
 
+New file: `.aitask-scripts/stats/stats_config.py`.
+
+**Critical design rule** — runtime saves write ONLY the user-level
+(`stats_config.local.json`, gitignored) layer. The project-level
+`stats_config.json` (tracked, shared) is treated as **read-only at runtime**.
+This keeps shared project state out of the TUI's save path so it never
+produces uncommitted changes the user hasn't asked for, and there is no
+auto-commit or auto-push from the TUI.
+
 ```python
-from pathlib import Path
+from __future__ import annotations
 from lib.config_utils import (
     load_layered_config,
-    split_config,
-    save_project_config,
     save_local_config,
     local_path_for,
 )
 
 METADATA_FILE = "aitasks/metadata/stats_config.json"
 
-DEFAULT_PRESETS = {
+DEFAULT_PRESETS: dict[str, list[str]] = {
     "overview": ["overview.summary", "overview.daily", "overview.weekday"],
     "labels":   ["labels.top", "labels.issue_types", "labels.heatmap"],
     "agents":   ["agents.per_agent", "agents.per_model", "agents.verified"],
     "velocity": ["velocity.daily", "velocity.rolling", "velocity.parent_child"],
 }
 
-DEFAULTS = {
+DEFAULTS: dict = {
     "presets": DEFAULT_PRESETS,
     "active": "overview",
-    "active_pane_id": None,
     "days": 7,
     "week_start": "mon",
     "custom": {},
 }
 
-_PROJECT_KEYS = {"presets"}
-_USER_KEYS = {"active", "active_pane_id", "days", "week_start", "custom"}
+# Keys that live in the user-level (gitignored) file. Everything else stays
+# in the project file and is never written at runtime.
+_USER_KEYS = {"active", "days", "week_start", "custom"}
 
 
 def load() -> dict:
+    """Load the merged layered config (defaults <- project <- user)."""
     return load_layered_config(METADATA_FILE, defaults=DEFAULTS)
 
 
 def save(config: dict) -> None:
-    project_data, user_data = split_config(config, _PROJECT_KEYS, _USER_KEYS)
-    save_project_config(METADATA_FILE, project_data)
-    save_local_config(local_path_for(METADATA_FILE), user_data)
+    """Persist ONLY the user-layer keys to `stats_config.local.json`.
+
+    The project-level `stats_config.json` is not touched at runtime — it
+    ships with the repo and is edited only via explicit, out-of-TUI actions.
+    """
+    user_data = {k: config[k] for k in _USER_KEYS if k in config}
+    save_local_config(str(local_path_for(METADATA_FILE)), user_data)
 
 
 def resolve_active_layout(config: dict) -> list[str]:
@@ -70,13 +108,21 @@ def resolve_active_layout(config: dict) -> list[str]:
         return list(customs[active])
     if active in presets:
         return list(presets[active])
-    # Fallback
     return list(presets.get("overview", DEFAULT_PRESETS["overview"]))
 ```
 
-(Verify the helper names against `lib/config_utils.py` — if names differ, adapt. The pattern is what matters.)
+Notes:
+- No `save_project_config` import — runtime code has no path that writes
+  project state. If a future task adds a "publish preset" flow, it can
+  import `save_project_config` there.
+- Dropped `active_pane_id` from the earlier draft — remembering the
+  highlighted sidebar row across relaunches isn't worth the extra
+  round-trips in t597_4. Can be added later without migration.
 
 ### 2. `modals/name_input.py`
+
+New file. `ModalScreen[str | None]` with one `Input` and OK/Cancel buttons.
+Returns the trimmed name or `None` on cancel/empty.
 
 ```python
 from textual.app import ComposeResult
@@ -103,7 +149,8 @@ class NameInputModal(ModalScreen[str | None]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "ok":
-            self.dismiss(self.query_one("#name_input", Input).value.strip() or None)
+            name = self.query_one("#name_input", Input).value.strip()
+            self.dismiss(name or None)
         else:
             self.dismiss(None)
 
@@ -113,107 +160,213 @@ class NameInputModal(ModalScreen[str | None]):
 
 ### 3. `modals/config_modal.py`
 
-`ModalScreen[Optional[str]]` returning the new active layout name (or `None` if unchanged/cancelled).
+New file. `ModalScreen[str | None]` returning the new active layout name (or
+`None` if unchanged/cancelled).
 
-Layout:
-- Left: `OptionList` of preset names + saved customs + `+ New custom`. Header rows for "Presets" / "Custom".
-- Right: `SelectionList` of all `PANE_DEFS` keys grouped by category. Disabled (read-only) when a preset is selected; enabled when editing/creating a custom.
-- Bottom buttons: `Apply`, `Save as new custom` (visible only when editing right-hand selection), `Delete` (visible only on a custom row), `Close`.
+All writes from this modal go to `config["active"]` and `config["custom"][...]`
+only — both are user-layer keys. `stats_config.save(config)` persists only the
+`stats_config.local.json` file. **Presets are not editable from this modal.**
+
+Layout (Horizontal):
+- **Left pane** — `ListView` of entries:
+  - Header row `"Presets"` (disabled), then each preset name (read-only).
+  - Header row `"Custom"` (disabled), then each saved custom name.
+  - Trailing row `"+ New custom"`.
+- **Right pane** — `SelectionList[str]` of all `PANE_DEFS` keys grouped by
+  category (use `pane.category` for group labels; one `Option` per pane id
+  with `pane.title` as display text).
+- **Bottom bar** — `Horizontal` with buttons:
+  - `Apply` — always visible; persist `config["active"]` = highlighted name,
+    `stats_config.save(config)`, dismiss with the name.
+  - `Save as custom` — visible only when editing a `+ New custom` row or an
+    existing custom; writes `config["custom"][name] = [checked_ids]` and
+    Applies.
+  - `Delete` — visible only when a custom row is highlighted; removes from
+    `config["custom"]` after a `ConfirmModal` (or inline Yes/No).
+  - `Close` — dismiss with `None`.
+
+Key bindings (scoped to the modal):
+- `d` on a custom row = same as Delete.
+- `escape` = Close.
+- `enter` on `+ New custom` = push `NameInputModal`.
 
 Behaviors:
-- Selecting a preset → right pane shows that preset's panes (read-only).
-- Selecting a custom → right pane pre-checks that custom's panes (editable).
-- Selecting `+ New custom` → push `NameInputModal`; on name returned, switch right pane to empty `SelectionList` (editable); on Save, store under `config["custom"][name]` and set active.
-- `Apply` → set `config["active"]` to the highlighted layout name, persist via `stats_config.save()`, dismiss with the new name.
-- `Delete` (on a custom) → confirm via `AskUserQuestion`-equivalent (Textual: a small confirm modal); remove from `config["custom"]`, persist, refresh.
-- `d` keybinding shortcut on the left list = same as Delete button (only when a custom is highlighted).
+- Left row change:
+  - On preset → right pane reflects that preset's pane ids, `SelectionList`
+    disabled (read-only preview — presets cannot be modified here).
+  - On custom → right pane pre-checks the custom's pane ids, enabled.
+  - On `+ New custom` → push `NameInputModal`; when the name returns, clear
+    the right pane selection and enable it for editing.
 
-### 4. `stats_app.py` integration
+Reference patterns to mirror:
+- `settings_app.py:1221` `ProfilePickerScreen` — the overall modal/list idiom.
+- `settings_app.py:1259` `NewProfileScreen` — input flow for a new name.
+- `settings_app.py:1349` `SaveProfileConfirmScreen` — confirm before destructive
+  save/overwrite.
+
+### 4. `modals/__init__.py`
+
+Empty package marker — just allows `from stats.modals.config_modal import ConfigModal`.
+
+### 5. `stats_app.py` integration
+
+Replace the `HARDCODED_LAYOUT` path with a config-driven one:
 
 ```python
 from stats import stats_config
 from stats.modals.config_modal import ConfigModal
 
-class StatsApp(...):
-    def on_mount(self) -> None:
-        self.config = stats_config.load()
-        self._refresh_sidebar()
-        self._load_data()
-        ...
-
-    def _refresh_sidebar(self) -> None:
-        layout = stats_config.resolve_active_layout(self.config)
-        sidebar = self.query_one("#sidebar", ListView)
-        sidebar.clear()
-        for pid in layout:
-            if pid in PANE_DEFS:
-                sidebar.append(ListItem(Label(PANE_DEFS[pid].title), id=pid.replace(".", "_")))
+class StatsApp(TuiSwitcherMixin, App):
+    def __init__(self) -> None:
+        super().__init__()
+        self.current_tui_name = "stats"
+        self.stats_data: StatsData | None = None
+        self.config: dict = stats_config.load()
+        self.active_layout: list[str] = [
+            pid for pid in stats_config.resolve_active_layout(self.config)
+            if pid in PANE_DEFS
+        ]
 
     def action_config(self) -> None:
         def _on_done(new_active: str | None) -> None:
             if new_active is None:
                 return
-            self.config["active"] = new_active
-            self._refresh_sidebar()
-            # Optionally re-show first pane in the new layout
+            # Reload to pick up any edits made inside the modal (custom saves).
+            self.config = stats_config.load()
+            self.active_layout = [
+                pid for pid in stats_config.resolve_active_layout(self.config)
+                if pid in PANE_DEFS
+            ]
+            self._rebuild_sidebar()
         self.push_screen(ConfigModal(self.config), _on_done)
+
+    def _rebuild_sidebar(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        sidebar.clear()
+        for pid in self.active_layout:
+            sidebar.append(ListItem(Label(PANE_DEFS[pid].title),
+                                    id=_pane_id_to_widget_id(pid)))
+        if self.active_layout:
+            self._show_pane(self.active_layout[0])
+            sidebar.index = 0
 ```
 
-### 5. Ship project preset file
+Keep `HARDCODED_LAYOUT` as a fallback constant for empty-config first-run
+safety (used by `DEFAULTS["presets"]["overview"]` — they match). Delete the
+inline module-level constant and replace with the `DEFAULT_PRESETS` import.
 
-Create `aitasks/metadata/stats_config.json`:
+### 6. Ship the project preset file
+
+Create `aitasks/metadata/stats_config.json` as a **one-time implementation
+commit** — the TUI never rewrites this file at runtime:
 
 ```json
 {
   "presets": {
-    "overview":  ["overview.summary", "overview.daily", "overview.weekday"],
-    "labels":    ["labels.top", "labels.issue_types", "labels.heatmap"],
-    "agents":    ["agents.per_agent", "agents.per_model", "agents.verified"],
-    "velocity":  ["velocity.daily", "velocity.rolling", "velocity.parent_child"]
+    "overview": ["overview.summary", "overview.daily", "overview.weekday"],
+    "labels":   ["labels.top", "labels.issue_types", "labels.heatmap"],
+    "agents":   ["agents.per_agent", "agents.per_model", "agents.verified"],
+    "velocity": ["velocity.daily", "velocity.rolling", "velocity.parent_child"]
   }
 }
 ```
 
-Commit via `./ait git add aitasks/metadata/stats_config.json && ./ait git commit -m "ait: Add stats TUI presets (t597_4)"`. (Wait — frontmatter says `feature` not `ait`. The presets file is **shipped data**, treat it as part of the implementation commit; not a separate `ait:` admin commit.)
+The user's active layout and custom layouts land in the gitignored
+`stats_config.local.json` on first modal save. No auto-push from the TUI.
 
-### 6. .gitignore
+### 7. Gitignore
 
-Verify `.gitignore` covers `aitasks/metadata/*.local.json` (the existing `*.local.json` rule likely does). If not, append:
+No action required — `.aitask-data/.gitignore` line 8
+(`aitasks/metadata/*.local.json`) already covers `stats_config.local.json`.
+Verify again post-implementation that `git status` does not list the local
+file after a modal save.
 
-```
-aitasks/metadata/stats_config.local.json
-```
+### 8. Priority-binding guards (as-needed)
 
-### 7. Priority binding caveat (memory)
+The existing `action_refresh`/`action_config`/... handlers on `StatsApp` don't
+currently discriminate between the default screen and a pushed modal. When the
+modal is pushed, Textual's screen stack should give modal bindings priority,
+but per the project's `feedback_textual_priority_bindings` memory, `App.query_one`
+walks the entire stack — so app-level actions can inadvertently fire for the
+wrong screen.
 
-Per `feedback_textual_priority_bindings`: when the modal is open, app-level `c`, `up`, `down`, `r` must NOT swallow keys destined for the modal. Inside each `action_*` in `StatsApp`:
+Tactical approach: after wiring up the modal, manually test `r` / `c` / arrow
+keys while the modal is open. If any fire app-level actions instead of modal
+bindings, add `SkipAction` guards:
 
 ```python
+from textual.actions import SkipAction
+from textual.screen import ModalScreen
+
 def action_config(self) -> None:
-    if not isinstance(self.screen, type(self.default_screen)):
-        from textual.actions import SkipAction
+    if isinstance(self.screen, ModalScreen):
         raise SkipAction()
-    # ... open modal
+    self.push_screen(ConfigModal(self.config), self._on_config_done)
 ```
 
-(Or simpler: add `priority=False` and rely on Textual's default screen-stack ordering — verify which approach matches the rest of the codebase.)
+Only add guards that the manual test actually shows needing — no speculative
+guarding.
 
 ## Verification
 
 ```bash
-ait stats-tui
-# Press c → modal. Pick "Labels" → Apply → sidebar shows label panes.
-# c → "+ New custom" → name "myview" → check "overview.daily" + "agents.per_model" → Save → sidebar updates.
-# q → quit.
-ait stats-tui                                # "myview" still active (persistence works)
+# Layered load returns the shipped presets.
+python3 -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from stats import stats_config
+cfg = stats_config.load()
+assert set(cfg['presets']) == {'overview','labels','agents','velocity'}, cfg['presets']
+assert cfg['active'] == 'overview'
+print('PASS')
+"
 
-cat aitasks/metadata/stats_config.json       # 4 presets present, no user state
-cat aitasks/metadata/stats_config.local.json # active="myview", custom contains "myview"
-git status                                   # stats_config.local.json NOT listed (gitignored)
-git ls-files aitasks/metadata/ | grep stats  # only stats_config.json tracked
+# TUI flow
+ait stats-tui
+#   c  → modal opens; presets listed
+#   pick 'labels' → Apply → sidebar = labels panes
+#   c → + New custom → name 'myview' → check 2–3 panes → Save as custom
+#       → sidebar updates to 'myview' panes
+#   q
+ait stats-tui
+#   sidebar starts on 'myview' panes (persistence)
+#   c → highlight 'myview' → Delete → confirm → layout falls back to overview
+#   q
+
+# On-disk hygiene
+cat aitasks/metadata/stats_config.json        # presets only, no user state
+cat aitasks/metadata/stats_config.local.json  # active + custom
+git status | grep stats_config                # .local.json NOT listed
+./ait git status | grep stats_config          # .local.json NOT listed
+
+shellcheck .aitask-scripts/aitask_stats_tui.sh
 ```
+
+## Commits (implementation-time only)
+
+Two commits, kept separate per CLAUDE.md "Never mix code files and aitasks/aiplans":
+
+1. **Code commit (regular `git`):**
+   - Files: `.aitask-scripts/stats/stats_config.py`,
+     `.aitask-scripts/stats/modals/__init__.py`,
+     `.aitask-scripts/stats/modals/config_modal.py`,
+     `.aitask-scripts/stats/modals/name_input.py`,
+     `.aitask-scripts/stats/stats_app.py`
+   - Message: `feature: Add stats TUI config modal and layered persistence (t597_4)`
+
+2. **Preset data commit (`./ait git`):**
+   - File: `aitasks/metadata/stats_config.json`
+   - Message: `feature: Ship stats TUI preset definitions (t597_4)`
+
+Both pushes are done manually at archive time as part of the normal Step 9
+flow. The TUI itself never commits or pushes.
 
 ## Out of Scope
 
-- Removing `--plot` (t597_5).
-- Manual end-to-end verification (t597_6).
+- Removing the `ait stats --plot` flag and updating docs (t597_5).
+- Manual end-to-end verification of the full feature (t597_6).
+- Changing the weekly `week_start` or `days` window behavior at render time —
+  the config schema reserves keys for these, but wiring them into
+  `collect_stats()` is deferred.
+- Editing presets from within the TUI. Presets are shipped project state and
+  remain read-only at runtime; a future task can add an explicit
+  "publish preset" flow if that becomes useful.
