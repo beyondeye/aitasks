@@ -143,7 +143,7 @@ The original plan item 6 said "Tighten overview/getting-started prose where redu
 - `grep -l "^\*\*Next:\*\*" website/content/docs/installation/*.md` returns all four subfolder pages plus `_index.md`.
 - `grep "Start here" website/content/docs/skills/_index.md` returns the new callout.
 - `grep -c "(Main concepts)" website/content/docs/concepts/_index.md` returns 5 (tasks, plans, parent-child, task-lifecycle, locks).
-- `grep -c "(Reference)" website/content/docs/concepts/_index.md` returns 8 (folded-tasks, review-guides, execution-profiles, verified-scores, agent-attribution, git-branching-model, ide-model, agent-memory).
+- `grep -c "(Reference)" website/content/docs/concepts/_index.md` returns 0 (Reference markers removed per post-review request; only Main concepts markers retained — see Post-Review Changes).
 - `grep -c "curl -fsSL" install.sh` — the URL line exists; `diff <(grep "curl -fsSL" install.sh) <(grep "curl -fsSL" website/content/docs/installation/_index.md)` — mismatch flagged if any.
 - `cd website && hugo build --gc --minify` — 0 new warnings.
 - Read the onboarding path cold: `_index.md` → `overview.md` → `installation/_index.md` → `getting-started.md` → `workflows/tmux-ide.md`. Each Next: link resolves and reads coherently as a first-time user flow.
@@ -162,10 +162,49 @@ Performed during plan verification under fast-profile `plan_preference_child: ve
 ## Notes for sibling tasks (t594_4, t594_5, t594_6)
 
 - **`skills/_index.md`** now has a top "Start here" callout pointing at `/aitask-pick`. When t594_4 polishes category descriptions, leave the callout in place (it sits between the lead paragraph and the existing multi-agent support blockquote).
-- **`concepts/_index.md`** bullets now carry `*(Main concepts)*` / `*(Reference)*` markers. If t594_6 (concepts/commands/development) reorders or adds bullets, keep the marker annotation pattern.
+- **`concepts/_index.md`** bullets now carry `*(Main concepts)*` markers on the five foundational concepts (tasks, plans, parent-child, task-lifecycle, locks). Other bullets are left unmarked (per post-review, `*(Reference)*` marker was removed — absence of marker implies reference material). If t594_6 (concepts/commands/development) reorders or adds bullets, preserve the asymmetric marker pattern: mark new foundational concepts with `*(Main concepts)*`; leave reference-tier bullets unmarked.
 - **Main reading sequence** is fixed as: `docs/_index → overview → installation → getting-started → workflows/tmux-ide`. Do not rewire.
 - **Installation subfolder Next chain** is now: `_index → windows-wsl → terminal-setup → known-issues → git-remotes → (back to getting-started)`. If new installation pages are added, splice them by weight.
 
 ## Step 9 reference
 
 No worktree (`create_worktree: false`). `verify_build` in `project_config.yaml` is null, so Hugo build verification is this task's responsibility (run before committing). Archive via `./.aitask-scripts/aitask_archive.sh 594_3` after Step 8 approval.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-04-20)
+
+- **Requested by user:** Remove `*(Reference)*` markers from `concepts/_index.md`; keep only `*(Main concepts)*` markers. Rationale: asymmetric marking (mark the foundational subset, leave the rest unmarked) gives the same visual signal with less noise, and avoids labelling every reference concept twice.
+- **Changes made:** Stripped 8 `*(Reference)*` occurrences from `concepts/_index.md` (folded-tasks, review-guides, execution-profiles, verified-scores, agent-attribution, git-branching-model, ide-model, agent-memory). Retained the 5 `*(Main concepts)*` markers on tasks, plans, parent-child, task-lifecycle, locks. Thematic groupings (Data model / Workflow primitives / Lifecycle and infrastructure) preserved. Hugo rebuild: 148 pages, 0 warnings, 749 ms.
+- **Files affected:** `website/content/docs/concepts/_index.md`, `aiplans/p594/p594_3_onboarding_flow_sweep.md` (verification-section and sibling-notes updated to reflect the asymmetric marker scheme).
+
+### Follow-up tasks spawned
+
+- **t594_7** (sibling under t594) — "Docsy labels support": proper Hugo/Docsy taxonomy infrastructure so labels like `main-concepts`, `experimental-feature` (for brainstorm/agent-crews/diffviewer), and `reference` can be applied site-wide and rendered as pills / filterable taxonomy pages. Will supersede the manual `*(Main concepts)*` marker pattern introduced here.
+- **t600** (new parent task, not a sibling) — "Hugo/Docsy upgrade review": audit whether the pinned Hugo/Docsy versions (local and GitHub Actions release workflow) are worth upgrading; upgrade if release notes show material payoff.
+
+## Final Implementation Notes
+
+- **Actual work done:** 7 website files touched under `website/content/docs/`:
+  - `_index.md` — added a `**Next:** [Overview]` footer (previously no Next pointer — the single genuinely missing main-path link).
+  - `installation/windows-wsl.md`, `installation/terminal-setup.md`, `installation/known-issues.md`, `installation/git-remotes.md` — added intra-installation `**Next:**` chain per weight order (`_index → windows-wsl → terminal-setup → known-issues → git-remotes → back to getting-started`). `terminal-setup.md`'s existing `## Next steps` H2 list was preserved; the one-line Next footer was appended after it.
+  - `skills/_index.md` — inserted a `> **Start here:** /aitask-pick is the hub skill...` callout between the lead paragraph and the existing `> **Multi-agent support:**` blockquote.
+  - `concepts/_index.md` — annotated 5 bullets with `*(Main concepts)*` markers (tasks, plans, parent-child, task-lifecycle, locks). After post-review, the 8 `*(Reference)*` markers were stripped (asymmetric marker scheme per user direction).
+- **Plan deviations:** All deviations are captured in the `Verification Updates (2026-04-20)` section above (verify-path corrections before implementation) and the `Post-Review Changes` section (change request 1, mid-review). Main deviations from the original plan:
+  - Premise correction: the original "no Next: pointers exist" claim was obsolete; scope narrowed to the genuinely missing links.
+  - Main reading sequence: kept existing (`overview → installation → getting-started → tmux-ide`) rather than rewiring to the plan's proposal.
+  - Concepts intro: kept existing thematic groupings; added `*(Main concepts)*` markers only (asymmetric after post-review).
+  - Prose tightening and `skills/_index.md` category-description polishing: dropped (covered by t594_2 / reserved for t594_4).
+- **Issues encountered:**
+  1. During Hugo build verification, the Bash working directory persisted to `website/` after `cd website && hugo build`. Subsequent `aitask_create.sh` invocations failed with "No such file or directory". Resolved by prefixing `cd /home/ddt/Work/aitasks &&` on the next shell call (same issue documented by t594_2).
+- **Key decisions:**
+  - Intra-installation Next chain placed as a **secondary navigation aid** — `installation/_index.md`'s existing `**Next:** Getting Started` pointer was left intact (main path), while the installation-deep-dive chain loops back to Getting Started from `git-remotes.md`.
+  - `terminal-setup.md`'s existing multi-link `## Next steps` H2 list was preserved verbatim — the one-line `**Next:**` footer was appended below it. Reason: the H2 list gives readers who finish terminal setup three meaningful onward directions (Getting Started / tmux-ide / Monitor TUI), which is more useful than a single-link footer. The footer adds the intra-installation chain without erasing that value.
+  - `concepts/_index.md` marker scheme ended up asymmetric (mark the 5 foundational concepts, leave everything else unmarked). Cleaner than labelling both buckets, and matches the user's intuition that "reference" is the unmarked default.
+- **Notes for sibling tasks (t594_4, t594_5, t594_6, t594_7):**
+  - **`skills/_index.md`** carries a top "Start here" callout pointing at `/aitask-pick`. t594_4: do not remove it when polishing category descriptions.
+  - **`concepts/_index.md`** uses an asymmetric marker scheme: 5 `*(Main concepts)*` markers, reference bullets unmarked. t594_6: preserve the scheme when reorganizing; t594_7 will likely supersede these manual markers with taxonomy-driven rendering once Docsy labels are configured.
+  - **Main reading sequence** is fixed as `docs/_index → overview → installation → getting-started → workflows/tmux-ide`. Future sweeps should not rewire it.
+  - **Installation subfolder Next chain** is `_index → windows-wsl → terminal-setup → known-issues → git-remotes → (loops back to getting-started)`. Splice new installation pages by weight if added.
+  - **Follow-ups spawned:** t594_7 (Docsy labels support — sibling), t600 (Hugo/Docsy upgrade review — new parent).
+- **Build verification:** `cd website && hugo build --gc --minify` — 148 pages, 0 warnings, 749 ms.
