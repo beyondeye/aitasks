@@ -45,10 +45,15 @@ Add an explicit reminder in the procedure body: "Before writing `<tmp_checklist>
 - **Mention Step 8c explicitly** in SKILL.md Step 6 post-checkpoint summary AND in the Step 8 → Step 9 handoff language.
 - **Remove or deprecate** the current post-plan sub-procedure in `planning.md:334-367` so the prompt only fires once (post-implementation). Update the Step 6 Checkpoint references at `planning.md:295` and `planning.md:308` to simply proceed to Step 7.
 
+### 4. Remove the follow-up prompt from `/aitask-explore`
+
+`.claude/skills/aitask-explore/SKILL.md` (Step 3, "Manual verification follow-up (optional)" block) currently asks whether to create a manual-verification follow-up right after the new task is created — this was not the intended behavior. Manual-verification follow-ups are a **post-implementation** decision; prompting during task creation (before there is even a plan, let alone a diff) cannot pull from any of the discovery channels listed in §2, so the checklist seed is always just `TODO: define verification for t<N>`. Remove the block entirely from `aitask-explore` so the post-implementation Step 8c becomes the single point where this question is asked.
+
 ## Key Files to Modify
 
 - `.claude/skills/task-workflow/SKILL.md` — add Step 8c, add guard variable to Context Requirements, update Step 6 post-checkpoint summary.
 - `.claude/skills/task-workflow/planning.md` — remove the obsolete `### Manual Verification Follow-up (single-task path)` section and the two hooks that jumped to it.
+- `.claude/skills/aitask-explore/SKILL.md` — remove the "Manual verification follow-up (optional)" block from Step 3.
 - `.aitask-scripts/aitask_create_manual_verification.sh` — may need a `--merge-items` or multi-source option if the checklist aggregation is done shell-side; otherwise the procedure assembles `<tmp_checklist>` before calling the seeder.
 
 ## Cross-agent port
