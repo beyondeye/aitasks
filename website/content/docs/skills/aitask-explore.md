@@ -9,8 +9,10 @@ Explore the codebase interactively with guided investigation, then create a task
 
 **Usage:**
 ```
-/aitask-explore
+/aitask-explore [--profile <name>]
 ```
+
+The optional `--profile <name>` argument overrides execution-profile selection for this invocation, mirroring `/aitask-pick --profile`.
 
 > **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
 >
@@ -18,14 +20,14 @@ Explore the codebase interactively with guided investigation, then create a task
 
 ## Step-by-Step
 
-1. **Profile selection** — Same profile system as `/aitask-pick`
-2. **Exploration setup** — Choose an exploration mode:
+1. **Exploration setup** — Choose an exploration mode:
    - **Investigate a problem** — Debug an issue, trace a symptom, find a root cause. Creates bug tasks by default
    - **Explore codebase area** — Understand a module, map its structure and dependencies. Offers two ways to specify the target: search for files interactively (by keyword, name, or functionality) or describe the area in free text
    - **Scope an idea** — Discover what code is affected by a proposed change
    - **Explore documentation** — Find documentation gaps, outdated docs, or missing help text
-3. **Iterative exploration** — The skill explores the codebase using the selected strategy. After each round, it presents findings and offers to continue exploring, create a task, or abort
-4. **Task creation** — Summarizes all findings and creates a task file with metadata pre-filled based on the exploration type
+2. **Iterative exploration** — The skill explores the codebase using the selected strategy. After each round, it presents findings and offers to continue exploring, create a task, or abort
+3. **Task creation** — Summarizes all findings and creates a task file with metadata pre-filled based on the exploration type (and optionally folds in related pending tasks)
+4. **Profile selection** — Same profile system as `/aitask-pick`. Deferred until after task creation so exploration itself is profile-independent; profile choice only affects the downstream handoff
 5. **Optional handoff** — After task creation, choose to continue directly to implementation (via the standard `/aitask-pick` skill) or save the task for later
 
 ## Key Capabilities
@@ -60,3 +62,8 @@ To fold tasks outside of the explore skill, use [`/aitask-fold`](../aitask-fold/
 ## Workflows
 
 For a full workflow guide covering exploration modes and use cases, see [Exploration-Driven Development](../../workflows/exploration-driven/).
+
+## Related
+
+- [`/aitask-fold`](../aitask-fold/) — Standalone task folding without exploration
+- [`/aitask-pick`](../aitask-pick/) — The downstream implementation skill that picks up the task created here

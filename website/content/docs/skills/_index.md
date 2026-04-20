@@ -30,7 +30,7 @@ Core workflow skills for picking and implementing tasks.
 
 ### Task Management
 
-Create, organize, import, and wrap tasks.
+Create, organize, and wrap tasks.
 
 | Skill | Description |
 |-------|-------------|

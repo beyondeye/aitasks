@@ -18,10 +18,11 @@ Retroactively wraps uncommitted changes into the aitasks framework. When you've 
 
 1. **Detect changes** — Scans for uncommitted changes (staged, unstaged, and untracked). Aborts if nothing to wrap
 2. **Select files** — Choose to include all changes or select specific files
-3. **Analyze diff** — Reads the full diff and determines: factual summary, probable intent, suggested issue type, task name, labels, priority, and effort
+3. **Analyze diff** — Reads the full diff and determines: factual summary, probable intent, suggested issue type, task name, labels, priority, and effort. In Claude Code, also checks `~/.claude/plans/` for a recent internal plan that matches the changes and incorporates it into the plan file if found
 4. **Confirm analysis** — Presents the analysis for review. Adjust task name, metadata, or descriptions before proceeding
 5. **Execute** — After a final confirmation gate, runs everything without further prompts: creates task file → creates plan file → commits code changes → archives task and plan → pushes to remote
 6. **Summary** — Displays the created task, plan, commit hashes, and archive status
+7. **Satisfaction feedback** — Optional prompt to record how well the wrap served your needs. Controlled by `enableFeedbackQuestions`; see [Verified Scores](../verified-scores/)
 
 ## Key Capabilities
 
@@ -44,3 +45,7 @@ Use `/aitask-wrap` when you've accumulated uncommitted changes that weren't trac
 ## Workflows
 
 For a full workflow guide covering walkthroughs and use cases, see [Retroactive Change Tracking](../../workflows/retroactive-tracking/).
+
+## Related
+
+- [`/aitask-pick`](../aitask-pick/) — Forward-looking counterpart: plan and implement a task before writing code

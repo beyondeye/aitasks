@@ -70,3 +70,9 @@ After completion, skills can prompt for a satisfaction rating (1--5) that feeds 
 ## Workflows
 
 For workflow guides covering specific use cases, see [Task Decomposition](../../workflows/task-decomposition/) and [Parallel Development](../../workflows/parallel-development/).
+
+## Related
+
+- [`/aitask-qa`](../aitask-qa/) — Post-implementation QA analysis and test plan generation
+- [`/aitask-review`](../aitask-review/) — Run code review guides over the codebase and create tasks from findings
+- [`/aitask-revert`](../aitask-revert/) — Revert changes from a completed task if an implementation needs to be undone

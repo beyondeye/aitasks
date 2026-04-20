@@ -26,6 +26,8 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They are loaded 
 | `base_branch` | string | Branch name used when creating a worktree |
 | `plan_preference` | string | `"use_current"`, `"verify"`, or `"create_new"` |
 | `plan_preference_child` | string | Same values as `plan_preference`, but only for child tasks |
+| `plan_verification_required` | int | Minimum fresh `plan_verified` entries required to skip verification when `plan_preference` is `"verify"` (default `1`) |
+| `plan_verification_stale_after_hours` | int | Hours after which a `plan_verified` entry is considered stale (default `24`) |
 | `post_plan_action` | string | `"start_implementation"` skips the post-plan checkpoint |
 | `post_plan_action_for_child` | string | Same values as `post_plan_action`, but only for child tasks |
 | `enableFeedbackQuestions` | bool | `false` disables satisfaction feedback prompts; `true` or omitted keeps them enabled. See [Verified Scores](../../verified-scores/) |
@@ -35,6 +37,10 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They are loaded 
 | `qa_tier` | string | `"quick"`, `"standard"`, or `"exhaustive"` — pre-selects the QA analysis depth tier |
 
 Omitting a key means that question is asked interactively. `enableFeedbackQuestions` is enabled by default when the key is absent.
+
+## Remote-Mode Profile Fields
+
+Remote and web workflows recognize additional profile keys (`force_unlock_stale`, `done_task_action`, `orphan_parent_action`, `complexity_action`, `review_action`, `issue_action`, `abort_plan_action`, `abort_revert_status`). For the full table with types and defaults, see [`/aitask-pickrem` → Remote-Specific Profile Fields](../aitask-pickrem/#remote-specific-profile-fields).
 
 ## Example
 

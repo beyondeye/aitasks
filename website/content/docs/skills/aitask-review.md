@@ -53,3 +53,7 @@ To manage review guides, see the companion skills:
 ## Workflows
 
 For a full workflow guide covering the review cycle and guide management, see [Code Review](../../workflows/code-review/).
+
+## Related
+
+- [`/aitask-pick`](../aitask-pick/) — Implement the tasks created from review findings

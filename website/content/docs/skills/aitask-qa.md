@@ -28,6 +28,7 @@ Run QA analysis on any task — discover tests, run them, identify gaps, and cre
 6. **Test execution** [All tiers] — Runs discovered tests using configured commands or auto-detection, presents PASS/FAIL summary. Includes a health score [Standard, Exhaustive] and verification gate [Exhaustive]
 7. **Test plan proposal** [Standard, Exhaustive] — Generates test proposals (unit, integration, edge cases) with regression test hints for bug-fix tasks. For Exhaustive tier, includes edge case brainstorming (concurrency, resource exhaustion, platform quirks, malformed input)
 8. **Follow-up task creation** (optional) — Creates a follow-up test task as a sibling (for child tasks) or standalone task, pre-filled with the test plan
+9. **Satisfaction feedback** — Optional prompt to record how well the QA analysis served your needs. Controlled by `enableFeedbackQuestions`; see [Verified Scores](../verified-scores/)
 
 ## Three Tiers
 

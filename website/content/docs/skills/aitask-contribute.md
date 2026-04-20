@@ -43,3 +43,7 @@ Use `/aitask-contribute` to turn local changes into a structured contribution is
 ## Workflows
 
 For the end-to-end contribution flow, including how maintainers import and implement contributed work, see [Contribute and Manage Contributions](../../workflows/contribute-and-manage/).
+
+## Related
+
+- [`/aitask-contribution-review`](../aitask-contribution-review/) — Maintainer-side companion: analyze incoming contribution issues and import them as grouped or single tasks
