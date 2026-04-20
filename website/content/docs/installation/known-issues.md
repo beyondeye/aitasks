@@ -72,3 +72,7 @@ OpenCode may produce high-level overviews instead of detailed step-by-step imple
 - aitasks Gemini mapping note: [`.gemini/skills/geminicli_tool_mapping.md`](https://github.com/beyondeye/aitasks/blob/main/.gemini/skills/geminicli_tool_mapping.md)
 - OpenCode plan mode prereqs: [`.opencode/skills/opencode_planmode_prereqs.md`](https://github.com/beyondeye/aitasks/blob/main/.opencode/skills/opencode_planmode_prereqs.md)
 - [`ait codeagent`](../../commands/codeagent/) — unified agent wrapper with `AITASK_AGENT_STRING` support
+
+---
+
+**Next:** [Git Remotes]({{< relref "git-remotes" >}})

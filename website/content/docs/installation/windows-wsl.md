@@ -98,3 +98,7 @@ The default WSL terminal (Windows Terminal) supports tabs and is fully functiona
 ## Known Issues
 
 - **Legacy console:** The old Windows Console Host (conhost.exe) has limited TUI support. Use Windows Terminal, Warp, or VS Code's integrated terminal instead.
+
+---
+
+**Next:** [Terminal Setup]({{< relref "terminal-setup" >}})

@@ -54,3 +54,7 @@ Note: `bkt` requires a context to be configured. After authentication, create on
 bkt context create myproject --host "https://api.bitbucket.org/2.0" \
     --workspace <your-workspace> --repo <your-repo> --set-active
 ```
+
+---
+
+**Next:** [Getting Started]({{< relref "/docs/getting-started" >}})
