@@ -113,15 +113,19 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 
 **[Documentation Website](https://aitasks.io/)** — Browse the full documentation online.
 
+- **[Overview](https://aitasks.io/docs/overview/)** — The challenge aitasks addresses, its core philosophy, and key features of the agentic IDE.
+
 - **[Installation](https://aitasks.io/docs/installation/)** — Quick install, platform support, setup, and git remote authentication.
 
 - **[Getting Started](https://aitasks.io/docs/getting-started/)** — First-time walkthrough from install to completing your first task.
 
-- **[Kanban Board](https://aitasks.io/docs/board/)** — Visual task management with the TUI board: tutorials, how-to guides, keyboard shortcuts, and configuration.
+- **[Concepts](https://aitasks.io/docs/concepts/)** — What each building block is and why it exists: tasks, plans, parent/child, folded tasks, review guides, execution profiles, verified scores, agent attribution, locks, and the IDE model.
 
-- **[Workflow Guides](https://aitasks.io/docs/workflows/)** — End-to-end guides for common usage patterns: capturing ideas fast, complex task decomposition, parallel development, and more.
+- **[TUI Applications](https://aitasks.io/docs/tuis/)** — The terminal IDE: Monitor, Minimonitor, Board, Code Browser, Settings, and Brainstorm — hop between them with a single keystroke via `ait ide`.
 
-- **[Claude Code Skills](https://aitasks.io/docs/skills/)** — Reference for `/aitask-pick`, `/aitask-explore`, `/aitask-create`, and other skill integrations.
+- **[Workflow Guides](https://aitasks.io/docs/workflows/)** — End-to-end guides for common usage patterns: capturing ideas fast, tmux IDE, complex task decomposition, parallel development, code review, QA, PR workflow, and more.
+
+- **[Code Agent Skills](https://aitasks.io/docs/skills/)** — Reference for `/aitask-pick`, `/aitask-explore`, `/aitask-create`, and other skill integrations across Claude Code, Gemini CLI, Codex CLI, and OpenCode.
 
 - **[Command Reference](https://aitasks.io/docs/commands/)** — Complete CLI reference for all `ait` subcommands.
 
