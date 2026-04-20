@@ -70,15 +70,18 @@ Agent panes whose window name contains a task ID (e.g., `agent-t42-claudecode`) 
 
 ### Preview Size Presets
 
-Pressing `z` cycles through three preview size presets:
+Pressing `z` cycles through six preview size presets:
 
-| Label | Section max height | Preview max height |
-|-------|-------------------|--------------------|
-| `S` | 12 | 10 |
-| `M` (default) | 24 | 22 |
-| `L` | 40 | 38 |
+| Label | Section max height | Preview max height | Notes |
+|-------|-------------------|--------------------|-------|
+| `S` | 12 | 10 | Largest pane-list, smallest preview |
+| `M` (default) | 24 | 22 | Balanced |
+| `L` | 40 | 38 | Large preview |
+| `XL_9` | auto | auto | Sized so the pane-list fits 9 agents; preview takes the rest |
+| `XL_6` | auto | auto | Sized so the pane-list fits 6 agents; preview takes the rest |
+| `XL_3` | auto | auto | Sized so the pane-list fits 3 agents; preview takes the rest (largest preview) |
 
-A notification shows the new size label when you cycle.
+The `XL_N` presets are **terminal-aware**: they compute the section height from the current terminal height so the pane-list always has room for N agent cards (2 lines each). Resizing the terminal while in an `XL_N` preset re-applies the sizing. A notification shows the new size label when you cycle.
 
 ### Configuration
 

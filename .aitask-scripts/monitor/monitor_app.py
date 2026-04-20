@@ -58,14 +58,22 @@ class Zone(Enum):
 ZONE_ORDER = [Zone.PANE_LIST, Zone.PREVIEW]
 
 # Preview panel size presets: (section_max_height, preview_max_height, label)
-# A value of "fullscreen" for the heights means: resolve from self.size.height
-# at apply time, leaving PREVIEW_FULLSCREEN_RESERVE lines for the rest of the UI.
-PREVIEW_FULLSCREEN_RESERVE = 10
+#
+# Numeric heights are applied as-is. String heights of the form "agents:N"
+# mean: size the pane-list to fit N agent cards and give the rest of the
+# terminal to the preview section (resolved at apply time).
+PREVIEW_AGENT_CARD_LINES = 2     # worst-case lines per PaneCard (status row + task title row)
+PREVIEW_LAYOUT_FIXED_LINES = 5   # header + session-bar + footer (3) + pane-list top/bottom border (2)
+PREVIEW_MIN_SECTION_H = 4        # minimum section height so preview is never fully hidden
+PREVIEW_MIN_PREVIEW_H = 2        # minimum inner scroll height
+
 PREVIEW_SIZES = [
     (12, 10, "S"),
     (24, 22, "M"),
     (40, 38, "L"),
-    ("fullscreen", "fullscreen", "XL"),
+    ("agents:9", "agents:9", "XL_9"),
+    ("agents:6", "agents:6", "XL_6"),
+    ("agents:3", "agents:3", "XL_3"),
 ]
 PREVIEW_DEFAULT_SIZE = 1  # Medium
 
@@ -1214,7 +1222,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         self.notify("Refreshed")
 
     def action_cycle_preview_size(self) -> None:
-        """Cycle the preview pane through S/M/L/XL sizes."""
+        """Cycle the preview pane through S/M/L/XL_N sizes."""
         self._preview_size_idx = (self._preview_size_idx + 1) % len(PREVIEW_SIZES)
         self._apply_preview_size()
 
@@ -1222,11 +1230,15 @@ class MonitorApp(TuiSwitcherMixin, App):
         """Apply the current preview size index to the preview widgets."""
         section_h, preview_h, label = PREVIEW_SIZES[self._preview_size_idx]
 
-        if section_h == "fullscreen":
+        if isinstance(section_h, str) and section_h.startswith("agents:"):
+            # Dynamic mode: size the pane-list to fit N agent cards; the
+            # preview section gets whatever vertical space remains.
             # self.size may be (0, 0) before the first layout pass.
+            n_agents = int(section_h.split(":", 1)[1])
             screen_h = self.size.height or 40
-            section_h = max(10, screen_h - PREVIEW_FULLSCREEN_RESERVE)
-            preview_h = max(8, section_h - 2)
+            reserve = PREVIEW_LAYOUT_FIXED_LINES + n_agents * PREVIEW_AGENT_CARD_LINES
+            section_h = max(PREVIEW_MIN_SECTION_H, screen_h - reserve)
+            preview_h = max(PREVIEW_MIN_PREVIEW_H, section_h - 2)
 
         try:
             section = self.query_one("#content-section")
@@ -1270,9 +1282,9 @@ class MonitorApp(TuiSwitcherMixin, App):
         )
 
     def on_resize(self, event) -> None:
-        """Recompute XL sizing when the terminal is resized."""
+        """Recompute dynamic sizing specs (agents:N) when the terminal is resized."""
         section_spec, _, _ = PREVIEW_SIZES[self._preview_size_idx]
-        if section_spec == "fullscreen":
+        if isinstance(section_spec, str) and section_spec.startswith("agents:"):
             self._apply_preview_size()
 
     def action_toggle_auto_switch(self) -> None:

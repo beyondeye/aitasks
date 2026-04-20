@@ -127,7 +127,7 @@ Monitor resolves the next ready sibling via the task cache and starts a new agen
 
 ### How to Cycle the Preview Size
 
-Press **z** to cycle the preview zone through three size presets — **S**, **M**, **L** — for quickly adjusting how much pane output you see at once. A notification shows the new size label. The default is **M**.
+Press **z** to cycle the preview zone through six size presets — **S**, **M**, **L**, **XL_9**, **XL_6**, **XL_3** — for quickly adjusting how much pane output vs. agent-list you see at once. The `S/M/L` presets set a fixed preview height; the `XL_N` presets size the pane-list to fit N agents and give the rest of the screen to the preview. A notification shows the new size label. The default is **M**.
 
 ### How to Refresh the Pane List
 
