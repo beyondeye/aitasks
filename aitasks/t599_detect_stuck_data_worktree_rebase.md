@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [git-integration, bash_scripts, ait_dispatcher]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-20 08:56
-updated_at: 2026-04-20 08:56
+updated_at: 2026-04-20 09:16
 ---
 
 ## Context
