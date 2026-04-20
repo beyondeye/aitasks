@@ -204,3 +204,17 @@ Hand end-to-end keyboard-contract check to t571_7 (manual verification sibling t
 ## Step 9: Post-Implementation
 
 Follow Step 9 from the shared workflow for commit, archival, and push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Single file touched — `.aitask-scripts/brainstorm/brainstorm_app.py`, ~108 lines added to `NodeDetailModal` (lines 251–452). Added BINDINGS for `tab` (`focus_minimap`) and `V` (`fullscreen_plan`); initialized `_proposal_parsed/_text` and `_plan_parsed/_text` in `__init__`; wired `on_mount` to parse sections per tab and mount `SectionMinimap` before the Markdown when sections exist; always caches raw text for fullscreen. Added `on_section_minimap_section_selected`, `on_section_minimap_toggle_focus`, `action_focus_minimap`, `action_fullscreen_plan`. Lazy `from section_viewer import …` inside each method; kept the existing module-top `from brainstorm.brainstorm_sections import parse_sections` (line 49) since `parse_sections` is called during `on_mount` and a module-level import is cleaner than lazy.
+- **Deviations from plan:** None structural. Kept the docstrings on the new methods (short, WHY-only) — CLAUDE.md says "default to no comments" but docstrings describing keyboard-contract semantics are load-bearing for future readers.
+- **Issues encountered:** One local gotcha — ran `cd .aitask-scripts` early for a syntax check, which polluted the persistent shell directory. Recovered by using absolute paths on subsequent Bash calls. No code impact.
+- **Key decisions:**
+  - `scroll_to(..., animate=False)` — inherited from t571_11.
+  - Scope `query_one` to `self` (the ModalScreen), not `App` — `NodeDetailModal` is itself a Screen, so there's no cross-screen leakage (per `feedback_textual_priority_bindings`). `action_focus_minimap` uses `self.screen.focused` as required by the priority-binding guard rule, then raises `SkipAction` on mismatch so default Tab-nav still works on section-less nodes.
+  - Cache raw text unconditionally in `on_mount` (outside the `if parsed.sections` guard) so fullscreen `V` works on plain-markdown nodes too.
+  - `register_synthesizer` was intentionally NOT touched — Synthesizer does not take `target_sections` and its tab is unaffected.
+- **Notes for sibling tasks:**
+  - **t571_6 (design doc update):** This integration is now live. The shared-viewer section in the architecture doc can list NodeDetailModal alongside codebrowser and board. Widget IDs follow the `proposal_minimap` / `plan_minimap` / `proposal_scroll` / `plan_scroll` / `proposal_content` / `plan_content` pattern. The `V` keybinding opens `SectionViewerScreen` fullscreen on whichever tab is active (Metadata tab shows a warning toast).
+  - **t571_7 (aggregate manual verification):** Add a row for NodeDetailModal covering Tab routing between minimap ↔ Markdown per tab, Up/Down row cycle, Enter-to-scroll, independent state across Proposal/Plan tabs, `V` fullscreen on Proposal/Plan/Metadata tabs, and graceful fallback on section-less nodes.
