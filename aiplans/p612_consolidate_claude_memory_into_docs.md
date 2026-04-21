@@ -164,3 +164,18 @@ After Step 8 review approval, standard post-implementation per
 - Migrating feedback rules into runtime guards or test assertions.
 - Restructuring CLAUDE.md beyond the specific inserts/rewordings.
 - Writing new tests — this is documentation consolidation.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - CLAUDE.md got 5 edits as planned (memories #3, #5, #6, #7, #8). User manually polished the diff at Step 8 review; final diff was +8/-5.
+  - 3 follow-up aitasks created: t614 (unconditional Step 8), t615 (docs-vs-source for doc tasks), t616 (mirror CLAUDE.md into `.codex/` + `.opencode/` via seed files).
+  - t583 received a "Framing Reference" appendix pulling in the naming/cross-reference discipline from the deleted memory #4.
+  - 8 memory files + `MEMORY.md` deleted at the memory root.
+- **Deviations from plan:**
+  - Plan originally listed 3 follow-up aitasks; ended up creating 3 *plus* the mirror task (t616) that was spun off during the "Consider mirror-to-other-agents" decision point (§4 of the plan). `.codex/instructions.md` and `.opencode/instructions.md` exist (assembled from `seed/*.seed.md`), so mirroring is warranted.
+- **Issues encountered:**
+  - Externalize helper failed to auto-locate the internal plan file (`NOT_FOUND:no_internal_files`). Worked around by passing `--internal /home/ddt/.claude/plans/compiled-kindling-candy.md` explicitly. Likely root cause: the plans directory or the recency filter is stale — not pursued here as it's off-scope for t612.
+- **Key decisions:**
+  - Memory #4 dropped from the follow-up-aitask list after confirming `planning.md:170-197` already implements the aggregate manual-verification sibling pattern; the memory's framing language was preserved by appending to the already-pending meta-task t583 instead of creating a redundant task.
+  - Memory #6 rewording kept the full LLM-interpretation rationale from the original bullet rather than discarding it — the original explanation of *why* guards matter is valuable even in the more nuanced combined bullet.
