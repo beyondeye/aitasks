@@ -3,11 +3,10 @@ priority: low
 effort: medium
 depends: []
 issue_type: chore
-status: Implementing
+status: Ready
 labels: [documentation]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-20 10:12
-updated_at: 2026-04-21 12:29
+updated_at: 2026-04-21 13:29
 ---
 
 Review whether the project's Hugo and Docsy versions are worth upgrading, and if so, upgrade both the local dev environment and the GitHub Actions release workflow that builds and publishes the website.
