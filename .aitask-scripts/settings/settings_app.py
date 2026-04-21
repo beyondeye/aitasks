@@ -103,10 +103,13 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
     "plan_preference_child": ("enum", ["use_current", "verify", "create_new"]),
     "plan_verification_required": ("int", None),
     "plan_verification_stale_after_hours": ("int", None),
-    "post_plan_action": ("enum", ["start_implementation"]),
+    "post_plan_action": ("enum", ["start_implementation", "ask"]),
+    "post_plan_action_for_child": ("enum", ["start_implementation", "ask"]),
     "enableFeedbackQuestions": ("bool", None),
-    "test_followup_task": ("enum", ["yes", "no", "ask"]),
+    "manual_verification_followup_mode": ("enum", ["ask", "never"]),
     "explore_auto_continue": ("bool", None),
+    "review_default_modes": ("string", None),
+    "review_auto_continue": ("bool", None),
     "force_unlock_stale": ("bool", None),
     "done_task_action": ("enum", ["archive", "skip"]),
     "orphan_parent_action": ("enum", ["archive", "skip"]),
@@ -117,6 +120,7 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
     "abort_revert_status": ("enum", ["Ready", "Editing"]),
     "qa_mode": ("enum", ["ask", "create_task", "implement", "plan_only"]),
     "qa_run_tests": ("bool", None),
+    "qa_tier": ("enum", ["q", "s", "e"]),
 }
 
 _UNSET = "(unset)"
@@ -226,8 +230,15 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "After plan approval: start_implementation = skip checkpoint",
         "Controls what happens after the plan is approved (Step 6 checkpoint):\n"
         "  'start_implementation': proceed directly to implementation\n"
+        "  'ask': always show the post-plan checkpoint (same as unset)\n"
         "  (unset): ask the user whether to start, revise, or abort\n"
         "Note: plan approval via ExitPlanMode is always required and cannot be skipped."
+    ),
+    "post_plan_action_for_child": (
+        "Override post_plan_action for child tasks only",
+        "Same values as post_plan_action ('start_implementation' or 'ask'), "
+        "but only applies when the current task is a child. Takes priority over "
+        "post_plan_action in that case. Omit to fall back to post_plan_action."
     ),
     "enableFeedbackQuestions": (
         "Ask satisfaction feedback questions at the end of supported skills",
@@ -236,18 +247,30 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "When true or unset, feedback questions remain enabled. "
         "Use false for unattended or non-interactive workflows such as remote profiles."
     ),
-    "test_followup_task": (
-        "Create a testing follow-up task before archival",
-        "Controls whether a follow-up task is created for testing after implementation (Step 8b):\n"
-        "  'yes': always create a testing follow-up task\n"
-        "  'no': never create a testing follow-up task\n"
-        "  'ask': prompt the user to decide\n"
-        "  (unset): same as 'ask'"
+    "manual_verification_followup_mode": (
+        "Post-commit manual-verification follow-up prompt: ask or never",
+        "Controls task-workflow Step 8c — whether to offer a manual-verification "
+        "follow-up task after committing implementation changes:\n"
+        "  'ask': prompt after commit to queue a manual-verification follow-up\n"
+        "  'never': skip the prompt entirely\n"
+        "  (unset): same as 'ask'\n"
+        "Set to 'never' for non-interactive or remote profiles."
     ),
     "explore_auto_continue": (
         "Auto-continue to implementation in exploration mode",
         "Used by aitask-explore. When true, automatically continues to the implementation "
         "phase after exploration completes. When false or unset, asks the user."
+    ),
+    "review_default_modes": (
+        "Comma-separated review-guide names to auto-select",
+        "Used by aitask-review. When set, auto-selects these review guides instead "
+        "of prompting. Values are the 'name' field from each review guide's frontmatter, "
+        "comma-separated (e.g., 'code_conventions,security'). Leave unset to be prompted."
+    ),
+    "review_auto_continue": (
+        "Auto-continue to implementation in review mode",
+        "Used by aitask-review. When true, automatically continues to the implementation "
+        "phase after review completes. When false or unset, asks the user. Default: false."
     ),
     "force_unlock_stale": (
         "Auto force-unlock stale task locks without asking",
@@ -317,6 +340,14 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "Set to false to skip test execution and only analyze coverage gaps.\n\n"
         "Useful when tests are slow or require special setup.",
     ),
+    "qa_tier": (
+        "QA analysis depth: q (quick), s (standard), e (exhaustive)",
+        "Used by /aitask-qa Step 1c. When set, skips the tier selection prompt.\n"
+        "  'q': Quick — existing tests + lint only\n"
+        "  's': Standard — full analysis with test plan\n"
+        "  'e': Exhaustive — full analysis + edge cases + verification gate\n"
+        "  (unset): prompts the user"
+    ),
 }
 
 # Logical grouping of profile fields for display
@@ -330,11 +361,13 @@ PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
         "plan_verification_required",
         "plan_verification_stale_after_hours",
         "post_plan_action",
+        "post_plan_action_for_child",
     ]),
     ("Feedback", ["enableFeedbackQuestions"]),
-    ("Post-Implementation", ["test_followup_task"]),
-    ("QA Analysis", ["qa_mode", "qa_run_tests"]),
+    ("Manual Verification", ["manual_verification_followup_mode"]),
+    ("QA Analysis", ["qa_mode", "qa_run_tests", "qa_tier"]),
     ("Exploration", ["explore_auto_continue"]),
+    ("Review", ["review_default_modes", "review_auto_continue"]),
     ("Lock Management", ["force_unlock_stale"]),
     ("Remote Workflow", [
         "done_task_action", "orphan_parent_action", "complexity_action",

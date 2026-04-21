@@ -6,7 +6,6 @@ force_unlock_stale: true
 plan_preference: use_current
 post_plan_action: start_implementation
 enableFeedbackQuestions: false
-test_followup_task: no
 done_task_action: archive
 orphan_parent_action: archive
 complexity_action: single_task
