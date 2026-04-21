@@ -6,8 +6,9 @@ issue_type: refactor
 status: Implementing
 labels: [aitask_pick, aitask_verification]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-21 07:53
-updated_at: 2026-04-21 08:56
+updated_at: 2026-04-21 09:17
 ---
 
 ## Context

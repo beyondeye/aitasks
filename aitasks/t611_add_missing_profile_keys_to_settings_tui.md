@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [execution_profiles, settings_tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-21 09:03
-updated_at: 2026-04-21 09:03
+updated_at: 2026-04-21 09:25
 ---
 
 ## Context
