@@ -79,3 +79,11 @@ Use `Edit` with `replace_all: true` on each file, matching the substring `github
 ## Step 9 (Post-Implementation)
 
 Per the task-workflow skill: after user approval in Step 8 and commit, proceed to Step 9 (archival via `aitask_archive.sh 620`) and Step 9b (satisfaction feedback).
+
+## Final Implementation Notes
+
+- **Actual work done:** Replaced `github.com/dario-elyasy/aitasks` with `github.com/beyondeye/aitasks` in all 5 files listed in Scope. All 7 link occurrences corrected (1 + 1 + 1 + 2 + 3 = 7).
+- **Deviations from plan:** None. Plan was followed exactly.
+- **Issues encountered:** First `Edit` batch partially failed because 3 of the 5 files had not been read yet (`Edit` requires `Read` first). Recovered by reading the three unread files then re-running the three missed edits — same final result. No content or process change.
+- **Key decisions:** Used `Edit` with `replace_all: true` per file rather than `sed -i` to keep the change entirely within Claude-reviewable tool calls; relied on the fact that `dario-elyasy` appears nowhere else in the repo to guarantee no collateral replacement.
+- **Verification performed:** `Grep "dario-elyasy"` across the repo returns zero files post-fix. Each of the 5 files now contains `github.com/beyondeye/aitasks` on the expected line with the expected count (1/1/1/2/3). Spot-read of `agent-attribution.md:25` and `task-lifecycle.md:30` confirmed all multi-link lines correctly updated.
