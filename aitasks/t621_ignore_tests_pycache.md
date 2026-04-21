@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [maintenance]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-21 16:44
-updated_at: 2026-04-21 16:44
+updated_at: 2026-04-21 16:47
 ---
 
 `tests/__pycache__/` is currently untracked but visible in `git status` because

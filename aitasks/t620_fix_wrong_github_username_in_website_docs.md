@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [docs, website]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-21 16:35
-updated_at: 2026-04-21 16:39
+updated_at: 2026-04-21 16:45
 ---
 
 ## Problem
