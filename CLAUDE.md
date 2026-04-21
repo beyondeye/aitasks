@@ -122,11 +122,14 @@ User-facing docs (website, README-level content) describe the **current state on
 - No "earlier versions of this page said…", "previously we recommended…", "this used to be wrong", "this corrects an earlier mistake".
 - State correct behavior positively. Version history belongs in git and PR descriptions, not in doc bodies.
 - Internal plan files (`aiplans/`) may still record deviations from earlier plans — the rule applies to user-facing content.
+- **"Delete X, eventually integrate into Y" means redirect cross-refs now, defer content migration.** Read Y first. If Y already covers the essential content, "integrate" collapses to updating cross-references from X to Y — do not wholesale-migrate X's prose into Y in the same task. Defer the richer integration as a follow-up task and surface cross-reference redirects explicitly in Post-Review Changes (they break silently if missed).
 
 ## TUI (Textual) Conventions
 
 - **`n` is the create-task key** across every aitasks TUI (board, codebrowser, minimonitor, monitor, brainstorm, TUI switcher modal). Do not default to `c` or other alternatives when adding a create-task binding to a new TUI. Related TUIs may bind `n` to "next" (monitor, logview, diffviewer) — those are read-oriented TUIs without a create-task action, so the conflict is only notional.
 - **Priority bindings + `App.query_one` gotcha:** when an `App` and a pushed `Screen` define a binding with the same action name and `priority=True`, the App-level action runs first. If its "am I in the right screen?" guard uses `self.query_one(...)`, the query walks the entire screen stack and will match widgets from underlying screens — so the guard succeeds for the wrong screen, consumes the key, and the active screen's own binding never fires. Scope guards to `self.screen.query_one(...)`. On guard-miss, raise `textual.actions.SkipAction` so the next priority binding (the active screen's own action) gets a chance. Alternative: use distinct action names per screen.
+- **No auto-commit/push of project-level config from runtime TUIs.** Runtime `save()` paths in config modules must write only the user-level (`*.local.json`, gitignored) layer. Project-level (`*.json`, tracked) files are read-only at runtime unless there is an explicit user-initiated "export / publish" action. Never call `git commit` or `./ait git push` from inside a TUI event handler for a config change. First-time ship of a project-level file is a one-time implementation commit; runtime saves after that must not touch it.
+- **Contextual-footer ordering: keep uppercase sibling adjacent to its lowercase primary.** When a pane's footer includes both a lowercase primary action (e.g., `d` = toggle detail) and its uppercase sibling (e.g., `D` = expand detail), keep them adjacent in the footer — `d D …`, not `d c D …`. The uppercase-to-tail demotion rule applies only to uppercase keys whose primary is NOT itself in the pane's suffix. Example: in `detail_pane` the suffix should be `["d", "D", "c", "H"]` — `D` adjacent to `d`; `H` (whose `h` primary lives in `PRIMARY_ORDER`) at the tail.
 
 ## Model Attribution
 
@@ -136,10 +139,6 @@ When running the Model Self-Detection sub-procedure in Claude Code, scan the con
 - Search for the most recent `<local-command-stdout>Set model to …</local-command-stdout>` line. If found, map the human-readable name (e.g., "Opus 4.7 (1M context)") to the cli_id via `./.aitask-scripts/aitask_resolve_detected_agent.sh --agent claudecode --cli-id <id>`.
 - Only fall back to the system-message model ID if no mid-session switch is visible.
 - If the human name is ambiguous (e.g., "Opus 4.7" without the `1M` suffix), ask the user which variant.
-
-## QA Workflow
-
-After committing implementation changes, run `/aitask-qa <task_id>` for test coverage analysis and test plan generation. The embedded Step 8b "test-followup-task" procedure is deprecated — `/aitask-qa` supersedes it and provides better separation from the workflow. Profile keys `qa_mode` and `qa_run_tests` control automation level.
 
 ## WORKING ON SKILLS / CUSTOM COMMANDS
 
@@ -157,7 +156,7 @@ of skills and commands:
 ### Skill / Workflow Authoring Conventions
 
 - **Agent-specific steps live in their own procedure file.** If a workflow step applies only to one code agent (e.g., Claude Code's internal plan file externalization), put the procedure — commands, output parsing, error handling — in its own `.claude/skills/task-workflow/<name>.md`. Reference it from `SKILL.md` / `planning.md` with a short conditional wrapper: "If running in Claude Code, execute the \<Procedure Name\> (see `<name>.md`). Other agents skip this step because \<reason\>." Never inline agent-specific steps into shared files — when the tree is ported to `.opencode/`, `.gemini/`, `.agents/`, the porter either copies irrelevant steps or silently drops them.
-- **Use guard variables, not prose.** When a procedure could be triggered from multiple code paths, add an explicit guard boolean (e.g., `feedback_collected`) to the SKILL.md context-variables table and check it at procedure entry. LLMs reading the instructions may not reliably distinguish imperative "execute this" from descriptive "this happens" — a variable is a programmatic guarantee regardless of interpretation.
+- **Execution-profile keys vs. guard variables — pick the right lever.** Profile keys (e.g., `qa_mode: ask|never`, `post_plan_action`) are for letting users opt in/out of a procedure; they are the right fix when a step feels overreaching. Guard variables (e.g., `feedback_collected`) are set-once-consume-once flags that prevent DOUBLE execution when the same procedure can be invoked twice via different control-flow paths — they do NOT force a single execution, so they can't be used to "remind agents to fire a prompt." Rule of thumb: if the concern is "agents might forget to fire X", restructure control flow (extract X to its own file, reference explicitly from SKILL.md, make it a numbered step) and add a profile key for opt-out. If the concern is "X might fire twice via re-entry", add a guard variable to the SKILL.md context-variables table and check it at procedure entry — LLMs reading the instructions may not reliably distinguish imperative "execute this" from descriptive "this happens", so a variable is a programmatic guarantee regardless of interpretation.
 
 ### Claude Code (source of truth)
 - Skills: `.claude/skills/<name>/SKILL.md`
@@ -179,6 +178,10 @@ of skills and commands:
 - Adapt from the Claude Code version; OpenCode follows a similar `SKILL.md` convention.
 
 **IMPORTANT**: Skill/custom command changes and development, if not specified otherwise, should be done in the Claude Code version first. When such changes take place, suggest to the user to create separate aitasks to update the corresponding skills/commands in their codex cli / gemini cli / opencode versions.
+
+## Planning Conventions
+
+- **Refactor duplicates before adding to them.** When an implementation plan would edit the same list, set, or configuration in three or more separate files (e.g., adding one value to `DEFAULT_TUI_NAMES`, `_DEFAULT_TUI_NAMES`, `KNOWN_TUIS`, and `project_config.yaml`), propose a single-source-of-truth extraction before accepting the duplicated edit. Duplicated state is the mechanism that produces drift bugs (stale config masking new code defaults). Also evaluate replace-vs-merge semantics for config overrides over code defaults — merge/additive semantics prevent future drift when framework features are added.
 
 ## Project-Specific Notes
 
