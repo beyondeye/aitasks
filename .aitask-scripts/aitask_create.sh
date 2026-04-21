@@ -661,7 +661,11 @@ finalize_draft() {
         task_git add "$LABELS_FILE" 2>/dev/null || true
         local humanized_name
         humanized_name=$(echo "$task_name" | tr '_' ' ')
-        task_git commit -m "ait: Add task ${task_id}: ${humanized_name}"
+        if [[ "$silent" == "true" ]]; then
+            task_git commit --quiet -m "ait: Add task ${task_id}: ${humanized_name}" >&2
+        else
+            task_git commit -m "ait: Add task ${task_id}: ${humanized_name}"
+        fi
 
         run_auto_merge_if_needed "$claimed_id" "$filepath"
     fi
@@ -1564,7 +1568,11 @@ run_batch_mode() {
             task_git add "$filepath"
             task_git add "$parent_file" 2>/dev/null || true
             task_git add "$LABELS_FILE" 2>/dev/null || true
-            task_git commit -m "ait: Add child task ${task_id}: ${humanized_name}"
+            if [[ "$BATCH_SILENT" == true ]]; then
+                task_git commit --quiet -m "ait: Add child task ${task_id}: ${humanized_name}" >&2
+            else
+                task_git commit -m "ait: Add child task ${task_id}: ${humanized_name}"
+            fi
 
             run_auto_merge_if_needed "${BATCH_PARENT}_${child_num}" "$filepath"
 
@@ -1600,7 +1608,11 @@ run_batch_mode() {
             humanized_name=$(echo "$task_name" | tr '_' ' ')
             task_git add "$filepath"
             task_git add "$LABELS_FILE" 2>/dev/null || true
-            task_git commit -m "ait: Add task ${task_id}: ${humanized_name}"
+            if [[ "$BATCH_SILENT" == true ]]; then
+                task_git commit --quiet -m "ait: Add task ${task_id}: ${humanized_name}" >&2
+            else
+                task_git commit -m "ait: Add task ${task_id}: ${humanized_name}"
+            fi
 
             run_auto_merge_if_needed "$claimed_id" "$filepath"
         fi

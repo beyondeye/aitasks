@@ -570,8 +570,12 @@ create_carryover_task() {
     orig_verifies_raw=$(read_yaml_field "$orig_file" "verifies")
     orig_verifies=$(parse_yaml_list "$orig_verifies_raw")
 
+    local orig_id
+    orig_id=$(echo "$orig_basename" | sed -E 's/^t([0-9]+(_[0-9]+)?)_.*/\1/')
+    local carryover_desc="Carry-over of deferred manual-verification items from t${orig_id}. Re-pick this task to continue the remaining checklist."
     local create_args=(--batch --commit --silent
         --name "$carryover_name"
+        --desc "$carryover_desc"
         --type manual_verification
         --priority medium --effort low)
     if [[ -n "$orig_verifies" ]]; then
