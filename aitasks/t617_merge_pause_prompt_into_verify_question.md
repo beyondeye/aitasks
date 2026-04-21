@@ -6,8 +6,10 @@ issue_type: refactor
 status: Implementing
 labels: [aitask_pick, task_workflow]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-21 12:36
-updated_at: 2026-04-21 12:56
+updated_at: 2026-04-21 13:38
+boardidx: 70
 ---
 
 In `.claude/skills/task-workflow/manual-verification.md`, each verification iteration currently uses two consecutive `AskUserQuestion` calls per item: (1) a pause-loop prompt ("Verify this item" / "Stop here, continue later"), then (2) the verify prompt (Pass / Fail / Skip (with reason) / Defer). The user finds this awkward — the extra prompt doubles the interaction count.
