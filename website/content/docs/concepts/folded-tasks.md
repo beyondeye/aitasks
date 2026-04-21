@@ -22,3 +22,7 @@ Use [`/aitask-fold`]({{< relref "/docs/skills/aitask-fold" >}}) to interactively
 - [Parent and child tasks]({{< relref "/docs/concepts/parent-child" >}}) — the alternative pattern: split instead of merge
 - [Task lifecycle]({{< relref "/docs/concepts/task-lifecycle" >}}) — `Folded` is a terminal status
 - [Task consolidation workflow]({{< relref "/docs/workflows/task-consolidation" >}}) — when and why to fold
+
+---
+
+**Next:** [Review guides]({{< relref "/docs/concepts/review-guides" >}})

@@ -47,6 +47,11 @@ Detailed description of what needs to be done.
 | `folded_tasks` | `[138, 129_5]` | Task IDs folded into this task by `/aitask-explore` or `/aitask-fold` (deleted on archival) |
 | `folded_into` | task number | Task this was folded into (set by `/aitask-fold` or `/aitask-explore`) |
 | `file_references` | `[path, path:N, path:N-M, path:N-M^N-M]` | Structured pointers to source files / line ranges. 1-indexed, inclusive. Exact-string dedup. See [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}) |
+| `verifies` | `[t10_1, t10_2]` | Task IDs this task verifies (used by `manual_verification` sibling tasks that gate release on human-checked behavior) |
+| `implemented_with` | `<agent>/<model>` | Agent and model that implemented the task (e.g., `claudecode/opus4_7_1m`). See [Agent attribution]({{< relref "/docs/concepts/agent-attribution" >}}) |
+| `pull_request` | URL | Linked pull request URL (mirrors `issue`) |
+| `contributor` | name | External contributor credited on the commit (used by PR-import flow) |
+| `contributor_email` | email | Email for the contributor's `Co-Authored-By` trailer |
 
 ---
 
@@ -126,3 +131,7 @@ test
 ```
 
 To add a custom type, simply add a new line to the file. All scripts (`ait create`, `ait update`, [`ait board`](../../tuis/board/), `ait stats`) read from this file dynamically.
+
+---
+
+**Next:** [Review Guide Format]({{< relref "/docs/development/review-guide-format" >}})

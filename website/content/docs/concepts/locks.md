@@ -22,3 +22,7 @@ Locks are normally invisible — `/aitask-pick` and the board TUI acquire and re
 - [Tasks]({{< relref "/docs/concepts/tasks" >}}) — the unit a lock applies to
 - [Git branching model]({{< relref "/docs/concepts/git-branching-model" >}}) — the `aitask-locks` branch
 - [`ait lock`]({{< relref "/docs/commands/lock" >}}) — the CLI for inspecting and managing locks
+
+---
+
+**Next:** [Task lifecycle]({{< relref "/docs/concepts/task-lifecycle" >}})

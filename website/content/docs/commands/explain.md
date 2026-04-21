@@ -75,3 +75,7 @@ ait explain-cleanup --all --quiet                            # Silent mode for a
 **How it works:**
 
 The script groups run directories by their `dir_key` (the part before `__<timestamp>`). For each group, it keeps the newest run (highest timestamp) and removes all older ones. Directories without the expected naming pattern or without `files.txt`/`raw_data.txt` are skipped.
+
+---
+
+**Next:** [Sync]({{< relref "/docs/commands/sync" >}})

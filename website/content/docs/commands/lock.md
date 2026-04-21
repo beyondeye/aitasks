@@ -92,3 +92,7 @@ The `aitask-locks` branch is created during `ait setup`. If you see an error abo
 ait setup        # Interactive -- includes lock branch initialization
 ait lock --init  # Direct initialization
 ```
+
+---
+
+**Next:** [Issue Integration & Utilities]({{< relref "/docs/commands/issue-integration" >}})

@@ -58,10 +58,15 @@ echo "Long description" | ait create --batch --name "my_task" --desc-file -
 | `--status, -s STATUS` | Ready, Editing, Implementing, Postponed (default: Ready) |
 | `--labels, -l LABELS` | Comma-separated labels |
 | `--deps DEPS` | Comma-separated dependency task numbers |
+| `--verifies IDS` | Comma-separated task IDs this task verifies (for `manual_verification` tasks) |
+| `--file-ref REF` | Add a file reference (`path`, `path:N`, or `path:N-M`; repeatable) |
 | `--parent, -P NUM` | Create as child of parent task number |
 | `--no-sibling-dep` | Don't auto-add dependency on previous sibling |
 | `--assigned-to, -a EMAIL` | Assignee email |
 | `--issue URL` | Linked issue tracker URL |
+| `--pull-request URL` | Linked pull request URL |
+| `--contributor NAME` | External contributor name for `Co-Authored-By` |
+| `--contributor-email EMAIL` | External contributor email |
 | `--commit` | Claim real ID and commit to git immediately (auto-finalize) |
 | `--finalize FILE` | Finalize a specific draft from `aitasks/new/` (claim ID, move to `aitasks/`, commit) |
 | `--finalize-all` | Finalize all pending drafts in `aitasks/new/` |
@@ -168,8 +173,19 @@ ait update --batch 10 --remove-child t10_1      # Remove child from parent
 | `--add-child CHILD_ID` | Add child to `children_to_implement` |
 | `--remove-child CHILD_ID` | Remove child from `children_to_implement` |
 | `--children CHILDREN` | Set all children (replaces list) |
+| `--verifies IDS` | Set `verifies` list (comma-separated task IDs, replaces all) |
+| `--add-verifies ID` | Add one verified task ID (repeatable) |
+| `--remove-verifies ID` | Remove one verified task ID (repeatable) |
+| `--file-ref REF` | Add a file reference (`path`, `path:N`, or `path:N-M`; repeatable) |
+| `--remove-file-ref REF` | Remove a file reference (exact-string match; repeatable) |
 | `--boardcol COL` | Board column ID |
 | `--boardidx IDX` | Board sort index |
+| `--pull-request URL` | Linked pull request URL (use `""` to clear) |
+| `--contributor NAME` | External contributor name for `Co-Authored-By` (use `""` to clear) |
+| `--contributor-email EMAIL` | External contributor email (use `""` to clear) |
+| `--folded-tasks IDS` | Comma-separated task IDs merged into this task |
+| `--folded-into NUM` | Primary task number this was merged into |
+| `--implemented-with STRING` | Agent/model attribution (e.g., `claudecode/opus4_7_1m`) |
 | `--commit` | Auto-commit to git |
 | `--silent` | Output only filename |
 
@@ -178,3 +194,7 @@ ait update --batch 10 --remove-child t10_1      # Remove child from parent
 - Child task format: use `10_1` or `t10_1` to target child tasks
 - When a child task is set to Done, automatically removes it from parent's `children_to_implement` and warns when all children are complete
 - Parent tasks cannot be set to Done while `children_to_implement` is non-empty
+
+---
+
+**Next:** [Board, Code Browser & Stats]({{< relref "/docs/commands/board-stats" >}})

@@ -81,3 +81,7 @@ ait stats -w sun           # Week starts on Sunday
 **Interactive charts:**
 
 For interactive terminal charts (daily completions, weekday averages, top labels, issue types, code agents, LLM models), use [`ait stats-tui`]({{< relref "/docs/tuis/stats" >}}). The TUI is launched directly or switched into from any other aitasks TUI (`j` in the TUI switcher). It uses the optional `plotext` package, installed via `ait setup` when prompted.
+
+---
+
+**Next:** [Explain Utilities]({{< relref "/docs/commands/explain" >}})

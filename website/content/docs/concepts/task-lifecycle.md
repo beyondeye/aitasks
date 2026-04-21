@@ -33,3 +33,7 @@ You rarely set `status` by hand. The workflow scripts do it as side effects of p
 - [Tasks]({{< relref "/docs/concepts/tasks" >}}) — where the field lives
 - [Locks]({{< relref "/docs/concepts/locks" >}}) — the lock state mirrors lifecycle transitions
 - [Folded tasks]({{< relref "/docs/concepts/folded-tasks" >}}) — the `Folded` terminal state
+
+---
+
+**Next:** [Git branching model]({{< relref "/docs/concepts/git-branching-model" >}})

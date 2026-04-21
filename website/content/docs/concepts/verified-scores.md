@@ -30,3 +30,7 @@ The complete schema, score derivation, and CLI tooling are documented on the [Ve
 
 - [Agent attribution]({{< relref "/docs/concepts/agent-attribution" >}}) — how a task records the model that implemented it
 - [Settings TUI]({{< relref "/docs/tuis/settings" >}}) — where scores are displayed
+
+---
+
+**Next:** [Agent attribution]({{< relref "/docs/concepts/agent-attribution" >}})

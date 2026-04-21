@@ -26,3 +26,7 @@ The command-line entry point — `ait ide`, its flags, and the session-sharing g
 - [Monitor TUI]({{< relref "/docs/tuis/monitor" >}}) — the home screen
 - [Agent memory]({{< relref "/docs/concepts/agent-memory" >}}) — how the Code Browser surfaces archived task context
 - [Locks]({{< relref "/docs/concepts/locks" >}}) — multi-agent coordination inside the IDE
+
+---
+
+**Next:** [Agent memory]({{< relref "/docs/concepts/agent-memory" >}})

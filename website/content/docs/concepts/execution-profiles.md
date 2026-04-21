@@ -31,3 +31,7 @@ The full key reference and customization guide live in the [`/aitask-pick` execu
 
 - [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick" >}}) — the primary consumer of profiles
 - [Settings TUI]({{< relref "/docs/tuis/settings" >}}) — view and edit profiles interactively
+
+---
+
+**Next:** [Verified scores]({{< relref "/docs/concepts/verified-scores" >}})

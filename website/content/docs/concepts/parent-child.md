@@ -23,3 +23,7 @@ The [Task decomposition workflow]({{< relref "/docs/workflows/task-decomposition
 - [Plans]({{< relref "/docs/concepts/plans" >}}) — sibling plans become primary context
 - [Folded tasks]({{< relref "/docs/concepts/folded-tasks" >}}) — the alternative pattern: merge instead of split
 - [Agent memory]({{< relref "/docs/concepts/agent-memory" >}}) — how sibling context propagates
+
+---
+
+**Next:** [Folded tasks]({{< relref "/docs/concepts/folded-tasks" >}})

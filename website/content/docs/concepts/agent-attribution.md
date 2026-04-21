@@ -9,7 +9,7 @@ description: "How each task records which code agent and model implemented it."
 
 **Agent attribution** is the per-task record of which code agent and model did the implementation. It surfaces in three places:
 
-1. The task's `implemented_with` frontmatter field, written at the start of implementation in the form `<agent>/<model>` — for example `claudecode/opus4_7_1m`, `geminicli/gemini-2.5-pro`, `codex/gpt-5`.
+1. The task's `implemented_with` frontmatter field, written at the start of implementation in the form `<agent>/<model>` — for example `claudecode/opus4_7_1m`, `geminicli/gemini3pro`, `codex/gpt5_4`. The `<model>` segment is the `name` field from `aitasks/metadata/models_<agent>.json`, not the raw runtime CLI ID.
 2. A `Co-Authored-By:` trailer appended to the implementation commit, naming the model with a project-configurable email domain.
 3. The verified-scores subsystem, which keys per-operation satisfaction ratings off the same `<agent>/<model>` string.
 
@@ -27,3 +27,7 @@ Attribution is automatic — the workflow runs the model self-detection sub-proc
 
 - [Verified scores]({{< relref "/docs/concepts/verified-scores" >}}) — what attribution feeds into
 - [Tasks]({{< relref "/docs/concepts/tasks" >}}) — where the field lives
+
+---
+
+**Next:** [Locks]({{< relref "/docs/concepts/locks" >}})

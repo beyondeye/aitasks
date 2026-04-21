@@ -23,3 +23,7 @@ Plans are produced as a side effect of running [`/aitask-pick`]({{< relref "/doc
 - [Agent memory]({{< relref "/docs/concepts/agent-memory" >}}) — how archived plans become long-term context
 - [Parent and child tasks]({{< relref "/docs/concepts/parent-child" >}}) — sibling plans share archived context
 - [Verified scores]({{< relref "/docs/concepts/verified-scores" >}}) — plan verification feeds into per-model reliability tracking
+
+---
+
+**Next:** [Parent and child tasks]({{< relref "/docs/concepts/parent-child" >}})

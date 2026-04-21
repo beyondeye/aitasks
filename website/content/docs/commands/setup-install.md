@@ -71,3 +71,7 @@ ait install 0.2.1              # Install specific version
 **Automatic update check:**
 
 The `ait` dispatcher checks for new versions once per day (at most). When a newer version is available, it shows a brief notice suggesting `ait install latest`. The check runs in the background to avoid adding latency. It is skipped for `help`, `version`, `install`, and `setup` commands.
+
+---
+
+**Next:** [Task Management]({{< relref "/docs/commands/task-management" >}})

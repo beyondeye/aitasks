@@ -31,3 +31,7 @@ The architecture, symlink rules, and detection logic are documented in the [task
 - [Tasks]({{< relref "/docs/concepts/tasks" >}}) — what lives on `aitask-data`
 - [Locks]({{< relref "/docs/concepts/locks" >}}) — what lives on `aitask-locks`
 - [Parallel development workflow]({{< relref "/docs/workflows/parallel-development" >}}) — how the branching model enables concurrent agents
+
+---
+
+**Next:** [The IDE model]({{< relref "/docs/concepts/ide-model" >}})

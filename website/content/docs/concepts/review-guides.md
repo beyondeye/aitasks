@@ -21,3 +21,7 @@ The schema and authoring rules are documented in the [Review guide format refere
 
 - [Code review workflow]({{< relref "/docs/workflows/code-review" >}}) — end-to-end review process
 - [Tasks]({{< relref "/docs/concepts/tasks" >}}) — review findings become follow-up tasks
+
+---
+
+**Next:** [Execution profiles]({{< relref "/docs/concepts/execution-profiles" >}})

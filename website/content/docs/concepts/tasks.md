@@ -25,3 +25,7 @@ There are many ways to produce a task — they all just write a file into `aitas
 - [Parent and child tasks]({{< relref "/docs/concepts/parent-child" >}}) — how complex tasks are decomposed
 - [Task lifecycle]({{< relref "/docs/concepts/task-lifecycle" >}}) — the statuses a task moves through
 - [Locks]({{< relref "/docs/concepts/locks" >}}) — how only one agent works a task at a time
+
+---
+
+**Next:** [Plans]({{< relref "/docs/concepts/plans" >}})

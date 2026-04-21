@@ -70,3 +70,7 @@ ait pr-import --batch --pr 42 --no-diff --no-reviews  # Import without diff (fas
 **Intermediate data format** (`--data-only`):
 
 Files are written to `.aitask-pr-data/<num>.md` with YAML frontmatter containing PR metadata (`pr_number`, `pr_url`, `contributor`, `contributor_email`, `platform`, `title`, `state`, `base_branch`, `head_branch`, `additions`, `deletions`, `changed_files`, `fetched_at`) and markdown sections for description, comments, reviews, inline review comments, changed file list, and diff (truncated at `--max-diff-lines`).
+
+---
+
+**Next:** [Code Agent]({{< relref "/docs/commands/codeagent" >}})

@@ -99,3 +99,7 @@ If any network operation times out, the script outputs `NO_NETWORK` and exits cl
 ### Data Branch Mode
 
 When the repository uses a separate `aitask-data` branch for task files (set up via `ait setup`), all git operations target the data branch worktree automatically. In legacy mode (tasks on the main branch), sync operates on the current branch. The behavior is transparent — the same `ait sync` command works in both modes.
+
+---
+
+**Next:** [Lock]({{< relref "/docs/commands/lock" >}})
