@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [aitask_pick, aitask_verification]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-21 07:53
-updated_at: 2026-04-21 09:40
+updated_at: 2026-04-21 08:56
 ---
 
 ## Context
