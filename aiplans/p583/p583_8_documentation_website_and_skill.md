@@ -219,4 +219,23 @@ Commit message: `documentation: Add manual-verification docs and whitelisting co
 
 ## Final Implementation Notes
 
-_To be filled in during implementation._
+- **Actual work done:**
+  - Wrote `website/content/docs/workflows/manual-verification.md` — full workflow page covering the checklist format, two generation paths (aggregate-sibling + Step 8c post-implementation follow-up), running flow with the Pass/Fail/Skip/Defer table, Fail → follow-up bug task helper, `verifies:` field editing, Defer/carry-over resolutions, end-to-end example walkthrough, and tips. Docsy front-matter weight 80 (next to qa-testing 75 + code-review 70). Cross-links out to `/aitask-qa`, `/aitask-pick`, `task-format.md`, `task-management.md`, and `aitask-pick/execution-profiles.md` instead of duplicating field/profile-key reference tables.
+  - Added a Notes bullet to `.claude/skills/aitask-pick/SKILL.md` pointing at `manual-verification.md` (dispatch) and `manual-verification-followup.md` (Step 8c).
+  - Added two CLAUDE.md subsections: **"Adding a New Helper Script"** (new H3 under Architecture, parallel to "Adding a New Frontmatter Field", with the 5-touchpoint whitelist table + Codex exception) and **"Manual verification"** (new bullet under Project-Specific Notes, pointing at the procedure file + the new workflow page).
+- **Deviations from plan:**
+  - Dropped the scheduled `aitask-explore/SKILL.md` edit entirely. Verified during the verify-path exploration that `t602` moved the manual-verification follow-up out of explore and into task-workflow Step 8c — explore no longer has any manual-verification code path, so there is nothing to cross-reference from there. The Step 8c follow-up already covers explore-created tasks by virtue of running during the later `/aitask-pick` flow.
+  - The workflow page's generation-paths section describes **two** paths (aggregate-sibling + Step 8c), not three. The original task-file plan's "`/aitask-explore` (create-task phase)" insertion point was obsolete.
+  - CLAUDE.md Edit A landed as a **bullet** under "Project-Specific Notes" (mirroring the existing `diffviewer` bullet style) rather than a new H2/H3 subsection. Matches the surrounding pattern.
+- **Issues encountered:**
+  - None. Hugo build passed cleanly (`hugo build --gc --minify` exit 0); the rendered HTML landed at `website/public/docs/workflows/manual-verification/index.html`.
+  - Pre-existing uncommitted changes to `.aitask-scripts/stats/panes/agents.py`, `.aitask-scripts/stats/stats_app.py`, and a new `tests/test_stats_verified_rankings.sh` were present on-disk at the start of implementation but are unrelated to t583_8. Excluded them from the commit (staged only CLAUDE.md, the SKILL.md bullet, and the new workflow page).
+- **Key decisions:**
+  - **Cross-link, don't duplicate.** The `verifies:` field is already tabulated in `task-format.md` and the `ait update` CLI surface in `task-management.md`; the `manual_verification_followup_mode` profile key is already in `execution-profiles.md` + `settings/reference.md`. The workflow page cross-links to those rather than restating them — keeps single-source-of-truth intact and prevents drift.
+  - **Positive "current state" framing throughout.** Per CLAUDE.md "Documentation Writing", no "previously…", "earlier versions", or "used to" framing in user-facing docs. Version history lives in git.
+  - **Weight 80** for the new page. Puts it after `qa-testing.md` (75) in the "Review & Quality" grouping, which is where manual verification belongs conceptually (automated vs human-checked split).
+  - **Bullet-under-existing-section** for CLAUDE.md Edit A rather than a new top-level section. Keeps Project-Specific Notes compact and consistent in style.
+- **Notes for sibling tasks:**
+  - **t583_9 (meta-dogfood aggregate verification)** is the first consumer of this page. When `t583_9` runs, confirm that the workflow doc's generation-path descriptions match what the aggregate-sibling prompt actually does — if not, update the page in-place.
+  - **Gemini / Codex / OpenCode mirrors** are out of scope per CLAUDE.md "WORKING ON SKILLS / CUSTOM COMMANDS". A follow-up task should mirror the `aitask-pick/SKILL.md` Notes bullet into `.gemini/skills/aitask-pick/SKILL.md`, `.agents/skills/aitask-pick/SKILL.md`, and `.opencode/skills/aitask-pick/SKILL.md`. The CLAUDE.md edits don't have agent-tree mirrors — CLAUDE.md is Claude Code-specific documentation.
+  - Wired the new page into `website/content/docs/workflows/_index.md` under the "Review & Quality" grouping (adjacent to QA and Testing + Code Review). When t594_7's taxonomy work lands, this manual list is slated to be replaced by taxonomy-driven rendering — the new entry needs to carry over.
