@@ -228,16 +228,16 @@
         },
         "changelog": {
           "all_time": {
-            "runs": 1,
-            "score_sum": 100
+            "runs": 2,
+            "score_sum": 200
           },
           "month": {
             "period": "2026-04",
-            "runs": 1,
-            "score_sum": 100
+            "runs": 2,
+            "score_sum": 200
           },
           "week": {
-            "period": "2026-W16",
+            "period": "2026-W17",
             "runs": 1,
             "score_sum": 100
           }
