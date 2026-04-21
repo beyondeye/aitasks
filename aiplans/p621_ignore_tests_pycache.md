@@ -72,3 +72,14 @@ After approval, implementation, and review:
 - Commit `.gitignore` with message `chore: Ignore __pycache__ repo-wide (t621)`.
 - Run archival via `./.aitask-scripts/aitask_archive.sh 621`.
 - Push with `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Replaced lines 3–6 of `.gitignore` (four `.aitask-scripts/`-scoped `__pycache__` rules) with a single repo-wide `__pycache__/` line at the same position.
+- **Deviations from plan:** None. The plan counted the existing block as lines 3–5, but it was actually 4 lines (3–6); the replacement was still a single `__pycache__/` line in the same cluster.
+- **Issues encountered:** None.
+- **Key decisions:** Chose the plain `__pycache__/` form (matches every subdirectory) over `**/__pycache__/`. Both are semantically equivalent for untracked directories in git; the shorter form is the conventional Python-project pattern.
+- **Verification results (run post-edit):**
+  - `git check-ignore -v tests/__pycache__/` → `.gitignore:3:__pycache__/`
+  - `git check-ignore -v .aitask-scripts/{board,lib,codebrowser}/__pycache__/` → all resolve to `.gitignore:3:__pycache__/`
+  - `git status --short | grep __pycache__` → no matches (previously listed `tests/__pycache__/`)
