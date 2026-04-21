@@ -311,9 +311,11 @@ update_parent_children_to_implement() {
         current_children="$current_children,$child_id"
     fi
 
-    # Update the parent file using aitask_update.sh if available, otherwise inline update
+    # Update the parent file using aitask_update.sh if available, otherwise inline update.
+    # Route stdout to stderr so silent callers (e.g. --silent mode capturing $(aitask_create.sh))
+    # don't pick up the "Updated: <file>" announcement as if it were the created filename.
     if [[ -x "$SCRIPT_DIR/aitask_update.sh" ]]; then
-        "$SCRIPT_DIR/aitask_update.sh" --batch "$parent_num" --add-child "$child_id" 2>/dev/null || {
+        "$SCRIPT_DIR/aitask_update.sh" --batch "$parent_num" --add-child "$child_id" >&2 2>/dev/null || {
             # Fallback: inline update if aitask_update.sh doesn't support --add-child yet
             update_parent_children_inline "$parent_file" "$current_children"
         }
