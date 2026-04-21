@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: [t594_2]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: []
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-19 17:12
-updated_at: 2026-04-20 14:49
+updated_at: 2026-04-21 08:30
+completed_at: 2026-04-21 08:30
 ---
 
 Child of t594. Sweep the 27 pages across three smaller sections: Concepts (14), Commands (10), Development (3). Depends on t594_2 for canonical wording.
