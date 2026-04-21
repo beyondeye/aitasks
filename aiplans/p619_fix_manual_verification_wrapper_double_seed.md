@@ -137,3 +137,43 @@ number in frontmatter without validating its existence.
 Follow task-workflow Step 8 (review + commit) and Step 9 (archival,
 push). Commit subject: `bug: Fix manual-verification wrapper double-seed
 (t619)`. Plan file commit: `ait: Update plan for t619`.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Removed the offending `printf '## Verification Checklist\n'` line
+    from `.aitask-scripts/aitask_create_manual_verification.sh` (the
+    single line in the description-body heredoc that pre-staged the
+    checklist section). The seed call downstream now finds no existing
+    section and appends header + items as designed.
+  - Added `tests/test_create_manual_verification.sh` with three tests:
+    happy-path (`--related` mode, 2 items — asserts exit 0,
+    `MANUAL_VERIFICATION_CREATED:` on stdout, exactly one `## Verification
+    Checklist` heading, both items present as `- [ ]` lines, correct
+    frontmatter), empty-items-file (asserts non-zero exit + `ERROR:`
+    prefix), and a syntax check. 12/12 assertions pass.
+- **Deviations from plan:** None. Scope matched the plan exactly.
+- **Issues encountered:**
+  - First run of the test had 2 failures from the `assert_contains`
+    helper: `grep -qF "- [ ] ..."` interprets the leading `-` as an
+    option flag. Fixed by changing `grep -qF` to `grep -qF --` in both
+    `assert_contains` and `assert_not_contains`. This bug was in the
+    test harness, not in the wrapper fix.
+  - The wrapper calls `./ait git add/commit` after seeding; the test
+    fixture doesn't have the full `ait` dispatcher, so the test stubs
+    `./ait` with a tiny pass-through script that forwards `git
+    <args>` to plain `git` (the wrapper already redirects these calls
+    to `/dev/null` so any output is discarded).
+- **Key decisions:**
+  - Chose `--related` mode in tests instead of `--parent` because it
+    avoids needing a real parent task file in the fixture — `aitask_create.sh
+    --deps` records the dep number without validating existence.
+  - Did not remove the blank line before the deleted `printf`. Python
+    `cmd_seed` (`aitask_verification_parse.py:270–271`) strips trailing
+    empty lines from the body before appending its header, so any
+    residual whitespace is harmless. Confirmed in the test output
+    (clean task file, no double blank lines).
+- **Shellcheck:** The only warning after the fix is a pre-existing
+  `SC1091` info on `source "$SCRIPT_DIR/lib/terminal_compat.sh"`, which
+  is present on every script in `.aitask-scripts/` and is unrelated to
+  this change.
