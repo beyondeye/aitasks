@@ -7,6 +7,7 @@ status: Ready
 labels: [task_workflow, documentation]
 created_at: 2026-04-21 12:28
 updated_at: 2026-04-21 12:28
+boardidx: 40
 ---
 
 For any task whose scope includes documentation review, coherence, or accuracy, the planning phase must launch at least one Explore agent with an explicit **source-vs-docs verification** mission — not just docs-vs-docs. Bake the concrete drift list into the plan as first-class scope items per child task.

@@ -7,6 +7,7 @@ status: Ready
 labels: [task_workflow, documentation]
 created_at: 2026-04-21 12:29
 updated_at: 2026-04-21 12:29
+boardidx: 60
 ---
 
 Mirror the 5 CLAUDE.md additions from t612 into the equivalent agent-instruction files for Codex CLI, OpenCode, and (if applicable) Gemini CLI, so that implicit behavior rules originally captured in Claude Code auto-memory apply regardless of which code agent is driving the task.

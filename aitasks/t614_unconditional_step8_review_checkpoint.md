@@ -7,6 +7,7 @@ status: Ready
 labels: [task_workflow]
 created_at: 2026-04-21 12:28
 updated_at: 2026-04-21 12:28
+boardidx: 30
 ---
 
 Update `.claude/skills/task-workflow/SKILL.md` Step 8 so the "Implementation complete, please review and test" review checkpoint fires **unconditionally**, regardless of profile (including `fast` and auto mode), plan-approval state, or satisfaction-feedback answers.

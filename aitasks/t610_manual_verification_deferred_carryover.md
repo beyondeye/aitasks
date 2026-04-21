@@ -8,6 +8,7 @@ labels: []
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-21 08:01
 updated_at: 2026-04-21 12:29
+boardidx: 50
 ---
 
 Carry-over of deferred manual-verification items from t597_6. Re-pick this task to continue the remaining checklist.

@@ -8,6 +8,7 @@ labels: [verification, bug]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-21 07:48
 updated_at: 2026-04-21 12:55
+boardidx: 10
 ---
 
 ## Failed verification item from t597_6

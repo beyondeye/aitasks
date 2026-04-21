@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [task_workflow, aitask_pick]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-21 13:46
-updated_at: 2026-04-21 13:46
+updated_at: 2026-04-21 13:48
 ---
 
 `./.aitask-scripts/aitask_create_manual_verification.sh` always fails at the seed step, leaving a half-initialized task behind (task file created + committed but with an empty `## Verification Checklist` section). Observed in the wild during `/aitask-pick 617` on 2026-04-21 — the wrapper created `aitasks/t618_manual_verification_merge_pause_prompt_into_verify_question_.md` and then printed `ERROR:aitask_verification_parse.sh seed failed for <path>` with exit 1. Manual recovery: delete the empty `## Verification Checklist` header and re-run `aitask_verification_parse.sh seed`.
