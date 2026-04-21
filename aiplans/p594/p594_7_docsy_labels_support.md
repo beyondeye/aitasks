@@ -346,3 +346,35 @@ The one-line intermediate artifact `aiplans/p594/p594_7_label_catalog.md`
 (produced in Step 2) is committed as part of the plan directory and is
 retained through archival (the archive script moves plan files into
 `aiplans/archived/p594/`).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `website/hugo.toml`: appended `[taxonomies]` (tag, category, maturity, depth) and `[params.taxonomy]` (taxonomyPageHeader=[maturity, depth], taxonomyCloud=[]).
+  - `website/content/docs/**/*.md`: labeled 89 pages — 19 with `maturity:` (3 experimental, 16 stabilizing) and 89 with `depth:` (9 main-concept, ~40 intermediate, ~35 advanced). Labels appended at the end of each page's YAML frontmatter block as list values (e.g. `depth: [main-concept]`).
+  - `website/content/docs/concepts/_index.md`: removed all 5 `*(Main concepts)*` inline markers now that the taxonomy pills render at the top of each main-concept page.
+  - Catalog artifact `aiplans/p594/p594_7_label_catalog.md` records the per-page classification and rationale signals for future drift review.
+
+- **Deviations from plan:** None on structure. The plan proposed an `~N_stab` count of ~15; final count is 16 (added `tuis/stats/_index.md` as a stabilizing+experimental edge case — ended up labeled just `experimental + intermediate`). Counts summary: 9 main-concept, 40 intermediate, 35 advanced, 3 experimental, 16 stabilizing, 12 unlabeled (section landings).
+
+- **Issues encountered:**
+  - After adding `[taxonomies]` in `hugo.toml`, Hugo stops using its implicit `tags`/`categories` defaults — the plan already flagged this; both were re-declared explicitly.
+  - Bulk-apply used a one-shot `awk` helper (`/tmp/apply_labels.sh`, not committed) that inserts the new frontmatter keys just before the closing `---`. Each target file was verified to start with `---` before editing. No page was skipped for a missing frontmatter block.
+
+- **Key decisions:**
+  - Taxonomy values use hyphenated snake-case (`main-concept`, not `main concept`) so the generated URL slugs match.
+  - `stable` maturity is implicit (unlabeled). `intermediate` depth is applied broadly to day-to-day pages; section landings (`_index.md` files) are deliberately left unlabeled to avoid pill noise on navigation pages.
+  - `main-concept` scope was kept broad per the user-approved catalog — 9 pages including `overview.md`, `getting-started.md`, `board/_index.md`, and `aitask-pick/_index.md`, not just the original 5 `concepts/` seeds.
+
+- **Verification performed:**
+  - `cd website && hugo build --gc --minify` — 163 pages built, no new warnings.
+  - `website/public/depth/main-concept/index.html` lists the 9 main-concept pages; `website/public/maturity/experimental/` and `/stabilizing/` exist with their terms.
+  - `website/public/docs/concepts/tasks/index.html` contains the `taxonomy-terms-article taxo-depth` div with a "Main-Concept" pill.
+  - `grep -c "Main concepts" website/content/docs/concepts/_index.md` returns `0`.
+
+- **Follow-ups (out of scope, noted for a future task):**
+  - Cross-page multi-filter UI / Pagefind integration for combining maturity + depth filters.
+  - Re-evaluating each `stabilizing` label quarterly — the commit-history heuristic is a point-in-time signal and the label will drift into `stable` silently as churn slows.
+  - Deciding whether dedicated Brainstorm / agent-crews pages (currently none in the docs) should be labeled `experimental` when they land.
+
+- **Parent task note:** t594_7 was the final child of t594. Archiving this task also archives the parent t594 (all children complete).
