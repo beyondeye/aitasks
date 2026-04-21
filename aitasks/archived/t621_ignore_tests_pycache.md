@@ -3,11 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [maintenance]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-21 16:44
-updated_at: 2026-04-21 16:47
+updated_at: 2026-04-21 16:53
+completed_at: 2026-04-21 16:53
 ---
 
 `tests/__pycache__/` is currently untracked but visible in `git status` because
