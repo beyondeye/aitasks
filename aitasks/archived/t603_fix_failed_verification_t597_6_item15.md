@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: [t597_6]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [verification, bug]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-21 07:48
-updated_at: 2026-04-21 12:55
+updated_at: 2026-04-21 16:32
+completed_at: 2026-04-21 16:32
 boardidx: 10
 ---
 
