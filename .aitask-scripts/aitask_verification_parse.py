@@ -115,12 +115,45 @@ def _locate_section(body: List[str]) -> Optional[Tuple[int, int]]:
     return start, end
 
 
+def _strip_annotation(text: str) -> str:
+    if SUFFIX_SPLIT in text:
+        return text.split(SUFFIX_SPLIT, 1)[0].rstrip()
+    return text
+
+
+def _is_section_header(body: List[str], line_no: int, end: int, indent: str) -> bool:
+    """A checklist line is a section header when its text ends with ``:`` and the
+    next non-blank line inside the section is another item at a strictly deeper
+    indent. Used by ``_iter_items`` to skip category bullets that only exist to
+    group their nested children.
+    """
+    m = ITEM_RE.match(body[line_no])
+    if m is None:
+        return False
+    text = _strip_annotation(m.group(3)).rstrip()
+    if not text.endswith(":"):
+        return False
+    j = line_no + 1
+    while j < end and body[j].strip() == "":
+        j += 1
+    if j >= end:
+        return False
+    nxt = ITEM_RE.match(body[j])
+    if nxt is None:
+        return False
+    return len(nxt.group(1)) > len(indent)
+
+
 def _iter_items(body: List[str]) -> List[Tuple[int, str, int, str]]:
     """Return list of (index, state, line_number, text) for each item in the first matching section.
 
     line_number is 1-indexed within the full body (matching original file line semantics:
     frontmatter lines are included in the count so the number maps to file lines when
     frontmatter_line_count is added by the caller).
+
+    Section-header bullets (text ends with ``:`` and the next non-blank line is
+    a deeper-indented item) are filtered out — they exist only to group their
+    nested children and are not independently verifiable.
     """
     section = _locate_section(body)
     if section is None:
@@ -132,18 +165,14 @@ def _iter_items(body: List[str]) -> List[Tuple[int, str, int, str]]:
         m = ITEM_RE.match(body[line_no])
         if not m:
             continue
+        if _is_section_header(body, line_no, end, m.group(1)):
+            continue
         idx += 1
         marker = m.group(2)
         state = STATE_BY_MARKER[marker]
         text = m.group(3)
         items.append((idx, state, line_no, text))
     return items
-
-
-def _strip_annotation(text: str) -> str:
-    if SUFFIX_SPLIT in text:
-        return text.split(SUFFIX_SPLIT, 1)[0].rstrip()
-    return text
 
 
 def cmd_parse(args: argparse.Namespace) -> int:

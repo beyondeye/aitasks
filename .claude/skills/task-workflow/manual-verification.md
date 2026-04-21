@@ -52,7 +52,21 @@ The helper emits one `ITEM:<idx>:<state>:<line>:<text>` line per item. For each 
 
 1. Render `<text>` to the user as context (prefix with the index, e.g., `Item 3: …`).
 
-2. Use `AskUserQuestion`:
+2. Use `AskUserQuestion` to offer the pause-loop path (`AskUserQuestion` caps options at 4 and the verify prompt below already uses all four, so pause is a separate lead-in):
+   - Question: "Item <idx>: <text>"
+   - Header: "Proceed"
+   - Options:
+     - "Verify this item" (description: "Mark pass/fail/skip/defer for this item")
+     - "Stop here, continue later" (description: "Pause the verification loop; leave this item and any remaining items unchanged")
+
+   **If "Stop here, continue later":**
+   - Do NOT call `aitask_verification_parse.sh set` — the current item is left in its existing state (still `pending` or still `defer`).
+   - Skip the remaining items in the loop.
+   - Skip step 3 (post-loop checkpoint) and step 4 (commit verification state) entirely — no state has changed, so no commit is warranted.
+   - Inform the user: "Task t<task_id> paused at item <idx>. Re-pick with `/aitask-pick <task_id>`."
+   - End the workflow. The task stays `Implementing` and the lock remains held (same end state as the "Stop without archiving" branch in step 3 — only the message differs).
+
+3. If "Verify this item" was chosen, ask pass/fail/skip/defer via `AskUserQuestion`:
    - Question: `<text>`
    - Header: "Verify"
    - Options:
@@ -61,7 +75,7 @@ The helper emits one `ITEM:<idx>:<state>:<line>:<text>` line per item. For each 
      - "Skip (with reason)" (description: "Not applicable / cannot verify — record a reason")
      - "Defer" (description: "Postpone until later; task will not archive while any item is deferred")
 
-3. Handle the answer:
+4. Handle the answer:
 
    **Pass:**
    ```bash
@@ -95,7 +109,7 @@ The helper emits one `ITEM:<idx>:<state>:<line>:<text>` line per item. For each 
    ./.aitask-scripts/aitask_verification_parse.sh set <task_file> <idx> defer
    ```
 
-4. Move to the next pending/deferred item.
+5. Move to the next pending/deferred item.
 
 ### 3. Post-loop checkpoint
 

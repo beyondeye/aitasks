@@ -396,7 +396,7 @@ test_deferred_with_flag_creates_carryover() {
 
     # Locate the carry-over task (stub assigns IDs starting at 9001).
     local carryover_file
-    carryover_file=$(ls aitasks/t*_verify_deferred_carryover.md 2>/dev/null | head -1 || true)
+    carryover_file=$(ls aitasks/t*_verify_carryover.md 2>/dev/null | head -1 || true)
 
     if [[ -z "$carryover_file" ]]; then
         FAIL=$((FAIL + 1))

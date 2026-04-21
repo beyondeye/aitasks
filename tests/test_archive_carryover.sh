@@ -307,7 +307,7 @@ test_carryover_seeds_only_deferred() {
     assert_eq "Archive exits 0" "0" "$rc"
 
     local carryover_file
-    carryover_file="$(ls aitasks/t*_verify_deferred_carryover.md 2>/dev/null | head -1 || true)"
+    carryover_file="$(ls aitasks/t*_verify_carryover.md 2>/dev/null | head -1 || true)"
 
     TOTAL=$((TOTAL + 1))
     if [[ -z "$carryover_file" ]]; then

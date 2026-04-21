@@ -564,7 +564,7 @@ create_carryover_task() {
     local orig_basename orig_name
     orig_basename=$(basename "$orig_file" .md)
     orig_name=$(echo "$orig_basename" | sed -E 's/^t[0-9]+(_[0-9]+)?_//')
-    local carryover_name="${orig_name}_deferred_carryover"
+    local carryover_name="${orig_name}_carryover"
 
     local orig_verifies_raw orig_verifies
     orig_verifies_raw=$(read_yaml_field "$orig_file" "verifies")
