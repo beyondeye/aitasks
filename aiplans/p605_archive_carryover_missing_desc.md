@@ -113,3 +113,23 @@ Before the commit message lands, temporarily revert `.aitask-scripts/aitask_arch
 ## Step 9 — Post-Implementation
 
 Follow the shared task-workflow Step 9: commit the two new test files with `test: Add regression tests for carry-over + silent stdout (t605)` and let the archive script run. No branch/worktree cleanup (profile `fast` → working on main). No follow-up tasks expected.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Added `tests/test_archive_carryover.sh` with 2 test groups / 13 assertions. The strict stub `aitask_create.sh` exits 1 when `--desc` / `--desc-file` is absent and writes every received argv line to `$STUB_ARG_LOG`, so the test both exercises the happy path and introspects the arg log for the specific `--desc` regression.
+  - Added `tests/test_create_silent_stdout.sh` with 3 test groups / 10 assertions, driving the real `aitask_create.sh --batch --commit --silent` against a bare-remote + `aitask_claim_id.sh --init` scaffold cloned from `tests/test_draft_finalize.sh`. Asserts stdout is exactly one line (portable `wc -l`-free counter via `grep -c ''`), that the line is an existing file path, and that it contains the `--name` slug. Test 3 is a non-silent control that pins `exit 0 + non-empty` without over-constraining the non-silent contract.
+  - **Bonus fix that Test 2 caught:** `update_parent_children_to_implement()` in `.aitask-scripts/aitask_create.sh:315` invoked `aitask_update.sh --batch <parent> --add-child <child>` without routing its `Updated: <file>` stdout anywhere. In `--silent` callers, that line landed in the captured stdout ahead of the real filename. Patched to `>&2 2>/dev/null` so stdout goes to stderr (still visible to humans) while pre-existing stderr suppression is preserved.
+
+- **Deviations from plan:**
+  - Plan called for 2 test files; delivered 2. Plan did not anticipate a third stdout leak site. Fixed it inline rather than punt to another task — the fix is a 1-line hygiene patch in the same file and is provably caught by the existing test, so deferring would have left `tests/test_create_silent_stdout.sh` permanently failing or over-relaxed.
+
+- **Issues encountered:**
+  - `>&2 2>/dev/null` ordering matters: `>&2` aliases fd1 to the pre-redirection fd2 (original stderr), then `2>/dev/null` points fd2 at `/dev/null`. Net: stdout → real stderr (visible), stderr → sink. That is the intent.
+  - `wc -l` is portable-unsafe on macOS (leading spaces). Used `printf '%s' "$stdout" | grep -c '' | tr -d ' '` per CLAUDE.md `wc -l` note.
+
+- **Key decisions:**
+  - Kept the strict stub inside the new test file instead of extending `test_archive_verification_gate.sh`'s Test 6. The two tests have different contracts (behavioural gate vs. bug-specific regression) and merging them would dilute each.
+  - Did not add a test for `--silent` without `--commit` (draft mode) — that path does no git commit, so it can't exhibit the bug; adding a test would be cargo-cult coverage.
+
+- **Regression proof:** Verified interactively. Reverting the archive `--desc` fix → test_archive_carryover fails 8/13. Reverting all three `task_git commit` silent guards → test_create_silent_stdout fails 4/10. Restoring → both green again.
