@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [documentation]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-20 10:12
-updated_at: 2026-04-21 08:49
+updated_at: 2026-04-21 09:58
+completed_at: 2026-04-21 09:58
 ---
 
 Add Hugo/Docsy label/taxonomy support to the website documentation, enabling pages to be tagged and filtered by label.
