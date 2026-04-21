@@ -47,8 +47,31 @@ create_args=(--batch --commit --silent
 
 This unblocked the t597_6 archive. This task tracks that the hotfix is adequate — specifically, whether the stock description should instead include a rendered list of the deferred items or a pointer back to the original task file.
 
-## Acceptance
+## Second bug — `aitask_create.sh --silent` pollutes stdout with git-commit summary
+
+Found while fixing the first bug. When `aitask_create.sh --batch --commit --silent` is run, the internal `task_git commit` call writes git's default output (e.g. `[aitask-data abc123] ait: Add task t609: ...\n 1 file changed, 12 insertions(+)\n create mode 100644 ...`) to stdout **before** the silent-mode filename echo. A caller that captures `$(./.aitask-scripts/aitask_create.sh --silent ...)` receives this multi-line blob instead of the filename, breaking any `[[ -f "$captured" ]]` or similar test.
+
+This is how the archive's `create_carryover_task()` silently fails even after the first hotfix lands: `--desc` is now supplied, but `$new_file` captures the git noise, so the `-f` check fails and we die with "Carry-over task creation failed".
+
+### Hotfix applied
+
+In `aitask_create.sh`, guarded the three `task_git commit` calls that fire during `--batch --commit` (parent creation, child creation, and draft finalization) to use `--quiet` with stdout redirected to stderr when silent mode is active:
+
+```bash
+if [[ "$BATCH_SILENT" == true ]]; then
+    task_git commit --quiet -m "ait: Add task ${task_id}: ${humanized_name}" >&2
+else
+    task_git commit -m "ait: Add task ${task_id}: ${humanized_name}"
+fi
+```
+
+(Also in `finalize_draft()`'s sibling path.)
+
+### Acceptance (both bugs)
 
 - `aitask_archive.sh --with-deferred-carryover <id>` succeeds without manual intervention for any `manual_verification` task with deferred items.
 - Carry-over task body includes either (a) the stock description currently used, or (b) a richer description that enumerates the deferred checklist items and references the source task.
-- Add a test (`tests/test_archive_carryover.sh`) that creates a manual_verification task with one deferred item, archives with `--with-deferred-carryover`, and asserts a carry-over task was created and seeded.
+- `aitask_create.sh --batch --commit --silent` prints **only** the created filename on stdout. Git's commit summary goes to stderr (or is suppressed via `--quiet`).
+- Tests:
+  - `tests/test_archive_carryover.sh` — create a manual_verification task with one deferred item, archive with `--with-deferred-carryover`, assert a carry-over task was created and seeded.
+  - `tests/test_create_silent_stdout.sh` — run `aitask_create.sh --batch --commit --silent`, assert stdout is a single line that is exactly an existing file path.
