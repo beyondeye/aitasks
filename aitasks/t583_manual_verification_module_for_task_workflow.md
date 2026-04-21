@@ -7,9 +7,10 @@ status: Ready
 labels: [task_workflow, framework, skill]
 children_to_implement: [t583_8]
 created_at: 2026-04-17 11:20
-updated_at: 2026-04-20 08:19
+updated_at: 2026-04-21 12:29
 boardidx: 20
 ---
+
 
 ## Context
 
@@ -69,3 +70,13 @@ This task formalizes that pattern into a first-class module of the `/aitask-pick
 - Shared-procedure pattern: `.claude/skills/task-workflow/*.md` (e.g., `planning.md`, `satisfaction-feedback.md`)
 - CLAUDE.md → "Adding a New Frontmatter Field" (3-layer propagation rule)
 - CLAUDE.md → "WORKING ON SKILLS / CUSTOM COMMANDS" (Claude Code is source of truth; mirror into Gemini/Codex/OpenCode after design settles)
+
+## Framing Reference (added 2026-04-21 during t612)
+
+Extracted from the now-deleted `feedback_manual_verification_aggregate.md` memory (a Claude-Code auto-memory note from 2026-04-17) — included here as additional framing vocabulary for implementers. The current `planning.md:170-197` "Manual verification sibling (post-child-creation)" block already implements the core flow; this note adds descriptive phrasing worth preserving:
+
+- **Trigger phrasing:** "For parent tasks that spawn multiple siblings where two or more require in-person TUI or end-to-end verification (things Pilot / unit tests can't cover — visual labels, launched-agent `_input.md` contents, multi-screen navigation), create a single aggregate sibling task."
+- **Naming pattern:** `t<parent>_<last>_manual_verification_*` (matches the current `manual_verification_<parent_slug>` convention).
+- **Cross-reference discipline:** Each TUI-touching sibling's own "Verification" section becomes a one-line pointer (`See t<parent>_<N>`) instead of repeating the steps inline; the aggregate task is the source of truth.
+- **Why this matters:** Inline verification sections get ignored after archival; an explicit pickable task makes the verification burden visible, estimatable, and finishable.
+- **Originating incident:** t571 (structured brainstorming), where t571_4 (wizard section-select) and t571_5 (shared section viewer) both produced UI behavior that could not be fully validated by headless tests. The ad-hoc aggregate sibling `t571_7` was created to hold the in-person checklist for the whole family.
