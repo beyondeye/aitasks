@@ -79,6 +79,22 @@ A new task frontmatter field must touch three layers, or the board silently drop
 
 When splitting a plan that introduces a new field, surface any missing layer as its own child task.
 
+### Adding a New Helper Script
+
+Any new script under `.aitask-scripts/` invoked by a skill must be whitelisted for every code agent's permission system — **both runtime configs (this project) AND seed configs (new projects bootstrapped via `ait setup`)**. Missing any touchpoint causes users of the corresponding agent to be prompted on every invocation, which is a recurring friction source.
+
+| Touchpoint | Entry shape |
+|-----------|------------|
+| `.claude/settings.local.json` | `"Bash(./.aitask-scripts/<name>.sh:*)"` in `permissions.allow` |
+| `.gemini/policies/aitasks-whitelist.toml` | `[[rules]]` block with `commandPrefix = "./.aitask-scripts/<name>.sh"` |
+| `seed/claude_settings.local.json` | mirror of `.claude/settings.local.json` entry |
+| `seed/geminicli_policies/aitasks-whitelist.toml` | mirror of runtime Gemini policy |
+| `seed/opencode_config.seed.json` | `"./.aitask-scripts/<name>.sh *": "allow"` |
+
+**Codex exception:** `.codex/config.toml` and `seed/codex_config.seed.toml` use a prompt/forbidden-only permission model — no `allow` decision exists. Codex does not need a whitelist entry; it prompts by default.
+
+When splitting a plan that introduces one or more new helper scripts, surface this 5-touchpoint checklist as an explicit deliverable per helper.
+
 ### Script Modes
 Most scripts support both **interactive** (uses `fzf`) and **batch** (CLI flags for automation) modes. Example: `aitask_create.sh --batch --name "task" --priority high --commit`.
 
@@ -186,3 +202,4 @@ of skills and commands:
 ## Project-Specific Notes
 
 - **`diffviewer` TUI is transitional.** It will be integrated into the `brainstorm` TUI later; omit it from user-facing website docs and lists-of-TUIs (document: board, monitor, minimonitor, codebrowser, settings, brainstorm). Keep `diffviewer` in `KNOWN_TUIS` inside `.aitask-scripts/lib/tui_switcher.py` — it must remain switchable via `j` until the brainstorm integration lands.
+- **Manual verification.** Tasks with `issue_type: manual_verification` dispatch through a dedicated Pass/Fail/Skip/Defer loop in `/aitask-pick` (Step 3 Check 3 → `.claude/skills/task-workflow/manual-verification.md`). Aggregate-sibling tasks are offered during parent-task planning when ≥2 children are created; single-task follow-ups are offered at Step 8c after "Commit changes". See `website/content/docs/workflows/manual-verification.md` for the end-to-end workflow.

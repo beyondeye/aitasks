@@ -222,3 +222,4 @@ At this point, a task has been selected and confirmed. Set the following context
 - The `--children` flag of `aitask_ls.sh` lists only children of a specific parent
 - When invoked with a child task argument (e.g., `/aitask-pick 10_2`), the skill goes directly to that child task
 - For the full Execution Profiles schema, shared workflow notes, and customization guide, see `.claude/skills/task-workflow/SKILL.md`
+- Manual-verification tasks (`issue_type: manual_verification`) dispatch to a dedicated checklist loop instead of the plan+implement flow — see `.claude/skills/task-workflow/manual-verification.md`. Post-implementation follow-up creation is handled by Step 8c (`manual-verification-followup.md`).
