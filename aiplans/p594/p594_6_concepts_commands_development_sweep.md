@@ -130,3 +130,32 @@ Originally in the plan but **verified clean**:
 ## Step 9 reference
 
 Archive via `./.aitask-scripts/aitask_archive.sh 594_6`.
+
+## Final Implementation Notes
+
+- **Actual work done (21 files, +106 lines, 1 Hugo rebuild pass):**
+  - `development/task-format.md` — added 5 missing frontmatter rows: `verifies`, `implemented_with`, `pull_request`, `contributor`, `contributor_email`. A duplicate `folded_into` was introduced mid-edit and then removed. `folded_into` was already present at line 48.
+  - `commands/task-management.md` — `ait update` section gained 11 flags: `--verifies`, `--add-verifies`, `--remove-verifies`, `--file-ref`, `--remove-file-ref`, `--pull-request`, `--contributor`, `--contributor-email`, `--folded-tasks`, `--folded-into`, `--implemented-with`. `ait create` section gained 5 flags that mirror update counterparts: `--verifies`, `--file-ref`, `--pull-request`, `--contributor`, `--contributor-email`.
+  - `concepts/agent-attribution.md` — replaced stale examples `geminicli/gemini-2.5-pro` and `codex/gpt-5` with `geminicli/gemini3pro` and `codex/gpt5_4`; added a clarifying sentence that the `<model>` segment comes from the `name` field in `models_<agent>.json` (not the raw CLI ID).
+  - `"Next:"` footers appended to 21 pages (12 concepts + 8 commands + 1 development). Last page in each section intentionally has no footer.
+
+- **Deviations from plan:**
+  - Plan step 1 said "add `verifies` row." Also added 4 other missing rows (`implemented_with`, `pull_request`, `contributor`, `contributor_email`) — they were all missing from `development/task-format.md` vs the update/create scripts, so they were grouped with the `verifies` fix. `folded_into` was re-checked and left alone since already documented.
+  - Plan step 2 listed 7 update flags to add. Verified against `aitask_update.sh:196-228` and found **11** missing (the verify-mode subagent had incorrectly reported `--verifies`, `--add-verifies`, `--remove-verifies`, and `--implemented-with` as already documented). Added all 11.
+  - Plan step 2 said add 1 create flag (`--verifies`). Verified `aitask_create.sh:132-156` against the doc — also missing `--file-ref`, `--pull-request`, `--contributor`, `--contributor-email` (which mirror the update flags). Added all 5. Skipped `--auto-merge` / `--no-auto-merge` (different concept, out of scope).
+  - Plan's `concepts/agent-attribution.md` fix was extended with a one-sentence clarification about the `name` field provenance — prevents the same drift recurring if model config files are updated.
+
+- **Issues encountered:**
+  - Transient duplicate `folded_into` row in `task-format.md` after the initial Edit; caught by re-reading the file and removed before Hugo build.
+
+- **Key decisions:**
+  - Same-section "Next:" footers only — no cross-section jumps. Keeps the scope tight and is consistent with existing `installation/` and `workflows/` footer style.
+  - Footer format: `**Next:** [Title]({{< relref "/docs/section/slug" >}})` without trailing description — matches `terminal-setup.md` style, minimal by design.
+  - Commands tie-break for `weight: 35` (explain vs sync): resolved alphabetically → `explain → sync → lock`.
+  - Did **not** touch `commands/codeagent.md` (agent-string repetition) — verified it already defines the term once upfront.
+  - Did **not** touch `concepts/tasks.md` cross-link — verified it's already in place at line 18.
+
+- **Notes for sibling tasks (t594_7 — docsy labels support):**
+  - The "Next:" footer convention introduced here uses `{{< relref >}}` shortcodes. If t594_7 adds label-based navigation, the footers can coexist — they're plain markdown at the tail of each page.
+  - Frontmatter fields added in this task (`verifies`, `implemented_with`, `pull_request`, `contributor`, `contributor_email`) should be considered when t594_7 designs label metadata — avoid name collisions.
+  - `concepts/agent-attribution.md` now references the `name` field in `models_<agent>.json` explicitly. If the models config schema changes, this sentence needs an update.
