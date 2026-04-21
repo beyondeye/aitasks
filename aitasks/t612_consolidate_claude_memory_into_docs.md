@@ -7,8 +7,9 @@ status: Implementing
 labels: [task_workflow, documentation]
 folded_tasks: [384]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-21 09:11
-updated_at: 2026-04-21 09:12
+updated_at: 2026-04-21 12:26
 ---
 
 Scan all active Claude Code memory files for this project, consolidate each feedback entry into the appropriate durable location, then delete the memory files and `MEMORY.md` index.
