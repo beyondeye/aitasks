@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_archive, aitask_verification]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-21 07:58
-updated_at: 2026-04-21 08:22
+updated_at: 2026-04-21 08:48
+completed_at: 2026-04-21 08:48
 ---
 
 ## Bug
