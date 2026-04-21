@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [aitask_pick, task_workflow]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-21 12:36
-updated_at: 2026-04-21 13:38
+updated_at: 2026-04-21 13:41
+completed_at: 2026-04-21 13:41
 boardidx: 70
 ---
 
