@@ -16,7 +16,7 @@ A plan separates the **what** and **how** from the **doing**. The user approves 
 
 ## How to use
 
-Plans are produced as a side effect of running [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick" >}}) or [`/aitask-explore`]({{< relref "/docs/skills/aitask-explore" >}}) — you do not normally write the file by hand. The file naming, metadata header, and verification protocol are defined in the shared task-workflow skill — see [`task-workflow/planning.md`](https://github.com/dario-elyasy/aitasks/blob/main/.claude/skills/task-workflow/planning.md) on GitHub.
+Plans are produced as a side effect of running [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick" >}}) or [`/aitask-explore`]({{< relref "/docs/skills/aitask-explore" >}}) — you do not normally write the file by hand. The file naming, metadata header, and verification protocol are defined in the shared task-workflow skill — see [`task-workflow/planning.md`](https://github.com/beyondeye/aitasks/blob/main/.claude/skills/task-workflow/planning.md) on GitHub.
 
 ## See also
 

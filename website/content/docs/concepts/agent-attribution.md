@@ -22,7 +22,7 @@ When a task ships, you want to know which model actually built it — not which 
 
 ## How to use
 
-Attribution is automatic — the workflow runs the model self-detection sub-procedure at the start of implementation and writes `implemented_with` for you. You normally never edit the field by hand. The full procedure (detection, normalization, fallback) lives in [`task-workflow/agent-attribution.md`](https://github.com/dario-elyasy/aitasks/blob/main/.claude/skills/task-workflow/agent-attribution.md) and [`model-self-detection.md`](https://github.com/dario-elyasy/aitasks/blob/main/.claude/skills/task-workflow/model-self-detection.md) on GitHub.
+Attribution is automatic — the workflow runs the model self-detection sub-procedure at the start of implementation and writes `implemented_with` for you. You normally never edit the field by hand. The full procedure (detection, normalization, fallback) lives in [`task-workflow/agent-attribution.md`](https://github.com/beyondeye/aitasks/blob/main/.claude/skills/task-workflow/agent-attribution.md) and [`model-self-detection.md`](https://github.com/beyondeye/aitasks/blob/main/.claude/skills/task-workflow/model-self-detection.md) on GitHub.
 
 ## See also
 

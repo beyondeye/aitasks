@@ -27,7 +27,7 @@ A small, fixed set of statuses lets the prioritization, board, and selection log
 
 ## How to use
 
-You rarely set `status` by hand. The workflow scripts do it as side effects of picking, archiving, aborting, and folding. The full transition logic lives in the implementation scripts on GitHub: [`aitask_pick_own.sh`](https://github.com/dario-elyasy/aitasks/blob/main/.aitask-scripts/aitask_pick_own.sh), [`aitask_archive.sh`](https://github.com/dario-elyasy/aitasks/blob/main/.aitask-scripts/aitask_archive.sh), and the [task abort procedure](https://github.com/dario-elyasy/aitasks/blob/main/.claude/skills/task-workflow/task-abort.md).
+You rarely set `status` by hand. The workflow scripts do it as side effects of picking, archiving, aborting, and folding. The full transition logic lives in the implementation scripts on GitHub: [`aitask_pick_own.sh`](https://github.com/beyondeye/aitasks/blob/main/.aitask-scripts/aitask_pick_own.sh), [`aitask_archive.sh`](https://github.com/beyondeye/aitasks/blob/main/.aitask-scripts/aitask_archive.sh), and the [task abort procedure](https://github.com/beyondeye/aitasks/blob/main/.claude/skills/task-workflow/task-abort.md).
 
 ## See also
 

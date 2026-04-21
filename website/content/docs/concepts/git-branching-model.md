@@ -25,7 +25,7 @@ Code review, branch protection, and CI rules are usually scoped to source code. 
 
 ## How to use
 
-The architecture, symlink rules, and detection logic are documented in the [task-workflow repo-structure procedure](https://github.com/dario-elyasy/aitasks/blob/main/.claude/skills/task-workflow/repo-structure.md) on GitHub. In day-to-day use you only need two rules: use `./ait git` for anything in `aitasks/` or `aiplans/`, and use plain `git` for source code. (For older projects bootstrapped before separate branches existed, `./ait git` transparently falls back to plain `git`.)
+The architecture, symlink rules, and detection logic are documented in the [task-workflow repo-structure procedure](https://github.com/beyondeye/aitasks/blob/main/.claude/skills/task-workflow/repo-structure.md) on GitHub. In day-to-day use you only need two rules: use `./ait git` for anything in `aitasks/` or `aiplans/`, and use plain `git` for source code. (For older projects bootstrapped before separate branches existed, `./ait git` transparently falls back to plain `git`.)
 
 ## See also
 

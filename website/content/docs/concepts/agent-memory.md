@@ -22,7 +22,7 @@ The most expensive thing a long-lived codebase loses is the *why* — why a func
 
 ## How to use
 
-The integrations are automatic — `/aitask-pick` gathers sibling context, the Code Browser annotates lines, and `/aitask-explain` walks evolution history. Sibling-context gathering is implemented in [`aitask_query_files.sh`](https://github.com/dario-elyasy/aitasks/blob/main/.aitask-scripts/aitask_query_files.sh) on GitHub.
+The integrations are automatic — `/aitask-pick` gathers sibling context, the Code Browser annotates lines, and `/aitask-explain` walks evolution history. Sibling-context gathering is implemented in [`aitask_query_files.sh`](https://github.com/beyondeye/aitasks/blob/main/.aitask-scripts/aitask_query_files.sh) on GitHub.
 
 ## See also
 
