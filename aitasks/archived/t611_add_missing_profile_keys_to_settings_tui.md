@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [execution_profiles, settings_tui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-21 09:03
-updated_at: 2026-04-21 09:25
+updated_at: 2026-04-21 12:24
+completed_at: 2026-04-21 12:24
 ---
 
 ## Context
