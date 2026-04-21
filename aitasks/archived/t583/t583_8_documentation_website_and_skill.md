@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: [t583_1, t583_2, t583_3, t583_4, t583_5, t583_6, t583_7]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [framework, skill, task_workflow, verification, docs]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-19 08:30
-updated_at: 2026-04-21 16:05
+updated_at: 2026-04-21 16:28
+completed_at: 2026-04-21 16:28
 ---
 
 ## Context
