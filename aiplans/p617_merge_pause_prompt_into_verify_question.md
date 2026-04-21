@@ -209,3 +209,31 @@ Refer to `.claude/skills/task-workflow/SKILL.md` Step 9. Because
 cleanup is needed — merge step is skipped. Archive via
 `./.aitask-scripts/aitask_archive.sh 617`; the task's `issue` field is
 empty so no issue-update prompts. Push via `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Single-file edit to
+  `.claude/skills/task-workflow/manual-verification.md`. Removed the
+  per-item pause prompt and folded the Abort path into the verify
+  prompt via an "Other" free-text branch with intent-based routing.
+  Renumbered section 2's sub-steps from 1–5 to 1–4. All script calls,
+  section numbering (1 Pre-loop, 2 Main loop, 3 Post-loop, 4 Commit,
+  5 Hand off) and downstream flows unchanged.
+- **Deviations from plan:** None. The final edit matches the approved
+  plan's "Changes to manual-verification.md" block verbatim (including
+  the question-text hint wording and the Abort branch prose).
+- **Issues encountered:** None.
+- **Key decisions:**
+  - Intent-based Other routing (not a fixed keyword list) per the
+    user's explicit direction during planning. The skill's LLM judges
+    whether the free text means "abort" or is a different kind of
+    user request.
+  - Non-abort Other text falls through to normal in-conversation
+    handling; the item index only advances on a terminal outcome
+    (Pass / Fail / Skip / Defer / Abort).
+  - Skip-with-reason stays explicit — no ambiguity between
+    "skip reason" and "unrelated user message".
+- **No mirror files to update:** `.gemini/`, `.agents/`, `.opencode/`
+  do not yet carry a `task-workflow/` skill tree; nothing to mirror.
+  CLAUDE.md source-of-truth rule satisfied by editing
+  `.claude/skills/...` only.
