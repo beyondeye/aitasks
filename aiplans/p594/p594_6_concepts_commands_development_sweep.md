@@ -2,116 +2,129 @@
 Task: t594_6_concepts_commands_development_sweep.md
 Parent Task: aitasks/t594_website_documentation_coherence.md
 Parent Plan: aiplans/p594_website_documentation_coherence.md
-Sibling Tasks: aitasks/t594/t594_{1,2,3,4,5}_*.md
-Depends on: t594_2 (canonical wording)
+Sibling Tasks: aitasks/t594/t594_{1,2,3,4,5,7}_*.md
+Archived Sibling Plans: aiplans/archived/p594/p594_{1,2,3,4,5}_*.md
+Depends on: t594_2 (canonical wording — archived)
 Worktree: (none — work on current branch)
 Branch: main
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-04-21 08:24
 ---
 
 # t594_6 — Concepts + Commands + Development coherence sweep
 
 ## Context
 
-Bundled child covering three smaller sections (14 + 10 + 3 = 27 pages). All three drift the same way: missing flags, missing frontmatter fields, stale schemas. Per-page changes are small, so they are bundled. Depends on t594_2 for canonical wording.
+Parent plan `p594_website_documentation_coherence.md` covers the website doc
+sweep. This child covers three reference-oriented sections: **Concepts (14
+pages), Commands (10 pages), Development (3 pages)** — 27 pages total.
+
+This plan has been **verified (2026-04-20)** against current source scripts
+and website content. Several items from the original plan were already fixed
+by siblings t594_2 and t594_5 and have been **removed**. New drift found
+during verification was **added**.
+
+Page counts confirmed: 14 / 10 / 3.
 
 ## Scope
 
 **In-bounds:**
-- Add missing flags to command reference pages (from authoritative script sources).
-- Add missing frontmatter fields to `development/task-format.md`.
-- Tighten `commands/codeagent.md` by defining "agent string" once.
-- Align `concepts/tasks.md` overview vs `development/task-format.md` schema.
-- Verify concept pages against the relevant source.
-- Add "Next:" footers within each section.
+- Add missing `verifies` frontmatter field to `development/task-format.md`.
+- Add missing `ait update` flags and `ait create --verifies` to `commands/task-management.md`.
+- Replace stale model examples in `concepts/agent-attribution.md` with current ones.
+- Add "Next:" footer links within each of the three sections.
 
 **Out-of-bounds:**
-- Reorganizing section structure or weights.
+- Reorganizing section structure or page weights.
 - Splitting or merging pages.
+- Content already handled by siblings t594_2 (canonical wording), t594_4 (skills), t594_5 (workflows).
+- The `docsy labels` support is in sibling t594_7 — skip anything labels-related.
 
-## Concrete factual drift to fix
+## Verified drift
 
-### A. `development/task-format.md` — missing `verifies` field
+### A. `website/content/docs/development/task-format.md` — missing `verifies` field
 
-Lines 29-49 list ~13 frontmatter fields. Add:
+Frontmatter table at lines 31–49 lists 17 fields. Missing: `verifies`.
 
-- `verifies` — list of task IDs this task verifies (added with t583_2, commit `b17f8c54`; source: `.aitask-scripts/aitask_create.sh:25` `--verifies`).
+- Source: `.aitask-scripts/aitask_create.sh` (`--verifies` / `--add-verifies` / `--remove-verifies`); `.aitask-scripts/aitask_update.sh:205-207` (`--verifies`, `--add-verifies`, `--remove-verifies`).
+- Add one row after `file_references` (line 49):
+  ```
+  | `verifies` | `[t10_1, t10_2]` | Task IDs this task verifies (used by manual_verification sibling tasks) |
+  ```
 
-Also cross-check the 13+ existing fields against `CLAUDE.md` §"Task File Format" and the create/update scripts — fix any other missing fields found.
+No other frontmatter fields are missing — `verifies` is the only gap.
 
-### B. `commands/task-management.md` — missing `ait update` flags
+### B. `website/content/docs/commands/task-management.md` — missing `ait update` flags
 
-Current page documents ~13 flags. Missing flags (source `.aitask-scripts/aitask_update.sh:52-82`):
+The `ait update` section documents many flags, but **these are missing** (source `.aitask-scripts/aitask_update.sh:196-228`):
 
-- `--verifies`, `--add-verifies`, `--remove-verifies`
-- `--file-ref`, `--remove-file-ref`
-- `--pull-request`
-- `--contributor`, `--contributor-email`
-- `--folded-tasks`, `--folded-into`
-- `--implemented-with`
-- `--boardcol`, `--boardidx`
+- `--file-ref`, `--remove-file-ref` (script lines 211-212)
+- `--pull-request` (script line 223)
+- `--contributor`, `--contributor-email` (script lines 224-225)
+- `--folded-tasks`, `--folded-into` (script lines 226-227)
 
-### C. `commands/task-management.md` — `ait create` missing `--verifies` flag
+**Already documented** (no action): `--verifies`, `--add-verifies`, `--remove-verifies`, `--boardcol`, `--boardidx`, `--implemented-with` — these are in the page at lines 152-174. (The original plan overstated the gap; 6 of 13 listed flags are already present.)
 
-Source: `.aitask-scripts/aitask_create.sh:25`.
+### C. `website/content/docs/commands/task-management.md` — missing `ait create --verifies`
 
-### D. `commands/codeagent.md` — tighten "agent string" repetition
+`ait create` flag table at lines 49-69 does not mention `--verifies`.
 
-Currently re-introduces "agent string" 4 times across ~280 lines. Define it once upfront (lines ~23-32 area), then reference that definition. Do NOT split the page.
+- Source: `.aitask-scripts/aitask_create.sh` accepts `--verifies "<csv>"`.
+- Add one row to the `ait create` flag table for `--verifies`.
 
-Verify default model ("pick: claudecode/opus4_7_1m") against:
-- `.aitask-scripts/aitask_codeagent.sh:27` (`DEFAULT_AGENT_STRING`).
-- `aitasks/metadata/codeagent_config.json`.
+### D. `website/content/docs/concepts/agent-attribution.md` — stale model examples
 
-### E. `concepts/tasks.md` ↔ `development/task-format.md`
+Line 12 cites these agent/model examples:
+- `claudecode/opus4_7_1m` ✓ (matches `aitasks/metadata/codeagent_config.json`)
+- `geminicli/gemini-2.5-pro` ✗ (no such `name` in `aitasks/metadata/models_geminicli.json` — current names are `gemini3_1pro`, `gemini3pro`, `gemini3flash`)
+- `codex/gpt-5` ✗ (no such `name` in `aitasks/metadata/models_codex.json` — current names are `gpt5_4`, `gpt5_3codex`, `gpt5_3codex_spark`)
 
-Align overview sentences (done in part by t594_2). Add explicit cross-link: "See `development/task-format.md` for the full frontmatter schema."
+Replace with `name`-field values that actually exist in the JSON configs — e.g., `geminicli/gemini3pro`, `codex/gpt5_4`.
 
-### F. Per-concept page verification
+### E. "Next:" footers within the three sections
 
-For each of the 14 concept pages, identify the relevant source (script, SKILL.md, procedure file) and diff claims vs source. Priority pages:
+Add a bottom-of-page cross-link to the next page in the section's intended reading order. Minimal, one-line footers only — not multi-item "See also" blocks.
 
-- `concepts/locks.md` vs `.aitask-scripts/aitask_lock.sh`, `aitask_lock_diag.sh`.
-- `concepts/agent-attribution.md` vs `.claude/skills/task-workflow/agent-attribution.md` and `.aitask-scripts/aitask_resolve_detected_agent.sh`.
-- `concepts/execution-profiles.md` (if present) vs `.claude/skills/task-workflow/profiles.md` and shipped YAMLs.
-- `concepts/git-branching-model.md` vs `./ait git` dispatcher and `aitask_sync.sh`.
-- `concepts/task-lifecycle.md` vs the Status enum used across scripts.
+- **Concepts** — follow the existing `weight:` ordering. 14 pages; each gets a "Next: [title]" pointing to the next-weight page.
+- **Commands** — 10 pages; same pattern.
+- **Development** — 3 pages; same pattern.
 
-### G. `development/review-guide-format.md`
+## Already-aligned items (no action needed — removed from scope)
 
-Verify against actual files in `aireviewguides/`.
+Originally in the plan but **verified clean**:
 
-### H. "Next:" footers
-
-Add within each section (concepts internal, commands internal, development internal).
+- **`commands/codeagent.md`** "agent string" repetition — already defined once upfront (lines 23-32); remaining occurrences are references, not re-definitions. Default model claim `claudecode/opus4_7_1m` matches `.aitask-scripts/aitask_codeagent.sh:21` and `codeagent_config.json`.
+- **`concepts/tasks.md`** cross-link to `development/task-format.md` — already present at line 18.
+- **`development/review-guide-format.md`** — structure matches `aireviewguides/*.md` sample files (frontmatter `name`, `description`, `reviewtype`, `reviewlabels`; `## Review Instructions` heading).
+- **`concepts/execution-profiles.md`** — correctly lists 3 shipped profiles (`default`, `fast`, `remote`) which matches `aitasks/metadata/profiles/`. Brevity of the key list is by design (page explicitly defers to `/aitask-pick/execution-profiles` for full schema at line 28).
+- **`concepts/locks.md`**, **`concepts/git-branching-model.md`**, **`concepts/task-lifecycle.md`** — aligned with their source scripts.
 
 ## Authoritative sources
 
 | Topic | Source |
 |---|---|
 | `ait create` flags | `.aitask-scripts/aitask_create.sh` |
-| `ait update` flags | `.aitask-scripts/aitask_update.sh:52-82` |
+| `ait update` flags | `.aitask-scripts/aitask_update.sh:196-228` |
 | Task frontmatter schema | `CLAUDE.md` §"Task File Format" + create/update scripts |
-| Review guide format | `aireviewguides/` directory |
-| Default code-agent model | `.aitask-scripts/aitask_codeagent.sh:27`, `aitasks/metadata/codeagent_config.json` |
-| Concept details | corresponding `.aitask-scripts/`, `.claude/skills/task-workflow/` files |
+| Default code-agent model | `.aitask-scripts/aitask_codeagent.sh:21` + `aitasks/metadata/codeagent_config.json` |
+| Agent/model examples | `aitasks/metadata/models_*.json` (use `name` field) |
 
 ## Implementation plan
 
-1. **`development/task-format.md` frontmatter update** — add `verifies` and any other missing fields found.
-2. **`commands/task-management.md` flag additions** — for `ait update` and `ait create`.
-3. **`commands/codeagent.md` tightening** — single "agent string" definition upfront.
-4. **`concepts/tasks.md` cross-link + alignment.**
-5. **Concept page verification pass** — priority pages first.
-6. **`development/review-guide-format.md` verification** against `aireviewguides/`.
-7. **"Next:" footers within each section.**
-8. **Hugo build check.**
+1. **`development/task-format.md`** — add `verifies` row to the frontmatter table after `file_references`.
+2. **`commands/task-management.md`** — add 7 missing `ait update` rows (`--file-ref`, `--remove-file-ref`, `--pull-request`, `--contributor`, `--contributor-email`, `--folded-tasks`, `--folded-into`) and 1 `ait create` row (`--verifies`), consulting `aitask_update.sh:196-228` and `aitask_create.sh` for exact semantics.
+3. **`concepts/agent-attribution.md`** — replace the two stale examples on line 12 with names that exist in `models_geminicli.json` / `models_codex.json`.
+4. **"Next:" footers** — add to all 14 concept, 10 command, and 3 development pages. Use `weight:` frontmatter to determine order; link to next page in sequence; omit footer on the final page of each section.
+5. **Hugo build check** — `cd website && hugo build --gc --minify`.
 
 ## Verification
 
-- `diff <(./.aitask-scripts/aitask_update.sh --help 2>&1 | grep -oE '^\s*--[a-z-]+' | sort -u) <(grep -oE '\-\-[a-z-]+' website/content/docs/commands/task-management.md | sort -u)` — every script flag has a doc mention (or documented exclusion).
-- `grep -i "verifies" website/content/docs/development/task-format.md` — at least one match.
-- `grep -c "agent string" website/content/docs/commands/codeagent.md` — reduced from 4+ to 1 (definition) + follow-on references that don't re-define.
+- `grep -c "verifies" website/content/docs/development/task-format.md` — ≥ 1.
+- `for flag in file-ref remove-file-ref pull-request contributor folded-tasks folded-into implemented-with; do grep -q -- "--$flag" website/content/docs/commands/task-management.md && echo "OK: $flag" || echo "MISSING: $flag"; done` — all OK.
+- `grep -q -- '--verifies' website/content/docs/commands/task-management.md` — hit (covers both create and update).
+- `grep -E "geminicli/|codex/" website/content/docs/concepts/agent-attribution.md` — examples resolve to names present in `models_geminicli.json` / `models_codex.json`.
+- `grep -c "Next:" website/content/docs/concepts/*.md | grep -v ":0$" | wc -l` — ≥ 13 (14 minus last).
 - `cd website && hugo build --gc --minify` succeeds.
 
 ## Step 9 reference
