@@ -6,7 +6,7 @@ issue_type: refactor
 status: Ready
 labels: [aitask_pick, aitask_verification]
 created_at: 2026-04-21 07:53
-updated_at: 2026-04-21 09:30
+updated_at: 2026-04-21 09:40
 ---
 
 ## Context
@@ -103,6 +103,38 @@ Patch:
 - `aitask_archive.sh --with-deferred-carryover <id>` creates a carry-over task whose slug is `<orig_slug>_carryover` (no `deferred_` middle).
 - Existing carry-over tasks already on disk are not renamed (migration unnecessary — only new ones need to use the new convention).
 - If the test suite added by the first half of this task creates a carry-over, it asserts the new naming convention.
+
+## Third improvement — "Stop here, continue later" mid-loop option
+
+Request from user (2026-04-21): during the per-item interactive prompt in the manual-verification loop, the user sometimes wants to pause the whole verification session without marking the current item either way (not pass/fail/skip/defer — just stop *before* answering it). Today the only way to exit mid-loop is to answer the current item first (e.g., pick Defer) and then trigger the post-loop "Stop without archiving" path. That forces a dummy answer onto the item at the cursor.
+
+**Desired behavior:** per-item `AskUserQuestion` in `manual-verification.md` Step 2.2 should expose a **"Stop here, continue manual verification later"** option that:
+
+- Leaves the current item unchanged (still `pending` or `defer`).
+- Breaks out of the main loop immediately (skip steps 2.3, 2.4 for this item).
+- Skips the post-loop checkpoint (step 3).
+- Ends the workflow in the same way the post-loop "Stop without archiving" branch ends it: task stays `Implementing`, lock held, informs the user: "Task t<task_id> paused at item <idx>. Re-pick with `/aitask-pick <task_id>`."
+
+### Implementation note — 4-option limit
+
+`AskUserQuestion` caps `options` at **4**. The current per-item prompt already uses all four slots (Pass / Fail / Skip / Defer). The task implementer has to choose between:
+
+1. **Two-step prompt:** first ask "Verify this item or pause the loop?" with 2 options; if "Verify", drill into the existing 4-option prompt.
+2. **Fold Defer into a combined option:** e.g. replace "Defer" with "Defer & stop" (then a single Defer action does both — but loses the ability to defer mid-loop and keep going to the next item).
+3. **Drop one existing option** (least preferred — "Skip with reason" and "Defer" both have clear distinct uses).
+
+Option 1 is the cleanest from a UX standpoint and should be the default recommendation.
+
+### Acceptance criteria (mid-loop stop)
+
+- The per-item `AskUserQuestion` in `manual-verification.md` exposes a way to exit the loop without answering the current item (via a two-step prompt or similar).
+- When that path is taken:
+  - The current item's state is unchanged (still `pending` if it was pending, still `defer` if it was a re-prompted deferred item).
+  - No further items are prompted.
+  - The post-loop checkpoint is skipped.
+  - The workflow ends with the same user-facing message shape as the existing "Stop without archiving" branch, adapted to: `Task t<task_id> paused at item <idx>. Re-pick with /aitask-pick <task_id>.`
+- The task lock remains held (same as "Stop without archiving" today).
+- A test verifies the pause path leaves task metadata untouched (status still `Implementing`, no pass/fail/skip/defer marks added to the pending item at cursor).
 
 ## Reference
 
