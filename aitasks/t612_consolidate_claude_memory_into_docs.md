@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [task_workflow, documentation]
 folded_tasks: [384]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-21 09:11
-updated_at: 2026-04-21 09:11
+updated_at: 2026-04-21 09:12
 ---
 
 Scan all active Claude Code memory files for this project, consolidate each feedback entry into the appropriate durable location, then delete the memory files and `MEMORY.md` index.
