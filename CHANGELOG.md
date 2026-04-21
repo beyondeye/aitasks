@@ -1,5 +1,55 @@
 # Changelog
 
+## v0.17.0
+
+### Features
+
+- **Manual verification workflow** (t583_1, t583_2, t583_3, t583_5, t583_7): Added a full Pass/Fail/Skip/Defer manual-verification loop with a new `verifies` frontmatter field, follow-up task helpers, archival gate with automatic carry-over, and plan/implementation-time prompts for generating follow-up tasks.
+- **Stats TUI** (t597_2, t597_3, t597_4): New `ait stats-tui` interactive statistics TUI (switcher shortcut `t`) with 12 panes across Overview/Labels/Agents/Velocity categories, including counters, charts, heatmaps, ranking tables, and an inline layout picker with user-only persistence.
+- **More zoom levels in monitor** (t598): Added three XL zoom levels to the monitor TUI that size the agent list to fit exactly 3, 6, or 9 agents on screen.
+- **Missing profile keys in settings TUI** (t611): Added five previously-missing execution-profile keys (child plan action, manual-verification follow-up mode, review modes and auto-continue, QA tier) to the settings TUI.
+
+### Bug Fixes
+
+- **Section viewer rendering and bindings** (t571_11): Fixed rendering glitches and broken Tab/arrow navigation in the shared section viewer, with a richer two-line row format in fullscreen mode.
+- **Context-aware codebrowser footer** (t584): The codebrowser footer now reorders keybindings based on the currently focused pane.
+- **Monitor shortcut in TUI switcher** (t596): The Monitor TUI is now reachable via `m` in the TUI switcher.
+- **Stuck data-worktree detection** (t599): Added detection for a stuck `.aitask-data` worktree state with a new `./ait git-health` command and clear recovery hints when commits or pushes would fail.
+- **Verified-rankings pane default** (t603): The stats TUI verified-rankings pane now defaults to the highest-run operation, with left/right arrow navigation to cycle through operations.
+- **Carry-over task description** (t605): Fixed a bug where manual-verification carry-over task creation silently dropped the description; silent-mode stdout now reliably emits only the new task path.
+- **Duplicate verification checklist heading** (t619): Fixed a bug where the manual-verification task wrapper emitted a duplicate `## Verification Checklist` heading.
+- **GitHub username in website docs** (t620): Fixed incorrect GitHub username in website links across five pages so they now point to the correct `beyondeye/aitasks` repository.
+
+### Improvements
+
+- **Shared section viewer across TUIs** (t571_5, t571_8, t571_9, t571_10): New shared section-navigation widget library with minimap, click-to-scroll, and `V` fullscreen shortcut, integrated into the codebrowser detail/history panes, Brainstorm node-detail modal, and board task-detail screen.
+- **Codebrowser footer binding order** (t586): The codebrowser footer now displays keybindings in a stable primary order with pane-specific extensions, keeping related keys adjacent.
+- **Consolidated YAML-list helper** (t587): Consolidated duplicated YAML-list formatting logic into a single shared helper for more consistent task file output.
+- **Stats data module split** (t597_1): Split stats data-collection logic into a dedicated module in preparation for the stats TUI, with no change to CLI behavior.
+- **Centralized TUI registry** (t601): Centralized the TUI registry so the monitor correctly recognizes the stats TUI as a managed window; TUI-name config now merges over defaults.
+- **Reliable manual-verification follow-up prompt** (t602): Moved the follow-up prompt to a reliable post-implementation step with richer discovery, added a new `manual_verification_followup_mode` profile key, and skipped the prompt in fast/remote profiles.
+- **Verification parser skips section headers** (t604): Verification parsing now skips section-header bullets, carry-over task slugs use `_carryover`, and the verification loop gained a Stop-here pause option.
+- **Unified verify/pause prompt** (t617): Merged the manual-verification pause prompt into the main Pass/Fail/Skip/Defer question with an "Other" free-text branch for intent-based abort routing.
+
+### Documentation
+
+- **Landing page and docs overhaul** (t585_1, t585_2, t585_3, t585_4, t585_5): Redesigned the website landing page around the "agentic IDE in your terminal" positioning, added a new 12-page Concepts section, rewrote the overview and top-level README around the shared 6-theme structure, and swept remaining legacy references.
+- **Website-wide consistency sweep** (t594_1, t594_2, t594_3, t594_4, t594_5, t594_6): Swept the TUIs, Skills, Workflows, Concepts, and Commands sections for drift; documented five missing frontmatter fields and 16 missing `ait create`/`ait update` flags; reorganized Workflows into four categories; unified cross-cutting wording; and added consistent "Next" footers across the onboarding path.
+- **Per-page maturity and depth labels** (t594_7): Added Hugo `maturity` and `depth` taxonomies with per-page badges across 89 docs pages so readers can see experimental/stabilizing and main/intermediate/advanced labels at a glance.
+- **Brainstorm design docs update** (t571_6): Updated the brainstorm engine architecture docs to describe structured sections, the shared section viewer, and how section targeting flows through the wizard and agent prompts.
+- **Manual verification workflow docs** (t583_4, t583_8): Added a new manual-verification workflow procedure to the task-workflow skill, a website workflow page, and documented the 5-touchpoint whitelisting convention for new helper scripts in CLAUDE.md.
+- **README documentation map** (t595): Updated the README map to match the current website sidebar, adding Overview, Concepts, and TUI Applications entries.
+- **Claude memory consolidated into CLAUDE.md** (t612): Consolidated per-memory Claude Code notes into CLAUDE.md so canonical conventions live with the project docs.
+
+### Tests
+
+- **Manual-verification issue type and tests** (t583_6): Registered the `manual_verification` issue type and added a test suite covering the verification follow-up helper across five scenarios.
+
+### Maintenance
+
+- **Remove `ait stats --plot` flag** (t597_5): Removed the deprecated `ait stats --plot` flag and interactive-chart code paths in favor of the new stats TUI, and added a Stats TUI documentation page.
+- **Simplify pycache gitignore** (t621): Simplified the repo's gitignore to ignore Python `__pycache__` directories repo-wide.
+
 ## v0.16.1
 
 ### Features
