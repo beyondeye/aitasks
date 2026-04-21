@@ -111,9 +111,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.17.0: Manual verification workflow, Stats TUI, and Shared section viewer across TUIs](blog/v0170-manual-verification-workflow-stats-tui-shared-section-viewer-across-tuis/)** -- Apr 21, 2026
 - **[v0.16.1: Claude Opus 4.7 is now the default, Fuzzy file search in the codebrowser, and Structured brainstorming](blog/v0161-claude-opus-4-7-is-now-the-default-fuzzy-file-search-in-the-codebrowser-st/)** -- Apr 18, 2026
 - **[v0.16.0: Interactive agent launch mode, File references on tasks, and Plan verification tracking](blog/v0160-interactive-agent-launch-mode-file-references-on-tasks-plan-verification-t/)** -- Apr 15, 2026
-- **[v0.15.1: Scroll back through your agent's output, `ait ide` from a fresh shell just works, TUI switcher, and  now documented](blog/v0151-scroll-back-through-your-agent-s-output-ait-ide-from-a-fresh-shell-just-wo/)** -- Apr 13, 2026
 
 [All releases &rarr;](blog/)
 
