@@ -115,6 +115,8 @@ class StatsApp(TuiSwitcherMixin, App):
         Binding("n", "new_custom", "New custom"),
         Binding("d", "delete_custom", "Delete custom"),
         Binding("e", "edit_custom", "Edit custom"),
+        Binding("left", "prev_verified_op", "Prev op", show=False),
+        Binding("right", "next_verified_op", "Next op", show=False),
         Binding("q", "quit", "Quit"),
         *TuiSwitcherMixin.SWITCHER_BINDINGS,
     ]
@@ -256,6 +258,29 @@ class StatsApp(TuiSwitcherMixin, App):
         if 0 <= idx < len(self.active_layout):
             self._show_pane(self.active_layout[idx])
         self.notify("Refreshed", timeout=1)
+
+    def _current_pane_id(self) -> str | None:
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        if idx is None or idx < 0 or idx >= len(self.active_layout):
+            return None
+        return self.active_layout[idx]
+
+    def action_prev_verified_op(self) -> None:
+        self._cycle_verified_op(-1)
+
+    def action_next_verified_op(self) -> None:
+        self._cycle_verified_op(+1)
+
+    def _cycle_verified_op(self, delta: int) -> None:
+        if self._current_pane_id() != "agents.verified":
+            return
+        from stats.panes.agents import VerifiedRankingsPane
+        try:
+            pane = self.query_one("#content VerifiedRankingsPane", VerifiedRankingsPane)
+        except Exception:
+            return
+        pane.cycle_op(delta)
 
     def action_focus_next_panel(self) -> None:
         self._cycle_focus(forward=True)
