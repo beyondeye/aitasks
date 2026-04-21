@@ -1,12 +1,13 @@
 ---
 priority: medium
 effort: medium
-depends: [597_6]
+depends: [t597_6]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [verification, bug]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-21 07:48
-updated_at: 2026-04-21 07:48
+updated_at: 2026-04-21 12:55
 ---
 
 ## Failed verification item from t597_6
