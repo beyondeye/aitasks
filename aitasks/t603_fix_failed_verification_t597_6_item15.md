@@ -13,6 +13,10 @@ updated_at: 2026-04-21 07:48
 
 > Agents & Models (per-agent, per-model, verified rankings)
 
+### User observation
+
+The **verified-ranking** pane renders, but the number of runs displayed is very small — this looks wrong against the current archived dataset. The per-agent and per-model panes in the same preset render normally. Investigate whether the verified-rankings data source is under-counting runs (e.g., wrong JOIN, filter, or double-counting as dedup), or whether the pane only considers a subset of tasks (e.g., manual-verification items).
+
 ### Source
 
 - **Manual-verification task:** `aitasks/t597/t597_6_manual_verification.md` (item #15)
