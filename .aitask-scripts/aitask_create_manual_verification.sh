@@ -103,7 +103,6 @@ main() {
             local bare_related; bare_related=$(strip_t_prefix "$RELATED")
             printf '**Related to:** t%s\n\n' "$bare_related"
         fi
-        printf '## Verification Checklist\n'
     } > "$tmp_desc"
 
     # Compose aitask_create.sh invocation.
