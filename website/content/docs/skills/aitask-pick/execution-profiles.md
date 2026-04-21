@@ -3,6 +3,7 @@ title: "Execution Profiles"
 linkTitle: "Execution Profiles"
 weight: 15
 description: "Profile schema, examples, and customization guide for /aitask-pick and related skills"
+depth: [advanced]
 ---
 
 Execution profiles let `/aitask-pick` and related skills pre-answer workflow questions so you can move from task selection to implementation with fewer prompts.

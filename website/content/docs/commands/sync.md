@@ -3,6 +3,7 @@ title: "Sync"
 linkTitle: "Sync"
 weight: 35
 description: "ait sync command for bidirectional task data synchronization"
+depth: [intermediate]
 ---
 
 ## ait sync

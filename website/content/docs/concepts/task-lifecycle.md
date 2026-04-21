@@ -3,6 +3,7 @@ title: "Task lifecycle"
 linkTitle: "Task lifecycle"
 weight: 100
 description: "The status transitions a task moves through from creation to archival."
+depth: [main-concept]
 ---
 
 ## What it is

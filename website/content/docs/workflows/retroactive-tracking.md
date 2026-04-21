@@ -3,6 +3,7 @@ title: "Retroactive Change Tracking"
 linkTitle: "Retroactive Tracking"
 weight: 15
 description: "Wrap ad-hoc changes into the aitasks framework after the fact"
+depth: [intermediate]
 ---
 
 Not every change starts with a task. Quick fixes get applied directly, debugging sessions turn into real improvements, config changes happen on the fly, and pair programming sessions accumulate changes without formal tracking. The [`/aitask-wrap`](../../skills/aitask-wrap/) skill retroactively integrates these changes into the aitasks framework so nothing falls through the cracks.

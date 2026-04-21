@@ -3,6 +3,7 @@ title: "Understanding Code with Explain"
 linkTitle: "Explain"
 weight: 85
 description: "Use code evolution history to rebuild understanding of why code exists"
+depth: [intermediate]
 ---
 
 When AI agents accelerate development, teams can ship features faster than they can understand them. Code that works perfectly may still be opaque — nobody knows why it exists, which task motivated it, or how its design evolved. This gap between code velocity and code comprehension is what Margaret Storey calls [cognitive debt](https://margaretstorey.com/blog/2026/02/09/cognitive-debt/): "the debt compounded from going fast lives in the brains of the developers." The [`/aitask-explain`](../../skills/aitask-explain/) skill addresses this by tracing code back through the aitask and aiplan records that document every change's purpose.

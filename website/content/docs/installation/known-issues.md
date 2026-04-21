@@ -3,6 +3,7 @@ title: "Known Agent Issues"
 linkTitle: "Known Issues"
 weight: 30
 description: "Known integration caveats for ai code agents used with aitasks"
+depth: [intermediate]
 ---
 
 This page tracks current workflow issues by code agent. Issues are grouped by agent below.

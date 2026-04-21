@@ -3,6 +3,7 @@ title: "/aitask-wrap"
 linkTitle: "/aitask-wrap"
 weight: 45
 description: "Wrap uncommitted changes into an aitask with retroactive documentation and traceability"
+depth: [intermediate]
 ---
 
 Retroactively wraps uncommitted changes into the aitasks framework. When you've made changes outside the normal task flow — quick fixes, debugging improvements, config tweaks — this skill analyzes the diff, creates a task and plan file documenting the changes, commits everything with proper format, and archives it in one flow.

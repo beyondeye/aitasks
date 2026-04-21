@@ -3,6 +3,7 @@ title: "Overview"
 linkTitle: "Overview"
 weight: 5
 description: "The challenge aitasks addresses, its core philosophy, and key features."
+depth: [main-concept]
 ---
 
 ## The Challenge

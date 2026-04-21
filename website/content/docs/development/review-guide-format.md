@@ -3,6 +3,7 @@ title: "Review Guide Format"
 linkTitle: "Review Guide Format"
 weight: 20
 description: "File format, vocabulary files, and matching algorithms for review guides"
+depth: [advanced]
 ---
 
 ## File Structure

@@ -3,6 +3,7 @@ title: "Verified scores"
 linkTitle: "Verified scores"
 weight: 70
 description: "How user satisfaction ratings accumulate into per-model, per-operation reliability scores."
+depth: [advanced]
 ---
 
 ## What it is

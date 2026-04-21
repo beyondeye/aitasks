@@ -3,6 +3,7 @@ title: "/aitask-explain"
 linkTitle: "/aitask-explain"
 weight: 55
 description: "Explain files: functionality, usage examples, and code evolution traced through aitasks"
+depth: [intermediate]
 ---
 
 Explain files in the project by providing detailed analysis of their functionality, real usage examples from the codebase, and code evolution history traced through aitask and aiplan records. The unique value of this skill is answering not just "what does this code do" but "why does it exist and how did it get here" — by connecting code sections back to the tasks that motivated each change and the plan notes that document the reasoning.

@@ -3,6 +3,7 @@ title: "Parallel Task Planning"
 linkTitle: "Parallel Planning"
 weight: 45
 description: "Front-load complex task design work while other implementations run in parallel"
+depth: [advanced]
 ---
 
 When you know a feature is complex enough to need [child task decomposition](../task-decomposition/), you can run just the planning and decomposition phase — without writing any code. This produces a full set of child tasks with ready-to-use implementation plans, and it can safely happen in parallel with any other ongoing work.

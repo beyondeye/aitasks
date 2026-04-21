@@ -4,6 +4,7 @@ linkTitle: "Issue Tracker"
 weight: 30
 description: "Round-trip workflow between issue trackers (GitHub, GitLab, Bitbucket) and aitasks"
 aliases: ["/docs/workflows/github-issues/"]
+depth: [advanced]
 ---
 
 The framework fully supports issue-based development across GitHub, GitLab, and Bitbucket through the [`ait issue-import`](../../commands/issue-integration/#ait-issue-import) and [`ait issue-update`](../../commands/issue-integration/#ait-issue-update) commands, creating a seamless round-trip between your issue tracker and local task management. The source platform is auto-detected from your git remote URL.

@@ -3,6 +3,8 @@ title: "How-To Guides"
 linkTitle: "How-To Guides"
 weight: 10
 description: "Step-by-step guides for code browser operations"
+maturity: [stabilizing]
+depth: [intermediate]
 ---
 
 ### How to Navigate Files in the Tree

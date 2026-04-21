@@ -3,6 +3,7 @@ title: "Releases Workflow"
 linkTitle: "Releases"
 weight: 80
 description: "Automated changelog generation and release pipeline from task data"
+depth: [advanced]
 ---
 
 Documenting what changed in a new release is one of the most tedious tasks in software development. The aitasks framework solves this by turning your regular development work into the raw material for release notes. Every commit message carries a task ID `(tNN)`, and every completed task has an archived plan file with "Final Implementation Notes." The [`/aitask-changelog`](../../skills/aitask-changelog/) skill harvests this data and uses AI to generate user-facing release notes automatically.

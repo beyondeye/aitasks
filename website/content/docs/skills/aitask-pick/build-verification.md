@@ -3,6 +3,7 @@ title: "Build, Test, and Lint Configuration"
 linkTitle: "Build Verification"
 weight: 10
 description: "Configure build verification, test commands, and lint commands"
+depth: [advanced]
 ---
 
 After implementation, the skill can optionally run a build verification command to catch regressions introduced by the task's changes. This is configured via `aitasks/metadata/project_config.yaml` and applies to all three implementation skills: `/aitask-pick`, `/aitask-pickrem`, and `/aitask-pickweb`.

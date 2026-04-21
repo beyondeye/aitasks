@@ -3,6 +3,8 @@ title: "/aitask-pickrem"
 linkTitle: "/aitask-pickrem"
 weight: 11
 description: "Pick and implement a task in remote/non-interactive mode — zero prompts, profile-driven"
+maturity: [stabilizing]
+depth: [intermediate]
 ---
 
 A mostly autonomous version of [`/aitask-pick`](../aitask-pick/) designed for non-interactive environments. It combines task selection and implementation into a single flow with **zero `AskUserQuestion` calls** — all decisions are driven by an execution profile. The only interactive step is **plan approval**, which still requires the user to review and confirm the implementation plan via `ExitPlanMode`.

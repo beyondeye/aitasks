@@ -3,6 +3,7 @@ title: "Code Review Workflow"
 linkTitle: "Code Review"
 weight: 70
 description: "Systematic code review using review guides, separate from implementation"
+depth: [intermediate]
 ---
 
 The aitasks review system separates code quality review from implementation. The philosophy: first build something that works, then review it for quality improvements. This separation of concerns makes more efficient use of the LLM context — implementation and review are distinct cognitive tasks that benefit from dedicated focus.

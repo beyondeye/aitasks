@@ -3,6 +3,7 @@ title: "Windows & WSL Installation"
 linkTitle: "Windows/WSL"
 weight: 20
 description: "Guide for installing and running aitasks on Windows via WSL"
+depth: [intermediate]
 ---
 
 Step-by-step guide for installing and configuring aitasks on Windows via the Windows Subsystem for Linux (WSL).

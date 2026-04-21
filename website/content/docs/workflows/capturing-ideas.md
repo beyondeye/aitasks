@@ -3,6 +3,7 @@ title: "Capturing Ideas Fast"
 linkTitle: "Capturing Ideas"
 weight: 10
 description: "Quickly capture task ideas without breaking your flow"
+depth: [intermediate]
 ---
 
 The most important thing when a new task idea comes to mind is capturing it immediately, before the thought fades. The [`ait create`](../../commands/task-management/#ait-create) script is designed for this: you can write a task description as a raw stream of consciousness without worrying about structure, grammar, or completeness.

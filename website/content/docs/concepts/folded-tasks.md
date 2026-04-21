@@ -3,6 +3,7 @@ title: "Folded tasks"
 linkTitle: "Folded tasks"
 weight: 40
 description: "How related tasks are merged into a single primary task."
+depth: [intermediate]
 ---
 
 ## What it is

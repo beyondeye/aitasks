@@ -3,6 +3,7 @@ title: "Locks"
 linkTitle: "Locks"
 weight: 90
 description: "How concurrent agents avoid stepping on each other's tasks."
+depth: [main-concept]
 ---
 
 ## What it is

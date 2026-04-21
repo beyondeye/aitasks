@@ -3,6 +3,7 @@ title: "/aitask-reviewguide-classify"
 linkTitle: "/aitask-reviewguide-classify"
 weight: 80
 description: "Classify a review guide by assigning metadata and finding similar guides"
+depth: [advanced]
 ---
 
 Classify a review guide file by assigning metadata and finding similar existing guides. This skill builds the metadata foundation that makes [`/aitask-review`](../aitask-review/) auto-detection work effectively.

@@ -3,6 +3,7 @@ title: "Board, Code Browser & Stats"
 linkTitle: "Board, Browser & Stats"
 weight: 30
 description: "ait board, ait codebrowser, and ait stats commands"
+depth: [intermediate]
 ---
 
 ## ait board

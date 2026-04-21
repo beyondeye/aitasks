@@ -3,6 +3,7 @@ title: "Complex Task Decomposition"
 linkTitle: "Task Decomposition"
 weight: 20
 description: "Breaking complex tasks into manageable child subtasks"
+depth: [intermediate]
 ---
 
 For tasks that are too large or risky for a single implementation run, the aitasks framework supports decomposition into child subtasks. This gives you controlled, disciplined execution of complex features while maintaining full context across all subtasks.

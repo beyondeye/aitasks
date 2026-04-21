@@ -3,6 +3,7 @@ title: "Minimonitor"
 linkTitle: "Minimonitor"
 weight: 17
 description: "Compact sidebar variant of the ait monitor TUI for watching code agents"
+depth: [intermediate]
 ---
 
 `ait minimonitor` is a narrow (~40 column) sidebar TUI that lists the code agents running in the current tmux session, with idle indicators and a companion-pane focus model. It is the agents-only cousin of [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}): no preview panel, no TUI/other pane categories — just the running agents in a compact column designed to sit next to a code pane while you work.

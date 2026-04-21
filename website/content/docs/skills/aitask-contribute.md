@@ -3,6 +3,7 @@ title: "/aitask-contribute"
 linkTitle: "/aitask-contribute"
 weight: 23
 description: "Turn local changes into structured contribution issues for the aitasks framework or the current project repo"
+depth: [advanced]
 ---
 
 Use `/aitask-contribute` to turn local changes into a structured contribution issue without going through the usual fork, branch, and pull request flow. You can use it to contribute improvements back to the `aitasks` framework, or to contribute changes to the current project repository when that project uses the aitasks framework.

@@ -3,6 +3,7 @@ title: "The IDE model"
 linkTitle: "The IDE model"
 weight: 120
 description: "How ait ide turns tmux into a navigable agentic IDE around the monitor TUI."
+depth: [advanced]
 ---
 
 ## What it is

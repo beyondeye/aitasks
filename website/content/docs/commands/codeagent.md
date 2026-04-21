@@ -3,6 +3,7 @@ title: "Code Agent"
 linkTitle: "Code Agent"
 weight: 45
 description: "ait codeagent command for multi-agent model selection and invocation"
+depth: [intermediate]
 ---
 
 ## ait codeagent

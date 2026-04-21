@@ -3,6 +3,7 @@ title: "/aitask-web-merge"
 linkTitle: "/aitask-web-merge"
 weight: 13
 description: "Merge completed Claude Web branches to main and archive task data"
+depth: [advanced]
 ---
 
 Runs **locally** after [`/aitask-pickweb`](../aitask-pickweb/) completes on Claude Code Web. It detects remote branches with completed task executions, merges code to main (excluding `.aitask-data-updated/`), copies the plan to aitask-data, archives the task, and cleans up.

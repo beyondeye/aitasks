@@ -3,6 +3,7 @@ title: "/aitask-pr-import"
 linkTitle: "/aitask-pr-import"
 weight: 22
 description: "Analyze a pull request and create an aitask with implementation plan"
+depth: [advanced]
 ---
 
 Analyze pull requests from GitHub, GitLab, or Bitbucket using AI-powered code review, then create a well-structured aitask with contributor attribution. This skill bridges external contributions and the aitasks workflow — instead of merging PRs directly, it extracts the intent and approach, validates them against the codebase, and produces a task ready for implementation.

@@ -3,6 +3,7 @@ title: "QA and Testing Workflow"
 linkTitle: "QA and Testing"
 weight: 75
 description: "Systematic test coverage analysis and follow-up task creation"
+depth: [intermediate]
 ---
 
 Automated tests should be part of every implementation — when you run [`/aitask-pick`](../../skills/aitask-pick/), the implementation step naturally includes writing tests alongside the feature code. But real-world constraints mean test coverage gaps are common:

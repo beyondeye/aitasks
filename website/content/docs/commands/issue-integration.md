@@ -3,6 +3,7 @@ title: "Issue Integration & Utilities"
 linkTitle: "Issues & Utilities"
 weight: 40
 description: "ait issue-import, ait issue-update, ait changelog, and ait zip-old commands"
+depth: [advanced]
 ---
 
 ## ait issue-import

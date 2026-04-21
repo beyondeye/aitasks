@@ -3,6 +3,7 @@ title: "Setup & Install"
 linkTitle: "Setup & Install"
 weight: 10
 description: "ait setup and ait install commands"
+depth: [intermediate]
 ---
 
 ## ait setup

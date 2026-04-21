@@ -3,6 +3,7 @@ title: "Agent memory"
 linkTitle: "Agent memory"
 weight: 130
 description: "How archived tasks and plans become long-term, queryable context for future agent sessions."
+depth: [advanced]
 ---
 
 ## What it is

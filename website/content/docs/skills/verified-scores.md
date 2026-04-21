@@ -3,6 +3,7 @@ title: "Verified Scores"
 linkTitle: "Verified Scores"
 weight: 110
 description: "How skill satisfaction ratings accumulate into verified model scores"
+depth: [advanced]
 ---
 
 Verified scores track how well each LLM model performs for each skill operation. After a skill completes, users rate the result on a 1--5 scale; these ratings accumulate into per-model, per-operation scores that help choose the best model for a given task.

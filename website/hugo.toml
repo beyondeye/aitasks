@@ -35,3 +35,13 @@ enableGitInfo = true
 [outputs]
   home = ["HTML", "RSS"]
   section = ["HTML", "RSS"]
+
+[taxonomies]
+  tag = "tags"
+  category = "categories"
+  maturity = "maturity"
+  depth = "depth"
+
+[params.taxonomy]
+  taxonomyPageHeader = ["maturity", "depth"]
+  taxonomyCloud = []

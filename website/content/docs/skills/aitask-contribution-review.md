@@ -3,6 +3,7 @@ title: "/aitask-contribution-review"
 linkTitle: "/aitask-contribution-review"
 weight: 24
 description: "Analyze contribution issues for duplicates and overlaps, then import as grouped or single tasks"
+depth: [advanced]
 ---
 
 Use `/aitask-contribution-review` to review incoming contribution issues with AI-powered duplicate detection, overlap analysis, and merge recommendations. The skill fetches the target issue, finds related contributions, analyzes code diffs, and helps you decide whether to merge, import individually, fold into existing tasks, or update an existing task directly.

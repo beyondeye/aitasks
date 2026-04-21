@@ -3,6 +3,8 @@ title: "/aitask-explore"
 linkTitle: "/aitask-explore"
 weight: 20
 description: "Explore the codebase interactively, then create a task from findings"
+maturity: [stabilizing]
+depth: [intermediate]
 ---
 
 Explore the codebase interactively with guided investigation, then create a task from findings. This skill bridges the gap between "I think something needs work" and a well-defined task with context.

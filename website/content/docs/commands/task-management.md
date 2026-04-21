@@ -3,6 +3,7 @@ title: "Task Management"
 linkTitle: "Task Management"
 weight: 20
 description: "ait create, ait ls, and ait update commands"
+depth: [intermediate]
 ---
 
 ## ait create

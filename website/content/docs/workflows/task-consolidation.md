@@ -3,6 +3,7 @@ title: "Task Consolidation (Folding)"
 linkTitle: "Task Consolidation"
 weight: 25
 description: "Merging overlapping or duplicate tasks into a single actionable task"
+depth: [intermediate]
 ---
 
 When multiple people capture ideas independently, or separate exploration sessions uncover the same issue, you end up with overlapping tasks. Rather than implementing them separately (duplicating effort) or manually deleting the extras (losing context), the aitasks framework lets you **fold** related tasks into a single primary task that incorporates all their content.

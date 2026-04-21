@@ -3,6 +3,7 @@ title: "/aitask-reviewguide-merge"
 linkTitle: "/aitask-reviewguide-merge"
 weight: 90
 description: "Compare two similar review guides and merge, split, or keep separate"
+depth: [advanced]
 ---
 
 Compare two similar review guide files and decide whether to merge them, deduplicate shared content, or keep them separate. This skill keeps the review guide library clean and free of redundant checks.

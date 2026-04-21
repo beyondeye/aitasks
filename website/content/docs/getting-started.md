@@ -3,6 +3,7 @@ title: "Getting Started"
 linkTitle: "Getting Started"
 weight: 20
 description: "First-time setup and your first task workflow"
+depth: [main-concept]
 ---
 
 This guide walks you through aitasks from installation to completing your first task with Claude Code, Gemini CLI, OpenCode, or Codex CLI.

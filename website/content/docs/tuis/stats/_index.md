@@ -3,6 +3,8 @@ title: "Stats"
 linkTitle: "Stats"
 weight: 35
 description: "Terminal UI for browsing archive completion statistics through configurable pane layouts"
+maturity: [experimental]
+depth: [intermediate]
 ---
 
 ## Launching

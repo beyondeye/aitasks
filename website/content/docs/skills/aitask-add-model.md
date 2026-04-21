@@ -3,6 +3,8 @@ title: "/aitask-add-model"
 linkTitle: "/aitask-add-model"
 weight: 56
 description: "Register a known code-agent model in models_<agent>.json and optionally promote it to default"
+maturity: [experimental]
+depth: [advanced]
 ---
 
 Register a single, already-known code-agent model in the framework's model registry and optionally promote it to default across `codeagent_config.json`, the `seed/` template, and the hardcoded `DEFAULT_AGENT_STRING`. Companion to [`/aitask-refresh-code-models`](../aitask-refresh-code-models/).

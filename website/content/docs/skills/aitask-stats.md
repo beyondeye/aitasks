@@ -3,6 +3,8 @@ title: "/aitask-stats"
 linkTitle: "/aitask-stats"
 weight: 50
 description: "View task completion statistics via a code agent"
+maturity: [experimental]
+depth: [intermediate]
 ---
 
 View task completion statistics via a code agent.

@@ -3,6 +3,7 @@ title: "Review guides"
 linkTitle: "Review guides"
 weight: 50
 description: "Structured prompts that drive batched, repeatable code review."
+depth: [intermediate]
 ---
 
 ## What it is

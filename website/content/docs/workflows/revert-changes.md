@@ -3,6 +3,7 @@ title: "Revert Changes with AI"
 linkTitle: "Revert Changes"
 weight: 90
 description: "Reverting features or changes that are no longer needed"
+depth: [advanced]
 ---
 
 AI-assisted development makes it easy to add features quickly — but not every feature survives contact with real usage. Some experiments don't pan out, some features add more complexity than value, and sometimes you want to undo part of a large change while keeping the rest. The [`/aitask-revert`](../../skills/aitask-revert/) skill handles all of this at a higher level than raw `git revert`, creating structured revert tasks with full traceability.

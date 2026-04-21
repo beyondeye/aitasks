@@ -3,6 +3,7 @@ title: "Contribution Flow"
 linkTitle: "Contribution Flow"
 weight: 10
 description: "How incoming contribution issues are analyzed for duplicates, scored for overlap, and reviewed with AI"
+depth: [advanced]
 ---
 
 When a contribution issue arrives on your repository (created by [`/aitask-contribute`](../../../skills/aitask-contribute/) or manually), the aitasks framework provides two layers of analysis before import: an automated CI/CD overlap check and an AI-powered review skill. Together they help maintainers detect duplicates, find related contributions, and make informed import decisions.

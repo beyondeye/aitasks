@@ -3,6 +3,7 @@ title: "/aitask-reviewguide-import"
 linkTitle: "/aitask-reviewguide-import"
 weight: 100
 description: "Import external content as a review guide with proper metadata"
+depth: [advanced]
 ---
 
 Import external content — a local file, a URL, or a GitHub repository directory — and transform it into a structured review guide with proper metadata. This skill converts coding standards, best practices documents, and style guides into actionable review checklists.

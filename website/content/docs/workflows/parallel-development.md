@@ -3,6 +3,7 @@ title: "Parallel Development"
 linkTitle: "Parallel Development"
 weight: 40
 description: "Working on multiple tasks simultaneously with concurrency safety"
+depth: [advanced]
 ---
 
 The aitasks framework supports multiple developers (or multiple AI agent instances) working on different tasks simultaneously.

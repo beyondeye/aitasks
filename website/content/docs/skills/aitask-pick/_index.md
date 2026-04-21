@@ -3,6 +3,7 @@ title: "/aitask-pick"
 linkTitle: "/aitask-pick"
 weight: 10
 description: "Select and implement the next task — the central development skill"
+depth: [main-concept]
 ---
 
 The central skill of the aitasks framework. This is a full development lifecycle skill that manages the complete task lifecycle from selection through implementation, review, and archival.

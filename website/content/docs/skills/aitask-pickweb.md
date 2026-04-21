@@ -3,6 +3,8 @@ title: "/aitask-pickweb"
 linkTitle: "/aitask-pickweb"
 weight: 12
 description: "Pick and implement a task on Claude Code Web — sandboxed skill with local metadata storage"
+maturity: [stabilizing]
+depth: [intermediate]
 ---
 
 A sandboxed version of [`/aitask-pickrem`](../aitask-pickrem/) designed specifically for **Claude Code Web**, where the environment has no push access to `aitask-locks`, `aitask-data`, or `main` branches. It combines task selection and implementation into a single flow with **zero `AskUserQuestion` calls** — all decisions are driven by an execution profile. The only interactive step is **plan approval**, which still requires the user to review and confirm the implementation plan via `ExitPlanMode`.

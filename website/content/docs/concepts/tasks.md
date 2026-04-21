@@ -3,6 +3,7 @@ title: "Tasks"
 linkTitle: "Tasks"
 weight: 10
 description: "Markdown files with YAML frontmatter — the core unit of work in aitasks."
+depth: [main-concept]
 ---
 
 ## What it is

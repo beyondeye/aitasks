@@ -3,6 +3,8 @@ title: "Reference"
 linkTitle: "Reference"
 weight: 30
 description: "Keyboard shortcuts, configuration files, and profile schema reference"
+maturity: [stabilizing]
+depth: [advanced]
 ---
 
 ## Keyboard Shortcuts

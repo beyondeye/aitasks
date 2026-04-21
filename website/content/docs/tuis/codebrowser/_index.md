@@ -3,6 +3,8 @@ title: "Code Browser"
 linkTitle: "Code Browser"
 weight: 20
 description: "TUI code viewer with syntax highlighting, task annotations, and explain integration"
+maturity: [stabilizing]
+depth: [intermediate]
 ---
 
 The `ait codebrowser` command launches an interactive terminal-based code browser for exploring project files with task-aware annotations. Built with [Textual](https://textual.textualize.io/), it provides syntax-highlighted file viewing, a git-aware file tree, and an annotation gutter that maps lines of code to the aitasks that introduced them — powered by the [explain data pipeline]({{< relref "/docs/skills/aitask-explain" >}}).

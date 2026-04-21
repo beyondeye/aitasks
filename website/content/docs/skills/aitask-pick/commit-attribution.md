@@ -3,6 +3,7 @@ title: "Commit Attribution"
 linkTitle: "Commit Attribution"
 weight: 20
 description: "How task-workflow composes contributor and code-agent coauthor trailers"
+depth: [advanced]
 ---
 
 When a task implementation is committed, the workflow can attach two kinds of attribution:

@@ -3,6 +3,7 @@ title: "/aitask-revert"
 linkTitle: "/aitask-revert"
 weight: 35
 description: "Revert changes associated with completed tasks — fully or partially"
+depth: [advanced]
 ---
 
 Revert changes associated with completed tasks — fully or partially. This skill analyzes a task's commits, identifies affected areas, and creates a self-contained revert task with all the information needed to undo the changes. Use it when a feature adds unnecessary complexity, an experiment didn't pan out, or you want to selectively undo parts of a completed task.

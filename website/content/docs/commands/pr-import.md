@@ -3,6 +3,7 @@ title: "PR Import"
 linkTitle: "PR Import"
 weight: 42
 description: "ait pr-import — import pull requests as tasks or extract PR data for AI analysis"
+depth: [advanced]
 ---
 
 ## ait pr-import

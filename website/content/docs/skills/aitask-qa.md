@@ -3,6 +3,7 @@ title: "/aitask-qa"
 linkTitle: "/aitask-qa"
 weight: 75
 description: "Run QA analysis on any task — discover tests, run them, identify gaps, and create follow-up test tasks"
+depth: [intermediate]
 ---
 
 Run QA analysis on any task — discover tests, run them, identify gaps, and create follow-up test tasks. This skill works with both active and archived tasks, making it useful for reviewing test coverage at any point in the task lifecycle.

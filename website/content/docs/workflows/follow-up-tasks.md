@@ -3,6 +3,7 @@ title: "Follow-Up Tasks and Task Discovery"
 linkTitle: "Follow-Up Tasks"
 weight: 60
 description: "Creating follow-up tasks, querying existing tasks, and updating them with new findings — all during implementation"
+depth: [intermediate]
 ---
 
 While working on a task via [`/aitask-pick`](../../skills/aitask-pick/), your code agent session has full context about the current implementation: the codebase, the task definition, the plan, and all changes made so far. This makes it an ideal moment to create follow-up tasks, but also to **discover and update existing tasks** — far more effective than doing either separately.

@@ -3,6 +3,7 @@ title: "Parent and child tasks"
 linkTitle: "Parent and child tasks"
 weight: 30
 description: "How a complex task is decomposed into siblings that share planning context."
+depth: [main-concept]
 ---
 
 ## What it is

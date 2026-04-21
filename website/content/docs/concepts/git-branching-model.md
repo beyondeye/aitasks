@@ -3,6 +3,7 @@ title: "Git branching model"
 linkTitle: "Git branching model"
 weight: 110
 description: "The dedicated branches that hold task data, locks, and IDs, and the ./ait git wrapper that routes to them."
+depth: [advanced]
 ---
 
 ## What it is

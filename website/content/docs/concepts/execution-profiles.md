@@ -3,6 +3,7 @@ title: "Execution profiles"
 linkTitle: "Execution profiles"
 weight: 60
 description: "Pre-answered workflow questions that switch a skill from interactive to automated."
+depth: [intermediate]
 ---
 
 ## What it is

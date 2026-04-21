@@ -3,6 +3,7 @@ title: "/aitask-review"
 linkTitle: "/aitask-review"
 weight: 70
 description: "Review code using configurable review guides, then create tasks from findings"
+depth: [intermediate]
 ---
 
 Review code using configurable review guides, then create tasks from findings. This skill separates code quality review from implementation — first build something that works, then systematically review it for quality improvements.

@@ -3,6 +3,7 @@ title: "/aitask-changelog"
 linkTitle: "/aitask-changelog"
 weight: 60
 description: "Generate a changelog entry from commits and archived plans"
+depth: [intermediate]
 ---
 
 Generate a changelog entry by analyzing commits and archived plans since the last release. Orchestrates the `ait changelog` command with AI-powered summarization.

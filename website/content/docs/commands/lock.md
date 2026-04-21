@@ -3,6 +3,7 @@ title: "Lock"
 linkTitle: "Lock"
 weight: 36
 description: "ait lock command for atomic task locking to prevent concurrent work"
+depth: [intermediate]
 ---
 
 ## ait lock

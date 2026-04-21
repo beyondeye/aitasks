@@ -3,6 +3,8 @@ title: "/aitask-fold"
 linkTitle: "/aitask-fold"
 weight: 30
 description: "Identify and merge related tasks into a single task"
+maturity: [stabilizing]
+depth: [intermediate]
 ---
 
 Identify and merge related tasks into a single task, then optionally execute it. This skill provides the same folding capability as `/aitask-explore` but as a standalone skill — no codebase exploration required.

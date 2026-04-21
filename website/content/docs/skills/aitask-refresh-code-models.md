@@ -3,6 +3,7 @@ title: "/aitask-refresh-code-models"
 linkTitle: "/aitask-refresh-code-models"
 weight: 55
 description: "Research latest AI code agent models and update model configuration files"
+depth: [advanced]
 ---
 
 Research the latest AI code agent models via web search and update the `models_*.json` configuration files used by [`ait codeagent`](../../commands/codeagent/).

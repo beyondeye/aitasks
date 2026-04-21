@@ -3,6 +3,7 @@ title: "Git Remotes"
 linkTitle: "Git Remotes"
 weight: 40
 description: "Authenticate with GitHub, GitLab, or Bitbucket"
+depth: [advanced]
 ---
 
 ## Authentication with Your Git Remote

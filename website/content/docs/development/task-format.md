@@ -3,6 +3,7 @@ title: "Task File Format"
 linkTitle: "Task Format"
 weight: 10
 description: "YAML frontmatter schema and conventions for task files"
+depth: [advanced]
 ---
 
 ## File Structure

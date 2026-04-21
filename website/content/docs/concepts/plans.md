@@ -3,6 +3,7 @@ title: "Plans"
 linkTitle: "Plans"
 weight: 20
 description: "The implementation contract written and approved before a task is coded."
+depth: [main-concept]
 ---
 
 ## What it is

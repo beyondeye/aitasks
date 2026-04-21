@@ -3,6 +3,7 @@ title: "Agent attribution"
 linkTitle: "Agent attribution"
 weight: 80
 description: "How each task records which code agent and model implemented it."
+depth: [advanced]
 ---
 
 ## What it is

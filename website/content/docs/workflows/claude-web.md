@@ -3,6 +3,7 @@ title: "Claude Code Web"
 linkTitle: "Claude Code Web"
 weight: 50
 description: "Running tasks on Claude Code Web with sandboxed branch access"
+depth: [advanced]
 ---
 
 Claude Code Web is a browser-based Claude Code environment that operates with restricted git permissions — it can only push to its own implementation branch. It cannot access `aitask-locks`, `aitask-data`, or `main` branches directly. This guide covers the end-to-end workflow for running aitasks on Claude Code Web.

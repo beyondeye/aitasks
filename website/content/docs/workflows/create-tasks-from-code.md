@@ -3,6 +3,7 @@ title: "Creating Tasks from Code"
 linkTitle: "Creating Tasks from Code"
 weight: 65
 description: "Browse source files, select a line range, and spawn a task pre-seeded with a file reference — with optional auto-merge of overlapping pending tasks."
+depth: [intermediate]
 ---
 
 When you spot a TODO, a smell, or a bug while reading a file, you want a task that points at the exact lines so the implementing agent already has the context. The `file_references` frontmatter field is the structured home for those pointers, and `ait codebrowser` + `aitask_create.sh` together turn "I saw something weird on line 42" into a committed task without ever leaving your viewer.

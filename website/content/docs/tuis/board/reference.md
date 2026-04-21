@@ -3,6 +3,8 @@ title: "Feature Reference"
 linkTitle: "Reference"
 weight: 20
 description: "Keyboard shortcuts, configuration, and technical details"
+maturity: [stabilizing]
+depth: [advanced]
 ---
 
 ### Keyboard Shortcuts

@@ -3,6 +3,7 @@ title: "PR Import Workflow"
 linkTitle: "PR Import"
 weight: 35
 description: "End-to-end guide for creating aitasks from pull requests"
+depth: [advanced]
 ---
 
 The framework supports creating tasks from external pull requests, providing a structured path for incorporating contributions that cannot be merged directly. Instead of accepting or rejecting a PR as-is, the workflow extracts the contributor's intent and approach, validates it against project conventions, and produces a task that goes through the standard implementation cycle — with proper attribution back to the original contributor.

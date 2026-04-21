@@ -3,6 +3,7 @@ title: "Exploration-Driven Development"
 linkTitle: "Exploration-Driven"
 weight: 75
 description: "Start with codebase exploration, create tasks from findings"
+depth: [intermediate]
 ---
 
 Sometimes you don't know what the task should be. You have a vague symptom, an unfamiliar module to understand, or a hunch that something could be improved — but you can't write a task description yet because you haven't explored enough to know what needs doing. The [`/aitask-explore`](../../skills/aitask-explore/) skill is designed for exactly this situation.
