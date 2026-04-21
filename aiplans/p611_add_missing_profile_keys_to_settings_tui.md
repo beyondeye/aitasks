@@ -119,3 +119,17 @@ PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
 - The enum `("q", "s", "e")` for `qa_tier` matches the short codes written to the `tier` context variable in `.claude/skills/aitask-qa/SKILL.md:49-51`.
 - Adding `"ask"` to `post_plan_action`'s enum doesn't change any behavior — an explicit `"ask"` already works at runtime (fast.yaml already has it); it just lets the cycle widget name it instead of forcing `(unset)`.
 - Step 9 of task-workflow will verify build (none configured for this project beyond lint/tests — nothing to run here), then archive.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `PROFILE_SCHEMA`: added `post_plan_action_for_child`, `manual_verification_followup_mode`, `review_default_modes`, `review_auto_continue`, `qa_tier`; updated `post_plan_action` enum to include `"ask"`.
+  - `PROFILE_FIELD_INFO`: added short/detailed entries for the 5 new keys and extended `post_plan_action`'s detail to mention `"ask"`.
+  - `PROFILE_FIELD_GROUPS`: added `post_plan_action_for_child` to Planning; introduced "Manual Verification" and "Review" groups; added `qa_tier` to "QA Analysis".
+- **Deviations from plan:**
+  - Mid-review the user asked whether `test_followup_task` was still used. Confirmed it was deprecated in favor of `/aitask-qa` (CLAUDE.md and `.claude/skills/aitask-qa/SKILL.md:118`), with no active reader in any skill or script. Scope expanded to also remove it from the settings TUI (all 3 structures) and from the seed profiles (`seed/profiles/fast.yaml`, `seed/profiles/remote.yaml`). As a consequence the original "Post-Implementation" group became empty and was dropped entirely.
+- **Issues encountered:** None.
+- **Key decisions:**
+  - Removed the empty "Post-Implementation" group rather than leaving it as a header with no entries.
+  - Did not touch the live profile YAMLs in `aitasks/metadata/profiles/` because they were already clean (no `test_followup_task` present).
+  - Left the historical explanatory note in `aitask-qa/SKILL.md:118` ("formerly Step 8b … now deprecated") as-is; it's correct and serves as a breadcrumb.
