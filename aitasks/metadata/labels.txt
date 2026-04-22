@@ -35,6 +35,7 @@ execution_profiles
 geminicli
 git-integration
 gitremote
+installation
 install_scripts
 legal
 license
