@@ -7,7 +7,7 @@ status: Implementing
 labels: []
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-21 08:01
-updated_at: 2026-04-21 12:29
+updated_at: 2026-04-22 07:04
 boardidx: 50
 ---
 
