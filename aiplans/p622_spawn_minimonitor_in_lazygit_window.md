@@ -227,3 +227,16 @@ Manual (tmux/TUI interaction):
 ## Post-implementation
 
 Follow Step 8 (User Review) → Step 9 (Post-Implementation) of task-workflow: commit code + script + plan, then archive t622 via `./.aitask-scripts/aitask_archive.sh 622`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the three changes from the plan exactly as designed:
+  1. `.aitask-scripts/lib/agent_launch_utils.py` — added `force_companion` kw-only param to `maybe_spawn_minimonitor`; the prefix + TUI-name gates are now guarded by `if not force_companion:`. The `split-window` call now uses `subprocess.run` with `-P -F "#{pane_id}"` to capture the new pane id. Return type changed from `bool` to `str | None`.
+  2. `.aitask-scripts/aitask_companion_cleanup.sh` (new) — pane-died cleanup helper that keeps the companion alive if any sibling pane exists in the window, otherwise kills both primary and companion.
+  3. `.aitask-scripts/lib/tui_switcher.py` — new `_launch_git_with_companion` helper on `TuiSwitcherOverlay`; `_switch_to` routes `name == "git"` there. The helper captures the primary pane id, forces the companion spawn, and wires `remain-on-exit on` + a pane-scoped `pane-died` hook calling the cleanup script.
+- **Deviations from plan:** One minor deviation. The cleanup script was initially written using `grep -v | wc -l` to count sibling panes, which shellcheck flagged with SC2126 (style). Rewrote the counter as a `while IFS= read -r` loop with numeric comparisons — avoids both `grep` and `wc`, passes shellcheck cleanly, and is slightly more readable.
+- **Issues encountered:** None beyond the shellcheck nit. The cleanup-script logic was validated end-to-end against a scratch tmux session covering: (a) primary + companion only → both killed, window closes; (b) primary + companion + sibling → only primary killed, companion preserved; (c) companion already dead → primary killed cleanly, silent no-op on the missing companion.
+- **Key decisions:**
+  - Chose `remain-on-exit on` + pane-scoped `pane-died` hook over a shell-wrapper `; tmux kill-window` approach (rejected by the user during plan review because it would clobber user-created sibling panes) and over a wrapper with an EXIT trap (would have required a 3-step respawn dance). The hook approach is declarative, targets only the pane ids we created, and disappears with the pane — no global state.
+  - Chose a sibling-count heuristic over explicit reference counting. The user's scenario ("codeagent sharing the companion") is handled correctly by the heuristic without requiring a shared refcount protocol that future primary-spawn flows would have to honor.
+  - No whitelisting touchpoints were added because the new helper script is invoked by `tmux run-shell` from a pane hook — not from a code-agent skill. CLAUDE.md's 5-touchpoint rule applies to skill-invoked scripts.
