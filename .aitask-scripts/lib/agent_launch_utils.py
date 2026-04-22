@@ -237,7 +237,8 @@ def maybe_spawn_minimonitor(
     window_name: str,
     *,
     window_index: str | None = None,
-) -> bool:
+    force_companion: bool = False,
+) -> str | None:
     """Spawn a minimonitor split pane if conditions are met.
 
     Called after launch_in_tmux() creates a new window or splits into an
@@ -249,8 +250,15 @@ def maybe_spawn_minimonitor(
         session: tmux session name
         window_name: tmux window name (for prefix matching and TUI exclusion)
         window_index: if provided, skip the name→index lookup (existing-window case)
+        force_companion: if True, bypass the companion-prefix check and the
+            TUI-name/brainstorm exclusion check. Used for dynamic companion
+            flows like the git TUI where the window name ("git") is not
+            prefix-based and is also classified as a TUI in the registry. The
+            `auto_spawn`, existing-minimonitor, and pane-count guards still
+            apply.
 
-    Returns True if minimonitor was spawned, False otherwise.
+    Returns the new companion pane id (e.g. `%42`) on success, or None if
+    no spawn happened (disabled, rejected by a gate, tmux error, etc.).
     """
     # Read config from project_config.yaml
     auto_spawn = True
@@ -283,15 +291,16 @@ def maybe_spawn_minimonitor(
             pass
 
     if not auto_spawn:
-        return False
+        return None
 
-    # Check window name matches an eligible companion prefix
-    if not any(window_name.startswith(p) for p in companion_prefixes):
-        return False
+    if not force_companion:
+        # Check window name matches an eligible companion prefix
+        if not any(window_name.startswith(p) for p in companion_prefixes):
+            return None
 
-    # Exclude TUI windows (board, codebrowser, monitor, etc.)
-    if window_name in tui_names or window_name.startswith("brainstorm-"):
-        return False
+        # Exclude TUI windows (board, codebrowser, monitor, etc.)
+        if window_name in tui_names or window_name.startswith("brainstorm-"):
+            return None
 
     # Resolve window index
     win_index = window_index
@@ -303,16 +312,16 @@ def maybe_spawn_minimonitor(
                 capture_output=True, text=True, timeout=5,
             )
             if result.returncode != 0:
-                return False
+                return None
             for line in result.stdout.strip().splitlines():
                 if ":" in line:
                     idx, name = line.split(":", 1)
                     if name == window_name:
                         win_index = idx  # keep looping — pick the *last* match
             if win_index is None:
-                return False
+                return None
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            return False
+            return None
 
     # Check existing panes for monitor/minimonitor and pane count
     try:
@@ -325,28 +334,32 @@ def maybe_spawn_minimonitor(
             pane_lines = result.stdout.strip().splitlines()
             for cmd_line in pane_lines:
                 if "minimonitor" in cmd_line or "monitor_app" in cmd_line:
-                    return False
+                    return None
             # Avoid overcrowding: skip if 3+ panes already exist
             if len(pane_lines) >= 3:
-                return False
+                return None
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
 
-    # Spawn minimonitor as a right split
+    # Spawn minimonitor as a right split, capturing the new pane id
     try:
-        subprocess.Popen(
-            ["tmux", "split-window", "-h", "-l", str(width),
+        spawn = subprocess.run(
+            ["tmux", "split-window", "-h", "-P", "-F", "#{pane_id}",
+             "-l", str(width),
              "-t", f"{session}:{win_index}", "ait", "minimonitor"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            capture_output=True, text=True, timeout=5,
         )
+        if spawn.returncode != 0:
+            return None
+        companion_pane = spawn.stdout.strip() or None
         # Refocus the original pane (left pane)
         subprocess.Popen(
             ["tmux", "select-pane", "-t", f"{session}:{win_index}.0"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
-        return True
-    except (FileNotFoundError, OSError):
-        return False
+        return companion_pane
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
 
 
 def launch_or_focus_codebrowser(

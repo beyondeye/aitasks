@@ -438,6 +438,8 @@ class TuiSwitcherOverlay(ModalScreen):
                     ["tmux", "select-window", "-t", target],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
+            elif name == "git":
+                self._launch_git_with_companion()
             else:
                 cmd = self._get_launch_command(name)
                 # Trailing colon ensures tmux interprets target as session, not window
@@ -449,6 +451,52 @@ class TuiSwitcherOverlay(ModalScreen):
             self.app.notify(f"Failed to switch to {name}", severity="error")
             return
         self.dismiss(name)
+
+    def _launch_git_with_companion(self) -> None:
+        """Launch the git TUI in a new window with a companion minimonitor.
+
+        Wires a pane-scoped `pane-died` hook on the git pane so that when the
+        git tool exits, the companion is despawned only if no other sibling
+        pane (user-added shell, codeagent sharing the companion, etc.) is
+        still using the window.
+        """
+        cmd = self._get_launch_command("git")
+        try:
+            result = subprocess.run(
+                ["tmux", "new-window", "-t", f"{self._session}:", "-n", "git",
+                 "-P", "-F", "#{pane_id}", cmd],
+                capture_output=True, text=True, timeout=5,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            self.app.notify("Failed to launch git TUI", severity="error")
+            return
+        if result.returncode != 0:
+            self.app.notify("Failed to launch git TUI", severity="error")
+            return
+        primary_pane = result.stdout.strip()
+        if not primary_pane:
+            return
+
+        from agent_launch_utils import maybe_spawn_minimonitor
+        companion_pane = maybe_spawn_minimonitor(
+            self._session, "git", force_companion=True,
+        )
+
+        if companion_pane:
+            subprocess.Popen(
+                ["tmux", "set-option", "-p", "-t", primary_pane,
+                 "remain-on-exit", "on"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            script_path = str(
+                Path(__file__).resolve().parent.parent / "aitask_companion_cleanup.sh"
+            )
+            hook_cmd = f"run-shell '{script_path} {primary_pane} {companion_pane}'"
+            subprocess.Popen(
+                ["tmux", "set-hook", "-p", "-t", primary_pane,
+                 "pane-died", hook_cmd],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
 
     @staticmethod
     def _get_launch_command(name: str) -> str:
