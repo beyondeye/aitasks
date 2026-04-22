@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: []
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-21 08:01
-updated_at: 2026-04-22 07:20
+updated_at: 2026-04-22 07:21
+completed_at: 2026-04-22 07:21
 boardidx: 50
 ---
 
