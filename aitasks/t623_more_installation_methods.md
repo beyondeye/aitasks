@@ -5,9 +5,10 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [install_scripts, installation]
+children_to_implement: [t623_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-22 09:15
-updated_at: 2026-04-22 09:16
+updated_at: 2026-04-22 18:56
 ---
 
 currently the only supported installation method for the aitasks framework is curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash
