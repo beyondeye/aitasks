@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [install_scripts, installation]
-children_to_implement: [t623_1, t623_2]
+children_to_implement: [t623_1, t623_2, t623_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-22 09:15
 updated_at: 2026-04-22 18:57
