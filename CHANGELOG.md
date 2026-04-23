@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.17.3
+
+### Bug Fixes
+
+- **Exact tmux session targeting** (t632): Fixed a cross-project bug where tmux commands could target the wrong session when session names shared a common prefix; all session-denominated tmux calls now use exact-match targeting.
+- **Task IDs start at 1** (t631): Task IDs in new projects now start at 1 instead of 10 — the initial buffer that forced fresh projects to begin at t10 has been removed.
+- **`__pycache__/` added to `.gitignore` during setup** (t630): `ait setup` now automatically adds `__pycache__/` to your project's `.gitignore`, preventing Python cache directories from being committed.
+
+### Documentation
+
+- **Initializer brainstorm agent type** (t573_4): Added documentation for the `initializer` brainstorm agent type, covering how it's registered and the "initialize from an imported proposal" flow that triggers it.
+
 ## v0.17.2
 
 ### Features
