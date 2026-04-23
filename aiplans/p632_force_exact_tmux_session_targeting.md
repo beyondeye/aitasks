@@ -218,3 +218,16 @@ Manual (the bug repro from the task description, preserved verbatim):
 - `tests/test_tmux_exact_session_targeting.sh` — new.
 
 Approx totals: ~42 session-target substitutions across 9 Python files and 1 shell file, 1 API change (`find_window_by_name`), 1 new shell test.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Two helpers (`tmux_session_target`, `tmux_window_target`) added to `.aitask-scripts/lib/agent_launch_utils.py`; `find_window_by_name(name, session)` tightened to require the session argument; every session-denominated `-t` call site in the 9 Python files and `aitask_ide.sh` now routes through a helper. `board/aitask_board.py:_launch_brainstorm` resolves the session via `_current_tmux_session() or load_tmux_defaults(Path.cwd())["default_session"]` before the `find_window_by_name` call, matching the plan.
+- **Deviations from plan:** None of substance. Minor mechanical fit-ups: (a) the `pipe-pane .0` and `select-pane .0` suffixes are composed as `f"{tmux_window_target(session, idx)}.0"` — same shape the plan proposed, just formalized inline. (b) Most imports were added to existing `from agent_launch_utils import ...` lines rather than new import blocks, keeping noise to one line per file.
+- **Issues encountered:** `shellcheck .aitask-scripts/aitask_ide.sh` reports SC1091 on `source "$SCRIPT_DIR/lib/terminal_compat.sh"` — verified against the pre-change version (`git show HEAD:...`) that this note is pre-existing, not introduced by t632. No action.
+- **Key decisions:** Helper API is two functions, not one overloaded with optional window. `tmux_window_target(session, "")` covers the `=<session>:` "trailing colon" idiom tmux uses for "create in this session" — no third helper needed. `find_window_by_name` made session-required (no default) so any future caller must think about which session they mean.
+- **Verification performed:**
+  - `bash tests/test_tmux_exact_session_targeting.sh` — 10/10 passed (covers helper strings, `find_window_by_name` signature, real-tmux exact-vs-prefix behavior using an isolated `TMUX_TMPDIR` server, and scoping of `find_window_by_name` to a single session).
+  - `python3 -m py_compile` on all 8 edited Python files — clean.
+  - `bash -n .aitask-scripts/aitask_ide.sh` — clean.
+  - Broader grep sweep (`f"{...session...}:` and `"-t"` with session-y variables) — all remaining hits are pane-id/window-id/filesystem paths/display strings, not tmux session targets.
+- **Forward compatibility:** The single-session-scoping of `find_window_by_name` does NOT preclude the future multi-session monitor/TUI-switcher work discussed at plan time. A multi-session search simply iterates `get_tmux_sessions()` and calls `find_window_by_name(name, sess)` per session, or a new `find_window_across_sessions(name, sessions)` helper wraps the same loop — both use the existing exact-match primitives.
