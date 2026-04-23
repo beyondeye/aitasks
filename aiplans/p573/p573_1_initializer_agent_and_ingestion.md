@@ -376,3 +376,87 @@ After user approval in Step 8, follow the shared workflow's Step 9
 (archival via `./.aitask-scripts/aitask_archive.sh 573_1`). Plan file
 will be archived to `aiplans/archived/p573/` and serve as the primary
 reference for t573_2 / t573_3 / t573_4.
+
+## Final Implementation Notes
+
+- **Actual work done:** All 7 planned items landed as designed
+  (template, agent-types entry, `_assemble_input_initializer`,
+  `register_initializer`, `init_session(initial_proposal_file=…)`,
+  `apply_initializer_output` + `_extract_block`, bash test).
+  Both happy-path and negative-case (malformed output → `ValueError`)
+  are covered by `tests/test_apply_initializer_output.sh` (8
+  assertions PASS).
+
+- **Deviations from plan — plan-gap fixes surfaced during
+  implementation:** Adding a new entry to `BRAINSTORM_AGENT_TYPES`
+  also required three touchpoints the plan did not enumerate. Without
+  them, `get_agent_types()` raises `RuntimeError: Missing
+  codeagent_config.json default for brainstorm-initializer` and the
+  existing test suite fails. Fixed as part of this task:
+    - `aitasks/metadata/codeagent_config.json` (tracked, shared):
+      added `"brainstorm-initializer": "claudecode/sonnet4_6"`.
+    - `.aitask-scripts/settings/settings_app.py`
+      `OPERATION_DESCRIPTIONS`: added `brainstorm-initializer` and
+      `brainstorm-initializer-launch-mode` descriptions so the
+      settings TUI renders the new agent row.
+    - `tests/test_brainstorm_crew.py`: added `brainstorm-initializer`
+      to `FULL_DEFAULTS` and to the hardcoded expected-keys set in
+      `test_agent_types_keys`.
+
+- **Plan claim that didn't match reality:** The plan said `write_yaml`
+  needed to be added alongside `read_yaml` in
+  `brainstorm_session.py`'s import of `agentcrew.agentcrew_utils`.
+  Both were already present (line 19). No-op — no change required.
+
+- **Issues encountered:** None blocking. The initial
+  `test_agent_types_keys` test had a hardcoded 5-element set that
+  excluded `initializer`; updated to include it.
+
+- **Key decisions:**
+  - Default model for the new `brainstorm-initializer` config key:
+    `claudecode/sonnet4_6` (matches `brainstorm-patcher` /
+    `brainstorm-comparator` — interactive-mode reformat work, not
+    architectural generation).
+  - Seed file `seed/codeagent_config.json` is intentionally left
+    untouched: it already lacks any `brainstorm-*` keys — those are
+    added to runtime configs via `ait setup`, not seed. Follows the
+    invariant covered by `tests/test_add_model.sh` line 181 ("seed
+    does not gain brainstorm-explorer").
+  - `register_initializer` does NOT use `_group_seq`. There is
+    exactly one initializer per session (`initializer_bootstrap`),
+    unlike `detailer_<seq>` / `patcher_<seq>` which increment per
+    group. Plan already documented this.
+
+- **Notes for sibling tasks (t573_2 / t573_3 / t573_4):**
+  - The `brainstorm-initializer` config key is live in project
+    config. Sibling tasks that touch `seed/codeagent_config.json`
+    should leave the brainstorm section alone — the seed invariant
+    is enforced by `tests/test_add_model.sh`.
+  - `OPERATION_DESCRIPTIONS` now has the initializer row; the
+    settings TUI (t573 does not touch it directly, but
+    `aitask_board`/`settings_app` flows may) will render the
+    new entry automatically.
+  - When adding a 7th brainstorm agent type in the future,
+    remember that `BRAINSTORM_AGENT_TYPES` + `codeagent_config.json`
+    + `settings_app.py` `OPERATION_DESCRIPTIONS` + `FULL_DEFAULTS`
+    in `test_brainstorm_crew.py` + `test_agent_types_keys` expected
+    set all need to be updated together. Consider surfacing this
+    4-touchpoint checklist in the module docstring or CLAUDE.md.
+  - `initializer_bootstrap` remains the canonical agent name —
+    t573_2's `INITIALIZER_AGENT:` stdout line and t573_3's status
+    polling both depend on it being stable.
+  - Delimiter format (`--- NODE_YAML_START ---` etc.) is shared
+    between `templates/initializer.md` and the bash test fixture —
+    keep them in sync if either changes.
+
+- **Verification results:**
+  - `bash tests/test_apply_initializer_output.sh` — 8/8 PASS
+  - `python3 -m unittest discover -s tests -p 'test_brainstorm*.py'`
+    — 104/104 PASS
+  - `shellcheck tests/test_apply_initializer_output.sh` — clean
+  - `get_agent_types()['initializer']` →
+    `{'max_parallel': 1, 'launch_mode': 'interactive',
+    'agent_string': 'claudecode/sonnet4_6'}` ✓
+  - `init_session` smoke tests: backward-compat (no param), new
+    path (with `initial_proposal_file`), error path
+    (`FileNotFoundError` on missing file) all pass ✓
