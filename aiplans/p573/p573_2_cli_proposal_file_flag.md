@@ -434,3 +434,104 @@ Verification:
 After user approval in Step 8, follow the shared workflow's Step 9:
 `./.aitask-scripts/aitask_archive.sh 573_2`. Plan file will be archived to
 `aiplans/archived/p573/` and serve as reference material for t573_3 / t573_4.
+
+## Final Implementation Notes
+
+- **Actual work done:** All 8 planned items landed as designed:
+  1. `brainstorm_cli.py` — `cmd_init` now accepts `--proposal-file`, lazily
+     imports `register_initializer` and `start_runner`, emits the three
+     stdout markers (`SESSION_PATH:`, `INITIALIZER_AGENT:...`,
+     `RUNNER_STARTED:...`) on the happy path and `RUNNER_START_FAILED:` on
+     stderr when the runner auto-start fails.
+  2. `brainstorm_cli.py` argparse — `--proposal-file` added to the `p_init`
+     subparser with default `""`.
+  3. `aitask_brainstorm_init.sh` — `--proposal-file <path>` and
+     `--proposal-file=<path>` parsing branches; `PROPOSAL_FILE` init'd to `""`.
+  4. Validation block after `TASK_NUM` check: file-not-found / not-readable /
+     empty / extension-warn, then realpath via python3 for macOS portability.
+  5. 6th `--add-type` line for `initializer` in the crew-init invocation.
+  6. Python CLI invocation restructured to use a `init_args=(…)` array so
+     `--proposal-file` is only appended when set. `init_output` is echoed so
+     users see the new marker lines.
+  7. Hint-line block after the echo: parses stdout for
+     `INITIALIZER_AGENT:` / `RUNNER_STARTED:` and prints `info`/`warn` guidance.
+  8. `show_help()` updated with the new flag, the new output markers, and a
+     second `Example:` line.
+
+- **Tests added:**
+  - `tests/test_brainstorm_cli_python.py` — new `TestInitWithProposalFile`
+    class with 4 tests (happy path, runner-start failure, missing file,
+    backward compat). Uses `_make_proposal()` to auto-generate the test
+    proposal markdown in the scratch tmpdir — no fixture in the repo. The
+    tests patch `register_initializer` and `start_runner` so they don't spawn
+    real crew processes.
+  - `tests/test_brainstorm_init_proposal_file.sh` (new) — 3 bash-level
+    validation tests (missing file / empty file / missing argument). All
+    exercise `die` branches that execute before `aitask_crew_init.sh`, so no
+    project state is mutated.
+
+- **Deviations from plan:** None. The one plan-correction (the plan file
+  already identified during verification) — using `start_runner()` from
+  `agentcrew.agentcrew_runner_control` instead of a non-existent
+  `aitask_crew_run.sh --detach` — was implemented as designed.
+
+- **Issues encountered:** The pre-existing `tests/test_brainstorm_cli.sh`
+  fails on Test 1 ("brainstorm init basic") because its scratch-repo setup
+  does not copy `lib/archive_utils.sh`. Verified via `git stash` that this
+  failure exists on `main` without my changes — not caused by this task. Not
+  in scope to fix here; noting for a follow-up.
+
+- **Key decisions:**
+  - **Lazy import of `start_runner` and `register_initializer` inside
+    `cmd_init`** (not at module top-level): keeps the `init` command
+    import-light for callers that never set `--proposal-file`, and avoids
+    making `agentcrew_runner_control` a hard dependency of the `brainstorm`
+    package for other subcommands (status / list / finalize / archive / etc.).
+  - **`info`/`warn` used in the hint block** instead of `echo`: matches the
+    existing `terminal_compat.sh` helpers used throughout the script.
+  - **Error marker on stderr (`RUNNER_START_FAILED:`)**: stdout stays a clean
+    marker-stream for the TUI to parse while errors surface on stderr, which
+    is where `subprocess.run(...).stderr` will capture them in t573_3.
+
+- **Notes for sibling tasks (t573_3 / t573_4 / t573_5):**
+  - **Canonical stdout markers (DO NOT rename):**
+    - `SESSION_PATH:<abs path>` — always emitted by `cmd_init`.
+    - `INITIALIZER_AGENT:initializer_bootstrap` — emitted only when
+      `--proposal-file` is provided.
+    - `RUNNER_STARTED:brainstorm-<N>` — emitted only on successful runner
+      auto-start. If absent, the bash wrapper falls back to a `warn` line
+      telling the user to run `ait crew runner --crew <id>` manually.
+  - **Canonical stderr marker:** `RUNNER_START_FAILED:brainstorm-<N>` when
+    `start_runner()` returns False.
+  - **Runner start path:** `agentcrew.agentcrew_runner_control.start_runner`
+    — same entry point the TUI's `btn_runner_start` button uses
+    (`brainstorm_app.py:2853`). t573_3 should prefer calling this helper
+    directly from Python rather than shelling into `ait brainstorm init`,
+    since the TUI already has the crew-worktree and can skip re-running
+    `crew init`.
+  - **Runner helper script name:** the canonical runner CLI is
+    `./.aitask-scripts/aitask_crew_runner.sh --crew <id>` (note: `runner`,
+    not `run`, and `--crew`, not `--id`). There is no `--detach` flag;
+    detachment is handled by `subprocess.Popen(start_new_session=True)` in
+    `agentcrew_runner_control.start_runner`.
+  - **6-agent-type crew:** after this child, all brainstorm crews have 6
+    agent types (explorer, comparator, synthesizer, detailer, patcher,
+    initializer). Existing crews that were initialized before t573_2 only
+    have 5 — t573_4 (docs) should mention this backward-compat implication.
+  - **Placeholder n000_init body:** when `--proposal-file` is set,
+    `init_session` seeds `n000_init.md` with `"Awaiting initializer agent
+    output for `<basename>`.\n"`. The initializer agent overwrites this when
+    it completes (via `apply_initializer_output` from t573_1). t573_3's TUI
+    should show a "pending" state while this placeholder is present.
+
+- **Verification results:**
+  - `bash tests/test_brainstorm_init_proposal_file.sh` — 3/3 PASS
+  - `shellcheck -x` on both the modified `aitask_brainstorm_init.sh` and the
+    new `test_brainstorm_init_proposal_file.sh` — clean
+  - `python3 -m unittest tests.test_brainstorm_cli_python -v` — 14/14 PASS
+    (4 new, 10 existing)
+  - `python3 -m unittest discover -s tests -p 'test_brainstorm*.py'` —
+    108/108 PASS (full brainstorm suite)
+  - `bash tests/test_apply_initializer_output.sh` — 8/8 PASS (sibling test)
+  - `ait brainstorm init --help` — new flag documented, new output markers
+    listed, second example shown.
