@@ -7,7 +7,7 @@ status: Ready
 labels: [claudeskills, whitelists]
 created_at: 2026-03-24 21:07
 updated_at: 2026-03-24 21:07
-boardidx: 90
+boardidx: 60
 boardcol: now
 ---
 

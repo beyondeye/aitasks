@@ -7,7 +7,7 @@ status: Ready
 labels: [remote, sanboxing, openshell]
 created_at: 2026-03-22 10:04
 updated_at: 2026-03-22 10:04
-boardidx: 80
+boardidx: 50
 boardcol: now
 ---
 
