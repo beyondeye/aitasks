@@ -242,14 +242,14 @@ rm -rf "$TMPDIR_4"
 echo "--- Test 5: Finalize claims real ID ---"
 
 TMPDIR_5="$(setup_draft_project)"
-# Counter should be at 12 (max(2) + 10 = 12)
+# Counter should be at 3 (max(2) + 1 = 3)
 (cd "$TMPDIR_5/local" && ./.aitask-scripts/aitask_create.sh --batch --name "claim_test" --desc "Test claiming" >/dev/null 2>&1)
 
 draft_name5=$(ls "$TMPDIR_5/local/aitasks/new"/ 2>/dev/null | head -1)
 (cd "$TMPDIR_5/local" && ./.aitask-scripts/aitask_create.sh --batch --finalize "$draft_name5" >/dev/null 2>&1)
 
-# The finalized file should be t12_claim_test.md (first claim from counter starting at 12)
-assert_file_exists "Finalized as t12" "$TMPDIR_5/local/aitasks/t12_claim_test.md"
+# The finalized file should be t3_claim_test.md (first claim from counter starting at 3)
+assert_file_exists "Finalized as t3" "$TMPDIR_5/local/aitasks/t3_claim_test.md"
 
 rm -rf "$TMPDIR_5"
 
@@ -264,7 +264,7 @@ draft_name6=$(ls "$TMPDIR_6/local/aitasks/new"/ 2>/dev/null | head -1)
 
 # Check that git log shows the commit
 last_commit6=$(cd "$TMPDIR_6/local" && git log -1 --format='%s' 2>/dev/null)
-assert_contains "Commit message has task ID" "t12" "$last_commit6"
+assert_contains "Commit message has task ID" "t3" "$last_commit6"
 assert_contains "Commit message mentions task" "commit test" "$last_commit6"
 
 rm -rf "$TMPDIR_6"
@@ -290,8 +290,8 @@ assert_eq "3 drafts created" "3" "$draft_count7_before"
 draft_count7_after=$(ls "$TMPDIR_7/local/aitasks/new"/draft_*.md 2>/dev/null | wc -l)
 assert_eq "No drafts remaining" "0" "$draft_count7_after"
 
-# 3 new task files should exist (t12, t13, t14)
-new_task_count7=$(ls "$TMPDIR_7/local/aitasks"/t1[234]_*.md 2>/dev/null | wc -l)
+# 3 new task files should exist (t3, t4, t5)
+new_task_count7=$(ls "$TMPDIR_7/local/aitasks"/t[345]_*.md 2>/dev/null | wc -l)
 assert_eq "3 finalized tasks exist" "3" "$new_task_count7"
 
 # All should have unique IDs

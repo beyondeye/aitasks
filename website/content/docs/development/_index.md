@@ -101,7 +101,7 @@ The internal script `.aitask-scripts/aitask_claim_id.sh` manages a shared atomic
 - A separate git branch `aitask-ids` holds a single file `next_id.txt` as the shared counter
 - Atomicity is achieved via git plumbing commands (`hash-object`, `mktree`, `commit-tree`) and push rejection on non-fast-forward updates (compare-and-swap semantics)
 - On push conflict (another PC claimed simultaneously), retries with random backoff up to 5 attempts
-- Initialized via `ait setup` with a buffer of 10 above the highest existing task ID
+- Initialized via `ait setup` to one above the highest existing task ID (so new projects start at t1)
 - Child tasks do not use the atomic counter — they use local file scan instead, which is safe because the parent's unique ID acts as a namespace and only one PC works on a task at a time
 
 ---

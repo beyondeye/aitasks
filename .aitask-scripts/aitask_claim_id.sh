@@ -28,7 +28,6 @@ source "$SCRIPT_DIR/lib/archive_scan.sh"
 BRANCH="aitask-ids"
 COUNTER_FILE="next_id.txt"
 MAX_RETRIES=5
-ID_BUFFER=10
 
 DEBUG=false
 
@@ -73,10 +72,10 @@ init_counter_branch() {
     # Scan for max existing task ID
     local max_id
     max_id=$(scan_max_task_id "$TASK_DIR" "$ARCHIVED_DIR")
-    local next_id=$((max_id + ID_BUFFER))
+    local next_id=$((max_id + 1))
 
     info "Max existing task ID: t$max_id"
-    info "Initializing counter branch with next_id=$next_id (max + $ID_BUFFER buffer)"
+    info "Initializing counter branch with next_id=$next_id (max + 1)"
 
     # Create the branch using git plumbing (no checkout needed)
     local blob_hash tree_hash commit_hash
@@ -104,9 +103,9 @@ has_local_branch() {
 init_local_branch() {
     local max_id
     max_id=$(scan_max_task_id "$TASK_DIR" "$ARCHIVED_DIR")
-    local next_id=$((max_id + ID_BUFFER))
+    local next_id=$((max_id + 1))
 
-    debug "Initializing local counter branch with next_id=$next_id (max=$max_id + buffer=$ID_BUFFER)"
+    debug "Initializing local counter branch with next_id=$next_id (max=$max_id + 1)"
 
     local blob_hash tree_hash commit_hash
     blob_hash=$(echo "$next_id" | git hash-object -w --stdin)
@@ -248,7 +247,7 @@ peek_counter() {
             # No branch yet — show what next claim would return
             local max_id
             max_id=$(scan_max_task_id "$TASK_DIR" "$ARCHIVED_DIR")
-            echo $((max_id + ID_BUFFER))
+            echo $((max_id + 1))
         fi
         return 0
     fi

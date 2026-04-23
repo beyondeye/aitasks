@@ -140,11 +140,11 @@ output=$(cd "$TMPDIR_1/local" && ./.aitask-scripts/aitask_claim_id.sh --init 2>&
 branch_exists=$(git -C "$TMPDIR_1/local" ls-remote --heads origin aitask-ids 2>/dev/null | grep -c "aitask-ids")
 assert_eq "Branch exists on remote" "1" "$branch_exists"
 
-# Counter should be max(5) + 10 = 15
+# Counter should be max(5) + 1 = 6
 counter_val=$(cd "$TMPDIR_1/local" && git fetch origin aitask-ids --quiet 2>/dev/null && git show origin/aitask-ids:next_id.txt 2>/dev/null | tr -d '[:space:]')
-assert_eq "Counter initialized to max+10" "15" "$counter_val"
+assert_eq "Counter initialized to max+1" "6" "$counter_val"
 
-assert_contains "Output mentions counter value" "15" "$output"
+assert_contains "Output mentions counter value" "6" "$output"
 
 rm -rf "$TMPDIR_1"
 
@@ -165,7 +165,7 @@ echo "--- Test 3: Claim returns correct ID ---"
 TMPDIR_3="$(setup_paired_repos)"
 (cd "$TMPDIR_3/local" && ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1)
 claimed=$(cd "$TMPDIR_3/local" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
-assert_eq "First claim returns 15" "15" "$claimed"
+assert_eq "First claim returns 6" "6" "$claimed"
 
 rm -rf "$TMPDIR_3"
 
@@ -177,9 +177,9 @@ TMPDIR_4="$(setup_paired_repos)"
 c1=$(cd "$TMPDIR_4/local" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
 c2=$(cd "$TMPDIR_4/local" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
 c3=$(cd "$TMPDIR_4/local" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
-assert_eq "First sequential claim" "15" "$c1"
-assert_eq "Second sequential claim" "16" "$c2"
-assert_eq "Third sequential claim" "17" "$c3"
+assert_eq "First sequential claim" "6" "$c1"
+assert_eq "Second sequential claim" "7" "$c2"
+assert_eq "Third sequential claim" "8" "$c3"
 
 rm -rf "$TMPDIR_4"
 
@@ -192,7 +192,7 @@ TMPDIR_5="$(setup_paired_repos)"
 (cd "$TMPDIR_5/local" && ./.aitask-scripts/aitask_claim_id.sh --claim >/dev/null 2>&1)
 
 counter_after=$(cd "$TMPDIR_5/local" && git fetch origin aitask-ids --quiet 2>/dev/null && git show origin/aitask-ids:next_id.txt 2>/dev/null | tr -d '[:space:]')
-assert_eq "Counter is 17 after 2 claims from 15" "17" "$counter_after"
+assert_eq "Counter is 8 after 2 claims from 6" "8" "$counter_after"
 
 rm -rf "$TMPDIR_5"
 
@@ -246,13 +246,13 @@ TMPDIR_7="$(mktemp -d)"
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
 
-# First claim: auto-creates local branch (max=3, buffer=10, counter starts at 13, claims 13)
+# First claim: auto-creates local branch (max=3, counter starts at 4, claims 4)
 claimed7a=$(cd "$TMPDIR_7" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
-assert_eq "No remote: first claim returns max+buffer" "13" "$claimed7a"
+assert_eq "No remote: first claim returns max+1" "4" "$claimed7a"
 
-# Second claim: counter advances monotonically (claims 14)
+# Second claim: counter advances monotonically (claims 5)
 claimed7b=$(cd "$TMPDIR_7" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
-assert_eq "No remote: sequential claim is monotonic" "14" "$claimed7b"
+assert_eq "No remote: sequential claim is monotonic" "5" "$claimed7b"
 
 # Local branch should exist
 TOTAL=$((TOTAL + 1))
@@ -276,7 +276,7 @@ TMPDIR_8="$(setup_paired_repos)"
 )
 output8=$(cd "$TMPDIR_8/local" && ./.aitask-scripts/aitask_claim_id.sh --init 2>&1)
 counter8=$(cd "$TMPDIR_8/local" && git fetch origin aitask-ids --quiet 2>/dev/null && git show origin/aitask-ids:next_id.txt 2>/dev/null | tr -d '[:space:]')
-assert_eq "Counter scans archived: max(50)+10=60" "60" "$counter8"
+assert_eq "Counter scans archived: max(50)+1=51" "51" "$counter8"
 
 rm -rf "$TMPDIR_8"
 
@@ -294,7 +294,7 @@ TMPDIR_9="$(setup_paired_repos)"
 )
 output9=$(cd "$TMPDIR_9/local" && ./.aitask-scripts/aitask_claim_id.sh --init 2>&1)
 counter9=$(cd "$TMPDIR_9/local" && git fetch origin aitask-ids --quiet 2>/dev/null && git show origin/aitask-ids:next_id.txt 2>/dev/null | tr -d '[:space:]')
-assert_eq "Counter scans tar: max(100)+10=110" "110" "$counter9"
+assert_eq "Counter scans tar: max(100)+1=101" "101" "$counter9"
 
 rm -rf "$TMPDIR_9"
 
@@ -342,14 +342,14 @@ TMPDIR_12="$(mktemp -d)"
     chmod +x .aitask-scripts/aitask_claim_id.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
-# Peek before any claim: no local branch yet, shows max+buffer
+# Peek before any claim: no local branch yet, shows max+1
 peek12a=$(cd "$TMPDIR_12" && ./.aitask-scripts/aitask_claim_id.sh --peek 2>/dev/null)
-assert_eq "Peek with no remote (no branch): max+buffer=20" "20" "$peek12a"
+assert_eq "Peek with no remote (no branch): max+1=11" "11" "$peek12a"
 
 # After a claim, peek shows counter from local branch
 (cd "$TMPDIR_12" && ./.aitask-scripts/aitask_claim_id.sh --claim >/dev/null 2>&1)
 peek12b=$(cd "$TMPDIR_12" && ./.aitask-scripts/aitask_claim_id.sh --peek 2>/dev/null)
-assert_eq "Peek with no remote (after claim): counter=21" "21" "$peek12b"
+assert_eq "Peek with no remote (after claim): counter=12" "12" "$peek12b"
 
 rm -rf "$TMPDIR_12"
 
@@ -370,9 +370,9 @@ TMPDIR_13="$(mktemp -d)"
     chmod +x .aitask-scripts/aitask_claim_id.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
-# max=0, buffer=10, counter starts at 10, first claim returns 10
+# max=0, counter starts at 1, first claim returns 1
 claimed13=$(cd "$TMPDIR_13" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
-assert_eq "No remote, no tasks: returns buffer value" "10" "$claimed13"
+assert_eq "No remote, no tasks: returns 1" "1" "$claimed13"
 
 rm -rf "$TMPDIR_13"
 
@@ -398,16 +398,16 @@ TMPDIR_14="$(mktemp -d)"
     echo "init" > dummy.txt && git add -A && git commit -m "init" --quiet
 )
 
-# Claim locally (no remote) — should create local branch and return 11 (max=1, buffer=10)
+# Claim locally (no remote) — should create local branch and return 2 (max=1)
 claimed14a=$(cd "$TMPDIR_14/local" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
-assert_eq "Auto-upgrade: local claim returns 11" "11" "$claimed14a"
+assert_eq "Auto-upgrade: local claim returns 2" "2" "$claimed14a"
 
 # Now add a remote
 (cd "$TMPDIR_14/local" && git remote add origin "$TMPDIR_14/remote.git" && git push --quiet origin main 2>/dev/null)
 
 # Next claim should auto-push local branch to remote and use remote CAS
 claimed14b=$(cd "$TMPDIR_14/local" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
-assert_eq "Auto-upgrade: remote claim returns 12" "12" "$claimed14b"
+assert_eq "Auto-upgrade: remote claim returns 3" "3" "$claimed14b"
 
 # Verify branch now exists on remote
 TOTAL=$((TOTAL + 1))
