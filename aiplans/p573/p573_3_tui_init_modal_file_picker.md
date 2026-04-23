@@ -342,3 +342,98 @@ Follow the shared workflow's Step 9 after user approval in Step 8:
 `./.aitask-scripts/aitask_archive.sh 573_3`. The archived plan file will
 land in `aiplans/archived/p573/` as the primary reference for t573_4
 (docs + seed config) and t573_5 (manual verification sibling).
+
+## Final Implementation Notes
+
+- **Actual work done:** All eight planned items landed as designed in a
+  single file, `.aitask-scripts/brainstorm/brainstorm_app.py`:
+  1. `DirectoryTree` added to the `textual.widgets` import block.
+  2. New `_MarkdownOnlyDirectoryTree(DirectoryTree)` subclass overriding
+     `filter_paths` to admit only directories + `.md` / `.markdown`.
+  3. New `ImportProposalFilePicker(ModalScreen)` inserted immediately
+     before `InitSessionModal`.
+  4. `InitSessionModal` rewritten with three buttons
+     (`btn_init_blank`, `btn_init_import`, `btn_cancel`) and a
+     `_on_picker_result` callback that stays in the modal on picker-cancel
+     (so the user can still choose Blank or Cancel without re-entering
+     the session modal).
+  5. `_on_init_result` replaced with a three-way branch keyed on a string
+     result (`None | "blank" | "import:<path>"`). Unknown results notify
+     severity=error and exit.
+  6. New `_run_init_with_proposal` — threaded shell-out to
+     `ait brainstorm init <N> --proposal-file <path>`. Parses
+     `INITIALIZER_AGENT:` from stdout and surfaces
+     `RUNNER_START_FAILED:` from stderr (`cmd_init` may exit 0 even when
+     the runner fails to auto-start).
+  7. New `_start_initializer_wait` — main-thread setup that loads the
+     placeholder session, shows the DAG, and schedules
+     `_poll_initializer` on a 2-second `set_interval` timer.
+  8. New `_poll_initializer` — reads `<session_path>/<agent>_status.yaml`;
+     on `Completed` it calls `apply_initializer_output(self.task_num)` and
+     refreshes the session; on `Error`/`Aborted` it notifies the user and
+     leaves the placeholder `n000_init` in place for a retry.
+  9. Three new state attrs wired in `BrainstormApp.__init__`:
+     `_initializer_agent`, `_initializer_done`, `_initializer_timer`.
+
+- **Deviations from plan:** None. The one robustness correction
+  identified at verify time (RUNNER_START_FAILED stderr parsing) landed
+  exactly as described in the Context section.
+
+- **Issues encountered:** None. The file AST-parses cleanly, the module
+  imports without error, and both the full brainstorm suite (108/108)
+  and the sibling test (`test_apply_initializer_output.sh` — 8/8) pass.
+  Note: several unrelated `tests/test_*.sh` files show uncommitted
+  `cp lib/archive_utils.sh` additions in the working tree — these are
+  user in-progress work addressing the follow-up flagged by sibling
+  t573_2's Final Implementation Notes. Not touched by this commit.
+
+- **Key decisions:**
+  - **Lazy import of `apply_initializer_output`** inside
+    `_poll_initializer` (not at module top-level). The blank-init path
+    is the common case and doesn't need this symbol. This mirrors the
+    lazy-import pattern sibling t573_2 established for `start_runner`
+    inside `cmd_init`.
+  - **Class ordering:** `_MarkdownOnlyDirectoryTree` and
+    `ImportProposalFilePicker` are inserted **before** `InitSessionModal`
+    so that the reader sees the picker first and then the modal that
+    opens it — matches the flow of control.
+  - **`_on_picker_result` stays in the modal on cancel** rather than
+    dismissing it. The user may have opened the picker by mistake and
+    still wants Blank. Matches the plan's "On None: stay in this modal"
+    note.
+  - **`_initializer_timer.stop()` is null-safe**: the attr is
+    initialized to `None` in `__init__` and may be set to a `Timer`
+    only after `set_interval`. The null-check in `_poll_initializer`
+    also guards against a stray tick firing in a race.
+
+- **Notes for sibling tasks (t573_4 / t573_5):**
+  - **3-button modal is the new default** — any docs that still
+    describe the 2-button init screen need to be updated by t573_4.
+  - **Canonical stderr marker `RUNNER_START_FAILED:<crew>`** is now
+    consumed by the TUI. If any future refactor of `cmd_init` changes
+    this literal, the TUI error path breaks silently (runs the happy
+    path, then polls forever). Keep the marker stable.
+  - **Polling cadence is 2 seconds** — deliberately faster than the
+    30s `_status_refresh_timer` because the user is waiting
+    synchronously on first init. Adjust downward (not upward) if it
+    proves noisy.
+  - **Picker scope is `"."`** — `ait` always cds to the repo root
+    before running, so the CWD is always the project root.
+  - **Manual verification items for t573_5** should include: (a) picker
+    hides `.py` / `.sh` / `.txt` files, (b) picker shows `.md` /
+    `.markdown` (both cases), (c) escape-from-picker returns to the
+    main modal (not a full exit), (d) runner-start-failure surfaces a
+    user-visible error (not silent polling), (e) agent-error
+    (`Error`/`Aborted` status) surfaces an error notification with the
+    placeholder retained.
+
+- **Verification results:**
+  - `python3 -m unittest discover -s tests -p 'test_brainstorm*.py'`
+    → 108/108 PASS.
+  - `bash tests/test_apply_initializer_output.sh` → 8/8 PASS.
+  - AST parse of `brainstorm_app.py` → OK.
+  - `from brainstorm.brainstorm_app import BrainstormApp,
+    _MarkdownOnlyDirectoryTree, ImportProposalFilePicker` → OK.
+  - `_MarkdownOnlyDirectoryTree.filter_paths(None, fixtures)` admits
+    `.md`, `.MARKDOWN` (case-insensitive), and directories; excludes
+    `.py` and suffix-less files.
