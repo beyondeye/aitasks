@@ -162,3 +162,40 @@ Proceed to Step 9 of the task workflow for archival (`aitask_archive.sh
 - Codex registry is missing `gpt-5.4-mini` (listed in the Codex docs but
   absent here). Out of scope for this task; flag for a separate task if the
   user wants it.
+
+## Final Implementation Notes
+
+- **Actual work done:** executed the three planned steps verbatim.
+  - Step 1: `aitask_add_model.sh add-json --agent codex --name gpt5_5
+    --cli-id gpt-5.5 --notes "..."` registered the entry in both
+    `aitasks/metadata/models_codex.json` and `seed/models_codex.json`
+    (helper handles metadata+seed atomically).
+  - Step 2: manually appended `openai_gpt_5_5` and `opencode_gpt_5_5` to
+    `aitasks/metadata/models_opencode.json` (sorted: after `openai_gpt_5_4`
+    and `opencode_gpt_5_4_pro` respectively). Mirrored both entries in
+    `seed/models_opencode.json`; seed uses a sparser "(... via OpenCode
+    <provider> provider)" notes format, which was followed for the new
+    entries to stay consistent with `openai_gpt_5_4`'s existing seed entry.
+  - Step 3: two commits, one on `aitask-data` and one on `main`.
+- **Deviations from plan:** none in substance.
+  - The plan showed the opencode `notes` as "GPT-5.5 (opencode provider)".
+    Applied as-is in the metadata file; in the seed file, used "GPT-5.5 via
+    OpenCode opencode provider" to match the seed's existing phrasing.
+  - `aitask_add_model.sh` writes `verified: {}` and `verifiedstats: {}`
+    (empty objects) rather than explicit zero-valued keys. Kept the helper's
+    output; it is consistent with other codex entries touched via the
+    helper and the runtime reads missing keys as zero.
+- **Issues encountered:** none.
+- **Key decisions:**
+  - Omitted context-window size from all four `notes` strings (no
+    authoritative spec for gpt-5.5 as of commit time; OpenAI docs page 404s,
+    OpenRouter has no listing).
+  - For opencode, manually added entries overriding the CLI-discovery
+    convention, per user's explicit choice in planning. Next
+    `ait opencode-models` run will mark these `status: unavailable` until
+    the provider catches up — documented in Caveats.
+- **Verification performed:**
+  - `jq .` succeeded on all four modified files.
+  - `jq '.models[] | select(.name == "gpt5_5")'` returned the codex entry.
+  - `jq '.models[] | select(.name | test("gpt_5_5"))'` returned both
+    opencode entries.
