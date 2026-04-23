@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [ait_brainstorm]
-children_to_implement: [t573_3, t573_4, t573_5]
+children_to_implement: [t573_4, t573_5]
 created_at: 2026-04-16 11:50
-updated_at: 2026-04-23 12:22
+updated_at: 2026-04-23 12:46
 boardcol: now
 boardidx: 10
 ---
