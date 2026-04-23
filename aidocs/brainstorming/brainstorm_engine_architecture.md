@@ -60,7 +60,7 @@ Each brainstorm session is tied to an aitask. The session data lives on the Agen
 │   Persistent crew: brainstorm-<task_num>                 │
 │   Operation groups: explore_001, compare_002, ...        │
 │   Agent types: explorer, comparator, synthesizer,        │
-│                detailer, patcher                          │
+│                detailer, patcher, initializer             │
 └──────────────┬───────────────────────────────────────────┘
                │
                ▼
@@ -159,9 +159,9 @@ The brainstorm engine's Python modules live under `.aitask-scripts/` in the main
 | `.aitask-scripts/brainstorm/brainstorm_dag.py` | DAG operations: `read_node`, `read_proposal`, `read_plan`, `_read_graph_state`, path constants (`NODES_DIR`, `PROPOSALS_DIR`, `PLANS_DIR`) |
 | `.aitask-scripts/brainstorm/brainstorm_schemas.py` | Dimension prefixes (`DIMENSION_PREFIXES`), `is_dimension_field()`, `extract_dimensions()` |
 | `.aitask-scripts/brainstorm/brainstorm_sections.py` | Section parser: `parse_sections`, `validate_sections`, `get_section_by_name`, `get_sections_for_dimension`, `section_names`, `format_section_header`, `format_section_footer`; dataclasses `ContentSection` and `ParsedContent` |
-| `.aitask-scripts/brainstorm/brainstorm_crew.py` | Agent registration (`register_explorer`, `register_comparator`, `register_synthesizer`, `register_detailer`, `register_patcher`) and `_assemble_input_*` helpers |
+| `.aitask-scripts/brainstorm/brainstorm_crew.py` | Agent registration (`register_explorer`, `register_comparator`, `register_synthesizer`, `register_detailer`, `register_patcher`, `register_initializer`) and `_assemble_input_*` helpers |
 | `.aitask-scripts/brainstorm/brainstorm_app.py` | Brainstorm TUI (wizard, node tree, `NodeDetailModal`) |
-| `.aitask-scripts/brainstorm/templates/` | Agent work2do templates (`explorer.md`, `comparator.md`, `synthesizer.md`, `detailer.md`, `patcher.md`) plus the shared include `_section_format.md` |
+| `.aitask-scripts/brainstorm/templates/` | Agent work2do templates (`explorer.md`, `comparator.md`, `synthesizer.md`, `detailer.md`, `patcher.md`, `initializer.md`) plus the shared include `_section_format.md` |
 | `.aitask-scripts/lib/section_viewer.py` | Shared Textual widgets for rendering section-structured markdown: `SectionRow`, `SectionMinimap`, `SectionAwareMarkdown`, `SectionViewerScreen`; helper `estimate_section_y()` |
 
 ---
@@ -574,6 +574,10 @@ agent_types:
   patcher:
     agent_string: claudecode/sonnet4_6  # Surgical edits, impact analysis
     max_parallel: 1                      # Sequential plan patches
+  initializer:
+    agent_string: claudecode/sonnet4_6  # Structured markdown reformat
+    max_parallel: 1                      # Singleton: one initializer per session
+    launch_mode: interactive             # User watches the reformat live
 ```
 
 **Agent naming within groups:** `<type>_<group_sequence><agent_letter>`
@@ -582,6 +586,7 @@ Examples:
 - `explorer_001a`, `explorer_001b` — two explorers in group `explore_001`
 - `comparator_002` — single comparator in group `compare_002`
 - `synthesizer_003` — single synthesizer in group `hybridize_003`
+- `initializer_bootstrap` — the sole initializer agent, named with a fixed literal (no `<group_sequence>`) because each session has exactly one bootstrap run. Launched only when a session is initialized with an imported proposal (see §7.1a).
 
 ### Group-Level Commands
 
@@ -918,6 +923,32 @@ The agent's work2do instructs it to read files in priority order and manage its 
 
 **Inputs:** Task number, task file path, user email, initial spec text
 **Outputs:** Session directory populated, crew branch created
+
+The blank initialization path leaves `n000_init.md` as an empty placeholder so the user can author the initial proposal manually before further operations. For sessions that begin from an existing markdown file, see §7.1a.
+
+### 7.1a Initialize with an imported proposal
+
+**Trigger:** User invokes `ait brainstorm init <task_num> --proposal-file <path>` from the CLI, or clicks **Import Proposal…** in the three-button `InitSessionModal` (Blank / Import Proposal… / Cancel) from the brainstorm TUI.
+
+**What happens:**
+1. The crew-init sequence from §7.1 runs in full (agent types, subdirectories, `br_session.yaml`, `br_graph_state.yaml`, `br_groups.yaml`).
+2. The session seeds `br_proposals/n000_init.md` with a placeholder body (`Awaiting initializer agent output for <basename>.`). The TUI shows this as a "pending" state until the initializer completes.
+3. `register_initializer(...)` registers a single agent of type `initializer` in a bootstrap operation group. The agent name is the fixed literal `initializer_bootstrap` — no `<group_sequence>` suffix, because the initializer is a singleton per session.
+4. The initializer consumes the imported file plus the task spec and produces a sectioned proposal plus flat YAML node metadata in its `_output.md`, following the delimiter format in `templates/initializer.md`.
+5. `apply_initializer_output(task_num)` parses `_output.md`, overwrites `br_proposals/n000_init.md` and `br_nodes/n000_init.yaml` with the structured content, and seeds `active_dimensions` in `br_graph_state.yaml` from the extracted metadata.
+
+**Canonical output markers** (stable, consumed by the TUI poll loop — do not rename without coordinating with `brainstorm_app.py`):
+- Stdout: `SESSION_PATH:<abs path>`, `INITIALIZER_AGENT:initializer_bootstrap`, `RUNNER_STARTED:brainstorm-<N>`
+- Stderr: `RUNNER_START_FAILED:brainstorm-<N>` when `start_runner()` returns False
+
+**Inputs:** Task number, task file path, user email, imported markdown file path.
+
+**Outputs:** Session directory populated (as in §7.1) plus a fully-populated `n000_init` node — proposal Markdown with structured sections plus flat YAML metadata with extracted dimensions — ready to act as an exploration baseline.
+
+**What the user decides next:**
+- Review the reformatted proposal and edit it by hand if desired
+- Explore alternatives from the initialized node (§7.2)
+- Proceed to any other operation against the new head
 
 ### 7.2 Explore
 
