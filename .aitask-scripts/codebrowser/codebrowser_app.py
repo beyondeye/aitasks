@@ -29,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from agent_command_screen import AgentCommandScreen
-from agent_launch_utils import find_terminal as _find_terminal, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, _lookup_window_name
+from agent_launch_utils import find_terminal as _find_terminal, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, _lookup_window_name, tmux_session_target
 from tui_switcher import TuiSwitcherMixin
 
 from textual.app import App, ComposeResult
@@ -508,7 +508,8 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
             return None
         try:
             result = subprocess.run(
-                ["tmux", "show-environment", "-t", self._tmux_session,
+                ["tmux", "show-environment", "-t",
+                 tmux_session_target(self._tmux_session),
                  "AITASK_CODEBROWSER_FOCUS"],
                 capture_output=True, text=True, timeout=5,
             )
@@ -529,7 +530,8 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
             return
         try:
             subprocess.run(
-                ["tmux", "set-environment", "-t", self._tmux_session, "-u",
+                ["tmux", "set-environment", "-t",
+                 tmux_session_target(self._tmux_session), "-u",
                  "AITASK_CODEBROWSER_FOCUS"],
                 capture_output=True, timeout=5,
             )

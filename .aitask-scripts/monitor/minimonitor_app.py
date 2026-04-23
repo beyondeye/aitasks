@@ -32,6 +32,10 @@ from monitor.monitor_shared import (  # noqa: E402
     _TASK_ID_RE, TaskInfoCache, TaskDetailDialog,
 )
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
+from agent_launch_utils import (  # noqa: E402
+    tmux_session_target,
+    tmux_window_target,
+)
 
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
@@ -525,7 +529,8 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         # pick it up on its next refresh.
         try:
             set_env = subprocess.run(
-                ["tmux", "set-environment", "-t", self._session,
+                ["tmux", "set-environment", "-t",
+                 tmux_session_target(self._session),
                  "AITASK_MONITOR_FOCUS_WINDOW", self._own_window_name],
                 capture_output=True, timeout=5,
             )
@@ -540,7 +545,8 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         monitor_running = False
         try:
             lw = subprocess.run(
-                ["tmux", "list-windows", "-t", self._session,
+                ["tmux", "list-windows", "-t",
+                 tmux_session_target(self._session),
                  "-F", "#{window_name}"],
                 capture_output=True, text=True, timeout=5,
             )
@@ -555,7 +561,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             if monitor_running:
                 sel = subprocess.run(
                     ["tmux", "select-window", "-t",
-                     f"{self._session}:monitor"],
+                     tmux_window_target(self._session, "monitor")],
                     capture_output=True, timeout=5,
                 )
                 if sel.returncode != 0:
@@ -563,7 +569,8 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             else:
                 # Trailing colon forces tmux to treat the target as a session.
                 nw = subprocess.run(
-                    ["tmux", "new-window", "-t", f"{self._session}:",
+                    ["tmux", "new-window", "-t",
+                     tmux_window_target(self._session, ""),
                      "-n", "monitor", "ait monitor"],
                     capture_output=True, timeout=5,
                 )

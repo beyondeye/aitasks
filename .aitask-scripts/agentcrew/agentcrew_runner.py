@@ -43,6 +43,7 @@ from lib.agent_launch_utils import (
     launch_in_tmux,
     load_tmux_defaults,
     maybe_spawn_minimonitor,
+    tmux_window_target,
 )
 from lib.launch_modes import DEFAULT_LAUNCH_MODE, VALID_LAUNCH_MODES
 
@@ -477,7 +478,7 @@ def _launch_interactive(ctx: LaunchContext) -> subprocess.Popen:
             if win_idx is not None:
                 pp = subprocess.run(
                     ["tmux", "pipe-pane", "-O", "-o",
-                     "-t", f"{session}:{win_idx}.0",
+                     "-t", f"{tmux_window_target(session, win_idx)}.0",
                      f"cat >> {shlex.quote(ctx.log_path)}"],
                     capture_output=True, text=True, check=False,
                 )

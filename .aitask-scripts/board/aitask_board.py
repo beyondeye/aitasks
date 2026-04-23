@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for
 from agent_command_screen import AgentCommandScreen
-from agent_launch_utils import find_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, launch_or_focus_codebrowser, maybe_spawn_minimonitor, _lookup_window_name
+from agent_launch_utils import find_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, launch_or_focus_codebrowser, load_tmux_defaults, maybe_spawn_minimonitor, _lookup_window_name, tmux_window_target
 from tui_switcher import TuiSwitcherMixin, TuiSwitcherOverlay
 
 from textual.app import App, ComposeResult
@@ -3874,11 +3874,15 @@ class KanbanApp(TuiSwitcherMixin, App):
     def _launch_brainstorm(self, num: str, filename: str):
         """Launch brainstorm, switching to existing tmux window if found."""
         window_name = f"brainstorm-{num}"
-        existing = find_window_by_name(window_name)
+        session = (
+            _current_tmux_session()
+            or load_tmux_defaults(Path.cwd())["default_session"]
+        )
+        existing = find_window_by_name(window_name, session)
         if existing:
             sess, idx = existing
             subprocess.Popen(
-                ["tmux", "select-window", "-t", f"{sess}:{idx}"],
+                ["tmux", "select-window", "-t", tmux_window_target(sess, idx)],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             self.notify(f"Switched to existing brainstorm for t{num}")

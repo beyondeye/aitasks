@@ -36,7 +36,7 @@ from monitor.monitor_shared import (  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 
 import subprocess  # noqa: E402
-from agent_launch_utils import resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor  # noqa: E402
+from agent_launch_utils import resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, tmux_session_target  # noqa: E402
 from agent_command_screen import AgentCommandScreen  # noqa: E402
 
 from textual.app import App, ComposeResult  # noqa: E402
@@ -535,7 +535,8 @@ class MonitorApp(TuiSwitcherMixin, App):
             # Check if a session with the expected name already exists
             try:
                 result = subprocess.run(
-                    ["tmux", "has-session", "-t", self._expected_session],
+                    ["tmux", "has-session", "-t",
+                     tmux_session_target(self._expected_session)],
                     capture_output=True, timeout=5,
                 )
                 if result.returncode == 0:
@@ -730,7 +731,8 @@ class MonitorApp(TuiSwitcherMixin, App):
         """
         try:
             result = subprocess.run(
-                ["tmux", "show-environment", "-t", self._session,
+                ["tmux", "show-environment", "-t",
+                 tmux_session_target(self._session),
                  "AITASK_MONITOR_FOCUS_WINDOW"],
                 capture_output=True, text=True, timeout=5,
             )
@@ -750,7 +752,8 @@ class MonitorApp(TuiSwitcherMixin, App):
         """Unset the tmux session focus-request env var."""
         try:
             subprocess.run(
-                ["tmux", "set-environment", "-t", self._session, "-u",
+                ["tmux", "set-environment", "-t",
+                 tmux_session_target(self._session), "-u",
                  "AITASK_MONITOR_FOCUS_WINDOW"],
                 capture_output=True, timeout=5,
             )

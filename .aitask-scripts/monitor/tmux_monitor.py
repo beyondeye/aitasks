@@ -26,6 +26,7 @@ _LIB_DIR = str(Path(__file__).resolve().parent.parent / "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from tui_registry import BRAINSTORM_PREFIX, TUI_NAMES  # noqa: E402
+from agent_launch_utils import tmux_session_target, tmux_window_target  # noqa: E402
 
 
 class PaneCategory(Enum):
@@ -186,7 +187,8 @@ class TmuxMonitor:
     def discover_panes(self) -> list[TmuxPaneInfo]:
         try:
             result = subprocess.run(
-                ["tmux", "list-panes", "-s", "-t", self.session,
+                ["tmux", "list-panes", "-s", "-t",
+                 tmux_session_target(self.session),
                  "-F", self._LIST_PANES_FORMAT],
                 capture_output=True, text=True, timeout=5,
             )
@@ -198,7 +200,7 @@ class TmuxMonitor:
 
     async def discover_panes_async(self) -> list[TmuxPaneInfo]:
         rc, stdout = await _run_tmux_async(
-            ["list-panes", "-s", "-t", self.session,
+            ["list-panes", "-s", "-t", tmux_session_target(self.session),
              "-F", self._LIST_PANES_FORMAT],
         )
         if rc != 0:
@@ -375,7 +377,8 @@ class TmuxMonitor:
         try:
             # Select window first, then pane
             subprocess.run(
-                ["tmux", "select-window", "-t", f"{self.session}:{pane.window_index}"],
+                ["tmux", "select-window", "-t",
+                 tmux_window_target(self.session, pane.window_index)],
                 capture_output=True, timeout=5,
             )
             target_pane = pane_id
@@ -396,7 +399,8 @@ class TmuxMonitor:
         fmt = "#{pane_id}\t#{pane_pid}"
         try:
             result = subprocess.run(
-                ["tmux", "list-panes", "-t", f"{self.session}:{window_index}", "-F", fmt],
+                ["tmux", "list-panes", "-t",
+                 tmux_window_target(self.session, window_index), "-F", fmt],
                 capture_output=True, text=True, timeout=5,
             )
             if result.returncode != 0:
@@ -461,7 +465,7 @@ class TmuxMonitor:
         if pane is None:
             return self.kill_pane(pane_id), False
 
-        window_target = f"{self.session}:{pane.window_index}"
+        window_target = tmux_window_target(self.session, pane.window_index)
         others = 0
         try:
             result = subprocess.run(
@@ -494,7 +498,9 @@ class TmuxMonitor:
     def spawn_tui(self, tui_name: str) -> bool:
         try:
             result = subprocess.run(
-                ["tmux", "new-window", "-t", f"{self.session}:", "-n", tui_name, f"ait {tui_name}"],
+                ["tmux", "new-window", "-t",
+                 tmux_window_target(self.session, ""),
+                 "-n", tui_name, f"ait {tui_name}"],
                 capture_output=True, timeout=5,
             )
             return result.returncode == 0

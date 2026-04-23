@@ -35,7 +35,11 @@ _LIB_DIR = str(Path(__file__).resolve().parent)
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
-from agent_launch_utils import get_tmux_windows, load_tmux_defaults  # noqa: E402
+from agent_launch_utils import (  # noqa: E402
+    get_tmux_windows,
+    load_tmux_defaults,
+    tmux_window_target,
+)
 from tui_registry import BRAINSTORM_PREFIX as _BRAINSTORM_PREFIX, TUI_NAMES as _TUI_NAMES, switcher_tuis  # noqa: E402
 
 
@@ -403,7 +407,8 @@ class TuiSwitcherOverlay(ModalScreen):
         window_name = f"agent-explore-{n}"
         try:
             subprocess.Popen(
-                ["tmux", "new-window", "-t", f"{self._session}:",
+                ["tmux", "new-window", "-t",
+                 tmux_window_target(self._session, ""),
                  "-n", window_name, "ait codeagent invoke explore"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
@@ -418,7 +423,8 @@ class TuiSwitcherOverlay(ModalScreen):
         """Launch ait create in a new tmux window."""
         try:
             proc = subprocess.Popen(
-                ["tmux", "new-window", "-t", f"{self._session}:",
+                ["tmux", "new-window", "-t",
+                 tmux_window_target(self._session, ""),
                  "-n", "create-task", "ait create"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
@@ -433,7 +439,9 @@ class TuiSwitcherOverlay(ModalScreen):
     def _switch_to(self, name: str, running: bool, window_index: str | None = None) -> None:
         try:
             if running:
-                target = f"{self._session}:{window_index}" if window_index else f"{self._session}:{name}"
+                target = tmux_window_target(
+                    self._session, window_index if window_index else name
+                )
                 subprocess.Popen(
                     ["tmux", "select-window", "-t", target],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -444,7 +452,9 @@ class TuiSwitcherOverlay(ModalScreen):
                 cmd = self._get_launch_command(name)
                 # Trailing colon ensures tmux interprets target as session, not window
                 subprocess.Popen(
-                    ["tmux", "new-window", "-t", f"{self._session}:", "-n", name, cmd],
+                    ["tmux", "new-window", "-t",
+                     tmux_window_target(self._session, ""),
+                     "-n", name, cmd],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
         except (FileNotFoundError, OSError):
@@ -463,8 +473,9 @@ class TuiSwitcherOverlay(ModalScreen):
         cmd = self._get_launch_command("git")
         try:
             result = subprocess.run(
-                ["tmux", "new-window", "-t", f"{self._session}:", "-n", "git",
-                 "-P", "-F", "#{pane_id}", cmd],
+                ["tmux", "new-window", "-t",
+                 tmux_window_target(self._session, ""),
+                 "-n", "git", "-P", "-F", "#{pane_id}", cmd],
                 capture_output=True, text=True, timeout=5,
             )
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):

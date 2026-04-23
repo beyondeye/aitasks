@@ -25,6 +25,28 @@ from tui_registry import TUI_NAMES as _DEFAULT_TUI_NAMES
 KNOWN_GIT_TUIS = ["lazygit", "gitui", "tig"]
 
 
+def tmux_session_target(session: str) -> str:
+    """Return an exact-match tmux ``-t`` session target (``=<session>``).
+
+    tmux resolves ``-t <name>`` as a prefix match by default, so ``-t aitasks``
+    will match ``aitasks_mob`` when only the latter is running. Prefixing the
+    name with ``=`` forces exact match and is required whenever multiple
+    aitasks projects run side-by-side with session names sharing a prefix.
+    """
+    return f"={session}"
+
+
+def tmux_window_target(session: str, window: str | int) -> str:
+    """Return an exact-match tmux ``-t`` session:window target.
+
+    Only the session part is anchored with ``=``; window names and indices
+    do not suffer tmux's session-level prefix match. Pass ``window=""`` for
+    the "trailing colon" idiom used by ``new-window`` to mean "create in this
+    session".
+    """
+    return f"={session}:{window}"
+
+
 def detect_git_tuis() -> list[str]:
     """Return list of installed git TUI tool names."""
     return [tool for tool in KNOWN_GIT_TUIS if shutil.which(tool)]
@@ -134,7 +156,8 @@ def get_tmux_windows(session: str) -> list[tuple[str, str]]:
     """List windows in a tmux session as (index, name) tuples."""
     try:
         result = subprocess.run(
-            ["tmux", "list-windows", "-t", session, "-F", "#{window_index}:#{window_name}"],
+            ["tmux", "list-windows", "-t", tmux_session_target(session),
+             "-F", "#{window_index}:#{window_name}"],
             capture_output=True, text=True, timeout=5,
         )
         if result.returncode == 0:
@@ -149,15 +172,17 @@ def get_tmux_windows(session: str) -> list[tuple[str, str]]:
         return []
 
 
-def find_window_by_name(name: str) -> tuple[str, str] | None:
-    """Find a tmux window by name across all sessions.
+def find_window_by_name(name: str, session: str) -> tuple[str, str] | None:
+    """Find a tmux window by name within a specific session.
 
-    Returns (session, window_index) if found, None otherwise.
+    Returns (session, window_index) if found, None otherwise. The session
+    parameter is required to prevent cross-project matches — the aitasks
+    framework is designed to run one tmux session per project, so whole-
+    server scans are always a bug.
     """
-    for session in get_tmux_sessions():
-        for idx, win_name in get_tmux_windows(session):
-            if win_name == name:
-                return (session, idx)
+    for idx, win_name in get_tmux_windows(session):
+        if win_name == name:
+            return (session, idx)
     return None
 
 
@@ -180,11 +205,13 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[subprocess.P
             return proc, f"tmux new-session failed: {stderr}"
         # Try to switch client (works if we're inside tmux)
         if os.environ.get("TMUX"):
-            subprocess.Popen(["tmux", "switch-client", "-t", config.session])
+            subprocess.Popen(
+                ["tmux", "switch-client", "-t", tmux_session_target(config.session)]
+            )
         return proc, None
     elif config.new_window:
         tmux_cmd = [
-            "tmux", "new-window", "-t", f"{config.session}:",
+            "tmux", "new-window", "-t", tmux_window_target(config.session, ""),
             "-n", config.window,
             command,
         ]
@@ -197,7 +224,7 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[subprocess.P
     else:
         # Split existing window into a new pane
         split_flag = "-h" if config.split_direction == "horizontal" else "-v"
-        target = f"{config.session}:{config.window}"
+        target = tmux_window_target(config.session, config.window)
         tmux_cmd = [
             "tmux", "split-window", split_flag, "-t", target,
             command,
@@ -216,7 +243,7 @@ def _lookup_window_name(session: str, window_index: str) -> str | None:
     """Look up a tmux window name from its index."""
     try:
         result = subprocess.run(
-            ["tmux", "list-windows", "-t", session,
+            ["tmux", "list-windows", "-t", tmux_session_target(session),
              "-F", "#{window_index}:#{window_name}"],
             capture_output=True, text=True, timeout=5,
         )
@@ -307,7 +334,7 @@ def maybe_spawn_minimonitor(
     if win_index is None:
         try:
             result = subprocess.run(
-                ["tmux", "list-windows", "-t", session,
+                ["tmux", "list-windows", "-t", tmux_session_target(session),
                  "-F", "#{window_index}:#{window_name}"],
                 capture_output=True, text=True, timeout=5,
             )
@@ -326,7 +353,7 @@ def maybe_spawn_minimonitor(
     # Check existing panes for monitor/minimonitor and pane count
     try:
         result = subprocess.run(
-            ["tmux", "list-panes", "-t", f"{session}:{win_index}",
+            ["tmux", "list-panes", "-t", tmux_window_target(session, win_index),
              "-F", "#{pane_current_command}"],
             capture_output=True, text=True, timeout=5,
         )
@@ -346,7 +373,8 @@ def maybe_spawn_minimonitor(
         spawn = subprocess.run(
             ["tmux", "split-window", "-h", "-P", "-F", "#{pane_id}",
              "-l", str(width),
-             "-t", f"{session}:{win_index}", "ait", "minimonitor"],
+             "-t", tmux_window_target(session, win_index),
+             "ait", "minimonitor"],
             capture_output=True, text=True, timeout=5,
         )
         if spawn.returncode != 0:
@@ -354,7 +382,8 @@ def maybe_spawn_minimonitor(
         companion_pane = spawn.stdout.strip() or None
         # Refocus the original pane (left pane)
         subprocess.Popen(
-            ["tmux", "select-pane", "-t", f"{session}:{win_index}.0"],
+            ["tmux", "select-pane", "-t",
+             f"{tmux_window_target(session, win_index)}.0"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         return companion_pane
@@ -378,7 +407,7 @@ def launch_or_focus_codebrowser(
     """
     try:
         result = subprocess.run(
-            ["tmux", "set-environment", "-t", session,
+            ["tmux", "set-environment", "-t", tmux_session_target(session),
              "AITASK_CODEBROWSER_FOCUS", focus_value],
             capture_output=True, timeout=5,
         )
@@ -389,7 +418,7 @@ def launch_or_focus_codebrowser(
 
     try:
         lw = subprocess.run(
-            ["tmux", "list-windows", "-t", session,
+            ["tmux", "list-windows", "-t", tmux_session_target(session),
              "-F", "#{window_name}"],
             capture_output=True, text=True, timeout=5,
         )
@@ -403,14 +432,14 @@ def launch_or_focus_codebrowser(
         if window_name in names:
             sel = subprocess.run(
                 ["tmux", "select-window", "-t",
-                 f"{session}:{window_name}"],
+                 tmux_window_target(session, window_name)],
                 capture_output=True, timeout=5,
             )
             if sel.returncode != 0:
                 return False, "tmux select-window failed"
         else:
             nw = subprocess.run(
-                ["tmux", "new-window", "-t", f"{session}:",
+                ["tmux", "new-window", "-t", tmux_window_target(session, ""),
                  "-n", window_name,
                  "./ait", "codebrowser", "--focus", focus_value],
                 capture_output=True, timeout=5,
