@@ -86,6 +86,7 @@ setup_test_repo() {
     cp "$PROJECT_DIR/.aitask-scripts/aitask_query_files.sh" "$tmpdir/.aitask-scripts/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$tmpdir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" "$tmpdir/.aitask-scripts/lib/"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" "$tmpdir/.aitask-scripts/lib/"
     chmod +x "$tmpdir/.aitask-scripts/"*.sh
 
     (

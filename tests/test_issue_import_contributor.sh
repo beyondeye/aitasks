@@ -89,6 +89,7 @@ setup_project() {
         cp "$PROJECT_DIR/.aitask-scripts/aitask_ls.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
         # Copy repo_fetch.sh if it exists (needed by some imports)
         [[ -f "$PROJECT_DIR/.aitask-scripts/lib/repo_fetch.sh" ]] && cp "$PROJECT_DIR/.aitask-scripts/lib/repo_fetch.sh" .aitask-scripts/lib/
         chmod +x .aitask-scripts/*.sh

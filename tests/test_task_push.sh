@@ -287,6 +287,7 @@ pushd "$TEST_LOCAL" > /dev/null || exit 1
 # Create minimal ait dispatcher structure pointing to real scripts
 mkdir -p .aitask-scripts/lib
 cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
 cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
 cp "$PROJECT_DIR/ait" ./ait
 chmod +x ./ait
@@ -314,6 +315,7 @@ pushd "$TEST_LOCAL" > /dev/null || exit 1
 
 mkdir -p .aitask-scripts/lib
 cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
 cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
 cp "$PROJECT_DIR/ait" ./ait
 chmod +x ./ait

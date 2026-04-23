@@ -112,6 +112,7 @@ setup_migrated_project() {
         cp "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
         chmod +x .aitask-scripts/aitask_create.sh .aitask-scripts/aitask_ls.sh .aitask-scripts/aitask_update.sh
         chmod +x .aitask-scripts/aitask_claim_id.sh .aitask-scripts/aitask_setup.sh
 
