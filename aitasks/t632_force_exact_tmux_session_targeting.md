@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tmux]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-23 17:12
-updated_at: 2026-04-23 17:12
+updated_at: 2026-04-23 17:15
 ---
 
 ## Symptom
