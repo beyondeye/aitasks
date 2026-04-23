@@ -65,6 +65,13 @@
         "explain": 0
       },
       "verifiedstats": {}
+    },
+    {
+      "name": "gpt5_5",
+      "cli_id": "gpt-5.5",
+      "notes": "Newest frontier model for complex coding, tool use, and agentic workflows; successor to GPT-5.4",
+      "verified": {},
+      "verifiedstats": {}
     }
   ]
 }

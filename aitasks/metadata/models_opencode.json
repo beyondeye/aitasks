@@ -126,6 +126,18 @@
       }
     },
     {
+      "name": "openai_gpt_5_5",
+      "cli_id": "openai/gpt-5.5",
+      "notes": "GPT-5.5 (openai provider)",
+      "status": "active",
+      "verified": {
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_big_pickle",
       "cli_id": "opencode/big-pickle",
       "notes": "Big Pickle (200k context, opencode provider)",
@@ -429,6 +441,18 @@
       "name": "opencode_gpt_5_4_pro",
       "cli_id": "opencode/gpt-5.4-pro",
       "notes": "GPT-5.4 Pro (1050k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_gpt_5_5",
+      "cli_id": "opencode/gpt-5.5",
+      "notes": "GPT-5.5 (opencode provider)",
       "status": "active",
       "verified": {
         "batch-review": 0,
