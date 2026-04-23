@@ -111,9 +111,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.17.2: Import a proposal when you start a brainstorm, and Fresh installs actually work now](blog/v0172-import-a-proposal-when-you-start-a-brainstorm-fresh-installs-actually-work/)** -- Apr 23, 2026
 - **[v0.17.1: Import proposals straight into brainstorm, Lazygit with a built-in dashboard, and `ait setup` that tells you what's going on](blog/v0171-import-proposals-straight-into-brainstorm-lazygit-with-a-built-in-dashboar/)** -- Apr 23, 2026
 - **[v0.17.0: Manual verification workflow, Stats TUI, and Shared section viewer across TUIs](blog/v0170-manual-verification-workflow-stats-tui-shared-section-viewer-across-tuis/)** -- Apr 21, 2026
-- **[v0.16.1: Claude Opus 4.7 is now the default, Fuzzy file search in the codebrowser, and Structured brainstorming](blog/v0161-claude-opus-4-7-is-now-the-default-fuzzy-file-search-in-the-codebrowser-st/)** -- Apr 18, 2026
 
 [All releases &rarr;](blog/)
 
