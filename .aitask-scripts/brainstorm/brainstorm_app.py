@@ -20,6 +20,7 @@ from textual.widgets import (
     Button,
     Checkbox,
     DataTable,
+    DirectoryTree,
     Footer,
     Header,
     Label,
@@ -168,6 +169,37 @@ _SESSION_OPS = [
 # ---------------------------------------------------------------------------
 
 
+class _MarkdownOnlyDirectoryTree(DirectoryTree):
+    """DirectoryTree that only lists directories and markdown files."""
+
+    def filter_paths(self, paths):
+        return [
+            p for p in paths
+            if p.is_dir() or p.suffix.lower() in (".md", ".markdown")
+        ]
+
+
+class ImportProposalFilePicker(ModalScreen):
+    """Markdown-only file picker for the initial proposal import flow."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def compose(self) -> ComposeResult:
+        with Container(id="import_picker_dialog"):
+            yield Label(
+                "Select a markdown file for the initial proposal",
+                id="import_picker_title",
+            )
+            yield _MarkdownOnlyDirectoryTree(".", id="import_picker_tree")
+            yield Label("↵ select  esc cancel", id="import_picker_footer")
+
+    def on_directory_tree_file_selected(self, event) -> None:
+        self.dismiss(str(Path(event.path).resolve()))
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class InitSessionModal(ModalScreen):
     """Modal shown when no brainstorm session exists yet."""
 
@@ -182,21 +214,37 @@ class InitSessionModal(ModalScreen):
             yield Label(
                 f"No brainstorm session for t{self.task_num}", id="init_title"
             )
-            yield Label("Initialize a new session?")
+            yield Label("How would you like to initialize the session?")
             with Horizontal(id="init_buttons"):
-                yield Button("Initialize", variant="primary", id="btn_init")
+                yield Button(
+                    "Initialize Blank", variant="default", id="btn_init_blank"
+                )
+                yield Button(
+                    "Import Proposal…", variant="primary", id="btn_init_import"
+                )
                 yield Button("Cancel", variant="default", id="btn_cancel")
 
-    @on(Button.Pressed, "#btn_init")
-    def confirm(self) -> None:
-        self.dismiss(True)
+    @on(Button.Pressed, "#btn_init_blank")
+    def on_blank(self) -> None:
+        self.dismiss("blank")
+
+    @on(Button.Pressed, "#btn_init_import")
+    def on_import(self) -> None:
+        self.app.push_screen(
+            ImportProposalFilePicker(),
+            callback=self._on_picker_result,
+        )
+
+    def _on_picker_result(self, path: str | None) -> None:
+        if path:
+            self.dismiss(f"import:{path}")
 
     @on(Button.Pressed, "#btn_cancel")
     def cancel(self) -> None:
-        self.dismiss(False)
+        self.dismiss(None)
 
     def action_cancel(self) -> None:
-        self.dismiss(False)
+        self.dismiss(None)
 
 
 class DeleteSessionModal(ModalScreen):
@@ -1251,6 +1299,9 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._expanded_groups: set[str] = set()
         self._status_refresh_timer = None
         self._processes_synced: bool = False
+        self._initializer_agent: str | None = None
+        self._initializer_done: bool = False
+        self._initializer_timer = None
         self._update_title_from_task()
 
     def _resolve_task_file_path(self) -> Path | None:
@@ -3040,11 +3091,17 @@ class BrainstormApp(TuiSwitcherMixin, App):
             )
             self.call_from_thread(self._actions_show_step1)
 
-    def _on_init_result(self, confirmed: bool | None) -> None:
+    def _on_init_result(self, result: str | None) -> None:
         """Handle InitSessionModal result."""
-        if confirmed:
+        if result is None:
+            self.exit()
+        elif result == "blank":
             self._run_init()
+        elif isinstance(result, str) and result.startswith("import:"):
+            path = result[len("import:"):]
+            self._run_init_with_proposal(path)
         else:
+            self.notify(f"Unknown init result: {result!r}", severity="error")
             self.exit()
 
     @work(thread=True)
@@ -3063,6 +3120,93 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 f"Init failed: {result.stderr.strip()}",
                 severity="error",
             )
+
+    @work(thread=True)
+    def _run_init_with_proposal(self, path: str) -> None:
+        """Shell to `ait brainstorm init <N> --proposal-file <path>`, then poll."""
+        result = subprocess.run(
+            [
+                AIT_PATH, "brainstorm", "init", self.task_num,
+                "--proposal-file", path,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            msg = result.stderr.strip() or result.stdout.strip()
+            self.call_from_thread(
+                self.notify, f"Init failed: {msg}", severity="error"
+            )
+            self.call_from_thread(self.exit)
+            return
+
+        agent_name = "initializer_bootstrap"
+        for line in result.stdout.splitlines():
+            if line.startswith("INITIALIZER_AGENT:"):
+                agent_name = line.split(":", 1)[1].strip()
+                break
+
+        if "RUNNER_START_FAILED:" in result.stderr:
+            self.call_from_thread(
+                self.notify,
+                "Initializer agent registered but runner failed to start. "
+                f"Run `ait crew runner --crew brainstorm-{self.task_num}` "
+                "manually.",
+                severity="error",
+            )
+            self.call_from_thread(self.exit)
+            return
+
+        self.call_from_thread(self._start_initializer_wait, agent_name)
+
+    def _start_initializer_wait(self, agent_name: str) -> None:
+        """Main-thread setup: show placeholder DAG + start polling timer."""
+        self._initializer_agent = agent_name
+        self._initializer_done = False
+        self.session_data = load_session(self.task_num)
+        self._update_title_from_task()
+        self._load_existing_session()
+        self.notify(f"Waiting for {agent_name} to complete…")
+        self._initializer_timer = self.set_interval(2, self._poll_initializer)
+
+    def _poll_initializer(self) -> None:
+        """Timer tick: check status file, apply initializer output on Completed."""
+        if self._initializer_done or self._initializer_agent is None:
+            return
+        status_path = (
+            self.session_path / f"{self._initializer_agent}_status.yaml"
+        )
+        if not status_path.is_file():
+            return
+        try:
+            data = read_yaml(str(status_path))
+        except Exception:
+            return
+        status = (data or {}).get("status", "")
+        if status == "Completed":
+            self._initializer_done = True
+            if self._initializer_timer is not None:
+                self._initializer_timer.stop()
+            try:
+                from brainstorm.brainstorm_session import apply_initializer_output
+                apply_initializer_output(self.task_num)
+                self.notify("Initial proposal imported.")
+            except Exception as e:
+                self.notify(
+                    f"Failed to apply initializer output: {e}",
+                    severity="error",
+                )
+            self._load_existing_session()
+        elif status in ("Error", "Aborted"):
+            self._initializer_done = True
+            if self._initializer_timer is not None:
+                self._initializer_timer.stop()
+            self.notify(
+                f"Initializer agent {status.lower()}. "
+                "Placeholder retained; retry via TUI.",
+                severity="error",
+            )
+            self._load_existing_session()
 
 
 if __name__ == "__main__":
