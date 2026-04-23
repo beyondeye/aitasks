@@ -254,6 +254,25 @@ install_seed_task_types() {
     fi
 }
 
+# --- Install seed project config ---
+install_seed_project_config() {
+    local src="$INSTALL_DIR/seed/project_config.yaml"
+    local dest="$INSTALL_DIR/aitasks/metadata/project_config.yaml"
+
+    if [[ ! -f "$src" ]]; then
+        warn "No seed/project_config.yaml in tarball — skipping project config installation"
+        return
+    fi
+
+    mkdir -p "$(dirname "$dest")"
+    if [[ -f "$dest" && "$FORCE" != true ]]; then
+        info "  Project config exists (kept): project_config.yaml"
+    else
+        cp "$src" "$dest"
+        info "  Installed project config: project_config.yaml"
+    fi
+}
+
 # --- Install seed review types ---
 install_seed_reviewtypes() {
     local src="$INSTALL_DIR/seed/reviewguides/reviewtypes.txt"
@@ -766,6 +785,9 @@ main() {
 
     info "Installing seed task types..."
     install_seed_task_types
+
+    info "Installing project config..."
+    install_seed_project_config
 
     info "Installing review types..."
     install_seed_reviewtypes

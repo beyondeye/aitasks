@@ -1166,18 +1166,24 @@ ensure_project_config_defaults() {
     local target_config="$project_dir/aitasks/metadata/project_config.yaml"
     local default_domain="aitasks.io"
 
-    if [[ ! -f "$seed_config" ]]; then
-        return
-    fi
-
-    mkdir -p "$(dirname "$target_config")"
-
+    # If target is missing, try to create it from seed. install.sh installs
+    # project_config.yaml into aitasks/metadata/ directly (and deletes seed/
+    # afterwards), so in normal flow target exists here. The seed fallback
+    # still matters for in-tree dev runs where seed/ is preserved.
     if [[ ! -f "$target_config" ]]; then
+        if [[ ! -f "$seed_config" ]]; then
+            warn "project_config.yaml is missing from aitasks/metadata/ and no seed template is available."
+            warn "tmux default_session and git_tui setup will be skipped."
+            warn "Reinstall aitasks (e.g. 'ait install') to populate the project config."
+            return
+        fi
+        mkdir -p "$(dirname "$target_config")"
         cp "$seed_config" "$target_config"
         success "Created project_config.yaml"
         return
     fi
 
+    # Target exists — backfill codeagent_coauthor_domain if missing
     if grep -Eq '^[[:space:]]*codeagent_coauthor_domain:[[:space:]]*' "$target_config"; then
         return
     fi
@@ -1199,7 +1205,7 @@ ensure_project_config_defaults() {
             }
         }
     ' "$target_config" > "$tmp_file"
-    mv "$tmp_file" "$target_config"
+    cat "$tmp_file" > "$target_config" && rm "$tmp_file"
     success "Updated project_config.yaml with codeagent_coauthor_domain"
 }
 
