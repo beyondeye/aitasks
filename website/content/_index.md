@@ -111,9 +111,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.17.3: Task IDs now start at 1, Tmux targeting no longer confuses sibling projects, and `ait setup` adds `__pycache__/` to `.gitignore`](blog/v0173-task-ids-now-start-at-1-tmux-targeting-no-longer-confuses-sibling-projects/)** -- Apr 23, 2026
 - **[v0.17.2: Import a proposal when you start a brainstorm, and Fresh installs actually work now](blog/v0172-import-a-proposal-when-you-start-a-brainstorm-fresh-installs-actually-work/)** -- Apr 23, 2026
 - **[v0.17.1: Import proposals straight into brainstorm, Lazygit with a built-in dashboard, and `ait setup` that tells you what's going on](blog/v0171-import-proposals-straight-into-brainstorm-lazygit-with-a-built-in-dashboar/)** -- Apr 23, 2026
-- **[v0.17.0: Manual verification workflow, Stats TUI, and Shared section viewer across TUIs](blog/v0170-manual-verification-workflow-stats-tui-shared-section-viewer-across-tuis/)** -- Apr 21, 2026
 
 [All releases &rarr;](blog/)
 
