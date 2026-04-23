@@ -8,7 +8,7 @@ labels: [aitask_fold, aitask_contribute]
 children_to_implement: [t376_4, t376_5, t376_6]
 created_at: 2026-03-12 11:28
 updated_at: 2026-03-15 11:03
-boardidx: 150
+boardidx: 110
 boardcol: next
 ---
 

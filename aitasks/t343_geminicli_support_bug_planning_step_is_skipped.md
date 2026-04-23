@@ -7,7 +7,7 @@ status: Ready
 labels: [geminicli]
 created_at: 2026-03-09 13:27
 updated_at: 2026-03-09 13:27
-boardidx: 110
+boardidx: 70
 boardcol: next
 ---
 

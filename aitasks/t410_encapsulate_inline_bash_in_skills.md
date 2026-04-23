@@ -8,8 +8,8 @@ labels: [bash_scripts, task_workflow, reviewguides]
 folded_tasks: ['263']
 created_at: 2026-03-17 12:58
 updated_at: 2026-03-17 12:59
-boardcol: now
-boardidx: 10
+boardcol: next
+boardidx: 160
 ---
 
 Encapsulate inline bash commands found in SKILL.md files into dedicated whitelistable scripts.

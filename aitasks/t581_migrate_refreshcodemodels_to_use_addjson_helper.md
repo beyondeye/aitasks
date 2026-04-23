@@ -8,7 +8,7 @@ labels: [codeagent, ait_settings]
 created_at: 2026-04-17 09:02
 updated_at: 2026-04-17 09:12
 boardcol: now
-boardidx: 70
+boardidx: 30
 ---
 
 ## Context
