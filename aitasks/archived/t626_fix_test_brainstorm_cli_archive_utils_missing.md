@@ -3,11 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [testing, bash_scripts]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7
 created_at: 2026-04-23 12:32
-updated_at: 2026-04-23 12:34
+updated_at: 2026-04-23 13:31
+completed_at: 2026-04-23 13:31
 ---
 
 ## Context
