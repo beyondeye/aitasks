@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.17.2
+
+### Features
+
+- **Import proposal flow in brainstorm init (t573_3)**: When starting a new brainstorm session you can now pick an existing markdown proposal instead of starting blank. The init modal offers a three-way choice (Blank / Import Proposal… / Cancel); the import path opens a markdown-filtered file picker, runs an initializer agent, and applies its output to seed the session.
+
+### Bug Fixes
+
+- **Test scratch-repo setup (t626)**: Fixed test scaffolds that copied `task_utils.sh` without the companion `archive_utils.sh`, which caused several test suites to fail at source time. All 11 affected tests now set up scratch repos correctly.
+- **`install.sh` missing seed config (t628)**: `install.sh` now installs `project_config.yaml` from the seed files when bootstrapping a new project, fixing missing-config errors on fresh installs.
+- **`commit_framework_files` stopping at 20 files (t629)**: Fixed a SIGPIPE that caused framework-file commits to terminate after the 20th file — all framework files are now committed on update.
+
 ## v0.17.1
 
 ### Features
