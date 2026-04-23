@@ -38,13 +38,36 @@ def cmd_init(args: argparse.Namespace) -> None:
     if args.spec_file:
         spec = Path(args.spec_file).read_text(encoding="utf-8")
 
+    proposal_file = args.proposal_file or None
+
     wt = init_session(
         task_num=args.task_num,
         task_file=args.task_file,
         user_email=args.email or "",
         initial_spec=spec,
+        initial_proposal_file=proposal_file,
     )
     print(f"SESSION_PATH:{wt}")
+
+    if proposal_file:
+        from brainstorm.brainstorm_crew import register_initializer
+        from agentcrew.agentcrew_runner_control import start_runner
+
+        crew_id = f"brainstorm-{args.task_num}"
+        agent_name = register_initializer(
+            session_dir=wt,
+            crew_id=crew_id,
+            imported_path=str(Path(proposal_file).resolve()),
+            task_file=args.task_file,
+            group_name="bootstrap",
+            launch_mode="interactive",
+        )
+        print(f"INITIALIZER_AGENT:{agent_name}")
+
+        if start_runner(crew_id):
+            print(f"RUNNER_STARTED:{crew_id}")
+        else:
+            print(f"RUNNER_START_FAILED:{crew_id}", file=sys.stderr)
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -148,6 +171,11 @@ def main(argv: list[str] | None = None) -> None:
     p_init.add_argument("--task-file", required=True, help="Path to task file")
     p_init.add_argument("--email", default="", help="User email")
     p_init.add_argument("--spec-file", default="", help="Path to file with initial spec content")
+    p_init.add_argument(
+        "--proposal-file",
+        default="",
+        help="Optional markdown file to use as initial proposal (analyzed by initializer agent)",
+    )
     p_init.set_defaults(func=cmd_init)
 
     # status

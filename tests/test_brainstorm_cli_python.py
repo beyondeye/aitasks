@@ -197,5 +197,92 @@ class TestArchiveCommand(CLITestBase):
         self.assertNotEqual(ctx.exception.code, 0)
 
 
+class TestInitWithProposalFile(CLITestBase):
+    """Tests for --proposal-file flag on `brainstorm_cli init`."""
+
+    def _make_proposal(self, body: str = "# Example proposal\n\nBody line.\n") -> Path:
+        """Auto-generate a test proposal markdown file in the scratch tmpdir."""
+        p = Path(self.tmpdir) / "imported_proposal.md"
+        p.write_text(body, encoding="utf-8")
+        return p
+
+    def test_happy_path_emits_markers_and_records_path(self):
+        proposal = self._make_proposal()
+
+        with patch("brainstorm.brainstorm_crew.register_initializer",
+                   return_value="initializer_bootstrap") as mock_reg, \
+             patch("agentcrew.agentcrew_runner_control.start_runner",
+                   return_value=True) as mock_start:
+            out, _ = self._capture_cli([
+                "init",
+                "--task-num", str(self.task_num),
+                "--task-file", f"aitasks/t{self.task_num}_test.md",
+                "--email", "test@example.com",
+                "--proposal-file", str(proposal),
+            ])
+
+        self.assertIn("SESSION_PATH:", out)
+        self.assertIn("INITIALIZER_AGENT:initializer_bootstrap", out)
+        self.assertIn(f"RUNNER_STARTED:brainstorm-{self.task_num}", out)
+
+        session = read_yaml(str(self.wt_path / SESSION_FILE))
+        self.assertEqual(session["initial_proposal_file"], str(proposal.resolve()))
+
+        placeholder = (self.wt_path / PROPOSALS_DIR / "n000_init.md").read_text()
+        self.assertIn(proposal.name, placeholder)
+        self.assertIn("Awaiting initializer agent output", placeholder)
+
+        mock_reg.assert_called_once()
+        reg_kwargs = mock_reg.call_args.kwargs
+        self.assertEqual(reg_kwargs["imported_path"], str(proposal.resolve()))
+        self.assertEqual(reg_kwargs["crew_id"], f"brainstorm-{self.task_num}")
+        mock_start.assert_called_once_with(f"brainstorm-{self.task_num}")
+
+    def test_runner_start_failure_emits_stderr_warning(self):
+        proposal = self._make_proposal()
+        with patch("brainstorm.brainstorm_crew.register_initializer",
+                   return_value="initializer_bootstrap"), \
+             patch("agentcrew.agentcrew_runner_control.start_runner",
+                   return_value=False):
+            out, err = self._capture_cli([
+                "init",
+                "--task-num", str(self.task_num),
+                "--task-file", f"aitasks/t{self.task_num}_test.md",
+                "--proposal-file", str(proposal),
+            ])
+        self.assertIn("INITIALIZER_AGENT:initializer_bootstrap", out)
+        self.assertNotIn("RUNNER_STARTED:", out)
+        self.assertIn(f"RUNNER_START_FAILED:brainstorm-{self.task_num}", err)
+
+    def test_missing_proposal_file_raises(self):
+        with self.assertRaises(FileNotFoundError):
+            self._capture_cli([
+                "init",
+                "--task-num", str(self.task_num),
+                "--task-file", f"aitasks/t{self.task_num}_test.md",
+                "--proposal-file", "/does/not/exist.md",
+            ])
+
+    def test_backward_compat_no_flag(self):
+        """Without --proposal-file, no new markers and no agent registration."""
+        with patch("brainstorm.brainstorm_crew.register_initializer") as mock_reg, \
+             patch("agentcrew.agentcrew_runner_control.start_runner") as mock_start:
+            out, _ = self._capture_cli([
+                "init",
+                "--task-num", str(self.task_num),
+                "--task-file", f"aitasks/t{self.task_num}_test.md",
+            ])
+
+        self.assertIn("SESSION_PATH:", out)
+        self.assertNotIn("INITIALIZER_AGENT:", out)
+        self.assertNotIn("RUNNER_STARTED:", out)
+
+        session = read_yaml(str(self.wt_path / SESSION_FILE))
+        self.assertNotIn("initial_proposal_file", session)
+
+        mock_reg.assert_not_called()
+        mock_start.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
