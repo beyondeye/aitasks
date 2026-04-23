@@ -112,3 +112,14 @@ This placement ensures:
 ## Step 9 reminder
 
 Post-implementation follows the shared workflow's Step 9: commit code + plan separately, archive via `./.aitask-scripts/aitask_archive.sh 630`, push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `setup_python_cache_gitignore()` at `.aitask-scripts/aitask_setup.sh:1252-1275` and wired it into `main()` at line 2852, immediately after `setup_draft_directory`. The helper appends `__pycache__/` to `.gitignore` (or creates `.gitignore` if missing) and intentionally does NOT commit — `commit_framework_files()` picks up the modification via `git ls-files --modified` and folds it into the single approval-gated framework commit, matching the user's "committed together with other framework files, after user approval" requirement.
+- **Deviations from plan:** None. Implementation matches the plan exactly.
+- **Issues encountered:** None.
+- **Key decisions:**
+  - Mirrored `setup_draft_directory`'s style for the individual-redirect pattern (three `echo >>` calls instead of a brace group) — shellcheck SC2129 warns on both, but consistency with the existing sibling function wins. A follow-up refactor could collapse both.
+  - Only added `__pycache__/` (not `*.pyc`, `*.pyo`, `*.pyd`) to match the framework's own `.gitignore` and the user's "general `__pycache__` rule" language. `__pycache__/` covers all standard Python cache output paths.
+  - No changes to `install.sh`: it runs before any Python has executed, so `__pycache__` doesn't exist yet. The rule is added at the right moment — during `ait setup`, before `commit_framework_files` detects the `.gitignore` modification and bundles it into the approval-gated commit.
+- **Verification performed:** Extracted the helper into a test harness and exercised all three paths: (1) missing `.gitignore` → creates it with header + rule, (2) existing `.gitignore` without the rule → appends blank line + header + rule, (3) rule already present → skips, file unchanged (md5 match confirms idempotency). All three passed.
