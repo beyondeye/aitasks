@@ -8,7 +8,7 @@ labels: [aitask_explain, aitask_pick]
 children_to_implement: [t369_4, t369_5, t369_6, t369_7]
 created_at: 2026-03-11 10:16
 updated_at: 2026-03-17 11:03
-boardidx: 70
+boardidx: 50
 boardcol: backlog
 ---
 
