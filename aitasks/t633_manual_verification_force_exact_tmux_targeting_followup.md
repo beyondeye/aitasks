@@ -19,3 +19,14 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t632
+
+## Verification Checklist
+
+- [ ] tmux kill-server to clear all sessions
+- [ ] cd to project A and run `ait ide` — confirm it starts session A with a `monitor` window
+- [ ] Detach (Ctrl-b d)
+- [ ] cd to project B and run `ait ide` — must start a NEW session B, not attach to A
+- [ ] `tmux list-sessions` should show both sessions
+- [ ] Switch TUIs in each project (board, codebrowser, settings, monitor) and confirm windows stay in each project's own session — no cross-leakage
+- [ ] Start a brainstorm in project A; in project B the brainstorm switch must NOT focus A's brainstorm window
+- [ ] Verify minimonitor companion panes spawn in the correct project's session (e.g. from board, launch a code agent in project B and check the companion pane is in session B)
