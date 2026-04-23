@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.17.1
+
+### Features
+
+- **Initializer brainstorm agent** (t573_1): New `initializer` agent type and `apply_initializer_output()` ingestion helper that bootstrap a brainstorm session's root node from an imported markdown proposal, reformatting it into a structured node with dimension metadata.
+- **`--proposal-file` flag for brainstorm init** (t573_2): `ait brainstorm init` now accepts a `--proposal-file` flag to seed a brainstorm session from an external markdown document, auto-registering the initializer agent and starting the crew runner.
+- **Minimonitor companion in git TUI window** (t622): The TUI switcher now spawns a minimonitor companion pane alongside the git TUI (lazygit) window, with smart cleanup that preserves the companion when other panes are still active in the same window.
+
+### Bug Fixes
+
+- **`ait setup` reliability fixes** (t624): Multiple improvements to `ait setup` — installs `AGENTS.md` with the shared aitasks layer, prompts for a default tmux session name, includes more framework files in the initial commit with a more visible confirmation and captured error output, writes config files through symlinks instead of replacing inodes, and adds post-write verification so silent failures surface as actionable warnings. Also refreshes the seed `CLAUDE.md`/`GEMINI.md`/`AGENTS.md` content with Folded Task Semantics and Manual Verification sections.
+
 ## v0.17.0
 
 ### Features
