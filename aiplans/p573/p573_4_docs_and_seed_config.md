@@ -150,3 +150,31 @@ remain first-class.
 Follow the shared Step 9 (commit on current branch, plan-file
 commit via `./ait git`, then `aitask_archive.sh 573_4`, then push).
 No branch/worktree cleanup — fast profile keeps work on `main`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Five edits to `aidocs/brainstorming/brainstorm_engine_architecture.md`:
+  - ASCII-art agent-type list (§1 High-Level Architecture) — appended `initializer` to line 63, preserving the existing 61-char visual width.
+  - Source-code-layout table row for `brainstorm_crew.py` (§2) — added `register_initializer` to the `register_*` list.
+  - Source-code-layout table row for `templates/` (§2) — added `initializer.md` to the template file list.
+  - §5 Agent Type Definitions YAML block — appended an `initializer:` entry with `agent_string: claudecode/sonnet4_6`, `max_parallel: 1`, `launch_mode: interactive`, plus a fifth naming-convention bullet documenting the fixed-literal `initializer_bootstrap` agent name and cross-referencing §7.1a.
+  - §7 Orchestration Flow — added a new subsection `### 7.1a Initialize with an imported proposal` between §7.1 and §7.2, covering the CLI and TUI trigger paths, the placeholder → initializer → `apply_initializer_output()` sequence, canonical stdout/stderr markers, inputs/outputs, and "what the user decides next." Also added one-sentence cross-references from §7.1 to §7.1a so blank and imported-proposal paths are mutually signposted.
+
+- **Deviations from plan — scope correction during verify pass:** Original plan's step 1 (runtime config) was already done by t573_1 — skipped. Original plan's step 2 (seed config) would have violated the invariant asserted by `tests/test_add_model.sh:181` (seed file must not gain `brainstorm-*` keys) — dropped with a rationale table at the top of this plan. Original plan referenced `seed/codeagent_config.seed.json`; that path does not exist — the actual seed file is `seed/codeagent_config.json`. Original plan's sanity check on the `--add-type initializer` line referenced lines 128-134 of `aitask_brainstorm_init.sh`; the line is actually at 159 — pre-verified before ExitPlanMode, no code touched. The verify pass expanded the docs scope to cover four more 5-agent-type references the original plan didn't name (table row at line 162, template list at line 164, YAML block at lines 555-577, and a cross-reference from §7.1).
+
+- **Issues encountered:** None. All edits landed in one Edit pass per block. No test regressions.
+
+- **Key decisions:**
+  - Documented the singleton semantics (`initializer_bootstrap`, no `<group_sequence>`) in the §5 naming-convention bullet list, parallel to the existing `explorer_001a` / `comparator_002` / `synthesizer_003` bullets — keeps the pattern discoverable at the same section level as the other five types.
+  - Kept the §7.1 / §7.1a split (instead of rewriting §7.1 as one unified subsection) so the blank-init and imported-proposal paths remain distinct first-class entry points, matching the TUI's three-button modal.
+  - Used 61-char width on the updated ASCII-art line 63 to match its prior width (the neighbouring box is already visually inconsistent — some lines 60, some 61 — so minimum-change was the right call; a pure-alignment fix is out of scope).
+
+- **Verification results:**
+  - `grep -c "initializer" aidocs/brainstorming/brainstorm_engine_architecture.md` → 11 (target ≥6).
+  - `grep -En "previously|used to be|no longer|formerly|earlier this" aidocs/brainstorming/brainstorm_engine_architecture.md` → 2 pre-existing matches (line 257: "no longer relevant" describing runtime dimension pruning; line 1033: "previously-checked" describing UI state) — neither introduced by this change and neither historical-framing of the doc itself.
+  - `python3 -c "…codeagent_config.json…brainstorm-initializer"` → `claudecode/sonnet4_6` (runtime assertion).
+  - `python3 -c "…seed/codeagent_config.json…assert 'brainstorm-initializer' not in …"` → exit 0 (invariant assertion).
+  - `bash tests/test_add_model.sh` → 30/30 PASS.
+
+- **Notes for sibling tasks (t573_5 only):**
+  - Manual-verification sibling should cover the TUI-side import-proposal flow end-to-end (Import Proposal… → file picker → agent launch → placeholder swap → n000_init populated) in addition to the CLI flow. The canonical stdout/stderr markers documented in §7.1a are load-bearing for the TUI poll loop — any marker rename is a silent-break risk and belongs in the manual-verification checklist.
