@@ -78,6 +78,14 @@ SESSION_T="=${SESSION}"
 
 command -v tmux >/dev/null || die "tmux is not installed. Install it first, then re-run 'ait ide'."
 
+# Register this project's root under a per-session global env var so that
+# multi-session aitasks features (monitor, switcher) can detect the session as
+# aitasks-like even before any pane cd's into the project directory. Cleaned
+# up automatically when the tmux server exits.
+set_project_registry() {
+    tmux set-environment -g "AITASKS_PROJECT_${SESSION}" "$(pwd)" 2>/dev/null || true
+}
+
 if [[ -n "${TMUX:-}" ]]; then
     current_session=$(tmux display-message -p '#S')
     if [[ "$current_session" != "$SESSION" ]]; then
@@ -86,6 +94,7 @@ if [[ -n "${TMUX:-}" ]]; then
         warn "pass '--session $current_session' to use the current session."
         exit 1
     fi
+    set_project_registry
     if tmux list-windows -F '#{window_name}' | grep -qx 'monitor'; then
         exec tmux select-window -t "${SESSION_T}:monitor"
     else
@@ -94,6 +103,7 @@ if [[ -n "${TMUX:-}" ]]; then
 fi
 
 if tmux has-session -t "$SESSION_T" 2>/dev/null; then
+    set_project_registry
     if ! tmux list-windows -t "$SESSION_T" -F '#{window_name}' | grep -qx 'monitor'; then
         tmux new-window -t "${SESSION_T}:" -n monitor 'ait monitor'
     fi
@@ -101,5 +111,9 @@ if tmux has-session -t "$SESSION_T" 2>/dev/null; then
 fi
 
 # `new-session -s` takes a literal session name to create, not a target to
-# resolve — do not prefix it with '='.
-exec tmux new-session -s "$SESSION" -n monitor 'ait monitor'
+# resolve — do not prefix it with '='. Use -d + set-environment + attach so
+# the registry write happens while the server is up but before the caller's
+# process is replaced by the attached client.
+tmux new-session -d -s "$SESSION" -n monitor 'ait monitor'
+set_project_registry
+exec tmux attach -t "$SESSION_T"

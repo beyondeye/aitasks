@@ -8,6 +8,7 @@ Usage:
         find_terminal, resolve_dry_run_command, resolve_agent_string,
         is_tmux_available, get_tmux_sessions, get_tmux_windows,
         launch_in_tmux, load_tmux_defaults, TmuxLaunchConfig,
+        AitasksSession, discover_aitasks_sessions, switch_to_pane_anywhere,
     )
 """
 from __future__ import annotations
@@ -61,6 +62,20 @@ class TmuxLaunchConfig:
     new_session: bool
     new_window: bool
     split_direction: str = "horizontal"  # only used when new_window=False
+
+
+@dataclass(frozen=True)
+class AitasksSession:
+    """A tmux session identified as belonging to an aitasks project.
+
+    Produced by :func:`discover_aitasks_sessions` when a session's pane cwd
+    walks up into an aitasks project root, or when the session's name matches
+    an ``AITASKS_PROJECT_<sess>`` global env entry set by ``ait ide``.
+    """
+
+    session: str          # tmux session name
+    project_root: Path    # absolute path to the project root
+    project_name: str     # basename(project_root), for display
 
 
 def find_terminal() -> str | None:
@@ -184,6 +199,161 @@ def find_window_by_name(name: str, session: str) -> tuple[str, str] | None:
         if win_name == name:
             return (session, idx)
     return None
+
+
+def _walk_up_to_aitasks(path: Path) -> Path | None:
+    """Walk up from ``path`` (inclusive) until finding an aitasks project root.
+
+    An aitasks project root is any directory containing
+    ``aitasks/metadata/project_config.yaml``. Returns the matching directory
+    or ``None`` if no ancestor qualifies.
+    """
+    for p in (path, *path.parents):
+        if (p / "aitasks" / "metadata" / "project_config.yaml").is_file():
+            return p
+    return None
+
+
+def _read_registry_entry(session: str) -> Path | None:
+    """Read ``AITASKS_PROJECT_<session>`` from tmux global env.
+
+    Returns the registered project root if the entry exists and points to a
+    directory containing an aitasks project; otherwise ``None``. Handles the
+    three tmux output forms: ``VAR=value`` (set), ``-VAR`` (unset marker), and
+    empty stdout with non-zero exit (truly absent).
+    """
+    var = f"AITASKS_PROJECT_{session}"
+    try:
+        result = subprocess.run(
+            ["tmux", "show-environment", "-g", var],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    line = result.stdout.strip()
+    if not line or line.startswith("-") or "=" not in line:
+        return None
+    _, _, value = line.partition("=")
+    value = value.strip()
+    if not value:
+        return None
+    path = Path(value)
+    if not (path / "aitasks" / "metadata" / "project_config.yaml").is_file():
+        return None
+    return path
+
+
+def discover_aitasks_sessions() -> list[AitasksSession]:
+    """Enumerate aitasks-like tmux sessions on the current tmux server.
+
+    Detection is per-session in priority order:
+
+    1. **Pane-cwd walk-up** — any pane's ``pane_current_path`` that has an
+       ancestor containing ``aitasks/metadata/project_config.yaml`` wins.
+    2. **Registry fallback** — the tmux global env var
+       ``AITASKS_PROJECT_<sess>`` (set by ``ait ide`` on startup) names the
+       project root directly.
+
+    Sessions matching neither heuristic are excluded. Returns a list sorted by
+    session name for stable display. Returns an empty list when tmux is
+    unavailable or no aitasks sessions are running. No module-level caching —
+    each call re-queries tmux so long-running monitors see live state.
+    """
+    try:
+        result = subprocess.run(
+            ["tmux", "list-sessions", "-F", "#{session_name}"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return []
+    if result.returncode != 0:
+        return []
+    sessions = [s for s in result.stdout.strip().splitlines() if s]
+
+    found: list[AitasksSession] = []
+    for session in sessions:
+        project_root: Path | None = None
+        try:
+            panes = subprocess.run(
+                ["tmux", "list-panes", "-s", "-t",
+                 tmux_session_target(session),
+                 "-F", "#{pane_current_path}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if panes.returncode == 0:
+                for raw_path in panes.stdout.strip().splitlines():
+                    if not raw_path:
+                        continue
+                    candidate = _walk_up_to_aitasks(Path(raw_path))
+                    if candidate is not None:
+                        project_root = candidate
+                        break
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
+
+        if project_root is None:
+            project_root = _read_registry_entry(session)
+
+        if project_root is None:
+            continue
+
+        found.append(AitasksSession(
+            session=session,
+            project_root=project_root,
+            project_name=project_root.name,
+        ))
+
+    found.sort(key=lambda s: s.session)
+    return found
+
+
+def switch_to_pane_anywhere(pane_id: str) -> bool:
+    """Teleport the attached tmux client to an arbitrary pane on this server.
+
+    Pane IDs are server-globally unique, so no session hint is required. The
+    function resolves the pane's session and window index via
+    ``display-message``, then issues ``switch-client``, ``select-window``, and
+    ``select-pane`` in order. The first non-zero exit returns ``False``.
+    Returns ``True`` on success; ``False`` if tmux is unavailable, the pane is
+    dead, or no client is attached.
+    """
+    def _display(fmt: str) -> str | None:
+        try:
+            result = subprocess.run(
+                ["tmux", "display-message", "-p", "-t", pane_id, fmt],
+                capture_output=True, text=True, timeout=5,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return None
+        if result.returncode != 0:
+            return None
+        value = result.stdout.strip()
+        return value or None
+
+    sess = _display("#{session_name}")
+    if not sess:
+        return False
+    win = _display("#{window_index}")
+    if not win:
+        return False
+
+    for args in (
+        ["switch-client", "-t", tmux_session_target(sess)],
+        ["select-window", "-t", tmux_window_target(sess, win)],
+        ["select-pane", "-t", pane_id],
+    ):
+        try:
+            result = subprocess.run(
+                ["tmux", *args],
+                capture_output=True, timeout=5,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return False
+        if result.returncode != 0:
+            return False
+    return True
 
 
 def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[subprocess.Popen, str | None]:
