@@ -308,7 +308,10 @@ class TestAssembleInputPatcher(BrainstormCrewTestBase):
 class TestBrainstormAgentTypes(unittest.TestCase):
 
     def test_agent_types_keys(self):
-        expected = {"explorer", "comparator", "synthesizer", "detailer", "patcher"}
+        expected = {
+            "explorer", "comparator", "synthesizer",
+            "detailer", "patcher", "initializer",
+        }
         self.assertEqual(set(BRAINSTORM_AGENT_TYPES.keys()), expected)
 
     def test_agent_types_structure(self):
@@ -357,6 +360,7 @@ class TestGetAgentTypes(unittest.TestCase):
         "brainstorm-synthesizer": "claudecode/opus4_7_1m",
         "brainstorm-detailer": "claudecode/opus4_7_1m",
         "brainstorm-patcher": "claudecode/sonnet4_6",
+        "brainstorm-initializer": "claudecode/sonnet4_6",
     }
 
     def setUp(self):

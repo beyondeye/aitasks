@@ -42,13 +42,22 @@ def init_session(
     task_file: str,
     user_email: str,
     initial_spec: str,
+    initial_proposal_file: str | None = None,
 ) -> Path:
     """Initialize brainstorm session files in an existing crew worktree.
 
     Creates: br_session.yaml, br_graph_state.yaml, br_groups.yaml,
              br_nodes/, br_proposals/, br_plans/ directories.
 
-    Raises FileNotFoundError if the crew worktree does not exist.
+    If ``initial_proposal_file`` is given, it is recorded in
+    br_session.yaml and the seeded n000_init becomes a placeholder
+    pending the initializer agent's output. Callers should launch an
+    initializer agent (via ``register_initializer``) and, when it
+    completes, call :func:`apply_initializer_output` to replace the
+    placeholder.
+
+    Raises FileNotFoundError if the crew worktree does not exist, or
+    if ``initial_proposal_file`` is given but the file is missing.
     Returns the session (worktree) path.
     """
     wt = crew_worktree(task_num)
@@ -57,6 +66,17 @@ def init_session(
             f"Crew worktree not found: {wt}. "
             f"Run 'ait crew init --id brainstorm-{task_num}' first."
         )
+
+    # Validate and resolve initial_proposal_file up front — no partial
+    # sessions on bad input.
+    abs_proposal_path: str | None = None
+    if initial_proposal_file is not None:
+        proposal_path = Path(initial_proposal_file)
+        if not proposal_path.is_file():
+            raise FileNotFoundError(
+                f"initial_proposal_file not found: {initial_proposal_file}"
+            )
+        abs_proposal_path = str(proposal_path.resolve())
 
     # Create subdirectories
     for subdir in (NODES_DIR, PROPOSALS_DIR, PLANS_DIR):
@@ -76,6 +96,8 @@ def init_session(
         "initial_spec": initial_spec,
         "url_cache": "enabled",
     }
+    if abs_proposal_path is not None:
+        session_data["initial_proposal_file"] = abs_proposal_path
     write_yaml(str(wt / SESSION_FILE), session_data)
 
     # Write br_graph_state.yaml
@@ -90,11 +112,26 @@ def init_session(
     # Write empty br_groups.yaml
     write_yaml(str(wt / GROUPS_FILE), {"groups": {}})
 
-    # Create root node (n000_init) so the session is immediately usable
-    spec_lines = [
-        ln for ln in initial_spec.splitlines() if ln.strip() and not ln.startswith("---")
-    ]
-    brief = (spec_lines[0][:80] + "…") if spec_lines and len(spec_lines[0]) > 80 else (spec_lines[0] if spec_lines else "Initial specification")
+    # Create root node (n000_init) so the session is immediately usable.
+    # When an imported proposal is pending, seed n000_init with a
+    # placeholder; the initializer agent will overwrite it.
+    if abs_proposal_path is not None:
+        basename = os.path.basename(abs_proposal_path)
+        brief = f"Imported proposal (awaiting reformat): {basename}"
+        proposal_body = f"Awaiting initializer agent output for `{basename}`.\n"
+        reference_files: list[str] | None = [abs_proposal_path]
+    else:
+        spec_lines = [
+            ln for ln in initial_spec.splitlines()
+            if ln.strip() and not ln.startswith("---")
+        ]
+        brief = (
+            (spec_lines[0][:80] + "…")
+            if spec_lines and len(spec_lines[0]) > 80
+            else (spec_lines[0] if spec_lines else "Initial specification")
+        )
+        proposal_body = initial_spec
+        reference_files = None
 
     create_node(
         session_path=wt,
@@ -102,8 +139,9 @@ def init_session(
         parents=[],
         description=brief,
         dimensions={},
-        proposal_content=initial_spec,
+        proposal_content=proposal_body,
         group_name="bootstrap",
+        reference_files=reference_files,
     )
     set_head(wt, "n000_init")
     next_node_id(wt)  # increment counter from 0 → 1
@@ -207,3 +245,61 @@ def delete_session(task_num: int | str) -> None:
     if not (wt / SESSION_FILE).is_file():
         raise FileNotFoundError(f"No brainstorm session for task {task_num}")
     shutil.rmtree(wt)
+
+
+def _extract_block(text: str, start: str, end: str) -> str:
+    """Return the text between ``--- <start> ---`` and ``--- <end> ---``.
+
+    Raises ValueError if either delimiter is missing.
+    """
+    start_tag = f"--- {start} ---"
+    end_tag = f"--- {end} ---"
+    si = text.find(start_tag)
+    ei = text.find(end_tag, si + len(start_tag)) if si >= 0 else -1
+    if si < 0 or ei < 0:
+        raise ValueError(f"missing delimiter: {start}/{end}")
+    return text[si + len(start_tag):ei].strip("\n")
+
+
+def apply_initializer_output(task_num: int | str) -> None:
+    """Parse ``initializer_bootstrap_output.md`` and overwrite n000_init.
+
+    Parses the four delimited blocks (NODE_YAML + PROPOSAL), validates
+    both, and rewrites ``br_nodes/n000_init.yaml`` and
+    ``br_proposals/n000_init.md``. Existing files are only overwritten
+    if validation passes.
+
+    Raises:
+        FileNotFoundError: if the initializer output file is missing.
+        ValueError: if any delimiter is missing or either block fails
+            validation.
+    """
+    wt = crew_worktree(task_num)
+    out_path = wt / "initializer_bootstrap_output.md"
+    if not out_path.is_file():
+        raise FileNotFoundError(f"No initializer output at {out_path}")
+
+    text = out_path.read_text(encoding="utf-8")
+    node_yaml_text = _extract_block(text, "NODE_YAML_START", "NODE_YAML_END")
+    proposal_text = _extract_block(text, "PROPOSAL_START", "PROPOSAL_END")
+
+    import yaml
+    from .brainstorm_schemas import validate_node
+    from .brainstorm_sections import parse_sections, validate_sections
+
+    node_data = yaml.safe_load(node_yaml_text)
+    if not isinstance(node_data, dict):
+        raise ValueError("initializer NODE_YAML block did not parse as a dict")
+    errs = validate_node(node_data)
+    if errs:
+        raise ValueError(f"initializer node YAML invalid: {errs}")
+
+    parsed = parse_sections(proposal_text)
+    serrs = validate_sections(parsed)
+    if serrs:
+        raise ValueError(f"initializer proposal invalid: {serrs}")
+
+    write_yaml(str(wt / NODES_DIR / "n000_init.yaml"), node_data)
+    (wt / PROPOSALS_DIR / "n000_init.md").write_text(
+        proposal_text, encoding="utf-8"
+    )

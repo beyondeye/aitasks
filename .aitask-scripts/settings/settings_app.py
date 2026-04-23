@@ -138,11 +138,13 @@ OPERATION_DESCRIPTIONS: dict[str, str] = {
     "brainstorm-synthesizer": "Model for merging and synthesizing design proposals",
     "brainstorm-detailer": "Model for creating detailed implementation plans from designs",
     "brainstorm-patcher": "Model for applying targeted tweaks to brainstorm plans",
+    "brainstorm-initializer": "Model for reformatting imported markdown proposals into the n000_init root node",
     "brainstorm-explorer-launch-mode": "Default launch mode (headless | interactive) for the explorer brainstorm agent type",
     "brainstorm-comparator-launch-mode": "Default launch mode (headless | interactive) for the comparator brainstorm agent type",
     "brainstorm-synthesizer-launch-mode": "Default launch mode (headless | interactive) for the synthesizer brainstorm agent type",
     "brainstorm-detailer-launch-mode": "Default launch mode (headless | interactive) for the detailer brainstorm agent type",
     "brainstorm-patcher-launch-mode": "Default launch mode (headless | interactive) for the patcher brainstorm agent type",
+    "brainstorm-initializer-launch-mode": "Default launch mode (headless | interactive) for the initializer brainstorm agent type",
 }
 
 # Config file descriptions shown during import

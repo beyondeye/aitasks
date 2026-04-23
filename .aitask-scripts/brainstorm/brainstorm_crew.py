@@ -1,8 +1,8 @@
 """Agent registration helpers for the brainstorm engine.
 
 Provides functions to register brainstorm agents (explorer, comparator,
-synthesizer, detailer, patcher) into a brainstorm crew with properly
-assembled input context.
+synthesizer, detailer, patcher, initializer) into a brainstorm crew
+with properly assembled input context.
 
 Each register_* function:
 1. Reads node data using brainstorm_dag functions
@@ -47,6 +47,7 @@ BRAINSTORM_AGENT_TYPES = {
     "synthesizer": {"max_parallel": 1, "launch_mode": "headless"},
     "detailer": {"max_parallel": 1, "launch_mode": "interactive"},
     "patcher": {"max_parallel": 1, "launch_mode": "headless"},
+    "initializer": {"max_parallel": 1, "launch_mode": "interactive"},
 }
 
 def get_agent_types(config_root: Path | None = None) -> dict[str, dict]:
@@ -433,6 +434,36 @@ def _assemble_input_patcher(
     return "\n".join(lines) + "\n"
 
 
+def _assemble_input_initializer(
+    session_path: Path,
+    imported_path: str,
+    task_file: str,
+) -> str:
+    """Assemble initializer _input.md with imported proposal + task file paths.
+
+    The initializer has no baseline node and no active dimensions —
+    n000_init is the target, not a derivative.
+    """
+    lines = [
+        "# Initializer Input",
+        "",
+        "## Imported Proposal",
+        f"- Path: {imported_path}",
+        "Read this file. Do not modify it.",
+        "",
+        "## Originating Task",
+        f"- Path: {task_file}",
+        "",
+        "## Mandate",
+        "Reformat the imported proposal into the brainstorm node format:",
+        "a flat-YAML node metadata block and a sectioned proposal markdown",
+        "body. Preserve all substantive content and every assumption from",
+        "the source. Emit dimension fields (requirements_* / assumption_* /",
+        "component_* / tradeoff_*) only where justified by the text.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 # ---------------------------------------------------------------------------
 # Registration functions
 # ---------------------------------------------------------------------------
@@ -639,6 +670,51 @@ def register_patcher(
     work2do_path = TEMPLATE_DIR / "patcher.md"
     _run_addwork(
         crew_id, agent_name, "patcher", group_name, work2do_path,
+        launch_mode=launch_mode,
+    )
+    _write_agent_input(session_dir, agent_name, input_content)
+
+    return agent_name
+
+
+def register_initializer(
+    session_dir: Path,
+    crew_id: str,
+    imported_path: str,
+    task_file: str,
+    group_name: str = "bootstrap",
+    agent_suffix: str = "",
+    launch_mode: str = DEFAULT_LAUNCH_MODE,
+) -> str:
+    """Register an Initializer agent in the brainstorm crew.
+
+    The initializer reformats an imported markdown proposal into the
+    brainstorm node format and overwrites n000_init. There is exactly
+    one initializer per session, named ``initializer_bootstrap``
+    (no sequence suffix).
+
+    Args:
+        session_dir: Path to crew worktree.
+        crew_id: Crew identifier (e.g., "brainstorm-573").
+        imported_path: Path to the imported markdown proposal.
+        task_file: Path to the originating aitask file.
+        group_name: Operation group name (defaults to "bootstrap").
+        agent_suffix: Optional suffix for uncommon re-runs (typically "").
+        launch_mode: Launch mode for the agent; one of VALID_LAUNCH_MODES
+            (defaults to DEFAULT_LAUNCH_MODE).
+
+    Returns:
+        Agent name ("initializer_bootstrap" by default).
+    """
+    agent_name = f"initializer_bootstrap{agent_suffix}"
+
+    input_content = _assemble_input_initializer(
+        session_dir, imported_path, task_file,
+    )
+
+    work2do_path = TEMPLATE_DIR / "initializer.md"
+    _run_addwork(
+        crew_id, agent_name, "initializer", group_name, work2do_path,
         launch_mode=launch_mode,
     )
     _write_agent_input(session_dir, agent_name, input_content)
