@@ -1,11 +1,13 @@
 ---
 Task: t573_1_initializer_agent_and_ingestion.md
 Parent Task: aitasks/t573_import_initial_proposal_in_brainstrom.md
-Sibling Tasks: aitasks/t573/t573_2_*.md, aitasks/t573/t573_3_*.md, aitasks/t573/t573_4_*.md
+Sibling Tasks: aitasks/t573/t573_2_*.md, aitasks/t573/t573_3_*.md, aitasks/t573/t573_4_*.md, aitasks/t573/t573_5_*.md
 Archived Sibling Plans: aiplans/archived/p573/p573_*_*.md
-Worktree: (none — default profile works on current branch)
+Worktree: (none — fast profile, current branch)
 Branch: main
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-04-23 11:36
 ---
 
 # t573_1 — `initializer` agent type + `apply_initializer_output()` ingestion helper
@@ -14,15 +16,24 @@ Base branch: main
 
 Parent plan: `aiplans/p573_import_initial_proposal_in_brainstrom.md`. This
 is the **first** child and must land before t573_2 (CLI) or t573_3 (TUI).
-Nothing in the repo today parses agent `_output.md` delimiters; this child
-establishes the pattern.
+Nothing in the repo today parses agent `_output.md` delimiters — the
+explorer/synthesizer templates already emit the `NODE_YAML_START/END`
+blocks, but no Python parser consumes them. This child establishes the
+pattern.
+
+Verified against the current codebase (2026-04-23): all referenced
+modules, helpers, constants, and templates are in place.
+`BRAINSTORM_AGENT_TYPES` has 5 entries (`explorer`, `comparator`,
+`synthesizer`, `detailer`, `patcher`); no `initializer` yet. No
+`apply_*_output()` helper exists yet in `brainstorm_session.py`.
 
 ## Implementation steps
 
 ### 1. Agent template
 
 Create `.aitask-scripts/brainstorm/templates/initializer.md`, modelled on
-`templates/explorer.md`.
+`templates/explorer.md` (187 lines, Phase 1..Phase 4 structure with
+`report_alive`, `update_progress`, `check_commands` checkpoints).
 
 Required shape:
 
@@ -47,14 +58,12 @@ Read your `_input.md` file. It contains:
 
 Write exactly one file — your `_output.md` — with four delimited blocks:
 
-```
 --- NODE_YAML_START ---
 <flat YAML node metadata>
 --- NODE_YAML_END ---
 --- PROPOSAL_START ---
 <sectioned proposal markdown>
 --- PROPOSAL_END ---
-```
 
 ### Required NODE_YAML fields
 
@@ -92,7 +101,8 @@ Follow explorer.md's Phase 1..Phase 4 checkpoint idiom
 
 ### 2. `BRAINSTORM_AGENT_TYPES`
 
-Edit `.aitask-scripts/brainstorm/brainstorm_crew.py:44-50`. Append:
+Edit `.aitask-scripts/brainstorm/brainstorm_crew.py` (dict at ~lines
+44-50). Append:
 
 ```python
 "initializer": {"max_parallel": 1, "launch_mode": "interactive"},
@@ -100,8 +110,9 @@ Edit `.aitask-scripts/brainstorm/brainstorm_crew.py:44-50`. Append:
 
 ### 3. `_assemble_input_initializer`
 
-Add near the other `_assemble_input_*` helpers
-(`brainstorm_crew.py:194-434`). Signature:
+Add alongside the other `_assemble_input_*` helpers (`explorer` at line
+194, `comparator` at 270, `synthesizer` at 298, `detailer` at 348,
+`patcher` at 397). Signature:
 
 ```python
 def _assemble_input_initializer(
@@ -112,16 +123,19 @@ def _assemble_input_initializer(
 ```
 
 Emit a markdown document with three top-level sections:
-`## Imported Proposal` (path + "Read this file. Do not modify it."),
-`## Originating Task` (path), and `## Mandate` (fixed bootstrap
-instruction mirroring the template preamble). Do NOT include the
-dimension-keys / active-dimensions blocks used by explorer — n000_init
-starts dimensionless.
+
+- `## Imported Proposal` — path + "Read this file. Do not modify it."
+- `## Originating Task` — path.
+- `## Mandate` — fixed bootstrap instruction mirroring the template
+  preamble.
+
+Do NOT include the dimension-keys / active-dimensions blocks used by
+explorer — `n000_init` starts dimensionless.
 
 ### 4. `register_initializer`
 
-Add alongside `register_patcher` (`brainstorm_crew.py:608-646`).
-Signature:
+Add alongside `register_detailer` (line 567) and `register_patcher`
+(line 608). Mirror the `register_detailer` body:
 
 ```python
 def register_initializer(
@@ -133,16 +147,33 @@ def register_initializer(
     agent_suffix: str = "",
     launch_mode: str = DEFAULT_LAUNCH_MODE,
 ) -> str:
+    agent_name = f"initializer_bootstrap{agent_suffix}"
+    input_content = _assemble_input_initializer(
+        session_dir, imported_path, task_file
+    )
+    work2do_path = TEMPLATE_DIR / "initializer.md"
+    _run_addwork(
+        crew_id, agent_name, "initializer", group_name,
+        work2do_path, launch_mode=launch_mode,
+    )
+    _write_agent_input(session_dir, agent_name, input_content)
+    return agent_name
 ```
 
-Agent name: `f"initializer_bootstrap{agent_suffix}"`. work2do template
-path: `TEMPLATE_DIR / "initializer.md"`. Call `_run_addwork(...)` with
-type `"initializer"`. Then `_write_agent_input(session_dir, agent_name,
-input_content)`. Return the agent name.
+Note: `register_initializer` does NOT use `_group_seq` — the agent
+name is fixed (`initializer_bootstrap`), unlike
+`detailer_<seq>` / `patcher_<seq>` which increment per group.
 
 ### 5. `init_session` extension
 
-Edit `.aitask-scripts/brainstorm/brainstorm_session.py`:
+Edit `.aitask-scripts/brainstorm/brainstorm_session.py`. Current
+signature (lines 40-45):
+
+```python
+def init_session(task_num, task_file, user_email, initial_spec) -> Path:
+```
+
+Extend to:
 
 ```python
 def init_session(
@@ -158,9 +189,9 @@ Behaviour when `initial_proposal_file` is set:
 
 1. Validate existence (`Path(initial_proposal_file).is_file()` —
    raise `FileNotFoundError` otherwise).
-2. Resolve to absolute path.
+2. Resolve to absolute path (`str(Path(initial_proposal_file).resolve())`).
 3. Include `initial_proposal_file` key in the `session_data` dict
-   written to `br_session.yaml`.
+   written to `br_session.yaml` (lines 68-79).
 4. Derive placeholder body:
    ```python
    basename = os.path.basename(initial_proposal_file)
@@ -168,11 +199,13 @@ Behaviour when `initial_proposal_file` is set:
    brief = f"Imported proposal (awaiting reformat): {basename}"
    ```
 5. Pass `reference_files=[abs_path]` to `create_node(...)` for
-   `n000_init`.
+   `n000_init` (existing call at lines 99-107; `create_node` already
+   accepts `reference_files: list[str] | None = None`).
+6. Use `brief` as the `description` and `placeholder` as the
+   `proposal_content`.
 
 When `initial_proposal_file` is None, the existing behaviour must be
-byte-for-byte identical. Add a unit-equivalent assertion in the bash
-test.
+byte-for-byte identical — the bash test asserts this.
 
 ### 6. `apply_initializer_output`
 
@@ -210,7 +243,7 @@ def apply_initializer_output(task_num: int | str) -> None:
     (wt / PROPOSALS_DIR / "n000_init.md").write_text(proposal_text, encoding="utf-8")
 ```
 
-Helper:
+Helper (also appended):
 
 ```python
 def _extract_block(text: str, start: str, end: str) -> str:
@@ -223,25 +256,46 @@ def _extract_block(text: str, start: str, end: str) -> str:
     return text[si + len(start_tag):ei].strip("\n")
 ```
 
-Import `write_yaml` via the existing path used by
-`save_session` (the top-level import already pulls in
-`agentcrew.agentcrew_utils.read_yaml` — add `write_yaml` alongside).
+**Imports check:** `write_yaml` and `read_yaml` are **already** imported
+from `agentcrew.agentcrew_utils` in `brainstorm_session.py` (line 19) —
+no new top-level imports needed. `NODES_DIR` and `PROPOSALS_DIR` are
+already imported from `brainstorm_dag` (lines 21-29).
 
 ### 7. Bash test
 
-Create `tests/test_apply_initializer_output.sh`. Skeleton:
+Create `tests/test_apply_initializer_output.sh`. No shared
+`tests/test_helpers.sh` exists in the repo — follow the inline-helpers
+pattern used by `tests/test_claim_id.sh` (inline `assert_eq`,
+`assert_contains`).
+
+Skeleton:
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$THIS_DIR/.." && pwd)"
-source "$THIS_DIR/test_helpers.sh"
+
+# Inline assertion helpers (match test_claim_id.sh style)
+assert_file_exists() {
+    local path="$1"
+    if [[ ! -f "$path" ]]; then
+        echo "FAIL: expected file to exist: $path"
+        exit 1
+    fi
+}
+assert_contains() {
+    local haystack="$1" needle="$2"
+    if [[ "$haystack" != *"$needle"* ]]; then
+        echo "FAIL: expected '$haystack' to contain '$needle'"
+        exit 1
+    fi
+}
 
 TMP_CREW="$(mktemp -d)"
 mkdir -p "$TMP_CREW/br_nodes" "$TMP_CREW/br_proposals"
 
-# Fixture output
+# Fixture output (mirrors the delimiter format in templates/initializer.md)
 cat > "$TMP_CREW/initializer_bootstrap_output.md" <<'EOF'
 --- NODE_YAML_START ---
 node_id: n000_init
@@ -265,38 +319,42 @@ EOF
 
 pushd "$REPO_ROOT" >/dev/null
 python3 - <<EOF_PY
-import os, sys
+import sys, pathlib
 sys.path.insert(0, ".aitask-scripts")
 from brainstorm import brainstorm_session as bs
-# Monkey-patch crew_worktree so we can point to our fixture.
-bs.crew_worktree = lambda n: $(python3 -c "import pathlib, json; print(json.dumps('$TMP_CREW'))") and __import__('pathlib').Path("$TMP_CREW")
+# Monkey-patch crew_worktree so the fixture directory is used as the worktree.
+bs.crew_worktree = lambda n: pathlib.Path("$TMP_CREW")
 bs.apply_initializer_output("fixture")
 EOF_PY
 popd >/dev/null
 
 assert_file_exists "$TMP_CREW/br_nodes/n000_init.yaml"
 assert_file_exists "$TMP_CREW/br_proposals/n000_init.md"
-grep -q "section: overview" "$TMP_CREW/br_proposals/n000_init.md" || { echo "section missing"; exit 1; }
+body="$(cat "$TMP_CREW/br_proposals/n000_init.md")"
+assert_contains "$body" "section: overview"
 
 rm -rf "$TMP_CREW"
 echo "PASS: apply_initializer_output"
 ```
 
-(Exact helper names and monkey-patch idiom should be lined up with
-`tests/test_helpers.sh`; adapt as needed. The assertion API lives in
-that helper file — read it before finalizing.)
+Second test path (negative-case — malformed output raises
+`ValueError`): append an `assert_exit_nonzero` block that drops a
+truncated fixture (missing `PROPOSAL_END`) and expects the python
+invocation to fail. Keep it in the same file to avoid test-harness
+sprawl.
 
 ## Verification
 
 - `bash tests/test_apply_initializer_output.sh` prints
   `PASS: apply_initializer_output`.
 - `shellcheck tests/test_apply_initializer_output.sh` clean.
-- `python3 -c "from brainstorm.brainstorm_crew import
-  BRAINSTORM_AGENT_TYPES; print(BRAINSTORM_AGENT_TYPES['initializer'])"`
-  (with appropriate PYTHONPATH) prints `{'max_parallel': 1,
-  'launch_mode': 'interactive'}`.
-- Manual smoke: call `init_session('fresh', 'aitasks/tXXX.md', '',
-  '', initial_proposal_file='/tmp/foo.md')` and confirm
+- `python3 -c "import sys; sys.path.insert(0, '.aitask-scripts');
+  from brainstorm.brainstorm_crew import BRAINSTORM_AGENT_TYPES;
+  print(BRAINSTORM_AGENT_TYPES['initializer'])"` prints
+  `{'max_parallel': 1, 'launch_mode': 'interactive'}`.
+- Manual smoke: in a throwaway session, call
+  `init_session('fresh', 'aitasks/tXXX.md', '', '',
+  initial_proposal_file='/tmp/foo.md')` and confirm
   `br_session.yaml` has `initial_proposal_file` set and
   `br_proposals/n000_init.md` contains the placeholder text.
 
@@ -306,5 +364,15 @@ that helper file — read it before finalizing.)
   this verbatim in its `INITIALIZER_AGENT:` stdout line; t573_3 polls
   for `<worktree>/initializer_bootstrap_status.yaml`.
 - The fixture output file in the test is the authoritative example of
-  the expected delimiter format — keep it in sync with the template in
-  `templates/initializer.md` if either changes.
+  the expected delimiter format — keep it in sync with the template
+  in `templates/initializer.md` if either changes.
+- Unlike `detailer_<seq>`/`patcher_<seq>`, the initializer agent does
+  not use `_group_seq` — there is exactly one initializer per session,
+  named `initializer_bootstrap`.
+
+## Step 9 (Post-Implementation)
+
+After user approval in Step 8, follow the shared workflow's Step 9
+(archival via `./.aitask-scripts/aitask_archive.sh 573_1`). Plan file
+will be archived to `aiplans/archived/p573/` and serve as the primary
+reference for t573_2 / t573_3 / t573_4.
