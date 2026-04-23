@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [tmux, aitask_monitor, tui_switcher]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-23 20:20
-updated_at: 2026-04-23 20:20
+updated_at: 2026-04-23 21:53
 ---
 
 ## Context
