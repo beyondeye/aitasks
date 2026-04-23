@@ -32,6 +32,7 @@ codexcli
 development
 differ
 execution_profiles
+gates
 geminicli
 git-integration
 gitremote

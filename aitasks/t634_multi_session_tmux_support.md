@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [tmux, aitask_monitor, tui_switcher]
-children_to_implement: [t634_1, t634_2]
+children_to_implement: [t634_1, t634_2, t634_3]
 created_at: 2026-04-23 20:19
-updated_at: 2026-04-23 20:20
+updated_at: 2026-04-23 20:21
 ---
 
 ## Context
