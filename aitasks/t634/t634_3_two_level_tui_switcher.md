@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [t634_1]
 issue_type: feature
 status: Ready
 labels: [tmux, tui_switcher]
 created_at: 2026-04-23 20:21
-updated_at: 2026-04-23 20:21
+updated_at: 2026-04-23 20:22
 ---
 
 ## Context
