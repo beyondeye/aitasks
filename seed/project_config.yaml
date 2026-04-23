@@ -179,6 +179,17 @@ default_profiles:
 
 tmux:
   # ──────────────────────────────────────────────────────────────────
+  # default_session — tmux session name used by `ait ide` and other TUIs.
+  #
+  # Set automatically during `ait setup` (you are prompted for the name
+  # with "aitasks" as default). Edit here to change the team default.
+  #
+  # Example:
+  #   default_session: aitasks
+  # ──────────────────────────────────────────────────────────────────
+  default_session:
+
+  # ──────────────────────────────────────────────────────────────────
   # git_tui — External git management TUI for the TUI switcher.
   #
   # Integrates an external git TUI (like lazygit, gitui, or tig) as a

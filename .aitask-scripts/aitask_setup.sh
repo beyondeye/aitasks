@@ -896,6 +896,24 @@ update_claudemd_git_section() {
     fi
 }
 
+# --- AGENTS.md auto-update for aitasks instructions ---
+# AGENTS.md is a cross-agent convention (codex reads it at repo root; other
+# agents may too). Uses the shared aitasks layer only — agent-specific
+# guidance stays in its own file (GEMINI.md, .codex/instructions.md).
+update_agentsmd() {
+    local project_dir="$1"
+    local agentsmd="$project_dir/AGENTS.md"
+
+    local content
+    content="$(assemble_aitasks_instructions "$project_dir")" || return
+
+    insert_aitasks_instructions "$agentsmd" "$content"
+
+    if grep -qF ">>>aitasks" "$agentsmd"; then
+        info "  Updated aitasks instructions in AGENTS.md"
+    fi
+}
+
 # --- Task data branch setup (aitask-data orphan branch + worktree + symlinks) ---
 setup_data_branch() {
     local project_dir="$SCRIPT_DIR/.."
@@ -1960,8 +1978,15 @@ setup_opencode() {
 
 # --- Set up all code agent integrations ---
 setup_code_agents() {
+    local project_dir="$SCRIPT_DIR/.."
+
     # Claude Code settings are always installed (core framework infrastructure)
     setup_claude_code
+
+    # AGENTS.md is a cross-agent convention (codex reads it at repo root;
+    # other agents may too). Install unconditionally so it is in place
+    # whether or not specific agent CLIs are available.
+    update_agentsmd "$project_dir"
 
     # Other agents: only set up if their CLI is installed
     if _is_agent_installed gemini; then
@@ -2342,6 +2367,9 @@ commit_framework_files() {
     fi
 
     # Build the list of framework paths to check (only those that exist)
+    # NOTE: This list is duplicated in install.sh commit_installed_files().
+    # If you change one, change the other. install.sh runs stand-alone via
+    # curl|bash before extraction, so it cannot source a shared helper.
     local paths_to_add=()
     local check_paths=(
         ".aitask-scripts/"
@@ -2351,8 +2379,14 @@ commit_framework_files() {
         ".claude/skills/"
         ".agents/"
         ".codex/"
+        ".gemini/"
+        ".opencode/"
         ".gitignore"
         ".github/workflows/"
+        "CLAUDE.md"
+        "GEMINI.md"
+        "AGENTS.md"
+        "opencode.json"
     )
 
     for p in "${check_paths[@]}"; do
@@ -2398,10 +2432,13 @@ commit_framework_files() {
         return
     fi
 
-    info "Framework files not yet committed to git:"
-    printf "%s\n" "${changed_files[@]}" | head -20 | sed 's/^/  /'
     local total_count
     total_count="${#changed_files[@]}"
+    echo ""
+    info "────────────────────────────────────────────────────"
+    info "READY TO COMMIT $total_count FRAMEWORK FILES"
+    info "────────────────────────────────────────────────────"
+    printf "%s\n" "${changed_files[@]}" | head -20 | sed 's/^/  /'
     if [[ $total_count -gt 20 ]]; then
         info "  ... and $((total_count - 20)) more files"
     fi
@@ -2415,24 +2452,51 @@ commit_framework_files() {
     fi
     case "${answer:-Y}" in
         [Yy]*|"")
-            (
-                cd "$project_dir"
-                git add -- "${changed_files[@]}" 2>/dev/null || true
-                # Only commit if there are staged changes
-                if ! git diff --cached --quiet 2>/dev/null; then
-                    git commit -m "ait: Add aitask framework"
+            local add_output commit_output
+            if ! add_output=$(cd "$project_dir" && git add -- "${changed_files[@]}" 2>&1); then
+                warn "git add failed:"
+                printf "%s\n" "$add_output" | sed 's/^/    /'
+                warn "Framework files NOT committed. Run 'git add -A && git commit' manually."
+                return
+            fi
+            if ! (cd "$project_dir" && git diff --cached --quiet 2>/dev/null); then
+                if ! commit_output=$(cd "$project_dir" && git commit -m "ait: Add aitask framework" 2>&1); then
+                    warn "git commit failed:"
+                    printf "%s\n" "$commit_output" | sed 's/^/    /'
+                    warn "Framework files staged but NOT committed. Run 'git commit' manually."
+                    return
                 fi
-            )
-            success "Framework files committed to git"
+            fi
+
+            # Post-commit verification: anything still untracked under the
+            # framework paths indicates a gitignore rule, pathspec quirk, or
+            # a new file produced between the list and the commit.
+            local still_untracked
+            still_untracked="$(cd "$project_dir" && git ls-files --others --exclude-standard \
+                "${paths_to_add[@]}" 2>/dev/null | grep -Ev "$cache_artifacts_re")" || true
+            if [[ -n "$still_untracked" ]]; then
+                warn "Some framework files remain untracked after commit:"
+                printf "%s\n" "$still_untracked" | head -20 | sed 's/^/    /'
+                warn "Run 'git status' to investigate, then 'git add -A && git commit' to finalize."
+            else
+                success "Framework files committed to git"
+            fi
             ;;
         *)
-            info "Skipped committing framework files."
+            warn "Skipped committing framework files. These files remain UNTRACKED:"
+            printf "%s\n" "${changed_files[@]}" | head -10 | sed 's/^/    /'
+            if [[ $total_count -gt 10 ]]; then
+                info "    ... and $((total_count - 10)) more"
+            fi
             info "You can manually commit later with 'git add' and 'git commit'."
             ;;
     esac
 }
 
 # --- Git TUI detection and configuration ---
+# Uses `cat > file` instead of `mv tmpf file` so we write THROUGH symlinks
+# to the actual file content, rather than replacing the path's inode (which
+# can break symlinks or behave inconsistently across filesystems/mv variants).
 _set_git_tui_config() {
     local config_file="$1" value="$2"
     local tmpf
@@ -2440,13 +2504,14 @@ _set_git_tui_config() {
 
     if grep -qE '^[[:space:]]*git_tui:' "$config_file"; then
         # Update existing git_tui line
-        sed "s/^\([[:space:]]*\)git_tui:.*/\1git_tui: $value/" "$config_file" > "$tmpf" && mv "$tmpf" "$config_file"
+        sed "s/^\([[:space:]]*\)git_tui:.*/\1git_tui: $value/" "$config_file" > "$tmpf" \
+            && cat "$tmpf" > "$config_file" && rm "$tmpf"
     else
         # Append tmux section with git_tui
         {
             cat "$config_file"
             printf '\ntmux:\n  git_tui: %s\n' "$value"
-        } > "$tmpf" && mv "$tmpf" "$config_file"
+        } > "$tmpf" && cat "$tmpf" > "$config_file" && rm "$tmpf"
     fi
 }
 
@@ -2568,7 +2633,87 @@ setup_git_tui() {
 
     if [[ -n "$selected" ]]; then
         _set_git_tui_config "$config_file" "$selected"
-        success "Git TUI configured: $selected"
+        # Verify the write actually took effect — guards against silent
+        # symlink/mv/sed failures reported on some setups.
+        local after_write
+        after_write=$(grep -E '^[[:space:]]*git_tui:' "$config_file" 2>/dev/null | sed 's/.*git_tui:[[:space:]]*//' || true)
+        if [[ "$after_write" != "$selected" ]]; then
+            warn "Git TUI config write failed — expected '$selected' but got '$after_write'"
+            warn "Config file: $(readlink -f "$config_file" 2>/dev/null || echo "$config_file")"
+        else
+            success "Git TUI configured: $selected"
+        fi
+    fi
+}
+
+# --- Tmux default_session detection and configuration ---
+_set_tmux_default_session_config() {
+    local config_file="$1" value="$2"
+    local tmpf
+    tmpf=$(mktemp)
+
+    if grep -qE '^[[:space:]]*default_session:' "$config_file"; then
+        # Update existing default_session line
+        sed "s/^\([[:space:]]*\)default_session:.*/\1default_session: $value/" "$config_file" > "$tmpf" \
+            && cat "$tmpf" > "$config_file" && rm "$tmpf"
+    elif grep -qE '^tmux:[[:space:]]*$' "$config_file"; then
+        # tmux: section exists, append default_session inside it
+        awk -v val="$value" '
+            /^tmux:[[:space:]]*$/ { print; print "  default_session: " val; next }
+            { print }
+        ' "$config_file" > "$tmpf" && cat "$tmpf" > "$config_file" && rm "$tmpf"
+    else
+        # No tmux: section — append whole block
+        { cat "$config_file"; printf '\ntmux:\n  default_session: %s\n' "$value"; } > "$tmpf" \
+            && cat "$tmpf" > "$config_file" && rm "$tmpf"
+    fi
+}
+
+setup_tmux_default_session() {
+    local project_dir="$SCRIPT_DIR/.."
+    local config_file="$project_dir/aitasks/metadata/project_config.yaml"
+
+    if [[ ! -f "$config_file" ]]; then
+        info "No project_config.yaml found — skipping tmux default_session setup."
+        return
+    fi
+
+    # Skip if already set (non-empty value)
+    local current
+    current=$(grep -E '^[[:space:]]*default_session:' "$config_file" 2>/dev/null | sed 's/.*default_session:[[:space:]]*//' || true)
+    if [[ -n "$current" ]]; then
+        success "tmux default_session already configured: $current"
+        return
+    fi
+
+    info "Configuring default tmux session name..."
+
+    local default_name="aitasks"
+    local session_name
+    if [[ -t 0 ]]; then
+        printf "  tmux session name [%s]: " "$default_name"
+        read -r session_name
+        session_name="${session_name:-$default_name}"
+    else
+        session_name="$default_name"
+        info "(non-interactive: using default '$session_name')"
+    fi
+
+    # tmux session names cannot contain . or :
+    if [[ "$session_name" == *"."* || "$session_name" == *":"* ]]; then
+        warn "Session name contains invalid chars (. or :); falling back to '$default_name'"
+        session_name="$default_name"
+    fi
+
+    _set_tmux_default_session_config "$config_file" "$session_name"
+
+    # Verify the write took effect
+    local after_write
+    after_write=$(grep -E '^[[:space:]]*default_session:' "$config_file" 2>/dev/null | sed 's/.*default_session:[[:space:]]*//' || true)
+    if [[ "$after_write" != "$session_name" ]]; then
+        warn "tmux default_session write failed — expected '$session_name' but got '$after_write'"
+    else
+        success "tmux default_session configured: $session_name"
     fi
 }
 
@@ -2673,6 +2818,9 @@ main() {
     echo ""
 
     setup_git_tui
+    echo ""
+
+    setup_tmux_default_session
     echo ""
 
     setup_userconfig

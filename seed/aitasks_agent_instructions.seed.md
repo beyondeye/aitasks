@@ -57,3 +57,21 @@ changes (task/plan file operations).
 
 Code commits use `<type>: <description> (tNN)`. Plan/task file commits use
 `ait: <description>`. Never mix code and task/plan files in the same commit.
+
+## Folded Task Semantics
+
+Folded tasks are **merged** into the primary task — not superseded or
+replaced. At fold time the folded content is incorporated into the primary
+task's description (see `## Merged from t<N>` headers). The folded file
+remains on disk only as a reference for post-implementation cleanup; it is
+deleted during archival. Always use "merged" / "incorporated" language —
+never "superseded" / "replaced".
+
+## Manual Verification Tasks
+
+Tasks with `issue_type: manual_verification` dispatch to a
+Pass/Fail/Skip/Defer checklist loop instead of the plan+implement flow.
+They are used for behavior only a human can validate (TUI flows, live
+agent launches, multi-screen navigation, on-disk artifact inspection).
+After a regular task that produces UX-affecting changes, the workflow
+may offer to queue a follow-up manual-verification task.

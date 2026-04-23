@@ -671,6 +671,10 @@ commit_installed_files() {
     fi
 
     # Build list of paths to commit (only those that exist)
+    # NOTE: This list is duplicated in .aitask-scripts/aitask_setup.sh
+    # commit_framework_files(). If you change one, change the other.
+    # install.sh runs stand-alone via curl|bash before extraction, so it
+    # cannot source a shared helper.
     local paths_to_add=()
     local check_paths=(
         ".aitask-scripts/"
@@ -678,10 +682,16 @@ commit_installed_files() {
         "aireviewguides/"
         "ait"
         ".claude/skills/"
-        ".agents/skills/"
+        ".agents/"
         ".codex/"
-        ".opencode/skills/"
+        ".gemini/"
         ".opencode/"
+        ".gitignore"
+        ".github/workflows/"
+        "CLAUDE.md"
+        "GEMINI.md"
+        "AGENTS.md"
+        "opencode.json"
     )
 
     for p in "${check_paths[@]}"; do
