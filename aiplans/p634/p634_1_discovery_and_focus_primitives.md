@@ -167,3 +167,25 @@ A small Python block (using `unittest.mock.patch("subprocess.run")`) to assert t
 ## Step 9 (Post-Implementation)
 
 Standard cleanup per `task-workflow/SKILL.md` — merge is a no-op since we're working on `main`, then archive via `./.aitask-scripts/aitask_archive.sh 634_1`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned in all three files.
+  - `.aitask-scripts/lib/agent_launch_utils.py`: added `AitasksSession` (frozen dataclass), two internal helpers `_walk_up_to_aitasks()` and `_read_registry_entry()`, plus public `discover_aitasks_sessions()` and `switch_to_pane_anywhere()`. Module docstring updated to export the new symbols.
+  - `.aitask-scripts/aitask_ide.sh`: added `set_project_registry()` shell function and wired it into all three startup paths (inside-tmux, attach-existing, new-session). The new-session path was restructured from `exec tmux new-session` to `tmux new-session -d` + `set_project_registry` + `exec tmux attach`, so the `set-environment -g` call runs while the server is up but before the shell is replaced.
+  - `tests/test_multi_session_primitives.sh`: 20-assertion test with three tiers — Python shape checks, mock-based `switch_to_pane_anywhere` call-ordering verification, and real-tmux `TMUX_TMPDIR`-isolated discovery tests.
+- **Deviations from plan:** None structural. One minor test-harness fix: the "tmux missing" case originally proposed `PATH=/nonexistent python3 ...` (which also hides python3). Replaced with a `unittest.mock.patch` that raises `FileNotFoundError` on `subprocess.run` — cleaner, same coverage.
+- **Issues encountered:**
+  - shellcheck flagged SC2329 on `cleanup()` (invoked via `trap`, false positive) — suppressed with an inline disable comment.
+  - shellcheck flagged SC2046 on the final `exit $([[ ...]] && ... || ...)` idiom copied from the reference test — replaced with an explicit `if/else`.
+  - Pre-existing SC1091 info on `aitask_ide.sh` (shellcheck can't follow `source "$SCRIPT_DIR/lib/terminal_compat.sh"` without `-x`) is unchanged and not introduced here.
+- **Key decisions:**
+  - Kept the no-caching semantics for `discover_aitasks_sessions()` — callers always get fresh state. A TTL cache would be the wrong default for long-running monitors.
+  - Registry lookup uses `tmux show-environment -g <VAR>` per-session, not a single `show-environment -g` scan. Simpler and the cost is negligible (N sessions × one subprocess).
+  - Registry entry is **validated** before being trusted (checks that the path still contains `aitasks/metadata/project_config.yaml`), so a stale entry pointing at a deleted project doesn't resurrect a non-aitasks session. Covered by Case 4 in the test.
+  - `switch_to_pane_anywhere` issues `switch-client`, `select-window`, and `select-pane` as three separate subprocess calls (not one compound `tmux ... \; ... \; ...` invocation) so each failure surface is diagnosable and the helper matches the error semantics of every other tmux wrapper in the file.
+- **Notes for sibling tasks:**
+  - t634_2 (multi-session monitor) should call `switch_to_pane_anywhere(pane.pane_id)` inside `TmuxMonitor.switch_to_pane()` when `multi_session=True`. Do **not** try to extend the existing in-session `select-window` + `select-pane` path for cross-session focus — pane IDs alone aren't enough because tmux still needs the client to teleport sessions first.
+  - t634_3 (two-level switcher) should prefer window-index targeting (`switch-client -t =sess` + `select-window -t =sess:N`) for Enter-to-teleport when the target is a window rather than a pane. `switch_to_pane_anywhere` is pane-oriented; for window-oriented navigation, duplicate the `switch-client` + `select-window` subset inline — don't retrofit the helper.
+  - The `AITASKS_PROJECT_<sess>` registry is populated **only** by `ait ide`. If a user launches the first aitasks TUI via a different entry point (e.g., running `ait board` directly in a shell session that's already cd'd into the project), the pane-cwd heuristic already covers it, so this is not a gap — but if a future entry point spawns a TUI window in a fresh session whose panes never see the project dir, that entry point must also write the registry entry. Document explicitly in each consumer's plan.
+- **Build verification:** `bash tests/test_multi_session_primitives.sh` → 20/20 pass. `bash tests/test_tmux_exact_session_targeting.sh` → 10/10 pass (regression). `shellcheck .aitask-scripts/aitask_ide.sh tests/test_multi_session_primitives.sh` → clean except pre-existing SC1091 info on `aitask_ide.sh`. `PYTHONPATH=.aitask-scripts/lib python3 -c "import agent_launch_utils"` → imports cleanly.
