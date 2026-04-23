@@ -2444,7 +2444,13 @@ commit_framework_files() {
     info "────────────────────────────────────────────────────"
     info "READY TO COMMIT $total_count FRAMEWORK FILES"
     info "────────────────────────────────────────────────────"
-    printf "%s\n" "${changed_files[@]}" | head -20 | sed 's/^/  /'
+    # Iterate via bash array indexing — avoids `printf | head` SIGPIPE which,
+    # under `set -o pipefail` + `set -e`, kills the script mid-list when the
+    # array is longer than the head limit.
+    local _i
+    for ((_i=0; _i<total_count && _i<20; _i++)); do
+        printf '  %s\n' "${changed_files[_i]}"
+    done
     if [[ $total_count -gt 20 ]]; then
         info "  ... and $((total_count - 20)) more files"
     fi
@@ -2461,14 +2467,14 @@ commit_framework_files() {
             local add_output commit_output
             if ! add_output=$(cd "$project_dir" && git add -- "${changed_files[@]}" 2>&1); then
                 warn "git add failed:"
-                printf "%s\n" "$add_output" | sed 's/^/    /'
+                printf '%s\n' "$add_output" | awk '{print "    " $0}'
                 warn "Framework files NOT committed. Run 'git add -A && git commit' manually."
                 return
             fi
             if ! (cd "$project_dir" && git diff --cached --quiet 2>/dev/null); then
                 if ! commit_output=$(cd "$project_dir" && git commit -m "ait: Add aitask framework" 2>&1); then
                     warn "git commit failed:"
-                    printf "%s\n" "$commit_output" | sed 's/^/    /'
+                    printf '%s\n' "$commit_output" | awk '{print "    " $0}'
                     warn "Framework files staged but NOT committed. Run 'git commit' manually."
                     return
                 fi
@@ -2482,7 +2488,8 @@ commit_framework_files() {
                 "${paths_to_add[@]}" 2>/dev/null | grep -Ev "$cache_artifacts_re")" || true
             if [[ -n "$still_untracked" ]]; then
                 warn "Some framework files remain untracked after commit:"
-                printf "%s\n" "$still_untracked" | head -20 | sed 's/^/    /'
+                # awk reads all stdin — no SIGPIPE even if list is huge.
+                printf '%s\n' "$still_untracked" | awk 'NR<=20 {print "    " $0}'
                 warn "Run 'git status' to investigate, then 'git add -A && git commit' to finalize."
             else
                 success "Framework files committed to git"
@@ -2490,7 +2497,9 @@ commit_framework_files() {
             ;;
         *)
             warn "Skipped committing framework files. These files remain UNTRACKED:"
-            printf "%s\n" "${changed_files[@]}" | head -10 | sed 's/^/    /'
+            for ((_i=0; _i<total_count && _i<10; _i++)); do
+                printf '    %s\n' "${changed_files[_i]}"
+            done
             if [[ $total_count -gt 10 ]]; then
                 info "    ... and $((total_count - 10)) more"
             fi
