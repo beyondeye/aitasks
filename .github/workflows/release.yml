@@ -30,7 +30,7 @@ jobs:
       - name: Build skills directory from .claude/skills
         run: |
           mkdir -p skills
-          for skill_dir in .claude/skills/aitask-*/; do
+          for skill_dir in .claude/skills/*/; do
             skill_name="$(basename "$skill_dir")"
             cp -r "$skill_dir" "skills/$skill_name"
           done
@@ -39,7 +39,7 @@ jobs:
         run: |
           if [ -d .agents/skills ]; then
             mkdir -p codex_skills
-            for skill_dir in .agents/skills/aitask-*/; do
+            for skill_dir in .agents/skills/*/; do
               [ -d "$skill_dir" ] || continue
               skill_name="$(basename "$skill_dir")"
               cp -r "$skill_dir" "codex_skills/$skill_name"
@@ -60,7 +60,7 @@ jobs:
           fi
           if [ -d .opencode/skills ]; then
             mkdir -p opencode_skills
-            for skill_dir in .opencode/skills/aitask-*/; do
+            for skill_dir in .opencode/skills/*/; do
               [ -d "$skill_dir" ] || continue
               skill_name="$(basename "$skill_dir")"
               cp -r "$skill_dir" "opencode_skills/$skill_name"

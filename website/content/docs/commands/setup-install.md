@@ -2,7 +2,7 @@
 title: "Setup & Install"
 linkTitle: "Setup & Install"
 weight: 10
-description: "ait setup and ait install commands"
+description: "ait setup and ait upgrade commands"
 depth: [intermediate]
 ---
 
@@ -50,15 +50,17 @@ To enable optional chart rendering for `ait stats-tui` later, re-run `ait setup`
 
 ---
 
-## ait install
+## ait upgrade
 
 Update the aitasks framework to a new version.
 
 ```bash
-ait install                    # Update to latest release
-ait install latest             # Same as above
-ait install 0.2.1              # Install specific version
+ait upgrade                    # Upgrade to latest release
+ait upgrade latest             # Same as above
+ait upgrade 0.2.1              # Upgrade to specific version
 ```
+
+> **Previously named `ait install`.** The old name remains as a deprecated alias that prints a one-line notice and forwards to `ait upgrade`. Scripts and muscle memory using `ait install` continue to work, but should migrate to `ait upgrade`.
 
 **How it works:**
 
@@ -71,7 +73,7 @@ ait install 0.2.1              # Install specific version
 
 **Automatic update check:**
 
-The `ait` dispatcher checks for new versions once per day (at most). When a newer version is available, it shows a brief notice suggesting `ait install latest`. The check runs in the background to avoid adding latency. It is skipped for `help`, `version`, `install`, and `setup` commands.
+The `ait` dispatcher checks for new versions once per day (at most). When a newer version is available, it shows a brief notice suggesting `ait upgrade latest`. The check runs in the background to avoid adding latency. It is skipped for `help`, `version`, `install`, `upgrade`, and `setup` commands.
 
 ---
 

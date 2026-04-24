@@ -54,7 +54,7 @@ description: "Complete CLI reference for all ait subcommands"
 | Command | Description |
 |---------|-------------|
 | [`ait setup`](setup-install/#ait-setup) | Install/update dependencies and configure Claude Code permissions |
-| [`ait install`](setup-install/#ait-install) | Update aitasks to latest or specific version |
+| [`ait upgrade`](setup-install/#ait-upgrade) | Update aitasks to latest or specific version |
 
 ## Usage Examples
 
@@ -84,8 +84,8 @@ ait codeagent list-agents                 # Show available code agents
 ait codeagent list-models claudecode      # List Claude models
 ait codeagent resolve task-pick           # Show configured agent/model
 ait settings                              # Open settings TUI
-ait install                              # Update to latest version
-ait install 0.2.1                        # Install specific version
+ait upgrade                              # Update to latest version
+ait upgrade 0.2.1                        # Upgrade to specific version
 ait --version                           # Show installed version
 ```
 

@@ -22,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh |
 Upgrade an existing installation:
 
 ```bash
-ait install latest
+ait upgrade latest
 ```
 
 Or for fresh installs without an existing `ait` dispatcher:

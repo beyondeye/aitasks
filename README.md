@@ -70,7 +70,7 @@ ait setup
 Upgrade an existing installation:
 
 ```bash
-ait install latest
+ait upgrade latest
 ait setup
 ```
 

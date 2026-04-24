@@ -190,12 +190,12 @@ install_skills() {
 
     mkdir -p "$INSTALL_DIR/.claude/skills"
 
-    for skill_dir in "$INSTALL_DIR/skills"/aitask-*/; do
+    for skill_dir in "$INSTALL_DIR/skills"/*/; do
         [[ -d "$skill_dir" ]] || continue
         local skill_name
         skill_name="$(basename "$skill_dir")"
         mkdir -p "$INSTALL_DIR/.claude/skills/$skill_name"
-        cp "$skill_dir/SKILL.md" "$INSTALL_DIR/.claude/skills/$skill_name/SKILL.md"
+        cp -r "$skill_dir". "$INSTALL_DIR/.claude/skills/$skill_name/"
         info "  Installed skill: $skill_name"
     done
 
@@ -424,12 +424,12 @@ install_codex_staging() {
 
     mkdir -p "$INSTALL_DIR/aitasks/metadata/codex_skills"
 
-    for skill_dir in "$INSTALL_DIR/codex_skills"/aitask-*/; do
+    for skill_dir in "$INSTALL_DIR/codex_skills"/*/; do
         [[ -d "$skill_dir" ]] || continue
         local skill_name
         skill_name="$(basename "$skill_dir")"
         mkdir -p "$INSTALL_DIR/aitasks/metadata/codex_skills/$skill_name"
-        cp "$skill_dir/SKILL.md" "$INSTALL_DIR/aitasks/metadata/codex_skills/$skill_name/SKILL.md"
+        cp -r "$skill_dir". "$INSTALL_DIR/aitasks/metadata/codex_skills/$skill_name/"
     done
 
     # Copy shared helper docs (codex + gemini)
@@ -452,12 +452,12 @@ install_opencode_staging() {
     if [[ -d "$INSTALL_DIR/opencode_skills" ]]; then
         mkdir -p "$INSTALL_DIR/aitasks/metadata/opencode_skills"
 
-        for skill_dir in "$INSTALL_DIR/opencode_skills"/aitask-*/; do
+        for skill_dir in "$INSTALL_DIR/opencode_skills"/*/; do
             [[ -d "$skill_dir" ]] || continue
             local skill_name
             skill_name="$(basename "$skill_dir")"
             mkdir -p "$INSTALL_DIR/aitasks/metadata/opencode_skills/$skill_name"
-            cp "$skill_dir/SKILL.md" "$INSTALL_DIR/aitasks/metadata/opencode_skills/$skill_name/SKILL.md"
+            cp -r "$skill_dir". "$INSTALL_DIR/aitasks/metadata/opencode_skills/$skill_name/"
         done
 
         # Copy shared OpenCode helper docs

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """aitask_install_merge - Merge seed config files into existing project files.
 
-Invoked by install.sh during `ait install --force` to preserve user customizations
+Invoked by install.sh during `ait upgrade --force` to preserve user customizations
 in seed-installed config files. Existing destination values always win; only keys
 absent from the destination are copied from the seed.
 
