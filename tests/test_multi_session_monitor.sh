@@ -412,24 +412,6 @@ assert_contains "MonitorApp has M binding registered" "M_IN_BINDINGS:True" "$out
 assert_contains "MonitorApp has action_toggle_multi_session handler" \
     "HAS_ACTION:True" "$out"
 
-# --- Tier 1j: single fixed session tag color + divider class ---
-
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
-from monitor_app import MonitorApp
-print("HAS_TAG_COLOR:" + str(hasattr(MonitorApp, "_SESSION_TAG_COLOR")))
-print("TAG_COLOR:" + MonitorApp._SESSION_TAG_COLOR)
-# Hashed-palette scaffolding should be gone.
-print("NO_PALETTE:" + str(not hasattr(MonitorApp, "_SESSION_TAG_PALETTE")))
-print("NO_COLOR_FN:" + str(not hasattr(MonitorApp, "_session_tag_color")))
-PY
-)
-assert_contains "MonitorApp defines a single fixed session-tag color" \
-    "HAS_TAG_COLOR:True" "$out"
-assert_contains "tag color is a known Rich color name" \
-    "TAG_COLOR:magenta" "$out"
-assert_contains "hashed palette scaffolding removed" "NO_PALETTE:True" "$out"
-assert_contains "per-session color function removed" "NO_COLOR_FN:True" "$out"
-
 # --- Tier 2: Real tmux — two fake aitasks sessions aggregated ---
 
 if ! command -v tmux >/dev/null 2>&1; then

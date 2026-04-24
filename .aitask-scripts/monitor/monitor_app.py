@@ -869,43 +869,7 @@ class MonitorApp(TuiSwitcherMixin, App):
             return None
         return result.stdout.strip() or None
 
-    # Single fixed color for the session tag prefix and divider rows. Using
-    # per-session hashed colors was tried but did not render reliably across
-    # the user's terminals, and a uniform color keeps the pane list calm to
-    # scan \u2014 session boundaries are already conveyed by the divider rows.
-    _SESSION_TAG_COLOR = "magenta"
-
-    def _build_session_tags(self) -> dict[str, str]:
-        """Map tmux session name \u2192 project name for the session-tag prefix.
-
-        Returns {} outside multi-session mode so card formatters collapse to
-        their legacy single-session output.
-        """
-        if self._monitor is None or not self._monitor.multi_session:
-            return {}
-        return {
-            s.session: s.project_name
-            for s in self._monitor._discover_sessions_cached()
-        }
-
-    def _session_tag_prefix(
-        self, snap: PaneSnapshot, session_tags: dict[str, str]
-    ) -> str:
-        if not session_tags:
-            return ""
-        name = session_tags.get(snap.pane.session_name)
-        if not name:
-            # Unknown tag (e.g., a brand-new session arrived between cache
-            # refresh and pane list) \u2014 fall back to the session name itself so
-            # the row still shows something meaningful.
-            name = snap.pane.session_name or "?"
-        return f"[{self._SESSION_TAG_COLOR}][{name}][/] "
-
-    def _format_agent_card_text(
-        self, snap: PaneSnapshot, session_tags: dict[str, str] | None = None
-    ) -> str:
-        tags = session_tags if session_tags is not None else {}
-        tag = self._session_tag_prefix(snap, tags)
+    def _format_agent_card_text(self, snap: PaneSnapshot) -> str:
         if snap.is_idle:
             idle_s = int(snap.idle_seconds)
             dot = "[yellow]\u25cf[/]"
@@ -914,7 +878,7 @@ class MonitorApp(TuiSwitcherMixin, App):
             dot = "[green]\u25cf[/]"
             status = "[green]Active[/]"
         text = (
-            f" {dot} {tag}{snap.pane.window_index}:{snap.pane.window_name} "
+            f" {dot} {snap.pane.window_index}:{snap.pane.window_name} "
             f"({snap.pane.pane_index})  {status}"
         )
         task_id = self._task_cache.get_task_id(snap.pane.window_name)
@@ -924,19 +888,15 @@ class MonitorApp(TuiSwitcherMixin, App):
                 text += f"\n     [dim italic]t{task_id}: {info.title}[/]"
         return text
 
-    def _format_other_card_text(
-        self, snap: PaneSnapshot, session_tags: dict[str, str] | None = None
-    ) -> str:
-        tags = session_tags if session_tags is not None else {}
-        tag = self._session_tag_prefix(snap, tags)
+    def _format_other_card_text(self, snap: PaneSnapshot) -> str:
         return (
-            f" [dim]\u25cb[/] {tag}{snap.pane.window_index}:{snap.pane.window_name} "
+            f" [dim]\u25cb[/] {snap.pane.window_index}:{snap.pane.window_name} "
             f"({snap.pane.pane_index})  [dim]{snap.pane.current_command}[/]"
         )
 
     def _rebuild_pane_list(self) -> None:
         container = self.query_one("#pane-list", VerticalScroll)
-        session_tags = self._build_session_tags()
+        multi_mode = bool(self._monitor and self._monitor.multi_session)
 
         agents: list[PaneSnapshot] = []
         others: list[PaneSnapshot] = []
@@ -988,11 +948,11 @@ class MonitorApp(TuiSwitcherMixin, App):
             by_id = {c.pane_id: c for c in current_cards}
             for snap in agents:
                 by_id[snap.pane.pane_id].update(
-                    self._format_agent_card_text(snap, session_tags)
+                    self._format_agent_card_text(snap)
                 )
             for snap in others:
                 by_id[snap.pane.pane_id].update(
-                    self._format_other_card_text(snap, session_tags)
+                    self._format_other_card_text(snap)
                 )
             return
 
@@ -1000,8 +960,6 @@ class MonitorApp(TuiSwitcherMixin, App):
         # window is tolerable because the pane set actually changed.
         for widget in list(container.children):
             widget.remove()
-
-        multi_mode = bool(session_tags)
 
         def mount_with_session_dividers(snaps, card_fn):
             """Mount PaneCards with a session divider before each new group.
@@ -1021,7 +979,7 @@ class MonitorApp(TuiSwitcherMixin, App):
                         f"  [dim]── {label} ──[/]",
                         classes="session-divider",
                     ))
-                container.mount(PaneCard(snap.pane.pane_id, card_fn(snap, session_tags)))
+                container.mount(PaneCard(snap.pane.pane_id, card_fn(snap)))
 
         if agents:
             auto_label = "  [bold yellow]⟳ AUTO[/]" if self._auto_switch else ""
