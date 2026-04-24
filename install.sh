@@ -212,6 +212,46 @@ create_data_dirs() {
     mkdir -p "$INSTALL_DIR/aireviewguides"
 }
 
+# --- Merge seed file into destination (preserve existing user values) ---
+# Usage: merge_seed <mode> <src> <dest> <label>
+# Modes: yaml | json | text-union
+# - If dest is missing: straight copy.
+# - If dest exists and FORCE=true: merge via aitask_install_merge.py (existing
+#   dest values win, new seed keys are added).
+# - If dest exists and FORCE!=true: keep existing dest untouched.
+merge_seed() {
+    local mode="$1" src="$2" dest="$3" label="$4"
+    if [[ ! -f "$dest" ]]; then
+        mkdir -p "$(dirname "$dest")"
+        cp "$src" "$dest"
+        info "  Installed $label"
+        return
+    fi
+    if [[ "$FORCE" != true ]]; then
+        info "  $label exists (kept)"
+        return
+    fi
+    if python3 "$INSTALL_DIR/.aitask-scripts/aitask_install_merge.py" "$mode" "$src" "$dest" 2>/dev/null; then
+        info "  Merged $label (kept existing values, added new seed keys)"
+    else
+        warn "  Merge failed for $label — leaving existing file untouched"
+    fi
+}
+
+# --- Install scoped .aitask-scripts/.gitignore ---
+# Framework-owned gitignore that prevents Python cache artifacts from leaking
+# into downstream project repos. Unconditionally overwritten each install.
+install_seed_aitask_scripts_gitignore() {
+    local src="$INSTALL_DIR/seed/aitask_scripts_gitignore.seed"
+    local dest="$INSTALL_DIR/.aitask-scripts/.gitignore"
+    if [[ ! -f "$src" ]]; then
+        warn "No seed/aitask_scripts_gitignore.seed in tarball — skipping"
+        return
+    fi
+    cp "$src" "$dest"
+    info "  Installed .aitask-scripts/.gitignore"
+}
+
 # --- Install seed profiles ---
 install_seed_profiles() {
     if [[ ! -d "$INSTALL_DIR/seed/profiles" ]]; then
@@ -226,12 +266,7 @@ install_seed_profiles() {
         local bname
         bname="$(basename "$profile")"
         local dest="$INSTALL_DIR/aitasks/metadata/profiles/$bname"
-        if [[ -f "$dest" && "$FORCE" != true ]]; then
-            info "  Profile exists (kept): $bname"
-        else
-            cp "$profile" "$dest"
-            info "  Installed profile: $bname"
-        fi
+        merge_seed yaml "$profile" "$dest" "profile: $bname"
     done
 
 }
@@ -246,12 +281,7 @@ install_seed_task_types() {
         return
     fi
 
-    if [[ -f "$dest" && "$FORCE" != true ]]; then
-        info "  Task types file exists (kept): task_types.txt"
-    else
-        cp "$src" "$dest"
-        info "  Installed task types: task_types.txt"
-    fi
+    merge_seed text-union "$src" "$dest" "task types: task_types.txt"
 }
 
 # --- Install seed project config ---
@@ -264,13 +294,7 @@ install_seed_project_config() {
         return
     fi
 
-    mkdir -p "$(dirname "$dest")"
-    if [[ -f "$dest" && "$FORCE" != true ]]; then
-        info "  Project config exists (kept): project_config.yaml"
-    else
-        cp "$src" "$dest"
-        info "  Installed project config: project_config.yaml"
-    fi
+    merge_seed yaml "$src" "$dest" "project config: project_config.yaml"
 }
 
 # --- Install seed review types ---
@@ -283,12 +307,7 @@ install_seed_reviewtypes() {
         return
     fi
 
-    if [[ -f "$dest" && "$FORCE" != true ]]; then
-        info "  Review types file exists (kept): reviewtypes.txt"
-    else
-        cp "$src" "$dest"
-        info "  Installed review types: reviewtypes.txt"
-    fi
+    merge_seed text-union "$src" "$dest" "review types: reviewtypes.txt"
 }
 
 # --- Install seed review labels ---
@@ -301,12 +320,7 @@ install_seed_reviewlabels() {
         return
     fi
 
-    if [[ -f "$dest" && "$FORCE" != true ]]; then
-        info "  Review labels file exists (kept): reviewlabels.txt"
-    else
-        cp "$src" "$dest"
-        info "  Installed review labels: reviewlabels.txt"
-    fi
+    merge_seed text-union "$src" "$dest" "review labels: reviewlabels.txt"
 }
 
 # --- Install seed review environments ---
@@ -319,15 +333,12 @@ install_seed_reviewenvironments() {
         return
     fi
 
-    if [[ -f "$dest" && "$FORCE" != true ]]; then
-        info "  Review environments file exists (kept): reviewenvironments.txt"
-    else
-        cp "$src" "$dest"
-        info "  Installed review environments: reviewenvironments.txt"
-    fi
+    merge_seed text-union "$src" "$dest" "review environments: reviewenvironments.txt"
 }
 
 # --- Install seed review guides ---
+# Review guides are user-editable prose. Never overwrite an existing guide, even
+# on --force: only install guides whose destination does not yet exist.
 install_seed_reviewguides() {
     if [[ ! -d "$INSTALL_DIR/seed/reviewguides" ]]; then
         warn "No seed/reviewguides/ directory in tarball — skipping review guide installation"
@@ -336,12 +347,11 @@ install_seed_reviewguides() {
 
     mkdir -p "$INSTALL_DIR/aireviewguides"
 
-    # Copy review guide files recursively (supports tree structure)
     while IFS= read -r -d '' mode_file; do
         local rel_path="${mode_file#$INSTALL_DIR/seed/reviewguides/}"
         local dest="$INSTALL_DIR/aireviewguides/$rel_path"
         mkdir -p "$(dirname "$dest")"
-        if [[ -f "$dest" && "$FORCE" != true ]]; then
+        if [[ -f "$dest" ]]; then
             info "  Review guide exists (kept): $rel_path"
         else
             cp "$mode_file" "$dest"
@@ -349,11 +359,10 @@ install_seed_reviewguides() {
         fi
     done < <(find "$INSTALL_DIR/seed/reviewguides" -name "*.md" -type f -print0 2>/dev/null)
 
-    # Copy .reviewguidesignore if present in seed
     local src_ignore="$INSTALL_DIR/seed/reviewguides/.reviewguidesignore"
     local dest_ignore="$INSTALL_DIR/aireviewguides/.reviewguidesignore"
     if [[ -f "$src_ignore" ]]; then
-        if [[ -f "$dest_ignore" && "$FORCE" != true ]]; then
+        if [[ -f "$dest_ignore" ]]; then
             info "  Filter file exists (kept): .reviewguidesignore"
         else
             cp "$src_ignore" "$dest_ignore"
@@ -372,12 +381,7 @@ install_seed_codeagent_config() {
         return
     fi
 
-    if [[ -f "$dest" && "$FORCE" != true ]]; then
-        info "  Code agent config exists (kept): codeagent_config.json"
-    else
-        cp "$src" "$dest"
-        info "  Installed code agent config: codeagent_config.json"
-    fi
+    merge_seed json "$src" "$dest" "code agent config: codeagent_config.json"
 }
 
 # --- Install seed model configuration files ---
@@ -390,12 +394,7 @@ install_seed_models() {
         local bname
         bname="$(basename "$src")"
         local dest="$INSTALL_DIR/aitasks/metadata/$bname"
-        if [[ -f "$dest" && "$FORCE" != true ]]; then
-            info "  Model config exists (kept): $bname"
-        else
-            cp "$src" "$dest"
-            info "  Installed model config: $bname"
-        fi
+        merge_seed json "$src" "$dest" "model config: $bname"
     done
 
     if [[ "$found" == false ]]; then
@@ -680,20 +679,31 @@ set_permissions() {
 }
 
 # --- Commit installed files to git (safety net) ---
-# Runs after extraction — commits framework files if in a git repo.
+# Runs after extraction — commits framework files if this project has opted
+# into tracking them (heuristic: .aitask-scripts/VERSION is git-tracked).
 # No interactive prompt (stdin may not be a terminal when piped).
-# Non-fatal: warns on failure instead of aborting.
+# Non-fatal: warns on failure instead of aborting. Never pushes.
 commit_installed_files() {
-    # Only act if we're in a git repo
     if ! git -C "$INSTALL_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
         return
     fi
 
-    # Build list of paths to commit (only those that exist)
-    # NOTE: This list is duplicated in .aitask-scripts/aitask_setup.sh
-    # commit_framework_files(). If you change one, change the other.
-    # install.sh runs stand-alone via curl|bash before extraction, so it
-    # cannot source a shared helper.
+    # Only auto-commit if the previous framework version was committed. We use
+    # .aitask-scripts/VERSION as the sentinel: projects that want framework
+    # files tracked commit it, projects that don't leave it untracked.
+    if ! git -C "$INSTALL_DIR" ls-files --error-unmatch .aitask-scripts/VERSION &>/dev/null; then
+        info "  .aitask-scripts/VERSION is not git-tracked — skipping auto-commit of framework update."
+        return
+    fi
+
+    local version="unknown"
+    if [[ -f "$INSTALL_DIR/.aitask-scripts/VERSION" ]]; then
+        version="$(cat "$INSTALL_DIR/.aitask-scripts/VERSION")"
+    fi
+
+    # Build list of framework paths to stage. NOTE: this list is duplicated in
+    # .aitask-scripts/aitask_setup.sh commit_framework_files(); keep them in sync.
+    # install.sh runs stand-alone via curl|bash so it cannot source a shared helper.
     local paths_to_add=()
     local check_paths=(
         ".aitask-scripts/"
@@ -723,24 +733,22 @@ commit_installed_files() {
         return
     fi
 
-    # Check if there are untracked framework files
-    local untracked
-    untracked="$(cd "$INSTALL_DIR" && git ls-files --others --exclude-standard \
-        "${paths_to_add[@]}" 2>/dev/null)" || true
-
-    if [[ -z "$untracked" ]]; then
-        return
-    fi
-
-    info "Committing framework files to git..."
+    info "Committing framework update (v${version}) to git..."
     (
         cd "$INSTALL_DIR"
         git add "${paths_to_add[@]}" 2>/dev/null || true
-        if ! git diff --cached --quiet 2>/dev/null; then
-            git commit -m "ait: Add aitask framework"
+        # One-time cleanup: drop any __pycache__ paths that were tracked before
+        # the scoped .aitask-scripts/.gitignore landed.
+        local cached_pycache
+        cached_pycache="$(git ls-files '.aitask-scripts/*/__pycache__/*' 2>/dev/null || true)"
+        if [[ -n "$cached_pycache" ]]; then
+            echo "$cached_pycache" | xargs git rm --cached --quiet 2>/dev/null || true
         fi
-    ) && success "Framework files committed to git" \
-      || warn "Could not commit framework files (non-fatal). Run 'ait setup' to retry."
+        if ! git diff --cached --quiet 2>/dev/null; then
+            git commit -m "ait: Update aitasks framework to v${version}"
+        fi
+    ) && success "Framework update committed to git" \
+      || warn "Could not commit framework update (non-fatal)."
 }
 
 # --- Main ---
@@ -776,6 +784,9 @@ main() {
 
     info "Installing Claude Code skills..."
     install_skills
+
+    info "Installing .aitask-scripts/.gitignore..."
+    install_seed_aitask_scripts_gitignore
 
     info "Creating data directories..."
     create_data_dirs

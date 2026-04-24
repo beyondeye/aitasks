@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.17.4
+
+### Bug Fixes
+
+- **Preserve project settings on `ait install`** (t637): `ait install --force` no longer clobbers user-edited seed configs. `project_config.yaml`, `codeagent_config.json`, `models_*.json`, and execution profiles are deep-merged (existing values win, new seed keys are added); `task_types.txt`, `reviewtypes.txt`, `reviewlabels.txt`, and `reviewenvironments.txt` use line-union semantics; existing review-guide `.md` files are never overwritten.
+- **Auto-commit framework updates only when tracked** (t637): `ait install` now gates its safety-net commit on whether `.aitask-scripts/VERSION` is already tracked. If tracked, framework updates (adds **and** modifications) are committed with a version-stamped message (`ait: Update aitasks framework to vX.Y.Z`); if untracked, the installer never touches git. The installer never pushes on its own.
+- **Ship scoped `.gitignore` inside `.aitask-scripts/`** (t637): A framework-owned `.aitask-scripts/.gitignore` is now installed alongside the framework to keep `__pycache__/`, `*.pyc`, and `*.pyo` artifacts out of downstream project repos. The auto-commit path also opportunistically drops any previously-tracked `__pycache__` paths from the project's index.
+
 ## v0.17.3
 
 ### Bug Fixes
