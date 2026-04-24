@@ -184,3 +184,26 @@ After user-approved commit in Step 8: run `./.aitask-scripts/aitask_archive.sh 6
   - `./ait install --help` → prints the deprecation warning, then the same usage text.
   - `grep -rn 'aitask-\*/' .github/workflows/release.yml install.sh` → no results.
   - `grep -rnE '\bait install\b' ait .aitask-scripts/ seed/ install.sh README.md website/` → only the deprecation-warning string in `ait`, the intentional deprecation note in `setup-install.md`, and historical/auto-generated content (dated blog post, Hugo offline search index).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-04-24)
+
+- **Requested by user:** Four of the five `aitask_setup.sh` messages I converted from `ait install` → `ait upgrade` were semantically wrong. The original `ait install` references were also wrong — they suggested `ait install` for *reinstall/repair* scenarios (populate missing project_config, restore missing Gemini/Codex/OpenCode support files). The correct command for those scenarios is `ait setup`, not `ait upgrade`. The original misuse was itself a practical symptom of the `ait install` misnomer — the maintainers used "install" thinking it meant "install/reinstall" when it really meant "upgrade", and I preserved the bug by naively swapping verbs.
+- **Changes made:** In `.aitask-scripts/aitask_setup.sh`:
+  - Line 1177 (missing project_config): `Reinstall aitasks (e.g. 'ait upgrade') to populate the project config.` → `Re-run 'ait setup' to populate the project config from the seed.`
+  - Line 1558 (missing Gemini staging): `Re-run 'ait upgrade' to get Gemini CLI support files` → `Re-run 'ait setup' to restore Gemini CLI support files`
+  - Line 1799 (missing Codex staging): similar `ait upgrade` → `ait setup`.
+  - Line 1934 (missing OpenCode staging): similar `ait upgrade` → `ait setup`.
+  - Line 1297 (update-available hint at end of `ait setup`): **unchanged** — this is a genuine upgrade recommendation (`Run: ait upgrade latest`), kept as-is.
+- **Files affected:** `.aitask-scripts/aitask_setup.sh` (4 edits).
+- **Other `ait upgrade` references audited:** `README.md`, `website/content/docs/installation/_index.md`, `website/content/docs/commands/_index.md` (table + examples), `website/content/docs/commands/setup-install.md` (heading + examples + no-sync mention), and `ait` dispatcher (update-available hint + deprecation notice). All are genuine upgrade contexts — no further corrections needed.
+
+### Change Request 2 (2026-04-24)
+
+- **Requested by user:** Don't keep `ait install` as a deprecated alias — remove it completely. The aliasing approach was too conservative; clean break is preferred.
+- **Changes made:**
+  - `ait` dispatcher: removed the `install)` case entirely (the deprecation-warning + forward is gone); removed `install` from the no-sync list alongside `upgrade`. `ait install …` now falls into the unknown-command handler and exits with `ait: unknown command 'install'` + `Run 'ait help' for usage information.`
+  - `website/content/docs/commands/setup-install.md`: removed the "Previously named `ait install`" blockquote that pointed at the now-removed alias; removed the trailing `install` from the no-sync list in the automatic-update-check paragraph (kept `help`, `version`, `upgrade`, `setup`).
+- **Files affected:** `ait`, `website/content/docs/commands/setup-install.md`.
+- **Website source audit:** `grep -rnE '\bait install\b' website/content/` returns only the historical v0.3.0 blog post (`blog/v030-atomic-ids-locking-updater.md`), which is a dated release note and is intentionally left unchanged per the CLAUDE.md docs-rule for dated content. `website/public/` shows stale hits, but that directory is the compiled Hugo output and is gitignored — regenerates on next `hugo build`.
