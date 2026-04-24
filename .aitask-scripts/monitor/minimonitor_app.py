@@ -85,6 +85,12 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         color: $text;
     }
 
+    .mini-session-divider {
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
+    }
+
     #mini-key-hints {
         dock: bottom;
         height: auto;
@@ -103,6 +109,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         Binding("i", "show_task_info", "Task Info", show=False),
         Binding("r", "refresh", "Refresh", show=False),
         Binding("m", "switch_to_monitor", "Full Monitor", show=False),
+        Binding("M", "toggle_multi_session", "Multi", show=False),
     ]
 
     def __init__(
@@ -138,7 +145,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         yield Static(
             "tab:agent  s/\u2191\u2193:switch  i:info\n"
             "j:jump     r:refresh  q:quit  enter:send\n"
-            "m:full monitor",
+            "m:full monitor  M:multi",
             id="mini-key-hints",
         )
 
@@ -184,14 +191,10 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         if self._tui_names is not None:
             kwargs["tui_names"] = self._tui_names
 
-        # Minimonitor intentionally stays session-local until t634_5 adds its
-        # own multi-session support. Pin the flag off so the shared TmuxMonitor
-        # default (True) doesn't silently change behavior here.
         self._monitor = TmuxMonitor(
             session=self._session,
             capture_lines=self._capture_lines,
             idle_threshold=self._idle_threshold,
-            multi_session=False,
             **kwargs,
         )
         self.call_later(self._refresh_data)
@@ -276,7 +279,15 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             return
         for card in self.query("#mini-pane-list MiniPaneCard"):
             snap = self._snapshots.get(card.pane_id)
-            if snap and snap.pane.window_index == self._own_window_index:
+            if (
+                snap
+                and snap.pane.window_index == self._own_window_index
+                # Multi-session: two sessions could both have a pane at the
+                # same window_index. Scope the match to the own session so
+                # we don't auto-focus a cross-session agent. Empty
+                # session_name is preserved to cover legacy snapshot paths.
+                and snap.pane.session_name in ("", self._session)
+            ):
                 card.focus()
                 return
 
@@ -298,9 +309,19 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
 
         idle_str = f" [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
         bar = self.query_one("#mini-session-bar", Static)
-        bar.update(
-            f"{self._session}  {total} agent{'s' if total != 1 else ''}{idle_str}"
-        )
+
+        if self._monitor is not None and self._monitor.multi_session:
+            # Count unique sessions currently represented in the snapshot so
+            # the bar tracks what's on screen, not the discovery cache.
+            sessions = {
+                s.pane.session_name for s in agents if s.pane.session_name
+            }
+            n = len(sessions) if sessions else 1
+            bar.update(f"multi: {n}s · {total}a{idle_str}")
+        else:
+            bar.update(
+                f"{self._session}  {total} agent{'s' if total != 1 else ''}{idle_str}"
+            )
 
     async def _rebuild_pane_list(self) -> None:
         container = self.query_one("#mini-pane-list", VerticalScroll)
@@ -308,15 +329,31 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         # mounting new cards — otherwise focus restoration can race removal.
         await container.remove_children()
 
-        # Only show AGENT panes, sorted by window_index
+        # Only show AGENT panes. Sort by (session_name, window_index,
+        # pane_index) so session grouping is stable across refreshes;
+        # single-session mode degrades to the legacy (window_index,
+        # pane_index) order because every snapshot shares the same session.
         agents = [
             s for s in self._snapshots.values()
             if s.pane.category == PaneCategory.AGENT
         ]
-        agents.sort(key=lambda s: (s.pane.window_index, s.pane.pane_index))
+        agents.sort(
+            key=lambda s: (s.pane.session_name, s.pane.window_index, s.pane.pane_index)
+        )
 
-        cards: list[MiniPaneCard] = []
+        multi_mode = bool(self._monitor and self._monitor.multi_session)
+        widgets: list = []
+        current_session: str | None = None
+
         for snap in agents:
+            if multi_mode and snap.pane.session_name != current_session:
+                current_session = snap.pane.session_name
+                label = current_session or "?"
+                widgets.append(Static(
+                    f"[dim]\u2500\u2500 {label} \u2500\u2500[/]",
+                    classes="mini-session-divider",
+                ))
+
             if snap.is_idle:
                 idle_s = int(snap.idle_seconds)
                 dot = "[yellow]\u25cf[/]"
@@ -344,10 +381,10 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
                         title = title[:29] + "\u2026"
                     line1 += f"\n  [dim]{title}[/]"
 
-            cards.append(MiniPaneCard(snap.pane.pane_id, line1))
+            widgets.append(MiniPaneCard(snap.pane.pane_id, line1))
 
-        if cards:
-            await container.mount_all(cards)
+        if widgets:
+            await container.mount_all(widgets)
 
     # -- Key handling ----------------------------------------------------------
 
@@ -493,6 +530,21 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         """Force an immediate data refresh."""
         self.call_later(self._refresh_data)
         self.notify("Refreshed")
+
+    def action_toggle_multi_session(self) -> None:
+        """Flip the multi-session view ON/OFF in memory.
+
+        Mirrors MonitorApp.action_toggle_multi_session: in-memory only (no
+        config write), invalidates the session cache so the first
+        post-toggle refresh re-discovers, and schedules a refresh to repaint.
+        """
+        if self._monitor is None:
+            return
+        self._monitor.multi_session = not self._monitor.multi_session
+        self._monitor.invalidate_sessions_cache()
+        state = "ON" if self._monitor.multi_session else "OFF"
+        self.notify(f"Multi-session {state}", timeout=3)
+        self.call_later(self._refresh_data)
 
     def action_show_task_info(self) -> None:
         """Show task detail dialog for the focused agent pane."""
