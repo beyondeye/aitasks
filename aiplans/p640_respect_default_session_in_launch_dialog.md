@@ -190,3 +190,17 @@ python -c "import ast; ast.parse(open('.aitask-scripts/lib/agent_command_screen.
 ## Post-Implementation Reference
 
 See Step 9 (Post-Implementation) in the task-workflow SKILL.md for archival, commit, and push conventions. No worktree cleanup required (working on main directly per `fast` profile).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned. Added a module-level `pick_initial_session()` pure helper with the documented 4-step priority and wired `_populate_tmux_tab` to call it. Replaced `_last_session` / `_last_window` class-level scalars with `_last_session_by_project` / `_last_window_by_project` dicts keyed by `self._project_key = self._project_root.resolve()`. Updated `_update_window_options` to prefer caller-supplied `default_tmux_window` → per-project last-window → `_NEW_WINDOW_SENTINEL`. Updated `run_tmux` to persist selections into the per-project dicts.
+- **Deviations from plan:** Promoted `_pick_initial_session` to a module-level function `pick_initial_session` (no underscore prefix) rather than a static method on the class. This is easier to import and test in isolation, and the logic is pure — no class state is needed. The plan left this as an option ("Prefer this refactor"); the module-level form was slightly cleaner.
+- **Issues encountered:** None. Implementation was straightforward.
+- **Key decisions:**
+  - `self._project_key` is computed once in `__init__` using `Path.resolve()` so dict keys stay stable even if CWD changes mid-session (unlikely, but safer).
+  - `_update_window_options` now falls through when the caller's `default_tmux_window` is no longer live (previously it forced `_NEW_WINDOW_SENTINEL` in that case). The new behavior tries per-project last-window before defaulting to new — a graceful upgrade.
+  - Extracted `pick_initial_session` as a pure function to make it unit-testable without a Textual harness. Added 7 tests in `tests/test_agent_command_dialog_default_session.py`.
+- **Testing:** All 483 existing Python tests + 7 new tests pass (`bash tests/run_all_python_tests.sh`). `python -c "import ast; ast.parse(...)"` confirms syntax.
+- **Files changed:**
+  - `.aitask-scripts/lib/agent_command_screen.py` (modified)
+  - `tests/test_agent_command_dialog_default_session.py` (added)
