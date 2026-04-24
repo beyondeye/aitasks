@@ -44,6 +44,7 @@ depth: [advanced]
 | `b` | Toggle the preview scrollbar visibility | Global |
 | `t` | Scroll the preview to its tail (newest output) | Global |
 | `a` | Toggle auto-switch mode (automatically focus idle agents needing attention) | Global |
+| `M` | Toggle the multi-session view ON/OFF (see [Multi-session view](#multi-session-view)) | Global |
 
 > **Note:** In the preview zone, every keystroke that is not handled by a global binding is forwarded to the tmux pane via `tmux send-keys`. Special keys (Enter, Escape, Backspace, arrows, Space, Delete, Home, End, PageUp/Down) and Ctrl-combinations are translated; regular characters are sent literally.
 
@@ -69,6 +70,26 @@ Monitor uses a two-zone model. Focus lives in one of:
 | **Other** | Anything that does not match the rules above (shells, logs, ad-hoc windows) |
 
 Agent panes whose window name contains a task ID (e.g., `agent-t42-claudecode`) are linked to the corresponding task file — that is what powers the `i` (Task Info) and `n` (Next Sibling) shortcuts.
+
+### Multi-session view
+
+By default `ait monitor` shows every active code agent across every aitasks tmux session on this server in a **single unified list**. Sessions are auto-discovered via:
+
+1. The `AITASKS_PROJECT_<session>` tmux global environment variable (set by `ait ide` on startup).
+2. Pane-cwd walk-up: any pane whose current working directory has an ancestor containing `aitasks/metadata/project_config.yaml`.
+
+Each agent row is prefixed with a short tag derived from the project-root basename. Groups of agents from the same session are separated by a thin `── session_name ──` divider row so the session a given agent belongs to is always visible while keeping the at-a-glance single-list view.
+
+Pressing `Enter` on a pane from another session teleports the attached tmux client to that pane using `switch-client` + `select-window` + `select-pane`.
+
+Press `M` inside the monitor to toggle between the multi-session view and a single-session view that shows only agents in the currently-attached tmux session. The toggle applies to the current monitor process; it is not persisted to configuration.
+
+The title bar reflects the mode:
+
+- Multi-session: `tmux Monitor — 2 sessions · 5 panes · multi (attached: aitasks)`
+- Single-session: `tmux Monitor — session: aitasks (5 panes)`
+
+If no second aitasks session exists on the tmux server, the multi-session view is visually identical to the single-session view (one project, one session's worth of agents).
 
 ### Preview Size Presets
 

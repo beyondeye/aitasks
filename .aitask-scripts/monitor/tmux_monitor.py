@@ -26,7 +26,13 @@ _LIB_DIR = str(Path(__file__).resolve().parent.parent / "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from tui_registry import BRAINSTORM_PREFIX, TUI_NAMES  # noqa: E402
-from agent_launch_utils import tmux_session_target, tmux_window_target  # noqa: E402
+from agent_launch_utils import (  # noqa: E402
+    AitasksSession,
+    discover_aitasks_sessions,
+    switch_to_pane_anywhere,
+    tmux_session_target,
+    tmux_window_target,
+)
 
 
 class PaneCategory(Enum):
@@ -101,6 +107,7 @@ class TmuxPaneInfo:
     width: int
     height: int
     category: PaneCategory
+    session_name: str = ""   # populated by discovery; "" only when constructed outside a list-panes path
 
 
 @dataclass
@@ -113,6 +120,13 @@ class PaneSnapshot:
 
 
 class TmuxMonitor:
+    # Session-discovery cache TTL: `discover_aitasks_sessions()` runs `tmux
+    # list-sessions` plus a serial `list-panes -s` per session, which is
+    # wasteful to redo every refresh tick. Ten seconds keeps the view snappy
+    # without re-querying on every paint. The `M` runtime toggle invalidates
+    # the cache so the first post-toggle refresh re-discovers immediately.
+    _SESSIONS_CACHE_TTL = 10.0
+
     def __init__(
         self,
         session: str,
@@ -121,6 +135,7 @@ class TmuxMonitor:
         exclude_pane: str | None = None,
         agent_prefixes: list[str] | None = None,
         tui_names: set[str] | None = None,
+        multi_session: bool = True,
     ):
         self.session = session
         self.capture_lines = capture_lines
@@ -128,10 +143,27 @@ class TmuxMonitor:
         self.exclude_pane = exclude_pane or os.environ.get("TMUX_PANE")
         self.agent_prefixes = agent_prefixes if agent_prefixes is not None else list(DEFAULT_AGENT_PREFIXES)
         self.tui_names = tui_names if tui_names is not None else set(DEFAULT_TUI_NAMES)
+        self.multi_session = multi_session
 
         self._last_content: dict[str, str] = {}
         self._last_change_time: dict[str, float] = {}
         self._pane_cache: dict[str, TmuxPaneInfo] = {}
+        self._sessions_cache: tuple[float, list[AitasksSession]] | None = None
+
+    def _discover_sessions_cached(self) -> list[AitasksSession]:
+        """Return the list of aitasks-like tmux sessions, memoized for TTL seconds."""
+        now = time.monotonic()
+        if self._sessions_cache is not None:
+            cached_at, sessions = self._sessions_cache
+            if now - cached_at < self._SESSIONS_CACHE_TTL:
+                return sessions
+        sessions = discover_aitasks_sessions()
+        self._sessions_cache = (now, sessions)
+        return sessions
+
+    def invalidate_sessions_cache(self) -> None:
+        """Force the next `_discover_sessions_cached` call to re-query tmux."""
+        self._sessions_cache = None
 
     def classify_pane(self, window_name: str) -> PaneCategory:
         for prefix in self.agent_prefixes:
@@ -149,7 +181,7 @@ class TmuxMonitor:
         "#{pane_width}", "#{pane_height}",
     ])
 
-    def _parse_list_panes(self, stdout: str) -> list[TmuxPaneInfo]:
+    def _parse_list_panes(self, stdout: str, session_name: str) -> list[TmuxPaneInfo]:
         panes: list[TmuxPaneInfo] = []
         for line in stdout.strip().splitlines():
             parts = line.split("\t")
@@ -179,12 +211,56 @@ class TmuxMonitor:
                 width=width,
                 height=height,
                 category=category,
+                session_name=session_name,
             )
             panes.append(pane)
             self._pane_cache[pane_id] = pane
         return panes
 
+    def _target_sessions(self) -> list[str]:
+        """Session names to enumerate in multi mode (sorted for stable display)."""
+        return sorted(s.session for s in self._discover_sessions_cached())
+
+    def _discover_panes_multi(self) -> list[TmuxPaneInfo]:
+        panes: list[TmuxPaneInfo] = []
+        for sess in self._target_sessions():
+            try:
+                result = subprocess.run(
+                    ["tmux", "list-panes", "-s", "-t",
+                     tmux_session_target(sess),
+                     "-F", self._LIST_PANES_FORMAT],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if result.returncode != 0:
+                    continue
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+                continue
+            panes.extend(self._parse_list_panes(result.stdout, sess))
+        panes.sort(key=lambda p: (p.session_name, p.window_index, p.pane_index))
+        return panes
+
+    async def _discover_panes_multi_async(self) -> list[TmuxPaneInfo]:
+        sessions = self._target_sessions()
+        if not sessions:
+            return []
+        results = await asyncio.gather(*[
+            _run_tmux_async([
+                "list-panes", "-s", "-t", tmux_session_target(sess),
+                "-F", self._LIST_PANES_FORMAT,
+            ])
+            for sess in sessions
+        ])
+        panes: list[TmuxPaneInfo] = []
+        for sess, (rc, stdout) in zip(sessions, results):
+            if rc != 0:
+                continue
+            panes.extend(self._parse_list_panes(stdout, sess))
+        panes.sort(key=lambda p: (p.session_name, p.window_index, p.pane_index))
+        return panes
+
     def discover_panes(self) -> list[TmuxPaneInfo]:
+        if self.multi_session:
+            return self._discover_panes_multi()
         try:
             result = subprocess.run(
                 ["tmux", "list-panes", "-s", "-t",
@@ -196,16 +272,18 @@ class TmuxMonitor:
                 return []
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return []
-        return self._parse_list_panes(result.stdout)
+        return self._parse_list_panes(result.stdout, self.session)
 
     async def discover_panes_async(self) -> list[TmuxPaneInfo]:
+        if self.multi_session:
+            return await self._discover_panes_multi_async()
         rc, stdout = await _run_tmux_async(
             ["list-panes", "-s", "-t", tmux_session_target(self.session),
              "-F", self._LIST_PANES_FORMAT],
         )
         if rc != 0:
             return []
-        return self._parse_list_panes(stdout)
+        return self._parse_list_panes(stdout, self.session)
 
     def discover_window_panes(self, window_id: str) -> list[TmuxPaneInfo]:
         """Discover panes in a specific window (not session-wide).
@@ -250,6 +328,7 @@ class TmuxMonitor:
                 width=width,
                 height=height,
                 category=self.classify_pane(window_name),
+                session_name=self.session,
             )
             panes.append(pane)
         return panes
@@ -374,16 +453,28 @@ class TmuxMonitor:
         pane = self._pane_cache.get(pane_id)
         if pane is None:
             return False
+        # Cross-session: teleport via the shared primitive. `prefer_companion`
+        # is intentionally ignored — companion lookup is an intra-session UX
+        # affordance (the minimonitor lives in the same window as its agent).
+        if (
+            self.multi_session
+            and pane.session_name
+            and pane.session_name != self.session
+        ):
+            return switch_to_pane_anywhere(pane_id)
+        # Same-session: existing companion-aware path.
+        target_session = pane.session_name or self.session
         try:
-            # Select window first, then pane
             subprocess.run(
                 ["tmux", "select-window", "-t",
-                 tmux_window_target(self.session, pane.window_index)],
+                 tmux_window_target(target_session, pane.window_index)],
                 capture_output=True, timeout=5,
             )
             target_pane = pane_id
             if prefer_companion:
-                companion = self.find_companion_pane_id(pane.window_index)
+                companion = self.find_companion_pane_id(
+                    pane.window_index, target_session
+                )
                 if companion:
                     target_pane = companion
             result = subprocess.run(
@@ -394,13 +485,16 @@ class TmuxMonitor:
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
 
-    def find_companion_pane_id(self, window_index: str) -> str | None:
+    def find_companion_pane_id(
+        self, window_index: str, session: str | None = None
+    ) -> str | None:
         """Find the minimonitor/companion pane ID in a given window."""
+        target_session = session if session is not None else self.session
         fmt = "#{pane_id}\t#{pane_pid}"
         try:
             result = subprocess.run(
                 ["tmux", "list-panes", "-t",
-                 tmux_window_target(self.session, window_index), "-F", fmt],
+                 tmux_window_target(target_session, window_index), "-F", fmt],
                 capture_output=True, text=True, timeout=5,
             )
             if result.returncode != 0:
@@ -465,7 +559,10 @@ class TmuxMonitor:
         if pane is None:
             return self.kill_pane(pane_id), False
 
-        window_target = tmux_window_target(self.session, pane.window_index)
+        # Use the pane's own session so cross-session kills target the right
+        # window; fall back to self.session for legacy single-session paths.
+        target_session = pane.session_name or self.session
+        window_target = tmux_window_target(target_session, pane.window_index)
         others = 0
         try:
             result = subprocess.run(

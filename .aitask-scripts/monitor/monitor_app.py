@@ -453,6 +453,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         Binding("R", "restart_task", "Restart"),
         Binding("enter", "send_enter", "Send ↵", show=True),
         Binding("a", "toggle_auto_switch", "Auto"),
+        Binding("M", "toggle_multi_session", "Multi"),
         Binding("L", "open_log", "Log"),
     ]
 
@@ -466,6 +467,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         agent_prefixes: list[str] | None = None,
         tui_names: set[str] | None = None,
         expected_session: str | None = None,
+        multi_session: bool = True,
     ) -> None:
         super().__init__()
         self.current_tui_name = "monitor"
@@ -477,6 +479,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         self._agent_prefixes = agent_prefixes
         self._tui_names = tui_names
         self._project_root = project_root
+        self._multi_session = multi_session
         self._snapshots: dict[str, PaneSnapshot] = {}
         self._focused_pane_id: str | None = None
         # Per-pane scroll memory: pane_id → (was_at_bottom, anchor_text).
@@ -530,8 +533,14 @@ class MonitorApp(TuiSwitcherMixin, App):
         except Exception:
             pass
 
-        # Check if session name matches expected config
-        if self._expected_session and self._session != self._expected_session:
+        # Check if session name matches expected config. In multi-session
+        # mode the attached session name is effectively "whichever aitasks
+        # session you happen to be in"; the rename prompt is noise there.
+        if (
+            not self._multi_session
+            and self._expected_session
+            and self._session != self._expected_session
+        ):
             # Check if a session with the expected name already exists
             try:
                 result = subprocess.run(
@@ -578,6 +587,7 @@ class MonitorApp(TuiSwitcherMixin, App):
             session=self._session,
             capture_lines=self._capture_lines,
             idle_threshold=self._idle_threshold,
+            multi_session=self._multi_session,
             **kwargs,
         )
         try:
@@ -823,14 +833,79 @@ class MonitorApp(TuiSwitcherMixin, App):
         total = len(self._snapshots)
         bar = self.query_one("#session-bar", SessionBar)
         auto_tag = "  [bold yellow][AUTO][/]" if self._auto_switch else ""
-        bar.update(
-            f"tmux Monitor — session: {self._session} "
-            f"({total} pane{'s' if total != 1 else ''})"
-            f"{auto_tag}"
-            f"  [dim]Tab: switch panel[/]"
-        )
+        if self._monitor is not None and self._monitor.multi_session:
+            sessions = {
+                s.pane.session_name for s in self._snapshots.values()
+                if s.pane.session_name
+            }
+            attached = self._read_attached_session() or self._session
+            session_word = "session" if len(sessions) == 1 else "sessions"
+            pane_word = "pane" if total == 1 else "panes"
+            bar.update(
+                f"tmux Monitor — {len(sessions)} {session_word} "
+                f"· {total} {pane_word} · multi "
+                f"(attached: {attached})"
+                f"{auto_tag}"
+                f"  [dim]Tab: switch panel · M: toggle multi[/]"
+            )
+        else:
+            bar.update(
+                f"tmux Monitor — session: {self._session} "
+                f"({total} pane{'s' if total != 1 else ''})"
+                f"{auto_tag}"
+                f"  [dim]Tab: switch panel · M: toggle multi[/]"
+            )
 
-    def _format_agent_card_text(self, snap: PaneSnapshot) -> str:
+    def _read_attached_session(self) -> str | None:
+        """Return the currently-attached tmux session name, or None on failure."""
+        try:
+            result = subprocess.run(
+                ["tmux", "display-message", "-p", "#S"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return None
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip() or None
+
+    # Single fixed color for the session tag prefix and divider rows. Using
+    # per-session hashed colors was tried but did not render reliably across
+    # the user's terminals, and a uniform color keeps the pane list calm to
+    # scan \u2014 session boundaries are already conveyed by the divider rows.
+    _SESSION_TAG_COLOR = "magenta"
+
+    def _build_session_tags(self) -> dict[str, str]:
+        """Map tmux session name \u2192 project name for the session-tag prefix.
+
+        Returns {} outside multi-session mode so card formatters collapse to
+        their legacy single-session output.
+        """
+        if self._monitor is None or not self._monitor.multi_session:
+            return {}
+        return {
+            s.session: s.project_name
+            for s in self._monitor._discover_sessions_cached()
+        }
+
+    def _session_tag_prefix(
+        self, snap: PaneSnapshot, session_tags: dict[str, str]
+    ) -> str:
+        if not session_tags:
+            return ""
+        name = session_tags.get(snap.pane.session_name)
+        if not name:
+            # Unknown tag (e.g., a brand-new session arrived between cache
+            # refresh and pane list) \u2014 fall back to the session name itself so
+            # the row still shows something meaningful.
+            name = snap.pane.session_name or "?"
+        return f"[{self._SESSION_TAG_COLOR}][{name}][/] "
+
+    def _format_agent_card_text(
+        self, snap: PaneSnapshot, session_tags: dict[str, str] | None = None
+    ) -> str:
+        tags = session_tags if session_tags is not None else {}
+        tag = self._session_tag_prefix(snap, tags)
         if snap.is_idle:
             idle_s = int(snap.idle_seconds)
             dot = "[yellow]\u25cf[/]"
@@ -839,7 +914,7 @@ class MonitorApp(TuiSwitcherMixin, App):
             dot = "[green]\u25cf[/]"
             status = "[green]Active[/]"
         text = (
-            f" {dot} {snap.pane.window_index}:{snap.pane.window_name} "
+            f" {dot} {tag}{snap.pane.window_index}:{snap.pane.window_name} "
             f"({snap.pane.pane_index})  {status}"
         )
         task_id = self._task_cache.get_task_id(snap.pane.window_name)
@@ -849,14 +924,19 @@ class MonitorApp(TuiSwitcherMixin, App):
                 text += f"\n     [dim italic]t{task_id}: {info.title}[/]"
         return text
 
-    def _format_other_card_text(self, snap: PaneSnapshot) -> str:
+    def _format_other_card_text(
+        self, snap: PaneSnapshot, session_tags: dict[str, str] | None = None
+    ) -> str:
+        tags = session_tags if session_tags is not None else {}
+        tag = self._session_tag_prefix(snap, tags)
         return (
-            f" [dim]\u25cb[/] {snap.pane.window_index}:{snap.pane.window_name} "
+            f" [dim]\u25cb[/] {tag}{snap.pane.window_index}:{snap.pane.window_name} "
             f"({snap.pane.pane_index})  [dim]{snap.pane.current_command}[/]"
         )
 
     def _rebuild_pane_list(self) -> None:
         container = self.query_one("#pane-list", VerticalScroll)
+        session_tags = self._build_session_tags()
 
         agents: list[PaneSnapshot] = []
         others: list[PaneSnapshot] = []
@@ -866,9 +946,16 @@ class MonitorApp(TuiSwitcherMixin, App):
             elif snap.pane.category == PaneCategory.OTHER:
                 others.append(snap)
 
-        # Sort by window_index
-        agents.sort(key=lambda s: (s.pane.window_index, s.pane.pane_index))
-        others.sort(key=lambda s: (s.pane.window_index, s.pane.pane_index))
+        # Sort by (session_name, window_index, pane_index) so the unified
+        # multi-session list is stable across refreshes. Single-session mode
+        # produces identical session_name for every snapshot, so the sort key
+        # degrades to the legacy (window_index, pane_index) order.
+        agents.sort(
+            key=lambda s: (s.pane.session_name, s.pane.window_index, s.pane.pane_index)
+        )
+        others.sort(
+            key=lambda s: (s.pane.session_name, s.pane.window_index, s.pane.pane_index)
+        )
 
         # Fast path: same pane set and order → update text in place, no DOM
         # churn. This keeps the focused PaneCard alive across ticks so arrow
@@ -901,11 +988,11 @@ class MonitorApp(TuiSwitcherMixin, App):
             by_id = {c.pane_id: c for c in current_cards}
             for snap in agents:
                 by_id[snap.pane.pane_id].update(
-                    self._format_agent_card_text(snap)
+                    self._format_agent_card_text(snap, session_tags)
                 )
             for snap in others:
                 by_id[snap.pane.pane_id].update(
-                    self._format_other_card_text(snap)
+                    self._format_other_card_text(snap, session_tags)
                 )
             return
 
@@ -914,28 +1001,42 @@ class MonitorApp(TuiSwitcherMixin, App):
         for widget in list(container.children):
             widget.remove()
 
+        multi_mode = bool(session_tags)
+
+        def mount_with_session_dividers(snaps, card_fn):
+            """Mount PaneCards with a session divider before each new group.
+
+            In multi mode, emits a subtle `── sess_name ──` divider before the
+            first card of each session so users can see at a glance which
+            agents belong to which session, while still keeping the unified
+            single-list ordering.
+            """
+            current_session = None
+            for snap in snaps:
+                sess = snap.pane.session_name
+                if multi_mode and sess != current_session:
+                    current_session = sess
+                    label = sess or "?"
+                    container.mount(Static(
+                        f"  [dim]── {label} ──[/]",
+                        classes="session-divider",
+                    ))
+                container.mount(PaneCard(snap.pane.pane_id, card_fn(snap, session_tags)))
+
         if agents:
             auto_label = "  [bold yellow]⟳ AUTO[/]" if self._auto_switch else ""
             container.mount(Static(
                 f"[bold]CODE AGENTS ({len(agents)})[/]{auto_label}",
                 classes="section-header",
             ))
-            for snap in agents:
-                container.mount(PaneCard(
-                    snap.pane.pane_id,
-                    self._format_agent_card_text(snap),
-                ))
+            mount_with_session_dividers(agents, self._format_agent_card_text)
 
         if others:
             container.mount(Static(
                 f"[bold]OTHER ({len(others)})[/]",
                 classes="section-header",
             ))
-            for snap in others:
-                container.mount(PaneCard(
-                    snap.pane.pane_id,
-                    self._format_other_card_text(snap),
-                ))
+            mount_with_session_dividers(others, self._format_other_card_text)
 
     def _update_content_preview(self) -> None:
         try:
@@ -1299,6 +1400,22 @@ class MonitorApp(TuiSwitcherMixin, App):
             self.notify("Auto-switch OFF: manual selection only")
         self._rebuild_session_bar()
         self._rebuild_pane_list()
+
+    def action_toggle_multi_session(self) -> None:
+        """Flip the multi-session view ON/OFF in memory.
+
+        Persists only for the lifetime of this `MonitorApp` instance — no
+        config write (TUI auto-commit restriction). Invalidates the session
+        cache so the first post-toggle refresh re-discovers immediately.
+        """
+        if self._monitor is None:
+            return
+        self._monitor.multi_session = not self._monitor.multi_session
+        self._monitor.invalidate_sessions_cache()
+        self._multi_session = self._monitor.multi_session
+        state = "ON" if self._monitor.multi_session else "OFF"
+        self.notify(f"Multi-session {state}", timeout=3)
+        self.call_later(self._refresh_data)
 
     def action_show_task_info(self) -> None:
         """Show task detail dialog for the focused agent pane."""

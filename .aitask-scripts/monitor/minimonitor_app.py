@@ -184,10 +184,14 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         if self._tui_names is not None:
             kwargs["tui_names"] = self._tui_names
 
+        # Minimonitor intentionally stays session-local until t634_5 adds its
+        # own multi-session support. Pin the flag off so the shared TmuxMonitor
+        # default (True) doesn't silently change behavior here.
         self._monitor = TmuxMonitor(
             session=self._session,
             capture_lines=self._capture_lines,
             idle_threshold=self._idle_threshold,
+            multi_session=False,
             **kwargs,
         )
         self.call_later(self._refresh_data)
