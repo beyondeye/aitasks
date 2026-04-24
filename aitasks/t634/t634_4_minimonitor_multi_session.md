@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [tmux, aitask_monitormini]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-24 10:21
-updated_at: 2026-04-24 10:21
+updated_at: 2026-04-24 16:05
 ---
 
 ## Context
