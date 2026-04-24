@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [release, install, skills, refactor]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-24 11:18
-updated_at: 2026-04-24 11:18
+updated_at: 2026-04-24 14:00
 ---
 
 ## Symptom
