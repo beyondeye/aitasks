@@ -147,9 +147,9 @@ check_for_updates() {
     disown 2>/dev/null || true
 }
 
-# Check for updates (skip for meta-commands, install/upgrade, and git passthrough)
+# Check for updates (skip for meta-commands, upgrade, and git passthrough)
 case "${1:-help}" in
-    help|--help|-h|--version|-v|install|upgrade|setup|git|sync|lock|codeagent|crew|brainstorm|settings|monitor|minimonitor|ide) ;;
+    help|--help|-h|--version|-v|upgrade|setup|git|sync|lock|codeagent|crew|brainstorm|settings|monitor|minimonitor|ide) ;;
     *) check_for_updates ;;
 esac
 
@@ -158,9 +158,6 @@ case "${1:-help}" in
     ls)           shift; exec "$SCRIPTS_DIR/aitask_ls.sh" "$@" ;;
     update)       shift; exec "$SCRIPTS_DIR/aitask_update.sh" "$@" ;;
     upgrade)      shift; exec "$SCRIPTS_DIR/aitask_upgrade.sh" "$@" ;;
-    install)      shift
-                  echo -e "\033[1;33m[ait]\033[0m 'ait install' is deprecated — use 'ait upgrade' instead."
-                  exec "$SCRIPTS_DIR/aitask_upgrade.sh" "$@" ;;
     issue-import) shift; exec "$SCRIPTS_DIR/aitask_issue_import.sh" "$@" ;;
     pr-import)    shift; exec "$SCRIPTS_DIR/aitask_pr_import.sh" "$@" ;;
     board)        shift; exec "$SCRIPTS_DIR/aitask_board.sh" "$@" ;;

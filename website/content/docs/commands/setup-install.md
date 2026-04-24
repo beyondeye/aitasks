@@ -60,8 +60,6 @@ ait upgrade latest             # Same as above
 ait upgrade 0.2.1              # Upgrade to specific version
 ```
 
-> **Previously named `ait install`.** The old name remains as a deprecated alias that prints a one-line notice and forwards to `ait upgrade`. Scripts and muscle memory using `ait install` continue to work, but should migrate to `ait upgrade`.
-
 **How it works:**
 
 1. Resolves the target version (queries GitHub API for latest, or validates the provided version number)
@@ -73,7 +71,7 @@ ait upgrade 0.2.1              # Upgrade to specific version
 
 **Automatic update check:**
 
-The `ait` dispatcher checks for new versions once per day (at most). When a newer version is available, it shows a brief notice suggesting `ait upgrade latest`. The check runs in the background to avoid adding latency. It is skipped for `help`, `version`, `install`, `upgrade`, and `setup` commands.
+The `ait` dispatcher checks for new versions once per day (at most). When a newer version is available, it shows a brief notice suggesting `ait upgrade latest`. The check runs in the background to avoid adding latency. It is skipped for `help`, `version`, `upgrade`, and `setup` commands.
 
 ---
 

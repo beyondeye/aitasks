@@ -1174,7 +1174,7 @@ ensure_project_config_defaults() {
         if [[ ! -f "$seed_config" ]]; then
             warn "project_config.yaml is missing from aitasks/metadata/ and no seed template is available."
             warn "tmux default_session and git_tui setup will be skipped."
-            warn "Reinstall aitasks (e.g. 'ait upgrade') to populate the project config."
+            warn "Re-run 'ait setup' to populate the project config from the seed."
             return
         fi
         mkdir -p "$(dirname "$target_config")"
@@ -1555,7 +1555,7 @@ setup_gemini_cli() {
     if [[ ! -d "$staging_skills" && ! -d "$staging_commands" \
           && ! -d "$staging_policies" && ! -f "$staging_settings" ]]; then
         info "No Gemini CLI staging files found — skipping"
-        info "  Re-run 'ait upgrade' to get Gemini CLI support files"
+        info "  Re-run 'ait setup' to restore Gemini CLI support files"
         return
     fi
 
@@ -1796,7 +1796,7 @@ setup_codex_cli() {
 
     if [[ ! -d "$staging_skills" ]]; then
         info "No Codex CLI staging files found — skipping"
-        info "  Re-run 'ait upgrade' to get Codex CLI support files"
+        info "  Re-run 'ait setup' to restore Codex CLI support files"
         return
     fi
 
@@ -1931,7 +1931,7 @@ setup_opencode() {
 
     if [[ ! -d "$staging_skills" && ! -d "$staging_commands" ]]; then
         info "No OpenCode staging files found — skipping"
-        info "  Re-run 'ait upgrade' to get OpenCode support files"
+        info "  Re-run 'ait setup' to restore OpenCode support files"
         return
     fi
 
