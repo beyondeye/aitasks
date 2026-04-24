@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.18.0
+
+### Features
+
+- **Multi-session tmux primitives** (t634_1): Foundation for cross-session awareness across aitasks TUIs — discovery of tmux sessions rooted in aitasks projects and teleport-style pane focus helpers.
+- **Multi-session `ait monitor`** (t634_2): The monitor TUI now aggregates code-agent panes across every aitasks session by default. Sessions are grouped under divider rows, and an `M` binding toggles multi-session view on and off.
+- **Cross-session TUI switcher** (t634_3): The TUI switcher overlay (`j`) now lists every running aitasks session. `←` / `→` cycles between them, and `Enter` (or any shortcut key) teleports tmux to the selected session automatically.
+- **Multi-session `ait minimonitor`** (t634_4): The minimonitor now aggregates agent panes across every aitasks session by default, with session divider rows and the same `M` toggle as the full monitor. The title bar gains a compact `multi: Ns · Ma N idle` summary.
+- **Register `gpt-5.5` for codex and opencode** (t636): `gpt-5.5` is selectable for the codex agent directly and for the opencode agent via the OpenAI and OpenCode providers.
+
+### Bug Fixes
+
+- **Respect default session in agent launch dialog** (t640): The launch dialog now honors the caller's `default_tmux_window` and remembers the last-used tmux session and window **per project** instead of sharing a single global memory across all projects.
+- **Rename `ait install` → `ait upgrade`; fix skills missing from release tarball** (t641): Framework updates now use `ait upgrade` (`ait install` remains as a deprecated alias). Also fixes a packaging bug where skills whose names didn't start with `aitask-` (e.g. `task-workflow`, `ait-git`, `user-file-select`) were silently excluded from release tarballs and installer copies.
+
+### Documentation
+
+- **Multi-session documentation polish** (t634_5): Monitor, minimonitor, and TUIs index docs now describe cross-session aggregation, the `M` toggle, session divider rows, and cross-session teleport behavior.
+
+### Style Changes
+
+- **Remove redundant magenta session prefix in `ait monitor`** (t643): Monitor pane rows no longer emit a magenta `[project]` tag prefix; session grouping is conveyed by the divider rows alone.
+
 ## v0.17.4
 
 ### Bug Fixes
