@@ -155,3 +155,32 @@ This test is a pure-bash emulation — it does not depend on tar or network. If 
 ## Step 9 cleanup (as per task-workflow Step 9)
 
 After user-approved commit in Step 8: run `./.aitask-scripts/aitask_archive.sh 641`, push via `./ait git push`. No branch/worktree was created (`fast` profile, `create_worktree: false`), so merge cleanup is skipped.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all four parts of the approved plan (A–D) exactly as specified.
+  - **Part A (`.github/workflows/release.yml`):** Broadened the three skill-staging globs (`.claude/skills/`, `.agents/skills/`, `.opencode/skills/`) from `aitask-*/` to `*/`.
+  - **Part B (`install.sh`):** Fixed `install_skills()`, `install_codex_staging()`, and `install_opencode_staging()` to use `*/` globs and `cp -r "$skill_dir". "$dest/"` full-directory copies.
+  - **Part C (`tests/test_release_tarball.sh`):** Added a 20-assertion bash smoke test that emulates both release-build and install-side copies in a `mktemp` sandbox. Asserts ship-critical files (`task-workflow/planning.md`, `task-workflow/task-creation-batch.md`, `task-workflow/execution-profile-selection.md`, `task-workflow/satisfaction-feedback.md`, `ait-git/SKILL.md`, `user-file-select/SKILL.md`, `aitask-qa/change-analysis.md`, `aitask-qa/test-execution.md`, `aitask-pick/SKILL.md`) survive both phases. Marked executable.
+  - **Part D (rename):** `git mv .aitask-scripts/aitask_install.sh .aitask-scripts/aitask_upgrade.sh`, updated its header and usage text; added `upgrade)` dispatcher case in `ait`; reworked `install)` to emit a one-line deprecation notice and forward; added `upgrade` to the no-sync list; swapped the update-available hint to `ait upgrade latest`; updated 5 strings in `aitask_setup.sh`; updated docstring in `aitask_install_merge.py`; updated `README.md`, `website/content/docs/installation/_index.md`, `website/content/docs/commands/_index.md` (table entry + code-fence), and `website/content/docs/commands/setup-install.md` (heading, description, code-fence, no-sync mention, and added a short deprecation note pointing at the old name).
+
+- **Deviations from plan:**
+  - `install.sh` had **no** live `ait install` string to update — the plan's Part D.4 reference at line ≈219 was to the `aitask_install_merge.py` filename (kept) not the `ait install` verb. Only the Python helper's docstring needed the swap.
+  - Added a short "Previously named `ait install`" paragraph to `setup-install.md` under the `## ait upgrade` heading, so users following old bookmarks see the rename explanation. This is additive to what the plan specified.
+  - Left the historical blog post `website/content/blog/v030-atomic-ids-locking-updater.md` unchanged — its mention of `ait install` is an inherent part of the dated v0.3.0 release note, not current-state guidance.
+  - Did **not** touch `website/public/offline-search-index.*` — Hugo regenerates it at build time.
+
+- **Issues encountered:** None substantive. `shellcheck` flags pre-existing SC1091/SC2015/SC2295 notes on `ait` and `install.sh` that are unrelated to this task's edits.
+
+- **Key decisions:**
+  - **Kept the alias, didn't break compatibility.** `ait install` still works; prints a yellow `[ait] 'ait install' is deprecated — use 'ait upgrade' instead.` and forwards to the same script. Removing the alias is left for a future release so existing scripts/docs/muscle-memory survive the transition.
+  - **Kept the Python helper's filename** (`aitask_install_merge.py`) even though the user-facing verb was renamed — it's an internal helper not exposed to users; renaming it would force updating `install.sh`'s call site for zero user-visible benefit.
+  - **Did not add a CHANGELOG entry.** Entries are cut at release-tag time; the next tag (v0.17.5 / v0.18.0 / whichever) will describe both the tarball fix and the rename together.
+
+- **Verification executed (all pass):**
+  - `bash tests/test_release_tarball.sh` → 20/20 pass.
+  - `bash tests/test_install_merge.sh` → 20/20 pass (regression check).
+  - `./ait upgrade --help` → prints the new usage with `ait upgrade …` examples.
+  - `./ait install --help` → prints the deprecation warning, then the same usage text.
+  - `grep -rn 'aitask-\*/' .github/workflows/release.yml install.sh` → no results.
+  - `grep -rnE '\bait install\b' ait .aitask-scripts/ seed/ install.sh README.md website/` → only the deprecation-warning string in `ait`, the intentional deprecation note in `setup-install.md`, and historical/auto-generated content (dated blog post, Hugo offline search index).
