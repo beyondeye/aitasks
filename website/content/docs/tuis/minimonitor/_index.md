@@ -6,7 +6,7 @@ description: "Compact sidebar variant of the ait monitor TUI for watching code a
 depth: [intermediate]
 ---
 
-`ait minimonitor` is a narrow (~40 column) sidebar TUI that lists the code agents running in the current tmux session, with idle indicators and a companion-pane focus model. It is the agents-only cousin of [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}): no preview panel, no TUI/other pane categories — just the running agents in a compact column designed to sit next to a code pane while you work.
+`ait minimonitor` is a narrow (~40 column) sidebar TUI that lists every running code agent across every aitasks tmux session on the current tmux server, with idle indicators and a companion-pane focus model. It is the agents-only cousin of [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}): no preview panel, no TUI/other pane categories — just the running agents in a compact column designed to sit next to a code pane while you work.
 
 Minimonitor is **meant to be auto-spawned** alongside every code agent you launch from the ait TUIs. You rarely need to start it yourself — whenever a new agent window is created, the launching TUI also splits a minimonitor pane next to it, and minimonitor closes itself automatically when the agent pane exits. Manual launch via `ait minimonitor` is supported but is an escape hatch rather than the primary workflow.
 
@@ -14,20 +14,24 @@ Minimonitor is **meant to be auto-spawned** alongside every code agent you launc
 
 ## Purpose
 
-Minimonitor is the persistent sidebar companion of a code agent pane. It gives you an at-a-glance status view of all running agents in the session without giving up screen real estate to the full monitor dashboard, so you can keep watching the agent next to you (and all the others) while you stay focused on the agent's output.
+Minimonitor is the persistent sidebar companion of a code agent pane. It gives you an at-a-glance status view of every running code agent across every aitasks tmux session on this server without giving up screen real estate to the full monitor dashboard, so you can keep watching the agent next to you (and all the others on the box) while you stay focused on the agent's output.
 
 ## Relationship to monitor
 
 | Aspect | `ait monitor` | `ait minimonitor` |
 |--------|---------------|-------------------|
 | Width | Full window | ~40 columns (configurable) |
-| Shows agents | Yes | Yes |
+| Shows agents | Yes, across all aitasks tmux sessions (default) | Yes, across all aitasks tmux sessions (default) |
 | Shows TUIs and other panes | Yes | No |
 | Preview zone with keystroke forwarding | Yes | No |
+| Multi-session toggle | `M` (in-memory, per-TUI) | `M` (in-memory, per-TUI) |
+| Session grouping | `── session ──` dividers + inline `[project]` tag on each row | `── session ──` dividers only |
 | Intended placement | Its own tmux window | A side split inside an agent window |
 | TUI switcher (`j`) | Yes | Yes |
 
 The two can coexist in the same tmux session — a typical layout has monitor in its own window as a dashboard, and minimonitor split alongside each agent pane. See [Pairing minimonitor with monitor](how-to/#pairing-minimonitor-with-monitor) in the how-to for details.
+
+For the full cross-TUI multi-session story — auto-discovery, the `M` toggle, rendering differences, and handoff behavior — see [Multi-session view]({{< relref "/docs/tuis/monitor/reference" >}}#multi-session-view) in the monitor reference.
 
 ## Auto-spawn and auto-despawn
 

@@ -13,8 +13,8 @@ The aitasks framework includes several terminal-based user interfaces (TUIs) bui
 
 ## Available TUIs
 
-- **[Monitor](monitor/)** (`ait monitor`) — Dashboard of every pane in the current tmux session, categorized into code agents, TUIs, and other panes, with a live preview of the focused pane and keystroke forwarding. This is the home screen of the ait IDE.
-- **[Minimonitor](minimonitor/)** (`ait minimonitor`) — Narrow sidebar variant of monitor, designed to sit next to a code agent pane so you can watch siblings and launch follow-up work without giving up screen real estate.
+- **[Monitor](monitor/)** (`ait monitor`) — Dashboard of every pane across every aitasks tmux session on the current tmux server by default, categorized into code agents, TUIs, and other panes, with a live preview of the focused pane and keystroke forwarding. This is the home screen of the ait IDE.
+- **[Minimonitor](minimonitor/)** (`ait minimonitor`) — Narrow sidebar variant of monitor, designed to sit next to a code agent pane so you can watch every running agent (across every aitasks session) and launch follow-up work without giving up screen real estate.
 - **[Board](board/)** (`ait board`) — Kanban-style task board used at the **beginning** of the workflow: triage tasks, set priorities, organize work into columns, and decide what to implement next.
 - **[Code Browser](codebrowser/)** (`ait codebrowser`) — Code navigation and diff review with task-aware annotations that show which aitasks contributed to each section, plus a **completed tasks history** screen (press `h`) for browsing archived work. Used at the **end** of the workflow or when onboarding to unfamiliar code.
 - **[Settings](settings/)** (`ait settings`) — Configuration editor for code agent defaults, board settings, available models, and execution profiles. Also hosts the Tmux tab for editing integration settings.

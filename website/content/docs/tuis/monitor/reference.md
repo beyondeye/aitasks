@@ -73,23 +73,23 @@ Agent panes whose window name contains a task ID (e.g., `agent-t42-claudecode`) 
 
 ### Multi-session view
 
-By default `ait monitor` shows every active code agent across every aitasks tmux session on this server in a **single unified list**. Sessions are auto-discovered via:
+By default both `ait monitor` and [`ait minimonitor`]({{< relref "/docs/tuis/minimonitor" >}}) aggregate every active code agent across every aitasks tmux session on this tmux server into a **single unified list**. Sessions are auto-discovered via:
 
 1. The `AITASKS_PROJECT_<session>` tmux global environment variable (set by `ait ide` on startup).
 2. Pane-cwd walk-up: any pane whose current working directory has an ancestor containing `aitasks/metadata/project_config.yaml`.
 
-Each agent row is prefixed with a short tag derived from the project-root basename. Groups of agents from the same session are separated by a thin `── session_name ──` divider row so the session a given agent belongs to is always visible while keeping the at-a-glance single-list view.
+Press `M` inside either TUI to toggle the multi-session view ON/OFF for that TUI instance. The toggle is in-memory only and applies to the current TUI process; it is not persisted to configuration and is not shared with the other TUI (toggling `M` in the main monitor does not affect a running minimonitor, and vice versa).
 
-Pressing `Enter` on a pane from another session teleports the attached tmux client to that pane using `switch-client` + `select-window` + `select-pane`.
+**How each TUI renders the unified list:**
 
-Press `M` inside the monitor to toggle between the multi-session view and a single-session view that shows only agents in the currently-attached tmux session. The toggle applies to the current monitor process; it is not persisted to configuration.
+- **`ait monitor`** — groups agents belonging to the same session under a thin `── <session_name> ──` divider row, and prefixes each agent row with a short magenta `[project]` tag derived from the project-root basename. Title bar example: `tmux Monitor — 2 sessions · 5 panes · multi (attached: aitasks)`. Single-session title: `tmux Monitor — session: aitasks (5 panes)`.
+- **`ait minimonitor`** — groups agents belonging to the same session under a `── <session_name> ──` divider row; rows themselves stay in default color with no inline tag prefix (the narrow sidebar layout favors vertical scanning of window names). Title bar example: `multi: 2s · 5a  1 idle`. Single-session title: `aitasks  5 agents  1 idle`.
 
-The title bar reflects the mode:
+**Cross-session focus from the main monitor:** pressing `Enter` on a pane that belongs to another session teleports the attached tmux client to that pane via `switch-client` + `select-window` + `select-pane`.
 
-- Multi-session: `tmux Monitor — 2 sessions · 5 panes · multi (attached: aitasks)`
-- Single-session: `tmux Monitor — session: aitasks (5 panes)`
+**Handoff between the two TUIs:** pressing `m` (lowercase) inside a minimonitor switches tmux focus to the main monitor window but does **not** alter the main monitor's multi-session flag. Each TUI's `M` toggle is independent — if you want both TUIs in the same mode, toggle each one.
 
-If no second aitasks session exists on the tmux server, the multi-session view is visually identical to the single-session view (one project, one session's worth of agents).
+If no second aitasks session exists on the tmux server, both TUIs' multi-session view is visually identical to the single-session view (one project, one session's worth of agents).
 
 ### Preview Size Presets
 

@@ -33,7 +33,7 @@ This starts minimonitor in the current tmux pane.
 
 ### How to Read the Agent List
 
-Minimonitor shows a single scrollable list of **agent panes** (windows whose names match the configured agent prefix — default `agent-`). TUIs, shells, and other panes are deliberately filtered out; for the full categorized view use [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}).
+Minimonitor shows a single scrollable list of **agent panes** (windows whose names match the configured agent prefix — default `agent-`). By default the list aggregates agents from every aitasks tmux session on the current tmux server; `── <session_name> ──` divider rows separate agents that belong to different sessions. TUIs, shells, and other panes are deliberately filtered out; for the full categorized view use [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}).
 
 Each card in the list shows:
 
@@ -42,7 +42,7 @@ Each card in the list shows:
 - An `IDLE <n>s` label when the pane has been quiet longer than `tmux.monitor.idle_threshold_seconds` (default 5 seconds)
 - For agents whose window name carries a task ID, a second dimmed line showing the task's title
 
-The session name and the running/idle count are shown in a compact header bar at the top of the pane.
+The header bar at the top of the pane shows either `multi: Ns · Ma  N idle` when the multi-session view is active, or `<session>  N agents  N idle` when the view is restricted to the attached session. See [How to Toggle the Multi-Session View](#how-to-toggle-the-multi-session-view) below.
 
 ### How to Navigate the Agent List
 
@@ -103,6 +103,16 @@ Select a target and the switcher focuses the existing tmux window running that T
 
 Press **r** to force an immediate refresh of the agent list. Minimonitor also refreshes automatically every `tmux.monitor.refresh_seconds` seconds (default 3), so manual refresh is only needed when you want an immediate update.
 
+### How to Toggle the Multi-Session View
+
+By default, minimonitor aggregates agents from every aitasks tmux session on the current tmux server. Press **M** (uppercase, Shift+m) to toggle to a single-session view that shows only the agents in the tmux session this minimonitor is running in. Press **M** again to restore the aggregated view.
+
+The toggle is in-memory only — it applies to the current minimonitor process and is not persisted to configuration. It is also independent of the main monitor's `M` toggle; switching modes in one TUI does not affect the other.
+
+When the multi-session view is ON, agents are grouped under `── <session_name> ──` divider rows. The divider rows are display-only — they cannot be focused, and Up/Down navigation skips over them.
+
+For the full cross-TUI story (auto-discovery, rendering details, cross-session focus from the main monitor), see [Multi-session view]({{< relref "/docs/tuis/monitor/reference" >}}#multi-session-view) in the monitor reference.
+
 ### How to Quit
 
 Press **q** to quit minimonitor manually. The pane running minimonitor closes; the rest of your tmux session is unaffected. Because auto-despawn already closes minimonitor whenever its companion agent exits, manual quit is mainly useful when you want to reclaim the sidebar column while the agent is still running.
@@ -142,6 +152,7 @@ You can edit these directly, or use [`ait settings`]({{< relref "/docs/tuis/sett
 | `i` | Show task info for the selected agent |
 | `j` | Open the TUI switcher |
 | `r` | Refresh the agent list |
+| `M` | Toggle the multi-session view ON/OFF |
 | `q` | Quit minimonitor |
 
 Minimonitor inherits config keys (`tmux.default_session`, `tmux.monitor.refresh_seconds`, `tmux.monitor.idle_threshold_seconds`, `tmux.monitor.capture_lines`, `tmux.monitor.agent_window_prefixes`, `tmux.monitor.tui_window_names`) from the same `project_config.yaml` section monitor uses — see the [monitor reference]({{< relref "/docs/tuis/monitor/reference" >}}#configuration) for the full list.
