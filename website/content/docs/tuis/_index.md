@@ -31,6 +31,8 @@ When you run the TUIs inside tmux, pressing **`j`** in any main TUI opens the **
 
 The switcher only works inside tmux. If you are not running inside tmux yet, see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}) for how to set it up and launch the session via `ait ide`.
 
+When more than one aitasks tmux session is running on the same tmux server, the switcher also shows a session row at the top. The attached session is marked with `▶`, and the selected session is highlighted. Use **Left/Right** to pick a different session; the list below refreshes to show that session's TUIs and windows. **Enter** (or any shortcut key like **`b`** for board, **`n`** for a new task) acts on the selected session — if it differs from your attached session, the switcher teleports your tmux client there automatically.
+
 ---
 
 **Next:** [Board](board/) — start here for daily triage and task organization.

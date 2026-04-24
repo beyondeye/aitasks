@@ -4,6 +4,14 @@ Provides a ModalScreen overlay showing all known TUIs with their running status,
 plus any other tmux windows (agents, shells) grouped by type, and a mixin that
 any Textual App can use to add the switcher with a single keybinding.
 
+When multiple aitasks tmux sessions are detected on the current server, the
+overlay grows a top "Session:" row — use Left/Right to select another session;
+the list below refreshes to that session's windows. Enter (or any shortcut
+key) acts on the SELECTED session; a `switch-client` teleport fires
+automatically when the selected session differs from the attached one. When
+only one aitasks session exists, the UI is bit-identical to single-session
+behavior.
+
 Usage:
     from tui_switcher import TuiSwitcherMixin
 
@@ -36,8 +44,11 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 from agent_launch_utils import (  # noqa: E402
+    AitasksSession,
+    discover_aitasks_sessions,
     get_tmux_windows,
     load_tmux_defaults,
+    tmux_session_target,
     tmux_window_target,
 )
 from tui_registry import BRAINSTORM_PREFIX as _BRAINSTORM_PREFIX, TUI_NAMES as _TUI_NAMES, switcher_tuis  # noqa: E402
@@ -217,6 +228,12 @@ class TuiSwitcherOverlay(ModalScreen):
         padding: 0 0 1 0;
         width: 100%;
     }
+    #switcher_session_row {
+        text-align: center;
+        padding: 0 0 1 0;
+        color: $text;
+        width: 100%;
+    }
     #switcher_list {
         height: auto;
         max-height: 22;
@@ -233,6 +250,8 @@ class TuiSwitcherOverlay(ModalScreen):
         Binding("escape", "dismiss_overlay", "Close", show=False),
         Binding("j", "dismiss_overlay", "Close", show=False),
         Binding("enter", "select_tui", "Switch", show=False),
+        Binding("left", "prev_session", "Prev session", show=False, priority=True),
+        Binding("right", "next_session", "Next session", show=False, priority=True),
         Binding("b", "shortcut_board", "Board", show=False),
         Binding("m", "shortcut_monitor", "Monitor", show=False),
         Binding("c", "shortcut_codebrowser", "Code Browser", show=False),
@@ -246,26 +265,101 @@ class TuiSwitcherOverlay(ModalScreen):
 
     def __init__(self, session: str, current_tui: str = "") -> None:
         super().__init__()
+        # _session is the OPERATING / SELECTED session — what the overlay
+        # currently points at. Mutated by Left/Right. All shortcuts,
+        # _switch_to, and _launch_git_with_companion read this.
         self._session = session
+        # _attached_session is the tmux client's current session — used only
+        # by _render_session_row (to mark the attached session with ▶) and
+        # _teleport_if_cross (to decide whether switch-client is needed).
+        self._attached_session = session
         self._current_tui = current_tui
         self._running_names: set[str] = set()
+        # Multi-session state. Populated in on_mount via
+        # discover_aitasks_sessions(); remains empty / False when only one
+        # aitasks session is running on the server.
+        self._all_sessions: list[AitasksSession] = []
+        self._multi_mode: bool = False
 
     def compose(self):
         with Container(id="switcher_dialog"):
             yield Label("TUI Switcher", id="switcher_title")
+            yield Label("", id="switcher_session_row")
             yield _WrappingListView(id="switcher_list")
-            yield Label(
-                "[bold bright_cyan](b)[/]oard  [bold bright_cyan](m)[/]onitor  [bold bright_cyan](c)[/]ode  [bold bright_cyan](s)[/]ettings  s[bold bright_cyan](t)[/]ats  b[bold bright_cyan](r)[/]ainstorm  [bold bright_cyan](g)[/]it  e[bold bright_cyan](x)[/]plore  [bold bright_cyan](n)[/]ew task\n"
-                "[bold bright_cyan]Enter[/] switch  [bold bright_cyan]j/Esc[/] close",
-                id="switcher_hint",
-            )
+            yield Label("", id="switcher_hint")
 
     def on_mount(self) -> None:
-        running_windows = get_tmux_windows(self._session)
+        self._init_multi_state(discover_aitasks_sessions())
+        self._render_hint()
+        self._render_session_row()
+        self._populate_list_for(self._session)
+
+    def _init_multi_state(self, sessions: list[AitasksSession]) -> None:
+        """Decide `_multi_mode` from the discovered sessions.
+
+        True iff at least two aitasks sessions exist AND the attached session
+        is one of them. If the overlay was opened from a non-aitasks session
+        (no `AITASKS_PROJECT_<sess>` registry entry and no pane cwd that walks
+        up to an aitasks project), fall back to single-session view.
+        """
+        self._all_sessions = sessions
+        self._multi_mode = (
+            len(sessions) >= 2
+            and any(s.session == self._attached_session for s in sessions)
+        )
+
+    def _render_hint(self) -> None:
+        hint = self.query_one("#switcher_hint", Label)
+        text = (
+            "[bold bright_cyan](b)[/]oard  [bold bright_cyan](m)[/]onitor  "
+            "[bold bright_cyan](c)[/]ode  [bold bright_cyan](s)[/]ettings  "
+            "s[bold bright_cyan](t)[/]ats  b[bold bright_cyan](r)[/]ainstorm  "
+            "[bold bright_cyan](g)[/]it  e[bold bright_cyan](x)[/]plore  "
+            "[bold bright_cyan](n)[/]ew task\n"
+        )
+        if self._multi_mode:
+            text += (
+                "[bold bright_cyan]Enter[/] switch  "
+                "[bold bright_cyan]←/→[/] session  "
+                "[bold bright_cyan]j/Esc[/] close"
+            )
+        else:
+            text += "[bold bright_cyan]Enter[/] switch  [bold bright_cyan]j/Esc[/] close"
+        hint.update(text)
+
+    def _render_session_row(self) -> None:
+        """Render the top session row; blank in single-session mode."""
+        row = self.query_one("#switcher_session_row", Label)
+        if not self._multi_mode:
+            row.update("")
+            return
+        parts = []
+        for s in self._all_sessions:
+            name = s.session
+            attached = name == self._attached_session
+            selected = name == self._session
+            prefix = "▶ " if attached else "  "
+            if selected:
+                parts.append(f"[reverse]{prefix}{name}[/]")
+            else:
+                parts.append(f"[dim]{prefix}{name}[/]")
+        row.update("Session: " + "  ".join(parts))
+
+    def _populate_list_for(self, session: str) -> None:
+        """Fill the ListView with TUIs and windows from the given session.
+
+        Called on_mount and on every Left/Right session cycle. Clears the
+        ListView first so re-renders are clean. The "current TUI" disabled
+        marker only applies when `session == self._attached_session`
+        (otherwise the user is browsing a different session and no item
+        in that session is "the one I'm attached to right now").
+        """
+        running_windows = get_tmux_windows(session)
         self._running_names = {name for _, name in running_windows}
-        running_by_name = {name: idx for idx, name in running_windows}
+        is_attached_session = session == self._attached_session
 
         list_view = self.query_one("#switcher_list", _WrappingListView)
+        list_view.clear()
         item_idx = 0
         first_selectable_idx = None
 
@@ -274,7 +368,7 @@ class TuiSwitcherOverlay(ModalScreen):
         item_idx += 1
 
         for name, label, _cmd in _build_tui_list():
-            is_current = name == self._current_tui
+            is_current = is_attached_session and name == self._current_tui
             running = name in self._running_names
             item = _TuiListItem(name, label, running, is_current)
             if is_current:
@@ -294,7 +388,7 @@ class TuiSwitcherOverlay(ModalScreen):
             win_name = f"{_BRAINSTORM_PREFIX}{task_num}"
             label = f"Brainstorm (t{task_num})"
             running = win_name in self._running_names
-            is_current = win_name == self._current_tui
+            is_current = is_attached_session and win_name == self._current_tui
             item = _TuiListItem(win_name, label, running, is_current)
             if is_current:
                 item.disabled = True
@@ -341,6 +435,33 @@ class TuiSwitcherOverlay(ModalScreen):
     def action_dismiss_overlay(self) -> None:
         self.dismiss(None)
 
+    def action_prev_session(self) -> None:
+        self._cycle_session(-1)
+
+    def action_next_session(self) -> None:
+        self._cycle_session(+1)
+
+    def _cycle_session(self, step: int) -> None:
+        # Priority-binding guard (CLAUDE.md "Priority bindings + App.query_one"):
+        # scope the guard to this screen via self.screen.query_one and
+        # SkipAction on miss so underlying screens don't have their Left/Right
+        # consumed. Same pattern as board's action_focus_minimap.
+        from textual.actions import SkipAction
+        try:
+            self.screen.query_one("#switcher_list", _WrappingListView)
+        except Exception:
+            raise SkipAction()
+        if not self._multi_mode or len(self._all_sessions) < 2:
+            raise SkipAction()
+        names = [s.session for s in self._all_sessions]
+        try:
+            idx = names.index(self._session)
+        except ValueError:
+            idx = 0
+        self._session = names[(idx + step) % len(names)]
+        self._render_session_row()
+        self._populate_list_for(self._session)
+
     def action_select_tui(self) -> None:
         list_view = self.query_one("#switcher_list", _WrappingListView)
         if list_view.highlighted_child is None:
@@ -363,8 +484,16 @@ class TuiSwitcherOverlay(ModalScreen):
             self._switch_to(item.window_name, True, item.window_index)
 
     def _shortcut_switch(self, target_name: str) -> None:
-        """Switch directly to a specific TUI by name, launching if not running."""
-        if target_name == self._current_tui:
+        """Switch directly to a specific TUI by name, launching if not running.
+
+        Shortcuts act on the SELECTED (operating) session — `self._session`
+        is mutated by Left/Right. The `is-current` no-op guard only applies
+        when the selected session IS the attached session; otherwise the
+        user is targeting a TUI in a different session and we should always
+        route through `_switch_to`.
+        """
+        if (self._session == self._attached_session
+                and target_name == self._current_tui):
             return
         self._switch_to(target_name, target_name in self._running_names)
 
@@ -384,10 +513,13 @@ class TuiSwitcherOverlay(ModalScreen):
         self._shortcut_switch("stats")
 
     def action_shortcut_brainstorm(self) -> None:
-        """Switch to first running brainstorm window, or notify if none running."""
+        """Switch to first running brainstorm window in the SELECTED session."""
         for name in sorted(self._running_names):
             if name.startswith(_BRAINSTORM_PREFIX):
-                if name == self._current_tui:
+                # No-op only when already on this brainstorm window in the
+                # attached session; otherwise teleport via _switch_to.
+                if (self._session == self._attached_session
+                        and name == self._current_tui):
                     return
                 self._switch_to(name, True)
                 return
@@ -400,7 +532,7 @@ class TuiSwitcherOverlay(ModalScreen):
         self._shortcut_switch("git")
 
     def action_shortcut_explore(self) -> None:
-        """Launch a new explore agent session (always new window)."""
+        """Launch a new explore agent session (always new window) in the SELECTED session."""
         n = 1
         while f"agent-explore-{n}" in self._running_names:
             n += 1
@@ -414,13 +546,14 @@ class TuiSwitcherOverlay(ModalScreen):
             )
             from agent_launch_utils import maybe_spawn_minimonitor
             maybe_spawn_minimonitor(self._session, window_name)
+            self._teleport_if_cross()
         except (FileNotFoundError, OSError):
             self.app.notify("Failed to launch explore", severity="error")
             return
         self.dismiss(window_name)
 
     def action_shortcut_create(self) -> None:
-        """Launch ait create in a new tmux window."""
+        """Launch ait create in a new tmux window in the SELECTED session."""
         try:
             proc = subprocess.Popen(
                 ["tmux", "new-window", "-t",
@@ -431,6 +564,7 @@ class TuiSwitcherOverlay(ModalScreen):
             proc.wait()
             from agent_launch_utils import maybe_spawn_minimonitor
             maybe_spawn_minimonitor(self._session, "create-task")
+            self._teleport_if_cross()
         except (FileNotFoundError, OSError):
             self.app.notify("Failed to launch create", severity="error")
             return
@@ -457,10 +591,31 @@ class TuiSwitcherOverlay(ModalScreen):
                      "-n", name, cmd],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
+            # Cross-session: teleport the attached client to the selected
+            # session. Per agent_launch_utils.switch_to_pane_anywhere's
+            # precedent, the target-window operation runs first (setting the
+            # selected session's active window or creating it), then the
+            # switch-client call lands the client there.
+            self._teleport_if_cross()
         except (FileNotFoundError, OSError):
             self.app.notify(f"Failed to switch to {name}", severity="error")
             return
         self.dismiss(name)
+
+    def _teleport_if_cross(self) -> None:
+        """Issue `tmux switch-client` when the selected session differs from attached."""
+        if self._session == self._attached_session:
+            return
+        try:
+            subprocess.Popen(
+                ["tmux", "switch-client", "-t", tmux_session_target(self._session)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except (FileNotFoundError, OSError):
+            # Best-effort — if the client detached between selection and
+            # this call, switch-client fails silently; the overlay still
+            # dismisses cleanly.
+            pass
 
     def _launch_git_with_companion(self) -> None:
         """Launch the git TUI in a new window with a companion minimonitor.
@@ -508,6 +663,9 @@ class TuiSwitcherOverlay(ModalScreen):
                  "pane-died", hook_cmd],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
+
+        # Cross-session teleport is handled by `_switch_to` after this
+        # helper returns — do not issue an additional `switch-client` here.
 
     @staticmethod
     def _get_launch_command(name: str) -> str:
