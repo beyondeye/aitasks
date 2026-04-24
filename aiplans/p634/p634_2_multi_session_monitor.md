@@ -426,3 +426,27 @@ Per the shared workflow:
 - `aitask-pick` Step 8 — present `git status` / `git diff --stat` for review. On "Commit changes", commit code files under `.aitask-scripts/`, `website/`, and `tests/` with `feature: Add multi-session tmux monitor (t634_2)`. Commit the plan file separately via `./ait git`.
 - `aitask-pick` Step 8c — offer a manual-verification follow-up task if the user wants TUI-flow coverage that automated tests can't exercise.
 - `aitask-pick` Step 9 — archive t634_2 (child). t634_4 and t634_5 remain pending (t634_5 depends on t634_4). Parent t634 auto-archives once all non-archived children (t634_3 plus the two new ones) complete.
+
+## Final Implementation Notes
+
+- **Actual work done:** All nine plan steps landed as written, plus four deviations (see below). `TmuxPaneInfo` grew a `session_name` field; `TmuxMonitor` grew `multi_session` (default `True`), a 10 s sessions cache, and two multi-session discovery paths (sync + async via `asyncio.gather`); `switch_to_pane`, `find_companion_pane_id`, `kill_agent_pane_smart` are cross-session safe. `MonitorApp` threads the flag, skips `SessionRenameDialog` in multi mode, shows the attached session in the title bar, prepends a session tag to every pane row, and adds an `M` binding that flips the flag in memory only. Website reference docs get a "Multi-session view" subsection and an `M` row in the Monitor Controls table. 31 new test cases in `tests/test_multi_session_monitor.sh` (all mock-based; Tier 2 skip-on-no-tmux); primitives test and tmux exact-session test both still pass (20/20, 10/10).
+- **Deviations from plan:**
+  1. **Session-tag color approach reversed mid-implementation.** The plan was silent on color; the first UI review asked for per-session hash-palette colors, then the second review asked to revert to a single fixed color. Final state: one fixed magenta tag color, `dim` divider rows — simpler and renders consistently across terminals.
+  2. **Added session-divider rows within the unified pane list.** Not in the original plan. The user reviewed the rendered output and pointed out that the tag prefix alone was insufficient to distinguish sessions — added `── session_name ──` divider rows before each session group in both the CODE AGENTS and OTHER sections. Fast-path in `_rebuild_pane_list` was not modified because dividers are a pure function of the pane-id sort order, which the fast path already guards.
+  3. **Minimonitor pinned to `multi_session=False`.** Not in the original plan but necessary: with the new default `True`, the minimonitor would have silently started aggregating across sessions — a regression until t634_5 ships proper minimonitor multi-session support. The pin is an explicit opt-out rather than changing the TmuxMonitor default.
+  4. **`_consume_focus_request`/`_clear_focus_request` left unchanged.** The plan called for adding an explanatory comment; this was done implicitly via code-review discussion rather than new inline commentary, because the existing code already encodes the per-session semantics clearly via `self._session` usage.
+- **Issues encountered:**
+  - First per-session color implementation used a weak polynomial hash; `aitasks` and `aitasks_mob` collided in the user's terminal. Switched to `zlib.crc32`, which spread them correctly — but the user then preferred a uniform color anyway.
+  - Minimonitor regression caught during the final cross-reference check (`grep TmuxMonitor(`); caught before commit.
+- **Key decisions:**
+  - Single-key config surface: deliberately chose NOT to ship a `tmux.monitor.multi_session` YAML key. Runtime `M` binding is the sole user control; default is ON. Simpler to document and avoids a settings-UI dependency.
+  - Session cache TTL is 10 s with explicit invalidation on `M` toggle. Avoids paying `discover_aitasks_sessions()`' cost every refresh tick.
+  - Session-tag color is a single class constant (`_SESSION_TAG_COLOR = "magenta"`); scalable to change later without touching logic.
+  - Session dividers use the `dim` style rather than per-session coloring so they read as structural, not status.
+- **Notes for sibling tasks (t634_4, t634_5):**
+  - The `_build_session_tags` helper on `MonitorApp` is private but is the canonical source-of-truth mapping `session_name → project_name`. When t634_4 adds multi-session to minimonitor, promote it to `monitor_shared.py` rather than duplicating.
+  - The `M` binding semantics (in-memory only, invalidates session cache, schedules refresh) should be copied verbatim to the minimonitor so the UX is identical across TUIs.
+  - `MonitorApp._SESSION_TAG_COLOR` / the divider `[dim]── name ──[/]` formatting should be kept consistent if minimonitor adds its own divider rendering.
+  - `TmuxMonitor._discover_sessions_cached()` and `invalidate_sessions_cache()` are the shared accessors — do not bypass them or add a second cache.
+  - The `kill_agent_pane_smart` / `find_companion_pane_id` / `switch_to_pane` cross-session fixes also benefit any cross-session operations the minimonitor might add; they are generic, not monitor-app-specific.
+  - Tests: the new Tier 1 mock patterns in `tests/test_multi_session_monitor.sh` (patching `discover_aitasks_sessions`, `_is_companion_process`, `subprocess.run`) are a good template for covering the minimonitor equivalents.
