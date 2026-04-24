@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tmux, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-24 10:59
-updated_at: 2026-04-24 10:59
+updated_at: 2026-04-24 11:07
 ---
 
 ## Context

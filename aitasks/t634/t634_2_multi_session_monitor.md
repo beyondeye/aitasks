@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [tmux, aitask_monitor, aitask_monitormini]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-23 20:20
-updated_at: 2026-04-24 00:00
+updated_at: 2026-04-24 10:22
 ---
 
 ## Context
