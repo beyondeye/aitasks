@@ -57,6 +57,28 @@ _NEW_SESSION_SENTINEL = "__new_session__"
 _NEW_WINDOW_SENTINEL = "__new_window__"
 
 
+def pick_initial_session(
+    sessions: list[str],
+    default_from_config: str | None,
+    last_for_project: str | None,
+) -> str:
+    """Resolve the initial session selection for the tmux tab.
+
+    Priority:
+    1. Last session chosen in THIS project (per-project memory).
+    2. project_config.yaml's tmux.default_session, if live.
+    3. First live session (fallback for legacy/unconfigured projects).
+    4. _NEW_SESSION_SENTINEL when no sessions exist.
+    """
+    if last_for_project and last_for_project in sessions:
+        return last_for_project
+    if default_from_config and default_from_config in sessions:
+        return default_from_config
+    if sessions:
+        return sessions[0]
+    return _NEW_SESSION_SENTINEL
+
+
 class AgentCommandScreen(ModalScreen):
     """Dialog showing an agent command for copying or running.
 
@@ -186,9 +208,11 @@ class AgentCommandScreen(ModalScreen):
         Binding("D", "tab_direct", "Direct tab", show=False),
     ]
 
-    # Class-level state remembered across dialog opens
-    _last_session: str | None = None
-    _last_window: str | None = None
+    # Per-project remembered selections, keyed by resolved project_root.
+    # Class-level (process lifetime) but partitioned per project to prevent
+    # cross-project leakage (see CLAUDE.md: one tmux session per project).
+    _last_session_by_project: dict[Path, str] = {}
+    _last_window_by_project: dict[Path, str] = {}
     # Per-operation remembered agent override (process lifetime)
     _last_agent_override: dict[str, str] = {}
 
@@ -210,6 +234,7 @@ class AgentCommandScreen(ModalScreen):
         self.prompt_str = prompt_str
         self.default_window_name = default_window_name
         self._project_root = project_root or Path.cwd()
+        self._project_key = self._project_root.resolve()
         self.operation = operation
         self.operation_args: list[str] = list(operation_args or [])
         self.current_agent_string: str | None = default_agent_string
@@ -302,13 +327,11 @@ class AgentCommandScreen(ModalScreen):
         session_options = [(s, s) for s in sessions]
         session_options.append(("+ Create new session", _NEW_SESSION_SENTINEL))
 
-        # Determine initial session selection
-        if AgentCommandScreen._last_session and AgentCommandScreen._last_session in sessions:
-            initial_session = AgentCommandScreen._last_session
-        elif sessions:
-            initial_session = sessions[0]
-        else:
-            initial_session = _NEW_SESSION_SENTINEL
+        initial_session = pick_initial_session(
+            sessions,
+            self._tmux_defaults.get("default_session"),
+            AgentCommandScreen._last_session_by_project.get(self._project_key),
+        )
 
         sess_row = Horizontal(classes="tmux-field-row")
         tmux.mount(sess_row)
@@ -379,14 +402,13 @@ class AgentCommandScreen(ModalScreen):
         win_select.set_options(options)
 
         # Default to the caller's tmux window (split pane) if available,
-        # otherwise fall back to creating a new window.
-        if self._default_tmux_window:
-            matching = [idx for idx, _name in windows
-                        if idx == self._default_tmux_window]
-            if matching:
-                win_select.value = matching[0]
-            else:
-                win_select.value = _NEW_WINDOW_SENTINEL
+        # else the last window chosen in this project, else a new window.
+        last_window_for_project = AgentCommandScreen._last_window_by_project.get(self._project_key)
+        live_indices = {idx for idx, _name in windows}
+        if self._default_tmux_window and self._default_tmux_window in live_indices:
+            win_select.value = self._default_tmux_window
+        elif last_window_for_project and last_window_for_project in live_indices:
+            win_select.value = last_window_for_project
         else:
             win_select.value = _NEW_WINDOW_SENTINEL
 
@@ -491,12 +513,12 @@ class AgentCommandScreen(ModalScreen):
         config = self._build_tmux_config()
         if config:
             self._store_command()
-            # Remember selections for next dialog open
-            AgentCommandScreen._last_session = config.session
+            # Remember selections for next dialog open in THIS project only.
+            AgentCommandScreen._last_session_by_project[self._project_key] = config.session
             if config.new_window:
-                AgentCommandScreen._last_window = None
+                AgentCommandScreen._last_window_by_project.pop(self._project_key, None)
             else:
-                AgentCommandScreen._last_window = f"{config.window}"
+                AgentCommandScreen._last_window_by_project[self._project_key] = f"{config.window}"
             self.dismiss(config)
 
     @on(Button.Pressed, "#btn_cancel")
