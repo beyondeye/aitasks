@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: [t634_4]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [website, documentation]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-24 10:22
-updated_at: 2026-04-24 10:22
+updated_at: 2026-04-24 17:50
 ---
 
 ## Context

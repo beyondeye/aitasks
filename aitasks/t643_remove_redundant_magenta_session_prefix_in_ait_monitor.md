@@ -6,8 +6,9 @@ issue_type: style
 status: Implementing
 labels: [aitask_monitor]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-24 17:44
-updated_at: 2026-04-24 17:46
+updated_at: 2026-04-24 17:49
 ---
 
 ## Background
