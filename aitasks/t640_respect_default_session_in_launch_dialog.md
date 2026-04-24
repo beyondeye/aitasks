@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [tmux, tui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-24 10:59
-updated_at: 2026-04-24 11:07
+updated_at: 2026-04-24 11:13
 ---
 
 ## Context

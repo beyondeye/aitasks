@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [t634_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [tmux, tui_switcher]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-23 20:21
-updated_at: 2026-04-23 20:22
+updated_at: 2026-04-24 11:15
 ---
 
 ## Context
