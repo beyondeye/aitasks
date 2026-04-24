@@ -149,3 +149,28 @@ Follow **Step 9 (Post-Implementation)** of `task-workflow`:
   the argument unconditionally. This does mean `multi_mode` is computed
   even on the fast-path branch, but it's a single boolean — cost is
   negligible.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the plan — removed `_SESSION_TAG_COLOR`,
+  `_build_session_tags()`, `_session_tag_prefix()`, and the `session_tags`
+  parameter from both card formatters in
+  `.aitask-scripts/monitor/monitor_app.py`; hoisted `multi_mode` to the
+  top of `_rebuild_pane_list` computed from `self._monitor.multi_session`;
+  dropped `session_tags` from all call sites (fast path + nested
+  `mount_with_session_dividers`). Deleted Tier 1j block (lines 415–431 of
+  the pre-change file) in `tests/test_multi_session_monitor.sh`.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Divider rows in
+  `mount_with_session_dividers` still reference the hoisted `multi_mode`
+  via closure — no change needed in that block.
+- **Key decisions:** Used `bool(self._monitor and self._monitor.multi_session)`
+  for multi-mode detection (matches the legacy semantics exactly:
+  `_build_session_tags` returned `{}` iff `_monitor is None` or
+  `not multi_session`).
+- **Verification outcome:**
+  - `bash tests/test_multi_session_monitor.sh` — 27/27 passed.
+  - `bash tests/test_multi_session_minimonitor.sh` — 24/24 passed.
+  - Smoke-check `hasattr` assertions for `_SESSION_TAG_COLOR`,
+    `_build_session_tags`, `_session_tag_prefix` all False → OK.
+  - `shellcheck` — no new warnings (scope was Python).
