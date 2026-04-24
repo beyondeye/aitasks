@@ -41,6 +41,7 @@ install_scripts
 legal
 license
 macos
+manual_verification
 model_selection
 modelvrapper
 opencode
