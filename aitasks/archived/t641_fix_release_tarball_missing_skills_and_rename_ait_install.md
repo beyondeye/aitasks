@@ -3,11 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [release, install, skills, refactor]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-24 11:18
-updated_at: 2026-04-24 14:00
+updated_at: 2026-04-24 15:57
+completed_at: 2026-04-24 15:57
 ---
 
 ## Symptom
