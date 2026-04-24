@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tmux, tui]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-24 10:59
-updated_at: 2026-04-24 11:13
+updated_at: 2026-04-24 15:44
+completed_at: 2026-04-24 15:44
 ---
 
 ## Context
