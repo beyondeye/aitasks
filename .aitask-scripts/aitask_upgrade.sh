@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# aitask_install.sh - Update aitasks to a new version
-# Invoked via: ait install [latest|VERSION]
+# aitask_upgrade.sh - Update aitasks to a new version
+# Invoked via: ait upgrade [latest|VERSION]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AIT_DIR="$SCRIPT_DIR/.."
@@ -18,21 +18,21 @@ die()     { echo -e "${RED}[ait] Error:${NC} $1" >&2; exit 1; }
 # --- Usage ---
 show_help() {
     cat <<EOF
-Usage: ait install [latest|VERSION]
+Usage: ait upgrade [latest|VERSION]
 
 Update the aitasks framework to a new version.
 
 Arguments:
-  latest          Install the latest release (default)
-  VERSION         Install a specific version (e.g., 0.2.1)
+  latest          Upgrade to the latest release (default)
+  VERSION         Upgrade to a specific version (e.g., 0.2.1)
 
 Options:
   --help          Show this help message
 
 Examples:
-  ait install             # Install latest version
-  ait install latest      # Install latest version
-  ait install 0.2.1       # Install specific version
+  ait upgrade             # Upgrade to latest version
+  ait upgrade latest      # Upgrade to latest version
+  ait upgrade 0.2.1       # Upgrade to specific version
 EOF
     exit 0
 }
