@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [tmux, aitask_monitormini]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-24 10:21
-updated_at: 2026-04-24 17:38
+updated_at: 2026-04-24 17:47
+completed_at: 2026-04-24 17:47
 ---
 
 ## Context
