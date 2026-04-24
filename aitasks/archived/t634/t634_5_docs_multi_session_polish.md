@@ -3,11 +3,13 @@ priority: low
 effort: low
 depends: [t634_4]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [website, documentation]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7
 created_at: 2026-04-24 10:22
-updated_at: 2026-04-24 17:50
+updated_at: 2026-04-24 18:12
+completed_at: 2026-04-24 18:12
 ---
 
 ## Context

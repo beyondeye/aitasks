@@ -3,11 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [tmux, aitask_monitor, tui_switcher]
-children_to_implement: [t634_5]
 created_at: 2026-04-23 20:19
-updated_at: 2026-04-24 17:47
+updated_at: 2026-04-24 18:12
+completed_at: 2026-04-24 18:12
 ---
 
 ## Context
