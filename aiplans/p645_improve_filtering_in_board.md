@@ -169,3 +169,20 @@ The default `'feature'` matches existing behavior at `.aitask-scripts/board/aita
 ## Step 9: Post-Implementation
 
 After implementation, follow the standard archival flow per `.claude/skills/task-workflow/SKILL.md` Step 9. Since `create_worktree: false` (profile `fast`), there is no branch to merge — the standard `aitask_archive.sh 645` invocation handles metadata, file moves, lock release, and commit.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly the approved plan in `.aitask-scripts/board/aitask_board.py`:
+  - Imported `SelectionList` and `Selection` from `textual.widgets`.
+  - Added `IssueTypeFilterScreen(ModalScreen)` mirroring `PaneSelectorModal` (space toggles, Enter confirms via `on_key`, Esc cancels), reusing the existing `#dep_picker_dialog` CSS so no new dialog styles were needed.
+  - Extended `ViewSelector.MODES` with `("t", "Type", "type")`, factored out a `SEPARATOR` class attribute, and rewrote `on_click` as a width-summing loop so click hit-areas stay correct as modes are added.
+  - Added `Static#type_filter_summary` (with a `.type-filter-summary` / `.hidden` CSS pair) under the `ViewSelector` inside `view_col`.
+  - Added `Binding("t", "view_type", ...)`, an `action_view_type` entry point, an `_open_type_filter_dialog` helper with a closure-based `on_dismiss` callback, a `_type_visible_set()` filter, an `apply_filter` `elif` branch, a `_refresh_type_filter_summary()` helper, a `"type"` placeholder for the search box, and a call to `_refresh_type_filter_summary()` inside `_set_view_mode`.
+  - Persistence reuses `manager.settings["filter_issue_types"]` — no schema change needed because `_USER_KEYS = {"settings"}` already routes `settings` to the gitignored user layer (`board_config.local.json`).
+- **Deviations from plan:** None of substance. `IssueTypeFilterScreen` was placed after `FileReferencePickerScreen` (line ~1855) instead of "around line 1762" — both spots cluster modal screens and the placement is purely cosmetic.
+- **Issues encountered:** The Edit tool repeatedly normalized the `│` escape sequence in the source file to its rendered Unicode glyph during string matching, causing `old_string` mismatches against the disk-literal `│`. Worked around with `python3 -c` to perform the rename of the `" │ ".join(parts)` line to `self.SEPARATOR.join(parts)`. The new `SEPARATOR` constant is stored in escape-sequence form for stylistic consistency with the rest of the file.
+- **Key decisions:**
+  - `action_view_type` opens the dialog when (a) we're already in type mode, or (b) there is no persisted selection. Otherwise it switches into type mode immediately using the persisted picks. This implements all four user choices in one place without modifying `_set_view_mode`'s "no-op when same mode" contract.
+  - Empty-confirm clears the persisted selection and reverts to the All view, per the user's explicit choice.
+  - `_type_visible_set()` defaults missing `issue_type` to `'feature'`, matching existing behavior in the task-detail screen at lines 2008/2044.
+- **Verification:** Ran `python3 -m py_compile` (clean), the existing `tests/test_board_config_split.py` (12/12 PASS), and a `Pilot.run_test()` headless smoke test that exercised: initial state hidden, `t` opens dialog on empty selection, empty Enter reverts to All, seeded selection lets `t` switch into type mode without a dialog, summary shows the comma-joined types, re-pressing `t` reopens the dialog with the prior picks pre-checked, Esc keeps state intact, `a` exits type mode and re-hides the summary. The smoke-test residue in `aitasks/metadata/board_config.local.json` was scrubbed afterwards so the user's first interactive run gets the natural first-time experience.
