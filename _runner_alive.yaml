@@ -2,7 +2,7 @@ status: running
 pid: 491711
 hostname: omg16
 started_at: '2026-04-26 09:49:52'
-last_heartbeat: '2026-04-26 09:54:38'
-next_check_at: '2026-04-26 09:55:08'
+last_heartbeat: '2026-04-26 09:55:09'
+next_check_at: '2026-04-26 09:55:39'
 interval: 30
 requested_action: null
