@@ -129,7 +129,7 @@ assert_contains "Detects existing repo" "already initialized" "$output"
 
 # commit_framework_files should detect and commit untracked files
 output2=$(commit_framework_files 2>&1 </dev/null)
-assert_contains "Detects untracked framework files" "not yet committed" "$output2"
+assert_contains "Detects untracked framework files" "READY TO COMMIT" "$output2"
 
 # Non-interactive mode auto-accepts, so files should be committed
 commit_count=$(git -C "$TMPDIR_1b" log --oneline 2>/dev/null | wc -l)

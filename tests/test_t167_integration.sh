@@ -97,25 +97,46 @@ TARBALL="/tmp/aitasks_test_t167.tar.gz"
 echo ""
 
 # ============================================================
-# Scenario A: install.sh commits files automatically
+# Scenario A: fresh install — install.sh skips commit (no VERSION sentinel)
 # ============================================================
-echo "=== Scenario A: install.sh auto-commits framework files ==="
+# Per t637, install.sh's commit_installed_files() now bails out unless
+# .aitask-scripts/VERSION is already git-tracked — projects that want
+# framework files tracked must commit it once via 'ait setup' (or any
+# subsequent install.sh run, which becomes an upgrade). This test verifies
+# that bail-out: install.sh extracts but does NOT auto-commit on first install.
+echo "=== Scenario A: install.sh skips auto-commit on fresh install (sentinel check) ==="
 
-bash "$PROJECT_DIR/install.sh" --dir "$TEST_DIR" --local-tarball "$TARBALL" </dev/null 2>&1 | tail -5
+install_output=$(bash "$PROJECT_DIR/install.sh" --dir "$TEST_DIR" --local-tarball "$TARBALL" </dev/null 2>&1)
 
-# Verify framework files were committed
-untracked=$(cd "$TEST_DIR" && git ls-files --others --exclude-standard \
-    .aitask-scripts/ aitasks/metadata/ ait .claude/skills/ 2>/dev/null)
-assert_eq "A1: No untracked framework files after install.sh" "" "$untracked"
+# install.sh emits a "skipping auto-commit of framework update" notice when
+# the sentinel is missing. Verify that path was taken.
+assert_contains "A1: install.sh announces sentinel-skip" "skipping auto-commit" "$install_output"
 
-# Verify commit message
-commit_msg=$(git -C "$TEST_DIR" log --format='%s' -1 2>/dev/null)
-assert_eq "A2: install.sh commit message" "ait: Add aitask framework" "$commit_msg"
+# Files should be EXTRACTED but NOT committed yet — only the initial commit exists.
+commit_count=$(git -C "$TEST_DIR" log --oneline 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "A2: Only the initial commit exists post-install" "1" "$commit_count"
 
-# Verify key files are tracked
+# But the framework files must exist on disk
+TOTAL=$((TOTAL + 1))
+if [[ -f "$TEST_DIR/ait" && -d "$TEST_DIR/.aitask-scripts" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: A3: Framework files extracted to disk"
+fi
+
+# Now simulate `ait setup`'s commit_framework_files() — that is what tracks them.
+source "$TEST_DIR/.aitask-scripts/aitask_setup.sh" --source-only
+set +euo pipefail
+SCRIPT_DIR="$TEST_DIR/.aitask-scripts"
+setup_output=$(commit_framework_files 2>&1 </dev/null)
+
 tracked_files=$(git -C "$TEST_DIR" ls-files 2>/dev/null)
-assert_contains "A3: .aitask-scripts/ is tracked" ".aitask-scripts/" "$tracked_files"
-assert_contains "A4: ait is tracked" "ait" "$tracked_files"
+assert_contains "A4: After ait setup, .aitask-scripts/ is tracked" ".aitask-scripts/" "$tracked_files"
+assert_contains "A5: After ait setup, ait is tracked" "ait" "$tracked_files"
+
+setup_commit_msg=$(git -C "$TEST_DIR" log --format='%s' -1 2>/dev/null)
+assert_eq "A6: ait setup commit message" "ait: Add aitask framework" "$setup_commit_msg"
 
 echo ""
 
@@ -174,34 +195,31 @@ assert_contains "C2: Says already committed" "already committed" "$output"
 echo ""
 
 # ============================================================
-# Scenario D: Fresh install without existing commit
+# Scenario D: re-run install.sh on an existing tracked install (upgrade path)
 # ============================================================
-echo "=== Scenario D: Fresh install into git repo (no prior framework commit) ==="
+# Once .aitask-scripts/VERSION is tracked (after `ait setup`), a subsequent
+# install.sh run becomes an upgrade and DOES auto-commit. This tests that
+# upgrade path.
+echo "=== Scenario D: install.sh on tracked install commits the upgrade ==="
 
-# Reset: remove framework files and recommit
-rm -rf "$TEST_DIR"
-mkdir -p "$TEST_DIR"
-(
-    cd "$TEST_DIR"
-    git init --quiet
-    git config user.email "test@test.com"
-    git config user.name "Test User"
-    echo "# fresh project" > README.md
-    git add README.md
-    git commit -m "Initial commit" --quiet
-)
+# After Scenario C, the fixture is already committed. Bump VERSION inside
+# the tarball to force an upgrade-style content change, then re-run install.sh.
+NEW_VERSION="99.0.0-t167test"
+TARBALL_BUILD="$(mktemp -d)"
+tar -xzf "$TARBALL" -C "$TARBALL_BUILD"
+echo "$NEW_VERSION" > "$TARBALL_BUILD/.aitask-scripts/VERSION"
+TARBALL_NEW="/tmp/aitasks_test_t167_new.tar.gz"
+(cd "$TARBALL_BUILD" && tar czf "$TARBALL_NEW" .)
 
-# Run install.sh again
-bash "$PROJECT_DIR/install.sh" --dir "$TEST_DIR" --local-tarball "$TARBALL" </dev/null >/dev/null 2>&1
+upgrade_output=$(bash "$PROJECT_DIR/install.sh" --force --dir "$TEST_DIR" --local-tarball "$TARBALL_NEW" </dev/null 2>&1)
 
-# Source and run commit_framework_files (simulating ait setup)
-source "$TEST_DIR/.aitask-scripts/aitask_setup.sh" --source-only
-set +euo pipefail
-SCRIPT_DIR="$TEST_DIR/.aitask-scripts"
+assert_contains "D1: Upgrade run reports a commit" "committed to git" "$upgrade_output"
 
-# Since install.sh already committed, commit_framework_files should find nothing
-output=$(commit_framework_files 2>&1 </dev/null)
-assert_contains "D1: Says already committed after install.sh" "already committed" "$output"
+upgrade_commit_msg=$(git -C "$TEST_DIR" log --format='%s' -1 2>/dev/null)
+assert_contains "D2: Upgrade commit message references new version" "v${NEW_VERSION}" "$upgrade_commit_msg"
+
+rm -f "$TARBALL_NEW"
+rm -rf "$TARBALL_BUILD"
 
 echo ""
 

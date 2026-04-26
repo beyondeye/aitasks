@@ -2448,12 +2448,26 @@ commit_framework_files() {
 
     # Check for untracked or modified framework files.
     # Exclude interpreter cache artifacts even if local ignore rules are incomplete.
+    # In branch mode (`aitasks/`, `aiplans/` are symlinks into a `.aitask-data`
+    # worktree), additionally exclude those paths — they are committed by
+    # commit_framework_data_files(). In legacy mode, leave them in.
     local untracked modified all_changes
     local cache_artifacts_re='(^|/)__pycache__/|\.py[co]$|\.pyd$'
+    local data_branch_re=''
+    if [[ -d "$project_dir/.aitask-data/.git" || -f "$project_dir/.aitask-data/.git" ]]; then
+        data_branch_re='^(aitasks|aiplans)/'
+    fi
+    _filter_changes() {
+        if [[ -n "$data_branch_re" ]]; then
+            grep -Ev "$cache_artifacts_re" | grep -Ev "$data_branch_re"
+        else
+            grep -Ev "$cache_artifacts_re"
+        fi
+    }
     untracked="$(cd "$project_dir" && git ls-files --others --exclude-standard \
-        "${paths_to_add[@]}" 2>/dev/null | grep -Ev "$cache_artifacts_re")" || true
+        "${paths_to_add[@]}" 2>/dev/null | _filter_changes)" || true
     modified="$(cd "$project_dir" && git ls-files --modified \
-        "${paths_to_add[@]}" 2>/dev/null | grep -Ev "$cache_artifacts_re")" || true
+        "${paths_to_add[@]}" 2>/dev/null | _filter_changes)" || true
     all_changes="$(printf "%s\n%s\n" "$untracked" "$modified" | sed '/^$/d')"
 
     local changed_files=()
@@ -2511,10 +2525,12 @@ commit_framework_files() {
 
             # Post-commit verification: anything still untracked under the
             # framework paths indicates a gitignore rule, pathspec quirk, or
-            # a new file produced between the list and the commit.
+            # a new file produced between the list and the commit. Apply the
+            # same data-branch filter — those files are committed separately
+            # by commit_framework_data_files() in branch mode.
             local still_untracked
             still_untracked="$(cd "$project_dir" && git ls-files --others --exclude-standard \
-                "${paths_to_add[@]}" 2>/dev/null | grep -Ev "$cache_artifacts_re")" || true
+                "${paths_to_add[@]}" 2>/dev/null | _filter_changes)" || true
             if [[ -n "$still_untracked" ]]; then
                 warn "Some framework files remain untracked after commit:"
                 # awk reads all stdin — no SIGPIPE even if list is huge.
@@ -2533,6 +2549,109 @@ commit_framework_files() {
                 info "    ... and $((total_count - 10)) more"
             fi
             info "You can manually commit later with 'git add' and 'git commit'."
+            ;;
+    esac
+}
+
+# --- Commit data-branch framework files (branch-mode only) ---
+# Setup-time analogue of install.sh's commit_installed_data_files().
+# In branch mode, framework metadata living on the aitask-data branch
+# (aitasks/metadata/, optionally aireviewguides/) gets written through
+# symlinks during setup but never reaches the data worktree's index unless
+# we commit it here. Keeps `ait setup` and `ait upgrade` symmetric.
+commit_framework_data_files() {
+    local project_dir="$SCRIPT_DIR/.."
+    local data_dir="$project_dir/.aitask-data"
+
+    # Legacy mode (no separate data worktree) — nothing to do.
+    if [[ ! -d "$data_dir/.git" && ! -f "$data_dir/.git" ]]; then
+        return
+    fi
+
+    if ! git -C "$data_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        return
+    fi
+
+    # Framework-owned config dirs that may live on the data branch. Never
+    # commit task or plan content here — those are user data.
+    local data_check_paths=("aitasks/metadata/" "aireviewguides/")
+    local data_paths=()
+    for p in "${data_check_paths[@]}"; do
+        [[ -e "$data_dir/$p" ]] && data_paths+=("$p")
+    done
+
+    if [[ ${#data_paths[@]} -eq 0 ]]; then
+        return
+    fi
+
+    local cache_artifacts_re='(^|/)__pycache__/|\.py[co]$|\.pyd$'
+    local untracked modified all_changes
+    untracked="$(git -C "$data_dir" ls-files --others --exclude-standard \
+        "${data_paths[@]}" 2>/dev/null | grep -Ev "$cache_artifacts_re")" || true
+    modified="$(git -C "$data_dir" ls-files --modified \
+        "${data_paths[@]}" 2>/dev/null | grep -Ev "$cache_artifacts_re")" || true
+    all_changes="$(printf '%s\n%s\n' "$untracked" "$modified" | sed '/^$/d')"
+
+    if [[ -z "$all_changes" ]]; then
+        success "Framework data files already committed to aitask-data branch"
+        return
+    fi
+
+    local changed_files=()
+    while IFS= read -r changed_file; do
+        [[ -n "$changed_file" ]] || continue
+        changed_files+=("$changed_file")
+    done <<< "$all_changes"
+
+    local total_count=${#changed_files[@]}
+    echo ""
+    info "────────────────────────────────────────────────────"
+    info "READY TO COMMIT $total_count FRAMEWORK DATA FILES (aitask-data branch)"
+    info "────────────────────────────────────────────────────"
+    local _i
+    for ((_i=0; _i<total_count && _i<20; _i++)); do
+        printf '  %s\n' "${changed_files[_i]}"
+    done
+    if [[ $total_count -gt 20 ]]; then
+        info "  ... and $((total_count - 20)) more files"
+    fi
+
+    if [[ -t 0 ]]; then
+        printf "  Commit framework data files to aitask-data branch? [Y/n] "
+        read -r answer
+    else
+        info "(non-interactive: auto-accepting default)"
+        answer="Y"
+    fi
+    case "${answer:-Y}" in
+        [Yy]*|"")
+            local add_output commit_output
+            if ! add_output=$(git -C "$data_dir" add -- "${changed_files[@]}" 2>&1); then
+                warn "git add failed (data branch):"
+                printf '%s\n' "$add_output" | awk '{print "    " $0}'
+                warn "Framework data files NOT committed."
+                return
+            fi
+            if ! git -C "$data_dir" diff --cached --quiet 2>/dev/null; then
+                if ! commit_output=$(git -C "$data_dir" \
+                    commit -m "ait: Add aitask framework data" 2>&1); then
+                    warn "git commit failed (data branch):"
+                    printf '%s\n' "$commit_output" | awk '{print "    " $0}'
+                    warn "Framework data files staged but NOT committed."
+                    return
+                fi
+            fi
+            success "Framework data files committed to aitask-data branch"
+            ;;
+        *)
+            warn "Skipped committing framework data files. These remain UNTRACKED on aitask-data:"
+            for ((_i=0; _i<total_count && _i<10; _i++)); do
+                printf '    %s\n' "${changed_files[_i]}"
+            done
+            if [[ $total_count -gt 10 ]]; then
+                info "    ... and $((total_count - 10)) more"
+            fi
+            info "You can manually commit later with './ait git add' and './ait git commit'."
             ;;
     esac
 }
@@ -2889,6 +3008,9 @@ main() {
     echo ""
 
     commit_framework_files
+    echo ""
+
+    commit_framework_data_files
     echo ""
 
     check_latest_version

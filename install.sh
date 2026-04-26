@@ -683,6 +683,13 @@ set_permissions() {
 # into tracking them (heuristic: .aitask-scripts/VERSION is git-tracked).
 # No interactive prompt (stdin may not be a terminal when piped).
 # Non-fatal: warns on failure instead of aborting. Never pushes.
+#
+# Branch-mode safety: discovers changed files via `git ls-files`, then stages
+# them individually. `git ls-files` silently skips paths beyond symbolic links,
+# so symlinked `aitasks/metadata/` (data-branch worktree) drops out cleanly
+# instead of triggering `fatal: pathspec ... is beyond a symbolic link` and
+# aborting the entire `git add`. Data-worktree changes are committed by
+# commit_installed_data_files() below.
 commit_installed_files() {
     if ! git -C "$INSTALL_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
         return
@@ -733,22 +740,173 @@ commit_installed_files() {
         return
     fi
 
-    info "Committing framework update (v${version}) to git..."
-    (
-        cd "$INSTALL_DIR"
-        git add "${paths_to_add[@]}" 2>/dev/null || true
-        # One-time cleanup: drop any __pycache__ paths that were tracked before
-        # the scoped .aitask-scripts/.gitignore landed.
-        local cached_pycache
-        cached_pycache="$(git ls-files '.aitask-scripts/*/__pycache__/*' 2>/dev/null || true)"
-        if [[ -n "$cached_pycache" ]]; then
-            echo "$cached_pycache" | xargs git rm --cached --quiet 2>/dev/null || true
+    # Discover changed files (untracked + modified). In branch mode, `aitasks/`
+    # and `aiplans/` are symlinks into the `.aitask-data` worktree. `git
+    # ls-files` USUALLY skips pathspecs beyond such a symlink, but the rule is
+    # nuanced — when the symlink target is INSIDE the worktree (e.g.,
+    # `.aitask-data/` lives under INSTALL_DIR) and the symlink is tracked,
+    # ls-files can walk through it. So in branch mode we additionally filter
+    # any `aitasks/` or `aiplans/` paths out of the result; they are committed
+    # by commit_installed_data_files() below. In legacy mode (no .aitask-data
+    # worktree) `aitasks/metadata/` lives on the main branch and must NOT be
+    # filtered.
+    local cache_artifacts_re='(^|/)__pycache__/|\.py[co]$|\.pyd$'
+    local data_branch_re=''
+    if [[ -d "$INSTALL_DIR/.aitask-data/.git" || -f "$INSTALL_DIR/.aitask-data/.git" ]]; then
+        data_branch_re='^(aitasks|aiplans)/'
+    fi
+
+    _filter_changes() {
+        if [[ -n "$data_branch_re" ]]; then
+            grep -Ev "$cache_artifacts_re" | grep -Ev "$data_branch_re"
+        else
+            grep -Ev "$cache_artifacts_re"
         fi
-        if ! git diff --cached --quiet 2>/dev/null; then
-            git commit -m "ait: Update aitasks framework to v${version}"
+    }
+
+    local untracked modified all_changes
+    untracked="$(cd "$INSTALL_DIR" && git ls-files --others --exclude-standard \
+        "${paths_to_add[@]}" 2>/dev/null | _filter_changes)" || true
+    modified="$(cd "$INSTALL_DIR" && git ls-files --modified \
+        "${paths_to_add[@]}" 2>/dev/null | _filter_changes)" || true
+    all_changes="$(printf '%s\n%s\n' "$untracked" "$modified" | sed '/^$/d')"
+
+    # One-time cleanup: drop any __pycache__ paths that were tracked before
+    # the scoped .aitask-scripts/.gitignore landed.
+    local cached_pycache
+    cached_pycache="$(cd "$INSTALL_DIR" && git ls-files '.aitask-scripts/*/__pycache__/*' 2>/dev/null || true)"
+
+    if [[ -z "$all_changes" && -z "$cached_pycache" ]]; then
+        success "Framework files already committed to git (v${version})"
+        return
+    fi
+
+    local changed_files=()
+    while IFS= read -r changed_file; do
+        [[ -n "$changed_file" ]] || continue
+        changed_files+=("$changed_file")
+    done <<< "$all_changes"
+
+    info "Committing framework update (v${version}) to git (${#changed_files[@]} files)..."
+
+    if [[ -n "$cached_pycache" ]]; then
+        # shellcheck disable=SC2086 # intentional word splitting on newline-delimited list
+        (cd "$INSTALL_DIR" && echo "$cached_pycache" | xargs git rm --cached --quiet 2>/dev/null) || true
+    fi
+
+    if [[ ${#changed_files[@]} -gt 0 ]]; then
+        local add_output
+        if ! add_output=$(cd "$INSTALL_DIR" && git add -- "${changed_files[@]}" 2>&1); then
+            warn "git add failed:"
+            printf '%s\n' "$add_output" | awk '{print "    " $0}'
+            warn "Framework files NOT committed. Run 'ait setup' to retry."
+            return
         fi
-    ) && success "Framework update committed to git" \
-      || warn "Could not commit framework update (non-fatal)."
+    fi
+
+    if ! (cd "$INSTALL_DIR" && git diff --cached --quiet 2>/dev/null); then
+        local commit_output
+        if ! commit_output=$(cd "$INSTALL_DIR" && \
+            git commit -m "ait: Update aitasks framework to v${version}" 2>&1); then
+            warn "git commit failed:"
+            printf '%s\n' "$commit_output" | awk '{print "    " $0}'
+            warn "Framework files staged but NOT committed. Run 'git commit' manually."
+            return
+        fi
+        success "Framework update v${version} committed to git"
+    fi
+
+    # Post-commit verification: anything still untracked under the framework
+    # paths indicates a gitignore rule, pathspec quirk, or a new file produced
+    # between the list and the commit. Apply the same data-branch filter as
+    # above — those files belong on the aitask-data branch, not master.
+    local still_untracked
+    still_untracked="$(cd "$INSTALL_DIR" && git ls-files --others --exclude-standard \
+        "${paths_to_add[@]}" 2>/dev/null | _filter_changes)" || true
+    if [[ -n "$still_untracked" ]]; then
+        warn "Some framework files remain untracked after commit:"
+        printf '%s\n' "$still_untracked" | awk 'NR<=20 {print "    " $0}'
+        warn "Run 'git status' to investigate, then 'git add' and 'git commit' to finalize."
+    fi
+}
+
+# --- Commit data-branch framework files (branch-mode only) ---
+# When the project uses a separate `aitask-data` branch (worktree at
+# .aitask-data/), framework metadata that lives there — aitasks/metadata/ and
+# (when symlinked) aireviewguides/ — is written through symlinks during install
+# but never reaches the master worktree's index. Commit those changes inside
+# the data worktree so install.sh and `ait setup` are symmetric.
+#
+# Inline data-worktree detection (install.sh runs stand-alone via curl|bash so
+# it cannot source .aitask-scripts/lib/task_utils.sh). Mirrors
+# _ait_detect_data_worktree() in that file.
+commit_installed_data_files() {
+    local data_dir="$INSTALL_DIR/.aitask-data"
+
+    # Legacy mode (no separate data worktree) — nothing to do.
+    if [[ ! -d "$data_dir/.git" && ! -f "$data_dir/.git" ]]; then
+        return
+    fi
+
+    if ! git -C "$data_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        return
+    fi
+
+    local version="unknown"
+    if [[ -f "$INSTALL_DIR/.aitask-scripts/VERSION" ]]; then
+        version="$(cat "$INSTALL_DIR/.aitask-scripts/VERSION")"
+    fi
+
+    # Framework-owned config dirs that may live on the data branch. Never
+    # commit task or plan content here — those are user data.
+    local data_check_paths=("aitasks/metadata/" "aireviewguides/")
+    local data_paths=()
+    for p in "${data_check_paths[@]}"; do
+        [[ -e "$data_dir/$p" ]] && data_paths+=("$p")
+    done
+
+    if [[ ${#data_paths[@]} -eq 0 ]]; then
+        return
+    fi
+
+    local cache_artifacts_re='(^|/)__pycache__/|\.py[co]$|\.pyd$'
+    local untracked modified all_changes
+    untracked="$(git -C "$data_dir" ls-files --others --exclude-standard \
+        "${data_paths[@]}" 2>/dev/null | grep -Ev "$cache_artifacts_re")" || true
+    modified="$(git -C "$data_dir" ls-files --modified \
+        "${data_paths[@]}" 2>/dev/null | grep -Ev "$cache_artifacts_re")" || true
+    all_changes="$(printf '%s\n%s\n' "$untracked" "$modified" | sed '/^$/d')"
+
+    if [[ -z "$all_changes" ]]; then
+        return
+    fi
+
+    local changed_files=()
+    while IFS= read -r changed_file; do
+        [[ -n "$changed_file" ]] || continue
+        changed_files+=("$changed_file")
+    done <<< "$all_changes"
+
+    info "Committing framework data update (v${version}) to aitask-data branch (${#changed_files[@]} files)..."
+
+    local add_output
+    if ! add_output=$(git -C "$data_dir" add -- "${changed_files[@]}" 2>&1); then
+        warn "git add failed (data branch):"
+        printf '%s\n' "$add_output" | awk '{print "    " $0}'
+        warn "Framework data files NOT committed."
+        return
+    fi
+
+    if ! git -C "$data_dir" diff --cached --quiet 2>/dev/null; then
+        local commit_output
+        if ! commit_output=$(git -C "$data_dir" \
+            commit -m "ait: Update aitasks framework data to v${version}" 2>&1); then
+            warn "git commit failed (data branch):"
+            printf '%s\n' "$commit_output" | awk '{print "    " $0}'
+            return
+        fi
+        success "Framework data update v${version} committed to aitask-data branch"
+    fi
 }
 
 # --- Main ---
@@ -852,6 +1010,7 @@ main() {
     install_global_shim
 
     commit_installed_files
+    commit_installed_data_files
 
     echo ""
     echo "=== aitasks installed successfully ==="

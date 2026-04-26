@@ -72,7 +72,7 @@ Brainstorm:
 
 Infrastructure:
   setup          Install dependencies
-  install        Update aitasks to latest or specific version
+  upgrade        Update aitasks to latest or specific version
 
 Options:
   -h, --help     Show this help message
