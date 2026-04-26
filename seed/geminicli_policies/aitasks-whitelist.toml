@@ -522,6 +522,12 @@ priority = 100
 
 [[rule]]
 toolName = "run_shell_command"
+commandPrefix = "./ait crew"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
 commandPrefix = "./.aitask-scripts/aitask_init_data.sh"
 decision = "allow"
 priority = 100

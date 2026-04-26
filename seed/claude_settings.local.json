@@ -25,6 +25,7 @@
       "Bash(git diff:*)",
       "Bash(git log:*)",
       "Bash(./ait git:*)",
+      "Bash(./ait crew:*)",
       "Bash(./.aitask-scripts/aitask_archive.sh:*)",
       "Bash(./.aitask-scripts/aitask_changelog.sh:*)",
       "Bash(./.aitask-scripts/aitask_claim_id.sh:*)",

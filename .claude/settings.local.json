@@ -117,7 +117,9 @@
       "WebFetch(domain:support.atlassian.com)",
       "Bash(tmux list-sessions:*)",
       "Bash(./ait create:*)",
-      "WebFetch(domain:docs.anthropic.com)"
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(./ait ls *)",
+      "Bash(./ait crew:*)"
     ]
   }
 }
