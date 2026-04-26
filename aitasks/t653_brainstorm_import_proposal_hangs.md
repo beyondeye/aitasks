@@ -1,13 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [650]
 issue_type: bug
 status: Implementing
 labels: [agentcrew, ait_brainstorm]
+children_to_implement: [t653_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-26 13:47
-updated_at: 2026-04-26 14:00
+updated_at: 2026-04-26 14:30
 boardidx: 40
 ---
 
