@@ -84,9 +84,9 @@ in your output.
 - Read the current node's proposal (read-only, for impact analysis context)
 
 ### Checkpoint 1
-- report_alive: "Phase 1 complete — plan and patch request loaded"
-- update_progress: 15
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 1 complete — plan and patch request loaded"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 15
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Phase 2: Apply Patch
 
@@ -99,9 +99,9 @@ in your output.
 - If the request is ambiguous, note the ambiguity in the output
 
 ### Checkpoint 2
-- report_alive: "Phase 2 complete — patch applied"
-- update_progress: 45
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 2 complete — patch applied"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 45
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Phase 3: Impact Analysis
 
@@ -114,9 +114,9 @@ in your output.
 - If IMPACT_FLAG: list affected dimensions, old/new values, recommended action
 
 ### Checkpoint 3
-- report_alive: "Phase 3 complete — impact analysis done"
-- update_progress: 75
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 3 complete — impact analysis done"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 75
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Phase 4: Write Output
 
@@ -135,11 +135,11 @@ in your output.
   ```
 
 ### Checkpoint 4
-- report_alive: "Phase 4 complete — output written"
-- update_progress: 90
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 4 complete — output written"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 90
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Completion
-- update_status: Completed
-- update_progress: 100
-- report_alive: "Plan patching complete"
+- Execute the **Status Updates** procedure from your `_instructions.md` with status: Completed
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 100
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Plan patching complete"

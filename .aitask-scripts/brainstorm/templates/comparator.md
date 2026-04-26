@@ -67,9 +67,9 @@ Your comparison matrix should still cover the requested dimensions.
 - Note any optional scoring metric
 
 ### Checkpoint 1
-- report_alive: "Phase 1 complete — node data loaded, extracting dimensions"
-- update_progress: 15
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 1 complete — node data loaded, extracting dimensions"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 15
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Phase 2: Generate Comparison
 
@@ -80,9 +80,9 @@ Your comparison matrix should still cover the requested dimensions.
 - If a scoring metric was provided, score each node
 
 ### Checkpoint 2
-- report_alive: "Phase 2 complete — comparison matrix generated"
-- update_progress: 50
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 2 complete — comparison matrix generated"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 50
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Phase 3: Write Output
 
@@ -94,11 +94,11 @@ Your comparison matrix should still cover the requested dimensions.
 - Combine the comparison matrix and delta summary into `_output.md`
 
 ### Checkpoint 3
-- report_alive: "Phase 3 complete — output written"
-- update_progress: 85
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 3 complete — output written"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 85
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Completion
-- update_status: Completed
-- update_progress: 100
-- report_alive: "Comparison complete"
+- Execute the **Status Updates** procedure from your `_instructions.md` with status: Completed
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 100
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Comparison complete"

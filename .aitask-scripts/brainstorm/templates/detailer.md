@@ -104,9 +104,9 @@ non-targeted sections unchanged, and rewrite only the targeted sections.
   - Build and deployment tools
 
 ### Checkpoint 1
-- report_alive: "Phase 1 complete — architecture and codebase understood"
-- update_progress: 15
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 1 complete — architecture and codebase understood"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 15
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Phase 2: Generate Implementation Plan
 
@@ -122,9 +122,9 @@ non-targeted sections unchanged, and rewrite only the targeted sections.
 - Write Verification Checklist mapping assumptions to verification steps
 
 ### Checkpoint 2
-- report_alive: "Phase 2 complete — implementation plan drafted"
-- update_progress: 75
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 2 complete — implementation plan drafted"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 75
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Phase 3: Write Output
 
@@ -136,11 +136,11 @@ non-targeted sections unchanged, and rewrite only the targeted sections.
 - Write the final plan Markdown to `_output.md`
 
 ### Checkpoint 3
-- report_alive: "Phase 3 complete — plan written to output"
-- update_progress: 90
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 3 complete — plan written to output"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 90
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Completion
-- update_status: Completed
-- update_progress: 100
-- report_alive: "Implementation planning complete"
+- Execute the **Status Updates** procedure from your `_instructions.md` with status: Completed
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 100
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Implementation planning complete"

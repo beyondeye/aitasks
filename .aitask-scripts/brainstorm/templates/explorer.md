@@ -126,9 +126,9 @@ applies primarily to the targeted areas.
 - Read the active dimensions from the input
 
 ### Checkpoint 1
-- report_alive: "Phase 1 complete — baseline loaded, understanding constraints"
-- update_progress: 15
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 1 complete — baseline loaded, understanding constraints"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 15
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Phase 2: Generate Proposal
 
@@ -143,9 +143,9 @@ applies primarily to the targeted areas.
   references not in the baseline's list
 
 ### Checkpoint 2
-- report_alive: "Phase 2 complete — proposal drafted"
-- update_progress: 60
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 2 complete — proposal drafted"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 60
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Phase 3: Generate Metadata
 
@@ -158,9 +158,9 @@ applies primarily to the targeted areas.
 - Mark inherited vs new dimensions in comments
 
 ### Checkpoint 3
-- report_alive: "Phase 3 complete — metadata generated"
-- update_progress: 85
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 3 complete — metadata generated"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 85
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Phase 4: Write Output
 
@@ -182,6 +182,6 @@ applies primarily to the targeted areas.
   ```
 
 ## Completion
-- update_status: Completed
-- update_progress: 100
-- report_alive: "Exploration complete"
+- Execute the **Status Updates** procedure from your `_instructions.md` with status: Completed
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 100
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Exploration complete"

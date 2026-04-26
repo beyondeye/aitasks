@@ -85,9 +85,9 @@ When merging, conflicts are inevitable. Follow this process:
 - Note the new node ID assigned by the orchestrator
 
 ### Checkpoint 1
-- report_alive: "Phase 1 complete — source nodes loaded"
-- update_progress: 10
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 1 complete — source nodes loaded"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 10
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Phase 2: Identify Conflicts
 
@@ -100,9 +100,9 @@ When merging, conflicts are inevitable. Follow this process:
 - Document all identified conflicts
 
 ### Checkpoint 2
-- report_alive: "Phase 2 complete — conflicts identified"
-- update_progress: 30
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 2 complete — conflicts identified"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 30
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Phase 3: Resolve Conflicts and Write Proposal
 
@@ -118,9 +118,9 @@ When merging, conflicts are inevitable. Follow this process:
   remove dropped component refs
 
 ### Checkpoint 3
-- report_alive: "Phase 3 complete — conflicts resolved, proposal written"
-- update_progress: 70
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 3 complete — conflicts resolved, proposal written"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 70
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Phase 4: Write Output
 
@@ -140,11 +140,11 @@ When merging, conflicts are inevitable. Follow this process:
   ```
 
 ### Checkpoint 4
-- report_alive: "Phase 4 complete — output written"
-- update_progress: 90
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 4 complete — output written"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 90
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Completion
-- update_status: Completed
-- update_progress: 100
-- report_alive: "Synthesis complete"
+- Execute the **Status Updates** procedure from your `_instructions.md` with status: Completed
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 100
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Synthesis complete"

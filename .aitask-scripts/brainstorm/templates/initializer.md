@@ -83,9 +83,9 @@ Example:
 - Read the originating task file for additional context.
 
 ### Checkpoint 1
-- report_alive: "Phase 1 complete — imported proposal loaded"
-- update_progress: 20
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 1 complete — imported proposal loaded"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 20
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Phase 2: Classify Structure
 
@@ -98,9 +98,9 @@ Example:
   emitted as `assumption_*` dimension keys.
 
 ### Checkpoint 2
-- report_alive: "Phase 2 complete — structure classified"
-- update_progress: 45
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 2 complete — structure classified"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 45
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Phase 3: Generate Metadata
 
@@ -115,9 +115,9 @@ Example:
     `tradeoff_*` fields.
 
 ### Checkpoint 3
-- report_alive: "Phase 3 complete — metadata generated"
-- update_progress: 70
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 3 complete — metadata generated"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 70
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Phase 4: Write Output
 
@@ -133,11 +133,11 @@ Example:
   ```
 
 ### Checkpoint 4
-- report_alive: "Phase 4 complete — output written"
-- update_progress: 95
-- check_commands
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 4 complete — output written"
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 95
+- Execute the **Reading Commands** procedure from your `_instructions.md`
 
 ## Completion
-- update_status: Completed
-- update_progress: 100
-- report_alive: "Initialization complete"
+- Execute the **Status Updates** procedure from your `_instructions.md` with status: Completed
+- Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 100
+- Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Initialization complete"
