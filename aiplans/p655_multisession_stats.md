@@ -286,3 +286,32 @@ End-to-end manual test (requires ≥2 aitasks projects in tmux sessions):
    - Apply the new "sessions" preset (Layouts → sessions). Confirm the "Per-session totals" pane shows one bar group per detected session with three bars (today/7d/30d) per group and that the values match what each individual session shows.
 4. `r` (refresh) clears the per-session cache and reloads.
 5. Step 9 (Post-Implementation): merge to main per the standard workflow in `.claude/skills/task-workflow/SKILL.md`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-04-26 17:30)
+- **Requested by user:** "ait stats tui is crashing on start"
+- **Changes made:** Reordered imports in `stats/stats_app.py` so `lib.tui_switcher` (which adds `.aitask-scripts/lib/` to `sys.path` as a side effect) is imported *before* `agent_launch_utils`. The latter is now imported via the bareword form (`from agent_launch_utils import …`) which only resolves once `lib/` is on the path. Without the reorder, `agent_launch_utils.py` line 23 (`from tui_registry import …`) fails with `ModuleNotFoundError`.
+- **Files affected:** `.aitask-scripts/stats/stats_app.py`
+
+### Change Request 2 (2026-04-26 17:35)
+- **Requested by user:** "the UX of using left/right arrow to switch between data of different session (or aggregate) would be nicer, we combine the two"
+- **Changes made:** Added Left/Right arrow cycling at the app level. The existing `action_prev_verified_op` / `action_next_verified_op` handlers were extended: on the `agents.verified` pane they keep their original op-cycling behavior; on every other pane (and only when `multi_session=True`) they invoke a new `_cycle_session(delta)` helper that walks `self.sessions + [ALL_SESSIONS_KEY]` with wraparound, mirrors the new selection in the `#session_list` widget, and reuses the same data-loading / title-update / pane-refresh path as the click-to-select handler. The session selector pane is preserved.
+- **Files affected:** `.aitask-scripts/stats/stats_app.py`
+
+### Change Request 3 (2026-04-26 17:40)
+- **Requested by user:** "now need to add hints about what left/right arrow do somewhere, now this feature is not visible to users"
+- **Changes made:** Two discoverability hints. (1) The Session panel title now reads `Session  ← / → to cycle` (always visible above the selector when in multi-session mode). (2) The Left/Right `Binding`s are now `show=True` with labels `← Cycle` / `→ Cycle` so they render in the Footer when terminal width permits. Verified at the API level via `app.run_test`; actual footer rendering depends on terminal width.
+- **Files affected:** `.aitask-scripts/stats/stats_app.py`
+
+## Final Implementation Notes
+
+- **Actual work done:** Threaded an optional `project_root: Path | None = None` argument through the stats data layer (`collect_stats`, `iter_archived_markdown_files`, `load_model_cli_ids`, `load_verified_rankings`, `get_valid_task_types`) via a single `_paths_for()` helper. Added `SessionTotals` dataclass + optional `session_breakdown` field on `StatsData` and a `merge_stats_data(parts)` aggregator that sums Counters, unions sets, and merges display-name dicts. In `stats_app.py`, calling `discover_aitasks_sessions()` at startup populates `self.sessions`; when ≥2 are detected, the left column gains a "Session" panel above the sidebar with Left/Right cycling and a click-to-select list. Per-session `StatsData` are cached lazily; `r` (refresh) clears the cache. Created `panes/sessions.py` with `sessions.totals` rendering a grouped bar chart (today/7d/30d, one group per session). Added a `sessions` preset to `DEFAULT_PRESETS`.
+- **Deviations from plan:** (a) The plan suggested only the click selector; per Change Request 2 we additionally bound Left/Right at the app level. (b) The plan only sketched a panel title; per Change Request 3 we also flipped the Left/Right `Binding.show` to `True` for footer discoverability. (c) `_load_data()` always populates `session_breakdown` from all sessions (even when the user has selected a single one) so the `sessions.totals` pane works without forcing the user into aggregate mode first.
+- **Issues encountered:** Initial implementation crashed on startup due to import order — `from lib.agent_launch_utils import ...` in `stats_app.py` fired before `lib.tui_switcher`'s side-effect `sys.path` manipulation, so the transitive `from tui_registry import …` in `agent_launch_utils` failed. Fixed by reordering imports and switching to the bareword form. Detected by running the actual launcher (`./.aitask-scripts/aitask_stats_tui.sh`) — `Pilot`-based tests had `lib/` already on `PYTHONPATH` and never exercised the broken path.
+- **Key decisions:**
+  - `_paths_for(project_root)` returns the existing module-level relative paths when `project_root is None`, preserving cwd-relative behavior for every existing caller (CLI report). The CLI continues to produce identical output.
+  - `merge_stats_data()` does not deduplicate `daily_tasks` task IDs across projects — no current pane surfaces raw task IDs, so prefixing/disambiguation is deferred.
+  - Layered config `deep_merge` semantics mean the new `sessions` preset added to `DEFAULT_PRESETS` shows up automatically without modifying the project-level `aitasks/metadata/stats_config.json`.
+  - The footer discoverability hint (`← Cycle` / `→ Cycle`) is intentionally generic so it covers both the agents.verified op-cycling and the session cycling without misleading wording on either pane.
+- **CLI scope deferred:** `aitask_stats.py` (the text/CSV report) was *not* extended with a `--project-root` or `--all-sessions` flag. The data-layer refactor makes this trivial when the need arises; surfacing it in the CLI would be a separate task.
