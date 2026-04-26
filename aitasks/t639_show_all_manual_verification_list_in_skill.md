@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [manual_verification]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-24 08:01
-updated_at: 2026-04-24 08:01
+updated_at: 2026-04-26 09:54
 boardidx: 50
 ---
 
