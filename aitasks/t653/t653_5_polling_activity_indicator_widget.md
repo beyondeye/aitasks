@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t653_1]
 issue_type: feature
 status: Ready
 labels: [agentcrew, ait_brainstorm]
