@@ -13,7 +13,10 @@ import yaml
 # Status constants (must match .aitask-scripts/lib/agentcrew_utils.sh)
 # ---------------------------------------------------------------------------
 
-AGENT_STATUSES = ["Waiting", "Ready", "Running", "Completed", "Aborted", "Error", "Paused"]
+AGENT_STATUSES = [
+    "Waiting", "Ready", "Running", "MissedHeartbeat",
+    "Completed", "Aborted", "Error", "Paused",
+]
 CREW_STATUSES = ["Initializing", "Running", "Killing", "Paused", "Completed", "Error"]
 
 # ---------------------------------------------------------------------------
@@ -23,12 +26,14 @@ CREW_STATUSES = ["Initializing", "Running", "Killing", "Paused", "Completed", "E
 AGENT_TRANSITIONS: dict[str, list[str]] = {
     "Waiting": ["Ready"],
     "Ready": ["Running"],
-    "Running": ["Completed", "Error", "Aborted", "Paused"],
+    "Running": ["Completed", "Error", "Aborted", "Paused", "MissedHeartbeat"],
+    # Soft-stale grace state: heartbeat missed but not yet declared dead.
+    "MissedHeartbeat": ["Running", "Error", "Aborted"],
     "Paused": ["Running"],
-    # Terminal states — no outgoing transitions (except Error → Waiting for reset)
+    # Terminal states — no outgoing transitions (except Error → Waiting/Completed for recovery)
     "Completed": [],
     "Aborted": [],
-    "Error": ["Waiting"],
+    "Error": ["Waiting", "Completed"],
 }
 
 CREW_TRANSITIONS: dict[str, list[str]] = {
@@ -91,30 +96,34 @@ def compute_crew_status(agent_statuses: list[str]) -> str:
 
     Rules:
     - All Completed -> Completed
-    - Any Error (no Running) -> Error
-    - Any Running -> Running
+    - Any Error (no Running/MissedHeartbeat) -> Error
+    - Any Running or MissedHeartbeat -> Running
     - All Waiting -> Initializing
-    - Any Paused (no Running) -> Paused
+    - Any Paused (no Running/MissedHeartbeat) -> Paused
     - Otherwise -> Running (mixed active states)
+
+    MissedHeartbeat is treated as Running for rollup so a transient missed
+    heartbeat doesn't flip the crew to Error during the grace window.
     """
     if not agent_statuses:
         return "Initializing"
 
     status_set = set(agent_statuses)
+    active = {"Running", "MissedHeartbeat"}
 
     if status_set == {"Completed"}:
         return "Completed"
 
-    if "Error" in status_set and "Running" not in status_set:
+    if "Error" in status_set and not (status_set & active):
         return "Error"
 
-    if "Running" in status_set:
+    if status_set & active:
         return "Running"
 
     if status_set == {"Waiting"}:
         return "Initializing"
 
-    if "Paused" in status_set and "Running" not in status_set:
+    if "Paused" in status_set and not (status_set & active):
         return "Paused"
 
     # Mixed states (e.g. some Ready, some Waiting, some Completed) -> Running
@@ -400,9 +409,11 @@ def get_group_status(crew_dir: str, group_name: str) -> str:
             statuses.append(data.get("status", "Waiting"))
     if all(s == "Completed" for s in statuses):
         return "Completed"
-    if any(s == "Error" for s in statuses) and not any(s == "Running" for s in statuses):
+    active = {"Running", "MissedHeartbeat"}
+    status_set = set(statuses)
+    if "Error" in status_set and not (status_set & active):
         return "Error"
-    if any(s == "Running" for s in statuses):
+    if status_set & active:
         return "Running"
     return "Waiting"
 

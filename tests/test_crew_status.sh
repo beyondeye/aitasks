@@ -93,18 +93,15 @@ setup_test_repo() {
         git config user.email "test@test.com"
         git config user.name "Test"
 
-        mkdir -p .aitask-scripts/lib .aitask-scripts/agentcrew aitasks/metadata
+        mkdir -p aitasks/metadata
 
-        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh" .aitask-scripts/lib/
-        cp "$PROJECT_DIR/.aitask-scripts/aitask_crew_init.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/aitask_crew_addwork.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/aitask_crew_command.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/agentcrew/__init__.py" .aitask-scripts/agentcrew/
-        cp "$PROJECT_DIR/.aitask-scripts/agentcrew/agentcrew_utils.py" .aitask-scripts/agentcrew/
-        cp "$PROJECT_DIR/.aitask-scripts/agentcrew/agentcrew_status.py" .aitask-scripts/agentcrew/
-        chmod +x .aitask-scripts/aitask_crew_init.sh .aitask-scripts/aitask_crew_addwork.sh \
-                 .aitask-scripts/aitask_crew_command.sh
+        # Mirror the full .aitask-scripts/ tree so transitive deps (e.g.
+        # lib/launch_modes_sh.sh) are present. Hand-curated copy lists drift
+        # silently as new sources/imports are added.
+        cp -R "$PROJECT_DIR/.aitask-scripts" .aitask-scripts
+        find .aitask-scripts -type d -name __pycache__ -prune -exec rm -rf {} +
+        chmod +x .aitask-scripts/aitask_crew_init.sh .aitask-scripts/aitask_crew_addwork.sh
+        chmod +x .aitask-scripts/aitask_crew_command.sh 2>/dev/null || true
 
         echo "email: test@test.com" > aitasks/metadata/userconfig.yaml
 
@@ -187,6 +184,12 @@ print(validate_agent_transition('Paused', 'Running'))
 print(validate_agent_transition('Waiting', 'Completed'))
 print(validate_agent_transition('Completed', 'Running'))
 print(validate_agent_transition('Ready', 'Completed'))
+# MissedHeartbeat lifecycle and Error -> Completed recovery
+print(validate_agent_transition('Running', 'MissedHeartbeat'))
+print(validate_agent_transition('MissedHeartbeat', 'Running'))
+print(validate_agent_transition('MissedHeartbeat', 'Error'))
+print(validate_agent_transition('Error', 'Completed'))
+print(validate_agent_transition('MissedHeartbeat', 'Completed'))
 " 2>&1)
     assert_eq "Waiting->Ready valid" "True" "$(echo "$result" | sed -n '1p')"
     assert_eq "Ready->Running valid" "True" "$(echo "$result" | sed -n '2p')"
@@ -196,9 +199,14 @@ print(validate_agent_transition('Ready', 'Completed'))
     assert_eq "Waiting->Completed invalid" "False" "$(echo "$result" | sed -n '6p')"
     assert_eq "Completed->Running invalid" "False" "$(echo "$result" | sed -n '7p')"
     assert_eq "Ready->Completed invalid" "False" "$(echo "$result" | sed -n '8p')"
+    assert_eq "Running->MissedHeartbeat valid" "True" "$(echo "$result" | sed -n '9p')"
+    assert_eq "MissedHeartbeat->Running valid" "True" "$(echo "$result" | sed -n '10p')"
+    assert_eq "MissedHeartbeat->Error valid" "True" "$(echo "$result" | sed -n '11p')"
+    assert_eq "Error->Completed valid (direct recovery)" "True" "$(echo "$result" | sed -n '12p')"
+    assert_eq "MissedHeartbeat->Completed invalid" "False" "$(echo "$result" | sed -n '13p')"
 else
     echo "SKIP: Python not available"
-    for _ in $(seq 8); do _inc_pass; done
+    for _ in $(seq 13); do _inc_pass; done
 fi
 
 # --- Test 3: Python utils — crew status computation ---
@@ -213,6 +221,10 @@ print(compute_crew_status(['Waiting', 'Waiting']))
 print(compute_crew_status(['Error', 'Completed']))
 print(compute_crew_status([]))
 print(compute_crew_status(['Paused', 'Completed']))
+# MissedHeartbeat counts as active (Running) for crew rollup
+print(compute_crew_status(['MissedHeartbeat', 'Completed']))
+print(compute_crew_status(['Error', 'MissedHeartbeat']))
+print(compute_crew_status(['MissedHeartbeat']))
 " 2>&1)
     assert_eq "all completed -> Completed" "Completed" "$(echo "$result" | sed -n '1p')"
     assert_eq "any running -> Running" "Running" "$(echo "$result" | sed -n '2p')"
@@ -220,9 +232,12 @@ print(compute_crew_status(['Paused', 'Completed']))
     assert_eq "error no running -> Error" "Error" "$(echo "$result" | sed -n '4p')"
     assert_eq "empty -> Initializing" "Initializing" "$(echo "$result" | sed -n '5p')"
     assert_eq "paused no running -> Paused" "Paused" "$(echo "$result" | sed -n '6p')"
+    assert_eq "MissedHeartbeat counts as Running" "Running" "$(echo "$result" | sed -n '7p')"
+    assert_eq "Error suppressed by MissedHeartbeat" "Running" "$(echo "$result" | sed -n '8p')"
+    assert_eq "single MissedHeartbeat -> Running" "Running" "$(echo "$result" | sed -n '9p')"
 else
     echo "SKIP: Python not available"
-    for _ in $(seq 6); do _inc_pass; done
+    for _ in $(seq 9); do _inc_pass; done
 fi
 
 # --- Test 4: Python utils — DAG topo sort and cycle detection ---
@@ -492,6 +507,48 @@ setup_crew_with_agents "$TMPDIR_T14"
         bash .aitask-scripts/aitask_crew_command.sh send --crew testcrew --agent planner --command invalid_cmd
 )
 cleanup_test_repo "$TMPDIR_T14"
+
+# --- Test 15: Status CLI — MissedHeartbeat lifecycle and Error -> Completed ---
+echo "Test 15: Status CLI — MissedHeartbeat lifecycle + Error->Completed recovery"
+if [[ -n "$PYTHON" ]]; then
+    TMPDIR_T15="$(setup_test_repo)"
+    setup_crew_with_agents "$TMPDIR_T15"
+    (
+        cd "$TMPDIR_T15"
+        export PYTHONPATH=".aitask-scripts"
+
+        # Waiting -> Ready -> Running
+        $PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status Ready >/dev/null
+        $PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status Running >/dev/null
+
+        # Running -> MissedHeartbeat
+        output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status MissedHeartbeat 2>&1)
+        assert_contains "set Running->MissedHeartbeat" "STATUS_SET:planner:Running:MissedHeartbeat" "$output"
+
+        # MissedHeartbeat -> Running (recovery)
+        output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status Running 2>&1)
+        assert_contains "set MissedHeartbeat->Running" "STATUS_SET:planner:MissedHeartbeat:Running" "$output"
+
+        # Running -> Error
+        $PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status Error >/dev/null
+
+        # Error -> Completed (direct recovery — the new transition)
+        output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status Completed 2>&1)
+        assert_contains "set Error->Completed (direct recovery)" "STATUS_SET:planner:Error:Completed" "$output"
+
+        # Verify completed_at was stamped on the Error->Completed transition
+        completed_at=$($PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import read_yaml
+print(bool(read_yaml('.aitask-crews/crew-testcrew/planner_status.yaml').get('completed_at', '')))
+" 2>/dev/null)
+        assert_eq "completed_at stamped on Error->Completed" "True" "$completed_at"
+    )
+    cleanup_test_repo "$TMPDIR_T15"
+else
+    echo "SKIP: Python not available"
+    for _ in $(seq 4); do _inc_pass; done
+fi
 
 # ============================================================
 # Summary

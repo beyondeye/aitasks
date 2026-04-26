@@ -594,6 +594,137 @@ print(validate_agent_transition('Completed', 'Waiting'))
     assert_eq "Completed → Waiting is still invalid" "False" "$result"
 )
 
+# --- Test 16: Running → MissedHeartbeat on stale heartbeat ---
+echo "Test 16: stale heartbeat marks Running agent as MissedHeartbeat"
+TMPDIR_T16="$(setup_test_repo)"
+(
+    cd "$TMPDIR_T16"
+    setup_crew_with_agents "$TMPDIR_T16"
+
+    wt=".aitask-crews/crew-testcrew"
+
+    # Tighten heartbeat timeout to 1 minute so old timestamps look stale.
+    $PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import update_yaml_field
+update_yaml_field('$wt/_crew_meta.yaml', 'heartbeat_timeout_minutes', 1)
+" 2>/dev/null
+
+    # Mark agent_a Running with a long-stale heartbeat.
+    $PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import update_yaml_field, write_yaml
+update_yaml_field('$wt/agent_a_status.yaml', 'status', 'Running')
+write_yaml('$wt/agent_a_alive.yaml', {'last_heartbeat': '2020-01-01 00:00:00'})
+" 2>/dev/null
+
+    PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
+        --crew testcrew --once --dry-run --batch >/dev/null 2>&1
+
+    status=$($PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import read_yaml
+print(read_yaml('$wt/agent_a_status.yaml').get('status', ''))
+" 2>/dev/null)
+    assert_eq "agent_a status flipped to MissedHeartbeat" "MissedHeartbeat" "$status"
+
+    missed_at=$($PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import read_yaml
+print(bool(read_yaml('$wt/agent_a_status.yaml').get('missed_heartbeat_at', '')))
+" 2>/dev/null)
+    assert_eq "missed_heartbeat_at recorded" "True" "$missed_at"
+)
+cleanup_test_repo "$TMPDIR_T16"
+
+# --- Test 17: MissedHeartbeat → Running when heartbeat resumes ---
+echo "Test 17: MissedHeartbeat recovers to Running on fresh heartbeat"
+TMPDIR_T17="$(setup_test_repo)"
+(
+    cd "$TMPDIR_T17"
+    setup_crew_with_agents "$TMPDIR_T17"
+
+    wt=".aitask-crews/crew-testcrew"
+
+    $PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import update_yaml_field
+update_yaml_field('$wt/_crew_meta.yaml', 'heartbeat_timeout_minutes', 1)
+" 2>/dev/null
+
+    # Agent already in MissedHeartbeat with a fresh-enough heartbeat.
+    $PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import update_yaml_field, write_yaml
+from datetime import datetime, timezone
+now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+update_yaml_field('$wt/agent_a_status.yaml', 'status', 'MissedHeartbeat')
+update_yaml_field('$wt/agent_a_status.yaml', 'missed_heartbeat_at', now)
+write_yaml('$wt/agent_a_alive.yaml', {'last_heartbeat': now})
+" 2>/dev/null
+
+    PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
+        --crew testcrew --once --dry-run --batch >/dev/null 2>&1
+
+    status=$($PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import read_yaml
+print(read_yaml('$wt/agent_a_status.yaml').get('status', ''))
+" 2>/dev/null)
+    assert_eq "agent_a recovered to Running" "Running" "$status"
+
+    missed_cleared=$($PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import read_yaml
+print(read_yaml('$wt/agent_a_status.yaml').get('missed_heartbeat_at', ''))
+" 2>/dev/null)
+    assert_eq "missed_heartbeat_at cleared on recovery" "" "$missed_cleared"
+)
+cleanup_test_repo "$TMPDIR_T17"
+
+# --- Test 18: MissedHeartbeat → Error when grace expires ---
+echo "Test 18: MissedHeartbeat escalates to Error after grace window"
+TMPDIR_T18="$(setup_test_repo)"
+(
+    cd "$TMPDIR_T18"
+    setup_crew_with_agents "$TMPDIR_T18"
+
+    wt=".aitask-crews/crew-testcrew"
+
+    $PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import update_yaml_field
+update_yaml_field('$wt/_crew_meta.yaml', 'heartbeat_timeout_minutes', 1)
+" 2>/dev/null
+
+    # Agent in MissedHeartbeat with both missed_at and last_heartbeat long stale.
+    $PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import update_yaml_field, write_yaml
+update_yaml_field('$wt/agent_a_status.yaml', 'status', 'MissedHeartbeat')
+update_yaml_field('$wt/agent_a_status.yaml', 'missed_heartbeat_at', '2020-01-01 00:00:00')
+write_yaml('$wt/agent_a_alive.yaml', {'last_heartbeat': '2020-01-01 00:00:00'})
+" 2>/dev/null
+
+    PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
+        --crew testcrew --once --dry-run --batch >/dev/null 2>&1
+
+    status=$($PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import read_yaml
+print(read_yaml('$wt/agent_a_status.yaml').get('status', ''))
+" 2>/dev/null)
+    assert_eq "agent_a escalated to Error" "Error" "$status"
+
+    err_msg=$($PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import read_yaml
+print(read_yaml('$wt/agent_a_status.yaml').get('error_message', ''))
+" 2>/dev/null)
+    assert_contains "error_message mentions grace expiry" "grace window expired" "$err_msg"
+)
+cleanup_test_repo "$TMPDIR_T18"
+
 # ============================================================
 # Summary
 # ============================================================

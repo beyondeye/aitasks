@@ -68,6 +68,7 @@ STATUS_COLORS = {
     "Ready": "#BD93F9",
     "Completed": "#6272A4",
     "Paused": "#FFB86C",
+    "MissedHeartbeat": "#F1FA8C",
     "Killing": "#FF7979",
     "Unknown": "#888888",
 }
