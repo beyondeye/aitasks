@@ -261,6 +261,25 @@ def _extract_block(text: str, start: str, end: str) -> str:
     return text[si + len(start_tag):ei].strip("\n")
 
 
+def n000_needs_apply(task_num: int | str) -> bool:
+    """Return True if n000_init is still a placeholder AND an output file exists.
+
+    Used by the brainstorm TUI to decide whether to (re-)attempt
+    ``apply_initializer_output`` on session load or after an Error.
+    """
+    wt = crew_worktree(task_num)
+    node_path = wt / NODES_DIR / "n000_init.yaml"
+    out_path = wt / "initializer_bootstrap_output.md"
+    if not node_path.is_file() or not out_path.is_file():
+        return False
+    try:
+        data = read_yaml(str(node_path))
+    except Exception:
+        return False
+    desc = (data or {}).get("description", "")
+    return desc.startswith("Imported proposal (awaiting reformat):")
+
+
 def apply_initializer_output(task_num: int | str) -> None:
     """Parse ``initializer_bootstrap_output.md`` and overwrite n000_init.
 

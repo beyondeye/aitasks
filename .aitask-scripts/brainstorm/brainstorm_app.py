@@ -906,6 +906,18 @@ class BrainstormApp(TuiSwitcherMixin, App):
         align: center middle;
     }
 
+    .initializer-banner {
+        display: none;
+        background: $error;
+        color: $text;
+        padding: 0 1;
+        height: 1;
+    }
+
+    .initializer-banner.visible {
+        display: block;
+    }
+
     #brainstorm_tabs {
         height: 1fr;
     }
@@ -1281,6 +1293,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         Binding("c", "tab_compare", "Compare"),
         Binding("a", "tab_actions", "Actions"),
         Binding("s", "tab_status", "Status"),
+        Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
     ]
 
     def __init__(self, task_num: str):
@@ -1302,6 +1315,8 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._initializer_agent: str | None = None
         self._initializer_done: bool = False
         self._initializer_timer = None
+        self._initializer_apply_error: str | None = None
+        self._applying_initializer: bool = False
         self._update_title_from_task()
 
     def _resolve_task_file_path(self) -> Path | None:
@@ -1327,6 +1342,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
 
     def compose(self) -> ComposeResult:
         yield Header()
+        yield Static("", id="initializer_apply_banner", classes="initializer-banner")
         with TabbedContent(id="brainstorm_tabs"):
             with TabPane("Dashboard", id="tab_dashboard"):
                 with Horizontal(id="dashboard_split"):
@@ -1787,6 +1803,59 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self.query_one(DAGDisplay).load_dag(self.session_path)
         self._actions_show_step1()
         self._status_refresh_timer = self.set_interval(30, self._refresh_status_tab)
+        self._try_apply_initializer_if_needed()
+
+    def _try_apply_initializer_if_needed(self, force: bool = False) -> None:
+        """Re-attempt apply_initializer_output if n000_init is still placeholder.
+
+        Called on session load, on initializer poll completion, and via the
+        ctrl+r manual-retry binding. Surfaces failures via a persistent
+        banner widget rather than a fading toast.
+        """
+        if self._applying_initializer:
+            return
+        from brainstorm.brainstorm_session import (
+            n000_needs_apply,
+            apply_initializer_output,
+        )
+        if not force and not n000_needs_apply(self.task_num):
+            return
+        self._applying_initializer = True
+        try:
+            apply_initializer_output(self.task_num)
+        except Exception as exc:
+            self._initializer_apply_error = str(exc)
+            self._set_apply_banner(
+                f"Initializer apply failed: {exc} — "
+                f"run `ait brainstorm apply-initializer {self.task_num}` to retry"
+            )
+        else:
+            self._initializer_apply_error = None
+            self._clear_apply_banner()
+            self.notify("Initial proposal imported.")
+            self._load_existing_session()
+        finally:
+            self._applying_initializer = False
+
+    def _set_apply_banner(self, msg: str) -> None:
+        try:
+            widget = self.query_one("#initializer_apply_banner", Static)
+            widget.update(msg)
+            widget.add_class("visible")
+        except Exception:
+            pass
+
+    def _clear_apply_banner(self) -> None:
+        try:
+            widget = self.query_one("#initializer_apply_banner", Static)
+            widget.update("")
+            widget.remove_class("visible")
+        except Exception:
+            pass
+
+    def action_retry_initializer_apply(self) -> None:
+        """ctrl+r: force-retry the initializer apply, even if not flagged."""
+        self._try_apply_initializer_if_needed(force=True)
 
     def on_tabbed_content_tab_activated(self, event) -> None:
         """Refresh Status tab when it becomes active."""
@@ -3167,6 +3236,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._update_title_from_task()
         self._load_existing_session()
         self.notify(f"Waiting for {agent_name} to complete…")
+        self._try_apply_initializer_if_needed()
         self._initializer_timer = self.set_interval(2, self._poll_initializer)
 
     def _poll_initializer(self) -> None:
@@ -3198,15 +3268,20 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 )
             self._load_existing_session()
         elif status in ("Error", "Aborted"):
-            self._initializer_done = True
+            # Don't permanently stop — the agent may still write _output.md
+            # later. Stop the fast 2 s timer; install a slower 30 s watcher
+            # so a late-arriving output is still applied.
             if self._initializer_timer is not None:
                 self._initializer_timer.stop()
+            self._initializer_timer = self.set_interval(30, self._poll_initializer)
             self.notify(
                 f"Initializer agent {status.lower()}. "
-                "Placeholder retained; retry via TUI.",
+                f"Watching for output; press ctrl+r or run "
+                f"`ait brainstorm apply-initializer {self.task_num}` to retry.",
                 severity="error",
             )
             self._load_existing_session()
+            self._try_apply_initializer_if_needed()
 
 
 if __name__ == "__main__":
