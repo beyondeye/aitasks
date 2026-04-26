@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.18.1
+
+### Features
+
+- **Manual-verification render-then-ask flow** (t639): The manual-verification skill now re-renders the full numbered checklist with state markers on every iteration and accepts batch updates (e.g. `1 pass, 3 defer`) through the Other field, so you can triage many items in one answer instead of stepping through them individually.
+- **Issue-type filter view in the board TUI** (t645): A new `t` view mode in `ait board` opens a multi-select dialog to filter tasks by issue type (feature/bug/refactor/etc.). Picks persist per-project and a summary line under the view selector shows the active filter; pressing `t` again reopens the picker.
+- **`ait setup` warns and requires acknowledgment when no git remote** (t648): When `origin` is missing during setup, the ID-counter and lock-branch steps now surface a one-time warning explaining that branch-tracked features won't sync, and require an explicit acknowledgment before continuing. Lock operations also now distinguish "branch missing on remote" from transient "remote unreachable" failures.
+
+### Bug Fixes
+
+- **`ait upgrade` now commits framework files in branch-mode setups** (t644): Upgrades on projects using a separate `aitask-data` branch were leaving framework files uncommitted because the install script's symlink handling skipped them. Upgrades now correctly commit `.aitask-scripts/`, `.claude/`, etc. on the main branch and `aitasks/metadata/` + `aireviewguides/` on the data branch.
+- **Crew runner restored; TUI surfaces launch failures** (t647): Fixed a silent crash where the crew runner couldn't import its `lib/` modules. The TUI now also captures runner launch logs and verifies the process is actually alive before reporting success, so future launch failures show as an error toast instead of a silent no-op.
+- **TUI switcher uses the selected session's project root** (t649): When switching between aitasks sessions and spawning a new TUI window, the switcher now passes `-c <project_root>` to tmux based on the *selected* session, so cross-session launches no longer inherit the wrong project's working directory.
+- **`tests/test_crew_runner.sh` no longer hangs** (t651): The test fixture now copies the full `.aitask-scripts/` tree instead of cherry-picking files, fixing a hang caused by missing helper modules pulled in after the test was written.
+
 ## v0.18.0
 
 ### Features
