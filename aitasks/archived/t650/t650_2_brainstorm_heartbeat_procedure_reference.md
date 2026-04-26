@@ -3,11 +3,13 @@ priority: high
 effort: medium
 depends: [t650_1]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [agentcrew, ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-26 14:18
-updated_at: 2026-04-26 16:46
+updated_at: 2026-04-26 17:06
+completed_at: 2026-04-26 17:06
 ---
 
 ## Context
