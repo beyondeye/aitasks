@@ -111,9 +111,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.18.2: Multi-session stats in the TUI, Monitor and minimonitor handle cross-session agents correctly, and Agent crews that recover instead of erroring out](blog/v0182-multi-session-stats-in-the-tui-monitor-and-minimonitor-handle-cross-sessio/)** -- Apr 26, 2026
 - **[v0.18.1: Triage manual-verification checklists in batches, Filter the board by issue type, and `ait upgrade` actually upgrades branch-mode setups now](blog/v0181-triage-manual-verification-checklists-in-batches-filter-the-board-by-issue/)** -- Apr 26, 2026
 - **[v0.18.0: Your monitor and minimonitor now see every project at once, The TUI switcher teleports across sessions, and `ait install` is now `ait upgrade`](blog/v0180-your-monitor-and-minimonitor-now-see-every-project-at-once-the-tui-switche/)** -- Apr 24, 2026
-- **[v0.17.3: Task IDs now start at 1, Tmux targeting no longer confuses sibling projects, and `ait setup` adds `__pycache__/` to `.gitignore`](blog/v0173-task-ids-now-start-at-1-tmux-targeting-no-longer-confuses-sibling-projects/)** -- Apr 23, 2026
 
 [All releases &rarr;](blog/)
 
