@@ -5,10 +5,10 @@ depends: [650]
 issue_type: bug
 status: Implementing
 labels: [agentcrew, ait_brainstorm]
-children_to_implement: [t653_1]
+children_to_implement: [t653_1, t653_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-26 13:47
-updated_at: 2026-04-26 14:30
+updated_at: 2026-04-26 14:31
 boardidx: 40
 ---
 
