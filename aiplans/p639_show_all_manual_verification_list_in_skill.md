@@ -224,3 +224,56 @@ manual-verification flow is not currently present in any other agent wrapper —
 the runners under `.opencode/skills/aitask-pick/SKILL.md`,
 `.agents/skills/aitask-pick/SKILL.md`, and `.gemini/` contain no `verification`
 content. So no port task is needed unless those wrappers later grow the flow.
+
+## Final Implementation Notes
+
+- **Actual work done:** Step 2 of `.claude/skills/task-workflow/manual-verification.md`
+  was restructured from an item-iterating loop into a re-entrant render-then-ask
+  loop (sub-steps 1–7): every iteration re-runs `parse`, renders the full numbered
+  checklist with state markers (⏳ pending / ✓ pass / ✗ fail / ⊘ skip / ⏸ defer),
+  prints a one-line tip about Other-field batch updates, picks the first remaining
+  pending|defer item as the "current item", and asks Pass/Fail/Skip/Defer scoped to
+  it. The "Other" branch now triages by intent in priority order: (i) pause/abort,
+  (ii) batch update parsing `<idx> <verb> [args]` entries comma/semicolon/newline-
+  separated with a shorthand single-entry-no-index form targeting the current item,
+  (iii) conversational fallback. Per-state commands (`set …`, the followup helper)
+  are unchanged — only the surrounding control flow was rewritten. The website
+  workflow page (`website/content/docs/workflows/manual-verification.md`) was
+  mirrored: the "Running a Manual-Verification Task" section now describes the
+  render-then-ask flow with an example checklist render, the outcome table's "Other
+  (free text)" row was rewritten to document the three-way triage, the example
+  end-to-end was rewritten to demonstrate a `1 pass, 3 defer` batch followed by an
+  Item 2 per-option Fail, and a "Batch out the obvious items" Tips bullet was
+  added.
+- **Deviations from plan:** None of structural significance. The example
+  end-to-end on the workflow doc was rewritten more aggressively than the plan
+  initially called for (the plan only listed two non-optional edits inside
+  "Running a Manual-Verification Task" + an optional Tips bullet) — but the
+  pre-existing example contradicted the new flow ("rendered one at a time"), so
+  it was updated in the same pass to keep the page coherent.
+- **Issues encountered:** The pre-existing working tree had unrelated dirty
+  files (`.aitask-scripts/board/aitask_board.py` adding `SelectionList`/`Selection`
+  imports, `.claude/settings.local.json` adding a `Bash(./ait ls *)` permission).
+  Both were excluded from the commit by staging only the two intended files.
+- **Key decisions:**
+  1. Render the checklist as plain text printed BEFORE `AskUserQuestion`, plus a
+     standalone Tip line — not embedded in the question text. This was an explicit
+     mid-plan course correction from the user ("show a hint to the user that the
+     other branch allow the new functionality, perhaps just after printing the
+     list of items"). Matching the rendered checklist + tip on every iteration
+     (rather than once per session) is what makes the batch path discoverable.
+  2. Allow the shorthand single-entry no-index form (`pass`, `skip not applicable`)
+     to target the current item — keeps the legacy single-item answer path
+     reachable through Other without forcing the user to remember the index.
+  3. Batch validation is fail-stop, no rollback. If entry 5 of 8 references an
+     invalid index, entries 1–4 stay applied and processing halts at 5; the
+     checklist re-render shows exactly what was applied. Rollback would require
+     transactional state on a Python helper that only mutates lines in place — not
+     worth the complexity for an LLM-driven path that can simply re-prompt.
+- **Notes for sibling tasks:** None — this task has no siblings. The deferred
+  follow-up of porting this flow to opencode / codex / gemini wrappers stands as
+  documented in "Follow-up Suggestions" above; those wrappers do not currently
+  embed the manual-verification flow at all, so no port task was filed.
+- **Build verification:** `hugo build --gc --minify` ran clean (169 pages, 867
+  ms, single pre-existing `.Site.AllPages` deprecation warning unrelated to this
+  task).
