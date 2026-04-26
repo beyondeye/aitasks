@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.18.2
+
+### Features
+
+- **Multi-session aggregate stats** (t655): The `ait stats` TUI now detects multiple aitasks sessions on your machine and shows a Session panel for cycling between them with Left/Right or click. A new `sessions` preset displays a grouped bar chart comparing today/7d/30d activity across all sessions.
+- **MissedHeartbeat state for agent crews** (t652): Agent crews now distinguish between transient missed heartbeats and hard failures — agents go to MissedHeartbeat first and can recover back to Running automatically. Errored agents can also be recovered to Completed without requiring manual force overrides.
+
+### Bug Fixes
+
+- **Self-healing brainstorm TUI on initializer failures** (t653_1): When the initializer apply fails, the brainstorm TUI now shows a persistent banner with a `ctrl+r` retry shortcut and re-attempts the apply automatically every 30 seconds and on session reopen, instead of getting stuck.
+- **Tolerant initializer YAML and retry CLI** (t653_2): The initializer apply now auto-quotes problematic scalar values (em-dashes, special characters) so brainstorm sessions don't get stuck on YAML parse errors. A new `ait brainstorm apply-initializer <id>` CLI lets you manually retry stuck sessions.
+- **Cross-session monitor and minimonitor** (t656): The monitor and minimonitor TUIs now correctly resolve task data, log paths, and next-sibling launches for code agents running in foreign aitasks sessions, instead of looking them up in the wrong project.
+- **`ait crew` whitelist across all code agents** (t650_1): The `./ait crew` subcommand is now properly whitelisted for Claude Code, Gemini CLI, and OpenCode (both runtime and seed configs), eliminating the per-invocation permission prompts.
+- **Brainstorm template procedure references** (t650_2): Brainstorm templates now reference the heartbeat, progress, and status procedures by their explicit section name instead of pseudo-verb shorthand, so code agents reliably execute the documented procedures during brainstorm runs.
+
 ## v0.18.1
 
 ### Features
