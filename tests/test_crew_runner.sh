@@ -100,18 +100,13 @@ setup_test_repo() {
         git config user.email "test@test.com"
         git config user.name "Test"
 
-        mkdir -p .aitask-scripts/lib .aitask-scripts/agentcrew aitasks/metadata
+        mkdir -p aitasks/metadata
 
-        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh" .aitask-scripts/lib/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/agent_launch_utils.py" .aitask-scripts/lib/
-        cp "$PROJECT_DIR/.aitask-scripts/aitask_crew_init.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/aitask_crew_addwork.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/aitask_crew_command.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/agentcrew/__init__.py" .aitask-scripts/agentcrew/
-        cp "$PROJECT_DIR/.aitask-scripts/agentcrew/agentcrew_utils.py" .aitask-scripts/agentcrew/
-        cp "$PROJECT_DIR/.aitask-scripts/agentcrew/agentcrew_status.py" .aitask-scripts/agentcrew/
-        cp "$PROJECT_DIR/.aitask-scripts/agentcrew/agentcrew_runner.py" .aitask-scripts/agentcrew/
+        # Mirror the full .aitask-scripts/ tree so transitive deps (e.g.
+        # lib/launch_modes_sh.sh, lib/tui_registry.py) are present. A
+        # hand-curated subset drifts as new sources/imports are added.
+        cp -R "$PROJECT_DIR/.aitask-scripts" .aitask-scripts
+        find .aitask-scripts -type d -name __pycache__ -prune -exec rm -rf {} +
         chmod +x .aitask-scripts/aitask_crew_init.sh .aitask-scripts/aitask_crew_addwork.sh
         chmod +x .aitask-scripts/aitask_crew_command.sh 2>/dev/null || true
 
