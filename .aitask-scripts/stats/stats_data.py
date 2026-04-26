@@ -27,6 +27,20 @@ TASK_DIR = Path("aitasks")
 ARCHIVE_DIR = TASK_DIR / "archived"
 TASK_TYPES_FILE = TASK_DIR / "metadata" / "task_types.txt"
 
+
+def _paths_for(project_root: Optional[Path]) -> Tuple[Path, Path, Path]:
+    """Resolve (task_dir, archive_dir, metadata_dir) for an optional project root.
+
+    `project_root=None` reuses the module-level constants, preserving the
+    cwd-relative behavior every existing caller already depends on. A non-None
+    `project_root` rebases all three paths under it (used by the multi-session
+    TUI to scan a different project's archive).
+    """
+    if project_root is None:
+        return TASK_DIR, ARCHIVE_DIR, TASK_DIR / "metadata"
+    task_dir = project_root / "aitasks"
+    return task_dir, task_dir / "archived", task_dir / "metadata"
+
 DAY_NAMES = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 DAY_FULL_NAMES = [
     "",
@@ -67,6 +81,16 @@ class TaskRecord:
 
 
 @dataclass
+class SessionTotals:
+    """Per-tmux-session task totals for the multi-session comparison pane."""
+    session: str          # tmux session name
+    project_name: str     # project_root basename, used as the chart label
+    tasks_today: int
+    tasks_7d: int
+    tasks_30d: int
+
+
+@dataclass
 class StatsData:
     total_tasks: int
     tasks_7d: int
@@ -89,6 +113,7 @@ class StatsData:
     codeagent_display_names: Dict[str, str]
     model_display_names: Dict[str, str]
     csv_rows: List[List[str]]
+    session_breakdown: Optional[List[SessionTotals]] = None
 
 
 @dataclass(frozen=True)
@@ -184,9 +209,9 @@ def parse_completed_date(frontmatter: Dict[str, str]) -> Optional[date]:
         return None
 
 
-def load_model_cli_ids() -> Dict[Tuple[str, str], str]:
+def load_model_cli_ids(project_root: Optional[Path] = None) -> Dict[Tuple[str, str], str]:
     result: Dict[Tuple[str, str], str] = {}
-    metadata_dir = TASK_DIR / "metadata"
+    _, _, metadata_dir = _paths_for(project_root)
 
     for agent in ("claudecode", "codex", "geminicli", "opencode"):
         path = metadata_dir / f"models_{agent}.json"
@@ -206,13 +231,13 @@ def load_model_cli_ids() -> Dict[Tuple[str, str], str]:
     return result
 
 
-def load_verified_rankings() -> VerifiedRankingData:
+def load_verified_rankings(project_root: Optional[Path] = None) -> VerifiedRankingData:
     """Load verifiedstats from all models_*.json and build rankings.
 
     Returns rankings by operation, provider, and time window, plus
     all_providers aggregation using canonical_model_id() normalization.
     """
-    metadata_dir = TASK_DIR / "metadata"
+    _, _, metadata_dir = _paths_for(project_root)
     agents = ("claudecode", "codex", "geminicli", "opencode")
 
     # Collect raw verifiedstats: {(agent, cli_id): {op: {window: {runs, score_sum, period?}}}}
@@ -492,15 +517,20 @@ def is_child_task(filename: str) -> bool:
     return bool(re.match(r"^t\d+_\d+_", filename))
 
 
-def iter_archived_markdown_files() -> Iterable[Tuple[str, str]]:
-    return iter_all_archived_markdown(ARCHIVE_DIR)
+def iter_archived_markdown_files(
+    project_root: Optional[Path] = None,
+) -> Iterable[Tuple[str, str]]:
+    _, archive_dir, _ = _paths_for(project_root)
+    return iter_all_archived_markdown(archive_dir)
 
 
-def get_valid_task_types() -> List[str]:
-    if TASK_TYPES_FILE.exists():
+def get_valid_task_types(project_root: Optional[Path] = None) -> List[str]:
+    task_dir, _, _ = _paths_for(project_root)
+    types_file = task_dir / "metadata" / "task_types.txt"
+    if types_file.exists():
         try:
             types = sorted(
-                {line.strip() for line in TASK_TYPES_FILE.read_text().splitlines() if line.strip()}
+                {line.strip() for line in types_file.read_text().splitlines() if line.strip()}
             )
             if types:
                 return types
@@ -560,7 +590,11 @@ def chart_totals(
     return labels, values
 
 
-def collect_stats(today: date, week_start_dow: int) -> StatsData:
+def collect_stats(
+    today: date,
+    week_start_dow: int,
+    project_root: Optional[Path] = None,
+) -> StatsData:
     daily_counts: Counter = Counter()
     daily_tasks: Dict[date, List[str]] = defaultdict(list)
     dow_counts_thisweek: Counter = Counter()
@@ -579,14 +613,14 @@ def collect_stats(today: date, week_start_dow: int) -> StatsData:
     codeagent_display_names: Dict[str, str] = {"unknown": AGENT_DISPLAY_NAMES["unknown"]}
     model_display_names: Dict[str, str] = {"unknown": "Unknown"}
     csv_rows: List[List[str]] = []
-    model_cli_ids = load_model_cli_ids()
+    model_cli_ids = load_model_cli_ids(project_root=project_root)
 
     total_tasks = 0
     tasks_7d = 0
     tasks_30d = 0
     curr_week_start = week_start_for(today, week_start_dow)
 
-    for filename, content in iter_archived_markdown_files():
+    for filename, content in iter_archived_markdown_files(project_root=project_root):
         frontmatter = parse_frontmatter(content)
         completed = parse_completed_date(frontmatter)
         if completed is None:
@@ -674,3 +708,63 @@ def collect_stats(today: date, week_start_dow: int) -> StatsData:
         model_display_names=model_display_names,
         csv_rows=csv_rows,
     )
+
+
+def _empty_stats_data() -> StatsData:
+    return StatsData(
+        total_tasks=0,
+        tasks_7d=0,
+        tasks_30d=0,
+        daily_counts=Counter(),
+        daily_tasks=defaultdict(list),
+        dow_counts_thisweek=Counter(),
+        dow_counts_30d=Counter(),
+        dow_counts_total=Counter(),
+        label_counts_total=Counter(),
+        label_week_counts=Counter(),
+        label_dow_counts_30d=Counter(),
+        type_week_counts=Counter(),
+        label_type_week_counts=Counter(),
+        codeagent_week_counts=Counter(),
+        model_week_counts=Counter(),
+        all_labels=set(),
+        all_codeagents=set(),
+        all_models=set(),
+        codeagent_display_names={"unknown": AGENT_DISPLAY_NAMES["unknown"]},
+        model_display_names={"unknown": "Unknown"},
+        csv_rows=[],
+    )
+
+
+def merge_stats_data(parts: List[StatsData]) -> StatsData:
+    """Sum/union per-session StatsData objects into one aggregate."""
+    if not parts:
+        return _empty_stats_data()
+
+    merged = _empty_stats_data()
+
+    for part in parts:
+        merged.total_tasks += part.total_tasks
+        merged.tasks_7d += part.tasks_7d
+        merged.tasks_30d += part.tasks_30d
+        merged.daily_counts.update(part.daily_counts)
+        for d, ids in part.daily_tasks.items():
+            merged.daily_tasks[d].extend(ids)
+        merged.dow_counts_thisweek.update(part.dow_counts_thisweek)
+        merged.dow_counts_30d.update(part.dow_counts_30d)
+        merged.dow_counts_total.update(part.dow_counts_total)
+        merged.label_counts_total.update(part.label_counts_total)
+        merged.label_week_counts.update(part.label_week_counts)
+        merged.label_dow_counts_30d.update(part.label_dow_counts_30d)
+        merged.type_week_counts.update(part.type_week_counts)
+        merged.label_type_week_counts.update(part.label_type_week_counts)
+        merged.codeagent_week_counts.update(part.codeagent_week_counts)
+        merged.model_week_counts.update(part.model_week_counts)
+        merged.all_labels |= part.all_labels
+        merged.all_codeagents |= part.all_codeagents
+        merged.all_models |= part.all_models
+        merged.codeagent_display_names.update(part.codeagent_display_names)
+        merged.model_display_names.update(part.model_display_names)
+        merged.csv_rows.extend(part.csv_rows)
+
+    return merged

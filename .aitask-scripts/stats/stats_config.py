@@ -19,6 +19,7 @@ DEFAULT_PRESETS: dict[str, list[str]] = {
     "labels":   ["labels.top", "labels.issue_types", "labels.heatmap"],
     "agents":   ["agents.per_agent", "agents.per_model", "agents.verified"],
     "velocity": ["velocity.daily", "velocity.rolling", "velocity.parent_child"],
+    "sessions": ["sessions.totals", "overview.summary", "overview.daily"],
 }
 
 DEFAULTS: dict = {
