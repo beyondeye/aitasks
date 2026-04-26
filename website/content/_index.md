@@ -111,9 +111,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.18.1: Triage manual-verification checklists in batches, Filter the board by issue type, and `ait upgrade` actually upgrades branch-mode setups now](blog/v0181-triage-manual-verification-checklists-in-batches-filter-the-board-by-issue/)** -- Apr 26, 2026
 - **[v0.18.0: Your monitor and minimonitor now see every project at once, The TUI switcher teleports across sessions, and `ait install` is now `ait upgrade`](blog/v0180-your-monitor-and-minimonitor-now-see-every-project-at-once-the-tui-switche/)** -- Apr 24, 2026
 - **[v0.17.3: Task IDs now start at 1, Tmux targeting no longer confuses sibling projects, and `ait setup` adds `__pycache__/` to `.gitignore`](blog/v0173-task-ids-now-start-at-1-tmux-targeting-no-longer-confuses-sibling-projects/)** -- Apr 23, 2026
-- **[v0.17.2: Import a proposal when you start a brainstorm, and Fresh installs actually work now](blog/v0172-import-a-proposal-when-you-start-a-brainstorm-fresh-installs-actually-work/)** -- Apr 23, 2026
 
 [All releases &rarr;](blog/)
 
