@@ -3,10 +3,10 @@ priority: high
 effort: medium
 depends: [t650_2]
 issue_type: bug
-status: Ready
+status: Postponed
 labels: [agentcrew, ait_brainstorm]
 created_at: 2026-04-26 14:18
-updated_at: 2026-04-26 14:18
+updated_at: 2026-04-26 14:19
 ---
 
 ## Context
