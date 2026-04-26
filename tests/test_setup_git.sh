@@ -420,6 +420,69 @@ assert_not_contains "Pycache not committed" "__pycache__" "$committed_files"
 
 rm -rf "$TMPDIR_14"
 
+# --- Test 15: warn_missing_remote_for_branch non-interactive auto-acks ---
+echo "--- Test 15: warn_missing_remote_for_branch auto-acks (non-interactive) ---"
+
+# Capture output via a temp file so the helper runs in the parent shell
+# (the module-level flag mutation would be lost in a subshell `output=$(...)`).
+_AIT_SETUP_NO_REMOTE_ACKED=""
+output_file_15="$(mktemp "${TMPDIR:-/tmp}/ait_test15_XXXXXX")"
+warn_missing_remote_for_branch "aitask-locks" "Test purpose" >"$output_file_15" 2>&1 </dev/null
+output=$(cat "$output_file_15")
+rm -f "$output_file_15"
+
+assert_contains "Warns about missing remote" "No git remote 'origin' configured" "$output"
+assert_contains "Tells user the fix command" "git remote add origin" "$output"
+assert_contains "Auto-accepts non-interactively" "auto-accepting acknowledgment" "$output"
+assert_eq "Module-level flag is set after ack" "1" "$_AIT_SETUP_NO_REMOTE_ACKED"
+
+# --- Test 16: warn_missing_remote_for_branch is idempotent within one run ---
+echo "--- Test 16: warn_missing_remote_for_branch is idempotent ---"
+
+# _AIT_SETUP_NO_REMOTE_ACKED is still 1 from Test 15 (parent shell preserved it)
+output_file_16="$(mktemp "${TMPDIR:-/tmp}/ait_test16_XXXXXX")"
+warn_missing_remote_for_branch "aitask-ids" "Other purpose" >"$output_file_16" 2>&1 </dev/null
+output2=$(cat "$output_file_16")
+rm -f "$output_file_16"
+
+assert_contains "Second call mentions already acknowledged" "already acknowledged" "$output2"
+assert_not_contains "Second call does not re-prompt" "git remote add origin" "$output2"
+
+# --- Test 17: setup_lock_branch warns + skips cleanly with no remote ---
+echo "--- Test 17: setup_lock_branch with no remote configured ---"
+
+TMPDIR_17="$(setup_fake_project)"
+(cd "$TMPDIR_17" && git init --quiet && git config user.email "t@t.com" && git config user.name "T")
+
+# Reset the module-level flag so the warning fires fresh in this test
+_AIT_SETUP_NO_REMOTE_ACKED=""
+
+SCRIPT_DIR="$TMPDIR_17/.aitask-scripts"
+output_file_17="$(mktemp "${TMPDIR:-/tmp}/ait_test17_XXXXXX")"
+setup_lock_branch >"$output_file_17" 2>&1 </dev/null
+rc=$?
+output=$(cat "$output_file_17")
+rm -f "$output_file_17"
+
+assert_eq "setup_lock_branch returns 0 after acknowledgment" "0" "$rc"
+assert_contains "Warning fires for missing remote" "No git remote 'origin' configured" "$output"
+
+# Verify no aitask-locks ref was created locally
+TOTAL=$((TOTAL + 1))
+if git -C "$TMPDIR_17" rev-parse refs/heads/aitask-locks &>/dev/null; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: aitask-locks branch should NOT be created when no remote is configured"
+else
+    PASS=$((PASS + 1))
+fi
+
+rm -rf "$TMPDIR_17"
+
+# Re-source to restore SCRIPT_DIR for any later additions
+source "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" --source-only
+set +euo pipefail
+SCRIPT_DIR="$PROJECT_DIR/.aitask-scripts"
+
 # --- Summary ---
 echo ""
 echo "==============================="

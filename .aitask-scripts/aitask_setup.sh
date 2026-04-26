@@ -735,6 +735,57 @@ ensure_git_repo() {
     esac
 }
 
+# Module-level flag so warn_missing_remote_for_branch() prompts only once
+# per setup run. Both setup_id_counter and setup_lock_branch consult this.
+_AIT_SETUP_NO_REMOTE_ACKED=""
+
+# Warn that a required orphan branch cannot be initialized because no git
+# remote is configured. Explain the fix and prompt for acknowledgment.
+# On acknowledgment, set the module-level flag and return 0 — the caller
+# should then `return` to skip its lock/init step. On refusal, abort setup.
+# Subsequent calls during the same run are no-ops (return 0 silently).
+#
+# Args: $1 = branch name (e.g. "aitask-locks"), $2 = purpose label
+warn_missing_remote_for_branch() {
+    local branch="$1"
+    local purpose="$2"
+
+    if [[ "$_AIT_SETUP_NO_REMOTE_ACKED" == "1" ]]; then
+        info "Skipping '$branch' setup — no remote (already acknowledged)"
+        return 0
+    fi
+
+    warn "No git remote 'origin' configured."
+    info "Cannot initialize the '$branch' orphan branch without a remote."
+    info "$purpose will not work for cross-machine coordination, and"
+    info "later 'ait pick' calls may fail with LOCK_ERROR:fetch_failed."
+    info ""
+    info "To fix:"
+    info "  git remote add origin <url>"
+    info "  ait setup    # re-run after adding the remote"
+    info ""
+
+    local answer
+    if [[ -t 0 ]]; then
+        printf "  Continue setup without '%s' (acknowledge)? [Y/n] " "$branch"
+        read -r answer
+    else
+        info "(non-interactive: auto-accepting acknowledgment)"
+        answer="Y"
+    fi
+
+    case "${answer:-Y}" in
+        [Yy]*|"")
+            _AIT_SETUP_NO_REMOTE_ACKED=1
+            warn "Continuing without '$branch'. Re-run 'ait setup' after adding the remote."
+            return 0
+            ;;
+        *)
+            die "Setup aborted. Configure a git remote and re-run 'ait setup'."
+            ;;
+    esac
+}
+
 # --- Task ID counter setup ---
 setup_id_counter() {
     local project_dir="$SCRIPT_DIR/.."
@@ -744,7 +795,7 @@ setup_id_counter() {
         return
     fi
     if ! git -C "$project_dir" remote get-url origin &>/dev/null; then
-        info "No git remote configured — skipping task ID counter setup"
+        warn_missing_remote_for_branch "aitask-ids" "Atomic task ID assignment"
         return
     fi
 
@@ -786,7 +837,7 @@ setup_lock_branch() {
         return
     fi
     if ! git -C "$project_dir" remote get-url origin &>/dev/null; then
-        info "No git remote configured — skipping task lock branch setup"
+        warn_missing_remote_for_branch "aitask-locks" "Task locking"
         return
     fi
 

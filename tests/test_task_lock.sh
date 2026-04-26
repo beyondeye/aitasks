@@ -511,6 +511,25 @@ assert_exit_nonzero "Init with no remote fails" bash -c "cd '$TMPDIR_23' && ./.a
 
 rm -rf "$TMPDIR_23"
 
+# --- Test 24: Lock with branch missing on remote returns LOCK_INFRA_MISSING (exit 10) ---
+echo "--- Test 24: Lock with missing branch returns exit 10 (LOCK_INFRA_MISSING) ---"
+
+TMPDIR_24="$(setup_paired_repos)"
+# Note: remote+local are set up, but --init is NOT called, so aitask-locks
+# does not exist on remote. The previous behavior was exit 11 (fetch_failed);
+# the new probe should distinguish this and return exit 10.
+
+stderr_file_24="$(mktemp "${TMPDIR:-/tmp}/ait_test24_XXXXXX")"
+(cd "$TMPDIR_24/local" && ./.aitask-scripts/aitask_lock.sh 1 --email "user@test.com" 2>"$stderr_file_24" >/dev/null)
+rc=$?
+stderr=$(cat "$stderr_file_24")
+rm -f "$stderr_file_24"
+
+assert_eq "Lock with missing branch exits 10 (LOCK_INFRA_MISSING)" "10" "$rc"
+assert_contains "Stderr explains branch missing" "not found on remote" "$stderr"
+
+rm -rf "$TMPDIR_24"
+
 # --- Summary ---
 echo ""
 echo "==============================="

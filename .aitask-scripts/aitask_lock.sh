@@ -53,6 +53,22 @@ require_remote() {
     fi
 }
 
+# Probe the lock branch on origin. Returns a tri-state exit code so the
+# caller can distinguish "branch genuinely missing" (LOCK_INFRA_MISSING,
+# exit 10) from "cannot reach origin" (LOCK_ERROR:fetch_failed, exit 11).
+#   0 = branch exists on remote
+#   1 = remote reachable but branch not present
+#   2 = remote unreachable / auth error / other ls-remote failure
+lock_branch_exists_on_remote() {
+    local rc=0
+    git ls-remote --exit-code --heads origin "$BRANCH" &>/dev/null || rc=$?
+    case $rc in
+        0) return 0 ;;
+        2) return 1 ;;
+        *) return 2 ;;
+    esac
+}
+
 get_hostname() {
     hostname 2>/dev/null || echo "unknown"
 }
@@ -106,10 +122,19 @@ lock_task() {
         attempt=$((attempt + 1))
         debug "Attempt $attempt/$MAX_RETRIES"
 
-        # Step 1: Fetch latest lock branch
+        # Step 1: Probe lock branch on origin (tri-state), then fetch.
+        # `|| probe_rc=$?` keeps `set -e` from killing this line on rc>0.
+        debug "Probing branch '$BRANCH' on origin..."
+        local probe_rc=0
+        lock_branch_exists_on_remote || probe_rc=$?
+        case $probe_rc in
+            0) ;;
+            1) die_code 10 "Lock branch '$BRANCH' not found on remote. Run 'ait setup' to initialize." ;;
+            *) die_code 11 "Failed to reach origin to check '$BRANCH' (network or auth issue)." ;;
+        esac
         debug "Fetching branch '$BRANCH' from origin..."
         if ! git fetch origin "$BRANCH" --quiet 2>/dev/null; then
-            die_code 11 "Failed to fetch '$BRANCH' from origin. Run 'ait setup' to initialize."
+            die_code 11 "Failed to fetch '$BRANCH' from origin (network or auth issue)."
         fi
         debug "Fetch successful"
 
@@ -196,9 +221,17 @@ unlock_task() {
         attempt=$((attempt + 1))
         debug "Attempt $attempt/$MAX_RETRIES"
 
-        # Step 1: Fetch latest
+        # Step 1: Probe lock branch on origin (tri-state), then fetch.
+        # `|| probe_rc=$?` keeps `set -e` from killing this line on rc>0.
+        local probe_rc=0
+        lock_branch_exists_on_remote || probe_rc=$?
+        case $probe_rc in
+            0) ;;
+            1) die_code 10 "Lock branch '$BRANCH' not found on remote. Run 'ait setup' to initialize." ;;
+            *) die_code 11 "Failed to reach origin to check '$BRANCH' (network or auth issue)." ;;
+        esac
         if ! git fetch origin "$BRANCH" --quiet 2>/dev/null; then
-            die_code 11 "Failed to fetch '$BRANCH'. Run 'ait setup' to initialize."
+            die_code 11 "Failed to fetch '$BRANCH' (network or auth issue)."
         fi
 
         local parent_hash current_tree_hash
