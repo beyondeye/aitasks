@@ -3,12 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Ready
 labels: [agentcrew, whitelists, ait_brainstorm]
 children_to_implement: [t650_1, t650_2, t650_3]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-26 12:55
-updated_at: 2026-04-26 14:18
+updated_at: 2026-04-26 14:22
 boardidx: 10
 ---
 
