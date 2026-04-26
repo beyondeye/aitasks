@@ -3,12 +3,14 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [contribution, ait_setup, installation]
 assigned_to: dario-e@beyond-eye.com
 issue: https://github.com/beyondeye/aitasks/issues/10
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-26 12:17
-updated_at: 2026-04-26 12:18
+updated_at: 2026-04-26 12:49
+completed_at: 2026-04-26 12:49
 ---
 
 Issue created: 2026-04-26 12:14:17, last updated: 2026-04-26 12:14:28
