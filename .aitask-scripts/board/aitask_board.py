@@ -3159,7 +3159,7 @@ class KanbanApp(TuiSwitcherMixin, App):
     .child-wrapper TaskCard { width: 1fr; }
     .child-connector { width: auto; height: auto; padding: 0; margin: 1 0 0 0; color: $text-muted; }
     #filter_area { dock: top; height: auto; margin: 0 0 1 0; }
-    #view_col { width: 26; height: auto; }
+    #view_col { width: 36; height: auto; }
     #view_label { height: 1; padding: 0 1; color: $text-muted; }
     #view_selector { height: 1; padding: 0 1; }
     .type-filter-summary { height: auto; padding: 0 1; color: $text-muted; }
@@ -3355,6 +3355,9 @@ class KanbanApp(TuiSwitcherMixin, App):
             return False
         # Let Input widgets handle arrow keys natively
         if action in ("nav_up", "nav_down", "nav_left", "nav_right") and isinstance(self.app.focused, Input):
+            return False
+        # Let SelectionList (used by IssueTypeFilterScreen) handle arrow keys
+        if action in ("nav_up", "nav_down", "nav_left", "nav_right") and isinstance(self.app.focused, SelectionList):
             return False
         # Let Select dropdown overlay handle arrow keys natively
         if action in ("nav_up", "nav_down"):
