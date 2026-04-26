@@ -76,11 +76,17 @@ def _detect_current_session() -> str | None:
 KNOWN_TUIS = switcher_tuis()
 
 
-def _build_tui_list():
-    """Build TUI list including dynamic git TUI entry from config."""
+def _build_tui_list(project_root: Path | None = None):
+    """Build TUI list including dynamic git TUI entry from config.
+
+    ``project_root`` selects which project's ``project_config.yaml`` is read
+    for the dynamic ``git_tui`` entry. Defaults to ``Path.cwd()`` for legacy
+    callers; the cross-session switcher passes the SELECTED session's
+    project_root so the displayed Git tool matches what would actually launch.
+    """
     tuis = list(KNOWN_TUIS)
     try:
-        defaults = load_tmux_defaults(Path.cwd())
+        defaults = load_tmux_defaults(project_root or Path.cwd())
         git_tui = defaults.get("git_tui", "")
         if git_tui and git_tui != "none":
             tuis.insert(2, ("git", f"Git ({git_tui})", git_tui))
@@ -294,6 +300,53 @@ class TuiSwitcherOverlay(ModalScreen):
         self._render_session_row()
         self._populate_list_for(self._session)
 
+    def _project_root_for_session(self, session: str) -> Path:
+        """Return the absolute project root associated with ``session``.
+
+        Looks up the session in ``self._all_sessions`` (populated by
+        ``discover_aitasks_sessions()``). Falls back to ``Path.cwd()`` when
+        the session is unknown (e.g. single-session mode where
+        ``_all_sessions`` may be empty, or an exotic session that did not
+        match either discovery heuristic). The fallback preserves the
+        legacy single-session behavior — calling pane's cwd already equals
+        the project root in that case.
+        """
+        for s in self._all_sessions:
+            if s.session == session:
+                return s.project_root
+        return Path.cwd()
+
+    def _spawn_in_session(
+        self,
+        window_name: str,
+        cmd: str,
+        *,
+        capture_pane_id: bool = False,
+    ):
+        """Run ``tmux new-window`` in the SELECTED session with the right cwd.
+
+        Centralizes the ``-c <project_root>`` flag so cross-session spawns
+        land in the SELECTED session's project directory (not the attached
+        session's cwd). When ``capture_pane_id`` is True, runs synchronously
+        with ``-P -F #{pane_id}`` and returns the
+        ``subprocess.CompletedProcess`` so callers can read the pane id;
+        otherwise returns the async ``Popen`` for fire-and-forget use.
+        """
+        project_root = self._project_root_for_session(self._session)
+        argv = ["tmux", "new-window", "-t",
+                tmux_window_target(self._session, ""),
+                "-c", str(project_root),
+                "-n", window_name]
+        if capture_pane_id:
+            argv += ["-P", "-F", "#{pane_id}", cmd]
+            return subprocess.run(
+                argv, capture_output=True, text=True, timeout=5,
+            )
+        argv += [cmd]
+        return subprocess.Popen(
+            argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+
     def _init_multi_state(self, sessions: list[AitasksSession]) -> None:
         """Decide `_multi_mode` from the discovered sessions.
 
@@ -367,7 +420,8 @@ class TuiSwitcherOverlay(ModalScreen):
         list_view.append(_GroupHeader("TUIs"))
         item_idx += 1
 
-        for name, label, _cmd in _build_tui_list():
+        session_project_root = self._project_root_for_session(session)
+        for name, label, _cmd in _build_tui_list(session_project_root):
             is_current = is_attached_session and name == self._current_tui
             running = name in self._running_names
             item = _TuiListItem(name, label, running, is_current)
@@ -537,15 +591,13 @@ class TuiSwitcherOverlay(ModalScreen):
         while f"agent-explore-{n}" in self._running_names:
             n += 1
         window_name = f"agent-explore-{n}"
+        project_root = self._project_root_for_session(self._session)
         try:
-            subprocess.Popen(
-                ["tmux", "new-window", "-t",
-                 tmux_window_target(self._session, ""),
-                 "-n", window_name, "ait codeagent invoke explore"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
+            self._spawn_in_session(window_name, "ait codeagent invoke explore")
             from agent_launch_utils import maybe_spawn_minimonitor
-            maybe_spawn_minimonitor(self._session, window_name)
+            maybe_spawn_minimonitor(
+                self._session, window_name, project_root=project_root,
+            )
             self._teleport_if_cross()
         except (FileNotFoundError, OSError):
             self.app.notify("Failed to launch explore", severity="error")
@@ -554,16 +606,14 @@ class TuiSwitcherOverlay(ModalScreen):
 
     def action_shortcut_create(self) -> None:
         """Launch ait create in a new tmux window in the SELECTED session."""
+        project_root = self._project_root_for_session(self._session)
         try:
-            proc = subprocess.Popen(
-                ["tmux", "new-window", "-t",
-                 tmux_window_target(self._session, ""),
-                 "-n", "create-task", "ait create"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
+            proc = self._spawn_in_session("create-task", "ait create")
             proc.wait()
             from agent_launch_utils import maybe_spawn_minimonitor
-            maybe_spawn_minimonitor(self._session, "create-task")
+            maybe_spawn_minimonitor(
+                self._session, "create-task", project_root=project_root,
+            )
             self._teleport_if_cross()
         except (FileNotFoundError, OSError):
             self.app.notify("Failed to launch create", severity="error")
@@ -583,14 +633,9 @@ class TuiSwitcherOverlay(ModalScreen):
             elif name == "git":
                 self._launch_git_with_companion()
             else:
-                cmd = self._get_launch_command(name)
-                # Trailing colon ensures tmux interprets target as session, not window
-                subprocess.Popen(
-                    ["tmux", "new-window", "-t",
-                     tmux_window_target(self._session, ""),
-                     "-n", name, cmd],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                )
+                project_root = self._project_root_for_session(self._session)
+                cmd = self._get_launch_command(name, project_root)
+                self._spawn_in_session(name, cmd)
             # Cross-session: teleport the attached client to the selected
             # session. Per agent_launch_utils.switch_to_pane_anywhere's
             # precedent, the target-window operation runs first (setting the
@@ -625,14 +670,10 @@ class TuiSwitcherOverlay(ModalScreen):
         pane (user-added shell, codeagent sharing the companion, etc.) is
         still using the window.
         """
-        cmd = self._get_launch_command("git")
+        project_root = self._project_root_for_session(self._session)
+        cmd = self._get_launch_command("git", project_root)
         try:
-            result = subprocess.run(
-                ["tmux", "new-window", "-t",
-                 tmux_window_target(self._session, ""),
-                 "-n", "git", "-P", "-F", "#{pane_id}", cmd],
-                capture_output=True, text=True, timeout=5,
-            )
+            result = self._spawn_in_session("git", cmd, capture_pane_id=True)
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             self.app.notify("Failed to launch git TUI", severity="error")
             return
@@ -646,6 +687,7 @@ class TuiSwitcherOverlay(ModalScreen):
         from agent_launch_utils import maybe_spawn_minimonitor
         companion_pane = maybe_spawn_minimonitor(
             self._session, "git", force_companion=True,
+            project_root=project_root,
         )
 
         if companion_pane:
@@ -668,8 +710,8 @@ class TuiSwitcherOverlay(ModalScreen):
         # helper returns — do not issue an additional `switch-client` here.
 
     @staticmethod
-    def _get_launch_command(name: str) -> str:
-        for tui_name, _, cmd in _build_tui_list():
+    def _get_launch_command(name: str, project_root: Path | None = None) -> str:
+        for tui_name, _, cmd in _build_tui_list(project_root):
             if tui_name == name:
                 return cmd
         if name.startswith(_BRAINSTORM_PREFIX):

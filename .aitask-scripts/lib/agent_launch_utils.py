@@ -435,6 +435,7 @@ def maybe_spawn_minimonitor(
     *,
     window_index: str | None = None,
     force_companion: bool = False,
+    project_root: Path | None = None,
 ) -> str | None:
     """Spawn a minimonitor split pane if conditions are met.
 
@@ -453,6 +454,11 @@ def maybe_spawn_minimonitor(
             prefix-based and is also classified as a TUI in the registry. The
             `auto_spawn`, existing-minimonitor, and pane-count guards still
             apply.
+        project_root: when set, read ``project_config.yaml`` and pass
+            ``-c <project_root>`` to ``tmux split-window`` so the companion
+            pane starts in that project's directory. Required for cross-
+            session spawns from the TUI switcher; defaults to ``Path.cwd()``
+            for legacy callers operating on the current project.
 
     Returns the new companion pane id (e.g. `%42`) on success, or None if
     no spawn happened (disabled, rejected by a gate, tmux error, etc.).
@@ -462,7 +468,8 @@ def maybe_spawn_minimonitor(
     width = 40
     companion_prefixes = ["agent-", "create-"]
     tui_names = set(_DEFAULT_TUI_NAMES)
-    config_path = Path.cwd() / "aitasks" / "metadata" / "project_config.yaml"
+    cfg_root = project_root if project_root is not None else Path.cwd()
+    config_path = cfg_root / "aitasks" / "metadata" / "project_config.yaml"
     if config_path.is_file():
         try:
             import yaml
@@ -539,12 +546,15 @@ def maybe_spawn_minimonitor(
         pass
 
     # Spawn minimonitor as a right split, capturing the new pane id
+    split_argv = ["tmux", "split-window", "-h", "-P", "-F", "#{pane_id}",
+                  "-l", str(width)]
+    if project_root is not None:
+        split_argv += ["-c", str(project_root)]
+    split_argv += ["-t", tmux_window_target(session, win_index),
+                   "ait", "minimonitor"]
     try:
         spawn = subprocess.run(
-            ["tmux", "split-window", "-h", "-P", "-F", "#{pane_id}",
-             "-l", str(width),
-             "-t", tmux_window_target(session, win_index),
-             "ait", "minimonitor"],
+            split_argv,
             capture_output=True, text=True, timeout=5,
         )
         if spawn.returncode != 0:

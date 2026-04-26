@@ -188,6 +188,10 @@ print("CROSS_RUN_POPEN_1:" + " ".join(calls[1]))
 
 ov = make_overlay(session="s1")
 ov._session = "s2"
+ov._all_sessions = [
+    AitasksSession("s1", Path("/p1"), "p1"),
+    AitasksSession("s2", Path("/p2"), "p2"),
+]
 ov._running_names = set()
 ov.dismiss = MagicMock()
 with patch("tui_switcher.subprocess.Popen") as mock_popen:
@@ -196,6 +200,37 @@ with patch("tui_switcher.subprocess.Popen") as mock_popen:
 print("CROSS_NEW_POPEN_COUNT:" + str(len(calls)))
 print("CROSS_NEW_POPEN_0:" + " ".join(calls[0]))
 print("CROSS_NEW_POPEN_1:" + " ".join(calls[1]))
+
+
+# --- _switch_to same-session new-window (regression: -c <cwd> fallback) ---
+
+ov = make_overlay(session="s1")
+ov._all_sessions = []          # single-session mode → fallback to Path.cwd()
+ov._running_names = set()
+ov.dismiss = MagicMock()
+with patch("tui_switcher.subprocess.Popen") as mock_popen:
+    ov._switch_to("codebrowser", running=False)
+    calls = [c.args[0] for c in mock_popen.call_args_list]
+print("SAME_NEW_POPEN_0:" + " ".join(calls[0]))
+
+
+# --- action_shortcut_explore cross-session ---
+
+ov = make_overlay(session="s1")
+ov._session = "s2"
+ov._all_sessions = [
+    AitasksSession("s1", Path("/p1"), "p1"),
+    AitasksSession("s2", Path("/p2"), "p2"),
+]
+ov._running_names = set()
+ov.dismiss = MagicMock()
+with patch("tui_switcher.subprocess.Popen") as mock_popen, \
+     patch("agent_launch_utils.maybe_spawn_minimonitor") as mock_mm:
+    ov.action_shortcut_explore()
+    calls = [c.args[0] for c in mock_popen.call_args_list]
+    mm_kwargs = mock_mm.call_args.kwargs if mock_mm.call_args else {}
+print("SHORTCUT_X_POPEN_0:" + " ".join(calls[0]))
+print("SHORTCUT_X_MM_PROOT:" + str(mm_kwargs.get("project_root")))
 
 
 # --- _teleport_if_cross ---
@@ -231,16 +266,22 @@ print("SHORTCUT_B_POPEN_1:" + " ".join(calls[1]))
 
 ov = make_overlay(session="s1", current_tui="monitor")
 ov._session = "s2"
+ov._all_sessions = [
+    AitasksSession("s1", Path("/p1"), "p1"),
+    AitasksSession("s2", Path("/p2"), "p2"),
+]
 ov._running_names = set()
 ov.dismiss = MagicMock()
 with patch("tui_switcher.subprocess.Popen") as mock_popen, \
-     patch("agent_launch_utils.maybe_spawn_minimonitor"):
+     patch("agent_launch_utils.maybe_spawn_minimonitor") as mock_mm:
     mock_popen.return_value.wait = MagicMock()
     ov.action_shortcut_create()
     calls = [c.args[0] for c in mock_popen.call_args_list]
+    n_mm_kwargs = mock_mm.call_args.kwargs if mock_mm.call_args else {}
 print("SHORTCUT_N_POPEN_COUNT:" + str(len(calls)))
 print("SHORTCUT_N_POPEN_0:" + " ".join(calls[0]))
 print("SHORTCUT_N_POPEN_LAST:" + " ".join(calls[-1]))
+print("SHORTCUT_N_MM_PROOT:" + str(n_mm_kwargs.get("project_root")))
 
 
 # --- Same-session shortcut on attached.current_tui: still a no-op ---
@@ -308,7 +349,15 @@ assert_contains "cross Enter 2nd = switch-client =s2" "switch-client -t =s2" "${
 assert_eq "cross-session Enter new-window: 2 Popen calls" "2" "${R[CROSS_NEW_POPEN_COUNT]:-}"
 assert_contains "cross new 1st = new-window -t =s2:" "new-window -t =s2:" "${R[CROSS_NEW_POPEN_0]:-}"
 assert_contains "cross new 1st has -n codebrowser" "-n codebrowser" "${R[CROSS_NEW_POPEN_0]:-}"
+assert_contains "cross new 1st passes -c /p2 (t649)" "-c /p2" "${R[CROSS_NEW_POPEN_0]:-}"
 assert_contains "cross new 2nd = switch-client =s2" "switch-client -t =s2" "${R[CROSS_NEW_POPEN_1]:-}"
+
+assert_contains "same-session new-window falls back to -c <cwd> (t649)" "-c $(pwd)" "${R[SAME_NEW_POPEN_0]:-}"
+
+assert_contains "shortcut 'x' new-window targets =s2:" "new-window -t =s2:" "${R[SHORTCUT_X_POPEN_0]:-}"
+assert_contains "shortcut 'x' has -n agent-explore-1" "-n agent-explore-1" "${R[SHORTCUT_X_POPEN_0]:-}"
+assert_contains "shortcut 'x' passes -c /p2 (t649)" "-c /p2" "${R[SHORTCUT_X_POPEN_0]:-}"
+assert_eq "shortcut 'x' threads project_root to minimonitor (t649)" "/p2" "${R[SHORTCUT_X_MM_PROOT]:-}"
 
 assert_eq "_teleport_if_cross same-session: 0 Popen" "0" "${R[TELEPORT_SAME_COUNT]:-}"
 assert_eq "_teleport_if_cross cross: 1 Popen" "1" "${R[TELEPORT_CROSS_COUNT]:-}"
@@ -319,7 +368,9 @@ assert_contains "shortcut 'b' routes to s2, NOT attached s1" "select-window -t =
 assert_contains "shortcut 'b' teleports to s2" "switch-client -t =s2" "${R[SHORTCUT_B_POPEN_1]:-}"
 
 assert_contains "shortcut 'n' browsed to s2: new-window targets =s2:" "new-window -t =s2:" "${R[SHORTCUT_N_POPEN_0]:-}"
+assert_contains "shortcut 'n' browsed to s2: passes -c /p2 (t649)" "-c /p2" "${R[SHORTCUT_N_POPEN_0]:-}"
 assert_contains "shortcut 'n' browsed to s2: teleport switch-client =s2" "switch-client -t =s2" "${R[SHORTCUT_N_POPEN_LAST]:-}"
+assert_eq "shortcut 'n' threads project_root to minimonitor (t649)" "/p2" "${R[SHORTCUT_N_MM_PROOT]:-}"
 
 assert_eq "same-session shortcut on attached.current_tui: 0 Popen (no-op)" "0" "${R[NOOP_POPEN_COUNT]:-}"
 assert_eq "same-session shortcut on attached.current_tui: no dismiss" "False" "${R[NOOP_DISMISSED]:-}"
