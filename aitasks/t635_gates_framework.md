@@ -7,7 +7,8 @@ status: Ready
 labels: [gates]
 created_at: 2026-04-23 20:21
 updated_at: 2026-04-23 20:21
-boardidx: 30
+boardidx: 10
+boardcol: now
 ---
 
 this the parent task for implementing the aitasks gate framework: see home/ddt/Work/aitasks/aidocs/gates/
