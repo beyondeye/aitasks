@@ -18,7 +18,8 @@ from tui_switcher import TuiSwitcherMixin, TuiSwitcherOverlay
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
-from textual.widgets import Header, Footer, Static, Label, Markdown, Input, Button, LoadingIndicator
+from textual.widgets import Header, Footer, Static, Label, Markdown, Input, Button, LoadingIndicator, SelectionList
+from textual.widgets.selection_list import Selection
 from textual.screen import Screen, ModalScreen
 from textual.binding import Binding
 from textual.message import Message
@@ -577,7 +578,13 @@ class ColumnHeader(Static):
 class ViewSelector(Static):
     """Shows the current view mode with clickable keyboard shortcuts."""
 
-    MODES = [("a", "All", "all"), ("g", "Git", "git"), ("i", "Impl", "implementing")]
+    MODES = [
+        ("a", "All", "all"),
+        ("g", "Git", "git"),
+        ("i", "Impl", "implementing"),
+        ("t", "Type", "type"),
+    ]
+    SEPARATOR = " \u2502 "
 
     def __init__(self, active_mode: str = "all", **kwargs):
         super().__init__(**kwargs)
@@ -590,18 +597,29 @@ class ViewSelector(Static):
                 parts.append(f"[bold cyan]{key} {label}[/]")
             else:
                 parts.append(f"[dim]{key} {label}[/]")
-        return " \u2502 ".join(parts)
+        return self.SEPARATOR.join(parts)
 
     def on_click(self, event):
-        # Rendered text (visible): "a All │ g Git │ i Impl"
-        # With CSS padding 0 1, content starts at x=1
-        x = event.x - 1  # adjust for left padding
-        if x < 6:
-            self.app._set_view_mode("all")
-        elif x < 14:
-            self.app._set_view_mode("git")
+        # Walk visible "key label" segments + separators to find which mode
+        # the click landed on. CSS padding 0 1 shifts content by 1.
+        x = event.x - 1
+        sep_width = len(self.SEPARATOR)
+        offset = 0
+        for key, label, mode_id in self.MODES:
+            seg_width = len(key) + 1 + len(label)
+            offset += seg_width
+            if x < offset:
+                if mode_id == "type":
+                    self.app.action_view_type()
+                else:
+                    self.app._set_view_mode(mode_id)
+                return
+            offset += sep_width
+        last_mode = self.MODES[-1][2]
+        if last_mode == "type":
+            self.app.action_view_type()
         else:
-            self.app._set_view_mode("implementing")
+            self.app._set_view_mode(last_mode)
 
 
 class TaskCard(Static):
@@ -1837,6 +1855,62 @@ class FileReferencePickerScreen(ModalScreen):
 
     def action_close_picker(self):
         self.dismiss(None)
+
+
+class IssueTypeFilterScreen(ModalScreen):
+    """Modal dialog to multi-select which issue types to show on the board."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, task_types: list, initial: list):
+        super().__init__()
+        self.task_types = list(task_types)
+        self.initial = set(initial)
+
+    def compose(self):
+        with Container(id="dep_picker_dialog"):
+            yield Label(
+                "Filter by issue type — [dim]space to toggle, Enter to confirm, Esc to cancel[/]",
+                id="dep_picker_title",
+            )
+            yield SelectionList[str](
+                *(
+                    Selection(t, value=t, initial_state=(t in self.initial))
+                    for t in self.task_types
+                ),
+                id="issue_type_filter_list",
+            )
+            with Horizontal(id="detail_buttons"):
+                yield Button("Confirm", variant="primary", id="btn_type_filter_save")
+                yield Button("Cancel", variant="default", id="btn_type_filter_cancel")
+
+    def on_mount(self):
+        self.query_one("#issue_type_filter_list", SelectionList).focus()
+
+    def _selected(self) -> list:
+        sl = self.query_one("#issue_type_filter_list", SelectionList)
+        checked = set(sl.selected)
+        return [t for t in self.task_types if t in checked]
+
+    @on(Button.Pressed, "#btn_type_filter_save")
+    def _btn_save(self):
+        self.dismiss(self._selected())
+
+    @on(Button.Pressed, "#btn_type_filter_cancel")
+    def _btn_cancel(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+    def on_key(self, event):
+        # SelectionList uses space for toggle and consumes it. Enter is free,
+        # so treat it as "confirm selection".
+        if event.key == "enter":
+            self.dismiss(self._selected())
+            event.stop()
 
 
 class LockEmailScreen(ModalScreen):
@@ -3088,6 +3162,8 @@ class KanbanApp(TuiSwitcherMixin, App):
     #view_col { width: 26; height: auto; }
     #view_label { height: 1; padding: 0 1; color: $text-muted; }
     #view_selector { height: 1; padding: 0 1; }
+    .type-filter-summary { height: auto; padding: 0 1; color: $text-muted; }
+    .type-filter-summary.hidden { display: none; }
     Input { width: 1fr; }
     .col-header-btn { width: auto; height: 1; padding: 0 1; }
     .col-header-edit-btn { width: auto; height: 1; padding: 0 1; background: black; color: white; }
@@ -3259,6 +3335,7 @@ class KanbanApp(TuiSwitcherMixin, App):
         Binding("a", "view_all", "All", show=False),
         Binding("g", "view_git", "Git", show=False),
         Binding("i", "view_implementing", "Impl", show=False),
+        Binding("t", "view_type", "Type", show=False),
     ]
 
     def __init__(self):
@@ -3329,6 +3406,7 @@ class KanbanApp(TuiSwitcherMixin, App):
             with Container(id="view_col"):
                 yield Static("Task filter", id="view_label")
                 yield ViewSelector(self.view_mode, id="view_selector")
+                yield Static("", id="type_filter_summary", classes="type-filter-summary hidden")
             yield Input(placeholder="Search tasks... (Tab to focus, Esc to return to board)", id="search_box")
         yield HorizontalScroll(id="board_container")
         footer = Footer()
@@ -3491,6 +3569,8 @@ class KanbanApp(TuiSwitcherMixin, App):
             visible_set = self._implementing_visible_set()
         elif self.view_mode == "git":
             visible_set = self._git_visible_set()
+        elif self.view_mode == "type":
+            visible_set = self._type_visible_set()
 
         for card in self.query(TaskCard):
             visible = True
@@ -3541,6 +3621,34 @@ class KanbanApp(TuiSwitcherMixin, App):
                 visible.add(filename)
         return visible
 
+    def _type_visible_set(self) -> set:
+        """Tasks visible in issue-type view (matches selected types)."""
+        selected = set(self.manager.settings.get("filter_issue_types", []))
+        if not selected:
+            return set()
+        visible = set()
+        for filename, task in self.manager.task_datas.items():
+            if task.metadata.get('issue_type', 'feature') in selected:
+                visible.add(filename)
+        for filename, task in self.manager.child_task_datas.items():
+            if task.metadata.get('issue_type', 'feature') in selected:
+                visible.add(filename)
+        return visible
+
+    def _refresh_type_filter_summary(self):
+        """Show selected types under the ViewSelector when in type mode."""
+        try:
+            summary = self.query_one("#type_filter_summary", Static)
+        except Exception:
+            return
+        selected = self.manager.settings.get("filter_issue_types", [])
+        if self.view_mode == "type" and selected:
+            summary.update(f"types: {', '.join(sorted(selected))}")
+            summary.remove_class("hidden")
+        else:
+            summary.update("")
+            summary.add_class("hidden")
+
     # --- View Modes ---
 
     def action_view_all(self):
@@ -3551,6 +3659,44 @@ class KanbanApp(TuiSwitcherMixin, App):
 
     def action_view_implementing(self):
         self._set_view_mode("implementing")
+
+    def action_view_type(self):
+        # Re-press while in type mode → re-open the dialog. First-time use
+        # (no persisted selection) → also open the dialog before flipping
+        # the mode. Otherwise, switch into type mode using the persisted
+        # selection without prompting.
+        persisted = self.manager.settings.get("filter_issue_types", [])
+        if self.view_mode == "type" or not persisted:
+            self._open_type_filter_dialog()
+        else:
+            self._set_view_mode("type")
+
+    def _open_type_filter_dialog(self):
+        types = _load_task_types()
+        initial = self.manager.settings.get("filter_issue_types", [])
+
+        def on_dismiss(result):
+            if result is None:
+                # Cancel / Esc — keep current view & selection unchanged.
+                return
+            if not result:
+                # Empty confirm → clear filter and revert to All view.
+                self.manager.settings["filter_issue_types"] = []
+                self.manager.save_metadata()
+                if self.view_mode == "type":
+                    self._set_view_mode("all")
+                else:
+                    self._refresh_type_filter_summary()
+                return
+            self.manager.settings["filter_issue_types"] = sorted(result)
+            self.manager.save_metadata()
+            if self.view_mode != "type":
+                self._set_view_mode("type")
+            else:
+                self._refresh_type_filter_summary()
+                self.apply_filter()
+
+        self.push_screen(IssueTypeFilterScreen(types, initial), on_dismiss)
 
     def _set_view_mode(self, mode: str):
         if self.view_mode == mode:
@@ -3576,9 +3722,13 @@ class KanbanApp(TuiSwitcherMixin, App):
             "all": "Search tasks... (Tab to focus, Esc to return to board)",
             "git": "Search tasks linked to issues/PRs (a to exit git view)",
             "implementing": "Search tasks currently implementing (a to exit Impl view)",
+            "type": "Search tasks filtered by issue type (a to exit Type view)",
         }
         search_box = self.query_one("#search_box", Input)
         search_box.placeholder = placeholders.get(mode, placeholders["all"])
+
+        # Show/hide the selected-types summary line.
+        self._refresh_type_filter_summary()
 
         # Re-render board with new expansion state, then filter
         focused = self._focused_card()
