@@ -1,7 +1,7 @@
 agent_name: initializer_bootstrap
 agent_type: initializer
 group: bootstrap
-launch_mode: headless
+launch_mode: interactive
 status: Waiting
 depends_on: []
 created_at: 2026-04-26 08:50:45
