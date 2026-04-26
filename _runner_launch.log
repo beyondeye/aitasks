@@ -5,3 +5,8 @@
 [09:49:52]   Interval:       30s
 [09:49:52]   Max concurrent: 3
 [09:49:52]   Mode:           continuous
+[09:49:53] --- Iteration 1 ---
+[09:49:54] Ready agents: initializer_bootstrap
+[09:49:54] Launching agent 'initializer_bootstrap' (type=initializer, string=claudecode/sonnet4_6, launch_mode=interactive)
+[09:49:54] WARN: pipe-pane failed for initializer_bootstrap: can't find pane: 0
+[09:49:54] Progress: 0% | Running: 1/3 | ETA: N/A
