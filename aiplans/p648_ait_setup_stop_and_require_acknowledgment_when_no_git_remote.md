@@ -247,3 +247,27 @@ The complementary `--unlock` exit-10 test is omitted because `unlock_task` is on
 - The `check_lock` / `list_locks` / `cleanup_locks` fetch sites in `aitask_lock.sh` (lines 248, 273, 311). Per user clarification, these stay unchanged because their current degrade-gracefully behavior is already correct.
 - Documentation updates to `website/content/docs/commands/setup-install.md` describing the new acknowledgment prompt. The current page does not enumerate every prompt setup shows; if a doc update is desired, it can be a small follow-up task.
 - Step 9 (Post-Implementation): standard merge/archive flow per `task-workflow/SKILL.md`. The change is small and isolated to non-UI shell scripts; no separate worktree/branch is being used (profile `create_worktree: false`).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly the four-file change described above. `aitask_setup.sh` gains the `warn_missing_remote_for_branch` helper and a module-level `_AIT_SETUP_NO_REMOTE_ACKED` flag; both `setup_id_counter` and `setup_lock_branch` route through the helper, so the user is prompted exactly once per setup run when origin is missing. `aitask_lock.sh` gains the `lock_branch_exists_on_remote` probe and call-site `case` blocks in `lock_task` and `unlock_task`. Tests 15–17 added to `tests/test_setup_git.sh`; test 24 added to `tests/test_task_lock.sh`.
+
+- **Deviations from plan:**
+  1. **Tri-state probe instead of binary.** The plan originally described `lock_branch_exists_on_remote` returning a 0/1 yes-no. Mid-implementation, running `tests/test_lock_force.sh::Test 5` (which sets origin to a nonexistent path to simulate fetch failure) revealed that `git ls-remote --exit-code` exits `2` for "no matching refs" but `128` for unreachable remote — collapsing both into a single non-zero would re-conflate the failure modes the secondary fix is meant to separate. The helper now returns tri-state `0/1/2` (found / missing / unreachable) and both `lock_task`/`unlock_task` `case` on it: missing → exit 10 (`LOCK_INFRA_MISSING`), unreachable → exit 11 (`LOCK_ERROR:fetch_failed`).
+  2. **`set -e` interaction.** First pass of the helper used a bare `git ls-remote ...; rc=$?`; under `set -euo pipefail` the non-zero exit aborted the function before its `case` ran, and the same happened in the caller when the function returned non-zero. Both sites switched to the `cmd || rc=$?` pattern (which is errexit-suppressed) plus an inline comment explaining why.
+
+- **Issues encountered:**
+  - The `output=$(warn_missing_remote_for_branch ...)` capture pattern lost the helper's flag mutation (subshell). Tests 15–17 use a temp file for output capture so the helper runs in the parent shell and the flag side-effect is observable. The temp-file pattern uses `mktemp "${TMPDIR:-/tmp}/ait_test<N>_XXXXXX"` per the macOS portability note in `CLAUDE.md`.
+  - Pre-existing shellcheck warnings (`SC2015`, `SC2034`, `SC2129`, `SC2295`, `SC1091` etc.) in `aitask_setup.sh` were left untouched — none of them are in the lines this task added.
+
+- **Key decisions:**
+  - **Route both setup functions through the same helper** rather than duplicating the warning text or doing a single early check in `main()`. The helper-with-flag preserves each function's existing self-contained "is this needed?" checks (so e.g. running `setup_lock_branch` on a Codex-only path that skips ID counter still works), while ensuring the user only sees the warning once.
+  - **Keep `check_lock`, `list_locks`, `cleanup_locks` unchanged** per user clarification at planning time — their current "no locks / nothing to do" fallback is correct whether the cause is missing branch or transient network.
+
+- **Verified behavior:**
+  - `bash tests/test_setup_git.sh` → 47/47 pass (including new tests 15–17)
+  - `bash tests/test_task_lock.sh` → 37/37 pass (including new test 24)
+  - `bash tests/test_lock_force.sh` → 16/16 pass (including pre-existing test 5 which exercises the network-error path that motivated the tri-state refactor)
+  - `bash tests/test_lock_diag.sh` → 9/9 pass
+  - `bash -n` syntax check on both modified scripts: clean
+  - Shellcheck: no new warnings introduced
