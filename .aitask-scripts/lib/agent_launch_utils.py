@@ -62,6 +62,13 @@ class TmuxLaunchConfig:
     new_session: bool
     new_window: bool
     split_direction: str = "horizontal"  # only used when new_window=False
+    # Working directory for the new tmux pane. When set, ``launch_in_tmux``
+    # passes ``-c <cwd>`` to tmux so the launched command runs in this dir
+    # rather than inheriting the calling pane's cwd. Required for cross-
+    # session launches where the target project_root differs from the
+    # caller's cwd (e.g., monitor in project A picking a sibling task in
+    # project B's tmux session).
+    cwd: str | None = None
 
 
 @dataclass(frozen=True)
@@ -361,11 +368,13 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[subprocess.P
 
     Returns (Popen object, error message or None on success).
     """
+    cwd_args = ["-c", config.cwd] if config.cwd else []
     if config.new_session:
         # Create new session with a window, then switch to it
         tmux_cmd = [
             "tmux", "new-session", "-d",
             "-s", config.session, "-n", config.window,
+            *cwd_args,
             command,
         ]
         proc = subprocess.Popen(tmux_cmd, stderr=subprocess.PIPE)
@@ -383,6 +392,7 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[subprocess.P
         tmux_cmd = [
             "tmux", "new-window", "-t", tmux_window_target(config.session, ""),
             "-n", config.window,
+            *cwd_args,
             command,
         ]
         proc = subprocess.Popen(tmux_cmd, stderr=subprocess.PIPE)
@@ -397,6 +407,7 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[subprocess.P
         target = tmux_window_target(config.session, config.window)
         tmux_cmd = [
             "tmux", "split-window", split_flag, "-t", target,
+            *cwd_args,
             command,
         ]
         proc = subprocess.Popen(tmux_cmd, stderr=subprocess.PIPE)

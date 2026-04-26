@@ -766,4 +766,5 @@ class AgentCommandScreen(ModalScreen):
             new_session=new_session,
             new_window=new_window,
             split_direction=split_direction,
+            cwd=str(self._project_root),
         )

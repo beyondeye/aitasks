@@ -586,6 +586,77 @@ assert_contains "mapping resolves s1 to project_root /tmp/p1" \
 assert_contains "mapping resolves s2 to project_root /tmp/p2" \
     "S2:/tmp/p2" "$out"
 
+# --- Tier 1o: launch_in_tmux passes -c <cwd> when TmuxLaunchConfig.cwd set ---
+# Required for cross-session "n" pick: the new agent pane must run in the
+# target project's root, not the monitor's cwd.
+
+out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
+from unittest.mock import patch, MagicMock
+import agent_launch_utils as alu
+
+captured = []
+
+def fake_popen(cmd, *args, **kwargs):
+    captured.append(cmd)
+    proc = MagicMock()
+    proc.wait = MagicMock(return_value=None)
+    proc.returncode = 0
+    proc.stderr = None
+    return proc
+
+# new_window + cwd
+with patch.object(alu.subprocess, "Popen", side_effect=fake_popen):
+    cfg = alu.TmuxLaunchConfig(
+        session="s", window="w", new_session=False, new_window=True,
+        cwd="/tmp/projB",
+    )
+    alu.launch_in_tmux("claude", cfg)
+nw = next((c for c in captured if c[1] == "new-window"), None)
+print("NW_HAS_C:" + str(nw is not None and "-c" in nw and "/tmp/projB" in nw))
+
+# split-window + cwd
+captured.clear()
+with patch.object(alu.subprocess, "Popen", side_effect=fake_popen):
+    cfg = alu.TmuxLaunchConfig(
+        session="s", window="w", new_session=False, new_window=False,
+        cwd="/tmp/projC",
+    )
+    alu.launch_in_tmux("claude", cfg)
+sw = next((c for c in captured if c[1] == "split-window"), None)
+print("SW_HAS_C:" + str(sw is not None and "-c" in sw and "/tmp/projC" in sw))
+
+# cwd=None → no -c
+captured.clear()
+with patch.object(alu.subprocess, "Popen", side_effect=fake_popen):
+    cfg = alu.TmuxLaunchConfig(
+        session="s", window="w", new_session=False, new_window=True,
+    )
+    alu.launch_in_tmux("claude", cfg)
+nw_default = next((c for c in captured if c[1] == "new-window"), None)
+print("DEFAULT_NO_C:" + str(nw_default is not None and "-c" not in nw_default))
+PY
+)
+assert_contains "new-window passes -c <cwd>" "NW_HAS_C:True" "$out"
+assert_contains "split-window passes -c <cwd>" "SW_HAS_C:True" "$out"
+assert_contains "cwd=None omits -c (back-compat)" "DEFAULT_NO_C:True" "$out"
+
+# --- Tier 1p: AgentCommandScreen.build_config populates cwd from project_root ---
+
+out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
+from pathlib import Path
+import inspect
+from agent_command_screen import AgentCommandScreen
+
+# build_config reads form widgets — instead of a full Textual run, inspect the
+# constructor to confirm project_root is stored, and the source of build_config
+# to confirm cwd=str(self._project_root) is wired.
+src = inspect.getsource(AgentCommandScreen)
+print("HAS_CWD_WIRE:" + str("cwd=str(self._project_root)" in src))
+PY
+)
+assert_contains "AgentCommandScreen.build_config wires project_root → cwd" \
+    "HAS_CWD_WIRE:True" "$out"
+
 # --- Tier 2: Real tmux — two fake aitasks sessions aggregated ---
 
 if ! command -v tmux >/dev/null 2>&1; then
