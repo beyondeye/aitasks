@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [installation, install_scripts]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-26 09:52
-updated_at: 2026-04-26 10:41
+updated_at: 2026-04-26 11:29
+completed_at: 2026-04-26 11:29
 boardidx: 10
 ---
 
