@@ -8,6 +8,7 @@ labels: [agentcrew, testing]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-26 13:00
 updated_at: 2026-04-26 13:41
+boardidx: 20
 ---
 
 ## Symptom

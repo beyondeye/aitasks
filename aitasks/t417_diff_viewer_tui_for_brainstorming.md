@@ -8,7 +8,7 @@ labels: [tui, brainstorming]
 children_to_implement: [t417_11]
 created_at: 2026-03-18 11:08
 updated_at: 2026-03-20 11:15
-boardidx: 20
+boardidx: 50
 boardcol: unordered
 ---
 

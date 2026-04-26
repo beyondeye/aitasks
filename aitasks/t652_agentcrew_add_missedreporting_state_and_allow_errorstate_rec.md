@@ -8,6 +8,7 @@ labels: [agentcrew]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-26 13:12
 updated_at: 2026-04-26 13:49
+boardidx: 30
 ---
 
 ## What happened

@@ -8,6 +8,7 @@ labels: [agentcrew, whitelists, ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-26 12:55
 updated_at: 2026-04-26 12:58
+boardidx: 10
 ---
 
 I am now running agent-initializer_bootstrap for brainstorm 635, I noticed that ait crew shell command where not properly whitelisted for code agent execution. need to add them to whiltelists for all codeagents in seed whitelist, ask me questions if you need clarifications
