@@ -1,0 +1,8 @@
+node_id: n000_init
+parents: []
+description: 'Imported proposal (awaiting reformat): aitask-gate-framework.md'
+proposal_file: br_proposals/n000_init.md
+created_at: 2026-04-26 11:50
+created_by_group: bootstrap
+reference_files:
+- /home/ddt/Work/aitasks/aidocs/gates/aitask-gate-framework.md
