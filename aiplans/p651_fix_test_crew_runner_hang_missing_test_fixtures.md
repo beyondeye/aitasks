@@ -145,3 +145,26 @@ Run from the project root:
 After the user approves and the implementation passes verification, follow
 the standard task-workflow Step 9 cleanup: commit changes, archive task
 t651, push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Replaced the per-file `cp` enumeration in
+  `tests/test_crew_runner.sh:setup_test_repo()` with a single
+  `cp -R "$PROJECT_DIR/.aitask-scripts" .aitask-scripts`, followed by a
+  portable `find … -type d -name __pycache__ -prune -exec rm -rf {} +` to
+  keep the fixture clean. Dropped the now-redundant
+  `mkdir -p .aitask-scripts/lib .aitask-scripts/agentcrew` (`cp -R` creates
+  the destination tree). Kept `mkdir -p aitasks/metadata` (still needed for
+  the `userconfig.yaml` write) and the trailing `chmod +x` lines (no-op
+  belt-and-suspenders).
+- **Deviations from plan:** None. Implemented exactly as planned (option A).
+- **Issues encountered:** None.
+- **Key decisions:** Confirmed before implementing that no test mutates
+  `.aitask-scripts/*` content (only `chmod +x` on already-executable files),
+  so a copy preserves test semantics exactly. Used `find -prune -exec rm -rf`
+  rather than `cp --exclude` because `--exclude` is not BSD-portable.
+- **Verification result:**
+  - `timeout 180 bash tests/test_crew_runner.sh` → 31/31 assertions pass
+    (was hanging indefinitely before this fix). Suite completes in ~30s.
+  - `shellcheck tests/test_crew_runner.sh` → exit 0.
+  - `bash tests/test_agentcrew_pythonpath.sh` (t647 regression) → 12/12 pass.
