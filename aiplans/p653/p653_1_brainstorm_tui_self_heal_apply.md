@@ -243,4 +243,30 @@ Standard task-workflow archival. No build verification configured (`verify_build
 
 ## Final Implementation Notes
 
-(Filled in at archival time per task-workflow Step 9.)
+- **Actual work done:** All 6 step blocks (S1–S6) implemented as planned:
+  - `brainstorm_session.py` — `n000_needs_apply()` helper added (matches plan body verbatim).
+  - `brainstorm_app.py:__init__` — added `_initializer_apply_error: str | None = None` and `_applying_initializer: bool = False`.
+  - `brainstorm_app.py:BINDINGS` — added `Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply")`.
+  - `brainstorm_app.py:CSS` — added `.initializer-banner` (`display: none`, `$error` bg, `height: 1`) and `.initializer-banner.visible` (`display: block`) right after the `Screen` rule.
+  - `brainstorm_app.py:compose()` — `yield Static("", id="initializer_apply_banner", classes="initializer-banner")` inserted between `Header` and `TabbedContent`.
+  - `brainstorm_app.py:_load_existing_session()` — `self._try_apply_initializer_if_needed()` appended at the end.
+  - `brainstorm_app.py:_try_apply_initializer_if_needed()` + `_set_apply_banner()` + `_clear_apply_banner()` + `action_retry_initializer_apply()` — added as a contiguous block immediately after `_load_existing_session`. Lazy imports of `n000_needs_apply` / `apply_initializer_output` inside the method (no top-of-file import needed).
+  - `brainstorm_app.py:_start_initializer_wait()` — `self._try_apply_initializer_if_needed()` call inserted just before the `set_interval(2, ...)` line.
+  - `brainstorm_app.py:_poll_initializer()` Error/Aborted branch — softened exactly as planned: stops the 2 s timer, installs `set_interval(30, self._poll_initializer)`, calls `_load_existing_session()` and `_try_apply_initializer_if_needed()`, and does NOT set `_initializer_done = True`. The notify message also mentions `ctrl+r` alongside the CLI hint.
+
+- **Deviations from plan:** None of substance. Two minor wording/placement choices:
+  - Banner mounted between `Header` and `TabbedContent` (top-level), not inside `dashboard_split`. This makes the banner visible on every tab (Dashboard, Graph, Compare, Actions, Status), aligning with the plan's "very top of the dashboard" intent.
+  - The Error-branch notify message includes `ctrl+r` in addition to the CLI hint (the plan only mentioned the CLI). The shortcut now exists, so surfacing both is strictly better.
+
+- **Issues encountered:** None. All 6 synthetic `n000_needs_apply` test cases pass; `apply_initializer_output` end-to-end test passes; existing brainstorm test suite (4 files, 92 tests total) shows no regressions.
+
+- **Key decisions:**
+  - Lazy-import `n000_needs_apply` and `apply_initializer_output` inside `_try_apply_initializer_if_needed()` — keeps cold-start imports light and matches the existing pattern in `_poll_initializer` (which already imports `apply_initializer_output` lazily).
+  - `_set_apply_banner` / `_clear_apply_banner` swallow `Exception` defensively — banner widget may not be mounted yet during very-early `_start_initializer_wait` calls. The underlying apply error is still surfaced via `self.notify` from the Completed branch and via the persistent banner on subsequent loads.
+  - The Completed branch was intentionally left unchanged (still uses inline `apply_initializer_output` and still sets `_initializer_done = True` on success). Recovery for Completed-branch apply *failures* is provided by the new `_load_existing_session` hook (every load retries via `_try_apply_initializer_if_needed`) and by the manual `ctrl+r` binding. This keeps the diff minimal and focused on the Error/Aborted softening.
+
+- **Notes for sibling tasks:**
+  - **t653_2 (tolerant apply + retry CLI):** The banner message text — `"Initializer apply failed: {exc} — run \`ait brainstorm apply-initializer {self.task_num}\` to retry"` — references the CLI t653_2 will add. When t653_2's tolerant apply lands, the banner will fire much less often (em-dash failures auto-recover), but the message text and the retry path stay valid.
+  - **t653_3 (agent-crew terminal push + recover):** When the agent-crew runner stops marking healthy completions as Error, the new 30 s slow watcher becomes a belt-and-suspenders backstop — t653_3's correct status push is the more important recovery path. The slow watcher's overhead is minimal (one YAML read every 30 s) so it can stay even after t653_3 lands.
+  - **t653_4 (manual verification aggregate):** Three live-TUI checks in this plan's Verification section (Synthetic Error → late-recovery, Banner persistence, Manual `ctrl+r` retry) are not exercisable from automated tests and should be verified during t653_4's checklist run. The synthetic-fixture builder used in Verification step 2 can be reused as a setup snippet.
+  - **t653_5 (polling activity indicator widget):** This task introduces a new `set_interval(30, self._poll_initializer)` timer in the Error branch — that timer is one of t653_5's intended consumers. When wiring t653_5, mount the indicator next to the `#initializer_apply_banner` Static added here (right edge of the same row, or co-located in a small `Horizontal` container).
