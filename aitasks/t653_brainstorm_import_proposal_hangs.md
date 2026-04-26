@@ -5,9 +5,9 @@ depends: [650]
 issue_type: bug
 status: Ready
 labels: [agentcrew, ait_brainstorm]
-children_to_implement: [t653_1, t653_2, t653_3, t653_4, t653_5]
+children_to_implement: [t653_2, t653_3, t653_4, t653_5]
 created_at: 2026-04-26 13:47
-updated_at: 2026-04-26 16:40
+updated_at: 2026-04-26 16:49
 boardidx: 20
 ---
 
