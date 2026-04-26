@@ -132,6 +132,22 @@ Example:
   --- PROPOSAL_END ---
   ```
 
+### YAML rules for the NODE_YAML block
+
+Every scalar value MUST be double-quoted when it contains any of:
+- em-dash (`—`) or en-dash (`–`)
+- hyphen-space (` - `)
+- a second `:` on the same line (the YAML key separator must be the only colon-space)
+- `#` (which YAML treats as a comment marker)
+
+Bad (will fail to parse):
+`component_gate_registry: aitasks/metadata/gates.yaml — per-gate config: verifier skill name`
+
+Good:
+`component_gate_registry: "aitasks/metadata/gates.yaml — per-gate config: verifier skill name"`
+
+When in doubt, double-quote the value.
+
 ### Checkpoint 4
 - Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 4 complete — output written"
 - Execute the **Progress Reporting** procedure from your `_instructions.md` with progress: 95

@@ -10,10 +10,13 @@ br_proposals/, br_plans/).
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
+
+import yaml
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from agentcrew.agentcrew_utils import AGENTCREW_DIR, read_yaml, write_yaml  # noqa: E402
@@ -280,6 +283,38 @@ def n000_needs_apply(task_num: int | str) -> bool:
     return desc.startswith("Imported proposal (awaiting reformat):")
 
 
+_PROBLEM_VALUE_RE = re.compile(r'^(\s*[A-Za-z_][\w]*:\s+)((?!["\'\[\{]).+?)\s*$')
+_PROBLEM_CHARS_RE = re.compile(r'(—|–| - |#|: )')
+
+
+def _tolerant_yaml_load(text: str) -> dict:
+    """yaml.safe_load with a one-shot quote-the-bad-values fallback.
+
+    On YAMLError, walk lines whose value (after the first ': ') contains an
+    em-dash, en-dash, hyphen-space, '#', or a second ': ', and is not already
+    quoted or starting a flow collection. Wrap such values in double quotes
+    (escaping any embedded "). Retry parsing. Re-raise the ORIGINAL error if
+    the fixed text still fails — keeping the original line number is more
+    useful for debugging than the line number after auto-quoting.
+    """
+    try:
+        return yaml.safe_load(text)
+    except yaml.YAMLError as orig_err:
+        fixed_lines = []
+        for line in text.splitlines():
+            m = _PROBLEM_VALUE_RE.match(line)
+            if m and _PROBLEM_CHARS_RE.search(m.group(2)):
+                value = m.group(2).replace("\\", "\\\\").replace('"', '\\"')
+                fixed_lines.append(f'{m.group(1)}"{value}"')
+            else:
+                fixed_lines.append(line)
+        fixed_text = "\n".join(fixed_lines)
+        try:
+            return yaml.safe_load(fixed_text)
+        except yaml.YAMLError:
+            raise orig_err
+
+
 def apply_initializer_output(task_num: int | str) -> None:
     """Parse ``initializer_bootstrap_output.md`` and overwrite n000_init.
 
@@ -302,11 +337,21 @@ def apply_initializer_output(task_num: int | str) -> None:
     node_yaml_text = _extract_block(text, "NODE_YAML_START", "NODE_YAML_END")
     proposal_text = _extract_block(text, "PROPOSAL_START", "PROPOSAL_END")
 
-    import yaml
     from .brainstorm_schemas import validate_node
     from .brainstorm_sections import parse_sections, validate_sections
 
-    node_data = yaml.safe_load(node_yaml_text)
+    try:
+        node_data = _tolerant_yaml_load(node_yaml_text)
+    except yaml.YAMLError as exc:
+        err_log = wt / "initializer_bootstrap_apply_error.log"
+        err_log.write_text(
+            f"apply_initializer_output failed at "
+            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"Original YAML parse error:\n{exc}\n\n"
+            f"NODE_YAML block (first 2000 chars):\n{node_yaml_text[:2000]}\n",
+            encoding="utf-8",
+        )
+        raise
     if not isinstance(node_data, dict):
         raise ValueError("initializer NODE_YAML block did not parse as a dict")
     errs = validate_node(node_data)

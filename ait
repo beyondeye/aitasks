@@ -220,27 +220,29 @@ case "${1:-help}" in
         subcmd="${1:-}"
         shift || true
         case "$subcmd" in
-            init)    exec "$SCRIPTS_DIR/aitask_brainstorm_init.sh" "$@" ;;
-            status)  exec "$SCRIPTS_DIR/aitask_brainstorm_status.sh" "$@" ;;
-            archive) exec "$SCRIPTS_DIR/aitask_brainstorm_archive.sh" "$@" ;;
-            delete)  exec "$SCRIPTS_DIR/aitask_brainstorm_delete.sh" "$@" ;;
-            list)    exec "$SCRIPTS_DIR/aitask_brainstorm_status.sh" --list "$@" ;;
-            [0-9]*)  exec "$SCRIPTS_DIR/aitask_brainstorm_tui.sh" "$subcmd" "$@" ;;
+            init)              exec "$SCRIPTS_DIR/aitask_brainstorm_init.sh" "$@" ;;
+            status)            exec "$SCRIPTS_DIR/aitask_brainstorm_status.sh" "$@" ;;
+            archive)           exec "$SCRIPTS_DIR/aitask_brainstorm_archive.sh" "$@" ;;
+            apply-initializer) exec "$SCRIPTS_DIR/aitask_brainstorm_apply_initializer.sh" "$@" ;;
+            delete)            exec "$SCRIPTS_DIR/aitask_brainstorm_delete.sh" "$@" ;;
+            list)              exec "$SCRIPTS_DIR/aitask_brainstorm_status.sh" --list "$@" ;;
+            [0-9]*)            exec "$SCRIPTS_DIR/aitask_brainstorm_tui.sh" "$subcmd" "$@" ;;
             --help|-h|"")
                 echo "Usage: ait brainstorm <subcommand> [options]"
                 echo ""
                 echo "Available subcommands:"
-                echo "  init      Initialize a brainstorm session for a task"
-                echo "  status    Show brainstorm session details"
-                echo "  list      List all brainstorm sessions"
-                echo "  archive   Finalize and archive a brainstorm session"
-                echo "  delete    Completely delete a brainstorm session"
-                echo "  <num>     Launch brainstorm TUI for a task"
+                echo "  init               Initialize a brainstorm session for a task"
+                echo "  status             Show brainstorm session details"
+                echo "  list               List all brainstorm sessions"
+                echo "  archive            Finalize and archive a brainstorm session"
+                echo "  apply-initializer  Re-run apply on a session (recovers stuck imports)"
+                echo "  delete             Completely delete a brainstorm session"
+                echo "  <num>              Launch brainstorm TUI for a task"
                 echo ""
                 echo "Run 'ait brainstorm <subcommand> --help' for subcommand-specific help."
                 exit 0
                 ;;
-            *)  echo "ait brainstorm: unknown subcommand '$subcmd'" >&2; echo "Available: init, status, list, archive, delete" >&2; exit 1 ;;
+            *)  echo "ait brainstorm: unknown subcommand '$subcmd'" >&2; echo "Available: init, status, list, archive, apply-initializer, delete" >&2; exit 1 ;;
         esac
         ;;
     git)          shift; source "$SCRIPTS_DIR/lib/task_utils.sh"

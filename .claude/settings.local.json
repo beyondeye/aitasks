@@ -48,6 +48,7 @@
       "Bash(./.aitask-scripts/aitask_review_detect_env.sh:*)",
       "Bash(wc:*)",
       "Bash(./.aitask-scripts/aitask_archive.sh:*)",
+      "Bash(./.aitask-scripts/aitask_brainstorm_apply_initializer.sh:*)",
       "Bash(./.aitask-scripts/aitask_opencode_models.sh:*)",
       "Bash(./.aitask-scripts/aitask_pick_own.sh:*)",
       "Bash(./.aitask-scripts/aitask_plan_externalize.sh:*)",
