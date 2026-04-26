@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [agentcrew, ait_brainstorm, whitelists]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-26 14:31
-updated_at: 2026-04-26 14:31
+updated_at: 2026-04-26 17:07
 ---
 
 ## Context
