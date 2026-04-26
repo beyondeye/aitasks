@@ -19,6 +19,7 @@ aitask_wrap
 ait_brainstorm
 ait_dispatcher
 ait_settings
+ait_setup
 archiveformat
 auto-update
 bash_scripts
