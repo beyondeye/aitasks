@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from agentcrew.agentcrew_utils import (
     AGENTCREW_DIR,

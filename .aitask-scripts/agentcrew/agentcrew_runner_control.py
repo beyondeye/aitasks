@@ -7,6 +7,7 @@ import signal
 import socket
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,6 +26,8 @@ from agentcrew_utils import (
 AIT_PATH = str(Path(__file__).resolve().parent.parent.parent / "ait")
 
 RUNNER_STALE_SECONDS = 120  # Consider runner stale after 2 minutes without heartbeat
+RUNNER_LAUNCH_LOG = "_runner_launch.log"
+RUNNER_LAUNCH_VERIFY_SECONDS = 1.5  # Grace window to catch immediate runner crashes
 
 
 def _elapsed_since(ts_str: str) -> float | None:
@@ -65,17 +68,50 @@ def get_runner_info(crew_id: str) -> dict:
 
 
 def start_runner(crew_id: str) -> bool:
-    """Launch a runner for the crew as a detached process."""
+    """Launch a runner for the crew as a detached process.
+
+    Returns True only if the spawned process is still alive after
+    RUNNER_LAUNCH_VERIFY_SECONDS. Captured stdout/stderr is appended to
+    <worktree>/_runner_launch.log so an early crash leaves a traceback
+    on disk for inspection (the previous DEVNULL redirect silently
+    swallowed import errors and made the TUI report success on a dead
+    process).
+    """
+    wt = crew_worktree_path(crew_id)
+    log_path = os.path.join(wt, RUNNER_LAUNCH_LOG)
     try:
-        subprocess.Popen(
-            [AIT_PATH, "crew", "runner", "--crew", crew_id],
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        return True
+        log_fh = open(log_path, "a")
     except OSError:
         return False
+
+    log_fh.write(
+        f"\n=== {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} "
+        f"| start_runner({crew_id}) ===\n"
+    )
+    log_fh.flush()
+
+    try:
+        proc = subprocess.Popen(
+            [AIT_PATH, "crew", "runner", "--crew", crew_id],
+            start_new_session=True,
+            stdout=log_fh,
+            stderr=log_fh,
+        )
+    except OSError:
+        log_fh.close()
+        return False
+
+    deadline = time.monotonic() + RUNNER_LAUNCH_VERIFY_SECONDS
+    while time.monotonic() < deadline:
+        rc = proc.poll()
+        if rc is not None:
+            log_fh.write(f"=== child exited early with code {rc} ===\n")
+            log_fh.close()
+            return False
+        time.sleep(0.1)
+
+    log_fh.close()
+    return True
 
 
 def send_agent_command(crew_id: str, agent_name: str, command: str) -> bool:

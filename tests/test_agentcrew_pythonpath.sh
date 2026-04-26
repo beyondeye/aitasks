@@ -86,9 +86,20 @@ output="$(run_from "/" "$PROJECT_DIR/ait" crew status --crew __nonexistent_t536_
 assert_not_contains "fs root: no ModuleNotFoundError" "ModuleNotFoundError" "$output"
 assert_contains    "fs root: Python body executed (crew not found error)" "Crew '__nonexistent_t536__' not found" "$output"
 
-# 4. Sanity: agentcrew_runner is unaffected and still works.
-output="$(run_from "$PROJECT_DIR" "$PROJECT_DIR/ait" crew runner --help)"
-assert_not_contains "runner --help: no ModuleNotFoundError" "ModuleNotFoundError" "$output"
+# 4. Regression: agentcrew_runner.py imports must not break (t647).
+#    --help is intercepted by the bash wrapper before Python runs, so it
+#    cannot catch import errors. Use --check against a nonexistent crew —
+#    that flows through the full Python entrypoint and exits cleanly.
+output="$(run_from "$PROJECT_DIR" "$PROJECT_DIR/ait" crew runner --crew __nonexistent_t647__ --check 2>&1)"
+assert_not_contains "runner --check: no ModuleNotFoundError" "ModuleNotFoundError" "$output"
+assert_not_contains "runner --check: no missing tui_registry" "No module named 'tui_registry'" "$output"
+assert_contains    "runner --check: Python body executed (crew not found error)" "Crew worktree not found" "$output"
+
+# Also exercise from a foreign cwd — same trap as t536.
+tmpcwd="$(mktemp -d "${TMPDIR:-/tmp}/t647_cwd_XXXXXX")"
+output="$(run_from "$tmpcwd" "$PROJECT_DIR/ait" crew runner --crew __nonexistent_t647__ --check 2>&1)"
+rmdir "$tmpcwd" 2>/dev/null || true
+assert_not_contains "runner --check (foreign cwd): no ModuleNotFoundError" "ModuleNotFoundError" "$output"
 
 # --- Summary ---
 
