@@ -213,3 +213,20 @@ The new tests in `tests/test_crew_runner.sh` cover the auto-transition paths wit
 ## Reference: Step 9 (Post-Implementation)
 
 After implementation: commit code + plan separately (per task-workflow Step 8), then run Step 9 archival via `./.aitask-scripts/aitask_archive.sh 652`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Landed exactly the planned scope. `agentcrew_utils.py` extended with `MissedHeartbeat` in AGENT_STATUSES, `Running → MissedHeartbeat`, `MissedHeartbeat → {Running,Error,Aborted}`, and `Error → Completed` transitions. `compute_crew_status` and `get_group_status` now treat `{Running, MissedHeartbeat}` as the "active" set so a transient missed heartbeat doesn't flip the crew to Error. `agentcrew_runner.py` got `mark_stale_as_missed_heartbeat` (replacing `mark_stale_as_error`) and a new `process_missed_heartbeat_agents` (recovery + grace-expiry); both wired into the runner main loop. The new per-agent field is `missed_heartbeat_at`. `agentcrew_status.py` needed no edits — `validate_agent_transition` picks up the new entries automatically. Dashboard color `#F1FA8C`. Bash-mirror constant `AGENT_STATUS_MISSED_HEARTBEAT`.
+- **Deviations from plan:**
+  - Skipped the planned `get_missed_heartbeat_agents()` helper — `process_missed_heartbeat_agents` iterates the already-loaded `agents` dict, so the helper would have been unused.
+  - Added two **necessary** edits not in the plan: `count_running()` and `enforce_type_limits()` were updated to count `MissedHeartbeat` as occupying a slot. Without this, the runner could exceed `max_concurrent` / `max_parallel` while MissedHeartbeat agents are still holding processes.
+  - Reused `check_agent_alive()` and `parse_timestamp()` for the recovery / grace-expiry checks instead of adding the planned `heartbeat_age_seconds` / `seconds_since` helpers.
+- **Issues encountered:**
+  - The first pass of `tests/test_crew_runner.sh` had three failing assertions checking for log strings (`"MissedHeartbeat"`, `"heartbeat resumed"`, `"grace window expired"`) in runner stdout/stderr. Root cause: `log()` is suppressed in batch mode. Replaced log-string assertions with state assertions (status field, `missed_heartbeat_at` presence, `error_message` content). All 37 tests now pass.
+  - `tests/test_crew_status.sh` `setup_test_repo` was a pre-existing infra bug: it hand-copied a subset of scripts and silently dropped `lib/launch_modes_sh.sh`, causing `aitask_crew_init.sh` to crash and `set -e` to abort the test runner at Test 7 — Tests 7-14 were never executing in CI/locally. Replaced with the `cp -R` pattern that `test_crew_runner.sh` already uses (with the same comment about hand-curated copy lists drifting). All 56 tests now pass.
+- **Key decisions:**
+  - **Soft-stale grace window reuses `heartbeat_timeout_minutes`.** Total tolerance becomes 2× the configured timeout. No new config key, per the plan agreement.
+  - **`count_running` keeps its name despite expanded semantics** (now counts Running ∪ MissedHeartbeat). Renaming would have cascaded to the `RUNNING:` runner output line, which would break any external consumer that grep'd for it. The function comment was updated.
+  - **`Aborted` is in `MissedHeartbeat`'s outgoing transitions** so `graceful_shutdown` can terminate an agent that is currently MissedHeartbeat.
+  - **No `--force` flag added to `ait crew status set`** — the new `Error → Completed` transition removes the most common reason for it. Can be added later if real-world override needs emerge.
+- **Verification:** `bash tests/test_crew_runner.sh` (37/37), `bash tests/test_crew_status.sh` (56/56), `python3 -m py_compile` on all 5 modified Python modules (clean), `shellcheck` (only pre-existing SC1091/SC2001 on lines untouched by this task).

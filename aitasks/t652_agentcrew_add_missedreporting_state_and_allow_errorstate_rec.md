@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [agentcrew]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-26 13:12
-updated_at: 2026-04-26 13:49
+updated_at: 2026-04-26 14:12
 boardidx: 30
 ---
 
