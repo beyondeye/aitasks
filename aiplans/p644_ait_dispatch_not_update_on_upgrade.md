@@ -220,3 +220,24 @@ Run `bash tests/test_t167_integration.sh` to confirm no regression on the legacy
 ## Post-implementation step (Step 9)
 
 Standard archival — see SKILL.md Step 9: commit code + plan separately, run `verify_build` if configured (none in this project), no worktree to clean (profile = `fast` / `create_worktree: false`).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `install.sh::commit_installed_files()` rewritten in the discover-then-add style of `aitask_setup.sh::commit_framework_files()`: `git ls-files --others/--modified` first, then `git add -- <files>` on individual paths (avoids the symlink atomicity bug).
+  - New `install.sh::commit_installed_data_files()` — when `.aitask-data/.git` exists, commits `aitasks/metadata/` and `aireviewguides/` (if present) on the `aitask-data` branch.
+  - New `aitask_setup.sh::commit_framework_data_files()` — interactive analogue of the install.sh helper, wired in `main()` after `commit_framework_files`.
+  - `ait` line 75: `install` → `upgrade` in the Infrastructure section of `show_usage()`.
+  - `tests/test_t644_branch_mode_upgrade.sh` — 16 assertions, three scenarios (branch-mode upgrade, idempotent re-run, legacy mode unchanged).
+- **Deviations from plan:**
+  - **Conditional data-branch filter, not unconditional.** The plan called for an `^(aitasks|aiplans)/` filter on `git ls-files` output. Initial implementation made it unconditional, which broke `test_setup_git.sh` Test 2's "aitasks/metadata/ committed" assertion in legacy mode (where `aitasks/metadata/` legitimately lives on the main branch). Fixed by gating the filter on `[[ -d .aitask-data/.git || -f .aitask-data/.git ]]` and refactoring it into a small `_filter_changes` helper used in three places per file. Same conditional filter mirrored in `aitask_setup.sh`.
+  - **Pre-existing test failures fixed in scope.** User asked us to investigate the "unrelated" failures we initially flagged. They turned out to be stale assertions: `test_setup_git.sh` line 132 expected the pre-t624 message `"not yet committed"` (renamed to `"READY TO COMMIT N FRAMEWORK FILES"` by t624); `test_t167_integration.sh` Scenarios A and D expected install.sh to auto-commit on first install, which t637 deliberately stopped (sentinel-skip when `.aitask-scripts/VERSION` not yet tracked). Updated both: t167 Scenario A now asserts the correct sentinel-skip + ait setup commit flow; Scenario D now exercises the upgrade-commit path with a bumped tarball. After fixes: t167 17/17, setup_git 38/38.
+- **Issues encountered:**
+  - First test attempt failed because `git ls-files --others --exclude-standard "aitasks/metadata/"` does *not* always silently skip paths beyond the `aitasks` symlink: when the symlink target lives inside the worktree (`.aitask-data/` is a sibling of `aitasks` symlink under `INSTALL_DIR`) AND the symlink is tracked, ls-files walks through it and returns paths from the data worktree. Hence the filter had to be defensive, not a "should never trigger" theoretical safety.
+  - Initial test setup used per-path `git add` flags (`git add .aitask-scripts/ ait .claude/`, then `git add -A aireviewguides/ ...`); switching to a single `git add -A` removed an unreliable code path.
+  - `git add` of an existing tarball-extracted symlink target sometimes follows the symlink for the staged hunks; this is what the conditional filter compensates for.
+- **Key decisions:**
+  - **Stand-alone `commit_installed_data_files()` rather than sourcing `task_utils.sh`.** install.sh is downloaded by `curl|bash` and runs before the framework is extracted, so it cannot rely on `.aitask-scripts/lib/task_utils.sh`. Inline-replicating `_ait_detect_data_worktree`'s `[[ -d .git || -f .git ]]` test is acceptable duplication (single function, well-commented).
+  - **Data branch helper restricted to `aitasks/metadata/` + `aireviewguides/`.** Never commits task or plan content to the data branch automatically — those are user data, not framework. Keeps the two helpers narrow and predictable.
+  - **Two pre-existing test failures fixed inline.** They blocked the ability to verify "no regression"; leaving them in place would have meant every future change was 5 failures away from "tests pass". Re-aligning them was a small scoped cleanup, not feature creep.
+- **Build verification:** No `verify_build` configured in `aitasks/metadata/project_config.yaml` — skipped per Step 9 rules.
