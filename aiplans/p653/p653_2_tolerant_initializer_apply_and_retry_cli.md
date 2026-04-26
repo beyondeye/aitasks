@@ -305,3 +305,34 @@ Standard task-workflow archival. No `verify_build` configured (per `aitasks/meta
 - Heartbeat / agent-crew status push fixes — owned by t653_3 and parent t650.
 - Polling activity indicator — owned by t653_5.
 - Multi-language YAML auto-fix (only same-line scalar quoting; no rewriting block scalars or flow sequences).
+
+## Final Implementation Notes
+
+- **Actual work done:** All seven step blocks (S1–S7) implemented as planned:
+  - `initializer.md` — appended `### YAML rules for the NODE_YAML block` between the delimiters paragraph and `### Checkpoint 4` in Phase 4.
+  - `brainstorm_session.py` — added module-top `import yaml`, `import re`; added `_PROBLEM_VALUE_RE`, `_PROBLEM_CHARS_RE`, and `_tolerant_yaml_load()` immediately above `apply_initializer_output()`; replaced the line-309 `yaml.safe_load()` with a try/except using the tolerant loader and writing `initializer_bootstrap_apply_error.log` on permanent failure; removed the now-redundant in-function `import yaml`.
+  - `aitask_brainstorm_apply_initializer.sh` — new helper, venv-aware Python detection mirroring `aitask_brainstorm_archive.sh`, prefix stripping for `brainstorm-NNN`, `chmod +x` applied. Output contract: `APPLIED:n000_init` / `APPLY_FAILED:<exc>`.
+  - `ait` — added `apply-initializer)` sub-case adjacent to `archive)`; updated `--help|-h|""` text; added to unknown-subcommand `Available:` list. Realigned the existing arrows for readability.
+  - 5-touchpoint whitelist — entries added to `.claude/settings.local.json`, `seed/claude_settings.local.json`, `.gemini/policies/aitasks-whitelist.toml`, `seed/geminicli_policies/aitasks-whitelist.toml`, `seed/opencode_config.seed.json`. Codex omitted per CLAUDE.md.
+  - `tests/test_apply_initializer_tolerant.sh` — new, 15 assertions covering: em-dash tolerant fallback, malformed-YAML failure with error log, clean YAML happy path (no error log), and direct `_tolerant_yaml_load` unit assertions (em-dash auto-quote, already-quoted preservation, flow-list non-mangling, malformed re-raise).
+
+- **Deviations from plan:** Two minor:
+  - The helper script uses a `python3 - "$NUM" <<'PY' … PY` heredoc (passing the session number via `argv[1]`) instead of inline-substituting the variable into the script body. This avoids quoting issues when the session ID contains characters meaningful to the shell, and shellcheck is happier with it. Functionally identical — same APPLIED/APPLY_FAILED output.
+  - The arrows in the brainstorm subcommand dispatch were realigned to accommodate the longer `apply-initializer` keyword. Pure formatting; no behavior change.
+
+- **Issues encountered:** None. shellcheck info-level SC1091 on the `source "$SCRIPT_DIR/lib/terminal_compat.sh"` line matches the project standard for every other helper in `.aitask-scripts/` (e.g., `aitask_brainstorm_archive.sh` exits with the same info).
+
+- **Key decisions:**
+  - Promoted `yaml` to a module-top import (was lazy-imported inside `apply_initializer_output`). Tests need to call `_tolerant_yaml_load` directly without first running the full apply path; a top-level import is cleaner and the import cost is trivial since the module is already pulled in by the brainstorm TUI/CLI on every launch.
+  - The negative-lookahead `(?!["\'\[\{])` in `_PROBLEM_VALUE_RE` skips already-quoted scalars **and** flow collections (`field: [a, b]` / `field: {…}`). Confirmed via the unit-test case `key: [a, b, c]` which must round-trip through tolerant load unchanged.
+  - On permanent parse failure, `_tolerant_yaml_load` re-raises the **original** `YAMLError`, not the post-quoting one. The original line numbers are far more useful for debugging than line numbers shifted by auto-quoting.
+
+- **Notes for sibling tasks:**
+  - **t653_1 (already merged):** Banner/notify text at `brainstorm_app.py:1830` and `:3280` referenced `ait brainstorm apply-initializer {task_num}`. Those references are now backed by a real CLI subcommand; no further changes in `brainstorm_app.py` are needed.
+  - **t653_3 (agentcrew terminal push):** Independent. The new error-log file `initializer_bootstrap_apply_error.log` lives in the crew worktree alongside `initializer_bootstrap_status.yaml` — t653_3's status-push logic doesn't need to know about it.
+  - **t653_4 (manual verification aggregate):** End-to-end recovery of session 635 with `./ait brainstorm apply-initializer 635` is a candidate checklist item. Expected output: `APPLIED:n000_init`, then opening `ait brainstorm 635` shows the real proposal text.
+  - **t653_5 (polling indicator widget):** No interaction with this task.
+
+- **Build verification:** No `verify_build` configured in `project_config.yaml`. New tests pass (15/15). Existing `test_apply_initializer_output.sh` regression check passes (8/8).
+
+- **Session 635 recovery (manual, post-archival):** Listed in t653_4's verification checklist; not exercised inside the implementation context to avoid mutating the user's live brainstorm session without explicit go-ahead.
