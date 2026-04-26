@@ -147,3 +147,16 @@ Per the standard task workflow: review changes, commit (code + plan separately v
   - `update_session_mapping` is called every refresh tick, but is cheap because it diff-checks before mutating and `TmuxMonitor.get_session_to_project_mapping()` piggybacks on the existing sessions cache TTL.
   - `action_open_log` was extended to use `_root_for_snap()` for both the crews-root path and the `Popen(cwd=...)` of `ait crew logview`. Without this, log viewing for cross-session agents would either find no log file or open the log viewer in the wrong project.
   - The next-sibling launch (`AgentCommandScreen(project_root=...)`, `resolve_dry_run_command`, `resolve_agent_string`) uses `_root_for_snap(snap)` so the new pick is dispatched in the same project as the focused pane's session. This is the correct behaviour: siblings of a foreign-session task live in that foreign project.
+
+## Post-Archival Follow-up (regression fix to the next-sibling launch)
+
+User-reported defect after archival: when pressing `n` on a foreign-session agent (`aitasks_mob:agent-pick-10_X`), the sibling was correctly identified and the new pane appeared in the correct foreign tmux session — but the `claude` process inside that pane ran with cwd `/home/ddt/Work/aitasks` (the monitor's cwd) instead of `/home/ddt/Work/aitasks_mobile`, so `/aitask-pick` failed to find the task file.
+
+**Root cause:** `launch_in_tmux` (`agent_launch_utils.py`) shells out to `tmux new-window` / `split-window` / `new-session` without `-c <cwd>`. The new pane then inherited the calling pane's cwd. Threading `project_root` through `AgentCommandScreen` was insufficient because it never reached the tmux command builder — `TmuxLaunchConfig` had no `cwd` field.
+
+**Fix:**
+- `TmuxLaunchConfig` gains an optional `cwd: str | None = None` field.
+- `launch_in_tmux` appends `-c <cwd>` to all three tmux command paths when set; preserves prior behaviour when `cwd=None`.
+- `AgentCommandScreen.build_config()` now sets `cwd=str(self._project_root)`, so cross-session pick launches (and any other AgentCommandScreen-driven launch) honour the target project root.
+- `agentcrew_runner.py`'s usage continues to pass no `cwd` (relies on default), preserving single-project behaviour.
+- Tests: new tiers 1o (`launch_in_tmux` honours `cwd` for new-window / split-window; cwd=None omits `-c`) and 1p (source-level check that `AgentCommandScreen.build_config` wires `project_root → cwd`).
