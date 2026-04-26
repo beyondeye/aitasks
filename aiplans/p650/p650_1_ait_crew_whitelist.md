@@ -80,3 +80,22 @@ This child does NOT touch any brainstorm template or `aitask_crew_addwork.sh` �
 ## Step 9 reference
 
 Post-implementation: per task-workflow Step 9, archive child + plan via `./.aitask-scripts/aitask_archive.sh 650_1`. Parent t650 will be archived automatically once all three children complete.
+
+## Final Implementation Notes
+
+- **Actual work done:** Applied the planned 5-touchpoint edits exactly as designed:
+  1. `.claude/settings.local.json:122` — replaced malformed `"Bash(ait crew *)"` with canonical `"Bash(./ait crew:*)"`.
+  2. `seed/claude_settings.local.json` — added `"Bash(./ait crew:*)"` next to the existing `"Bash(./ait git:*)"` entry (line 27 → new entry at line 28).
+  3. `.gemini/policies/aitasks-whitelist.toml` — appended a `[[rule]]` block for `commandPrefix = "./ait crew"` directly after the `./ait git` rule (new block at line 493).
+  4. `seed/geminicli_policies/aitasks-whitelist.toml` — mirrored the runtime gemini block (new block at line 523).
+  5. `seed/opencode_config.seed.json` — added `"./ait crew *": "allow"` next to `"./ait git *"` (line 16 → new entry at line 17).
+- **Deviations from plan:** None. All edits matched the plan verbatim.
+- **Issues encountered:** None.
+- **Key decisions:** None — followed the dispatcher-verb-level whitelist convention already established for `./ait git` and `./ait codeagent`.
+- **Verification result:** Final `grep "ait crew"` across the 5 touchpoints showed exactly one canonical entry per file, with the malformed entry gone:
+  - `.claude/settings.local.json:122: "Bash(./ait crew:*)"`
+  - `seed/claude_settings.local.json:28: "Bash(./ait crew:*)",`
+  - `.gemini/policies/aitasks-whitelist.toml:495: commandPrefix = "./ait crew"`
+  - `seed/geminicli_policies/aitasks-whitelist.toml:525: commandPrefix = "./ait crew"`
+  - `seed/opencode_config.seed.json:17: "./ait crew *": "allow",`
+- **Notes for sibling tasks:** This child only touched whitelist files — no brainstorm/heartbeat code paths were modified. The heartbeat fixes in t650_2 / t650_3 remain independent and can proceed without coordination. The fact that the runtime claude entry was malformed (no `./` prefix, wrong `:*` style) explains the symptom-level intermittence the user observed — fixing the format is what closes the prompt loop in addition to seeding the canonical entry into the 4 missing locations.
