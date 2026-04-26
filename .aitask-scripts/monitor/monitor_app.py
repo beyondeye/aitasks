@@ -649,6 +649,22 @@ class MonitorApp(TuiSwitcherMixin, App):
         if was_detached and at_bottom:
             self.call_later(self._fast_preview_refresh)
 
+    # -- Cross-session project-root resolution ---------------------------------
+
+    def _root_for_snap(self, snap: PaneSnapshot) -> Path:
+        """Project root that owns the given pane's tmux session.
+
+        Falls back to ``self._project_root`` when the pane has no session_name
+        (legacy single-session paths) or its session is not in the discovered
+        aitasks-sessions list.
+        """
+        sess = snap.pane.session_name
+        if sess and self._monitor is not None:
+            mapping = self._monitor.get_session_to_project_mapping()
+            if sess in mapping:
+                return mapping[sess]
+        return self._project_root
+
     # -- Data refresh ----------------------------------------------------------
 
     async def _refresh_data(self) -> None:
@@ -660,6 +676,12 @@ class MonitorApp(TuiSwitcherMixin, App):
         saved_zone = self._active_zone
 
         self._snapshots = await self._monitor.capture_all_async()
+        # Refresh the per-session project-root mapping so cross-session task
+        # data resolves from the right project. Cheap — piggybacks on the
+        # TmuxMonitor sessions cache TTL.
+        self._task_cache.update_session_mapping(
+            self._monitor.get_session_to_project_mapping()
+        )
 
         # Drop saved scroll state for panes that no longer exist.
         stale = [
@@ -883,7 +905,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         )
         task_id = self._task_cache.get_task_id(snap.pane.window_name)
         if task_id:
-            info = self._task_cache.get_task_info(task_id)
+            info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
             if info:
                 text += f"\n     [dim italic]t{task_id}: {info.title}[/]"
         return text
@@ -1021,7 +1043,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         pane_label = f"({snap.pane.window_index}:{snap.pane.window_name})"
         task_id = self._task_cache.get_task_id(snap.pane.window_name)
         if task_id:
-            info = self._task_cache.get_task_info(task_id)
+            info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
             if info:
                 if self._active_zone == Zone.PREVIEW:
                     pane_label += f" [bold]t{task_id}: {info.title}[/]"
@@ -1389,8 +1411,9 @@ class MonitorApp(TuiSwitcherMixin, App):
             self.notify("No task ID in window name", severity="warning")
             return
         # Force refresh cache to get latest content
-        self._task_cache.invalidate(task_id)
-        info = self._task_cache.get_task_info(task_id)
+        sess = snap.pane.session_name
+        self._task_cache.invalidate(task_id, sess)
+        info = self._task_cache.get_task_info(task_id, sess)
         if not info:
             self.notify(f"Task t{task_id} not found", severity="error")
             return
@@ -1413,7 +1436,8 @@ class MonitorApp(TuiSwitcherMixin, App):
         if agent_name.startswith("pick-"):
             self.notify("Pick launcher panes have no agent log")
             return
-        crews_root = self._project_root / ".aitask-crews"
+        root = self._root_for_snap(snap)
+        crews_root = root / ".aitask-crews"
         log_path = None
         if crews_root.exists():
             for crew_dir in sorted(crews_root.glob("crew-*")):
@@ -1430,7 +1454,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         try:
             subprocess.Popen(
                 ["./ait", "crew", "logview", "--path", str(log_path)],
-                cwd=str(self._project_root),
+                cwd=str(root),
             )
             self.notify(f"Opening log for {agent_name}")
         except OSError as exc:
@@ -1450,7 +1474,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         task_info = None
         task_id = self._task_cache.get_task_id(snap.pane.window_name)
         if task_id:
-            task_info = self._task_cache.get_task_info(task_id)
+            task_info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
         self.push_screen(
             KillConfirmDialog(snap, task_info),
             callback=self._on_kill_confirmed,
@@ -1488,13 +1512,14 @@ class MonitorApp(TuiSwitcherMixin, App):
         if not task_id:
             self.notify("No task ID in window name", severity="warning")
             return
-        self._task_cache.invalidate(task_id)
-        current_info = self._task_cache.get_task_info(task_id)
+        sess = snap.pane.session_name
+        self._task_cache.invalidate(task_id, sess)
+        current_info = self._task_cache.get_task_info(task_id, sess)
         # If task file not found, it was likely archived (Done) — still allow sibling pick
         current_title = current_info.title if current_info else f"(archived t{task_id})"
         current_status = current_info.status if current_info else "Done"
 
-        result = self._task_cache.find_next_sibling(task_id)
+        result = self._task_cache.find_next_sibling(task_id, sess)
         if not result:
             self.notify("No ready siblings or children found", severity="warning")
             return
@@ -1524,10 +1549,13 @@ class MonitorApp(TuiSwitcherMixin, App):
         task_id = self._task_cache.get_task_id(snap.pane.window_name)
         if not task_id:
             return
-        current_info = self._task_cache.get_task_info(task_id)
+        sess = snap.pane.session_name
+        current_info = self._task_cache.get_task_info(task_id, sess)
 
-        # Resolve pick command: specific child or parent for selection
-        full_cmd = resolve_dry_run_command(self._project_root, "pick", target_id)
+        # Resolve pick command in the project that owns the focused pane's
+        # session — siblings live in that same project.
+        target_root = self._root_for_snap(snap)
+        full_cmd = resolve_dry_run_command(target_root, "pick", target_id)
         if not full_cmd:
             self.notify(f"Failed to resolve pick command for t{target_id}", severity="error")
             return
@@ -1543,11 +1571,11 @@ class MonitorApp(TuiSwitcherMixin, App):
 
         prompt_str = f"/aitask-pick {target_id}"
         window_name = f"agent-pick-{target_id}"
-        agent_string = resolve_agent_string(self._project_root, "pick")
+        agent_string = resolve_agent_string(target_root, "pick")
         screen = AgentCommandScreen(
             f"Pick Task t{target_id}", full_cmd, prompt_str,
             default_window_name=window_name,
-            project_root=self._project_root,
+            project_root=target_root,
             operation="pick",
             operation_args=[target_id],
             default_agent_string=agent_string,
@@ -1587,8 +1615,9 @@ class MonitorApp(TuiSwitcherMixin, App):
         if not task_id:
             self.notify("No task ID in window name", severity="warning")
             return
-        self._task_cache.invalidate(task_id)
-        info = self._task_cache.get_task_info(task_id)
+        sess = snap.pane.session_name
+        self._task_cache.invalidate(task_id, sess)
+        info = self._task_cache.get_task_info(task_id, sess)
         title = info.title if info else f"(archived t{task_id})"
         status = info.status if info else "Done"
 
@@ -1609,7 +1638,8 @@ class MonitorApp(TuiSwitcherMixin, App):
             self.notify("Focused pane no longer exists", severity="warning")
             return
 
-        full_cmd = resolve_dry_run_command(self._project_root, "pick", task_id)
+        target_root = self._root_for_snap(snap)
+        full_cmd = resolve_dry_run_command(target_root, "pick", task_id)
         if not full_cmd:
             self.notify(
                 f"Failed to resolve pick command for t{task_id}",
@@ -1619,11 +1649,11 @@ class MonitorApp(TuiSwitcherMixin, App):
 
         prompt_str = f"/aitask-pick {task_id}"
         window_name = f"agent-pick-{task_id}"
-        agent_string = resolve_agent_string(self._project_root, "pick")
+        agent_string = resolve_agent_string(target_root, "pick")
         screen = AgentCommandScreen(
             f"Pick Task t{task_id}", full_cmd, prompt_str,
             default_window_name=window_name,
-            project_root=self._project_root,
+            project_root=target_root,
             operation="pick",
             operation_args=[task_id],
             default_agent_string=agent_string,

@@ -210,6 +210,12 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         saved_pane_id = self._focused_pane_id
 
         self._snapshots = await self._monitor.capture_all_async()
+        # Refresh per-session project-root mapping so cross-session task data
+        # resolves from the right project (free — uses TmuxMonitor's cached
+        # session list).
+        self._task_cache.update_session_mapping(
+            self._monitor.get_session_to_project_mapping()
+        )
 
         # Keep window index fresh (handles tmux renumber-windows)
         self._update_own_window_info()
@@ -374,7 +380,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             # Optional task title line
             task_id = self._task_cache.get_task_id(snap.pane.window_name)
             if task_id:
-                info = self._task_cache.get_task_info(task_id)
+                info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
                 if info:
                     title = info.title
                     if len(title) > 30:
@@ -560,8 +566,9 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             self.notify("No task ID in window name", severity="warning")
             return
         # Force refresh cache to get latest content
-        self._task_cache.invalidate(task_id)
-        info = self._task_cache.get_task_info(task_id)
+        sess = snap.pane.session_name
+        self._task_cache.invalidate(task_id, sess)
+        info = self._task_cache.get_task_info(task_id, sess)
         if not info:
             self.notify(f"Task t{task_id} not found", severity="error")
             return

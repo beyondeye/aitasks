@@ -77,12 +77,42 @@ class TaskInfo:
 
 
 class TaskInfoCache:
-    """Cache for resolved task info — avoids file I/O on every refresh."""
+    """Cache for resolved task info — avoids file I/O on every refresh.
 
-    def __init__(self, project_root: Path):
+    Cross-project aware: when callers provide a tmux ``session_name`` the cache
+    resolves the task file from the project root that owns that session (via
+    ``session_to_project``). An empty/unknown ``session_name`` falls back to
+    the local ``project_root`` — preserving single-session behaviour.
+    """
+
+    def __init__(
+        self,
+        project_root: Path,
+        session_to_project: dict[str, Path] | None = None,
+    ):
         self._project_root = project_root
-        self._cache: dict[str, TaskInfo | None] = {}
+        self._session_to_project: dict[str, Path] = dict(session_to_project or {})
+        # Keyed by (session_name, task_id) so two projects can both have t100
+        # without clobbering each other.
+        self._cache: dict[tuple[str, str], TaskInfo | None] = {}
         self._window_to_task_id: dict[str, str | None] = {}
+
+    def update_session_mapping(self, mapping: dict[str, Path]) -> None:
+        """Replace the session→project_root mapping (idempotent).
+
+        Clears the resolved-task cache when the mapping changes, since entries
+        for a session may have been resolved against a stale (or absent)
+        mapping and now point at the wrong project's task data.
+        """
+        if mapping != self._session_to_project:
+            self._session_to_project = dict(mapping)
+            self._cache.clear()
+
+    def _root_for_session(self, session_name: str) -> Path:
+        """Resolve the project root for a tmux session, falling back to local."""
+        if session_name and session_name in self._session_to_project:
+            return self._session_to_project[session_name]
+        return self._project_root
 
     def get_task_id(self, window_name: str) -> str | None:
         """Extract task ID from agent window name. Cached."""
@@ -91,14 +121,17 @@ class TaskInfoCache:
             self._window_to_task_id[window_name] = m.group(1) if m else None
         return self._window_to_task_id[window_name]
 
-    def get_task_info(self, task_id: str) -> TaskInfo | None:
+    def get_task_info(
+        self, task_id: str, session_name: str = ""
+    ) -> TaskInfo | None:
         """Resolve task info from task ID. Cached after first lookup."""
-        if task_id not in self._cache:
-            self._cache[task_id] = self._resolve(task_id)
-        return self._cache[task_id]
+        key = (session_name, task_id)
+        if key not in self._cache:
+            self._cache[key] = self._resolve(task_id, session_name)
+        return self._cache[key]
 
-    def invalidate(self, task_id: str) -> None:
-        self._cache.pop(task_id, None)
+    def invalidate(self, task_id: str, session_name: str = "") -> None:
+        self._cache.pop((session_name, task_id), None)
 
     def get_parent_id(self, task_id: str) -> str | None:
         """Extract parent task number from a child task ID."""
@@ -106,7 +139,9 @@ class TaskInfoCache:
             return None
         return task_id.split("_", 1)[0]
 
-    def find_next_sibling(self, task_id: str) -> tuple[str, str] | None:
+    def find_next_sibling(
+        self, task_id: str, session_name: str = ""
+    ) -> tuple[str, str] | None:
         """Find the next Ready sibling/child task.
 
         If task_id is a child (e.g. "123_4"), returns the next Ready sibling
@@ -122,7 +157,8 @@ class TaskInfoCache:
             parent = task_id
             exclude_id = None
 
-        search_dir = self._project_root / "aitasks" / f"t{parent}"
+        root = self._root_for_session(session_name)
+        search_dir = root / "aitasks" / f"t{parent}"
         if not search_dir.is_dir():
             return None
 
@@ -163,10 +199,11 @@ class TaskInfoCache:
         _, sib_id, title = candidates[0]
         return (sib_id, title)
 
-    def _resolve(self, task_id: str) -> TaskInfo | None:
+    def _resolve(self, task_id: str, session_name: str = "") -> TaskInfo | None:
         """Look up task file and parse its content. Pure Python, no subprocess."""
-        tasks_dir = self._project_root / "aitasks"
-        plans_dir = self._project_root / "aiplans"
+        root = self._root_for_session(session_name)
+        tasks_dir = root / "aitasks"
+        plans_dir = root / "aiplans"
 
         if "_" in task_id:
             parent, child = task_id.split("_", 1)
@@ -233,7 +270,7 @@ class TaskInfoCache:
 
         return TaskInfo(
             task_id=task_id,
-            task_file=str(task_path.relative_to(self._project_root)),
+            task_file=str(task_path.relative_to(root)),
             title=title,
             priority=str(metadata.get("priority", "")),
             effort=str(metadata.get("effort", "")),

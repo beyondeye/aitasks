@@ -165,6 +165,15 @@ class TmuxMonitor:
         """Force the next `_discover_sessions_cached` call to re-query tmux."""
         self._sessions_cache = None
 
+    def get_session_to_project_mapping(self) -> dict[str, Path]:
+        """Map session_name → project_root for all discovered aitasks sessions.
+
+        Piggybacks on the `_discover_sessions_cached` TTL — no extra tmux
+        calls. Used by monitor TUIs to resolve task data from the project that
+        owns each codeagent's tmux session.
+        """
+        return {s.session: s.project_root for s in self._discover_sessions_cached()}
+
     def classify_pane(self, window_name: str) -> PaneCategory:
         for prefix in self.agent_prefixes:
             if window_name.startswith(prefix):
