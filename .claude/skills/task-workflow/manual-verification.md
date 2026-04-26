@@ -40,20 +40,66 @@ Parse the output for `TOTAL:<N>`.
 
   **If "Abort":** execute the **Task Abort Procedure** (see `task-abort.md`) and end.
 
-### 2. Main loop — iterate pending and deferred items
+### 2. Main loop — render checklist, then ask about the current item
 
-Enumerate items:
+This is a re-entrant outer loop: every state mutation (single-option answer or
+parsed batch update) loops back to the top so the rendered checklist always
+reflects the current state and the "current item" is always the first remaining
+`pending` or `defer` entry.
 
-```bash
-./.aitask-scripts/aitask_verification_parse.sh parse <task_file>
-```
+1. **Enumerate items:**
 
-The helper emits one `ITEM:<idx>:<state>:<line>:<text>` line per item. For each item whose `<state>` is `pending` or `defer`:
+   ```bash
+   ./.aitask-scripts/aitask_verification_parse.sh parse <task_file>
+   ```
 
-1. Render `<text>` to the user as context (prefix with the index, e.g., `Item 3: …`).
+   The helper emits one `ITEM:<idx>:<state>:<line>:<text>` line per item.
 
-2. Use `AskUserQuestion` to collect the verification outcome for the item. The four explicit options are the verify outcomes; the Abort (pause) path is reachable via the UI-added "Other" free-text field and is advertised in the question hint.
-   - Question: "Item <idx>: <text>\n\nSelect Pass / Fail / Skip / Defer, or type in Other — ask a question, give an instruction, or say you want to pause (e.g., 'abort', 'stop for today'). Asking to pause leaves the current item and any remaining items unchanged with no commit."
+2. **Exit condition:** if no item is in state `pending` or `defer`, leave the
+   loop and proceed to step 3 (post-loop checkpoint).
+
+3. **Render the FULL NUMBERED CHECKLIST** as plain text — one line per item,
+   with a short state marker so the user always has the overview. Example:
+
+   ```
+   Verification checklist (5 items):
+     1. ✓ pass    Open the brainstorm TUI and confirm the left pane renders
+     2. ✓ pass    Ctrl+B opens the brainstorm view
+     3. ⏳ pending Ctrl+N spawns a new task from the brainstorm view
+     4. ⏳ pending Agent spawn lands in a fresh tmux window
+     5. ⏸ defer   Verify tmux session reuse logic
+   ```
+
+   Canonical state markers (use these consistently):
+
+   | state   | marker    |
+   |---------|-----------|
+   | pending | `⏳ pending` |
+   | pass    | `✓ pass`   |
+   | fail    | `✗ fail`   |
+   | skip    | `⊘ skip`   |
+   | defer   | `⏸ defer`  |
+
+   (Plain ASCII fallbacks are acceptable when the terminal cannot render the
+   unicode glyphs.)
+
+4. **Print a one-line tip immediately after the checklist** advertising the
+   Other-field batch path. This is the discovery surface for the batch path —
+   keep it visible on every loop iteration; do not bury it inside the
+   `AskUserQuestion` text. Example wording:
+
+   ```
+   Tip: in the Other field you can batch-resolve multiple items in one go,
+   e.g. "3 pass, 4 fail, 5 skip not applicable" (verbs: pass / fail / skip / defer).
+   ```
+
+5. **Identify the CURRENT item:** the first item whose state is `pending` or
+   `defer` (lowest index).
+
+6. **Ask** — use `AskUserQuestion` scoped to the current item. The four explicit
+   options are the per-item outcomes; batch updates, conversational messages,
+   and the pause/abort path all flow through "Other".
+   - Question: `"Item <idx>: <text>\n\nPass / Fail / Skip / Defer for this item, or use Other (see tip above)."`
    - Header: "Verify"
    - Options:
      - "Pass" (description: "This check passed")
@@ -61,43 +107,84 @@ The helper emits one `ITEM:<idx>:<state>:<line>:<text>` line per item. For each 
      - "Skip (with reason)" (description: "Not applicable / cannot verify — record a reason")
      - "Defer" (description: "Postpone until later; task will not archive while any item is deferred")
 
-3. Handle the answer:
+7. **Handle the answer.**
 
-   **Pass:**
-   ```bash
-   ./.aitask-scripts/aitask_verification_parse.sh set <task_file> <idx> pass
-   ```
+   **Pass / Fail / Skip / Defer (single-option choice):** apply to the CURRENT
+   item using the per-state command, then loop back to sub-step 1.
 
-   **Fail:**
-   ```bash
-   ./.aitask-scripts/aitask_verification_followup.sh --from <task_id> --item <idx>
-   ```
-   Parse the output:
-   - `FOLLOWUP_CREATED:<new_id>:<path>` — announce "Created follow-up bug task t<new_id>". The helper has already marked the item as `fail`; no extra `set` call needed.
-   - `ORIGIN_AMBIGUOUS:<csv>` (exit 2) — the task has multiple candidate origins (e.g., aggregate tasks with `verifies: [a, b]`). Use `AskUserQuestion` with one option per task id in the csv:
-     - Question: "Which feature task does this failure belong to?"
-     - Header: "Origin"
-     - Options: one per candidate (label = `t<id>`, description = task name if resolvable)
-
-     Then re-invoke:
+   - **Pass:**
      ```bash
-     ./.aitask-scripts/aitask_verification_followup.sh --from <task_id> --item <idx> --origin <chosen>
+     ./.aitask-scripts/aitask_verification_parse.sh set <task_file> <idx> pass
      ```
-   - `ERROR:<msg>` (exit 1) — display the error and re-prompt the same item.
 
-   **Skip (with reason):** Ask for the reason via `AskUserQuestion` (use "Other" for free text), then:
-   ```bash
-   ./.aitask-scripts/aitask_verification_parse.sh set <task_file> <idx> skip --note "<reason>"
-   ```
+   - **Fail:**
+     ```bash
+     ./.aitask-scripts/aitask_verification_followup.sh --from <task_id> --item <idx>
+     ```
+     Parse the output:
+     - `FOLLOWUP_CREATED:<new_id>:<path>` — announce "Created follow-up bug task t<new_id>". The helper has already marked the item as `fail`; no extra `set` call needed.
+     - `ORIGIN_AMBIGUOUS:<csv>` (exit 2) — the task has multiple candidate origins (e.g., aggregate tasks with `verifies: [a, b]`). Use `AskUserQuestion` with one option per task id in the csv:
+       - Question: "Which feature task does this failure belong to?"
+       - Header: "Origin"
+       - Options: one per candidate (label = `t<id>`, description = task name if resolvable)
 
-   **Defer:**
-   ```bash
-   ./.aitask-scripts/aitask_verification_parse.sh set <task_file> <idx> defer
-   ```
+       Then re-invoke:
+       ```bash
+       ./.aitask-scripts/aitask_verification_followup.sh --from <task_id> --item <idx> --origin <chosen>
+       ```
+     - `ERROR:<msg>` (exit 1) — display the error and re-prompt the same item.
 
-   **Other (free-text answer):** the user typed something via "Other". Interpret the intent — do not rely on a fixed keyword list; judge what the user is trying to do:
-   - **If the user is asking to abort, stop, pause, or otherwise halt the verification loop** (examples: "abort", "stop", "pause", "I need to stop now", "quit for today", "pause and come back tomorrow") → execute the **Abort branch** below.
-   - **Otherwise** → treat the typed text as a normal user request and handle it like any in-conversation message (answer a question about the item, perform a requested investigation, apply a correction, etc.). After handling, loop back to sub-step 2 for the **same** item. The index does not advance until a terminal outcome — Pass / Fail / Skip / Defer / Abort — is recorded.
+   - **Skip (with reason):** Ask for the reason via `AskUserQuestion` (use "Other" for free text), then:
+     ```bash
+     ./.aitask-scripts/aitask_verification_parse.sh set <task_file> <idx> skip --note "<reason>"
+     ```
+
+   - **Defer:**
+     ```bash
+     ./.aitask-scripts/aitask_verification_parse.sh set <task_file> <idx> defer
+     ```
+
+   **Other (free-text answer):** the user typed something via "Other". Interpret
+   the intent — do not rely on a fixed keyword list; judge what the user is
+   trying to do, in this priority order:
+
+   - **(i) Pause / abort intent** — phrases like "abort", "stop", "pause", "I
+     need to stop now", "quit for today", "pause and come back tomorrow" →
+     execute the **Abort branch** below.
+
+   - **(ii) Batch update** — the text is one or more entries matching the
+     pattern `<idx> <verb> [args]`, separated by commas, semicolons, or
+     newlines. `<verb>` is `pass | fail | skip | defer` (case-insensitive).
+     `<idx>` must be a valid item index (1-based) currently in state `pending`
+     or `defer`. Also accept a **shorthand single-entry form with no leading
+     index** (e.g., the user types just `pass`, `skip not applicable`) — apply
+     it to the current item.
+
+     For each parsed entry, in order, run the same per-state command as the
+     single-option choices above:
+
+     | verb  | action |
+     |-------|--------|
+     | pass  | `./.aitask-scripts/aitask_verification_parse.sh set <task_file> <idx> pass` |
+     | fail  | `./.aitask-scripts/aitask_verification_followup.sh --from <task_id> --item <idx>` (handle `FOLLOWUP_CREATED` / `ORIGIN_AMBIGUOUS` / `ERROR` exactly as in the single-option Fail branch) |
+     | skip  | `./.aitask-scripts/aitask_verification_parse.sh set <task_file> <idx> skip --note "<rest-of-entry-text>"` (rest-of-entry-text = everything after `skip` until the next delimiter; if empty, prompt once for a reason via `AskUserQuestion`) |
+     | defer | `./.aitask-scripts/aitask_verification_parse.sh set <task_file> <idx> defer` |
+
+     **Validation:** if any entry references an out-of-range index, an index
+     already in a terminal state (`pass` / `fail` / `skip`), or an unknown
+     verb, do NOT silently drop it. Stop processing further entries, list the
+     problem entries to the user, then loop back to sub-step 1 (re-render the
+     checklist and re-ask). Already-applied entries from the same batch stay
+     applied — there is no rollback.
+
+     After all valid entries are applied successfully, loop back to sub-step 1.
+
+   - **(iii) Conversational message** — neither pause nor a batch update.
+     Treat the typed text as a normal user request (answer a question about
+     the item, perform a requested investigation, apply a correction, etc.).
+     After handling, loop back to sub-step 6 to re-ask the **same** current
+     item. The current item does not change until a terminal outcome — Pass /
+     Fail / Skip / Defer / Abort — is recorded for it.
 
    **Abort branch** (same terminal semantics as the former "Stop here, continue later" path):
    - Do NOT call `aitask_verification_parse.sh set` — the current item is left in its existing state (still `pending` or still `defer`).
@@ -105,8 +192,6 @@ The helper emits one `ITEM:<idx>:<state>:<line>:<text>` line per item. For each 
    - Skip step 3 (post-loop checkpoint) and step 4 (commit verification state) entirely — no state has changed, so no commit is warranted.
    - Inform the user: "Task t<task_id> paused at item <idx>. Re-pick with `/aitask-pick <task_id>`."
    - End the workflow. The task stays `Implementing` and the lock remains held (same end state as the "Stop without archiving" branch in step 3 — only the message differs).
-
-4. Move to the next pending/deferred item.
 
 ### 3. Post-loop checkpoint
 
