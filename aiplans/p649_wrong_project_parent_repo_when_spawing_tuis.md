@@ -79,3 +79,18 @@ The existing tests already mock `Popen`, so the additions are pure assertion ext
 ## Step 9 follow-up
 
 Standard archival flow per `.claude/skills/task-workflow/SKILL.md` Step 9 (push, archive, satisfaction feedback). No special considerations.
+
+## Final Implementation Notes
+
+- **Actual work done:** Threaded the SELECTED session's `project_root` through every cross-session tmux spawn in the TUI switcher.
+  - `tui_switcher.py`: added `_project_root_for_session()` (looks up `self._all_sessions`, falls back to `Path.cwd()`) and a `_spawn_in_session()` helper that always passes `-c <project_root>` to `tmux new-window`. Refactored `_switch_to`, `action_shortcut_explore`, `action_shortcut_create`, `_launch_git_with_companion` to use the helper. `_get_launch_command` and `_build_tui_list` now take an optional `project_root` so the dynamic Git entry comes from the SELECTED session's `project_config.yaml`.
+  - `agent_launch_utils.py`: added optional `project_root: Path | None = None` kwarg to `maybe_spawn_minimonitor()`. When set, reads `project_config.yaml` from that root and passes `-c <project_root>` to `tmux split-window`. Default `None` preserves legacy behavior for the 8 other callers (codebrowser, monitor, board, agentcrew_runner, history_screen).
+  - `tests/test_tui_switcher_multi_session.sh`: extended Tier 1 logic tests with 8 new assertions covering `-c /p2` in cross-session new-window argv (`_switch_to` codebrowser path, `action_shortcut_create`, `action_shortcut_explore`), `-c <cwd>` fallback in single-session mode, and `project_root=/p2` threading into `maybe_spawn_minimonitor` for both create and explore. Added a new `SHORTCUT_X_*` block for explore (no prior coverage existed).
+- **Deviations from plan:** None.
+- **Issues encountered:** None — `discover_aitasks_sessions()` already populated `AitasksSession.project_root` from pane-cwd walk-up + `AITASKS_PROJECT_<sess>` registry, so the data was ready to consume.
+- **Key decisions:**
+  - Added `_spawn_in_session()` helper rather than inlining `-c` at each callsite — keeps the four spawn paths consistent and concentrates future tmux flag changes.
+  - Made `project_root` an optional kwarg on `maybe_spawn_minimonitor` (rather than positional) so the existing 8 callers don't change. This preserves the encapsulation contract for non-switcher callers that already operate in the right cwd.
+  - `_build_tui_list(project_root)` now reads the SELECTED session's `git_tui` so the displayed Git entry matches what would launch — covers the corner case of two projects with different `git_tui` configs.
+  - Single-session fallback uses `Path.cwd()` (defensive); behaviorally identical to the pre-fix path because the calling pane's cwd was already the project root in single-session mode.
+- **Verification:** `bash tests/test_tui_switcher_multi_session.sh` → 45/45 pass (37 prior + 8 new). Related multi-session suites also clean: `test_multi_session_minimonitor.sh` 24/24, `test_multi_session_monitor.sh` 27/27, `test_multi_session_primitives.sh` 20/20, `test_git_tui_config.py` 16/16. Manual smoke test (per plan §Verification) deferred to user — requires two real aitasks sessions on different project roots.
