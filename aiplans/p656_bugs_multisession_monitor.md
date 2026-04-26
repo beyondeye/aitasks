@@ -134,3 +134,16 @@ These follow the existing in-process Python test pattern (no real tmux required;
 ## Step 9 (Post-Implementation)
 
 Per the standard task workflow: review changes, commit (code + plan separately via `./ait git`), push, archive via `./.aitask-scripts/aitask_archive.sh 656`. The task has no linked issue, no PR, no folded tasks — straightforward archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, with one cache-correctness adjustment uncovered by Tier 1m. Files changed: `monitor/monitor_shared.py` (cross-project `TaskInfoCache`), `monitor/tmux_monitor.py` (`get_session_to_project_mapping()`), `monitor/monitor_app.py` (`_root_for_snap()` helper + 12 call-site updates incl. `action_open_log` crews_root + Popen cwd), `monitor/minimonitor_app.py` (`update_session_mapping` per tick + 2 call-site updates), and `tests/test_multi_session_monitor.sh` (5 new tiers 1j-1n).
+- **Deviations from plan:** `update_session_mapping` was specified as "idempotent, keep cache entries" — that proved unsafe. When a session was previously cached via fallback to local `project_root`, then later mapped to a real foreign project, the cache returned the stale local entry. Fix: clear `self._cache` whenever the mapping actually changes. This is what Tier 1m caught. Cache cost is negligible (rebuilt on next render tick).
+- **Issues encountered:** Test trap collision — my Tier 1j temp-dir `trap` was at risk of being overridden by Tier 2's later `trap`. Resolved by registering the new Tier 1j cleanup AND adding `PROJ_A`/`PROJ_B` to Tier 2's consolidated cleanup so both code paths reap them.
+- **Key decisions:**
+  - `get_task_info` / `find_next_sibling` / `invalidate` take an optional `session_name=""` so legacy single-session callers keep working.
+  - Cache key changed from `task_id` to `(session_name, task_id)` to avoid collisions between projects that both have e.g. `t100`.
+  - Empty/unknown session_name → fallback to `self._project_root` (preserves single-session behaviour and is the correct safe default for legacy/unknown panes).
+  - `update_session_mapping` is called every refresh tick, but is cheap because it diff-checks before mutating and `TmuxMonitor.get_session_to_project_mapping()` piggybacks on the existing sessions cache TTL.
+  - `action_open_log` was extended to use `_root_for_snap()` for both the crews-root path and the `Popen(cwd=...)` of `ait crew logview`. Without this, log viewing for cross-session agents would either find no log file or open the log viewer in the wrong project.
+  - The next-sibling launch (`AgentCommandScreen(project_root=...)`, `resolve_dry_run_command`, `resolve_agent_string`) uses `_root_for_snap(snap)` so the new pick is dispatched in the same project as the focused pane's session. This is the correct behaviour: siblings of a foreign-session task live in that foreign project.
