@@ -122,3 +122,39 @@ and then Step 9 (post-implementation), which here means:
 - Run `./.aitask-scripts/aitask_archive.sh 668`
 - Run `./ait git push`
 - Step 9b satisfaction feedback
+
+## Final Implementation Notes
+
+- **Actual work done:** Added the planned NON-SKIPPABLE callout block to
+  `.claude/skills/task-workflow/SKILL.md` under `### Step 8: User Review
+  and Approval`, placed before the existing "After implementation is
+  complete…" paragraph. The callout includes both the auto-mode/profile
+  override warning AND the explicit-acceptance-every-iteration rule
+  (added after the user's plan-mode clarification).
+- **Deviations from plan:** During the Step 8 review the user edited the
+  file directly to remove the trailing t645 attribution sentence ("This
+  rule was added after t645…"). The historical reference is now
+  preserved only in this plan's Context section and in the auto-memory
+  `feedback_step8_explicit_acceptance_every_iteration.md`. The plan's
+  Verification bullet stating "the t645 origin example is preserved in
+  the callout text" is therefore stale — the rule itself stands; only
+  the in-callout attribution was trimmed.
+- **Issues encountered:** None — single-file documentation edit.
+- **Key decisions:**
+  - Used the verbatim suggested text from the task body for the
+    callout's first paragraph; extended with a second paragraph
+    encoding the explicit-acceptance-every-iteration rule the user
+    surfaced during plan-mode review.
+  - Skipped the task body's "context variable" suggestion
+    (`step8_review_required: boolean (always true)`) because CLAUDE.md
+    forbids using guard variables to "remind agents to fire a prompt."
+  - Did not mirror the rule in `aitask-pick/SKILL.md` since picks
+    delegate to task-workflow.
+- **Memory written:** `feedback_step8_explicit_acceptance_every_iteration.md`
+  + `MEMORY.md` index entry, capturing the explicit-acceptance rule for
+  future sessions.
+- **Cross-agent parity follow-ups (recommended):** Mirror the callout
+  into `.opencode/skills/task-workflow/SKILL.md`,
+  `.gemini/skills/task-workflow/SKILL.md`, and
+  `.agents/skills/task-workflow/SKILL.md`. Surface these as separate
+  tasks per CLAUDE.md "WORKING ON SKILLS / CUSTOM COMMANDS".
