@@ -91,8 +91,37 @@ check_existing_install() {
     if [[ -f "$INSTALL_DIR/ait" || -d "$INSTALL_DIR/.aitask-scripts" ]]; then
         if $FORCE; then
             warn "Existing installation found. --force specified, overwriting framework files..."
+            return
+        fi
+
+        # Existing install detected and --force was NOT passed.
+        # If running in an interactive terminal, offer to overwrite.
+        # Otherwise (curl|bash and similar non-TTY invocations), die with
+        # a message that spells out all three recovery paths.
+        if [[ -t 0 ]]; then
+            warn "Existing aitasks installation found in $INSTALL_DIR (found ait or .aitask-scripts/)."
+            info "  Recommended for existing installs: 'ait upgrade latest'"
+            printf "  Overwrite framework files anyway? [y/N] "
+            local answer
+            read -r answer
+            case "${answer:-N}" in
+                [Yy]*)
+                    FORCE=true
+                    warn "Proceeding with overwrite (FORCE=true)..."
+                    ;;
+                *)
+                    info "Aborted. To upgrade an existing install, run: ait upgrade latest"
+                    exit 0
+                    ;;
+            esac
         else
-            die "aitasks already installed in $INSTALL_DIR (found ait or .aitask-scripts/). Use --force to overwrite."
+            die "aitasks already installed in $INSTALL_DIR (found ait or .aitask-scripts/).
+  To upgrade an existing install (recommended), run:
+      ait upgrade latest
+  To force a fresh re-install via curl-pipe:
+      curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash -s -- --force
+  To force a fresh re-install from a local file:
+      bash install.sh --force"
         fi
     fi
 }
