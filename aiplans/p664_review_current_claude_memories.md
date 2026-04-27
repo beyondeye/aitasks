@@ -205,3 +205,45 @@ Standard post-implementation flow per `.claude/skills/task-workflow/SKILL.md`
 Step 9: archive t664 via `./.aitask-scripts/aitask_archive.sh 664`, push via
 `./ait git push`. No worktree to clean (profile `fast` set
 `create_worktree: false`).
+
+## Final Implementation Notes
+
+- **Actual work done:** Created 4 standalone aitasks encoding 11 of the 12
+  reviewed memories into framework-update tasks:
+  - **t665** (`claudemd_encode_feedback_rules`, documentation, medium effort)
+    — bundles 8 small CLAUDE.md additions covering memories 1, 3, 4, 5, 8,
+    9, 11, 12. Targets the TUI Conventions, Skill / Workflow Authoring
+    Conventions, Adding a New Helper Script, and (new) CLI Conventions
+    sections.
+  - **t666** (`planning_check_sibling_task_overlap`, feature, low effort)
+    — adds a sibling-task overlap check to `planning.md` §6.1 before
+    child-task creation, with the t650 vs t653 worked example.
+  - **t667** (`task_workflow_step8_upstream_followup_offer`, feature, low
+    effort) — adds an upstream-defect reflection sub-step + conditional
+    AskUserQuestion to task-workflow `SKILL.md` Step 8, with the t660
+    worked example.
+  - **t668** (`task_workflow_step8_review_nonskippable_guard`, feature, low
+    effort) — adds a prominent NON-SKIPPABLE callout at the top of
+    task-workflow `SKILL.md` Step 8, with the t645 origin.
+  Memory 10 (`project_packaging_model_shim_only.md`) was deliberately
+  skipped as historical-decision-only with no future PM packaging work
+  pending.
+- **Deviations from plan:** None. The plan's Implementation Steps 1–6 ran
+  exactly as scoped; Step 7 user-review was approved; Step 8 deletion
+  proceeds next.
+- **Issues encountered:** Pre-existing uncommitted changes to
+  `.aitask-scripts/brainstorm/brainstorm_crew.py` and
+  `tests/test_brainstorm_crew.py` were present in the working tree at
+  task start. They are unrelated to t664 and were left untouched.
+- **Key decisions:**
+  - Bundling 8 CLAUDE.md additions into a single task (t665) rather than
+    8 separate tasks: aligns with CLAUDE.md "Don't add abstractions
+    beyond what the task requires" and keeps each addition reviewable in
+    one PR.
+  - Each of t666/t667/t668 explicitly mentions the cross-agent parity
+    follow-up requirement (`.opencode/`, `.gemini/`, `.agents/`) per
+    CLAUDE.md "WORKING ON SKILLS / CUSTOM COMMANDS" — so future
+    implementers don't have to rediscover the multi-agent rule.
+  - Memory deletion uses `rm` (no git op) because
+    `/home/ddt/.claude/projects/-home-ddt-Work-aitasks/memory/` is
+    outside the project tree.
