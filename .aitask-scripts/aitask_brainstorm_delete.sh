@@ -104,11 +104,20 @@ cleanup_output=$(bash "$SCRIPT_DIR/aitask_crew_cleanup.sh" --crew "$CREW_ID" --d
     # Session files already deleted by Python; crew cleanup may fail if worktree is gone
     case "$cleanup_output" in
         NOT_FOUND:*|NOT_TERMINAL:*)
-            # NOT_FOUND is expected (Python already removed the dir)
-            # NOT_TERMINAL: try removing the branch directly
-            git branch -D "crew-${CREW_ID}" 2>/dev/null || true
-            git push origin --delete "crew-${CREW_ID}" 2>/dev/null || true
+            # Prune first — a stale worktree registration in .git/worktrees/
+            # would otherwise pin "crew-${CREW_ID}" as "checked out elsewhere"
+            # and `git branch -D` would refuse.
             git worktree prune 2>/dev/null || true
+            if git show-ref --verify --quiet "refs/heads/crew-${CREW_ID}"; then
+                if git branch -D "crew-${CREW_ID}" >/dev/null 2>&1; then
+                    info "Cleaned: stale crew-${CREW_ID} branch removed"
+                else
+                    warn "Failed to delete stale branch crew-${CREW_ID}"
+                fi
+            fi
+            # Best-effort remote cleanup — silent on failure (no remote, no
+            # perms, branch never pushed, etc. are all acceptable).
+            git push origin --delete "crew-${CREW_ID}" 2>/dev/null || true
             ;;
         *)
             warn "Crew cleanup note: $cleanup_output"

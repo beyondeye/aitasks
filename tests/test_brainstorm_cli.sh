@@ -98,6 +98,8 @@ setup_test_repo() {
         cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/launch_modes_sh.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/launch_modes.py" .aitask-scripts/lib/
 
         # Copy brainstorm scripts
         cp "$PROJECT_DIR/.aitask-scripts/aitask_brainstorm_init.sh" .aitask-scripts/
@@ -125,6 +127,10 @@ setup_test_repo() {
 
         # Create userconfig
         echo "email: test@test.com" > aitasks/metadata/userconfig.yaml
+
+        # Copy codeagent_config.json — brainstorm crew init looks up an
+        # agent_string per brainstorm role from this file.
+        cp "$PROJECT_DIR/aitasks/metadata/codeagent_config.json" aitasks/metadata/
 
         # Create a dummy task file
         cat > aitasks/t999_test_brainstorm.md <<'TASK'
@@ -294,6 +300,50 @@ TMPDIR_T9="$(setup_test_repo)"
     assert_eq "session gone after delete" "NOT_EXISTS" "$output"
 )
 cleanup_test_repo "$TMPDIR_T9"
+
+# --- Test 9b: brainstorm delete cleans up stale crew branch ---
+echo "Test 9b: brainstorm delete cleans up stale crew branch"
+TMPDIR_T9B="$(setup_test_repo)"
+(
+    cd "$TMPDIR_T9B"
+    # Init creates a real git worktree at .aitask-crews/crew-brainstorm-999
+    # registered in .git/worktrees/. The Python delete_session does
+    # shutil.rmtree on that dir without unregistering — so .git/worktrees/
+    # holds a stale registration and `git branch -D` would refuse on the
+    # buggy path. With the fix, `git worktree prune` runs first and the
+    # branch is cleanly removed.
+    bash .aitask-scripts/aitask_brainstorm_init.sh 999 >/dev/null 2>&1
+
+    # Sanity: the crew branch and worktree registration exist before delete.
+    if git show-ref --verify --quiet "refs/heads/crew-brainstorm-999"; then
+        _inc_pass
+    else
+        _inc_fail
+        echo "FAIL: init did not create crew-brainstorm-999 branch"
+    fi
+
+    output=$(bash .aitask-scripts/aitask_brainstorm_delete.sh 999 --yes 2>&1)
+    assert_contains "delete outputs DELETED" "DELETED:999" "$output"
+    assert_contains "delete reports branch cleanup" "Cleaned: stale crew-brainstorm-999 branch removed" "$output"
+
+    # Branch should be gone after delete (regression guard for t662).
+    if git show-ref --verify --quiet "refs/heads/crew-brainstorm-999"; then
+        _inc_fail
+        echo "FAIL: crew-brainstorm-999 branch still present after delete (t662 regression)"
+    else
+        _inc_pass
+    fi
+
+    # `git worktree list` should not reference the stale path.
+    wt_list=$(git worktree list 2>&1)
+    if echo "$wt_list" | grep -q "crew-brainstorm-999"; then
+        _inc_fail
+        echo "FAIL: stale worktree registration still in 'git worktree list' (t662 regression)"
+    else
+        _inc_pass
+    fi
+)
+cleanup_test_repo "$TMPDIR_T9B"
 
 # --- Test 10: brainstorm delete rejects non-existent session ---
 echo "Test 10: brainstorm delete rejects non-existent session"
