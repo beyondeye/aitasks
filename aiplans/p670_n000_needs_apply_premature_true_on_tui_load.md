@@ -226,3 +226,35 @@ remains correct independent of the redesign.
 After Step 8 review/commit, Step 9 archives the task and pushes via
 `./ait git push`. No worktree was created (profile `fast`:
 `create_worktree: false`), so worktree cleanup steps are skipped.
+
+## Final Implementation Notes
+
+- **Actual work done:** Replaced `n000_needs_apply` body in
+  `.aitask-scripts/brainstorm/brainstorm_session.py` with the
+  four-delimiter check exactly as planned. Added a module-level
+  `_INITIALIZER_DELIMITERS` tuple alongside `_PROBLEM_VALUE_RE`. Added
+  new test file `tests/test_brainstorm_session.py` with 7 unit tests
+  using `tempfile.TemporaryDirectory` + `unittest.mock.patch` against
+  `brainstorm.brainstorm_session.crew_worktree`.
+- **Deviations from plan:** None on the source change. Test file
+  matches the plan's seven cases exactly; the `_seed` helper accepts
+  `desc=None` / `output=None` to skip seeding the respective file
+  (used by the missing-file cases).
+- **Issues encountered:** None. All 7 new tests passed on first run.
+  `tests/test_brainstorm_init_failure_modal.py` (10 tests) still
+  passes, confirming no regression in the sibling test surface.
+- **Key decisions:** Chose the four-delimiter check over a
+  status-Completed gate after tracing the code path back to t653_1
+  (`aiplans/archived/p653/p653_1_brainstorm_tui_self_heal_apply.md`),
+  which deliberately distrusts `_status.yaml` because the agent-crew
+  runner can flip a still-running agent to `Error` on missed
+  heartbeats. A status-based gate would regress that self-heal path.
+  Spun off **t671** (`refactor`, medium/high, labels:
+  `ait_brainstorm,agentcrew`) capturing the deeper redesign: separate
+  heartbeat freshness from agent terminal status.
+- **Build verification:** Not applicable —
+  `aitasks/metadata/project_config.yaml` has `test_command: null` /
+  `lint_command: null` and no `verify_build` field. Manual
+  verification (the live brainstorm-init smoke test in the task
+  description) is not run as part of this commit; t671's QA scope
+  may pick that up.
