@@ -1,0 +1,31 @@
+id: brainstorm-635
+name: Brainstorm t635
+created_at: 2026-04-27 19:41:31
+created_by: dario-e@beyond-eye.com
+agents: []
+agent_types:
+  explorer:
+    agent_string: claudecode/opus4_7_1m
+    max_parallel: 0
+    launch_mode: interactive
+  comparator:
+    agent_string: claudecode/sonnet4_6
+    max_parallel: 0
+    launch_mode: interactive
+  synthesizer:
+    agent_string: claudecode/opus4_7_1m
+    max_parallel: 0
+    launch_mode: interactive
+  detailer:
+    agent_string: claudecode/opus4_7_1m
+    max_parallel: 0
+    launch_mode: interactive
+  patcher:
+    agent_string: claudecode/sonnet4_6
+    max_parallel: 0
+    launch_mode: interactive
+  initializer:
+    agent_string: claudecode/sonnet4_6
+    max_parallel: 0
+    launch_mode: interactive
+
