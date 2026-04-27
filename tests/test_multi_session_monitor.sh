@@ -604,8 +604,20 @@ def fake_popen(cmd, *args, **kwargs):
     proc.stderr = None
     return proc
 
-# new_window + cwd
-with patch.object(alu.subprocess, "Popen", side_effect=fake_popen):
+class _FakeRun:
+    def __init__(self, cmd):
+        self.args = cmd
+        self.returncode = 0
+        self.stdout = "0\n"  # benign pid placeholder
+        self.stderr = ""
+
+def fake_run(cmd, *args, **kwargs):
+    captured.append(cmd)
+    return _FakeRun(cmd)
+
+# new_window + cwd (post-t675 uses subprocess.run for new-window)
+with patch.object(alu.subprocess, "Popen", side_effect=fake_popen), \
+     patch.object(alu.subprocess, "run", side_effect=fake_run):
     cfg = alu.TmuxLaunchConfig(
         session="s", window="w", new_session=False, new_window=True,
         cwd="/tmp/projB",
@@ -614,9 +626,10 @@ with patch.object(alu.subprocess, "Popen", side_effect=fake_popen):
 nw = next((c for c in captured if c[1] == "new-window"), None)
 print("NW_HAS_C:" + str(nw is not None and "-c" in nw and "/tmp/projB" in nw))
 
-# split-window + cwd
+# split-window + cwd (post-t675 uses subprocess.run for split-window)
 captured.clear()
-with patch.object(alu.subprocess, "Popen", side_effect=fake_popen):
+with patch.object(alu.subprocess, "Popen", side_effect=fake_popen), \
+     patch.object(alu.subprocess, "run", side_effect=fake_run):
     cfg = alu.TmuxLaunchConfig(
         session="s", window="w", new_session=False, new_window=False,
         cwd="/tmp/projC",
@@ -627,7 +640,8 @@ print("SW_HAS_C:" + str(sw is not None and "-c" in sw and "/tmp/projC" in sw))
 
 # cwd=None → no -c
 captured.clear()
-with patch.object(alu.subprocess, "Popen", side_effect=fake_popen):
+with patch.object(alu.subprocess, "Popen", side_effect=fake_popen), \
+     patch.object(alu.subprocess, "run", side_effect=fake_run):
     cfg = alu.TmuxLaunchConfig(
         session="s", window="w", new_session=False, new_window=True,
     )

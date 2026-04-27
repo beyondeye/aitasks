@@ -400,7 +400,7 @@ class LaunchContext:
     batch: bool
 
 
-def _launch_headless(ctx: LaunchContext) -> subprocess.Popen:
+def _launch_headless(ctx: LaunchContext) -> int | None:
     log_fh = open(ctx.log_path, "a")
     cmd = [ctx.ait_cmd, "codeagent", "--agent-string", ctx.agent_string,
            "invoke", "raw", "-p", ctx.short_prompt]
@@ -414,16 +414,16 @@ def _launch_headless(ctx: LaunchContext) -> subprocess.Popen:
     proc = subprocess.Popen(cmd, cwd=_repo_root or ".",
                             stdout=log_fh, stderr=log_fh)
     _log_handles[ctx.name] = log_fh
-    return proc
+    return proc.pid
 
 
-def _launch_interactive(ctx: LaunchContext) -> subprocess.Popen:
+def _launch_interactive(ctx: LaunchContext) -> int | None:
     cmd = [ctx.ait_cmd, "codeagent", "--agent-string", ctx.agent_string,
            "invoke", "raw", ctx.short_prompt]
     cmd_str = " ".join(shlex.quote(c) for c in cmd)
 
     launched = False
-    proc: subprocess.Popen | None = None
+    pane_pid: int | None = None
 
     if is_tmux_available():
         tmux_defaults = load_tmux_defaults(Path(_repo_root or "."))
@@ -434,7 +434,7 @@ def _launch_interactive(ctx: LaunchContext) -> subprocess.Popen:
             session=session, window=window_name,
             new_session=new_session, new_window=True,
         )
-        proc, err = launch_in_tmux(cmd_str, config)
+        pane_pid, err = launch_in_tmux(cmd_str, config)
         if err is None:
             launched = True
             windows = get_tmux_windows(session)
@@ -462,35 +462,39 @@ def _launch_interactive(ctx: LaunchContext) -> subprocess.Popen:
         if term is not None:
             log(f"WARN: falling back to standalone terminal ({term}) "
                 f"for {ctx.name} — no monitor integration", ctx.batch)
+            # NOTE: this captures the terminal emulator's pid, not the
+            # agent's. Same class of bug as the historical tmux issue;
+            # tracked as an out-of-scope follow-up to t675.
             proc = subprocess.Popen(
                 [term, "-e", "sh", "-c", cmd_str],
                 cwd=_repo_root or ".",
             )
             launched = True
+            pane_pid = proc.pid
 
-    if not launched or proc is None:
+    if not launched:
         raise LaunchError(
             "Interactive launch requires tmux or a terminal emulator"
         )
 
-    return proc
+    return pane_pid
 
 
-def _launch_openshell_headless(ctx: LaunchContext) -> subprocess.Popen:
+def _launch_openshell_headless(ctx: LaunchContext) -> int | None:
     raise LaunchError(
         "openshell_headless launch mode is not yet implemented — "
         "tracked in follow-up task"
     )
 
 
-def _launch_openshell_interactive(ctx: LaunchContext) -> subprocess.Popen:
+def _launch_openshell_interactive(ctx: LaunchContext) -> int | None:
     raise LaunchError(
         "openshell_interactive launch mode is not yet implemented — "
         "tracked in follow-up task"
     )
 
 
-LAUNCHERS: dict[str, Callable[[LaunchContext], subprocess.Popen]] = {
+LAUNCHERS: dict[str, Callable[[LaunchContext], int | None]] = {
     "headless": _launch_headless,
     "interactive": _launch_interactive,
     "openshell_headless": _launch_openshell_headless,
@@ -606,7 +610,7 @@ def launch_agent(worktree: str, name: str, agents: dict[str, dict],
         return
 
     try:
-        proc = launcher(ctx)
+        pid = launcher(ctx)
     except LaunchError as e:
         log(f"ERROR: {e} (agent {name})", batch)
         update_yaml_field(status_file, "status", "Error")
@@ -622,11 +626,15 @@ def launch_agent(worktree: str, name: str, agents: dict[str, dict],
         agents[name]["status"] = "Error"
         return
 
-    update_yaml_field(status_file, "pid", proc.pid)
-    agents[name]["pid"] = proc.pid
+    if pid is None:
+        log(f"WARN: Could not capture pid for agent '{name}' — writing 0 "
+            f"(process tracking will be degraded)", batch)
+        pid = 0
+    update_yaml_field(status_file, "pid", pid)
+    agents[name]["pid"] = pid
     update_yaml_field(alive_path, "last_heartbeat", now_utc())
     if batch:
-        print(f"LAUNCHED:{name}:{proc.pid}")
+        print(f"LAUNCHED:{name}:{pid}")
 
 
 def recompute_crew_status(worktree: str, agents: dict[str, dict]) -> None:

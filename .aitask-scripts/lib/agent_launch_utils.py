@@ -363,14 +363,47 @@ def switch_to_pane_anywhere(pane_id: str) -> bool:
     return True
 
 
-def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[subprocess.Popen, str | None]:
+def _parse_pane_pid(stdout: str) -> int | None:
+    """Parse the first line of tmux ``-P -F`` output as an int pid, or None."""
+    stripped = stdout.strip()
+    if not stripped:
+        return None
+    line = stripped.splitlines()[0]
+    try:
+        return int(line)
+    except ValueError:
+        return None
+
+
+def _query_first_pane_pid(session: str, window: str) -> int | None:
+    """Query the first pane's pid in a freshly created session/window."""
+    try:
+        result = subprocess.run(
+            ["tmux", "list-panes", "-t", tmux_window_target(session, window),
+             "-F", "#{pane_pid}"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    return _parse_pane_pid(result.stdout)
+
+
+def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[int | None, str | None]:
     """Launch a command in tmux according to the given config.
 
-    Returns (Popen object, error message or None on success).
+    Returns ``(pane_pid, error)``. ``pane_pid`` is the PID of the process
+    tmux fork-exec'd inside the spawned pane (i.e. the agent process), or
+    ``None`` if the launch succeeded but the pid could not be captured.
+    ``error`` is ``None`` on success, otherwise a human-readable message
+    describing the tmux failure.
     """
     cwd_args = ["-c", config.cwd] if config.cwd else []
     if config.new_session:
-        # Create new session with a window, then switch to it
+        # Create new session with a window, then switch to it.
+        # ``new-session -d`` does not support ``-P``, so query pane_pid
+        # from list-panes after creation.
         tmux_cmd = [
             "tmux", "new-session", "-d",
             "-s", config.session, "-n", config.window,
@@ -381,43 +414,54 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[subprocess.P
         proc.wait()
         if proc.returncode != 0:
             stderr = proc.stderr.read().decode() if proc.stderr else ""
-            return proc, f"tmux new-session failed: {stderr}"
+            return None, f"tmux new-session failed: {stderr}"
+        pane_pid = _query_first_pane_pid(config.session, config.window)
         # Try to switch client (works if we're inside tmux)
         if os.environ.get("TMUX"):
             subprocess.Popen(
                 ["tmux", "switch-client", "-t", tmux_session_target(config.session)]
             )
-        return proc, None
+        return pane_pid, None
     elif config.new_window:
         tmux_cmd = [
-            "tmux", "new-window", "-t", tmux_window_target(config.session, ""),
+            "tmux", "new-window",
+            "-P", "-F", "#{pane_pid}",
+            "-t", tmux_window_target(config.session, ""),
             "-n", config.window,
             *cwd_args,
             command,
         ]
-        proc = subprocess.Popen(tmux_cmd, stderr=subprocess.PIPE)
-        proc.wait()
-        if proc.returncode != 0:
-            stderr = proc.stderr.read().decode() if proc.stderr else ""
-            return proc, f"tmux new-window failed: {stderr}"
-        return proc, None
+        try:
+            result = subprocess.run(
+                tmux_cmd, capture_output=True, text=True, timeout=5,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+            return None, f"tmux new-window failed: {e}"
+        if result.returncode != 0:
+            return None, f"tmux new-window failed: {result.stderr.strip()}"
+        return _parse_pane_pid(result.stdout), None
     else:
         # Split existing window into a new pane
         split_flag = "-h" if config.split_direction == "horizontal" else "-v"
         target = tmux_window_target(config.session, config.window)
         tmux_cmd = [
-            "tmux", "split-window", split_flag, "-t", target,
+            "tmux", "split-window",
+            "-P", "-F", "#{pane_pid}",
+            split_flag, "-t", target,
             *cwd_args,
             command,
         ]
-        proc = subprocess.Popen(tmux_cmd, stderr=subprocess.PIPE)
-        proc.wait()
-        if proc.returncode != 0:
-            stderr = proc.stderr.read().decode() if proc.stderr else ""
-            return proc, f"tmux split-window failed: {stderr}"
+        try:
+            result = subprocess.run(
+                tmux_cmd, capture_output=True, text=True, timeout=5,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+            return None, f"tmux split-window failed: {e}"
+        if result.returncode != 0:
+            return None, f"tmux split-window failed: {result.stderr.strip()}"
         # Switch to the target window so the user sees the new pane
         subprocess.Popen(["tmux", "select-window", "-t", target])
-        return proc, None
+        return _parse_pane_pid(result.stdout), None
 
 
 def _lookup_window_name(session: str, window_index: str) -> str | None:
