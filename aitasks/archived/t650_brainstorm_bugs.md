@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Done
+archived_reason: superseded
 labels: [agentcrew, whitelists, ait_brainstorm]
-children_to_implement: [t650_3]
 created_at: 2026-04-26 12:55
-updated_at: 2026-04-26 17:06
+updated_at: 2026-04-27 17:21
+completed_at: 2026-04-27 17:21
 boardidx: 200
 ---
 
