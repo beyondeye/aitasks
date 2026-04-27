@@ -2265,6 +2265,17 @@ class BrainstormApp(TuiSwitcherMixin, App):
         atype = data.get("agent_type", "")
         type_label = f" ({atype})" if atype else ""
 
+        try:
+            progress = int(data.get("progress", 0) or 0)
+        except (TypeError, ValueError):
+            progress = 0
+        progress = max(0, min(100, progress))
+        progress_str = ""
+        if progress > 0:
+            filled = int(10 * progress / 100)
+            bar = "\u2588" * filled + "\u2591" * (10 - filled)
+            progress_str = f"  {bar} {progress}%"
+
         # Heartbeat info
         alive_path = os.path.join(wt_path, f"{name}_alive.yaml")
         hb_str = ""
@@ -2287,7 +2298,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
 
         line = (
             f"  [{color}]\u25cf[/{color}] {name}{type_label}  "
-            f"[{color}]{status}[/{color}]{hb_str}{msg_str}"
+            f"[{color}]{status}[/{color}]{progress_str}{hb_str}{msg_str}"
         )
         crew_id = self.session_data.get("crew_id", "")
         container.mount(AgentStatusRow(name, status, line, crew_id))
