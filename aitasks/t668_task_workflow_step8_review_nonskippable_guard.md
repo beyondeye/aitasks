@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_workflow, aitask_pick, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-27 11:42
-updated_at: 2026-04-27 11:42
+updated_at: 2026-04-27 12:00
 ---
 
 Add explicit, prominent language to task-workflow Step 8 stating that the
