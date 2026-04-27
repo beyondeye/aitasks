@@ -120,7 +120,8 @@
       "Bash(./ait create:*)",
       "WebFetch(domain:docs.anthropic.com)",
       "Bash(./ait ls *)",
-      "Bash(./ait crew:*)"
+      "Bash(./ait crew:*)",
+      "Bash(ait crew:*)"
     ]
   }
 }
