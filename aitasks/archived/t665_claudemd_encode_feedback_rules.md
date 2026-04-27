@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [claudeskills, documentation, task_workflow]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-27 11:40
-updated_at: 2026-04-27 12:19
+updated_at: 2026-04-27 12:39
+completed_at: 2026-04-27 12:39
 ---
 
 Encode 8 user-feedback rules and design invariants from auto-memory into
