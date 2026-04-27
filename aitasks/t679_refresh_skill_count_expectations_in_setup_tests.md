@@ -6,8 +6,9 @@ issue_type: test
 status: Implementing
 labels: [testing]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-27 17:25
-updated_at: 2026-04-27 22:32
+updated_at: 2026-04-28 00:03
 ---
 
 The macOS audit (t658) baseline run revealed two tests failing because their hardcoded skill counts have drifted from the actual catalog as new skills were added.
