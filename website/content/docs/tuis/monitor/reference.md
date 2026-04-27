@@ -41,7 +41,6 @@ depth: [advanced]
 | `r` | Refresh the pane list and preview immediately | Global |
 | `F5` | Refresh the pane list and preview immediately (alias for `r`, hidden in footer) | Global |
 | `z` | Cycle the preview size through S / M / L presets | Global |
-| `b` | Toggle the preview scrollbar visibility | Global |
 | `t` | Scroll the preview to its tail (newest output) | Global |
 | `a` | Toggle auto-switch mode (automatically focus idle agents needing attention) | Global |
 | `M` | Toggle the multi-session view ON/OFF (see [Multi-session view](#multi-session-view)) | Global |

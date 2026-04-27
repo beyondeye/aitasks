@@ -446,7 +446,6 @@ class MonitorApp(TuiSwitcherMixin, App):
         Binding("r", "refresh", "Refresh"),
         Binding("f5", "refresh", "Refresh", show=False),
         Binding("z", "cycle_preview_size", "Zoom"),
-        Binding("b", "toggle_scrollbar", "Scrollbar"),
         Binding("t", "scroll_preview_tail", "Tail"),
         Binding("k", "kill_pane", "Kill"),
         Binding("n", "pick_next_sibling", "Next Sibling"),
@@ -498,7 +497,6 @@ class MonitorApp(TuiSwitcherMixin, App):
         self._preview_timer: Timer | None = None
         self._delayed_refresh_timer: Timer | None = None
         self._preview_size_idx: int = PREVIEW_DEFAULT_SIZE
-        self._show_scrollbar: bool = True
         self._task_cache = TaskInfoCache(project_root)
         self._auto_switch: bool = False
 
@@ -1352,18 +1350,6 @@ class MonitorApp(TuiSwitcherMixin, App):
             # Pull fresh content so tail-follow resumes on the latest output.
             self.call_later(self._fast_preview_refresh)
         self.notify("Tail follow")
-
-    def action_toggle_scrollbar(self) -> None:
-        """Toggle the vertical scrollbar on the preview panel."""
-        self._show_scrollbar = not self._show_scrollbar
-        try:
-            scroll = self.query_one("#preview-scroll", ScrollableContainer)
-        except Exception:
-            return
-        scroll.styles.scrollbar_size_vertical = 1 if self._show_scrollbar else 0
-        self.notify(
-            f"Scrollbar: {'shown' if self._show_scrollbar else 'hidden'}"
-        )
 
     def on_resize(self, event) -> None:
         """Recompute dynamic sizing specs (agents:N) when the terminal is resized."""
