@@ -99,3 +99,17 @@ Five manual scenarios (all run from a scratch directory; no automated test added
 Where `<tarball>` is `~/Work/aitasks/aitasks-*.tar.gz` from a `make tar` build, or simply skip `--local-tarball` and let the script hit GitHub for the latest release if network is available.
 
 (Reference: see Step 9 — Post-Implementation — for archive/merge handling. No worktree to remove.)
+
+## Final Implementation Notes
+
+- **Actual work done:** Restructured `check_existing_install()` in `install.sh` (lines 89-128). Original 9-line function became a 39-line function: early-return on `$FORCE` keeps the success path flat; new branch on `[[ -t 0 ]]` shows an interactive overwrite prompt for TTY runs (sets `FORCE=true` on `y`, exits 0 on anything else); new non-TTY `die()` message embeds `$REPO` and spells out the three recovery paths (`ait upgrade latest`, `bash -s -- --force`, `bash install.sh --force`) on separate indented lines.
+- **Deviations from plan:** None. The implementation matches the planned diff verbatim.
+- **Issues encountered:**
+  - `printf 'n\n' | bash install.sh` in the first verification pass took the **non-TTY** branch (because the pipe makes stdin non-TTY), so it didn't actually exercise the new interactive prompt path — it just re-tested the new non-TTY `die()` message. Rerunning with `script -qc "..." /dev/null <<<$'n\n'` produced a real PTY for stdin, which correctly routed into the TTY branch. Both branches verified independently.
+  - Verification scenario 2 (TTY + "y") flowed past `check_existing_install` into normal install (downloaded tarball etc.); the eventual non-zero exit was unrelated to the change (scratch dir wasn't a git repo).
+- **Key decisions:**
+  - Exit 0 (not 1) on user-cancel from the TTY prompt, mirroring the existing `confirm_install()` cancels at `install.sh:120, 137` for consistency. Cancelling is a user choice, not an error.
+  - Did **not** touch website docs in this task. The improved error message names all three recovery paths inline, which is more discoverable than scattered doc cross-references; if friction persists, a follow-up task can add a callout to `getting-started.md`.
+  - Used `$REPO` interpolation in the curl-pipe example inside the multi-line `die()` so the URL stays in sync if the repo is ever forked/renamed (mirrors the existing `usage()` at `install.sh:34`).
+- **Upstream defects identified:** None.
+
