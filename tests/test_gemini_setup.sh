@@ -34,6 +34,10 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TEST_DIR="$(mktemp -d)"
 trap 'rm -rf "$TEST_DIR"' EXIT
 
+# Derive expected activate_skill count from the seed policy file (source of
+# truth) so the tests stay self-maintaining as the policy is extended.
+expected_activate_skill_count=$(grep -c '^toolName = "activate_skill"$' "$REPO_DIR/seed/geminicli_policies/aitasks-whitelist.toml" | tr -d ' ')
+
 echo "=== Test 1: Gemini CLI packaging (release workflow sim) ==="
 mkdir -p "$TEST_DIR/gemini_skills"
 mkdir -p "$TEST_DIR/gemini_commands"
@@ -266,7 +270,7 @@ assert_contains "Global merge adds aitask rules" "./.aitask-scripts/aitask_pick_
 assert_contains "Global policy includes stderr redirection" "2>/dev/null" "$merged_global_content"
 assert_not_contains "Global policy avoids unsupported inline regex flags" "(?i)aitask-review" "$merged_global_content"
 global_activate_skill_count=$(printf '%s' "$merged_global_content" | grep -c '^toolName = "activate_skill"$' | tr -d ' ')
-assert_eq "Global policy has explicit aitask skill entries" "19" "$global_activate_skill_count"
+assert_eq "Global policy has explicit aitask skill entries" "$expected_activate_skill_count" "$global_activate_skill_count"
 assert_contains "Global policy includes aitask-pick skill" "argsPattern = \"aitask-pick\"" "$merged_global_content"
 assert_contains "Global policy includes aitask-review skill" "argsPattern = \"aitask-review\"" "$merged_global_content"
 assert_not_contains "Global policy avoids broad aitask skill regex" "[Aa][Ii][Tt][Aa][Ss][Kk]-[A-Za-z0-9_-]+" "$merged_global_content"
@@ -312,7 +316,7 @@ assert_contains "Seed policy includes stderr redirection" "2>/dev/null" "$(cat "
 assert_not_contains "Seed policy avoids unsupported inline regex flags" "(?i)aitask-review" "$(cat "$REPO_DIR/seed/geminicli_policies/aitasks-whitelist.toml")"
 seed_policy_content="$(cat "$REPO_DIR/seed/geminicli_policies/aitasks-whitelist.toml")"
 seed_activate_skill_count=$(printf '%s' "$seed_policy_content" | grep -c '^toolName = "activate_skill"$' | tr -d ' ')
-assert_eq "Seed policy has explicit aitask skill entries" "19" "$seed_activate_skill_count"
+assert_eq "Seed policy has explicit aitask skill entries" "$expected_activate_skill_count" "$seed_activate_skill_count"
 assert_contains "Seed policy includes aitask-pick skill" "argsPattern = \"aitask-pick\"" "$seed_policy_content"
 assert_contains "Seed policy includes aitask-review skill" "argsPattern = \"aitask-review\"" "$seed_policy_content"
 assert_not_contains "Seed policy avoids broad aitask skill regex" "[Aa][Ii][Tt][Aa][Ss][Kk]-[A-Za-z0-9_-]+" "$seed_policy_content"
