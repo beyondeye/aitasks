@@ -137,3 +137,14 @@ Notes:
 Standard post-implementation flow per `task-workflow/SKILL.md` — no separate worktree (profile `fast` set `create_worktree: false`), so:
 - Step 8: user review → commit code (`bug: …(t662)`) and plan file separately.
 - Step 9: archive task via `aitask_archive.sh 662`, push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned. Reordered the `NOT_FOUND:*|NOT_TERMINAL:*` arm of the cleanup fallback in `.aitask-scripts/aitask_brainstorm_delete.sh` so `git worktree prune` runs before `git branch -D`. Added an explicit `git show-ref --verify` gate so the new `info "Cleaned: stale crew-… branch removed"` message only emits when there actually was a stale branch. Failure of `git branch -D` after a successful prune now triggers a `warn` instead of being silently swallowed. Remote `git push origin --delete` remains best-effort/silent.
+- **Deviations from plan:** Two small additions to `tests/test_brainstorm_cli.sh::setup_test_repo` beyond what the plan called out — copies of `lib/launch_modes_sh.sh`, `lib/launch_modes.py`, and `aitasks/metadata/codeagent_config.json` into the scratch test repo. These were missing since t461_8 (Centralize launch_mode vocabulary) and `t441` ish, and without them `aitask_brainstorm_init.sh` fails inside the test fixture, which would block both Test 9b and the existing init-dependent Tests 1–9. Justified as a minimal infra fix needed to verify the t662 fix; flagged here so the scope is visible. The fix unbroke six other init-dependent tests as a side benefit.
+- **Issues encountered:** While debugging, traced a non-obvious interaction: `set -e` inside the `(...)` subshell wrappers in the test makes `output=$(failing_cmd)` exit the subshell, which then exits the whole test script (so a single missing fixture file silently aborted the entire suite at "Test 1: brainstorm init basic"). This is why the test suite appeared to "hang" before infra was fixed. Worth keeping in mind for future test debugging.
+- **Key decisions:**
+  - Used `git show-ref --verify --quiet refs/heads/<branch>` to gate the deletion + info message rather than always emitting the message. This keeps the happy path (no stale branch) silent and avoids misleading "Cleaned: …" notices when nothing was actually cleaned.
+  - Did NOT change `.aitask-scripts/aitask_crew_cleanup.sh` even though it has a similar prune-after-branch-D ordering, because in that script `git worktree remove --force` runs first (when the worktree dir still exists) and clears the registration up front; the bug only surfaces when the dir was already removed externally, which is the path delete.sh handles via the case fallback.
+  - Test 1's pre-existing `expected 'init', got 'active'` failure is unrelated (the brainstorm session status default seems to have evolved). Out of scope for t662 — not touched.
+- **Build verification:** N/A — no `verify_build` is configured in `aitasks/metadata/project_config.yaml`.
