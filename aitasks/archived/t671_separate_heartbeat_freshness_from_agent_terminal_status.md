@@ -3,11 +3,13 @@ priority: medium
 effort: high
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [ait_brainstorm, agentcrew]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-27 12:59
-updated_at: 2026-04-27 13:02
+updated_at: 2026-04-27 14:05
+completed_at: 2026-04-27 14:05
 ---
 
 The agent-crew runner currently flips a still-running agent's
@@ -33,7 +35,7 @@ Keep `status` reflecting the agent's own self-reported lifecycle:
 freshness as a separate field, e.g.:
 
 ```yaml
-status: Running                 # agent's own state
+status: Done
 last_heartbeat_at: 2026-04-27 15:42
 heartbeat_stale: false          # derived; or compute on read
 ```
