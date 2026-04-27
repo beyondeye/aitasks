@@ -42,11 +42,11 @@ from .brainstorm_schemas import extract_dimensions  # noqa: E402
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 BRAINSTORM_AGENT_TYPES = {
-    "explorer": {"max_parallel": 2, "launch_mode": "headless"},
-    "comparator": {"max_parallel": 1, "launch_mode": "headless"},
-    "synthesizer": {"max_parallel": 1, "launch_mode": "headless"},
+    "explorer": {"max_parallel": 2, "launch_mode": "interactive"},
+    "comparator": {"max_parallel": 1, "launch_mode": "interactive"},
+    "synthesizer": {"max_parallel": 1, "launch_mode": "interactive"},
     "detailer": {"max_parallel": 1, "launch_mode": "interactive"},
-    "patcher": {"max_parallel": 1, "launch_mode": "headless"},
+    "patcher": {"max_parallel": 1, "launch_mode": "interactive"},
     "initializer": {"max_parallel": 1, "launch_mode": "interactive"},
 }
 

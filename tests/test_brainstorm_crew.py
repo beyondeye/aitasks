@@ -433,7 +433,7 @@ class TestGetAgentTypes(unittest.TestCase):
         self._write_full_config({"brainstorm-detailer-launch-mode": "headless"})
         result = get_agent_types(config_root=Path(self.tmpdir))
         self.assertEqual(result["detailer"]["launch_mode"], "headless")
-        self.assertEqual(result["explorer"]["launch_mode"], "headless")
+        self.assertEqual(result["explorer"]["launch_mode"], "interactive")
 
     def test_launch_mode_local_overrides_project(self):
         """Local launch_mode overrides project layer."""
@@ -451,7 +451,7 @@ class TestGetAgentTypes(unittest.TestCase):
         stderr_buf = io.StringIO()
         with contextlib.redirect_stderr(stderr_buf):
             result = get_agent_types(config_root=Path(self.tmpdir))
-        self.assertEqual(result["explorer"]["launch_mode"], "headless")
+        self.assertEqual(result["explorer"]["launch_mode"], "interactive")
         stderr_text = stderr_buf.getvalue()
         self.assertIn("brainstorm-explorer-launch-mode", stderr_text)
         self.assertIn("bogus", stderr_text)
@@ -461,10 +461,11 @@ class TestGetAgentTypes(unittest.TestCase):
         self._write_full_config()
         result = get_agent_types(config_root=Path(self.tmpdir))
         self.assertEqual(result["detailer"]["launch_mode"], "interactive")
-        self.assertEqual(result["explorer"]["launch_mode"], "headless")
-        self.assertEqual(result["comparator"]["launch_mode"], "headless")
-        self.assertEqual(result["synthesizer"]["launch_mode"], "headless")
-        self.assertEqual(result["patcher"]["launch_mode"], "headless")
+        self.assertEqual(result["explorer"]["launch_mode"], "interactive")
+        self.assertEqual(result["comparator"]["launch_mode"], "interactive")
+        self.assertEqual(result["synthesizer"]["launch_mode"], "interactive")
+        self.assertEqual(result["patcher"]["launch_mode"], "interactive")
+        self.assertEqual(result["initializer"]["launch_mode"], "interactive")
 
     def test_launch_mode_does_not_clobber_agent_string(self):
         """Setting launch_mode in config doesn't affect agent_string."""
