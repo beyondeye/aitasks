@@ -471,6 +471,64 @@ assert_file_contains "Existing verify_build preserved" \
 
 rm -rf "$TMPDIR_10"
 
+# --- Test 11: setup_id_counter respects existing tasks on aitask-data (t686) ---
+echo "--- Test 11: counter init with pre-existing tasks on aitask-data ---"
+
+TMPDIR_11="$(setup_repo_with_remote)"
+
+# PC1: set up data branch and seed it with tasks t1, t2, t10
+SCRIPT_DIR="$TMPDIR_11/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR" "$TMPDIR_11/local/seed"
+cp "$PROJECT_DIR/seed/project_config.yaml" "$TMPDIR_11/local/seed/" 2>/dev/null || true
+
+(cd "$TMPDIR_11/local" && setup_data_branch </dev/null >/dev/null 2>&1)
+(
+    cd "$TMPDIR_11/local/.aitask-data"
+    mkdir -p aitasks
+    : > aitasks/t1_alpha.md
+    : > aitasks/t2_beta.md
+    : > aitasks/t10_gamma.md
+    git add aitasks/
+    git commit -m "ait: seed tasks" --quiet
+    git push --quiet 2>/dev/null
+)
+
+# PC2: fresh clone — no aitask-ids branch on remote yet, but aitask-data has t1/t2/t10
+git clone --quiet "$TMPDIR_11/remote.git" "$TMPDIR_11/pc2" 2>/dev/null
+(cd "$TMPDIR_11/pc2" && git config user.email "test@test.com" && git config user.name "Test")
+SCRIPT_DIR="$TMPDIR_11/pc2/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+# aitask_claim_id.sh and lib/ resolve via the script's own SCRIPT_DIR — copy
+# them into the test repo so they are reachable when setup_id_counter shells out.
+cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" "$SCRIPT_DIR/"
+cp -r "$PROJECT_DIR/.aitask-scripts/lib" "$SCRIPT_DIR/"
+
+# Run setup in the post-fix order: data branch first, THEN counter init.
+(cd "$TMPDIR_11/pc2" && setup_data_branch </dev/null >/dev/null 2>&1)
+(cd "$TMPDIR_11/pc2" && setup_id_counter </dev/null >/dev/null 2>&1)
+
+# Counter must be max(1,2,10) + 1 = 11, not 1.
+counter_val=$(git -C "$TMPDIR_11/pc2" fetch origin aitask-ids --quiet 2>/dev/null \
+    && git -C "$TMPDIR_11/pc2" show origin/aitask-ids:next_id.txt 2>/dev/null \
+    | tr -d '[:space:]')
+assert_eq "Counter seeded to max(existing)+1 on fresh clone" "11" "$counter_val"
+
+# Static check: regardless of how the helpers behave in isolation, main() must
+# call setup_data_branch BEFORE setup_id_counter or the fresh-clone scenario
+# above will silently re-break.
+main_body="$(awk '/^main\(\) \{/,/^\}/' "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh")"
+data_line=$(echo "$main_body" | grep -n '^[[:space:]]*setup_data_branch$' | head -1 | cut -d: -f1)
+counter_line=$(echo "$main_body" | grep -n '^[[:space:]]*setup_id_counter$' | head -1 | cut -d: -f1)
+TOTAL=$((TOTAL + 1))
+if [[ -n "$data_line" && -n "$counter_line" && "$data_line" -lt "$counter_line" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: main() must call setup_data_branch before setup_id_counter (got data=$data_line counter=$counter_line)"
+fi
+
+rm -rf "$TMPDIR_11"
+
 # --- Summary ---
 echo ""
 echo "==============================="

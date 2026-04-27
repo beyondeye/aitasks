@@ -3016,6 +3016,9 @@ main() {
     ensure_git_repo
     echo ""
 
+    setup_data_branch
+    echo ""
+
     setup_draft_directory
     echo ""
 
@@ -3026,9 +3029,6 @@ main() {
     echo ""
 
     setup_lock_branch
-    echo ""
-
-    setup_data_branch
     echo ""
 
     ensure_project_config_defaults
