@@ -78,3 +78,16 @@ The surrounding rows (`z` zoom and `t` tail) stay unchanged.
 ## Step 9 (Post-Implementation)
 
 Standard cleanup, archival, and merge per the task-workflow `Step 9` procedure (single-task, no worktree, working on `main`).
+
+## Final Implementation Notes
+
+- **Actual work done:** Removed the `b` keyboard shortcut and its `action_toggle_scrollbar` action from `ait monitor`. Three deletions in `.aitask-scripts/monitor/monitor_app.py` (the `BINDINGS` row, the `_show_scrollbar` instance attribute initialization in `__init__`, and the `action_toggle_scrollbar` method) and one row removal in `website/content/docs/tuis/monitor/reference.md` (the `b` row of the Monitor Controls table). The vertical scrollbar is now always visible via the existing CSS layout (`scrollbar-gutter: stable` on `#preview-scroll`); no CSS or layout changes were needed because `_show_scrollbar` was already initialized to `True` and only the toggle action ever flipped it.
+- **Deviations from plan:** None. Implementation matched the plan exactly.
+- **Issues encountered:** None.
+- **Key decisions:**
+  - Left the v0.15.1 blog post (`website/content/blog/v0151-...md`) untouched. It's a historical release note describing what shipped at that point in time; per project doc conventions, only live user-facing docs (the monitor reference page) need updating to reflect the current state.
+  - Dropped the `_show_scrollbar` attribute entirely rather than keeping it as a permanently-true flag — no other code reads it, so a renamed/unused attribute would just be dead state.
+- **Verification:**
+  - `python3 -c "import ast; ast.parse(...)"` — passed.
+  - `grep _show_scrollbar\|toggle_scrollbar` on the edited file — no matches (clean removal).
+  - Manual TUI smoke test of `ait monitor` is left to the user.
