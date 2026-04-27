@@ -212,3 +212,18 @@ Always use `#!/usr/bin/env bash`, never `#!/bin/bash`. macOS system bash is 3.2 
 |------|------|-------|-------------|
 | `.aitask-scripts/aitask_pick_own.sh` | 159 | `grep -oP` with `\K` (PCRE) | `grep -o` + `sed` pipe |
 | `.aitask-scripts/aitask_update.sh` | 926 | `mktemp --suffix=.md` (GNU-only) | Template pattern `mktemp "${TMPDIR:-/tmp}/aitask_XXXXXX.md"` |
+
+## Files Fixed in t658
+
+Full repo-wide audit run on macOS arm64 (Darwin 24.6, bash 5.3 from brew). 76 production scripts in `.aitask-scripts/`, 7 lib scripts, and 98 bash tests scanned against every footgun documented above. The static sweep was largely clean — the previous tasks (t186/t209/t211/t213) had absorbed most of the platform-specific patterns. Two real bugs remained in the test suite, both surfaced by running the full suite on macOS:
+
+| File | Line | Issue | Fix Applied |
+|------|------|-------|-------------|
+| `tests/test_archive_no_overbroad_add.sh` | 148, 257, 364 | Bare `sed -i 's/.../.../' file` — BSD sed parses the expression as the backup suffix and the file path as the expression, then errors with `command a expects \ followed by text` | Sourced `lib/terminal_compat.sh` and switched to `sed_inplace` |
+| `tests/test_multi_session_primitives.sh` | 138 | `FAKE_PROJ` came straight from `mktemp -d "${TMPDIR:-/tmp}/..."`. macOS sets `TMPDIR` with a trailing `/` (so the path keeps a `//`), and tmux `pane_current_path` resolves `/var/folders/...` to `/private/var/folders/...` — both made the assertion strings diverge from the discovered session path | Canonicalize via `FAKE_PROJ=$(cd "$FAKE_PROJ" && pwd -P)` immediately after `mktemp` |
+
+Test suite delta (98 bash tests, run on macOS):
+- Baseline: 75 PASS, 23 FAIL.
+- Post-fix: 77 PASS, 21 FAIL (no regressions; the two fixes above account for the entire delta).
+
+The 21 remaining FAILs are unrelated to macOS portability: missing system-Python dependencies (`yaml`/`textual`/`rich` outside the `~/.aitask/venv/`), missing `codex` CLI, stale hand-curated copy lists in a few test setups (`tests/test_crew_groups.sh`, `tests/test_crew_report.sh`, `tests/test_data_branch_migration.sh` no longer copy `lib/launch_modes_sh.sh` / `lib/archive_scan.sh`), stale skill-count expectations in `test_gemini_setup.sh` / `test_opencode_setup.sh`, and other preexisting issues. They reproduce on Linux too and are out of scope for this audit; track them as separate follow-up tasks if/when needed.
