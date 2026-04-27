@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [task_workflow, aitask_pick, claudeskills]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-27 11:41
-updated_at: 2026-04-27 12:57
+updated_at: 2026-04-27 14:08
+completed_at: 2026-04-27 14:08
 ---
 
 Update task-workflow Step 8 so that when implementation revealed an upstream
