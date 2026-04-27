@@ -43,6 +43,7 @@ legal
 license
 macos
 manual_verification
+memories
 model_selection
 modelvrapper
 opencode
