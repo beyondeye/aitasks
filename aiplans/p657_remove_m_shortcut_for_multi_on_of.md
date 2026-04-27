@@ -92,3 +92,49 @@ Standard archive flow per `.claude/skills/task-workflow/SKILL.md` — no
 worktree was created, so no merge step. Commit the code changes with
 message `bug: Hide M (multi-session) shortcut from monitor/minimonitor footers (t657)`,
 then run the archive script.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `.aitask-scripts/monitor/monitor_app.py`:
+    - Added `show=False` to the `M` (toggle_multi_session) binding so
+      Textual's `Footer()` no longer advertises it.
+    - Removed the ` · M: toggle multi` suffix from both branches of
+      `_rebuild_session_bar()` (multi-mode and single-session mode); the
+      `Tab: switch panel` portion stays.
+    - **Scope extension during user review (t657):** also rebound the
+      auto-switch toggle from lowercase `a` to uppercase `A`
+      (`Binding("A", "toggle_auto_switch", "Auto")` at line 455). This is
+      a key-rebind only — the action handler, `_auto_switch` state, and
+      the `[AUTO]` / `⟳ AUTO` decorations are unchanged. No `show=False`
+      was added (the auto toggle is still meant to appear in the footer).
+  - `.aitask-scripts/monitor/minimonitor_app.py`:
+    - Removed `M:multi` from the trailing line of the `mini-key-hints`
+      `Static` widget. The `M` binding at line 112 already had
+      `show=False`, so no binding change was needed.
+- **Deviations from plan:** the plan covered only the `M` shortcut
+  hiding; the user's review prompt extended the task to also rebind the
+  auto-switch toggle from `a` to `A` for case-consistency with the
+  other capital-letter modal toggles in the same `BINDINGS` block
+  (`R`, `M`, `L`).
+- **Issues encountered:** none. No tests, scripts, or docs reference the
+  lowercase `a` binding; `grep` over `tests/` and `.aitask-scripts/` was
+  empty for `Binding("a"` and for footer-string matches of `M:multi` /
+  `M: toggle multi`.
+- **Key decisions:**
+  - Kept `M` bound (just hidden) rather than removing it — the user's
+    request was explicit that the toggle should keep working.
+  - Did not add `show=False` to the new `A` binding because the user's
+    request was to rebind, not to hide the auto toggle.
+  - Did not touch the action handlers, state, or any of the per-pane
+    `⟳ AUTO` / `[AUTO]` indicators — those remain user-visible.
+- **Verification performed:**
+  - `grep -rn -E "(M:multi|M: toggle multi)" .aitask-scripts/` →
+    `NO_MATCHES`.
+  - `grep -n "Binding(\"a\"\|Binding(\"A\"" .aitask-scripts/monitor/*.py`
+    → only the new `A` binding remains; no stale lowercase one.
+  - `bash tests/test_multi_session_monitor.sh` → 43/43 passed.
+  - `bash tests/test_multi_session_minimonitor.sh` → 24/24 passed.
+  - Manual smoke test of the running TUI was not performed in-session;
+    the change is a pure footer-string + binding-key edit with no logic
+    changes, so test coverage of the `M`/auto handlers is sufficient.
