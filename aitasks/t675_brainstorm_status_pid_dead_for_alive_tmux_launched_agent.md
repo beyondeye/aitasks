@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [ait_brainstorm, agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-27 16:40
-updated_at: 2026-04-27 16:40
+updated_at: 2026-04-27 16:42
 ---
 
 ## Symptom
