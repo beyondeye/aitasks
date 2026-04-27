@@ -27,6 +27,9 @@ from agentcrew.agentcrew_utils import (
     get_agent_names,
     get_ready_agents,
     get_stale_agents,
+    git_cmd,
+    git_commit_push_if_changes,
+    git_pull,
     group_sort_key,
     list_agent_files,
     load_groups,
@@ -131,31 +134,6 @@ def resolve_config(cli_interval: int | None, cli_max_concurrent: int | None) -> 
         max_concurrent = DEFAULT_MAX_CONCURRENT
 
     return int(interval), int(max_concurrent)
-
-
-def git_cmd(worktree: str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-    """Run a git command in the given worktree directory."""
-    cmd = ["git", "-C", worktree] + list(args)
-    return subprocess.run(cmd, capture_output=True, text=True, check=check)
-
-
-def git_pull(worktree: str, batch: bool = False) -> None:
-    """Pull latest changes in the worktree (best-effort)."""
-    result = git_cmd(worktree, "pull", "--rebase=false", check=False)
-    if result.returncode != 0 and not batch:
-        log(f"git pull warning: {result.stderr.strip()}", batch)
-
-
-def git_commit_push_if_changes(worktree: str, message: str, batch: bool = False) -> None:
-    """Stage all changes in worktree, commit and push if there are changes."""
-    git_cmd(worktree, "add", "-A", check=False)
-    # Check if there are staged changes
-    result = git_cmd(worktree, "diff", "--cached", "--quiet", check=False)
-    if result.returncode != 0:
-        git_cmd(worktree, "commit", "-m", message, check=False)
-        push_result = git_cmd(worktree, "push", check=False)
-        if push_result.returncode != 0 and not batch:
-            log(f"git push warning: {push_result.stderr.strip()}", batch)
 
 
 # ---------------------------------------------------------------------------

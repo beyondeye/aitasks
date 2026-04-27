@@ -24,6 +24,7 @@ from agentcrew.agentcrew_utils import (
     get_agent_names,
     get_ready_agents,
     get_stale_agents,
+    git_commit_push_if_changes,
     list_agent_files,
     read_yaml,
     update_yaml_field,
@@ -127,6 +128,20 @@ def cmd_set(args: argparse.Namespace) -> None:
 
     # Recompute crew status
     _recompute_crew_status(wt)
+
+    # Push terminal-state writes so they reach remote independently of the
+    # runner's iteration loop (the runner may have exited if it thought all
+    # agents were already terminal, or after an unrelated crash).
+    # --no-push lets future batched callers opt out; the runner itself uses
+    # update_yaml_field directly and never shells out to this CLI, so no
+    # internal caller currently needs the flag.
+    if (args.status in ("Completed", "Aborted", "Error")
+            and not getattr(args, "no_push", False)):
+        git_commit_push_if_changes(
+            wt,
+            f"agent {args.agent}: {current} -> {args.status}",
+            batch=True,
+        )
 
 
 def cmd_list(args: argparse.Namespace) -> None:
@@ -263,6 +278,8 @@ def main() -> None:
     set_p = sub.add_parser("set", help="Set agent status")
     set_p.add_argument("--status", help="New status value")
     set_p.add_argument("--progress", type=int, help="Progress percentage (0-100)")
+    set_p.add_argument("--no-push", action="store_true",
+                       help="Skip git push after writing the status (for batched callers)")
 
     # list
     list_p = sub.add_parser("list", help="List all agents with status")

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import glob
 import os
+import subprocess
+import sys
 from collections import deque
 from datetime import datetime, timezone
 
@@ -30,10 +32,14 @@ AGENT_TRANSITIONS: dict[str, list[str]] = {
     # Soft-stale grace state: heartbeat missed but not yet declared dead.
     "MissedHeartbeat": ["Running", "Error", "Aborted"],
     "Paused": ["Running"],
-    # Terminal states — no outgoing transitions (except Error → Waiting/Completed for recovery)
+    # Terminal states — no outgoing transitions (except Error, which is recoverable).
+    # Error is recoverable: a heartbeat-watchdog timeout does not prove the agent
+    # failed. An agent that gets falsely Error'd may still write Completed at end
+    # of work, or resume Running mid-flight. Aborted is intentionally terminal —
+    # Aborted is always user-initiated, not a watchdog accident.
     "Completed": [],
     "Aborted": [],
-    "Error": ["Waiting", "Completed"],
+    "Error": ["Waiting", "Running", "Completed"],
 }
 
 CREW_TRANSITIONS: dict[str, list[str]] = {
@@ -205,6 +211,43 @@ def detect_cycles(agents: dict[str, list[str]]) -> list[str] | None:
 def crew_worktree_path(crew_id: str) -> str:
     """Return the filesystem path for a crew's worktree."""
     return os.path.join(AGENTCREW_DIR, f"crew-{crew_id}")
+
+
+# ---------------------------------------------------------------------------
+# Git helpers
+# ---------------------------------------------------------------------------
+
+
+def git_cmd(worktree: str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+    """Run a git command in the given worktree directory."""
+    cmd = ["git", "-C", worktree] + list(args)
+    return subprocess.run(cmd, capture_output=True, text=True, check=check)
+
+
+def git_pull(worktree: str, batch: bool = False) -> None:
+    """Pull latest changes in the worktree (best-effort)."""
+    result = git_cmd(worktree, "pull", "--rebase=false", check=False)
+    if result.returncode != 0 and not batch:
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        print(f"[{ts}] git pull warning: {result.stderr.strip()}", file=sys.stderr)
+
+
+def git_commit_push_if_changes(worktree: str, message: str, batch: bool = False) -> None:
+    """Stage all changes in worktree, commit and push if there are changes."""
+    git_cmd(worktree, "add", "-A", check=False)
+    # Check if there are staged changes
+    result = git_cmd(worktree, "diff", "--cached", "--quiet", check=False)
+    if result.returncode != 0:
+        git_cmd(worktree, "commit", "-m", message, check=False)
+        push_result = git_cmd(worktree, "push", check=False)
+        if push_result.returncode != 0 and not batch:
+            ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+            print(f"[{ts}] git push warning: {push_result.stderr.strip()}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# Agent file enumeration
+# ---------------------------------------------------------------------------
 
 
 def list_agent_files(worktree_path: str, suffix: str) -> list[str]:
