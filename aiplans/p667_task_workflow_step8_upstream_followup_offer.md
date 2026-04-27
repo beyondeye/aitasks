@@ -306,3 +306,30 @@ The other agents' aitask-pick variants (`.opencode/skills/aitask-pick/SKILL.md`,
 their own workflow steps. Cross-agent follow-up tasks should target those
 concrete files instead. Surface this at Step 8b/8c so the user can accept
 or reject creating cross-agent follow-up tasks.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Created
+  `.claude/skills/task-workflow/upstream-followup.md` (new procedure file
+  mirroring `manual-verification-followup.md`) and made four edits to
+  `.claude/skills/task-workflow/SKILL.md`: added the "Upstream defects
+  identified" bullet to the Final Implementation Notes template; changed
+  "Proceed to Step 8c" → "Proceed to Step 8b"; inserted a new Step 8b
+  dispatcher between Step 8 and Step 8c; updated the Step 8c opener to
+  acknowledge Step 8b as the predecessor; added an entry for the new
+  procedure to the Procedures list.
+- **Deviations from plan:** None. The user gave two design corrections
+  during plan mode (file-as-source-of-truth instead of context variables;
+  extract procedure to its own file) and both were folded into the
+  approved plan before implementation began.
+- **Issues encountered:** None during implementation.
+- **Key decisions:**
+  - Plan file (the "Upstream defects identified" subsection) is the
+    persistent source of truth — no new context variables.
+  - Procedure body extracted to `upstream-followup.md`; SKILL.md's Step
+    8b is a short dispatcher that mirrors Step 8c's shape exactly.
+  - The `None`-vs-list distinction in the subsection is the parser's
+    signal: writing `None` verbatim is a positive assertion that the
+    agent reflected and found nothing.
+- **Upstream defects identified:** None.
+
