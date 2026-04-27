@@ -139,7 +139,7 @@ def get_all_agent_processes(crew_id: str) -> list[dict]:
         status = data.get("status", "")
         pid = data.get("pid")
 
-        if not name or not pid or status not in ("Running", "Paused", "MissedHeartbeat"):
+        if not name or not pid or status not in ("Running", "Paused"):
             continue
 
         pid = int(pid)
@@ -248,7 +248,7 @@ def sync_stale_processes(crew_id: str) -> list[str]:
         status = data.get("status", "")
         pid = data.get("pid")
 
-        if not name or status not in ("Running", "MissedHeartbeat") or not pid:
+        if not name or status != "Running" or not pid:
             continue
 
         if not _check_pid_alive(int(pid)):

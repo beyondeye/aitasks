@@ -16,7 +16,7 @@ import yaml
 # ---------------------------------------------------------------------------
 
 AGENT_STATUSES = [
-    "Waiting", "Ready", "Running", "MissedHeartbeat",
+    "Waiting", "Ready", "Running",
     "Completed", "Aborted", "Error", "Paused",
 ]
 CREW_STATUSES = ["Initializing", "Running", "Killing", "Paused", "Completed", "Error"]
@@ -28,15 +28,12 @@ CREW_STATUSES = ["Initializing", "Running", "Killing", "Paused", "Completed", "E
 AGENT_TRANSITIONS: dict[str, list[str]] = {
     "Waiting": ["Ready"],
     "Ready": ["Running"],
-    "Running": ["Completed", "Error", "Aborted", "Paused", "MissedHeartbeat"],
-    # Soft-stale grace state: heartbeat missed but not yet declared dead.
-    "MissedHeartbeat": ["Running", "Error", "Aborted"],
+    "Running": ["Completed", "Error", "Aborted", "Paused"],
     "Paused": ["Running"],
-    # Terminal states — no outgoing transitions (except Error, which is recoverable).
-    # Error is recoverable: a heartbeat-watchdog timeout does not prove the agent
-    # failed. An agent that gets falsely Error'd may still write Completed at end
-    # of work, or resume Running mid-flight. Aborted is intentionally terminal —
-    # Aborted is always user-initiated, not a watchdog accident.
+    # Status is agent-self-reported. Heartbeat freshness is a separate signal
+    # exposed via <agent>_alive.yaml; the runner does NOT mutate status on
+    # stale heartbeat. Error remains recoverable so a Running -> Error -> Running
+    # path is still valid for the agent's own self-correction.
     "Completed": [],
     "Aborted": [],
     "Error": ["Waiting", "Running", "Completed"],
@@ -102,20 +99,17 @@ def compute_crew_status(agent_statuses: list[str]) -> str:
 
     Rules:
     - All Completed -> Completed
-    - Any Error (no Running/MissedHeartbeat) -> Error
-    - Any Running or MissedHeartbeat -> Running
+    - Any Error (no Running) -> Error
+    - Any Running -> Running
     - All Waiting -> Initializing
-    - Any Paused (no Running/MissedHeartbeat) -> Paused
+    - Any Paused (no Running) -> Paused
     - Otherwise -> Running (mixed active states)
-
-    MissedHeartbeat is treated as Running for rollup so a transient missed
-    heartbeat doesn't flip the crew to Error during the grace window.
     """
     if not agent_statuses:
         return "Initializing"
 
     status_set = set(agent_statuses)
-    active = {"Running", "MissedHeartbeat"}
+    active = {"Running"}
 
     if status_set == {"Completed"}:
         return "Completed"
@@ -452,7 +446,7 @@ def get_group_status(crew_dir: str, group_name: str) -> str:
             statuses.append(data.get("status", "Waiting"))
     if all(s == "Completed" for s in statuses):
         return "Completed"
-    active = {"Running", "MissedHeartbeat"}
+    active = {"Running"}
     status_set = set(statuses)
     if "Error" in status_set and not (status_set & active):
         return "Error"

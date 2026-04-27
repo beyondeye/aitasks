@@ -184,12 +184,15 @@ print(validate_agent_transition('Paused', 'Running'))
 print(validate_agent_transition('Waiting', 'Completed'))
 print(validate_agent_transition('Completed', 'Running'))
 print(validate_agent_transition('Ready', 'Completed'))
-# MissedHeartbeat lifecycle and Error -> Completed recovery
+# Error recovery and self-reported terminal transitions (t671: heartbeat
+# freshness no longer participates in lifecycle transitions).
+print(validate_agent_transition('Running', 'Error'))
+print(validate_agent_transition('Running', 'Aborted'))
+print(validate_agent_transition('Error', 'Running'))
+print(validate_agent_transition('Error', 'Completed'))
+# MissedHeartbeat is removed from the namespace — it must reject all transitions.
 print(validate_agent_transition('Running', 'MissedHeartbeat'))
 print(validate_agent_transition('MissedHeartbeat', 'Running'))
-print(validate_agent_transition('MissedHeartbeat', 'Error'))
-print(validate_agent_transition('Error', 'Completed'))
-print(validate_agent_transition('MissedHeartbeat', 'Completed'))
 " 2>&1)
     assert_eq "Waiting->Ready valid" "True" "$(echo "$result" | sed -n '1p')"
     assert_eq "Ready->Running valid" "True" "$(echo "$result" | sed -n '2p')"
@@ -199,14 +202,15 @@ print(validate_agent_transition('MissedHeartbeat', 'Completed'))
     assert_eq "Waiting->Completed invalid" "False" "$(echo "$result" | sed -n '6p')"
     assert_eq "Completed->Running invalid" "False" "$(echo "$result" | sed -n '7p')"
     assert_eq "Ready->Completed invalid" "False" "$(echo "$result" | sed -n '8p')"
-    assert_eq "Running->MissedHeartbeat valid" "True" "$(echo "$result" | sed -n '9p')"
-    assert_eq "MissedHeartbeat->Running valid" "True" "$(echo "$result" | sed -n '10p')"
-    assert_eq "MissedHeartbeat->Error valid" "True" "$(echo "$result" | sed -n '11p')"
+    assert_eq "Running->Error valid (self-reported)" "True" "$(echo "$result" | sed -n '9p')"
+    assert_eq "Running->Aborted valid (self-reported)" "True" "$(echo "$result" | sed -n '10p')"
+    assert_eq "Error->Running valid (recovery)" "True" "$(echo "$result" | sed -n '11p')"
     assert_eq "Error->Completed valid (direct recovery)" "True" "$(echo "$result" | sed -n '12p')"
-    assert_eq "MissedHeartbeat->Completed invalid" "False" "$(echo "$result" | sed -n '13p')"
+    assert_eq "Running->MissedHeartbeat invalid (removed)" "False" "$(echo "$result" | sed -n '13p')"
+    assert_eq "MissedHeartbeat->Running invalid (removed)" "False" "$(echo "$result" | sed -n '14p')"
 else
     echo "SKIP: Python not available"
-    for _ in $(seq 13); do _inc_pass; done
+    for _ in $(seq 14); do _inc_pass; done
 fi
 
 # --- Test 3: Python utils — crew status computation ---
@@ -221,10 +225,10 @@ print(compute_crew_status(['Waiting', 'Waiting']))
 print(compute_crew_status(['Error', 'Completed']))
 print(compute_crew_status([]))
 print(compute_crew_status(['Paused', 'Completed']))
-# MissedHeartbeat counts as active (Running) for crew rollup
-print(compute_crew_status(['MissedHeartbeat', 'Completed']))
-print(compute_crew_status(['Error', 'MissedHeartbeat']))
-print(compute_crew_status(['MissedHeartbeat']))
+# A heartbeat-stale Running agent stays Running (status is self-reported now);
+# crew rollup sees it as Running as expected (t671).
+print(compute_crew_status(['Running', 'Completed']))
+print(compute_crew_status(['Error', 'Running']))
 " 2>&1)
     assert_eq "all completed -> Completed" "Completed" "$(echo "$result" | sed -n '1p')"
     assert_eq "any running -> Running" "Running" "$(echo "$result" | sed -n '2p')"
@@ -232,12 +236,11 @@ print(compute_crew_status(['MissedHeartbeat']))
     assert_eq "error no running -> Error" "Error" "$(echo "$result" | sed -n '4p')"
     assert_eq "empty -> Initializing" "Initializing" "$(echo "$result" | sed -n '5p')"
     assert_eq "paused no running -> Paused" "Paused" "$(echo "$result" | sed -n '6p')"
-    assert_eq "MissedHeartbeat counts as Running" "Running" "$(echo "$result" | sed -n '7p')"
-    assert_eq "Error suppressed by MissedHeartbeat" "Running" "$(echo "$result" | sed -n '8p')"
-    assert_eq "single MissedHeartbeat -> Running" "Running" "$(echo "$result" | sed -n '9p')"
+    assert_eq "Running + Completed mix -> Running" "Running" "$(echo "$result" | sed -n '7p')"
+    assert_eq "Error suppressed by Running sibling" "Running" "$(echo "$result" | sed -n '8p')"
 else
     echo "SKIP: Python not available"
-    for _ in $(seq 9); do _inc_pass; done
+    for _ in $(seq 8); do _inc_pass; done
 fi
 
 # --- Test 4: Python utils — DAG topo sort and cycle detection ---
@@ -508,8 +511,8 @@ setup_crew_with_agents "$TMPDIR_T14"
 )
 cleanup_test_repo "$TMPDIR_T14"
 
-# --- Test 15: Status CLI — MissedHeartbeat lifecycle and Error -> Completed ---
-echo "Test 15: Status CLI — MissedHeartbeat lifecycle + Error->Completed recovery"
+# --- Test 15: Status CLI — self-reported terminal lifecycle + Error -> Completed (t671) ---
+echo "Test 15: Status CLI — self-reported terminal lifecycle + Error->Completed recovery"
 if [[ -n "$PYTHON" ]]; then
     TMPDIR_T15="$(setup_test_repo)"
     setup_crew_with_agents "$TMPDIR_T15"
@@ -521,18 +524,23 @@ if [[ -n "$PYTHON" ]]; then
         $PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status Ready >/dev/null
         $PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status Running >/dev/null
 
-        # Running -> MissedHeartbeat
-        output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status MissedHeartbeat 2>&1)
-        assert_contains "set Running->MissedHeartbeat" "STATUS_SET:planner:Running:MissedHeartbeat" "$output"
+        # MissedHeartbeat is no longer accepted — the CLI must reject it.
+        output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status MissedHeartbeat 2>&1 || true)
+        assert_contains "MissedHeartbeat rejected as unknown status" "Invalid status" "$output"
 
-        # MissedHeartbeat -> Running (recovery)
-        output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status Running 2>&1)
-        assert_contains "set MissedHeartbeat->Running" "STATUS_SET:planner:MissedHeartbeat:Running" "$output"
+        # Running -> Error (genuine self-reported failure)
+        output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status Error 2>&1)
+        assert_contains "set Running->Error self-reported" "STATUS_SET:planner:Running:Error" "$output"
 
-        # Running -> Error
-        $PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status Error >/dev/null
+        # completed_at must be stamped on terminal self-report (Error included).
+        completed_at_err=$($PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import read_yaml
+print(bool(read_yaml('.aitask-crews/crew-testcrew/planner_status.yaml').get('completed_at', '')))
+" 2>/dev/null)
+        assert_eq "completed_at stamped on self-reported Error" "True" "$completed_at_err"
 
-        # Error -> Completed (direct recovery — the new transition)
+        # Error -> Completed (direct recovery — preserved from prior behavior)
         output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status Completed 2>&1)
         assert_contains "set Error->Completed (direct recovery)" "STATUS_SET:planner:Error:Completed" "$output"
 
@@ -547,7 +555,7 @@ print(bool(read_yaml('.aitask-crews/crew-testcrew/planner_status.yaml').get('com
     cleanup_test_repo "$TMPDIR_T15"
 else
     echo "SKIP: Python not available"
-    for _ in $(seq 4); do _inc_pass; done
+    for _ in $(seq 5); do _inc_pass; done
 fi
 
 # ============================================================

@@ -594,8 +594,8 @@ print(validate_agent_transition('Completed', 'Waiting'))
     assert_eq "Completed → Waiting is still invalid" "False" "$result"
 )
 
-# --- Test 16: Running → MissedHeartbeat on stale heartbeat ---
-echo "Test 16: stale heartbeat marks Running agent as MissedHeartbeat"
+# --- Test 16: stale heartbeat does NOT mutate status (t671) ---
+echo "Test 16: stale heartbeat leaves Running agent's status untouched"
 TMPDIR_T16="$(setup_test_repo)"
 (
     cd "$TMPDIR_T16"
@@ -626,19 +626,21 @@ import sys; sys.path.insert(0, '.aitask-scripts')
 from agentcrew.agentcrew_utils import read_yaml
 print(read_yaml('$wt/agent_a_status.yaml').get('status', ''))
 " 2>/dev/null)
-    assert_eq "agent_a status flipped to MissedHeartbeat" "MissedHeartbeat" "$status"
+    assert_eq "agent_a status stays Running despite stale heartbeat" "Running" "$status"
 
-    missed_at=$($PYTHON -c "
+    # get_stale_agents() must still report the agent — heartbeat freshness is
+    # exposed as a separate read-only signal, not by mutating status.
+    stale=$($PYTHON -c "
 import sys; sys.path.insert(0, '.aitask-scripts')
-from agentcrew.agentcrew_utils import read_yaml
-print(bool(read_yaml('$wt/agent_a_status.yaml').get('missed_heartbeat_at', '')))
+from agentcrew.agentcrew_utils import get_stale_agents
+print(','.join(get_stale_agents('$wt', 60)))
 " 2>/dev/null)
-    assert_eq "missed_heartbeat_at recorded" "True" "$missed_at"
+    assert_eq "get_stale_agents reports the stale Running agent" "agent_a" "$stale"
 )
 cleanup_test_repo "$TMPDIR_T16"
 
-# --- Test 17: MissedHeartbeat → Running when heartbeat resumes ---
-echo "Test 17: MissedHeartbeat recovers to Running on fresh heartbeat"
+# --- Test 17: stale-then-resume keeps status Running throughout (t671) ---
+echo "Test 17: heartbeat resume after staleness leaves status untouched"
 TMPDIR_T17="$(setup_test_repo)"
 (
     cd "$TMPDIR_T17"
@@ -652,38 +654,55 @@ from agentcrew.agentcrew_utils import update_yaml_field
 update_yaml_field('$wt/_crew_meta.yaml', 'heartbeat_timeout_minutes', 1)
 " 2>/dev/null
 
-    # Agent already in MissedHeartbeat with a fresh-enough heartbeat.
+    # Iteration A: agent Running with stale heartbeat.
     $PYTHON -c "
 import sys; sys.path.insert(0, '.aitask-scripts')
 from agentcrew.agentcrew_utils import update_yaml_field, write_yaml
+update_yaml_field('$wt/agent_a_status.yaml', 'status', 'Running')
+write_yaml('$wt/agent_a_alive.yaml', {'last_heartbeat': '2020-01-01 00:00:00'})
+" 2>/dev/null
+
+    PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
+        --crew testcrew --once --dry-run --batch >/dev/null 2>&1
+
+    status_a=$($PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import read_yaml
+print(read_yaml('$wt/agent_a_status.yaml').get('status', ''))
+" 2>/dev/null)
+    assert_eq "after stale iteration: status still Running" "Running" "$status_a"
+
+    # Iteration B: heartbeat resumes (fresh timestamp).
+    $PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import write_yaml
 from datetime import datetime, timezone
 now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-update_yaml_field('$wt/agent_a_status.yaml', 'status', 'MissedHeartbeat')
-update_yaml_field('$wt/agent_a_status.yaml', 'missed_heartbeat_at', now)
 write_yaml('$wt/agent_a_alive.yaml', {'last_heartbeat': now})
 " 2>/dev/null
 
     PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
         --crew testcrew --once --dry-run --batch >/dev/null 2>&1
 
-    status=$($PYTHON -c "
+    status_b=$($PYTHON -c "
 import sys; sys.path.insert(0, '.aitask-scripts')
 from agentcrew.agentcrew_utils import read_yaml
 print(read_yaml('$wt/agent_a_status.yaml').get('status', ''))
 " 2>/dev/null)
-    assert_eq "agent_a recovered to Running" "Running" "$status"
+    assert_eq "after recovery iteration: status still Running" "Running" "$status_b"
 
-    missed_cleared=$($PYTHON -c "
+    # Status namespace must not contain MissedHeartbeat anymore.
+    has_mh=$($PYTHON -c "
 import sys; sys.path.insert(0, '.aitask-scripts')
-from agentcrew.agentcrew_utils import read_yaml
-print(read_yaml('$wt/agent_a_status.yaml').get('missed_heartbeat_at', ''))
+from agentcrew.agentcrew_utils import AGENT_STATUSES
+print('MissedHeartbeat' in AGENT_STATUSES)
 " 2>/dev/null)
-    assert_eq "missed_heartbeat_at cleared on recovery" "" "$missed_cleared"
+    assert_eq "MissedHeartbeat is no longer a valid agent status" "False" "$has_mh"
 )
 cleanup_test_repo "$TMPDIR_T17"
 
-# --- Test 18: MissedHeartbeat → Error when grace expires ---
-echo "Test 18: MissedHeartbeat escalates to Error after grace window"
+# --- Test 18: slow-but-completing agent — Running -> Completed despite stale heartbeat (t671) ---
+echo "Test 18: heartbeat-stale agent self-reporting Completed transitions cleanly"
 TMPDIR_T18="$(setup_test_repo)"
 (
     cd "$TMPDIR_T18"
@@ -697,31 +716,46 @@ from agentcrew.agentcrew_utils import update_yaml_field
 update_yaml_field('$wt/_crew_meta.yaml', 'heartbeat_timeout_minutes', 1)
 " 2>/dev/null
 
-    # Agent in MissedHeartbeat with both missed_at and last_heartbeat long stale.
+    # Agent Running with long-stale heartbeat across multiple runner iterations.
     $PYTHON -c "
 import sys; sys.path.insert(0, '.aitask-scripts')
 from agentcrew.agentcrew_utils import update_yaml_field, write_yaml
-update_yaml_field('$wt/agent_a_status.yaml', 'status', 'MissedHeartbeat')
-update_yaml_field('$wt/agent_a_status.yaml', 'missed_heartbeat_at', '2020-01-01 00:00:00')
+update_yaml_field('$wt/agent_a_status.yaml', 'status', 'Running')
 write_yaml('$wt/agent_a_alive.yaml', {'last_heartbeat': '2020-01-01 00:00:00'})
 " 2>/dev/null
 
-    PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
-        --crew testcrew --once --dry-run --batch >/dev/null 2>&1
+    # Run the runner twice — pre-t671 the second iteration would have promoted
+    # the agent past MissedHeartbeat into Error.
+    for _ in 1 2; do
+        PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
+            --crew testcrew --once --dry-run --batch >/dev/null 2>&1
+    done
 
-    status=$($PYTHON -c "
+    interim=$($PYTHON -c "
 import sys; sys.path.insert(0, '.aitask-scripts')
 from agentcrew.agentcrew_utils import read_yaml
 print(read_yaml('$wt/agent_a_status.yaml').get('status', ''))
 " 2>/dev/null)
-    assert_eq "agent_a escalated to Error" "Error" "$status"
+    assert_eq "after two stale iterations: status still Running" "Running" "$interim"
 
-    err_msg=$($PYTHON -c "
+    # Agent now self-reports completion via the status CLI — Running -> Completed
+    # must validate even though heartbeat was stale the whole time.
+    PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_status.py \
+        --crew testcrew --agent agent_a set --status Completed --no-push >/dev/null 2>&1
+
+    final=$($PYTHON -c "
 import sys; sys.path.insert(0, '.aitask-scripts')
 from agentcrew.agentcrew_utils import read_yaml
-print(read_yaml('$wt/agent_a_status.yaml').get('error_message', ''))
+print(read_yaml('$wt/agent_a_status.yaml').get('status', ''))
 " 2>/dev/null)
-    assert_contains "error_message mentions grace expiry" "grace window expired" "$err_msg"
+    assert_eq "agent_a transitions Running -> Completed cleanly" "Completed" "$final"
+
+    completed_at=$($PYTHON -c "
+import sys; sys.path.insert(0, '.aitask-scripts')
+from agentcrew.agentcrew_utils import read_yaml
+print(bool(read_yaml('$wt/agent_a_status.yaml').get('completed_at', '')))
+" 2>/dev/null)
+    assert_eq "completed_at populated on terminal transition" "True" "$completed_at"
 )
 cleanup_test_repo "$TMPDIR_T18"
 

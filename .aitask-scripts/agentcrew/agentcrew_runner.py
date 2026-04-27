@@ -281,74 +281,11 @@ def read_all_agent_statuses(worktree: str) -> dict[str, dict]:
 
 
 def count_running(agents: dict[str, dict]) -> int:
-    """Count agents holding an active process slot (Running or MissedHeartbeat)."""
+    """Count agents holding an active process slot."""
     return sum(
         1 for d in agents.values()
-        if d.get("status") in ("Running", "MissedHeartbeat")
+        if d.get("status") == "Running"
     )
-
-
-def mark_stale_as_missed_heartbeat(worktree: str, stale_agents: list[str],
-                                   agents: dict[str, dict], batch: bool) -> None:
-    """Soft-stale: transition Running -> MissedHeartbeat to start the grace window.
-
-    The grace expiry / recovery is handled by process_missed_heartbeat_agents
-    on the next iteration.
-    """
-    for name in stale_agents:
-        status_file = os.path.join(worktree, f"{name}_status.yaml")
-        current = agents[name].get("status", "")
-        if validate_agent_transition(current, "MissedHeartbeat"):
-            log(f"Agent '{name}' heartbeat missed — marking as MissedHeartbeat (grace window starts)", batch)
-            update_yaml_field(status_file, "status", "MissedHeartbeat")
-            update_yaml_field(status_file, "missed_heartbeat_at", now_utc())
-            agents[name]["status"] = "MissedHeartbeat"
-            agents[name]["missed_heartbeat_at"] = now_utc()
-            append_to_agent_log(worktree, name,
-                                "STALE: heartbeat missed — entering grace window")
-
-
-def process_missed_heartbeat_agents(worktree: str, agents: dict[str, dict],
-                                    hb_timeout_seconds: int, batch: bool) -> None:
-    """Resolve MissedHeartbeat agents:
-       - Heartbeat resumed (within hb_timeout_seconds) -> Running.
-       - Grace window expired (now - missed_heartbeat_at >= hb_timeout_seconds) -> Error.
-    """
-    now = datetime.now(timezone.utc)
-    for name, data in list(agents.items()):
-        if data.get("status") != "MissedHeartbeat":
-            continue
-        status_file = os.path.join(worktree, f"{name}_status.yaml")
-        alive_path = os.path.join(worktree, f"{name}_alive.yaml")
-
-        # Recovery: did a fresh heartbeat arrive during the grace window?
-        if check_agent_alive(alive_path, hb_timeout_seconds):
-            log(f"Agent '{name}' heartbeat resumed — recovering to Running", batch)
-            update_yaml_field(status_file, "status", "Running")
-            update_yaml_field(status_file, "missed_heartbeat_at", "")
-            data["status"] = "Running"
-            data["missed_heartbeat_at"] = ""
-            append_to_agent_log(worktree, name,
-                                "RECOVERED: heartbeat resumed -> Running")
-            continue
-
-        # Grace expiry: now - missed_heartbeat_at >= hb_timeout_seconds
-        missed_at = parse_timestamp(str(data.get("missed_heartbeat_at", "")))
-        if missed_at is None:
-            # Defensive: missing timestamp shouldn't happen, but if it does, set it now
-            # so the next iteration evaluates a real grace window.
-            update_yaml_field(status_file, "missed_heartbeat_at", now_utc())
-            data["missed_heartbeat_at"] = now_utc()
-            continue
-        if (now - missed_at).total_seconds() >= hb_timeout_seconds:
-            log(f"Agent '{name}' grace window expired — marking as Error", batch)
-            update_yaml_field(status_file, "status", "Error")
-            update_yaml_field(status_file, "error_message",
-                              "Heartbeat timeout — grace window expired")
-            update_yaml_field(status_file, "completed_at", now_utc())
-            data["status"] = "Error"
-            append_to_agent_log(worktree, name,
-                                "STALE: grace window expired -> Error")
 
 
 def process_pending_commands(worktree: str, agents: dict[str, dict], batch: bool) -> None:
@@ -409,10 +346,10 @@ def enforce_type_limits(ready: list[str], agents: dict[str, dict],
     """Filter ready agents based on per-type max_parallel limits."""
     agent_types_config = meta.get("agent_types", {})
 
-    # Count currently running agents per type (MissedHeartbeat still holds a slot)
+    # Count currently running agents per type
     running_per_type: dict[str, int] = {}
     for data in agents.values():
-        if data.get("status") in ("Running", "MissedHeartbeat"):
+        if data.get("status") == "Running":
             atype = data.get("agent_type", "")
             running_per_type[atype] = running_per_type.get(atype, 0) + 1
 
@@ -937,12 +874,14 @@ def run_loop(worktree: str, crew_id: str, interval: int, max_concurrent: int,
         # Read all agent statuses
         agents = read_all_agent_statuses(worktree)
 
-        # Heartbeat lifecycle: Running -> MissedHeartbeat (soft-stale),
-        # then MissedHeartbeat -> Running (recover) or -> Error (grace expired).
-        stale = get_stale_agents(worktree, hb_timeout)
-        if stale:
-            mark_stale_as_missed_heartbeat(worktree, stale, agents, batch)
-        process_missed_heartbeat_agents(worktree, agents, hb_timeout, batch)
+        # Heartbeat freshness is observed for visibility / read-only queries
+        # (see get_stale_agents in agentcrew_utils). The runner does NOT
+        # mutate <agent>_status.yaml on stale heartbeat — status is the
+        # agent's own self-reported lifecycle.
+        if hb_timeout:
+            stale = get_stale_agents(worktree, hb_timeout)
+            if stale:
+                log(f"Stale heartbeat (status unchanged): {', '.join(stale)}", batch)
 
         # Process pending commands
         process_pending_commands(worktree, agents, batch)
