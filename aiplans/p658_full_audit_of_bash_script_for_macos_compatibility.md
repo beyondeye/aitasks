@@ -121,3 +121,28 @@ bash tests/test_archive_no_overbroad_add.sh
 ```
 
 Must print `All tests passed` (or equivalent) on macOS.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - **Phase A** — Built `/tmp/t658_runner.sh` (one-shot, not committed) that walks `tests/test_*.sh`, runs each with `gtimeout 180`, and writes `/tmp/t658_baseline/summary.tsv`. Baseline on macOS arm64 (Darwin 24.6, bash 5.3 from brew, GNU coreutils as `gdate`/`gtimeout`): **98 tests, 75 PASS, 23 FAIL, 0 TIMEOUT**.
+  - **Phase B** — Re-confirmed all eight static-grep sweeps from the pre-plan exploration. No new findings vs. the plan's table. Walked every `wc -l` call site in production scripts and tests; every site flows into an arithmetic context (`-gt`, `[[ -gt ]]`, `(( ))`) or already strips with `| tr -d ' '` / `| xargs`, and the few tests that use `wc -l` in string compares (`test_setup_git.sh`, `test_draft_finalize.sh`) have a local `assert_eq` that trims via `xargs`. Phase B4 (consolidate the five guarded `date -d` sites onto `portable_date()`) was deliberately **deferred** — the existing `if date --version` branches all have a working `date -j -f` / `date -v` fallback, none of them appeared in the test failures, and the audit's primary fix list was already small enough that mixing in a stylistic refactor would have muddled the change.
+  - **Phase C** — Two macOS-portability bugs fixed:
+    1. `tests/test_archive_no_overbroad_add.sh` — three bare `sed -i 's/^status: Ready/status: Implementing/' aitasks/...` calls (lines 148, 257, 364) failed on BSD sed with `command a expects \ followed by text`. Sourced `lib/terminal_compat.sh` near the top of the test and switched to `sed_inplace`. Test now reports 22/22 passed.
+    2. `tests/test_multi_session_primitives.sh` — `FAKE_PROJ` was the literal output of `mktemp -d "${TMPDIR:-/tmp}/ait_fake_proj_XXXXXX"`, but macOS' `TMPDIR` ends with `/` (so the path retained a `//`) and tmux's `pane_current_path` resolves `/var/folders/...` to `/private/var/folders/...`. The two assertions that compared the literal `FAKE_PROJ` against tmux's reported path failed. Added `FAKE_PROJ=$(cd "$FAKE_PROJ" && pwd -P)` immediately after the `mktemp` to canonicalize. Test now reports 20/20 passed.
+  - **Phase D** — Re-ran the full bash test suite. Result: **77 PASS, 21 FAIL, 0 TIMEOUT, 0 regressions**. Diff vs. baseline shows only the two fixed tests changed status (FAIL → PASS); no other test was perturbed.
+  - **Phase E** — Appended a `## Files Fixed in t658` section to `aidocs/sed_macos_issues.md` documenting both fixes plus the test-suite delta and the classification of the 21 remaining FAILs.
+
+- **Deviations from plan:**
+  - The plan's Phase B4 ("optional consolidation onto `portable_date()`") was deferred (see above). It is not a bug, just a consistency cleanup, and rolling it into this audit would have widened the diff for no functional gain.
+  - One additional macOS-portability bug not predicted in the plan's static-sweep table surfaced from Phase A (the `test_multi_session_primitives` symlink + double-slash issue). It was added to Phase C and fixed alongside the `sed -i` calls.
+
+- **Issues encountered:**
+  - The macOS test suite has a substantial baseline-failure rate (23/98) caused by **non-portability** issues: PyYAML / textual / rich missing from system Python (the codebase has a `~/.aitask/venv/` but only some tests activate it), `codex` CLI not in PATH, stale hand-curated test-setup copy lists missing `lib/launch_modes_sh.sh` / `lib/archive_scan.sh` (`test_crew_groups.sh`, `test_crew_report.sh`, `test_data_branch_migration.sh`), stale skill-count expectations (`test_gemini_setup.sh`: expects 19 entries, current is 20; `test_opencode_setup.sh`: expects 18, current is 21), and a handful of real-but-unrelated bugs (`test_brainstorm_cli.sh` expects `status: init` but `aitask_brainstorm_init.sh` now transitions immediately to `active`; `test_pr_contributor_metadata.sh`, `test_revert_analyze.sh`, `test_verified_update_flags.sh` have their own stale-or-real issues). All 21 remaining failures reproduce identically on Linux and are explicitly out of scope for a macOS-portability audit.
+
+- **Key decisions:**
+  - **Scope discipline.** The audit explicitly classified each baseline failure as `(a) macOS-portability` or `(b) preexisting / environmental`, and only fixed (a). This kept the diff to ~26 LOC across 3 files (2 source, 1 doc) and the commit reviewable in seconds. The (b) bucket is documented in the Phase E doc-update so the next audit doesn't re-investigate.
+  - **`sed_inplace` over inline `if [[ Darwin ]]` branches.** The repo already has the helper, and other tests (`test_fold_mark.sh`, `test_fold_file_refs_union.sh`) use the `|| sed -i.bak` pattern. Both work; `sed_inplace` is the canonical form per `aidocs/sed_macos_issues.md` and matches the helper that `terminal_compat.sh` exposes. No churn on the older two tests since they're already correct on macOS.
+  - **`pwd -P` over `realpath`.** `pwd -P` is POSIX and present on every shell that runs aitasks; `realpath` is not on default macOS (only via brew coreutils as `grealpath`). Same end result, smaller dependency surface.
+
+- **Build verification:** No `verify_build` is configured in `aitasks/metadata/project_config.yaml`, so the Step 9 build verification is a no-op. The audit's own verification is the test-suite re-run in Phase D.
