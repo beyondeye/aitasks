@@ -372,6 +372,16 @@ def apply_initializer_output(task_num: int | str) -> None:
         raise
     if not isinstance(node_data, dict):
         raise ValueError("initializer NODE_YAML block did not parse as a dict")
+
+    # Auto-fill system-generable fields the agent may forget. created_at is a
+    # wall-clock timestamp meaningful at apply-time; created_by_group is the
+    # bootstrap constant. The remaining NODE_REQUIRED_FIELDS carry semantic
+    # content the agent must supply, so we still let validate_node reject those.
+    if not node_data.get("created_at"):
+        node_data["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    if not node_data.get("created_by_group"):
+        node_data["created_by_group"] = "bootstrap"
+
     errs = validate_node(node_data)
     if errs:
         raise ValueError(f"initializer node YAML invalid: {errs}")

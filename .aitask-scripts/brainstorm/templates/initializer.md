@@ -30,6 +30,9 @@ A flat YAML file following the node schema. Required fields:
 - `parents: []`
 - `description`: one-line summary of the imported proposal (<= 120 chars).
 - `proposal_file: br_proposals/n000_init.md`
+- `created_at: "YYYY-MM-DD HH:MM"`: timestamp of node creation (current
+  date/time, double-quoted). The importer auto-fills this if you omit it,
+  but emit it explicitly when possible.
 - `created_by_group: bootstrap`
 - `reference_files`: list containing at minimum the `imported_path`.
 - Any `requirements_*` / `assumption_*` / `component_*` / `tradeoff_*`
@@ -108,6 +111,7 @@ Example:
   - `node_id: n000_init`, `parents: []`
   - `description`: one-line summary (<= 120 chars).
   - `proposal_file: br_proposals/n000_init.md`
+  - `created_at: "YYYY-MM-DD HH:MM"` (current date/time, double-quoted).
   - `created_by_group: bootstrap`
   - `reference_files`: include `imported_path` and any other referenced
     local files or URLs.
