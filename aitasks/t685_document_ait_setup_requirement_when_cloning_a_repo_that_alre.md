@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ait_setup, web_site]
+assigned_to: dario-e@beyond-eye.com
 issue: https://github.com/beyondeye/aitasks/issues/11
 created_at: 2026-04-27 22:29
-updated_at: 2026-04-27 22:29
+updated_at: 2026-04-27 22:31
 ---
 
 Issue created: 2026-04-27 22:15:15
