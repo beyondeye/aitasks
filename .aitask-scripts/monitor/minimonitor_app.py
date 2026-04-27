@@ -145,7 +145,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         yield Static(
             "tab:agent  s/\u2191\u2193:switch  i:info\n"
             "j:jump     r:refresh  q:quit  enter:send\n"
-            "m:full monitor  M:multi",
+            "m:full monitor",
             id="mini-key-hints",
         )
 

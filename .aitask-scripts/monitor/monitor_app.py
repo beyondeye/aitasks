@@ -452,8 +452,8 @@ class MonitorApp(TuiSwitcherMixin, App):
         Binding("n", "pick_next_sibling", "Next Sibling"),
         Binding("R", "restart_task", "Restart"),
         Binding("enter", "send_enter", "Send ↵", show=True),
-        Binding("a", "toggle_auto_switch", "Auto"),
-        Binding("M", "toggle_multi_session", "Multi"),
+        Binding("A", "toggle_auto_switch", "Auto"),
+        Binding("M", "toggle_multi_session", "Multi", show=False),
         Binding("L", "open_log", "Log"),
     ]
 
@@ -868,14 +868,14 @@ class MonitorApp(TuiSwitcherMixin, App):
                 f"· {total} {pane_word} · multi "
                 f"(attached: {attached})"
                 f"{auto_tag}"
-                f"  [dim]Tab: switch panel · M: toggle multi[/]"
+                f"  [dim]Tab: switch panel[/]"
             )
         else:
             bar.update(
                 f"tmux Monitor — session: {self._session} "
                 f"({total} pane{'s' if total != 1 else ''})"
                 f"{auto_tag}"
-                f"  [dim]Tab: switch panel · M: toggle multi[/]"
+                f"  [dim]Tab: switch panel[/]"
             )
 
     def _read_attached_session(self) -> str | None:
