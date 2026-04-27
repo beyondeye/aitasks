@@ -46,6 +46,44 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 
 **Agent caveats:** See [Known Agent Issues](known-issues/) for current Claude Code, Gemini CLI, and Codex CLI workflow limitations.
 
+## Cloning a Repo That Already Uses aitasks
+
+If you `git clone` a repository that already has aitasks installed in
+data-branch mode (the default for projects bootstrapped with current
+versions), the working tree will look "empty" until you run setup:
+
+```bash
+cd /path/to/cloned-repo    # the git repository root
+./ait setup
+```
+
+> **Use `./ait`, not `ait`.** On a fresh clone the global `ait` shim at
+> `~/.local/bin/ait` may not be installed yet, or may not be on `PATH`.
+> The project-local `./ait` dispatcher is always present in the repo root.
+
+`./ait setup` detects the existing remote `aitask-data` branch and:
+
+1. Fetches the `aitask-data` branch from the remote.
+2. Creates the `.aitask-data/` git worktree checked out at that branch.
+3. Replaces the empty `aitasks/` and `aiplans/` directories with symlinks
+   into the worktree, so task and plan files appear in the usual places.
+4. Initializes per-user state (`aitasks/metadata/userconfig.yaml`, etc.).
+
+### Symptoms before running setup
+
+If you see any of these on a fresh clone, run `./ait setup`:
+
+- `aitasks/` exists but contains only an empty `metadata/` subdirectory —
+  no task files visible.
+- `ait board` (or `./ait board`) shows no tasks.
+- `./ait git-health` reports:
+  `Mode: legacy (no separate .aitask-data worktree) — nothing to check.`
+- `git branch -a` shows a remote `aitask-data` branch that is not checked
+  out anywhere locally.
+
+For background on why task data lives on a separate branch, see the
+[Git branching model]({{< relref "/docs/concepts/git-branching-model" >}}).
+
 ## Platform Support
 
 | Platform | Status | Notes |
