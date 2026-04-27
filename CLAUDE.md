@@ -95,6 +95,17 @@ Any new script under `.aitask-scripts/` invoked by a skill must be whitelisted f
 
 When splitting a plan that introduces one or more new helper scripts, surface this 5-touchpoint checklist as an explicit deliverable per helper.
 
+#### Test the full install flow for setup helpers
+
+When adding or modifying helpers in `.aitask-scripts/aitask_setup.sh` that touch `aitasks/metadata/project_config.yaml` (or any file expected to be in place by prior install steps), the test harness must simulate the full `install.sh → ait setup` flow in a scratch dir, not just feed a hand-crafted seed to the helper in isolation.
+
+**Why:** During t624 the agent tested setup helpers by dropping a copy of `seed/project_config.yaml` into a scratch dir and calling the helpers directly. They passed. But `install.sh` deletes `seed/` at the end of install and never had an `install_seed_project_config()` function — so in a fresh user install, `aitasks/metadata/project_config.yaml` was missing, the helpers printed "No project_config.yaml found" and returned. Unit tests passed, integration failed. Follow-up fix was t628.
+
+**How to apply:**
+- For any setup-flow change, run `bash install.sh --dir /tmp/scratchXY` (or equivalent) into a fresh scratch dir, THEN run the new helper/flow, THEN grep/cat the expected output file to confirm. Do not stop at helper-level unit tests.
+- When adding a helper that reads from `aitasks/metadata/X`, grep `install.sh` for `install_seed_X` or similar — if there isn't one, the helper will fail on fresh installs even if it passes isolated tests.
+- `install.sh`'s deletion of `seed/` means any runtime script that still reads from `$project_dir/seed/...` will silently fail in a fresh install. Those paths only work in the source repo where `seed/` is preserved.
+
 ### Script Modes
 Most scripts support both **interactive** (uses `fzf`) and **batch** (CLI flags for automation) modes. Example: `aitask_create.sh --batch --name "task" --priority high --commit`.
 
@@ -113,6 +124,14 @@ Most scripts support both **interactive** (uses `fzf`) and **batch** (CLI flags 
 - **wc -l portability:** macOS `wc -l` pads output with leading spaces (`"       1"` vs `"1"`). This is safe in arithmetic contexts (`-gt`, `-le`, `$(())`), but breaks exact string comparisons (`== "1"`). Strip with `| tr -d ' '` when comparing as strings. See `aidocs/sed_macos_issues.md` for details.
 - **mktemp portability:** macOS BSD `mktemp` does not support `--suffix`. Use template patterns instead: `mktemp "${TMPDIR:-/tmp}/prefix_XXXXXX.ext"`. See `aidocs/sed_macos_issues.md` for details.
 - **base64 portability:** macOS uses `base64 -D` for decoding, Linux uses `base64 -d`. The long form `--decode` is not portable across both. In skill files, document both flags. In scripts, use a conditional or avoid `base64` if possible.
+
+## CLI Conventions
+
+- **`ait setup` vs `ait upgrade` — pick the verb by intent, not by habit.** In `ait` framework user-facing messages (`aitask_setup.sh`, docs, error hints), distinguish carefully:
+  - **"Reinstall / repair / restore / populate-missing"** → say `ait setup`.
+  - **"Move to a newer version"** → say `ait upgrade`.
+
+  **How to apply:** When editing any framework message that mentions reinstalling, repairing, or restoring missing files, verify the verb semantically. Use `ait setup`. Keep `ait upgrade` only for update-available hints or "move to v0.X.Y" flows.
 
 ## Commit Message Format
 ```
@@ -146,6 +165,40 @@ User-facing docs (website, README-level content) describe the **current state on
 - **Priority bindings + `App.query_one` gotcha:** when an `App` and a pushed `Screen` define a binding with the same action name and `priority=True`, the App-level action runs first. If its "am I in the right screen?" guard uses `self.query_one(...)`, the query walks the entire screen stack and will match widgets from underlying screens — so the guard succeeds for the wrong screen, consumes the key, and the active screen's own binding never fires. Scope guards to `self.screen.query_one(...)`. On guard-miss, raise `textual.actions.SkipAction` so the next priority binding (the active screen's own action) gets a chance. Alternative: use distinct action names per screen.
 - **No auto-commit/push of project-level config from runtime TUIs.** Runtime `save()` paths in config modules must write only the user-level (`*.local.json`, gitignored) layer. Project-level (`*.json`, tracked) files are read-only at runtime unless there is an explicit user-initiated "export / publish" action. Never call `git commit` or `./ait git push` from inside a TUI event handler for a config change. First-time ship of a project-level file is a one-time implementation commit; runtime saves after that must not touch it.
 - **Contextual-footer ordering: keep uppercase sibling adjacent to its lowercase primary.** When a pane's footer includes both a lowercase primary action (e.g., `d` = toggle detail) and its uppercase sibling (e.g., `D` = expand detail), keep them adjacent in the footer — `d D …`, not `d c D …`. The uppercase-to-tail demotion rule applies only to uppercase keys whose primary is NOT itself in the pane's suffix. Example: in `detail_pane` the suffix should be `["d", "D", "c", "H"]` — `D` adjacent to `d`; `H` (whose `h` primary lives in `PRIMARY_ORDER`) at the tail.
+- **Pane-internal cycling uses `←` / `→`** (not `[` / `]` brackets). For pane-level item cycling inside a Textual TUI (e.g., cycling operations in the stats verified-rankings pane), use ←/→ arrow keys.
+
+  **Why:** Arrows are more discoverable and ergonomic for left/right motion than bracket keys.
+
+  **How to apply:** When designing a pane that needs prev/next cycling within a shared right-hand content area:
+  - Use App-level bindings for `"left"` / `"right"` so the sidebar `ListView` (which only consumes ↑/↓) doesn't interfere.
+  - Ensure inner widgets don't consume left/right — e.g., set `DataTable(cursor_type="row")` so the table's default cell-cursor bindings are inactive.
+  - Guard the action handler on the currently-visible pane id so arrows are a no-op when viewing other panes.
+  - Keep `show=False` on the bindings to avoid cluttering the footer; surface the hint in the pane's own header text instead.
+- **TUI switcher shortcuts act on the *selected* session, not the attached one.** In the multi-session TUI switcher, shortcut keys (`b` board, `m` monitor, `c` codebrowser, `s` settings, `t` stats, `r` brainstorm, `g` git, `x` explore, `n` new task) act on the selected (Left/Right-browsed) session — identical to pressing Enter on that TUI's row in that session. Cross-session teleport (`switch-client`) fires automatically when the selected session differs from the attached one.
+
+  **Why:** Earlier task-description language ("shortcuts stay on current/attached session") was reversed by user direction during planning; the implemented plan in `aiplans/p634/p634_3_two_level_tui_switcher.md` follows the user preference, not the original task description.
+
+  **How to apply:** Future work on `.aitask-scripts/lib/tui_switcher.py` and related keybinding docs must preserve shortcut-on-selected semantics. `self._session` in a shortcut handler is the *selected/operating* session (mutated by Left/Right) — that read is correct. The separate `self._attached_session` attribute exists only to decide whether to issue `switch-client`. Do not "fix" the asymmetry by routing shortcuts through the attached session or by adding a current-running-names set. If reading the archived task file `t634/t634_3` later, treat its "Step 4 — Shortcut keys stay on current session" as superseded.
+- **Single tmux session per project.** The aitasks framework is designed to use exactly ONE tmux session per project. All TUIs, agents, monitor, minimonitor, brainstorm, and codebrowser of a given project live inside that one session (configured by `tmux.default_session` in `aitasks/metadata/project_config.yaml`).
+
+  **Why:** Users routinely run multiple aitasks projects side-by-side (e.g., `aitasks` and `aitasks_mob`) in different terminals. Each project must stay fully isolated in its own tmux session so TUIs and singletons (lazygit, brainstorm, monitor) do not cross-contaminate between projects.
+
+  **How to apply:**
+  - Any tmux lookup that scans across sessions (e.g., `find_window_by_name` iterating `get_tmux_sessions()`) is architecturally incorrect and must be scoped to the current project's session.
+  - Any `tmux -t <session>` target must use exact match (`-t =<session>`) — tmux's default prefix match means a session named `aitasks` silently resolves to `aitasks_mob` if that's the only running match, crossing project boundaries.
+  - When reviewing multi-project behavior, assume the user may have several session names that share prefixes.
+- **Companion pane auto-despawn — kill the companion only, never the window.** When spawning a companion pane (e.g., `minimonitor`) alongside a primary command in a new tmux window (git TUI / `ait create` / explore agents / similar), the companion must auto-despawn when the primary exits — but only the companion pane, and only if no other sibling pane is still using the window.
+
+  **Why:** Two failure modes to avoid: (1) blanket-killing the window (`tmux kill-window`) tears down user-created panes (shells, notes); (2) a global "kill companion on any pane-exit" approach despawns prematurely when one of several primary-like siblings exits. The companion should persist until *every* primary-like pane is gone.
+
+  **How to apply:**
+  1. Capture the primary pane id (`tmux new-window -P -F "#{pane_id}"`) and companion pane id (same flags on `split-window`) at spawn time.
+  2. Attach a pane-scoped `pane-died` hook to the primary (`tmux set-hook -p -t <primary> pane-died …`) with `remain-on-exit on` so the hook fires.
+  3. The hook calls a cleanup script that lists panes in the window, excluding primary + companion. If zero other panes → kill both. If ≥1 → kill only the primary and leave the companion alive.
+  4. Do NOT use `tmux kill-window`.
+  5. Do NOT use a global "kill companion on any pane-exit" approach.
+
+  Canonical helper lives at `.aitask-scripts/aitask_companion_cleanup.sh` (shell script, called via `tmux run-shell`, not from a code-agent skill — no whitelisting touchpoints).
 
 ## Model Attribution
 
@@ -173,6 +226,14 @@ of skills and commands:
 
 - **Agent-specific steps live in their own procedure file.** If a workflow step applies only to one code agent (e.g., Claude Code's internal plan file externalization), put the procedure — commands, output parsing, error handling — in its own `.claude/skills/task-workflow/<name>.md`. Reference it from `SKILL.md` / `planning.md` with a short conditional wrapper: "If running in Claude Code, execute the \<Procedure Name\> (see `<name>.md`). Other agents skip this step because \<reason\>." Never inline agent-specific steps into shared files — when the tree is ported to `.opencode/`, `.gemini/`, `.agents/`, the porter either copies irrelevant steps or silently drops them.
 - **Execution-profile keys vs. guard variables — pick the right lever.** Profile keys (e.g., `qa_mode: ask|never`, `post_plan_action`) are for letting users opt in/out of a procedure; they are the right fix when a step feels overreaching. Guard variables (e.g., `feedback_collected`) are set-once-consume-once flags that prevent DOUBLE execution when the same procedure can be invoked twice via different control-flow paths — they do NOT force a single execution, so they can't be used to "remind agents to fire a prompt." Rule of thumb: if the concern is "agents might forget to fire X", restructure control flow (extract X to its own file, reference explicitly from SKILL.md, make it a numbered step) and add a profile key for opt-out. If the concern is "X might fire twice via re-entry", add a guard variable to the SKILL.md context-variables table and check it at procedure entry — LLMs reading the instructions may not reliably distinguish imperative "execute this" from descriptive "this happens", so a variable is a programmatic guarantee regardless of interpretation.
+- **Context-variable pattern over template substitution engines.** When templates need per-instance values like `CREW_ID` / `AGENT_NAME` (or analogous variables), do NOT introduce a template-substitution engine that interpolates the values at template-write time (e.g., a sed/envsubst pass added to a helper). Instead, follow the "context-variable" pattern already used by `task-workflow`: declare the variables once in a known file the agent reads (e.g., `_instructions.md`, or a shared `_context_variables.md` include), reference them as `${VARNAME}` placeholders throughout the template, and let the agent substitute them at read time.
+
+  **Why:** The pattern is already in use and working for execution profiles in `task-workflow` — `task_file`, `task_id`, `active_profile`, etc. are declared in the SKILL.md "Context Requirements" table and referenced throughout downstream procedures. Agents bind them from working memory rather than from text mangled at write time. Adding a new substitution engine duplicates the binding mechanism, introduces a second code path that can drift, and creates a fragile transformation step in the script pipeline.
+
+  **How to apply:** When a template needs per-instance values:
+  - First, check whether the agent already has the values available via a known context source (e.g., its `_instructions.md` written by an existing helper). If so, just reference the variables in the template and tell the agent where the literal values live.
+  - If a shared declaration is needed across multiple templates, add a small include file (e.g., `_context_variables.md`) and inline it via the existing `<!-- include: ... -->` mechanism — do NOT add a new substitution pipeline.
+  - Reserve write-time variable interpolation for cases where the agent genuinely cannot read the literal values from any context file (rare).
 
 ### Claude Code (source of truth)
 - Skills: `.claude/skills/<name>/SKILL.md`
