@@ -2,7 +2,7 @@ id: brainstorm-635
 name: Brainstorm t635
 created_at: 2026-04-27 19:41:31
 created_by: dario-e@beyond-eye.com
-agents: []
+agents: [initializer_bootstrap]
 agent_types:
   explorer:
     agent_string: claudecode/opus4_7_1m
