@@ -265,4 +265,23 @@ Run `shellcheck .aitask-scripts/agentcrew/*.sh` to confirm no regression. (No ne
 
 ## Final Implementation Notes
 
-(Filled in at archival time per task-workflow Step 9.)
+- **Actual work done:** Implemented exactly as planned.
+  - `AGENT_TRANSITIONS["Error"]` extended from `["Waiting", "Completed"]` to `["Waiting", "Running", "Completed"]` with the multi-line rationale comment placed above the terminal-states block (so it covers both `Completed`/`Aborted` (non-recoverable) and `Error` (recoverable) by contrast).
+  - Moved `git_cmd`, `git_pull`, and `git_commit_push_if_changes` from `agentcrew_runner.py` to `agentcrew_utils.py` under a new `# Git helpers` section, placed between `crew_worktree_path` and `list_agent_files`. The `log()` function only existed in the runner; replaced its uses inside the moved helpers with inline `print(..., file=sys.stderr)` guarded by `if not batch`. Added `import subprocess` and `import sys` to utils.
+  - `cmd_set` in `agentcrew_status.py` now calls `git_commit_push_if_changes(wt, f"agent {args.agent}: {current} -> {args.status}", batch=True)` after `_recompute_crew_status(wt)` for terminal transitions (`Completed`/`Aborted`/`Error`). Used the existing `current` variable (already captured before mutation at line 101) — no need to introduce a separate `prev_status` binding.
+  - Added `--no-push` argparse flag to the `set` subparser. No internal caller currently uses it (verified: runner uses `update_yaml_field` directly, never shells out to this CLI). Documented as a future-proofing hook with a comment near the push call.
+- **Deviations from plan:**
+  - Plan suggested introducing `prev_status = data.get("status", "Unknown")`; not needed because `cmd_set` already binds `current = data.get("status", "Unknown")` at line 101 before mutation. Reused `current` instead.
+  - Plan placed the comment ("Error is recoverable…") inline above the `"Error"` line; in practice it fit better above the entire terminal-states block, since the contrast with `Completed`/`Aborted` is the point of the comment.
+  - Tests: invoked the Python script directly via `python3 .aitask-scripts/agentcrew/agentcrew_status.py ...` instead of `"$ROOT/ait" crew status set ...`. The `ait` wrapper does `cd "$AIT_DIR"` to the real repo before dispatching, which would make `crew_worktree_path()` look in the real `.aitask-crews/` instead of the test's synthetic fixture under `$TMPROOT`. Direct Python invocation honors the test cwd. The script's `sys.path.insert` at module top makes the `agentcrew.*` imports resolve regardless of cwd.
+  - Added a third assertion to `test_agentcrew_terminal_push.sh`: non-terminal transitions (e.g., Waiting → Ready) must NOT push. This guards against future regressions where the push gate slips and starts pushing on every status write.
+  - Added a fourth assertion to `test_agentcrew_error_recovery.sh`: Error → Waiting still works (the original recovery path predating this task).
+- **Issues encountered:** None. Tests passed first try. Verified runner imports still resolve via `./ait crew runner --crew __nonexistent__ --check` (errors with the expected "Crew worktree not found", not an `ImportError`).
+- **Key decisions:**
+  - Group-moved all three git helpers (`git_cmd`, `git_pull`, `git_commit_push_if_changes`) rather than just `git_commit_push_if_changes`. They form a cohesive unit and the runner's `git_pull` was the only other in-runner caller of `git_cmd`. Splitting would have left `git_cmd` orphaned in the runner.
+  - Used the existing `current` variable in `cmd_set` for the commit message rather than adding a `prev_status` alias. Cleaner diff, no behavioral difference.
+  - Test fixtures bypass `ait` and call `agentcrew_status.py` directly so the synthetic crew under `$TMPROOT/.aitask-crews/` is found. This is the established pattern for crew-related tests where the fixture must live outside the real repo.
+- **Notes for sibling tasks:**
+  - `git_cmd`, `git_pull`, `git_commit_push_if_changes` are now in `agentcrew_utils.py`. Future agentcrew code should import from there.
+  - The `--no-push` flag exists on `ait crew status set` but is unused by the runner. If t653_4 or t653_5 need to add a runner-side caller that shells out to `crew status set` (rather than using `update_yaml_field`), pass `--no-push` to avoid double-pushing within the runner's per-iteration push.
+  - For agentcrew tests that need a synthetic crew worktree, the pattern is: `mktemp -d "${TMPDIR:-/tmp}/<name>_XXXXXX"`, `git init`, create `.aitask-crews/crew-<id>/`, then invoke `python3 "$PROJECT_DIR/.aitask-scripts/agentcrew/<script>.py"` directly from the tmpdir. Do NOT use `"$PROJECT_DIR/ait" crew ...` — `ait` will `cd` away from your fixture.
