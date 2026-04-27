@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [ait_brainstorm]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-27 12:17
-updated_at: 2026-04-27 12:17
+updated_at: 2026-04-27 12:19
 ---
 
 The brainstorm TUI shows the banner "Initializer apply failed: missing
