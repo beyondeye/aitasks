@@ -1,0 +1,5 @@
+current_head: n000_init
+history:
+- n000_init
+next_node_id: 1
+active_dimensions: []
