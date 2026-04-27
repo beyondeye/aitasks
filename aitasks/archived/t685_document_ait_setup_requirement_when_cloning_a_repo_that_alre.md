@@ -3,12 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [ait_setup, web_site]
 assigned_to: dario-e@beyond-eye.com
 issue: https://github.com/beyondeye/aitasks/issues/11
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-27 22:29
-updated_at: 2026-04-27 22:31
+updated_at: 2026-04-27 23:17
+completed_at: 2026-04-27 23:17
 ---
 
 Issue created: 2026-04-27 22:15:15
