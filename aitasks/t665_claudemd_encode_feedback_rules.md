@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [claudeskills, documentation, task_workflow]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-27 11:40
-updated_at: 2026-04-27 11:40
+updated_at: 2026-04-27 12:19
 ---
 
 Encode 8 user-feedback rules and design invariants from auto-memory into
