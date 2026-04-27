@@ -310,6 +310,7 @@ After implementation is complete, the user MUST be given the opportunity to revi
       - **Deviations from plan:** <any changes from the original approach and why>
       - **Issues encountered:** <problems found during implementation and how they were resolved>
       - **Key decisions:** <technical decisions made during implementation>
+      - **Upstream defects identified:** Did diagnosis surface an upstream defect — a separate, pre-existing bug in a different script/helper/module whose behavior *seeded* the symptom this task fixed? List each as a bullet of the form `path/to/file.ext:LINE — short summary` (e.g. `aitask_brainstorm_delete.sh:109-111 — worktree-prune ordering bug leaves stale crew-brainstorm-<N> branch`). Write `None` (verbatim) if no upstream defect was identified — this subsection is read by Step 8b. Do not list style/lint cleanups, refactor opportunities, test gaps (those go through `/aitask-qa`), or unrelated TODOs.
       - **Notes for sibling tasks:** <patterns established, gotchas discovered, shared code created, or other information useful for subsequent child tasks> (include this section if this is a child task)
       ```
     - **IMPORTANT for child tasks:** The plan file will be archived and serve as the primary reference for subsequent sibling tasks. Ensure the Final Implementation Notes are comprehensive enough that a fresh context can understand what was done and learn from the experience.
@@ -341,7 +342,7 @@ After implementation is complete, the user MUST be given the opportunity to revi
     - **Plan/task file commits** use the `ait:` prefix (e.g., `ait: Update plan for t16`). Administrative commits (status changes, archival) also use `ait:` and must NOT include the `(t<task_id>)` tag.
     - **Never mix** code files and `aitasks/`/`aiplans/` files in the same `git add` or commit. Code uses regular `git`; task/plan files use `./ait git`. This separation is required when task data lives on a separate branch, and is safe in legacy mode where `./ait git` passes through to plain `git`.
   - **Note:** For test coverage analysis and test plan generation, run `/aitask-qa <task_id>` after implementation.
-  - Proceed to Step 8c
+  - Proceed to Step 8b
 
 - **If "Need more changes":**
   - Ask user what needs to change
@@ -363,9 +364,19 @@ After implementation is complete, the user MUST be given the opportunity to revi
 - **If "Abort":**
   - Execute the **Task Abort Procedure** (see `task-abort.md`)
 
+### Step 8b: Upstream Defect Follow-up
+
+Entered from Step 8 after the "Commit changes" branch has committed code and plan files. Offers the user a chance to spawn a standalone aitask for an upstream defect surfaced during diagnosis (when the failure was *seeded* by a separate, pre-existing bug elsewhere — a different script, helper, or module).
+
+Execute the **Upstream Defect Follow-up Procedure** (see `upstream-followup.md`) with:
+- `task_file`, `task_id`, `is_child`, `active_profile`, `parent_id` from the current context.
+- `task_slug` — filename stem with the `t<id>_` prefix stripped (e.g. `aitasks/t42_add_login.md` → `add_login`).
+
+When the procedure returns, proceed to Step 8c.
+
 ### Step 8c: Manual Verification Follow-up
 
-Entered from Step 8 after the "Commit changes" branch has committed code and plan files. Offers the user a chance to queue a standalone manual-verification task that will be picked after this task archives.
+Entered from Step 8b (or directly from Step 8 if 8b was a no-op). At this point code and plan files have already been committed. Offers the user a chance to queue a standalone manual-verification task that will be picked after this task archives.
 
 Execute the **Manual Verification Follow-up Procedure** (see `manual-verification-followup.md`) with:
 - `task_file`, `task_id`, `is_child`, `active_profile`, `parent_id` from the current context.
@@ -528,6 +539,7 @@ The following procedures are in individual files — read on demand when referen
 - **Lock Release Procedure** (`lock-release.md`) — Release task locks. Referenced from Task Abort Procedure.
 - **Manual Verification Procedure** (`manual-verification.md`) — Interactive checklist runner for `issue_type: manual_verification` tasks. Referenced from Step 3 (Check 3).
 - **Manual Verification Follow-up Procedure** (`manual-verification-followup.md`) — Post-implementation prompt offering to create a standalone manual-verification task, with multi-source candidate discovery. Referenced from Step 8c.
+- **Upstream Defect Follow-up Procedure** (`upstream-followup.md`) — Post-implementation prompt offering to spawn a standalone bug aitask for an upstream defect surfaced during diagnosis. Reads the plan file's "Upstream defects identified" subsection. Referenced from Step 8b.
 - **Execution Profile Selection Procedure** (`execution-profile-selection.md`) — Interactive profile scan and selection. Referenced from Step 0a in calling skills and Step 3b.
 - **Execution Profile Selection Procedure — Auto-Select** (`execution-profile-selection-auto.md`) — Non-interactive auto-select for remote/web skills. Referenced from Step 1 in aitask-pickrem/aitask-pickweb.
 - **Batch Task Creation Procedure** (`task-creation-batch.md`) — Canonical command templates for creating tasks via `aitask_create.sh --batch`. Referenced from planning.md and multiple skills (explore, review, qa, wrap, pr-import, revert).
