@@ -154,3 +154,7 @@
 [20:02:17] --- Iteration 40 ---
 [20:02:18] Stale heartbeat (status unchanged): initializer_bootstrap
 [20:02:18] Progress: 0% | Running: 1/3 | ETA: N/A
+[20:02:19] Sleeping 30s
+[20:02:49] --- Iteration 41 ---
+[20:02:50] Stale heartbeat (status unchanged): initializer_bootstrap
+[20:02:50] Progress: 0% | Running: 1/3 | ETA: N/A
