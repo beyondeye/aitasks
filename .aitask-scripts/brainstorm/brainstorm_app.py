@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from difflib import SequenceMatcher
@@ -245,6 +246,80 @@ class InitSessionModal(ModalScreen):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+
+_STALE_CREW_BRANCH_RE = re.compile(
+    r"Branch '(crew-brainstorm-[\w\-]+)' already exists"
+)
+
+
+def detect_stale_crew_branch(error_text: str) -> str | None:
+    """Return the stale `crew-brainstorm-<N>` branch name if the error names one."""
+    m = _STALE_CREW_BRANCH_RE.search(error_text)
+    return m.group(1) if m else None
+
+
+class InitFailureModal(ModalScreen):
+    """Modal shown when ``ait brainstorm init`` fails or its runner crashes.
+
+    Replaces the previous fire-and-forget `notify(...)` + `app.exit()` pattern
+    that swallowed the error message. Lets the user read the captured
+    stderr/stdout and choose to retry the init flow or quit.
+
+    When the captured error names a stale `crew-brainstorm-<N>` branch (the
+    common failure mode after a prior aborted init), an extra button offers
+    to delete the branch and re-run the init flow in one step.
+    """
+
+    BINDINGS = [Binding("escape", "quit", "Quit", show=False)]
+
+    def __init__(self, error_text: str):
+        super().__init__()
+        self.error_text = error_text
+        self.stale_branch = detect_stale_crew_branch(error_text)
+
+    def compose(self) -> ComposeResult:
+        with Container(id="init_failure_dialog"):
+            yield Label("Brainstorm init failed", id="init_failure_title")
+            if self.stale_branch:
+                hint = (
+                    f"A stale `{self.stale_branch}` branch is blocking init "
+                    f"(likely left over from an aborted previous attempt). "
+                    f"Use 'Delete branch & retry' to clean it up and rerun."
+                )
+            else:
+                hint = (
+                    "The init subprocess failed. Captured output below — "
+                    "fix the underlying issue and Retry."
+                )
+            yield Label(hint, id="init_failure_hint")
+            ta = TextArea(self.error_text, id="init_failure_output", read_only=True)
+            ta.show_line_numbers = False
+            yield ta
+            with Horizontal(id="init_failure_buttons"):
+                if self.stale_branch:
+                    yield Button(
+                        "Delete branch & retry",
+                        variant="warning",
+                        id="btn_init_failure_clean",
+                    )
+                yield Button("Retry", variant="primary", id="btn_init_failure_retry")
+                yield Button("Quit", variant="default", id="btn_init_failure_quit")
+
+    @on(Button.Pressed, "#btn_init_failure_clean")
+    def on_clean(self) -> None:
+        self.dismiss("clean_and_retry")
+
+    @on(Button.Pressed, "#btn_init_failure_retry")
+    def on_retry(self) -> None:
+        self.dismiss("retry")
+
+    @on(Button.Pressed, "#btn_init_failure_quit")
+    def on_quit(self) -> None:
+        self.dismiss("quit")
+
+    def action_quit(self) -> None:
+        self.dismiss("quit")
 
 
 class DeleteSessionModal(ModalScreen):
@@ -1180,6 +1255,38 @@ class BrainstormApp(TuiSwitcherMixin, App):
         height: 3;
         align: center middle;
         margin-top: 1;
+    }
+
+    /* Init failure modal */
+    #init_failure_dialog {
+        width: 90%;
+        height: 80%;
+        background: $surface;
+        border: thick $error;
+        padding: 1 2;
+    }
+
+    #init_failure_title {
+        text-style: bold;
+        text-align: center;
+        width: 100%;
+        margin-bottom: 1;
+        color: $error;
+    }
+
+    #init_failure_hint {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #init_failure_output {
+        height: 1fr;
+        margin-bottom: 1;
+    }
+
+    #init_failure_buttons {
+        height: 3;
+        align: center middle;
     }
 
     /* Node detail modal */
@@ -3202,11 +3309,14 @@ class BrainstormApp(TuiSwitcherMixin, App):
             text=True,
         )
         if result.returncode != 0:
-            msg = result.stderr.strip() or result.stdout.strip()
-            self.call_from_thread(
-                self.notify, f"Init failed: {msg}", severity="error"
+            error_text = self._format_init_error(
+                f"`ait brainstorm init {self.task_num}` exited "
+                f"with code {result.returncode}.",
+                result.stdout,
+                result.stderr,
+                include_runner_log=False,
             )
-            self.call_from_thread(self.exit)
+            self.call_from_thread(self._show_init_failure, error_text)
             return
 
         agent_name = "initializer_bootstrap"
@@ -3216,17 +3326,117 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 break
 
         if "RUNNER_START_FAILED:" in result.stderr:
-            self.call_from_thread(
-                self.notify,
-                "Initializer agent registered but runner failed to start. "
-                f"Run `ait crew runner --crew brainstorm-{self.task_num}` "
-                "manually.",
-                severity="error",
+            error_text = self._format_init_error(
+                "The initializer agent was registered, but its runner "
+                f"crashed within {1.5}s of launch.\n"
+                f"To retry the runner manually:\n"
+                f"    ait crew runner --crew brainstorm-{self.task_num}",
+                result.stdout,
+                result.stderr,
+                include_runner_log=True,
             )
-            self.call_from_thread(self.exit)
+            self.call_from_thread(self._show_init_failure, error_text)
             return
 
         self.call_from_thread(self._start_initializer_wait, agent_name)
+
+    def _format_init_error(
+        self,
+        summary: str,
+        stdout: str,
+        stderr: str,
+        include_runner_log: bool,
+    ) -> str:
+        """Build the multi-line error body shown in InitFailureModal."""
+        parts = [summary, "", "STDERR:", stderr.rstrip() or "(empty)", "",
+                 "STDOUT:", stdout.rstrip() or "(empty)"]
+        if include_runner_log:
+            log_path = crew_worktree(self.task_num) / "_runner_launch.log"
+            if log_path.is_file():
+                try:
+                    log_text = log_path.read_text(encoding="utf-8", errors="replace")
+                except OSError as e:
+                    log_text = f"(failed to read {log_path}: {e})"
+                parts.extend(["", f"_runner_launch.log ({log_path}):", log_text.rstrip()])
+        return "\n".join(parts)
+
+    def _show_init_failure(self, error_text: str) -> None:
+        """Push InitFailureModal from the main thread."""
+        self.push_screen(
+            InitFailureModal(error_text),
+            callback=self._on_init_failure_result,
+        )
+
+    def _on_init_failure_result(self, result: str | None) -> None:
+        """Modal-result handler.
+
+        - ``retry``: re-open InitSessionModal.
+        - ``clean_and_retry``: delete the stale crew branch in a worker, then
+          either re-open InitSessionModal on success or re-show the failure
+          modal with the cleanup error appended on failure.
+        - any other value (``quit``/``None``/Escape): exit the app.
+        """
+        if result == "retry":
+            self.push_screen(
+                InitSessionModal(self.task_num),
+                callback=self._on_init_result,
+            )
+        elif result == "clean_and_retry":
+            self._cleanup_stale_crew_branch_and_retry()
+        else:
+            self.exit()
+
+    @work(thread=True)
+    def _cleanup_stale_crew_branch_and_retry(self) -> None:
+        """Delete the stale `crew-brainstorm-<N>` branch, then reopen Init modal.
+
+        Runs `git worktree prune` first so a stale worktree registration
+        does not pin the branch as "checked out elsewhere", then deletes the
+        local branch (and best-effort the remote tracking ref). On failure,
+        re-shows the InitFailureModal with the cleanup output appended.
+        """
+        crew_branch = f"crew-brainstorm-{self.task_num}"
+        cmds = [
+            ["git", "worktree", "prune"],
+            ["git", "branch", "-D", crew_branch],
+        ]
+        outputs: list[str] = []
+        success = True
+        for cmd in cmds:
+            r = subprocess.run(cmd, capture_output=True, text=True)
+            outputs.append(
+                f"$ {' '.join(cmd)}\nexit={r.returncode}\n"
+                f"{r.stdout}{r.stderr}".rstrip()
+            )
+            if r.returncode != 0 and cmd[1] == "branch":
+                success = False
+        # Best-effort remote prune; never fails the cleanup
+        r = subprocess.run(
+            ["git", "push", "origin", "--delete", crew_branch],
+            capture_output=True, text=True,
+        )
+        outputs.append(
+            f"$ git push origin --delete {crew_branch}\nexit={r.returncode}\n"
+            f"{r.stdout}{r.stderr}".rstrip()
+        )
+
+        if success:
+            self.call_from_thread(
+                self.notify,
+                f"Deleted stale {crew_branch}; reopening init…",
+                severity="information",
+            )
+            self.call_from_thread(
+                self.push_screen,
+                InitSessionModal(self.task_num),
+                callback=self._on_init_result,
+            )
+        else:
+            error_text = (
+                f"Failed to delete stale {crew_branch}.\n\n"
+                + "\n\n".join(outputs)
+            )
+            self.call_from_thread(self._show_init_failure, error_text)
 
     def _start_initializer_wait(self, agent_name: str) -> None:
         """Main-thread setup: show placeholder DAG + start polling timer."""
