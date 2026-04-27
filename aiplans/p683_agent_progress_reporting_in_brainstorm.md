@@ -135,3 +135,38 @@ ticks.
 Standard task-workflow Step 9 cleanup: commit the single-file change with
 `feature: <description> (t683)`, then archive via `aitask_archive.sh 683`,
 then push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added 12 lines to `_mount_agent_row()` in
+  `.aitask-scripts/brainstorm/brainstorm_app.py` (lines 2268–2277 + the
+  `{progress_str}` slot in the f-string at line 2301). The block reads the
+  `progress` field from the agent's already-loaded `_status.yaml` data
+  dict, defensively coerces to a clamped int 0–100, builds a 10-char
+  `█`/`░` bar plus a percent suffix, and renders it only when `progress > 0`.
+- **Deviations from plan:** None. Implemented exactly as planned.
+- **Issues encountered:** None during implementation. Worth noting for
+  future readers: the file had pre-existing uncommitted edits to
+  `brainstorm_session.py`, `templates/initializer.md`, and
+  `tests/test_brainstorm_session.py` (unrelated work-in-progress on the
+  initializer NODE_YAML auto-fill path); those were intentionally left
+  untouched and excluded from this task's commit.
+- **Key decisions:**
+  - Inline the bar formula instead of extracting a shared helper —
+    duplicates a 4-line pattern already present at
+    `agentcrew_dashboard.py:246–248`, but a one-caller helper was deemed
+    premature abstraction given the trivial size and existing duplication.
+    A future refactor task could consolidate both call sites into
+    `agentcrew_utils.py`.
+  - Render only when `progress > 0` (per user direction). This keeps
+    Pending/Waiting agent rows uncluttered. The 10-char width matches
+    `agentcrew_dashboard` for cross-TUI visual consistency.
+  - Defensive int coercion + clamp: `int(... or 0)` handles `progress: null`
+    YAML; the `try/except` handles legacy yaml carrying a string. Clamp
+    `[0, 100]` shields the row from a buggy writer producing an oversized
+    bar.
+- **Upstream defects identified:** None.
+- **Verification (manual):** Validated via byte-compile (`py_compile` clean).
+  Live-TUI verification per the plan's Verification section is the
+  user's call — the bar formula is a literal copy of the working
+  `agentcrew_dashboard` pattern, so behavioral risk is low.
