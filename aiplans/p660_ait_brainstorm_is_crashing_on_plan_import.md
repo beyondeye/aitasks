@@ -82,3 +82,30 @@ For Phase 2:
 
 ## Step 9 reminder
 After implementation: `git diff` review with the user, code commit (issue_type=bug, message `bug: Show persistent error modal on brainstorm init/runner failure (t660)`), plan commit, archive via `./.aitask-scripts/aitask_archive.sh 660`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-04-27 14:00)
+- **Requested by user:** Integrate a "delete branch and retry" action into the InitFailureModal so the stale crew-branch failure mode can be recovered in one click. Also flagged that `ait brainstorm delete` had not cleaned up the stale branch on the previous attempt — separate bug.
+- **Changes made:**
+  - Added `detect_stale_crew_branch(error_text)` helper plus `_STALE_CREW_BRANCH_RE` regex to recognize the `Branch 'crew-brainstorm-<N>' already exists` pattern in the captured stderr.
+  - `InitFailureModal` now stores `self.stale_branch` in `__init__`. When non-None, the modal renders a third button ("Delete branch & retry", `variant="warning"`) with a tailored hint label that explains what the cleanup will do.
+  - New BrainstormApp worker `_cleanup_stale_crew_branch_and_retry()` runs `git worktree prune` (so a stale worktree registration does not pin the branch), `git branch -D crew-brainstorm-<N>`, and best-effort `git push origin --delete crew-brainstorm-<N>` (ignored on failure). On success it notifies and re-pushes the InitSessionModal; on `git branch -D` failure it re-shows the InitFailureModal with the cleanup output appended.
+  - `_on_init_failure_result` extended to dispatch the new `clean_and_retry` outcome.
+  - Test file extended with `StaleCrewBranchDetectionTests` (4 cases) and an extra `InitFailureModalSmokeTests` case for the `stale_branch` attr.
+- **Files affected:**
+  - `.aitask-scripts/brainstorm/brainstorm_app.py` (added `import re`, regex constant, `detect_stale_crew_branch`, new button branch in `compose`, `on_clean` handler, expanded `_on_init_failure_result`, new `_cleanup_stale_crew_branch_and_retry` worker).
+  - `tests/test_brainstorm_init_failure_modal.py` (extended test coverage — 5 cases → 10 cases).
+- **Out-of-scope follow-up filed mentally (not implemented in this task):** `aitask_brainstorm_delete.sh` lines 109-111 run `git branch -D` *before* `git worktree prune`; if a stale worktree registration exists, the branch is "checked out at <stale path>" and the delete silently fails (`2>/dev/null || true`). The order should be `git worktree prune` first, then `git branch -D`. This is the root cause of the user's "delete didn't clean up the branch" observation, and warrants its own task once t660 is archived.
+
+## Final Implementation Notes
+- **Actual work done:** Replaced the silent `notify+self.exit()` pattern in `_run_init_with_proposal` with a persistent `InitFailureModal`. The modal scrolls captured stderr/stdout (and `_runner_launch.log` for runner crashes), and offers Retry / Quit. When the captured error matches the stale-`crew-brainstorm-<N>`-branch pattern, an extra "Delete branch & retry" action runs `git worktree prune` + `git branch -D` + best-effort remote delete, then re-opens the InitSessionModal. Added 10 unit tests covering `_format_init_error`, `detect_stale_crew_branch`, and `InitFailureModal` instantiation.
+- **Deviations from plan:** Phase 3 (YAML hardening) was correctly deferred — Phase 1 confirmed the failure was Path A (subprocess exit 1 from `aitask_brainstorm_init.sh`'s "Branch already exists" check), nothing to do with `_tolerant_yaml_load`. Added the user-requested "Delete branch & retry" affordance that the original plan called out as a stretch.
+- **Issues encountered:** Working tree had unrelated PollingIndicator WIP from a parallel task. Isolated my hunks via a per-file `diff -u` round-trip (saved with-all snapshot, reset to HEAD, applied the polling-only patch reconstructed from earlier `git diff` output, computed `diff -u polling_only.py with_all.py` as the my-only patch, applied that to a clean HEAD, restored the with-all state for the user afterwards). Net commit: only t660 hunks + new test file.
+- **Key decisions:**
+  - **Modal, not banner.** Init failure happens before any session UI exists, so the existing `initializer-banner` (1-row truncating widget for post-apply errors) wouldn't fit; a scrollable modal with a read-only TextArea is the right call.
+  - **`git worktree prune` first**, then `git branch -D`. The user's `ait brainstorm delete` left this branch behind specifically because `aitask_brainstorm_delete.sh` does the opposite order; doing it right here closes the loop for the recovery action.
+  - **Best-effort remote delete.** A failed `git push origin --delete` doesn't block the recovery — if the user is offline or the remote ref is already gone, we still proceed.
+  - **Conditional button via `stale_branch` attr.** Pattern detection runs once in `__init__`; `compose` keys off the attribute. Keeps `compose` simple and the regex re-checking out of the render path.
+- **Verification:** All 10 new unit tests pass; existing `test_brainstorm_init_proposal_file.sh` (3/3), `test_apply_initializer_output.sh` (8/8), `test_apply_initializer_tolerant.sh` (15/15) all green. `python3 -m py_compile .aitask-scripts/brainstorm/brainstorm_app.py` clean. End-to-end TUI verification was not performed automatically (Textual TUIs require an interactive terminal); the `subprocess.run` reproducer (`./ait brainstorm init 635 --proposal-file aidocs/gates/aitask-gate-framework.md`) confirmed the exact failure mode the modal is designed to surface.
+
