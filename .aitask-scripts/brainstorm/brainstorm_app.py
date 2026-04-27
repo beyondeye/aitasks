@@ -50,6 +50,7 @@ from brainstorm.brainstorm_dag import (
 from brainstorm.brainstorm_schemas import extract_dimensions
 from brainstorm.brainstorm_sections import parse_sections
 from brainstorm.brainstorm_dag_display import DAGDisplay
+from brainstorm.polling_indicator import PollingIndicator
 from brainstorm.brainstorm_session import (
     archive_session,
     crew_worktree,
@@ -981,16 +982,30 @@ class BrainstormApp(TuiSwitcherMixin, App):
         align: center middle;
     }
 
-    .initializer-banner {
-        display: none;
-        background: $error;
-        color: $text;
-        padding: 0 1;
+    #initializer_row {
         height: 1;
     }
 
+    .initializer-banner {
+        width: 1fr;
+        height: 1;
+        padding: 0 1;
+        background: transparent;
+        color: $text;
+    }
+
     .initializer-banner.visible {
-        display: block;
+        background: $error;
+    }
+
+    .status-header {
+        height: 1;
+        padding: 0 1;
+    }
+
+    .status_pane_title {
+        width: 1fr;
+        text-style: bold;
     }
 
     #brainstorm_tabs {
@@ -1449,7 +1464,9 @@ class BrainstormApp(TuiSwitcherMixin, App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static("", id="initializer_apply_banner", classes="initializer-banner")
+        with Horizontal(id="initializer_row", classes="initializer-row"):
+            yield Static("", id="initializer_apply_banner", classes="initializer-banner")
+            yield PollingIndicator(id="initializer_polling_indicator")
         with TabbedContent(id="brainstorm_tabs"):
             with TabPane("Dashboard", id="tab_dashboard"):
                 with Horizontal(id="dashboard_split"):
@@ -1474,6 +1491,9 @@ class BrainstormApp(TuiSwitcherMixin, App):
             with TabPane("Actions", id="tab_actions"):
                 yield VerticalScroll(id="actions_content")
             with TabPane("Status", id="tab_status"):
+                with Horizontal(id="status_header", classes="status-header"):
+                    yield Label("Status", classes="status_pane_title")
+                    yield PollingIndicator(id="status_polling_indicator")
                 yield VerticalScroll(id="status_content")
         yield Footer()
 
@@ -1909,6 +1929,10 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._populate_node_list()
         self.query_one(DAGDisplay).load_dag(self.session_path)
         self._actions_show_step1()
+        try:
+            self.query_one("#status_polling_indicator", PollingIndicator).start()
+        except Exception:
+            pass
         self._status_refresh_timer = self.set_interval(30, self._refresh_status_tab)
         self._try_apply_initializer_if_needed()
 
@@ -1971,6 +1995,10 @@ class BrainstormApp(TuiSwitcherMixin, App):
 
     def _refresh_status_tab(self) -> None:
         """Populate the Status tab with operation groups and agent statuses."""
+        try:
+            self.query_one("#status_polling_indicator", PollingIndicator).flash()
+        except Exception:
+            pass
         tabbed = self.query_one(TabbedContent)
         if tabbed.active != "tab_status":
             return
@@ -3447,12 +3475,20 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._load_existing_session()
         self.notify(f"Waiting for {agent_name} to complete…")
         self._try_apply_initializer_if_needed()
+        try:
+            self.query_one("#initializer_polling_indicator", PollingIndicator).start()
+        except Exception:
+            pass
         self._initializer_timer = self.set_interval(2, self._poll_initializer)
 
     def _poll_initializer(self) -> None:
         """Timer tick: check status file, apply initializer output on Completed."""
         if self._initializer_done or self._initializer_agent is None:
             return
+        try:
+            self.query_one("#initializer_polling_indicator", PollingIndicator).flash()
+        except Exception:
+            pass
         status_path = (
             self.session_path / f"{self._initializer_agent}_status.yaml"
         )
@@ -3467,6 +3503,10 @@ class BrainstormApp(TuiSwitcherMixin, App):
             self._initializer_done = True
             if self._initializer_timer is not None:
                 self._initializer_timer.stop()
+            try:
+                self.query_one("#initializer_polling_indicator", PollingIndicator).stop()
+            except Exception:
+                pass
             try:
                 from brainstorm.brainstorm_session import apply_initializer_output
                 apply_initializer_output(self.task_num)
