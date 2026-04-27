@@ -147,3 +147,56 @@ Should succeed and write
 
 Standard cleanup, commit, archive per task-workflow Step 9. No worktree to
 remove (working on current branch per `fast` profile).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Part 1 (importer auto-fill) — `apply_initializer_output()` in
+    `.aitask-scripts/brainstorm/brainstorm_session.py` now auto-fills
+    `created_at` (current `YYYY-MM-DD HH:MM`) and `created_by_group`
+    (`"bootstrap"`) when the agent's NODE_YAML omits them, before
+    `validate_node()` runs. Other required fields still raise.
+  - Part 2 (initializer prompt) — `.aitask-scripts/brainstorm/templates/initializer.md`
+    now lists `created_at` in both the required-fields list (output
+    section) and the Phase 3 walkthrough.
+  - Part 3 (companion-agent prompts) — extended scope per user request:
+    `.aitask-scripts/brainstorm/templates/explorer.md` and
+    `.aitask-scripts/brainstorm/templates/synthesizer.md` had the same
+    gap (NODE_YAML lists omitting `created_at`). Both now include
+    `created_at` in the required-fields list and the relevant Phase
+    walkthrough. Audit of the remaining templates: `patcher.md` emits a
+    different delimiter (`METADATA_START/_END`) and copies the parent's
+    YAML (which carries `created_at`) in NO_IMPACT mode; `detailer.md`
+    emits a plan markdown with no NODE_YAML; `comparator.md` is
+    read-only — none of these three are affected.
+  - Tests — added `ApplyInitializerDefaultsTests` (4 tests) to
+    `tests/test_brainstorm_session.py` covering: missing `created_at`
+    auto-fill, missing `created_by_group` defaulting to `"bootstrap"`,
+    provided values preserved (no clobber), and missing `description`
+    still raising. All 11 tests in the file pass; `tests.test_brainstorm_dag`
+    (24 tests) also pass.
+
+- **Deviations from plan:** Scope expanded mid-review to also patch the
+  explorer and synthesizer prompts. The runtime auto-fill is still
+  scoped to `apply_initializer_output` only — there is currently no
+  apply function for explorer/synthesizer outputs, so adding parallel
+  auto-fill code would have been speculative.
+
+- **Issues encountered:** None. Tests pass on first run.
+
+- **Key decisions:**
+  - Auto-fill only the two genuinely system-generable fields
+    (`created_at`, `created_by_group`). Other `NODE_REQUIRED_FIELDS`
+    (`node_id`, `parents`, `description`, `proposal_file`) carry
+    semantic content the agent must supply — defaulting them would
+    mask real errors.
+  - Left `created_at` in `NODE_REQUIRED_FIELDS`. Auto-filling at
+    apply-time keeps the schema strict (so other code paths that may
+    bypass `apply_initializer_output` still get a clear error) while
+    making the agent path robust.
+  - Did not extract the auto-fill into a shared helper — premature,
+    since only one apply function exists today.
+
+- **Upstream defects identified:** None. The bug is local to the
+  brainstorm initializer apply path.
+
