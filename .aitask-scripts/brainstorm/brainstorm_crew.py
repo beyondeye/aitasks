@@ -135,13 +135,9 @@ def _run_addwork(
         "--work2do", str(work2do_path),
         "--type", agent_type,
         "--group", group_name,
+        "--launch-mode", launch_mode,
         "--batch",
     ]
-    type_default = BRAINSTORM_AGENT_TYPES.get(agent_type, {}).get(
-        "launch_mode", DEFAULT_LAUNCH_MODE
-    )
-    if launch_mode != type_default:
-        cmd.extend(["--launch-mode", launch_mode])
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(

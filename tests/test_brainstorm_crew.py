@@ -38,6 +38,7 @@ from brainstorm.brainstorm_crew import (
     _assemble_input_synthesizer,
     _format_reference_files,
     _group_seq,
+    _run_addwork,
     get_agent_types,
 )
 
@@ -473,6 +474,61 @@ class TestGetAgentTypes(unittest.TestCase):
         result = get_agent_types(config_root=Path(self.tmpdir))
         self.assertEqual(result["explorer"]["agent_string"], "claudecode/opus4_7_1m")
         self.assertEqual(result["explorer"]["launch_mode"], "interactive")
+
+
+class TestRunAddwork(unittest.TestCase):
+    """`_run_addwork` must always forward `--launch-mode` to ait crew addwork.
+
+    Regression: the previous delta-only optimization (`if launch_mode !=
+    type_default: cmd.extend(...)`) caused the flag to be dropped when the
+    caller-passed value matched the brainstorm-internal type default. But
+    `aitask_crew_addwork.sh` defaults to `headless` regardless of agent
+    type, so agents (notably `initializer_bootstrap`) ended up registered
+    as headless and hung at the first tool call (no permission UI).
+    """
+
+    def _capture_subprocess_call(self, launch_mode):
+        from unittest.mock import patch
+
+        captured = {}
+
+        def fake_run(cmd, capture_output=False, text=False, **kwargs):
+            captured["cmd"] = list(cmd)
+            class Result:
+                returncode = 0
+                stdout = "ADDED:agent_under_test\n"
+                stderr = ""
+            return Result()
+
+        with patch(
+            "brainstorm.brainstorm_crew.subprocess.run", side_effect=fake_run
+        ):
+            _run_addwork(
+                crew_id="brainstorm-999",
+                agent_name="agent_under_test",
+                agent_type="initializer",
+                group_name="bootstrap",
+                work2do_path=TEMPLATE_DIR / "initializer.md",
+                launch_mode=launch_mode,
+            )
+        return captured["cmd"]
+
+    def test_forwards_launch_mode_when_equal_to_type_default(self):
+        """initializer's type default is 'interactive' — flag must still be passed."""
+        self.assertEqual(
+            BRAINSTORM_AGENT_TYPES["initializer"]["launch_mode"], "interactive"
+        )
+        cmd = self._capture_subprocess_call("interactive")
+        self.assertIn("--launch-mode", cmd)
+        idx = cmd.index("--launch-mode")
+        self.assertEqual(cmd[idx + 1], "interactive")
+
+    def test_forwards_launch_mode_when_differs_from_type_default(self):
+        """Explicit override differing from the type default is forwarded."""
+        cmd = self._capture_subprocess_call("headless")
+        self.assertIn("--launch-mode", cmd)
+        idx = cmd.index("--launch-mode")
+        self.assertEqual(cmd[idx + 1], "headless")
 
 
 if __name__ == "__main__":
