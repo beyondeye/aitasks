@@ -3,8 +3,9 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [memories]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-27 11:27
 updated_at: 2026-04-27 11:27
 ---
