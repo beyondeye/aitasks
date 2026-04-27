@@ -264,11 +264,23 @@ def _extract_block(text: str, start: str, end: str) -> str:
     return text[si + len(start_tag):ei].strip("\n")
 
 
-def n000_needs_apply(task_num: int | str) -> bool:
-    """Return True if n000_init is still a placeholder AND an output file exists.
+_INITIALIZER_DELIMITERS = (
+    "NODE_YAML_START",
+    "NODE_YAML_END",
+    "PROPOSAL_START",
+    "PROPOSAL_END",
+)
 
-    Used by the brainstorm TUI to decide whether to (re-)attempt
-    ``apply_initializer_output`` on session load or after an Error.
+
+def n000_needs_apply(task_num: int | str) -> bool:
+    """Return True iff n000_init is still a placeholder AND the
+    initializer output file contains all four delimiter blocks
+    expected by ``apply_initializer_output``.
+
+    The delimiter check guards against the placeholder ``_output.md``
+    that ``aitask_crew_addwork.sh`` writes at agent-registration time
+    (before the agent runs), and against mid-stream agent writes where
+    only some delimiters have been emitted so far.
     """
     wt = crew_worktree(task_num)
     node_path = wt / NODES_DIR / "n000_init.yaml"
@@ -280,7 +292,13 @@ def n000_needs_apply(task_num: int | str) -> bool:
     except Exception:
         return False
     desc = (data or {}).get("description", "")
-    return desc.startswith("Imported proposal (awaiting reformat):")
+    if not desc.startswith("Imported proposal (awaiting reformat):"):
+        return False
+    try:
+        text = out_path.read_text(encoding="utf-8")
+    except Exception:
+        return False
+    return all(token in text for token in _INITIALIZER_DELIMITERS)
 
 
 _PROBLEM_VALUE_RE = re.compile(r'^(\s*[A-Za-z_][\w]*:\s+)((?!["\'\[\{]).+?)\s*$')
