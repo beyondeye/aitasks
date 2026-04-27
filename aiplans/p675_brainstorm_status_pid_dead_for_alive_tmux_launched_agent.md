@@ -287,3 +287,86 @@ After the fix: every Running agent reports `OK`.
 After commit, archive via the standard task-workflow Step 9 path:
 `./.aitask-scripts/aitask_archive.sh 675`. No worktree to clean up
 (profile `fast`, `create_worktree: false`).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `launch_in_tmux()` in `.aitask-scripts/lib/agent_launch_utils.py` now
+    returns `(int | None, str | None)` instead of `(subprocess.Popen, str
+    | None)`. The first element is the pane's PID (the agent process tmux
+    fork-exec'd) — captured via `tmux -P -F "#{pane_pid}"` for `new-window`
+    / `split-window`, and via a follow-up `tmux list-panes` query for
+    `new-session` (which doesn't accept `-P`).
+  - Added `_parse_pane_pid()` and `_query_first_pane_pid()` helpers.
+  - In `agentcrew_runner.py`, the `LAUNCHERS` registry signature changed
+    to `Callable[[LaunchContext], int | None]`. `_launch_headless` returns
+    `proc.pid`; `_launch_interactive` returns the pane pid from
+    `launch_in_tmux`. `launch_agent()` writes the captured pid into
+    `_status.yaml`, with a `WARN` log and `pid=0` fallback if capture
+    fails.
+  - 9 TUI callsites in `aitask_board.py`, `monitor_app.py`,
+    `codebrowser_app.py`, `history_screen.py` were unchanged because they
+    already use `_, err = launch_in_tmux(...)` and ignore the first
+    value; only the discarded variable's *type* tightened from `Popen`
+    to `int | None`.
+  - New test file `tests/test_launch_in_tmux_pane_pid.py` (17 tests, 15
+    unit + 2 live-tmux integration). Unit tests assert: argv shape
+    contains `-P -F "#{pane_pid}"`, success returns `(int, None)`, empty
+    stdout returns `(None, None)`, non-zero return yields a `tmux …
+    failed: …` error message — for all three branches (`new-window`,
+    `split-window`, `new-session`). Integration tests spawn `sleep 30` in
+    a fresh test session/window and verify the returned pid is alive
+    via `os.kill(pid, 0)`.
+  - `tests/test_multi_session_monitor.sh` Tier 1o updated to patch both
+    `subprocess.Popen` and `subprocess.run` (since post-t675 the
+    `new-window` and `split-window` calls route through `subprocess.run`).
+    The same `-c <cwd>` property is asserted — 43/43 still pass.
+
+- **Deviations from plan:** none of substance. The standalone-terminal
+  fallback PID handling shipped exactly as planned (capture
+  `proc.pid` of the terminal emulator, with a 1-line code comment
+  flagging it as a known limitation distinct from the tmux bug —
+  candidate for a separate follow-up task if the fallback path becomes
+  load-bearing).
+
+- **Issues encountered:**
+  - The existing `tests/test_multi_session_monitor.sh` Tier 1o test
+    initially failed because it patched only `subprocess.Popen`. Switched
+    the test to patch both `Popen` and `run`. This was anticipated as a
+    risk in the plan ("9 TUI callers… ignore the first value… no code
+    change required") but the plan didn't enumerate `tests/` as a
+    callsite — the real fix counted four files modified, not three.
+
+- **Key decisions:**
+  - **Return-type change vs new-function approach:** chose to repurpose
+    `launch_in_tmux`'s return tuple rather than introduce a parallel
+    `launch_agent_in_tmux()` function. Justification: 9 of 10 callers
+    already discard the first tuple element, so the contract change is
+    cosmetic for them and only the runner needs real updates. A parallel
+    function would have left the original misleading return type in
+    place, inviting future bugs.
+  - **No heartbeat-side PID self-correction.** Originally listed in the
+    task description as Fix candidate 2; deliberately left out because
+    (a) launch-time capture eliminates the need; (b) the heartbeat
+    caller is `bash` running `ait crew status heartbeat`, not the agent
+    — so `os.getpid()` there would be wrong without explicit plumbing
+    (passing `--pid $$` from the agent process, which itself is hard to
+    identify reliably from inside `claude`/`gemini`/etc.).
+  - **`subprocess.run` for new-window / split-window, but
+    `subprocess.Popen` for new-session.** The two branches use different
+    mechanisms because tmux's `new-session -d` does not accept `-P`. Kept
+    the existing Popen+wait pattern there to minimize surface change and
+    preserve the existing stderr-capture behavior.
+
+- **Upstream defects identified:** None.
+
+  (One adjacent issue is documented in-code only: the
+  standalone-terminal fallback in `_launch_interactive` records the
+  terminal emulator's pid rather than the agent process's. Same class of
+  bug as the original tmux issue but a much smaller blast radius —
+  fallback path only fires when tmux is absent. Tagged with an in-code
+  comment in `agentcrew_runner.py:_launch_interactive`. Not surfaced as
+  an upstream-defect bullet because it does not seed the t675 symptom —
+  it is a separate, known-tolerable limitation. Fix would be its own
+  task if/when needed.)
+
