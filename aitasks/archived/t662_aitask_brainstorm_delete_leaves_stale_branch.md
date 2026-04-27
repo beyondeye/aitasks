@@ -3,11 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-27 10:37
-updated_at: 2026-04-27 10:39
+updated_at: 2026-04-27 11:12
+completed_at: 2026-04-27 11:12
 ---
 
 `ait brainstorm delete <N>` does not actually delete the `crew-brainstorm-<N>` git branch when a stale worktree registration exists from a prior aborted init.
