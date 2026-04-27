@@ -178,3 +178,37 @@ Standard archival per `.claude/skills/task-workflow/SKILL.md` Step 9:
 no separate worktree (profile `fast` → current branch), so skip merge
 steps; commit code and plan separately, run `aitask_archive.sh 663`,
 then push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Replaced the delta-only `--launch-mode`
+  optimization in `_run_addwork` with an unconditional flag forward
+  (`.aitask-scripts/brainstorm/brainstorm_crew.py`). Added a regression
+  test class `TestRunAddwork` to `tests/test_brainstorm_crew.py` with two
+  cases: launch_mode equal to type default (initializer + interactive)
+  and launch_mode different from type default (initializer + headless).
+  Both assert the captured `subprocess.run` cmd contains
+  `["--launch-mode", <value>]`. Test fixture monkey-patches
+  `brainstorm.brainstorm_crew.subprocess.run` directly.
+- **Deviations from plan:** None.
+- **Issues encountered:** None during implementation.
+- **End-to-end verification:**
+  - Local unit test: `python -m unittest tests.test_brainstorm_crew` →
+    36/36 pass (34 pre-existing + 2 new).
+  - Standalone shell test: invoked `aitask_crew_addwork.sh
+    --launch-mode interactive` against a temp crew worktree and
+    confirmed the resulting `_status.yaml` contains
+    `launch_mode: interactive`.
+  - User verification: re-ran `ait brainstorm init 635 --proposal-file
+    aidocs/gates/aitask-gate-framework.md` and confirmed
+    `initializer_bootstrap` now launches in a tmux pane (interactive
+    mode), where it pauses on tool permissions. That permission-prompt
+    behavior is a separate, already-filed issue (t669: `ait crew`
+    subcommands missing from claude allowlist) and is not in scope
+    for t663.
+- **Key decisions:** Removed the optimization rather than try to make
+  `aitask_crew_addwork.sh` honor a per-type default — the optimization
+  was based on an incorrect assumption about addwork's fallback, and
+  carrying agent-type defaults into a generic crew script would couple
+  it to brainstorm internals. Always forwarding the flag is simpler and
+  removes the implicit contract entirely.
