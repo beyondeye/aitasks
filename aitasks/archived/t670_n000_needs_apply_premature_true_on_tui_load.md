@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-27 12:17
-updated_at: 2026-04-27 12:56
+updated_at: 2026-04-27 13:20
+completed_at: 2026-04-27 13:20
 ---
 
 The brainstorm TUI shows the banner "Initializer apply failed: missing
