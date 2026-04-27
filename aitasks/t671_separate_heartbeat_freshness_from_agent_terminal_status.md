@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [ait_brainstorm, agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-27 12:59
-updated_at: 2026-04-27 12:59
+updated_at: 2026-04-27 13:02
 ---
 
 The agent-crew runner currently flips a still-running agent's
