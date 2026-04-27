@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.18.3
+
+### Features
+
+- **Polling activity indicator widget** (t653_5): The brainstorm TUI now shows a small dim-cycling indicator next to the initializer banner and Status tab that flashes briefly on each poll, so you can tell the agent is alive even when nothing visible has changed.
+- **Brainstorm code-agents default to interactive** (t659): All six brainstorm agent types (initializer, detailer, explorer, comparator, synthesizer, patcher) now launch in interactive (tmux pane) mode by default, so you can watch and intervene during a brainstorm session.
+- **Step 8 upstream-defect follow-up offer** (t667): After completing a task, the workflow now offers to spin off a follow-up task for any upstream defects you flagged during implementation, so root-cause issues uncovered while patching aren't lost.
+
+### Bug Fixes
+
+- **Push terminal status from agent crews** (t653_3): Terminal status changes from agent crews (Completed/Aborted/Error) are now committed and pushed to the remote immediately, and an `Error` agent can recover back to `Running` instead of being stuck.
+- **Hide `M` shortcut and rebind auto-switch in monitor** (t657): The unused `M` (toggle multi-session) shortcut is hidden from the `ait monitor` footer, and the auto-switch toggle is rebound from `a` to `A` for case-consistency with the other capital-letter modal toggles (`R`, `M`, `L`).
+- **Persistent error modal on brainstorm init failure** (t660): `ait brainstorm` no longer silently exits when the initializer fails. A scrollable error modal now surfaces captured stderr/stdout with Retry, Quit, and a "Delete branch & retry" action for the common stale-crew-branch case.
+- **Remove `b` scrollbar-toggle shortcut from monitor** (t661): The `b` shortcut on `ait monitor` has been removed; the vertical scrollbar is now always visible.
+- **Brainstorm delete cleans up stale crew branches** (t662): `ait brainstorm delete` now correctly prunes the worktree before deleting the branch, so subsequent `ait brainstorm init` calls no longer fail with "branch already exists".
+- **Always forward `--launch-mode` in brainstorm addwork** (t663): `ait brainstorm` plan import now always forwards the `--launch-mode` flag to crew workers, so agents launch in the configured mode instead of silently falling back to the default.
+- **Brainstorm `n000_needs_apply` requires all four delimiters** (t670): The brainstorm TUI no longer spuriously offers to apply changes on session load; it now requires all four initializer delimiters to be present before reporting "ready to apply".
+- **Improve `install.sh` "already installed" error** (t673): `install.sh` now shows an interactive overwrite prompt when run in a TTY against an existing install, and the non-TTY error message spells out all three recovery paths (`ait upgrade latest`, `bash -s -- --force`, `bash install.sh --force`).
+
+### Improvements
+
+- **Separate heartbeat freshness from agent terminal status** (t671): Stale heartbeats no longer mutate `_status.yaml`. The `MissedHeartbeat` status (introduced in v0.18.2) has been removed; consumers should call `get_stale_agents()` / `check_agent_alive()` to observe heartbeat freshness instead. **Migration:** clean any in-flight crews with `ait crew cleanup --crew <id>` before resuming work — values written under the prior runner will be rejected by the trimmed state machine.
+
+### Documentation
+
+- **Encode user-feedback rules into `CLAUDE.md`** (t665): Added 7 conventions covering pane-internal cycling (← / →), TUI-switcher selected-session semantics, single tmux session per project, companion pane auto-despawn, the context-variable pattern over template substitution engines, full install-flow testing for setup helpers, and `ait setup` vs `ait upgrade` verb conventions.
+- **Make Step 8 review prompt non-skippable** (t668): The task-workflow Step 8 user-review prompt is now non-skippable — auto-mode and execution-profile overrides do not bypass it, and explicit acceptance is required every iteration.
+
 ## v0.18.2
 
 ### Features
