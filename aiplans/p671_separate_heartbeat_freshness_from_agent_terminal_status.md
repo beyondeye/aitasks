@@ -167,3 +167,39 @@ After verification passes:
 - Step 8: review changes, get user approval, commit code (`refactor: Separate heartbeat freshness from agent terminal status (t671)`) and plan file separately.
 - Step 8c: manual-verification follow-up offer (the live smoke test in Verification §4 is a strong manual-verification candidate — accept the offer if prompted).
 - Step 9: archive task + plan via `./.aitask-scripts/aitask_archive.sh 671`. Task `assigned_to` clears, status flips to `Done`, `git push`. Then create the follow-up task per Step 6.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Removed `MissedHeartbeat` from `AGENT_STATUSES`, `AGENT_TRANSITIONS`, the bash mirror constant `AGENT_STATUS_MISSED_HEARTBEAT`, and from the `active` set in both `compute_crew_status` and `get_group_status` in `agentcrew_utils.py`.
+  - Deleted `mark_stale_as_missed_heartbeat()` and `process_missed_heartbeat_agents()` (≈70 lines) from `agentcrew_runner.py`.
+  - Simplified `count_running()` and `enforce_type_limits()` filters from `("Running", "MissedHeartbeat")` to just `"Running"`.
+  - Replaced the heartbeat-driven status write path in `run_loop` with a read-only log line: `Stale heartbeat (status unchanged): ...`. `get_stale_agents()` is still called every iteration so the runner observes staleness, but it no longer mutates `_status.yaml`.
+  - Dropped the MissedHeartbeat color from `agentcrew_dashboard.py`'s `STATUS_COLORS` map.
+  - Dropped MissedHeartbeat from two filters in `agentcrew_process_stats.py` (`get_running_processes` and the dead-process self-correction routine).
+  - Rewrote `tests/test_crew_runner.sh` Tests 16/17/18 to assert: stale heartbeat does NOT mutate status; staleness + recovery leaves status untouched; a heartbeat-stale Running agent self-reporting Completed transitions cleanly. Added a regression-guard assertion that `MissedHeartbeat not in AGENT_STATUSES`.
+  - Rewrote `tests/test_crew_status.sh` Tests 2 (transitions), 3 (rollup), and 15 (Status CLI) to reflect the trimmed namespace and to assert the CLI rejects `--status MissedHeartbeat` as an unknown status.
+
+- **Deviations from plan:**
+  - Plan said dashboard's MissedHeartbeat branch was at lines 302–309; the actual location was the `STATUS_COLORS` map at line 71. Same outcome — dropped the entry.
+  - Plan only named `test_crew_runner.sh` for test rewrites; the audit also turned up MissedHeartbeat assertions in `tests/test_crew_status.sh` Tests 2/3/15 that needed parallel updates. Both files now agree on the trimmed state machine.
+  - The plan suggested asserting `error_message` recorded on a self-reported `set --status Error`. The CLI does not accept `--message` for `set` (only for `heartbeat`), so the assertion was reduced to verifying `completed_at` is stamped on the terminal Error self-report. The `error_message` write path remains exercised via the runner's launch-error path elsewhere.
+  - Plan's "create follow-up task" step (Step 6) is deferred to the post-archival phase below — surfaced as a runtime offer rather than executed unconditionally.
+
+- **Issues encountered:**
+  - First-pass test ran exit code 2 due to an unsupported `--message` flag on `agentcrew_status.py set`; rewrote the assertion to check `completed_at` instead.
+  - `tests/test_crew_groups.sh`, `tests/test_crew_report.sh`, and `tests/test_brainstorm_cli.sh` Test 1 (`session status is init`) all fail. Verified by running each on a pristine checkout of HEAD (pre-t671): they fail identically. **These are pre-existing flakes unrelated to t671** and are out of scope for this task. Worth tracking separately.
+
+- **Key decisions:**
+  - Per the user's "Stay in `_alive.yaml` only" answer, no new schema fields were added to `<agent>_status.yaml`. Heartbeat freshness consumers must call `get_stale_agents()` / `check_agent_alive()` (already present) — not read a mirrored field.
+  - Per the user's "Remove entirely" answer, no compatibility alias was added. In-flight crews with `status: MissedHeartbeat` must be cleaned via `ait crew cleanup --crew <id>` after upgrading. Documented in commit message body.
+  - Brainstorm `_poll_initializer` slow-watcher and `n000_needs_apply` four-delimiter gate were left untouched — out of scope per the "Defer to follow-up task" answer.
+
+- **Migration:**
+  - `<agent>_status.yaml` files written by the prior runner may have `status: MissedHeartbeat`. After this change `MissedHeartbeat` is not in `AGENT_STATUSES`, so the CLI rejects mutations from it and `validate_agent_transition` returns `False` for any source value of `MissedHeartbeat`.
+  - Mitigation: clean in-flight crews with `ait crew cleanup --crew <id>` before resuming work. No code-level shim added (per user direction).
+
+- **Follow-up task to create after archival:**
+  - `revisit_brainstorm_status_distrust_after_t671` (low priority, medium effort, depends on 671). Re-evaluates whether the brainstorm `_poll_initializer` 30s slow-watcher (`brainstorm_app.py:3520-3534`) and `n000_needs_apply` four-delimiter gate (`brainstorm_session.py:267-301`) can be simplified now that `status` is trustworthy. Should soak for 1–2 weeks of real brainstorm usage before deciding.
