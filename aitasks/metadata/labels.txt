@@ -66,6 +66,7 @@ testing
 tmux
 tui
 tui_switcher
+upstream_defect_followup
 verifiedstats
 web_site
 whitelists
