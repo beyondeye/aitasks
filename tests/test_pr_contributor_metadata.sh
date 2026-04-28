@@ -72,6 +72,7 @@ setup_project() {
         cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
         chmod +x .aitask-scripts/aitask_create.sh .aitask-scripts/aitask_claim_id.sh .aitask-scripts/aitask_update.sh .aitask-scripts/aitask_ls.sh
 
         printf 'bug\nchore\ndocumentation\nfeature\nperformance\nrefactor\nstyle\ntest\n' > aitasks/metadata/task_types.txt
