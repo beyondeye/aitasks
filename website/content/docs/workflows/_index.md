@@ -50,4 +50,4 @@ Round-tripping with issue trackers, pull requests, upstream contributions, relea
 
 ---
 
-**Next:** [Code Agent Skills]({{< relref "skills" >}})
+**Next:** [Code Agent Skills]({{< relref "/docs/skills" >}})

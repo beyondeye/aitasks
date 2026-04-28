@@ -71,8 +71,13 @@ Run the suggested follow-up edits manually to complete the rollout.
 - **Dry-run** — `--dry-run` prints `diff -u` per-file and exits without writing or committing.
 - **Preserves verified history** — Existing `verified` and `verifiedstats` blocks for other models are never overwritten.
 
+## Drift detection
+
+Drift between `.claude/skills/` (source of truth) and the four wrapper trees that ship to other code agents is now caught automatically by [`/aitask-audit-wrappers`](../../development/skills/aitask-audit-wrappers/). After adding or modifying a skill in `.claude/skills/aitask-*/SKILL.md`, run that skill to keep all agent trees in sync.
+
 ## Related
 
 - [`/aitask-refresh-code-models`](../aitask-refresh-code-models/) — Discover and refresh models via web research
+- [`/aitask-audit-wrappers`](../../development/skills/aitask-audit-wrappers/) — Sibling framework-development skill that audits skill wrappers and helper-script whitelists
 - [`ait codeagent`](../../commands/codeagent/) — Uses the model files and config files managed by this skill
 - [Settings TUI](../../tuis/settings/) Models tab — Visual editor for model configurations

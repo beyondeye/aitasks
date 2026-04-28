@@ -40,4 +40,4 @@ This is conceptually the opposite of [task decomposition](../task-decomposition/
 
 ---
 
-**Next:** [Workflows index](../) — browse other workflows by category, or continue to the [Code Agent Skills]({{< relref "skills" >}}) reference.
+**Next:** [Workflows index](../) — browse other workflows by category, or continue to the [Code Agent Skills]({{< relref "/docs/skills" >}}) reference.
