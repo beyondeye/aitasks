@@ -3,10 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [testing, bash_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-27 17:26
-updated_at: 2026-04-27 17:26
+updated_at: 2026-04-28 09:43
+boardidx: 50
 ---
 
 The macOS audit (t658) baseline run revealed a substantial regression in `tests/test_pr_contributor_metadata.sh`: 14/30 assertions fail. Every failure has the same shape — `pull_request:`, `contributor:`, and `contributor_email:` fields are expected in the committed task file but are missing.

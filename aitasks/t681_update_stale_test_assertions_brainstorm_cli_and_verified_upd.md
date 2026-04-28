@@ -7,6 +7,7 @@ status: Ready
 labels: [testing]
 created_at: 2026-04-27 17:25
 updated_at: 2026-04-27 17:25
+boardidx: 40
 ---
 
 The macOS audit (t658) baseline run surfaced two tests whose assertions are pinned to values that have since drifted from production behavior.

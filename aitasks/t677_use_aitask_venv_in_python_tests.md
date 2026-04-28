@@ -7,6 +7,7 @@ status: Ready
 labels: [testing, bash_scripts]
 created_at: 2026-04-27 17:24
 updated_at: 2026-04-27 17:24
+boardidx: 10
 ---
 
 The macOS audit (t658) baseline run revealed 11 test failures all caused by `ModuleNotFoundError: No module named 'yaml'` (or `textual` / `rich`). The repo has a venv at `~/.aitask/venv/` with PyYAML, textual, and rich installed, but these tests invoke plain `python3`, which on macOS is system Python without those packages. They reproduce the same way on any host where the system Python lacks the deps.

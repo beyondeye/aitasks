@@ -8,6 +8,7 @@ labels: [ui, macos]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-28 00:03
 updated_at: 2026-04-28 00:04
+boardidx: 80
 ---
 
 ## Symptom

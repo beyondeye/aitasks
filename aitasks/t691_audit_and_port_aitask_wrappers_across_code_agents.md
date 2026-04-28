@@ -8,6 +8,7 @@ labels: [claudeskills]
 folded_tasks: [689]
 created_at: 2026-04-28 08:35
 updated_at: 2026-04-28 08:35
+boardidx: 110
 ---
 
 Spawned from /aitask-explore on 2026-04-28. Builds on t679 (dynamic skill counting in tests). Folds in t689 (manual one-off port that this skill should produce automatically when run on the current tree).

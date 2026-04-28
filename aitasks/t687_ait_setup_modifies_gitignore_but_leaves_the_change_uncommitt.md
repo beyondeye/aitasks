@@ -8,6 +8,7 @@ labels: [ait_setup]
 issue: https://github.com/beyondeye/aitasks/issues/13
 created_at: 2026-04-27 22:30
 updated_at: 2026-04-27 22:30
+boardidx: 70
 ---
 
 Issue created: 2026-04-27 22:26:37

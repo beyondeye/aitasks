@@ -7,6 +7,7 @@ status: Ready
 labels: [brainstorming, ait_brainstorm]
 created_at: 2026-04-28 00:21
 updated_at: 2026-04-28 00:21
+boardidx: 90
 ---
 
 ## Symptom
