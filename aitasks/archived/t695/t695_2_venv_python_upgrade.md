@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t695_1]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [ait_setup, installation, python]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-28 11:26
-updated_at: 2026-04-28 12:34
+updated_at: 2026-04-28 12:47
+completed_at: 2026-04-28 12:47
 ---
 
 ## Context
