@@ -492,3 +492,95 @@ Step 8 should call out:
   `tests/test_setup_find_modern_python.sh` is reusable for siblings.
 - Any deviation from this plan, especially if the uv installer's env
   var contract has changed by the time of implementation.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented Steps 1-7 of the plan as written.
+  - `.aitask-scripts/aitask_setup.sh`: added `AIT_VENV_PYTHON_MIN`
+    (3.11) and `AIT_VENV_PYTHON_PREFERRED` (3.13) constants near the
+    top, added `find_modern_python()`, `install_modern_python()` +
+    `_install_modern_python_macos` (brew) +
+    `_install_modern_python_linux` (uv user-scoped) helpers, and
+    refactored `setup_python_venv()` per Step 4 (replaced preamble,
+    deleted the `check_python_version` call + `PYTHON_VERSION_OK`
+    recheck, updated existing-venv version check to use the
+    configured minimum). Added `# DEPRECATED: dead after t695_2 —
+    removal in t695_4` comment above `check_python_version`.
+  - `tests/test_setup_find_modern_python.sh`: 6 unit tests
+    (unsatisfiable min, PATH lookup, spoofed version rejection,
+    uv-installed path priority, framework bin/python3 priority, min
+    enforcement). All pass.
+  - `tests/test_setup_python_install.sh`: gated end-to-end test that
+    runs `install.sh` → `ait setup` and asserts venv Python ≥ 3.11
+    and that `linkify_it`/`textual`/`yaml` import. Skips by default;
+    runs only when `AIT_RUN_INTEGRATION_TESTS=1`.
+  - `aitasks/t695/t695_4_refactor_python_callers.md`: appended a
+    sibling-task note flagging the dead `check_python_version()` /
+    `PYTHON_VERSION_OK` for t695_4 cleanup.
+- **Deviations from plan:**
+  - **Test 1 (unsatisfiable min) replaces the "no candidates" framing
+    in the original outline.** On any host where system `python3`
+    exists in `/usr/bin/`, restricting `PATH` to a stub-only directory
+    breaks the stub itself (the stub uses `/usr/bin/grep` and
+    `/usr/bin/sed`). Including `/usr/bin:/bin` in `PATH` then made
+    "no candidates available" untestable because the trailing
+    `python3` candidate would always find the system interpreter.
+    Reframed Test 1 to use `min=99.0` (no candidate can satisfy) and
+    Test 6 to use `min=4.0`. Same coverage, robust to host state.
+  - **Test PATH includes `/usr/bin:/bin`** (per the t695_1 plan's
+    "Sub-PATH includes /usr/bin:/bin" note). The function calls
+    `command -v` and the stubs invoke `grep`/`sed` — restricting
+    `PATH` to `$SCRATCH/bin` only silently breaks them.
+  - **System Python on this dev host is 3.14.3, not 3.13.** The
+    initial Test 6 used `min=3.14` expecting rejection; bumped to
+    `min=4.0` after discovering this. (Not a plan defect — just a
+    fact-on-the-ground that affected test calibration.)
+  - **No `--yes` flag added** (as planned). The integration test
+    relies on stdin redirection to `/dev/null`, which the existing
+    `[[ -t 0 ]]` auto-accept paths handle correctly.
+- **Issues encountered:**
+  - First run of the unit test failed Tests 4 and 5 silently because
+    `PATH=$SCRATCH/bin` (from the original outline) made the stub
+    interpreters unable to find `grep`/`sed`. Diagnosed by adding
+    debug prints and tracing — confirmed the t695_1 plan's note about
+    needing `/usr/bin:/bin` in test PATH. Fixed.
+  - `aitask_setup.sh --source-only` returns early (line 3089). Tests
+    that source it inherit `set -euo pipefail` from line 2; tests
+    must `set +euo pipefail` after sourcing to use loose-mode
+    helpers like `assert_eq` / `assert_contains`.
+- **Key decisions:**
+  - **Dead-code cleanup deferred to t695_4** (per user request during
+    plan review): `check_python_version()` and `PYTHON_VERSION_OK`
+    remain in place with a `# DEPRECATED` comment, and a one-line
+    sibling-task note in `aitasks/t695/t695_4_refactor_python_callers.md`
+    flags the cleanup. This keeps the t695_2 diff focused and
+    routes the cleanup through the natural refactor task.
+  - **`find_modern_python` candidate order** intentionally agrees
+    with `lib/python_resolve.sh` (t695_1) for `~/.aitask/bin`,
+    `~/.aitask/venv`, system `python3` — and adds
+    `~/.aitask/python/<ver>/bin/python3` for the uv path. After a
+    fresh `ait setup` followed by t695_3 (symlink), all callers
+    consistently land on the same interpreter.
+  - **Integration test gated behind `AIT_RUN_INTEGRATION_TESTS=1`**
+    rather than running by default. The test downloads brew formulae
+    (~30s+ on macOS) or uv + a python-build-standalone tarball
+    (~minutes on Linux) — too heavy for default `bash tests/...`
+    iteration loops.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - `find_modern_python` is the single source of truth for "which
+    Python should the venv use" — t695_3 and t695_4 should not
+    re-implement the version check.
+  - `check_python_version()` and `PYTHON_VERSION_OK` are dead and
+    must be removed in t695_4 (note already in that task file).
+  - The stub-PATH unit-test pattern in
+    `tests/test_setup_find_modern_python.sh` is reusable. Two
+    gotchas to remember when copying it: (1) include
+    `/usr/bin:/bin` in `PATH` so stubs can find `grep`/`sed`; (2)
+    after `source aitask_setup.sh --source-only`, run
+    `set +euo pipefail` so test assertions don't abort on first
+    failure.
+  - The uv installer env-var contract used here is
+    `UV_INSTALL_DIR` + `INSTALLER_NO_MODIFY_PATH=1` (verified
+    against the docs at the time of implementation). If astral-sh
+    renames either, adjust `_install_modern_python_linux` accordingly.
