@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [claudeskills]
 folded_tasks: [689]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-28 08:35
-updated_at: 2026-04-28 08:35
+updated_at: 2026-04-28 09:48
 boardidx: 110
 ---
 
