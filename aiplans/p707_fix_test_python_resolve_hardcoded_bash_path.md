@@ -81,3 +81,11 @@ A single `Edit` call with `replace_all: true` and `old_string: /usr/bin/bash` + 
 ## Step 9 (Post-Implementation)
 
 After approval and implementation, follow the standard task-workflow Step 8/9: review diff, commit code under `bug: ... (t707)` then update plan with Final Implementation Notes, then archive via `./.aitask-scripts/aitask_archive.sh 707` and push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Inserted a `TEST_BASH="$(command -v bash)"` block (with empty-check fail-fast) immediately after the existing `REAL_PY` block in `tests/test_python_resolve.sh`, then performed a single `replace_all` of `/usr/bin/bash` → `"$TEST_BASH"`, swapping all 8 hard-coded references at once.
+- **Deviations from plan:** The plan called for an explanatory comment block above the new resolver. The first edit included that comment, but the subsequent `replace_all` rewrote `/usr/bin/bash` inside the comment too, leaving a meaningless self-referential sentence. Per the project's "default to no comments" rule, the comment block was removed entirely — the resolver mirrors the `REAL_PY` block one screen above, and `git blame` points at this task for context.
+- **Issues encountered:** None functional. The comment-rewrite issue noted above was the only deviation.
+- **Key decisions:** Chose `command -v bash` over the alternative `${BASH:-bash}` to mirror the existing `REAL_PY` resolution pattern in the same file (consistency over brevity). Dropped the explanatory comment to satisfy the project's no-comment default.
+- **Verification:** `bash tests/test_python_resolve.sh` → `Tests: 8  Pass: 8  Fail: 0`. `shellcheck tests/test_python_resolve.sh` clean. `grep -n '/usr/bin/bash' tests/test_python_resolve.sh` empty.
