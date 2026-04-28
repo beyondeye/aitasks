@@ -9,7 +9,8 @@ children_to_implement: [t691_2, t691_3]
 folded_tasks: [689]
 created_at: 2026-04-28 08:35
 updated_at: 2026-04-28 11:25
-boardidx: 110
+boardidx: 80
+boardcol: now
 ---
 
 Spawned from /aitask-explore on 2026-04-28. Builds on t679 (dynamic skill counting in tests). Folds in t689 (manual one-off port that this skill should produce automatically when run on the current tree).

@@ -8,7 +8,7 @@ labels: [claudeskills]
 folded_into: 691
 created_at: 2026-04-28 00:08
 updated_at: 2026-04-28 08:35
-boardidx: 100
+boardidx: 50
 ---
 
 Spawned from t679 during planning. Two skills added to `.claude/skills/` (the source of truth) were never propagated to the other agent trees, per the CLAUDE.md "WORKING ON SKILLS / CUSTOM COMMANDS" rule that says cross-agent ports should be tracked as separate tasks.

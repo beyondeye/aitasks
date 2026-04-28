@@ -7,6 +7,7 @@ status: Ready
 labels: [aitask_pick, task_workflow]
 created_at: 2026-04-28 10:18
 updated_at: 2026-04-28 10:18
+boardidx: 220
 ---
 
 ## Context
