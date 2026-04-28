@@ -6,7 +6,7 @@ issue_type: refactor
 status: Ready
 labels: [ait_setup, installation, python]
 created_at: 2026-04-28 11:27
-updated_at: 2026-04-28 11:27
+updated_at: 2026-04-28 12:41
 ---
 
 ## Context
@@ -106,3 +106,4 @@ The motivation, per the user's note: scripts in the task-workflow (e.g., `aitask
 
 - The aggregate manual verification sibling (created next) covers TUI flows on real macOS-3.9 + Debian-11 hosts that this automated test cannot.
 - Keep the existing import-check pattern in TUI launchers (e.g., `aitask_board.sh:24` `$PYTHON -c "import linkify_it"`) — it's the runtime guard for "venv-Python doesn't have the deps".
+- `check_python_version()` and the `PYTHON_VERSION_OK` global in `.aitask-scripts/aitask_setup.sh` (lines ~373–435 after t695_2) are dead code — no callers remain after t695_2. Remove them as part of this task and update or delete the matching coverage in `tests/test_version_checks.sh`. The `# DEPRECATED` comment above `check_python_version` flags this in-source.

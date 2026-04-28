@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [testing, bash_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-27 17:26
-updated_at: 2026-04-27 17:26
-boardidx: 10
+updated_at: 2026-04-28 12:45
 boardcol: now
+boardidx: 10
 ---
 
 The macOS audit (t658) baseline run revealed `tests/test_revert_analyze.sh` failing with 17/60 assertions failing. Two distinct failure patterns:
