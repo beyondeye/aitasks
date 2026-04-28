@@ -275,3 +275,55 @@ affected.
   defect of it). Canonical bullet will read `None`. The new sanity-check
   path will re-read the plan body and confirm no other related defect
   is mentioned, returning the no-op cleanly.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `.claude/skills/task-workflow/SKILL.md` (line 334): broadened the
+    `Upstream defects identified` bullet — dropped the narrow "*seeded*
+    the symptom" framing in favor of "whether or not it caused the
+    current symptom"; added an explicit "all related defects go in this
+    canonical bullet, not in side bullets / 'Out of scope' sections /
+    free prose" instruction; added a worked anti-example referencing the
+    t687 trailing-slash side-bullet failure mode.
+  - `.claude/skills/task-workflow/upstream-followup.md`: split step 1
+    into a "Fast path" (canonical bullet has entries — unchanged
+    behavior) and a "Sanity-check path" (canonical bullet is missing /
+    empty / `None` → re-read the plan body end-to-end, surface any
+    related defect found anywhere in the body to step 2's offer).
+    Re-read explicitly does not modify the plan file (write-back was
+    declined during planning). Also broadened the file's intro line 3
+    away from the same "*seeded* by" framing for consistency. Appended
+    a "Canonical illustration (t687) — sanity-check path" footer
+    documenting the t687 failure mode.
+- **Deviations from plan:** None of substance. Added one extra small
+  edit to upstream-followup.md line 3 (broadening the intro language)
+  for consistency with the SKILL.md broadening — caught during the
+  rendered-file inspection verification step. The plan's verification
+  step 4 (cross-reference grep for "seeded the symptom") would
+  otherwise have flagged it.
+- **Issues encountered:** None. Both edits were single Edit-tool
+  replacements against the existing text. The cross-reference grep
+  verification (`grep -rn "seeded the symptom" .claude/ .opencode/
+  .gemini/ .agents/ aireviewguides/ website/`) returned zero hits,
+  confirming the broader wording fully replaces the narrow framing.
+- **Key decisions:**
+  - Kept the agent's re-read in the sanity-check path **non-mutating**
+    (no write-back into the canonical bullet). User explicitly chose
+    "No write-back" during planning. Rationale: the contract tightening
+    is the lever that gets future plans into canonical shape; the
+    sanity-check is a safety net for already-written plans.
+  - Did not touch `aitask_archive.sh` — Option A's "validate
+    canonical bullet at archive time" sub-fix is redundant with the
+    hybrid re-read at Step 8b (which runs before archive and offers
+    a follow-up rather than just warning).
+  - Did not mirror to `.opencode/`, `.gemini/`, or `.agents/` skill
+    trees. Confirmed those trees do not currently contain
+    `task-workflow` or `upstream-followup.md` (their `skills/`
+    directories list aitask-* skills and a couple of prereq/tool-
+    mapping markdown files, but no `task-workflow/`). When that skill
+    is ported, the porter will pick up this fix automatically — no
+    cross-port follow-up task needed today.
+- **Upstream defects identified:** None. The t687 mis-categorization is
+  the topic of this task, not an upstream defect of it. No other
+  unrelated defect surfaced during diagnosis or implementation.
