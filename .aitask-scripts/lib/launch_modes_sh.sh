@@ -17,7 +17,12 @@ _AIT_LAUNCH_MODES_LOADED=1
 
 _ait_launch_modes_compute_pipe() {
     local dir="${AIT_LAUNCH_MODES_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
-    python3 -c "
+    # Defensive: this lib may be sourced before python_resolve.sh. If the cache
+    # is set, use it; otherwise rely on python3 from PATH (the t695_3 symlink
+    # in $HOME/.aitask/bin/python3 means python3 still resolves to the framework
+    # interpreter on local installs).
+    local pycmd="${_AIT_RESOLVED_PYTHON:-python3}"
+    "$pycmd" -c "
 import sys
 sys.path.insert(0, '$dir')
 from launch_modes import launch_modes_pipe

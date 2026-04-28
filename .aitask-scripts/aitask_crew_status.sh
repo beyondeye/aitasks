@@ -9,24 +9,18 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/aitask_path.sh
+source "$SCRIPT_DIR/lib/aitask_path.sh"
+# shellcheck source=lib/python_resolve.sh
+source "$SCRIPT_DIR/lib/python_resolve.sh"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 
-VENV_PYTHON="$HOME/.aitask/venv/bin/python"
+PYTHON="$(require_ait_python)"
 
-# Prefer shared venv, fall back to system python
-if [[ -x "$VENV_PYTHON" ]]; then
-    PYTHON="$VENV_PYTHON"
-else
-    PYTHON="${PYTHON:-python3}"
-    if ! command -v "$PYTHON" &>/dev/null; then
-        die "Python not found. Run 'ait setup' to install dependencies."
-    fi
-
-    # Check for required packages when using system python
-    if ! $PYTHON -c "import yaml" 2>/dev/null; then
-        die "Missing Python package: pyyaml. Run 'ait setup' or: pip install pyyaml"
-    fi
+# Catch the "venv exists but lacks deps" case.
+if ! "$PYTHON" -c "import yaml" 2>/dev/null; then
+    die "Missing Python package: pyyaml. Run 'ait setup' or: pip install pyyaml"
 fi
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then

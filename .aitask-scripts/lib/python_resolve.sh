@@ -6,6 +6,9 @@
 #   resolve_python           - echo the first usable Python path, or empty
 #   require_python           - resolve_python or die with a clear error
 #   require_modern_python X  - resolve_python and assert version >= X (e.g. 3.11)
+#   require_ait_python       - require_modern_python "$AIT_VENV_PYTHON_MIN"
+#                              (zero-arg canonical entry point — preferred over
+#                              hardcoding the version literal in caller scripts)
 #
 # Resolution order:
 #   1. $AIT_PYTHON                         (explicit override)
@@ -17,6 +20,11 @@
 
 [[ -n "${_AIT_PYTHON_RESOLVE_LOADED:-}" ]] && return 0
 _AIT_PYTHON_RESOLVE_LOADED=1
+
+# Framework minimum Python version. Single source of truth — every migrated
+# script picks up this constant by sourcing this file. Override via env for
+# testing only.
+AIT_VENV_PYTHON_MIN="${AIT_VENV_PYTHON_MIN:-3.11}"
 
 # shellcheck source=terminal_compat.sh
 source "$(dirname "${BASH_SOURCE[0]}")/terminal_compat.sh"
@@ -69,4 +77,8 @@ require_modern_python() {
         die "Python >=$min required (found ${found:-unknown} at $p). Run 'ait setup' to install a newer interpreter."
     fi
     echo "$p"
+}
+
+require_ait_python() {
+    require_modern_python "$AIT_VENV_PYTHON_MIN"
 }

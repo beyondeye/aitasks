@@ -6,8 +6,14 @@ set -euo pipefail
 # Outputs structured raw data that is then processed by aitask_explain_process_raw_data.py
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/aitask_path.sh
+source "$SCRIPT_DIR/lib/aitask_path.sh"
+# shellcheck source=lib/python_resolve.sh
+source "$SCRIPT_DIR/lib/python_resolve.sh"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
+
+PYTHON="$(require_python)"
 
 # --- Defaults ---
 MODE=""
@@ -250,7 +256,7 @@ gather() {
     # Call Python processor to generate reference.yaml
     local reference_yaml="${run_dir}/reference.yaml"
     info "Processing raw data into YAML..."
-    python3 "${SCRIPT_DIR}/aitask_explain_process_raw_data.py" "$raw_data_file" "$reference_yaml"
+    "$PYTHON" "${SCRIPT_DIR}/aitask_explain_process_raw_data.py" "$raw_data_file" "$reference_yaml"
 
     # Compute directory key for naming
     local dir_key

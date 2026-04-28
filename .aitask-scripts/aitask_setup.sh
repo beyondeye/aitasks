@@ -10,9 +10,11 @@ SHIM_DIR="$HOME/.local/bin"
 VERSION_FILE="$SCRIPT_DIR/VERSION"
 REPO="beyondeye/aitasks"
 
-# Minimum Python version for the framework venv (TUI deps need >=3.11).
+# Source python_resolve.sh for AIT_VENV_PYTHON_MIN (single source of truth).
+# shellcheck source=lib/python_resolve.sh
+source "$SCRIPT_DIR/lib/python_resolve.sh"
+
 # Preferred is the version we install when no modern python is found.
-AIT_VENV_PYTHON_MIN="${AIT_VENV_PYTHON_MIN:-3.11}"
 AIT_VENV_PYTHON_PREFERRED="${AIT_VENV_PYTHON_PREFERRED:-3.13}"
 
 # --- Color helpers ---
@@ -439,74 +441,6 @@ _install_modern_python_linux() {
     ln -sf "$installed" "$HOME/.aitask/python/$AIT_VENV_PYTHON_PREFERRED/bin/python3"
     info "Python $AIT_VENV_PYTHON_PREFERRED installed at $installed (symlinked at ~/.aitask/python/$AIT_VENV_PYTHON_PREFERRED/bin/python3)."
     hash -r
-}
-
-# --- Python version verification ---
-# Must work under Bash 3.2 (macOS default)
-# Sets PYTHON_VERSION_OK=1 if version >= 3.9, 0 otherwise.
-# On macOS, offers to install/upgrade via Homebrew.
-# DEPRECATED: dead after t695_2 (no callers in setup_python_venv); removal in t695_4.
-PYTHON_VERSION_OK=0
-check_python_version() {
-    local python_cmd="$1"
-    PYTHON_VERSION_OK=0
-
-    local py_version
-    py_version="$("$python_cmd" -c 'import sys; print("{}.{}.{}".format(*sys.version_info[:3]))' 2>/dev/null)" || {
-        warn "Could not determine Python version from $python_cmd"
-        return
-    }
-
-    local py_major py_minor
-    py_major="$(echo "$py_version" | cut -d. -f1)"
-    py_minor="$(echo "$py_version" | cut -d. -f2)"
-
-    if [[ "$py_major" -gt 3 ]] || \
-       { [[ "$py_major" -eq 3 ]] && [[ "$py_minor" -ge 9 ]]; }; then
-        success "Python $py_version meets minimum (3.9+)"
-        PYTHON_VERSION_OK=1
-        return
-    fi
-
-    warn "Python $py_version is too old (aitask board requires 3.9+)"
-
-    if [[ "$OS" = "macos" ]] && command -v brew &>/dev/null; then
-        if [[ -t 0 ]]; then
-            printf "  Install/upgrade Python 3 via Homebrew? [Y/n] "
-            read -r answer
-        else
-            info "(non-interactive: auto-accepting)"
-            answer="Y"
-        fi
-        case "${answer:-Y}" in
-            [Yy]*|"")
-                brew install python@3 2>/dev/null || brew upgrade python@3 2>/dev/null || true
-                hash -r  # refresh PATH cache
-                # Re-check version after upgrade
-                if command -v python3 &>/dev/null; then
-                    local new_ver
-                    new_ver="$(python3 -c 'import sys; print("{}.{}.{}".format(*sys.version_info[:3]))' 2>/dev/null)" || true
-                    if [[ -n "$new_ver" ]]; then
-                        local new_major new_minor
-                        new_major="$(echo "$new_ver" | cut -d. -f1)"
-                        new_minor="$(echo "$new_ver" | cut -d. -f2)"
-                        if [[ "$new_major" -gt 3 ]] || \
-                           { [[ "$new_major" -eq 3 ]] && [[ "$new_minor" -ge 9 ]]; }; then
-                            success "Python upgraded to $new_ver"
-                            PYTHON_VERSION_OK=1
-                            return
-                        fi
-                    fi
-                fi
-                warn "Python upgrade did not result in 3.9+. The board TUI may not work."
-                ;;
-            *)
-                warn "Skipped Python upgrade. The board TUI requires Python 3.9+."
-                ;;
-        esac
-    else
-        warn "Please upgrade Python to 3.9+ using your package manager."
-    fi
 }
 
 # --- Python venv setup ---

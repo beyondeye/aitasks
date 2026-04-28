@@ -7,22 +7,16 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/aitask_path.sh
+source "$SCRIPT_DIR/lib/aitask_path.sh"
+# shellcheck source=lib/python_resolve.sh
+source "$SCRIPT_DIR/lib/python_resolve.sh"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
 
-VENV_PYTHON="$HOME/.aitask/venv/bin/python"
-
-if [[ -x "$VENV_PYTHON" ]]; then
-    PYTHON="$VENV_PYTHON"
-else
-    PYTHON="${PYTHON:-python3}"
-    if ! command -v "$PYTHON" &>/dev/null; then
-        echo "Error: Python not found. Run 'ait setup' to install dependencies." >&2
-        exit 1
-    fi
-fi
+PYTHON="$(require_python)"
 
 ARG_SCAN=false
 ARG_EXISTING=""
@@ -52,8 +46,8 @@ Usage: aitask_codemap.sh [OPTIONS]
 Scan repository structure and generate a code_areas.yaml skeleton.
 
 Discovery behavior:
-  - Runs with the shared aitasks Python at `~/.aitask/venv/bin/python` when available,
-    otherwise falls back to `$PYTHON` or `python3`
+  - Runs with the framework Python resolved by lib/python_resolve.sh
+    (venv > ~/.aitask/bin/python3 symlink > system python3)
   - Only scans directories that contain git-tracked files (`git ls-files`)
   - Does NOT read the project `.gitignore` by default
   - Always skips `.git`, `node_modules`, and `__pycache__`

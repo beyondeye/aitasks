@@ -7,6 +7,10 @@ set -euo pipefail
 # Usage: ./.aitask-scripts/aitask_explain_context.sh --max-plans N <file1> [file2...]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/aitask_path.sh
+source "$SCRIPT_DIR/lib/aitask_path.sh"
+# shellcheck source=lib/python_resolve.sh
+source "$SCRIPT_DIR/lib/python_resolve.sh"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
 
@@ -17,13 +21,7 @@ CODEBROWSER_DIR=".aitask-explain/codebrowser"
 EXTRACT_SCRIPT="$SCRIPT_DIR/aitask_explain_extract_raw_data.sh"
 FORMAT_SCRIPT="$SCRIPT_DIR/aitask_explain_format_context.py"
 
-# Prefer the shared aitask venv (has yaml/textual/rich), fall back to system python3
-VENV_PYTHON="$HOME/.aitask/venv/bin/python"
-if [[ -x "$VENV_PYTHON" ]]; then
-    PYTHON="$VENV_PYTHON"
-else
-    PYTHON="python3"
-fi
+PYTHON="$(require_ait_python)"
 
 # --- Functions ---
 

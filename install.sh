@@ -260,6 +260,9 @@ merge_seed() {
         info "  $label exists (kept)"
         return
     fi
+    # Pre-setup invocation. lib/python_resolve.sh is not yet usable here —
+    # no AIT-resolved Python exists. System python3 only needs pyyaml, which
+    # install.sh ensures via earlier prerequisites.
     if python3 "$INSTALL_DIR/.aitask-scripts/aitask_install_merge.py" "$mode" "$src" "$dest" 2>/dev/null; then
         info "  Merged $label (kept existing values, added new seed keys)"
     else

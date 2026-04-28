@@ -5,16 +5,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_PYTHON="$HOME/.aitask/venv/bin/python"
+# shellcheck source=lib/aitask_path.sh
+source "$SCRIPT_DIR/lib/aitask_path.sh"
+# shellcheck source=lib/python_resolve.sh
+source "$SCRIPT_DIR/lib/python_resolve.sh"
 
-if [[ -x "$VENV_PYTHON" ]]; then
-    PYTHON="$VENV_PYTHON"
-else
-    PYTHON="${PYTHON:-python3}"
-    if ! command -v "$PYTHON" &>/dev/null; then
-        echo "Error: Python not found. Run 'ait setup' to install dependencies." >&2
-        exit 1
-    fi
-fi
+PYTHON="$(require_ait_python)"
 
 exec "$PYTHON" "$SCRIPT_DIR/aitask_stats.py" "$@"

@@ -23,6 +23,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/aitask_path.sh
+source "$SCRIPT_DIR/lib/aitask_path.sh"
+# shellcheck source=lib/python_resolve.sh
+source "$SCRIPT_DIR/lib/python_resolve.sh"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/task_utils.sh
@@ -33,17 +37,10 @@ BATCH_MODE=false
 NETWORK_TIMEOUT=10
 
 # --- Auto-merge support (best-effort) ---
-_MERGE_PYTHON=""
+# resolve_python may return empty in fully-stripped environments; try_auto_merge
+# already guards on $_MERGE_PYTHON being non-empty before invoking it.
+_MERGE_PYTHON="$(resolve_python)"
 _MERGE_SCRIPT="$SCRIPT_DIR/board/aitask_merge.py"
-_init_merge_python() {
-    local venv_py="$HOME/.aitask/venv/bin/python"
-    if [[ -x "$venv_py" ]]; then
-        _MERGE_PYTHON="$venv_py"
-    elif command -v python3 &>/dev/null; then
-        _MERGE_PYTHON="python3"
-    fi
-}
-_init_merge_python
 
 # --- Help ---
 show_help() {
