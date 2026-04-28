@@ -6,8 +6,9 @@ issue_type: refactor
 status: Implementing
 labels: [ait_setup, installation, python]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-28 11:25
-updated_at: 2026-04-28 11:45
+updated_at: 2026-04-28 11:46
 ---
 
 ## Context

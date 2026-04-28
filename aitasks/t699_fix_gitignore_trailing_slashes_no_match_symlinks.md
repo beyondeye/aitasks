@@ -7,7 +7,7 @@ status: Ready
 labels: [ait_setup]
 created_at: 2026-04-28 11:23
 updated_at: 2026-04-28 11:23
-boardidx: 70
+boardidx: 10
 boardcol: now
 ---
 
