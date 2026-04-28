@@ -225,3 +225,67 @@ End-to-end checks before requesting commit:
 
 After Step 8 review: Step 9 archives the task per the standard
 post-implementation flow.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all three planned edits.
+  - `.aitask-scripts/aitask_setup.sh` (`setup_data_branch`, ~line 1166):
+    added a migration block that detects exact-line `aitasks/` / `aiplans/`
+    legacy entries and rewrites them in place via `awk` over a temp file
+    (no `sed -i` portability dependency). Changed the new-install
+    seed-append to bare `aitasks` / `aiplans`. Both branches funnel into
+    the existing `gitignore_changed=true` commit path, so the migration
+    rides the same `ait: Configure task data branch …` /
+    `ait: Migrate task data to aitask-data branch` commit — no new commit
+    message needed.
+  - `tests/test_data_branch_setup.sh`: tightened the .gitignore assertions
+    in Test 1 from `grep -qF "aitasks/"` (substring) to `grep -qxF "aitasks"`
+    (exact-line, bare form). Added a regression assertion that filters
+    porcelain to `^?? (aitasks|aiplans)$` and checks the symlinks are
+    ignored (filtering avoids confounds from the `seed/` test fixture).
+    Added Test 12 covering the migration: pre-seeds a committed
+    `.gitignore` with the legacy form, runs `setup_data_branch`, asserts
+    the legacy lines are gone, the bare lines are present (single
+    occurrence each), the symlinks are ignored, and the change is
+    committed (no dirty `.gitignore` left in the index).
+  - `.gitignore` (this repo): replaced `aitasks/` / `aiplans/` with bare
+    `aitasks` / `aiplans` so the symlinks are ignored locally. Confirmed
+    with `git check-ignore -v aitasks aiplans` and a clean
+    `git status --porcelain` for those paths.
+- **Deviations from plan:** Two during Step 8 verification.
+  1. The originally-planned "git status clean after setup_data_branch"
+     assertion failed because Test 1's fixture creates a `seed/`
+     directory that is intentionally untracked. Refined to a scoped
+     porcelain filter (`grep -E '^\?\? (aitasks|aiplans)$'`) so the
+     assertion reads "the symlinks under test must be ignored" rather
+     than "the entire working tree must be clean". Same change applied
+     to Test 12.
+  2. Added a small extra Test 12 assertion confirming `.gitignore`
+     itself is committed after migration (no dirty index left behind).
+- **Issues encountered:** During plan externalization, the helper
+  reported `MULTIPLE_CANDIDATES` (six recently-modified internal plan
+  files in `~/.claude/plans/`). Re-ran with `--internal
+  /home/ddt/.claude/plans/jiggly-hopping-feather.md` (the path from the
+  plan-mode system reminder) and `--force` to disambiguate.
+- **Key decisions:**
+  - **awk + temp file over `sed -i`.** `aitask_setup.sh` does not source
+    `lib/terminal_compat.sh`, so `sed_inplace` is unavailable without
+    wiring up the source. Adding that source for one call would be
+    over-reach; awk over a temp file is portable and self-contained.
+  - **Single migration commit.** Reused the existing
+    `gitignore_changed=true` flow rather than introducing a new
+    `migrate_data_branch_gitignore` helper. The migration is small
+    (two exact-line rewrites) and conceptually part of "Step 7 update
+    .gitignore on main" — splitting it into its own helper would just
+    add a function boundary with no reuse benefit.
+- **Upstream defects identified:** None.
+
+## Verification (executed)
+
+- `bash tests/test_data_branch_setup.sh` → `60 passed, 0 failed, 60 total`.
+- `git check-ignore -v aitasks aiplans` → both reported as ignored by
+  `.gitignore:25` and `.gitignore:26`.
+- `git status --porcelain | grep -E '^\?\? (aitasks|aiplans)$'` → empty
+  (symptom resolved in this repo).
+- `shellcheck .aitask-scripts/aitask_setup.sh` → no new warnings; all
+  existing warnings predate this change and concern unrelated lines.
