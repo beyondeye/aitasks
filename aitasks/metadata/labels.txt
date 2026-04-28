@@ -49,6 +49,7 @@ modelvrapper
 opencode
 openshell
 positioning
+python
 qa
 release_scripts
 remote
