@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [task_workflow, gitremote]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-28 22:19
-updated_at: 2026-04-28 22:27
+updated_at: 2026-04-28 23:31
 ---
 
 ## Context
