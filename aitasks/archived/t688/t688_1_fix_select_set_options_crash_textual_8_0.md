@@ -3,12 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ui, macos]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-28 09:59
-updated_at: 2026-04-28 10:11
+updated_at: 2026-04-28 10:26
+completed_at: 2026-04-28 10:26
 ---
 
 ## Context
