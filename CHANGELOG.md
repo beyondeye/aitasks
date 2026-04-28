@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.19.1
+
+### Bug Fixes
+
+- **Sync with origin before release and changelog** (t705): `create_new_release.sh` and the `/aitask-changelog` skill now sync with `origin/main` before pushing tags or gathering release data, so released versions and changelog entries no longer miss tasks merged on remote.
+
+### Maintenance
+
+- **macOS bash test suite portability audit** (t658): Two macOS-portability bugs fixed in the test suite — BSD `sed -i` calls in `test_archive_no_overbroad_add.sh` and a `mktemp` path-canonicalization mismatch in `test_multi_session_primitives.sh`. Both tests now pass on macOS, bringing parity with Linux for portability-related failures.
+
 ## v0.19.0
 
 ### Features

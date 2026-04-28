@@ -1,5 +1,19 @@
 # Releases
 
+## v0.19.1
+
+v0.19.1 is a quick follow-up to v0.19.0 with two reliability fixes you'll appreciate if you contribute to aitasks itself or develop on macOS.
+
+## Releases and changelogs no longer miss remote tasks
+
+If you cut a release while local `main` was a few commits behind `origin/main`, the changelog could silently skip those tasks and the release tag could land on stale code. The release script and the `/aitask-changelog` skill now fetch and offer to pull before doing anything destructive, so you can run them confidently from any clone.
+
+## macOS test suite is back at parity with Linux
+
+Two long-standing portability bugs in the bash test suite have been fixed — one around BSD `sed -i` in archive-overbreadth tests, and one where macOS' tmpdir resolution made a multi-session test compare paths that should have matched. If you develop aitasks on macOS, the portability-related failures are gone.
+
+---
+
 ## v0.19.0
 
 v0.19.0 is mostly an infrastructure release — the Python venv story, `ait setup` on a fresh clone, and brainstorm stability all got a lot of attention. There's also a new audit-wrappers skill that closes a recurring drift class.
