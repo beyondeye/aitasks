@@ -226,3 +226,22 @@ After Step 8 (commit code + plan separately), run:
 ./.aitask-scripts/aitask_archive.sh 688_3
 ./ait git push
 ```
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Created `seed/tmux.conf` (30 lines) per the verified plan, with the user's three accepted refinements applied: `history-limit 50000`, `default-terminal "tmux-256color"` + `set -ag terminal-overrides ",*:RGB"`, and a `--- Quality-of-life ---` block (`escape-time 0`, `focus-events on`, `set-clipboard on`, `aggressive-resize on`).
+  - Added `install_seed_tmux_conf()` to `install.sh` after `install_seed_project_config()`. Wired into `main()` between project_config and reviewtypes installs (per plan).
+  - Added `setup_starter_tmux_conf()` to `.aitask-scripts/aitask_setup.sh` after `setup_tmux_default_session()`. Wired into `main()` between `setup_tmux_default_session` and `setup_userconfig` (per plan).
+- **Deviations from plan:** None.
+- **Issues encountered:**
+  - **Concurrent-commit attribution mismatch:** The `aitask_setup.sh` edits for this task were swept into commit `78d417da` (`bug: Fix .gitignore trailing slashes that don't match symlinks (t699)`) by another concurrent session that committed during my edit window. The code in HEAD is correct, but the commit subject does not describe the tmux.conf addition. The legitimate t688_3 commit (this one) covers `install.sh` + `seed/tmux.conf` only. No action taken to rewrite history; documenting here as the audit trail.
+  - **Test infrastructure:** `[[ ! -t 0 ]]` guard makes piped `echo y |` non-functional for testing the prompt; used a Python `pty.fork()` wrapper to simulate a real TTY. All 6 verification cases passed.
+- **Key decisions:**
+  - Used the `cp`-based `install_seed_aitask_scripts_gitignore` pattern (`install.sh:273`) as the precedent — the starter is a fixed framework asset, not a user-customizable yaml/text-union merge.
+  - Kept the helper as a function inside the existing `aitask_setup.sh` (not a new helper script under `.aitask-scripts/`), avoiding the 5-touchpoint whitelist requirement.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - `.aitask-scripts/templates/` directory pattern is now established — future template-based setup helpers can reuse it.
+  - When testing a setup helper that uses `[[ -t 0 ]]` guards, prefer a Python pty wrapper over `echo X |` piping; the guard rightly rejects pipes.
+  - On a fresh user install, `install_seed_tmux_conf` runs **before** `rm -rf "$INSTALL_DIR/seed"` (line 1030) — verified end-to-end with `bash install.sh --dir <scratch>`.
