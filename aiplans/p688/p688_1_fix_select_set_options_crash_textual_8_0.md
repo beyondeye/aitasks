@@ -102,6 +102,23 @@ Confirm consumers in `aitask_board.py`, `monitor_app.py`, `history_screen.py` pu
 
 4. **Outside-tmux UX recovery (bonus):** Run `ait board` in a tmux-less environment (or with `tmux` in PATH but no sessions). Open `AgentCommandScreen` → tmux tab is shown but takes the `_show_new_session_input` branch. Pre-fix this branch silently broke; post-fix it should populate cleanly.
 
+## Final Implementation Notes
+
+- **Actual work done:** Refactored `_populate_tmux_tab` to pre-populate the window-select Select widget at construction time (options + value passed to `Select(...)`) instead of mounting an empty Select and then mutating it via `set_options(...)` and `value = ...`. Extracted the option/value computation into a new private helper `_compute_window_options(session)` that is shared between the initial-mount path and the event-driven `_update_window_options` path. Initial-mount calls now defer only `_on_window_changed` (visibility toggles) and `_show_new_session_input` (visibility toggles + already-empty set_options) via `self.call_after_refresh(...)`.
+
+- **Deviations from plan:** The original plan proposed a minimal 2-line change — wrapping the existing `_update_window_options(initial_session)` and `_show_new_session_input()` calls in `self.call_after_refresh(...)`. Verification on Textual 8.1.1 (Linux user's venv) caught a second timing race not anticipated by the plan: even with `call_after_refresh` deferring `_update_window_options`, the inner `win_select.value = ...` triggered `Select._watch_value` which called `select_current.update(prompt)` → `query_one("#label", Static)` on `SelectCurrent`, raising `NoMatches` because `SelectCurrent`'s `#label` child had not yet been mounted. The full fix moves all initial-mount Select-state mutations into the constructor (where `_watch_value` does NOT fire — Textual reactive convention is that `__init__` sets via internal storage), eliminating the race entirely. Total diff grew from ~2 lines to ~30 lines, but stays within a single file.
+
+- **Issues encountered:** The original plan's "minimal" fix was discovered to be incomplete during the verification step (running the headless reproducer on the user's existing Textual 8.1.1 venv). Caught before commit — corrected in-place.
+
+- **Key decisions:**
+  - Chose the pre-construct approach over alternatives (e.g., multiple-tick `call_later`, `await mount_complete`) because it is the existing pattern already used by the session select on the same screen (line 339: `Select(session_options, value=initial_session, ...)`) — consistent with surrounding code, no new idiom introduced.
+  - Extracted `_compute_window_options` as a shared helper so the event-driven `_update_window_options` path (called from `on_session_changed` line 478) and the initial-mount path use identical priority logic for default-window selection.
+  - Did NOT change line 422 (`set_options([])` inside `_show_new_session_input`) — that path is still wrapped in `try/except Exception: pass` and runs via `call_after_refresh` on initial mount, which is sufficient given `set_options([])` on an already-empty Select is a no-op.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:** None of the t688_2 / t688_3 changes interact with this file or the Textual widget mount lifecycle. This child is independent and complete — siblings can proceed without dependency.
+
 ## Step 9 (Post-Implementation) reference
 
 After Step 8 (commit code + plan separately), run:
