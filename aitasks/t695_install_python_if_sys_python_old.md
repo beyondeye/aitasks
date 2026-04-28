@@ -5,7 +5,7 @@ depends: []
 issue_type: refactor
 status: Ready
 labels: [ait_setup, installation, python]
-children_to_implement: [t695_1, t695_2, t695_3]
+children_to_implement: [t695_1, t695_2, t695_3, t695_4]
 created_at: 2026-04-28 10:25
 updated_at: 2026-04-28 11:27
 ---
