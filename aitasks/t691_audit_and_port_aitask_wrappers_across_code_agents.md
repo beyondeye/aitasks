@@ -5,10 +5,11 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [claudeskills]
+children_to_implement: [t691_1]
 folded_tasks: [689]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-28 08:35
-updated_at: 2026-04-28 09:48
+updated_at: 2026-04-28 11:06
 boardidx: 110
 ---
 
