@@ -1,5 +1,55 @@
 # Changelog
 
+## v0.19.0
+
+### Features
+
+- **Agent progress bar in brainstorm** (t683): The brainstorm Status tab now shows a 10-character progress bar next to each running agent, so you can see how far along an agent is.
+- **Cloning aitasks-enabled repos documented** (t685): The installation docs now explain that `./ait setup` is required after cloning a repo that already uses aitasks, with the symptoms you'll see if you skip it.
+- **Counter scans real tasks on fresh clones** (t686): `ait setup` now consults the data branch before initializing the task-ID counter, so a fresh clone of an established project continues numbering from the next available ID instead of restarting at 1.
+- **Auto-commit `.gitignore` after setup** (t687): `ait setup` now commits the `__pycache__/` rule it adds to `.gitignore` immediately, so your working tree stays clean after a fresh setup.
+- **Starter `~/.tmux.conf` in setup** (t688_3): `ait setup` now offers to drop a sensible starter `~/.tmux.conf` (true-color, 50k history, focus events, sane escape-time) so first-time tmux users get a comfortable default.
+- **aitask-audit-wrappers skill — Phase 1 (skill wrappers)** (t691_1): A new `aitask-audit-wrappers` skill audits and ports skill-wrapper files across the claude/gemini/codex/opencode trees, closing wrapper drift in one command.
+- **aitask-audit-wrappers — Phase 2 (helper-script whitelists)** (t691_2): The audit now also covers helper-script whitelists across all five permission touchpoints, so adding a new helper script no longer means hand-editing five separate files.
+
+### Bug Fixes
+
+- **Whitelist bare `ait crew` form** (t674): Code-agent permission lists now allow both `./ait crew` and bare `ait crew`, so crew agents stop prompting for permission on routine heartbeat/status calls.
+- **Capture real PID for tmux-launched agents** (t675): Brainstorm/crew agents launched into tmux now record the agent's actual PID, so the Status tab no longer shows "PID dead" for an agent that is in fact running.
+- **Auto-fill `created_at` in brainstorm initializer** (t676): Brainstorm initializer/explorer/synthesizer outputs missing `created_at` no longer crash with a parse error — the field is auto-filled at apply time.
+- **Fix PR contributor metadata test regression** (t682): Restore silent test coverage for pull-request / contributor metadata writes that was masked by a missing test fixture dependency.
+- **Fix revert-analyze test regression** (t684): Same class of silent test-fixture drift, fixed by mirroring the full `.aitask-scripts/` tree into the test sandbox.
+- **Fix `Select.set_options` crash on Textual 8** (t688_1): The brainstorm agent-command screen no longer crashes when opening the tmux session/window selector on Textual ≥8.0.
+- **Fix brainstorm minimap crash and section-jump overshoot** (t690): Clicking or tabbing the minimap inside the node-detail modal no longer crashes, and the section jump now lands on the correct row.
+- **Warn when reclaiming a self-locked task across PCs** (t692): `ait pick` now prompts when you try to pick a task already locked by you on a different machine, rather than silently re-claiming it.
+- **Copy `archive_scan.sh` into three test fixtures** (t693): Restore silent test coverage for data-branch migration, issue-import contributor, and parallel-child-create flows.
+- **Fix `.gitignore` trailing slashes vs symlinks** (t699): `ait setup` now writes bare `aitasks` / `aiplans` entries so the data-branch symlinks are actually ignored and don't show as untracked after setup. Existing installs are auto-migrated.
+
+### Improvements
+
+- **Centralized Python resolver helper** (t695_1): A new `lib/python_resolve.sh` consolidates how scripts find a usable Python interpreter (cached lookup + version enforcement), eliminating ad-hoc probe logic.
+- **Upgrade venv Python to ≥3.11 with auto-install** (t695_2): `ait setup` now auto-installs a modern Python (Homebrew on macOS, uv-managed on Linux) when system Python is too old, instead of failing with a manual-install message.
+- **`~/.aitask/bin` symlink with scoped PATH** (t695_3): A sourced lib prepends `~/.aitask/bin` only inside aitasks subprocesses — no more global shell-rc edits, and aitasks Python tools resolve to the framework venv automatically.
+- **Migrate Python callers to the resolver helper** (t695_4): 25 caller scripts now route through `require_ait_python` / `require_python` for unified version enforcement; ~70 lines of dead version-check code removed.
+- **Robust upstream-defect reporting** (t698): The task workflow now requires all related defects in the canonical "Upstream defects identified" bullet, with a sanity-check re-read for older plans that didn't follow the contract.
+
+### Documentation
+
+- **aitask-audit-wrappers docs page** (t691_3): New framework-development skills subsection on the docs site, with a dedicated page for `aitask-audit-wrappers` and cross-links from `aitask-add-model`.
+- **Upstream-defect follow-up workflow page** (t704): New docs page explaining the post-task upstream-defect follow-up flow, with cross-links from the workflows index and follow-up-tasks page.
+
+### Tests
+
+- **Dynamic skill-count expectations in setup tests** (t679): Setup tests now derive expected skill/command counts from the source dirs instead of hard-coding numbers, so adding a new skill no longer breaks them.
+- **Skip codex-model-detect when codex unavailable** (t680): The test now prints `SKIP` and exits 0 when `codex` or `jq` aren't installed, instead of failing on hosts that lack the tool.
+- **Refresh stale assertions** (t681): Updated `test_brainstorm_cli` and `test_verified_update_flags` after upstream behavior changes.
+
+### Maintenance
+
+- **Use aitask venv Python in tests** (t677): 11 tests that depend on yaml/textual/rich now invoke the framework venv Python explicitly, so they stop silently using whatever `python3` is on PATH.
+- **`cp -R` test fixture pattern** (t678): Replaced hand-curated copy lists in three test fixtures with a recursive `cp -R` of `.aitask-scripts/`, eliminating a recurring drift class where new lib dependencies broke tests silently.
+- **Surface textual upgrade in setup** (t688_2): `ait setup` now prints "Upgraded textual: A → B" when it bumps the venv's Textual version, so a stale-venv re-run shows visible recovery output.
+
 ## v0.18.3
 
 ### Features
