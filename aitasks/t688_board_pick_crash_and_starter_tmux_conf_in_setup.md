@@ -5,11 +5,11 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [ui, macos]
-children_to_implement: [t688_2, t688_3]
+children_to_implement: [t688_2]
 created_at: 2026-04-28 00:03
-updated_at: 2026-04-28 10:26
-boardidx: 40
+updated_at: 2026-04-28 12:35
 boardcol: now
+boardidx: 40
 ---
 
 ## Symptom

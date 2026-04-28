@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [macos]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-28 10:01
-updated_at: 2026-04-28 11:45
+updated_at: 2026-04-28 12:35
+completed_at: 2026-04-28 12:35
 ---
 
 ## Context
