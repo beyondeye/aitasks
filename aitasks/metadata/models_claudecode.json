@@ -261,18 +261,18 @@
         },
         "test_414_flags": {
           "all_time": {
-            "runs": 2,
-            "score_sum": 200
+            "runs": 3,
+            "score_sum": 300
           },
           "month": {
             "period": "2026-04",
-            "runs": 2,
-            "score_sum": 200
+            "runs": 3,
+            "score_sum": 300
           },
           "week": {
             "period": "2026-W18",
-            "runs": 2,
-            "score_sum": 200
+            "runs": 3,
+            "score_sum": 300
           }
         }
       }
