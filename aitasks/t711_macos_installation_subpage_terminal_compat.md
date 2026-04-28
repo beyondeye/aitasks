@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [macos, installation, web_site, tmux]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-29 00:11
-updated_at: 2026-04-29 00:11
+updated_at: 2026-04-29 00:13
 ---
 
 ## Goal
