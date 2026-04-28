@@ -111,9 +111,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.19.0: A modern Python venv that installs itself, `ait setup` on a fresh clone,  polished end-to-end, Brainstorm: fewer crashes, and  more visibility](blog/v0190-a-modern-python-venv-that-installs-itself-ait-setup-on-a-fresh-clone-polis/)** -- Apr 28, 2026
 - **[v0.18.3: Brainstorm agents run interactive by default, Brainstorm sessions that don't get stuck, and MissedHeartbeat is gone (and that means a small migration)](blog/v0183-brainstorm-agents-run-interactive-by-default-brainstorm-sessions-that-don/)** -- Apr 27, 2026
 - **[v0.18.2: Multi-session stats in the TUI, Monitor and minimonitor handle cross-session agents correctly, and Agent crews that recover instead of erroring out](blog/v0182-multi-session-stats-in-the-tui-monitor-and-minimonitor-handle-cross-sessio/)** -- Apr 26, 2026
-- **[v0.18.1: Triage manual-verification checklists in batches, Filter the board by issue type, and `ait upgrade` actually upgrades branch-mode setups now](blog/v0181-triage-manual-verification-checklists-in-batches-filter-the-board-by-issue/)** -- Apr 26, 2026
 
 [All releases &rarr;](blog/)
 
