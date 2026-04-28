@@ -64,3 +64,23 @@ Notes:
 ## Step 9 — Post-Implementation
 
 Follow the standard post-implementation flow in `task-workflow/SKILL.md` Step 9 (commit, archive `t690`, push). No worktree to remove (working on current branch).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-04-28 00:55)
+- **Requested by user:** While testing the AttributeError fix, the user reported a related defect in the same NodeDetailModal: clicking a section row in the proposal-tab minimap scrolls *near* the target but overshoots/undershoots by a few rows. They asked whether sharing the scroll container between minimap and markdown could be the cause.
+- **Investigation:** Confirmed. In `on_section_minimap_section_selected` (`brainstorm_app.py:481`), the y target was computed as `(start_line / total_lines) * scroll.virtual_size.height` against `#proposal_scroll`. But `#proposal_scroll` contains BOTH the minimap (`max-height: 12`) and the markdown — its `virtual_size.height = minimap_h + markdown_h`. The line-ratio is the position within the markdown, so multiplying by the combined height gives `(L/T) * (minimap_h + markdown_h)` instead of the correct `minimap_h + (L/T) * markdown_h`. Off by `minimap_h * (1 - L/T)` — largest at top, ~0 at bottom.
+- **Changes made:** Refactored `on_section_minimap_section_selected` to (a) compute y in markdown-local coordinates using the markdown widget's own `virtual_size.height`, (b) add the minimap's `outer_size.height` as the start-of-markdown offset within the scroll container. Used `event.control` (now reliable thanks to Change 1's `control` property on `SectionSelected`) for the minimap reference — no extra `query_one` needed. Both `proposal_minimap` and `plan_minimap` branches updated. `on_section_minimap_toggle_focus` was unaffected (no scroll math).
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  1. `.aitask-scripts/lib/section_viewer.py` — added `control` property to `SectionMinimap.SectionSelected` and `SectionMinimap.ToggleFocus` returning `self._sender`. Fixes the `AttributeError: 'NoneType' object has no attribute 'id'` crash on minimap clicks/Tab in `NodeDetailModal`.
+  2. `.aitask-scripts/brainstorm/brainstorm_app.py` — refactored `on_section_minimap_section_selected` to compute y from the markdown widget's own `virtual_size.height` plus the minimap's `outer_size.height` offset, instead of from the shared scroll container's combined height. Fixes the section-row jump overshoot reported during user review.
+- **Deviations from plan:** The original plan covered only the `control` property fix. A second defect (scroll-offset miscalculation) was discovered and fixed during user review at the user's request — see Post-Review Changes above. Same minimap interaction in the same NodeDetailModal screen, so bundled into the same task per user direction.
+- **Issues encountered:** None during implementation. The pre-existing uncommitted changes in `aitask_lock.sh`, `aitask_pick_own.sh`, `agent_command_screen.py`, and `task-workflow/SKILL.md` were unrelated to this task and were intentionally NOT staged.
+- **Key decisions:**
+  - Used `event.control.outer_size.height` (the SectionMinimap widget) directly instead of querying for the minimap by id — `event.control` is now reliable thanks to the property added in Fix 1.
+  - Single-minimap consumers (`board`, `codebrowser/detail_pane.py`, `codebrowser/history_detail.py`, `SectionViewerScreen`) were left untouched; they don't read `event.control` and `SectionViewerScreen` puts its minimap in a sibling Horizontal, not inside the scroll container, so no offset bug there.
+- **Upstream defects identified:** None.
