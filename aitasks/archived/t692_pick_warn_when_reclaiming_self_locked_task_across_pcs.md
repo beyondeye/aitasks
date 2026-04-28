@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_pick, task_workflow, bash_scripts]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-28 09:54
-updated_at: 2026-04-28 10:17
+updated_at: 2026-04-28 10:26
+completed_at: 2026-04-28 10:26
 ---
 
 ## Symptom
