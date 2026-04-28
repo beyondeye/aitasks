@@ -245,18 +245,18 @@
         },
         "explore": {
           "all_time": {
-            "runs": 12,
-            "score_sum": 1200
+            "runs": 13,
+            "score_sum": 1300
           },
           "month": {
             "period": "2026-04",
-            "runs": 12,
-            "score_sum": 1200
+            "runs": 13,
+            "score_sum": 1300
           },
           "week": {
             "period": "2026-W18",
-            "runs": 4,
-            "score_sum": 400
+            "runs": 5,
+            "score_sum": 500
           }
         },
         "test_414_flags": {
