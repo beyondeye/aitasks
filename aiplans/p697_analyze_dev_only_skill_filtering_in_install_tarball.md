@@ -88,3 +88,100 @@ These are submitted via `aitask_create.sh --batch --commit` per the task descrip
 ## Step 9 (Post-Implementation)
 
 Standard archival flow. Plan-file commit is the single output of this task (in addition to the two new follow-up task files committed by `aitask_create.sh`).
+
+## Final Implementation Notes
+
+This is the deliverable of t697 — the written analysis. Read this section as the analysis itself; everything above is the planning outline that produced it.
+
+### Part 1 — Inventory of dev-only artifacts
+
+**Method.** Combined exploration of `.claude/skills/`, `.aitask-scripts/`, the four mirror trees (`.agents/skills/`, `.opencode/skills/`, `.opencode/commands/`, `.gemini/commands/`), and the five whitelist surfaces named by the CLAUDE.md "Adding a New Helper Script" checklist (`.claude/settings.local.json`, `seed/claude_settings.local.json`, `.gemini/policies/aitasks-whitelist.toml`, `seed/geminicli_policies/aitasks-whitelist.toml`, `seed/opencode_config.seed.json`). Codex is excluded by the prompt-only convention.
+
+**Inventory table.**
+
+| Skill | Classification | Mirrors (4 trees) | Helper script | Whitelist surfaces today |
+|---|---|---|---|---|
+| `aitask-add-model` | **Dev-only** (confirmed) | All 4 present | `aitask_add_model.sh` | **0/5** — only `activate_skill` argsPattern in gemini policies (lines 585 / both runtime & seed); no `commandPrefix`/`Bash(...)` entry anywhere |
+| `aitask-audit-wrappers` | **Dev-only** (confirmed) | All 4 present | `aitask_audit_wrappers.sh` | **5/5** — landed under t691 |
+| `aitask-refresh-code-models` | **Dev-only** (proposed) | All 4 present | `aitask_refresh_code_models.sh` | **0/5** — only `activate_skill` argsPattern in gemini policies (line 669); no `commandPrefix`/`Bash(...)` entry anywhere |
+| `aitask-changelog` | **End-user** (proposed) | All 4 present | `aitask_changelog.sh` | **5/5** — already complete |
+| `aitask-reviewguide-classify`, `-merge`, `-import` | End-user | All 4 present | `aitask_reviewguide_scan.sh` | n/a (end-user, keep) |
+| `aitask-contribute`, `-contribution-review` | End-user | All 4 present | `aitask_contribute.sh`, `aitask_contribution_review.sh`, `aitask_issue_import.sh` | n/a (end-user, keep) |
+| All other `aitask-*` skills | End-user | n/a | n/a | n/a |
+
+**Justifications.**
+
+- `aitask-add-model` and `aitask-refresh-code-models` write into `models_*.json` and `DEFAULT_AGENT_STRING` constants that are framework-distribution defaults. End users either inherit those defaults or edit the file directly; nobody outside the framework maintainer's seat will run a workflow whose output is "research the latest models and refresh the framework's seed."
+- `aitask-audit-wrappers` audits the cross-agent wrapper trees (`.agents/`, `.opencode/`, `.gemini/`). Those trees only matter as source-of-truth duplications of `.claude/skills/` — they are framework-internal infrastructure, not user-customizable surfaces.
+- `aitask-changelog` is **end-user**, not dev-only as initial classification suggested. The helper (`aitask_changelog.sh:20`) drives off `git tag --list 'v*'` and `(tNN)` commit-suffix detection — both project-agnostic. Any project that adopts aitasks and tags releases can use it for its own changelog. Keep in user installs.
+- The reviewguide trio and `aitask-contribute*` directly support user workflows (custom review checklists, upstream issue/PR creation against arbitrary repos). Keep in user installs.
+
+**Surprise finding (whitelist gap).** Both `aitask-add-model` and `aitask-refresh-code-models` are missing from all 5 whitelist surfaces today — only the gemini `activate_skill` argsPattern rule exists, which permits the skill to be invoked but does NOT whitelist the underlying helper-script command. Every Claude / OpenCode / Gemini-CLI run hits a permission prompt for these helpers in the source repo. This is independent of the dev-only filter question and surfaces as Follow-up B.
+
+### Part 2 — Choice of dev-only criterion
+
+Compared the four mechanisms named in the task description:
+
+| Mechanism | Pros | Cons | Verdict |
+|---|---|---|---|
+| **Frontmatter flag** (e.g., `audience: developers` in SKILL.md) | Self-documenting on the artifact; install-time filter is a one-line grep per skill dir; new dev-only skills auto-filter as long as authors set the flag; non-breaking for existing skills/whitelists/mirrors; mirrors npm `private: true` / Cargo `publish = false` conventions. | Authors must remember to set the flag for new dev-only skills (mitigated by a CI lint that flags candidates); install.sh has to parse YAML frontmatter (mitigated — a literal `^audience: developers` grep works in bash). | **Recommended** |
+| **Naming convention** (`aitask-dev-*`) | Filtering trivial. | Renaming the four confirmed dev-only skills is breaking across 5 whitelist files × 4 mirror trees × per-skill = ~25–30 entry rewrites; user-visible slash-command names change. | **Rejected** |
+| **Hardcoded exclusion list** in install.sh | Simplest. | Drift-prone — a new dev-only skill is one forgotten edit away from leaking; the list lives separately from the artifact. | Acceptable as fallback only |
+| **Separate `dev/` subdirectory** | Filter trivial (`rm -rf .claude/skills/dev/`). | Path move breaks every mirror reference, every whitelist entry, every helper-script reference; high churn. | **Rejected** |
+
+**Recommendation: frontmatter flag, field name `audience`, value `developers`.** Filter logic in `install.sh` reads each `SKILL.md`, omits skills whose frontmatter declares `audience: developers`, *and* omits the corresponding helper-script files plus their whitelist entries. The same field works for `.claude/skills/`, `.agents/skills/`, `.opencode/skills/` (all use `SKILL.md`); `.opencode/commands/<n>.md` and `.gemini/commands/<n>.toml` wrappers don't have SKILL.md, but their inclusion is keyed off the underlying skill — derive from the skill, not the wrapper.
+
+**Filter behavior at install time:**
+
+1. For each `.claude/skills/*/SKILL.md`: if `^audience: developers$` matches, exclude the directory and record the helper-script names referenced in its body.
+2. Same scan for `.agents/skills/`, `.opencode/skills/`.
+3. Exclude `.opencode/commands/<name>.md` and `.gemini/commands/<name>.toml` whose `<name>` matches an excluded skill.
+4. Exclude the recorded helper scripts under `.aitask-scripts/`.
+5. Strip the corresponding whitelist entries from `claude_settings.local.json`, the gemini `aitasks-whitelist.toml`, and `opencode_config.seed.json` *before* they are written into the user project (so users don't even see allow rules for helpers they don't have).
+6. Add `--include-dev` opt-in flag for power users / framework maintainers who want everything.
+
+### Part 3 — Survey of current packaging
+
+Anchored to file:line references confirmed during this analysis:
+
+- `install.sh` has **no opt-in / exclusion mechanism** for skills today. The single broad exclusion is `rm -rf "$INSTALL_DIR/seed"` at install.sh:1030. Skills copy unconditionally via `install_skills()` (install.sh:214–233).
+- `seed/` is deleted at end of install (per t624 — `aiplans/archived/p624*.md`), so any runtime path that still reads from `$project_dir/seed/...` silently fails on fresh installs. Per CLAUDE.md "Test the full install flow for setup helpers", the dev-only filter MUST be tested via the full `bash install.sh --dir /tmp/scratchXY` flow, not just by exercising a helper in isolation against a hand-crafted seed.
+- The 5-touchpoint whitelist matrix in CLAUDE.md "Adding a New Helper Script" (lines 82–96) is current and matches the runtime files. The dev-only filter has to consume the *same* matrix and *omit* the helper-script entry from the relevant whitelists at install time.
+- Codex exception (CLAUDE.md:94): prompt-only, no allow entry exists, so no Codex-side filter is needed.
+- `t691_1` archived plan establishes the canonical helper-whitelisting workflow that any new helper passes through; the dev-only filter is the inverse operation (suppress the same entries at distribution time).
+
+### Part 4 — Follow-up implementation tasks
+
+Two follow-up tasks were created via `aitask_create.sh --batch --commit`:
+- **t700** — Follow-up A (audience flag + install.sh filter)
+- **t701** — Follow-up B (whitelist gap fix for `aitask_add_model.sh` and `aitask_refresh_code_models.sh`)
+
+**Follow-up A — `t700` — "Define `audience` frontmatter field and filter dev-only skills in install.sh"**
+- Document the `audience` frontmatter field in CLAUDE.md "Skill / Workflow Authoring Conventions".
+- Mark the three confirmed dev-only skills (`aitask-add-model`, `aitask-audit-wrappers`, `aitask-refresh-code-models`) and their mirrors (`.agents/skills/`, `.opencode/skills/`, plus the wrapper files `.opencode/commands/<name>.md` and `.gemini/commands/<name>.toml`) with `audience: developers`.
+- Extend `install.sh` to filter dev-only skills, their helper scripts, and their whitelist entries from the user install. Include `--include-dev` opt-in.
+- Test via `bash install.sh --dir /tmp/scratchXY` — verify the four filtered files are absent and the three whitelist surfaces have no entries for the filtered helpers.
+
+**Follow-up B — `t701` — "Whitelist `aitask_add_model.sh` and `aitask_refresh_code_models.sh` across the 5 helper-script touchpoints"**
+- Independent of t697's main thrust. Both helpers currently lack `commandPrefix` / `Bash(...)` entries in all 5 surfaces; framework developers in source hit prompts on every invocation.
+- Apply the 5-touchpoint update from CLAUDE.md "Adding a New Helper Script" (mirror what t691 did for `aitask_audit_wrappers.sh`).
+- Even though Follow-up A will eventually filter both skills out of *user* installs, source-repo developers still need the whitelist coverage.
+
+### Part 5 — What does NOT belong in scope
+
+Per the task description:
+- Anything that needs `aitask-audit-wrappers` to function (it is itself dev-only).
+- Test files in `tests/` — already absent from the user install pipeline.
+- The `aireviewguides/` content — orthogonal and already handled by `install_seed_reviewguides()`.
+
+---
+
+- **Actual work done:** Inventoried the four candidate dev-only artifacts, confirmed three (`aitask-add-model`, `aitask-audit-wrappers`, `aitask-refresh-code-models`) and rejected one (`aitask-changelog` is end-user). Surveyed `install.sh`, the seed pipeline, and the 5-touchpoint whitelist matrix. Recommended the `audience: developers` frontmatter flag mechanism with explicit trade-offs vs. the three alternatives. Created two follow-up tasks via `aitask_create.sh --batch --commit`. No `install.sh` / skill / whitelist edits made by t697 itself.
+- **Deviations from plan:** None of substance. The plan outline anticipated "Status TBD during write-up" for `aitask-refresh-code-models`'s whitelist — write-up confirmed it is in the same 0/5 state as `aitask-add-model`, so Follow-up B was widened to cover both helpers (plan originally listed only `aitask-add-model`).
+- **Issues encountered:** Initial explore-agent classification of `aitask-changelog` as dev-only was wrong (the helper is project-agnostic). Caught by reading `aitask_changelog.sh` directly and noting the `git tag --list 'v*'` driver. Re-classified to end-user before plan finalization.
+- **Key decisions:**
+  - `audience: developers` (frontmatter) over the three alternatives; rationale in Part 2.
+  - Recommend filter in `install.sh` (single source-of-truth tarball) rather than a build-time tarball-shaping step, with `--include-dev` opt-in.
+  - Surface the pre-existing whitelist gap as a separate follow-up (B) rather than rolling it into A — Follow-up B is useful to source-repo developers even if Follow-up A is rejected.
+- **Upstream defects identified:**
+  - `seed/geminicli_policies/aitasks-whitelist.toml` and `.gemini/policies/aitasks-whitelist.toml` — both contain `activate_skill` argsPattern rules for `aitask-add-model` (line 585) and `aitask-refresh-code-models` (line 669) but no matching `commandPrefix` rules for the underlying helper scripts. Same gap mirrored in `.claude/settings.local.json`, `seed/claude_settings.local.json`, `seed/opencode_config.seed.json`. This is the pre-existing whitelist gap that Follow-up B addresses; surfaced here per the upstream-defect-followup convention, separate from t697's analysis-only deliverable.
