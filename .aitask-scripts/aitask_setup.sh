@@ -2992,7 +2992,12 @@ setup_tmux_default_session() {
 
 # --- Optional starter ~/.tmux.conf (opt-in, never overwrites) ---
 setup_starter_tmux_conf() {
+    # Primary path: populated by install.sh's install_seed_tmux_conf().
+    # Fallback: source-tree checkouts where seed/ is preserved.
     local template="$SCRIPT_DIR/templates/tmux.conf"
+    if [[ ! -f "$template" ]]; then
+        template="$SCRIPT_DIR/../seed/tmux.conf"
+    fi
 
     if [[ ! -f "$template" ]]; then
         return
