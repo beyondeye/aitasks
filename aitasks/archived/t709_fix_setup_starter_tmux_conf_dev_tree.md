@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ait_setup]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-28 22:45
-updated_at: 2026-04-28 23:04
+updated_at: 2026-04-28 23:31
+completed_at: 2026-04-28 23:31
 ---
 
 ## Symptom
