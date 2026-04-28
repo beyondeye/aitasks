@@ -194,3 +194,11 @@ Replace with (only the trailing sentence changes — append a macOS caveat):
 ## Step 9 reference
 
 After commit, the standard task-workflow Step 9 archival applies: no separate worktree was created, so just run `./.aitask-scripts/aitask_archive.sh 711` and `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Created `website/content/docs/installation/macos.md` with the full structure from the plan (Prerequisites, Install, Terminal emulator choice with Recommended/Fallback subsections, Verify-truecolor snippet, Next steps). Updated `_index.md` Platform Support macOS row + added `**macOS users:**` callout below the `**Windows users:**` line. Updated `terminal-setup.md` Requirements bullet with a one-sentence Apple Terminal caveat linking back to `macos.md`.
+- **Deviations from plan:** None.
+- **Issues encountered:** None.
+- **Key decisions:** Cross-link convention follows the per-file style — `_index.md` uses bare relative paths (`macos/`, `windows-wsl/`); `terminal-setup.md` uses `{{< relref "macos" >}}`; `macos.md` itself uses `{{< relref ... >}}` for outbound links to neighbour pages.
+- **Verification:** `cd website && hugo build --gc --minify` succeeded (179 pages, no warnings). The rendered page exists at `website/public/docs/installation/macos/index.html` with the correct title and meta description.
