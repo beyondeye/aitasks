@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_workflow, gitremote]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-28 22:19
-updated_at: 2026-04-28 22:19
+updated_at: 2026-04-28 22:27
 ---
 
 ## Context
