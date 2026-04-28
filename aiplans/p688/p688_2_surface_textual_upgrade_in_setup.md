@@ -1,20 +1,29 @@
 ---
 Task: t688_2_surface_textual_upgrade_in_setup.md
 Parent Task: aitasks/t688_board_pick_crash_and_starter_tmux_conf_in_setup.md
-Sibling Tasks: aitasks/t688/t688_1_fix_select_set_options_crash_textual_8_0.md, aitasks/t688/t688_3_starter_tmux_conf_in_setup.md
-Archived Sibling Plans: aiplans/archived/p688/p688_*_*.md
+Sibling Tasks: aitasks/t688/t688_1_fix_select_set_options_crash_textual_8_0.md (archived), aitasks/t688/t688_3_starter_tmux_conf_in_setup.md (archived)
+Archived Sibling Plans: aiplans/archived/p688/p688_1_fix_select_set_options_crash_textual_8_0.md, aiplans/archived/p688/p688_3_starter_tmux_conf_in_setup.md
 Worktree: (none — working on current branch per profile 'fast')
 Branch: main
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-04-28 15:44
 ---
 
 # Plan — t688_2: Surface Textual upgrade output in `ait setup`
 
 ## Context
 
-`ait setup` already pins `textual>=8.1.1,<9` in the venv install line at `.aitask-scripts/aitask_setup.sh:502`, with `--quiet` to keep noise low on fresh installs. Pip *does* upgrade a stale 8.0 venv when re-running setup (because 8.0 doesn't satisfy `>=8.1.1`), but the user never sees the upgrade. The recovery story for the sibling bug fix t688_1 is "re-run `ait setup`" — and we want users to see proof that the upgrade happened.
+`ait setup` already pins `textual>=8.1.1,<9` in the venv install line, with `--quiet` to keep noise low on fresh installs. Pip *does* upgrade a stale 8.0 venv when re-running setup (because 8.0 doesn't satisfy `>=8.1.1`), but the user never sees the upgrade. The recovery story for the sibling bug fix t688_1 is "re-run `ait setup`" — and we want users to see proof that the upgrade happened.
 
 This child adds visibility (a single info line) without dropping `--quiet`.
+
+## Verify-mode notes (2026-04-28)
+
+- Existing plan reviewed: `aiplans/p688/p688_2_surface_textual_upgrade_in_setup.md`.
+- Code re-checked: `.aitask-scripts/aitask_setup.sh:566` is the current location of the `textual>=8.1.1,<9 …` install line (was 502 in the original plan; lines shifted because t695_2/t695_3 inserted symlink/python-resolution logic above it). Surrounding `setup_python_venv()` body still matches plan assumptions: `info`/`success` helpers in scope, `$VENV_DIR` available, `--quiet` flag present.
+- No new touchpoints introduced (still a single-file edit; helper-script whitelist checklist N/A — `setup_python_venv` is a private function inside an already-whitelisted script).
+- Approach unchanged: capture pip-show version before/after the install line, emit `info "Upgraded textual: <before> → <after>"` only when both reads succeeded and they differ.
 
 ## Approach
 
@@ -22,7 +31,7 @@ Capture the installed textual version with `pip show textual | awk '/^Version:/ 
 
 ## Critical Files
 
-- `.aitask-scripts/aitask_setup.sh` — modify `setup_python_venv()` around line 500–510.
+- `.aitask-scripts/aitask_setup.sh` — modify `setup_python_venv()` around line 564–566 (current location).
 
 ## Implementation Steps
 
@@ -56,11 +65,11 @@ with:
     fi
 ```
 
-(Keep the rest of `setup_python_venv` — the optional plotext install, the `success "Python venv ready at $VENV_DIR"` line, etc. — untouched.)
+(Keep the rest of `setup_python_venv` — the optional plotext install, the symlink creation block, the `success "Python venv ready at $VENV_DIR"` line — untouched.)
 
 ### Step 2 — No other touchpoints
 
-- The function is private to `aitask_setup.sh` and only changes shell output; no whitelisting / 5-touchpoint changes.
+- Function is private to `aitask_setup.sh` and only changes shell output; no whitelisting / 5-touchpoint changes.
 - No new files or directories.
 
 ## Verification
