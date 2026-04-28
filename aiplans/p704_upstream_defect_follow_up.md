@@ -84,3 +84,12 @@ That page already covers *user-driven* follow-up creation during implementation.
 - Confirm internal cross-links resolve: from the new page back to `/aitask-pick` skill, `/aitask-qa` skill, and the `follow-up-tasks` page; and from `follow-up-tasks` to the new page.
 - Spot-check rendered markdown: code blocks for YAML/markdown samples, em-dash characters, and the "depth" frontmatter render correctly.
 - No code or test changes — `tests/` and `shellcheck` runs are unnecessary for this task.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `website/content/docs/workflows/upstream-defect-followup.md` (~120 lines, weight 78). Added a one-line bullet to `website/content/docs/workflows/_index.md` in the **Review & Quality** group between QA and Manual Verification. Added an "Automatic Upstream-Defect Follow-up" cross-link paragraph to `website/content/docs/workflows/follow-up-tasks.md` immediately above the "Advantages Over Standalone Task Creation" heading. Verified with `hugo --gc` (176 pages, no errors); confirmed the new page builds at `public/docs/workflows/upstream-defect-followup/index.html` and that both the index page and the follow-up-tasks page contain the cross-link reference.
+- **Deviations from plan:** None of substance. Plan said "section or paragraph after Advantages Over Standalone Task Creation"; landed it just above the Advantages section instead, which reads more naturally as a transition from the user-driven flows above to the value-add list below.
+- **Issues encountered:** None.
+- **Key decisions:** Kept the new page focused on user-facing behavior (plan-file contract, prompt shape, seeded task structure, fast/sanity-check parsing modes, t660 example) and explicitly out-of-scope'd skill-page edits and profile-key documentation, matching the manual-verification precedent (workflow-only, no clutter in `aitask-pick/_index.md`).
+- **Upstream defects identified:** None
+
