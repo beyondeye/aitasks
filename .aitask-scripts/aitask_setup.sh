@@ -379,9 +379,9 @@ find_modern_python() {
     local min="${1:-$AIT_VENV_PYTHON_MIN}"
     local major="${min%%.*}" minor="${min##*.}"
     local cand resolved candidates=(
+        "$HOME/.aitask/venv/bin/python"
         "$HOME/.aitask/bin/python3"
         "$HOME/.aitask/python/$AIT_VENV_PYTHON_PREFERRED/bin/python3"
-        "$HOME/.aitask/venv/bin/python"
         python3.13 python3.12 python3.11 python3
     )
     for cand in "${candidates[@]}"; do
@@ -519,15 +519,34 @@ setup_python_venv() {
         info "Skipped optional stats graph dependency (plotext)"
     fi
 
-    # Expose venv-Python via stable symlinks (t695_3).
-    # These are picked up by lib/aitask_path.sh's PATH prepend and by
-    # lib/python_resolve.sh's candidate list (already references this path).
-    mkdir -p "$HOME/.aitask/bin"
-    ln -sf "$VENV_DIR/bin/python" "$HOME/.aitask/bin/python3"
-    ln -sf "$VENV_DIR/bin/python" "$HOME/.aitask/bin/python"
-    info "Created framework Python symlinks at ~/.aitask/bin/{python,python3}."
+    # Expose venv-Python via stable wrapper scripts (t706, replacing the t695_3
+    # symlinks). These are picked up by lib/aitask_path.sh's PATH prepend and by
+    # lib/python_resolve.sh's candidate list.
+    install_python_wrappers
 
     success "Python venv ready at $VENV_DIR"
+}
+
+# Write small wrapper scripts at ~/.aitask/bin/{python,python3} that exec the
+# venv interpreter directly. A direct exec keeps sys.executable adjacent to
+# pyvenv.cfg so the venv site-packages are picked up; symlinking through
+# venv/bin/python (which itself symlinks to the system interpreter) caused
+# Python to canonicalize past pyvenv.cfg and load system site-packages.
+# Idempotent: removes any prior symlink or wrapper before writing.
+install_python_wrappers() {
+    local bin_dir="$HOME/.aitask/bin"
+    mkdir -p "$bin_dir"
+    local name path
+    for name in python python3; do
+        path="$bin_dir/$name"
+        [[ -e "$path" || -L "$path" ]] && rm -f "$path"
+        cat > "$path" <<'WRAPPER'
+#!/usr/bin/env bash
+exec "$HOME/.aitask/venv/bin/python" "$@"
+WRAPPER
+        chmod +x "$path"
+    done
+    info "Installed framework Python wrappers at $bin_dir/{python,python3}."
 }
 
 # --- Ensure ~/.local/bin is in shell profile PATH ---

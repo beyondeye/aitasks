@@ -12,9 +12,14 @@
 #
 # Resolution order:
 #   1. $AIT_PYTHON                         (explicit override)
-#   2. $HOME/.aitask/bin/python3           (framework symlink, t695_3)
-#   3. $HOME/.aitask/venv/bin/python       (framework venv, t695_2)
+#   2. $HOME/.aitask/venv/bin/python       (framework venv, t695_2 — canonical)
+#   3. $HOME/.aitask/bin/python3           (framework wrapper, t706, was t695_3 symlink)
 #   4. command -v python3                  (system fallback / remote sandboxes)
+#
+# The venv path comes first as defense-in-depth: a wrapper regression on
+# bin/python3 cannot mask the venv when explicit lookups go through the
+# canonical interpreter first. PATH-based subprocess resolution still hits
+# the wrapper (via lib/aitask_path.sh prepending ~/.aitask/bin to PATH).
 #
 # The result is cached in _AIT_RESOLVED_PYTHON for the lifetime of the shell.
 
@@ -38,8 +43,8 @@ resolve_python() {
     local cand resolved
     for cand in \
         "${AIT_PYTHON:-}" \
-        "$HOME/.aitask/bin/python3" \
-        "$HOME/.aitask/venv/bin/python"; do
+        "$HOME/.aitask/venv/bin/python" \
+        "$HOME/.aitask/bin/python3"; do
         if [[ -n "$cand" && -x "$cand" ]]; then
             _AIT_RESOLVED_PYTHON="$cand"
             echo "$cand"

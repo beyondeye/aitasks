@@ -102,6 +102,8 @@ check_for_updates() {
     local cache_file="$HOME/.aitask/update_check"
     local version_file="$AIT_DIR/.aitask-scripts/VERSION"
     local repo="beyondeye/aitasks"
+    # Versions are dot-separated non-negative integers (e.g. 0.19.1).
+    local version_re='^[0-9]+(\.[0-9]+)*$'
 
     # Bail if no VERSION file
     [[ -f "$version_file" ]] || return 0
@@ -116,6 +118,17 @@ check_for_updates() {
     local cached_time=0 cached_version=""
     if [[ -f "$cache_file" ]]; then
         read -r cached_time cached_version < "$cache_file" 2>/dev/null || true
+    fi
+
+    # Validate cached entries — discard if either field is corrupt. A prior
+    # buggy parse could populate cached_version with a raw JSON token and
+    # cached_time with a non-numeric string, which would then break the
+    # arithmetic and version_gt below.
+    [[ "$cached_time" =~ ^[0-9]+$ ]] || cached_time=0
+    if [[ -n "$cached_version" && ! "$cached_version" =~ $version_re ]]; then
+        rm -f "$cache_file"
+        cached_time=0
+        cached_version=""
     fi
 
     # Check if cache is fresh (less than 86400 seconds = 24 hours old)
@@ -137,12 +150,12 @@ check_for_updates() {
             | grep '"tag_name"' | head -1 \
             | sed 's/.*"tag_name": *"v\?\([^"]*\)".*/\1/')" || true
 
-        if [[ -n "$latest_version" ]]; then
-            mkdir -p "$(dirname "$cache_file")"
+        mkdir -p "$(dirname "$cache_file")"
+        if [[ -n "$latest_version" && "$latest_version" =~ $version_re ]]; then
             echo "$now $latest_version" > "$cache_file"
         else
-            # Network failed — update timestamp to avoid retrying every invocation
-            mkdir -p "$(dirname "$cache_file")"
+            # Network failed or parse miss — keep timestamp fresh so we don't
+            # retry every invocation, reuse the last known-good version.
             echo "$now ${cached_version:-$local_version}" > "$cache_file"
         fi
     ) &

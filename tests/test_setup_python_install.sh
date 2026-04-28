@@ -72,15 +72,30 @@ else
 fi
 
 echo ""
-echo "--- Verifying ~/.aitask/bin symlinks (t695_3) ---"
-[[ -L "$FAKE_HOME/.aitask/bin/python3" ]] || { echo "FAIL: ~/.aitask/bin/python3 missing"; exit 1; }
-[[ -L "$FAKE_HOME/.aitask/bin/python"  ]] || { echo "FAIL: ~/.aitask/bin/python missing"; exit 1; }
-target="$(readlink "$FAKE_HOME/.aitask/bin/python3")"
-[[ "$target" == "$FAKE_HOME/.aitask/venv/bin/python" ]] \
-    || { echo "FAIL: symlink target is $target (expected $FAKE_HOME/.aitask/venv/bin/python)"; exit 1; }
-"$FAKE_HOME/.aitask/bin/python3" -V >/dev/null \
+echo "--- Verifying ~/.aitask/bin/{python,python3} wrappers (t706) ---"
+# Must be regular files (not symlinks): symlink chains caused sys.executable
+# to canonicalize past pyvenv.cfg and silently use system site-packages.
+[[ -f "$FAKE_HOME/.aitask/bin/python3" ]] || { echo "FAIL: ~/.aitask/bin/python3 missing"; exit 1; }
+[[ -f "$FAKE_HOME/.aitask/bin/python"  ]] || { echo "FAIL: ~/.aitask/bin/python missing"; exit 1; }
+if [[ -L "$FAKE_HOME/.aitask/bin/python3" ]]; then
+    echo "FAIL: ~/.aitask/bin/python3 is a symlink (expected wrapper script)"; exit 1
+fi
+[[ -x "$FAKE_HOME/.aitask/bin/python3" ]] \
     || { echo "FAIL: ~/.aitask/bin/python3 not executable"; exit 1; }
-echo "PASS: ~/.aitask/bin/{python,python3} symlinks created"
+
+# The wrapper must execute inside the venv: sys.executable must point at the
+# venv's python, NOT at the system interpreter the venv links into. This is
+# the regression that t706 fixes — symlinking to venv/bin/python (itself a
+# symlink to the system interpreter) made Python skip pyvenv.cfg and load the
+# system site-packages, breaking textual / pyyaml / linkify-it-py imports.
+exe="$("$FAKE_HOME/.aitask/bin/python3" -c 'import sys; print(sys.executable)')"
+[[ "$exe" == "$FAKE_HOME/.aitask/venv/bin/python" ]] \
+    || { echo "FAIL: bin/python3 sys.executable is $exe (expected $FAKE_HOME/.aitask/venv/bin/python)"; exit 1; }
+
+# All required deps must be importable via bin/python3 — original failure mode.
+"$FAKE_HOME/.aitask/bin/python3" -c "import textual, yaml, linkify_it" \
+    || { echo "FAIL: textual / yaml / linkify_it not importable via bin/python3"; exit 1; }
+echo "PASS: ~/.aitask/bin/{python,python3} wrappers route through venv"
 
 echo ""
 echo "--- Verifying scoped PATH (sourced lib, NOT shell rc) ---"
