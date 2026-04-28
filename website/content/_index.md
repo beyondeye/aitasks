@@ -111,9 +111,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.19.1: Releases and changelogs no longer miss remote tasks, and macOS test suite is back at parity with Linux](blog/v0191-releases-and-changelogs-no-longer-miss-remote-tasks-macos-test-suite-is-ba/)** -- Apr 28, 2026
 - **[v0.19.0: A modern Python venv that installs itself, `ait setup` on a fresh clone,  polished end-to-end, Brainstorm: fewer crashes, and  more visibility](blog/v0190-a-modern-python-venv-that-installs-itself-ait-setup-on-a-fresh-clone-polis/)** -- Apr 28, 2026
 - **[v0.18.3: Brainstorm agents run interactive by default, Brainstorm sessions that don't get stuck, and MissedHeartbeat is gone (and that means a small migration)](blog/v0183-brainstorm-agents-run-interactive-by-default-brainstorm-sessions-that-don/)** -- Apr 27, 2026
-- **[v0.18.2: Multi-session stats in the TUI, Monitor and minimonitor handle cross-session agents correctly, and Agent crews that recover instead of erroring out](blog/v0182-multi-session-stats-in-the-tui-monitor-and-minimonitor-handle-cross-sessio/)** -- Apr 26, 2026
 
 [All releases &rarr;](blog/)
 
