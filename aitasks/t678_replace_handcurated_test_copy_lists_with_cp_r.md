@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [testing, bash_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-27 17:24
-updated_at: 2026-04-27 17:24
+updated_at: 2026-04-28 12:36
 boardidx: 10
 ---
 
