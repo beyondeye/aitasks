@@ -89,9 +89,16 @@ with:
 
 4. **`--quiet` preserved:** Confirm pip's verbose install output is still suppressed (no `Successfully installed textual-...` flooding the terminal). The new `info` line should be the *only* new visible signal.
 
-## Final Implementation Notes (placeholder — to be filled in at Step 8)
+## Final Implementation Notes
 
-- **Recovery story:** documented for changelog/release-note pickup. The line "Re-run `ait setup` to upgrade a stale Textual venv" is now self-evident from the upgrade log.
+- **Actual work done:** Added before/after `pip show textual` capture around the existing `pip install … textual>=8.1.1,<9 …` line in `setup_python_venv()` (`.aitask-scripts/aitask_setup.sh:564-580`). When both reads succeed and the versions differ, an `info "Upgraded textual: <before> → <after>"` line surfaces between `Installing/upgrading Python dependencies...` and the plotext install branch. `--quiet` is unchanged.
+- **Deviations from plan:** Both version-capture assignments needed a trailing `|| true`. The script runs under `set -euo pipefail`, which propagates the pipeline's exit status to the assignment. On the fresh-install path `pip show textual` exits 1 (package not yet installed), the `awk` filter exits 0, but `pipefail` makes the overall pipeline exit 1, which then trips `set -e` on the assignment line. The plan's pseudocode would have aborted setup on fresh installs. Fix: append `|| true` to both `textual_before=…` and `textual_after=…` assignments. A two-line comment was added above the `before` block to document the rationale.
+- **Issues encountered:** Caught the `set -e` / `pipefail` interaction during a standalone smoke test of the three paths (fresh / stale / idempotent) before running `./ait setup`; the bash trace showed the script exiting silently right after the `before=` assignment on the fresh-install path. Once `|| true` was added, all three paths behaved as specified.
+- **Key decisions:** Stuck with `pip show textual | awk` rather than `pip list --format=json | jq …` to keep the dependency footprint identical (no jq required); awk is already used elsewhere in `setup_python_venv()`. Kept the inline comment short — only the `|| true` rationale, since the rest of the block is self-explanatory.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** Pattern for safely capturing a tool's textual output inside a `set -euo pipefail` script: `var=""; var=$(cmd 2>/dev/null | awk …) || true`. The leading empty `local var=""` is required so the variable is defined even when the `|| true` short-circuits, and the post-pipeline `|| true` is required so a failing `cmd` (exit ≠ 0) doesn't abort the script via `pipefail`. Future setup-flow helpers that need to compare a "before" snapshot against an "after" snapshot of pip-managed packages should use the same pattern.
+
+- **Recovery story:** Documented for changelog/release-note pickup. The line "Re-run `ait setup` to upgrade a stale Textual venv" is now self-evident from the upgrade log.
 
 ## Step 9 (Post-Implementation) reference
 
