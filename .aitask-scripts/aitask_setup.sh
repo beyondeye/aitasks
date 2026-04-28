@@ -1167,13 +1167,30 @@ setup_data_branch() {
     local gitignore="$project_dir/.gitignore"
     local gitignore_changed=false
 
+    # Migration: rewrite legacy trailing-slash entries to symlink-safe form.
+    # Trailing-slash patterns (`aitasks/`) match directories only and miss
+    # the symlinks setup_data_branch creates; bare entries (`aitasks`)
+    # match both. Older repos may already have the legacy form committed.
+    if [[ -f "$gitignore" ]] && \
+       { grep -qxF "aitasks/" "$gitignore" 2>/dev/null || \
+         grep -qxF "aiplans/" "$gitignore" 2>/dev/null; }; then
+        local tmp_gitignore
+        tmp_gitignore="$(mktemp "${TMPDIR:-/tmp}/aitask_gitignore_XXXXXX")"
+        awk '
+            /^aitasks\/$/ { print "aitasks"; next }
+            /^aiplans\/$/ { print "aiplans"; next }
+            { print }
+        ' "$gitignore" > "$tmp_gitignore" && mv "$tmp_gitignore" "$gitignore"
+        gitignore_changed=true
+    fi
+
     if [[ ! -f "$gitignore" ]] || ! grep -qxF ".aitask-data/" "$gitignore" 2>/dev/null; then
         {
             echo ""
             echo "# Task data (lives on aitask-data branch, accessed via symlinks)"
             echo ".aitask-data/"
-            echo "aitasks/"
-            echo "aiplans/"
+            echo "aitasks"
+            echo "aiplans"
         } >> "$gitignore"
         gitignore_changed=true
     fi
@@ -2934,6 +2951,48 @@ setup_tmux_default_session() {
     fi
 }
 
+# --- Optional starter ~/.tmux.conf (opt-in, never overwrites) ---
+setup_starter_tmux_conf() {
+    local template="$SCRIPT_DIR/templates/tmux.conf"
+
+    if [[ ! -f "$template" ]]; then
+        return
+    fi
+
+    if [[ -f "$HOME/.tmux.conf" ]]; then
+        info "tmux config already present at ~/.tmux.conf — leaving untouched."
+        return
+    fi
+    if [[ -f "$HOME/.config/tmux/tmux.conf" ]]; then
+        info "tmux config already present at ~/.config/tmux/tmux.conf — leaving untouched."
+        return
+    fi
+
+    local target=""
+    if [[ -d "$HOME/.config/tmux" ]]; then
+        target="$HOME/.config/tmux/tmux.conf"
+    else
+        target="$HOME/.tmux.conf"
+    fi
+
+    if [[ ! -t 0 ]]; then
+        return
+    fi
+
+    info "No tmux config detected at $target."
+    printf "  Install aitasks-recommended starter tmux.conf? Enables: mouse on, right-click menu, top status bar, sensible defaults. [y/N] "
+    local answer=""
+    read -r answer
+    case "${answer:-N}" in
+        [Yy]*) ;;
+        *) info "Skipped starter tmux.conf."; return ;;
+    esac
+
+    mkdir -p "$(dirname "$target")"
+    cp "$template" "$target"
+    success "Installed starter tmux.conf at $target"
+}
+
 # --- Per-user config (userconfig.yaml) ---
 setup_userconfig() {
     local project_dir
@@ -3041,6 +3100,9 @@ main() {
     echo ""
 
     setup_tmux_default_session
+    echo ""
+
+    setup_starter_tmux_conf
     echo ""
 
     setup_userconfig

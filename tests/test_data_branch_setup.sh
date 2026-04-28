@@ -173,10 +173,31 @@ fi
 assert_symlink "aitasks is symlink" "$TMPDIR_1/local/aitasks"
 assert_symlink "aiplans is symlink" "$TMPDIR_1/local/aiplans"
 
-# Check .gitignore
-assert_file_contains ".gitignore has aitasks/" "$TMPDIR_1/local/.gitignore" "aitasks/"
-assert_file_contains ".gitignore has aiplans/" "$TMPDIR_1/local/.gitignore" "aiplans/"
+# Check .gitignore — symlink-safe (bare) form, not trailing-slash.
+# Trailing-slash patterns match directories only and would skip the
+# aitasks/aiplans symlinks setup_data_branch just created (t699).
+TOTAL=$((TOTAL + 1))
+if grep -qxF "aitasks" "$TMPDIR_1/local/.gitignore" 2>/dev/null; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: .gitignore should contain bare 'aitasks' line"
+fi
+TOTAL=$((TOTAL + 1))
+if grep -qxF "aiplans" "$TMPDIR_1/local/.gitignore" 2>/dev/null; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: .gitignore should contain bare 'aiplans' line"
+fi
 assert_file_contains ".gitignore has .aitask-data/" "$TMPDIR_1/local/.gitignore" ".aitask-data/"
+
+# Regression: aitasks/aiplans symlinks must be ignored. Trailing-slash
+# gitignore patterns match directories only and would leave the symlinks
+# as untracked entries (t699). Filter porcelain to just those two paths
+# so unrelated test-fixture untracked files (e.g. seed/) do not confound.
+symlink_porcelain="$(git -C "$TMPDIR_1/local" status --porcelain | grep -E '^\?\? (aitasks|aiplans)$' || true)"
+assert_eq "aitasks/aiplans symlinks ignored after setup_data_branch" "" "$symlink_porcelain"
 
 # Check skeleton directories
 assert_dir_exists "aitasks/metadata skeleton" "$TMPDIR_1/local/.aitask-data/aitasks/metadata"
@@ -528,6 +549,82 @@ else
 fi
 
 rm -rf "$TMPDIR_11"
+
+# --- Test 12: gitignore migration from legacy trailing-slash form (t699) ---
+echo "--- Test 12: gitignore migration from legacy trailing-slash form ---"
+
+TMPDIR_12="$(setup_repo_with_remote)"
+SCRIPT_DIR="$TMPDIR_12/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR" "$TMPDIR_12/local/seed"
+cp "$PROJECT_DIR/seed/aitasks_agent_instructions.seed.md" "$TMPDIR_12/local/seed/"
+cp "$PROJECT_DIR/seed/project_config.yaml" "$TMPDIR_12/local/seed/"
+
+# Pre-seed .gitignore with the legacy trailing-slash entries that older
+# setup_data_branch versions wrote. The symptom is that these patterns match
+# directories only — once setup_data_branch turns aitasks/aiplans into
+# symlinks, they appear as untracked in `git status`.
+(
+    cd "$TMPDIR_12/local"
+    cat > .gitignore <<'EOF'
+.aitask-data/
+aitasks/
+aiplans/
+EOF
+    git add .gitignore
+    git commit -m "init legacy gitignore" --quiet
+    git push --quiet 2>/dev/null
+)
+
+(cd "$TMPDIR_12/local" && setup_data_branch </dev/null >/dev/null 2>&1)
+
+# Legacy entries rewritten to bare form
+TOTAL=$((TOTAL + 1))
+if grep -qxF "aitasks/" "$TMPDIR_12/local/.gitignore" 2>/dev/null; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: legacy 'aitasks/' line should have been rewritten"
+else
+    PASS=$((PASS + 1))
+fi
+TOTAL=$((TOTAL + 1))
+if grep -qxF "aiplans/" "$TMPDIR_12/local/.gitignore" 2>/dev/null; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: legacy 'aiplans/' line should have been rewritten"
+else
+    PASS=$((PASS + 1))
+fi
+TOTAL=$((TOTAL + 1))
+if grep -qxF "aitasks" "$TMPDIR_12/local/.gitignore" 2>/dev/null; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: bare 'aitasks' line should be present after migration"
+fi
+TOTAL=$((TOTAL + 1))
+if grep -qxF "aiplans" "$TMPDIR_12/local/.gitignore" 2>/dev/null; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: bare 'aiplans' line should be present after migration"
+fi
+
+# No duplication: exactly one bare 'aitasks' / 'aiplans' line.
+aitasks_count=$(grep -cxF "aitasks" "$TMPDIR_12/local/.gitignore" 2>/dev/null | tr -d ' ')
+aiplans_count=$(grep -cxF "aiplans" "$TMPDIR_12/local/.gitignore" 2>/dev/null | tr -d ' ')
+assert_eq "No duplicate bare 'aitasks' line" "1" "$aitasks_count"
+assert_eq "No duplicate bare 'aiplans' line" "1" "$aiplans_count"
+
+# Symlinks must now be ignored: legacy trailing-slash entries no longer
+# match them, the migration rewrote them to the bare form. Filter to the
+# two paths under test so unrelated fixture untracked files don't confound.
+symlink_porcelain="$(git -C "$TMPDIR_12/local" status --porcelain | grep -E '^\?\? (aitasks|aiplans)$' || true)"
+assert_eq "aitasks/aiplans symlinks ignored after gitignore migration" "" "$symlink_porcelain"
+
+# Migration commit was created — staged change for .gitignore did not leak
+# into a dirty index.
+gitignore_status="$(git -C "$TMPDIR_12/local" status --porcelain -- .gitignore)"
+assert_eq ".gitignore committed by migration (not left dirty)" "" "$gitignore_status"
+
+rm -rf "$TMPDIR_12"
 
 # --- Summary ---
 echo ""
