@@ -1,6 +1,6 @@
 # Upstream Defect Follow-up Procedure
 
-Runs from task-workflow **Step 8b**, after the "Commit changes" branch has committed code and plan files. Offers the user a chance to spawn a standalone aitask for an upstream defect surfaced during diagnosis — when the failure was *seeded* by a separate, pre-existing bug elsewhere (a different script, helper, or module).
+Runs from task-workflow **Step 8b**, after the "Commit changes" branch has committed code and plan files. Offers the user a chance to spawn a standalone aitask for an upstream defect surfaced during diagnosis — a separate, pre-existing bug in a different script/helper/module, whether or not it caused the current symptom.
 
 ## Input context
 
@@ -26,9 +26,15 @@ Parse the output: `PLAN_FILE:<path>` means found, `NOT_FOUND` means the plan fil
 
 Read `<path>` and locate the bullet `- **Upstream defects identified:**` inside the `## Final Implementation Notes` section. The subsection is the plan-file source of truth: Step 8 plan consolidation writes either `None` (verbatim) or a list of defect bullets of the form `path/to/file.ext:LINE — short summary`.
 
-- **If the subsection is missing, empty, or contains exactly `None`** (case insensitive, whitespace tolerant): no upstream defect identified. Return to the caller (proceed to Step 8c).
+- **Fast path — canonical bullet has defect entries:** parse the bullets into a list. Each bullet's location prefix and summary become the input for the offer in step 2. Skip the sanity-check below.
 
-- **Otherwise:** parse the defect bullets into a list. Each bullet's location prefix and summary become the input for the offer in step 2.
+- **Sanity-check path — canonical bullet is missing, empty, or contains exactly `None`** (case insensitive, whitespace tolerant): the bullet may be misclassified (a related defect was dismissed because it didn't *cause* the current symptom) or mis-located (a related defect was documented in a side bullet, free prose, or an "Out of scope" section instead of the canonical bullet — see the t687 illustration at the bottom of this file). Re-read the plan file end-to-end and answer this question explicitly:
+
+  > "Did diagnosis surface any pre-existing defect in another script, helper, or module — whether or not it caused the current symptom — that should become its own follow-up task? Look in every section of the plan body, including 'Out of scope', 'Issues encountered', 'Deviations from plan', side bullets, and free prose. Ignore style/lint cleanups, refactor opportunities, test gaps, and unrelated TODOs (the same exclusions the canonical bullet uses)."
+
+  If the answer is **no**: return to the caller (proceed to Step 8c).
+
+  If the answer is **yes**: synthesize one bullet per defect in the canonical format `path/to/file.ext:LINE — short summary`, falling back to `path/to/file.ext — short summary` (no line number) if the plan body doesn't pin one down. Use these synthesized bullets as the input for the offer in step 2. **Do not modify the plan file** — the re-read is a runtime sanity check, not a write-back. The next time Step 8 plan consolidation runs (in a future task), the contract language in `SKILL.md` will steer the agent to write the bullet canonically from the start.
 
 ### 2. User offer
 
@@ -82,3 +88,7 @@ Return to the caller (proceed to Step 8c).
 ## Canonical illustration (t660)
 
 The brainstorm TUI silently quit on plan import. Diagnosis revealed a stale `crew-brainstorm-<N>` git branch left over by a worktree-prune ordering bug in `aitask_brainstorm_delete.sh:109-111`. The plan only added a recovery modal for the symptom; the upstream `delete` bug needed its own task. The user had to manually push for the follow-up — this procedure removes that friction.
+
+## Canonical illustration (t687) — sanity-check path
+
+Setup wrote `None` to the canonical bullet and recorded a related trailing-slash defect (`aitasks/` / `aiplans/` symlinks not matched by trailing-slash `.gitignore` entries) under a side bullet `- **Trailing-slash follow-up:**`. The fast path saw `None` and would have short-circuited, silently burying the defect in the archived plan. The sanity-check path inspects the plan body, finds the side-bullet defect, and surfaces it as a normal follow-up offer. The plan file is left untouched — only the runtime offer is affected.
