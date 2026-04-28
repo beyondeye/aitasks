@@ -3,11 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [ui, macos]
-children_to_implement: [t688_2]
 created_at: 2026-04-28 00:03
-updated_at: 2026-04-28 12:35
+updated_at: 2026-04-28 15:51
+completed_at: 2026-04-28 15:51
 boardcol: now
 boardidx: 20
 ---
