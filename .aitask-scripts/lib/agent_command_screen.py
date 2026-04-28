@@ -348,11 +348,27 @@ class AgentCommandScreen(ModalScreen):
             placeholder="Session name",
         ))
 
-        # Window selector (populated when session is selected)
+        # Window selector — pre-populate options/value at construction time so
+        # the Select widget does not have to mutate set_options or value after
+        # mount. This avoids two timing races on Select internals: SelectOverlay
+        # not-yet-mounted on Textual 8.0 (set_options) and SelectCurrent's
+        # #label not-yet-mounted under fast reactive flow on 8.1.x (_watch_value).
+        # Event-driven re-population still goes through _update_window_options.
+        if initial_session != _NEW_SESSION_SENTINEL:
+            win_options, win_value = self._compute_window_options(initial_session)
+        else:
+            win_options = []
+            win_value = Select.BLANK
+
         win_row = Horizontal(classes="tmux-field-row")
         tmux.mount(win_row)
         win_row.mount(Label("(W)indow:"))
-        win_row.mount(Select([], allow_blank=True, id="tmux_window_select"))
+        win_row.mount(Select(
+            win_options,
+            value=win_value,
+            allow_blank=True,
+            id="tmux_window_select",
+        ))
 
         # New window name input
         new_win_row = Horizontal(id="tmux_new_window_row", classes="hidden")
@@ -377,20 +393,23 @@ class AgentCommandScreen(ModalScreen):
         buttons.mount(Button("(R)un in tmux", variant="warning", id="btn_run_tmux"))
         buttons.mount(Button("Cancel", variant="default", id="btn_tmux_cancel"))
 
-        # If a session is pre-selected, populate windows
+        # The Select is already populated; defer only the post-mount visibility
+        # toggles (and _on_window_changed side effects) until widgets in the
+        # row containers are fully composed.
         if initial_session != _NEW_SESSION_SENTINEL:
             self._selected_session = initial_session
-            self._update_window_options(initial_session)
+            self.call_after_refresh(self._on_window_changed, win_value)
         else:
-            self._show_new_session_input()
+            self.call_after_refresh(self._show_new_session_input)
 
-    def _update_window_options(self, session: str) -> None:
-        """Update window selector based on selected session."""
-        try:
-            win_select = self.query_one("#tmux_window_select", Select)
-        except Exception:
-            return
+    def _compute_window_options(self, session: str):
+        """Compute (options, value) for the window selector for a given session.
 
+        Default-window selection priority:
+        1. Caller's tmux window (split-pane case), if it is a live window.
+        2. Last window chosen in this project (per-project memory), if live.
+        3. _NEW_WINDOW_SENTINEL.
+        """
         windows = get_tmux_windows(session)
         options: list[tuple[str, str]] = [
             (f"\u2726 New window", _NEW_WINDOW_SENTINEL),
@@ -399,20 +418,28 @@ class AgentCommandScreen(ModalScreen):
             (f"{idx}: {name}", f"{idx}") for idx, name in windows
         )
 
-        win_select.set_options(options)
-
-        # Default to the caller's tmux window (split pane) if available,
-        # else the last window chosen in this project, else a new window.
         last_window_for_project = AgentCommandScreen._last_window_by_project.get(self._project_key)
         live_indices = {idx for idx, _name in windows}
         if self._default_tmux_window and self._default_tmux_window in live_indices:
-            win_select.value = self._default_tmux_window
+            value = self._default_tmux_window
         elif last_window_for_project and last_window_for_project in live_indices:
-            win_select.value = last_window_for_project
+            value = last_window_for_project
         else:
-            win_select.value = _NEW_WINDOW_SENTINEL
+            value = _NEW_WINDOW_SENTINEL
 
-        self._on_window_changed(win_select.value)
+        return options, value
+
+    def _update_window_options(self, session: str) -> None:
+        """Update window selector based on selected session (event-driven, post-mount)."""
+        try:
+            win_select = self.query_one("#tmux_window_select", Select)
+        except Exception:
+            return
+
+        options, value = self._compute_window_options(session)
+        win_select.set_options(options)
+        win_select.value = value
+        self._on_window_changed(value)
 
     def _show_new_session_input(self) -> None:
         try:
