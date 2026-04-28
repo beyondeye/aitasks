@@ -15,6 +15,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=../.aitask-scripts/lib/terminal_compat.sh
+source "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -145,7 +148,7 @@ PLAN
     git commit -m "Setup case A" --quiet
 
     # Modify the bystander task and plan (unstaged)
-    sed -i 's/^status: Ready/status: Implementing/' aitasks/t101_bystander.md
+    sed_inplace 's/^status: Ready/status: Implementing/' aitasks/t101_bystander.md
     echo "Unstaged edit by sibling agent" >> aiplans/p101_bystander.md
 
     # Run archival
@@ -254,7 +257,7 @@ PLAN
     git add -A
     git commit -m "Setup case B" --quiet
 
-    sed -i 's/^status: Ready/status: Implementing/' aitasks/t200/t200_2_bystander.md
+    sed_inplace 's/^status: Ready/status: Implementing/' aitasks/t200/t200_2_bystander.md
     echo "Unstaged edit" >> aiplans/p200/p200_2_bystander.md
 
     local output
@@ -361,7 +364,7 @@ PLAN
     git add -A
     git commit -m "Setup case C" --quiet
 
-    sed -i 's/^status: Ready/status: Implementing/' aitasks/t301_bystander.md
+    sed_inplace 's/^status: Ready/status: Implementing/' aitasks/t301_bystander.md
     echo "Unstaged edit" >> aiplans/p301_bystander.md
 
     local output

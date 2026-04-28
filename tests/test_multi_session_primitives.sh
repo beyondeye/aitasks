@@ -136,6 +136,11 @@ else
     unset TMUX
 
     FAKE_PROJ=$(mktemp -d "${TMPDIR:-/tmp}/ait_fake_proj_XXXXXX")
+    # Canonicalize: macOS TMPDIR has a trailing slash (so mktemp leaves
+    # a `//`) and tmux's pane_current_path resolves /var/folders to
+    # /private/var/folders. `cd && pwd -P` collapses both so the expected
+    # value matches what discover_aitasks_sessions() returns.
+    FAKE_PROJ=$(cd "$FAKE_PROJ" && pwd -P)
     mkdir -p "$FAKE_PROJ/aitasks/metadata"
     : > "$FAKE_PROJ/aitasks/metadata/project_config.yaml"
 
