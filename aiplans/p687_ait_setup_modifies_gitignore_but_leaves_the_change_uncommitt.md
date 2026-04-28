@@ -176,3 +176,44 @@ verbatim except for the function name and the assertions.
   archive flow (issue-update procedure).
 - At archival, mention the trailing-slash follow-up as an upstream-defect
   candidate for a new bug task.
+
+## Final Implementation Notes
+
+- **Actual work done:** Modified `setup_python_cache_gitignore()` in
+  `.aitask-scripts/aitask_setup.sh` to commit its `.gitignore` edit
+  immediately after applying it (in-repo guard + descriptive `ait:`
+  message), mirroring the established pattern in
+  `setup_draft_directory()`. Dropped the "Does NOT commit ..." comment.
+  Added two new tests in `tests/test_setup_git.sh` (Test 18 / Test 19):
+  Test 18 verifies the working tree is clean after the helper runs and
+  the commit message matches the expected pattern; Test 19 verifies
+  idempotency (no duplicate entry and no second commit on re-run).
+- **Deviations from plan:** None. Implementation tracked the plan 1:1.
+- **Issues encountered:** None. The reproduction harness confirmed the
+  fix end-to-end (`bash tests/test_setup_git.sh` → 52/52 passed). The
+  shellcheck output shows only pre-existing SC2295 / SC2129 warnings in
+  unrelated regions of `aitask_setup.sh` (lines 2158, 2255, 2399,
+  2414) — not introduced by this task.
+- **Key decisions:**
+  - Commit immediately inside the helper rather than refactoring
+    `commit_framework_files()`'s interactive prompt to be opt-out. The
+    batch-commit prompt serves a different purpose (review of an
+    arbitrary set of files) and is intentional. Removing one fragile
+    dependency on it is the smaller, safer change.
+  - Used `2>/dev/null || true` around the `git commit` to match the
+    fault-tolerance shape of `setup_draft_directory:1293`.
+  - Kept `commit_framework_files()` itself unchanged. After this fix,
+    `.gitignore` simply won't be in its modified-list anymore in the
+    typical flow; the function still serves as the catch-all for any
+    other late-stage framework files.
+- **Upstream defects identified:** None. The behavior is design-by-
+  convention drift (deferring a commit to a later approval-gated batch
+  step that can decline), not a separate pre-existing bug elsewhere.
+- **Trailing-slash follow-up:** The user's task description listed a
+  related issue — `aitasks/` and `aiplans/` trailing-slash entries in
+  the gitignore template don't match the `aitasks` / `aiplans`
+  symlinks created by `setup_data_branch`, so `git status` lists
+  the symlinks as untracked after `ait setup`. The user explicitly
+  flagged it as "possibly worth a separate issue", and it is out of
+  scope for t687. Surface this at archival time as a candidate for a
+  follow-up bug task.
