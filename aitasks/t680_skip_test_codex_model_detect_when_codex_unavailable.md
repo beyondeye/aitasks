@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [testing, bash_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-27 17:25
-updated_at: 2026-04-27 17:25
+updated_at: 2026-04-28 10:30
 boardidx: 30
 ---
 
