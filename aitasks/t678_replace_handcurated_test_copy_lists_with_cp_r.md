@@ -8,7 +8,7 @@ labels: [testing, bash_scripts]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-27 17:24
 updated_at: 2026-04-28 12:36
-boardidx: 10
+boardidx: 30
 ---
 
 The macOS audit (t658) baseline run revealed three tests failing because their `setup_test_repo` functions hand-curate the list of `.aitask-scripts/*` files to copy into the scratch dir, and that list has gone stale as new transitive deps were added.

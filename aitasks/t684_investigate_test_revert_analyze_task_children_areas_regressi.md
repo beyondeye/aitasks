@@ -7,7 +7,8 @@ status: Ready
 labels: [testing, bash_scripts]
 created_at: 2026-04-27 17:26
 updated_at: 2026-04-27 17:26
-boardidx: 30
+boardidx: 10
+boardcol: now
 ---
 
 The macOS audit (t658) baseline run revealed `tests/test_revert_analyze.sh` failing with 17/60 assertions failing. Two distinct failure patterns:

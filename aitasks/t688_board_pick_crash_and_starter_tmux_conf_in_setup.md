@@ -9,7 +9,7 @@ children_to_implement: [t688_2]
 created_at: 2026-04-28 00:03
 updated_at: 2026-04-28 12:35
 boardcol: now
-boardidx: 40
+boardidx: 20
 ---
 
 ## Symptom
