@@ -72,4 +72,44 @@ else
 fi
 
 echo ""
+echo "--- Verifying ~/.aitask/bin symlinks (t695_3) ---"
+[[ -L "$FAKE_HOME/.aitask/bin/python3" ]] || { echo "FAIL: ~/.aitask/bin/python3 missing"; exit 1; }
+[[ -L "$FAKE_HOME/.aitask/bin/python"  ]] || { echo "FAIL: ~/.aitask/bin/python missing"; exit 1; }
+target="$(readlink "$FAKE_HOME/.aitask/bin/python3")"
+[[ "$target" == "$FAKE_HOME/.aitask/venv/bin/python" ]] \
+    || { echo "FAIL: symlink target is $target (expected $FAKE_HOME/.aitask/venv/bin/python)"; exit 1; }
+"$FAKE_HOME/.aitask/bin/python3" -V >/dev/null \
+    || { echo "FAIL: ~/.aitask/bin/python3 not executable"; exit 1; }
+echo "PASS: ~/.aitask/bin/{python,python3} symlinks created"
+
+echo ""
+echo "--- Verifying scoped PATH (sourced lib, NOT shell rc) ---"
+# The user's shell rc must NOT contain a .aitask/bin entry.
+for rc in "$FAKE_HOME/.zshrc" "$FAKE_HOME/.bashrc" "$FAKE_HOME/.profile"; do
+    if [[ -f "$rc" ]] && grep -q '.aitask/bin' "$rc"; then
+        echo "FAIL: $rc contains .aitask/bin (must be scoped via lib, not rc)"
+        exit 1
+    fi
+done
+echo "PASS: no .aitask/bin entry in shell rc files (scoped via lib)"
+
+# Sourcing the lib must put .aitask/bin first in PATH.
+out="$(HOME="$FAKE_HOME" bash -c "source '$PROJECT_DIR/.aitask-scripts/lib/aitask_path.sh' && echo \"\$PATH\"")"
+case "$out" in
+    "$FAKE_HOME/.aitask/bin:"*) echo "PASS: lib prepends .aitask/bin to PATH" ;;
+    *) echo "FAIL: lib did not prepend .aitask/bin (got: ${out:0:80}...)"; exit 1 ;;
+esac
+
+# Idempotency: sourcing twice does not duplicate the entry.
+out2="$(HOME="$FAKE_HOME" bash -c "source '$PROJECT_DIR/.aitask-scripts/lib/aitask_path.sh' && source '$PROJECT_DIR/.aitask-scripts/lib/aitask_path.sh' && echo \"\$PATH\"")"
+count="$(echo "$out2" | tr ':' '\n' | grep -c "^$FAKE_HOME/.aitask/bin$")"
+[[ "$count" == "1" ]] || { echo "FAIL: duplicate .aitask/bin in PATH after double source ($count)"; exit 1; }
+echo "PASS: lib sourcing is idempotent"
+
+# `ait` dispatcher must source lib/aitask_path.sh.
+grep -q 'lib/aitask_path.sh' "$SCRATCH/ait" \
+    || { echo "FAIL: $SCRATCH/ait does not source lib/aitask_path.sh"; exit 1; }
+echo "PASS: ait dispatcher sources lib/aitask_path.sh"
+
+echo ""
 echo "=== PASS: integration test ==="

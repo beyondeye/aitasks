@@ -571,6 +571,14 @@ setup_python_venv() {
         info "Skipped optional stats graph dependency (plotext)"
     fi
 
+    # Expose venv-Python via stable symlinks (t695_3).
+    # These are picked up by lib/aitask_path.sh's PATH prepend and by
+    # lib/python_resolve.sh's candidate list (already references this path).
+    mkdir -p "$HOME/.aitask/bin"
+    ln -sf "$VENV_DIR/bin/python" "$HOME/.aitask/bin/python3"
+    ln -sf "$VENV_DIR/bin/python" "$HOME/.aitask/bin/python"
+    info "Created framework Python symlinks at ~/.aitask/bin/{python,python3}."
+
     success "Python venv ready at $VENV_DIR"
 }
 

@@ -3,6 +3,8 @@ set -euo pipefail
 
 AIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$AIT_DIR"  # CRITICAL: ensures TASK_DIR="aitasks" works in all scripts
+# shellcheck source=.aitask-scripts/lib/aitask_path.sh
+source "$AIT_DIR/.aitask-scripts/lib/aitask_path.sh"
 
 SCRIPTS_DIR="$AIT_DIR/.aitask-scripts"
 
