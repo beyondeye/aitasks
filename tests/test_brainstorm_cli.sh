@@ -198,7 +198,7 @@ TMPDIR_T1="$(setup_test_repo)"
     assert_eq "session has correct task_id" "999" "$task_id"
 
     status=$(grep '^status:' "$WT/br_session.yaml" | sed 's/^status: *//')
-    assert_eq "session status is init" "init" "$status"
+    assert_eq "session status is active after init" "active" "$status"
 )
 cleanup_test_repo "$TMPDIR_T1"
 

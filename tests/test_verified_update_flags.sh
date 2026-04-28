@@ -4,6 +4,9 @@
 
 set -e
 
+# Clear env-var fast-path so resolver honors --cli-id / --agent-string flags.
+unset AITASK_AGENT_STRING
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UPDATE_SCRIPT="$PROJECT_DIR/.aitask-scripts/aitask_verified_update.sh"
