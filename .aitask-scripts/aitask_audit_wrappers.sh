@@ -341,6 +341,223 @@ cmd_apply_policy() {
 }
 
 # -----------------------------------------------------------------------------
+# Phase 2: helper-script whitelist audit
+# -----------------------------------------------------------------------------
+
+# Map a touchpoint number (1-5) to its file path.
+touchpoint_file() {
+    case "$1" in
+        1) printf '%s\n' ".claude/settings.local.json" ;;
+        2) printf '%s\n' ".gemini/policies/aitasks-whitelist.toml" ;;
+        3) printf '%s\n' "seed/claude_settings.local.json" ;;
+        4) printf '%s\n' "seed/geminicli_policies/aitasks-whitelist.toml" ;;
+        5) printf '%s\n' "seed/opencode_config.seed.json" ;;
+        *) return 1 ;;
+    esac
+}
+
+# Check if a helper is whitelisted in a given touchpoint. Returns 0 if present.
+helper_present_in_touchpoint() {
+    local touchpoint="$1" helper="$2"
+    local file
+    file=$(touchpoint_file "$touchpoint") || return 1
+    [[ -f "$file" ]] || return 1
+
+    case "$touchpoint" in
+        1|3) grep -qF "Bash(./.aitask-scripts/${helper}:*)" "$file" ;;
+        2|4) grep -qF "commandPrefix = \"./.aitask-scripts/${helper}\"" "$file" ;;
+        5)   grep -qF "\"./.aitask-scripts/${helper} *\": \"allow\"" "$file" ;;
+        *)   return 1 ;;
+    esac
+}
+
+# discover-helpers -> emit HELPER:<basename> for each .aitask-scripts/aitask_*.sh
+# referenced by any aitask-* skill or framework-internal procedure tree.
+cmd_discover_helpers() {
+    grep -hroE '\.aitask-scripts/aitask_[a-z_]+\.sh' \
+        .claude/skills/aitask-*/ \
+        .claude/skills/task-workflow/ \
+        .claude/skills/user-file-select/ \
+        .claude/skills/ait-git/ 2>/dev/null \
+      | sed 's|.*/||' \
+      | sort -u \
+      | while IFS= read -r helper; do
+            [[ -f ".aitask-scripts/${helper}" ]] && printf 'HELPER:%s\n' "$helper"
+        done
+}
+
+# audit-helper-whitelist <helper> -> emit MISSING:<touchpoint>:<helper> lines.
+cmd_audit_helper_whitelist() {
+    local helper="${1:-}"
+    [[ -n "$helper" ]] || die "Usage: audit-helper-whitelist <helper>"
+
+    local touchpoint
+    for touchpoint in 1 2 3 4 5; do
+        if ! helper_present_in_touchpoint "$touchpoint" "$helper"; then
+            printf 'MISSING:%d:%s\n' "$touchpoint" "$helper"
+        fi
+    done
+}
+
+# Splice a single new line into a file just before the line number $target_line.
+# Picks indent from the target line so the new entry visually aligns.
+splice_line_before() {
+    local file="$1" target_line="$2" line_body="$3"
+
+    local indent
+    indent=$(awk -v lineno="$target_line" 'NR == lineno { match($0, /^[ \t]*/); print substr($0, 1, RLENGTH); exit }' "$file")
+
+    local tmp
+    tmp=$(mktemp "${TMPDIR:-/tmp}/audit_wrappers_splice_XXXXXX")
+    local before=$((target_line - 1))
+    {
+        head -n "$before" "$file"
+        printf '%s%s\n' "$indent" "$line_body"
+        tail -n "+${target_line}" "$file"
+    } > "$tmp"
+    mv "$tmp" "$file"
+}
+
+# Insert a Claude-settings Bash permission entry at the alphabetical position.
+# Used for touchpoints 1 and 3.
+insert_claude_settings_helper_line() {
+    local file="$1" helper="$2"
+
+    local target_line
+    target_line=$(awk -v helper="$helper" '
+        /"Bash\(\.\/\.aitask-scripts\/aitask_[a-z_]+\.sh:\*\)"/ {
+            line = $0
+            sub(/^.*aitask-scripts\//, "", line)
+            sub(/:.*$/, "", line)
+            if (line > helper) {
+                print NR
+                exit
+            }
+        }
+    ' "$file")
+
+    if [[ -z "$target_line" ]]; then
+        warn "No alphabetically-later aitask helper line found in $file — manual insert required"
+        return 1
+    fi
+
+    splice_line_before "$file" "$target_line" "\"Bash(./.aitask-scripts/${helper}:*)\","
+}
+
+# Insert an OpenCode bash permission entry at the alphabetical position.
+# Used for touchpoint 5.
+insert_opencode_helper_line() {
+    local file="$1" helper="$2"
+
+    local target_line
+    target_line=$(awk -v helper="$helper" '
+        /"\.\/\.aitask-scripts\/aitask_[a-z_]+\.sh \*": "allow"/ {
+            line = $0
+            sub(/^.*aitask-scripts\//, "", line)
+            sub(/ \*.*$/, "", line)
+            if (line > helper) {
+                print NR
+                exit
+            }
+        }
+    ' "$file")
+
+    if [[ -z "$target_line" ]]; then
+        warn "No alphabetically-later aitask helper line found in $file — manual insert required"
+        return 1
+    fi
+
+    splice_line_before "$file" "$target_line" "\"./.aitask-scripts/${helper} *\": \"allow\","
+}
+
+# Insert a TOML run_shell_command rule with a commandPrefix at the alphabetical position.
+# Used for touchpoints 2, 4.
+insert_toml_command_prefix_rule() {
+    local file="$1" helper="$2"
+
+    if grep -qF "commandPrefix = \"./.aitask-scripts/${helper}\"" "$file"; then
+        return 0
+    fi
+
+    local target_line
+    target_line=$(awk -v helper="$helper" '
+        /^\[\[rule\]\]$/ {
+            rule_line = NR
+            in_block = 1
+            block_kind = ""
+            next
+        }
+        in_block && /^toolName = "run_shell_command"$/ {
+            block_kind = "run_shell_command"
+            next
+        }
+        in_block && block_kind == "run_shell_command" && /^commandPrefix = "\.\/\.aitask-scripts\/aitask_/ {
+            line = $0
+            sub(/^.*aitask-scripts\//, "", line)
+            sub(/".*$/, "", line)
+            if (line > helper) {
+                print rule_line
+                exit
+            }
+            in_block = 0
+            next
+        }
+    ' "$file")
+
+    if [[ -z "$target_line" ]]; then
+        warn "No alphabetically-later commandPrefix rule found in $file — manual insert required"
+        return 1
+    fi
+
+    local tmp
+    tmp=$(mktemp "${TMPDIR:-/tmp}/audit_wrappers_toml_helper_XXXXXX")
+    local before=$((target_line - 1))
+    {
+        head -n "$before" "$file"
+        printf '[[rule]]\ntoolName = "run_shell_command"\ncommandPrefix = "./.aitask-scripts/%s"\ndecision = "allow"\npriority = 100\n\n' "$helper"
+        tail -n "+${target_line}" "$file"
+    } > "$tmp"
+    mv "$tmp" "$file"
+}
+
+# apply-helper-whitelist <helper> [--touchpoint N]
+# Inserts the helper into all 5 missing touchpoints, or just one if --touchpoint is given.
+cmd_apply_helper_whitelist() {
+    local helper="${1:-}"
+    [[ -n "$helper" ]] || die "Usage: apply-helper-whitelist <helper> [--touchpoint N]"
+
+    local single_touchpoint=""
+    if [[ "${2:-}" == "--touchpoint" && -n "${3:-}" ]]; then
+        single_touchpoint="$3"
+    fi
+
+    local touchpoint file
+    for touchpoint in 1 2 3 4 5; do
+        if [[ -n "$single_touchpoint" && "$touchpoint" != "$single_touchpoint" ]]; then
+            continue
+        fi
+        if helper_present_in_touchpoint "$touchpoint" "$helper"; then
+            continue
+        fi
+        file=$(touchpoint_file "$touchpoint")
+        case "$touchpoint" in
+            1|3)
+                insert_claude_settings_helper_line "$file" "$helper" \
+                    && printf 'WROTE:%d:%s:%s\n' "$touchpoint" "$helper" "$file"
+                ;;
+            2|4)
+                insert_toml_command_prefix_rule "$file" "$helper" \
+                    && printf 'WROTE:%d:%s:%s\n' "$touchpoint" "$helper" "$file"
+                ;;
+            5)
+                insert_opencode_helper_line "$file" "$helper" \
+                    && printf 'WROTE:%d:%s:%s\n' "$touchpoint" "$helper" "$file"
+                ;;
+        esac
+    done
+}
+
+# -----------------------------------------------------------------------------
 # Dispatcher
 # -----------------------------------------------------------------------------
 
@@ -357,6 +574,19 @@ Phase 1 subcommands (skill wrapper audit + port):
   apply-policy <runtime|seed> <skill_name>
                                         Insert an activate_skill rule at the alphabetical position in the gemini policy file.
 
+Phase 2 subcommands (helper-script whitelist audit):
+  discover-helpers                      List HELPER:<basename> for each helper referenced by aitask-* skills or shared procedures.
+  audit-helper-whitelist <helper>       Emit MISSING:<touchpoint>:<helper> for each of the 5 touchpoints not covered.
+  apply-helper-whitelist <helper> [--touchpoint N]
+                                        Insert the helper into missing touchpoints (or just touchpoint N if specified).
+
+Touchpoints (per CLAUDE.md "Adding a New Helper Script"):
+  1 = .claude/settings.local.json                            (Bash permission)
+  2 = .gemini/policies/aitasks-whitelist.toml                (run_shell_command commandPrefix rule)
+  3 = seed/claude_settings.local.json                        (mirror of #1)
+  4 = seed/geminicli_policies/aitasks-whitelist.toml         (mirror of #2)
+  5 = seed/opencode_config.seed.json                         (bash permission entry)
+
 Trees (for --wrapper subcommands):
   gemini             .gemini/commands/<skill>.toml
   agents             .agents/skills/<skill>/SKILL.md       (unified Codex/Gemini)
@@ -372,12 +602,15 @@ main() {
     shift || true
 
     case "$cmd" in
-        discover)         cmd_discover "$@" ;;
-        discover-policy)  cmd_discover_policy "$@" ;;
-        render-wrapper)   cmd_render_wrapper "$@" ;;
-        apply-wrapper)    cmd_apply_wrapper "$@" ;;
-        apply-policy)     cmd_apply_policy "$@" ;;
-        ""|-h|--help|help) usage ;;
+        discover)                cmd_discover "$@" ;;
+        discover-policy)         cmd_discover_policy "$@" ;;
+        render-wrapper)          cmd_render_wrapper "$@" ;;
+        apply-wrapper)           cmd_apply_wrapper "$@" ;;
+        apply-policy)            cmd_apply_policy "$@" ;;
+        discover-helpers)        cmd_discover_helpers "$@" ;;
+        audit-helper-whitelist)  cmd_audit_helper_whitelist "$@" ;;
+        apply-helper-whitelist)  cmd_apply_helper_whitelist "$@" ;;
+        ""|-h|--help|help)       usage ;;
         *) die "Unknown subcommand: $cmd (run --help for usage)" ;;
     esac
 }

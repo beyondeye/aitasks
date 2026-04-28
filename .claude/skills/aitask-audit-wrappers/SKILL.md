@@ -92,9 +92,80 @@ git commit -m "feature: Audit and port aitask skill wrappers across code-agent t
 
 Re-run discovery. If any `GAP:` or `POLICY_GAP:` lines remain (excluding gaps the user explicitly chose to skip), warn loudly. The user can re-run the skill to address them.
 
-### Step 7 — Phase 2 (added in t691_2)
+### Step 7 — Phase 2 discovery (helper-script whitelist)
 
-[Reserved — implemented in t691_2.]
+Skip if `--phase=skills`.
+
+Run the helper-discovery + audit:
+
+```bash
+./.aitask-scripts/aitask_audit_wrappers.sh discover-helpers
+```
+
+Each `HELPER:<basename>` line is a helper invoked by some `aitask-*` SKILL.md or shared procedure (`task-workflow/`, `user-file-select/`, `ait-git/`). For each, run:
+
+```bash
+./.aitask-scripts/aitask_audit_wrappers.sh audit-helper-whitelist <helper>
+```
+
+Each `MISSING:<touchpoint>:<helper>` indicates the helper is not whitelisted in that touchpoint:
+
+| # | File | Entry shape |
+|---|---|---|
+| 1 | `.claude/settings.local.json` | `"Bash(./.aitask-scripts/<helper>:*)"` in `permissions.allow` |
+| 2 | `.gemini/policies/aitasks-whitelist.toml` | `[[rule]]` with `commandPrefix = "./.aitask-scripts/<helper>"` |
+| 3 | `seed/claude_settings.local.json` | mirror of #1 |
+| 4 | `seed/geminicli_policies/aitasks-whitelist.toml` | mirror of #2 |
+| 5 | `seed/opencode_config.seed.json` | `"./.aitask-scripts/<helper> *": "allow"` |
+
+Build a per-helper × per-touchpoint matrix (rows = helpers with at least one missing touchpoint, columns = touchpoints 1–5). Display it.
+
+If no `MISSING:` lines remain, print "Phase 2 — no helper-whitelist gaps. ✓" and skip to Step 9.
+
+### Step 8 — Phase 2 confirmation gate
+
+Use `AskUserQuestion`:
+- Question: "Apply Phase 2 helper-whitelist fixes?"
+- Header: "Phase 2"
+- Options:
+  - "Apply all" — close every `MISSING:` entry.
+  - "Apply selected" — narrow with a follow-up multiSelect AskUserQuestion (one option per `MISSING:<touchpoint>:<helper>` pair, batched into pages of ≤4 options).
+  - "Skip Phase 2" — leave the helper whitelists untouched.
+
+### Step 9 — Phase 2 apply
+
+For each approved entry:
+
+```bash
+./.aitask-scripts/aitask_audit_wrappers.sh apply-helper-whitelist <helper> --touchpoint <N>
+```
+
+Or apply all touchpoints for a helper at once:
+
+```bash
+./.aitask-scripts/aitask_audit_wrappers.sh apply-helper-whitelist <helper>
+```
+
+Collect `WROTE:<touchpoint>:<helper>:<file>` lines for the summary.
+
+### Step 10 — Phase 2 commit
+
+Stage the changed permission files and commit separately from Phase 1:
+
+```bash
+git add .claude/settings.local.json \
+        .gemini/policies/aitasks-whitelist.toml \
+        seed/claude_settings.local.json \
+        seed/geminicli_policies/aitasks-whitelist.toml \
+        seed/opencode_config.seed.json
+git commit -m "chore: Audit helper-script whitelist coverage across 5 touchpoints"
+```
+
+(Audit runs invoked from a tracked aitask should append the `(t<task_id>)` suffix per the standard convention.)
+
+### Step 11 — Phase 2 idempotency assert
+
+Re-run helper discovery + audit. If any `MISSING:` lines remain (excluding entries the user explicitly chose to skip), warn loudly. The user can re-run with the missing entries selected.
 
 ## Output reference
 
