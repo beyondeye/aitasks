@@ -42,6 +42,8 @@
       "Bash(shellcheck:*)",
       "Bash(./.aitask-scripts/aitask_lock.sh:*)",
       "Bash(/home/ddt/Work/aitasks/.aitask-scripts/aitask_lock.sh:*)",
+      "Bash(./.aitask-scripts/aitask_remote_drift_check.sh:*)",
+      "Bash(/home/ddt/Work/aitasks/.aitask-scripts/aitask_remote_drift_check.sh:*)",
       "Bash(./.aitask-scripts/aitask_lock_diag.sh:*)",
       "Bash(./.aitask-scripts/aitask_revert_analyze.sh:*)",
       "Bash(./.aitask-scripts/aitask_review_commits.sh:*)",

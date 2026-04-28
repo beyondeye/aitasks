@@ -46,6 +46,7 @@
       "./.aitask-scripts/aitask_pick_own.sh *": "allow",
       "./.aitask-scripts/aitask_plan_externalize.sh *": "allow",
       "./.aitask-scripts/aitask_plan_verified.sh *": "allow",
+      "./.aitask-scripts/aitask_remote_drift_check.sh *": "allow",
       "./.aitask-scripts/aitask_verification_followup.sh *": "allow",
       "./.aitask-scripts/aitask_verification_parse.sh *": "allow",
       "./.aitask-scripts/aitask_verified_update.sh *": "allow",

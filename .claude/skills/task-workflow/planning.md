@@ -292,7 +292,8 @@ Base branch: main
 
 **Profile check:** If the effective action is `"start_implementation"`:
 - Display: "Profile '\<name\>': proceeding to implementation"
-- Skip the AskUserQuestion below and proceed to Step 7
+- Execute the **Remote Drift Check Procedure** (see `remote-drift-check.md`) with `base_branch`, `plan_file`, and `active_profile` from context. If the procedure ends the workflow ("Stop and re-verify plan" or "Abort task"), do NOT proceed to Step 7.
+- Otherwise, skip the AskUserQuestion below and proceed to Step 7.
 
 If the effective action is `"ask"`, or is not set (no profile / key omitted): show the interactive checkpoint below.
 
@@ -305,7 +306,7 @@ Otherwise, use `AskUserQuestion`:
   - "Approve and stop here" (description: "Approve the plan, release the lock, revert task to Ready, and end the workflow — pick it up later in a fresh context")
   - "Abort task" (description: "Stop and revert task status")
 
-If "Start implementation": Proceed to Step 7.
+If "Start implementation": Execute the **Remote Drift Check Procedure** (see `remote-drift-check.md`) with `base_branch`, `plan_file`, and `active_profile` from context. If the procedure returns ("Continue anyway"), proceed to Step 7. If it ends the workflow ("Stop and re-verify plan" or "Abort task"), stop.
 
 If "Revise plan": Return to the beginning of Step 6.
 
