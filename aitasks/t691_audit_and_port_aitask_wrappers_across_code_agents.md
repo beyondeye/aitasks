@@ -5,10 +5,10 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [claudeskills]
-children_to_implement: [t691_1, t691_2, t691_3]
+children_to_implement: [t691_2, t691_3]
 folded_tasks: [689]
 created_at: 2026-04-28 08:35
-updated_at: 2026-04-28 11:07
+updated_at: 2026-04-28 11:25
 boardidx: 110
 ---
 

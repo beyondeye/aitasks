@@ -3,11 +3,13 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [claudeskills]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-28 11:06
-updated_at: 2026-04-28 11:11
+updated_at: 2026-04-28 11:25
+completed_at: 2026-04-28 11:25
 ---
 
 ## Context
