@@ -156,6 +156,17 @@ lock_task() {
             # Idempotent: if same email owns the lock, refresh it
             if [[ "$locked_by" == "$email" ]]; then
                 debug "Lock already held by same user, refreshing"
+                # Surface a structured signal when the prior lock was held on a
+                # different host — the caller (aitask_pick_own.sh / Step 4 of
+                # task-workflow) uses it to prompt for confirmation before a
+                # multi-PC reclaim. Same-host re-locks stay silent.
+                local current_hostname
+                current_hostname=$(get_hostname)
+                if [[ -n "$locked_hostname" \
+                      && "$locked_hostname" != "unknown" \
+                      && "$locked_hostname" != "$current_hostname" ]]; then
+                    echo "LOCK_RECLAIM:${locked_hostname}|${locked_at}|${current_hostname}"
+                fi
             else
                 # Structured output for machine parsing (by aitask_pick_own.sh)
                 echo "LOCK_HOLDER:${locked_by}|${locked_at}|${locked_hostname}"

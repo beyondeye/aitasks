@@ -137,6 +137,25 @@ If `active_profile` is null (either because no profile was selected by the calli
   **Parse the script output:**
   - `OWNED:<task_id>` — Success. Proceed to Step 5.
   - `FORCE_UNLOCKED:<previous_owner>` + `OWNED:<task_id>` — Force-unlock succeeded. Inform user: "Force-unlocked stale lock held by \<previous_owner\>." Proceed to Step 5.
+  - `LOCK_RECLAIM:<prev_hostname>|<prev_locked_at>|<current_hostname>` and/or `RECLAIM_STATUS:<prev_status>|<prev_assigned_to>` (in addition to `OWNED:`) — Task was already in `Implementing` claimed by you on a different machine. The lock has already been refreshed to this host by `aitask_lock.sh`, but the user must confirm before continuing. Use `AskUserQuestion`:
+    - If `LOCK_RECLAIM:` was emitted, parse `prev_hostname` / `prev_locked_at` / `current_hostname` from the `|`-separated fields.
+      - Question: "Task t\<N\> is already in `Implementing`, claimed by you on `\<prev_hostname\>` since `\<prev_locked_at\>` (current host: `\<current_hostname\>`). Reclaim and continue here?"
+    - Otherwise (only `RECLAIM_STATUS:` emitted — lock was missing but task status was stuck in `Implementing` for this email):
+      - Question: "Task t\<N\> shows status `Implementing` already assigned to you, but no active lock holds it. Reclaim and continue here?"
+    - Header: "Reclaim"
+    - Options:
+      - "Reclaim and continue" (description: "Resume work on this host — the lock has been refreshed to this PC")
+      - "Pick a different task" (description: "Release the lock, revert task to Ready, and select another task")
+    - If "Reclaim and continue": Proceed to Step 5 normally — `OWNED:` confirms the lock is now held here.
+    - If "Pick a different task": Release the lock, revert status, and return to the calling skill's task selection:
+      ```bash
+      ./.aitask-scripts/aitask_lock.sh --unlock <task_num> 2>/dev/null || true
+      ./.aitask-scripts/aitask_update.sh --batch <task_num> --status Ready --assigned-to ""
+      ./ait git add aitasks/
+      ./ait git commit -m "ait: Revert t<task_num> to Ready (reclaim declined)" 2>/dev/null || true
+      ./ait git push
+      ```
+      Then return to the calling skill's task selection. Do NOT proceed.
   - `LOCK_FAILED:<owner>|<locked_at>|<hostname>` — Task is locked by another user/PC. Parse the `|`-separated fields for lock details. Use `AskUserQuestion`:
     - Question: "Task t\<N\> is locked by \<owner\> (since \<locked_at\>, hostname: \<hostname\>). Force unlock?"
     - Header: "Lock"
@@ -231,7 +250,9 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
 
 - Read the task file's frontmatter `status` and `assigned_to` fields
 - Resolve the current user's email: use the email from Step 4 if available, otherwise read from `aitasks/metadata/userconfig.yaml`
-- **If status is `Implementing` AND `assigned_to` matches the current user's email:** Ownership was already acquired in Step 4. Proceed normally.
+- **If status is `Implementing` AND `assigned_to` matches the current user's email:** Ownership *appears* to have been acquired in Step 4 — but verify the lock is held on *this* host before assuming so. Run `./.aitask-scripts/aitask_lock.sh --check <task_id>` and parse the `hostname:` line from the output. Compare against `hostname` (the running shell's hostname).
+  - If the hostname matches **or** `--check` shows no lock at all (single-user / no-remote mode): ownership is confirmed for this host. Proceed normally.
+  - If the hostname differs (a different machine holds the lock under your email): a multi-PC reclaim has been detected by the guard. Surface the same `AskUserQuestion` as Step 4's `LOCK_RECLAIM:` branch (same wording, same options, same handling of "Reclaim and continue" / "Pick a different task"). If the user reclaims, run `./.aitask-scripts/aitask_pick_own.sh <task_num> --email "<email>"` to refresh the lock to this host before proceeding.
 - **Otherwise** (status is not `Implementing`, or `assigned_to` is empty/missing, or `assigned_to` does not match the current user's email): Ownership was not properly acquired. Display: "Guard: task ownership not confirmed — acquiring ownership now."
   - Run the ownership claim:
     ```bash

@@ -163,7 +163,12 @@ acquire_lock() {
     local lock_output lock_exit=0
     lock_output=$("$SCRIPT_DIR/aitask_lock.sh" --lock "$task_id" --email "$email" 2>&1) || lock_exit=$?
 
-    [[ $lock_exit -eq 0 ]] && return 0
+    if [[ $lock_exit -eq 0 ]]; then
+        # Forward LOCK_RECLAIM: signal (same-email-different-host re-lock)
+        # from aitask_lock.sh to our own caller (task-workflow Step 4).
+        echo "$lock_output" | grep '^LOCK_RECLAIM:' || true
+        return 0
+    fi
 
     case $lock_exit in
         1)  # Already locked by another user
@@ -262,10 +267,10 @@ main() {
     fi
 
     # Step 1b: Resolve email from task metadata or userconfig if not provided
+    local task_file=""
+    task_file=$(resolve_task_file "$TASK_ID" 2>/dev/null) || true
     if [[ -z "$EMAIL" ]]; then
         # Try assigned_to from the task file's frontmatter
-        local task_file
-        task_file=$(resolve_task_file "$TASK_ID" 2>/dev/null) || true
         if [[ -n "$task_file" && -f "$task_file" ]]; then
             EMAIL=$(grep '^assigned_to:' "$task_file" 2>/dev/null | sed 's/assigned_to: *//' || true)
         fi
@@ -273,6 +278,17 @@ main() {
         if [[ -z "$EMAIL" ]]; then
             EMAIL=$(get_user_email)
         fi
+    fi
+
+    # Step 1c: Capture prior status for self-reclaim detection.
+    # If the task was already in Implementing assigned to this email, the
+    # caller (task-workflow Step 4) surfaces a reclaim prompt — even if the
+    # lock branch is missing or out of sync (the LOCK_RECLAIM: path in
+    # acquire_lock cannot see this case).
+    local prev_status="" prev_assigned=""
+    if [[ -n "$task_file" && -f "$task_file" ]]; then
+        prev_status=$(grep '^status:' "$task_file" 2>/dev/null | sed 's/status: *//' || true)
+        prev_assigned=$(grep '^assigned_to:' "$task_file" 2>/dev/null | sed 's/assigned_to: *//' || true)
     fi
 
     # Step 2: Store email if provided
@@ -309,6 +325,15 @@ main() {
 
     # Output success
     echo "OWNED:$TASK_ID"
+
+    # Post-claim: emit RECLAIM_STATUS: when the task was already Implementing
+    # by this same email before this pick. Belt-and-suspenders signal —
+    # complements LOCK_RECLAIM: from aitask_lock.sh and covers the rare
+    # "lock missing but status stuck in Implementing" anomaly.
+    if [[ "$prev_status" == "Implementing" && -n "$EMAIL" \
+          && "$prev_assigned" == "$EMAIL" ]]; then
+        echo "RECLAIM_STATUS:${prev_status}|${prev_assigned}"
+    fi
 }
 
 main "$@"
