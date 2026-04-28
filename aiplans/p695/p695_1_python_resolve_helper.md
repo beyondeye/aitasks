@@ -204,3 +204,65 @@ t695_4 build on top of this helper.
 Standard archival flow. No worktree, no merge step. The lib file ships as
 part of the framework so it must be committed in the implementation commit
 (not under `aitasks/` / `aiplans/`).
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `.aitask-scripts/lib/python_resolve.sh`
+  (72 lines) implementing `resolve_python`, `require_python`, and
+  `require_modern_python` exactly as planned. Created
+  `tests/test_python_resolve.sh` (187 lines) with 8 tests, all passing.
+  Both files pass `shellcheck -e SC1091` (the SC1091 informational about
+  the dynamic source path is unfollowable by static shellcheck — it's the
+  same situation as every other lib-sourcing script in the framework).
+- **Deviations from plan:**
+  - **Tests use `/usr/bin/bash --noprofile --norc -c ...` instead of plain
+    `bash -c ...`.** The user has rc files that re-invoke `bash`, so a
+    plain `bash -c` with a restricted PATH fails to find `bash` again
+    inside its own startup. Using the absolute path with `--noprofile
+    --norc` skips rc loading entirely. Documented inline in the test.
+  - **Sub-PATH includes `/usr/bin:/bin`.** The lib calls `dirname` (in the
+    source line) and `awk` (in `require_modern_python`'s version
+    extraction), so test subshells need coreutils on PATH. The plan
+    proposed PATH=$SCRATCH/bin only — that broke the dirname/awk calls.
+    Tests now use `SUBPATH="$SCRATCH/bin:/usr/bin:/bin"` so stubs win for
+    `python3` while coreutils stay reachable.
+  - **Test 4 (cache stability) writes results to tempfiles instead of using
+    command substitution `$(resolve_python)`.** Command substitution runs
+    in a subshell, where any `_AIT_RESOLVED_PYTHON` cache is local to the
+    subshell and never propagates back. Redirecting to a tempfile lets the
+    parent shell pick up the cache between calls so the test actually
+    validates caching. Inline comment in the test explains why.
+  - **shellcheck `source=` directive uses a relative-from-file path
+    (`source=terminal_compat.sh`).** Initially I wrote
+    `source=lib/terminal_compat.sh` which made shellcheck look for
+    `lib/lib/terminal_compat.sh` (the directive resolves relative to the
+    file being checked, which is already in `lib/`). Fixed in-flight.
+- **Issues encountered:**
+  - The "rc files re-invoke bash" gotcha caused the first test run to fail
+    with `bash: command not found` and was non-obvious from the error.
+    `man bash` confirms `--noprofile --norc` is the right escape hatch.
+  - shellcheck SC1091 is informational ("Not following: dynamic path");
+    it's emitted as a warning even with the `# shellcheck source=` hint.
+    The framework convention (per `shellcheck .aitask-scripts/aitask_*.sh`
+    in CLAUDE.md) doesn't even cover lib files, so this is benign.
+- **Key decisions:**
+  - Cache via plain shell variable `_AIT_RESOLVED_PYTHON` rather than a
+    file-backed cache — caches per-shell, which is exactly what callers
+    need (no stale cross-process leak).
+  - `resolve_python` echoes empty on miss (return 0) rather than dying;
+    `require_python` is the one that dies. This lets callers choose
+    soft-fail behavior (skip a Python step gracefully) where appropriate.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - The lib is now in place and ready for t695_4 to source.
+  - t695_2 (venv-Python upgrade) doesn't strictly need the helper, but its
+    new `find_modern_python` should agree with the helper's lookup paths
+    (`~/.aitask/bin/python3`, `~/.aitask/venv/bin/python`,
+    `~/.aitask/python/<ver>/bin/python3`) so that after a fresh setup, the
+    helper's first hit is the same interpreter the venv was built on.
+  - The test file's "rc files break restricted-PATH `bash -c`" workaround
+    is reusable — sibling tests that set PATH should also use
+    `/usr/bin/bash --noprofile --norc -c ...`.
+  - shellcheck users on this codebase should run `shellcheck -e SC1091
+    <file>` (the project's existing convention is the same; SC1091 is a
+    known false positive for dynamic source paths).
