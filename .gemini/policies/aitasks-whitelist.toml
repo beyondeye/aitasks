@@ -288,6 +288,12 @@ priority = 100
 
 [[rule]]
 toolName = "run_shell_command"
+commandPrefix = "./.aitask-scripts/aitask_audit_wrappers.sh"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
 commandPrefix = "./.aitask-scripts/aitask_brainstorm_apply_initializer.sh"
 decision = "allow"
 priority = 100
@@ -546,6 +552,18 @@ priority = 100
 
 [[rule]]
 toolName = "activate_skill"
+argsPattern = "aitask-add-model"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-audit-wrappers"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
 argsPattern = "aitask-changelog"
 decision = "allow"
 priority = 100
@@ -553,6 +571,12 @@ priority = 100
 [[rule]]
 toolName = "activate_skill"
 argsPattern = "aitask-contribute"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-contribution-review"
 decision = "allow"
 priority = 100
 
@@ -601,6 +625,12 @@ priority = 100
 [[rule]]
 toolName = "activate_skill"
 argsPattern = "aitask-pr-import"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "activate_skill"
+argsPattern = "aitask-qa"
 decision = "allow"
 priority = 100
 

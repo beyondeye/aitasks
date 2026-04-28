@@ -28,6 +28,7 @@
       "Bash(./ait crew:*)",
       "Bash(ait crew:*)",
       "Bash(./.aitask-scripts/aitask_archive.sh:*)",
+      "Bash(./.aitask-scripts/aitask_audit_wrappers.sh:*)",
       "Bash(./.aitask-scripts/aitask_brainstorm_apply_initializer.sh:*)",
       "Bash(./.aitask-scripts/aitask_changelog.sh:*)",
       "Bash(./.aitask-scripts/aitask_claim_id.sh:*)",
