@@ -89,3 +89,14 @@ Per task-workflow Step 9, after Step 8 commits land:
 - No worktree to remove (profile `fast` keeps current branch).
 - Run `verify_build` from `aitasks/metadata/project_config.yaml` if configured.
 - Archive task with `./.aitask-scripts/aitask_archive.sh 693`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added a single `cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/` line to the setup helpers in three test files: `tests/test_data_branch_migration.sh` (`setup_migrated_project`), `tests/test_issue_import_contributor.sh` (`setup_project`), and `tests/test_parallel_child_create.sh` (`setup_test_repo`). Inserted immediately after the existing `archive_utils.sh` copy in each helper. No code changes elsewhere.
+- **Deviations from plan:** None for the three edits. Confirmed the plan's per-file analysis was correct: `tests/test_data_branch_setup.sh` was a false alarm in the original task description — its Test 11 setup uses `cp -r .aitask-scripts/lib`, which is dependency-set-agnostic, so no edit was needed there.
+- **Issues encountered:** `tests/test_data_branch_migration.sh` was silently aborting at Test 5 because `set -e` (line 5) was honored in the parent shell — `set +euo pipefail` (line 182) only applied inside the `setup_migrated_project()` subshell invoked via `$(...)`, not in the global script scope. The aborting failure mode was only visible by running the test and observing it never printed past `--- Test 5 ---`. After the fix the file completes 21/21 (Tests 5–7 included).
+- **Key decisions:**
+  - Kept the fix minimal — one `cp` line per file, inserted at the same position pattern as t682's fix to `test_pr_contributor_metadata.sh`. No refactor toward a shared `tests/lib/setup_project.sh` helper (out of scope; left as future work in plan).
+  - Applied the fix defensively to two test files (`test_issue_import_contributor.sh`, `test_parallel_child_create.sh`) that don't currently exercise the failing code path. Rationale: these helpers already copy `aitask_claim_id.sh`, so the dep-set should be complete and forward-compatible; the marginal cost is one line per file.
+- **Upstream defects identified:** None.
+- **Verification:** Ran each of the four target test files post-edit. Results: `test_data_branch_migration.sh` 21/21 (was aborting at Test 5), `test_issue_import_contributor.sh` 58/58, `test_parallel_child_create.sh` 21/21, `test_data_branch_setup.sh` 51/51 (sanity, no edits). No regressions.
