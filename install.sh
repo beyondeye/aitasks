@@ -326,6 +326,20 @@ install_seed_project_config() {
     merge_seed yaml "$src" "$dest" "project config: project_config.yaml"
 }
 
+# --- Install starter tmux.conf template ---
+install_seed_tmux_conf() {
+    local src="$INSTALL_DIR/seed/tmux.conf"
+    local dest_dir="$INSTALL_DIR/.aitask-scripts/templates"
+    local dest="$dest_dir/tmux.conf"
+    if [[ ! -f "$src" ]]; then
+        warn "No seed/tmux.conf in tarball — skipping starter tmux.conf"
+        return
+    fi
+    mkdir -p "$dest_dir"
+    cp "$src" "$dest"
+    info "  Installed starter tmux.conf template"
+}
+
 # --- Install seed review types ---
 install_seed_reviewtypes() {
     local src="$INSTALL_DIR/seed/reviewguides/reviewtypes.txt"
@@ -986,6 +1000,9 @@ main() {
 
     info "Installing project config..."
     install_seed_project_config
+
+    info "Installing starter tmux.conf template..."
+    install_seed_tmux_conf
 
     info "Installing review types..."
     install_seed_reviewtypes
