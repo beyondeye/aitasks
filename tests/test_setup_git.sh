@@ -483,6 +483,72 @@ source "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" --source-only
 set +euo pipefail
 SCRIPT_DIR="$PROJECT_DIR/.aitask-scripts"
 
+# --- Test 18: setup_python_cache_gitignore commits the change (t687) ---
+echo "--- Test 18: setup_python_cache_gitignore commits the change ---"
+
+TMPDIR_18="$(setup_fake_project)"
+(
+    cd "$TMPDIR_18"
+    git init --quiet
+    git config user.email "t@t.com"
+    git config user.name "T"
+    # Pre-existing baseline .gitignore (committed) — simulates a clone of an
+    # aitasks-using repo where the python_cache rule was never installed.
+    echo "aitasks/new/" > .gitignore
+    git add -A && git commit --quiet -m "init"
+)
+SCRIPT_DIR="$TMPDIR_18/.aitask-scripts"
+
+setup_python_cache_gitignore </dev/null >/dev/null 2>&1
+
+# Rule was added
+TOTAL=$((TOTAL + 1))
+if [[ -f "$TMPDIR_18/.gitignore" ]] && grep -qxF "__pycache__/" "$TMPDIR_18/.gitignore"; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: .gitignore should contain '__pycache__/'"
+fi
+
+# Working tree is clean (the bug — t687)
+porcelain="$(git -C "$TMPDIR_18" status --porcelain)"
+assert_eq "git status is clean after setup_python_cache_gitignore" "" "$porcelain"
+
+# Commit message matches the new pattern
+last_msg="$(git -C "$TMPDIR_18" log -1 --format=%s)"
+assert_contains "Last commit message announces the python cache rule" "Add __pycache__/ to .gitignore" "$last_msg"
+
+rm -rf "$TMPDIR_18"
+
+# --- Test 19: setup_python_cache_gitignore is idempotent (t687) ---
+echo "--- Test 19: setup_python_cache_gitignore idempotent ---"
+
+TMPDIR_19="$(setup_fake_project)"
+(
+    cd "$TMPDIR_19"
+    git init --quiet
+    git config user.email "t@t.com"
+    git config user.name "T"
+    echo "aitasks/new/" > .gitignore
+    git add -A && git commit --quiet -m "init"
+)
+SCRIPT_DIR="$TMPDIR_19/.aitask-scripts"
+
+setup_python_cache_gitignore </dev/null >/dev/null 2>&1
+commits_after_first="$(git -C "$TMPDIR_19" rev-list --count HEAD)"
+
+setup_python_cache_gitignore </dev/null >/dev/null 2>&1
+commits_after_second="$(git -C "$TMPDIR_19" rev-list --count HEAD)"
+
+# Should only have one '__pycache__/' entry
+entry_count=$(grep -cxF "__pycache__/" "$TMPDIR_19/.gitignore" 2>/dev/null || echo "0")
+assert_eq "Python cache entry not duplicated" "1" "$entry_count"
+
+# Second call must NOT create a new commit
+assert_eq "No second commit on idempotent re-run" "$commits_after_first" "$commits_after_second"
+
+rm -rf "$TMPDIR_19"
+
 # --- Summary ---
 echo ""
 echo "==============================="
