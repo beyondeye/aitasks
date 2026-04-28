@@ -19,6 +19,8 @@ curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh |
 
 > **Windows users:** Run this inside a WSL shell, not PowerShell. See the [Windows/WSL guide](windows-wsl/).
 
+> **macOS users:** Apple Terminal.app has limited tmux support (no truecolor, no right-click menu). See the [macOS guide](macos/) for recommended terminal emulators.
+
 Upgrade an existing installation:
 
 ```bash
@@ -91,7 +93,7 @@ For background on why task data lives on a separate branch, see the
 | Arch Linux | Fully supported | Primary development platform |
 | Ubuntu/Debian | Fully supported | Includes Pop!_OS, Linux Mint, Elementary |
 | Fedora/RHEL | Fully supported | Includes CentOS, Rocky, Alma |
-| macOS | Fully supported | Requires [Homebrew](https://brew.sh); `ait setup` installs bash 5, coreutils, and other dependencies |
+| macOS | Fully supported | Requires [Homebrew](https://brew.sh); see the [macOS guide](macos/) for terminal-emulator recommendations |
 | Windows (WSL) | Fully supported | Via WSL with Ubuntu/Debian (see [Windows guide](windows-wsl/)) |
 
 ## What Gets Installed

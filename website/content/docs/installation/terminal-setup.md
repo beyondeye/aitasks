@@ -17,7 +17,7 @@ tmux is **not** a terminal emulator — it always runs inside one.
 
 ## Requirements
 
-- **A terminal emulator** — any modern choice works. Good options include [Ghostty](https://ghostty.org/), [WezTerm](https://wezfurlong.org/wezterm/), [Alacritty](https://alacritty.org/), [kitty](https://sw.kovidgoyal.net/kitty/), [iTerm2](https://iterm2.com/), [Konsole](https://konsole.kde.org/), or [gnome-terminal](https://help.gnome.org/users/gnome-terminal/stable/). They are listed without ranking — pick whatever you already use.
+- **A terminal emulator** — any modern choice works. Good options include [Ghostty](https://ghostty.org/), [WezTerm](https://wezfurlong.org/wezterm/), [Alacritty](https://alacritty.org/), [kitty](https://sw.kovidgoyal.net/kitty/), [iTerm2](https://iterm2.com/), [Konsole](https://konsole.kde.org/), or [gnome-terminal](https://help.gnome.org/users/gnome-terminal/stable/). They are listed without ranking — pick whatever you already use. **macOS users:** the stock Apple Terminal.app is not recommended — it lacks truecolor and the tmux right-click menu does not work. See the [macOS guide]({{< relref "macos" >}}) for details.
 - **[tmux](https://github.com/tmux/tmux/wiki) 3.x or newer** — required for the recommended workflow below. Install with your package manager (`brew install tmux`, `apt install tmux`, `pacman -S tmux`, etc.).
 - **ait** — installed and `ait setup` already run in your project. See the [installation overview]({{< relref "_index" >}}) if you haven't done that yet.
 
