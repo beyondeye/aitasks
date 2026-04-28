@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [ait_setup, ait_dispatcher]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-28 18:00
-updated_at: 2026-04-28 18:00
+updated_at: 2026-04-28 18:02
 ---
 
 ## Symptom
