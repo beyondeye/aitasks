@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [macos]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-28 10:01
-updated_at: 2026-04-28 10:01
+updated_at: 2026-04-28 11:45
 ---
 
 ## Context
