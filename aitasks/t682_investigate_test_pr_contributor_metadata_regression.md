@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [testing, bash_scripts]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-27 17:26
-updated_at: 2026-04-28 09:43
+updated_at: 2026-04-28 10:05
 boardidx: 50
 ---
 
