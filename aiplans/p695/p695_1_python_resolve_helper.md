@@ -6,6 +6,8 @@ Archived Sibling Plans: aiplans/archived/p695/p695_*_*.md
 Worktree: aiwork/t695_1_python_resolve_helper
 Branch: aitask/t695_1_python_resolve_helper
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-04-28 11:45
 ---
 
 # Plan — t695_1: lib/python_resolve.sh helper + $AIT_PYTHON env override
