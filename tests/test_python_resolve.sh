@@ -42,6 +42,9 @@ assert_contains() {
 REAL_PY="$(command -v python3)"
 [[ -z "$REAL_PY" ]] && { echo "No python3 on host; cannot run tests."; exit 2; }
 
+TEST_BASH="$(command -v bash)"
+[[ -z "$TEST_BASH" ]] && { echo "No bash on PATH; cannot run tests."; exit 2; }
+
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/test_python_resolve.XXXXXX")"
 trap 'rm -rf "$SCRATCH"' EXIT
 
@@ -94,7 +97,7 @@ STUB
 unset AIT_PYTHON _AIT_RESOLVED_PYTHON
 make_stub python3 "3.9.0"
 rm -f "$SCRATCH/.aitask/bin/python3" "$SCRATCH/.aitask/venv/bin/python"
-result="$(HOME="$SCRATCH" PATH="$SUBPATH" /usr/bin/bash --noprofile --norc -c "
+result="$(HOME="$SCRATCH" PATH="$SUBPATH" "$TEST_BASH" --noprofile --norc -c "
 unset _AIT_RESOLVED_PYTHON AIT_PYTHON
 source '$LIB'
 resolve_python
@@ -103,7 +106,7 @@ assert_eq "Test 1: system python3 fallback" "$SCRATCH/bin/python3" "$result"
 
 # === Test 2: AIT_PYTHON override wins over system ===
 make_stub aitpy "3.13.0"
-result="$(HOME="$SCRATCH" AIT_PYTHON="$SCRATCH/bin/aitpy" PATH="$SUBPATH" /usr/bin/bash --noprofile --norc -c "
+result="$(HOME="$SCRATCH" AIT_PYTHON="$SCRATCH/bin/aitpy" PATH="$SUBPATH" "$TEST_BASH" --noprofile --norc -c "
 unset _AIT_RESOLVED_PYTHON
 source '$LIB'
 resolve_python
@@ -112,7 +115,7 @@ assert_eq "Test 2: AIT_PYTHON override" "$SCRATCH/bin/aitpy" "$result"
 
 # === Test 3: ~/.aitask/bin/python3 wins over system, when AIT_PYTHON unset ===
 ln -sf "$SCRATCH/bin/aitpy" "$SCRATCH/.aitask/bin/python3"
-result="$(HOME="$SCRATCH" PATH="$SUBPATH" /usr/bin/bash --noprofile --norc -c "
+result="$(HOME="$SCRATCH" PATH="$SUBPATH" "$TEST_BASH" --noprofile --norc -c "
 unset AIT_PYTHON _AIT_RESOLVED_PYTHON
 source '$LIB'
 resolve_python
@@ -124,7 +127,7 @@ assert_eq "Test 3: ~/.aitask/bin/python3 precedence" "$SCRATCH/.aitask/bin/pytho
 # substitution, because $(...) runs in a subshell and the cached
 # _AIT_RESOLVED_PYTHON would not propagate back to the parent.
 ln -sf "$SCRATCH/bin/aitpy" "$SCRATCH/.aitask/bin/python3"
-result="$(HOME="$SCRATCH" PATH="$SUBPATH" /usr/bin/bash --noprofile --norc -c "
+result="$(HOME="$SCRATCH" PATH="$SUBPATH" "$TEST_BASH" --noprofile --norc -c "
 unset AIT_PYTHON _AIT_RESOLVED_PYTHON
 source '$LIB'
 resolve_python > '$SCRATCH/first.txt'
@@ -139,7 +142,7 @@ assert_eq "Test 4: cache stable across calls" "MATCH" "$result"
 # === Test 5: require_modern_python rejects too-old ===
 make_stub python3 "3.9.0"
 rm -f "$SCRATCH/.aitask/bin/python3" "$SCRATCH/.aitask/venv/bin/python"
-output="$(HOME="$SCRATCH" PATH="$SUBPATH" /usr/bin/bash --noprofile --norc -c "
+output="$(HOME="$SCRATCH" PATH="$SUBPATH" "$TEST_BASH" --noprofile --norc -c "
 unset AIT_PYTHON _AIT_RESOLVED_PYTHON
 source '$LIB'
 require_modern_python 3.11
@@ -149,7 +152,7 @@ assert_contains "Test 5: require_modern_python rejects 3.9" "Python >=3.11 requi
 # === Test 6: require_modern_python accepts a sufficient version ===
 make_stub python3 "3.13.0"
 rm -f "$SCRATCH/.aitask/bin/python3" "$SCRATCH/.aitask/venv/bin/python"
-result="$(HOME="$SCRATCH" PATH="$SUBPATH" /usr/bin/bash --noprofile --norc -c "
+result="$(HOME="$SCRATCH" PATH="$SUBPATH" "$TEST_BASH" --noprofile --norc -c "
 unset AIT_PYTHON _AIT_RESOLVED_PYTHON
 source '$LIB'
 require_modern_python 3.11
@@ -158,7 +161,7 @@ assert_eq "Test 6: require_modern_python accepts 3.13" "$SCRATCH/bin/python3" "$
 
 # === Test 7: require_python dies when nothing resolvable ===
 rm -f "$SCRATCH/.aitask/bin/python3" "$SCRATCH/.aitask/venv/bin/python"
-output="$(HOME="$SCRATCH" PATH="/usr/bin:/bin" /usr/bin/bash --noprofile --norc -c "
+output="$(HOME="$SCRATCH" PATH="/usr/bin:/bin" "$TEST_BASH" --noprofile --norc -c "
 unset AIT_PYTHON _AIT_RESOLVED_PYTHON
 # Hide /usr/bin/python3 too by switching to a totally-empty bin path that lacks python
 PATH='$SCRATCH/empty:/usr/bin:/bin'
@@ -173,7 +176,7 @@ require_python
 assert_contains "Test 7: require_python dies when no Python" "No Python interpreter found" "$output"
 
 # === Test 8: double-source guard ===
-result="$(/usr/bin/bash --noprofile --norc -c "
+result="$("$TEST_BASH" --noprofile --norc -c "
 source '$LIB'
 source '$LIB'
 declare -F resolve_python >/dev/null && echo OK || echo MISSING
