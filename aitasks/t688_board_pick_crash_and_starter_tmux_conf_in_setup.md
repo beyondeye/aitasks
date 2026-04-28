@@ -3,10 +3,9 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Ready
 labels: [ui, macos]
 children_to_implement: [t688_1, t688_2, t688_3]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-28 00:03
 updated_at: 2026-04-28 10:01
 boardidx: 80
