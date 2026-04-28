@@ -184,8 +184,16 @@ class SectionMinimap(VerticalScroll):
             self.section_name = section_name
             super().__init__()
 
+        @property
+        def control(self) -> "SectionMinimap | None":
+            return self._sender  # type: ignore[return-value]
+
     class ToggleFocus(Message):
         """Emitted when Tab is pressed while the minimap (or a row) has focus."""
+
+        @property
+        def control(self) -> "SectionMinimap | None":
+            return self._sender  # type: ignore[return-value]
 
     def __init__(self, compact: bool = True, **kwargs) -> None:
         super().__init__(**kwargs)

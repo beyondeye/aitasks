@@ -483,28 +483,37 @@ class NodeDetailModal(ModalScreen):
         from section_viewer import estimate_section_y
         minimap_id = event.control.id
         if minimap_id == "proposal_minimap":
-            parsed, text, scroll_id = (
+            parsed, text, scroll_id, md_id = (
                 self._proposal_parsed,
                 self._proposal_text,
                 "#proposal_scroll",
+                "#proposal_content",
             )
         elif minimap_id == "plan_minimap":
-            parsed, text, scroll_id = (
+            parsed, text, scroll_id, md_id = (
                 self._plan_parsed,
                 self._plan_text,
                 "#plan_scroll",
+                "#plan_content",
             )
         else:
             return
         if parsed is None:
             return
         scroll = self.query_one(scroll_id, VerticalScroll)
+        md = self.query_one(md_id, Markdown)
+        # Minimap and markdown share the same scroll container, so the
+        # markdown's start offset within the scroll equals the minimap's
+        # rendered height. Compute the y in markdown-local coordinates and
+        # add that offset.
         total = text.count("\n") + 1
-        y = estimate_section_y(
-            parsed, event.section_name, total, scroll.virtual_size.height
+        y_in_md = estimate_section_y(
+            parsed, event.section_name, total, md.virtual_size.height
         )
-        if y is not None:
-            scroll.scroll_to(y=y, animate=False)
+        if y_in_md is not None:
+            scroll.scroll_to(
+                y=event.control.outer_size.height + y_in_md, animate=False
+            )
         event.stop()
 
     def on_section_minimap_toggle_focus(self, event) -> None:
