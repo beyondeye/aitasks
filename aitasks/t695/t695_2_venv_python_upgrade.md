@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [t695_1]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [ait_setup, installation, python]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-28 11:26
-updated_at: 2026-04-28 11:26
+updated_at: 2026-04-28 12:04
 ---
 
 ## Context
