@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [installation, install_scripts, claudeskills]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-28 11:05
-updated_at: 2026-04-28 11:45
+updated_at: 2026-04-28 12:34
+completed_at: 2026-04-28 12:34
 boardcol: now
 boardidx: 30
 ---
