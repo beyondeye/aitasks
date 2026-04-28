@@ -80,13 +80,11 @@ setup_test_repo() {
     local tmpdir
     tmpdir="$(mktemp -d)"
 
-    # Copy required scripts
-    mkdir -p "$tmpdir/.aitask-scripts/lib"
-    cp "$PROJECT_DIR/.aitask-scripts/aitask_revert_analyze.sh" "$tmpdir/.aitask-scripts/"
-    cp "$PROJECT_DIR/.aitask-scripts/aitask_query_files.sh" "$tmpdir/.aitask-scripts/"
-    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$tmpdir/.aitask-scripts/lib/"
-    cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" "$tmpdir/.aitask-scripts/lib/"
-    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" "$tmpdir/.aitask-scripts/lib/"
+    # Mirror the full .aitask-scripts/ tree so transitive deps (e.g.
+    # lib/archive_scan.sh) are present. Hand-curated copy lists drift
+    # silently as new sources/imports are added.
+    cp -R "$PROJECT_DIR/.aitask-scripts" "$tmpdir/.aitask-scripts"
+    find "$tmpdir/.aitask-scripts" -type d -name __pycache__ -prune -exec rm -rf {} +
     chmod +x "$tmpdir/.aitask-scripts/"*.sh
 
     (
