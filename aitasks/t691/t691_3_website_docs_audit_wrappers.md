@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t691_2]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [claudeskills, documentation]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-28 11:07
-updated_at: 2026-04-28 11:07
+updated_at: 2026-04-28 12:06
 ---
 
 ## Context
