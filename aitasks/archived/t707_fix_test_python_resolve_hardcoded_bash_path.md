@@ -3,11 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [bash_scripts, ait_setup]
 assigned_to: daelyasy@hotmail.com
+implemented_with: claudecode/opus4_7
 created_at: 2026-04-28 19:08
-updated_at: 2026-04-28 22:08
+updated_at: 2026-04-28 22:12
+completed_at: 2026-04-28 22:12
 ---
 
 ## Symptom
