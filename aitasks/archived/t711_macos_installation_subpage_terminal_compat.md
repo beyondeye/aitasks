@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [macos, installation, web_site, tmux]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-29 00:11
-updated_at: 2026-04-29 00:13
+updated_at: 2026-04-29 00:36
+completed_at: 2026-04-29 00:36
 ---
 
 ## Goal
