@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [macos]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-28 10:00
-updated_at: 2026-04-28 10:00
+updated_at: 2026-04-28 15:40
 ---
 
 ## Context
