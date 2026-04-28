@@ -10,6 +10,11 @@ SHIM_DIR="$HOME/.local/bin"
 VERSION_FILE="$SCRIPT_DIR/VERSION"
 REPO="beyondeye/aitasks"
 
+# Minimum Python version for the framework venv (TUI deps need >=3.11).
+# Preferred is the version we install when no modern python is found.
+AIT_VENV_PYTHON_MIN="${AIT_VENV_PYTHON_MIN:-3.11}"
+AIT_VENV_PYTHON_PREFERRED="${AIT_VENV_PYTHON_PREFERRED:-3.13}"
+
 # --- Color helpers ---
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 info()    { echo -e "${BLUE}[ait]${NC} $1"; }
@@ -364,10 +369,83 @@ check_bash_version() {
     fi
 }
 
+# --- Modern-Python resolution and installation (used by setup_python_venv) ---
+
+# Resolve a Python interpreter that meets $1 (e.g. "3.11"), defaulting to
+# AIT_VENV_PYTHON_MIN. Echoes the absolute path or empty. Always returns 0.
+find_modern_python() {
+    local min="${1:-$AIT_VENV_PYTHON_MIN}"
+    local major="${min%%.*}" minor="${min##*.}"
+    local cand resolved candidates=(
+        "$HOME/.aitask/bin/python3"
+        "$HOME/.aitask/python/$AIT_VENV_PYTHON_PREFERRED/bin/python3"
+        "$HOME/.aitask/venv/bin/python"
+        python3.13 python3.12 python3.11 python3
+    )
+    for cand in "${candidates[@]}"; do
+        if [[ "$cand" == /* ]]; then
+            resolved="$cand"
+        else
+            resolved="$(command -v "$cand" 2>/dev/null || true)"
+        fi
+        [[ -z "$resolved" || ! -x "$resolved" ]] && continue
+        if "$resolved" -c "import sys; sys.exit(0 if sys.version_info >= ($major, $minor) else 1)" 2>/dev/null; then
+            echo "$resolved"
+            return 0
+        fi
+    done
+    return 0
+}
+
+# Install a modern Python user-scoped (no sudo). macOS uses brew; Linux uses uv.
+install_modern_python() {
+    case "$OS" in
+        macos) _install_modern_python_macos ;;
+        *)     _install_modern_python_linux ;;
+    esac
+}
+
+_install_modern_python_macos() {
+    if ! command -v brew >/dev/null 2>&1; then
+        die "Homebrew not found. Install from https://brew.sh and re-run 'ait setup'."
+    fi
+    info "Installing python@$AIT_VENV_PYTHON_PREFERRED via Homebrew..."
+    brew install "python@$AIT_VENV_PYTHON_PREFERRED" \
+        || brew upgrade "python@$AIT_VENV_PYTHON_PREFERRED" \
+        || die "brew install python@$AIT_VENV_PYTHON_PREFERRED failed."
+    hash -r
+}
+
+_install_modern_python_linux() {
+    local uv_dir="$HOME/.aitask/uv"
+    if [[ ! -x "$uv_dir/bin/uv" ]]; then
+        info "Downloading uv (astral-sh/uv) into $uv_dir (user-scoped, no sudo)..."
+        if ! command -v curl >/dev/null 2>&1; then
+            die "curl is required to download uv. Install curl and re-run 'ait setup'."
+        fi
+        UV_INSTALL_DIR="$uv_dir" \
+        INSTALLER_NO_MODIFY_PATH=1 \
+            sh -c 'curl -LsSf https://astral.sh/uv/install.sh | sh' \
+            || die "uv install failed."
+    fi
+    info "Installing Python $AIT_VENV_PYTHON_PREFERRED via uv..."
+    "$uv_dir/bin/uv" python install "$AIT_VENV_PYTHON_PREFERRED" \
+        || die "uv python install $AIT_VENV_PYTHON_PREFERRED failed."
+    local installed
+    installed="$("$uv_dir/bin/uv" python find "$AIT_VENV_PYTHON_PREFERRED" 2>/dev/null)"
+    [[ -z "$installed" || ! -x "$installed" ]] && \
+        die "uv reported Python $AIT_VENV_PYTHON_PREFERRED installed but interpreter is not executable: ${installed:-<empty>}"
+    mkdir -p "$HOME/.aitask/python/$AIT_VENV_PYTHON_PREFERRED/bin"
+    ln -sf "$installed" "$HOME/.aitask/python/$AIT_VENV_PYTHON_PREFERRED/bin/python3"
+    info "Python $AIT_VENV_PYTHON_PREFERRED installed at $installed (symlinked at ~/.aitask/python/$AIT_VENV_PYTHON_PREFERRED/bin/python3)."
+    hash -r
+}
+
 # --- Python version verification ---
 # Must work under Bash 3.2 (macOS default)
 # Sets PYTHON_VERSION_OK=1 if version >= 3.9, 0 otherwise.
 # On macOS, offers to install/upgrade via Homebrew.
+# DEPRECATED: dead after t695_2 (no callers in setup_python_venv); removal in t695_4.
 PYTHON_VERSION_OK=0
 check_python_version() {
     local python_cmd="$1"
@@ -433,34 +511,19 @@ check_python_version() {
 
 # --- Python venv setup ---
 setup_python_venv() {
-    local python_cmd=""
-    if command -v python3 &>/dev/null; then
-        python_cmd="python3"
-    elif command -v python &>/dev/null; then
-        python_cmd="python"
-    else
-        # On macOS, try to install Python via Homebrew
-        if [[ "$OS" = "macos" ]] && command -v brew &>/dev/null; then
-            info "Python 3 not found. Installing via Homebrew..."
-            brew install python@3
-            hash -r
-            if command -v python3 &>/dev/null; then
-                python_cmd="python3"
-            else
-                die "Python 3 installation failed. Install python3 and try again."
-            fi
-        else
-            die "Python 3 not found. Install python3 and try again."
-        fi
+    local python_cmd
+    python_cmd="$(find_modern_python "$AIT_VENV_PYTHON_MIN")"
+    if [[ -z "$python_cmd" ]]; then
+        info "No Python >=$AIT_VENV_PYTHON_MIN found. Installing one (user-scoped)..."
+        install_modern_python
+        python_cmd="$(find_modern_python "$AIT_VENV_PYTHON_MIN")"
+        [[ -z "$python_cmd" ]] && \
+            die "Modern Python install completed but interpreter still not found. Aborting venv setup."
     fi
+    info "Using Python for venv: $python_cmd ($("$python_cmd" --version 2>&1))"
 
-    # Verify version meets minimum (3.9+ for Textual)
-    check_python_version "$python_cmd"
-
-    # Re-detect python after possible upgrade
-    if [[ "$PYTHON_VERSION_OK" -eq 0 ]] && command -v python3 &>/dev/null; then
-        python_cmd="python3"
-    fi
+    local min_major="${AIT_VENV_PYTHON_MIN%%.*}"
+    local min_minor="${AIT_VENV_PYTHON_MIN##*.}"
 
     if [[ -d "$VENV_DIR" ]]; then
         # Check if existing venv Python is adequate
@@ -470,10 +533,11 @@ setup_python_venv() {
             local venv_major venv_minor
             venv_major="$(echo "$venv_ver" | cut -d. -f1)"
             venv_minor="$(echo "$venv_ver" | cut -d. -f2)"
-            if [[ "$venv_major" -eq 3 ]] && [[ "$venv_minor" -ge 9 ]]; then
+            if [[ "$venv_major" -gt "$min_major" ]] || \
+               { [[ "$venv_major" -eq "$min_major" ]] && [[ "$venv_minor" -ge "$min_minor" ]]; }; then
                 info "Python virtual environment already exists at $VENV_DIR (Python $venv_ver)"
             else
-                warn "Existing venv uses Python $venv_ver (< 3.9). Recreating..."
+                warn "Existing venv uses Python $venv_ver (< $AIT_VENV_PYTHON_MIN). Recreating..."
                 rm -rf "$VENV_DIR"
                 mkdir -p "$(dirname "$VENV_DIR")"
                 "$python_cmd" -m venv "$VENV_DIR"
