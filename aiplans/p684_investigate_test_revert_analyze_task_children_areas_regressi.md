@@ -66,10 +66,16 @@ The comment is taken nearly verbatim from t678 (`tests/test_crew_report.sh`) so 
 
 A grep for the legacy pattern shows ~58 other tests still copy individual `lib/*.sh` files by hand. They will exhibit the same drift bug whenever their referenced scripts gain new transitive dependencies. **Not fixing them in t684** — the task is bounded to the failing test. A separate sweep task ("apply t678 cp -R pattern to remaining tests") would be a reasonable follow-up; I'll surface it via Step 8b/8c if appropriate after the fix lands.
 
-## Final Implementation Notes (to be filled in at Step 8)
+## Final Implementation Notes
 
-- **Actual work done:** _(filled after implementation)_
-- **Deviations from plan:** _(filled after implementation)_
-- **Issues encountered:** _(filled after implementation)_
-- **Key decisions:** _(filled after implementation)_
-- **Upstream defects identified:** _(filled after implementation)_
+- **Actual work done:** Replaced lines 83–90 of `tests/test_revert_analyze.sh` (the hand-curated `cp` list of 5 files) with the t678 pattern: `cp -R "$PROJECT_DIR/.aitask-scripts" "$tmpdir/.aitask-scripts"` plus a `find ... -name __pycache__ ... -exec rm -rf` pass to keep the copy clean. `mkdir -p "$tmpdir/.aitask-scripts/lib"` was dropped because `cp -R` re-creates the tree. The comment text mirrors `tests/test_crew_report.sh` (t678) so future grep finds the same idiom in both places.
+- **Deviations from plan:** None. The plan was followed verbatim.
+- **Issues encountered:** None during implementation. During verification, `shellcheck` reported one warning (`SC2164` on `cd "$tmpdir"` at line 91) — confirmed pre-existing by stashing the change and re-running shellcheck, which produced the identical warning on the unchanged line. Out of scope for t684 and not introduced by this fix.
+- **Key decisions:**
+  - Adopted t678's `cp -R` pattern verbatim rather than just adding a single `cp ... archive_scan.sh` line. Single-line fixes leave the test fragile to the next transitive dep that gets added; `cp -R` permanently eliminates the drift class.
+  - Did **not** modify `aitask_revert_analyze.sh` or `aitask_query_files.sh`. The original task description hypothesised a regression in the production scripts (regex / child-discovery path / frontmatter field). Investigation showed the production scripts are correct — the failure was 100% in the test fixture's library-copy list. Fixing the production scripts would have been a wrong-fix; leaving them alone keeps the diff minimal and faithful to the actual root cause.
+  - Did not touch the ~58 other tests that still use the legacy hand-curated copy pattern. Out of scope for t684 (see "Upstream defects identified" below for the suggested follow-up).
+- **Upstream defects identified:**
+  - `tests/*.sh (~58 files) — many test fixtures still mirror lib/ files by hand (e.g., legacy pattern: `cp "$PROJECT_DIR/.aitask-scripts/lib/X.sh" .aitask-scripts/lib/`). Each is a latent drift bug: any new `source` line in a copied script silently breaks the fixture without raising a visible test error (because callers redirect stderr). t678 began the migration to `cp -R` for three tests; this task extends it to one more (`test_revert_analyze.sh`). A sweep task to convert the remaining ~58 tests is the appropriate follow-up. Surface this at Step 8b.
+
+  No defect was identified in the production scripts (`aitask_revert_analyze.sh`, `aitask_query_files.sh`, or any sourced lib).
