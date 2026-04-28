@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [testing, bash_scripts]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-27 17:24
-updated_at: 2026-04-28 12:36
+updated_at: 2026-04-28 12:43
+completed_at: 2026-04-28 12:43
 boardidx: 30
 ---
 
