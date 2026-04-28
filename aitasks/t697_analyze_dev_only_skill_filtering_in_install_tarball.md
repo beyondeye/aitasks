@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [installation, install_scripts, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-28 11:05
-updated_at: 2026-04-28 11:05
-boardidx: 10
+updated_at: 2026-04-28 11:45
 boardcol: now
+boardidx: 10
 ---
 
 Spawned alongside t691 (audit and port aitask wrappers across code agents). Analyze whether framework-development-only skills and their helper scripts should be filtered out of the distribution tarball produced by `install.sh`.
