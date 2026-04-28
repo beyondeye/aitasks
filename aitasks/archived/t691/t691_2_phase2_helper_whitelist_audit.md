@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t691_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [claudeskills]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-28 11:06
-updated_at: 2026-04-28 11:41
+updated_at: 2026-04-28 12:05
+completed_at: 2026-04-28 12:05
 ---
 
 ## Context

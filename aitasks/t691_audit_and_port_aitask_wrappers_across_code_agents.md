@@ -5,12 +5,12 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [claudeskills]
-children_to_implement: [t691_2, t691_3]
+children_to_implement: [t691_3]
 folded_tasks: [689]
 created_at: 2026-04-28 08:35
-updated_at: 2026-04-28 11:25
-boardidx: 90
+updated_at: 2026-04-28 12:05
 boardcol: now
+boardidx: 90
 ---
 
 Spawned from /aitask-explore on 2026-04-28. Builds on t679 (dynamic skill counting in tests). Folds in t689 (manual one-off port that this skill should produce automatically when run on the current tree).
