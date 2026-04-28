@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [ait_setup]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-28 11:23
-updated_at: 2026-04-28 11:23
-boardidx: 10
+updated_at: 2026-04-28 11:48
 boardcol: now
+boardidx: 10
 ---
 
 ## Origin
