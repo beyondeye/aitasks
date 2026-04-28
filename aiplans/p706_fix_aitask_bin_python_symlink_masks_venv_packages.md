@@ -270,3 +270,25 @@ AIT_RUN_INTEGRATION_TESTS=1 bash tests/test_setup_python_install.sh
 ## Step 9 — Post-Implementation
 
 After approval and implementation: run the verification checklist above, then follow the standard archival flow (commit code with `bug: Fix bin/python3 venv masking and update-check cache corruption (t706)`, update plan, archive, push). No worktree to clean up — fast profile keeps us on the current branch.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all five planned steps without deviation.
+  - `aitask_setup.sh`: replaced the two `ln -sf` calls (lines 526–527) with a new `install_python_wrappers()` helper that writes regular wrapper scripts (`#!/usr/bin/env bash; exec "$HOME/.aitask/venv/bin/python" "$@"`). The helper removes any prior symlink/file via `[[ -e || -L ]] && rm -f` before writing, making it idempotent and migrating existing t695_3 installs. Also reordered `find_modern_python`'s `candidates` array to put `venv/bin/python` ahead of `bin/python3`.
+  - `lib/python_resolve.sh`: reordered the `resolve_python` candidate loop and updated the header comment to document the new order plus the rationale (defense-in-depth: PATH-based subprocess resolution still hits the wrapper, but explicit lookups now prefer the canonical interpreter).
+  - `ait`: added a `version_re='^[0-9]+(\.[0-9]+)*$'` regex constant to `check_for_updates`; validate `cached_time` (numeric only) and `cached_version` (matches regex) after the `read`, unlinking the cache and resetting both fields if either is corrupt; gate the cache-write branch behind the same regex on `latest_version`.
+  - `tests/test_setup_python_install.sh`: replaced the symlink-existence + `readlink` target check with a behavioral assertion: `bin/python3 -c "import sys; print(sys.executable)"` must equal `$FAKE_HOME/.aitask/venv/bin/python`, and `import textual, yaml, linkify_it` must succeed via that wrapper. Also explicitly fail if the file is still a symlink.
+  - `tests/test_update_check.sh` (new): 5 test cases exercising corrupt cached_version (the live-observed failure), corrupt cached_time, empty cache, missing cache, and a valid cache that must be preserved. All 7 sub-assertions pass.
+- **Deviations from plan:** None.
+- **Issues encountered:** `bash tests/test_python_resolve.sh` fails on this Apple Silicon Mac with `/usr/bin/bash: No such file or directory` — the test hard-codes `/usr/bin/bash` (line 97 etc.) which doesn't exist on Apple Silicon (bash lives at `/opt/homebrew/bin/bash`). This is a pre-existing test-infra bug unrelated to t706, kept out of scope. May warrant a follow-up task to switch the test to `command -v bash` or `${BASH:-bash}`.
+- **Key decisions:**
+  - Single-task implementation (not split into two child tasks as the task description suggested) — total scope is small (~75 lines net) and the two fixes were tightly co-discovered by the same investigation. Splitting would add archive ceremony without engineering benefit.
+  - Reordered both `python_resolve.sh` AND `aitask_setup.sh:find_modern_python` candidate lists, keeping the two in sync. Failing to reorder `find_modern_python` would mean re-running `setup_python_venv` on a fresh `~/.aitask/` could pick up a stale `bin/python3` from a partial install before the venv is recreated, defeating the defense-in-depth.
+  - Hardened `cached_time` (not just `cached_version`) against non-numeric corruption — `(( now - cached_time ))` would also throw under `set -euo pipefail` if cached_time picked up a JSON token in a future similar bug. Cheap insurance.
+  - Cache validation removes the file (`rm -f`) instead of just zeroing the in-memory fields, so the next run sees a clean fresh-fetch state and doesn't carry forward any latent badness if the read path changes again.
+- **Live verification on originally-broken machine:**
+  - `~/.aitask/bin/python3 -c "import sys; print(sys.executable)"` → `/Users/daelyasy/.aitask/venv/bin/python` ✓
+  - `~/.aitask/bin/python3 -c "import textual, yaml, linkify_it"` → no error ✓
+  - `cat ~/.aitask/update_check` after one `ait ls` invocation → `1777392205 0.19.1` (was `1777387840   "tag_name": "v0.19.1",`) ✓
+  - `ait board` → TUI launches cleanly ✓
+- **Build verification:** `shellcheck` against changed files reports only pre-existing findings (SC2015/SC2016/SC2034/SC2129/SC1091 in unrelated lines); no new findings introduced.
