@@ -123,7 +123,37 @@ User can skip Phase 1, accept only Phase 2, or vice versa. If both skipped, exit
 - Plan commit (`./ait git`): this plan file with Final Implementation Notes.
 - Archive via `./.aitask-scripts/aitask_archive.sh 691_2`.
 
-## Notes for sibling tasks (web docs, t691_3)
+## Notes for sibling tasks (web docs, t691_3) — planning-time
 
 - After this child lands, the SKILL.md has both phases. Web docs can describe both phases as one cohesive workflow.
 - Highlight the discovery → AskUserQuestion → apply → idempotency loop — that is the user-facing UX hook.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added three Phase 2 subcommands to `.aitask-scripts/aitask_audit_wrappers.sh` (~245 LOC growth, shellcheck clean): `discover-helpers`, `audit-helper-whitelist <helper>`, `apply-helper-whitelist <helper> [--touchpoint N]`. Added Phase 2 workflow section (Steps 7–11) to the SKILL.md.
+
+- **Real-world gaps closed by this implementation:** Inserted runtime-only `commandPrefix` rules in `.gemini/policies/aitasks-whitelist.toml` for `aitask_contribution_review.sh`, `aitask_fold_content.sh`, `aitask_fold_mark.sh`, `aitask_fold_validate.sh`, `aitask_plan_externalize.sh` (5 entries inserted alphabetically among existing aitask_* helper rules).
+
+- **Deferred (by design):** `aitask_add_model.sh` is missing from all 5 touchpoints. Not closed in this child because the sibling task t697 (analyze dev-only skill filtering in install tarball) is specifically tasked with deciding whether dev-only helpers should be added to seeds (touchpoints 3, 4, 5) or filtered out at install time. Closing the gap now would either preempt t697's recommendation or have to be reverted by it.
+
+- **Deviations from plan:**
+  - Plan's verification said "Phase 2 helper-discovery run on the current tree should report zero MISSING entries". Wrong premise — the audit *correctly* surfaces real drift in the framework that pre-dated t691.
+  - Plan referenced sketch awk patterns using `match($0, /.../, m)` (a gawk extension); final implementation uses POSIX-portable `sub()` patterns instead.
+  - Plan called for `apply-helper-whitelist` to use `jq` for JSON inserts; final implementation uses inline awk + head/tail splice (matching the Phase 1 TOML insert approach for consistency, and avoiding a `jq` runtime dependency).
+
+- **Issues encountered:**
+  1. **First implementation pass put new TOML rules at the top of the runtime gemini policy file.** Root cause: the awk pattern `^commandPrefix = ` matched non-aitask `commandPrefix` lines too (e.g., `commandPrefix = "ls"`), and string compare put `commandPrefix = "ls"` > `aitask_*` so the function selected the very first non-aitask rule as the "alphabetically next" insert anchor. Fix: tightened the awk pattern to `^commandPrefix = "\.\/\.aitask-scripts\/aitask_` so only aitask helper lines participate. Verified with `git checkout` revert and clean re-apply.
+  2. **JSON insertion via `-v` passed regex string produced awk escape warnings and zero matches.** Root cause: complex regex strings with `\(`, `\.`, `\*` escapes get re-interpreted by awk's `~` operator with different escape semantics than literal `/regex/` syntax. Fix: refactored from a single parameterized `insert_json_helper_line` into two specialized functions (`insert_claude_settings_helper_line`, `insert_opencode_helper_line`) with inline `/regex/` literals, sharing a generic `splice_line_before` helper. Eliminated all `-v extract_re=...` plumbing.
+
+- **Key decisions:**
+  - Helper script grew to ~625 LOC total (Phase 1 + Phase 2). All Phase 2 subcommands honor the same exit-0 / structured-output convention as Phase 1.
+  - `apply-helper-whitelist` runs all 5 touchpoints by default; `--touchpoint N` narrows to one (used by negative test and by SKILL.md for selective fixes).
+  - Discovery scans not just `aitask-*` skill dirs but also the shared procedure trees (`task-workflow/`, `user-file-select/`, `ait-git/`) — these are reachable from aitask-* skills and any helper they invoke needs whitelisting.
+
+- **Upstream defects identified:** None. The audit revealed 5 runtime-policy gaps and the `aitask_add_model.sh` cross-touchpoint gap, but these are exactly the drift this skill was built to discover; they are not "upstream defects" in the sense of pre-existing bugs in unrelated code.
+
+- **Notes for sibling tasks:**
+  - **t691_3 (web docs):** the SKILL.md now has both phases. The "Phase 2 — Helper-Script Whitelist" sections (Steps 7–11) document the per-touchpoint matrix, AskUserQuestion gate, and structured `MISSING:`/`WROTE:` output — useful source material to quote in docs.
+  - **t697 (dev-only filtering analysis):** when t697 lands, the recommendation will determine whether `aitask_add_model.sh` (and any future dev-only helpers) get added to touchpoints 3/4/5 or left intentionally absent. Either way, the audit machinery built here is the lever — invoke `apply-helper-whitelist aitask_add_model.sh --touchpoint <N>` to close any subset of touchpoints.
+
+- **Verification results:** shellcheck clean at warning level; Phase 1 idempotency holds (zero `GAP:`/`POLICY_GAP:` lines); Phase 2 audit reports only the 5 deferred `MISSING:*:aitask_add_model.sh` lines; `tests/test_opencode_setup.sh` 31/31 pass; `tests/test_gemini_setup.sh` 57/57 pass; negative test (delete archive helper from touchpoint 1 → audit detects → apply restores → re-audit clean) succeeds.
