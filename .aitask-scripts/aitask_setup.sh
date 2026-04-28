@@ -563,7 +563,21 @@ setup_python_venv() {
 
     info "Installing/upgrading Python dependencies..."
     "$VENV_DIR/bin/pip" install --quiet --upgrade pip
+
+    # `pip show` exits 1 when textual isn't installed yet (fresh-install path);
+    # `|| true` keeps the assignment safe under `set -euo pipefail`.
+    local textual_before=""
+    textual_before=$("$VENV_DIR/bin/pip" show textual 2>/dev/null \
+        | awk '/^Version:/ {print $2}') || true
+
     "$VENV_DIR/bin/pip" install --quiet 'textual>=8.1.1,<9' 'pyyaml==6.0.3' 'linkify-it-py==2.1.0' 'tomli>=2.4.0,<3'
+
+    local textual_after=""
+    textual_after=$("$VENV_DIR/bin/pip" show textual 2>/dev/null \
+        | awk '/^Version:/ {print $2}') || true
+    if [[ -n "$textual_before" && -n "$textual_after" && "$textual_before" != "$textual_after" ]]; then
+        info "Upgraded textual: $textual_before → $textual_after"
+    fi
     if [[ "$install_plotext" == true ]]; then
         "$VENV_DIR/bin/pip" install --quiet 'plotext==5.3.2'
         info "Installed optional stats graph dependency: plotext"
