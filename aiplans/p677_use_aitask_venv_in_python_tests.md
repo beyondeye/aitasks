@@ -142,3 +142,33 @@ Standard archival via `./.aitask-scripts/aitask_archive.sh 677`. No worktree to 
 ```
 chore: Use aitask venv Python in 11 dependency-using tests (t677)
 ```
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `tests/lib/venv_python.sh` (new file, 14 lines) exposing `AITASK_PYTHON` with the standard `_AIT_*_LOADED` double-source guard; added a one-line file-level `# shellcheck disable=SC2034` directive so shellcheck doesn't flag the variable as unused (it's consumed by sourcing scripts). Sourced the helper near the top of all 10 tests with direct `python3` invocations and substituted every literal `python3` → `"$AITASK_PYTHON"` (preserving heredoc delimiters, env-var prefixes, and arg ordering at every call site). For `tests/test_explain_context.sh` (no direct `python3` calls — failure was in the underlying production script), modified `.aitask-scripts/aitask_explain_context.sh` to add a 6-line venv-resolution block near the top and changed line 251 from `python3 "$FORMAT_SCRIPT"` to `"$PYTHON" "$FORMAT_SCRIPT"`.
+- **Deviations from plan:** None. The plan's "use actual line numbers" caveat applied — confirmed during edits — and one Python string literal `"python3"` in `tests/test_multi_session_monitor.sh:325` was correctly NOT touched (it's test data describing a process command name, not a command invocation).
+- **Issues encountered:** Initial shellcheck of the helper flagged SC2034 (`AITASK_PYTHON` appears unused). A line-scoped `# shellcheck disable=SC2034` only suppresses the immediate next assignment; the second assignment inside the `if` re-triggered it. Resolved by promoting the directive to file-level (placed before the guard `if`).
+- **Key decisions:** (1) Helper exposes `AITASK_PYTHON` only — no `require_python_modules` skip helper, since the task spec accepts loud `ModuleNotFoundError` on hosts without venv. (2) The production-script change in `aitask_explain_context.sh` mirrors the simpler form (no missing-package check) rather than the full `aitask_board.sh` form — the missing-package check is out of scope. (3) For test files where the source line follows existing `SCRIPT_DIR=...`/`PROJECT_DIR=...` blocks, inserted the `. "$SCRIPT_DIR/lib/venv_python.sh"` line immediately after that block before the first `PASS=0` so each test's setup-vs-runtime structure is preserved.
+- **Upstream defects identified:** None.
+
+### Verification results
+
+All 11 tests pass on this host (Linux, `~/.aitask/venv/bin/python` present with yaml/textual/rich):
+
+| Test | Result |
+|------|--------|
+| test_agentcrew_error_recovery.sh | 5/5 PASS |
+| test_agentcrew_terminal_push.sh | 6/6 PASS |
+| test_apply_initializer_output.sh | 8/8 PASS |
+| test_apply_initializer_tolerant.sh | 15/15 PASS |
+| test_explain_context.sh | 29/29 PASS |
+| test_explain_format_context.sh | 30/30 PASS |
+| test_install_merge.sh | 20/20 PASS |
+| test_multi_session_minimonitor.sh | 24/24 PASS |
+| test_multi_session_monitor.sh | 43/43 PASS |
+| test_stats_verified_rankings.sh | 5/5 PASS |
+| test_tui_switcher_multi_session.sh | 45/45 PASS |
+
+Lint:
+- `shellcheck tests/lib/venv_python.sh`: clean.
+- `shellcheck -x .aitask-scripts/aitask_explain_context.sh`: only the pre-existing info-level SC1091 for `lib/task_utils.sh` (untouched by this task).
