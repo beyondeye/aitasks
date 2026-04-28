@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_pick, task_workflow, bash_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-28 09:54
-updated_at: 2026-04-28 09:54
+updated_at: 2026-04-28 09:56
 ---
 
 ## Symptom
