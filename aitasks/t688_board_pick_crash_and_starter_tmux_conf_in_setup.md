@@ -5,9 +5,10 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [ui, macos]
+children_to_implement: [t688_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-28 00:03
-updated_at: 2026-04-28 09:44
+updated_at: 2026-04-28 09:59
 boardidx: 80
 ---
 
