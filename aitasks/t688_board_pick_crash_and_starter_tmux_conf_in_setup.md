@@ -8,7 +8,7 @@ labels: [ui, macos]
 children_to_implement: [t688_2, t688_3]
 created_at: 2026-04-28 00:03
 updated_at: 2026-04-28 10:26
-boardidx: 10
+boardidx: 20
 boardcol: now
 ---
 

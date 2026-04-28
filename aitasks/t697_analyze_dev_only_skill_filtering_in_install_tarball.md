@@ -8,6 +8,7 @@ labels: [installation, install_scripts, claudeskills]
 created_at: 2026-04-28 11:05
 updated_at: 2026-04-28 11:05
 boardidx: 10
+boardcol: now
 ---
 
 Spawned alongside t691 (audit and port aitask wrappers across code agents). Analyze whether framework-development-only skills and their helper scripts should be filtered out of the distribution tarball produced by `install.sh`.
