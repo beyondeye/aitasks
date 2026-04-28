@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [bash_scripts, ait_setup]
+assigned_to: daelyasy@hotmail.com
 created_at: 2026-04-28 19:08
-updated_at: 2026-04-28 19:08
+updated_at: 2026-04-28 22:08
 ---
 
 ## Symptom
