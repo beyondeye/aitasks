@@ -5,6 +5,8 @@ Sibling Tasks: aitasks/t691/t691_2_phase2_helper_whitelist_audit.md, aitasks/t69
 Worktree: (current branch)
 Branch: main
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-04-28 11:11
 ---
 
 # Plan: t691_1 — Phase 1 skill-wrapper audit and port
@@ -169,8 +171,30 @@ Standard task-workflow archival:
 - Plan commit (`./ait git`): this plan file.
 - Archive via `./.aitask-scripts/aitask_archive.sh 691_1`.
 
-## Notes for sibling tasks
+## Notes for sibling tasks (planning-time)
 
 - The helper script and SKILL.md are extended (not rewritten) by t691_2.
 - Web docs (t691_3) describe both Phase 1 and Phase 2 — must wait for t691_2 before finalizing.
 - Both t691_1's work and t691_2's work share the same helper script — keep the file structure flexible (clear subcommand dispatch, easy to add new subcommands).
+
+## Final Implementation Notes
+
+- **Actual work done:** Wrote `.aitask-scripts/aitask_audit_wrappers.sh` (385 LOC, shellcheck clean at warning level) with Phase 1 subcommands (`discover`, `discover-policy`, `render-wrapper`, `apply-wrapper`, `apply-policy`). Wrote source-of-truth `.claude/skills/aitask-audit-wrappers/SKILL.md` (121 LOC). Drove the helper to write all 9 wrappers (4 self-bootstrap + 4 for `aitask-add-model` + 1 for `aitask-qa` in opencode-commands) and 7 activate_skill policy entries (4 runtime + 3 seed). Whitelisted the new helper in all 5 touchpoints. Edited CLAUDE.md "Codex CLI" subsections to reflect that codex uses the unified `.agents/skills/` layout and does NOT have a `.codex/prompts/` directory.
+
+- **Deviations from plan:** None of substance. Two `aitask-add-model` wrappers (`.agents/skills` and `.opencode/skills`) initially had `## Arguments: See source skill documentation.` from the auto-extractor fallback because the source-of-truth `aitask-add-model/SKILL.md` uses no `## Usage` or `**Usage:**` heading; hand-edited those two wrappers with concrete CLI flag listings. Future cleanup could add `## Usage` sections to source SKILL.md files lacking them so the auto-extractor finds richer summaries — out of scope here.
+
+- **Issues encountered:** Initial awk pattern for auto-extracting `## Usage` paragraph used `\b` (word boundary) which may not be portable across awk implementations; produced empty bodies until simplified. After the fix the extractor handles `## Usage`, `## Arguments`, `**Usage:**`, and `**Arguments:**` markers, with the "See source skill documentation." fallback when none are present.
+
+- **Key decisions:**
+  - Helper kept minimal — emits only structured `KEY:value` lines; UI orchestration (per-gap diff display, AskUserQuestion gates) lives entirely in SKILL.md as designed.
+  - `apply-wrapper` refuses to overwrite existing files unless `--force` so a buggy run can't blow away hand-edited wrappers (e.g. the contribution-review or qa wrappers we did not regenerate).
+  - Insertion of `[[rule]]` blocks uses `awk` to find the alphabetically-correct insert line, then `head`/`tail` to reassemble; this avoids GNU-vs-BSD `sed -i` portability issues.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t691_2:** the helper's subcommand dispatcher (`main()`) is a flat `case` — add `discover-helpers`, `audit-helper-whitelist`, `apply-helper-whitelist` cases directly. The `insert_activate_skill_rule()` function is the closest pattern to copy/adapt for inserting `commandPrefix` rules; the difference is a one-line regex tweak (`commandPrefix` instead of `argsPattern`) plus a different `toolName` literal. JSON edits in touchpoints 1/3/5 are simpler — `jq` with array-position insertion is appropriate. Stay consistent with the existing exit-0 / structured-output-only convention.
+  - **t691_3 (web docs):** the SKILL.md "Output reference" table and "Self-bootstrap" section are good source material to quote/paraphrase. The `## Usage` block in the SKILL.md gives the canonical CLI invocation forms.
+  - The auto-extractor improvement (handling `**Usage:**`/`**Arguments:**`) is now in place — future skills that follow either heading style will produce richer wrapper Arguments lines automatically.
+
+- **Verification results:** shellcheck clean at warning level (only SC1091 info-level "source not followed" remains, matching all sibling helpers); `discover` + `discover-policy` produce empty output (idempotent); `tests/test_opencode_setup.sh` 31/31 pass; `tests/test_gemini_setup.sh` 57/57 pass; all 11 expected wrapper/helper files present on disk.
