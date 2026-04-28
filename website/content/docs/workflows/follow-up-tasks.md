@@ -62,6 +62,10 @@ You're working on task t195 — adding keyboard navigation to the code browser. 
 
 **Result:** No duplicate task, the existing task is enriched with specific diagnostic information, and the link between the two tasks creates a paper trail.
 
+## Automatic Upstream-Defect Follow-up
+
+The flows above are user-driven — you ask the agent to create or update a task. There is also an automatic prompt that fires from `/aitask-pick` Step 8b after the "Commit changes" review approval: when the just-committed plan file documents an *upstream defect* (a separate, pre-existing bug surfaced during diagnosis in a different script, helper, or module), the skill offers to spawn a fresh `bug` aitask for it with the diagnostic chain of reasoning pre-loaded into the body. See [Upstream Defect Follow-up](../upstream-defect-followup/) for the plan-file contract, the parsing modes, and the seeded task structure.
+
 ## Advantages Over Standalone Task Creation
 
 - **No context re-entry** — The agent already knows the codebase state, what was changed, and why

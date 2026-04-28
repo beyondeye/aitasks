@@ -35,6 +35,7 @@ Keeping the codebase correct and understandable — structured code review, test
 
 - [Code Review](code-review/) — Systematic code review using review guides, separate from implementation.
 - [QA and Testing](qa-testing/) — Systematic test coverage analysis and follow-up task creation.
+- [Upstream Defect Follow-up](upstream-defect-followup/) — Automatic prompt to spawn a follow-up bug task when diagnosis surfaces a separate, pre-existing defect.
 - [Manual Verification](manual-verification/) — Human-checked verification items (TUI flows, live agent launches, artifact inspection) as first-class gated tasks.
 - [Explain](explain/) — Use code evolution history to rebuild understanding of why code exists.
 
