@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [release, changelog]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-28 17:28
-updated_at: 2026-04-28 17:28
+updated_at: 2026-04-28 17:30
 ---
 
 ## Problem
