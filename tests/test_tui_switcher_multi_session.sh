@@ -21,6 +21,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_DIR="$PROJECT_DIR/.aitask-scripts/lib"
 
+# shellcheck source=lib/venv_python.sh
+. "$SCRIPT_DIR/lib/venv_python.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -49,7 +52,7 @@ assert_contains() {
 
 # --- Tier 1: logic-level tests (no Textual runtime, no tmux) ---
 
-out=$(PYTHONPATH="$LIB_DIR" python3 <<'PY'
+out=$(PYTHONPATH="$LIB_DIR" "$AITASK_PYTHON" <<'PY'
 from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock, patch
 
@@ -416,7 +419,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-out=$(PYTHONPATH="$LIB_DIR" TMUX_TMPDIR="$TMUX_TMPDIR_REAL" python3 -c "
+out=$(PYTHONPATH="$LIB_DIR" TMUX_TMPDIR="$TMUX_TMPDIR_REAL" "$AITASK_PYTHON" -c "
 import agent_launch_utils as u
 sessions = {s.session for s in u.discover_aitasks_sessions()}
 print('HAS_A:' + str('${PFX}_a' in sessions))

@@ -12,6 +12,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ORIG_DIR="$(pwd)"
 
+# shellcheck source=lib/venv_python.sh
+. "$SCRIPT_DIR/lib/venv_python.sh"
+
 PASS=0
 FAIL=0
 
@@ -47,7 +50,7 @@ git add -A && git commit -q -m "seed foo"
 run_status_set() {
     # Bypass `ait` (which cd's to its own repo) and call the Python script
     # directly so the synthetic crew at $TMPROOT/.aitask-crews/ is found.
-    python3 "$PROJECT_DIR/.aitask-scripts/agentcrew/agentcrew_status.py" "$@" >/dev/null 2>&1
+    "$AITASK_PYTHON" "$PROJECT_DIR/.aitask-scripts/agentcrew/agentcrew_status.py" "$@" >/dev/null 2>&1
 }
 
 # --- Test 1: terminal transition without --no-push commits a new revision ---

@@ -21,6 +21,9 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_DIR="$PROJECT_DIR/.aitask-scripts/lib"
 MONITOR_DIR="$PROJECT_DIR/.aitask-scripts/monitor"
 
+# shellcheck source=lib/venv_python.sh
+. "$SCRIPT_DIR/lib/venv_python.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -60,7 +63,7 @@ assert_not_contains() {
 
 # --- Tier 1: Python dataclass + TmuxMonitor (mock-based, always run) ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 -c "
+out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" -c "
 from dataclasses import fields
 import tmux_monitor as tm
 
@@ -76,7 +79,7 @@ assert_eq "TmuxPaneInfo.session_name default is ''" "DEFAULT_SESSION_NAME:''" "$
 
 # --- Tier 1b: discover_panes aggregates across sessions (mock-based) ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
+out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
 from unittest.mock import patch, MagicMock
 import tmux_monitor as tm
 from agent_launch_utils import AitasksSession
@@ -134,7 +137,7 @@ assert_contains "sessA panes come first after sort" "PANE:sessA:%1" "${lines[1]:
 
 # --- Tier 1c: single-session mode still issues exactly one list-panes call ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
+out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
 from unittest.mock import patch, MagicMock
 import tmux_monitor as tm
 
@@ -168,7 +171,7 @@ assert_contains "single-session mode targets self.session" \
 
 # --- Tier 1d: switch_to_pane cross-session routes through switch_to_pane_anywhere ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
+out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
 from unittest.mock import patch, MagicMock
 import tmux_monitor as tm
 from tmux_monitor import TmuxPaneInfo, PaneCategory
@@ -218,7 +221,7 @@ assert_contains "cross-session switch does NOT call select-window directly" \
 
 # --- Tier 1e: switch_to_pane same-session uses existing path ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
+out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
 from unittest.mock import patch, MagicMock
 import tmux_monitor as tm
 from tmux_monitor import TmuxPaneInfo, PaneCategory
@@ -265,7 +268,7 @@ assert_contains "same-session switch DOES call select-window directly" \
 
 # --- Tier 1f: kill_agent_pane_smart uses pane.session_name ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
+out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
 from unittest.mock import patch, MagicMock
 import tmux_monitor as tm
 from tmux_monitor import TmuxPaneInfo, PaneCategory
@@ -308,7 +311,7 @@ assert_not_contains "kill_agent_pane_smart does NOT use self.session" \
 
 # --- Tier 1g: _is_companion_process filter still applies in multi mode ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
+out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
 from unittest.mock import patch, MagicMock
 import tmux_monitor as tm
 from agent_launch_utils import AitasksSession
@@ -353,7 +356,7 @@ assert_not_contains "companion pane is filtered out" "PANE:%2" "$out"
 
 # --- Tier 1h: exclude_pane still filters in multi mode ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
+out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
 from unittest.mock import patch, MagicMock
 import tmux_monitor as tm
 from agent_launch_utils import AitasksSession
@@ -394,7 +397,7 @@ assert_contains "other pane survives" "PANE:%keep_me" "$out"
 
 # --- Tier 1i: MonitorApp M binding + action_toggle_multi_session ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
+out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
 import monitor_app as mon_app
 
 # Ensure M is present in BINDINGS.
@@ -447,7 +450,7 @@ taskinfo_cleanup() {
 trap taskinfo_cleanup EXIT
 
 out=$(PROJ_A="$PROJ_A" PROJ_B="$PROJ_B" \
-    PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
+    PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
 import os
 from pathlib import Path
 from monitor_shared import TaskInfoCache
@@ -489,7 +492,7 @@ effort: medium
 EOF
 
 out=$(PROJ_A="$PROJ_A" PROJ_B="$PROJ_B" \
-    PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
+    PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
 import os
 from pathlib import Path
 from monitor_shared import TaskInfoCache
@@ -509,7 +512,7 @@ assert_contains "find_next_sibling resolves sessB sibling" "SIB_B:10_3" "$out"
 # --- Tier 1l: empty session_name falls back to local project_root ---
 
 out=$(PROJ_A="$PROJ_A" PROJ_B="$PROJ_B" \
-    PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
+    PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
 import os
 from pathlib import Path
 from monitor_shared import TaskInfoCache
@@ -536,7 +539,7 @@ assert_contains "unknown session_name falls back to local project" \
 # --- Tier 1m: update_session_mapping is picked up on subsequent calls ---
 
 out=$(PROJ_A="$PROJ_A" PROJ_B="$PROJ_B" \
-    PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
+    PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
 import os
 from pathlib import Path
 from monitor_shared import TaskInfoCache
@@ -560,7 +563,7 @@ assert_contains "after update_session_mapping resolves via sessB → project B" 
 
 # --- Tier 1n: TmuxMonitor.get_session_to_project_mapping() returns dict ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
+out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
 from unittest.mock import patch
 import tmux_monitor as tm
 from agent_launch_utils import AitasksSession
@@ -590,7 +593,7 @@ assert_contains "mapping resolves s2 to project_root /tmp/p2" \
 # Required for cross-session "n" pick: the new agent pane must run in the
 # target project's root, not the monitor's cwd.
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
+out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
 from unittest.mock import patch, MagicMock
 import agent_launch_utils as alu
 
@@ -656,7 +659,7 @@ assert_contains "cwd=None omits -c (back-compat)" "DEFAULT_NO_C:True" "$out"
 
 # --- Tier 1p: AgentCommandScreen.build_config populates cwd from project_root ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 <<'PY'
+out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
 from pathlib import Path
 import inspect
 from agent_command_screen import AgentCommandScreen
@@ -701,7 +704,7 @@ else
     else
         tmux new-session -d -s "$SB" -c "$FAKE_B" -n agent-t2 'sleep 300'
 
-        out=$(TMUX_TMPDIR="$TEST_TMUX_DIR" PYTHONPATH="$LIB_DIR:$MONITOR_DIR" python3 -c "
+        out=$(TMUX_TMPDIR="$TEST_TMUX_DIR" PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" -c "
 import tmux_monitor as tm
 mon = tm.TmuxMonitor(session='$SA', multi_session=True)
 panes = mon.discover_panes()

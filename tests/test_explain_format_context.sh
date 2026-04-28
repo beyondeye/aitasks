@@ -8,6 +8,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SCRIPT="$PROJECT_DIR/.aitask-scripts/aitask_explain_format_context.py"
 
+# shellcheck source=lib/venv_python.sh
+. "$SCRIPT_DIR/lib/venv_python.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -149,7 +152,7 @@ RUN_DIR="$TMPDIR_BASE/run1"
 REF_ARG="$RUN_DIR/reference.yaml:$RUN_DIR"
 
 run_script() {
-    python3 "$SCRIPT" "$@" 2>/dev/null
+    "$AITASK_PYTHON" "$SCRIPT" "$@" 2>/dev/null
 }
 
 # --- Tests ---
@@ -203,13 +206,13 @@ assert_not_contains "no frontmatter in output" "Task: t100_auth.md" "$output"
 assert_contains "plan content preserved" "authentication with JWT" "$output"
 
 # Test 8: Invalid --ref format (warning on stderr, graceful)
-output="$(python3 "$SCRIPT" --max-plans 1 --ref "bad_no_colon" -- src/foo.py 2>/dev/null)"
+output="$("$AITASK_PYTHON" "$SCRIPT" --max-plans 1 --ref "bad_no_colon" -- src/foo.py 2>/dev/null)"
 exit_code=$?
 assert_eq "bad ref: exit code 0" "0" "$exit_code"
 assert_eq "bad ref: empty output" "" "$output"
 
 # Test 9: Missing reference.yaml file (warning on stderr, graceful)
-output="$(python3 "$SCRIPT" --max-plans 1 --ref "/tmp/nonexistent.yaml:/tmp" -- src/foo.py 2>/dev/null)"
+output="$("$AITASK_PYTHON" "$SCRIPT" --max-plans 1 --ref "/tmp/nonexistent.yaml:/tmp" -- src/foo.py 2>/dev/null)"
 exit_code=$?
 assert_eq "missing ref yaml: exit code 0" "0" "$exit_code"
 assert_eq "missing ref yaml: empty output" "" "$output"

@@ -14,6 +14,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ORIG_DIR="$(pwd)"
 
+# shellcheck source=lib/venv_python.sh
+. "$SCRIPT_DIR/lib/venv_python.sh"
+
 PASS=0
 FAIL=0
 
@@ -48,11 +51,11 @@ EOF
 }
 
 run_status_set() {
-    python3 "$PROJECT_DIR/.aitask-scripts/agentcrew/agentcrew_status.py" "$@" >/dev/null 2>&1
+    "$AITASK_PYTHON" "$PROJECT_DIR/.aitask-scripts/agentcrew/agentcrew_status.py" "$@" >/dev/null 2>&1
 }
 
 run_status_set_capture_rc() {
-    python3 "$PROJECT_DIR/.aitask-scripts/agentcrew/agentcrew_status.py" "$@" >/dev/null 2>&1
+    "$AITASK_PYTHON" "$PROJECT_DIR/.aitask-scripts/agentcrew/agentcrew_status.py" "$@" >/dev/null 2>&1
     echo $?
 }
 

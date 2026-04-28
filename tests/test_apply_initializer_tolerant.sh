@@ -7,6 +7,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=lib/venv_python.sh
+. "$SCRIPT_DIR/lib/venv_python.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -59,7 +62,7 @@ run_apply() {
     local tmp_crew="$1"
     (
         cd "$PROJECT_DIR"
-        python3 - <<EOF_PY
+        "$AITASK_PYTHON" - <<EOF_PY
 import sys, pathlib
 sys.path.insert(0, ".aitask-scripts")
 from brainstorm import brainstorm_session as bs
@@ -195,7 +198,7 @@ rm -f /tmp/tolerant_err1 /tmp/tolerant_err2 /tmp/tolerant_err3
 
 (
     cd "$PROJECT_DIR"
-    python3 - <<'EOF_PY'
+    "$AITASK_PYTHON" - <<'EOF_PY'
 import sys
 sys.path.insert(0, ".aitask-scripts")
 from brainstorm.brainstorm_session import _tolerant_yaml_load

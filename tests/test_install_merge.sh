@@ -8,6 +8,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 MERGE_SCRIPT="$PROJECT_DIR/.aitask-scripts/aitask_install_merge.py"
 
+# shellcheck source=lib/venv_python.sh
+. "$SCRIPT_DIR/lib/venv_python.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -66,7 +69,7 @@ nested:
   y: 20
 extra: user_only
 EOF
-python3 "$MERGE_SCRIPT" yaml "$TMP/src.yaml" "$TMP/dest.yaml"
+"$AITASK_PYTHON" "$MERGE_SCRIPT" yaml "$TMP/src.yaml" "$TMP/dest.yaml"
 merged_yaml="$(cat "$TMP/dest.yaml")"
 assert_contains "yaml: existing scalar dest value wins" "a: 999" "$merged_yaml"
 assert_contains "yaml: new seed top-level key added" "new_key: from_seed" "$merged_yaml"
@@ -88,7 +91,7 @@ items:
   - a
   - custom
 EOF
-python3 "$MERGE_SCRIPT" yaml "$TMP/src.yaml" "$TMP/dest.yaml"
+"$AITASK_PYTHON" "$MERGE_SCRIPT" yaml "$TMP/src.yaml" "$TMP/dest.yaml"
 list_merged="$(cat "$TMP/dest.yaml")"
 assert_contains "yaml: dest list wins (contains 'custom')" "custom" "$list_merged"
 assert_not_contains "yaml: dest list wins (seed-only 'b' dropped)" "- b" "$list_merged"
@@ -96,7 +99,7 @@ assert_not_contains "yaml: dest list wins (seed-only 'b' dropped)" "- b" "$list_
 # --- YAML merge: dest-absent falls back to straight copy ---
 
 rm -f "$TMP/new_dest.yaml"
-python3 "$MERGE_SCRIPT" yaml "$TMP/src.yaml" "$TMP/new_dest.yaml"
+"$AITASK_PYTHON" "$MERGE_SCRIPT" yaml "$TMP/src.yaml" "$TMP/new_dest.yaml"
 assert_eq "yaml: dest-missing copies seed bytes verbatim" \
     "$(cat "$TMP/src.yaml")" "$(cat "$TMP/new_dest.yaml")"
 
@@ -104,7 +107,7 @@ assert_eq "yaml: dest-missing copies seed bytes verbatim" \
 
 echo '{"a":1,"n":{"x":10,"z":30},"new":"seed"}' > "$TMP/src.json"
 echo '{"a":999,"n":{"x":999,"y":20},"extra":"user"}' > "$TMP/dest.json"
-python3 "$MERGE_SCRIPT" json "$TMP/src.json" "$TMP/dest.json"
+"$AITASK_PYTHON" "$MERGE_SCRIPT" json "$TMP/src.json" "$TMP/dest.json"
 merged_json="$(cat "$TMP/dest.json")"
 assert_contains "json: dest scalar wins" '"a": 999' "$merged_json"
 assert_contains "json: nested seed-only key added" '"z": 30' "$merged_json"
@@ -116,7 +119,7 @@ assert_contains "json: new top-level seed key added" '"new": "seed"' "$merged_js
 echo 'not valid json {' > "$TMP/bad.json"
 echo '{"ok": true}' > "$TMP/good_dest.json"
 original_good_dest="$(cat "$TMP/good_dest.json")"
-if python3 "$MERGE_SCRIPT" json "$TMP/bad.json" "$TMP/good_dest.json" 2>/dev/null; then
+if "$AITASK_PYTHON" "$MERGE_SCRIPT" json "$TMP/bad.json" "$TMP/good_dest.json" 2>/dev/null; then
     FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1))
     echo "FAIL: json: invalid src should exit non-zero"
 else
@@ -129,7 +132,7 @@ assert_eq "json: invalid src leaves dest untouched" \
 
 printf 'bug\nfeature\nchore\ntest\ndocs\n' > "$TMP/src.txt"
 printf 'feature\nbug\nmy_custom\n' > "$TMP/dest.txt"
-python3 "$MERGE_SCRIPT" text-union "$TMP/src.txt" "$TMP/dest.txt"
+"$AITASK_PYTHON" "$MERGE_SCRIPT" text-union "$TMP/src.txt" "$TMP/dest.txt"
 merged_txt="$(cat "$TMP/dest.txt")"
 expected_txt="feature
 bug
@@ -142,27 +145,27 @@ assert_eq "text-union: dest order preserved, seed additions appended" \
 
 # --- text-union: idempotent (running twice yields same result) ---
 
-python3 "$MERGE_SCRIPT" text-union "$TMP/src.txt" "$TMP/dest.txt"
+"$AITASK_PYTHON" "$MERGE_SCRIPT" text-union "$TMP/src.txt" "$TMP/dest.txt"
 assert_eq "text-union: idempotent on repeat merge" \
     "$expected_txt" "$(cat "$TMP/dest.txt")"
 
 # --- text-union: dest-absent falls back to copy ---
 
 rm -f "$TMP/new_dest.txt"
-python3 "$MERGE_SCRIPT" text-union "$TMP/src.txt" "$TMP/new_dest.txt"
+"$AITASK_PYTHON" "$MERGE_SCRIPT" text-union "$TMP/src.txt" "$TMP/new_dest.txt"
 assert_eq "text-union: dest-missing copies seed verbatim" \
     "$(cat "$TMP/src.txt")" "$(cat "$TMP/new_dest.txt")"
 
 # --- Usage errors ---
 
-if python3 "$MERGE_SCRIPT" unknown_mode "$TMP/src.txt" "$TMP/dest.txt" 2>/dev/null; then
+if "$AITASK_PYTHON" "$MERGE_SCRIPT" unknown_mode "$TMP/src.txt" "$TMP/dest.txt" 2>/dev/null; then
     FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1))
     echo "FAIL: unknown mode should exit non-zero"
 else
     PASS=$((PASS + 1)); TOTAL=$((TOTAL + 1))
 fi
 
-if python3 "$MERGE_SCRIPT" yaml 2>/dev/null; then
+if "$AITASK_PYTHON" "$MERGE_SCRIPT" yaml 2>/dev/null; then
     FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1))
     echo "FAIL: missing args should exit non-zero"
 else

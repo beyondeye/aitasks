@@ -6,6 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+# shellcheck source=lib/venv_python.sh
+. "$SCRIPT_DIR/lib/venv_python.sh"
+
 PASS=0
 FAIL=0
 
@@ -24,7 +27,7 @@ assert_fail() {
 }
 
 # 1. _ops_sorted_by_runs orders by all_providers/all_time runs desc, tie-broken by name asc.
-if python3 - <<'PY'
+if "$AITASK_PYTHON" - <<'PY'
 import sys
 sys.path.insert(0, ".aitask-scripts")
 from stats.stats_data import VerifiedRankingData, VerifiedModelEntry
@@ -52,7 +55,7 @@ else
 fi
 
 # 2. Empty vdata yields empty list (no crash).
-if python3 - <<'PY'
+if "$AITASK_PYTHON" - <<'PY'
 import sys
 sys.path.insert(0, ".aitask-scripts")
 from stats.stats_data import VerifiedRankingData
@@ -68,7 +71,7 @@ fi
 # 3. VerifiedRankingsPane constructs without error and cycle_op wraps correctly.
 #    (We bypass Textual's app runtime by driving cycle_op directly on a pane
 #    whose _populate() is stubbed, since _populate() needs mounted widgets.)
-if python3 - <<'PY'
+if "$AITASK_PYTHON" - <<'PY'
 import sys
 sys.path.insert(0, ".aitask-scripts")
 from stats.stats_data import VerifiedRankingData, VerifiedModelEntry
@@ -107,7 +110,7 @@ else
 fi
 
 # 4. Single-op edge case: cycle_op is a no-op.
-if python3 - <<'PY'
+if "$AITASK_PYTHON" - <<'PY'
 import sys
 sys.path.insert(0, ".aitask-scripts")
 from stats.stats_data import VerifiedRankingData, VerifiedModelEntry
@@ -131,7 +134,7 @@ fi
 
 # 5. Smoke test: _render_verified invoked with a mock container does not raise.
 #    (Container.mount() is mocked to avoid Textual app context.)
-if python3 - <<'PY'
+if "$AITASK_PYTHON" - <<'PY'
 import sys
 sys.path.insert(0, ".aitask-scripts")
 from stats.stats_data import VerifiedRankingData

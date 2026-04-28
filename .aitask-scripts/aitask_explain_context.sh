@@ -17,6 +17,14 @@ CODEBROWSER_DIR=".aitask-explain/codebrowser"
 EXTRACT_SCRIPT="$SCRIPT_DIR/aitask_explain_extract_raw_data.sh"
 FORMAT_SCRIPT="$SCRIPT_DIR/aitask_explain_format_context.py"
 
+# Prefer the shared aitask venv (has yaml/textual/rich), fall back to system python3
+VENV_PYTHON="$HOME/.aitask/venv/bin/python"
+if [[ -x "$VENV_PYTHON" ]]; then
+    PYTHON="$VENV_PYTHON"
+else
+    PYTHON="python3"
+fi
+
 # --- Functions ---
 
 show_help() {
@@ -242,7 +250,7 @@ main() {
     done
 
     # Call the Python formatter
-    python3 "$FORMAT_SCRIPT" \
+    "$PYTHON" "$FORMAT_SCRIPT" \
         --max-plans "$MAX_PLANS" \
         "${ref_args[@]}" \
         -- "${INPUT_FILES[@]}"

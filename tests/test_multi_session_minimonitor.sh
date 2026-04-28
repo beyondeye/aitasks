@@ -24,6 +24,9 @@ MONITOR_DIR="$PROJECT_DIR/.aitask-scripts/monitor"
 BOARD_DIR="$PROJECT_DIR/.aitask-scripts/board"
 PYPATH="$LIB_DIR:$MONITOR_DIR:$BOARD_DIR:$PROJECT_DIR/.aitask-scripts"
 
+# shellcheck source=lib/venv_python.sh
+. "$SCRIPT_DIR/lib/venv_python.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -41,7 +44,7 @@ assert_contains() {
 
 # --- Tier 1a: BINDINGS + action presence ---
 
-out=$(PYTHONPATH="$PYPATH" python3 <<'PY'
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
 from monitor import minimonitor_app as mm
 
 keys = []
@@ -62,7 +65,7 @@ assert_contains "MiniMonitorApp has action_toggle_multi_session handler" \
 
 # --- Tier 1b: action flips state + invalidates cache ---
 
-out=$(PYTHONPATH="$PYPATH" python3 <<'PY'
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
 from monitor import minimonitor_app as mm
 
 class FakeMon:
@@ -102,7 +105,7 @@ assert_contains "action is a no-op when monitor is None" "NO_CRASH:True" "$out"
 
 # --- Tier 1c: _start_monitoring no longer pins multi_session=False ---
 
-out=$(PYTHONPATH="$PYPATH" python3 <<'PY'
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
 from monitor import minimonitor_app as mm
 
 recorded = {}
@@ -139,7 +142,7 @@ assert_contains "_start_monitoring does NOT pass multi_session explicitly" \
 # The real method uses Textual queries which are fragile in unit tests, so
 # exercise the core (window_index, session_name) matching predicate directly.
 
-out=$(PYTHONPATH="$PYPATH" python3 <<'PY'
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
 def would_match(own_window_index, own_session, snap_window_index, snap_session):
     # Mirror of the guard in MiniMonitorApp._auto_select_own_window.
     return (
@@ -160,7 +163,7 @@ assert_contains "matching session but different index fails" "DIFF_INDEX:False" 
 
 # --- Tier 1e: _rebuild_pane_list emits dividers in multi mode ---
 
-out=$(PYTHONPATH="$PYPATH" python3 <<'PY'
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
 import asyncio
 from types import SimpleNamespace
 
@@ -227,7 +230,7 @@ assert_contains "single mode: no divider widgets present"         "SINGLE_NO_DIV
 
 # --- Tier 1f: _rebuild_session_bar text reflects mode ---
 
-out=$(PYTHONPATH="$PYPATH" python3 <<'PY'
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
 from types import SimpleNamespace
 
 from monitor import minimonitor_app as mm
