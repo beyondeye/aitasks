@@ -23,6 +23,42 @@ if git rev-parse "v$new_version" >/dev/null 2>&1; then
   exit 1
 fi
 
+# Sync with remote so the final 'git push origin main --tags' is fast-forward.
+# A failed push *after* the tag has already been pushed leaves the remote with
+# the tag pointing at a commit that is not in main's history.
+current_branch=$(git rev-parse --abbrev-ref HEAD)
+if [[ "$current_branch" != "main" ]]; then
+  echo "Aborted: releases must be cut from 'main' (current: $current_branch)."
+  exit 1
+fi
+
+echo ""
+echo "Fetching origin to verify main is in sync..."
+if ! git fetch origin --quiet; then
+  echo -e "\033[1;33mWARNING:\033[0m git fetch origin failed. Cannot verify remote state."
+  read -rp "Continue without sync verification? [y/N] " fetch_confirm
+  if [[ "$fetch_confirm" != [yY] ]]; then
+    echo "Aborted."
+    exit 1
+  fi
+else
+  local_sha=$(git rev-parse main)
+  remote_sha=$(git rev-parse origin/main)
+  if [[ "$local_sha" != "$remote_sha" ]]; then
+    behind=$(git rev-list --count main..origin/main)
+    if [[ "$behind" -gt 0 ]]; then
+      ahead=$(git rev-list --count origin/main..main)
+      echo "Local main is $ahead ahead and $behind behind origin/main."
+      echo "Rebasing on origin/main before continuing..."
+      if ! git pull --rebase origin main; then
+        echo -e "\033[0;31mERROR:\033[0m Rebase failed. Resolve conflicts manually, then re-run."
+        exit 1
+      fi
+      echo -e "\033[0;32mSynced with origin/main.\033[0m"
+    fi
+  fi
+fi
+
 # Check if CHANGELOG.md has an entry for this version
 if [[ -f CHANGELOG.md ]]; then
   if ./.aitask-scripts/aitask_changelog.sh --check-version "$new_version" 2>/dev/null; then

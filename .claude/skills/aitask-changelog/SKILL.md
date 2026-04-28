@@ -5,6 +5,44 @@ description: Generate a changelog entry by analyzing commits and archived plans 
 
 ## Workflow
 
+### Step 0: Sync with Remote
+
+Before gathering release data, ensure the local `main` reflects the full remote history. The gather script reads local refs only — tasks merged on remote since the last local pull will silently be missing from the changelog otherwise.
+
+Run a best-effort fetch:
+
+```bash
+git fetch origin --quiet 2>&1 || echo "FETCH_FAILED"
+```
+
+If fetch failed (output contains `FETCH_FAILED`), warn the user — "Could not fetch from origin; the changelog may not reflect the latest remote state." — and proceed to Step 1.
+
+Otherwise, check whether local `main` is behind `origin/main`:
+
+```bash
+git rev-list --count main..origin/main 2>/dev/null
+```
+
+If the count is `0`, proceed to Step 1 silently.
+
+If the count is greater than `0`, use `AskUserQuestion`:
+- Question: "Local main is N commits behind origin/main. The changelog will miss those tasks unless you sync first. How to proceed?"
+- Header: "Sync"
+- Options:
+  - "Pull and continue" (description: "Run `git pull --rebase origin main` and proceed")
+  - "Skip sync (changelog may be incomplete)" (description: "Continue with local-only history")
+  - "Abort" (description: "Exit without making changes")
+
+If "Pull and continue":
+```bash
+git pull --rebase origin main
+```
+On failure (conflicts), inform the user: "Rebase failed. Resolve conflicts manually, then re-run `/aitask-changelog`." End the workflow.
+
+If "Skip sync": proceed to Step 1.
+
+If "Abort": end the workflow.
+
 ### Step 1: Gather Release Data
 
 Run the changelog data gathering script:
