@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [testing, bash_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-28 10:09
-updated_at: 2026-04-28 10:09
+updated_at: 2026-04-28 10:18
 ---
 
 ## Origin
