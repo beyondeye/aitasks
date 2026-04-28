@@ -100,20 +100,15 @@ setup_migrated_project() {
         # Create project structure with task data on main
         mkdir -p aitasks/metadata aitasks/archived aitasks/new
         mkdir -p aiplans/archived
-        mkdir -p .aitask-scripts/lib
 
-        # Copy scripts from project
+        # Copy ait dispatcher
         cp "$PROJECT_DIR/ait" ait
         chmod +x ait
-        cp "$PROJECT_DIR/.aitask-scripts/aitask_create.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/aitask_ls.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/aitask_update.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
+
+        # Mirror the full .aitask-scripts/ tree so transitive deps are present.
+        # Hand-curated copy lists drift silently as new sources/imports are added.
+        cp -R "$PROJECT_DIR/.aitask-scripts" .aitask-scripts
+        find .aitask-scripts -type d -name __pycache__ -prune -exec rm -rf {} +
         chmod +x .aitask-scripts/aitask_create.sh .aitask-scripts/aitask_ls.sh .aitask-scripts/aitask_update.sh
         chmod +x .aitask-scripts/aitask_claim_id.sh .aitask-scripts/aitask_setup.sh
 
