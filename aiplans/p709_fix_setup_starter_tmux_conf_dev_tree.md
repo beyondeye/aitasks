@@ -94,3 +94,16 @@ After implementation: per the task-workflow Step 9 (Post-Implementation), the wo
 - Bug introduced: commit `38052d2a` "feature: Add opt-in starter ~/.tmux.conf to ait setup (t688_3)".
 - Related guidance: CLAUDE.md → "Test the full install flow for setup helpers" (t624/t628 pattern).
 - Task file: `aitasks/t709_fix_setup_starter_tmux_conf_dev_tree.md`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added a single fallback branch in `setup_starter_tmux_conf()` (`.aitask-scripts/aitask_setup.sh:2994`). When `$SCRIPT_DIR/templates/tmux.conf` is absent (source-tree case), the function now falls back to `$SCRIPT_DIR/../seed/tmux.conf`. Net change: 5 added lines (2 comment, 3 logic). No other files touched.
+- **Deviations from plan:** None. Code matches the planned snippet exactly.
+- **Issues encountered:** None.
+- **Key decisions:**
+  - Kept the fallback in the runtime helper rather than adding a duplicate copy step in `install.sh`. Single source of truth: `seed/tmux.conf` is the canonical template; `install.sh`'s `install_seed_tmux_conf()` copies it into `templates/` so installed users still find it via the primary path. Avoiding a duplicate `cp` to a third location keeps the picture symmetric.
+  - Did not extend the audit. The two seed-reading runtime callers (`aitask_opencode_models.sh`, `aitask_add_model.sh`) are intentional dev-only flows with explicit "seed/ not found, skipping" guards. The data-branch metadata-population path at `aitask_setup.sh:1116-1127` may be a separate concern but it's a different code path with different semantics; folding it in would muddy this fix.
+- **Build verification:** `shellcheck .aitask-scripts/aitask_setup.sh` reports only pre-existing infos (SC1091 in lib include, SC2015 on three pre-existing `&&...||` chains). No new warnings introduced.
+- **End-to-end verification:** Ran `ait setup` in this source tree (which has no `.aitask-scripts/templates/`). With `~/.tmux.conf` and `~/.config/tmux/tmux.conf` both absent, the prompt now appears: `[ait] No tmux config detected at /Users/daelyasy/.tmux.conf.\n  Install aitasks-recommended starter tmux.conf? Enables: mouse on, ... [y/N]`. Before the fix this prompt was silently skipped.
+- **Installed-tree case:** Not exercised live (requires a fresh `bash install.sh --dir /tmp/scratch709` in a clean environment). Verified by inspection: `install.sh:333 install_seed_tmux_conf()` copies `seed/tmux.conf` into `.aitask-scripts/templates/`, and `seed/` is deleted at end of install. With templates path present, the new code's first `[[ -f "$template" ]]` succeeds and the fallback branch is never taken — behavior preserved.
+- **Notes for future readers:** This is the canonical pattern for any future "runtime helper that reads from a path populated by install.sh" — primary path first, source-tree fallback to `seed/` second. Worth applying preemptively to any new `install_seed_*` companion that adds a runtime-read path.
