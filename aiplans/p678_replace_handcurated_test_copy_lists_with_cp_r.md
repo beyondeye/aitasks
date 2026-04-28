@@ -164,3 +164,11 @@ bash tests/test_crew_status.sh
 ```
 
 Step 9 (Post-Implementation) of the task workflow handles archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** Replaced the hand-curated copy blocks in `setup_test_repo()` of `tests/test_crew_groups.sh`, `tests/test_crew_report.sh`, and `tests/test_data_branch_migration.sh` with the canonical `cp -R "$PROJECT_DIR/.aitask-scripts" .aitask-scripts` + `find ... __pycache__ ... rm -rf` pattern from `tests/test_crew_status.sh:98-102`. Trimmed `mkdir -p .aitask-scripts/...` lines that became unnecessary (the recursive copy creates the tree). Preserved the existing `chmod +x` lines defensively, the unrelated mkdirs (`aitasks/metadata`, `aitasks/archived`, `aiplans/archived`), and — in `test_data_branch_migration.sh` — the `cp "$PROJECT_DIR/ait" ait` step and the post-copy `echo "0.0.0-test" > .aitask-scripts/VERSION` override.
+- **Deviations from plan:** None. The plan was applied verbatim.
+- **Issues encountered:** None. All four verification commands passed first try (24/24, 28/28, 21/21, 57/57 — last is the smoke run of `test_crew_status.sh`).
+- **Key decisions:** Excluded unrelated pre-existing working-tree changes (`.aitask-scripts/aitask_setup.sh` modification, untracked `tests/test_setup_find_modern_python.sh` and `tests/test_setup_python_install.sh`) from the t678 commit — they belong to a separate effort.
+- **Upstream defects identified:** None.
