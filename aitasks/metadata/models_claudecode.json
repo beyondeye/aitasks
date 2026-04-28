@@ -179,23 +179,23 @@
       "cli_id": "claude-opus-4-7",
       "notes": "Most capable model, complex reasoning + agentic coding, 128K output, adaptive thinking",
       "verified": {
-        "pick": 98
+        "pick": 96
       },
       "verifiedstats": {
         "pick": {
           "all_time": {
-            "runs": 16,
-            "score_sum": 1560
+            "runs": 17,
+            "score_sum": 1640
           },
           "month": {
             "period": "2026-04",
-            "runs": 16,
-            "score_sum": 1560
+            "runs": 17,
+            "score_sum": 1640
           },
           "week": {
             "period": "2026-W18",
-            "runs": 3,
-            "score_sum": 280
+            "runs": 4,
+            "score_sum": 360
           }
         }
       }
