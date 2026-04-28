@@ -314,3 +314,85 @@ Step 8 should call out:
 - Any deviation from this plan (especially around the `ait` dispatcher
   source line — verify the exact insertion point survives any
   intervening edits to `ait` between plan time and implementation time).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all six steps of the plan as written.
+  - `.aitask-scripts/lib/aitask_path.sh` (NEW): sourced lib that prepends
+    `~/.aitask/bin` to `PATH` idempotently. Uses the project's standard
+    `_AIT_*_LOADED` double-source guard plus a `case` statement to
+    short-circuit if the entry is already present.
+  - `ait` dispatcher: one-line `source ".aitask-scripts/lib/aitask_path.sh"`
+    inserted directly after the existing `cd "$AIT_DIR"` line so
+    subprocesses spawned by `./ait <cmd>` inherit the prepended PATH.
+  - `.aitask-scripts/aitask_setup.sh` `setup_python_venv()`: symlink-creation
+    block appended after the pip-install branch and before the closing
+    `success "Python venv ready..."` line. Creates both
+    `~/.aitask/bin/python3` and `~/.aitask/bin/python` via `ln -sf` so
+    re-runs overwrite stale targets without erroring.
+  - `tests/test_setup_python_install.sh`: appended a "Verifying ~/.aitask/bin
+    symlinks" block + a "Verifying scoped PATH" block that asserts (a) the
+    symlinks exist and resolve to `$VENV_DIR/bin/python`, (b) NO `.aitask/bin`
+    entry has been written to any shell rc file, (c) sourcing the lib
+    prepends PATH, (d) double-sourcing is idempotent, (e) the `ait`
+    dispatcher contains the lib source line.
+  - `aitasks/t695/t695_4_refactor_python_callers.md`: appended a
+    "Source `lib/aitask_path.sh` in every migrated script" bullet under
+    the `## Notes for sibling tasks` section, including the canonical
+    sourcing pattern. `updated_at` bumped to 2026-04-28 13:19.
+- **Deviations from plan:** None of substance. The plan called out the
+  `ait` dispatcher insertion point as "directly after `cd "$AIT_DIR"`";
+  the actual file had a comment on that line, so the new `source` line
+  was placed on the immediately-following line — same effect.
+- **Issues encountered:** None. Initial smoke tests (lib double-source
+  idempotency, `./ait --help`, existing `test_setup_find_modern_python.sh`
+  pass) all worked first try.
+- **Key decisions:**
+  - **Scoped lib over shell-rc edit (user direction during planning).**
+    The original plan draft proposed extending `ensure_path_in_profile()`
+    to append `~/.aitask/bin` to the user's `~/.zshrc`/`~/.bashrc`. User
+    rejected this as too broad — it would silently override system
+    `python3` for the entire interactive shell and unrelated tools. The
+    final plan ships a sourced lib instead, scoped to aitasks
+    subprocesses only. `ensure_path_in_profile()` was left untouched
+    and still manages only `~/.local/bin` (the user-facing `ait` shim).
+  - **Per-script sourcing deferred to t695_4.** With ~9 Python-invoking
+    `.aitask-scripts/aitask_*.sh` scripts in the framework, adding the
+    `source` line to each here would have duplicated the file-level
+    edits t695_4 will already make to those same scripts. Instead, the
+    `ait` dispatcher source covers `./ait <cmd>` flows now, and a
+    sibling-task note in t695_4 carries the per-script sourcing pattern
+    for skill-direct flows (where `aitask_*.sh` is invoked without the
+    dispatcher). Between t695_3 and t695_4 lands, skill-direct flows
+    fall back to system `python3` via PATH, with the existing
+    `${PYTHON:-python3}` import-check guards (e.g.,
+    `aitask_board.sh:24`) catching missing-deps.
+  - **Idempotency via runtime PATH check, not rc-file grep.** The lib
+    inspects `$PATH` at sourcing time rather than diffing a file. This
+    is naturally portable across all shells and avoids the question of
+    "which rc file would I check" in a sourced-lib context. The
+    `_AIT_PATH_LOADED` guard provides per-process double-source
+    protection; the `case` statement protects against cross-shell
+    re-entry where a child shell starts with a parent-prepended PATH.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - `lib/aitask_path.sh` is the single source of truth for "scope
+    `~/.aitask/bin` to aitasks subprocesses". Any future framework
+    binary that needs the same scoping should be added to the same lib
+    (extend the case statement) rather than introducing a parallel
+    PATH-management mechanism.
+  - **Do NOT touch the user's shell rc** for any future framework PATH
+    needs. `ensure_path_in_profile()` is reserved for `~/.local/bin`
+    (the global `ait` shim, which IS user-facing) and should not be
+    extended to handle framework-internal paths. The user-feedback
+    memory `feedback_no_global_path_override.md` records this rule.
+  - t695_4 must source `lib/aitask_path.sh` (next to
+    `lib/python_resolve.sh`) in every Python-invoking script it
+    migrates. The exact sibling-task pattern was added to
+    `aitasks/t695/t695_4_refactor_python_callers.md` under "Notes for
+    sibling tasks".
+  - The `~/.aitask/bin/python3` symlink target is `$VENV_DIR/bin/python`
+    (not `bin/python3`) — `python -m venv` makes `python` canonical
+    with `python3` as a sibling symlink, so we mirror that shape one
+    level up. Both names are written so callers using either shebang
+    form resolve identically.
