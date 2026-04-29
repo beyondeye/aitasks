@@ -5,10 +5,10 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [tui, scripts]
-children_to_implement: [t713_1, t713_2, t713_3, t713_4]
+children_to_implement: [t713_1, t713_2, t713_3, t713_4, t713_5]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-29 08:42
-updated_at: 2026-04-29 09:48
+updated_at: 2026-04-29 10:55
 ---
 
 ## Goal
