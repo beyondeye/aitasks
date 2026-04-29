@@ -379,3 +379,76 @@ will be offered at Step 8c.
 
 Standard task-workflow Step 9: archive the task and plan via
 `./.aitask-scripts/aitask_archive.sh 716`, then push.
+
+---
+
+## Post-Review Changes
+
+### Change Request 1 (2026-04-29 23:37)
+- **Requested by user:** "when press shift+left to switch list it crashes"
+- **Root cause:** `_apply_mode` was removing the existing `FuzzySelect`
+  (id=`model_picker`) and immediately mounting a new one with the *same* id.
+  Textual's removal is async-scheduled, so the new mount could collide with
+  the still-mounted old widget — duplicate-id error and/or focus race when
+  the old Input still holds focus.
+- **Fix:** Added `FuzzySelect.update_options(options, placeholder=None)` that
+  rebinds `all_options` / `filtered`, clears the Input value, updates the
+  placeholder, and re-renders rows in place. `_apply_mode` now calls
+  `fs.update_options(...)` on the existing `#model_picker` and only falls
+  back to mounting a fresh widget on the very first call (when the picker
+  doesn't yet exist).
+- **Files affected:** `.aitask-scripts/lib/agent_model_picker.py`
+  (new `update_options` method on `FuzzySelect`; `_apply_mode` rewired to
+  update-in-place).
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `agent_command_screen.py`: renamed class-level `_last_agent_override` →
+    `_previous_agent_override`; stored `self._default_agent_string` from the
+    constructor; gated the persistence in `_on_agent_picked` so only
+    non-default picks land in the previous-override dict; renamed
+    `action_use_last_agent` → `action_use_previous_agent` and updated the
+    `u`/`U` key handler and `Button.Pressed` handler accordingly; button
+    label now reads `(U)se previous: <agent>`.
+  - `agent_model_picker.py`: replaced the 3-step (`top → agent → model`)
+    state machine with a single screen that cycles six modes (`top`, `all`,
+    `codex`, `opencode`, `claudecode`, `geminicli`) via `Shift+Left` /
+    `Shift+Right` priority bindings. Removed the `Browse all models...`
+    sentinel option from the top list and dropped the `_show_step0/1/2`
+    methods. Added `_apply_mode`, `_build_options_for_mode`,
+    `_build_options_top/all/for_agent`, and `_placeholder_for_mode`. Updated
+    the module docstring.
+- **Deviations from plan:** None on the design; the planned approach worked
+  as written. The runtime crash on Shift+Left forced one tactical change
+  (see below); the *behavior* the plan specified is identical.
+- **Issues encountered:** Pressing Shift+Left/Right crashed the picker. Root
+  cause: `_apply_mode` removed the existing `#model_picker` `FuzzySelect`
+  and immediately mounted a fresh one with the same id. Textual's
+  `widget.remove()` is async-scheduled, so the new mount raced against the
+  pending removal — duplicate-id collision and/or a focus reassignment
+  event on a half-removed widget. Resolved by adding
+  `FuzzySelect.update_options(options, placeholder=None)` that rebinds
+  `all_options` / `filtered`, clears the Input, updates the placeholder,
+  and re-renders rows in place. `_apply_mode` now updates the existing
+  widget; the mount path only fires on the very first call (initial
+  `on_mount`).
+- **Key decisions:**
+  - Used `priority=True` on the `shift+left` / `shift+right` Bindings so
+    they override the focused Input's default selection-extension behavior.
+    The CLAUDE.md priority-binding gotcha (App vs Screen with the same
+    action name) doesn't apply here — there is no App-level binding for
+    those keys.
+  - For the per-agent modes (`codex`, `opencode`, etc.), `FuzzyOption.value`
+    is the bare model name (matching the existing single-agent step-2
+    output); `on_fuzzy_select_selected` prepends the agent on dispatch.
+    This keeps the per-agent option list visually clean (no `agent/`
+    prefix repeated on every row) while the dismissal contract stays
+    `{"key", "value": "agent/model"}`.
+  - "All models" mode is alphabetical by `agent/model` per the user's
+    explicit choice; per-agent modes preserve the existing verified-first
+    score ordering.
+- **Upstream defects identified:** None.
+
