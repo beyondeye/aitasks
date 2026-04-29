@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [aitask_board, agent_chooser]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-29 22:22
-updated_at: 2026-04-29 22:24
+updated_at: 2026-04-29 22:43
 ---
 
 in aitasks tuis like ait board, we have the command dialog where we show the command being run we can change the (A)agent to use for the command from the default value defined in settings for that action
