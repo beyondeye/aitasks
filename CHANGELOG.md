@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.19.2
+
+### Features
+
+- **Warn user about remote changes after planning** (t708): Added a post-planning drift check that warns when `origin/main` has moved ahead before implementation starts. The warning is stronger when remote-only commits touch files referenced in the approved plan, helping users avoid stale-base work and late merge surprises.
+
+### Bug Fixes
+
+- **Fix aitask bin python symlink masks venv packages** (t706): Replaced framework Python symlinks with wrapper scripts so `ait board` and other Python tools consistently run inside the aitasks virtual environment. The update-check cache now also recovers cleanly from corrupt version data instead of printing shell arithmetic errors.
+- **Fix test python resolve hardcoded bash path** (t707): Made the Python resolver test suite use the available `bash` on the host instead of assuming `/usr/bin/bash`, restoring portability on Apple Silicon macOS.
+- **Fix setup starter tmux conf dev tree** (t709): `ait setup` now offers the starter tmux configuration from source-tree checkouts as well as installed framework trees, so developers running directly from a clone get the same mouse and truecolor setup prompt.
+- **Fix changelog gather aborts on unresolvable task** (t712): The changelog gather command no longer aborts when a task archive is missing from local task data. It now falls back gracefully and warns when local task data appears behind `origin/aitask-data`.
+
+### Documentation
+
+- **macos installation subpage terminal compat** (t711): Added a macOS installation guide that explains terminal emulator compatibility for the tmux-based `ait ide` workflow. The installation and terminal setup docs now point macOS users toward truecolor-capable terminals and explain Apple Terminal limitations.
+
 ## v0.19.1
 
 ### Bug Fixes
