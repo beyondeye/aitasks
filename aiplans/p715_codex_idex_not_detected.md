@@ -564,3 +564,62 @@ python3 tests/test_idle_compare_modes.py
   global default IS configurable in `project_config.yaml`.
 - No public API breakage: existing `TmuxMonitor(...)` constructions
   without the new kwarg keep working (the parameter has a default).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Two compare modes
+  (`stripped` / `raw`), default `stripped`, per-pane in-memory override
+  cycled `default → raw → stripped → default` via `d` shortcut in both
+  `ait monitor` and `ait minimonitor`. Mode glyph (`≈` / `=`) appears on
+  every agent card, dim when following the global default and yellow when
+  the pane has an override. Configurable global default via
+  `tmux.monitor.compare_mode_default` in `project_config.yaml`.
+- **Deviations from plan:**
+  1. Did **not** add a separate `Detect:` row to a per-pane detail view —
+     the full `MonitorApp` does not have a stable preview-detail strip
+     (the kill-confirm dialog is the only place with a `Status:` line, and
+     adding the Detect row only to that ephemeral dialog would have been
+     low-value). The glyph on every agent card plus the post-`d`
+     notification cover the same need with less surface area.
+  2. Marked the `tmux.monitor` block in `seed/project_config.yaml` as a
+     commented-out example rather than an active block. The seed previously
+     had no `tmux.monitor` block at all (other monitor keys live only in
+     the runtime config), so adding only the new key while leaving the
+     others undocumented in the seed would have been misleading. The
+     comment block is documentation; the runtime loader default
+     (`stripped`) applies on fresh installs.
+  3. Test file added one extra case beyond the planned four
+     (`test_set_compare_mode_clears_last_content`) to pin the
+     "clear last_content on mode change" invariant directly. Pure
+     addition, no test removed.
+- **Issues encountered:**
+  - `tests/test_multi_session_minimonitor.sh` constructs `MiniMonitorApp`
+    via `__new__()` (bypassing `__init__`) and manually sets a subset of
+    instance attributes. Adding the new `_compare_mode_default` ctor
+    parameter required the same attribute on the test fixture, plus the
+    fixture's `SimpleNamespace(_monitor=...)` mock had to gain
+    `get_compare_mode` and `is_compare_mode_overridden` lambdas to satisfy
+    the new `_rebuild_pane_list` calls. Updated in-place — same pattern
+    the file already uses for other constructor-aligned attributes.
+- **Key decisions:**
+  - **Strip ANSI for comparison only, keep `-e` in capture.** Display
+    path (`_ansi_to_rich_text`) needs the escape codes; running
+    `tmux capture-pane` twice (once with `-e`, once without) would double
+    the per-tick tmux-call overhead. Stripping in `_finalize_capture`
+    achieves the same outcome with no extra tmux calls.
+  - **Cycle order `default → raw → stripped → default`.** Putting `raw`
+    first after the default lets a user toggle "show me byte-equal idle
+    detection" with one keypress (the most common diagnostic), then a
+    second press locks in `stripped` as an explicit override (visually
+    different from the default — yellow vs dim glyph), and a third press
+    returns to the default.
+  - **Glyph `≈` for stripped, `=` for raw.** Semantic match: `≈` (fuzzy
+    match) for ANSI-stripped equality, `=` (strict equal) for raw
+    byte-equal. Both are width-1 in monospace fonts so the narrow
+    minimonitor layout is unaffected.
+  - **In-memory override only.** Per-pane mode is a runtime/diagnostic
+    affordance; persisting overrides across runs would require a tiny
+    state file and stale-pane-id cleanup logic for negligible benefit.
+    The global default IS configurable in `project_config.yaml` for users
+    who want a different baseline.
+- **Upstream defects identified:** None.
