@@ -366,3 +366,61 @@ implementation Step 3 (its own dedicated commit, separate from the code
 commit and the t712 plan commit, handled by `aitask_create.sh --batch`) —
 it remains as a Ready task in the active backlog for future picking, not
 archived along with t712.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Two-line hotfix on
+  `.aitask-scripts/aitask_changelog.sh` lines 110 and 121 (now 132 and 143
+  after the helper function was added) moves `|| echo ""` from inside the
+  command substitution to `|| <var>=""` at the assignment level, so
+  `resolve_*_file`'s `die`-induced `exit 1` no longer aborts the parent
+  under `set -e`. New `check_data_desync()` helper added near the existing
+  helpers; invoked once at the top of `gather()` after the `BASE_TAG:` echo.
+  Helper short-circuits cleanly in legacy mode (`[[ -d .aitask-data ]] ||
+  return 0`), best-effort fetches origin/aitask-data with `--quiet`, and
+  emits a three-line stderr `warn` block when `rev-list --count
+  HEAD..origin/aitask-data` is non-zero. Follow-up task t713 (ait syncer
+  TUI) created and committed via `aitask_create.sh --batch --commit`.
+- **Deviations from plan:** None. The user's mid-planning direction to
+  drop "Follow-up A" (Option 3 / data-branch fallback in resolver helpers)
+  was incorporated into the plan before implementation began — the plan
+  shipped with two changes (hotfix + warning) and one follow-up task
+  (syncer TUI) instead of the originally drafted three+two split.
+- **Issues encountered:**
+  - The bug did not reproduce on the live working tree because the t711
+    archive had synced from `origin/aitask-data` between when the user
+    filed t712 (06:43 today) and when implementation began (~07:55).
+    Worked around by simulating the original repro in V2: `mv` the t711
+    archive files (in `.aitask-data/aitasks/archived/` and
+    `.aitask-data/aiplans/archived/` — the actual files behind the
+    `aitasks/` and `aiplans/` symlinks) to `/tmp`, run `--gather`, restore.
+    With this simulation V2 confirmed the fix prevents the abort, and V4
+    (`git stash` the patch and re-run on the same simulated state)
+    confirmed pre-fix causality (exit 1, truncates after `=== TASK t711
+    ===`).
+  - `wc -l` and `rev-list --count` output can have leading whitespace on
+    macOS — defensively stripped via `behind=${behind//[[:space:]]/}` per
+    CLAUDE.md "wc -l portability" / general portability hygiene, even
+    though the bug repro is on Linux today.
+- **Key decisions:**
+  - Kept `check_data_desync` inline in `aitask_changelog.sh` instead of
+    extracting to `lib/task_utils.sh` now. Rationale: only one caller
+    today, YAGNI applies. The follow-up task t713 explicitly calls out
+    that the second caller (the syncer TUI) should be the trigger for
+    extraction into a shared `lib/desync_state.{sh,py}` helper, with the
+    changelog updated to call that helper at the same time
+    (second-caller-extraction).
+  - Best-effort fetch with `--quiet` and `2>/dev/null || true`. Offline
+    users still get a useful comparison against whatever was last
+    fetched — better than failing or being silent.
+  - Three-line stderr warn (not stdout) so the structured stdout the
+    `aitask-changelog` skill parses is unaffected. The skill's commit
+    summary parsing was not touched.
+  - Did NOT extend `resolve_task_file` / `resolve_plan_file` with a
+    `git show origin/aitask-data:...` tier-4 fallback (Option 3 from
+    the task description). Per user direction, this is a workaround
+    that hides the desync; the framework-level answer is the syncer
+    TUI surface (t713). Captured this as a feedback memory:
+    `feedback_no_workaround_for_root_cause_sync_problems.md`.
+- **Upstream defects identified:** None.
+
