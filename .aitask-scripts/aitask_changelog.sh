@@ -67,14 +67,16 @@ extract_task_title() {
 # Tasks archived only on origin (not pulled locally) will be skipped by --gather
 # with the fallback "TITLE: t<id>" / empty NOTES output until the user pulls.
 check_data_desync() {
-    [[ -d .aitask-data ]] || return 0
-    git -C .aitask-data rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+    command -v python3 >/dev/null 2>&1 || return 0
 
-    git -C .aitask-data fetch --quiet origin aitask-data 2>/dev/null || true
-
-    local behind
-    behind=$(git -C .aitask-data rev-list --count HEAD..origin/aitask-data 2>/dev/null || echo 0)
+    local output status behind
+    output=$(python3 "$SCRIPT_DIR/lib/desync_state.py" snapshot --ref aitask-data --fetch --format lines 2>/dev/null) || return 0
+    status=$(printf '%s\n' "$output" | awk -F: '$1 == "STATUS" {print $2; exit}')
+    behind=$(printf '%s\n' "$output" | awk -F: '$1 == "BEHIND" {print $2; exit}')
     behind=${behind//[[:space:]]/}
+
+    [[ "$status" == "ok" ]] || return 0
+    [[ "$behind" =~ ^[0-9]+$ ]] || return 0
 
     if [[ "${behind:-0}" -gt 0 ]]; then
         warn "Local aitask-data branch is $behind commit(s) behind origin/aitask-data."
