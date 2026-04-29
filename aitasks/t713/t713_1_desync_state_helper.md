@@ -6,6 +6,7 @@ issue_type: feature
 status: Implementing
 labels: [tui, scripts]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt5_5
 created_at: 2026-04-29 09:39
 updated_at: 2026-04-29 21:23
 ---
