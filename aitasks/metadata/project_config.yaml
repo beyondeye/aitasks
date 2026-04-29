@@ -11,6 +11,10 @@ tmux:
     capture_lines: 200
     agent_window_prefixes:
     - agent-
+    # Idle-detection compare mode: "stripped" (default) ignores ANSI escape
+    # codes — required to detect Codex CLI agents as idle. "raw" compares
+    # full bytes (legacy). Per-pane override via `d` in monitor / minimonitor.
+    compare_mode_default: stripped
   default_session: aitasks
   default_split: horizontal
   prefer_tmux: true
