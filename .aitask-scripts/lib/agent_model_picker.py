@@ -1,14 +1,13 @@
-"""agent_model_picker — Shared 3-step picker for code agent + LLM model selection.
+"""agent_model_picker — Shared picker for code agent + LLM model selection.
 
 Used by the settings TUI (to edit global defaults in codeagent_config.json)
 and by the launch dialog (to override the agent/model for a single run).
 The module is Textual-dependent but has no settings_app dependency.
 
 Public API:
-- AgentModelPickerScreen — ModalScreen presenting 3 steps:
-    0: top-verified models for an operation
-    1: browse all code agents
-    2: browse models within a selected agent
+- AgentModelPickerScreen — ModalScreen with a single fuzzy list that cycles
+  through six modes via Shift+Left / Shift+Right:
+    top, all, codex, opencode, claudecode, geminicli
 - FuzzySelect / FuzzyOption — reusable fuzzy-search list widget
 - MODEL_FILES — {provider: Path} map of models_*.json files
 - load_all_models(project_root) — load every models_*.json into a dict
@@ -168,6 +167,29 @@ class FuzzySelect(Container):
         if self.filtered:
             self.post_message(self.Highlighted(self.filtered[0]["value"]))
 
+    def update_options(self, options: list[dict],
+                       placeholder: str | None = None) -> None:
+        """Replace the option set in place (no remount).
+
+        Used by parent screens that switch list contents on a key press —
+        avoids the duplicate-id / focus race that occurs when re-mounting
+        a FuzzySelect with the same id.
+        """
+        self.all_options = list(options)
+        self.filtered = list(self.all_options)
+        self.highlight_index = 0
+        try:
+            inp = self.query_one(f"#{self._input_id}", Input)
+            inp.value = ""
+            if placeholder is not None:
+                inp.placeholder = placeholder
+        except Exception:
+            pass
+        try:
+            self._render_options()
+        except Exception:
+            pass
+
     def _render_options(self):
         container = self.query_one(f"#{self._list_id}", VerticalScroll)
         container.remove_children()
@@ -223,7 +245,22 @@ class FuzzySelect(Container):
 
 
 class AgentModelPickerScreen(ModalScreen):
-    """Multi-step picker: top verified -> code agent -> model name."""
+    """Single-screen picker that cycles through six model lists.
+
+    Lists are switched with Shift+Left / Shift+Right. The fuzzy-search Input
+    inside the FuzzySelect remains usable for letter-based filtering.
+    """
+
+    # (mode_key, header_label). Per-agent mode keys must match MODEL_FILES
+    # so _build_options_for_agent can look up the JSON file directly.
+    _MODES: list[tuple[str, str]] = [
+        ("top",        "Top verified models"),
+        ("all",        "All models"),
+        ("codex",      "All codex models"),
+        ("opencode",   "All opencode models"),
+        ("claudecode", "All Claude models"),
+        ("geminicli",  "All Gemini models"),
+    ]
 
     DEFAULT_CSS = """
     #picker_dialog {
@@ -240,7 +277,11 @@ class AgentModelPickerScreen(ModalScreen):
     FuzzyOption { height: 1; width: 100%; padding: 0 1; }
     """
 
-    BINDINGS = [Binding("escape", "go_back", "Back/Cancel", show=False)]
+    BINDINGS = [
+        Binding("escape", "go_back", "Back/Cancel", show=False),
+        Binding("shift+left", "prev_list", "Prev list", show=True, priority=True),
+        Binding("shift+right", "next_list", "Next list", show=True, priority=True),
+    ]
 
     def __init__(self, operation: str, current_agent: str = "",
                  current_model: str = "",
@@ -250,8 +291,7 @@ class AgentModelPickerScreen(ModalScreen):
         self.current_agent = current_agent
         self.current_model = current_model
         self.all_models = all_models or {}
-        self.selected_agent: str | None = None
-        self._step = 0
+        self._mode_idx = 0
 
     def _build_top_verified(self) -> list[dict]:
         """Build ranked list of top verified models for the operation."""
@@ -288,219 +328,154 @@ class AgentModelPickerScreen(ModalScreen):
                 f"Select model for: [bold]{self.operation}[/bold]",
                 id="picker_title",
             )
-            # Build top-verified options
-            top = self._build_top_verified()
-            if top:
-                yield Label(
-                    "Top verified models (or browse all)",
-                    id="picker_step_label",
-                )
-                options = []
-                for c in top:
-                    val = f"{c['agent']}/{c['name']}"
-                    options.append({
-                        "value": val,
-                        "display": val,
-                        "description": c["detail"],
-                    })
-                options.append({
-                    "value": "__browse__",
-                    "display": "Browse all models...",
-                    "description": "Full agent/model browser",
-                })
-                yield FuzzySelect(
-                    options,
-                    placeholder="Type to filter...",
-                    id="top_picker",
-                )
-            else:
-                # No verified models — skip to step 1
-                self._step = 1
-                yield Label("Step 1: Choose code agent", id="picker_step_label")
-                agent_options = [
-                    {"value": a, "display": a, "description": ""}
-                    for a in sorted(MODEL_FILES.keys())
-                ]
-                yield FuzzySelect(
-                    agent_options,
-                    placeholder="Type agent name...",
-                    id="agent_picker",
-                )
+            yield Label("", id="picker_step_label")
+            # FuzzySelect is mounted in on_mount via _apply_mode so the
+            # initial list reflects the active mode.
 
-    def action_go_back(self):
-        if self._step == 2:
-            self._show_step1()
-        elif self._step == 1:
-            self._show_step0()
-        else:
-            self.dismiss(None)
+    def on_mount(self) -> None:
+        self._apply_mode(0)
+
+    def action_go_back(self) -> None:
+        self.dismiss(None)
+
+    def action_prev_list(self) -> None:
+        self._apply_mode((self._mode_idx - 1) % len(self._MODES))
+
+    def action_next_list(self) -> None:
+        self._apply_mode((self._mode_idx + 1) % len(self._MODES))
 
     def on_fuzzy_select_selected(self, event: FuzzySelect.Selected) -> None:
-        if self._step == 0:
-            if event.value == "__browse__":
-                self._show_step1()
-            elif event.value:
-                self.dismiss({
-                    "key": self.operation,
-                    "value": event.value,
-                })
-        elif self._step == 1:
-            self.selected_agent = event.value
-            self._show_step2()
-        elif self._step == 2:
-            if not event.value:
-                return  # "(no models found)" guard
+        if not event.value:
+            return  # placeholder rows ("(no models found)", etc.)
+        mode_key = self._MODES[self._mode_idx][0]
+        if mode_key in ("top", "all"):
+            self.dismiss({"key": self.operation, "value": event.value})
+        else:
             self.dismiss({
                 "key": self.operation,
-                "value": f"{self.selected_agent}/{event.value}",
+                "value": f"{mode_key}/{event.value}",
             })
 
     def on_fuzzy_select_cancelled(self, event: FuzzySelect.Cancelled) -> None:
-        if self._step == 2:
-            self._show_step1()
-        elif self._step == 1:
-            self._show_step0()
-        else:
-            self.dismiss(None)
+        self.dismiss(None)
 
-    def _show_step0(self):
-        """Re-show top verified selection."""
-        self._step = 0
-        self.query_one("#picker_step_label", Label).update(
-            "Top verified models (or browse all)"
-        )
-        # Remove other pickers
-        for pid in ("#agent_picker", "#model_picker"):
-            try:
-                self.query_one(pid, FuzzySelect).remove()
-            except Exception:
-                pass
-        # Re-show or recreate top picker
+    def _apply_mode(self, idx: int) -> None:
+        self._mode_idx = idx % len(self._MODES)
+        mode_key, label_text = self._MODES[self._mode_idx]
         try:
-            tp = self.query_one("#top_picker", FuzzySelect)
-            tp.display = True
-        except Exception:
-            top = self._build_top_verified()
-            options = []
-            for c in top:
-                val = f"{c['agent']}/{c['name']}"
-                options.append({
-                    "value": val, "display": val,
-                    "description": c["detail"],
-                })
-            options.append({
-                "value": "__browse__",
-                "display": "Browse all models...",
-                "description": "Full agent/model browser",
-            })
-            container = self.query_one("#picker_dialog", Container)
-            fs = FuzzySelect(options, placeholder="Type to filter...",
-                             id="top_picker")
-            container.mount(fs)
-
-    def _show_step1(self):
-        """Re-show agent selection."""
-        self._step = 1
-        self.query_one("#picker_step_label", Label).update(
-            "Step 1: Choose code agent"
-        )
-        # Remove other pickers
-        for pid in ("#model_picker", "#top_picker"):
-            try:
-                self.query_one(pid, FuzzySelect).remove()
-            except Exception:
-                pass
-        # Re-show or recreate agent picker
-        try:
-            ap = self.query_one("#agent_picker", FuzzySelect)
-            ap.display = True
-        except Exception:
-            agent_options = [
-                {"value": a, "display": a, "description": ""}
-                for a in sorted(MODEL_FILES.keys())
-            ]
-            container = self.query_one("#picker_dialog", Container)
-            fs = FuzzySelect(
-                agent_options,
-                placeholder="Type agent name...",
-                id="agent_picker",
+            self.query_one("#picker_step_label", Label).update(
+                f"{label_text}  [dim](Shift+←/→ to switch)[/dim]"
             )
-            container.mount(fs)
-
-    def _show_step2(self):
-        """Switch to model selection for the chosen agent."""
-        self._step = 2
-        agent = self.selected_agent
-        if not agent:
-            return
-        self.query_one("#picker_step_label", Label).update(
-            f"Step 2: Choose model for [bold]{agent}[/bold]  "
-            "[dim](Esc to go back)[/dim]"
-        )
-        # Hide agent picker
-        try:
-            self.query_one("#agent_picker", FuzzySelect).display = False
         except Exception:
             pass
+        options = self._build_options_for_mode(mode_key)
+        placeholder = self._placeholder_for_mode(mode_key)
+        try:
+            fs = self.query_one("#model_picker", FuzzySelect)
+            fs.update_options(options, placeholder=placeholder)
+        except Exception:
+            container = self.query_one("#picker_dialog", Container)
+            container.mount(FuzzySelect(
+                options,
+                placeholder=placeholder,
+                id="model_picker",
+            ))
 
-        # Build model options from model file
+    @staticmethod
+    def _placeholder_for_mode(mode_key: str) -> str:
+        if mode_key == "top":
+            return "Type to filter top models..."
+        if mode_key == "all":
+            return "Type agent/model..."
+        return f"Type {mode_key} model name..."
+
+    def _build_options_for_mode(self, mode_key: str) -> list[dict]:
+        if mode_key == "top":
+            return self._build_options_top()
+        if mode_key == "all":
+            return self._build_options_all()
+        return self._build_options_for_agent(mode_key)
+
+    def _build_options_top(self) -> list[dict]:
+        out: list[dict] = []
+        for c in self._build_top_verified():
+            val = f"{c['agent']}/{c['name']}"
+            out.append({
+                "value": val,
+                "display": val,
+                "description": c["detail"],
+            })
+        if not out:
+            out.append({
+                "value": "",
+                "display": "(no top-verified models for this op)",
+                "description": "",
+            })
+        return out
+
+    def _build_options_all(self) -> list[dict]:
+        out: list[dict] = []
+        for agent in sorted(self.all_models.keys()):
+            pdata = self.all_models[agent]
+            for m in pdata.get("models", []):
+                if m.get("status", "active") == "unavailable":
+                    continue
+                name = m.get("name", "?")
+                notes = m.get("notes", "")
+                out.append({
+                    "value": f"{agent}/{name}",
+                    "display": f"{agent}/{name}",
+                    "description": notes,
+                })
+        out.sort(key=lambda o: o["display"])
+        if not out:
+            out.append({
+                "value": "",
+                "display": "(no models found)",
+                "description": "",
+            })
+        return out
+
+    def _build_options_for_agent(self, agent: str) -> list[dict]:
         model_path = MODEL_FILES.get(agent, Path("nonexistent"))
         model_data = _load_json(model_path)
         models = model_data.get("models", []) if model_data else []
-        scored_options = []
-        unscored_options = []
+        scored: list[tuple[int, dict]] = []
+        unscored: list[tuple[int, dict]] = []
         for m in models:
             if m.get("status", "active") == "unavailable":
                 continue
             name = m.get("name", "?")
             notes = m.get("notes", "")
-            # Try verifiedstats first
             vs = m.get("verifiedstats", {})
             op_buckets = vs.get(self.operation, {})
             at = op_buckets.get("all_time", {})
             if at.get("runs", 0) > 0:
                 detail = _format_op_stats(op_buckets, compact=True)
-                score_str = f"[{detail}]"
                 sort_score = _bucket_avg(at)
+                score_str = f"[{detail}]"
             else:
-                # Fall back to flat verified
                 verified = m.get("verified", {})
                 op_score = verified.get(self.operation, 0)
                 if op_score:
-                    score_str = f"[score: {op_score}]"
                     sort_score = op_score
+                    score_str = f"[score: {op_score}]"
                 elif self.operation in verified:
-                    score_str = "(not verified)"
-                    sort_score = 0
+                    sort_score, score_str = 0, "(not verified)"
                 else:
-                    score_str = ""
-                    sort_score = -1
+                    sort_score, score_str = -1, ""
             desc = f"{notes}  {score_str}".strip() if score_str else notes
             opt = {"value": name, "display": name, "description": desc}
-            if sort_score > 0:
-                scored_options.append((sort_score, opt))
-            else:
-                unscored_options.append(opt)
-
-        # Verified models first (sorted by score desc), then the rest
-        scored_options.sort(key=lambda x: -x[0])
-        model_options = [o for _, o in scored_options] + unscored_options
-
-        if not model_options:
-            model_options = [
-                {"value": "", "display": "(no models found)", "description": ""}
-            ]
-
-        container = self.query_one("#picker_dialog", Container)
-        fs = FuzzySelect(
-            model_options,
-            placeholder="Type model name...",
-            id="model_picker",
-        )
-        container.mount(fs)
-
-    # FuzzySelect.Selected and Cancelled are handled by
-    # on_fuzzy_select_selected / on_fuzzy_select_cancelled above
+            (scored if sort_score > 0 else unscored).append((sort_score, opt))
+        scored.sort(key=lambda x: -x[0])
+        out = [o for _, o in scored] + [o for _, o in unscored]
+        if not out:
+            out.append({
+                "value": "",
+                "display": "(no models found)",
+                "description": "",
+            })
+        return out
 
 
 class LaunchModePickerScreen(ModalScreen):

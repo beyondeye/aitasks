@@ -213,8 +213,10 @@ class AgentCommandScreen(ModalScreen):
     # cross-project leakage (see CLAUDE.md: one tmux session per project).
     _last_session_by_project: dict[Path, str] = {}
     _last_window_by_project: dict[Path, str] = {}
-    # Per-operation remembered agent override (process lifetime)
-    _last_agent_override: dict[str, str] = {}
+    # Per-operation remembered agent override (process lifetime).
+    # Only populated when the user picks something other than the default,
+    # so the (U)se previous button never recalls the default itself.
+    _previous_agent_override: dict[str, str] = {}
 
     def __init__(
         self,
@@ -238,6 +240,7 @@ class AgentCommandScreen(ModalScreen):
         self.operation = operation
         self.operation_args: list[str] = list(operation_args or [])
         self.current_agent_string: str | None = default_agent_string
+        self._default_agent_string: str | None = default_agent_string
         self._default_tmux_window: str | None = default_tmux_window
         self._tmux_available = is_tmux_available()
         self._tmux_defaults = load_tmux_defaults(self._project_root)
@@ -604,16 +607,16 @@ class AgentCommandScreen(ModalScreen):
         if not new_agent_string:
             return
         self._apply_agent_override(new_agent_string)
-        if self.operation:
-            AgentCommandScreen._last_agent_override[self.operation] = new_agent_string
+        if self.operation and new_agent_string != self._default_agent_string:
+            AgentCommandScreen._previous_agent_override[self.operation] = new_agent_string
         self._refresh_agent_row()
 
-    def action_use_last_agent(self) -> None:
+    def action_use_previous_agent(self) -> None:
         if not self.operation:
             return
-        last = AgentCommandScreen._last_agent_override.get(self.operation)
-        if last and last != self.current_agent_string:
-            self._apply_agent_override(last)
+        previous = AgentCommandScreen._previous_agent_override.get(self.operation)
+        if previous and previous != self.current_agent_string:
+            self._apply_agent_override(previous)
             self._refresh_agent_row()
 
     def _apply_agent_override(self, agent_string: str) -> None:
@@ -652,9 +655,9 @@ class AgentCommandScreen(ModalScreen):
             use_last_btn = self.query_one("#btn_use_last_agent", Button)
         except Exception:
             return
-        last = AgentCommandScreen._last_agent_override.get(self.operation)
-        if last and last != self.current_agent_string:
-            use_last_btn.label = f"(U)se last: {last}"
+        previous = AgentCommandScreen._previous_agent_override.get(self.operation)
+        if previous and previous != self.current_agent_string:
+            use_last_btn.label = f"(U)se previous: {previous}"
             use_last_btn.remove_class("hidden")
         else:
             use_last_btn.add_class("hidden")
@@ -664,8 +667,8 @@ class AgentCommandScreen(ModalScreen):
         self.action_change_agent()
 
     @on(Button.Pressed, "#btn_use_last_agent")
-    def _btn_use_last_agent(self) -> None:
-        self.action_use_last_agent()
+    def _btn_use_previous_agent(self) -> None:
+        self.action_use_previous_agent()
 
     def on_key(self, event) -> None:
         focused = self.app.focused
@@ -679,7 +682,7 @@ class AgentCommandScreen(ModalScreen):
             return
         if event.key in ("u", "U"):
             if self.operation:
-                self.action_use_last_agent()
+                self.action_use_previous_agent()
             event.prevent_default()
             return
         if not self._tmux_available:
