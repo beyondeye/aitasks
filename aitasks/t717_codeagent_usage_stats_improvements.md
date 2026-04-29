@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [verifiedstats, statistics]
-children_to_implement: [t717_1, t717_2, t717_3]
+children_to_implement: [t717_1, t717_2, t717_3, t717_4]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-29 22:40
 updated_at: 2026-04-30 00:19
