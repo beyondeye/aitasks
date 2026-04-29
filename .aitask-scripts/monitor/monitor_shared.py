@@ -35,6 +35,21 @@ _ANSI_RESET_RE = re.compile(r'\033\[0?m')
 _ANSI_DEFAULT_BG_RE = re.compile(r'\033\[49m')
 
 
+# Idle-detection compare-mode pseudo-icons used in agent cards across both
+# the full monitor and the minimonitor. Single column wide so the compact
+# minimonitor layout stays compact.
+COMPARE_MODE_ICONS = {
+    "stripped": "≈",   # ≈ — fuzzy / ANSI-stripped equality (default)
+    "raw": "=",             # = — strict byte-equal
+}
+
+
+def format_compare_mode_glyph(mode: str, is_override: bool) -> str:
+    glyph = COMPARE_MODE_ICONS.get(mode, "?")
+    color = "yellow" if is_override else "dim"
+    return f"[{color}]{glyph}[/]"
+
+
 def _ansi_to_rich_text(ansi_str: str) -> Text:
     """Convert ANSI text to Rich Text with a forced dark background.
 

@@ -208,3 +208,29 @@ tmux:
   #   git_tui: lazygit
   # ──────────────────────────────────────────────────────────────────
   git_tui:
+
+  # ──────────────────────────────────────────────────────────────────
+  # monitor — `ait monitor` / `ait minimonitor` settings.
+  #
+  # The whole `monitor` block is optional; loader defaults apply when
+  # omitted. Documented here so the keys are discoverable.
+  #
+  # compare_mode_default — Idle-detection comparison mode for pane
+  # content snapshots:
+  #
+  #   stripped (default) — strip ANSI escape codes from captured pane
+  #     content before equality check. Required to detect Codex CLI
+  #     agents as idle: Codex animates the spinner color via SGR escape
+  #     codes even while waiting on user input, so a raw byte-equal
+  #     comparison declares the pane "changed" every refresh tick.
+  #
+  #   raw — compare the full captured bytes including escape codes.
+  #     Legacy behavior; only useful as a fallback if a future agent
+  #     renders idle UI by toggling escape codes that semantically
+  #     matter.
+  #
+  # Per-pane override is available at runtime via the `d` shortcut in
+  # `ait monitor` / `ait minimonitor` (cycles default → raw → stripped).
+  # ──────────────────────────────────────────────────────────────────
+  # monitor:
+  #   compare_mode_default: stripped

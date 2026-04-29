@@ -124,6 +124,7 @@ app._idle_threshold = 5.0
 app._agent_prefixes = None
 app._tui_names = None
 app._refresh_seconds = 3
+app._compare_mode_default = "stripped"
 app.call_later = lambda fn: None
 app.set_interval = lambda *a, **k: None
 
@@ -185,7 +186,11 @@ app._task_cache = SimpleNamespace(
     get_task_id=lambda w: None,
     get_task_info=lambda t: None,
 )
-app._monitor = SimpleNamespace(multi_session=True)
+app._monitor = SimpleNamespace(
+    multi_session=True,
+    get_compare_mode=lambda pid: "stripped",
+    is_compare_mode_overridden=lambda pid: False,
+)
 
 def mk_snap(sess, wi, pi, pid, name):
     pane = SimpleNamespace(

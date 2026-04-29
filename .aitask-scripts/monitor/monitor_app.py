@@ -31,7 +31,7 @@ from monitor.tmux_monitor import (  # noqa: E402
 )
 from monitor.monitor_shared import (  # noqa: E402
     _ansi_to_rich_text, _TASK_ID_RE, TaskInfo, TaskInfoCache,
-    TaskDetailDialog, KillConfirmDialog,
+    TaskDetailDialog, KillConfirmDialog, format_compare_mode_glyph,
 )
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 
@@ -454,6 +454,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         Binding("A", "toggle_auto_switch", "Auto"),
         Binding("M", "toggle_multi_session", "Multi", show=False),
         Binding("L", "open_log", "Log"),
+        Binding("d", "cycle_compare_mode", "Detect"),
     ]
 
     def __init__(
@@ -467,6 +468,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         tui_names: set[str] | None = None,
         expected_session: str | None = None,
         multi_session: bool = True,
+        compare_mode_default: str = "stripped",
     ) -> None:
         super().__init__()
         self.current_tui_name = "monitor"
@@ -479,6 +481,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         self._tui_names = tui_names
         self._project_root = project_root
         self._multi_session = multi_session
+        self._compare_mode_default = compare_mode_default
         self._snapshots: dict[str, PaneSnapshot] = {}
         self._focused_pane_id: str | None = None
         # Per-pane scroll memory: pane_id → (was_at_bottom, anchor_text).
@@ -586,6 +589,7 @@ class MonitorApp(TuiSwitcherMixin, App):
             capture_lines=self._capture_lines,
             idle_threshold=self._idle_threshold,
             multi_session=self._multi_session,
+            compare_mode_default=self._compare_mode_default,
             **kwargs,
         )
         try:
@@ -897,8 +901,15 @@ class MonitorApp(TuiSwitcherMixin, App):
         else:
             dot = "[green]\u25cf[/]"
             status = "[green]Active[/]"
+        if self._monitor is not None:
+            mode = self._monitor.get_compare_mode(snap.pane.pane_id)
+            is_override = self._monitor.is_compare_mode_overridden(snap.pane.pane_id)
+        else:
+            mode = "stripped"
+            is_override = False
+        glyph = format_compare_mode_glyph(mode, is_override)
         text = (
-            f" {dot} {snap.pane.window_index}:{snap.pane.window_name} "
+            f" {dot} {glyph} {snap.pane.window_index}:{snap.pane.window_name} "
             f"({snap.pane.pane_index})  {status}"
         )
         task_id = self._task_cache.get_task_id(snap.pane.window_name)
@@ -1383,6 +1394,19 @@ class MonitorApp(TuiSwitcherMixin, App):
         self.notify(f"Multi-session {state}", timeout=3)
         self.call_later(self._refresh_data)
 
+    def action_cycle_compare_mode(self) -> None:
+        """Cycle the focused pane's idle-detection compare mode."""
+        if self._monitor is None:
+            return
+        pane_id = self._get_focused_pane_id()
+        if not pane_id:
+            self.notify("Focus an agent pane first", severity="warning")
+            return
+        new_mode, is_default = self._monitor.cycle_compare_mode(pane_id)
+        suffix = " (default)" if is_default else " (override)"
+        self.notify(f"Idle detect mode: {new_mode}{suffix}", timeout=3)
+        self.call_later(self._refresh_data)
+
     def action_show_task_info(self) -> None:
         """Show task detail dialog for the focused agent pane."""
         pane_id = self._get_focused_pane_id()
@@ -1745,6 +1769,7 @@ def main() -> None:
         agent_prefixes=config.get("agent_prefixes"),
         tui_names=config.get("tui_names"),
         expected_session=expected_session,
+        compare_mode_default=config.get("compare_mode_default", "stripped"),
     )
     app.run()
 

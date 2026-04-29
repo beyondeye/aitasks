@@ -29,7 +29,7 @@ from monitor.tmux_monitor import (  # noqa: E402
     load_monitor_config,
 )
 from monitor.monitor_shared import (  # noqa: E402
-    _TASK_ID_RE, TaskInfoCache, TaskDetailDialog,
+    _TASK_ID_RE, TaskInfoCache, TaskDetailDialog, format_compare_mode_glyph,
 )
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
@@ -110,6 +110,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         Binding("r", "refresh", "Refresh", show=False),
         Binding("m", "switch_to_monitor", "Full Monitor", show=False),
         Binding("M", "toggle_multi_session", "Multi", show=False),
+        Binding("d", "cycle_compare_mode", "Detect", show=False),
     ]
 
     def __init__(
@@ -121,6 +122,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         idle_threshold: float = 5.0,
         agent_prefixes: list[str] | None = None,
         tui_names: set[str] | None = None,
+        compare_mode_default: str = "stripped",
     ) -> None:
         super().__init__()
         self.current_tui_name = "minimonitor"
@@ -130,6 +132,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         self._idle_threshold = idle_threshold
         self._agent_prefixes = agent_prefixes
         self._tui_names = tui_names
+        self._compare_mode_default = compare_mode_default
         self._snapshots: dict[str, PaneSnapshot] = {}
         self._focused_pane_id: str | None = None
         self._monitor: TmuxMonitor | None = None
@@ -145,7 +148,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         yield Static(
             "tab:agent  s/\u2191\u2193:switch  i:info\n"
             "j:jump     r:refresh  q:quit  enter:send\n"
-            "m:full monitor",
+            "m:full monitor  d:detect (\u2248 strip, = raw)",
             id="mini-key-hints",
         )
 
@@ -195,6 +198,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             session=self._session,
             capture_lines=self._capture_lines,
             idle_threshold=self._idle_threshold,
+            compare_mode_default=self._compare_mode_default,
             **kwargs,
         )
         self.call_later(self._refresh_data)
@@ -368,6 +372,10 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
                 dot = "[green]\u25cf[/]"
                 status = "[green]ok[/]"
 
+            mode = self._monitor.get_compare_mode(snap.pane.pane_id)
+            is_override = self._monitor.is_compare_mode_overridden(snap.pane.pane_id)
+            glyph = format_compare_mode_glyph(mode, is_override)
+
             # Build compact card text
             name = snap.pane.window_name
             # Truncate long window names for narrow display
@@ -375,7 +383,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             if len(name) > max_name:
                 name = name[:max_name - 1] + "\u2026"
 
-            line1 = f"{dot} {name}  {status}"
+            line1 = f"{dot} {glyph} {name}  {status}"
 
             # Optional task title line
             task_id = self._task_cache.get_task_id(snap.pane.window_name)
@@ -531,6 +539,20 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             self.notify(f"Switched to {name}")
         else:
             self.notify("Failed to switch", severity="error")
+
+    def action_cycle_compare_mode(self) -> None:
+        """Cycle the focused pane's idle-detection compare mode."""
+        if self._monitor is None:
+            self.notify("Monitor not ready", severity="warning")
+            return
+        pane_id = self._focused_pane_id
+        if not pane_id:
+            self.notify("Focus an agent pane first", severity="warning")
+            return
+        new_mode, is_default = self._monitor.cycle_compare_mode(pane_id)
+        suffix = " (default)" if is_default else " (override)"
+        self.notify(f"Idle detect: {new_mode}{suffix}", timeout=3)
+        self.call_later(self._refresh_data)
 
     def action_refresh(self) -> None:
         """Force an immediate data refresh."""
@@ -702,6 +724,7 @@ def main() -> None:
         idle_threshold=config.get("idle_threshold", 5.0),
         agent_prefixes=config.get("agent_prefixes"),
         tui_names=config.get("tui_names"),
+        compare_mode_default=config.get("compare_mode_default", "stripped"),
     )
     app.run()
 

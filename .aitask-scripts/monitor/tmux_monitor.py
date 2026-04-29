@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import re
 import subprocess
 import sys
 import time
@@ -43,6 +44,28 @@ class PaneCategory(Enum):
 
 DEFAULT_AGENT_PREFIXES = ["agent-"]
 DEFAULT_TUI_NAMES = TUI_NAMES
+
+# Idle-detection comparison modes.
+#   stripped — strip ANSI escape codes from captured pane content before
+#     equality check. Required to detect Codex CLI agents as idle: Codex
+#     animates the spinner color via SGR escape codes even while waiting
+#     on user input, so a raw byte-equal comparison declares the pane
+#     "changed" every refresh tick and idle is never reached.
+#   raw — compare the full captured bytes including escape codes. Legacy
+#     behavior; only useful as a fallback if a future agent renders idle
+#     UI by toggling escape codes that semantically matter.
+COMPARE_MODE_STRIPPED = "stripped"
+COMPARE_MODE_RAW = "raw"
+COMPARE_MODES = (COMPARE_MODE_STRIPPED, COMPARE_MODE_RAW)
+DEFAULT_COMPARE_MODE = COMPARE_MODE_STRIPPED
+
+# CSI escape sequence (covers SGR colors plus any other animated CSI tokens).
+_ANSI_CSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _strip_ansi(s: str) -> str:
+    return _ANSI_CSI_RE.sub("", s)
+
 
 _COMPANION_KEYWORDS = ("minimonitor", "monitor_app")
 
@@ -136,6 +159,7 @@ class TmuxMonitor:
         agent_prefixes: list[str] | None = None,
         tui_names: set[str] | None = None,
         multi_session: bool = True,
+        compare_mode_default: str = DEFAULT_COMPARE_MODE,
     ):
         self.session = session
         self.capture_lines = capture_lines
@@ -144,11 +168,15 @@ class TmuxMonitor:
         self.agent_prefixes = agent_prefixes if agent_prefixes is not None else list(DEFAULT_AGENT_PREFIXES)
         self.tui_names = tui_names if tui_names is not None else set(DEFAULT_TUI_NAMES)
         self.multi_session = multi_session
+        if compare_mode_default not in COMPARE_MODES:
+            compare_mode_default = DEFAULT_COMPARE_MODE
+        self.compare_mode_default = compare_mode_default
 
         self._last_content: dict[str, str] = {}
         self._last_change_time: dict[str, float] = {}
         self._pane_cache: dict[str, TmuxPaneInfo] = {}
         self._sessions_cache: tuple[float, list[AitasksSession]] | None = None
+        self._compare_mode_overrides: dict[str, str] = {}
 
     def _discover_sessions_cached(self) -> list[AitasksSession]:
         """Return the list of aitasks-like tmux sessions, memoized for TTL seconds."""
@@ -342,15 +370,59 @@ class TmuxMonitor:
             panes.append(pane)
         return panes
 
+    def get_compare_mode(self, pane_id: str) -> str:
+        """Effective idle-detection compare mode for a pane.
+
+        Returns the per-pane override if set, otherwise the global default.
+        """
+        return self._compare_mode_overrides.get(pane_id, self.compare_mode_default)
+
+    def is_compare_mode_overridden(self, pane_id: str) -> bool:
+        return pane_id in self._compare_mode_overrides
+
+    def set_compare_mode(self, pane_id: str, mode: str | None) -> str:
+        """Set per-pane compare mode override; pass None to clear and follow default.
+
+        Clears the stored last-content for the pane so the next capture
+        re-baselines under the new comparison form, avoiding one tick of
+        spurious "changed" right after the toggle.
+        """
+        if mode is None:
+            self._compare_mode_overrides.pop(pane_id, None)
+        else:
+            if mode not in COMPARE_MODES:
+                raise ValueError(f"unknown compare mode: {mode!r}")
+            self._compare_mode_overrides[pane_id] = mode
+        self._last_content.pop(pane_id, None)
+        return self.get_compare_mode(pane_id)
+
+    def cycle_compare_mode(self, pane_id: str) -> tuple[str, bool]:
+        """Cycle a pane through default → raw → stripped → default.
+
+        Returns (effective_mode, is_following_default).
+        """
+        current_override = self._compare_mode_overrides.get(pane_id)
+        if current_override is None:
+            new_override: str | None = COMPARE_MODE_RAW
+        elif current_override == COMPARE_MODE_RAW:
+            new_override = COMPARE_MODE_STRIPPED
+        else:
+            new_override = None
+        effective = self.set_compare_mode(pane_id, new_override)
+        return effective, (new_override is None)
+
     def _finalize_capture(
         self, pane: TmuxPaneInfo, content: str
     ) -> PaneSnapshot:
         now = time.monotonic()
         pane_id = pane.pane_id
 
-        prev_content = self._last_content.get(pane_id)
-        if prev_content is None or content != prev_content:
-            self._last_content[pane_id] = content
+        mode = self.get_compare_mode(pane_id)
+        compare_value = _strip_ansi(content) if mode == COMPARE_MODE_STRIPPED else content
+
+        prev = self._last_content.get(pane_id)
+        if prev is None or compare_value != prev:
+            self._last_content[pane_id] = compare_value
             self._last_change_time[pane_id] = now
 
         last_change = self._last_change_time.get(pane_id, now)
@@ -405,6 +477,9 @@ class TmuxMonitor:
             del self._last_content[pid]
             self._last_change_time.pop(pid, None)
             self._pane_cache.pop(pid, None)
+        for pid in list(self._compare_mode_overrides):
+            if pid not in current_ids:
+                self._compare_mode_overrides.pop(pid, None)
 
     def capture_all(self) -> dict[str, PaneSnapshot]:
         panes = self.discover_panes()
@@ -634,6 +709,7 @@ def load_monitor_config(project_root: Path) -> dict:
         "idle_threshold": 5.0,
         "agent_prefixes": list(DEFAULT_AGENT_PREFIXES),
         "tui_names": set(DEFAULT_TUI_NAMES),
+        "compare_mode_default": DEFAULT_COMPARE_MODE,
     }
     config_path = project_root / "aitasks" / "metadata" / "project_config.yaml"
     if not config_path.is_file():
@@ -655,6 +731,10 @@ def load_monitor_config(project_root: Path) -> dict:
             # Merge with registry defaults so new framework TUIs are never
             # masked by a stale override list in project_config.yaml.
             defaults["tui_names"] = set(TUI_NAMES) | set(monitor["tui_window_names"])
+        if "compare_mode_default" in monitor:
+            val = str(monitor["compare_mode_default"])
+            if val in COMPARE_MODES:
+                defaults["compare_mode_default"] = val
     except Exception:
         pass
     return defaults
