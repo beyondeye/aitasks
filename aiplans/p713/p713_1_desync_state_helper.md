@@ -60,3 +60,13 @@ Create the shared desync state helper that reports remote drift for exactly two 
 ## plan_verified
 
 - codex/gpt5_5 @ 2026-04-29 21:23
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `.aitask-scripts/lib/desync_state.py` with `snapshot`, `--fetch`, `--ref`, `--format json|text|lines`, and `--json`; it reports `main` and `aitask-data` state with ahead/behind counts, remote commit subjects, and changed paths. Updated `aitask_changelog.sh` to reuse the helper through lines output for the existing `aitask-data` warning.
+- **Deviations from plan:** None. The implementation follows the revised multi-output contract: JSON is full-fidelity for Python/TUI callers, text is human-readable, and lines is the shell-facing format.
+- **Issues encountered:** The changelog warning test needed to assert combined stdout/stderr because existing `warn` output is emitted outside stdout. No code behavior change was needed.
+- **Key decisions:** The helper uses only Python standard library subprocess calls, resolves the repo root from the helper path, exits successfully for valid snapshot requests even when refs are unavailable, and treats malformed helper output in changelog as a silent no-warning case.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** Use JSON output for the syncer TUI and monitor/switcher integrations when full commit/path detail is needed. Use lines output for shell integrations that only need scalar fields such as `STATUS`, `AHEAD`, and `BEHIND`.
+- **Verification:** Passed `python3 -m py_compile .aitask-scripts/lib/desync_state.py`, `python3 tests/test_desync_state.py`, `bash tests/test_remote_drift_check.sh`, and `bash -n .aitask-scripts/aitask_changelog.sh`.
