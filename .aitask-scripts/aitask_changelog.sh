@@ -63,6 +63,26 @@ extract_task_title() {
     echo "$title" | tr '_' ' '
 }
 
+# Warn if the local aitask-data worktree is behind origin/aitask-data.
+# Tasks archived only on origin (not pulled locally) will be skipped by --gather
+# with the fallback "TITLE: t<id>" / empty NOTES output until the user pulls.
+check_data_desync() {
+    [[ -d .aitask-data ]] || return 0
+    git -C .aitask-data rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+
+    git -C .aitask-data fetch --quiet origin aitask-data 2>/dev/null || true
+
+    local behind
+    behind=$(git -C .aitask-data rev-list --count HEAD..origin/aitask-data 2>/dev/null || echo 0)
+    behind=${behind//[[:space:]]/}
+
+    if [[ "${behind:-0}" -gt 0 ]]; then
+        warn "Local aitask-data branch is $behind commit(s) behind origin/aitask-data."
+        warn "Tasks archived only on origin (not pulled locally) will appear with fallback TITLE: t<id> and empty NOTES."
+        warn "Run: (cd .aitask-data && git pull) to sync, then re-run --gather for full task data."
+    fi
+}
+
 # Check if CHANGELOG.md has a section for the given version
 # Input: version string (without v prefix, e.g., "0.2.0")
 # Returns: 0 if found, 1 if not
@@ -83,6 +103,8 @@ gather() {
     fi
     echo "BASE_TAG: $tag"
     echo ""
+
+    check_data_desync
 
     local commits
     commits=$(git log "${tag}..HEAD" --oneline 2>/dev/null || true)
@@ -107,7 +129,7 @@ gather() {
 
         # Resolve task file for issue_type and title
         local task_file
-        task_file=$(resolve_task_file "$task_id" 2>/dev/null || echo "")
+        task_file=$(resolve_task_file "$task_id" 2>/dev/null) || task_file=""
         if [[ -n "$task_file" ]]; then
             echo "ISSUE_TYPE: $(extract_issue_type "$task_file")"
             echo "TITLE: $(extract_task_title "$task_file")"
@@ -118,7 +140,7 @@ gather() {
 
         # Resolve plan file and extract notes
         local plan_file
-        plan_file=$(resolve_plan_file "$task_id" 2>/dev/null || echo "")
+        plan_file=$(resolve_plan_file "$task_id" 2>/dev/null) || plan_file=""
         if [[ -n "$plan_file" && -f "$plan_file" ]]; then
             echo "PLAN_FILE: $plan_file"
             echo "NOTES:"
