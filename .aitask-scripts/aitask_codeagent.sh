@@ -499,6 +499,16 @@ cmd_coauthor() {
 
 # Build the command array for invoking an agent
 # Sets the CMD array variable
+build_skill_prompt() {
+    local skill="$1"
+    shift || true
+    if [[ $# -gt 0 ]]; then
+        printf '%s %s' "$skill" "$*"
+    else
+        printf '%s' "$skill"
+    fi
+}
+
 build_invoke_command() {
     local operation="$1"
     shift
@@ -563,16 +573,24 @@ build_invoke_command() {
         codex)
             case "$operation" in
                 pick)
-                    CMD+=("\$aitask-pick ${args[*]}")
+                    local prompt
+                    prompt=$(build_skill_prompt "\$aitask-pick" "${args[@]}")
+                    CMD=("python3" "$SCRIPT_DIR/aitask_codex_plan_invoke.py" "--prompt" "$prompt" "--" "$binary" "$model_flag" "$cli_id")
                     ;;
                 explain)
-                    CMD+=("\$aitask-explain ${args[*]}")
+                    local prompt
+                    prompt=$(build_skill_prompt "\$aitask-explain" "${args[@]}")
+                    CMD=("python3" "$SCRIPT_DIR/aitask_codex_plan_invoke.py" "--prompt" "$prompt" "--" "$binary" "$model_flag" "$cli_id")
                     ;;
                 qa)
-                    CMD+=("\$aitask-qa ${args[*]}")
+                    local prompt
+                    prompt=$(build_skill_prompt "\$aitask-qa" "${args[@]}")
+                    CMD=("python3" "$SCRIPT_DIR/aitask_codex_plan_invoke.py" "--prompt" "$prompt" "--" "$binary" "$model_flag" "$cli_id")
                     ;;
                 explore)
-                    CMD+=("\$aitask-explore")
+                    local prompt
+                    prompt=$(build_skill_prompt "\$aitask-explore")
+                    CMD=("python3" "$SCRIPT_DIR/aitask_codex_plan_invoke.py" "--prompt" "$prompt" "--" "$binary" "$model_flag" "$cli_id")
                     ;;
                 batch-review|raw)
                     CMD+=("${args[@]}")

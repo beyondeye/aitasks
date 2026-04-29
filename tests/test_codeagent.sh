@@ -35,6 +35,17 @@ assert_contains() {
     fi
 }
 
+assert_not_contains() {
+    local desc="$1" unexpected="$2" actual="$3"
+    TOTAL=$((TOTAL + 1))
+    if echo "$actual" | grep -qi "$unexpected"; then
+        FAIL=$((FAIL + 1))
+        echo "FAIL: $desc (expected output not to contain '$unexpected', got '$actual')"
+    else
+        PASS=$((PASS + 1))
+    fi
+}
+
 assert_exit_zero() {
     local desc="$1"
     shift
@@ -71,10 +82,12 @@ setup_test_env() {
 
     # Copy required scripts
     cp "$PROJECT_DIR/.aitask-scripts/aitask_codeagent.sh" "$tmpdir/.aitask-scripts/"
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_codex_plan_invoke.py" "$tmpdir/.aitask-scripts/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$tmpdir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" "$tmpdir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" "$tmpdir/.aitask-scripts/lib/"
     chmod +x "$tmpdir/.aitask-scripts/aitask_codeagent.sh"
+    chmod +x "$tmpdir/.aitask-scripts/aitask_codex_plan_invoke.py"
 
     # Copy model configs
     cp "$PROJECT_DIR/aitasks/metadata/models_claudecode.json" "$tmpdir/aitasks/metadata/"
@@ -109,6 +122,7 @@ echo ""
 # Test 1: Syntax check
 echo "--- Test 1: Syntax check ---"
 assert_exit_zero "bash -n syntax check" bash -n "$PROJECT_DIR/.aitask-scripts/aitask_codeagent.sh"
+assert_exit_zero "codex plan helper compiles" python3 -m py_compile "$PROJECT_DIR/.aitask-scripts/aitask_codex_plan_invoke.py"
 
 # Setup test environment
 TMPDIR_TEST="$(setup_test_env)"
@@ -196,6 +210,44 @@ assert_contains "dry-run contains claude" "claude" "$output"
 assert_contains "dry-run contains model flag" "claude-opus-4-7" "$output"
 assert_contains "dry-run contains aitask-pick" "aitask-pick" "$output"
 assert_contains "dry-run contains task number" "42" "$output"
+
+# Test 11b: Codex interactive skill invokes plan-mode helper
+echo "--- Test 11b: Codex pick dry-run uses plan helper ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke pick 42 2>&1)
+assert_contains "codex pick dry-run uses helper" "aitask_codex_plan_invoke" "$output"
+assert_contains "codex pick dry-run contains prompt flag" "prompt" "$output"
+assert_contains "codex pick dry-run contains aitask-pick" "aitask-pick" "$output"
+assert_contains "codex pick dry-run contains task number" "42" "$output"
+assert_contains "codex pick dry-run contains codex binary" "codex" "$output"
+assert_contains "codex pick dry-run contains codex model" "gpt-5.4" "$output"
+
+# Test 11c: Codex explain/qa/explore also use plan-mode helper
+echo "--- Test 11c: Codex other skill dry-runs use plan helper ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke explain src/main.py 2>&1)
+assert_contains "codex explain dry-run uses helper" "aitask_codex_plan_invoke" "$output"
+assert_contains "codex explain dry-run contains aitask-explain" "aitask-explain" "$output"
+assert_contains "codex explain dry-run contains path" "src/main.py" "$output"
+
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke qa 42 2>&1)
+assert_contains "codex qa dry-run uses helper" "aitask_codex_plan_invoke" "$output"
+assert_contains "codex qa dry-run contains aitask-qa" "aitask-qa" "$output"
+assert_contains "codex qa dry-run contains task number" "42" "$output"
+
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke explore 2>&1)
+assert_contains "codex explore dry-run uses helper" "aitask_codex_plan_invoke" "$output"
+assert_contains "codex explore dry-run contains aitask-explore" "aitask-explore" "$output"
+
+# Test 11d: Codex passthrough operations do not use plan-mode helper
+echo "--- Test 11d: Codex passthrough dry-runs stay direct ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke raw hello 2>&1)
+assert_not_contains "codex raw bypasses plan helper" "aitask_codex_plan_invoke" "$output"
+assert_contains "codex raw stays direct" "codex" "$output"
+assert_contains "codex raw keeps raw argument" "hello" "$output"
+
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke batch-review review-me 2>&1)
+assert_not_contains "codex batch-review bypasses plan helper" "aitask_codex_plan_invoke" "$output"
+assert_contains "codex batch-review stays direct" "codex" "$output"
+assert_contains "codex batch-review keeps argument" "review-me" "$output"
 
 # Test 12: coauthor-domain reads configured domain
 echo "--- Test 12: coauthor-domain configured ---"

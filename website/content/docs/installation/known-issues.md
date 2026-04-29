@@ -38,6 +38,8 @@ Gemini CLI cannot directly self-identify which LLM model it is running — unlik
 
 `aitasks` wrappers use `request_user_input` for workflow checkpoints (task confirmation, plan approval, commit review). In current Codex CLI mappings, `request_user_input` is only available in **Suggest mode**. Once the agent transitions to normal execution mode, interactive prompts stop working.
 
+When Codex is launched through `ait codeagent invoke` for interactive skill operations (`pick`, `explain`, `qa`, or `explore`), the wrapper starts Codex in a PTY and sends `/plan <skill prompt>` after the TUI starts. Directly running Codex with `$aitask-*` still requires entering plan mode manually first.
+
 This causes two related problems:
 
 - **Task locking is sometimes skipped.** Codex CLI may start implementation without first acquiring a task lock (Step 4), because lock acquisition requires writing metadata, which is not possible during the planning phase (read-only Suggest mode).

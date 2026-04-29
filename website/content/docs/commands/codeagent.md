@@ -155,6 +155,8 @@ ait codeagent invoke task-pick 42          # Pick task 42
 ait codeagent invoke explain src/main.py   # Explain a file
 ```
 
+When the resolved agent is Codex CLI, interactive aitask skill operations (`pick`, `explain`, `qa`, and `explore`) are launched through a PTY helper that types `/plan <skill prompt>` into Codex after the TUI starts. This is necessary because Codex accepts `/plan` as interactive TUI input, but does not treat `/plan ...` passed as the initial CLI prompt as a mode switch. Direct `raw` and `batch-review` invocations remain passthrough.
+
 | Option | Description |
 |--------|-------------|
 | `--agent-string STR` | Override agent string for this invocation |
