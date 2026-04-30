@@ -62,6 +62,7 @@
       "./.aitask-scripts/aitask_scan_profiles.sh *": "allow",
       "./.aitask-scripts/aitask_stats.sh *": "allow",
       "./.aitask-scripts/aitask_sync.sh *": "allow",
+      "./.aitask-scripts/aitask_syncer.sh *": "allow",
       "./.aitask-scripts/aitask_update.sh *": "allow",
       "./.aitask-scripts/aitask_web_merge.sh *": "allow",
       "./.aitask-scripts/aitask_zip_old.sh *": "allow",

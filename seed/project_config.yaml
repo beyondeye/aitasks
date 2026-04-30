@@ -210,6 +210,27 @@ tmux:
   git_tui:
 
   # ──────────────────────────────────────────────────────────────────
+  # syncer — `ait syncer` TUI for remote desync tracking.
+  #
+  # The syncer TUI tracks ahead/behind state for the project's tracked
+  # refs (`main`, `aitask-data`) and offers pull/push actions. Launch
+  # it manually any time with `ait syncer`.
+  #
+  # autostart — When `true`, `ait ide` opens (or focuses) a singleton
+  # `syncer` window inside the project's tmux session, alongside the
+  # monitor window that `ait ide` already starts. When `false` or
+  # omitted, `ait ide` does not auto-launch the syncer.
+  #
+  # Default: false (omit, leave blank, or set explicitly to false).
+  #
+  # Example:
+  #   syncer:
+  #     autostart: true
+  # ──────────────────────────────────────────────────────────────────
+  # syncer:
+  #   autostart: false
+
+  # ──────────────────────────────────────────────────────────────────
   # monitor — `ait monitor` / `ait minimonitor` settings.
   #
   # The whole `monitor` block is optional; loader defaults apply when

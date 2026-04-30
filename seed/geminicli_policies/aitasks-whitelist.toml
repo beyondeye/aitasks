@@ -396,6 +396,12 @@ priority = 100
 
 [[rule]]
 toolName = "run_shell_command"
+commandPrefix = "./.aitask-scripts/aitask_syncer.sh"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
 commandPrefix = "./.aitask-scripts/aitask_zip_old.sh"
 decision = "allow"
 priority = 100

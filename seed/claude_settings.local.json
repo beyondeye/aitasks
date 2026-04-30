@@ -73,6 +73,7 @@
       "Bash(./.aitask-scripts/aitask_scan_profiles.sh:*)",
       "Bash(./.aitask-scripts/aitask_stats.sh:*)",
       "Bash(./.aitask-scripts/aitask_sync.sh:*)",
+      "Bash(./.aitask-scripts/aitask_syncer.sh:*)",
       "Bash(./.aitask-scripts/aitask_update.sh:*)",
       "Bash(./.aitask-scripts/aitask_web_merge.sh:*)",
       "Bash(./.aitask-scripts/aitask_zip_old.sh:*)",

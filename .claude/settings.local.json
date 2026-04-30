@@ -69,6 +69,7 @@
       "Bash(./.aitask-scripts/aitask_pr_close.sh:*)",
       "Bash(./.aitask-scripts/aitask_pr_import.sh:*)",
       "Bash(./.aitask-scripts/aitask_sync.sh:*)",
+      "Bash(./.aitask-scripts/aitask_syncer.sh:*)",
       "Bash(./.aitask-scripts/aitask_zip_old.sh:*)",
       "Bash(bkt issue list:*)",
       "Bash(bkt context:*)",
