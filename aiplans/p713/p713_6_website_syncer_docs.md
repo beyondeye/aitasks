@@ -173,3 +173,34 @@ After Step 8 commits land:
 - `verify_build` (if configured) runs.
 - `./.aitask-scripts/aitask_archive.sh 713_6` archives the task and plan, releases the lock, removes from parent's `children_to_implement`, commits.
 - `./ait git push` after archival.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - **NEW** `website/content/docs/tuis/syncer/_index.md` — full Syncer TUI page covering Purpose, Launching, Layout, Polling/refresh, Actions table (`s`/`u`/`p`/`a`/`q`), Failure handling, TUI switcher integration (`y`), `ait ide` autostart (`tmux.syncer.autostart`), Relationship to `ait sync`, Configuration table, plus cross-links to monitor/minimonitor/settings. Weight `40` places the page after Stats (`35`) in the TUI sidebar.
+  - **MOD** `website/content/docs/tuis/_index.md` — added Syncer entry to the Available TUIs list, added Syncer to the switcher TUI list, added `y` to the shortcut examples.
+  - **MOD** `website/content/docs/installation/terminal-setup.md` — appended `ait syncer` to the switcher-aware TUI list (line 39).
+  - **MOD** `website/content/docs/tuis/monitor/_index.md` — extended TUI classification list to include `syncer` and `stats`, added a sentence about the desync summary suffix in the session bar with a cross-link to Syncer.
+  - **MOD** `website/content/docs/tuis/monitor/reference.md` — added `syncer` to the TUI classification rule, added a `tmux.syncer.autostart` row to the configuration keys table, added a `syncer.autostart` example to the YAML snippet, extended `tmux.monitor.tui_window_names` defaults list to include `syncer`, added a Related TUIs row for `ait syncer`.
+  - **MOD** `website/content/docs/tuis/minimonitor/_index.md` — added a sentence about the compact desync indicator in the bar with a cross-link to Syncer.
+  - **MOD** `website/content/docs/tuis/board/how-to.md` — added Syncer to the switcher targets in the tmux integration section.
+  - **MOD** `website/content/docs/installation/pypy.md` — corrected the table row for the Syncer TUI from `ait sync` to `ait syncer`.
+  - **MOD** `website/content/docs/commands/sync.md` — added a "See also" cross-link to the Syncer TUI page.
+  - **MOD** `website/content/docs/commands/_index.md` — added an `ait syncer` row in the TUI commands table.
+- **Deviations from plan:**
+  - For the monitor reference YAML example, kept the `syncer` block as a working example (`syncer: { autostart: true }` style) so a reader can copy-paste it. The default remains `false`, called out explicitly in the keys table and the per-key comment.
+  - The minimonitor mention picks up the compact form `↓3` to match the actual `desync_summary.py` `compact=True` rendering verified during planning.
+- **Issues encountered:** None. Hugo extended 0.159.1 was already installed; first build pass returned exit 0 with no `relref` warnings introduced by these changes.
+- **Key decisions:**
+  - **Syncer page weight `40`** chosen to place the page right after Stats (35), keeping the sidebar order stable. Future TUIs can slot in at 50+.
+  - **Cross-links over duplication.** Configuration details for `tmux.*` and Settings remain authoritative in monitor/reference and Settings; the Syncer page only documents `tmux.syncer.autostart` plus a one-liner cross-reference.
+  - **Pre-existing uncommitted `aitask_setup.sh` and stray top-level dirs** (`os/`, `shutil/`, `subprocess/`, `time/`, `unittest/`, `tests/test_tmux_control.sh`, `.aitask-scripts/monitor/tmux_control.py`) are NOT part of this task and were left untouched. The code commit stages only `website/` files.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t713_7 (manual verification):** the new syncer doc page is the canonical "what should happen" reference. Use the Actions table and Failure handling section to drive the manual checklist (sync `aitask-data`, pull `main`, push `main`, simulate failure → confirm modal + agent dispatch).
+  - The doc states ahead/behind are computed against `origin`; verify-time, ensure the test setup has `origin` configured before exercising the syncer.
+- **Verification performed:**
+  - `cd website && hugo build --gc --minify` → exit 0, 184 pages, 0 errors. Pre-existing `.Site.AllPages` deprecation warning is unrelated to this task.
+  - `grep -rn 'ait syncer'` across `website/content/docs/` returns the new page plus the 9 expected touchpoints.
+  - `find website/content/docs/tuis/syncer -type f` returns the single `_index.md`.
+  - `grep '\`ait sync\`' website/content/docs/installation/pypy.md` is empty (the bad row is fixed).
