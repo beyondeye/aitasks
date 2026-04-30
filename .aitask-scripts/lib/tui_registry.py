@@ -21,6 +21,7 @@ TUI_REGISTRY: list[tuple[str, str | None, str | None, bool]] = [
     ("settings",    "Settings",      "ait settings",    True),
     ("stats",       "Statistics",    "ait stats-tui",   True),
     ("diffviewer",  "Diff Viewer",   "ait diffviewer",  True),
+    ("syncer",      "Syncer",        "ait syncer",      True),
     ("brainstorm",  None,            None,              False),
     ("minimonitor", None,            None,              False),
 ]

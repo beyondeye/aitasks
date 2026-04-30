@@ -33,6 +33,7 @@ from monitor.monitor_shared import (  # noqa: E402
     _ansi_to_rich_text, _TASK_ID_RE, TaskInfo, TaskInfoCache,
     TaskDetailDialog, KillConfirmDialog, format_compare_mode_glyph,
 )
+from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 
 import subprocess  # noqa: E402
@@ -857,6 +858,10 @@ class MonitorApp(TuiSwitcherMixin, App):
         total = len(self._snapshots)
         bar = self.query_one("#session-bar", SessionBar)
         auto_tag = "  [bold yellow][AUTO][/]" if self._auto_switch else ""
+        try:
+            desync = _get_desync_summary(Path.cwd(), compact=False)
+        except Exception:
+            desync = ""
         if self._monitor is not None and self._monitor.multi_session:
             sessions = {
                 s.pane.session_name for s in self._snapshots.values()
@@ -870,6 +875,7 @@ class MonitorApp(TuiSwitcherMixin, App):
                 f"· {total} {pane_word} · multi "
                 f"(attached: {attached})"
                 f"{auto_tag}"
+                f"{desync}"
                 f"  [dim]Tab: switch panel[/]"
             )
         else:
@@ -877,6 +883,7 @@ class MonitorApp(TuiSwitcherMixin, App):
                 f"tmux Monitor — session: {self._session} "
                 f"({total} pane{'s' if total != 1 else ''})"
                 f"{auto_tag}"
+                f"{desync}"
                 f"  [dim]Tab: switch panel[/]"
             )
 

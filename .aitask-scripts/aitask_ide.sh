@@ -71,7 +71,30 @@ resolve_session() {
     echo "aitasks"
 }
 
+read_syncer_autostart() {
+    local cfg="aitasks/metadata/project_config.yaml"
+    [[ -f "$cfg" ]] || { echo "0"; return; }
+    local out
+    out=$(awk '
+        /^tmux:/ { intmux=1; next }
+        intmux && /^  syncer:/ { insyncer=1; next }
+        insyncer && /^    autostart:/ {
+            sub(/^    autostart:[ \t]*/, "")
+            gsub(/"/, "")
+            gsub(/'"'"'/, "")
+            sub(/[[:space:]]+$/, "")
+            if ($0 == "true") { print "1"; exit }
+            print "0"; exit
+        }
+        /^[^ #]/ && !/^tmux:/ { intmux=0; insyncer=0 }
+        intmux && /^  [^ ]/ && !/^  syncer:/ { insyncer=0 }
+    ' "$cfg" 2>/dev/null)
+    [[ -z "$out" ]] && out="0"
+    echo "$out"
+}
+
 SESSION=$(resolve_session)
+SYNCER_AUTOSTART=$(read_syncer_autostart)
 # Exact-match tmux target — prevents prefix-match collisions when another
 # project's session name shares a prefix (e.g. 'aitasks' vs 'aitasks_mob').
 SESSION_T="=${SESSION}"
@@ -86,6 +109,13 @@ set_project_registry() {
     tmux set-environment -g "AITASKS_PROJECT_${SESSION}" "$(pwd)" 2>/dev/null || true
 }
 
+ensure_syncer_window() {
+    [[ "$SYNCER_AUTOSTART" == "1" ]] || return 0
+    if ! tmux list-windows -t "$SESSION_T" -F '#{window_name}' 2>/dev/null | grep -qx 'syncer'; then
+        tmux new-window -t "${SESSION_T}:" -n syncer 'ait syncer' 2>/dev/null || true
+    fi
+}
+
 if [[ -n "${TMUX:-}" ]]; then
     current_session=$(tmux display-message -p '#S')
     if [[ "$current_session" != "$SESSION" ]]; then
@@ -95,11 +125,11 @@ if [[ -n "${TMUX:-}" ]]; then
         exit 1
     fi
     set_project_registry
-    if tmux list-windows -F '#{window_name}' | grep -qx 'monitor'; then
-        exec tmux select-window -t "${SESSION_T}:monitor"
-    else
-        exec tmux new-window -n monitor 'ait monitor'
+    if ! tmux list-windows -F '#{window_name}' | grep -qx 'monitor'; then
+        tmux new-window -n monitor 'ait monitor'
     fi
+    ensure_syncer_window
+    exec tmux select-window -t "${SESSION_T}:monitor"
 fi
 
 if tmux has-session -t "$SESSION_T" 2>/dev/null; then
@@ -107,6 +137,7 @@ if tmux has-session -t "$SESSION_T" 2>/dev/null; then
     if ! tmux list-windows -t "$SESSION_T" -F '#{window_name}' | grep -qx 'monitor'; then
         tmux new-window -t "${SESSION_T}:" -n monitor 'ait monitor'
     fi
+    ensure_syncer_window
     exec tmux attach -t "$SESSION_T" \; select-window -t "${SESSION_T}:monitor"
 fi
 
@@ -116,4 +147,5 @@ fi
 # process is replaced by the attached client.
 tmux new-session -d -s "$SESSION" -n monitor 'ait monitor'
 set_project_registry
+ensure_syncer_window
 exec tmux attach -t "$SESSION_T"

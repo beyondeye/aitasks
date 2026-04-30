@@ -690,14 +690,16 @@ def launch_or_focus_codebrowser(
 def load_tmux_defaults(project_root: Path) -> dict:
     """Load tmux defaults from project_config.yaml.
 
-    Returns dict with keys: default_session, default_split, prefer_tmux, git_tui.
-    Falls back to hardcoded defaults if config is absent.
+    Returns dict with keys: default_session, default_split, prefer_tmux,
+    git_tui, syncer_autostart. Falls back to hardcoded defaults if config is
+    absent.
     """
     defaults = {
         "default_session": "aitasks",
         "default_split": "horizontal",
         "prefer_tmux": False,
         "git_tui": "",
+        "syncer_autostart": False,
     }
     config_path = project_root / "aitasks" / "metadata" / "project_config.yaml"
     if not config_path.is_file():
@@ -718,6 +720,9 @@ def load_tmux_defaults(project_root: Path) -> dict:
                 defaults["prefer_tmux"] = bool(tmux["prefer_tmux"])
             if "git_tui" in tmux:
                 defaults["git_tui"] = str(tmux["git_tui"] or "")
+            syncer = tmux.get("syncer")
+            if isinstance(syncer, dict) and "autostart" in syncer:
+                defaults["syncer_autostart"] = bool(syncer["autostart"])
     except Exception:
         pass
     return defaults

@@ -152,6 +152,13 @@ class TestTuiRegistry(unittest.TestCase):
         self.assertNotIn("minimonitor", switcher_names)
         self.assertIn("stats", switcher_names)
 
+    def test_syncer_registered_and_visible_in_switcher(self):
+        """syncer is registered as a TUI window AND visible in the switcher modal."""
+        from tui_registry import TUI_NAMES, switcher_tuis
+        self.assertIn("syncer", TUI_NAMES)
+        switcher_names = {n for n, _, _ in switcher_tuis()}
+        self.assertIn("syncer", switcher_names)
+
 
 # ---------------------------------------------------------------------------
 # load_monitor_config — tui_window_names merge semantics

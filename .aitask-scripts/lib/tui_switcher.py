@@ -54,6 +54,68 @@ from agent_launch_utils import (  # noqa: E402
 from tui_registry import BRAINSTORM_PREFIX as _BRAINSTORM_PREFIX, TUI_NAMES as _TUI_NAMES, switcher_tuis  # noqa: E402
 
 
+def _format_desync_lines(lines_output: str) -> str:
+    """Format `desync_state.py snapshot --format lines` output as one line.
+
+    Returns markup like ``main: 1↑/0↓ · aitask-data: 0↑/3↓`` or ``clean``
+    when both refs are at zero. Refs with non-ok status are surfaced as
+    e.g. ``main: missing_remote``.
+    """
+    refs: list[tuple[str, str, int, int]] = []  # (name, status, ahead, behind)
+    cur_name: str | None = None
+    cur_status: str = "ok"
+    cur_ahead: int = 0
+    cur_behind: int = 0
+    for raw in lines_output.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if ":" not in line:
+            continue
+        key, _, val = line.partition(":")
+        key = key.strip()
+        val = val.strip()
+        if key == "REF":
+            if cur_name is not None:
+                refs.append((cur_name, cur_status, cur_ahead, cur_behind))
+            cur_name = val
+            cur_status = "ok"
+            cur_ahead = 0
+            cur_behind = 0
+        elif key == "STATUS":
+            cur_status = val
+        elif key == "AHEAD":
+            try:
+                cur_ahead = int(val)
+            except ValueError:
+                cur_ahead = 0
+        elif key == "BEHIND":
+            try:
+                cur_behind = int(val)
+            except ValueError:
+                cur_behind = 0
+    if cur_name is not None:
+        refs.append((cur_name, cur_status, cur_ahead, cur_behind))
+
+    if not refs:
+        return "[dim]desync: unavailable[/]"
+
+    parts: list[str] = []
+    any_drift = False
+    for name, status, ahead, behind in refs:
+        if status != "ok":
+            parts.append(f"{name}: [dim]{status}[/]")
+            continue
+        if ahead == 0 and behind == 0:
+            parts.append(f"[dim]{name}: clean[/]")
+        else:
+            parts.append(f"{name}: {ahead}↑/{behind}↓")
+            any_drift = True
+    if not any_drift:
+        return "[dim]all refs clean[/]"
+    return " · ".join(parts)
+
+
 def _detect_current_session() -> str | None:
     """Auto-detect the current tmux session name, or None if not inside tmux."""
     if not os.environ.get("TMUX"):
@@ -104,6 +166,7 @@ _TUI_SHORTCUTS = {
     "codebrowser": "c",
     "settings": "s",
     "stats": "t",
+    "syncer": "y",
     "git": "g",
 }
 
@@ -240,6 +303,12 @@ class TuiSwitcherOverlay(ModalScreen):
         color: $text;
         width: 100%;
     }
+    #switcher_desync {
+        text-align: center;
+        padding: 0 0 1 0;
+        color: $text-muted;
+        width: 100%;
+    }
     #switcher_list {
         height: auto;
         max-height: 22;
@@ -263,6 +332,7 @@ class TuiSwitcherOverlay(ModalScreen):
         Binding("c", "shortcut_codebrowser", "Code Browser", show=False),
         Binding("s", "shortcut_settings", "Settings", show=False),
         Binding("t", "shortcut_stats", "Statistics", show=False),
+        Binding("y", "shortcut_syncer", "Syncer", show=False),
         Binding("r", "shortcut_brainstorm", "Brainstorm", show=False),
         Binding("x", "shortcut_explore", "Explore", show=False),
         Binding("g", "shortcut_git", "Git", show=False),
@@ -291,6 +361,7 @@ class TuiSwitcherOverlay(ModalScreen):
         with Container(id="switcher_dialog"):
             yield Label("TUI Switcher", id="switcher_title")
             yield Label("", id="switcher_session_row")
+            yield Label("", id="switcher_desync")
             yield _WrappingListView(id="switcher_list")
             yield Label("", id="switcher_hint")
 
@@ -298,6 +369,7 @@ class TuiSwitcherOverlay(ModalScreen):
         self._init_multi_state(discover_aitasks_sessions())
         self._render_hint()
         self._render_session_row()
+        self._render_desync_line(self._project_root_for_session(self._session))
         self._populate_list_for(self._session)
 
     def _project_root_for_session(self, session: str) -> Path:
@@ -366,7 +438,8 @@ class TuiSwitcherOverlay(ModalScreen):
         text = (
             "[bold bright_cyan](b)[/]oard  [bold bright_cyan](m)[/]onitor  "
             "[bold bright_cyan](c)[/]ode  [bold bright_cyan](s)[/]ettings  "
-            "s[bold bright_cyan](t)[/]ats  b[bold bright_cyan](r)[/]ainstorm  "
+            "s[bold bright_cyan](t)[/]ats  s[bold bright_cyan](y)[/]ncer  "
+            "b[bold bright_cyan](r)[/]ainstorm  "
             "[bold bright_cyan](g)[/]it  e[bold bright_cyan](x)[/]plore  "
             "[bold bright_cyan](n)[/]ew task\n"
         )
@@ -397,6 +470,51 @@ class TuiSwitcherOverlay(ModalScreen):
             else:
                 parts.append(f"[dim]{prefix}{name}[/]")
         row.update("Session: " + "  ".join(parts))
+
+    def _render_desync_line(self, project_root: Path) -> None:
+        """Render a compact desync summary line for the selected session's project.
+
+        Invokes ``desync_state.py snapshot --format lines`` as a subprocess
+        with ``cwd=project_root`` so the result reflects the SELECTED
+        session's project (not whichever project owns this Python file).
+        Result is cached on the class for ~30 seconds keyed on project_root
+        to avoid re-invoking on every Left/Right cycle.
+        """
+        line_widget = self.query_one("#switcher_desync", Label)
+        text = self._compute_desync_summary(project_root)
+        line_widget.update(text)
+
+    _DESYNC_TTL_SECONDS = 30
+    _desync_cache: dict[str, tuple[float, str]] = {}
+
+    @classmethod
+    def _compute_desync_summary(cls, project_root: Path) -> str:
+        import time
+        key = str(project_root)
+        now = time.monotonic()
+        cached = cls._desync_cache.get(key)
+        if cached and (now - cached[0]) < cls._DESYNC_TTL_SECONDS:
+            return cached[1]
+        text = cls._fetch_desync_summary(project_root)
+        cls._desync_cache[key] = (now, text)
+        return text
+
+    @staticmethod
+    def _fetch_desync_summary(project_root: Path) -> str:
+        helper = (
+            Path(__file__).resolve().parent / "desync_state.py"
+        )
+        try:
+            proc = subprocess.run(
+                [sys.executable, str(helper), "snapshot", "--format", "lines"],
+                cwd=str(project_root),
+                capture_output=True, text=True, timeout=3,
+            )
+        except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+            return "[dim]desync: unavailable[/]"
+        if proc.returncode != 0:
+            return "[dim]desync: unavailable[/]"
+        return _format_desync_lines(proc.stdout)
 
     def _populate_list_for(self, session: str) -> None:
         """Fill the ListView with TUIs and windows from the given session.
@@ -514,6 +632,7 @@ class TuiSwitcherOverlay(ModalScreen):
             idx = 0
         self._session = names[(idx + step) % len(names)]
         self._render_session_row()
+        self._render_desync_line(self._project_root_for_session(self._session))
         self._populate_list_for(self._session)
 
     def action_select_tui(self) -> None:
@@ -565,6 +684,9 @@ class TuiSwitcherOverlay(ModalScreen):
 
     def action_shortcut_stats(self) -> None:
         self._shortcut_switch("stats")
+
+    def action_shortcut_syncer(self) -> None:
+        self._shortcut_switch("syncer")
 
     def action_shortcut_brainstorm(self) -> None:
         """Switch to first running brainstorm window in the SELECTED session."""

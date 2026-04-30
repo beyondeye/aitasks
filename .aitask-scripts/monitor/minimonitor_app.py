@@ -31,6 +31,7 @@ from monitor.tmux_monitor import (  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _TASK_ID_RE, TaskInfoCache, TaskDetailDialog, format_compare_mode_glyph,
 )
+from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
     tmux_session_target,
@@ -318,6 +319,10 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         idle_count = sum(1 for a in agents if a.is_idle)
 
         idle_str = f" [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
+        try:
+            desync = _get_desync_summary(Path.cwd(), compact=True)
+        except Exception:
+            desync = ""
         bar = self.query_one("#mini-session-bar", Static)
 
         if self._monitor is not None and self._monitor.multi_session:
@@ -327,10 +332,10 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
                 s.pane.session_name for s in agents if s.pane.session_name
             }
             n = len(sessions) if sessions else 1
-            bar.update(f"multi: {n}s · {total}a{idle_str}")
+            bar.update(f"multi: {n}s · {total}a{idle_str}{desync}")
         else:
             bar.update(
-                f"{self._session}  {total} agent{'s' if total != 1 else ''}{idle_str}"
+                f"{self._session}  {total} agent{'s' if total != 1 else ''}{idle_str}{desync}"
             )
 
     async def _rebuild_pane_list(self) -> None:
