@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: high
-depends: [t713_2]
+depends: [t713_8]
 issue_type: feature
 status: Ready
 labels: [tui, scripts]
 created_at: 2026-04-29 09:43
-updated_at: 2026-04-29 09:43
+updated_at: 2026-04-30 10:27
 ---
 
 ## Context
