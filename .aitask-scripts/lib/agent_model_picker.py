@@ -6,8 +6,8 @@ The module is Textual-dependent but has no settings_app dependency.
 
 Public API:
 - AgentModelPickerScreen — ModalScreen with a single fuzzy list that cycles
-  through six modes via Shift+Left / Shift+Right:
-    top, all, codex, opencode, claudecode, geminicli
+  through seven modes via Shift+Left / Shift+Right:
+    top, top_usage, all, codex, opencode, claudecode, geminicli
 - FuzzySelect / FuzzyOption — reusable fuzzy-search list widget
 - MODEL_FILES — {provider: Path} map of models_*.json files
 - load_all_models(project_root) — load every models_*.json into a dict
@@ -65,6 +65,22 @@ def _bucket_avg(bucket: dict) -> int:
     return round(bucket.get("score_sum", 0) / runs)
 
 
+def _recent_aggregate(op_buckets: dict) -> tuple[int, int]:
+    """Return (runs, score_sum) summed across month + prev_month buckets."""
+    month = op_buckets.get("month", {})
+    prev = op_buckets.get("prev_month", {})
+    runs = month.get("runs", 0) + prev.get("runs", 0)
+    sum_ = month.get("score_sum", 0) + prev.get("score_sum", 0)
+    return runs, sum_
+
+
+def _recent_avg(op_buckets: dict) -> int:
+    runs, sum_ = _recent_aggregate(op_buckets)
+    if runs <= 0:
+        return 0
+    return round(sum_ / runs)
+
+
 def _format_op_stats(buckets: dict, compact: bool = False) -> str:
     """Format verifiedstats buckets for one operation into a display string.
 
@@ -77,11 +93,17 @@ def _format_op_stats(buckets: dict, compact: bool = False) -> str:
         return ""
     avg = _bucket_avg(at)
     mo = buckets.get("month", {})
+    pm = buckets.get("prev_month", {})
     mo_runs = mo.get("runs", 0)
+    pm_runs = pm.get("runs", 0)
     mo_label = "mo" if compact else "month"
+    pm_label = "prev mo" if compact else "last month"
+    parts = [f"{runs} runs"]
     if mo_runs > 0:
-        return f"{avg} ({runs} runs, {mo_runs} this {mo_label})"
-    return f"{avg} ({runs} runs)"
+        parts.append(f"{mo_runs} this {mo_label}")
+    if pm_runs > 0:
+        parts.append(f"{pm_runs} {pm_label}")
+    return f"{avg} ({', '.join(parts)})"
 
 
 class FuzzyOption(Static):
@@ -245,7 +267,7 @@ class FuzzySelect(Container):
 
 
 class AgentModelPickerScreen(ModalScreen):
-    """Single-screen picker that cycles through six model lists.
+    """Single-screen picker that cycles through seven model lists.
 
     Lists are switched with Shift+Left / Shift+Right. The fuzzy-search Input
     inside the FuzzySelect remains usable for letter-based filtering.
@@ -254,7 +276,8 @@ class AgentModelPickerScreen(ModalScreen):
     # (mode_key, header_label). Per-agent mode keys must match MODEL_FILES
     # so _build_options_for_agent can look up the JSON file directly.
     _MODES: list[tuple[str, str]] = [
-        ("top",        "Top verified models"),
+        ("top",        "Top verified models (recent)"),
+        ("top_usage",  "Top by usage (recent)"),
         ("all",        "All models"),
         ("codex",      "All codex models"),
         ("opencode",   "All opencode models"),
@@ -294,7 +317,7 @@ class AgentModelPickerScreen(ModalScreen):
         self._mode_idx = 0
 
     def _build_top_verified(self) -> list[dict]:
-        """Build ranked list of top verified models for the operation."""
+        """Build ranked list of top verified models, recent window."""
         candidates = []
         for agent, pdata in self.all_models.items():
             for m in pdata.get("models", []):
@@ -303,23 +326,48 @@ class AgentModelPickerScreen(ModalScreen):
                 name = m.get("name", "?")
                 vs = m.get("verifiedstats", {})
                 op_buckets = vs.get(self.operation, {})
-                at = op_buckets.get("all_time", {})
-                runs = at.get("runs", 0)
-                if runs <= 0:
-                    # Fall back to flat verified
+                recent_runs, recent_sum = _recent_aggregate(op_buckets)
+                if recent_runs <= 0:
                     score = m.get("verified", {}).get(self.operation, 0)
                     if score > 0:
                         candidates.append({
                             "agent": agent, "name": name,
-                            "score": score, "detail": f"score: {score}",
+                            "score": score,
+                            "detail": f"score: {score} (no recent data)",
                         })
                     continue
-                detail = _format_op_stats(op_buckets, compact=True)
+                avg = round(recent_sum / recent_runs)
+                detail = f"{avg} ({recent_runs} runs recent)"
                 candidates.append({
                     "agent": agent, "name": name,
-                    "score": _bucket_avg(at), "detail": detail,
+                    "score": avg, "detail": detail,
                 })
         candidates.sort(key=lambda c: (-c["score"], c["agent"], c["name"]))
+        return candidates[:5]
+
+    def _build_top_usage(self) -> list[dict]:
+        """Build ranked list of top-used models, recent window."""
+        candidates = []
+        for agent, pdata in self.all_models.items():
+            for m in pdata.get("models", []):
+                if m.get("status", "active") == "unavailable":
+                    continue
+                name = m.get("name", "?")
+                us = m.get("usagestats", {})
+                op_buckets = us.get(self.operation, {})
+                recent_runs, _ = _recent_aggregate(op_buckets)
+                if recent_runs <= 0:
+                    continue
+                at_runs = op_buckets.get("all_time", {}).get("runs", 0)
+                if at_runs > recent_runs:
+                    detail = f"{recent_runs} runs recent · {at_runs} all-time"
+                else:
+                    detail = f"{recent_runs} runs recent"
+                candidates.append({
+                    "agent": agent, "name": name,
+                    "runs": recent_runs, "detail": detail,
+                })
+        candidates.sort(key=lambda c: (-c["runs"], c["agent"], c["name"]))
         return candidates[:5]
 
     def compose(self) -> ComposeResult:
@@ -348,7 +396,7 @@ class AgentModelPickerScreen(ModalScreen):
         if not event.value:
             return  # placeholder rows ("(no models found)", etc.)
         mode_key = self._MODES[self._mode_idx][0]
-        if mode_key in ("top", "all"):
+        if mode_key in ("top", "top_usage", "all"):
             self.dismiss({"key": self.operation, "value": event.value})
         else:
             self.dismiss({
@@ -384,7 +432,9 @@ class AgentModelPickerScreen(ModalScreen):
     @staticmethod
     def _placeholder_for_mode(mode_key: str) -> str:
         if mode_key == "top":
-            return "Type to filter top models..."
+            return "Type to filter top-verified models..."
+        if mode_key == "top_usage":
+            return "Type to filter top-used models..."
         if mode_key == "all":
             return "Type agent/model..."
         return f"Type {mode_key} model name..."
@@ -392,6 +442,8 @@ class AgentModelPickerScreen(ModalScreen):
     def _build_options_for_mode(self, mode_key: str) -> list[dict]:
         if mode_key == "top":
             return self._build_options_top()
+        if mode_key == "top_usage":
+            return self._build_options_top_usage()
         if mode_key == "all":
             return self._build_options_all()
         return self._build_options_for_agent(mode_key)
@@ -409,6 +461,23 @@ class AgentModelPickerScreen(ModalScreen):
             out.append({
                 "value": "",
                 "display": "(no top-verified models for this op)",
+                "description": "",
+            })
+        return out
+
+    def _build_options_top_usage(self) -> list[dict]:
+        out: list[dict] = []
+        for c in self._build_top_usage():
+            val = f"{c['agent']}/{c['name']}"
+            out.append({
+                "value": val,
+                "display": val,
+                "description": c["detail"],
+            })
+        if not out:
+            out.append({
+                "value": "",
+                "display": "(no recent usage for this op)",
                 "description": "",
             })
         return out
