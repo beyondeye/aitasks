@@ -6,8 +6,9 @@ issue_type: documentation
 status: Implementing
 labels: [documentation, performance, tui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-30 10:31
-updated_at: 2026-04-30 14:45
+updated_at: 2026-04-30 15:12
 ---
 
 ## Context
