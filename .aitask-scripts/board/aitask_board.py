@@ -14,6 +14,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for
 from agent_command_screen import AgentCommandScreen
 from agent_launch_utils import find_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, launch_or_focus_codebrowser, load_tmux_defaults, maybe_spawn_minimonitor, _lookup_window_name, tmux_window_target
+from sync_action_runner import (
+    SyncConflictScreen,
+    run_sync_batch,
+    run_interactive_sync,
+    STATUS_AUTOMERGED,
+    STATUS_CONFLICT,
+    STATUS_ERROR,
+    STATUS_NOTHING,
+    STATUS_NO_NETWORK,
+    STATUS_NO_REMOTE,
+    STATUS_NOT_FOUND,
+    STATUS_PULLED,
+    STATUS_PUSHED,
+    STATUS_SYNCED,
+    STATUS_TIMEOUT,
+)
 from tui_switcher import TuiSwitcherMixin, TuiSwitcherOverlay
 
 from textual.app import App, ComposeResult
@@ -2940,40 +2956,6 @@ class SettingsScreen(ModalScreen):
         self.dismiss(None)
 
 
-class SyncConflictScreen(ModalScreen):
-    """Modal dialog shown when ait sync detects merge conflicts."""
-
-    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
-
-    def __init__(self, conflicted_files: list[str]):
-        super().__init__()
-        self.conflicted_files = conflicted_files
-
-    def compose(self):
-        file_list = "\n".join(f"  - {f}" for f in self.conflicted_files)
-        with Container(id="dep_picker_dialog"):
-            yield Label("Sync Conflict Detected", id="dep_picker_title")
-            yield Label(
-                f"Conflicts between local and remote task data:\n\n{file_list}\n\n"
-                "Open interactive terminal to resolve?",
-                id="commit_files",
-            )
-            with Horizontal(id="detail_buttons"):
-                yield Button("Resolve Interactively", variant="warning", id="btn_sync_resolve")
-                yield Button("Dismiss", variant="default", id="btn_sync_dismiss")
-
-    @on(Button.Pressed, "#btn_sync_resolve")
-    def resolve(self):
-        self.dismiss(True)
-
-    @on(Button.Pressed, "#btn_sync_dismiss")
-    def dismiss_dialog(self):
-        self.dismiss(False)
-
-    def action_cancel(self):
-        self.dismiss(False)
-
-
 class LoadingOverlay(ModalScreen):
     """Modal overlay showing a LoadingIndicator with a message."""
 
@@ -4097,50 +4079,41 @@ class KanbanApp(TuiSwitcherMixin, App):
     @work(exclusive=True, thread=True)
     def _run_sync(self, show_notification: bool = True, show_overlay: bool = False):
         """Run ait sync --batch in background and handle the result."""
-        try:
-            result = subprocess.run(
-                ["./.aitask-scripts/aitask_sync.sh", "--batch"],
-                capture_output=True, text=True, timeout=30,
-            )
-            output = result.stdout.strip().splitlines()
-            status_line = output[0] if output else ""
-        except subprocess.TimeoutExpired:
-            if show_overlay:
-                self.app.call_from_thread(self.pop_screen)
-            if show_notification:
-                self.app.call_from_thread(self.notify, "Sync timed out", severity="warning")
-            return
-        except FileNotFoundError:
-            if show_overlay:
-                self.app.call_from_thread(self.pop_screen)
-            self.app.call_from_thread(self.notify, "Sync script not found", severity="error")
-            return
+        result = run_sync_batch()
 
         if show_overlay:
             self.app.call_from_thread(self.pop_screen)
 
-        if status_line.startswith("CONFLICT:"):
-            files = status_line[len("CONFLICT:"):].split(",")
-            self.app.call_from_thread(self._show_conflict_dialog, files)
+        status = result.status
+
+        if status == STATUS_CONFLICT:
+            self.app.call_from_thread(self._show_conflict_dialog, result.conflicted_files)
             return
-        elif status_line == "NO_NETWORK":
+        if status == STATUS_TIMEOUT:
+            if show_notification:
+                self.app.call_from_thread(self.notify, "Sync timed out", severity="warning")
+            return
+        if status == STATUS_NOT_FOUND:
+            self.app.call_from_thread(self.notify, "Sync script not found", severity="error")
+            return
+
+        if status == STATUS_NO_NETWORK:
             if show_notification:
                 self.app.call_from_thread(self.notify, "Sync: No network", severity="warning")
-        elif status_line == "NO_REMOTE":
+        elif status == STATUS_NO_REMOTE:
             if show_notification:
                 self.app.call_from_thread(self.notify, "Sync: No remote configured", severity="warning")
-        elif status_line == "NOTHING":
+        elif status == STATUS_NOTHING:
             if show_notification:
                 self.app.call_from_thread(self.notify, "Already up to date", severity="information")
-        elif status_line == "AUTOMERGED":
+        elif status == STATUS_AUTOMERGED:
             if show_notification:
                 self.app.call_from_thread(self.notify, "Sync: Auto-merged conflicts", severity="information")
-        elif status_line in ("PUSHED", "PULLED", "SYNCED"):
+        elif status in (STATUS_PUSHED, STATUS_PULLED, STATUS_SYNCED):
             if show_notification:
-                self.app.call_from_thread(self.notify, f"Sync: {status_line.capitalize()}", severity="information")
-        elif status_line.startswith("ERROR:"):
-            msg = status_line[len("ERROR:"):]
-            self.app.call_from_thread(self.notify, f"Sync error: {msg}", severity="error")
+                self.app.call_from_thread(self.notify, f"Sync: {status.capitalize()}", severity="information")
+        elif status == STATUS_ERROR:
+            self.app.call_from_thread(self.notify, f"Sync error: {result.error_message}", severity="error")
 
         self.app.call_from_thread(self.manager.load_tasks)
         self.app.call_from_thread(self.refresh_board, refresh_locks=True)
@@ -4149,23 +4122,19 @@ class KanbanApp(TuiSwitcherMixin, App):
         """Show the conflict resolution dialog (must be called on main thread)."""
         def on_result(resolve):
             if resolve:
-                self._run_interactive_sync()
+                self._run_interactive_sync_shared()
             else:
                 self.manager.load_tasks()
                 self.refresh_board()
         self.push_screen(SyncConflictScreen(files), on_result)
 
     @work(exclusive=True)
-    async def _run_interactive_sync(self):
-        """Launch interactive ait sync in a terminal."""
-        terminal = find_terminal()
-        if terminal:
-            subprocess.Popen([terminal, "--", "./ait", "sync"])
-        else:
-            with self.suspend():
-                subprocess.call(["./ait", "sync"])
+    async def _run_interactive_sync_shared(self):
+        """Run shared interactive sync helper, then refresh board state."""
+        def reload():
             self.manager.load_tasks()
             self.refresh_board(refresh_locks=True)
+        run_interactive_sync(self.app, on_done=reload)
 
     def _resolve_pick_command(self, task_num: str):
         """Resolve the full pick command via --dry-run, return command string or None."""
