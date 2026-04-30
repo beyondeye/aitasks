@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [tui, scripts]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-29 09:43
-updated_at: 2026-04-30 13:08
+updated_at: 2026-04-30 14:34
 ---
 
 ## Context

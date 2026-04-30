@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [verifiedstats, task-workflow]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-30 10:22
-updated_at: 2026-04-30 10:22
+updated_at: 2026-04-30 14:37
 ---
 
 ## Context
