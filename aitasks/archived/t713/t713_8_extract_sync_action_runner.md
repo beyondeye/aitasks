@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: [t713_2]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [tui, scripts, refactor]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-30 10:27
-updated_at: 2026-04-30 12:14
+updated_at: 2026-04-30 12:54
+completed_at: 2026-04-30 12:54
 ---
 
 ## Context
