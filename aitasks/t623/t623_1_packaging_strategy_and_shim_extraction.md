@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [install_scripts, installation, packaging]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-22 18:56
-updated_at: 2026-04-22 18:56
+updated_at: 2026-04-30 11:54
 ---
 
 ## Context
