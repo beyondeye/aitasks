@@ -443,6 +443,131 @@ _install_modern_python_linux() {
     hash -r
 }
 
+# --- PyPy resolution and installation (opt-in via `ait setup --with-pypy`) ---
+
+# Resolve a PyPy interpreter. Echoes the absolute path or empty. Always
+# returns 0. Confirms `sys.implementation.name == 'pypy'` to avoid false
+# positives from misnamed CPython binaries.
+find_pypy() {
+    local cand resolved
+    local candidates=(
+        "$PYPY_VENV_DIR/bin/python"
+        "$HOME/.aitask/python/pypy-$AIT_PYPY_PREFERRED/bin/python3"
+        pypy3.11 pypy3
+    )
+    for cand in "${candidates[@]}"; do
+        if [[ "$cand" == /* ]]; then
+            resolved="$cand"
+        else
+            resolved="$(command -v "$cand" 2>/dev/null || true)"
+        fi
+        [[ -z "$resolved" || ! -x "$resolved" ]] && continue
+        if "$resolved" -c "import sys; sys.exit(0 if sys.implementation.name == 'pypy' else 1)" 2>/dev/null; then
+            echo "$resolved"
+            return 0
+        fi
+    done
+    return 0
+}
+
+# Install PyPy user-scoped (no sudo). macOS uses brew; Linux uses uv.
+install_pypy() {
+    case "$OS" in
+        macos) _install_pypy_macos ;;
+        *)     _install_pypy_linux ;;
+    esac
+}
+
+_install_pypy_macos() {
+    if ! command -v brew >/dev/null 2>&1; then
+        die "Homebrew not found. Install from https://brew.sh and re-run 'ait setup --with-pypy'."
+    fi
+    info "Installing pypy3.11 via Homebrew..."
+    brew install pypy3.11 \
+        || brew install pypy3 \
+        || die "brew install pypy3.11 / pypy3 failed."
+    hash -r
+}
+
+_install_pypy_linux() {
+    local uv_dir="$HOME/.aitask/uv"
+    if [[ ! -x "$uv_dir/bin/uv" ]]; then
+        info "Downloading uv (astral-sh/uv) into $uv_dir..."
+        if ! command -v curl >/dev/null 2>&1; then
+            die "curl is required to download uv. Install curl and re-run."
+        fi
+        UV_INSTALL_DIR="$uv_dir" \
+        INSTALLER_NO_MODIFY_PATH=1 \
+            sh -c 'curl -LsSf https://astral.sh/uv/install.sh | sh' \
+            || die "uv install failed."
+    fi
+    info "Installing PyPy $AIT_PYPY_PREFERRED via uv..."
+    "$uv_dir/bin/uv" python install "pypy@$AIT_PYPY_PREFERRED" \
+        || die "uv python install pypy@$AIT_PYPY_PREFERRED failed."
+    local installed
+    installed="$("$uv_dir/bin/uv" python find "pypy@$AIT_PYPY_PREFERRED" 2>/dev/null)"
+    [[ -z "$installed" || ! -x "$installed" ]] && \
+        die "uv reported PyPy installed but interpreter is not executable: ${installed:-<empty>}"
+    mkdir -p "$HOME/.aitask/python/pypy-$AIT_PYPY_PREFERRED/bin"
+    ln -sf "$installed" "$HOME/.aitask/python/pypy-$AIT_PYPY_PREFERRED/bin/python3"
+    info "PyPy $AIT_PYPY_PREFERRED installed at $installed (symlinked at ~/.aitask/python/pypy-$AIT_PYPY_PREFERRED/bin/python3)."
+    hash -r
+}
+
+# Create the PyPy venv at $PYPY_VENV_DIR with the same dependency set as the
+# CPython venv. Idempotent: skips recreation if the venv already exists and
+# reports `sys.implementation.name == 'pypy'`.
+setup_pypy_venv() {
+    local pypy_cmd
+    pypy_cmd="$(find_pypy)"
+    if [[ -z "$pypy_cmd" ]]; then
+        info "No PyPy $AIT_PYPY_PREFERRED found. Installing one..."
+        install_pypy
+        pypy_cmd="$(find_pypy)"
+        [[ -z "$pypy_cmd" ]] && \
+            die "PyPy install completed but interpreter still not found."
+    fi
+    info "Using PyPy for venv: $pypy_cmd ($("$pypy_cmd" --version 2>&1 | head -1))"
+
+    if [[ -d "$PYPY_VENV_DIR" ]]; then
+        local impl=""
+        impl="$("$PYPY_VENV_DIR/bin/python" -c 'import sys; print(sys.implementation.name)' 2>/dev/null)" || impl=""
+        if [[ "$impl" == "pypy" ]]; then
+            info "PyPy virtual environment already exists at $PYPY_VENV_DIR"
+        else
+            warn "Existing $PYPY_VENV_DIR is not a PyPy venv (impl=$impl). Recreating..."
+            rm -rf "$PYPY_VENV_DIR"
+            mkdir -p "$(dirname "$PYPY_VENV_DIR")"
+            "$pypy_cmd" -m venv "$PYPY_VENV_DIR"
+        fi
+    else
+        info "Creating PyPy virtual environment at $PYPY_VENV_DIR..."
+        mkdir -p "$(dirname "$PYPY_VENV_DIR")"
+        "$pypy_cmd" -m venv "$PYPY_VENV_DIR"
+    fi
+
+    info "Installing/upgrading Python deps into PyPy venv..."
+    "$PYPY_VENV_DIR/bin/pip" install --quiet --upgrade pip
+    "$PYPY_VENV_DIR/bin/pip" install --quiet 'textual>=8.1.1,<9' 'pyyaml==6.0.3' 'linkify-it-py==2.1.0' 'tomli>=2.4.0,<3'
+
+    success "PyPy venv ready at $PYPY_VENV_DIR — TUIs will auto-use it (set AIT_USE_PYPY=0 to override)."
+}
+
+# Interactive prompt offered during `ait setup` when stdin is a TTY and PyPy
+# is not already installed. Returns 0 if the user opts in, 1 otherwise.
+prompt_install_pypy_if_tty() {
+    [[ -t 0 ]] || return 1
+    [[ -d "$PYPY_VENV_DIR" ]] && return 1
+    info "Optional: PyPy 3.11 for faster TUIs (board, codebrowser, settings, stats, brainstorm)."
+    printf "  Install PyPy now? Adds ~100-150 MB in ~/.aitask/. [y/N] "
+    local answer=""
+    read -r answer
+    case "${answer:-N}" in
+        [Yy]*) return 0 ;;
+        *)     return 1 ;;
+    esac
+}
+
 # --- Python venv setup ---
 setup_python_venv() {
     local python_cmd
@@ -3105,6 +3230,17 @@ setup_userconfig() {
 
 # --- Main ---
 main() {
+    INSTALL_PYPY=0
+    local args=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --with-pypy) INSTALL_PYPY=1; shift ;;
+            --) shift; args+=("$@"); break ;;
+            *)  args+=("$1"); shift ;;
+        esac
+    done
+    set -- "${args[@]}"
+
     echo ""
     info "aitask framework setup"
     echo ""
@@ -3155,6 +3291,11 @@ main() {
     setup_python_venv
     echo ""
 
+    if [[ "$INSTALL_PYPY" == "1" ]] || prompt_install_pypy_if_tty; then
+        setup_pypy_venv
+        echo ""
+    fi
+
     install_global_shim
     echo ""
 
@@ -3183,6 +3324,9 @@ main() {
     info "  Python venv: $VENV_DIR"
     if [[ -x "$VENV_DIR/bin/python" ]]; then
         info "  Python: $("$VENV_DIR/bin/python" -c 'import sys; print("{}.{}.{}".format(*sys.version_info[:3]))' 2>/dev/null || echo unknown)"
+    fi
+    if [[ -d "$PYPY_VENV_DIR" ]]; then
+        info "  PyPy venv: $PYPY_VENV_DIR"
     fi
     info "  Global shim: $SHIM_DIR/ait"
     if [[ -f "$VERSION_FILE" ]]; then
