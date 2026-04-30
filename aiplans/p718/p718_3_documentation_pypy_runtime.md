@@ -323,3 +323,25 @@ remain on the parent's pending list — t718 does NOT auto-archive yet.
 - The CLAUDE.md TUI-Conventions section is now the canonical contributor
   reference for both the function-choice rule and the env-var precedence.
   Future PyPy-related contributor rules belong there.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned across five `.md` files:
+  (1) New bullet in `CLAUDE.md` "TUI (Textual) Conventions" section (line ~170) with the `AIT_USE_PYPY` precedence table and the 6-TUI fast-path enumeration.
+  (2) New page `website/content/docs/installation/pypy.md` (~99 lines) with frontmatter `weight: 60`, sections What it is / Install (with TUI table) / Override per invocation / TUIs that don't use PyPy / Diagnostics / Disable-remove / Background.
+  (3) `website/content/docs/commands/setup-install.md` step 7 extended with one-sentence cross-link to the new page.
+  (4) `website/content/docs/installation/_index.md` Global dependencies extended with one-bullet cross-link.
+  (5) `aidocs/python_tui_performance.md` line 109 (Option A "TUI launchers" cell) updated to enumerate the actual 6 fast-path launchers (was 4) and corrected `aitask_stats.sh` → `aitask_stats_tui.sh` (the actual fast-path launcher; `stats.sh` is the short-lived CLI). Hugo build verified: 181 pages, no broken cross-link warnings, the only WARN is a pre-existing `.Site.AllPages` deprecation unrelated to this change.
+- **Deviations from plan:** None of substance. The new `pypy.md` page and the CLAUDE.md addition match the plan drafts byte-for-byte modulo whitespace. The `aidoc` correction also lifted `aitask_stats.sh` into the short-lived CLI list (it was previously only implied by exclusion) — minor clarification beyond the strict diff in the plan, kept the table internally consistent.
+- **Issues encountered:** None. The plan's verify-mode pass (with the 4 findings logged in "Verification status (this re-pick)") had already correctly anchored the insertion points (CLAUDE.md TUI Conventions, not Shell Conventions), the 6-launcher count, and the README.md skip decision before any edit was made.
+- **Key decisions:**
+  1. **CLAUDE.md placement** — adjacent to the existing `require_ait_python_fast` contributor-rule bullet (TUI Conventions), not in Shell Conventions as the original plan had said. Same audience, same conceptual neighborhood; the env-var precedence table reads as a continuation of the contributor rule.
+  2. **Dedicated `pypy.md` page over inlining** — kept the optional/opt-in nature of PyPy obvious and gave room for the precedence table + diagnostics without bloating the step-by-step setup-install.md guide.
+  3. **README.md skip** — README does not currently enumerate setup flags individually (only mentions `ait setup` as a basic bootstrap command). Per the plan's conditional, no README change.
+  4. **Aidoc small fix in scope** — the aidoc is the canonical reference cross-linked from CLAUDE.md, and its enumeration was concretely wrong (4 launchers vs 6 actual). One-cell correctness fix; not a narrative rewrite.
+- **Upstream defects identified:** None. (Note: there are pre-existing uncommitted changes in `.aitask-scripts/aitask_ide.sh`, `.aitask-scripts/lib/tui_switcher.py`, `.aitask-scripts/monitor/minimonitor_app.py`, `.aitask-scripts/monitor/monitor_app.py`, etc., visible at task pick time — but these are unrelated work-in-progress on the user's working tree, not defects diagnosed during this docs task. Left untouched.)
+- **Notes for sibling tasks:**
+  - t718_4 (manual verification) — when its checklist is built, include: "Open `https://aitasks.io/docs/installation/pypy/` (or the local `hugo serve` equivalent) and confirm the page renders, the env-var table formats, code blocks highlight, and the `Background` link to the GitHub-hosted aidoc resolves."
+  - t718_5 (exploratory monitor/minimonitor evaluation) — when this completes, the "TUIs that don't use PyPy" section in `installation/pypy.md` MUST be amended to reflect the empirical result. The wording was deliberately scoped narrowly so this update is a one-paragraph swap, not a structural rewrite. Same for the CLAUDE.md "Monitor / minimonitor stay on CPython" sentence — update both in lockstep.
+  - Future fast-path TUI additions (a 7th, 8th, …) MUST update three places in lockstep: CLAUDE.md TUI-Conventions bullet (the "six fast-path TUIs (…)" enumeration), the `pypy.md` Install section table, and the `aidocs/python_tui_performance.md` Option A row. The CLAUDE.md "Why" trailer (TUI Conventions, the existing rule) does not enumerate; only the env-var bullet does.
+  - The cross-link from `installation/_index.md` to `pypy.md` uses `{{< relref "pypy" >}}` (relative to the same directory), while the cross-link from `commands/setup-install.md` uses `{{< relref "/docs/installation/pypy" >}}` (absolute path). Both are correct under Hugo/Docsy and both resolve in the verified `hugo build`.
