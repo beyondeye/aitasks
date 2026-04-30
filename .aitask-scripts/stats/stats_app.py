@@ -149,6 +149,8 @@ class StatsApp(TuiSwitcherMixin, App):
         Binding("e", "edit_custom", "Edit custom"),
         Binding("left", "prev_verified_op", "← Cycle", show=True),
         Binding("right", "next_verified_op", "→ Cycle", show=True),
+        Binding("[", "prev_window", "prev window", show=True),
+        Binding("]", "next_window", "next window", show=True),
         Binding("q", "quit", "Quit"),
         *TuiSwitcherMixin.SWITCHER_BINDINGS,
     ]
@@ -418,16 +420,28 @@ class StatsApp(TuiSwitcherMixin, App):
         return self.active_layout[idx]
 
     def action_prev_verified_op(self) -> None:
-        if self._current_pane_id() == "agents.verified":
+        pane_id = self._current_pane_id()
+        if pane_id == "agents.verified":
             self._cycle_verified_op(-1)
+        elif pane_id == "agents.usage":
+            self._cycle_usage_op(-1)
         elif self.multi_session:
             self._cycle_session(-1)
 
     def action_next_verified_op(self) -> None:
-        if self._current_pane_id() == "agents.verified":
+        pane_id = self._current_pane_id()
+        if pane_id == "agents.verified":
             self._cycle_verified_op(+1)
+        elif pane_id == "agents.usage":
+            self._cycle_usage_op(+1)
         elif self.multi_session:
             self._cycle_session(+1)
+
+    def action_prev_window(self) -> None:
+        self._cycle_window(-1)
+
+    def action_next_window(self) -> None:
+        self._cycle_window(+1)
 
     def _cycle_verified_op(self, delta: int) -> None:
         if self._current_pane_id() != "agents.verified":
@@ -438,6 +452,33 @@ class StatsApp(TuiSwitcherMixin, App):
         except Exception:
             return
         pane.cycle_op(delta)
+
+    def _cycle_usage_op(self, delta: int) -> None:
+        if self._current_pane_id() != "agents.usage":
+            return
+        from stats.panes.agents import UsageRankingsPane
+        try:
+            pane = self.query_one("#content UsageRankingsPane", UsageRankingsPane)
+        except Exception:
+            return
+        pane.cycle_op(delta)
+
+    def _cycle_window(self, delta: int) -> None:
+        pane_id = self._current_pane_id()
+        if pane_id == "agents.verified":
+            from stats.panes.agents import VerifiedRankingsPane
+            try:
+                pane = self.query_one("#content VerifiedRankingsPane", VerifiedRankingsPane)
+            except Exception:
+                return
+            pane.cycle_window(delta)
+        elif pane_id == "agents.usage":
+            from stats.panes.agents import UsageRankingsPane
+            try:
+                pane = self.query_one("#content UsageRankingsPane", UsageRankingsPane)
+            except Exception:
+                return
+            pane.cycle_window(delta)
 
     def _cycle_session(self, delta: int) -> None:
         # Order: detected sessions in display order, then "All sessions".

@@ -143,11 +143,46 @@ class VerifiedRankingData:
     operations: List[str]  # sorted list of discovered operations
 
 
+@dataclass
+class UsageModelEntry:
+    """A single model's usage count for ranking display."""
+    cli_id: str
+    display_name: str
+    provider: str  # agent name or "all_providers"
+    runs: int
+
+
+@dataclass
+class UsageRankingData:
+    """Usage rankings by operation, provider, and time window."""
+    # {operation: {provider_or_"all_providers": {window: [UsageModelEntry, ...]}}}
+    by_window: Dict[str, Dict[str, Dict[str, List[UsageModelEntry]]]]
+    operations: List[str]
+
+
+WINDOW_KEYS: Tuple[str, ...] = ("all_time", "recent", "month", "prev_month", "week")
+
+
 def bucket_avg(runs: int, score_sum: int) -> int:
     """Compute rounded average from verifiedstats bucket values."""
     if runs <= 0:
         return 0
     return round(score_sum / runs)
+
+
+def recent_aggregate(buckets: dict) -> Tuple[int, int]:
+    """Return (runs, score_sum) summed across month + prev_month buckets.
+
+    Mirrors agent_model_picker._recent_aggregate. Duplicated rather than
+    extracted: picker uses Path-based module loading without stats_data
+    dependency; the one-line helper is cheaper to duplicate than to wire
+    a cross-module import.
+    """
+    mo = buckets.get("month", {})
+    pm = buckets.get("prev_month", {})
+    runs = mo.get("runs", 0) + pm.get("runs", 0)
+    sum_ = mo.get("score_sum", 0) + pm.get("score_sum", 0)
+    return runs, sum_
 
 
 def week_start_for(d: date, week_start_dow: int) -> date:
@@ -276,6 +311,7 @@ def load_verified_rankings(project_root: Optional[Path] = None) -> VerifiedRanki
                     continue
                 raw[key][op] = {
                     "all_time": {"runs": at_runs, "score_sum": at.get("score_sum", 0)},
+                    "prev_month": buckets.get("prev_month", {}),
                     "month": buckets.get("month", {}),
                     "week": buckets.get("week", {}),
                 }
@@ -297,19 +333,24 @@ def load_verified_rankings(project_root: Optional[Path] = None) -> VerifiedRanki
                 continue
             buckets = entry_ops[op]
             if agent not in by_window[op]:
-                by_window[op][agent] = {"all_time": [], "month": [], "week": []}
+                by_window[op][agent] = {w: [] for w in WINDOW_KEYS}
             display = model_display_from_cli_id(cli_id)
             at = buckets["all_time"]
             by_window[op][agent]["all_time"].append(
                 VerifiedModelEntry(cli_id, display, agent, bucket_avg(at["runs"], at["score_sum"]), at["runs"])
             )
-            for win in ("month", "week"):
+            for win in ("month", "prev_month", "week"):
                 wb = buckets.get(win, {})
                 w_runs = wb.get("runs", 0)
                 if w_runs > 0:
                     by_window[op][agent][win].append(
                         VerifiedModelEntry(cli_id, display, agent, bucket_avg(w_runs, wb.get("score_sum", 0)), w_runs)
                     )
+            r_runs, r_sum = recent_aggregate(buckets)
+            if r_runs > 0:
+                by_window[op][agent]["recent"].append(
+                    VerifiedModelEntry(cli_id, display, agent, bucket_avg(r_runs, r_sum), r_runs)
+                )
 
     # All-providers aggregation: group by canonical_model_id
     for op in sorted(all_ops):
@@ -317,6 +358,7 @@ def load_verified_rankings(project_root: Optional[Path] = None) -> VerifiedRanki
         grouped: Dict[str, Dict[str, dict]] = defaultdict(lambda: {
             "all_time": {"runs": 0, "score_sum": 0},
             "month": {"runs": 0, "score_sum": 0, "period": ""},
+            "prev_month": {"runs": 0, "score_sum": 0, "period": ""},
             "week": {"runs": 0, "score_sum": 0, "period": ""},
         })
         canonical_display: Dict[str, str] = {}
@@ -332,7 +374,7 @@ def load_verified_rankings(project_root: Optional[Path] = None) -> VerifiedRanki
             at = buckets["all_time"]
             grouped[canon]["all_time"]["runs"] += at["runs"]
             grouped[canon]["all_time"]["score_sum"] += at["score_sum"]
-            for win in ("month", "week"):
+            for win in ("month", "prev_month", "week"):
                 wb = buckets.get(win, {})
                 w_runs = wb.get("runs", 0)
                 w_period = wb.get("period", "")
@@ -345,7 +387,7 @@ def load_verified_rankings(project_root: Optional[Path] = None) -> VerifiedRanki
                     g["runs"] += w_runs
                     g["score_sum"] += wb.get("score_sum", 0)
 
-        ap_entries: Dict[str, List[VerifiedModelEntry]] = {"all_time": [], "month": [], "week": []}
+        ap_entries: Dict[str, List[VerifiedModelEntry]] = {w: [] for w in WINDOW_KEYS}
         for canon, windows in grouped.items():
             at = windows["all_time"]
             if at["runs"] > 0:
@@ -358,7 +400,7 @@ def load_verified_rankings(project_root: Optional[Path] = None) -> VerifiedRanki
                         at["runs"],
                     )
                 )
-            for win in ("month", "week"):
+            for win in ("month", "prev_month", "week"):
                 wb = windows[win]
                 if wb["runs"] > 0:
                     ap_entries[win].append(
@@ -370,6 +412,20 @@ def load_verified_rankings(project_root: Optional[Path] = None) -> VerifiedRanki
                             wb["runs"],
                         )
                     )
+            mo = windows["month"]
+            pm = windows["prev_month"]
+            r_runs = mo["runs"] + pm["runs"]
+            r_sum = mo["score_sum"] + pm["score_sum"]
+            if r_runs > 0:
+                ap_entries["recent"].append(
+                    VerifiedModelEntry(
+                        canonical_cli.get(canon, canon),
+                        canonical_display.get(canon, canon),
+                        "all_providers",
+                        bucket_avg(r_runs, r_sum),
+                        r_runs,
+                    )
+                )
         by_window[op]["all_providers"] = ap_entries
 
     # Sort all entry lists: score desc, display_name asc
@@ -382,6 +438,162 @@ def load_verified_rankings(project_root: Optional[Path] = None) -> VerifiedRanki
                 by_window[op][provider][win].sort(key=_sort_key)
 
     return VerifiedRankingData(by_window=by_window, operations=sorted(all_ops))
+
+
+def load_usage_rankings(project_root: Optional[Path] = None) -> UsageRankingData:
+    """Load usagestats from all models_*.json and build rankings.
+
+    Mirrors load_verified_rankings shape (by_window[op][provider][window]),
+    but reads usagestats and carries no score field. Window keys match
+    WINDOW_KEYS — recent is synthesized from month + prev_month.
+    """
+    _, _, metadata_dir = _paths_for(project_root)
+    agents = ("claudecode", "codex", "geminicli", "opencode")
+
+    raw: Dict[Tuple[str, str], Dict[str, Dict[str, dict]]] = {}
+    for agent in agents:
+        path = metadata_dir / f"models_{agent}.json"
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for model in payload.get("models", []):
+            cli_id = model.get("cli_id", "")
+            ustats = model.get("usagestats")
+            if not isinstance(ustats, dict) or not ustats or not cli_id:
+                continue
+            key = (agent, cli_id)
+            raw[key] = {}
+            for op, buckets in ustats.items():
+                if not isinstance(buckets, dict):
+                    continue
+                at = buckets.get("all_time")
+                if not isinstance(at, dict):
+                    continue
+                at_runs = at.get("runs", 0)
+                if at_runs <= 0:
+                    continue
+                raw[key][op] = {
+                    "all_time": {"runs": at_runs},
+                    "prev_month": buckets.get("prev_month", {}),
+                    "month": buckets.get("month", {}),
+                    "week": buckets.get("week", {}),
+                }
+
+    if not raw:
+        return UsageRankingData(by_window={}, operations=[])
+
+    all_ops: set = set()
+    for entry_ops in raw.values():
+        all_ops.update(entry_ops.keys())
+
+    by_window: Dict[str, Dict[str, Dict[str, List[UsageModelEntry]]]] = {}
+    for op in sorted(all_ops):
+        by_window[op] = {}
+        for (agent, cli_id), entry_ops in raw.items():
+            if op not in entry_ops:
+                continue
+            buckets = entry_ops[op]
+            if agent not in by_window[op]:
+                by_window[op][agent] = {w: [] for w in WINDOW_KEYS}
+            display = model_display_from_cli_id(cli_id)
+            at = buckets["all_time"]
+            by_window[op][agent]["all_time"].append(
+                UsageModelEntry(cli_id, display, agent, at["runs"])
+            )
+            for win in ("month", "prev_month", "week"):
+                wb = buckets.get(win, {})
+                w_runs = wb.get("runs", 0)
+                if w_runs > 0:
+                    by_window[op][agent][win].append(
+                        UsageModelEntry(cli_id, display, agent, w_runs)
+                    )
+            mo = buckets.get("month", {})
+            pm = buckets.get("prev_month", {})
+            r_runs = mo.get("runs", 0) + pm.get("runs", 0)
+            if r_runs > 0:
+                by_window[op][agent]["recent"].append(
+                    UsageModelEntry(cli_id, display, agent, r_runs)
+                )
+
+        # All-providers aggregation by canonical model id
+        grouped: Dict[str, Dict[str, dict]] = defaultdict(lambda: {
+            "all_time": {"runs": 0},
+            "month": {"runs": 0, "period": ""},
+            "prev_month": {"runs": 0, "period": ""},
+            "week": {"runs": 0, "period": ""},
+        })
+        canonical_display: Dict[str, str] = {}
+        canonical_cli: Dict[str, str] = {}
+        for (agent, cli_id), entry_ops in raw.items():
+            if op not in entry_ops:
+                continue
+            canon = canonical_model_id(cli_id)
+            if canon not in canonical_display:
+                canonical_display[canon] = model_display_from_cli_id(cli_id)
+                canonical_cli[canon] = cli_id
+            buckets = entry_ops[op]
+            grouped[canon]["all_time"]["runs"] += buckets["all_time"]["runs"]
+            for win in ("month", "prev_month", "week"):
+                wb = buckets.get(win, {})
+                w_runs = wb.get("runs", 0)
+                w_period = wb.get("period", "")
+                if w_runs <= 0 or not w_period:
+                    continue
+                g = grouped[canon][win]
+                if not g["period"]:
+                    g["period"] = w_period
+                if g["period"] == w_period:
+                    g["runs"] += w_runs
+
+        ap_entries: Dict[str, List[UsageModelEntry]] = {w: [] for w in WINDOW_KEYS}
+        for canon, windows in grouped.items():
+            at = windows["all_time"]
+            if at["runs"] > 0:
+                ap_entries["all_time"].append(
+                    UsageModelEntry(
+                        canonical_cli.get(canon, canon),
+                        canonical_display.get(canon, canon),
+                        "all_providers",
+                        at["runs"],
+                    )
+                )
+            for win in ("month", "prev_month", "week"):
+                wb = windows[win]
+                if wb["runs"] > 0:
+                    ap_entries[win].append(
+                        UsageModelEntry(
+                            canonical_cli.get(canon, canon),
+                            canonical_display.get(canon, canon),
+                            "all_providers",
+                            wb["runs"],
+                        )
+                    )
+            mo = windows["month"]
+            pm = windows["prev_month"]
+            r_runs = mo["runs"] + pm["runs"]
+            if r_runs > 0:
+                ap_entries["recent"].append(
+                    UsageModelEntry(
+                        canonical_cli.get(canon, canon),
+                        canonical_display.get(canon, canon),
+                        "all_providers",
+                        r_runs,
+                    )
+                )
+        by_window[op]["all_providers"] = ap_entries
+
+    def _sort_key(e: UsageModelEntry) -> Tuple[int, str]:
+        return (-e.runs, e.display_name)
+
+    for op in by_window:
+        for provider in by_window[op]:
+            for win in by_window[op][provider]:
+                by_window[op][provider][win].sort(key=_sort_key)
+
+    return UsageRankingData(by_window=by_window, operations=sorted(all_ops))
 
 
 def canonical_model_id(cli_id: str) -> str:

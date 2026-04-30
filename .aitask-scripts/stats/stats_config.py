@@ -17,7 +17,7 @@ METADATA_FILE = "aitasks/metadata/stats_config.json"
 DEFAULT_PRESETS: dict[str, list[str]] = {
     "overview": ["overview.summary", "overview.daily", "overview.weekday"],
     "labels":   ["labels.top", "labels.issue_types", "labels.heatmap"],
-    "agents":   ["agents.per_agent", "agents.per_model", "agents.verified"],
+    "agents":   ["agents.per_agent", "agents.per_model", "agents.verified", "agents.usage"],
     "velocity": ["velocity.daily", "velocity.rolling", "velocity.parent_child"],
     "sessions": ["sessions.totals", "overview.summary", "overview.daily"],
 }
