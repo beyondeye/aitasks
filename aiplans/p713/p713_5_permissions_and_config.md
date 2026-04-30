@@ -187,3 +187,46 @@ Manual confirmation:
   `defaults["syncer_autostart"]` initial value is `False` (it is, line 702).
 
 Step 9 (Post-Implementation): standard archival flow.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the plan exactly as written. Six files
+  modified: 5 whitelist touchpoints gained one `aitask_syncer.sh` entry each
+  (alphabetical position between `aitask_sync` and the next entry), and
+  `seed/project_config.yaml` gained a documented `tmux.syncer:` block (with
+  prose explanation of `autostart`, an example showing `true`, and the
+  default-false stance) inserted between `git_tui:` and the
+  commented-out `monitor:` example. Total: +36 lines, -0 lines.
+- **Deviations from plan:** None. The plan's anchors (line numbers + before/
+  after entries) matched the runtime files exactly.
+- **Issues encountered:** None.
+- **Key decisions:**
+  - Followed CLAUDE.md "Adding a New Helper Script" 5-touchpoint rule
+    verbatim — no Codex allowlist entry (Codex prompt/forbidden model).
+  - Kept the documented `syncer:` block commented-out in `seed/project_config.yaml`
+    so it is purely documentation in fresh installs (matches the pattern
+    used by the adjacent `monitor:` example block); loader defaults handle
+    the absent key as `false`.
+  - Did not modify runtime `aitasks/metadata/project_config.yaml` — both
+    `aitask_ide.sh:read_syncer_autostart` and
+    `agent_launch_utils.py:load_tmux_defaults` already default to false.
+  - Verification step 5 confirmed by re-reading
+    `.aitask-scripts/settings/settings_app.py:save_project_settings` →
+    `.aitask-scripts/lib/config_utils.py:save_yaml_config`: pure YAML write,
+    no `git`/`./ait git` calls anywhere in the save path.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - `t713_6_website_syncer_docs.md` (next sibling): the user-facing docs for
+    `tmux.syncer.autostart` should mirror the seed comment block prose —
+    auto-launch via `ait ide`, default false, manual launch via `ait syncer`.
+    Reference the seed block as the canonical wording so the website and
+    seed stay in sync.
+  - `t713_7_manual_verification_syncer_tui.md` (later sibling): the Codex
+    exception means Codex users will be prompted on first `aitask_syncer.sh`
+    invocation; this is by design and not a verification failure.
+- **Verification results (2026-04-30):**
+  - `grep -l aitask_syncer.sh` across 5 touchpoints → all 5 hit.
+  - JSON/TOML/YAML syntax checks all green.
+  - `seed/project_config.yaml`: `# autostart: true` (line 228) and
+    `#   autostart: false` (line 231) both visible.
+
