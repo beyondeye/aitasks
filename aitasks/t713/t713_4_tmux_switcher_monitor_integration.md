@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [t713_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [tui, scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-29 09:48
-updated_at: 2026-04-29 09:48
+updated_at: 2026-04-30 14:42
 ---
 
 ## Context
