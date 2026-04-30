@@ -47,6 +47,7 @@
       "Bash(./.aitask-scripts/aitask_fold_content.sh:*)",
       "Bash(./.aitask-scripts/aitask_fold_mark.sh:*)",
       "Bash(./.aitask-scripts/aitask_fold_validate.sh:*)",
+      "Bash(./.aitask-scripts/aitask_backfill_pid_anchor.sh:*)",
       "Bash(./.aitask-scripts/aitask_init_data.sh:*)",
       "Bash(./.aitask-scripts/aitask_issue_import.sh:*)",
       "Bash(./.aitask-scripts/aitask_issue_update.sh:*)",

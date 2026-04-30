@@ -24,6 +24,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# shellcheck source=lib/pid_anchor.sh
+source "$SCRIPT_DIR/lib/pid_anchor.sh"
 
 BRANCH="aitask-locks"
 MAX_RETRIES=5
@@ -71,6 +73,13 @@ lock_branch_exists_on_remote() {
 
 get_hostname() {
     hostname 2>/dev/null || echo "unknown"
+}
+
+# PID to anchor the lock to. PPID is the agent's bash/claude process —
+# when the agent dies (tmux crash), kill -0 returns ESRCH, and re-pick
+# detects the crash via aitask_pick_own.sh.
+get_lock_pid() {
+    echo "$PPID"
 }
 
 get_timestamp() {
@@ -143,6 +152,7 @@ lock_task() {
         current_tree_hash=$(git rev-parse "origin/$BRANCH^{tree}")
 
         # Step 2: Check if lock file already exists in tree
+        local prior_pid="-" prior_starttime="-" prior_locked_at_field="-" prior_lock_host="-"
         if git ls-tree "$current_tree_hash" -- "$lock_file" 2>/dev/null | grep -q "$lock_file"; then
             # Lock exists — read it for informative message
             local lock_content locked_by locked_at
@@ -152,6 +162,18 @@ lock_task() {
             local locked_hostname
             locked_hostname=$(echo "$lock_content" | grep '^hostname:' | sed 's/hostname: *//')
             [[ -z "$locked_hostname" ]] && locked_hostname="unknown"
+
+            # Capture PID-anchor fields from prior lock for crash-recovery
+            # detection in aitask_pick_own.sh. Pre-anchor locks lack these
+            # fields — `|| true` keeps pipefail from killing the script;
+            # missing fields collapse to "-" for shape-stable downstream parsing.
+            prior_pid=$(echo "$lock_content" | grep '^pid:' | sed 's/pid: *//' || true)
+            prior_starttime=$(echo "$lock_content" | grep '^pid_starttime:' | sed 's/pid_starttime: *//' || true)
+            prior_locked_at_field="$locked_at"
+            prior_lock_host="$locked_hostname"
+            [[ -z "$prior_pid" ]] && prior_pid="-"
+            [[ -z "$prior_starttime" ]] && prior_starttime="-"
+            [[ -z "$prior_locked_at_field" ]] && prior_locked_at_field="-"
 
             # Idempotent: if same email owns the lock, refresh it
             if [[ "$locked_by" == "$email" ]]; then
@@ -167,6 +189,11 @@ lock_task() {
                       && "$locked_hostname" != "$current_hostname" ]]; then
                     echo "LOCK_RECLAIM:${locked_hostname}|${locked_at}|${current_hostname}"
                 fi
+                # Always emit PRIOR_LOCK so aitask_pick_own.sh can decide
+                # between RECLAIM_CRASH (same-host, dead PID) and
+                # RECLAIM_STATUS (anomaly fallback). Even on cross-host
+                # reclaim it is informative.
+                echo "PRIOR_LOCK:${prior_pid}|${prior_starttime}|${prior_lock_host}|${prior_locked_at_field}"
             else
                 # Structured output for machine parsing (by aitask_pick_own.sh)
                 echo "LOCK_HOLDER:${locked_by}|${locked_at}|${locked_hostname}"
@@ -175,11 +202,15 @@ lock_task() {
         fi
 
         # Step 3: Build lock file content (YAML)
-        local lock_yaml
+        local lock_pid lock_starttime lock_yaml
+        lock_pid=$(get_lock_pid)
+        lock_starttime=$(get_pid_starttime "$lock_pid")
         lock_yaml="task_id: $task_id
 locked_by: $email
 locked_at: $(get_timestamp)
-hostname: $(get_hostname)"
+hostname: $(get_hostname)
+pid: $lock_pid
+pid_starttime: $lock_starttime"
 
         # Step 4: Create new commit via git plumbing
         local blob_hash new_tree_hash commit_hash_new

@@ -137,25 +137,16 @@ If `active_profile` is null (either because no profile was selected by the calli
   **Parse the script output:**
   - `OWNED:<task_id>` — Success. Proceed to Step 5.
   - `FORCE_UNLOCKED:<previous_owner>` + `OWNED:<task_id>` — Force-unlock succeeded. Inform user: "Force-unlocked stale lock held by \<previous_owner\>." Proceed to Step 5.
-  - `LOCK_RECLAIM:<prev_hostname>|<prev_locked_at>|<current_hostname>` and/or `RECLAIM_STATUS:<prev_status>|<prev_assigned_to>` (in addition to `OWNED:`) — Task was already in `Implementing` claimed by you on a different machine. The lock has already been refreshed to this host by `aitask_lock.sh`, but the user must confirm before continuing. Use `AskUserQuestion`:
-    - If `LOCK_RECLAIM:` was emitted, parse `prev_hostname` / `prev_locked_at` / `current_hostname` from the `|`-separated fields.
-      - Question: "Task t\<N\> is already in `Implementing`, claimed by you on `\<prev_hostname\>` since `\<prev_locked_at\>` (current host: `\<current_hostname\>`). Reclaim and continue here?"
-    - Otherwise (only `RECLAIM_STATUS:` emitted — lock was missing but task status was stuck in `Implementing` for this email):
-      - Question: "Task t\<N\> shows status `Implementing` already assigned to you, but no active lock holds it. Reclaim and continue here?"
-    - Header: "Reclaim"
-    - Options:
-      - "Reclaim and continue" (description: "Resume work on this host — the lock has been refreshed to this PC")
-      - "Pick a different task" (description: "Release the lock, revert task to Ready, and select another task")
-    - If "Reclaim and continue": Proceed to Step 5 normally — `OWNED:` confirms the lock is now held here.
-    - If "Pick a different task": Release the lock, revert status, and return to the calling skill's task selection:
-      ```bash
-      ./.aitask-scripts/aitask_lock.sh --unlock <task_num> 2>/dev/null || true
-      ./.aitask-scripts/aitask_update.sh --batch <task_num> --status Ready --assigned-to ""
-      ./ait git add aitasks/
-      ./ait git commit -m "ait: Revert t<task_num> to Ready (reclaim declined)" 2>/dev/null || true
-      ./ait git push
-      ```
-      Then return to the calling skill's task selection. Do NOT proceed.
+  - One of `LOCK_RECLAIM:`, `RECLAIM_CRASH:`, or `RECLAIM_STATUS:` (in addition to `OWNED:`) — task was already in `Implementing` and re-locked. When multiple are present, prefer `LOCK_RECLAIM` > `RECLAIM_CRASH` > `RECLAIM_STATUS`. Parse the signal-specific fields and execute the **Crash Recovery Procedure** (see `crash-recovery.md`) with `signal_type` and the parsed fields.
+
+    Signal field formats:
+    - `LOCK_RECLAIM:<prev_hostname>|<prev_locked_at>|<current_hostname>` — multi-PC reclaim (cross-host).
+    - `RECLAIM_CRASH:<prev_locked_at>|<prev_hostname>|<prev_pid>` — same-host crash (PID anchor is dead). Common case after a tmux/host-shell crash.
+    - `RECLAIM_STATUS:<prev_status>|<prev_assigned_to>` — anomaly fallback (lock missing or pre-PID-anchor lock).
+
+    When the procedure returns:
+    - `reclaim` → proceed to Step 5 normally — `OWNED:` confirms the lock is now held here.
+    - `decline` → return to the calling skill's task selection. Do NOT proceed. (The procedure has already released the lock and reverted the task to `Ready`.)
   - `LOCK_FAILED:<owner>|<locked_at>|<hostname>` — Task is locked by another user/PC. Parse the `|`-separated fields for lock details. Use `AskUserQuestion`:
     - Question: "Task t\<N\> is locked by \<owner\> (since \<locked_at\>, hostname: \<hostname\>). Force unlock?"
     - Header: "Lock"
@@ -252,7 +243,7 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
 - Resolve the current user's email: use the email from Step 4 if available, otherwise read from `aitasks/metadata/userconfig.yaml`
 - **If status is `Implementing` AND `assigned_to` matches the current user's email:** Ownership *appears* to have been acquired in Step 4 — but verify the lock is held on *this* host before assuming so. Run `./.aitask-scripts/aitask_lock.sh --check <task_id>` and parse the `hostname:` line from the output. Compare against `hostname` (the running shell's hostname).
   - If the hostname matches **or** `--check` shows no lock at all (single-user / no-remote mode): ownership is confirmed for this host. Proceed normally.
-  - If the hostname differs (a different machine holds the lock under your email): a multi-PC reclaim has been detected by the guard. Surface the same `AskUserQuestion` as Step 4's `LOCK_RECLAIM:` branch (same wording, same options, same handling of "Reclaim and continue" / "Pick a different task"). If the user reclaims, run `./.aitask-scripts/aitask_pick_own.sh <task_num> --email "<email>"` to refresh the lock to this host before proceeding.
+  - If the hostname differs (a different machine holds the lock under your email): a multi-PC reclaim has been detected by the guard. Execute the **Crash Recovery Procedure** (see `crash-recovery.md`) with `signal_type=LOCK_RECLAIM`, parsing `prev_hostname` from `--check` output and using the current `hostname` as `current_hostname`. If the procedure returns `reclaim`, run `./.aitask-scripts/aitask_pick_own.sh <task_num> --email "<email>"` to refresh the lock to this host before proceeding. If `decline`, return to the calling skill's task selection. (Same-host crash recovery is moot here: by the time Step 7 fires, Step 4's `aitask_pick_own.sh` already owned the lock and surfaced any `RECLAIM_CRASH:` signal.)
 - **Otherwise** (status is not `Implementing`, or `assigned_to` is empty/missing, or `assigned_to` does not match the current user's email): Ownership was not properly acquired. Display: "Guard: task ownership not confirmed — acquiring ownership now."
   - Run the ownership claim:
     ```bash
@@ -562,6 +553,7 @@ The following procedures are in individual files — read on demand when referen
 - **Agent Attribution Procedure** (`agent-attribution.md`) — Record implementing code agent and model. Referenced from Step 7.
 - **Satisfaction Feedback Procedure** (`satisfaction-feedback.md`) — Collect user feedback and update verified model scores. Referenced from Step 9b and standalone skills.
 - **Lock Release Procedure** (`lock-release.md`) — Release task locks. Referenced from Task Abort Procedure.
+- **Crash Recovery Procedure** (`crash-recovery.md`) — Surveys in-progress work and prompts the user when a reclaim signal is detected (multi-PC, same-host crash via PID anchor, or lock anomaly). Referenced from Step 4 dispatcher and Step 7 ownership guard.
 - **Manual Verification Procedure** (`manual-verification.md`) — Interactive checklist runner for `issue_type: manual_verification` tasks. Referenced from Step 3 (Check 3).
 - **Manual Verification Follow-up Procedure** (`manual-verification-followup.md`) — Post-implementation prompt offering to create a standalone manual-verification task, with multi-source candidate discovery. Referenced from Step 8c.
 - **Upstream Defect Follow-up Procedure** (`upstream-followup.md`) — Post-implementation prompt offering to spawn a standalone bug aitask for an upstream defect surfaced during diagnosis. Reads the plan file's "Upstream defects identified" subsection. Referenced from Step 8b.

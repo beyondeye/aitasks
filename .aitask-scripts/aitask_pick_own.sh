@@ -34,6 +34,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# shellcheck source=lib/pid_anchor.sh
+source "$SCRIPT_DIR/lib/pid_anchor.sh"
 
 # --- Configuration ---
 TASK_ID=""
@@ -165,8 +167,9 @@ acquire_lock() {
 
     if [[ $lock_exit -eq 0 ]]; then
         # Forward LOCK_RECLAIM: signal (same-email-different-host re-lock)
-        # from aitask_lock.sh to our own caller (task-workflow Step 4).
-        echo "$lock_output" | grep '^LOCK_RECLAIM:' || true
+        # and PRIOR_LOCK: (PID anchor info from prior lock — used by main()
+        # to decide RECLAIM_CRASH vs. RECLAIM_STATUS) to our caller.
+        echo "$lock_output" | grep -E '^(LOCK_RECLAIM|PRIOR_LOCK):' || true
         return 0
     fi
 
@@ -296,9 +299,11 @@ main() {
         store_email "$EMAIL"
     fi
 
-    # Step 3: Acquire lock
-    local lock_result=0
-    acquire_lock "$TASK_ID" "$EMAIL" || lock_result=$?
+    # Step 3: Acquire lock — capture stdout so we can parse PRIOR_LOCK:
+    # before it's lost. Forward the captured output verbatim to our caller.
+    local lock_result=0 acquire_stdout=""
+    acquire_stdout=$(acquire_lock "$TASK_ID" "$EMAIL") || lock_result=$?
+    [[ -n "$acquire_stdout" ]] && echo "$acquire_stdout"
 
     if [[ $lock_result -eq 1 && "$FORCE" == true ]]; then
         local force_result=0
@@ -317,6 +322,16 @@ main() {
         exit 1
     fi
 
+    # Parse PRIOR_LOCK: from acquire output (one line; format
+    # PRIOR_LOCK:<pid>|<starttime>|<host>|<locked_at>). Empty fields are "-".
+    local prior_pid="-" prior_starttime="-" prior_lock_host="-" prior_locked_at="-"
+    local prior_line
+    prior_line=$(echo "$acquire_stdout" | grep '^PRIOR_LOCK:' | head -1 || true)
+    if [[ -n "$prior_line" ]]; then
+        IFS='|' read -r prior_pid prior_starttime prior_lock_host prior_locked_at \
+            <<<"${prior_line#PRIOR_LOCK:}"
+    fi
+
     # Step 4: Update task metadata
     update_task_status "$TASK_ID" "$EMAIL"
 
@@ -326,13 +341,23 @@ main() {
     # Output success
     echo "OWNED:$TASK_ID"
 
-    # Post-claim: emit RECLAIM_STATUS: when the task was already Implementing
-    # by this same email before this pick. Belt-and-suspenders signal —
-    # complements LOCK_RECLAIM: from aitask_lock.sh and covers the rare
-    # "lock missing but status stuck in Implementing" anomaly.
+    # Post-claim: emit a reclaim signal when the task was already
+    # Implementing by this same email. Three cases:
+    #   RECLAIM_CRASH  — same host, prior PID anchor is dead (tmux crash etc.)
+    #   RECLAIM_STATUS — anomaly fallback (lock missing or pre-anchor lock)
+    # LOCK_RECLAIM: (cross-host) is emitted separately by aitask_lock.sh
+    # and forwarded above; we still emit one of the below for completeness —
+    # task-workflow's dispatcher prefers LOCK_RECLAIM > CRASH > STATUS.
     if [[ "$prev_status" == "Implementing" && -n "$EMAIL" \
           && "$prev_assigned" == "$EMAIL" ]]; then
-        echo "RECLAIM_STATUS:${prev_status}|${prev_assigned}"
+        local current_host
+        current_host=$(hostname 2>/dev/null || echo "unknown")
+        if [[ "$prior_lock_host" == "$current_host" ]] \
+           && ! is_lock_holder_alive "$prior_pid" "$prior_starttime"; then
+            echo "RECLAIM_CRASH:${prior_locked_at}|${prior_lock_host}|${prior_pid}"
+        else
+            echo "RECLAIM_STATUS:${prev_status}|${prev_assigned}"
+        fi
     fi
 }
 

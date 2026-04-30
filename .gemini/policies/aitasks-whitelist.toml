@@ -270,6 +270,12 @@ priority = 100
 
 [[rule]]
 toolName = "run_shell_command"
+commandPrefix = "./.aitask-scripts/aitask_backfill_pid_anchor.sh"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
 commandRegex = ".*/.aitask-scripts/aitask_lock\\.sh\\s+--check\\s+[0-9_]+\\s+2>/dev/null.*"
 decision = "allow"
 priority = 100

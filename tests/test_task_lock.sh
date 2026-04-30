@@ -84,6 +84,7 @@ setup_paired_repos() {
         cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
         chmod +x .aitask-scripts/aitask_lock.sh
 
@@ -112,6 +113,7 @@ clone_second_local() {
         cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
         chmod +x .aitask-scripts/aitask_lock.sh
     )
@@ -439,6 +441,7 @@ TMPDIR_20="$(mktemp -d)"
     cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
     chmod +x .aitask-scripts/aitask_lock.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
@@ -460,6 +463,7 @@ TMPDIR_21="$(mktemp -d)"
     cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
     chmod +x .aitask-scripts/aitask_lock.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
@@ -481,6 +485,7 @@ TMPDIR_22="$(mktemp -d)"
     cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
     chmod +x .aitask-scripts/aitask_lock.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
@@ -503,6 +508,7 @@ TMPDIR_23="$(mktemp -d)"
     cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
     chmod +x .aitask-scripts/aitask_lock.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet

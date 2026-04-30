@@ -32,6 +32,7 @@
       "./.aitask-scripts/aitask_explain_extract_raw_data.sh *": "allow",
       "./.aitask-scripts/aitask_explain_runs.sh *": "allow",
       "./.aitask-scripts/aitask_explain_cleanup.sh *": "allow",
+      "./.aitask-scripts/aitask_backfill_pid_anchor.sh *": "allow",
       "./.aitask-scripts/aitask_find_files.sh *": "allow",
       "./.aitask-scripts/aitask_fold_content.sh *": "allow",
       "./.aitask-scripts/aitask_fold_mark.sh *": "allow",
