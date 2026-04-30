@@ -278,3 +278,27 @@ No new files. No tests in this task — picker is TUI-only. Manual verification 
 ## Step 9: Post-Implementation
 
 Standard archival via `./.aitask-scripts/aitask_archive.sh 717_3`. Folded tasks: none.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Added `_recent_aggregate(op_buckets)` and `_recent_avg(op_buckets)` helpers in `.aitask-scripts/lib/agent_model_picker.py` next to `_bucket_avg`. `_recent_aggregate` returns `(runs, score_sum)` summed across `month + prev_month`; `_recent_avg` returns the rounded average (0 when no recent runs).
+  - Rewrote `_build_top_verified` to rank by recent-window average rather than all-time. When a model has zero recent runs, it falls through to flat `verified[op]` with a `"score: N (no recent data)"` detail string. Crucially, it does NOT fall back to `all_time` — the whole point is to stop old high-score incumbents from dominating the ranking.
+  - Added `_build_top_usage` mirroring `_build_top_verified` but reading `usagestats[op]` and ranking by recent runs. Detail string is `"{recent} runs recent"` or `"{recent} runs recent · {at} all-time"` when there is meaningful all-time history beyond the recent window. No fall-through to flat data — usage is purely recent-window.
+  - Added `_build_options_top_usage` mirroring `_build_options_top` (placeholder row `(no recent usage for this op)` when empty).
+  - Inserted `("top_usage", "Top by usage (recent)")` into `_MODES` between `top` and `all`. Relabeled `top` to `"Top verified models (recent)"` to clarify the window. Cycle is now 7 modes (was 6).
+  - Wired `top_usage` through `_build_options_for_mode`, `_placeholder_for_mode` (placeholder `"Type to filter top-used models..."`), and `on_fuzzy_select_selected` (treated like `top` and `all` — no agent prefix because the mode rows already include `agent/name`).
+  - Extended `_format_op_stats` to surface `prev_month` when `pm_runs > 0`. Builds the parts list dynamically: `f"{runs} runs"`, optionally `f"{mo_runs} this {mo_label}"`, optionally `f"{pm_runs} {pm_label}"`. Compact form labels: `mo`/`prev mo`; full form labels: `month`/`last month`. Cold-start models with no month/prev_month data continue to show the original terse output (`"avg (runs runs)"`).
+  - Updated module-level docstring and `AgentModelPickerScreen` class docstring to reflect the cycle is now 7 modes (was 6).
+- **Deviations from plan:** None of substance. The implementation matches the canonical plan section-by-section. Only minor trim: the docstring on `_recent_avg` was kept as a plain `"""..."""` triple-quote with no explicit description (matches the plan's terse formulation; `_recent_aggregate`'s docstring covers the "what").
+- **Issues encountered:**
+  - `git status` at commit time still shows the untracked junk noted in t717_2's Final Implementation Notes (`os`, `shutil`, `subprocess`, `time`, `unittest` at repo root, plus the in-flight `tmux_control.py` / syncer body and `.claude/projects/`). Left untouched — none are in scope and they were already documented as pre-existing.
+- **Key decisions:**
+  - Kept `_recent_avg` even though `_build_top_verified` uses `_recent_aggregate` directly. The symmetric helper pair (`_bucket_avg` for a single bucket / `_recent_avg` for the recent window) gives future callers (e.g. t717_4 if it doesn't share through `stats_data`) a clean entry point. Cost is ~5 lines.
+  - Did NOT extract `_recent_aggregate` to `stats_data.py` despite the recent-window aggregation being parallel to t717_4. Picker uses Path-based module loading and has no `stats_data` import; duplicating the one-line helper in `stats_data.py` later is cheaper than coupling the two modules. The plan's "Notes for sibling tasks" already calls this out for the t717_4 implementer to reconsider.
+  - `_build_top_usage` skips models with zero recent runs entirely (no flat-fallback), unlike `_build_top_verified` which falls through to flat `verified[op]`. There is no flat usage equivalent in the schema — `usagestats` is bucket-only.
+  - Relabeling the existing `top` mode to `"Top verified models (recent)"` (rather than introducing a new mode key) preserves backward compat for any persisted picker state that might key on `"top"` and avoids the cycle re-ordering footgun.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks (t717_4):**
+  - The `_recent_aggregate(op_buckets) -> (runs, score_sum)` pattern works for both verifiedstats and usagestats — score_sum just stays 0 for usage. If t717_4 wants the same recent-window aggregation in `stats_data.py`, copy the helper rather than introducing a new module dependency. Keep the term "recent" consistent (= `month + prev_month`).
+  - The picker's `_format_op_stats` extension is purely additive: `prev_month` only shows when `pm_runs > 0`. Stats TUI's analogous formatter (if any) should follow the same pattern so cold-start models stay terse.
