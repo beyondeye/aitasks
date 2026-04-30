@@ -345,8 +345,9 @@ follow-up tasks if any improvement direction looks worth pursuing.
 - Routing user-action subprocess calls (kill-pane, switch-to-pane,
   send-keys, rename-window, has-session, etc.) through the control
   client. Not per-tick; subprocess overhead is invisible at user
-  reaction times. If profiling later flags one as slow, it's a separate
-  task.
+  reaction times. **Tracked separately as t722** (depends on `t719_2`),
+  motivated not by performance but by an upcoming mobile-device bridge
+  that wants a single contact surface for all monitor↔tmux operations.
 
 ## Parent task post-implementation
 
