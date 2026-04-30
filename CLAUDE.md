@@ -167,6 +167,18 @@ User-facing docs (website, README-level content) describe the **current state on
 
   **How to apply:** Default any new long-running Textual TUI launcher to `require_ait_python_fast`. Monitor / minimonitor are exceptions today (their bottleneck is `fork+exec(tmux)`, see t718's parent task) — t718_5 will empirically re-evaluate. Diffviewer is also an exception until its brainstorm integration lands. Do NOT retroactively switch existing launchers without an aitask covering the change.
 
+- **`AIT_USE_PYPY` precedence (runtime override).** When PyPy has been installed via `ait setup --with-pypy`, the six fast-path TUIs (board, codebrowser, settings, stats-tui, brainstorm, syncer) auto-route through `~/.aitask/pypy_venv`. The `AIT_USE_PYPY` env var overrides per invocation:
+
+  | `AIT_USE_PYPY` | PyPy installed? | Result |
+  |----------------|-----------------|--------|
+  | `1`            | Yes             | PyPy (forced) |
+  | `1`            | No              | error: install with `ait setup --with-pypy` |
+  | `0`            | (any)           | CPython (override) |
+  | unset          | Yes             | PyPy (default once installed) |
+  | unset          | No              | CPython (current behavior preserved) |
+
+  Monitor / minimonitor stay on CPython regardless of `AIT_USE_PYPY` — their bottleneck is `fork+exec(tmux)`, not Python execution. Sibling task t718_5 will empirically re-evaluate. Full analysis: `aidocs/python_tui_performance.md`.
+
 - **`n` is the create-task key** across every aitasks TUI (board, codebrowser, minimonitor, monitor, brainstorm, TUI switcher modal). Do not default to `c` or other alternatives when adding a create-task binding to a new TUI. Related TUIs may bind `n` to "next" (monitor, logview, diffviewer) — those are read-oriented TUIs without a create-task action, so the conflict is only notional.
 - **Priority bindings + `App.query_one` gotcha:** when an `App` and a pushed `Screen` define a binding with the same action name and `priority=True`, the App-level action runs first. If its "am I in the right screen?" guard uses `self.query_one(...)`, the query walks the entire screen stack and will match widgets from underlying screens — so the guard succeeds for the wrong screen, consumes the key, and the active screen's own binding never fires. Scope guards to `self.screen.query_one(...)`. On guard-miss, raise `textual.actions.SkipAction` so the next priority binding (the active screen's own action) gets a chance. Alternative: use distinct action names per screen.
 - **No auto-commit/push of project-level config from runtime TUIs.** Runtime `save()` paths in config modules must write only the user-level (`*.local.json`, gitignored) layer. Project-level (`*.json`, tracked) files are read-only at runtime unless there is an explicit user-initiated "export / publish" action. Never call `git commit` or `./ait git push` from inside a TUI event handler for a config change. First-time ship of a project-level file is a one-time implementation commit; runtime saves after that must not touch it.

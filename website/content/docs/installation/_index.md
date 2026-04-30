@@ -129,6 +129,7 @@ For background on why task data lives on a separate branch, see the
 
 - CLI tools: `fzf`, `gh` (for GitHub), `glab` (for GitLab), or `bkt` (for Bitbucket), `jq`, `git`, `zstd`
 - Python venv at `~/.aitask/venv/` with `textual` (>=8.1), `pyyaml`, `linkify-it-py`, `tomli` (plus optional `plotext` when enabled for `ait stats-tui` chart panes). Versions are pinned — see `ait setup` for details
+- Optional: PyPy 3.11 venv at `~/.aitask/pypy_venv/` for faster long-running TUIs — see [PyPy Runtime]({{< relref "pypy" >}})
 - Global `ait` shim at `~/.local/bin/ait`
 - Claude Code permissions in `.claude/settings.local.json` (see [Claude Code Permissions](../commands/setup-install/#claude-code-permissions))
 
