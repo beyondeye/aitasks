@@ -221,3 +221,21 @@ Polling and rendering:
 - Confirm unavailable-branch resilience by temporarily renaming
   `.aitask-data` (or running outside the repo) — the TUI should still
   render with a status of `missing_worktree` rather than crash.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented per plan with no significant deviation. Three files created and one edited:
+  - `.aitask-scripts/aitask_syncer.sh` — wrapper mirroring `aitask_codebrowser.sh`: sources `aitask_path.sh` / `python_resolve.sh` / `terminal_compat.sh`, resolves the framework Python via `require_ait_python`, asserts `textual` and `yaml`, runs `ait_warn_if_incapable_terminal`, then exec's `syncer/syncer_app.py`.
+  - `.aitask-scripts/syncer/__init__.py` — empty package marker.
+  - `.aitask-scripts/syncer/syncer_app.py` — `SyncerApp(TuiSwitcherMixin, App)` with a `DataTable` of two row keys (`main`, `aitask-data`) and a `VerticalScroll` detail pane. Bindings: switcher (`j` from mixin) + `r` refresh + `f` toggle fetch + `q` quit. Polling via `set_interval(self._interval, self.action_refresh)` with `_refresh_worker` running `@work(thread=True, exclusive=True)`. Detail pane caps display at 20 commits / 50 paths. Subtitle exposes `interval` and `fetch` state for visibility.
+  - `ait` — three small edits: usage line for `syncer`, `syncer` added to the update-check skip list, and a dispatcher case routing to `aitask_syncer.sh`.
+- **Deviations from plan:** None worth flagging. The plan's "decision: omit overlay in v1" was followed (no `LoadingOverlay`); seed row uses `"loading…"` text in the Status column instead.
+- **Issues encountered:** None. Verifications all passed cleanly: `bash -n aitask_syncer.sh`, `python3 -m py_compile syncer_app.py`, `./ait syncer --help` (argparse output), and a direct `desync_state.snapshot()` import returned a live `{"refs": [...]}` payload.
+- **Key decisions:** Kept the module layout single-file (`syncer_app.py`) per plan guidance; siblings can split if action handlers (t713_3) push it past comfortable size. Used `try/except` around `coordinate_to_cell_key` in `_selected_ref_name` to keep cursor-row resolution defensive — Textual's API has shifted across versions and a row-key fallback by index keeps the TUI robust.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t713_3 (sync actions):** Action handlers should be wired onto the `BINDINGS` list in `SyncerApp` and dispatch a worker similar to `_refresh_worker`. The detail pane's `_refresh_detail` already shows `remote_commits` and `remote_changed_paths` — pull/push outcome can reuse the same Static widget for status messages, or push a transient `LoadingOverlay` for long operations. The runner extraction (t713_8) should expose a callable that takes a ref name and an action verb.
+  - **t713_4 (registry/switcher/monitor):** Register `"syncer"` in `TUI_REGISTRY` (in `lib/tui_switcher.py`) so `_build_tui_list` shows it. Pick a switcher hotkey that is NOT `n` (CLAUDE.md "n is the create-task key"); current free letters in the switcher include `y`. The mixin already holds `current_tui_name = "syncer"` from `__init__`, so re-entry is wired.
+  - **t713_5 (whitelist + config):** This task did NOT add the 5 helper-script whitelist touchpoints for `aitask_syncer.sh`. t713_5 must add entries to: `.claude/settings.local.json`, `.gemini/policies/aitasks-whitelist.toml`, `seed/claude_settings.local.json`, `seed/geminicli_policies/aitasks-whitelist.toml`, `seed/opencode_config.seed.json`.
+  - **t713_6 (docs):** The user-facing TUI list should add `syncer` only after t713_4 lands so docs match the registry.
+- **Verification:** `bash -n .aitask-scripts/aitask_syncer.sh` ✅, `python3 -m py_compile .aitask-scripts/syncer/syncer_app.py` ✅, `bash -n ait` ✅, `./ait syncer --help` renders argparse help ✅, live `desync_state.snapshot(None, False)` returns a populated `refs` list ✅. Live `ait syncer` tmux launch is a manual verification step (covered by sibling t713_7).
