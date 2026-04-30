@@ -1,41 +1,68 @@
 ---
 Task: t718_1_pypy_infrastructure_setup_resolver.md
 Parent Task: aitasks/t718_pypy_optional_runtime_for_tui_perf.md
-Sibling Tasks: aitasks/t718/t718_2_wire_long_running_tuis_to_fast_path.md, aitasks/t718/t718_3_documentation_pypy_runtime.md
-Archived Sibling Plans: (none — first child of parent t718)
-Worktree: (none — current branch)
-Branch: main
+Sibling Tasks: aitasks/t718/t718_2_wire_long_running_tuis_to_fast_path.md, aitasks/t718/t718_3_documentation_pypy_runtime.md, aitasks/t718/t718_4_manual_verification_pypy_optional_runtime_for_tui_perf.md
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-04-30 12:17
 ---
 
 # Plan: t718_1 — PyPy infrastructure (setup + venv + resolver)
 
+## Verification status (this re-pick)
+
+Existing plan at `aiplans/p718/p718_1_pypy_infrastructure_setup_resolver.md` was re-verified against the current codebase on 2026-04-30. **All file paths, line numbers, and assumptions still hold:**
+
+- `lib/python_resolve.sh:32` — `AIT_VENV_PYTHON_MIN` constant ✓
+- `lib/python_resolve.sh:87-89` — `require_ait_python` end-of-file insertion point ✓
+- `lib/python_resolve.sh:34-35` — sources `terminal_compat.sh` (provides `die`) ✓
+- `aitask_setup.sh:15` — sources `lib/python_resolve.sh` (so PyPy constants propagate)
+- `aitask_setup.sh:378` — `find_modern_python` (pattern reference) ✓
+- `aitask_setup.sh:403` — `install_modern_python` (pattern reference) ✓
+- `aitask_setup.sh:444` — end of `_install_modern_python_linux` (insertion point for new helpers) ✓
+- `aitask_setup.sh:447-528` — `setup_python_venv` (pattern reference) ✓
+- `aitask_setup.sh:536-550` — `install_python_wrappers` (do not call for PyPy) ✓
+- `aitask_setup.sh:3107` — `main()` entry (insertion point for `--with-pypy` flag parsing) ✓
+- `aitask_setup.sh:3155` — call to `setup_python_venv` (insertion point for `setup_pypy_venv` call) ✓
+- `aitask_setup.sh:3181-3191` — summary block (extension point for PyPy venv line) ✓
+
+Existing test conventions: `tests/test_python_resolve.sh` uses HOME-isolated subshells with PATH-controlled stubs and `assert_eq`/`assert_contains` helpers. The new test file `tests/test_python_resolve_pypy.sh` will follow the same conventions (rather than the simpler draft template embedded in the previous plan).
+
+No changes to the implementation strategy required. Proceeding with the existing plan.
+
 ## Context
 
-First of three children under parent t718. Lands the entire PyPy plumbing layer
-**without flipping any TUI launcher to use it** — that's t718_2's job. This
-isolation is intentional: existing CPython users see zero behavior change after
-this task ships unless they explicitly run `ait setup --with-pypy`.
+First of three children under parent t718. Lands the entire PyPy plumbing layer **without flipping any TUI launcher to use it** — that's t718_2's job. This isolation is intentional: existing CPython users see zero behavior change after this task ships unless they explicitly run `ait setup --with-pypy`.
 
-Reference: `aiplans/p718_pypy_optional_runtime_for_tui_perf.md` (parent plan)
-and `aidocs/python_tui_performance.md` (technical analysis).
+Reference: `aiplans/p718_pypy_optional_runtime_for_tui_perf.md` (parent plan) and `aidocs/python_tui_performance.md` (technical analysis).
 
 ## Files modified
 
-- `.aitask-scripts/lib/python_resolve.sh` — new constants, three new resolver functions.
-- `.aitask-scripts/aitask_setup.sh` — new helpers (`find_pypy`, `install_pypy`, `_install_pypy_macos`, `_install_pypy_linux`, `setup_pypy_venv`, `prompt_install_pypy_if_tty`), `--with-pypy` flag parsing, conditional call from `main()`.
-- `tests/test_python_resolve_pypy.sh` (new) — unit test for the precedence table.
+- `.aitask-scripts/lib/python_resolve.sh` — new constants (`AIT_PYPY_PREFERRED`, `PYPY_VENV_DIR`), three new resolver functions (`resolve_pypy_python`, `require_ait_pypy`, `require_ait_python_fast`).
+- `.aitask-scripts/aitask_setup.sh` — new helpers (`find_pypy`, `install_pypy`, `_install_pypy_macos`, `_install_pypy_linux`, `setup_pypy_venv`, `prompt_install_pypy_if_tty`), `--with-pypy` flag parsing in `main()`, conditional call to `setup_pypy_venv`, summary-block extension.
+- `tests/test_python_resolve_pypy.sh` (new) — unit test for the `require_ait_python_fast` precedence table, modeled on `tests/test_python_resolve.sh`.
 
-No new files under `.aitask-scripts/` (only new functions in existing files), so
-the **5-touchpoint helper-script whitelist checklist from CLAUDE.md does not
-apply**. No new framework dispatcher commands either, so the `ait` dispatcher
-is also untouched.
+No new files under `.aitask-scripts/` (only new functions in existing files), so the **5-touchpoint helper-script whitelist checklist from CLAUDE.md does not apply**. No new `ait` dispatcher commands either.
+
+## `AIT_USE_PYPY` precedence (established here)
+
+`require_ait_python_fast()` implements:
+
+| `AIT_USE_PYPY` | PyPy installed? | Result |
+|----------------|-----------------|--------|
+| `1` | Yes | PyPy (forced) |
+| `1` | No | `die`: "PyPy not found. Run 'ait setup --with-pypy' to install it." |
+| `0` | (any) | CPython (user override) |
+| unset / empty | Yes | PyPy (default once installed) |
+| unset / empty | No | CPython (silent — current behavior preserved) |
+
+`require_ait_python` semantics are **unchanged** — the new `require_ait_python_fast` is strictly additive.
 
 ## Implementation steps
 
 ### 1. `lib/python_resolve.sh` — constants and resolvers
 
-Insert after the existing `AIT_VENV_PYTHON_MIN` declaration (currently line 32):
+Insert after the existing `AIT_VENV_PYTHON_MIN` declaration (line 32):
 
 ```bash
 # PyPy interpreter — opt-in via `ait setup --with-pypy`. Single source of
@@ -96,12 +123,9 @@ require_ait_python_fast() {
 }
 ```
 
-`require_ait_python` semantics are unchanged — the new `_fast` variant is
-strictly additive.
-
 ### 2. `aitask_setup.sh` — new helpers
 
-After `_install_modern_python_linux` ends (around line 444), insert:
+After `_install_modern_python_linux` ends (line 444), insert:
 
 ```bash
 find_pypy() {
@@ -220,8 +244,7 @@ prompt_install_pypy_if_tty() {
 
 ### 3. `aitask_setup.sh` — flag parsing in `main()`
 
-At the very top of `main()` (currently line 3107), insert flag parsing
-**before** any `info` / `echo` lines:
+At the top of `main()` (line 3107), before the first `echo ""`, insert:
 
 ```bash
 INSTALL_PYPY=0
@@ -245,7 +268,7 @@ if [[ "$INSTALL_PYPY" == "1" ]] || prompt_install_pypy_if_tty; then
 fi
 ```
 
-Also surface the PyPy venv in the final summary block (around line 3181-3191):
+In the final summary block (lines 3181-3191), add:
 
 ```bash
 if [[ -d "$PYPY_VENV_DIR" ]]; then
@@ -255,54 +278,19 @@ fi
 
 ### 4. New unit test — `tests/test_python_resolve_pypy.sh`
 
-A minimal assertion suite for the `require_ait_python_fast` precedence table.
-Use the existing `tests/` helper conventions (assert_eq, assert_contains).
-Mock PyPy presence by toggling `_AIT_RESOLVED_PYPY` directly inside the test.
+Modeled on `tests/test_python_resolve.sh` (HOME-isolated subshells, PATH stubs, `assert_eq`/`assert_contains` helpers). Cover the four cases from the precedence table:
 
-Template:
+- Case 1: `AIT_USE_PYPY=1` + no PyPy → die with "PyPy not found"
+- Case 2: `AIT_USE_PYPY=1` + PyPy stub → returns PyPy path
+- Case 3: `AIT_USE_PYPY=0` + PyPy installed → returns CPython path (not PyPy)
+- Case 4: unset + PyPy installed → returns PyPy path
+- Case 5 (bonus): unset + no PyPy → falls back to CPython
 
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-cd "$(dirname "$0")/.."
-
-source .aitask-scripts/lib/python_resolve.sh
-
-# Stub die so we can capture failure messages without exiting the test.
-die() { echo "DIE: $1" >&2; return 1; }
-
-# Case 1: AIT_USE_PYPY=1 with PyPy missing -> die
-unset _AIT_RESOLVED_PYPY
-AIT_USE_PYPY=1
-result="$(require_ait_python_fast 2>&1 || true)"
-[[ "$result" == DIE:* ]] || { echo "FAIL: forced=1 with no PyPy should die"; exit 1; }
-
-# Case 2: AIT_USE_PYPY=1 with PyPy faked installed -> returns fake path
-_AIT_RESOLVED_PYPY="/tmp/fake-pypy"; touch /tmp/fake-pypy; chmod +x /tmp/fake-pypy
-result="$(AIT_USE_PYPY=1 require_ait_python_fast)"
-[[ "$result" == "/tmp/fake-pypy" ]] || { echo "FAIL: forced=1 should return PyPy path"; exit 1; }
-
-# Case 3: AIT_USE_PYPY=0 -> CPython regardless
-unset _AIT_RESOLVED_PYPY
-result="$(AIT_USE_PYPY=0 require_ait_python_fast 2>/dev/null || true)"
-[[ "$result" != "/tmp/fake-pypy" ]] || { echo "FAIL: forced=0 should not return PyPy"; exit 1; }
-
-# Case 4: unset + PyPy installed -> PyPy
-_AIT_RESOLVED_PYPY="/tmp/fake-pypy"
-result="$(unset AIT_USE_PYPY; require_ait_python_fast)"
-[[ "$result" == "/tmp/fake-pypy" ]] || { echo "FAIL: unset+PyPy should auto-PyPy"; exit 1; }
-
-rm -f /tmp/fake-pypy
-echo "PASS: test_python_resolve_pypy.sh"
-```
-
-(The exact assertion helpers should match the existing `tests/` convention —
-read one or two of the existing tests to align style.)
+The PyPy stub is a tiny bash script that responds to `-c "import sys; sys.exit(0 if sys.implementation.name == 'pypy' else 1)"` with exit 0, and to `--version` with `Python 3.11.x [PyPy 7.x.x]`. Place under `$SCRATCH/bin/pypy3` or write to `$SCRATCH/.aitask/pypy_venv/bin/python` for the venv-path test.
 
 ### 5. Manual integration test — fresh install
 
-Per CLAUDE.md "Test the full install flow for setup helpers", verify the full
-chain manually, not just the unit:
+Per CLAUDE.md "Test the full install flow for setup helpers", verify the full chain manually:
 
 ```bash
 bash install.sh --dir /tmp/aitt718_1 --force
@@ -312,30 +300,33 @@ test -x ~/.aitask/pypy_venv/bin/python
 ~/.aitask/pypy_venv/bin/python -c "import sys, textual; assert sys.implementation.name == 'pypy'"
 ```
 
-Then run a no-flag baseline test on a separate dir to confirm zero impact:
+Then a no-flag baseline test:
 
 ```bash
 bash install.sh --dir /tmp/aitt718_1b --force
 cd /tmp/aitt718_1b
 ./ait setup
-test ! -d ~/.aitask/pypy_venv  # must NOT exist if --with-pypy was not passed
+# Move PyPy venv aside before testing the no-flag path on a machine where it already exists
+test ! -d ~/.aitask/pypy_venv  # must NOT exist after a no-flag run on a clean machine
 ```
 
-(Caveat: `~/.aitask/` is per-user, so the second test will *find* PyPy from
-the first test on the same machine. Run on a clean machine, in a Docker
-container, or by temporarily moving `~/.aitask/pypy_venv` aside.)
+(Caveat: `~/.aitask/` is per-user. On a machine where PyPy is already installed from a previous run, temporarily move `~/.aitask/pypy_venv` aside, or use a Docker container.)
 
 ## Verification (this task)
 
 1. `shellcheck .aitask-scripts/aitask_setup.sh .aitask-scripts/lib/python_resolve.sh` clean.
-2. `bash tests/test_python_resolve_pypy.sh` passes.
-3. Fresh install + `--with-pypy` produces `~/.aitask/pypy_venv/bin/python` (PyPy 3.11) with `textual` importable.
-4. Fresh install without the flag does **not** create `~/.aitask/pypy_venv`.
-5. `git diff --stat` shows changes only in `lib/python_resolve.sh`, `aitask_setup.sh`, and `tests/test_python_resolve_pypy.sh`. **No TUI launcher script may be modified in this task.**
+2. `bash tests/test_python_resolve_pypy.sh` passes — covers the precedence table.
+3. `bash tests/test_python_resolve.sh` still passes (regression check).
+4. Fresh install + `--with-pypy` produces `~/.aitask/pypy_venv/bin/python` (PyPy 3.11) with `textual` importable.
+5. Fresh install without the flag does **not** create `~/.aitask/pypy_venv`.
+6. `git diff --stat` shows changes only in `lib/python_resolve.sh`, `aitask_setup.sh`, and `tests/test_python_resolve_pypy.sh`. **No TUI launcher script may be modified in this task** — that is t718_2's scope.
 
 ## Step 9 (Post-Implementation)
 
-Standard child-task archival: per `task-workflow/SKILL.md` Step 9, the archive
-script will move task and plan files to `aitasks/archived/t718/` and
-`aiplans/archived/p718/` respectively, and update `children_to_implement` on
-the parent. No special handling.
+Standard child-task archival per `task-workflow/SKILL.md` Step 9: the archive script moves task and plan files to `aitasks/archived/t718/` and `aiplans/archived/p718/` and updates `children_to_implement` on the parent.
+
+## Notes for sibling tasks
+
+- t718_2 will rely on `require_ait_python_fast` from this task. The function's contract (precedence + zero-arg signature) is fixed by this task — do not change it without updating t718_2.
+- The interactive `--with-pypy` prompt in `setup_python_venv` is a hint; t718_2 does **not** depend on the user having opted in. The fast-path functions handle the no-PyPy case silently.
+- t718_3 (docs) will document the `AIT_USE_PYPY` env var and `--with-pypy` flag.
