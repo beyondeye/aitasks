@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t713_4]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [tui, scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-29 10:55
-updated_at: 2026-04-29 10:55
+updated_at: 2026-04-30 15:25
 ---
 
 ## Context
