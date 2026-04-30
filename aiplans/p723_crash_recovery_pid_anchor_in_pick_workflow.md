@@ -407,3 +407,27 @@ After merging this task to `main` and before next-pick, run the backfill once on
 ./.aitask-scripts/aitask_backfill_pid_anchor.sh
 ```
 This converts any pre-existing `Implementing` locks (likely including the user's tmux-crashed work) so they surface via `RECLAIM_CRASH:` on next `/aitask-pick`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Shipped exactly as planned across 4 new files and 9 modified files. PID anchor (`pid:` + `pid_starttime:`) is now written to lock YAML; `aitask_pick_own.sh` emits a new `RECLAIM_CRASH:` signal when the prior agent's PID is dead (or starttime mismatches → defends PID recycling); a new `crash-recovery.md` procedure dispatches case-specific prompts (multi-PC vs. same-host crash vs. lock anomaly) and surveys in-progress work before asking the user to reclaim. Backfill helper retrofits pre-anchor locks. 18-case test suite added. 9 existing test setups updated to copy the new `lib/pid_anchor.sh` helper.
+
+- **Deviations from plan:** None of substance. Two small implementation-time refinements:
+  1. `is_lock_holder_alive` got an explicit `pid == "0"` guard so `pid: 0` is the unambiguous "treat as crashed" sentinel — independent of platform-specific `kill -0 0` semantics. The backfill script's self-test then reduces to a sanity check on the helper.
+  2. Backfill script needed `find -L` (follow symlinks) because `aitasks/` is a symlink to `.aitask-data/aitasks` in this repo's data-worktree layout. Caught and fixed during dry-run.
+
+- **Issues encountered:** Initial test 5 (pre-anchor lock backward-compat) failed because my new field-extraction lines (`prior_pid=$(grep '^pid:' | sed ...)`) hit `set -euo pipefail` when grep didn't match, killing the script. Fixed by adding `|| true` to those greps — same pattern the existing code already uses elsewhere. After fix, all 18 cases pass on first try.
+
+- **Key decisions:**
+  - Used `$PPID` rather than `$$` as the anchor PID. The lock script is invoked by the agent's bash/claude process; `$PPID` IS the agent process. When the agent dies (tmux crash), `kill -0 $PPID` returns ESRCH — exactly the signal we want.
+  - Sentinel `pid: 0` chosen over `pid: -1` because the `is_lock_holder_alive` helper guards `pid == "0"` explicitly, making the sentinel platform-independent.
+  - Cross-host reclaim retains its existing wording — `LOCK_RECLAIM:` flows through unchanged. `crash-recovery.md` dispatches by signal type.
+  - Backfill uses a single batch commit on `aitask-locks` rather than one commit per lock — keeps history clean and avoids race-prone serial pushes.
+
+- **Upstream defects identified:**
+  - `tests/test_archive_verification_gate.sh:?` and `tests/test_archive_carryover.sh:?` — pre-existing test failures (15 + 4 cases) caused by `aitask_verification_parse.sh` sourcing `lib/aitask_path.sh` and `lib/python_resolve.sh` which the test setups don't copy. Errors look like `lib/aitask_path.sh: No such file or directory`. Unrelated to this task; surfaces a pattern: any new lib helper sourced by a script needs to be added to the copy-list of every test that exercises that script. Worth a focused follow-up that audits all test setup helpers for completeness.
+  - `aitask_lock.sh:408` — pre-existing `SC2086` shellcheck warning (`"$ARCHIVED_DIR"/t${tid}_*.md` should quote `${tid}`). Cosmetic; not exercised by current code paths.
+
+- **Resolves t694:** Folded in. PID liveness gives a sharp binary signal — no time threshold, no `project_config.yaml` / `userconfig.yaml` key required. Investigation question becomes moot.
+
+- **Backfill ran live:** 6 Implementing tasks (t713_2, t717_2, t718_1, t719_1, t721, t723) had pre-anchor locks. All 6 now have `pid: 0` sentinel + `pid_starttime: -`. Next `/aitask-pick` of any of them will fire `RECLAIM_CRASH:` and route through the new procedure. t723's own lock was also rewritten — natural consequence of being acquired before this code shipped; will self-heal on next lock refresh inside this session or any future re-claim.

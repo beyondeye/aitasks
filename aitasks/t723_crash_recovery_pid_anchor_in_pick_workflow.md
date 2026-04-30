@@ -7,8 +7,9 @@ status: Implementing
 labels: [aitask_pick, task_workflow]
 folded_tasks: [694]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-30 11:13
-updated_at: 2026-04-30 11:18
+updated_at: 2026-04-30 11:55
 ---
 
 ## Context
