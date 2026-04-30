@@ -296,10 +296,20 @@ broken-link warnings are added by this change.
 
 ---
 
-## Final Implementation Notes (template — fill at Step 8)
+## Final Implementation Notes
 
-- **Actual work done:** <fill in>
-- **Deviations from plan:** <fill in>
-- **Issues encountered:** <fill in>
-- **Key decisions:** <fill in>
-- **Upstream defects identified:** <fill in or `None`>
+- **Actual work done:** Shipped exactly as planned. New page `website/content/docs/workflows/crash-recovery.md` (~95 lines including frontmatter): RECLAIM_CRASH as the headline case with `## Same-host crash (headline case)`, LOCK_RECLAIM and RECLAIM_STATUS as side notes under the same H2, full "In-Progress Work Survey" section with concrete example block + per-line explanation (worktree, file counts, plan progress), three case-specific question wordings extracted verbatim from `crash-recovery.md`, the two Reclaim/Decline options with the explicit "decline does not touch your worktree" caveat, an end-to-end narrative, four tips (backfill helper, decline-vs-worktree, macOS portability, cross-host shares the procedure), See also block. Three cross-link edits: `workflows/_index.md` Parallel-group bullet (between parallel-development and parallel-planning, mirroring weight 42), `concepts/locks.md` See-also bullet (using `{{< relref >}}` form to match the rest of the page), `skills/aitask-pick/_index.md` Step 5 narration (single trailing clause, no restructuring).
+
+- **Deviations from plan:** None of substance. One minor structural tightening during writing: split "When the Recovery Path Fires" into three H3 subsections instead of a flat numbered list, so each scenario has its own anchor + TOC entry. The TOC rendered in the build confirmed this read better than a numbered paragraph.
+
+- **Issues encountered:** None. Hugo build passed first try (182 pages, +1 from 181). Pre-existing `.Site.AllPages` deprecation warning is unrelated to this change.
+
+- **Key decisions:**
+  - **Weight 42** chosen for the new page so it sits visually between `parallel-development.md` (40) and `parallel-planning.md` (45) in the Parallel group — matches the bullet ordering in `_index.md`.
+  - **Cross-link form per file:** locks.md already uses `{{< relref "/docs/..." >}}` for See-also entries, so the new bullet matches; workflows/_index.md and skills/aitask-pick/_index.md use relative paths (`crash-recovery/`, `../../workflows/crash-recovery/`) matching their existing siblings. Mixing forms would have been a needless inconsistency.
+  - **Side-note treatment for LOCK_RECLAIM / RECLAIM_STATUS** per user direction during planning: each gets its own H3 under "When the Recovery Path Fires" but the body of the page (survey, prompt UX, end-to-end example) focuses on the same-host crash case. The three question wordings are still listed verbatim in "The Reclaim / Decline Prompt" so users hitting the side-note paths can confirm they are looking at the same procedure.
+  - **No new content in `concepts/locks.md` or `skills/aitask-pick/_index.md`** beyond cross-link bullets — per user choice (option 1 of the layout question), the new workflow page is the canonical location.
+  - **"Decline does not touch your worktree"** called out twice (once in the option description, once in Tips) because a user who picks "Pick a different task" expecting it to clean up the worktree could lose orientation. The repetition is deliberate.
+
+- **Upstream defects identified:** None
+
