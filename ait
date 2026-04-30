@@ -29,6 +29,7 @@ TUI:
   minimonitor    Compact monitor for tmux agent panes
   monitor        Monitor tmux panes running code agents
   settings       Launch the settings TUI
+  syncer         Launch the remote-desync syncer TUI
 
 Task Management:
   create         Create a new task file
@@ -164,7 +165,7 @@ check_for_updates() {
 
 # Check for updates (skip for meta-commands, upgrade, and git passthrough)
 case "${1:-help}" in
-    help|--help|-h|--version|-v|upgrade|setup|git|sync|lock|codeagent|crew|brainstorm|settings|monitor|minimonitor|ide) ;;
+    help|--help|-h|--version|-v|upgrade|setup|git|sync|lock|codeagent|crew|brainstorm|settings|monitor|minimonitor|ide|syncer) ;;
     *) check_for_updates ;;
 esac
 
@@ -182,6 +183,7 @@ case "${1:-help}" in
     monitor)      shift; exec "$SCRIPTS_DIR/aitask_monitor.sh" "$@" ;;
     ide)          shift; exec "$SCRIPTS_DIR/aitask_ide.sh" "$@" ;;
     settings)     shift; exec "$SCRIPTS_DIR/aitask_settings.sh" "$@" ;;
+    syncer)       shift; exec "$SCRIPTS_DIR/aitask_syncer.sh" "$@" ;;
     stats)        shift; exec "$SCRIPTS_DIR/aitask_stats.sh" "$@" ;;
     stats-tui)    shift; exec "$SCRIPTS_DIR/aitask_stats_tui.sh" "$@" ;;
     zip-old)      shift; exec "$SCRIPTS_DIR/aitask_zip_old.sh" "$@" ;;
