@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t717_3]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [verifiedstats, statistics, ui]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-30 00:19
-updated_at: 2026-04-30 12:43
+updated_at: 2026-04-30 13:09
+completed_at: 2026-04-30 13:09
 ---
 
 ## Context
