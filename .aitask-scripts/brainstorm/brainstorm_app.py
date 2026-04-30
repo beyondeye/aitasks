@@ -47,8 +47,8 @@ from brainstorm.brainstorm_dag import (
     read_proposal,
     set_head,
 )
-from brainstorm.brainstorm_schemas import extract_dimensions
-from brainstorm.brainstorm_sections import parse_sections
+from brainstorm.brainstorm_schemas import extract_dimensions, group_dimensions_by_prefix
+from brainstorm.brainstorm_sections import get_sections_for_dimension, parse_sections
 from brainstorm.brainstorm_dag_display import DAGDisplay
 from brainstorm.polling_indicator import PollingIndicator
 from brainstorm.brainstorm_session import (
@@ -379,6 +379,8 @@ class NodeDetailModal(ModalScreen):
         Binding("escape", "close", "Close", show=False),
         Binding("tab", "focus_minimap", "Minimap"),
         Binding("V", "fullscreen_plan", "Fullscreen plan"),
+        Binding("home", "scroll_to_minimap", "Top", show=True, priority=True),
+        Binding("m", "scroll_to_minimap", None, show=False, priority=True),
     ]
 
     def __init__(self, node_id: str, session_path: Path):
@@ -545,6 +547,24 @@ class NodeDetailModal(ModalScreen):
         if not minimaps:
             raise SkipAction()
         minimaps.first().focus_first_row()
+
+    def action_scroll_to_minimap(self) -> None:
+        """home/m → scroll active tab back to top and focus its inline minimap."""
+        tabbed = self.query_one(TabbedContent)
+        if tabbed.active == "tab_proposal":
+            scroll_id, mm_id = "#proposal_scroll", "#proposal_minimap"
+        elif tabbed.active == "tab_plan":
+            scroll_id, mm_id = "#plan_scroll", "#plan_minimap"
+        else:
+            return
+        try:
+            scroll = self.query_one(scroll_id, VerticalScroll)
+        except Exception:
+            return
+        scroll.scroll_to(y=0, animate=False)
+        minimaps = self.query(mm_id)
+        if minimaps:
+            minimaps.first().focus_first_row()
 
     def action_fullscreen_plan(self) -> None:
         """V → push SectionViewerScreen for the active tab's content."""
@@ -782,6 +802,65 @@ class NodeRow(Static):
     def render(self) -> str:
         head_marker = " [bold green]HEAD[/]" if self.is_head else ""
         return f"[bold]{self.node_id}[/]{head_marker}  {self.node_description}"
+
+
+class DimensionRow(Static):
+    """Focusable row showing a stripped dimension suffix + value.
+
+    Mounted by the dashboard right pane under the appropriate dimension-type
+    subheader. Pressing Enter posts an :class:`Activated` message carrying the
+    full prefixed dimension key (e.g. ``requirements_perf``) so the host can
+    look up matching proposal sections via
+    :func:`brainstorm.brainstorm_sections.get_sections_for_dimension`.
+    """
+
+    can_focus = True
+
+    DEFAULT_CSS = """
+    DimensionRow {
+        height: 1;
+        padding: 0 1;
+        background: $surface;
+    }
+    DimensionRow:focus {
+        background: $accent;
+        color: $text;
+    }
+    DimensionRow:hover {
+        background: $surface-lighten-1;
+    }
+    """
+
+    class Activated(Message):
+        def __init__(self, dim_key: str) -> None:
+            super().__init__()
+            self.dim_key = dim_key
+
+    def __init__(
+        self, suffix: str, value: str, dim_key: str,
+        section_count: int = 0, **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.suffix = suffix
+        self.value = value
+        self.dim_key = dim_key
+        self.section_count = section_count
+
+    def render(self) -> str:
+        if self.section_count == 0:
+            badge = "[dim][0 §][/]"
+        else:
+            badge = f"[bold cyan][{self.section_count} §][/]"
+        return f"  {badge} [bold]{self.suffix}:[/] {self.value}"
+
+    def on_click(self) -> None:
+        self.focus()
+        self.post_message(self.Activated(self.dim_key))
+
+    def on_key(self, event) -> None:
+        if event.key == "enter":
+            self.post_message(self.Activated(self.dim_key))
+            event.stop()
 
 
 class OperationRow(Static):
@@ -1221,6 +1300,20 @@ class BrainstormApp(TuiSwitcherMixin, App):
         margin-bottom: 1;
     }
 
+    #dash_node_info {
+        height: auto;
+        padding: 0;
+    }
+
+    .meta_field {
+        padding: 0;
+    }
+
+    .dim_subheader {
+        padding: 0 1;
+        margin-top: 1;
+    }
+
     NodeRow {
         padding: 0 1;
         height: 1;
@@ -1448,6 +1541,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._initializer_timer = None
         self._initializer_apply_error: str | None = None
         self._applying_initializer: bool = False
+        self._current_dashboard_node_id: str | None = None
         self._update_title_from_task()
 
     def _resolve_task_file_path(self) -> Path | None:
@@ -1484,7 +1578,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                         Label("Session Status", id="session_status_title"),
                         Label("Loading...", id="session_status_info"),
                         Label("", id="dash_node_title"),
-                        Label("", id="dash_node_info"),
+                        Container(id="dash_node_info"),
                         id="detail_pane",
                     )
             with TabPane("Graph", id="tab_dag"):
@@ -1528,10 +1622,26 @@ class BrainstormApp(TuiSwitcherMixin, App):
                         event.stop()
                         return
 
-        # Up/down: navigate NodeRow items in Dashboard
+        # Up/down: navigate NodeRow items in Dashboard, or DimensionRow items
+        # in the detail pane once focus has moved into it.
         if event.key in ("up", "down") and tabbed.active == "tab_dashboard":
             direction = 1 if event.key == "down" else -1
-            if self._navigate_rows(direction, "node_list_pane", (NodeRow,)):
+            if isinstance(self.focused, DimensionRow):
+                if self._navigate_rows(direction, "dash_node_info", (DimensionRow,)):
+                    event.prevent_default()
+                    event.stop()
+                    return
+            elif self._navigate_rows(direction, "node_list_pane", (NodeRow,)):
+                event.prevent_default()
+                event.stop()
+                return
+
+        # Tab / Shift+Tab on Dashboard: toggle focus between the node list (left)
+        # and the dimension list (right). Only fires when there is at least one
+        # DimensionRow in the detail pane (i.e., a node with dimensions is
+        # currently displayed).
+        if event.key in ("tab", "shift+tab") and tabbed.active == "tab_dashboard":
+            if self._dashboard_toggle_pane_focus():
                 event.prevent_default()
                 event.stop()
                 return
@@ -1831,6 +1941,52 @@ class BrainstormApp(TuiSwitcherMixin, App):
     # Keyboard navigation helper
     # ------------------------------------------------------------------
 
+    def _dashboard_toggle_pane_focus(self) -> bool:
+        """Tab toggle between the Dashboard's node list and dimension list.
+
+        Returns True if focus was moved (caller should stop the event).
+        Returns False (so default Tab traversal still applies) when the
+        target pane has no focusable rows — e.g. dimension list is empty.
+        """
+        focused = self.focused
+        # Right → left: dimension row → corresponding (or first) node row.
+        if isinstance(focused, DimensionRow):
+            try:
+                list_pane = self.query_one("#node_list_pane", VerticalScroll)
+            except Exception:
+                return False
+            node_rows = [
+                w for w in list_pane.children
+                if isinstance(w, NodeRow) and w.can_focus
+            ]
+            if not node_rows:
+                return False
+            target = node_rows[0]
+            if self._current_dashboard_node_id:
+                for r in node_rows:
+                    if r.node_id == self._current_dashboard_node_id:
+                        target = r
+                        break
+            target.focus()
+            target.scroll_visible()
+            return True
+        # Left → right: node row → first dimension row (only if any exist).
+        if isinstance(focused, NodeRow):
+            try:
+                container = self.query_one("#dash_node_info")
+            except Exception:
+                return False
+            dim_rows = [
+                w for w in container.children
+                if isinstance(w, DimensionRow) and w.can_focus
+            ]
+            if not dim_rows:
+                return False
+            dim_rows[0].focus()
+            dim_rows[0].scroll_visible()
+            return True
+        return False
+
     def _navigate_rows(self, direction: int, container_id: str, row_types: tuple) -> bool:
         """Navigate up/down among focusable rows in a container.
 
@@ -1838,7 +1994,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         direction: -1 for up, +1 for down.
         """
         try:
-            container = self.query_one(f"#{container_id}", VerticalScroll)
+            container = self.query_one(f"#{container_id}")
         except Exception:
             return False
 
@@ -2384,6 +2540,8 @@ class BrainstormApp(TuiSwitcherMixin, App):
         except Exception:
             return
 
+        self._current_dashboard_node_id = node_id
+
         desc = node_data.get("description", "")
         parents = node_data.get("parents", [])
         created = node_data.get("created_at", "")
@@ -2391,33 +2549,86 @@ class BrainstormApp(TuiSwitcherMixin, App):
 
         self.query_one("#dash_node_title", Label).update(f"Node: {node_id}")
 
-        detail_lines = [
-            f"Description: {desc}",
-            f"Parents: {', '.join(parents) if parents else 'root'}",
-            f"Created: {created}",
-        ]
+        container = self.query_one("#dash_node_info", Container)
+        container.remove_children()
+
+        container.mount(Static(
+            f"[bold $accent]Description:[/] {desc}", classes="meta_field"))
+        container.mount(Static(
+            f"[bold $accent]Parents:[/] "
+            f"{', '.join(parents) if parents else 'root'}",
+            classes="meta_field"))
+        container.mount(Static(
+            f"[bold $accent]Created:[/] {created}", classes="meta_field"))
         if group:
-            detail_lines.append(f"Group: {group}")
+            container.mount(Static(
+                f"[bold $accent]Group:[/] {group}", classes="meta_field"))
 
         dims = get_dimension_fields(node_data)
-        if dims:
-            detail_lines.append("")
-            detail_lines.append("Dimensions:")
-            for k, v in dims.items():
-                detail_lines.append(f"  {k}: {v}")
+        grouped = group_dimensions_by_prefix(dims)
+        if grouped:
+            # Count proposal sections per dimension key for badge display.
+            section_counts: dict[str, int] = {}
+            try:
+                proposal = read_proposal(self.session_path, node_id)
+                parsed_proposal = parse_sections(proposal)
+                for sec in parsed_proposal.sections:
+                    for dim in sec.dimensions:
+                        section_counts[dim] = section_counts.get(dim, 0) + 1
+            except Exception:
+                pass
 
-        self.query_one("#dash_node_info", Label).update("\n".join(detail_lines))
+            container.mount(Static(""))
+            container.mount(Static("[bold $accent]Dimensions:[/]"))
+            for _prefix, label, entries in grouped:
+                container.mount(Static(
+                    f"[bold $accent]{label}[/]", classes="dim_subheader"))
+                for suffix, value, full_key in entries:
+                    container.mount(DimensionRow(
+                        suffix, str(value), full_key,
+                        section_count=section_counts.get(full_key, 0),
+                    ))
 
     def _show_brief_in_detail(self, spec: str) -> None:
         """Show the full initial_spec in the detail pane (press b to toggle)."""
         self.query_one("#dash_node_title", Label).update("Task Brief")
-        # Truncate for the Label widget; full text is in n000_init proposal
+        self._current_dashboard_node_id = None
+        container = self.query_one("#dash_node_info", Container)
+        container.remove_children()
+        # Truncate for the Static widget; full text is in n000_init proposal
         lines = spec.splitlines()
         if len(lines) > 30:
             preview = "\n".join(lines[:30]) + "\n\n… (truncated — see n000_init proposal for full text)"
         else:
             preview = spec
-        self.query_one("#dash_node_info", Label).update(preview)
+        container.mount(Static(preview))
+
+    def on_dimension_row_activated(self, event: DimensionRow.Activated) -> None:
+        """Enter on a DimensionRow → push SectionViewerScreen filtered to matching sections."""
+        node_id = self._current_dashboard_node_id
+        if not node_id:
+            return
+        try:
+            proposal = read_proposal(self.session_path, node_id)
+        except Exception:
+            self.notify(
+                "Could not read proposal for this node", severity="warning"
+            )
+            return
+        parsed = parse_sections(proposal)
+        matching = get_sections_for_dimension(parsed, event.dim_key)
+        if not matching:
+            self.notify(
+                f"No proposal sections tagged with `{event.dim_key}`",
+                severity="warning",
+            )
+            return
+        from section_viewer import SectionViewerScreen
+        self.push_screen(SectionViewerScreen(
+            proposal,
+            title=f"Proposal: {node_id} — {event.dim_key}",
+            section_filter=[s.name for s in matching],
+        ))
 
     def on_descendant_focus(self, event) -> None:
         """When a NodeRow gets focus, update the detail pane. Track wizard node selection."""

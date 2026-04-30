@@ -20,6 +20,14 @@ NODE_OPTIONAL_FIELDS = ["plan_file", "reference_files"]
 # one of these is treated as a dimension field.
 DIMENSION_PREFIXES = ("requirements_", "assumption_", "component_", "tradeoff_")
 
+# Human-readable plural label per dimension prefix.
+PREFIX_TO_LABEL = {
+    "requirements_": "Requirements",
+    "assumption_":   "Assumptions",
+    "component_":    "Components",
+    "tradeoff_":     "Tradeoffs",
+}
+
 # ---------------------------------------------------------------------------
 # Graph state schema (br_graph_state.yaml)
 # ---------------------------------------------------------------------------
@@ -121,3 +129,26 @@ def is_dimension_field(key: str) -> bool:
 def extract_dimensions(data: dict) -> dict:
     """Extract all dimension fields from a node data dict."""
     return {k: v for k, v in data.items() if is_dimension_field(k)}
+
+
+def group_dimensions_by_prefix(
+    dims: dict,
+) -> list[tuple[str, str, list[tuple[str, str, str]]]]:
+    """Group dimension fields by their type prefix, in DIMENSION_PREFIXES order.
+
+    Returns a list of (prefix, human_label, entries). Each entry is
+    (suffix, value, full_key). Empty prefixes are omitted entirely.
+    Items not matching any known prefix are silently dropped (callers are
+    expected to pass already-validated dimension dicts via
+    ``extract_dimensions`` / ``get_dimension_fields``).
+    """
+    groups: list[tuple[str, str, list[tuple[str, str, str]]]] = []
+    for prefix in DIMENSION_PREFIXES:
+        entries = [
+            (k[len(prefix):], v, k)
+            for k, v in dims.items()
+            if k.startswith(prefix)
+        ]
+        if entries:
+            groups.append((prefix, PREFIX_TO_LABEL[prefix], entries))
+    return groups

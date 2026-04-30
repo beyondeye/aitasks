@@ -63,6 +63,18 @@ def _focus_sibling_row(row: "SectionRow", direction: int) -> bool:
     return False
 
 
+def _filter_sections(
+    parsed: ParsedContent, names: list[str] | None
+) -> list[ContentSection]:
+    """Return sections from *parsed* preserving original order, optionally
+    restricted to ``names`` (set membership). Names not present in
+    *parsed* are silently skipped."""
+    if names is None:
+        return list(parsed.sections)
+    name_set = set(names)
+    return [s for s in parsed.sections if s.name in name_set]
+
+
 def estimate_section_y(
     parsed: ParsedContent,
     name: str,
@@ -200,10 +212,17 @@ class SectionMinimap(VerticalScroll):
         self._last_focused_row_index: int = 0
         self._compact = compact
 
-    def populate(self, parsed: ParsedContent) -> None:
-        """Replace all rows with one per section in *parsed*."""
+    def populate(
+        self, parsed: ParsedContent, names: list[str] | None = None,
+    ) -> None:
+        """Replace all rows with one per section in *parsed*.
+
+        If *names* is provided, only sections whose name is in that list are
+        mounted (preserving original parse order; *names* order is ignored).
+        Default behavior (``names=None``) is unchanged from prior callers.
+        """
         self.remove_children()
-        for section in parsed.sections:
+        for section in _filter_sections(parsed, names):
             self.mount(SectionRow(section.name, section.dimensions, compact=self._compact))
         self._last_focused_row_index = 0
 
@@ -259,12 +278,26 @@ class SectionAwareMarkdown(VerticalScroll):
         ratio = self._section_positions.get(name)
         if ratio is None:
             return
-        target_y = ratio * self.virtual_size.height
+        # Map ratio to scroll *progress* (0.0 = top, 1.0 = bottom of scrollable
+        # range), not raw virtual height. ratio * virtual_size.height over-shoots
+        # by roughly viewport_height * ratio because the bottom of the document
+        # already fits in the viewport without scrolling that far.
+        max_y = getattr(self, "max_scroll_y", None)
+        if max_y is None or max_y <= 0:
+            max_y = max(0.0, self.virtual_size.height - self.size.height)
+        target_y = ratio * max_y
         self.scroll_to(y=target_y, animate=False)
 
 
 class SectionViewerScreen(ModalScreen):
-    """Full-screen split-layout modal: minimap on the left, Markdown on the right."""
+    """Full-screen split-layout modal: minimap on the left, Markdown on the right.
+
+    When ``section_filter`` is set, the **minimap row list** is restricted to
+    those section names, while the full markdown body is still rendered in
+    :class:`SectionAwareMarkdown`. Navigation via the minimap is naturally
+    scoped to the filtered set (only those rows exist); the underlying
+    ``scroll_to_section()`` lookup table is unchanged.
+    """
 
     BINDINGS = [
         Binding("escape", "close", "Close"),
@@ -310,10 +343,19 @@ class SectionViewerScreen(ModalScreen):
     }
     """
 
-    def __init__(self, content: str, title: str = "Plan Viewer") -> None:
+    def __init__(
+        self,
+        content: str,
+        title: str = "Plan Viewer",
+        section_filter: list[str] | None = None,
+    ) -> None:
         super().__init__()
         self._content = content
         self._title = title
+        self._section_filter = section_filter
+        self._pending_auto_scroll: str | None = None
+        self._auto_scroll_attempts: int = 0
+        self._auto_scroll_timer = None
 
     def compose(self) -> ComposeResult:
         with Container(id="section_viewer"):
@@ -328,11 +370,52 @@ class SectionViewerScreen(ModalScreen):
         content = self.query_one("#sv_content", SectionAwareMarkdown)
         content.update_content(self._content, parsed)
         if parsed.sections:
-            minimap.populate(parsed)
+            minimap.populate(parsed, names=self._section_filter)
             minimap.focus_first_row()
+            # When a filter is active, auto-scroll to the first filtered
+            # section so the user lands at relevant content without having to
+            # press Enter on the minimap. Markdown.update() parses async, so
+            # `virtual_size.height` is 0 until rendering completes — we poll
+            # until the markdown has filled out (or give up after ~2s).
+            if self._section_filter is not None:
+                filtered = _filter_sections(parsed, self._section_filter)
+                if filtered:
+                    self._pending_auto_scroll = filtered[0].name
+                    self._auto_scroll_attempts = 0
+                    self._auto_scroll_timer = self.set_interval(
+                        0.1, self._poll_auto_scroll
+                    )
         else:
             minimap.display = False
             content.focus()
+
+    def _poll_auto_scroll(self) -> None:
+        """Retry the deferred section-scroll until the Markdown has rendered."""
+        self._auto_scroll_attempts += 1
+        try:
+            content = self.query_one("#sv_content", SectionAwareMarkdown)
+        except Exception:
+            self._stop_auto_scroll()
+            return
+        ready = (
+            content.virtual_size.height > content.size.height
+            or self._auto_scroll_attempts > 20
+        )
+        if not ready:
+            return
+        if self._pending_auto_scroll is not None:
+            content.scroll_to_section(self._pending_auto_scroll)
+            self._pending_auto_scroll = None
+        self._stop_auto_scroll()
+
+    def _stop_auto_scroll(self) -> None:
+        timer = self._auto_scroll_timer
+        if timer is not None:
+            try:
+                timer.stop()
+            except Exception:
+                pass
+            self._auto_scroll_timer = None
 
     def on_section_minimap_section_selected(self, event: SectionMinimap.SectionSelected) -> None:
         self.query_one("#sv_content", SectionAwareMarkdown).scroll_to_section(event.section_name)
@@ -374,6 +457,7 @@ __all__ = [
     "SectionMinimap",
     "SectionAwareMarkdown",
     "SectionViewerScreen",
+    "_filter_sections",
     "estimate_section_y",
     "parse_sections",
     "ParsedContent",

@@ -37,7 +37,11 @@ class DetailPane(VerticalScroll):
     }
     """
 
-    BINDINGS = [Binding("tab", "focus_minimap", "Minimap")]
+    BINDINGS = [
+        Binding("tab", "focus_minimap", "Minimap"),
+        Binding("home", "scroll_to_minimap_top", "Top", show=True, priority=True),
+        Binding("m", "scroll_to_minimap_top", None, show=False, priority=True),
+    ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -156,6 +160,13 @@ class DetailPane(VerticalScroll):
         if not minimaps:
             raise SkipAction()
         minimaps.first().focus_first_row()
+
+    def action_scroll_to_minimap_top(self) -> None:
+        """Scroll the pane back to the top and focus the inline minimap (if any)."""
+        self.scroll_to(y=0, animate=False)
+        minimaps = self.query("#detail_minimap")
+        if minimaps:
+            minimaps.first().focus_first_row()
 
     def show_multiple_tasks(self, task_ids: list[str]) -> None:
         """When selection spans multiple tasks, show a summary."""
