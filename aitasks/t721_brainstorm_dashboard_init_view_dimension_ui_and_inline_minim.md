@@ -8,6 +8,7 @@ labels: [brainstorming, ait_brainstorm, ui]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-30 10:33
 updated_at: 2026-04-30 12:09
+boardidx: 60
 ---
 
 Polish the brainstorm TUI dashboard "init mode" detail pane (right pane of the

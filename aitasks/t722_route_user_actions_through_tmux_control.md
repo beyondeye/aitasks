@@ -1,12 +1,13 @@
 ---
 priority: medium
 effort: medium
-depends: [719_2]
+depends: [t719_2]
 issue_type: refactor
 status: Ready
 labels: [performance, monitor, tui, refactor]
 created_at: 2026-04-30 10:48
 updated_at: 2026-04-30 10:48
+boardidx: 70
 ---
 
 ## Context

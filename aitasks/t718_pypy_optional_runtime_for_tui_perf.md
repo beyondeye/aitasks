@@ -8,6 +8,7 @@ labels: [performance, setup, tui]
 children_to_implement: [t718_1, t718_2, t718_3, t718_4]
 created_at: 2026-04-30 08:34
 updated_at: 2026-04-30 10:36
+boardidx: 20
 ---
 
 ## Goal

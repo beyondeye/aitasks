@@ -8,7 +8,7 @@ labels: [install_scripts, installation]
 children_to_implement: [t623_1, t623_2, t623_3, t623_4, t623_5, t623_6, t623_7]
 created_at: 2026-04-22 09:15
 updated_at: 2026-04-23 08:56
-boardidx: 70
+boardidx: 40
 boardcol: now
 ---
 

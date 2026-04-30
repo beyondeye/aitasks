@@ -7,6 +7,8 @@ status: Ready
 labels: [documentation, setup, skills]
 created_at: 2026-04-30 08:56
 updated_at: 2026-04-30 08:56
+boardcol: next
+boardidx: 220
 ---
 
 ## Goal
