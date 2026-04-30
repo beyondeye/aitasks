@@ -31,6 +31,7 @@ claudeskills
 codeagent
 codebrowser
 codexcli
+crash_recovery
 development
 differ
 execution_profiles
