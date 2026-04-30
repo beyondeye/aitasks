@@ -322,7 +322,7 @@ If the remote is unreachable (timeout after 10 seconds), the board shows a warni
 
 ### tmux integration
 
-When you run `ait board` inside tmux, press **`j`** to open the **TUI switcher** dialog and jump to another integrated TUI (Monitor, Code Browser, Settings, a running code agent window, or a brainstorm session) — the switcher either focuses the existing tmux window or creates a new one.
+When you run `ait board` inside tmux, press **`j`** to open the **TUI switcher** dialog and jump to another integrated TUI (Monitor, Code Browser, Settings, [Syncer]({{< relref "/docs/tuis/syncer" >}}), a running code agent window, or a brainstorm session) — the switcher either focuses the existing tmux window or creates a new one.
 
 A typical flow from the board: triage a task, press `j`, switch to **monitor** to watch the agents running on other panes or to **codebrowser** to review the diff produced for a completed task.
 

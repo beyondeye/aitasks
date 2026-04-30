@@ -38,7 +38,7 @@ Once installed, the six fast-path TUIs auto-route through PyPy:
 | Settings       | `ait settings`    |
 | Stats          | `ait stats-tui`   |
 | Brainstorm     | `ait brainstorm`  |
-| Syncer         | `ait sync`        |
+| Syncer         | `ait syncer`      |
 
 No further action required — the resolver in `lib/python_resolve.sh` picks
 PyPy automatically when the venv exists.

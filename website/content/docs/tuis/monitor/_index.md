@@ -46,7 +46,7 @@ The monitor window has four stacked areas from top to bottom:
 The **pane list** classifies each tmux window in the session:
 
 - **Agents** — windows whose names start with a configured agent prefix (default `agent-`). These are running code agents invoked via `ait codeagent`.
-- **TUIs** — windows whose names are in the configured TUI list (board, codebrowser, settings, monitor, minimonitor, brainstorm) or start with `brainstorm-`.
+- **TUIs** — windows whose names are in the configured TUI list (board, codebrowser, settings, monitor, minimonitor, brainstorm, stats, syncer) or start with `brainstorm-`.
 - **Others** — shells, logs, and any other tmux window.
 
 Each card in the pane list shows the window name, category badge, an idle indicator (when the pane has been quiet longer than `idle_threshold_seconds`), and, for agent panes carrying a task ID in the window name, the task number.
@@ -66,7 +66,9 @@ All navigation is keyboard-driven. Monitor uses a **zone model**: focus lives in
 
 ### Jumping to Another TUI
 
-Press **j** from any zone to open the TUI switcher overlay. The overlay lists the TUIs that are integrated with the tmux workflow (board, monitor, minimonitor, codebrowser, settings, brainstorm). Select one and monitor either focuses the existing tmux window running that TUI or creates a new window and launches it. This is the fastest way to move between the ait dashboard and any other TUI without leaving tmux.
+Press **j** from any zone to open the TUI switcher overlay. The overlay lists the TUIs that are integrated with the tmux workflow (board, monitor, minimonitor, codebrowser, settings, stats, brainstorm, syncer). Select one and monitor either focuses the existing tmux window running that TUI or creates a new window and launches it. This is the fastest way to move between the ait dashboard and any other TUI without leaving tmux.
+
+When `aitask-data` or `main` falls behind origin, the monitor's session bar appends a compact desync summary (e.g., `· desync: aitask-data 3↓`). For an interactive surface that pulls/pushes/syncs the same refs, see the [Syncer]({{< relref "/docs/tuis/syncer" >}}).
 
 <!-- SCREENSHOT: aitasks_tui_switcher_dialog.svg — the TUI switcher overlay as shown from monitor -->
 

@@ -19,19 +19,20 @@ The aitasks framework includes several terminal-based user interfaces (TUIs) bui
 - **[Code Browser](codebrowser/)** (`ait codebrowser`) — Code navigation and diff review with task-aware annotations that show which aitasks contributed to each section, plus a **completed tasks history** screen (press `h`) for browsing archived work. Used at the **end** of the workflow or when onboarding to unfamiliar code.
 - **[Settings](settings/)** (`ait settings`) — Configuration editor for code agent defaults, board settings, available models, and execution profiles. Also hosts the Tmux tab for editing integration settings.
 - **[Stats](stats/)** (`ait stats-tui`) — Pane-based viewer for archived task completion statistics: summary, daily/weekly trends, label and issue-type breakdowns, code agent / LLM model histograms, and verified model score rankings. Swappable built-in layouts plus user-defined custom layouts.
+- **[Syncer](syncer/)** (`ait syncer`) — Tracks remote desync state for `main` and `aitask-data` with one-keystroke pull, push, and sync actions plus an agent-based escape hatch when an action fails. Optionally auto-launched by `ait ide`.
 - **Brainstorm** (`ait brainstorm`) — Interactive planning/brainstorming TUI for drafting new tasks. Dedicated documentation is pending.
 
 All TUIs require the shared Python virtual environment installed by [`ait setup`]({{< relref "/docs/commands/setup-install" >}}).
 
 ## Navigating between TUIs
 
-When you run the TUIs inside tmux, pressing **`j`** in any main TUI opens the **TUI switcher** dialog. The switcher lists the core integrated TUIs (Monitor, Board, Code Browser, Settings, Stats) plus your configured git TUI, and appends any running code agent and brainstorm windows discovered in the tmux session. Selecting a target either focuses the existing tmux window running that TUI or creates a new window and launches it — in one keystroke, without leaving tmux. Minimonitor is not listed in the switcher itself — it is auto-spawned alongside other TUIs when configured.
+When you run the TUIs inside tmux, pressing **`j`** in any main TUI opens the **TUI switcher** dialog. The switcher lists the core integrated TUIs (Monitor, Board, Code Browser, Settings, Stats, Syncer) plus your configured git TUI, and appends any running code agent and brainstorm windows discovered in the tmux session. Selecting a target either focuses the existing tmux window running that TUI or creates a new window and launches it — in one keystroke, without leaving tmux. Minimonitor is not listed in the switcher itself — it is auto-spawned alongside other TUIs when configured.
 
 <!-- TODO screenshot: aitasks_tui_switcher_dialog.svg -->
 
 The switcher only works inside tmux. If you are not running inside tmux yet, see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}) for how to set it up and launch the session via `ait ide`.
 
-When more than one aitasks tmux session is running on the same tmux server, the switcher also shows a session row at the top. The attached session is marked with `▶`, and the selected session is highlighted. Use **Left/Right** to pick a different session; the list below refreshes to show that session's TUIs and windows. **Enter** (or any shortcut key like **`b`** for board, **`n`** for a new task) acts on the selected session — if it differs from your attached session, the switcher teleports your tmux client there automatically.
+When more than one aitasks tmux session is running on the same tmux server, the switcher also shows a session row at the top. The attached session is marked with `▶`, and the selected session is highlighted. Use **Left/Right** to pick a different session; the list below refreshes to show that session's TUIs and windows. **Enter** (or any shortcut key like **`b`** for board, **`y`** for syncer, **`n`** for a new task) acts on the selected session — if it differs from your attached session, the switcher teleports your tmux client there automatically.
 
 ---
 

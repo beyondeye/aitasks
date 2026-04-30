@@ -65,7 +65,7 @@ Monitor uses a two-zone model. Focus lives in one of:
 | Category | Rule |
 |----------|------|
 | **Agent** | Window name starts with any prefix listed in `tmux.monitor.agent_window_prefixes` (default `agent-`) |
-| **TUI** | Window name is one of the framework TUIs (board, codebrowser, settings, brainstorm, monitor, minimonitor, stats), a custom name listed in `tmux.monitor.tui_window_names`, OR starts with `brainstorm-` |
+| **TUI** | Window name is one of the framework TUIs (board, codebrowser, settings, brainstorm, monitor, minimonitor, stats, syncer), a custom name listed in `tmux.monitor.tui_window_names`, OR starts with `brainstorm-` |
 | **Other** | Anything that does not match the rules above (shells, logs, ad-hoc windows) |
 
 Agent panes whose window name contains a task ID (e.g., `agent-t42-claudecode`) are linked to the corresponding task file — that is what powers the `i` (Task Info) and `n` (Next Sibling) shortcuts.
@@ -123,9 +123,13 @@ tmux:
       - agent-
     # Optional — additional window names to classify as TUIs. The framework
     # TUIs (board, codebrowser, settings, brainstorm, monitor, minimonitor,
-    # stats) are always classified regardless of this setting.
+    # stats, syncer) are always classified regardless of this setting.
     tui_window_names:
       - my_custom_tui
+  # Optional — auto-launch the syncer TUI alongside monitor when `ait ide`
+  # starts the session. Default: false.
+  syncer:
+    autostart: true
 ```
 
 | Key | Type | Default | Description |
@@ -134,11 +138,12 @@ tmux:
 | `tmux.default_split` | string | `horizontal` | How new panes are split when TUIs are launched from the switcher. |
 | `tmux.prefer_tmux` | bool | `true` | Whether tmux-based workflows are the default for related commands. |
 | `tmux.git_tui` | string | `lazygit` | Which git TUI the switcher targets for git windows. |
+| `tmux.syncer.autostart` | bool | `false` | When `true`, [`ait ide`]({{< relref "/docs/installation/terminal-setup" >}}) opens a singleton [`syncer`]({{< relref "/docs/tuis/syncer" >}}) window inside the project session. |
 | `tmux.monitor.refresh_seconds` | int | `3` | Pane list refresh cadence in seconds. |
 | `tmux.monitor.idle_threshold_seconds` | int | `5` | Threshold for marking a pane as idle in the card view. |
 | `tmux.monitor.capture_lines` | int | `200` (in the shipped config; `30` if the key is absent) | Number of lines of pane output the preview captures per refresh. |
 | `tmux.monitor.agent_window_prefixes` | list | `["agent-"]` | Window-name prefixes that classify a pane as an agent. |
-| `tmux.monitor.tui_window_names` | list | *(empty)* | Additional window names classified as TUIs, beyond the framework defaults (board, codebrowser, settings, brainstorm, monitor, minimonitor, stats) which are always classified. `brainstorm-*` prefix matches are also always included. |
+| `tmux.monitor.tui_window_names` | list | *(empty)* | Additional window names classified as TUIs, beyond the framework defaults (board, codebrowser, settings, brainstorm, monitor, minimonitor, stats, syncer) which are always classified. `brainstorm-*` prefix matches are also always included. |
 
 All of these can be edited interactively via [`ait settings`]({{< relref "/docs/tuis/settings" >}}) → Tmux tab, which writes the same keys in `project_config.yaml`.
 
@@ -189,6 +194,7 @@ When monitor starts, it resolves which tmux session to watch using this decision
 | `ait board` | Kanban board for task management — target of the TUI switcher | [Board]({{< relref "/docs/tuis/board" >}}) |
 | `ait codebrowser` | Code browser TUI — target of the TUI switcher | [Code Browser]({{< relref "/docs/tuis/codebrowser" >}}) |
 | `ait settings` | Settings TUI — target of the TUI switcher; also hosts the Tmux tab for editing the configuration above | [Settings]({{< relref "/docs/tuis/settings" >}}) |
+| `ait syncer` | Remote desync tracker for `main` and `aitask-data` — feeds the desync summary surfaced in the monitor session bar | [Syncer]({{< relref "/docs/tuis/syncer" >}}) |
 
 ---
 

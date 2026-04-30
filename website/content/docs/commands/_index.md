@@ -24,6 +24,7 @@ description: "Complete CLI reference for all ait subcommands"
 | [`ait codebrowser`](board-stats/#ait-codebrowser) | Launch the code browser TUI |
 | [`ait ide`](../installation/terminal-setup/) | Start (or attach to) the configured tmux session and launch `ait monitor` — one view of a shared session; see `ait ide --help` |
 | [`ait settings`](../tuis/settings/) | Open the settings TUI for configuration management |
+| [`ait syncer`](../tuis/syncer/) | Open the remote-desync syncer TUI for `main` and `aitask-data` |
 
 ### Integration
 

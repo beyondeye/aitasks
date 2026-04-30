@@ -33,6 +33,8 @@ The two can coexist in the same tmux session — a typical layout has monitor in
 
 For the full cross-TUI multi-session story — auto-discovery, the `M` toggle, rendering differences, and handoff behavior — see [Multi-session view]({{< relref "/docs/tuis/monitor/reference" >}}#multi-session-view) in the monitor reference.
 
+When `aitask-data` or `main` falls behind origin, the minimonitor bar appends a compact desync indicator (e.g., `· ↓3`) so you can spot drift from the sidebar. For an interactive surface that pulls/pushes/syncs the same refs, see the [Syncer]({{< relref "/docs/tuis/syncer" >}}).
+
 ## Auto-spawn and auto-despawn
 
 Minimonitor's lifecycle is tied to the agent pane it sits next to — every agent window you launch from an ait TUI gets a minimonitor split alongside it, and that minimonitor closes itself when the agent pane exits. You don't manage minimonitors explicitly; they appear and disappear with the agents they track.
