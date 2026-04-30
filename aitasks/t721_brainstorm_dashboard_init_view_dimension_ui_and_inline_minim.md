@@ -6,8 +6,9 @@ issue_type: enhancement
 status: Implementing
 labels: [brainstorming, ait_brainstorm, ui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-30 10:33
-updated_at: 2026-04-30 12:09
+updated_at: 2026-04-30 12:22
 boardidx: 60
 ---
 
