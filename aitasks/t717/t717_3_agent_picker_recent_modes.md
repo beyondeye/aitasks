@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t717_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [verifiedstats, statistics, ui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-30 00:19
-updated_at: 2026-04-30 00:19
+updated_at: 2026-04-30 12:11
 ---
 
 ## Context
