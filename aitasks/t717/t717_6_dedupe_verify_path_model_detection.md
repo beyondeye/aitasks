@@ -6,8 +6,9 @@ issue_type: refactor
 status: Implementing
 labels: [verifiedstats, task-workflow]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-30 10:22
-updated_at: 2026-04-30 14:37
+updated_at: 2026-04-30 14:43
 ---
 
 ## Context
