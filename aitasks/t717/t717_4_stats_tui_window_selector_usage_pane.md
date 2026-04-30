@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [verifiedstats, statistics, ui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-30 00:19
-updated_at: 2026-04-30 12:30
+updated_at: 2026-04-30 12:43
 ---
 
 ## Context

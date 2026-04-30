@@ -687,3 +687,10 @@ Update the `__all__` export list in `aitask_stats.py:64-100` to include the new 
 ## Step 9: Post-Implementation
 
 Standard archival via `./.aitask-scripts/aitask_archive.sh 717_4`. Folded tasks: none.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-04-30 12:50)
+- **Requested by user:** The in-pane window-cycle hint `[ prev win · next win ]` was unclear — even spelling out "prev window / next window" felt ambiguous. Clarify what is being cycled.
+- **Changes made:** Replaced the hint string in both `VerifiedRankingsPane._populate()` and `UsageRankingsPane._populate()` (`panes/agents.py` lines 110, 197) with `press [ or ] to switch time window`, with the bracket key chars rendered bold. Bold tags use Rich's `[b]\[[/b]` (escaped) for `[` and `[b]][/b]` for `]` (Rich does not escape `]`).
+- **Files affected:** `.aitask-scripts/stats/panes/agents.py`
