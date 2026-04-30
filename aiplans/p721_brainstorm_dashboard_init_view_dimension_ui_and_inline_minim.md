@@ -544,3 +544,164 @@ flag for `/aitask-qa` follow-up if needed):
 - Commit plan file under `aiplans/p721_*.md` via `./ait git`.
 - Run archival via `./.aitask-scripts/aitask_archive.sh 721`.
 - Push.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-04-30 14:00)
+- **Requested by user:**
+  1. When the filtered SectionViewerScreen opens (via Enter on a
+     dimension row), automatically scroll the markdown to the first
+     section in the filtered minimap — currently the user has to press
+     Enter on a minimap row to land at the relevant content.
+  2. Tab should toggle focus between the Dashboard's left pane (NodeRow
+     list) and right pane (DimensionRow list).
+  3. Each `DimensionRow` should display a count of proposal sections
+     that reference that dimension key (visual indicator).
+- **Changes made:**
+  1. `SectionViewerScreen.on_mount` (lib/section_viewer.py): when a
+     `section_filter` is set, call
+     `content.scroll_to_section(first_filtered.name)` via
+     `call_after_refresh()` so the markdown jumps to the first filtered
+     section once layout has settled.
+  2. `BrainstormApp.on_key` handles `tab` and `shift+tab` on the
+     Dashboard tab via a new `_dashboard_toggle_pane_focus()` helper.
+     From a `NodeRow`, Tab focuses the first `DimensionRow` (no-op if
+     the right pane has no dimensions). From a `DimensionRow`, Tab
+     returns to the currently-displayed node's row in the left pane
+     (or the first `NodeRow` if not found).
+  3. `DimensionRow.__init__` accepts `section_count: int = 0` and
+     `render()` appends `[N §]` (cyan) or `[0 §]` (dim) at the end of
+     the row. `_show_node_detail` parses the focused node's proposal,
+     counts sections per dimension key, and passes the count when
+     mounting each `DimensionRow`. Failure to read the proposal is
+     caught silently — rows render with count 0 (the dim visual
+     treatment accurately conveys "no sections" to the user).
+- **Files affected:**
+  - `.aitask-scripts/lib/section_viewer.py`
+  - `.aitask-scripts/brainstorm/brainstorm_app.py`
+
+### Change Request 2 (2026-04-30 14:30)
+- **Requested by user:**
+  1. The `[N §]` section-count badge on each `DimensionRow` should be at
+     the START of the row, not the end.
+  2. Auto-scroll on filtered SectionViewerScreen open is not working —
+     the markdown does not actually move to the first filtered section.
+  3. When selecting a section in the (full-screen) proposal viewer the
+     markdown scrolls "several lines down more than it should" — as if
+     the inline minimap height were being added even though we are in
+     the side-minimap full-screen variant.
+- **Changes made:**
+  1. `DimensionRow.render()` — badge now precedes the suffix:
+     `  [N §] suffix: value`. Cyan for >0, dim for 0.
+  2. `SectionViewerScreen.on_mount` — replaced `call_after_refresh`
+     with `set_timer(0.15, ...)`. `Markdown.update()` parses async, so
+     `virtual_size` only stabilizes after several refreshes; the small
+     timer waits past parsing before scrolling.
+  3. `SectionAwareMarkdown.scroll_to_section` — switched from
+     `ratio * virtual_size.height` to `ratio * max_scroll_y`. The old
+     formula over-shoots by approximately `viewport_height * ratio`
+     because `virtual_size.height` is the total content height while
+     `max_scroll_y` is the scrollable distance. Falls back to a
+     manually-computed `max(0, virtual_size.height - size.height)` when
+     `max_scroll_y` is unavailable.
+- **Files affected:**
+  - `.aitask-scripts/brainstorm/brainstorm_app.py`
+  - `.aitask-scripts/lib/section_viewer.py`
+
+### Change Request 3 (2026-04-30 14:50)
+- **Requested by user:** Auto-scroll on filtered SectionViewerScreen
+  open is still not working with the 0.15s `set_timer`.
+- **Changes made:** Replaced the single-shot `set_timer(0.15, ...)` with
+  a polling `set_interval(0.1, _poll_auto_scroll)` on
+  `SectionViewerScreen`. The poll fires every 100ms and only triggers
+  the scroll once `content.virtual_size.height > content.size.height`
+  (i.e., the Markdown has rendered enough content to actually be
+  scrollable). Bails out after ~2s (20 attempts) and stops the timer.
+  Root cause: `Markdown.update()` returns an unawaited
+  `AwaitComplete` — parsing happens in a worker after `on_mount`
+  returns, so any fixed-delay scroll attempt is racing the renderer.
+  Polling on `virtual_size.height` is the right termination condition.
+- **Files affected:**
+  - `.aitask-scripts/lib/section_viewer.py`
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `brainstorm_schemas.py` — Added `PREFIX_TO_LABEL` and
+    `group_dimensions_by_prefix()` helper.
+  - `brainstorm_app.py` — Added `DimensionRow(Static)` with
+    `Activated` message; replaced `Label#dash_node_info` with
+    `Container#dash_node_info` and dynamically-mounted Static
+    metadata + per-prefix subheaders + focusable `DimensionRow`s
+    (with leading `[N §]` proposal-section-count badge); added
+    `_dashboard_toggle_pane_focus()` for Tab/Shift+Tab between left
+    NodeRow list and right DimensionRow list; relaxed
+    `_navigate_rows` container type so Container works alongside
+    VerticalScroll; added `on_dimension_row_activated` to push
+    `SectionViewerScreen` filtered to matching proposal sections;
+    added `home`/`m` priority binding on `NodeDetailModal` to
+    scroll active tab to top + focus inline minimap.
+  - `lib/section_viewer.py` — Added `_filter_sections` pure
+    helper; extended `SectionMinimap.populate(parsed, names=None)`;
+    extended `SectionViewerScreen(__init__, on_mount)` with
+    `section_filter` arg and polling auto-scroll on open;
+    rewrote `SectionAwareMarkdown.scroll_to_section` to use
+    `max_scroll_y` instead of `virtual_size.height`.
+  - `codebrowser/detail_pane.py` — Added `home`/`m` priority
+    binding scrolling self to top + focusing `#detail_minimap`.
+  - `tests/test_brainstorm_schemas.py` (new, 5 tests) — covers
+    `group_dimensions_by_prefix`.
+  - `tests/test_section_viewer_filter.py` (new, 5 tests) — covers
+    `_filter_sections`.
+- **Deviations from plan:** The original plan deferred any
+  changes to the existing `scroll_to_section` math, but Change
+  Request 2 surfaced an over-scroll bug that pre-existed this task
+  (visible whenever a section row was selected from the minimap in
+  the full-screen viewer). Fixed in `lib/section_viewer.py` —
+  simple two-line change, kept in scope because it became part of
+  the user's review feedback.
+- **Issues encountered:**
+  - Auto-scroll on SectionViewerScreen open did not work with
+    `call_after_refresh` or `set_timer(0.15)` — `Markdown.update()`
+    parses in an unawaited worker, so `virtual_size.height` is 0
+    until the next several refresh cycles. Resolved by polling
+    `virtual_size.height > size.height` every 100ms (timeout 2s).
+  - `SectionAwareMarkdown.scroll_to_section` over-scrolled by
+    `viewport_height * ratio` because it multiplied the source-line
+    ratio by the *total* virtual height instead of `max_scroll_y`
+    (the scrollable distance). Fixed.
+  - `_navigate_rows` was typed to `VerticalScroll` and would have
+    failed silently when called with the new `Container#dash_node_info`.
+    Type filter relaxed.
+- **Key decisions:**
+  - Used a `Container` (not `VerticalScroll`) for `dash_node_info`
+    to avoid nested scroll containers — the parent `#detail_pane`
+    already provides scrolling.
+  - Tab between panes is implemented as a binary toggle (no
+    overflow from arrow nav) to keep two list models cleanly
+    separate. `_dashboard_toggle_pane_focus` returns `False` when
+    the target pane has no rows so default Textual focus
+    traversal can take over.
+  - Section count badge placed at the START of each `DimensionRow`
+    (per user request) with cyan styling for non-zero counts and
+    dim styling for zero — visually flags dimensions with no
+    matching proposal sections.
+  - The polling-with-timeout pattern in
+    `SectionViewerScreen._poll_auto_scroll` is preferable to a
+    single longer fixed delay: it fires as soon as the Markdown is
+    actually ready (no wasted wait) and gives up gracefully if the
+    document never grows past the viewport (no infinite loop).
+  - `home`/`m` bindings use `priority=True` on both
+    `NodeDetailModal` and `DetailPane` so they intercept before the
+    focused Markdown widget's default `home` (scroll-home) binding
+    fires.
+- **Upstream defects identified:** None.
+
+  Separately (NOT a code defect — flagged by the user during
+  review as a data observation worth investigating in a follow-up
+  on brainstorm session 635): many dimensions in that session have
+  zero matching proposal sections. The new section-count badge now
+  surfaces this clearly. Whether it indicates a brainstorm crew
+  bug (sections not tagged with the right dimension keys) or
+  intentional data shape requires session-specific investigation —
+  not in scope for this task and not a script-level defect.
