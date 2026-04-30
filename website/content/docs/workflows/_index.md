@@ -26,6 +26,7 @@ The full task lifecycle — capturing ideas quickly, wrapping ad-hoc work into t
 Running multiple tasks side by side, front-loading planning work, and farming out execution to remote web sandboxes.
 
 - [Parallel Development](parallel-development/) — Working on multiple tasks simultaneously with concurrency safety.
+- [Crash Recovery](crash-recovery/) — Resume a task whose prior agent died mid-implementation, with a survey of leftover work before deciding to reclaim or drop.
 - [Parallel Planning](parallel-planning/) — Front-load complex task design work while other implementations run in parallel.
 - [Claude Code Web](claude-web/) — Running tasks on Claude Code Web with sandboxed branch access.
 
