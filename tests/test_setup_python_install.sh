@@ -60,11 +60,17 @@ echo "PASS: dependencies import"
 # On Linux without modern system python: assert uv was used
 echo ""
 echo "--- Inspecting install artifacts ---"
-if [[ "$(uname)" == "Linux" ]] && [[ -x "$FAKE_HOME/.aitask/uv/bin/uv" ]]; then
-    echo "uv was installed at $FAKE_HOME/.aitask/uv/bin/uv"
-    if [[ -L "$FAKE_HOME/.aitask/python/3.13/bin/python3" ]]; then
-        echo "PASS: uv installed Python 3.13 with symlink at $FAKE_HOME/.aitask/python/3.13/bin/python3"
+if [[ "$(uname)" == "Linux" ]] && [[ -d "$FAKE_HOME/.aitask/uv" ]]; then
+    if [[ ! -x "$FAKE_HOME/.aitask/uv/uv" ]]; then
+        echo "FAIL: expected uv binary at $FAKE_HOME/.aitask/uv/uv (uv installer puts binaries directly in UV_INSTALL_DIR)"
+        exit 1
     fi
+    echo "PASS: uv was installed at $FAKE_HOME/.aitask/uv/uv"
+    if ! ls -d "$FAKE_HOME/.aitask/python/"*"/bin/python3" >/dev/null 2>&1; then
+        echo "FAIL: expected uv-installed Python symlink at $FAKE_HOME/.aitask/python/<ver>/bin/python3"
+        exit 1
+    fi
+    echo "PASS: uv installed Python with symlink at .aitask/python/<ver>/bin/python3"
 elif [[ "$(uname)" == "Darwin" ]]; then
     echo "Note: macOS host — brew install path expected (not asserting brew artifacts)."
 else

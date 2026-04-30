@@ -418,23 +418,35 @@ _install_modern_python_macos() {
     hash -r
 }
 
-_install_modern_python_linux() {
+# Locate or install uv (the Astral binary). Echoes the absolute path to the
+# uv binary on stdout. Idempotent: skips download if a usable binary is
+# already present at the expected location. Single source of truth for the
+# uv install layout — callers must not hardcode paths.
+_ensure_uv() {
     local uv_dir="$HOME/.aitask/uv"
-    if [[ ! -x "$uv_dir/bin/uv" ]]; then
+    local uv_bin="$uv_dir/uv"
+    if [[ ! -x "$uv_bin" ]]; then
         info "Downloading uv (astral-sh/uv) into $uv_dir (user-scoped, no sudo)..."
         if ! command -v curl >/dev/null 2>&1; then
-            die "curl is required to download uv. Install curl and re-run 'ait setup'."
+            die "curl is required to download uv. Install curl and re-run."
         fi
         UV_INSTALL_DIR="$uv_dir" \
         INSTALLER_NO_MODIFY_PATH=1 \
             sh -c 'curl -LsSf https://astral.sh/uv/install.sh | sh' \
             || die "uv install failed."
+        [[ -x "$uv_bin" ]] || die "uv installer ran but binary not found at $uv_bin."
     fi
+    printf '%s\n' "$uv_bin"
+}
+
+_install_modern_python_linux() {
+    local uv_bin
+    uv_bin="$(_ensure_uv)"
     info "Installing Python $AIT_VENV_PYTHON_PREFERRED via uv..."
-    "$uv_dir/bin/uv" python install "$AIT_VENV_PYTHON_PREFERRED" \
+    "$uv_bin" python install "$AIT_VENV_PYTHON_PREFERRED" \
         || die "uv python install $AIT_VENV_PYTHON_PREFERRED failed."
     local installed
-    installed="$("$uv_dir/bin/uv" python find "$AIT_VENV_PYTHON_PREFERRED" 2>/dev/null)"
+    installed="$("$uv_bin" python find "$AIT_VENV_PYTHON_PREFERRED" 2>/dev/null)"
     [[ -z "$installed" || ! -x "$installed" ]] && \
         die "uv reported Python $AIT_VENV_PYTHON_PREFERRED installed but interpreter is not executable: ${installed:-<empty>}"
     mkdir -p "$HOME/.aitask/python/$AIT_VENV_PYTHON_PREFERRED/bin"
@@ -453,7 +465,7 @@ find_pypy() {
     local candidates=(
         "$PYPY_VENV_DIR/bin/python"
         "$HOME/.aitask/python/pypy-$AIT_PYPY_PREFERRED/bin/python3"
-        pypy3.11 pypy3
+        "pypy$AIT_PYPY_PREFERRED" pypy3
     )
     for cand in "${candidates[@]}"; do
         if [[ "$cand" == /* ]]; then
@@ -482,30 +494,41 @@ _install_pypy_macos() {
     if ! command -v brew >/dev/null 2>&1; then
         die "Homebrew not found. Install from https://brew.sh and re-run 'ait setup --with-pypy'."
     fi
-    info "Installing pypy3.11 via Homebrew..."
-    brew install pypy3.11 \
+    local formula="pypy$AIT_PYPY_PREFERRED"
+    info "Installing $formula via Homebrew..."
+    brew install "$formula" \
         || brew install pypy3 \
-        || die "brew install pypy3.11 / pypy3 failed."
+        || die "brew install $formula / pypy3 failed."
     hash -r
+
+    # Layout symmetry with the Linux path: create a stable user-scoped symlink
+    # so find_pypy()'s ~/.aitask/python/pypy-<ver>/bin/python3 candidate is
+    # honored regardless of PATH state.
+    local brew_pypy
+    brew_pypy="$(command -v "pypy$AIT_PYPY_PREFERRED" 2>/dev/null \
+                 || command -v pypy3 2>/dev/null \
+                 || true)"
+    if [[ -n "$brew_pypy" && -x "$brew_pypy" ]]; then
+        if "$brew_pypy" -c "import sys; sys.exit(0 if sys.implementation.name == 'pypy' else 1)" 2>/dev/null; then
+            mkdir -p "$HOME/.aitask/python/pypy-$AIT_PYPY_PREFERRED/bin"
+            ln -sf "$brew_pypy" "$HOME/.aitask/python/pypy-$AIT_PYPY_PREFERRED/bin/python3"
+            info "PyPy symlinked at ~/.aitask/python/pypy-$AIT_PYPY_PREFERRED/bin/python3 -> $brew_pypy"
+        else
+            warn "Resolved PyPy candidate $brew_pypy is not a PyPy interpreter; skipping symlink."
+        fi
+    else
+        warn "Brew install reported success but no pypy binary was found on PATH; skipping symlink."
+    fi
 }
 
 _install_pypy_linux() {
-    local uv_dir="$HOME/.aitask/uv"
-    if [[ ! -x "$uv_dir/bin/uv" ]]; then
-        info "Downloading uv (astral-sh/uv) into $uv_dir..."
-        if ! command -v curl >/dev/null 2>&1; then
-            die "curl is required to download uv. Install curl and re-run."
-        fi
-        UV_INSTALL_DIR="$uv_dir" \
-        INSTALLER_NO_MODIFY_PATH=1 \
-            sh -c 'curl -LsSf https://astral.sh/uv/install.sh | sh' \
-            || die "uv install failed."
-    fi
+    local uv_bin
+    uv_bin="$(_ensure_uv)"
     info "Installing PyPy $AIT_PYPY_PREFERRED via uv..."
-    "$uv_dir/bin/uv" python install "pypy@$AIT_PYPY_PREFERRED" \
+    "$uv_bin" python install "pypy@$AIT_PYPY_PREFERRED" \
         || die "uv python install pypy@$AIT_PYPY_PREFERRED failed."
     local installed
-    installed="$("$uv_dir/bin/uv" python find "pypy@$AIT_PYPY_PREFERRED" 2>/dev/null)"
+    installed="$("$uv_bin" python find "pypy@$AIT_PYPY_PREFERRED" 2>/dev/null)"
     [[ -z "$installed" || ! -x "$installed" ]] && \
         die "uv reported PyPy installed but interpreter is not executable: ${installed:-<empty>}"
     mkdir -p "$HOME/.aitask/python/pypy-$AIT_PYPY_PREFERRED/bin"
