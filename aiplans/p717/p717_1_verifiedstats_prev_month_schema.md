@@ -180,3 +180,20 @@ diff <(jq '.models[] | select(.name=="opus4_6") | .verifiedstats.pick' /tmp/befo
 - **`previous_calendar_month()` helper is reusable.** t717_2 needs the exact same logic. Recommend in t717_2 to extract it (and the remote-aware commit/push block) into `.aitask-scripts/lib/verified_update_lib.sh` and source from both scripts. This is the natural moment for the extraction since two callers will exist.
 - **The jq rollover ladder is the canonical pattern for usagestats rollover** in t717_2 — same conditions, just remove every reference to `score_sum`.
 - **Schema visibility for downstream:** after t717_1 lands and any verified-update fires once, `models_*.json` contains `prev_month`. t717_3 / t717_4 can rely on the field being present; their read paths should still default-handle missing `prev_month` for cold-start models.
+- **New sibling t717_6 spawned during this task.** Verification surfaced a duplicate model-self-detection in the verify path (planning.md Step 6.1 calls Model Self-Detection independently of Step 7's Agent Attribution). Created `aitasks/t717/t717_6_dedupe_verify_path_model_detection.md` to address it as a separate refactor. Independent of t717_2 — both can land in either order.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Added `previous_calendar_month()` helper in `.aitask-scripts/aitask_verified_update.sh` (portable across GNU/BSD `date`).
+  - Declared a new global `PREV_MONTH` and set it inside `resolve_date_periods()` so a single date computation step covers all three period globals (CURRENT_MONTH, CURRENT_WEEK, PREV_MONTH).
+  - Extended the `update_model_file()` jq pipeline with: a 4th argument `prev_month_target`, a migration ladder that always materializes `prev_month` for the three legacy shapes (flat / bucketed-no-prev_month / fresh), and a 3-way rollover decision (`$pm`) that yields `$base.prev_month` on same-month bumps, `$base.month` on one-month rollover, and `{period:"", runs:0, score_sum:0}` on multi-month skips.
+  - Extended `tests/test_verified_update.sh` with 5 new tests (Test 14-18) covering: same-month bump preserves prev_month, one-month rollover copies month into prev_month, multi-month skip zeros prev_month, migration from flat seeds prev_month empty, migration from bucketed-but-no-prev_month adds empty prev_month. Also extended Test 13 (new-skill) with 2 prev_month assertions.
+- **Deviations from plan:** None. The implementation matches the canonical plan verbatim, including the migration ladder, the rollover ladder, and the test cases.
+- **Issues encountered:**
+  - The manual smoke test's `diff` returned empty even though the script reported `UPDATED:claudecode/opus4_6:pick:98`. Root cause: the local working tree on `aitask-data` was 3 commits ahead of `origin/aitask-data` (plan-verified update, t717_6 sibling, plan update), so the script's clone-and-push path applied the verified bump on top of `origin`'s state and pushed it back, but `sync_current_repo_from_remote` could not fast-forward the local working tree past the divergent commits. Confirmed the change DID land correctly by reading `origin/aitask-data:aitasks/metadata/models_claudecode.json` directly: `prev_month` populated with old month data, `month` reset, all_time/week incremented. Behavior is correct; the local view will reconcile on the workflow's final `./ait git push`. Not a defect in t717_1's code.
+- **Key decisions:**
+  - Set `PREV_MONTH` inside `resolve_date_periods()` (not in `main()`) so any future caller of `resolve_date_periods` automatically gets the prev-month period. Cleaner than scattering the assignment.
+  - Used `(.prev_month //= {...})` operator for the bucketed-but-no-prev_month migration path — more concise than nested if/else and matches the plan's formulation.
+  - Test 14 seeds `prev_month` directly (rather than relying on a prior rollover-style invocation) so the assertion is independent of any jq behavior other than "same-month bumps don't touch prev_month."
+- **Upstream defects identified:** None.
