@@ -22,6 +22,7 @@ This skill is invoked by other skills (e.g., aitask-pick, aitask-explore, aitask
 | `folded_tasks` | array/null | List of task IDs folded into this task (e.g., `[106, 129_5]`), or null/empty if none. Set by aitask-explore when existing tasks are folded into a new task. |
 | `skill_name` | string | Name of the calling skill for feedback tracking (e.g., `pick`, `explore`, `pr-import`) |
 | `feedback_collected` | boolean | Guard flag — initialized to `false`. Set to `true` after the Satisfaction Feedback Procedure runs. Prevents double execution across workflow paths. |
+| `usage_collected` | boolean | Guard flag — initialized to `false`. Set to `true` before the unconditional usage bump fires in Satisfaction Feedback Step 0. Set-before-call so a mid-procedure failure does not cause a retry double-bump. |
 | `detected_agent_string` | string/null | Agent string from Agent Attribution (e.g., `claudecode/opus4_6`). Set by Agent Attribution in Step 7, consumed by Satisfaction Feedback in Step 9b to skip re-detection. Initialized to `null`. |
 
 ## Workflow

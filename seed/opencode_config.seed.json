@@ -51,6 +51,7 @@
       "./.aitask-scripts/aitask_verification_followup.sh *": "allow",
       "./.aitask-scripts/aitask_verification_parse.sh *": "allow",
       "./.aitask-scripts/aitask_verified_update.sh *": "allow",
+      "./.aitask-scripts/aitask_usage_update.sh *": "allow",
       "./.aitask-scripts/aitask_pr_close.sh *": "allow",
       "./.aitask-scripts/aitask_pr_import.sh *": "allow",
       "./.aitask-scripts/aitask_query_files.sh *": "allow",

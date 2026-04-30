@@ -5,13 +5,33 @@ rolling verified scores for the current code agent/model. It is referenced from 
 
 **Input:**
 - `skill_name` (string, required) — for example `pick`, `explore`, `explain`
-- `detected_agent_string` (string, optional) — pre-resolved agent string from Agent Attribution (e.g., `claudecode/opus4_6`). If provided, skips self-detection in step 2.
-
-**Guard:** If `feedback_collected` is `true`, skip this procedure entirely (feedback was already collected earlier in this workflow run). Otherwise, set `feedback_collected` to `true` before proceeding.
+- `detected_agent_string` (string, optional) — pre-resolved agent string from Agent Attribution (e.g., `claudecode/opus4_6`). If provided, skips self-detection.
 
 **Procedure:**
 
-1. **Profile check:** If the active profile exists and `enableFeedbackQuestions` is set to `false`, skip this procedure entirely. Display: `Profile '<name>': feedback questions disabled`.
+## Step 0 — Record usage (unconditional)
+
+Bumps `usagestats[skill]` for the current model/skill regardless of `enableFeedbackQuestions`. This is the only data path that captures runs by code agents (e.g., Codex CLI) that skip every `AskUserQuestion` after `ExitPlanMode` and therefore never reach the score prompt below.
+
+**Guard:** If `usage_collected` is `true`, skip Step 0. Otherwise set `usage_collected` to `true` **before** invoking the script (set-before-call so a mid-procedure failure does not cause a retry double-bump).
+
+1. **Resolve agent string:** If `detected_agent_string` is non-null/non-empty, reuse it. Else execute the **Model Self-Detection Sub-Procedure** (see `model-self-detection.md`) and store the result in `detected_agent_string` for downstream reuse.
+
+   If detection fails or no supported agent/model can be identified, skip Step 0 silently.
+
+2. **Invoke the usage update:**
+   ```bash
+   ./.aitask-scripts/aitask_usage_update.sh --agent-string "<detected_agent_string>" --skill "<skill_name>" --silent
+   ```
+
+   - On success (`UPDATED:<agent>/<model>:<skill>:<runs>` line): continue.
+   - On failure: warn the user `usage update failed: <error>` and continue. Do NOT abort the workflow — usage tracking is best-effort.
+
+## Step 1 — Satisfaction question and verified-score update
+
+**Guard:** If `feedback_collected` is `true`, skip the remainder of Step 1 (substeps 1-5 below) — feedback was already collected earlier in this workflow run. Otherwise, set `feedback_collected` to `true` before proceeding.
+
+1. **Profile check:** If the active profile exists and `enableFeedbackQuestions` is set to `false`, skip the remainder of Step 1. Display: `Profile '<name>': feedback questions disabled`.
 
    **Default behavior:** If `enableFeedbackQuestions` is omitted, treat it as `true` and continue normally.
 

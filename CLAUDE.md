@@ -86,7 +86,7 @@ Any new script under `.aitask-scripts/` invoked by a skill must be whitelisted f
 | Touchpoint | Entry shape |
 |-----------|------------|
 | `.claude/settings.local.json` | `"Bash(./.aitask-scripts/<name>.sh:*)"` in `permissions.allow` |
-| `.gemini/policies/aitasks-whitelist.toml` | `[[rules]]` block with `commandPrefix = "./.aitask-scripts/<name>.sh"` |
+| `.gemini/policies/aitasks-whitelist.toml` | `[[rule]]` block with `commandPrefix = "./.aitask-scripts/<name>.sh"`, `decision = "allow"`, `priority = 100` |
 | `seed/claude_settings.local.json` | mirror of `.claude/settings.local.json` entry |
 | `seed/geminicli_policies/aitasks-whitelist.toml` | mirror of runtime Gemini policy |
 | `seed/opencode_config.seed.json` | `"./.aitask-scripts/<name>.sh *": "allow"` |
