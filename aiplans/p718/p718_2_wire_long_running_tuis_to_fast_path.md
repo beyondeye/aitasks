@@ -255,3 +255,21 @@ it's exploratory and the planning will happen when it's picked.
 ## Step 9 (Post-Implementation)
 
 Standard child-task archival per `task-workflow/SKILL.md` Step 9.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the 6-launcher fast-path swap exactly as planned. Each of `aitask_board.sh`, `aitask_codebrowser.sh`, `aitask_settings.sh`, `aitask_stats_tui.sh`, `aitask_brainstorm_tui.sh`, and `aitask_syncer.sh` had its line-12 `PYTHON="$(require_ait_python)"` swapped to `PYTHON="$(require_ait_python_fast)"`. `git diff --stat` shows exactly 6 files, 1 insertion + 1 deletion each. `monitor` / `minimonitor` confirmed untouched. Step 5 (follow-up sibling) created `aitasks/t718/t718_5_verify_pypy_for_monitor_minimonitor.md` with priority/effort low; auto-sibling-dep was overridden to make t718_5 depend on t718_2 only (not on t718_4) so it can be picked independently of the docs+manual-verification chain.
+- **Deviations from plan:** Two minor:
+  1. The plan's `aitask_create.sh` snippet used `--depends t718_2` and `--issue-type performance`; the actual flags are `--deps` and `--type` respectively. Used the correct flag names.
+  2. The default sibling-dep chain made t718_5 depend on t718_4. Per the plan's "does not block t718_3 / t718_4" intent, the dep was rewritten to `t718_2` only via `aitask_update.sh --batch 718_5 --deps t718_2` and committed.
+- **Issues encountered:** None. shellcheck reported only pre-existing SC1091 (info-level) noise on `source` lines for all 6 launchers — already documented as upstream noise in t718_1's Final Implementation Notes; not introduced by this task.
+- **Key decisions:**
+  1. **Scope expansion to include `aitask_syncer.sh`** — the original plan listed 5 launchers; verify-mode grep surfaced a 6th matching the same pattern (added by t713_2 after t718 was planned). User confirmed expansion via the verify AskUserQuestion. This is the documented mechanism for keeping the fast-path list current as new long-running TUIs are introduced.
+  2. **t718_5 created as exploratory follow-up** — User explicitly requested a follow-up sibling to empirically verify the parent's "monitor/minimonitor stay on CPython" assumption rather than treat it as immutable. Task is intentionally low-priority and stays out of the docs/manual-verification critical path.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - t718_3 (documentation) — when written, mention **6 fast-path TUIs** (board, codebrowser, settings, stats, brainstorm, **syncer**) plus the existence of t718_5 as the deferred monitor/minimonitor evaluation. The parent task description's "(board, codebrowser, settings, stats)" enumeration in `aidocs/python_tui_performance.md` may need a similar update.
+  - t718_4 (manual verification) — when picked, the Manual Verification Procedure should add a `syncer` smoke-test line to its checklist alongside the other 5 TUIs.
+  - t718_5 — exploratory, blocked-on=t718_2 only. Plan file is intentionally not pre-written; the picker will plan when picked.
+  - Future long-running TUIs introduced after this point should call `require_ait_python_fast` (not `require_ait_python`) from the start. A one-line rule in CLAUDE.md's "Shell Conventions" section would prevent the next drift; this is *not* in scope for this task but is a candidate for the t718_3 docs work or a separate small chore task.
+  - The `require_ait_python_fast` resolver contract from t718_1 held perfectly: drop-in replacement, fall-through to CPython when PyPy is absent, no functional change for non-PyPy users.
