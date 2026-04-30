@@ -248,3 +248,24 @@ After Step 8 commits land, the workflow proceeds to Step 9 (Post-Implementation)
 - `verify_build` (if configured in `aitasks/metadata/project_config.yaml`) runs.
 - `./.aitask-scripts/aitask_archive.sh 713_8` archives the task and plan, releases the lock, removes from parent's `children_to_implement`, commits.
 - `./ait git push` after archival.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Created `.aitask-scripts/lib/sync_action_runner.py` (260 LOC) with `SyncResult` dataclass, 11 status constants + `DEFAULT_SYNC_TIMEOUT_SECONDS`, `parse_sync_output()` pure parser, `run_sync_batch()` blocking subprocess wrapper, `SyncConflictScreen(ModalScreen)` with renamed self-contained CSS ids, and `run_interactive_sync()` terminal-or-suspend fallback.
+  - Refactored `.aitask-scripts/board/aitask_board.py`: deleted inline `SyncConflictScreen` (lines 2943-2974) and `_run_interactive_sync` method, added module imports, rewrote `_run_sync` to dispatch on `result.status` constants (preserving exact notification wording and `LoadingOverlay` pop ordering), renamed `_run_interactive_sync` → `_run_interactive_sync_shared` which delegates to the shared helper with a `reload` callback. Net diff: −31 lines (+42 / −73).
+  - Added `tests/test_sync_action_runner.py` (110 LOC, 18 unittest cases) covering every documented batch status, the synthetic empty/whitespace/unknown-status error paths, first-line-only-with-trailing-noise, leading blank lines, per-line whitespace trim, and the legacy `[""]` semantics for bare `CONFLICT:`.
+- **Deviations from plan:** None. All choices made during planning held up.
+- **Issues encountered:** None during implementation. Module compiled, tests passed first try after the parser was written to mirror the board's `result.stdout.strip().splitlines()[0]` semantics with whitespace stripping at both whole-string and per-line levels.
+- **Key decisions:**
+  - Module placed in `lib/`, not `board/` — followed `lib/desync_state.py` / `lib/agent_command_screen.py` precedent. Both consumers already prepend `lib/` to `sys.path`.
+  - CSS ids renamed to `sync_conflict_*` (from board's `dep_picker_dialog` etc.) to avoid cross-screen styling coupling — those ids are reused by the board's DepPicker / commit dialog screens, so leaving them would have broken the modal in the syncer (whose CSS doesn't define them). `DEFAULT_CSS` is shipped on the modal class itself.
+  - Bare `CONFLICT:` preserved as `[""]` (not normalized to `[]`) per user direction during planning — pure extraction, zero behavior drift.
+  - `run_interactive_sync()` is plain-sync (not `async`) — `app.suspend()` works in sync context, the board's existing `async`/`@work(exclusive=True)` was for thread management not for `await`. Each caller wraps it in their own `@work` if needed (board does, in `_run_interactive_sync_shared`).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks (especially t713_3):**
+  - t713_3 imports: `from sync_action_runner import SyncConflictScreen, run_sync_batch, run_interactive_sync, STATUS_*`. Status-to-notification text mapping is per-caller (board has its `"Sync: No network"` / `"Already up to date"` wording; syncer can pick its own).
+  - The shared `run_interactive_sync(app, on_done)` invokes `on_done` only on the no-terminal `app.suspend()` path. The terminal-spawn path is fire-and-forget — same behavior as the previous board implementation. Callers that need a guaranteed post-resolve refresh in the terminal-spawn path will need to refresh on a next-tick timer or on focus-return event (out of scope here).
+  - When the syncer adds `main` ref pull/push (not handled by `aitask_sync.sh`), it should NOT extend `run_sync_batch` — that helper's contract is "batch-mode for `aitask_sync.sh`". Build a separate `run_main_pull` / `run_main_push` if the protocol differs.
+  - Conflict-modal CSS is self-contained via `DEFAULT_CSS`; the syncer does not need to add any sync-specific CSS to its app stylesheet.
+  - The board kept `find_terminal` imported from `agent_launch_utils` because non-sync flows (e.g., agent launch, codebrowser) still use it directly. The new module re-imports `find_terminal` independently — no shared state.
