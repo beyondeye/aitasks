@@ -6,8 +6,9 @@ issue_type: performance
 status: Implementing
 labels: [performance, monitor, tui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-30 10:25
-updated_at: 2026-04-30 12:00
+updated_at: 2026-04-30 12:05
 ---
 
 ## Context
