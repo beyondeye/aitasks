@@ -7,7 +7,7 @@ status: Implementing
 labels: [performance, monitor, tui]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-30 10:25
-updated_at: 2026-04-30 10:36
+updated_at: 2026-04-30 12:00
 ---
 
 ## Context
