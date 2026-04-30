@@ -310,3 +310,39 @@ After Step 8 commits land:
 - **t713_7**: The aggregate manual-verification checklist should include the
   switcher `y` shortcut, monitor/minimonitor desync line presence, and the
   `ait ide` autostart toggle.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `lib/tui_registry.py` — appended `("syncer", "Syncer", "ait syncer", True)` to `TUI_REGISTRY`. Single-source-of-truth propagation: `TUI_NAMES`, `KNOWN_TUIS`, `switcher_tuis()`, and `tmux_monitor.DEFAULT_TUI_NAMES` all pick up `syncer` automatically.
+  - `lib/tui_switcher.py` — added `"syncer": "y"` to `_TUI_SHORTCUTS`, `Binding("y", "shortcut_syncer", …)` to `TuiSwitcherOverlay.BINDINGS`, and `action_shortcut_syncer` handler delegating to `_shortcut_switch("syncer")`. Footer hint now reads `… s(t)ats  s(y)ncer  b(r)ainstorm …`. Added `#switcher_desync` Label between session row and list, with `_render_desync_line(project_root)` invoked from `on_mount` and `_cycle_session`. The render method calls a class-cached helper `_compute_desync_summary(project_root)` (30s TTL) which subprocess-runs `desync_state.py snapshot --format lines` with `cwd=project_root` and renders e.g. `main: 4↑/0↓ · [dim]aitask-data: clean[/]` or `[dim]all refs clean[/]`.
+  - `lib/agent_launch_utils.py` — `load_tmux_defaults()` now exposes `syncer_autostart` (default `False`), reading `tmux.syncer.autostart` and coercing via `bool()`.
+  - `aitask_ide.sh` — added `read_syncer_autostart()` awk parser (returns `"1"` only for the literal `true`, defaults to `"0"` for missing/false/malformed) and an `ensure_syncer_window()` helper that creates a `syncer` window only when the autostart flag is `1` and no `syncer` window already exists. Refactored the inside-tmux branch to no longer `exec` mid-flow so the helper can run before the final `select-window` exec; called the helper in all three branches (inside-tmux, existing-session, new-session).
+  - `monitor/desync_summary.py` (new, 109 LOC) — shared module exporting `get_desync_summary(project_root, *, compact)`. 30s in-process TTL cache, 2s subprocess timeout. Returns empty string when both refs are at zero behind (so callers can append unconditionally) and a markup-styled string otherwise. `compact=True` produces an ultra-short `↓<N>` form for minimonitor; `compact=False` produces the longer `desync: <ref> N↓` form for monitor.
+  - `monitor/monitor_app.py` — imports `get_desync_summary as _get_desync_summary`. `_rebuild_session_bar` calls it with `compact=False` against `Path.cwd()` and inserts the result before the trailing `[dim]Tab: switch panel[/]` hint in both single- and multi-session branches.
+  - `monitor/minimonitor_app.py` — same import; `_rebuild_session_bar` calls it with `compact=True` and appends to the bar text in both branches.
+  - `tests/test_git_tui_config.py` — added `test_syncer_registered_and_visible_in_switcher` to `TestTuiRegistry`, asserting `syncer` is both in `TUI_NAMES` and visible in `switcher_tuis()`.
+- **Deviations from plan:**
+  - Decided to extract the desync formatter into `monitor/desync_summary.py` rather than duplicating inline. The plan flagged both options; the shared module avoids two divergent parsers and keeps the 30s TTL cache shared across monitor + minimonitor. Both monitor variants pass `compact=` to select formatting.
+  - Switcher's `_format_desync_lines` is module-level (not on the screen class) for testability; the per-screen `_render_desync_line` and class-level `_compute_desync_summary` cache are thin wrappers around it.
+  - The plan suggested adding `_get_desync_summary` directly on the monitor app classes; that would have required passing `Path.cwd()` through and duplicating the parser. Pulled out into the shared module instead — same behavior, less code.
+  - Skipped the optional `tests/test_load_tmux_defaults_syncer.py` file: smoke-tested the four parsing cases (missing, true, false, no-syncer-key) inline during implementation and all four returned the correct value. The existing `TestLoadTmuxDefaultsGitTui` covers the per-key parsing pattern; adding a near-duplicate for `syncer_autostart` would be churn.
+- **Issues encountered:**
+  - Initial `read_syncer_autostart` awk + `|| echo "0"` shell short-circuit returned an empty string when the syncer key was missing (awk exits 0 with empty stdout). Fixed with explicit `[[ -z "$out" ]] && out="0"` after capture.
+  - Verified by smoke test: `awk` parser returns `1` for `autostart: true`, `0` for `false`, and (after the empty-fallback fix) `0` for missing keys.
+- **Key decisions:**
+  - **Append-when-empty pattern:** `get_desync_summary` returns `""` rather than `"clean"` when both refs are at zero behind. Callers can unconditionally concatenate without conditional formatting; the bar reads identically to before when nothing is drifting. This matches the existing pattern of `auto_tag` and `idle_str` in the same code paths.
+  - **`Path.cwd()` for monitor scope:** The monitor processes are launched with the project root as cwd by `aitask_monitor.sh`. Reading desync from `Path.cwd()` is correct. For multi-session monitor, the bar represents the attached session; per-session desync would mean per-session lines, which doesn't fit the single-line bar. Keeping it scoped to the attached session matches the pre-existing `tmux Monitor — N sessions · M panes` summary semantics.
+  - **Subprocess vs in-process for desync_state:** Used subprocess so cwd-scoping works across multi-project sessions in the switcher. The helper has a 2s timeout and the result is cached for 30s, so wall-clock cost is bounded.
+  - **Empty-cache fallback:** When the `desync_state.py` subprocess fails (timeout, non-zero exit, missing helper), the helper returns `""` silently in monitor/minimonitor (graceful degradation — no UI flicker). The switcher renders `[dim]desync: unavailable[/]` instead so the user sees that the check was attempted.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t713_5 (whitelist + config):** This task added the runtime read path for `tmux.syncer.autostart` in both `aitask_ide.sh` (awk parser) and `lib/agent_launch_utils.py` (`syncer_autostart` field). t713_5 still owns the seed-side documentation block in `seed/project_config.yaml` and the 5-touchpoint helper-script whitelist for `aitask_syncer.sh`.
+  - **t713_6 (docs):** When documenting the new `y` switcher shortcut, note that the demoted form `s(y)ncer` is used in the footer hint string (matches `s(t)ats` style — `y` is the second letter of the spelling, not the first).
+  - **t713_7 (manual verification):** The verification list in this plan's "Manual" section is ready-to-use as the aggregate checklist content. Two notes: (1) the desync line in the switcher will only show non-zero values when `aitask-data` or `main` is *behind* origin (ahead-only state shows as `clean`); use a scratch-clone push-then-back-to-origin to force a behind state. (2) The desync line subprocess has a 2s timeout — if origin is unreachable, the line shows `desync: unavailable` rather than blocking the modal.
+- **Verification performed:**
+  - `python3 -m py_compile` — all 6 Python files compile cleanly.
+  - `bash -n .aitask-scripts/aitask_ide.sh` — passes.
+  - `python3 -m unittest tests.test_git_tui_config -v` — 17/17 pass, including new `test_syncer_registered_and_visible_in_switcher`.
+  - `bash tests/run_all_python_tests.sh` — 557/557 framework tests pass.
+  - End-to-end smoke test: `desync_state.py snapshot --format lines` invoked from `Path.cwd()` returned the expected `REF/STATUS/AHEAD/BEHIND` block; `_format` returned correctly for clean and behind cases; `load_tmux_defaults` returned correct `syncer_autostart` values for all four config variants.
