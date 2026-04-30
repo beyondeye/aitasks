@@ -95,6 +95,8 @@ setup_project() {
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/aitask_path.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" .aitask-scripts/lib/
     chmod +x .aitask-scripts/*.sh
 
     printf 'bug\nchore\ndocumentation\nenhancement\nfeature\nperformance\nrefactor\nstyle\ntest\nmanual_verification\n' \

@@ -190,6 +190,8 @@ setup_archive_project() {
     cp "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/ 2>/dev/null || true
+    cp "$PROJECT_DIR/.aitask-scripts/lib/aitask_path.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" .aitask-scripts/lib/
 
     printf '%s' "$STRICT_STUB_CONTENTS" > .aitask-scripts/aitask_create.sh
 
