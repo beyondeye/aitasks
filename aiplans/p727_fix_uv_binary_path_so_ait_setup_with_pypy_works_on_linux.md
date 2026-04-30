@@ -288,3 +288,14 @@ Use `aitask_create_manual_verification.sh --related 727 --name manual_verificati
 ## Step 9 (Post-Implementation)
 
 Standard archival per task-workflow `SKILL.md` Step 9. No worktree to remove (`fast` profile sets `create_worktree: false`). Run `./.aitask-scripts/aitask_archive.sh 727`, then `./ait git push`. The Step 8c manual-verification follow-up task remains open for whoever picks it up on macOS.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Added `_ensure_uv()` helper above `_install_modern_python_linux`. Rewrote `_install_modern_python_linux` and `_install_pypy_linux` to use `_ensure_uv` (drops 6 occurrences of the wrong `$uv_dir/bin/uv` path). Replaced hardcoded `pypy3.11` with `pypy$AIT_PYPY_PREFERRED` in `_install_pypy_macos` and `find_pypy()` candidate list. Added a user-scoped symlink in `_install_pypy_macos` for layout symmetry with Linux. Tightened the silently-no-op guard in `tests/test_setup_python_install.sh` to fail loudly when the uv binary is missing at the corrected path.
+- **Deviations from plan:** None.
+- **Issues encountered:** End-to-end smoke test on Linux passed first try — `ait setup --with-pypy` ran clean, `~/.aitask/pypy_venv/bin/python` resolves to PyPy 3.11.15, `sys.implementation.name == 'pypy'`. The existing `~/.aitask/uv/uv` binary from the reporter's failed run was correctly detected by the new `[[ -x "$uv_bin" ]]` check; uv was not re-downloaded.
+- **Key decisions:** Kept `_ensure_uv()` as a local helper inside `aitask_setup.sh` rather than promoting it to a `lib/uv_resolve.sh` — uv is consumed by exactly one caller pair, all in this script. Promotion would be premature abstraction; revisit if a third caller appears.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/python_resolve.sh:112 — resolve_pypy_python() hardcodes 'pypy3.11 pypy3' candidate list, ignoring AIT_PYPY_PREFERRED. Same single-source-of-truth violation as the find_pypy() literal that was fixed in aitask_setup.sh during this task. Bumping AIT_PYPY_PREFERRED to 3.12 will silently match a stale 3.11 binary on PATH first.`
+  - `tests/test_python_resolve_pypy.sh — pre-existing failure on main before this task (verified via 'git stash'): the PyPy stub at $SCRATCH/.aitask/pypy_venv/bin/python is not detected as PyPy by resolve_pypy_python() inside the test subshell, so 'AIT_USE_PYPY=1 require_ait_python_fast' dies with 'PyPy not found' even when the stub is present. Test was broken before this task; not caused by t727.`
+- **Verification outside this task:** `bash tests/test_setup_find_modern_python.sh` → 6/6 pass. `shellcheck .aitask-scripts/aitask_setup.sh` → no new warnings (only pre-existing SC1091/SC2015/SC2034 unrelated to this change).
