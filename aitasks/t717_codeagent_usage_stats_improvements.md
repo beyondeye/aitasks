@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [verifiedstats, statistics]
-children_to_implement: [t717_3, t717_4, t717_5, t717_6]
+children_to_implement: [t717_4, t717_5, t717_6]
 created_at: 2026-04-29 22:40
-updated_at: 2026-04-30 12:04
+updated_at: 2026-04-30 12:24
 boardidx: 30
 ---
 
