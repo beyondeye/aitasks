@@ -398,6 +398,10 @@ class MonitorApp(TuiSwitcherMixin, App):
         padding: 0 1;
     }
 
+    PaneCard.selected {
+        background: $accent 30%;
+    }
+
     PaneCard:focus {
         background: $accent;
         color: $text;
@@ -853,6 +857,10 @@ class MonitorApp(TuiSwitcherMixin, App):
         # focus. This second call corrects the preview. On the fast path it's
         # cheap (same_pane check short-circuits). Fixes t576.
         self._update_content_preview()
+        # Re-apply the .selected class to the freshly-mounted card whose
+        # pane_id matches _focused_pane_id (cards were destroyed by the
+        # rebuild). Required so the preview-zone indicator survives ticks.
+        self._update_selected_card_indicator()
 
     def _rebuild_session_bar(self) -> None:
         total = len(self._snapshots)
@@ -1167,6 +1175,18 @@ class MonitorApp(TuiSwitcherMixin, App):
         self._update_content_preview()
         # Update footer to show/hide bindings based on active zone
         self.refresh_bindings()
+        # Keep the previewed PaneCard visually marked even when focus is on
+        # the preview pane.
+        self._update_selected_card_indicator()
+
+    def _update_selected_card_indicator(self) -> None:
+        """Mark the PaneCard matching _focused_pane_id with the 'selected' class.
+
+        Provides a persistent visual hint of which agent's preview is shown,
+        even when keyboard focus has moved to the PreviewPanel.
+        """
+        for card in self.query("#pane-list PaneCard"):
+            card.set_class(card.pane_id == self._focused_pane_id, "selected")
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         """Show/hide footer bindings based on active zone."""
