@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [tui, scripts]
-children_to_implement: [t713_3, t713_4, t713_5, t713_6, t713_7]
+children_to_implement: [t713_4, t713_5, t713_6, t713_7]
 created_at: 2026-04-29 08:42
-updated_at: 2026-04-30 12:54
+updated_at: 2026-04-30 14:40
 boardidx: 50
 ---
 
