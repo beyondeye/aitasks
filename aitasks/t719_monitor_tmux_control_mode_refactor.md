@@ -5,10 +5,10 @@ depends: []
 issue_type: performance
 status: Implementing
 labels: [performance, monitor, tui]
-children_to_implement: [t719_1]
+children_to_implement: [t719_1, t719_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-30 08:34
-updated_at: 2026-04-30 10:25
+updated_at: 2026-04-30 10:26
 ---
 
 ## Goal
