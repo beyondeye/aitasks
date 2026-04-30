@@ -1,6 +1,7 @@
 bug
 chore
 documentation
+enhancement
 feature
 performance
 refactor
