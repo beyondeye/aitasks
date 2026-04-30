@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [brainstorming, ait_brainstorm, ui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-30 10:33
-updated_at: 2026-04-30 10:33
+updated_at: 2026-04-30 10:34
 ---
 
 Polish the brainstorm TUI dashboard "init mode" detail pane (right pane of the
