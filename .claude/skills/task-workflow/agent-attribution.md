@@ -6,7 +6,11 @@ This procedure records which code agent and LLM model is executing the task by s
 
 **Procedure:**
 
-1. Execute the **Model Self-Detection Sub-Procedure** (see `model-self-detection.md`) to get `agent_string`.
+1. **Resolve agent string:**
+
+   **Fast path:** If `detected_agent_string` is already set (non-null, non-empty) from an earlier procedure (e.g., the verify-path append in `planning.md` Step 6.1), use it directly as `agent_string` and skip detection.
+
+   **Otherwise:** Execute the **Model Self-Detection Sub-Procedure** (see `model-self-detection.md`) to get `agent_string`.
 
 2. **Write to frontmatter:**
    ```bash

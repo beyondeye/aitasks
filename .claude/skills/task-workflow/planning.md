@@ -88,6 +88,7 @@ When the verify path is taken (either via the `"verify"` profile setting that re
 Sequence (runs inside the **Save Plan to External File** section, after the externalize helper emits `EXTERNALIZED:` / `OVERWRITTEN:` but before the `./ait git add`):
 
 1. Execute the **Model Self-Detection Sub-Procedure** (see `model-self-detection.md`) to obtain `agent_string` (e.g., `claudecode/opus4_6`).
+1b. Set `detected_agent_string` = `agent_string` so downstream procedures (Step 7 Agent Attribution, Step 9b Satisfaction Feedback) can reuse the resolved value instead of re-detecting.
 2. Run:
    ```bash
    ./.aitask-scripts/aitask_plan_verified.sh append <external_plan_path> "<agent_string>"
