@@ -79,3 +79,16 @@ bash tests/test_python_resolution_fallback.sh
 ## Step 9 (Post-Implementation)
 
 After the changes pass review and the user approves, commit with the standard `<issue_type>: <description> (t724)` message format (issue_type=`bug`), then proceed to archival per the shared task-workflow Step 9.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added two `cp` lines (`lib/aitask_path.sh`, `lib/python_resolve.sh`) to the lib-copy block of all four affected `tests/test_*.sh` files: `test_archive_verification_gate.sh` (after the `archive_utils.sh` line), `test_archive_carryover.sh` (same), `test_verification_followup.sh` (after `archive_scan.sh`), `test_create_manual_verification.sh` (same). +8 lines total, no other changes.
+- **Deviations from plan:** None. Implementation matched the plan exactly.
+- **Issues encountered:** None during implementation. During the planning audit (Phase 1 Explore agent + targeted runs), discovered that t724's task description undercounted the affected tests — it named only the two surfaced during t723's regression sweep, but `test_verification_followup.sh` (14 failures / 28 asserts) and `test_create_manual_verification.sh` (4 failures / 12 asserts) were also actively failing for the identical reason. All four were rolled into the same fix because the cure is mechanical and the audit was already done.
+- **Key decisions:**
+  - Did not add `2>/dev/null || true` to the new `cp` lines: the libs are required by `aitask_verification_parse.sh:5,7`, so a missing source file should fail loudly during fixture setup rather than masking the problem at test time. This matches the pattern used for required libs already in the block (`terminal_compat.sh`, `task_utils.sh`, `pid_anchor.sh`); only "optional" `archive_utils.sh` carries the silent-fallback.
+  - Did NOT extract a shared `_copy_framework_files()` helper as suggested in the task description's fix point #3. 31 tests in `tests/` duplicate their own `setup_*_project()` helper — extraction has wide blast radius and belongs as a separate refactor task. Three similar lines is better than a premature abstraction.
+  - Did NOT build a generic cp-vs-source linter (task description fix point #2). The Explore-agent audit already enumerated the complete set of affected tests for `aitask_verification_parse.sh`; a general linter for ANY script's source-graph is its own task.
+- **Upstream defects identified:** None. The bug is entirely self-contained in the test setup helpers — `aitask_verification_parse.sh` and the lib files it sources are correct as-is. No defects in framework code surfaced during diagnosis.
+- **Verification results:** After the fix, all four tests pass (34/34, 13/13, 28/28, 12/12 asserts). `test_python_resolution_fallback.sh` (the one passing test that already references `aitask_verification_parse.sh` because it bundles the libs in its own fixture) remained green.
+- **Candidate follow-up (not filed):** If this class of bug bites a third time, consider opening a dedicated refactor task to extract a `tests/lib/copy_framework.sh` helper (or similar) that owns the canonical lib-copy list once. Not filed now per the "don't file vague follow-ups" feedback memory — wait for concrete recurrence with named affected tests.
