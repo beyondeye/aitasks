@@ -148,3 +148,36 @@ shell scripts, which don't drive the keyboard).
 Standard archival flow. No worktree was created (profile `fast` =
 `create_worktree: false`), so the merge step is skipped — go straight to
 `./.aitask-scripts/aitask_archive.sh 726` after Step 8 commit.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Three additions to
+  `.aitask-scripts/monitor/monitor_app.py`:
+  1. CSS rule `PaneCard.selected { background: $accent 30%; }` inserted
+     between the existing `PaneCard {…}` and `PaneCard:focus {…}` blocks
+     (so the `:focus` rule still wins via source order on the focused
+     card).
+  2. New helper `_update_selected_card_indicator(self)` that iterates
+     `#pane-list PaneCard` and toggles the `selected` class against
+     `card.pane_id == self._focused_pane_id`.
+  3. Two call sites — at the end of `_update_zone_indicators()` (covers
+     Tab/Shift+Tab and arrow-key card navigation, since
+     `on_descendant_focus` already invokes `_update_zone_indicators`), and
+     at the end of `_restore_focus()` (covers post-rebuild ticks).
+- **Deviations from plan:** Skipped the third "explicit defensive call" in
+  `on_descendant_focus` that the plan flagged as optional. Reasoning: the
+  `PaneCard` branch already calls `_update_zone_indicators()` (which now
+  calls the helper), and the `PreviewPanel` branch does not change
+  `_focused_pane_id`, so the indicator on the previously-marked card is
+  still correct. Adding a duplicate call would be redundant —
+  KISS/YAGNI.
+- **Issues encountered:** Plan externalization auto-scan returned
+  `MULTIPLE_CANDIDATES` because `~/.claude/plans/` had several stale
+  files; resolved by passing `--internal <path>` explicitly. No
+  application issues.
+- **Key decisions:** Used `$accent 30%` for the muted highlight (matches
+  existing accent-color theme; visually distinct from full `$accent` so
+  the user can still tell which pane currently holds keyboard focus).
+  Relied on CSS source-order precedence (`.selected` rule before `:focus`
+  rule) so both rules can stay simple with no `:not(:focus)` qualifier.
+- **Upstream defects identified:** None.
