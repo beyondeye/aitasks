@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: [t713_5]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [documentation, tui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-29 10:56
-updated_at: 2026-04-30 15:39
+updated_at: 2026-04-30 15:59
+completed_at: 2026-04-30 15:59
 ---
 
 ## Context
