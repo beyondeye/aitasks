@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t713_2]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [tui, scripts, refactor]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-30 10:27
-updated_at: 2026-04-30 10:27
+updated_at: 2026-04-30 12:14
 ---
 
 ## Context
