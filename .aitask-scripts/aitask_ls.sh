@@ -40,7 +40,7 @@ METADATA FORMAT:
     priority: high|medium|low
     effort: high|medium|low
     depends: [1, 3, 5]
-    issue_type: bug|chore|documentation|feature|performance|refactor|style|test
+    issue_type: bug|chore|documentation|enhancement|feature|performance|refactor|style|test
     status: Editing|Implementing|Postponed|Ready|Done|Folded
     labels: [ui, backend]
     assigned_to: email@example.com

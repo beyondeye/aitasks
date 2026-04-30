@@ -98,7 +98,7 @@ setup_archive_project() {
     chmod +x .aitask-scripts/*.sh
 
     # Create task types file
-    printf 'bug\nchore\ndocumentation\nfeature\nperformance\nrefactor\nstyle\ntest\n' > aitasks/metadata/task_types.txt
+    printf 'bug\nchore\ndocumentation\nenhancement\nfeature\nperformance\nrefactor\nstyle\ntest\n' > aitasks/metadata/task_types.txt
 
     # Initial commit
     git add -A

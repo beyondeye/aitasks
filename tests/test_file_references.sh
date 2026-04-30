@@ -93,7 +93,7 @@ setup_project() {
         chmod +x .aitask-scripts/aitask_create.sh .aitask-scripts/aitask_claim_id.sh \
             .aitask-scripts/aitask_update.sh .aitask-scripts/aitask_find_by_file.sh
 
-        printf 'bug\nchore\ndocumentation\nfeature\nperformance\nrefactor\nstyle\ntest\n' \
+        printf 'bug\nchore\ndocumentation\nenhancement\nfeature\nperformance\nrefactor\nstyle\ntest\n' \
             > aitasks/metadata/task_types.txt
 
         echo "aitasks/new/" > .gitignore

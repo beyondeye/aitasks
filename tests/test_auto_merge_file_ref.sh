@@ -88,7 +88,7 @@ setup_project() {
         cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/ 2>/dev/null || true
         chmod +x .aitask-scripts/*.sh
 
-        printf 'bug\nchore\ndocumentation\nfeature\nperformance\nrefactor\nstyle\ntest\n' \
+        printf 'bug\nchore\ndocumentation\nenhancement\nfeature\nperformance\nrefactor\nstyle\ntest\n' \
             > aitasks/metadata/task_types.txt
 
         echo "aitasks/new/" > .gitignore

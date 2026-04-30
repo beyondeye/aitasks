@@ -52,7 +52,7 @@ Task files use YAML frontmatter with these fields:
 priority: high|medium|low
 effort: high|medium|low
 depends: [1, 3]
-issue_type: bug|feature|chore|documentation|performance|refactor|style|test
+issue_type: bug|feature|enhancement|chore|documentation|performance|refactor|style|test
 status: Ready|Editing|Implementing|Postponed|Done|Folded
 labels: [ui, backend]
 assigned_to: email
@@ -137,7 +137,7 @@ Most scripts support both **interactive** (uses `fzf`) and **batch** (CLI flags 
 ```
 <type>: <description> (tNN)
 ```
-Types match `issue_type` values: `bug`, `feature`, `chore`, `documentation`, `performance`, `refactor`, `style`, `test`. Also `ait` for framework-internal changes.
+Types match `issue_type` values: `bug`, `feature`, `enhancement`, `chore`, `documentation`, `performance`, `refactor`, `style`, `test`. Also `ait` for framework-internal changes.
 
 ## Git Operations on Task/Plan Files
 

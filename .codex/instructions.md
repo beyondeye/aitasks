@@ -14,7 +14,7 @@ Task files use YAML frontmatter with these fields:
 priority: high|medium|low
 effort: high|medium|low
 depends: [1, 3]
-issue_type: bug|feature|chore|documentation|performance|refactor|style|test
+issue_type: bug|feature|enhancement|chore|documentation|performance|refactor|style|test
 status: Ready|Editing|Implementing|Postponed|Done|Folded
 labels: [ui, backend]
 assigned_to: email
@@ -53,9 +53,9 @@ In legacy mode (no separate branch), `./ait git` passes through to plain `git`.
 <type>: <description> (tNN)
 ```
 
-Types match `issue_type` values: `bug`, `feature`, `chore`, `documentation`,
-`performance`, `refactor`, `style`, `test`. Also `ait` for framework-internal
-changes (task/plan file operations).
+Types match `issue_type` values: `bug`, `feature`, `enhancement`, `chore`,
+`documentation`, `performance`, `refactor`, `style`, `test`. Also `ait` for
+framework-internal changes (task/plan file operations).
 
 Code commits use `<type>: <description> (tNN)`. Plan/task file commits use
 `ait: <description>`. Never mix code and task/plan files in the same commit.

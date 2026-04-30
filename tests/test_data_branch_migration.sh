@@ -116,7 +116,7 @@ setup_migrated_project() {
         echo "0.0.0-test" > .aitask-scripts/VERSION
 
         # Create task types and labels
-        printf 'bug\nchore\ndocumentation\nfeature\nperformance\nrefactor\nstyle\ntest\n' > aitasks/metadata/task_types.txt
+        printf 'bug\nchore\ndocumentation\nenhancement\nfeature\nperformance\nrefactor\nstyle\ntest\n' > aitasks/metadata/task_types.txt
         echo "backend" > aitasks/metadata/labels.txt
 
         # Create sample tasks

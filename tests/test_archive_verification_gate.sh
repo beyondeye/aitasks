@@ -186,7 +186,7 @@ setup_archive_project() {
     chmod +x .aitask-scripts/*.sh .aitask-scripts/*.py 2>/dev/null || true
 
     # task_types.txt must include manual_verification for the gate to trigger.
-    printf 'bug\nchore\ndocumentation\nfeature\nperformance\nrefactor\nstyle\ntest\nmanual_verification\n' \
+    printf 'bug\nchore\ndocumentation\nenhancement\nfeature\nperformance\nrefactor\nstyle\ntest\nmanual_verification\n' \
         > aitasks/metadata/task_types.txt
 
     git add -A

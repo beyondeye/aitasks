@@ -11,7 +11,7 @@ Creates a task using `aitask_create.sh` in batch mode.
 | `description` | yes | Task description content (markdown, can be multi-line) |
 | `priority` | yes | `high`, `medium`, or `low` |
 | `effort` | yes | `low`, `medium`, or `high` |
-| `issue_type` | yes | `bug`, `feature`, `chore`, `documentation`, `performance`, `refactor`, `style`, or `test` |
+| `issue_type` | yes | `bug`, `feature`, `enhancement`, `chore`, `documentation`, `performance`, `refactor`, `style`, or `test` |
 | `labels` | yes | Comma-separated labels (e.g., `"ui,backend"`) |
 | `parent_num` | if child | Parent task number (numeric, e.g., `10` not `t10`) |
 | `no_sibling_dep` | optional | Set `true` to skip auto-dependency on previous sibling (for parallel child tasks). Default: `false` (sequential). |

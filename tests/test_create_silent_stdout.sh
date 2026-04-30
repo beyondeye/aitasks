@@ -75,7 +75,7 @@ setup_project() {
     cp "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh" .aitask-scripts/lib/ 2>/dev/null || true
     chmod +x .aitask-scripts/*.sh 2>/dev/null || true
 
-    printf 'bug\nchore\ndocumentation\nfeature\nperformance\nrefactor\nstyle\ntest\n' \
+    printf 'bug\nchore\ndocumentation\nenhancement\nfeature\nperformance\nrefactor\nstyle\ntest\n' \
         > aitasks/metadata/task_types.txt
 
     echo "aitasks/new/" > .gitignore

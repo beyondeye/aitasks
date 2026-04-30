@@ -97,7 +97,7 @@ setup_project() {
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
     chmod +x .aitask-scripts/*.sh
 
-    printf 'bug\nchore\ndocumentation\nfeature\nperformance\nrefactor\nstyle\ntest\nmanual_verification\n' \
+    printf 'bug\nchore\ndocumentation\nenhancement\nfeature\nperformance\nrefactor\nstyle\ntest\nmanual_verification\n' \
         > aitasks/metadata/task_types.txt
     : > aitasks/metadata/labels.txt
 

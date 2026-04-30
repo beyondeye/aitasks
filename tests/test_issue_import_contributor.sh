@@ -95,7 +95,7 @@ setup_project() {
         [[ -f "$PROJECT_DIR/.aitask-scripts/lib/repo_fetch.sh" ]] && cp "$PROJECT_DIR/.aitask-scripts/lib/repo_fetch.sh" .aitask-scripts/lib/
         chmod +x .aitask-scripts/*.sh
 
-        printf 'bug\nchore\ndocumentation\nfeature\nperformance\nrefactor\nstyle\ntest\n' > aitasks/metadata/task_types.txt
+        printf 'bug\nchore\ndocumentation\nenhancement\nfeature\nperformance\nrefactor\nstyle\ntest\n' > aitasks/metadata/task_types.txt
         echo "aitasks/new/" > .gitignore
 
         git add -A

@@ -58,7 +58,7 @@ Notes:
    - **Priority:** low ↔ medium ↔ high
    - **Effort:** low ↔ medium ↔ high
    - **Status:** Ready → Editing → Implementing → Postponed (cycles)
-   - **Type:** Loaded from `aitasks/metadata/task_types.txt` (defaults: bug, chore, documentation, feature, performance, refactor, style, test)
+   - **Type:** Loaded from `aitasks/metadata/task_types.txt` (defaults: bug, chore, documentation, enhancement, feature, performance, refactor, style, test)
 4. When you've made changes, the "Save Changes" button becomes enabled
 5. Click "Save Changes" or navigate to it and press Enter
 

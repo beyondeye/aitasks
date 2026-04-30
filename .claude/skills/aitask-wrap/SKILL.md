@@ -74,7 +74,7 @@ For untracked files, read their content directly.
 
 1. **Factual summary**: What was changed (files, functions, behavior)
 2. **Probable user intent**: Why these changes were likely made
-3. **Suggested issue_type**: One of `feature`, `bug`, `refactor`, `chore`, `documentation`, `performance`, `style`, `test` — based on the nature of changes
+3. **Suggested issue_type**: One of `feature`, `bug`, `enhancement`, `refactor`, `chore`, `documentation`, `performance`, `style`, `test` — based on the nature of changes
 4. **Suggested task name**: A short, descriptive name suitable for a filename (lowercase, underscores, max 50 chars)
 5. **Suggested labels**: Based on file paths and content (e.g., `ui`, `backend`, `tests`)
 6. **Suggested priority**: `medium` by default, `high` if it looks like a critical fix

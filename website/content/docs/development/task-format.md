@@ -34,7 +34,7 @@ Detailed description of what needs to be done.
 | `priority` | `high`, `medium`, `low` | Task priority for sorting |
 | `effort` | `low`, `medium`, `high` | Estimated implementation effort |
 | `depends` | `[1, 4]` | List of task numbers this depends on |
-| `issue_type` | `bug`, `chore`, `documentation`, `feature`, `performance`, `refactor`, `style`, `test` | Type of work (from `task_types.txt`) |
+| `issue_type` | `bug`, `chore`, `documentation`, `enhancement`, `feature`, `performance`, `refactor`, `style`, `test` | Type of work (from `task_types.txt`) |
 | `status` | `Ready`, `Editing`, `Implementing`, `Postponed`, `Done`, `Folded` | Current status |
 | `labels` | `[ui, backend]` | Categorization labels |
 | `created_at` | `YYYY-MM-DD HH:MM` | Creation timestamp |

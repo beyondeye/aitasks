@@ -182,7 +182,7 @@ The board reads and displays the following frontmatter fields from task files:
 | `priority` | string | Yes (cycle) | `low`, `medium`, or `high` |
 | `effort` | string | Yes (cycle) | `low`, `medium`, or `high` |
 | `status` | string | Yes (cycle) | `Ready`, `Editing`, `Implementing`, `Postponed`, `Done`, `Folded` |
-| `issue_type` | string | Yes (cycle) | Loaded from `task_types.txt` (defaults: bug, chore, documentation, feature, performance, refactor, style, test) |
+| `issue_type` | string | Yes (cycle) | Loaded from `task_types.txt` (defaults: bug, chore, documentation, enhancement, feature, performance, refactor, style, test) |
 | `labels` | list | Read-only | Tag list, displayed comma-separated |
 | `depends` | list | Read-only* | Task IDs this task depends on. *Can remove stale references. |
 | `assigned_to` | string | Read-only | Person assigned to the task |
