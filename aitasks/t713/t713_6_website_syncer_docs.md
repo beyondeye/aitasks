@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t713_5]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-29 10:56
-updated_at: 2026-04-29 10:56
+updated_at: 2026-04-30 15:39
 ---
 
 ## Context
