@@ -433,3 +433,35 @@ After Step 8 commits land:
 - **t713_5** (whitelist + config): no new scripts in this task, so no new whitelist touchpoints — only `aitask_syncer.sh` (added by t713_2) needs the 5-touchpoint pass that t713_5 owns.
 - **t713_6** (docs): document `s/u/p/a` bindings in the syncer docs once t713_4 has finalized the registry/switcher hotkey.
 - **t713_7** (manual verification): the verification list in this plan's "Manual" section is the candidate checklist content for the aggregate verification task.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Added `.aitask-scripts/syncer/sync_failure_screen.py` (~90 LOC): `SyncFailureContext` dataclass and `SyncFailureScreen(ModalScreen)` with branch / command / status / output-tail body and "Launch agent to resolve" / "Dismiss" buttons. Self-contained `DEFAULT_CSS` (`#sync_failure_dialog` etc.) so the modal renders correctly under the syncer app.
+  - Modified `.aitask-scripts/syncer/syncer_app.py` (+290 LOC, no removals): added imports for `agent_launch_utils`, `agent_command_screen`, `sync_action_runner` (`run_sync_batch`, `run_interactive_sync`, `SyncConflictScreen`, `SyncResult`, all `STATUS_*`), and the new `sync_failure_screen` module; appended a per-syncer-dir entry to `sys.path` so the modal import resolves; added `subprocess` to the stdlib imports and two new module-scope constants (`GIT_TIMEOUT_SECONDS=30`, `FAILURE_TAIL_LINES=30`); added four bindings (`s` sync-data, `u` pull, `p` push, `a` agent-resolve with `show=False`); added `_last_failure` field on `__init__`; added action handlers `action_sync_data`/`action_pull`/`action_push`/`action_agent_resolve` (each guards on the selected ref name and notifies on row-mismatch rather than running cross-row by accident); added `_sync_data_worker` (`@work(thread=True, exclusive=True, group="syncer-action")`) that calls `run_sync_batch()` then dispatches via `_on_data_sync_done` (notifications mirror board's `_run_sync` wording verbatim, conflict path delegates to `SyncConflictScreen` + `_on_conflict_resolved` + `_run_interactive_sync_shared`); added `_main_pull_worker` and `_main_push_worker` (direct `git -C <main_worktree>` subprocess with a 30s timeout and a `_git()` helper, pull guards on HEAD==`main` + clean tree, push uses `push origin main:main` so it works regardless of HEAD); failure capture flow `_capture_failure` / `_fail` / `_open_failure_screen` / `_launch_resolution_agent` builds a prompt for `aitask_codeagent.sh invoke raw` via `resolve_dry_run_command`, then pushes `AgentCommandScreen` with the resolved command/prompt; `on_launch` callback dispatches `launch_in_tmux` + `maybe_spawn_minimonitor` for tmux destinations.
+- **Deviations from plan:**
+  - Added `sys.path.insert(0, str(Path(__file__).resolve().parent))` so the new `sync_failure_screen` import resolves regardless of how the app is launched. The plan didn't explicitly call this out; without it the import fails when `syncer_app.py` runs as a script.
+  - Imported `SyncResult` from `sync_action_runner` for the `_on_data_sync_done` type hint — plan didn't list it but it's part of the same module.
+- **Issues encountered:**
+  - The repo had pre-existing untracked files (`os`, `shutil`, `subprocess`, `time`, `unittest` — 50MB PostScript artifacts from an unrelated session) and unrelated `.sh` modifications (`require_ait_python` → `require_ait_python_fast`). All left untouched; only t713_3 files staged for commit.
+- **Key decisions:**
+  - `a` binding has `show=False` so it doesn't clutter the footer until the user actually has a failure to recover from. The button inside `SyncFailureScreen` is the primary discoverable path; `a` is a power-user shortcut to reopen the last-failure modal after dismissing it.
+  - Notification wording for the aitask-data sync path mirrors `BoardApp._run_sync` verbatim ("Already up to date", "Sync: Pulled.", "Sync: Auto-merged conflicts", etc.) per CLAUDE.md "preserve existing user-facing outcomes". The two TUIs now report identical sync results.
+  - `main` push uses `git push origin main:main` so it works without checking out main (compatible with users who keep a feature branch checked out). Pull, by contrast, modifies the working tree, so it requires HEAD==`main` + clean status — refused with explicit user-actionable error otherwise. Never auto-commits, per task acceptance.
+  - The failure escape hatch is a two-modal flow: `SyncFailureScreen` (this task's new modal, summary + intent capture) → `AgentCommandScreen` (existing reusable, destination + agent picker). Clean separation of concerns: this task owns the failure summary; the destination dialog is reused as-is.
+  - `sync_action_runner.STATUS_NOT_FOUND` is treated as a hard error (no failure-context capture, no agent escape hatch) — if `aitask_sync.sh` is missing the install is broken and an LLM agent can't fix that.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t713_4** (registry/switcher/monitor): When wiring the desync line into monitor/minimonitor, prefer reading `desync_state.snapshot()` directly rather than coupling to the syncer process. The `_last_failure` field is per-app and intentionally not surfaced cross-process.
+  - **t713_5** (whitelist + config): This task added no new helper scripts — only Python modules under `.aitask-scripts/syncer/`. No new whitelist touchpoints needed for this task. `aitask_syncer.sh` (added in t713_2) remains the only syncer-domain wrapper that t713_5 must whitelist.
+  - **t713_6** (docs): Document `s` (sync aitask-data), `u`/`p` (pull/push main), and the failure-modal escape hatch. The `a` key is intentionally undocumented in the footer; mention it in the docs as a "press a to reopen the last failure" shortcut after the user has seen at least one failure.
+  - **t713_7** (manual verification): The "Manual" section of this plan is ready-to-use as the aggregate checklist content. The two scratch-repo scenarios (force a `aitask-data` conflict and a non-fast-forward `main` push) are the load-bearing checks; everything else is a row-guard or mode-switch sanity test.
+- **Verification:**
+  - `python3 -m py_compile .aitask-scripts/syncer/sync_failure_screen.py` ✅
+  - `python3 -m py_compile .aitask-scripts/syncer/syncer_app.py` ✅
+  - `python3 tests/test_sync_action_runner.py` — 18/18 ✅
+  - `python3 tests/test_desync_state.py` — 5/5 ✅
+  - `bash tests/test_sync.sh` — 34/34 ✅
+  - Smoke test importing `SyncerApp` and inspecting `BINDINGS` returned the expected `[j, r, s, u, p, a, f, q]` order; constructing `SyncFailureContext` works.
+  - `./ait syncer --help` still renders the original argparse help unchanged.
+  - End-to-end TUI runs (real conflict / non-fast-forward) deferred to sibling t713_7 per its manual-verification scope.
