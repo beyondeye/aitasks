@@ -3,12 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: performance
-status: Implementing
+status: Ready
 labels: [performance, setup, tui]
 children_to_implement: [t718_1, t718_2, t718_3]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-30 08:34
-updated_at: 2026-04-30 10:31
+updated_at: 2026-04-30 10:33
 ---
 
 ## Goal
