@@ -330,3 +330,18 @@ Standard child-task archival per `task-workflow/SKILL.md` Step 9: the archive sc
 - t718_2 will rely on `require_ait_python_fast` from this task. The function's contract (precedence + zero-arg signature) is fixed by this task — do not change it without updating t718_2.
 - The interactive `--with-pypy` prompt in `setup_python_venv` is a hint; t718_2 does **not** depend on the user having opted in. The fast-path functions handle the no-PyPy case silently.
 - t718_3 (docs) will document the `AIT_USE_PYPY` env var and `--with-pypy` flag.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. (1) Added `AIT_PYPY_PREFERRED` and `PYPY_VENV_DIR` constants to `lib/python_resolve.sh:34-38`, plus `resolve_pypy_python`, `require_ait_pypy`, and `require_ait_python_fast` at end-of-file. (2) Added `find_pypy`, `install_pypy`, `_install_pypy_macos`, `_install_pypy_linux`, `setup_pypy_venv`, `prompt_install_pypy_if_tty` to `aitask_setup.sh` between `_install_modern_python_linux` and `setup_python_venv`. (3) Added `INSTALL_PYPY` flag-parsing to top of `main()`, conditional `setup_pypy_venv` call after `setup_python_venv`, and a PyPy summary line in the post-setup info block. (4) Created `tests/test_python_resolve_pypy.sh` with 8 cases covering the full `AIT_USE_PYPY` precedence table plus the misnamed-CPython rejection path and the double-source guard.
+- **Deviations from plan:** Two minor refinements during implementation:
+  1. `prompt_install_pypy_if_tty` declares `local answer=""` before `read -r` (rather than relying on the implicit global the original snippet would have created). Cleaner and matches the rest of the file's local-var discipline.
+  2. The Linux installer logs `(symlinked at ~/.aitask/python/pypy-$AIT_PYPY_PREFERRED/bin/python3)` for parity with `_install_modern_python_linux`, not present in the plan snippet.
+- **Issues encountered:** None. Plan was already verified against current line numbers during the verify-mode pass at task pick time, so all insertion points landed cleanly. The pre-existing `SC1091` shellcheck info on `source` lines is upstream noise (path resolution from the CWD); not introduced here.
+- **Key decisions:** The test file follows the existing `tests/test_python_resolve.sh` pattern (HOME-isolated subshells, PATH-controlled stubs, `assert_eq`/`assert_contains` helpers) rather than the simpler draft template embedded in the previous version of this plan. The richer harness covers the full precedence table including a guard against misnamed CPython at `$PYPY_VENV_DIR/bin/python` (Test 7) and a double-source idempotence check (Test 8).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - `require_ait_python_fast` is the single zero-arg entry point t718_2 should use to pick PyPy when available. Function name and signature are fixed.
+  - `_AIT_RESOLVED_PYPY` is the cache variable; downstream code should NOT touch it directly. Tests can use it to fake a PyPy install for unit-level coverage (see Test 4 of `test_python_resolve_pypy.sh`).
+  - The interactive prompt is silent on non-TTY stdin (CI / scripted setup) and a no-op when the venv already exists, so no regression risk for existing CPython users.
+  - macOS uses `brew install pypy3.11` with `pypy3` fallback; Linux uses `uv python install pypy@3.11`. Both branches symlink the resolved interpreter into `~/.aitask/python/pypy-3.11/bin/python3` for parallel structure with the CPython install path. t718_3 should call this out in user docs.
