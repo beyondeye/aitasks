@@ -22,6 +22,7 @@ PARSED_AGENT=""
 PARSED_MODEL=""
 CURRENT_MONTH=""
 CURRENT_WEEK=""
+PREV_MONTH=""
 
 show_help() {
     cat <<'EOF'
@@ -93,6 +94,15 @@ parse_agent_string() {
     die "Unknown agent: '$PARSED_AGENT'. Supported: ${SUPPORTED_AGENTS[*]}"
 }
 
+previous_calendar_month() {
+    local current_month="$1"  # YYYY-MM
+    if date --version >/dev/null 2>&1; then
+        date -d "${current_month}-01 -1 month" "+%Y-%m"
+    else
+        date -j -v-1m -f "%Y-%m-%d" "${current_month}-01" "+%Y-%m"
+    fi
+}
+
 resolve_date_periods() {
     if [[ -n "$DATE_OVERRIDE" ]]; then
         [[ "$DATE_OVERRIDE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] \
@@ -107,6 +117,7 @@ resolve_date_periods() {
         CURRENT_MONTH="$(date "+%Y-%m")"
         CURRENT_WEEK="$(date "+%G-W%V")"
     fi
+    PREV_MONTH="$(previous_calendar_month "$CURRENT_MONTH")"
 }
 
 parse_args() {
@@ -210,7 +221,8 @@ update_model_file() {
         --arg skill "$skill_name" \
         --argjson mapped_score "$mapped_score" \
         --arg current_month "$CURRENT_MONTH" \
-        --arg current_week "$CURRENT_WEEK" '
+        --arg current_week "$CURRENT_WEEK" \
+        --arg prev_month_target "$PREV_MONTH" '
         .models |= map(
             if .name == $model then
                 .verified = (.verified // {}) |
@@ -220,23 +232,41 @@ update_model_file() {
                     (
                         if ($existing | type) == "object" and ($existing | has("runs")) and ($existing | has("all_time") | not) then
                             # Migrate old flat format to bucketed
-                            {"all_time": {"runs": $existing.runs, "score_sum": $existing.score_sum}, "month": {"period": $current_month, "runs": 0, "score_sum": 0}, "week": {"period": $current_week, "runs": 0, "score_sum": 0}}
+                            {
+                                "all_time":   {"runs": $existing.runs, "score_sum": $existing.score_sum},
+                                "prev_month": {"period": "", "runs": 0, "score_sum": 0},
+                                "month":      {"period": $current_month, "runs": 0, "score_sum": 0},
+                                "week":       {"period": $current_week,  "runs": 0, "score_sum": 0}
+                            }
                         elif ($existing | type) == "object" and ($existing | has("all_time")) then
-                            $existing
+                            $existing | (.prev_month //= {"period": "", "runs": 0, "score_sum": 0})
                         else
-                            {"all_time": {"runs": 0, "score_sum": 0}, "month": {"period": $current_month, "runs": 0, "score_sum": 0}, "week": {"period": $current_week, "runs": 0, "score_sum": 0}}
+                            {
+                                "all_time":   {"runs": 0, "score_sum": 0},
+                                "prev_month": {"period": "", "runs": 0, "score_sum": 0},
+                                "month":      {"period": $current_month, "runs": 0, "score_sum": 0},
+                                "week":       {"period": $current_week,  "runs": 0, "score_sum": 0}
+                            }
                         end
                     ) as $base |
                     ($base.all_time.runs + 1) as $at_runs |
                     ($base.all_time.score_sum + $mapped_score) as $at_sum |
+                    (if $base.month.period == $current_month then
+                        $base.prev_month
+                     elif $base.month.period == $prev_month_target then
+                        $base.month
+                     else
+                        {"period": "", "runs": 0, "score_sum": 0}
+                     end) as $pm |
                     (if $base.month.period == $current_month then ($base.month.runs + 1) else 1 end) as $m_runs |
                     (if $base.month.period == $current_month then ($base.month.score_sum + $mapped_score) else $mapped_score end) as $m_sum |
                     (if $base.week.period == $current_week then ($base.week.runs + 1) else 1 end) as $w_runs |
                     (if $base.week.period == $current_week then ($base.week.score_sum + $mapped_score) else $mapped_score end) as $w_sum |
                     .verifiedstats[$skill] = {
-                        "all_time": {"runs": $at_runs, "score_sum": $at_sum},
-                        "month": {"period": $current_month, "runs": $m_runs, "score_sum": $m_sum},
-                        "week": {"period": $current_week, "runs": $w_runs, "score_sum": $w_sum}
+                        "all_time":   {"runs": $at_runs, "score_sum": $at_sum},
+                        "prev_month": $pm,
+                        "month":      {"period": $current_month, "runs": $m_runs, "score_sum": $m_sum},
+                        "week":       {"period": $current_week,  "runs": $w_runs, "score_sum": $w_sum}
                     } |
                     .verified[$skill] = (($at_sum / $at_runs) | round)
                 )

@@ -336,7 +336,108 @@ assert_eq "New skill: month runs = 1" "1" "$(json_get "$TMPDIR_13" '.models[0].v
 assert_eq "New skill: week period" "2026-W25" "$(json_get "$TMPDIR_13" '.models[0].verifiedstats.review.week.period')"
 assert_eq "New skill: week runs = 1" "1" "$(json_get "$TMPDIR_13" '.models[0].verifiedstats.review.week.runs')"
 assert_eq "New skill: verified avg = 60" "60" "$(json_get "$TMPDIR_13" '.models[0].verified.review')"
+assert_eq "New skill: prev_month seeded empty" "" "$(json_get "$TMPDIR_13" '.models[0].verifiedstats.review.prev_month.period')"
+assert_eq "New skill: prev_month runs = 0" "0" "$(json_get "$TMPDIR_13" '.models[0].verifiedstats.review.prev_month.runs')"
 rm -rf "$TMPDIR_13"
+
+echo "--- Test 14: Same-month bump leaves existing prev_month untouched ---"
+TMPDIR_14="$(setup_repo)"
+tmp_json_14="$(mktemp)"
+jq '.models[0].verifiedstats.pick = {
+        "all_time":   {"runs": 7, "score_sum": 660},
+        "prev_month": {"period": "2026-03", "runs": 5, "score_sum": 480},
+        "month":      {"period": "2026-04", "runs": 2, "score_sum": 180},
+        "week":       {"period": "2026-W17", "runs": 1, "score_sum": 80}
+    }' \
+    "$TMPDIR_14/aitasks/metadata/models_claudecode.json" > "$tmp_json_14"
+mv "$tmp_json_14" "$TMPDIR_14/aitasks/metadata/models_claudecode.json"
+(cd "$TMPDIR_14" && git add -A && git commit -m "seed prev_month" --quiet)
+(cd "$TMPDIR_14" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-04-29 --silent >/dev/null 2>&1)
+assert_eq "Same-month bump: month runs = 3" "3" "$(json_get "$TMPDIR_14" '.models[0].verifiedstats.pick.month.runs')"
+assert_eq "Same-month bump: month score_sum = 280" "280" "$(json_get "$TMPDIR_14" '.models[0].verifiedstats.pick.month.score_sum')"
+assert_eq "Same-month bump: month period unchanged" "2026-04" "$(json_get "$TMPDIR_14" '.models[0].verifiedstats.pick.month.period')"
+assert_eq "Same-month bump: prev_month period preserved" "2026-03" "$(json_get "$TMPDIR_14" '.models[0].verifiedstats.pick.prev_month.period')"
+assert_eq "Same-month bump: prev_month runs preserved" "5" "$(json_get "$TMPDIR_14" '.models[0].verifiedstats.pick.prev_month.runs')"
+assert_eq "Same-month bump: prev_month score_sum preserved" "480" "$(json_get "$TMPDIR_14" '.models[0].verifiedstats.pick.prev_month.score_sum')"
+rm -rf "$TMPDIR_14"
+
+echo "--- Test 15: One-month rollover copies month into prev_month ---"
+TMPDIR_15="$(setup_repo)"
+tmp_json_15="$(mktemp)"
+jq '.models[0].verifiedstats.pick = {
+        "all_time":   {"runs": 5, "score_sum": 480},
+        "prev_month": {"period": "", "runs": 0, "score_sum": 0},
+        "month":      {"period": "2026-04", "runs": 5, "score_sum": 480},
+        "week":       {"period": "2026-W17", "runs": 1, "score_sum": 80}
+    }' \
+    "$TMPDIR_15/aitasks/metadata/models_claudecode.json" > "$tmp_json_15"
+mv "$tmp_json_15" "$TMPDIR_15/aitasks/metadata/models_claudecode.json"
+(cd "$TMPDIR_15" && git add -A && git commit -m "seed pre-rollover" --quiet)
+(cd "$TMPDIR_15" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 4 --date 2026-05-01 --silent >/dev/null 2>&1)
+assert_eq "One-month rollover: prev_month period = old month" "2026-04" "$(json_get "$TMPDIR_15" '.models[0].verifiedstats.pick.prev_month.period')"
+assert_eq "One-month rollover: prev_month runs = old month runs" "5" "$(json_get "$TMPDIR_15" '.models[0].verifiedstats.pick.prev_month.runs')"
+assert_eq "One-month rollover: prev_month score_sum = old month sum" "480" "$(json_get "$TMPDIR_15" '.models[0].verifiedstats.pick.prev_month.score_sum')"
+assert_eq "One-month rollover: month period updated" "2026-05" "$(json_get "$TMPDIR_15" '.models[0].verifiedstats.pick.month.period')"
+assert_eq "One-month rollover: month runs reset to 1" "1" "$(json_get "$TMPDIR_15" '.models[0].verifiedstats.pick.month.runs')"
+assert_eq "One-month rollover: month score_sum = 80" "80" "$(json_get "$TMPDIR_15" '.models[0].verifiedstats.pick.month.score_sum')"
+rm -rf "$TMPDIR_15"
+
+echo "--- Test 16: Multi-month skip zeros prev_month ---"
+TMPDIR_16="$(setup_repo)"
+tmp_json_16="$(mktemp)"
+jq '.models[0].verifiedstats.pick = {
+        "all_time":   {"runs": 5, "score_sum": 400},
+        "prev_month": {"period": "2026-01", "runs": 2, "score_sum": 160},
+        "month":      {"period": "2026-02", "runs": 3, "score_sum": 240},
+        "week":       {"period": "2026-W08", "runs": 1, "score_sum": 80}
+    }' \
+    "$TMPDIR_16/aitasks/metadata/models_claudecode.json" > "$tmp_json_16"
+mv "$tmp_json_16" "$TMPDIR_16/aitasks/metadata/models_claudecode.json"
+(cd "$TMPDIR_16" && git add -A && git commit -m "seed multi-month-skip" --quiet)
+(cd "$TMPDIR_16" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-05-01 --silent >/dev/null 2>&1)
+assert_eq "Multi-month skip: prev_month period zeroed" "" "$(json_get "$TMPDIR_16" '.models[0].verifiedstats.pick.prev_month.period')"
+assert_eq "Multi-month skip: prev_month runs zeroed" "0" "$(json_get "$TMPDIR_16" '.models[0].verifiedstats.pick.prev_month.runs')"
+assert_eq "Multi-month skip: prev_month score_sum zeroed" "0" "$(json_get "$TMPDIR_16" '.models[0].verifiedstats.pick.prev_month.score_sum')"
+assert_eq "Multi-month skip: month period updated" "2026-05" "$(json_get "$TMPDIR_16" '.models[0].verifiedstats.pick.month.period')"
+assert_eq "Multi-month skip: month runs = 1" "1" "$(json_get "$TMPDIR_16" '.models[0].verifiedstats.pick.month.runs')"
+assert_eq "Multi-month skip: month score_sum = 100" "100" "$(json_get "$TMPDIR_16" '.models[0].verifiedstats.pick.month.score_sum')"
+rm -rf "$TMPDIR_16"
+
+echo "--- Test 17: Migration from flat seeds prev_month empty ---"
+TMPDIR_17="$(setup_repo)"
+tmp_json_17="$(mktemp)"
+jq '.models[0].verifiedstats.pick = {"runs": 10, "score_sum": 920}' \
+    "$TMPDIR_17/aitasks/metadata/models_claudecode.json" > "$tmp_json_17"
+mv "$tmp_json_17" "$TMPDIR_17/aitasks/metadata/models_claudecode.json"
+(cd "$TMPDIR_17" && git add -A && git commit -m "seed flat" --quiet)
+(cd "$TMPDIR_17" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-04-15 --silent >/dev/null 2>&1)
+assert_eq "Migration flat: all_time runs = 11" "11" "$(json_get "$TMPDIR_17" '.models[0].verifiedstats.pick.all_time.runs')"
+assert_eq "Migration flat: all_time score_sum = 1020" "1020" "$(json_get "$TMPDIR_17" '.models[0].verifiedstats.pick.all_time.score_sum')"
+assert_eq "Migration flat: prev_month period empty" "" "$(json_get "$TMPDIR_17" '.models[0].verifiedstats.pick.prev_month.period')"
+assert_eq "Migration flat: prev_month runs = 0" "0" "$(json_get "$TMPDIR_17" '.models[0].verifiedstats.pick.prev_month.runs')"
+assert_eq "Migration flat: month runs = 1" "1" "$(json_get "$TMPDIR_17" '.models[0].verifiedstats.pick.month.runs')"
+assert_eq "Migration flat: month score_sum = 100" "100" "$(json_get "$TMPDIR_17" '.models[0].verifiedstats.pick.month.score_sum')"
+rm -rf "$TMPDIR_17"
+
+echo "--- Test 18: Migration from bucketed-but-no-prev_month adds empty prev_month ---"
+TMPDIR_18="$(setup_repo)"
+tmp_json_18="$(mktemp)"
+jq '.models[0].verifiedstats.pick = {
+        "all_time": {"runs": 4, "score_sum": 320},
+        "month":    {"period": "2026-04", "runs": 1, "score_sum": 80},
+        "week":     {"period": "2026-W17", "runs": 1, "score_sum": 80}
+    }' \
+    "$TMPDIR_18/aitasks/metadata/models_claudecode.json" > "$tmp_json_18"
+mv "$tmp_json_18" "$TMPDIR_18/aitasks/metadata/models_claudecode.json"
+(cd "$TMPDIR_18" && git add -A && git commit -m "seed bucketed-no-prev" --quiet)
+(cd "$TMPDIR_18" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-04-29 --silent >/dev/null 2>&1)
+assert_eq "Bucketed-no-prev: all_time runs = 5" "5" "$(json_get "$TMPDIR_18" '.models[0].verifiedstats.pick.all_time.runs')"
+assert_eq "Bucketed-no-prev: prev_month period empty" "" "$(json_get "$TMPDIR_18" '.models[0].verifiedstats.pick.prev_month.period')"
+assert_eq "Bucketed-no-prev: prev_month runs = 0" "0" "$(json_get "$TMPDIR_18" '.models[0].verifiedstats.pick.prev_month.runs')"
+assert_eq "Bucketed-no-prev: month period unchanged" "2026-04" "$(json_get "$TMPDIR_18" '.models[0].verifiedstats.pick.month.period')"
+assert_eq "Bucketed-no-prev: month runs incremented" "2" "$(json_get "$TMPDIR_18" '.models[0].verifiedstats.pick.month.runs')"
+assert_eq "Bucketed-no-prev: month score_sum incremented" "180" "$(json_get "$TMPDIR_18" '.models[0].verifiedstats.pick.month.score_sum')"
+rm -rf "$TMPDIR_18"
 
 echo ""
 echo "==============================="
