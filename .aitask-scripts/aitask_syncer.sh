@@ -9,7 +9,7 @@ source "$SCRIPT_DIR/lib/python_resolve.sh"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 
-PYTHON="$(require_ait_python)"
+PYTHON="$(require_ait_python_fast)"
 
 missing=()
 "$PYTHON" -c "import textual" 2>/dev/null || missing+=(textual)

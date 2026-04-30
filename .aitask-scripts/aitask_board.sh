@@ -9,7 +9,7 @@ source "$SCRIPT_DIR/lib/python_resolve.sh"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 
-PYTHON="$(require_ait_python)"
+PYTHON="$(require_ait_python_fast)"
 
 # Catch the orthogonal "venv exists but lacks deps" case (user updated framework
 # but did not re-run setup, so venv-Python is right version but missing imports).
