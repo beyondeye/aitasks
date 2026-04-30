@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [verifiedstats, statistics]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-30 00:17
-updated_at: 2026-04-30 00:17
+updated_at: 2026-04-30 10:01
 ---
 
 ## Context
