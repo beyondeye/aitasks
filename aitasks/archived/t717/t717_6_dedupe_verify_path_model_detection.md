@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [verifiedstats, task-workflow]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-30 10:22
-updated_at: 2026-04-30 14:43
+updated_at: 2026-04-30 14:47
+completed_at: 2026-04-30 14:47
 ---
 
 ## Context
