@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [aitask_pick, task_workflow]
 folded_tasks: [694]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-30 11:13
-updated_at: 2026-04-30 11:13
+updated_at: 2026-04-30 11:18
 ---
 
 ## Context
