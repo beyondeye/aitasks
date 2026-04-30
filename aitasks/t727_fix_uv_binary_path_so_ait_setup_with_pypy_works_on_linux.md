@@ -3,8 +3,9 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [ait_setup, python, installation]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-30 15:38
 updated_at: 2026-04-30 15:38
 ---
