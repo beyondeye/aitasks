@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Folded
 labels: [aitask_pick, task_workflow]
+folded_into: 723
 created_at: 2026-04-28 10:18
-updated_at: 2026-04-28 10:18
+updated_at: 2026-04-30 11:13
 boardidx: 200
 ---
 
