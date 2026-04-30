@@ -8,7 +8,7 @@ labels: [tui, scripts]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-29 09:40
-updated_at: 2026-04-30 10:32
+updated_at: 2026-04-30 11:52
 ---
 
 ## Context
