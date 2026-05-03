@@ -3,11 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [install_scripts, installation, packaging]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-22 18:56
-updated_at: 2026-05-03 11:16
+updated_at: 2026-05-03 12:25
+completed_at: 2026-05-03 12:25
 ---
 
 ## Context
