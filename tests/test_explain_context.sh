@@ -105,6 +105,9 @@ SCRIPT_DIR_TU="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR_TU/terminal_compat.sh"
 SHEOF
 
+    cp "$PROJECT_DIR/.aitask-scripts/lib/aitask_path.sh" "$repo_dir/.aitask-scripts/lib/"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" "$repo_dir/.aitask-scripts/lib/"
+
     # Create a source file and commit it
     echo 'print("hello")' > "$repo_dir/src/foo.py"
     echo 'print("bar")' > "$repo_dir/src/bar.py"

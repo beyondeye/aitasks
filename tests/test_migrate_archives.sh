@@ -83,6 +83,7 @@ setup_test_env() {
         cp "$PROJECT_DIR/.aitask-scripts/VERSION" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/aitask_migrate_archives.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
+        cp "$PROJECT_DIR/.aitask-scripts/lib/aitask_path.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
 
         chmod +x ait .aitask-scripts/aitask_migrate_archives.sh
