@@ -8,7 +8,8 @@ labels: [tui, scripts]
 children_to_implement: [t713_7]
 created_at: 2026-04-29 08:42
 updated_at: 2026-04-30 15:59
-boardidx: 50
+boardidx: 20
+boardcol: manual_verifications
 ---
 
 ## Goal

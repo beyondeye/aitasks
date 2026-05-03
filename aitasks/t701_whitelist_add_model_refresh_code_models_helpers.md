@@ -7,7 +7,7 @@ status: Ready
 labels: [installation, claudeskills, permissions]
 created_at: 2026-04-28 12:29
 updated_at: 2026-04-28 12:29
-boardidx: 130
+boardidx: 110
 ---
 
 Spawned by t697's analysis. Two helper scripts — `aitask_add_model.sh` and `aitask_refresh_code_models.sh` — currently lack `commandPrefix` / `Bash(...)` whitelist entries in **all 5 helper-script touchpoints** named by CLAUDE.md "Adding a New Helper Script" (lines 82–96). The gemini policy files have `activate_skill` argsPattern rules for the *skill names* (`.gemini/policies/aitasks-whitelist.toml:585` and `:669`) but no matching helper-script `commandPrefix` rules — so framework developers in source hit a permission prompt on every invocation.
