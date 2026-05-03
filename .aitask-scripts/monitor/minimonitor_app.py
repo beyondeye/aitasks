@@ -274,24 +274,22 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         """Re-query own window index/name (handles tmux renumber-windows and
         window renames)."""
         own_pane = os.environ.get("TMUX_PANE", "")
-        if not own_pane:
+        if not own_pane or self._monitor is None:
             return
-        try:
-            result = subprocess.run(
-                ["tmux", "display-message", "-p", "-t", own_pane,
-                 "#{window_id}\t#{window_index}\t#{window_name}"],
-                capture_output=True, text=True, timeout=2,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                parts = result.stdout.strip().split("\t")
-                if len(parts) >= 1:
-                    self._own_window_id = parts[0]
-                if len(parts) >= 2:
-                    self._own_window_index = parts[1]
-                if len(parts) >= 3:
-                    self._own_window_name = parts[2]
-        except Exception:
-            pass
+        rc, stdout = self._monitor.tmux_run(
+            ["display-message", "-p", "-t", own_pane,
+             "#{window_id}\t#{window_index}\t#{window_name}"],
+            timeout=2,
+        )
+        if rc != 0 or not stdout.strip():
+            return
+        parts = stdout.strip().split("\t")
+        if len(parts) >= 1:
+            self._own_window_id = parts[0]
+        if len(parts) >= 2:
+            self._own_window_index = parts[1]
+        if len(parts) >= 3:
+            self._own_window_name = parts[2]
 
     def _restore_focus(self, pane_id: str | None) -> None:
         """Re-focus the previously focused card after a rebuild."""
@@ -480,23 +478,17 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         sibling). Shared by the Tab focus handler and the Enter send handler.
         """
         own_pane = os.environ.get("TMUX_PANE", "")
-        if not own_pane or not self._own_window_id:
+        if not own_pane or not self._own_window_id or self._monitor is None:
             self.notify("Not inside tmux", severity="warning")
             return None
-        try:
-            result = subprocess.run(
-                ["tmux", "list-panes", "-t", self._own_window_id,
-                 "-F", "#{pane_id}"],
-                capture_output=True, text=True, timeout=5,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            self.notify("tmux error", severity="error")
-            return None
-        if result.returncode != 0:
+        rc, stdout = self._monitor.tmux_run([
+            "list-panes", "-t", self._own_window_id, "-F", "#{pane_id}",
+        ])
+        if rc != 0:
             self.notify("tmux list-panes failed", severity="error")
             return None
         other_panes = [
-            line.strip() for line in result.stdout.strip().splitlines()
+            line.strip() for line in stdout.strip().splitlines()
             if line.strip() and line.strip() != own_pane
         ]
         if not other_panes:
@@ -507,17 +499,10 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
     def _focus_sibling_pane(self) -> None:
         """Move tmux focus to the sibling pane in the minimonitor's window."""
         sibling = self._find_sibling_pane_id()
-        if sibling is None:
+        if sibling is None or self._monitor is None:
             return
-        try:
-            sel = subprocess.run(
-                ["tmux", "select-pane", "-t", sibling],
-                capture_output=True, timeout=5,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            self.notify("select-pane failed", severity="error")
-            return
-        if sel.returncode != 0:
+        rc, _ = self._monitor.tmux_run(["select-pane", "-t", sibling])
+        if rc != 0:
             self.notify("select-pane failed", severity="error")
 
     def _send_enter_to_sibling(self) -> None:
@@ -638,59 +623,45 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             self.notify("Own window not detected yet", severity="warning")
             return
 
+        if self._monitor is None:
+            self.notify("Monitor not ready", severity="warning")
+            return
+
         # Record the focus request on the tmux session so monitor_app can
         # pick it up on its next refresh.
-        try:
-            set_env = subprocess.run(
-                ["tmux", "set-environment", "-t",
-                 tmux_session_target(self._session),
-                 "AITASK_MONITOR_FOCUS_WINDOW", self._own_window_name],
-                capture_output=True, timeout=5,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            self.notify("tmux set-environment failed", severity="error")
-            return
-        if set_env.returncode != 0:
+        rc, _ = self._monitor.tmux_run([
+            "set-environment", "-t", tmux_session_target(self._session),
+            "AITASK_MONITOR_FOCUS_WINDOW", self._own_window_name,
+        ])
+        if rc != 0:
             self.notify("tmux set-environment failed", severity="error")
             return
 
         # Does the monitor window already exist in the session?
-        monitor_running = False
-        try:
-            lw = subprocess.run(
-                ["tmux", "list-windows", "-t",
-                 tmux_session_target(self._session),
-                 "-F", "#{window_name}"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if lw.returncode == 0:
-                names = lw.stdout.strip().splitlines()
-                monitor_running = "monitor" in names
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        rc, stdout = self._monitor.tmux_run([
+            "list-windows", "-t", tmux_session_target(self._session),
+            "-F", "#{window_name}",
+        ])
+        if rc != 0:
             self.notify("tmux list-windows failed", severity="error")
             return
+        monitor_running = "monitor" in stdout.strip().splitlines()
 
-        try:
-            if monitor_running:
-                sel = subprocess.run(
-                    ["tmux", "select-window", "-t",
-                     tmux_window_target(self._session, "monitor")],
-                    capture_output=True, timeout=5,
-                )
-                if sel.returncode != 0:
-                    self.notify("select-window failed", severity="error")
-            else:
-                # Trailing colon forces tmux to treat the target as a session.
-                nw = subprocess.run(
-                    ["tmux", "new-window", "-t",
-                     tmux_window_target(self._session, ""),
-                     "-n", "monitor", "ait monitor"],
-                    capture_output=True, timeout=5,
-                )
-                if nw.returncode != 0:
-                    self.notify("new-window failed", severity="error")
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            self.notify("tmux switch failed", severity="error")
+        if monitor_running:
+            rc, _ = self._monitor.tmux_run([
+                "select-window", "-t",
+                tmux_window_target(self._session, "monitor"),
+            ])
+            if rc != 0:
+                self.notify("select-window failed", severity="error")
+        else:
+            # Trailing colon forces tmux to treat the target as a session.
+            rc, _ = self._monitor.tmux_run([
+                "new-window", "-t", tmux_window_target(self._session, ""),
+                "-n", "monitor", "ait monitor",
+            ])
+            if rc != 0:
+                self.notify("new-window failed", severity="error")
 
 
 def _detect_tmux_session() -> str | None:

@@ -31,6 +31,7 @@ import asyncio
 import collections
 import contextlib
 import re
+import threading
 from typing import Optional
 
 # %begin / %end / %error <epoch> <cmd_id> <flags>
@@ -242,3 +243,159 @@ class TmuxControlClient:
         self._teardown_pending()
         self._proc = None
         self._reader_task = None
+
+
+_BACKEND_READY_TIMEOUT = 2.0
+_BACKEND_START_TIMEOUT = 5.0
+_BACKEND_STOP_TIMEOUT = 3.0
+_BACKEND_THREAD_JOIN_TIMEOUT = 3.0
+
+
+class TmuxControlBackend:
+    """Owns a dedicated asyncio loop in a background thread that drives a
+    `TmuxControlClient`.
+
+    Provides sync (`request_sync`) and async (`request_async`) entry points;
+    both route through `asyncio.run_coroutine_threadsafe` so callers on any
+    thread/loop see consistent semantics. The backend exists so that sync
+    user-action call sites (Textual handlers, etc.) can reach the control
+    client without deadlocking the reader task — the reader runs on the
+    backend's bg loop, not on the calling thread's loop.
+
+    Subprocess fallback is the caller's responsibility: this class only
+    surfaces `(-1, "")` on transport failure.
+    """
+
+    def __init__(self, session: str, command_timeout: float = 5.0):
+        self.session = session
+        self.command_timeout = command_timeout
+        self._client: Optional[TmuxControlClient] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._thread: Optional[threading.Thread] = None
+        self._ready = threading.Event()
+
+    @property
+    def is_alive(self) -> bool:
+        return self._client is not None and self._client.is_alive
+
+    def start(self) -> bool:
+        """Start bg thread + loop, then start the client on it.
+
+        Returns True iff the client successfully attached. Idempotent: a
+        second call while already started returns the current `is_alive`
+        without spawning a second thread.
+        """
+        if self._thread is not None:
+            return self.is_alive
+        self._ready.clear()
+        thread = threading.Thread(
+            target=self._thread_main, name="tmux-control-loop", daemon=True
+        )
+        thread.start()
+        if not self._ready.wait(timeout=_BACKEND_READY_TIMEOUT) or self._loop is None:
+            # Loop never came up — abandon the thread (daemon=True will clean
+            # it up at process exit). Reset state so a future start() retries.
+            self._thread = None
+            self._loop = None
+            return False
+        self._thread = thread
+        client = TmuxControlClient(self.session, self.command_timeout)
+        cf = asyncio.run_coroutine_threadsafe(client.start(), self._loop)
+        try:
+            ok = cf.result(timeout=_BACKEND_START_TIMEOUT)
+        except Exception:
+            ok = False
+        if ok:
+            self._client = client
+            return True
+        # Client did not attach. Tear down the thread so we don't leak it.
+        self.stop()
+        return False
+
+    def _thread_main(self) -> None:
+        loop = asyncio.new_event_loop()
+        self._loop = loop
+        asyncio.set_event_loop(loop)
+        self._ready.set()
+        try:
+            loop.run_forever()
+        finally:
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:
+                pass
+            loop.close()
+
+    def stop(self) -> None:
+        """Close the client (on bg loop), stop the loop, join the thread.
+
+        Idempotent. Safe to call when start() failed partway through.
+        """
+        loop = self._loop
+        client = self._client
+        thread = self._thread
+        if loop is not None and client is not None:
+            with contextlib.suppress(Exception):
+                cf = asyncio.run_coroutine_threadsafe(client.close(), loop)
+                cf.result(timeout=_BACKEND_STOP_TIMEOUT)
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(loop.stop)
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=_BACKEND_THREAD_JOIN_TIMEOUT)
+        self._client = None
+        self._loop = None
+        self._thread = None
+        self._ready.clear()
+
+    def request_sync(
+        self, args: list[str], timeout: Optional[float] = None
+    ) -> tuple[int, str]:
+        """Issue a tmux command and block until the response arrives.
+
+        Returns `(rc, stdout)`. `(-1, "")` on transport failure (client
+        dead, loop unavailable, or future timeout). Safe to call from any
+        thread, including from inside an asyncio handler running on a
+        different loop than the backend.
+        """
+        loop = self._loop
+        client = self._client
+        if loop is None or client is None or not client.is_alive:
+            return (-1, "")
+        eff = timeout if timeout is not None else self.command_timeout
+        try:
+            cf = asyncio.run_coroutine_threadsafe(
+                client.request(args, timeout=eff), loop
+            )
+        except RuntimeError:
+            # Loop closed between the alive check and scheduling.
+            return (-1, "")
+        try:
+            return cf.result(timeout=eff + 1.0)
+        except Exception:
+            with contextlib.suppress(Exception):
+                cf.cancel()
+            return (-1, "")
+
+    async def request_async(
+        self, args: list[str], timeout: Optional[float] = None
+    ) -> tuple[int, str]:
+        """Issue a tmux command from an async caller on a different loop.
+
+        The caller awaits the result on its own loop; the request executes
+        on the backend's bg loop.
+        """
+        loop = self._loop
+        client = self._client
+        if loop is None or client is None or not client.is_alive:
+            return (-1, "")
+        eff = timeout if timeout is not None else self.command_timeout
+        try:
+            cf = asyncio.run_coroutine_threadsafe(
+                client.request(args, timeout=eff), loop
+            )
+        except RuntimeError:
+            return (-1, "")
+        try:
+            return await asyncio.wrap_future(cf)
+        except Exception:
+            return (-1, "")

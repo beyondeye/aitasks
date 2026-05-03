@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .tmux_control import TmuxControlClient
+    from .tmux_control import TmuxControlBackend
 
 _LIB_DIR = str(Path(__file__).resolve().parent.parent / "lib")
 if _LIB_DIR not in sys.path:
@@ -123,6 +123,30 @@ async def _run_tmux_async(args: list[str], timeout: float = 5.0) -> tuple[int, s
     return (proc.returncode or 0, stdout_bytes.decode("utf-8", errors="replace"))
 
 
+def _run_tmux_subprocess(
+    args: list[str], timeout: float = 5.0
+) -> tuple[int, str]:
+    """Sync sibling of `_run_tmux_async`. Same `(rc, stdout)` contract.
+
+    `(-1, "")` on FileNotFoundError / OSError / timeout. Used as the
+    subprocess fallback path inside `TmuxMonitor.tmux_run`, and (post-t722)
+    is the *only* place in `.aitask-scripts/monitor/` that spawns tmux via
+    `subprocess.run` for runtime ops — every other site routes through
+    `tmux_run` or `_tmux_async`. (The two `_detect_tmux_session()`
+    pre-monitor-init helpers in `monitor_app.py` and `minimonitor_app.py`
+    are the only intentional exceptions; no `TmuxMonitor` exists yet at
+    that point.)
+    """
+    try:
+        result = subprocess.run(
+            ["tmux", *args],
+            capture_output=True, text=True, timeout=timeout,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return (-1, "")
+    return (result.returncode, result.stdout or "")
+
+
 @dataclass
 class TmuxPaneInfo:
     window_index: str
@@ -181,34 +205,63 @@ class TmuxMonitor:
         self._pane_cache: dict[str, TmuxPaneInfo] = {}
         self._sessions_cache: tuple[float, list[AitasksSession]] | None = None
         self._compare_mode_overrides: dict[str, str] = {}
-        self._control: TmuxControlClient | None = None
+        self._backend: TmuxControlBackend | None = None
 
     async def start_control_client(self) -> bool:
-        from .tmux_control import TmuxControlClient
-        client = TmuxControlClient(session=self.session)
-        if await client.start():
-            self._control = client
+        """Start the persistent `tmux -C` backend on a dedicated bg thread.
+
+        Kept `async` so existing call sites (`await monitor.start_control_client()`)
+        do not need to change. The body is synchronous — the bg thread does
+        the actual asyncio work — so awaiting it just yields once.
+        """
+        from .tmux_control import TmuxControlBackend
+        backend = TmuxControlBackend(session=self.session)
+        if backend.start():
+            self._backend = backend
             return True
+        backend.stop()
         return False
 
     async def close_control_client(self) -> None:
-        if self._control is not None:
+        if self._backend is not None:
             with contextlib.suppress(Exception):
-                await self._control.close()
-            self._control = None
+                self._backend.stop()
+            self._backend = None
 
     def has_control_client(self) -> bool:
-        return self._control is not None and self._control.is_alive
+        return self._backend is not None and self._backend.is_alive
 
     async def _tmux_async(
         self, args: list[str], timeout: float = 5.0
     ) -> tuple[int, str]:
-        if self._control is not None and self._control.is_alive:
-            rc, out = await self._control.request(args, timeout=timeout)
+        backend = self._backend
+        if backend is not None and backend.is_alive:
+            rc, out = await backend.request_async(args, timeout=timeout)
             if rc != -1:
                 return rc, out
             # transport failure on this call — fall back to subprocess.
         return await _run_tmux_async(args, timeout=timeout)
+
+    def tmux_run(
+        self, args: list[str], timeout: float = 5.0
+    ) -> tuple[int, str]:
+        """Sync user-action wrapper — control-client when alive, subprocess fallback.
+
+        Returns `(rc, stdout)`. `rc` semantics match `_tmux_async`:
+          * `0` on success
+          * `1` on tmux command error
+          * `-1` on transport failure or subprocess error.
+
+        Safe to call from sync Textual handlers because the control client
+        runs on a background loop; this method blocks the caller's thread,
+        not the bg loop's reader task.
+        """
+        backend = self._backend
+        if backend is not None and backend.is_alive:
+            rc, out = backend.request_sync(args, timeout=timeout)
+            if rc != -1:
+                return rc, out
+        return _run_tmux_subprocess(args, timeout=timeout)
 
     def _discover_sessions_cached(self) -> list[AitasksSession]:
         """Return the list of aitasks-like tmux sessions, memoized for TTL seconds."""
@@ -293,18 +346,13 @@ class TmuxMonitor:
     def _discover_panes_multi(self) -> list[TmuxPaneInfo]:
         panes: list[TmuxPaneInfo] = []
         for sess in self._target_sessions():
-            try:
-                result = subprocess.run(
-                    ["tmux", "list-panes", "-s", "-t",
-                     tmux_session_target(sess),
-                     "-F", self._LIST_PANES_FORMAT],
-                    capture_output=True, text=True, timeout=5,
-                )
-                if result.returncode != 0:
-                    continue
-            except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            rc, stdout = self.tmux_run([
+                "list-panes", "-s", "-t", tmux_session_target(sess),
+                "-F", self._LIST_PANES_FORMAT,
+            ])
+            if rc != 0:
                 continue
-            panes.extend(self._parse_list_panes(result.stdout, sess))
+            panes.extend(self._parse_list_panes(stdout, sess))
         panes.sort(key=lambda p: (p.session_name, p.window_index, p.pane_index))
         return panes
 
@@ -330,18 +378,13 @@ class TmuxMonitor:
     def discover_panes(self) -> list[TmuxPaneInfo]:
         if self.multi_session:
             return self._discover_panes_multi()
-        try:
-            result = subprocess.run(
-                ["tmux", "list-panes", "-s", "-t",
-                 tmux_session_target(self.session),
-                 "-F", self._LIST_PANES_FORMAT],
-                capture_output=True, text=True, timeout=5,
-            )
-            if result.returncode != 0:
-                return []
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        rc, stdout = self.tmux_run([
+            "list-panes", "-s", "-t", tmux_session_target(self.session),
+            "-F", self._LIST_PANES_FORMAT,
+        ])
+        if rc != 0:
             return []
-        return self._parse_list_panes(result.stdout, self.session)
+        return self._parse_list_panes(stdout, self.session)
 
     async def discover_panes_async(self) -> list[TmuxPaneInfo]:
         if self.multi_session:
@@ -365,18 +408,12 @@ class TmuxMonitor:
             "#{pane_id}", "#{pane_pid}", "#{pane_current_command}",
             "#{pane_width}", "#{pane_height}",
         ])
-        try:
-            result = subprocess.run(
-                ["tmux", "list-panes", "-t", window_id, "-F", fmt],
-                capture_output=True, text=True, timeout=5,
-            )
-            if result.returncode != 0:
-                return []
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        rc, stdout = self.tmux_run(["list-panes", "-t", window_id, "-F", fmt])
+        if rc != 0:
             return []
 
         panes: list[TmuxPaneInfo] = []
-        for line in result.stdout.strip().splitlines():
+        for line in stdout.strip().splitlines():
             parts = line.split("\t")
             if len(parts) != 8:
                 continue
@@ -483,16 +520,10 @@ class TmuxMonitor:
         pane = self._pane_cache.get(pane_id)
         if pane is None:
             return None
-        try:
-            result = subprocess.run(
-                ["tmux", *self._capture_args(pane_id)],
-                capture_output=True, text=True, timeout=5,
-            )
-            if result.returncode != 0:
-                return None
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        rc, content = self.tmux_run(self._capture_args(pane_id))
+        if rc != 0:
             return None
-        return self._finalize_capture(pane, result.stdout)
+        return self._finalize_capture(pane, content)
 
     async def capture_pane_async(self, pane_id: str) -> PaneSnapshot | None:
         pane = self._pane_cache.get(pane_id)
@@ -540,14 +571,8 @@ class TmuxMonitor:
         return snapshots
 
     def send_enter(self, pane_id: str) -> bool:
-        try:
-            result = subprocess.run(
-                ["tmux", "send-keys", "-t", pane_id, "Enter"],
-                capture_output=True, timeout=5,
-            )
-            return result.returncode == 0
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            return False
+        rc, _ = self.tmux_run(["send-keys", "-t", pane_id, "Enter"])
+        return rc == 0
 
     def send_keys(self, pane_id: str, keys: str, literal: bool = False) -> bool:
         """Send arbitrary key(s) to a tmux pane.
@@ -555,15 +580,12 @@ class TmuxMonitor:
         If literal=True, uses -l flag to send raw text without interpretation.
         If literal=False, sends as tmux key name (Enter, Up, C-c, etc.).
         """
-        try:
-            cmd = ["tmux", "send-keys", "-t", pane_id]
-            if literal:
-                cmd.append("-l")
-            cmd.append(keys)
-            result = subprocess.run(cmd, capture_output=True, timeout=5)
-            return result.returncode == 0
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            return False
+        cmd = ["send-keys", "-t", pane_id]
+        if literal:
+            cmd.append("-l")
+        cmd.append(keys)
+        rc, _ = self.tmux_run(cmd)
+        return rc == 0
 
     def switch_to_pane(self, pane_id: str, prefer_companion: bool = False) -> bool:
         pane = self._pane_cache.get(pane_id)
@@ -580,26 +602,19 @@ class TmuxMonitor:
             return switch_to_pane_anywhere(pane_id)
         # Same-session: existing companion-aware path.
         target_session = pane.session_name or self.session
-        try:
-            subprocess.run(
-                ["tmux", "select-window", "-t",
-                 tmux_window_target(target_session, pane.window_index)],
-                capture_output=True, timeout=5,
+        self.tmux_run([
+            "select-window", "-t",
+            tmux_window_target(target_session, pane.window_index),
+        ])
+        target_pane = pane_id
+        if prefer_companion:
+            companion = self.find_companion_pane_id(
+                pane.window_index, target_session
             )
-            target_pane = pane_id
-            if prefer_companion:
-                companion = self.find_companion_pane_id(
-                    pane.window_index, target_session
-                )
-                if companion:
-                    target_pane = companion
-            result = subprocess.run(
-                ["tmux", "select-pane", "-t", target_pane],
-                capture_output=True, timeout=5,
-            )
-            return result.returncode == 0
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            return False
+            if companion:
+                target_pane = companion
+        rc, _ = self.tmux_run(["select-pane", "-t", target_pane])
+        return rc == 0
 
     def find_companion_pane_id(
         self, window_index: str, session: str | None = None
@@ -607,17 +622,13 @@ class TmuxMonitor:
         """Find the minimonitor/companion pane ID in a given window."""
         target_session = session if session is not None else self.session
         fmt = "#{pane_id}\t#{pane_pid}"
-        try:
-            result = subprocess.run(
-                ["tmux", "list-panes", "-t",
-                 tmux_window_target(target_session, window_index), "-F", fmt],
-                capture_output=True, text=True, timeout=5,
-            )
-            if result.returncode != 0:
-                return None
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        rc, stdout = self.tmux_run([
+            "list-panes", "-t",
+            tmux_window_target(target_session, window_index), "-F", fmt,
+        ])
+        if rc != 0:
             return None
-        for line in result.stdout.strip().splitlines():
+        for line in stdout.strip().splitlines():
             parts = line.split("\t")
             if len(parts) != 2:
                 continue
@@ -632,35 +643,23 @@ class TmuxMonitor:
 
     def kill_pane(self, pane_id: str) -> bool:
         """Kill a tmux pane by its ID."""
-        try:
-            result = subprocess.run(
-                ["tmux", "kill-pane", "-t", pane_id],
-                capture_output=True, timeout=5,
-            )
-            if result.returncode == 0:
-                self._pane_cache.pop(pane_id, None)
-                self._last_content.pop(pane_id, None)
-                self._last_change_time.pop(pane_id, None)
-                return True
-            return False
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            return False
+        rc, _ = self.tmux_run(["kill-pane", "-t", pane_id])
+        if rc == 0:
+            self._pane_cache.pop(pane_id, None)
+            self._last_content.pop(pane_id, None)
+            self._last_change_time.pop(pane_id, None)
+            return True
+        return False
 
     def kill_window(self, pane_id: str) -> bool:
         """Kill the entire tmux window containing the given pane."""
-        try:
-            result = subprocess.run(
-                ["tmux", "kill-window", "-t", pane_id],
-                capture_output=True, timeout=5,
-            )
-            if result.returncode == 0:
-                self._pane_cache.pop(pane_id, None)
-                self._last_content.pop(pane_id, None)
-                self._last_change_time.pop(pane_id, None)
-                return True
-            return False
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            return False
+        rc, _ = self.tmux_run(["kill-window", "-t", pane_id])
+        if rc == 0:
+            self._pane_cache.pop(pane_id, None)
+            self._last_content.pop(pane_id, None)
+            self._last_change_time.pop(pane_id, None)
+            return True
+        return False
 
     def kill_agent_pane_smart(self, pane_id: str) -> tuple[bool, bool]:
         """Kill an agent pane, collapsing the window if it was the last agent.
@@ -680,45 +679,36 @@ class TmuxMonitor:
         target_session = pane.session_name or self.session
         window_target = tmux_window_target(target_session, pane.window_index)
         others = 0
-        try:
-            result = subprocess.run(
-                ["tmux", "list-panes", "-t", window_target,
-                 "-F", "#{pane_id}\t#{pane_pid}"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if result.returncode != 0:
-                return self.kill_pane(pane_id), False
-            for line in result.stdout.strip().splitlines():
-                parts = line.split("\t")
-                if len(parts) != 2:
-                    continue
-                other_id, pid_str = parts
-                if other_id == pane_id:
-                    continue
-                try:
-                    pid = int(pid_str)
-                except ValueError:
-                    continue
-                if not _is_companion_process(pid):
-                    others += 1
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        rc, stdout = self.tmux_run([
+            "list-panes", "-t", window_target,
+            "-F", "#{pane_id}\t#{pane_pid}",
+        ])
+        if rc != 0:
             return self.kill_pane(pane_id), False
+        for line in stdout.strip().splitlines():
+            parts = line.split("\t")
+            if len(parts) != 2:
+                continue
+            other_id, pid_str = parts
+            if other_id == pane_id:
+                continue
+            try:
+                pid = int(pid_str)
+            except ValueError:
+                continue
+            if not _is_companion_process(pid):
+                others += 1
 
         if others == 0:
             return self.kill_window(pane_id), True
         return self.kill_pane(pane_id), False
 
     def spawn_tui(self, tui_name: str) -> bool:
-        try:
-            result = subprocess.run(
-                ["tmux", "new-window", "-t",
-                 tmux_window_target(self.session, ""),
-                 "-n", tui_name, f"ait {tui_name}"],
-                capture_output=True, timeout=5,
-            )
-            return result.returncode == 0
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            return False
+        rc, _ = self.tmux_run([
+            "new-window", "-t", tmux_window_target(self.session, ""),
+            "-n", tui_name, f"ait {tui_name}",
+        ])
+        return rc == 0
 
     def get_running_tuis(self) -> set[str]:
         return {

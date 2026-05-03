@@ -530,7 +530,9 @@ class MonitorApp(TuiSwitcherMixin, App):
             )
             return
 
-        # Rename the tmux window so the TUI switcher can find us
+        # Rename the tmux window so the TUI switcher can find us. This runs
+        # before `_start_monitoring()` constructs `self._monitor`, so it must
+        # use raw subprocess rather than `self._monitor.tmux_run`.
         try:
             subprocess.run(
                 ["tmux", "rename-window", "monitor"],
@@ -547,7 +549,9 @@ class MonitorApp(TuiSwitcherMixin, App):
             and self._expected_session
             and self._session != self._expected_session
         ):
-            # Check if a session with the expected name already exists
+            # Check if a session with the expected name already exists.
+            # Pre-monitor-init: no `self._monitor` yet, so subprocess is
+            # the only available path here too.
             try:
                 result = subprocess.run(
                     ["tmux", "has-session", "-t",
@@ -791,18 +795,15 @@ class MonitorApp(TuiSwitcherMixin, App):
         that a startup race (target pane not yet in snapshot) can be retried
         on the next refresh tick.
         """
-        try:
-            result = subprocess.run(
-                ["tmux", "show-environment", "-t",
-                 tmux_session_target(self._session),
-                 "AITASK_MONITOR_FOCUS_WINDOW"],
-                capture_output=True, text=True, timeout=5,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        if self._monitor is None:
             return None
-        if result.returncode != 0:
+        rc, stdout = self._monitor.tmux_run([
+            "show-environment", "-t", tmux_session_target(self._session),
+            "AITASK_MONITOR_FOCUS_WINDOW",
+        ])
+        if rc != 0:
             return None
-        line = result.stdout.strip()
+        line = stdout.strip()
         if not line or "=" not in line:
             return None
         # tmux emits "-VAR" for unset markers; those have no "=".
@@ -812,15 +813,12 @@ class MonitorApp(TuiSwitcherMixin, App):
 
     def _clear_focus_request(self) -> None:
         """Unset the tmux session focus-request env var."""
-        try:
-            subprocess.run(
-                ["tmux", "set-environment", "-t",
-                 tmux_session_target(self._session), "-u",
-                 "AITASK_MONITOR_FOCUS_WINDOW"],
-                capture_output=True, timeout=5,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            pass
+        if self._monitor is None:
+            return
+        self._monitor.tmux_run([
+            "set-environment", "-t", tmux_session_target(self._session),
+            "-u", "AITASK_MONITOR_FOCUS_WINDOW",
+        ])
 
     def _maybe_auto_switch(self) -> bool:
         """Switch focus to the most-idle agent if the current agent is active.
@@ -920,16 +918,12 @@ class MonitorApp(TuiSwitcherMixin, App):
 
     def _read_attached_session(self) -> str | None:
         """Return the currently-attached tmux session name, or None on failure."""
-        try:
-            result = subprocess.run(
-                ["tmux", "display-message", "-p", "#S"],
-                capture_output=True, text=True, timeout=5,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        if self._monitor is None:
             return None
-        if result.returncode != 0:
+        rc, stdout = self._monitor.tmux_run(["display-message", "-p", "#S"])
+        if rc != 0:
             return None
-        return result.stdout.strip() or None
+        return stdout.strip() or None
 
     def _format_agent_card_text(self, snap: PaneSnapshot) -> str:
         if snap.is_idle:
