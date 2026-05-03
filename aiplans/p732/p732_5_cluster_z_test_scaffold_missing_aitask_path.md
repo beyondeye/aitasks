@@ -79,3 +79,14 @@ All 4 share the error pattern `… line N: <scratch>/.aitask-scripts/lib/aitask_
 ## Step 9
 
 Archive via `./.aitask-scripts/aitask_archive.sh 732_5`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `cp aitask_path.sh` to the 4 originally-failing tests' scaffold blocks (5 inserts total — `test_task_push.sh` had two scaffold blocks). After running, `test_brainstorm_cli.sh` and `test_explain_context.sh` revealed a SECOND time-bomb of the same class: their scripts also source `lib/python_resolve.sh`. Added `cp python_resolve.sh` to those two tests as well (3 more inserts — explain_context got both libs added together). Total: 8 lines added across 4 files. All 4 originally-failing tests now pass with full counts: test_task_push 18/18, test_brainstorm_cli 31/31, test_explain_context 29/29, test_migrate_archives 28/28. Adjacent regression check (test_brainstorm*, test_explain*, test_migrate*, test_task_push) all green.
+- **Deviations from plan:** Plan only anticipated `aitask_path.sh` as the missing lib; `python_resolve.sh` was a second discovered miss for 2 of the 4 tests. Same root-cause class (system lib sourced by helpers), so the Strategy 1 patch generalized cleanly.
+- **Issues encountered:** None blocking. The two-step nature of the fix (run, hit second missing lib, add it, re-run) is exactly the time-bomb pattern that motivates the t734 follow-up task.
+- **Key decisions:**
+  1. Used `cp` from `$PROJECT_DIR` for all 4 tests (including `test_explain_context.sh` which inlines other libs via heredoc) — the libs being copied are simple and the test isn't testing PATH or version-resolution behavior, so a direct `cp` of the real file is fine and stays in sync with future changes.
+  2. Took Strategy 1 over Strategy 2 per user's verify-mode decision; spawned t734 (`test_scaffold_helper_for_fake_aitask_repo`) as the standalone follow-up task with helper extraction + 51-test convergence + CLAUDE.md guardrail recommendation.
+- **Upstream defects identified:** None — the failing scripts (`./ait`, `aitask_brainstorm_init.sh`, `aitask_explain_context.sh`, `aitask_migrate_archives.sh`) themselves are correct in sourcing the system libs unconditionally. The bug class is purely in the test scaffolds. The broader scope (51 tests with the same time-bomb) is captured in t734, not as an upstream defect.
+- **Notes for sibling tasks:** Other t732 children that touch shell tests (especially t732_3 Cluster C) should be aware: any new test that scaffolds a fake `.aitask-scripts/lib/` MUST include `aitask_path.sh` and `python_resolve.sh` until t734 lands. Once t734 lands, tests should `source tests/lib/test_scaffold.sh` and call `setup_fake_aitask_repo`.
