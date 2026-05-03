@@ -1,0 +1,17 @@
+# Maintainer: aitasks maintainers <noreply@aitasks.io>
+pkgname=aitasks
+pkgver=VERSION_PLACEHOLDER
+pkgrel=1
+pkgdesc="File-based task management framework for AI coding agents"
+arch=('any')
+url="https://aitasks.io/"
+license=('Apache')
+depends=('bash>=4' 'python>=3.9' 'fzf' 'jq' 'git' 'zstd' 'tar' 'curl')
+optdepends=('github-cli: GitHub integration'
+            'glab: GitLab integration')
+source=("ait::https://github.com/beyondeye/aitasks/releases/download/v$pkgver/ait")
+sha256sums=('SHA256_PLACEHOLDER')
+
+package() {
+    install -Dm755 "$srcdir/ait" "$pkgdir/usr/bin/ait"
+}

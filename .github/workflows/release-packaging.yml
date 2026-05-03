@@ -63,3 +63,54 @@ jobs:
             git commit -m "Update aitasks to v${VERSION}"
             git push origin main
           fi
+
+  publish-aur:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+      AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+    steps:
+      - name: Soft-skip if AUR_SSH_PRIVATE_KEY is not set
+        id: gate
+        run: |
+          if [ -z "${AUR_KEY}" ]; then
+            echo "::warning::AUR_SSH_PRIVATE_KEY not set — skipping AUR publish."
+            echo "::warning::See aidocs/aur_maintainer_setup.md for first-time setup."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.skip == 'false'
+
+      - name: Download shim from release & compute SHA256
+        if: steps.gate.outputs.skip == 'false'
+        id: checksum
+        run: |
+          curl -fsSL "https://github.com/beyondeye/aitasks/releases/download/v${VERSION}/ait" -o ait
+          SHA256=$(sha256sum ait | cut -d' ' -f1)
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          echo "Shim SHA256: $SHA256"
+
+      - name: Render PKGBUILD
+        if: steps.gate.outputs.skip == 'false'
+        run: |
+          mkdir -p aur-out
+          sed -e "s/VERSION_PLACEHOLDER/${VERSION}/g" \
+              -e "s/SHA256_PLACEHOLDER/${{ steps.checksum.outputs.sha256 }}/g" \
+              packaging/aur/PKGBUILD.template > aur-out/PKGBUILD
+          echo "--- Rendered PKGBUILD ---"
+          cat aur-out/PKGBUILD
+
+      - name: Publish to AUR
+        if: steps.gate.outputs.skip == 'false'
+        uses: KSXGitHub/github-actions-deploy-aur@v4.1.2
+        with:
+          pkgname: aitasks
+          pkgbuild: ./aur-out/PKGBUILD
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "Update to v${{ inputs.version }}"
+          ssh_keyscan_types: ed25519
