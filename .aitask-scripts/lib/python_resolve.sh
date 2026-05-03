@@ -100,18 +100,21 @@ resolve_pypy_python() {
         return 0
     fi
     local cand resolved
-    for cand in "${AIT_PYPY:-}" "$PYPY_VENV_DIR/bin/python"; do
-        if [[ -n "$cand" && -x "$cand" ]]; then
-            if "$cand" -c "import sys; sys.exit(0 if sys.implementation.name == 'pypy' else 1)" 2>/dev/null; then
-                _AIT_RESOLVED_PYPY="$cand"
-                echo "$cand"
-                return 0
-            fi
+    local candidates=(
+        "${AIT_PYPY:-}"
+        "$PYPY_VENV_DIR/bin/python"
+        "pypy$AIT_PYPY_PREFERRED"
+        pypy3
+    )
+    for cand in "${candidates[@]}"; do
+        [[ -z "$cand" ]] && continue
+        if [[ "$cand" == /* ]]; then
+            resolved="$cand"
+        else
+            resolved="$(command -v "$cand" 2>/dev/null || true)"
         fi
-    done
-    for cand in "pypy$AIT_PYPY_PREFERRED" pypy3; do
-        resolved="$(command -v "$cand" 2>/dev/null || true)"
-        if [[ -n "$resolved" && -x "$resolved" ]]; then
+        [[ -z "$resolved" || ! -x "$resolved" ]] && continue
+        if "$resolved" -c "import sys; sys.exit(0 if sys.implementation.name == 'pypy' else 1)" 2>/dev/null; then
             _AIT_RESOLVED_PYPY="$resolved"
             echo "$resolved"
             return 0

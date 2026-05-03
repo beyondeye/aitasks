@@ -39,7 +39,11 @@ assert_contains() {
     fi
 }
 
-REAL_PY="$(command -v python3)"
+# Resolve to the underlying interpreter so stubs work after HOME is overridden.
+# (`command -v python3` may return the framework wrapper at ~/.aitask/bin/python3,
+# which exec's into $HOME/.aitask/venv/bin/python — broken once HOME=$SCRATCH.)
+REAL_PY="$(python3 -c 'import sys; print(sys.executable)' 2>/dev/null)"
+[[ -z "$REAL_PY" || ! -x "$REAL_PY" ]] && REAL_PY="$(command -v python3)"
 [[ -z "$REAL_PY" ]] && { echo "No python3 on host; cannot run tests."; exit 2; }
 
 TEST_BASH="$(command -v bash)"
@@ -221,6 +225,26 @@ else
     PASS=$((PASS + 1))
     TOTAL=$((TOTAL + 1))
 fi
+
+# === Test 9: misnamed CPython on PATH (pypy3) is rejected (impl != pypy) ===
+unset _AIT_RESOLVED_PYPY
+rm -f "$SCRATCH/.aitask/pypy_venv/bin/python"
+make_cpython_stub pypy3 "3.11.0"
+result="$(HOME="$SCRATCH" PATH="$SUBPATH" "$TEST_BASH" --noprofile --norc -c "
+unset AIT_PYTHON _AIT_RESOLVED_PYTHON _AIT_RESOLVED_PYPY AIT_PYPY
+source '$LIB'
+resolve_pypy_python
+")"
+if [[ "$result" == "$SCRATCH/bin/pypy3" ]]; then
+    FAIL=$((FAIL + 1))
+    TOTAL=$((TOTAL + 1))
+    echo "FAIL: Test 9: misnamed CPython on PATH should be rejected"
+    echo "  actual: $result"
+else
+    PASS=$((PASS + 1))
+    TOTAL=$((TOTAL + 1))
+fi
+rm -f "$SCRATCH/bin/pypy3"
 
 # === Test 8: double-source guard preserves new functions ===
 result="$("$TEST_BASH" --noprofile --norc -c "
