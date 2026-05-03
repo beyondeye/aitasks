@@ -8,7 +8,7 @@ labels: [performance, monitor, tui]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-30 10:25
-updated_at: 2026-04-30 12:05
+updated_at: 2026-05-03 08:19
 ---
 
 ## Context
