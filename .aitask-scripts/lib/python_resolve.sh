@@ -109,7 +109,7 @@ resolve_pypy_python() {
             fi
         fi
     done
-    for cand in pypy3.11 pypy3; do
+    for cand in "pypy$AIT_PYPY_PREFERRED" pypy3; do
         resolved="$(command -v "$cand" 2>/dev/null || true)"
         if [[ -n "$resolved" && -x "$resolved" ]]; then
             _AIT_RESOLVED_PYPY="$resolved"
