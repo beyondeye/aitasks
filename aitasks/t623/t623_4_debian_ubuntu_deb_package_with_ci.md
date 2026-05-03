@@ -6,7 +6,7 @@ issue_type: feature
 status: Ready
 labels: [install_scripts, installation, packaging, debian, ubuntu, wsl, ci]
 created_at: 2026-04-22 18:58
-updated_at: 2026-04-22 18:58
+updated_at: 2026-05-03 18:56
 ---
 
 ## Context
@@ -16,6 +16,8 @@ Fourth child of t623. Depends on t623_1 (shim extraction) and t623_2 (which intr
 **Why.** `.deb` packaging covers Debian, Ubuntu, all their derivatives, AND WSL2 Ubuntu — the most common Linux user base by volume. Native `apt install ./aitasks_X.Y.Z_all.deb` is the expected install path for these users.
 
 **Approach.** Use [nfpm](https://nfpm.goreleaser.com/) — a single YAML config → both `.deb` and `.rpm`. This child ships `.deb`; t623_5 extends the same config to `.rpm`.
+
+**Maintainer registration.** None required — the `.deb` is built in CI and uploaded as a GitHub release asset using the default `GITHUB_TOKEN`. Users `apt install` it directly from the release page (`https://github.com/beyondeye/aitasks/releases`). No external account, no separate publishing endpoint, no extra GitHub Actions secret. (Hosted APT repo at `apt.aitasks.io` — which would require external infrastructure — is a deferred follow-up per `aidocs/packaging_strategy.md`.) Therefore: **no `aidocs/<pm>_maintainer_setup.md` walkthrough is needed for this child** (unlike t623_2 Homebrew and t623_3 AUR).
 
 ## Key Files to Modify
 

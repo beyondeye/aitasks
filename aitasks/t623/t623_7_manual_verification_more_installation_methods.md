@@ -7,7 +7,7 @@ status: Ready
 labels: [verification, manual]
 verifies: [623_1, 623_2, 623_3, 623_4, 623_5, 623_6]
 created_at: 2026-04-23 08:56
-updated_at: 2026-04-23 08:56
+updated_at: 2026-05-03 18:56
 ---
 
 ## Manual Verification Task
@@ -19,6 +19,20 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 ## Verification Checklist
+
+### Maintainer-setup preconditions (gate the publish-flow checks below)
+
+These items must reach Pass before the PM-specific publish-flow items can be
+evaluated. If a precondition is **Skip** or **Fail**, the corresponding
+PM's publish items are **Skip** with note "blocked: maintainer setup
+incomplete" — they are not failures of the PM child, just blocked.
+
+- [ ] [Setup t623_2 — Homebrew] `aidocs/homebrew_maintainer_setup.md` sections 2-3 completed: `beyondeye/homebrew-aitasks` tap repo created with placeholder `Formula/aitasks.rb`; `HOMEBREW_TAP_TOKEN` secret set on `beyondeye/aitasks` (verify via `gh secret list --repo beyondeye/aitasks`).
+- [ ] [Setup t623_3 — AUR] `aidocs/aur_maintainer_setup.md` sections 2-5 completed: AUR account created; ed25519 SSH key registered on AUR account; package page bootstrapped at `https://aur.archlinux.org/packages/aitasks` with stub PKGBUILD; `AUR_USERNAME` / `AUR_EMAIL` / `AUR_SSH_PRIVATE_KEY` secrets set on `beyondeye/aitasks`.
+- [ ] [Setup t623_4 — Debian/Ubuntu] No external maintainer registration required (default `GITHUB_TOKEN` covers release-asset upload). Mark **Pass** automatically — present here only for symmetry.
+- [ ] [Setup t623_5 — Fedora/RHEL] No external maintainer registration required (default `GITHUB_TOKEN` covers release-asset upload). Mark **Pass** automatically — present here only for symmetry.
+
+### Per-PM verification
 
 - [ ] [t623_1] diff <(extract heredoc body from pre-refactor aitask_setup.sh) packaging/shim/ait — must be empty
 - [ ] [t623_1] bash install.sh --dir /tmp/ait-test produces ~/.local/bin/ait byte-identical to packaging/shim/ait

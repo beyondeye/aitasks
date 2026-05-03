@@ -6,7 +6,7 @@ issue_type: feature
 status: Ready
 labels: [install_scripts, installation, packaging, aur, arch, ci]
 created_at: 2026-04-22 18:57
-updated_at: 2026-04-22 18:57
+updated_at: 2026-05-03 18:56
 ---
 
 ## Context
@@ -19,9 +19,10 @@ Third child of t623. Depends on t623_1 (shim extraction) and t623_2 (which intro
 
 ## Key Files to Modify
 
+- `aidocs/aur_maintainer_setup.md` (new) — comprehensive first-time-setup walkthrough mirroring `aidocs/homebrew_maintainer_setup.md` (shipped in t623_2). Covers: AUR account creation, ed25519 SSH key generation + AUR registration, first-time package-page bootstrap (clone `ssh://aur@aur.archlinux.org/aitasks.git`, push stub PKGBUILD), GitHub secrets provisioning, end-to-end local test on Arch / archlinux container, first-real-release walkthrough, troubleshooting.
 - `packaging/aur/PKGBUILD.template` (new) — Arch PKGBUILD with `VERSION_PLACEHOLDER` and `SHA256_PLACEHOLDER`.
-- `packaging/aur/README.md` (new) — maintainer runbook: first-time AUR package page creation via web UI, SSH key generation for `AUR_SSH_PRIVATE_KEY`, `AUR_USERNAME`/`AUR_EMAIL` secret setup.
-- `.github/workflows/release-packaging.yml` (modified) — add `publish-aur` job.
+- `packaging/aur/README.md` (new) — slim directory-level reference (what's here, pointer to `aidocs/aur_maintainer_setup.md`, local-test snippet). NOT the comprehensive walkthrough.
+- `.github/workflows/release-packaging.yml` (modified) — add `publish-aur` job, including the soft-skip guard pattern from t623_2's `publish-homebrew` (gate on `AUR_SSH_PRIVATE_KEY` presence so missing-secret tags warn-and-skip rather than fail).
 
 ## Reference Files for Patterns
 
@@ -30,6 +31,8 @@ Third child of t623. Depends on t623_1 (shim extraction) and t623_2 (which intro
 - **External:** `sinelaw/fresh/.github/workflows/aur-publish.yml` — exact template we adapt. In particular the `KSXGitHub/github-actions-deploy-aur@v4.1.2` action and the PKGBUILD template substitution pattern.
 
 ## Implementation Plan
+
+0. Author `aidocs/aur_maintainer_setup.md` — comprehensive first-time-setup walkthrough mirroring `aidocs/homebrew_maintainer_setup.md`. The structure should match (sections: what AUR is, create the AUR account + SSH key, register the package page, provision GitHub secrets, end-to-end local test on Arch / archlinux container, cut the first real release, troubleshooting). The `packaging/aur/README.md` (Step 2 below) becomes a slim pointer to this walkthrough plus the local-test snippet, NOT a comprehensive how-to.
 
 1. Create `packaging/aur/PKGBUILD.template`:
    ```

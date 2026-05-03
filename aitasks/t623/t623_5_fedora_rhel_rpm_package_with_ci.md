@@ -6,7 +6,7 @@ issue_type: feature
 status: Ready
 labels: [install_scripts, installation, packaging, fedora, rhel, ci]
 created_at: 2026-04-22 18:58
-updated_at: 2026-04-22 18:58
+updated_at: 2026-05-03 18:56
 ---
 
 ## Context
@@ -16,6 +16,8 @@ Fifth child of t623. Depends on t623_4 (which creates `packaging/nfpm/nfpm.yaml`
 **Why.** Fedora, Rocky Linux, AlmaLinux, and RHEL users expect `dnf install` of an `.rpm`. This child makes `sudo dnf install aitasks-<ver>-1.noarch.rpm` (downloaded from GitHub releases) work.
 
 **Effort: low** — the shim-only model + shared nfpm config means this child is mostly YAML additions (an `overrides.rpm` block) + a symmetric CI job pair.
+
+**Maintainer registration.** None required — the `.rpm` is built in CI and uploaded as a GitHub release asset using the default `GITHUB_TOKEN`. Users `dnf install` it directly from the release page. No external account, no separate publishing endpoint, no extra GitHub Actions secret. (Hosted DNF/RPM repo at `rpm.aitasks.io` is a deferred follow-up per `aidocs/packaging_strategy.md`.) Therefore: **no `aidocs/<pm>_maintainer_setup.md` walkthrough is needed for this child** (unlike t623_2 Homebrew and t623_3 AUR).
 
 ## Key Files to Modify
 
