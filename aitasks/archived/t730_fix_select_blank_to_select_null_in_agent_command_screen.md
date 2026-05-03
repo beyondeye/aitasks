@@ -3,11 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_board, tmux, tui, agent_chooser]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-03 08:05
-updated_at: 2026-05-03 08:06
+updated_at: 2026-05-03 08:17
+completed_at: 2026-05-03 08:17
 ---
 
 ## Symptom
