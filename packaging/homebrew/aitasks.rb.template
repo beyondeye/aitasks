@@ -1,0 +1,24 @@
+class Aitasks < Formula
+  desc "File-based task management framework for AI coding agents"
+  homepage "https://aitasks.io/"
+  url "https://github.com/beyondeye/aitasks/releases/download/vVERSION_PLACEHOLDER/ait"
+  sha256 "SHA256_PLACEHOLDER"
+  license "Apache-2.0"
+
+  depends_on "bash"
+  depends_on "python@3.12"
+  depends_on "fzf"
+  depends_on "jq"
+  depends_on "git"
+  depends_on "zstd"
+  depends_on "curl"
+
+  def install
+    bin.install "ait"
+  end
+
+  test do
+    output = shell_output("#{bin}/ait some-bogus-command 2>&1", 1)
+    assert_match(/No ait project found/, output)
+  end
+end

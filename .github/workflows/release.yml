@@ -9,19 +9,28 @@ permissions:
   contents: write
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Extract version
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
   release:
+    needs: plan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Extract version from tag
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
-
       - name: Verify VERSION file matches tag
         run: |
           file_version=$(cat .aitask-scripts/VERSION)
-          tag_version="${GITHUB_REF_NAME#v}"
+          tag_version="${{ needs.plan.outputs.version }}"
           if [ "$file_version" != "$tag_version" ]; then
             echo "ERROR: VERSION file ($file_version) does not match tag ($tag_version)"
             exit 1
@@ -148,3 +157,10 @@ jobs:
             aitasks-${{ github.ref_name }}.tar.gz
             packaging/shim/ait
           generate_release_notes: true
+
+  packaging:
+    needs: [plan, release]
+    uses: ./.github/workflows/release-packaging.yml
+    secrets: inherit
+    with:
+      version: ${{ needs.plan.outputs.version }}

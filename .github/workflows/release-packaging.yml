@@ -1,0 +1,65 @@
+name: Release Packaging
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+jobs:
+  publish-homebrew:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - name: Soft-skip if HOMEBREW_TAP_TOKEN is not set
+        id: gate
+        run: |
+          if [ -z "${TAP_TOKEN}" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN not set — skipping Homebrew tap publish."
+            echo "::warning::See aidocs/homebrew_maintainer_setup.md for first-time setup."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.skip == 'false'
+
+      - name: Download shim from release & compute SHA256
+        if: steps.gate.outputs.skip == 'false'
+        id: checksum
+        run: |
+          curl -fsSL "https://github.com/beyondeye/aitasks/releases/download/v${VERSION}/ait" -o ait
+          SHA256=$(sha256sum ait | cut -d' ' -f1)
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          echo "Shim SHA256: $SHA256"
+
+      - name: Render formula
+        if: steps.gate.outputs.skip == 'false'
+        run: |
+          mkdir -p tap-out
+          sed -e "s/VERSION_PLACEHOLDER/${VERSION}/g" \
+              -e "s/SHA256_PLACEHOLDER/${{ steps.checksum.outputs.sha256 }}/g" \
+              packaging/homebrew/aitasks.rb.template > tap-out/aitasks.rb
+          echo "--- Rendered formula ---"
+          cat tap-out/aitasks.rb
+
+      - name: Push to tap repo
+        if: steps.gate.outputs.skip == 'false'
+        run: |
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/beyondeye/homebrew-aitasks.git" tap-repo
+          mkdir -p tap-repo/Formula
+          cp tap-out/aitasks.rb tap-repo/Formula/aitasks.rb
+          cd tap-repo
+          git config user.email "actions@github.com"
+          git config user.name "aitasks release bot"
+          git add Formula/aitasks.rb
+          if git diff --cached --quiet; then
+            echo "No formula changes, skipping commit"
+          else
+            git commit -m "Update aitasks to v${VERSION}"
+            git push origin main
+          fi
