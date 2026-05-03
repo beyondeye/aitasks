@@ -58,3 +58,25 @@ The original plan hypothesized "Textual API drift" / "renamed `_thread_id`". Ver
 ## Step 9 (Post-Implementation)
 
 Per `task-workflow/SKILL.md` Step 9, archive via `./.aitask-scripts/aitask_archive.sh 732_1`. The parent t732 will auto-archive once all 7 children are Done.
+
+## Final Implementation Notes
+
+- **Actual work done:** Two minimal patches.
+  1. `.aitask-scripts/lib/tui_switcher.py` — `_render_desync_line` now uses `self.query("#switcher_desync")` (zero-or-more) with an early-return on empty, instead of `self.query_one("#switcher_desync", Label)`. This makes the call safe when `_cycle_session` fires before mount — same defensive style as the `screen.query_one` guard at `_cycle_session:622-625`.
+  2. `tests/test_multi_session_minimonitor.sh` — Tier 1c block now stubs `app.run_worker = lambda c, *a, **k: c.close()` alongside the existing `call_later` / `set_interval` stubs. Closing the coroutine doubles as the fix for the `RuntimeWarning: coroutine '_connect_control_client' was never awaited`.
+
+  Both target tests pass: `test_multi_session_minimonitor` 24/24, `test_tui_switcher_multi_session` 45/45.
+
+- **Deviations from plan:** None at the step level. The verify-mode diagnosis update (committed before implementation) corrected the original plan's hypothesis that `_thread_id` had been removed/renamed — Textual 8.1.1 still has it (set by `_thread_init()` at app launch). The actual cause was the test bypassing `App.__init__` via `MiniMonitorApp.__new__(...)`, leaving `_thread_id` unset.
+
+- **Issues encountered:** None blocking. The `_thread_id` AttributeError and the unawaited-coroutine `RuntimeWarning` were two facets of the same root cause (test-side run_worker invocation on a non-initialized app); a single stub that closes the coroutine fixes both.
+
+- **Key decisions:**
+  1. Production-side fix in `tui_switcher.py` rather than test-side mocking. The `query_one` → `query` change is cheap, locally readable, and matches the existing defensive pattern in the same class. It also protects any other call site that might construct a switcher overlay before mount.
+  2. Test-side fix in `test_multi_session_minimonitor.sh` (not production) for the `_thread_id` issue. Production code (`_start_monitoring` is called from `on_mount`) is correct — `App.run_async` calls `_thread_init()` before mounting. Adding any defensive shim in `_start_monitoring` would mask a real bug if a future refactor invoked it pre-mount.
+  3. Used `c.close()` in the stub (not `lambda *a, **k: None`) to consume the coroutine and silence the `RuntimeWarning` cleanly.
+
+- **Upstream defects identified:**
+  - `tests/test_multi_session_monitor.sh:LINE — multi-session discover_panes aggregation is broken on main today` (6/43 failures: `multi-session discover_panes aggregates both sessions`, `panes from sessA are tagged`, `sessA panes come first after sort`, `companion filter still excludes companions in multi mode`, `non-companion pane survives`, `real tmux: sessB pane discovered`). This is a separate test (note the lack of `mini`) and was already failing on `main` before this task — confirmed by stashing my changes and re-running. NOT in t732's listed-scope failures. Same general theme as t732 Cluster A (multi-session TUI machinery), but a distinct test and distinct symptom (pane discovery rather than overlay query). Worth a standalone bug aitask.
+
+- **Notes for sibling tasks:** The defensive `query` (zero-or-more) + early-return idiom is now used in `tui_switcher._render_desync_line` alongside the existing `screen.query_one` + `SkipAction` idiom in `_cycle_session`. Other Cluster A-adjacent bugs may benefit from the same pattern. For tests that construct Textual `App` subclasses via `__new__`, remember to stub `run_worker` (and any other method that touches `_thread_id`) in addition to `call_later` / `set_interval`.
