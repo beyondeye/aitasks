@@ -6,6 +6,8 @@ Archived Sibling Plans: aiplans/archived/p719/p719_*_*.md
 Worktree: aiwork/t719_2_hot_path_integration
 Branch: aitask/t719_2_hot_path_integration
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-05-03 08:49
 ---
 
 # Plan — t719_2: Hot-path integration + lifecycle + benchmark
@@ -15,6 +17,46 @@ Base branch: main
 Wire `TmuxControlClient` (from `t719_1`) into `TmuxMonitor`'s async paths,
 add lifecycle in monitor/minimonitor, and prove the ≥5× speedup with a
 microbenchmark. This child delivers the user-visible performance win.
+
+## Context
+
+`t719_1` shipped `.aitask-scripts/monitor/tmux_control.py` (244 LOC) with
+the verified API: `TmuxControlClient(session=...)`, `await start() -> bool`,
+`await request(args, timeout) -> (rc, out)` (rc `-1` reserved for transport
+failure), `await close()`, `is_alive` property. The reader-loop attach-ack
+bug (flags-bit-1 filter) was fixed during the sibling's verify pass — siblings
+calling `request()` see only their own responses, no extra defensive code
+needed here.
+
+This child takes that working module and wires it into the per-tick async
+hot-path of `TmuxMonitor`, plus app-level lifecycle in monitor/minimonitor,
+plus a benchmark to prove the speedup.
+
+## Verify pass (2026-05-03)
+
+The original plan (drafted 2026-04-30) was checked against the current code
+today. Findings:
+
+- **`tmux_monitor.py` call sites at 284, 317, 469** — all three match exactly.
+  No other `_run_tmux_async` callers exist. "Sync paths untouched" claim
+  confirmed.
+- **`_run_tmux_async` free function** at lines 94–119, signature unchanged.
+- **`TmuxMonitor.__init__`** at lines 153–179. No `_control` attribute or
+  control-client methods exist yet. `import contextlib` already present at
+  line 16.
+- **`monitor_app.py::_start_monitoring`** is at **line 584** (plan said 579 —
+  +5 line drift, no structural change). Clear insertion point right after the
+  `self._monitor = TmuxMonitor(...)` block.
+- **`minimonitor_app.py::_start_monitoring`** is at **line 190** (plan said 189
+  — +1 line drift).
+- No existing `on_unmount` hook in either app file (confirmed via grep).
+- `self.run_worker(...)` is not currently called in either app file — it's a
+  standard Textual `App` method and works fine; this is just an FYI, not a
+  blocker.
+- `aidocs/benchmarks/bench_archive_formats.py` and
+  `tests/test_tmux_control.sh` fixture patterns match the plan's outline.
+
+Plan unchanged structurally; line numbers updated below.
 
 ## Files to modify
 
@@ -30,13 +72,14 @@ microbenchmark. This child delivers the user-visible performance win.
 
 ## Step 1 — `tmux_monitor.py` async helper + lifecycle
 
-In `TmuxMonitor.__init__`:
+In `TmuxMonitor.__init__` (lines 153–179), add:
 
 ```python
 self._control: TmuxControlClient | None = None
 ```
 
-Add three new methods:
+Add four new methods on `TmuxMonitor` (deferred import for `TmuxControlClient`
+to avoid touching the existing top-of-file import block):
 
 ```python
 async def start_control_client(self) -> bool:
@@ -65,6 +108,9 @@ async def _tmux_async(self, args: list[str], timeout: float = 5.0) -> tuple[int,
     return await _run_tmux_async(args, timeout=timeout)
 ```
 
+`contextlib` is already imported at line 16. The free `_run_tmux_async`
+(lines 94–119) stays as the subprocess fallback.
+
 ## Step 2 — Update three async-path call sites
 
 Change three sites from `await _run_tmux_async(...)` to
@@ -76,7 +122,8 @@ Change three sites from `await _run_tmux_async(...)` to
 | `tmux_monitor.py` | 317 | `discover_panes_async` (single-session branch) |
 | `tmux_monitor.py` | 469 | `capture_pane_async` |
 
-The free `_run_tmux_async` (lines 94–119) stays as the subprocess fallback.
+Confirmed exact: only these three call `_run_tmux_async`. No other async
+or sync sites need updating.
 
 **Sync paths untouched:** `discover_panes`, `capture_pane`, `send_enter`,
 `send_keys`, `switch_to_pane`, `find_companion_pane_id`, `kill_pane`,
@@ -85,7 +132,8 @@ All user-action triggered, not per-tick.
 
 ## Step 3 — `monitor_app.py` lifecycle
 
-In `_start_monitoring` (line 579), after `self._monitor = TmuxMonitor(...)`:
+In `_start_monitoring` (line 584), after the `self._monitor = TmuxMonitor(...)`
+block (ends near line 599):
 
 ```python
 async def _connect_control_client() -> None:
@@ -104,7 +152,7 @@ self.run_worker(
 )
 ```
 
-Add `on_unmount` at class scope (no existing hook — confirmed):
+Add `on_unmount` at class scope (no existing hook — confirmed via grep):
 
 ```python
 async def on_unmount(self) -> None:
@@ -117,11 +165,14 @@ async def on_unmount(self) -> None:
 
 ## Step 4 — `minimonitor_app.py` lifecycle
 
-Identical pattern in `_start_monitoring` (line 189) + new `on_unmount`.
+Identical pattern in `_start_monitoring` (line 190) + new `on_unmount`. The
+inserted block goes after `self._monitor = TmuxMonitor(...)` (ends near
+line 204).
 
 ## Step 5 — `aidocs/benchmarks/bench_monitor_refresh.py`
 
-Pattern matches `aidocs/benchmarks/bench_archive_formats.py`. Outline:
+Pattern matches `aidocs/benchmarks/bench_archive_formats.py` (argparse +
+warmup/iterations constants + `statistics` for output). Outline:
 
 ```python
 #!/usr/bin/env python3
@@ -148,9 +199,16 @@ def setup_fixture(panes: int) -> tuple[str, Path]:
     os.environ["TMUX_TMPDIR"] = str(tmpdir)
     os.environ.pop("TMUX", None)
     session = f"bench_{os.getpid()}"
-    subprocess.run(["tmux", "new-session", "-d", "-s", session, "tail -f /dev/null"], check=True)
+    subprocess.run(
+        ["tmux", "new-session", "-d", "-s", session, "tail -f /dev/null"],
+        check=True,
+    )
     for i in range(panes):
-        subprocess.run(["tmux", "new-window", "-t", f"{session}:", "-n", f"agent-{i}", "tail -f /dev/null"], check=True)
+        subprocess.run(
+            ["tmux", "new-window", "-t", f"{session}:", "-n", f"agent-{i}",
+             "tail -f /dev/null"],
+            check=True,
+        )
     return session, tmpdir
 
 def teardown_fixture(tmpdir: Path) -> None:
@@ -178,35 +236,67 @@ def main():
         print("SKIP: tmux not available")
         return
 
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / ".aitask-scripts"))
+    sys.path.insert(
+        0,
+        str(Path(__file__).resolve().parent.parent.parent / ".aitask-scripts"),
+    )
     from monitor.tmux_monitor import TmuxMonitor
+
+    # Fork-count instrumentation: monkey-patch the module-level
+    # `_run_tmux_async` with a counting wrapper so we can report fork
+    # counts in subprocess vs control-client mode. Keep a reference to
+    # the original so we can restore it.
+    from monitor import tmux_monitor as _tm
+    _orig = _tm._run_tmux_async
+    counts = {"n": 0}
+    async def _counting(args, timeout=5.0):
+        counts["n"] += 1
+        return await _orig(args, timeout=timeout)
+    _tm._run_tmux_async = _counting
 
     session, tmpdir = setup_fixture(args.panes)
     try:
         async def run():
             mon_sub = TmuxMonitor(session=session, multi_session=False)
             mon_ctrl = TmuxMonitor(session=session, multi_session=False)
+            counts["n"] = 0
             await mon_ctrl.start_control_client()
             try:
+                counts["n"] = 0
                 t_sub = await measure(mon_sub, args.iterations, args.warmup)
+                forks_sub = counts["n"]
+                counts["n"] = 0
                 t_ctrl = await measure(mon_ctrl, args.iterations, args.warmup)
+                forks_ctrl = counts["n"]
             finally:
                 await mon_ctrl.close_control_client()
-            return t_sub, t_ctrl
+            return t_sub, t_ctrl, forks_sub, forks_ctrl
 
-        t_sub, t_ctrl = asyncio.run(run())
-        for label, ts in [("subprocess", t_sub), ("control", t_ctrl)]:
-            print(f"{label}: median={statistics.median(ts)*1000:.2f} ms p95={sorted(ts)[int(len(ts)*0.95)]*1000:.2f} ms")
-        print(f"speedup: {statistics.median(t_sub)/statistics.median(t_ctrl):.2f}x")
+        t_sub, t_ctrl, forks_sub, forks_ctrl = asyncio.run(run())
+        for label, ts, forks in [
+            ("subprocess", t_sub, forks_sub),
+            ("control",    t_ctrl, forks_ctrl),
+        ]:
+            p95 = sorted(ts)[int(len(ts) * 0.95)]
+            print(
+                f"{label}: median={statistics.median(ts)*1000:.2f} ms "
+                f"p95={p95*1000:.2f} ms forks={forks}"
+            )
+        speedup = statistics.median(t_sub) / statistics.median(t_ctrl)
+        print(f"speedup: {speedup:.2f}x")
+        print(f"fork ratio: {forks_sub / max(forks_ctrl, 1):.1f}x")
     finally:
+        _tm._run_tmux_async = _orig
         teardown_fixture(tmpdir)
 
 if __name__ == "__main__":
     main()
 ```
 
-Add fork-count instrumentation by monkey-patching `_run_tmux_async` with
-a counter; report fork counts alongside wall-time numbers.
+The benchmark runs subprocess mode first (no client started) so its fork
+count is the baseline ~6/tick × M iterations. Control-client mode then runs
+with the client active — forks should drop to ~0 in steady state. Reset
+`counts["n"]` before each measurement to get clean numbers.
 
 ## Verification
 
@@ -226,9 +316,10 @@ a counter; report fork counts alongside wall-time numbers.
 
 ## Step 9 — Post-Implementation
 
-Standard archival per `task-workflow/SKILL.md` Step 9. Run
-`tests/test_tmux_control.sh` and `bench_monitor_refresh.py` in
-`verify_build` if configured.
+Standard archival per `task-workflow/SKILL.md` Step 9. The user smoke-launches
+`ait monitor` / `ait minimonitor` before "Commit changes" in Step 8; deeper
+qualitative verification is deferred to the manual-verification sibling
+`t719_5`.
 
 ## Notes for sibling tasks
 
@@ -238,3 +329,6 @@ Standard archival per `task-workflow/SKILL.md` Step 9. Run
   (matches `_run_tmux_async`'s contract). Callers don't need to change.
 - The benchmark's CLI is the harness `t719_4` and `t719_6` extend with
   additional modes ("pipe-pane", and a 10/20 panes scaling sweep).
+- The fork-count monkey-patch pattern (saving `_orig`, replacing
+  `_tm._run_tmux_async` with a counting wrapper, restoring in `finally`)
+  is reusable for future per-call-site instrumentation in this benchmark.
