@@ -7,6 +7,8 @@ status: Ready
 labels: [testing, qa, bash_scripts]
 created_at: 2026-05-03 12:37
 updated_at: 2026-05-03 12:37
+boardcol: now
+boardidx: 20
 ---
 
 ## Origin
