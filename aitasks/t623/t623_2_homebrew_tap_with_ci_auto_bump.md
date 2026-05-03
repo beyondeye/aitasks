@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [install_scripts, installation, packaging, homebrew, ci]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-22 18:57
-updated_at: 2026-05-03 16:10
+updated_at: 2026-05-03 16:28
 ---
 
 ## Context
