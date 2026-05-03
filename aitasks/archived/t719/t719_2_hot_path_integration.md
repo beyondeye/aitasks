@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t719_1]
 issue_type: performance
-status: Implementing
+status: Done
 labels: [performance, monitor, tui]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-30 10:26
-updated_at: 2026-05-03 08:52
+updated_at: 2026-05-03 09:02
+completed_at: 2026-05-03 09:02
 ---
 
 ## Context
