@@ -480,7 +480,10 @@ class TuiSwitcherOverlay(ModalScreen):
         Result is cached on the class for ~30 seconds keyed on project_root
         to avoid re-invoking on every Left/Right cycle.
         """
-        line_widget = self.query_one("#switcher_desync", Label)
+        line_widgets = self.query("#switcher_desync")
+        if not line_widgets:
+            return
+        line_widget = line_widgets.first(Label)
         text = self._compute_desync_summary(project_root)
         line_widget.update(text)
 

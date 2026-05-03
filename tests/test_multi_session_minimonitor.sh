@@ -127,6 +127,7 @@ app._refresh_seconds = 3
 app._compare_mode_default = "stripped"
 app.call_later = lambda fn: None
 app.set_interval = lambda *a, **k: None
+app.run_worker = lambda c, *a, **k: c.close()
 
 app._start_monitoring()
 
