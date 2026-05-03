@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: [t623_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [install_scripts, installation, packaging, aur, arch, ci]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-22 18:57
-updated_at: 2026-05-03 18:59
+updated_at: 2026-05-03 19:15
+completed_at: 2026-05-03 19:15
 ---
 
 ## Context

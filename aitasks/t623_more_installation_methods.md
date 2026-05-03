@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [install_scripts, installation]
-children_to_implement: [t623_3, t623_4, t623_5, t623_6, t623_7]
+children_to_implement: [t623_4, t623_5, t623_6, t623_7]
 created_at: 2026-04-22 09:15
-updated_at: 2026-05-03 17:40
+updated_at: 2026-05-03 19:15
 boardcol: now
 boardidx: 10
 ---
