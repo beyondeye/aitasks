@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t719_2]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [performance, monitor, tui, refactor]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-30 10:48
-updated_at: 2026-04-30 10:48
-boardidx: 10
+updated_at: 2026-05-03 10:56
 boardcol: now
+boardidx: 10
 ---
 
 ## Context

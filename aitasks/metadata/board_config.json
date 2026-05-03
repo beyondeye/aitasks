@@ -27,9 +27,9 @@
     }
   ],
   "column_order": [
-    "manual_verifications",
     "now",
     "next",
+    "manual_verifications",
     "backlog",
     "in_the_works"
   ]
