@@ -361,7 +361,7 @@ class AgentCommandScreen(ModalScreen):
             win_options, win_value = self._compute_window_options(initial_session)
         else:
             win_options = []
-            win_value = Select.BLANK
+            win_value = Select.NULL
 
         win_row = Horizontal(classes="tmux-field-row")
         tmux.mount(win_row)
@@ -479,7 +479,7 @@ class AgentCommandScreen(ModalScreen):
         if value == _NEW_WINDOW_SENTINEL:
             self._show_new_window_input()
             self._selected_window = None
-        elif value and value != Select.BLANK:
+        elif value and value != Select.NULL:
             self._hide_new_window_input()
             self._selected_window = value
             # Show split direction for existing windows
@@ -502,7 +502,7 @@ class AgentCommandScreen(ModalScreen):
         if value == _NEW_SESSION_SENTINEL:
             self._selected_session = None
             self._show_new_session_input()
-        elif value and value != Select.BLANK:
+        elif value and value != Select.NULL:
             self._selected_session = value
             self._hide_new_session_input()
             self._update_window_options(value)
@@ -759,7 +759,7 @@ class AgentCommandScreen(ModalScreen):
                 self.app.notify("Session name cannot be empty", severity="error")
                 return None
             new_session = True
-        elif sess_select.value and sess_select.value != Select.BLANK:
+        elif sess_select.value and sess_select.value != Select.NULL:
             session = sess_select.value
             new_session = False
         else:
@@ -780,7 +780,7 @@ class AgentCommandScreen(ModalScreen):
             if not window:
                 window = self.default_window_name or "aitask"
             new_window = True
-        elif win_select and win_select.value and win_select.value != Select.BLANK:
+        elif win_select and win_select.value and win_select.value != Select.NULL:
             window = win_select.value
             new_window = False
         else:
