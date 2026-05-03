@@ -7,7 +7,7 @@ status: Ready
 labels: [brainstorming, ui]
 created_at: 2026-04-13 17:26
 updated_at: 2026-04-13 17:26
-boardidx: 160
+boardidx: 140
 ---
 
 In the ait brainstorm TUI status tab, surface useful actions on existing code agents so users can manage them without dropping to the CLI.

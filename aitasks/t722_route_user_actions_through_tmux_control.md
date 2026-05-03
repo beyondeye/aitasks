@@ -7,7 +7,8 @@ status: Ready
 labels: [performance, monitor, tui, refactor]
 created_at: 2026-04-30 10:48
 updated_at: 2026-04-30 10:48
-boardidx: 20
+boardidx: 10
+boardcol: now
 ---
 
 ## Context

@@ -7,7 +7,7 @@ status: Ready
 labels: [installation, install_scripts, claudeskills]
 created_at: 2026-04-28 12:29
 updated_at: 2026-04-28 12:29
-boardidx: 100
+boardidx: 80
 ---
 
 Spawned by t697's analysis. Implement the recommended dev-only filtering mechanism: a `audience: developers` frontmatter flag in `SKILL.md` files, plus install-time filtering in `install.sh` that drops dev-only skills, their helper scripts, and their whitelist entries from the user install. See `aiplans/archived/p697_*.md` Final Implementation Notes for the full analysis and rationale.

@@ -8,7 +8,7 @@ labels: [verification, manual]
 verifies: [708]
 created_at: 2026-04-28 23:32
 updated_at: 2026-04-28 23:32
-boardidx: 50
+boardidx: 60
 boardcol: manual_verifications
 ---
 

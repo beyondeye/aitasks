@@ -7,7 +7,7 @@ status: Ready
 labels: [ait_setup, python, installation]
 created_at: 2026-05-03 08:31
 updated_at: 2026-05-03 08:31
-boardidx: 50
+boardidx: 40
 ---
 
 ## Origin
