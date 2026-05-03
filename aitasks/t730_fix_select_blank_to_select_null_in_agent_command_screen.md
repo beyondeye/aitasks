@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_board, tmux, tui, agent_chooser]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-03 08:05
-updated_at: 2026-05-03 08:05
+updated_at: 2026-05-03 08:06
 ---
 
 ## Symptom
