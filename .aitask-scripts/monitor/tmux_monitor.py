@@ -22,6 +22,10 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .tmux_control import TmuxControlClient
 
 _LIB_DIR = str(Path(__file__).resolve().parent.parent / "lib")
 if _LIB_DIR not in sys.path:
@@ -177,6 +181,34 @@ class TmuxMonitor:
         self._pane_cache: dict[str, TmuxPaneInfo] = {}
         self._sessions_cache: tuple[float, list[AitasksSession]] | None = None
         self._compare_mode_overrides: dict[str, str] = {}
+        self._control: TmuxControlClient | None = None
+
+    async def start_control_client(self) -> bool:
+        from .tmux_control import TmuxControlClient
+        client = TmuxControlClient(session=self.session)
+        if await client.start():
+            self._control = client
+            return True
+        return False
+
+    async def close_control_client(self) -> None:
+        if self._control is not None:
+            with contextlib.suppress(Exception):
+                await self._control.close()
+            self._control = None
+
+    def has_control_client(self) -> bool:
+        return self._control is not None and self._control.is_alive
+
+    async def _tmux_async(
+        self, args: list[str], timeout: float = 5.0
+    ) -> tuple[int, str]:
+        if self._control is not None and self._control.is_alive:
+            rc, out = await self._control.request(args, timeout=timeout)
+            if rc != -1:
+                return rc, out
+            # transport failure on this call — fall back to subprocess.
+        return await _run_tmux_async(args, timeout=timeout)
 
     def _discover_sessions_cached(self) -> list[AitasksSession]:
         """Return the list of aitasks-like tmux sessions, memoized for TTL seconds."""
@@ -281,7 +313,7 @@ class TmuxMonitor:
         if not sessions:
             return []
         results = await asyncio.gather(*[
-            _run_tmux_async([
+            self._tmux_async([
                 "list-panes", "-s", "-t", tmux_session_target(sess),
                 "-F", self._LIST_PANES_FORMAT,
             ])
@@ -314,7 +346,7 @@ class TmuxMonitor:
     async def discover_panes_async(self) -> list[TmuxPaneInfo]:
         if self.multi_session:
             return await self._discover_panes_multi_async()
-        rc, stdout = await _run_tmux_async(
+        rc, stdout = await self._tmux_async(
             ["list-panes", "-s", "-t", tmux_session_target(self.session),
              "-F", self._LIST_PANES_FORMAT],
         )
@@ -466,7 +498,7 @@ class TmuxMonitor:
         pane = self._pane_cache.get(pane_id)
         if pane is None:
             return None
-        rc, content = await _run_tmux_async(self._capture_args(pane_id))
+        rc, content = await self._tmux_async(self._capture_args(pane_id))
         if rc != 0:
             return None
         return self._finalize_capture(pane, content)

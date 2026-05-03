@@ -597,6 +597,22 @@ class MonitorApp(TuiSwitcherMixin, App):
             compare_mode_default=self._compare_mode_default,
             **kwargs,
         )
+
+        async def _connect_control_client() -> None:
+            try:
+                ok = await self._monitor.start_control_client()
+                if not ok:
+                    self.log("tmux control mode unavailable; using subprocess fallback")
+            except Exception as exc:
+                self.log(f"tmux control mode init failed: {exc!r}")
+
+        self.run_worker(
+            _connect_control_client(),
+            exclusive=False,
+            exit_on_error=False,
+            group="tmux-control-init",
+        )
+
         try:
             scroll = self.query_one("#preview-scroll", PreviewScrollContainer)
             scroll.on_user_scroll = self._record_preview_scroll
@@ -604,6 +620,13 @@ class MonitorApp(TuiSwitcherMixin, App):
             pass
         self.call_later(self._refresh_data)
         self.set_interval(self._refresh_seconds, self._refresh_data)
+
+    async def on_unmount(self) -> None:
+        if getattr(self, "_monitor", None) is not None:
+            try:
+                await self._monitor.close_control_client()
+            except Exception:
+                pass
 
     @staticmethod
     def _locate_anchor(
