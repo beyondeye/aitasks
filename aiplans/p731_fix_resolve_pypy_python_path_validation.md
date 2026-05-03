@@ -113,3 +113,17 @@ Notes:
 ## Step 9 (Post-implementation)
 
 Standard archival flow per task-workflow SKILL.md Step 9: no separate branch (working on `main` per `fast` profile), so skip merge; commit with `bug: <description> (t731)` format; run `./.aitask-scripts/aitask_archive.sh 731`; push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all three planned steps verbatim. (1) `resolve_pypy_python()` body replaced with the unified candidate loop — `(AIT_PYPY, PYPY_VENV_DIR/bin/python, pypy<AIT_PYPY_PREFERRED>, pypy3)` — that resolves absolute paths verbatim, looks up relative names via `command -v`, and gates every successful candidate behind the `sys.implementation.name == 'pypy'` check before caching. (2) `tests/test_python_resolve_pypy.sh` REAL_PY now resolves via `python3 -c 'import sys; print(sys.executable)'` first (with a `command -v` fallback), bypassing the framework wrapper at `~/.aitask/bin/python3` whose `exec "$HOME/.aitask/venv/bin/python"` indirection breaks once tests override `HOME=$SCRATCH`. (3) Test 9 added before Test 8: clears the venv stub, places a `make_cpython_stub pypy3 "3.11.0"` on PATH at `$SCRATCH/bin/pypy3`, asserts `resolve_pypy_python` does NOT return it.
+- **Deviations from plan:** None.
+- **Issues encountered:** Confirmed during diagnosis that the REAL_PY breakage was masking the silent-PASS of Test 7 (the venv-path CPython stub was rejected because the wrapper `exec` failed with 127, not because the impl.name check actively rejected it). Both effects (wrapper-exec failure → spurious rejection; broken Test 2 from same root cause) collapse into a single 5-line REAL_PY change that lifts the test file end-to-end.
+- **Key decisions:** Kept the `command -v python3` fallback in REAL_PY resolution to cover environments where `sys.executable` introspection is unavailable (extremely unlikely in practice, but defensive and zero-cost). Inserted Test 9 BEFORE Test 8 so the `Test 8: double-source guard` remains the conceptual end-cap of the file. Added a trailing `rm -f "$SCRATCH/bin/pypy3"` to Test 9 even though no current test depends on its absence — defensive against future test additions.
+- **Upstream defects identified:** None.
+
+### Verification results
+
+- `bash tests/test_python_resolve_pypy.sh` → `Tests: 9  Pass: 9  Fail: 0` (was: only Test 1 ran, then `set -e` aborted at Test 2's `result=$(...)` assignment).
+- `shellcheck .aitask-scripts/lib/python_resolve.sh` → clean (only the pre-existing SC1091 info note about following `terminal_compat.sh`, which is by design — same as before this task).
+- Test 7 now passes for the right reason: the venv-path fakepy stub correctly reports `sys.implementation.name == 'cpython'`, so the impl.name guard actively rejects it.
