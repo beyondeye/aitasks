@@ -244,3 +244,48 @@ in Step 9's `verify_build` (if configured), then archival.
   this — server-emitted notifications outside `%begin/%end` blocks
   (e.g., `%session-changed`) are still handled by the
   `_capturing is None` branch's "discard async events" comment.
+
+## Final Implementation Notes
+
+- **Actual work done:** Shipped `.aitask-scripts/monitor/tmux_control.py`
+  (244 LOC) and `tests/test_tmux_control.sh` (205 LOC). Module exposes
+  `TmuxControlClient(session, command_timeout)` with `start()`, `request()`,
+  `close()`, and `is_alive`. Test suite covers smoke + parity (display-message,
+  list-panes -F with tab format, capture-pane -p), 5-way concurrent gather,
+  error response with client-survives, and server-kill recovery. All four
+  cases pass on Linux + Python 3.14.
+- **Deviations from plan:** Original Step 3 reader treated every `%begin`
+  block as a user response. Verify pass (2026-05-03) caught that the
+  implicit attach acknowledgment block emitted by `tmux -C attach` (flags=0)
+  consumed the first user request's future, returning `(0, "")`. The fix
+  captures the flags field in `_HEAD_RE` (third group) and only delivers
+  blocks with `flags & 1 != 0` to pending callers. Server-emitted blocks
+  are buffered through the same state machine and discarded at `%end`.
+  The `_capturing` tuple was widened from `(cmd_id, buf)` to
+  `(cmd_id, buf, deliver)`.
+- **Issues encountered:** The attach-ack bug only manifested under
+  specific reader-task scheduling — the user's `request()` had to enqueue
+  a future before the reader had drained the attach block. Reproduced
+  deterministically via `bash tests/test_tmux_control.sh` Case 1a, then
+  confirmed via raw `tmux -C` stdout capture (see plan Status section).
+  No other behaviors needed adjustment.
+- **Key decisions:**
+  - Filter on the documented flags bit rather than swallow the first
+    block by ordinal position — robust against future tmux versions
+    that may emit additional pre-command server blocks (e.g.,
+    `%session-changed` triggering an introspection block).
+  - Keep `_resolve_next` and `_teardown_pending` unchanged: the
+    leftmost-pending-future contract still holds because we only call
+    `_resolve_next` for client-issued blocks.
+  - Used `# shellcheck disable=SC2030` / `SC2031` for the case-isolation
+    `(...)` subshells rather than restructuring the test layout —
+    subshell scoping of `TMUX_TMPDIR` is the intended pattern.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - `t719_2` (hot-path integration): the flag-1 filter is fully
+    encapsulated inside the reader; siblings calling `request()` see
+    only their own responses.
+  - `t719_4` (pipe-pane push): if pipe-pane writes are routed through
+    the same client (rather than via `subprocess`), the resulting
+    `%output` events would still be filtered by the spawn-time
+    `-f no-output` flag — no extra reader work needed.
