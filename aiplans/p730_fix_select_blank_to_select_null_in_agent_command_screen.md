@@ -85,3 +85,14 @@ A standalone manual-verification follow-up task for step 3 and 4 will be offered
 - No `verify_build` configured for this project (single-line bash/Python edits).
 - Run `./.aitask-scripts/aitask_archive.sh 730` to archive the task and plan.
 - `./ait git push` after archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** Replaced all 5 occurrences of `Select.BLANK` with `Select.NULL` in `.aitask-scripts/lib/agent_command_screen.py` via a single `Edit(replace_all=true)` call. No other files needed changes (cross-TUI audit confirmed).
+- **Deviations from plan:** None. Diff is exactly the 5 sites enumerated in the plan table; pure rename, no surrounding cleanup.
+- **Issues encountered:** None during implementation. Verified post-edit:
+  - `grep -rn 'Select\.BLANK' .aitask-scripts/` → no remaining hits.
+  - Smoke test (`Select(value=Select.NULL, allow_blank=True)` inside `App.run_test`) prints `OK` under both CPython textual 8.1.1 (`~/.aitask/venv`) and PyPy textual 8.2.5 (`~/.aitask/pypy_venv`).
+  - `python -m py_compile .aitask-scripts/lib/agent_command_screen.py` succeeds under both runtimes.
+- **Key decisions:** Used `Edit(replace_all=true)` rather than 5 individual edits because the literal `Select.BLANK` is unique to this one file and the cross-TUI audit (recorded in plan §Implementation) had already verified that. No other Python construct could be accidentally matched by the rename.
+- **Upstream defects identified:** None. The fix is complete in this one file; no other helper/script/module surfaced a related defect during diagnosis.
