@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [testing, tui, textual]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-03 16:29
-updated_at: 2026-05-03 16:29
+updated_at: 2026-05-03 19:01
 ---
 
 ## Context
