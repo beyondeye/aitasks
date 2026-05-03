@@ -332,3 +332,87 @@ qualitative verification is deferred to the manual-verification sibling
 - The fork-count monkey-patch pattern (saving `_orig`, replacing
   `_tm._run_tmux_async` with a counting wrapper, restoring in `finally`)
   is reusable for future per-call-site instrumentation in this benchmark.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `tmux_monitor.py`: added `TYPE_CHECKING` import for `TmuxControlClient`,
+    added `self._control` attribute on `TmuxMonitor.__init__`, added four
+    methods (`start_control_client`, `close_control_client`,
+    `has_control_client`, `_tmux_async`), and rerouted three async call sites
+    (lines 284, 317, 469) from the free `_run_tmux_async` to the new
+    instance-bound `self._tmux_async`.
+  - `monitor_app.py` and `minimonitor_app.py`: added a `_connect_control_client`
+    closure spawned via `self.run_worker(... exclusive=False, exit_on_error=False,
+    group="tmux-control-init")` immediately after the `TmuxMonitor`
+    instantiation in `_start_monitoring`, plus a new class-scope
+    `async def on_unmount` that closes the control client.
+  - Created `aidocs/benchmarks/bench_monitor_refresh.py` (~155 LOC): an
+    isolated tmux fixture (`mktemp -d` + `TMUX_TMPDIR` + `tail -f /dev/null`
+    windows), `measure()` warmup+iterations loop, a fork-count monkey-patch
+    around `_run_tmux_async`, and median/p95/speedup/fork-ratio reporting.
+
+- **Deviations from plan:**
+  - The plan's body annotation `self._control: TmuxControlClient | None = None`
+    references an unimported name. The file uses `from __future__ import
+    annotations`, so this is a runtime no-op, but for static-checker
+    cleanliness I added a `TYPE_CHECKING` block at module scope:
+    `from typing import TYPE_CHECKING; if TYPE_CHECKING: from .tmux_control
+    import TmuxControlClient`. This is purely additive and does not change
+    the deferred-import strategy used inside `start_control_client`.
+  - Plan said line 579 in `monitor_app.py`; actual line was 584 (+5 drift).
+    Plan said line 189 in `minimonitor_app.py`; actual was 190 (+1 drift).
+    Both were captured in the verify-pass section of the plan and the
+    edits landed correctly via context-anchored `Edit` calls (line
+    numbers were never used as anchors).
+  - `on_unmount` uses `getattr(self, "_monitor", None)` instead of
+    `self._monitor is not None` — defensive against the case where the
+    app fails before `_start_monitoring` ever runs (e.g., the early
+    return at the top of `on_mount` when not running inside tmux). The
+    plan's `if self._monitor is not None` would `AttributeError` in
+    that path because `self._monitor` is never set.
+
+- **Issues encountered:**
+  - First smoke-import try used `MinimonitorApp`; actual class name is
+    `MiniMonitorApp` (CamelCase with capital M-M). Trivial — re-ran
+    with the correct name and confirmed both apps import and expose
+    `on_unmount`.
+
+- **Key decisions:**
+  - Kept the deferred runtime import (`from .tmux_control import
+    TmuxControlClient` inside `start_control_client`) as the plan
+    specified, even with the new `TYPE_CHECKING` block. The deferred
+    import keeps `tmux_control.py`'s asyncio.subprocess machinery off
+    the import path of any code that doesn't actually use the control
+    client, and matches the "lazy" lifecycle the plan documents.
+  - Used `exclusive=False` on `self.run_worker` per the plan. A future
+    refactor could revisit this to `exclusive=True` to handle the
+    session-rename re-init case (where `_start_monitoring` runs twice
+    and the old worker may still be in flight), but that's out of
+    scope here.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - The benchmark uses `--panes 5 --iterations 50` as defaults; on this
+    host (Linux 6.18, omg16) the run produced **subprocess median 3.12 ms,
+    p95 3.95 ms, 371 forks** vs **control median 0.30 ms, p95 0.68 ms,
+    0 forks** — a **10.38× speedup** and 100% fork elimination.
+    `t719_4` and `t719_6` should be able to use this CLI as-is and
+    extend it with `--mode pipe-pane` and a `--panes-sweep 5,10,20`
+    flag respectively.
+  - The `on_unmount` defensive `getattr` pattern is a useful template
+    for `t719_4`'s pipe-pane subscriber teardown — same early-return
+    risk applies.
+
+### Build verification
+
+`bash tests/test_tmux_control.sh` passes (no regression in the
+sibling's standalone module). `python3 aidocs/benchmarks/bench_monitor_refresh.py
+--panes 5 --iterations 50` exits 0 and prints the speedup/fork numbers
+above. `git diff --stat` confirmed scope: `tmux_monitor.py +38/-3`,
+`monitor_app.py +23`, `minimonitor_app.py +23`, plus one new file
+`aidocs/benchmarks/bench_monitor_refresh.py`. Smoke launch of `ait
+monitor` / `ait minimonitor` against a live multi-pane session is a
+manual step deferred to the manual-verification sibling `t719_5` (cannot
+be driven from a non-interactive shell).
