@@ -51,3 +51,11 @@ That is the entire change. No new functions, no refactor, no test fixes (out of 
    Should attempt `pypy3.12` lookup before `pypy3` (after this fix), instead of `pypy3.11` then `pypy3` (before). On a system with no PyPy installed this returns empty without erroring — the verification is that the script doesn't fail.
 
 4. **Reference Step 9** (Post-Implementation): commit, archive via `aitask_archive.sh 728`, push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Single-line edit at `.aitask-scripts/lib/python_resolve.sh:112` — replaced the literal `pypy3.11 pypy3` candidate list with `"pypy$AIT_PYPY_PREFERRED" pypy3`. Byte-equivalent to t727's fix at `aitask_setup.sh:468`.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. The behavior probe (`AIT_PYPY_PREFERRED=3.12 bash -c '...resolve_pypy_python'`) returned `~/.aitask/pypy_venv/bin/python` because the venv path takes precedence in the first loop before the patched second loop is reached. Probe still satisfied the "doesn't fail" verification (exit 0).
+- **Key decisions:** During planning the user asked whether `find_pypy()` and `resolve_pypy_python()` should be deduped. Investigation of t718_1's plan (which created both in the same commit) confirmed the split is intentional: install-time vs runtime semantics, caching, `AIT_PYPY` override, and the user-scoped symlink candidate are deliberately phase-specific. Surgical literal substitution is the correct scope for this task; full dedup would be incorrect.
+- **Upstream defects identified:** `lib/python_resolve.sh:112-119 — resolve_pypy_python() does not validate sys.implementation.name == 'pypy' on its PATH-resolved candidates (second loop). It does so on the first loop (override + venv path, lines 103-110). A misnamed CPython binary on PATH (e.g., `pypy3` shim pointing at /usr/bin/python3) would falsely succeed at runtime. find_pypy() in aitask_setup.sh validates uniformly across all candidates; resolve_pypy_python() should match. Test 7 in tests/test_python_resolve_pypy.sh covers the venv path but not the PATH path. Out of scope for t728 (literal-substitution task only) — worth a separate bug aitask.`

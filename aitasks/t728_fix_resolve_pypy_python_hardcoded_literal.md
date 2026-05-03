@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [ait_setup, python, installation]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-30 15:58
-updated_at: 2026-05-03 08:17
+updated_at: 2026-05-03 08:29
 ---
 
 ## Origin
