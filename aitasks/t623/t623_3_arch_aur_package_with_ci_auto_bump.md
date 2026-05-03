@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t623_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [install_scripts, installation, packaging, aur, arch, ci]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-22 18:57
-updated_at: 2026-05-03 18:56
+updated_at: 2026-05-03 18:59
 ---
 
 ## Context
