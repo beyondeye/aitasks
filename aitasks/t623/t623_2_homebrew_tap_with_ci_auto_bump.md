@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: [t623_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [install_scripts, installation, packaging, homebrew, ci]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-22 18:57
-updated_at: 2026-04-22 18:57
+updated_at: 2026-05-03 12:58
 ---
 
 ## Context
