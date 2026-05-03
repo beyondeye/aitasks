@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ait_setup, python, installation]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-03 08:31
-updated_at: 2026-05-03 13:12
+updated_at: 2026-05-03 15:29
+completed_at: 2026-05-03 15:29
 boardidx: 30
 ---
 
