@@ -6,8 +6,9 @@ issue_type: refactor
 status: Implementing
 labels: [performance, monitor, tui, refactor]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-30 10:48
-updated_at: 2026-05-03 10:56
+updated_at: 2026-05-03 11:48
 boardcol: now
 boardidx: 10
 ---
