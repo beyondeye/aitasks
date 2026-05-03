@@ -19,9 +19,15 @@
       "id": "in_the_works",
       "title": "in the works",
       "color": "#8BE9FD"
+    },
+    {
+      "id": "manual_verifications",
+      "title": "manual_verifications",
+      "color": "#FF5555"
     }
   ],
   "column_order": [
+    "manual_verifications",
     "now",
     "next",
     "backlog",
