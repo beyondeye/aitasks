@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [monitor, tmux, reliability, bug]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-03 18:53
-updated_at: 2026-05-03 18:53
+updated_at: 2026-05-03 18:56
 ---
 
 ## Context

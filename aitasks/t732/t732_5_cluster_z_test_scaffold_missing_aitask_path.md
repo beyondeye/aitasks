@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [testing, bash_scripts, test_infrastructure]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-03 16:31
-updated_at: 2026-05-03 16:37
+updated_at: 2026-05-03 18:49
 ---
 
 ## Context
