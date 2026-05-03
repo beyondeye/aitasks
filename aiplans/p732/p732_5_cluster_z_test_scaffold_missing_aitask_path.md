@@ -6,26 +6,26 @@ Archived Sibling Plans: aiplans/archived/p732/p732_*.md
 Worktree: (current branch — fast profile sets create_worktree:false)
 Branch: (current branch)
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-05-03 18:49
 ---
 
 # p732_5 — Cluster Z: Test scaffolds missing aitask_path.sh
 
 ## Goal
 
-Resolve the **single root cause** behind 4 of the 13 failing tests. Recommended approach: extract a shared `tests/lib/test_scaffold.sh` helper (Strategy 2 — see child task body) and converge all 55 affected tests onto it.
+Make the 4 failing tests pass by adding `cp aitask_path.sh` to each test's scaffold block (Strategy 1 — minimal patch). The broader helper-extraction + 55-test convergence (Strategy 2-full from the original child task description) is **out of scope here** and is captured as a separate follow-up task created in Step 4 below.
+
+## Verify-mode decision (this run)
+
+User confirmed Strategy 1 over Strategy 2 because:
+- 51 of the 55 affected tests pass today — the helper port is preventive infrastructure, not part of the bug fix.
+- CLAUDE.md "Don't add features, refactor, or introduce abstractions beyond what the task requires" applies.
+- The follow-up task preserves the helper extraction as in-scope work (per the "Plan split: in-scope children, not deferred follow-ups" memory) but as its own task with its own scope, not buried as an out-of-scope footnote here.
 
 ## Single root cause (confirmed)
 
-`lib/aitask_path.sh` was added by t695_3 (Apr 28) and is now sourced unconditionally on `./ait` line 7 and from many helpers. 55 tests scaffold a fake `.aitask-scripts/lib/` without copying `aitask_path.sh`. The 4 below crash because they invoke `./ait` or scripts that source it; the other 51 are time bombs.
-
-Inventory query:
-```bash
-for t in tests/test_*.sh; do
-  if grep -q ".aitask-scripts/lib/" "$t" && ! grep -q "aitask_path" "$t"; then
-    echo "$t"
-  fi
-done
-```
+`lib/aitask_path.sh` was added by t695_3 (Apr 28) and is now sourced unconditionally on `./ait` line 7 and from many helper scripts. The 4 failing tests scaffold a fake `.aitask-scripts/lib/` and don't copy `aitask_path.sh`; they crash because they invoke `./ait` or scripts that source it.
 
 ## Confirmed failures (today)
 
@@ -35,32 +35,46 @@ All 4 share the error pattern `… line N: <scratch>/.aitask-scripts/lib/aitask_
 - `tests/test_explain_context.sh` (aitask_explain_context.sh line 11)
 - `tests/test_migrate_archives.sh` (./ait migrate-archives)
 
+## Scaffold locations identified during verification
+
+- `tests/test_task_push.sh` — TWO scaffold blocks at lines 288-291 + 316-319 (two fake repos in one test). Both need the `cp aitask_path.sh` line.
+- `tests/test_brainstorm_cli.sh` — single block starting at line 92 (line 96 is the first `cp` after `mkdir`).
+- `tests/test_explain_context.sh` — `mkdir` at line 81; `cp` block follows. Needs the `cp` line added in that block.
+- `tests/test_migrate_archives.sh` — single block at line 80 (line 85 is the first `cp` after `mkdir`).
+
 ## Steps
 
-1. Read `aitasks/t732/t732_5_cluster_z_test_scaffold_missing_aitask_path.md` for full context including both implementation strategies.
-2. Choose strategy:
-   - **Recommended (Strategy 2)**: extract `tests/lib/test_scaffold.sh` with `setup_fake_aitask_repo()`. Converge all 55 affected tests.
-   - **Fallback (Strategy 1)**: mechanical — add `cp aitask_path.sh ...` to each of the 4 failing tests only.
-3. If Strategy 2:
-   a. Write `tests/lib/test_scaffold.sh` with `setup_fake_aitask_repo()` that always copies `aitask_path.sh` + `terminal_compat.sh`.
-   b. Convert the 4 failing tests first; verify they pass.
-   c. Convert the remaining 51 tests; verify no regressions.
-   d. **Do NOT punt the 51-port to a follow-up.** Per CLAUDE.md "Plan split: in-scope children, not deferred follow-ups", this is in-scope work for t732_5. If the diff is genuinely too large for one task, split into t732_5_1 (helper + 4 fixes) and t732_5_2 (port remaining 51) with `aitask_create.sh --parent 732_5`.
-4. Run regression check (verification below).
+1. For each of the 4 failing tests, add this line in the scaffold block (next to the existing `cp .../terminal_compat.sh` line):
+   ```bash
+   cp "$PROJECT_DIR/.aitask-scripts/lib/aitask_path.sh" "$repo_dir/.aitask-scripts/lib/"
+   ```
+   (Adjust the destination — some tests use `.aitask-scripts/lib/` relative, others use `$repo_dir/.aitask-scripts/lib/` — match the surrounding style.)
+   Note `test_task_push.sh` has two scaffold blocks; both need the line.
+2. Run the 4 failing tests one by one to confirm they pass:
+   ```bash
+   bash tests/test_task_push.sh && \
+     bash tests/test_brainstorm_cli.sh && \
+     bash tests/test_explain_context.sh && \
+     bash tests/test_migrate_archives.sh
+   ```
+3. Sanity-check no nearby test regressed:
+   ```bash
+   for t in tests/test_brainstorm*.sh tests/test_explain*.sh tests/test_migrate*.sh tests/test_task_push.sh; do
+     bash "$t" >/dev/null 2>&1 || echo "FAIL: $t"
+   done
+   ```
+4. **Create a follow-up task** for the helper extraction work (Strategy 2-full). Use `aitask_create.sh --batch` per the **Batch Task Creation Procedure**. The follow-up task should:
+   - Reference t732_5 as origin context.
+   - Specify the helper extraction (`tests/lib/test_scaffold.sh` with `setup_fake_aitask_repo()`).
+   - Specify the convergence of all 55 affected tests (inventory query in body).
+   - Note the regression-test loop required.
+   - Be a standalone parent task (NOT a child of t732 — t732's scope is just the 13 originally-failing tests).
 
 ## Verification
 
-- Originally-failing 4 tests pass:
-  ```bash
-  for t in tests/test_task_push.sh tests/test_brainstorm_cli.sh tests/test_explain_context.sh tests/test_migrate_archives.sh; do bash "$t" || break; done
-  ```
-- All 55 affected tests pass:
-  ```bash
-  for t in $(grep -l ".aitask-scripts/lib/" tests/test_*.sh); do
-    bash "$t" >/dev/null 2>&1 || echo "REGRESSION: $t"
-  done
-  ```
-- No `REGRESSION:` lines printed.
+- Originally-failing 4 tests pass: `for t in tests/test_task_push.sh tests/test_brainstorm_cli.sh tests/test_explain_context.sh tests/test_migrate_archives.sh; do bash "$t" || break; done`.
+- No regressions in the same-area tests (Step 3 above).
+- New follow-up task exists in `aitasks/` with the helper-extraction scope.
 
 ## Step 9
 
