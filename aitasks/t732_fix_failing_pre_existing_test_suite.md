@@ -7,7 +7,7 @@ status: Implementing
 labels: [testing, qa, bash_scripts]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-03 12:37
-updated_at: 2026-05-03 12:58
+updated_at: 2026-05-03 15:30
 boardcol: now
 boardidx: 20
 ---
