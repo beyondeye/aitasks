@@ -8,6 +8,7 @@ Branch: aitask/t719_1_control_client_module
 Base branch: main
 plan_verified:
   - claudecode/opus4_7_1m @ 2026-04-30 10:48
+  - claudecode/opus4_7_1m @ 2026-05-03 08:28
 ---
 
 # Plan — t719_1: TmuxControlClient module
@@ -19,12 +20,56 @@ module providing `TmuxControlClient`. No changes to `tmux_monitor.py` or
 the apps in this child — pure addition. Subsequent siblings (`t719_2`
 integration onwards) build on it.
 
+## Status (verify pass, 2026-05-03)
+
+The module and test were drafted on 2026-04-30 and committed on disk as
+untracked files (no progress markers in the plan, so this is the first
+verify pass against working code). On verification:
+
+- `PYTHONPATH=.aitask-scripts python3 -c "from monitor.tmux_control import TmuxControlClient"` succeeds.
+- `bash tests/test_tmux_control.sh` **fails** at Case 1a:
+  `display-message -p "#S"` returns `(0, "")` instead of `(0, "<session>\n")`.
+- `shellcheck tests/test_tmux_control.sh` reports SC2030/SC2031 (info)
+  on `export TMUX_TMPDIR` inside `(...)` subshells.
+
+Root cause (confirmed by piping the same command sequence into
+`tmux -C attach` and reading raw output):
+
+```
+%begin <epoch> <id_A> 0   ← implicit attach acknowledgment, flags=0
+%end   <epoch> <id_A> 0
+%session-changed $0 ait_dbg_22004
+%begin <epoch> <id_B> 1   ← actual response to display-message, flags=1
+ait_dbg_22004
+%end   <epoch> <id_B> 1
+```
+
+The current reader treats every `%begin` block as a user response. Race:
+the user calls `request()` immediately after `start()`, the reader runs,
+sees the implicit attach `%begin/%end` first, pops the user's pending
+future and resolves it with the empty attach body. The real
+`%begin/%end <id_B> 1` then arrives with `_pending` empty and is
+silently dropped.
+
+The original plan's "Reader task + state machine" did not anticipate the
+attach-ack block. Verify-mode update: filter blocks by the `flags`
+bitmask. tmux's man page (CONTROL MODE, NOTIFICATIONS) documents that
+the third field after `%begin`/`%end`/`%error` is a flags mask whose
+bit `1` means "command was issued via the control client". Server-emitted
+blocks (attach ack, `%session-changed`-driven introspection, etc.) have
+flags=0. Only flags-bit-1 blocks should be delivered to pending futures.
+
 ## Files to add
 
-- `.aitask-scripts/monitor/tmux_control.py` (~250–320 LOC)
-- `tests/test_tmux_control.sh` (~150 LOC)
+- `.aitask-scripts/monitor/tmux_control.py` (~250–320 LOC) — present, needs
+  reader fix described in Step 3 below.
+- `tests/test_tmux_control.sh` (~150 LOC) — present, no logic changes
+  needed; add a `# shellcheck disable=SC2030,SC2031` directive next to
+  each subshell-scoped `export TMUX_TMPDIR` so the lint is clean.
 
 ## Step 1 — Skeleton + types
+
+**Implemented as planned.** No verify-mode changes.
 
 ```python
 # .aitask-scripts/monitor/tmux_control.py
@@ -36,7 +81,9 @@ import contextlib
 import re
 from typing import Optional
 
-_HEAD_RE = re.compile(r"^%(begin|end|error)\s+\d+\s+(\d+)\s+\d+\s*$")
+# Updated regex (verify pass): capture flags as group 3 so we can filter
+# server-emitted blocks (flags bit 1 = "command from control client").
+_HEAD_RE = re.compile(r"^%(begin|end|error)\s+\d+\s+(\d+)\s+(\d+)\s*$")
 _EXIT_RE = re.compile(r"^%exit(?:\s+.*)?$")
 
 class TmuxControlClient:
@@ -45,39 +92,32 @@ class TmuxControlClient:
         self.command_timeout = command_timeout
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._reader_task: Optional[asyncio.Task] = None
-        self._pending: collections.deque[asyncio.Future] = collections.deque()
-        self._capturing: Optional[tuple[int, list[str]]] = None  # (cmd_id, buffer)
+        self._pending: "collections.deque[asyncio.Future]" = collections.deque()
+        # Capturing buffer carries (cmd_id, buf, deliver). deliver=False
+        # for server-emitted blocks (flags bit 1 unset) — buf is dropped
+        # at %end/%error without resolving any pending future.
+        self._capturing: Optional[tuple[int, list[str], bool]] = None
         self._write_lock = asyncio.Lock()
         self._alive = False
-
-    @property
-    def is_alive(self) -> bool:
-        return self._alive
 ```
 
 ## Step 2 — start()
 
-```python
-async def start(self) -> bool:
-    try:
-        self._proc = await asyncio.create_subprocess_exec(
-            "tmux", "-C", "attach", "-t", self.session,
-            "-f", "no-output,ignore-size",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-            limit=4 * 1024 * 1024,
-        )
-    except (FileNotFoundError, OSError):
-        return False
-    # tmux -C emits a DCS prefix and possibly some startup async events
-    # before the first command — the reader handles that.
-    self._alive = True
-    self._reader_task = asyncio.create_task(self._reader_loop())
-    return True
-```
+**Implemented as planned.** No verify-mode changes.
 
-## Step 3 — Reader loop / state machine
+The 50 ms `await asyncio.sleep(0.05)` before checking `returncode` stays
+— it gives `tmux -C attach` a beat to fail synchronously when the
+target session does not exist (the process exits with non-zero rc in
+that case).
+
+## Step 3 — Reader loop / state machine **(FIX)**
+
+Verify-mode replacement. The two changes:
+
+1. Capture flags in `_HEAD_RE` (already shown in Step 1).
+2. On `%begin`, compute `deliver = (flags & 1) != 0` and store it in
+   the `_capturing` tuple. On `%end`/`%error`, resolve the pending
+   future only when `deliver` is True; otherwise drop the buffer.
 
 ```python
 async def _reader_loop(self) -> None:
@@ -87,183 +127,97 @@ async def _reader_loop(self) -> None:
             line_bytes = await self._proc.stdout.readline()
             if not line_bytes:
                 break  # EOF
-            line = line_bytes.decode("utf-8", errors="replace").rstrip("\n")
+            line = line_bytes.decode("utf-8", errors="replace")
+            if line.endswith("\n"):
+                line = line[:-1]
 
             if self._capturing is not None:
-                cmd_id, buf = self._capturing
+                cmd_id, buf, deliver = self._capturing
                 m = _HEAD_RE.match(line)
                 if m and m.group(1) in ("end", "error") and int(m.group(2)) == cmd_id:
                     rc = 0 if m.group(1) == "end" else 1
+                    body = "\n".join(buf) + ("\n" if buf else "")
                     self._capturing = None
-                    self._resolve_next((rc, "\n".join(buf) + ("\n" if buf else "")))
+                    if deliver:
+                        self._resolve_next((rc, body))
+                    # else: server-emitted block (e.g. attach ack) — drop.
                 else:
                     buf.append(line)
                 continue
 
-            # Idle — look for %begin or async events
             m = _HEAD_RE.match(line)
             if m and m.group(1) == "begin":
-                self._capturing = (int(m.group(2)), [])
+                cmd_id = int(m.group(2))
+                flags = int(m.group(3))
+                deliver = (flags & 1) != 0
+                self._capturing = (cmd_id, [], deliver)
             elif _EXIT_RE.match(line):
-                break  # treat as EOF
-            # else: any other %-line is async, discard
+                break  # tmux server is going away
+            # Any other %-line outside a Capturing block is an async
+            # event (e.g., %session-changed, %sessions-changed). Discard.
     except (asyncio.CancelledError, ConnectionResetError, OSError):
         pass
     finally:
         self._teardown_pending()
 ```
 
-`_resolve_next` and `_teardown_pending` resolve the leftmost queued future
-(and any in-flight capture buffer) with `(-1, "")` on failure paths.
-
-```python
-def _resolve_next(self, result: tuple[int, str]) -> None:
-    if not self._pending:
-        return  # spurious response, ignore
-    fut = self._pending.popleft()
-    if not fut.done():
-        fut.set_result(result)
-
-def _teardown_pending(self) -> None:
-    self._alive = False
-    self._capturing = None
-    while self._pending:
-        fut = self._pending.popleft()
-        if not fut.done():
-            fut.set_result((-1, ""))
-```
+`_resolve_next` and `_teardown_pending` are unchanged from the existing
+implementation. The leftmost-pending-future contract is preserved
+because we only call `_resolve_next` for client-issued blocks.
 
 ## Step 4 — request()
 
-```python
-def _quote_arg(self, arg: str) -> str:
-    return '"' + arg.replace("\\", "\\\\").replace('"', '\\"') + '"'
+**Implemented as planned.** No verify-mode changes.
 
-async def request(self, args: list[str], timeout: float | None = None) -> tuple[int, str]:
-    if not self._alive or self._proc is None or self._proc.stdin is None:
-        return (-1, "")
-    cmd_line = " ".join(self._quote_arg(a) for a in args) + "\n"
-    fut: asyncio.Future = asyncio.get_running_loop().create_future()
-
-    async with self._write_lock:
-        if not self._alive:
-            return (-1, "")
-        self._pending.append(fut)
-        try:
-            self._proc.stdin.write(cmd_line.encode("utf-8"))
-            await self._proc.stdin.drain()
-        except (BrokenPipeError, ConnectionResetError, OSError):
-            self._teardown_pending()
-            return (-1, "")
-
-    try:
-        return await asyncio.wait_for(fut, timeout=timeout if timeout is not None else self.command_timeout)
-    except asyncio.TimeoutError:
-        # Mark dead — we can't reliably correlate future responses now.
-        self._teardown_pending()
-        return (-1, "")
-```
+Note: with the Step 3 fix, the user's first `request()` after `start()`
+is no longer at risk of receiving the empty attach-ack body, regardless
+of reader-task scheduling order.
 
 ## Step 5 — close()
 
-```python
-async def close(self) -> None:
-    self._alive = False
-    if self._proc is None:
-        return
-    if self._proc.stdin is not None and not self._proc.stdin.is_closing():
-        with contextlib.suppress(Exception):
-            self._proc.stdin.close()
-    try:
-        await asyncio.wait_for(self._proc.wait(), timeout=2.0)
-    except asyncio.TimeoutError:
-        with contextlib.suppress(ProcessLookupError):
-            self._proc.kill()
-        with contextlib.suppress(Exception):
-            await self._proc.wait()
-    if self._reader_task is not None and not self._reader_task.done():
-        self._reader_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await self._reader_task
-    self._teardown_pending()
-```
+**Implemented as planned.** No verify-mode changes.
 
 ## Step 6 — `tests/test_tmux_control.sh`
 
-Skeleton (mirrors `tests/test_tmux_exact_session_targeting.sh:86-97`):
+**Implemented as planned, with one cosmetic addition to satisfy
+`shellcheck`.**
+
+The script intentionally uses `(...)` subshells for case isolation, so
+each case can `export TMUX_TMPDIR=...` and `unset TMUX` without leaking
+into siblings. Shellcheck flags this with SC2030/SC2031 (info) — both
+are false positives for this pattern. Suppress per-line:
 
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-if ! command -v tmux >/dev/null; then
-    echo "SKIP: tmux not available"
-    exit 0
-fi
-
-TEST_TMUX_DIR=$(mktemp -d)
-export TMUX_TMPDIR="$TEST_TMUX_DIR"
-unset TMUX
-SESSION="ait_test_$$"
-trap 'tmux -L default kill-server 2>/dev/null || true; rm -rf "$TEST_TMUX_DIR"' EXIT
-
-tmux new-session -d -s "$SESSION" "tail -f /dev/null"
-for i in 1 2 3 4 5; do
-    tmux new-window -t "${SESSION}:" -n "agent-${i}" "tail -f /dev/null"
-done
-
-PYTHONPATH=.aitask-scripts python3 - <<PYEOF
-import asyncio
-from monitor.tmux_control import TmuxControlClient
-
-async def main():
-    c = TmuxControlClient(session="$SESSION")
-    assert await c.start(), "start failed"
-
-    # Case 1: parity smoke
-    rc, out = await c.request(["display-message", "-p", "#S"])
-    assert rc == 0 and out.strip() == "$SESSION", (rc, out)
-
-    # Case 2: concurrent gather
-    results = await asyncio.gather(*[c.request(["display-message", "-p", "tick"]) for _ in range(5)])
-    assert all(rc == 0 and out.strip() == "tick" for rc, out in results), results
-
-    # Case 3: error response
-    rc, out = await c.request(["list-panes", "-t", "no-such-session"])
-    assert rc != 0, (rc, out)
-    assert c.is_alive, "client died on bad command"
-
-    await c.close()
-    print("OK")
-
-asyncio.run(main())
-PYEOF
-
-# Case 4: server-kill recovery
-PYTHONPATH=.aitask-scripts python3 - <<PYEOF
-import asyncio, subprocess
-from monitor.tmux_control import TmuxControlClient
-
-async def main():
-    c = TmuxControlClient(session="$SESSION")
-    assert await c.start()
-    subprocess.run(["tmux", "kill-server"], check=False)
-    rc, out = await c.request(["display-message", "-p", "#S"])
-    assert rc == -1 and out == "", (rc, out)
-    assert not c.is_alive
-    await c.close()
-    print("OK")
-
-asyncio.run(main())
-PYEOF
-
-echo "PASS: test_tmux_control"
+(
+    cd "$REPO_ROOT"
+    # shellcheck disable=SC2030  # subshell-scoped export is intentional
+    export TMUX_TMPDIR="$F1"
+    unset TMUX
+    ...
+)
 ```
+
+And similarly for the `F2` block. No other test changes needed.
+
+Cases (unchanged from original plan, all already in the file):
+
+1. **Smoke / parity** — `display-message -p "#S"`, `list-panes -F …`
+   (with a tab-bearing format), `capture-pane -p`. Each result compared
+   byte-for-byte to the equivalent `subprocess.run(["tmux", ...])`.
+2. **Concurrent** — `asyncio.gather` of 5 `display-message` calls;
+   assert FIFO demultiplexing returns each its own response, no
+   cross-talk.
+3. **Error response** — `list-panes -t no_such_session_xyz`; assert
+   `rc != 0`, no exception, `is_alive` still True.
+4. **Server-kill recovery** — `tmux kill-server`; assert `is_alive`
+   flips False and subsequent `request()` returns `(-1, "")` cleanly.
 
 ## Verification
 
-- `bash tests/test_tmux_control.sh` exits 0 on Linux + macOS.
-- `shellcheck tests/test_tmux_control.sh` clean.
+- `bash tests/test_tmux_control.sh` exits 0 on Linux (re-run after the
+  Step 3 fix lands; Case 1a is the canary).
+- `shellcheck tests/test_tmux_control.sh` clean (SC2030/SC2031
+  suppressed).
 - Module importable in isolation:
   `PYTHONPATH=.aitask-scripts python3 -c "from monitor.tmux_control import TmuxControlClient"`
 - `git diff --stat` shows only the two new files (plus the plan file).
@@ -284,3 +238,9 @@ in Step 9's `verify_build` (if configured), then archival.
 - The argument-quoting strategy in `_quote_arg` preserves byte-for-byte
   parity with the existing subprocess wire format, including literal tab
   bytes inside format strings — verified by Case 1 in tests.
+- **Server vs client block flag** (verify pass): The reader filters
+  blocks where the `%begin <epoch> <id> <flags>` flags bitmask has bit
+  `1` cleared. Sibling tasks adding new commands need not worry about
+  this — server-emitted notifications outside `%begin/%end` blocks
+  (e.g., `%session-changed`) are still handled by the
+  `_capturing is None` branch's "discard async events" comment.
