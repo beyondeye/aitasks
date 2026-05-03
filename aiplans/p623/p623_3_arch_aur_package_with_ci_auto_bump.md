@@ -247,10 +247,100 @@ Notes:
 - [ ] (Manual, deferred to t623_7) Prerelease tag → AUR page updates within 2 min; `yay -Ss aitasks` shows the new version.
 - [ ] (Manual, deferred to t623_7) `yay -S aitasks` (or `paru -S aitasks`) on a fresh Manjaro VM installs cleanly; `ait setup` in a new project works.
 
-## Final Implementation Notes (to be filled in post-implementation)
+## Final Implementation Notes
 
-- **Actual work done:**
-- **Deviations from plan:**
-- **Issues encountered:**
+- **Actual work done:** All four plan deliverables landed:
+  1. `aidocs/aur_maintainer_setup.md` (new) — comprehensive 8-section
+     first-time-setup walkthrough mirroring `aidocs/homebrew_maintainer_setup.md`:
+     AUR concepts, account creation, ed25519 SSH key generation, AUR
+     package-page bootstrap (mandatory pre-CI step), provisioning all
+     three GitHub secrets (`AUR_USERNAME` / `AUR_EMAIL` / `AUR_SSH_PRIVATE_KEY`),
+     end-to-end local test on Arch / `archlinux:base-devel`, first-real-release
+     procedure, troubleshooting table.
+  2. `packaging/aur/PKGBUILD.template` (new) — Arch PKGBUILD with
+     `VERSION_PLACEHOLDER` / `SHA256_PLACEHOLDER` markers,
+     `pkgver`-interpolated source URL pointing at the `ait` release asset,
+     `bash>=4 python>=3.9 fzf jq git zstd tar curl` deps, `github-cli` /
+     `glab` optdepends, single `install -Dm755` in `package()`.
+  3. `packaging/aur/README.md` (new) — slim directory-level reference
+     pointing at `aidocs/aur_maintainer_setup.md` for first-time setup,
+     plus the local-test snippet (uses LOCAL shim file + LOCAL VERSION,
+     so `namcap` and (with a one-line URL swap) `makepkg -si` work without
+     needing a published GitHub release).
+  4. `.github/workflows/release-packaging.yml` (modified) — appended
+     `publish-aur` job alongside the existing `publish-homebrew` job.
+     Mirrors the soft-skip `gate` pattern: env-binds
+     `AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}`, the `gate` step writes
+     `skip=true|false` to `$GITHUB_OUTPUT`, every subsequent step is
+     gated by `if: steps.gate.outputs.skip == 'false'`. Publishes via
+     `KSXGitHub/github-actions-deploy-aur@v4.1.2` with `ssh_keyscan_types: ed25519`.
+
+- **Deviations from plan:** None. The plan was already verified against
+  the live codebase before implementation began (see the `plan_verified:`
+  frontmatter entry at 2026-05-03 19:07) and executed as written.
+
+- **Issues encountered:** None. Static validation passed:
+  - `python3 -c "import yaml; yaml.safe_load('.github/workflows/release-packaging.yml')"` succeeded.
+  - `bash -n` on the rendered PKGBUILD (with placeholder substitution at
+    `VERSION=0.19.2` / `SHA256=0000…`) returned cleanly. The `pkgver`
+    interpolation flowed correctly into the `source=` URL.
+  - `actionlint` not installed locally — deferred to GitHub Actions'
+    built-in workflow validator on the next push.
+  - `namcap` not installed locally — deferred to t623_7 manual verification
+    (which runs the full `makepkg -si` flow on an Arch host).
+
 - **Key decisions:**
-- **Notes for sibling tasks:**
+  - **Soft-skip guard mirrors `publish-homebrew` exactly.** Same env-bound
+    secret + step-output `if:` idiom. Gates on `AUR_SSH_PRIVATE_KEY` only
+    (the most failure-prone of the three secrets); if any of `AUR_USERNAME`
+    or `AUR_EMAIL` is also unset, the action will fail loudly at the
+    `KSXGitHub/github-actions-deploy-aur` step rather than silently skip.
+    This intentional asymmetry surfaces partial misconfigurations.
+  - **`v$pkgver` in the source URL** (not a literal version string).
+    `pkgver=VERSION_PLACEHOLDER` substitution at render time flows the
+    version into both the `pkgver=` field AND the `source=` URL via
+    standard PKGBUILD `$pkgver` interpolation. This is the canonical AUR
+    idiom and avoids a duplicate sed substitution.
+  - **`v` prefix in `commit_message: "Update to v${{ inputs.version }}"`**
+    matches the homebrew sibling's `"Update aitasks to v${VERSION}"`.
+    Consistency across PMs.
+  - **`tar` listed explicitly in `depends`** even though it lives in
+    Arch's `base` group. AUR convention is to declare all runtime deps;
+    `namcap` will not warn about a redundant `base`-group dep but may
+    warn about an absent one if the binary needs it.
+  - **Maintainer doc lives in `aidocs/`, slim README in `packaging/aur/`** —
+    same split as the homebrew sibling. The walkthrough in `aidocs/` is
+    heavy, with troubleshooting and end-to-end commands; the directory
+    README stays light, just describing what the files are.
+  - **Bootstrap step (section 4 of the walkthrough) is mandatory.**
+    The `KSXGitHub/github-actions-deploy-aur` action does not auto-create
+    AUR repos — first push of a new `pkgname` must come from a maintainer
+    workstation. The walkthrough documents this with a stub PKGBUILD
+    (`pkgver=0.0.0`, empty `package()`) that satisfies AUR's "must include
+    PKGBUILD + .SRCINFO" requirement without producing an installable
+    artifact. The first real release overwrites both files via CI.
+  - **`master` not `main` in the AUR bootstrap push.** AUR uses `master`
+    as its default branch — documented in section 4 step 5 to head off
+    a common foot-gun.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:** (every later child reads this)
+  - **Soft-skip guard pattern is now established for two PMs.** t623_4 (deb)
+    and t623_5 (rpm) likely don't need the guard at all if they only
+    publish via `softprops/action-gh-release` to the GitHub Releases
+    page (no external service token required, just the default
+    `GITHUB_TOKEN`). Confirm against `aidocs/packaging_strategy.md` before
+    adding a guard you don't need.
+  - **`KSXGitHub/github-actions-deploy-aur@v4.1.2`** is the canonical
+    AUR-publish action. It auto-generates `.SRCINFO` from the rendered
+    PKGBUILD, so no `.SRCINFO` template lives in `packaging/aur/`. If the
+    AUR bootstrap (section 4 of `aidocs/aur_maintainer_setup.md`) is ever
+    redone, the stub commit must include both `PKGBUILD` and `.SRCINFO`
+    even though every subsequent commit only needs `PKGBUILD`.
+  - **End-to-end live verification deferred to t623_7.** Do not attempt
+    a tag-and-publish dry run from this task; t623_7 is the single
+    point-of-truth for live verification across all packaging children.
+  - **PKGBUILD `pkgver` interpolation in `source=` URLs** is the canonical
+    AUR pattern — t623_4 (deb) / t623_5 (rpm) should follow the equivalent
+    convention if their templates also fetch a versioned release asset.
