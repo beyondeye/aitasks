@@ -5,9 +5,10 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [testing, qa, bash_scripts]
+children_to_implement: [t732_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-03 12:37
-updated_at: 2026-05-03 15:30
+updated_at: 2026-05-03 16:29
 boardcol: now
 boardidx: 20
 ---
