@@ -532,16 +532,124 @@ when they refer to `secrets.*` (which are resolved at workflow time).
   `packaging/homebrew/README.md` (Step 2) but executed by the maintainer
   outside this task.
 
-## Final Implementation Notes (to be filled in post-implementation)
+## Final Implementation Notes
 
-- **Actual work done:**
-- **Deviations from plan:**
-- **Issues encountered:**
+- **Actual work done:** All five plan deliverables landed:
+  1. `aidocs/homebrew_maintainer_setup.md` (new) — comprehensive 6-section
+     first-time-setup walkthrough: tap concepts, repo creation,
+     `HOMEBREW_TAP_TOKEN` PAT provisioning (fine-grained, scoped to the
+     tap repo only), end-to-end local test snippet on macOS, first-real-release
+     procedure, troubleshooting table.
+  2. `packaging/homebrew/aitasks.rb.template` (new) — Ruby formula
+     template with `VERSION_PLACEHOLDER` / `SHA256_PLACEHOLDER` markers,
+     `python@3.12` + `bash` + `fzf` + `jq` + `git` + `zstd` + `curl` deps,
+     `bin.install "ait"`, and a `test do` block asserting the shim's
+     no-project error message.
+  3. `packaging/homebrew/README.md` (new) — slim directory-level reference
+     pointing at `aidocs/homebrew_maintainer_setup.md` for first-time
+     setup, plus the local-test snippet (which uses the LOCAL shim file
+     and LOCAL VERSION rather than a hypothetical release asset).
+  4. `.github/workflows/release-packaging.yml` (new) — reusable
+     `workflow_call` workflow with one `publish-homebrew` job. Includes a
+     soft-skip `gate` step that warns and exits 0 when
+     `HOMEBREW_TAP_TOKEN` is unset (so first releases after this task
+     lands don't show a red workflow run before the maintainer manual
+     prerequisites are met). Idempotent: `git diff --cached --quiet`
+     prevents empty no-op commits in the tap repo on re-runs.
+  5. `.github/workflows/release.yml` (modified) — extracted version
+     extraction into a new `plan` job, made the existing `release` job
+     `needs: plan` and consume `${{ needs.plan.outputs.version }}`, and
+     added a final `packaging: needs: [plan, release]` job that calls
+     `release-packaging.yml` with `secrets: inherit` and `version:` input.
+
+- **Deviations from plan:** None. The plan was already verified against the
+  live codebase before implementation began (see "Plan Verification" section
+  near the top of this file) and executed as written.
+
+- **Issues encountered:** None. Static validation passed:
+  - `python3 -c "import yaml; yaml.safe_load(...)"` succeeded for both
+    `release-packaging.yml` and `release.yml`.
+  - `ruby -c` on the rendered formula (with placeholder substitution)
+    returned `Syntax OK`.
+  - `actionlint` not installed locally — deferred to GitHub Actions'
+    built-in workflow validator on the next push.
+
 - **Key decisions:**
-- **Upstream defects identified:**
-- **Notes for sibling tasks:** — especially: the `plan` job exposes
-  `version` as `needs.plan.outputs.version`. t623_3/4/5 must consume this
-  same output name. The `release-packaging.yml` reusable workflow's
-  `inputs.version` is the canonical input contract; sibling jobs added to
-  `release-packaging.yml` should not introduce new top-level inputs unless
-  truly needed.
+  - **Soft-skip guard via env-mapped secret + step-output `if:`.** GitHub
+    Actions does not allow secrets in `if:` expressions directly, so the
+    pattern is: bind `TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}` at
+    the job's `env:`, then a first `gate` step inspects `${TAP_TOKEN}`
+    and writes `skip=true|false` to `$GITHUB_OUTPUT`, and every
+    subsequent step has `if: steps.gate.outputs.skip == 'false'`. This
+    is the canonical idiom for "skip this job if a secret is missing
+    without failing the workflow" and is reusable for sibling PMs (t623_3
+    AUR will need the same pattern for `AUR_SSH_PRIVATE_KEY`).
+  - **`packaging: needs: [plan, release]` not just `needs: release`.**
+    Both deps are real: `release` so the GitHub Release (and its `ait`
+    asset) is published before `release-packaging.yml`'s `curl` runs;
+    `plan` so the `version` output is in scope without redundant
+    re-extraction.
+  - **Maintainer doc lives in `aidocs/`, not in `packaging/homebrew/`.**
+    `packaging/homebrew/README.md` is a directory-level reference (what
+    these files are, where they're used) and
+    `aidocs/homebrew_maintainer_setup.md` is the first-time-setup
+    walkthrough. They cross-reference. Pulled this apart in response to
+    user feedback during planning ("can you write instructions on how to
+    do it in aidocs?"). The walkthrough format is a heavy how-to with
+    troubleshooting; the directory README stays light.
+  - **Local-test snippet uses the LOCAL shim file**, not the GitHub
+    release asset URL. Maintainers can validate the formula template on
+    a workstation without needing a release to already exist —
+    `brew install --build-from-source` against a local file path bypasses
+    the URL fetch even though the formula's `url` field points at a
+    non-existent release asset. Only the formula code (deps, install,
+    test) is exercised, not the URL-fetch path. Documented this behavior
+    in `packaging/homebrew/README.md` so it isn't surprising.
+  - **Bare `license "Apache-2.0"`** kept in the formula even though the
+    actual `LICENSE` is "Apache-2.0 with Commons Clause restriction".
+    Homebrew has no first-class representation for non-OSI restrictions
+    like Commons Clause; the strategy doc itself uses "Apache-2.0"
+    loosely. If `brew audit` rejects this on the live tap, can be
+    revisited (`license :cannot_represent` or a custom expression).
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:** (every later child reads this)
+  - **`needs.plan.outputs.version` is the canonical version source.**
+    t623_3/4/5 must consume `${{ needs.plan.outputs.version }}` — do NOT
+    re-extract from `GITHUB_REF_NAME` independently. The `plan` job
+    exists precisely so the version computation is single-sourced
+    across all packaging jobs.
+  - **`release-packaging.yml`'s `inputs.version` is the canonical input
+    contract.** When t623_3 (AUR), t623_4 (deb), t623_5 (rpm) each add a
+    new sibling job to `release-packaging.yml`, they consume
+    `${{ inputs.version }}` from the workflow_call inputs — they should
+    NOT add new top-level inputs unless genuinely needed. This keeps
+    the contract between `release.yml`'s `packaging:` step and the
+    reusable workflow stable.
+  - **Soft-skip guard pattern is reusable.** t623_3 should mirror the
+    `gate` step structure for `AUR_SSH_PRIVATE_KEY` / `AUR_USERNAME` /
+    `AUR_EMAIL`; t623_4/t623_5 don't need a guard (they only use the
+    default `GITHUB_TOKEN` for the initial release-attached-package
+    phase, per the strategy doc).
+  - **`packaging:` calls a reusable workflow** (`uses:`), not a job that
+    runs steps directly. This is intentional — keeps each PM's
+    publishing logic in `release-packaging.yml` and the top-level
+    `release.yml` short. Sibling PRs add new jobs INSIDE
+    `release-packaging.yml`, not new jobs in `release.yml`.
+  - **Tap-repo placeholder formula**: documented in
+    `aidocs/homebrew_maintainer_setup.md` §2 step 4. Maintainer must
+    create `homebrew-aitasks` repo with a placeholder `Formula/aitasks.rb`
+    (a Ruby class that `odie`s) before the first release auto-bump runs;
+    otherwise `brew tap beyondeye/aitasks` errors out before the first
+    auto-bump publishes the real formula.
+  - **Formula `test do` block asserts** `/No ait project found/`. If the
+    shim's no-project error message ever changes in `packaging/shim/ait`,
+    the formula template's `test do` regex must be updated in lockstep
+    (otherwise `brew test aitasks` will start failing on the tap CI).
+  - **Manual verification deferred to t623_7.** End-to-end live testing
+    (tag a real release, watch the workflow fire, verify the tap repo
+    receives a commit, install via `brew tap … && brew install`) is
+    explicitly out of scope here and is covered by the t623_7 manual
+    verification sibling. Do not attempt live verification as part of
+    t623_3/4/5 either — t623_7 is the single point of truth.
