@@ -238,11 +238,40 @@ diff stays under 5 lines; skip otherwise.
 - Updating user docs / website — t623_6.
 - Hash-based skip-if-unchanged optimization for the four PM bump CI flows — listed in `aidocs/packaging_strategy.md`'s deferred follow-ups.
 
-## Final Implementation Notes (filled in post-implementation)
+## Final Implementation Notes
 
-- **Actual work done:**
+- **Actual work done:** Five concrete deliverables landed:
+  1. `packaging/shim/ait` — extracted 87-line shim (byte-identical to the old heredoc body), `chmod +x`.
+  2. `.aitask-scripts/aitask_setup.sh` — `install_global_shim()` body collapsed from a 89-line heredoc to a 4-line guarded `cp` from `$SCRIPT_DIR/../packaging/shim/ait`; line-9 `SHIM_DIR=` made overrideable (`${SHIM_DIR:-$HOME/.local/bin}`).
+  3. `.github/workflows/release.yml` — added `packaging/` to the `tar -czf` file list; converted both `softprops/action-gh-release` `files:` blocks to multi-line and added `packaging/shim/ait` so the raw shim is uploaded as a release asset (the URL Homebrew/AUR/.deb/.rpm formulas curl from).
+  4. `aidocs/packaging_strategy.md` — single source of truth for downstream packaging children. All sections per plan: rationale, per-PM manifest skeletons (Homebrew Ruby formula, AUR PKGBUILD, debian/control, RPM spec), dependency mapping table with `gh`/`glab` "at least one strongly recommended" footnote, GitHub Actions secrets + AUR SSH key generation, release-cadence policy, version-vs-behavior note for user docs, deferred-follow-ups table.
+  5. `tests/test_shim_extraction_parity.sh` — golden-file regression test sandboxing `SHIM_DIR` to a tempdir, sourcing `aitask_setup.sh --source-only`, calling `install_global_shim`, and `diff -q`-ing against `packaging/shim/ait`. 3/3 assertions pass.
+
 - **Deviations from plan:**
+  - The plan's resolution snippet contained a two-branch `INSTALL_DIR`/`SCRIPT_DIR` fallback. I collapsed it to a single `$SCRIPT_DIR/..` branch after verifying both invocation paths (curl-install via `install.sh` and cloned-repo `ait setup`) resolve to the same file via that single expression. The plan's stated rationale already justified this.
+  - The optional CLAUDE.md note (Step 7 in the plan, "scoped minimally") was skipped — no value at this stage. The `packaging/` directory's purpose is self-evident from `aidocs/packaging_strategy.md`; CLAUDE.md will get a one-line bullet later (e.g., during t623_6 docs work) once the directory has more than just the shim subdir.
+  - Plan-vs-reality: the plan's referenced line ranges (`aitask_setup.sh:555-648`, `release.yml:96-145`) had drifted by ~190 lines and ~30 lines respectively due to commits between plan authoring and execution. Verified actual ranges (742-844, 96-110, 133-145) and proceeded — the *content* was unchanged, only line numbers.
+  - Plan said `release.yml` has one `softprops/action-gh-release` step; reality has two (with-changelog and auto-generated-notes branches, mutually exclusive via `if:`). Both got the asset addition.
+
 - **Issues encountered:**
+  - **Plan's golden-file test was buggy as written.** The `SHIM_DIR=$TMPDIR/bin source ...` form silently lost the override because `aitask_setup.sh:9` was unconditional `SHIM_DIR="$HOME/.local/bin"`. Fixed at the source by switching to `${SHIM_DIR:-$HOME/.local/bin}`; the test exports `SHIM_DIR` *before* sourcing and asserts it survived. One-line, fully backward-compatible (no caller currently sets `SHIM_DIR` before sourcing).
+  - **No real-world `bash install.sh --dir <tmp>` integration test was practical.** That path downloads a release tarball from GitHub, which doesn't yet contain `packaging/`. Substituted a direct integration test that stages a fake "release-stage" dir with `.aitask-scripts/`, `packaging/`, and `aitask_setup.sh`, sources from there, calls `install_global_shim`, and `diff`s the output. Confirmed byte-identical. The full `install.sh` flow will be exercised end-to-end after the next tagged release rebuilds a tarball that includes `packaging/`.
+  - **Pre-existing test failures (14/112) confirmed unrelated** to this task's changes. Verified via `grep -l "install_global_shim\|SHIM_DIR\|packaging/shim\|release.yml"` against all 14 failing test files: zero matches. Failing tests touch brainstorm CLI, codex model detection, contribute, explain context, gemini setup, init data, archive migration, multi-session minimonitor, python_resolve helpers, t167/t644 integration, task_push, tui switcher — all in unrelated subsystems.
+
 - **Key decisions:**
-- **Upstream defects identified:**
+  - **Single resolution branch via `$SCRIPT_DIR/..`** instead of the plan's two-branch `INSTALL_DIR`-then-fallback. Cleaner, equivalent in both invocation paths, and one fewer place to maintain when path conventions change.
+  - **Both `softprops/action-gh-release` blocks patched** instead of just one. Even though only one runs per release (the changelog presence selects), missing one would silently produce releases without the `ait` asset depending on which branch fires.
+  - **`gh`/`glab` documented as "individually optional, at least one strongly recommended"** in the strategy doc (per user feedback during plan review). Each PM declares them at the recommends/suggests/optdepends tier, never as hard requires.
+  - **No CHANGELOG.md update** for this task. The work is internal refactoring with no user-visible behavior change in framework releases — the user-visible change (PM availability) lands in t623_2..t623_5 and gets a CHANGELOG entry then.
+
+- **Upstream defects identified:** None. The pre-existing test failures (14/112) were not diagnosed in scope of this task — they don't *seed* the work here, they're parallel pre-existing issues in unrelated subsystems. They belong in their own issue/task tracking, not as upstream defects of this task.
+
 - **Notes for sibling tasks:** (critical — every later child reads this)
+  - **`packaging/shim/ait` is the canonical shim.** Every downstream PM child (t623_2 Homebrew, t623_3 AUR, t623_4 deb, t623_5 rpm) MUST `curl` or reference `https://github.com/beyondeye/aitasks/releases/download/v<X.Y.Z>/ait` (the release asset uploaded by `release.yml`'s `softprops/action-gh-release` step). DO NOT bundle `aitask_setup.sh` or any framework files into PM packages.
+  - **For local development of the PM manifests:** the file is at `packaging/shim/ait` in the repo. CI flows can refer to either the local file (during testing) or the release asset URL (in the published manifest).
+  - **The release asset URL is stable per tag.** Format: `https://github.com/beyondeye/aitasks/releases/download/v<X.Y.Z>/ait` (no `.sh` extension, no version suffix in filename — just `ait`). The shim's SHA-256 must be regenerated and substituted into each PM manifest on every tag (this is the per-tag bump CI does).
+  - **`gh`/`glab` semantics:** Each PM child should declare them as recommends/suggests/optdepends with the rationale text from `aidocs/packaging_strategy.md` (host integration features degrade without one). Do NOT treat them as hard requirements.
+  - **GitHub Actions secrets are already documented in the strategy doc** (Section "Required GitHub Actions secrets"). t623_2 (Homebrew) needs `HOMEBREW_TAP_TOKEN`; t623_3 (AUR) needs `AUR_USERNAME`/`AUR_EMAIL`/`AUR_SSH_PRIVATE_KEY`. The user must set these via `gh secret set` BEFORE the corresponding child's CI flow runs for the first time. t623_4 (deb) and t623_5 (rpm) need only the default `GITHUB_TOKEN` for the initial release-attached-package phase.
+  - **Release cadence is "every tag bumps every PM"** — no hash-based skip. Each PM child's CI workflow should fire on the same `tag push v*` trigger that the main `release.yml` uses.
+  - **`SHIM_DIR` is now overrideable.** If a future test or helper needs to install the shim to a non-default location, set `export SHIM_DIR=<path>` before sourcing `aitask_setup.sh`. The test in `tests/test_shim_extraction_parity.sh` is the canonical pattern.
+  - **`aitask_setup.sh` line numbers WILL drift further** — every child should re-grep for `install_global_shim` rather than trust the line numbers in this plan.
