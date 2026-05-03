@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$HOME/.aitask/venv"
-SHIM_DIR="$HOME/.local/bin"
+SHIM_DIR="${SHIM_DIR:-$HOME/.local/bin}"
 VERSION_FILE="$SCRIPT_DIR/VERSION"
 REPO="beyondeye/aitasks"
 
@@ -744,95 +744,9 @@ install_global_shim() {
     {
         mkdir -p "$SHIM_DIR"
 
-        cat > "$SHIM_DIR/ait" << 'SHIM'
-#!/usr/bin/env bash
-# Global shim for ait - finds nearest project-local ait dispatcher
-REPO="beyondeye/aitasks"
-
-if [[ "${_AIT_SHIM_ACTIVE:-}" == "1" ]]; then
-    echo "Error: ait dispatcher not found in any parent directory." >&2
-    exit 1
-fi
-export _AIT_SHIM_ACTIVE=1
-
-# Walk up to find project-local ait
-dir="$PWD"
-while [[ "$dir" != "/" ]]; do
-    if [[ -x "$dir/ait" && -d "$dir/.aitask-scripts" ]]; then
-        unset _AIT_SHIM_ACTIVE
-        exec "$dir/ait" "$@"
-    fi
-    dir="$(dirname "$dir")"
-done
-
-# No project found — special-case "ait setup" to bootstrap
-if [[ "${1:-}" == "setup" ]]; then
-    echo ""
-    echo "[ait] No aitasks project found in $PWD or any parent directory."
-    echo ""
-    echo "[ait] aitasks must be installed at the root of a git repository."
-    echo "[ait] This will install the aitasks framework into: $PWD"
-    echo ""
-    echo "[ait] Make sure this is the root directory of the project where"
-    echo "[ait] you want to manage tasks (the directory containing .git/)."
-    echo ""
-
-    if [[ -t 0 ]]; then
-        printf "  Install aitasks framework here? [Y/n] "
-        read -r answer
-        case "${answer:-Y}" in
-            [Yy]*|"") ;;
-            *) echo "[ait] Aborted."; exit 0 ;;
-        esac
-    fi
-
-    # Download install.sh to temp file (keeps stdin on terminal for interactive prompts)
-    tmpfile="$(mktemp "${TMPDIR:-/tmp}/ait-install.XXXXXX")"
-    trap 'rm -f "$tmpfile"' EXIT
-
-    echo "[ait] Downloading installer from GitHub..."
-    if command -v curl &>/dev/null; then
-        if ! curl -fsSL --max-time 30 \
-            "https://raw.githubusercontent.com/$REPO/main/install.sh" \
-            -o "$tmpfile" 2>/dev/null; then
-            echo "[ait] Error: Failed to download installer. Check your network." >&2
-            exit 1
-        fi
-    elif command -v wget &>/dev/null; then
-        if ! wget -q --timeout=30 \
-            "https://raw.githubusercontent.com/$REPO/main/install.sh" \
-            -O "$tmpfile" 2>/dev/null; then
-            echo "[ait] Error: Failed to download installer. Check your network." >&2
-            exit 1
-        fi
-    else
-        echo "[ait] Error: curl or wget required to download the installer." >&2
-        exit 1
-    fi
-
-    echo ""
-    bash "$tmpfile" --dir "$PWD"
-    install_rc=$?
-    rm -f "$tmpfile"
-    trap - EXIT
-
-    if [[ $install_rc -ne 0 || ! -x "$PWD/ait" ]]; then
-        echo "[ait] Error: Installation failed." >&2
-        exit 1
-    fi
-
-    echo ""
-    echo "[ait] Framework installed. Running setup..."
-    echo ""
-    unset _AIT_SHIM_ACTIVE
-    exec "$PWD/ait" setup
-fi
-
-echo "Error: No ait project found in any parent directory of $PWD" >&2
-echo "  Run 'ait setup' to install aitasks in the current directory." >&2
-echo "  Or: curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash" >&2
-exit 1
-SHIM
+        local shim_src="$SCRIPT_DIR/../packaging/shim/ait"
+        [[ -f "$shim_src" ]] || die "Cannot locate shim source ($shim_src)"
+        cp "$shim_src" "$SHIM_DIR/ait"
 
         chmod +x "$SHIM_DIR/ait"
 

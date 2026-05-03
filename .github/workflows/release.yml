@@ -99,6 +99,7 @@ jobs:
             ait \
             CHANGELOG.md \
             .aitask-scripts/ \
+            packaging/ \
             skills/ \
             seed/ \
             codex_skills/ \
@@ -134,12 +135,16 @@ jobs:
         if: steps.changelog.outputs.found == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          files: aitasks-${{ github.ref_name }}.tar.gz
+          files: |
+            aitasks-${{ github.ref_name }}.tar.gz
+            packaging/shim/ait
           body_path: /tmp/release_notes.md
 
       - name: Create GitHub Release (auto-generated notes)
         if: steps.changelog.outputs.found != 'true'
         uses: softprops/action-gh-release@v2
         with:
-          files: aitasks-${{ github.ref_name }}.tar.gz
+          files: |
+            aitasks-${{ github.ref_name }}.tar.gz
+            packaging/shim/ait
           generate_release_notes: true
