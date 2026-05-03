@@ -7,7 +7,7 @@ status: Implementing
 labels: [install_scripts, installation, packaging]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-22 18:56
-updated_at: 2026-04-30 11:54
+updated_at: 2026-05-03 11:16
 ---
 
 ## Context
