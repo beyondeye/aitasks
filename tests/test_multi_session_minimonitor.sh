@@ -125,6 +125,8 @@ app._agent_prefixes = None
 app._tui_names = None
 app._refresh_seconds = 3
 app._compare_mode_default = "stripped"
+app._refresh_timer = None
+app._monitor = None
 app.call_later = lambda fn: None
 app.set_interval = lambda *a, **k: None
 app.run_worker = lambda c, *a, **k: c.close()
@@ -240,6 +242,7 @@ out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
 from types import SimpleNamespace
 
 from monitor import minimonitor_app as mm
+from monitor.tmux_control import TmuxControlState
 
 class Capture:
     def __init__(self):
@@ -252,7 +255,10 @@ captured = Capture()
 app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
 app.query_one = lambda *a, **k: captured
 app._session = "aitasks"
-app._monitor = SimpleNamespace(multi_session=True)
+app._monitor = SimpleNamespace(
+    multi_session=True,
+    control_state=lambda: TmuxControlState.STOPPED,
+)
 
 def mk_snap(sess, idle=False):
     pane = SimpleNamespace(
