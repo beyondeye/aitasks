@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [brainstorm]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-04 16:24
-updated_at: 2026-05-04 16:28
+updated_at: 2026-05-04 16:40
 ---
 
 Implement `apply_patcher_output()` in the brainstorm engine so that when a
