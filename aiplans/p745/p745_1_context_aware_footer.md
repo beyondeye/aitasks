@@ -1,20 +1,29 @@
 ---
 Task: t745_1_context_aware_footer.md
 Parent Task: aitasks/t745_improve_node_comparator.md
-Sibling Tasks: aitasks/t745/t745_2_compare_regenerate_shortcut.md, aitasks/t745/t745_3_compact_equal_and_inline_diff.md, aitasks/t745/t745_4_diffviewer_screen_integration.md
-Archived Sibling Plans: aiplans/archived/p745/p745_*_*.md
-Worktree: aiwork/t745_1_context_aware_footer
-Branch: aitask/t745_1_context_aware_footer
+Sibling Tasks: aitasks/t745/t745_2_compare_regenerate_shortcut.md, aitasks/t745/t745_3_compact_equal_and_inline_diff.md, aitasks/t745/t745_4_diffviewer_screen_integration.md, aitasks/t745/t745_5_manual_verification_improve_node_comparator.md
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7 @ 2026-05-04 22:43
 ---
 
-# Plan — t745_1: Context-aware footer + tab-label embedded shortcuts
+# Plan — t745_1: Context-aware footer + tab-label embedded shortcuts (verified)
 
 ## Context
 
 Foundational child of t745. The brainstorm Footer currently shows tab-switching shortcuts (`d`/`g`/`c`/`a`/`s`) at all times and never shows per-tab actions. This task hides those tab keys from the footer, surfaces them inside each tab's visible label using the parentheses convention (`(D)ashboard`, `(G)raph`, `(C)ompare`, `(A)ctions`, `(S)tatus`), and adds the `check_action` + `_TAB_SCOPED_ACTIONS` registry that subsequent siblings (t745_2, t745_4) will populate to make their bindings tab-scoped.
 
 This task introduces no functional behavior change for existing actions — only footer visibility plumbing — and unblocks the rest of t745.
+
+## Verification of plan against current code (re-confirmed)
+
+- `BINDINGS` block at lines 1512–1523 contains the five tab bindings (`d` Dashboard, `g` Graph, `c` Compare, `a` Actions, `s` Status), `q` Quit, `ctrl+r`, `ctrl+shift+r`. None has `show=False` yet for the tab keys.
+- `compose()` at lines 1586–1614 contains five `TabPane(...)` calls with IDs `tab_dashboard`, `tab_dag`, `tab_compare`, `tab_actions`, `tab_status`. (Note: action `tab_graph` maps to TabPane id `tab_dag` — not a typo, just the existing naming.)
+- Action handlers `action_tab_dashboard / _graph / _compare / _actions / _status` exist at lines 1916–1948.
+- `aitask_board.py` `check_action` reference still at lines 3333–3380 — return contract: `True` show / `False` gray / `None` hide.
+- `query_one(TabbedContent).active` is already used at lines 1620 and 1781 — the pattern is confirmed valid for this app.
+
+No deviations from the original plan are required. Proceeding with the implementation as-is.
 
 ## Critical files
 
@@ -26,7 +35,7 @@ This task introduces no functional behavior change for existing actions — only
 
 ## Reference (do not modify)
 
-- `.aitask-scripts/board/aitask_board.py:3333-3380` — canonical `check_action` style (return `True` show / `None` hide).
+- `.aitask-scripts/board/aitask_board.py:3333-3380` — canonical `check_action` style.
 
 ## Implementation steps
 
@@ -68,7 +77,7 @@ This task introduces no functional behavior change for existing actions — only
            return None
        return True
    ```
-   Default `True` keeps every non-registered action visible (same as today). Only registered actions get gated.
+   Default `True` keeps every non-registered action visible. Only registered actions get gated.
 
 ## Verification
 
@@ -76,8 +85,4 @@ This task introduces no functional behavior change for existing actions — only
 - Verify the five tabs at top read `(D)ashboard | (G)raph | (C)ompare | (A)ctions | (S)tatus`.
 - Verify the footer no longer shows entries for `d g c a s`. `q Quit` remains; `j` (TUI switcher) was already hidden.
 - Press each shortcut letter — tabs still switch.
-- No tests are mandatory here; behavior is verified visually. The aggregate manual verification (t745_5) covers this.
-
-## Final Implementation Notes
-
-(to be filled in at Step 8)
+- Aggregate manual verification (t745_5) covers this.
