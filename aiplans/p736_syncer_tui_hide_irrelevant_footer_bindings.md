@@ -153,3 +153,19 @@ No automated test added — footer rendering does not have a snapshot-test harne
   - Press `u` or `p` on `main` row → same overlay behavior on success and on `_fail` paths.
   - Periodic 30s tick should NOT show the loading overlay (refresh worker is not wrapped).
   - On worker exception (e.g. `run_sync_batch` raises) the overlay still clears thanks to `try/finally`.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Added `check_action(action, parameters)` to `SyncerApp` returning `None` for `sync_data` when the selected row is not `aitask-data`, and for `pull`/`push` when the selected row is not `main`. Returns `True` for everything else, leaving universal bindings (`r`, `f`, `q`, `j`, `a`) unaffected.
+  - Added `self.refresh_bindings()` to `on_data_table_row_highlighted` so the Footer re-evaluates bindings on every row cursor change.
+  - Removed the in-action row guards and corrective notify warnings from `action_sync_data`/`action_pull`/`action_push` — Textual prevents the action from firing when `check_action` returns `None`, so those defensive blocks are unreachable.
+  - **Post-Review (Change Request 1):** Added `_set_busy(busy)` helper that toggles `DataTable.loading` (Textual's standard widget-level loading overlay using the built-in `LoadingIndicator`). The three actions set busy True before launching their worker; each of `_sync_data_worker`, `_main_pull_worker`, `_main_push_worker` wraps its body in `try`/`finally` and queues `self._set_busy(False)` via `call_from_thread` on every exit path.
+- **Deviations from plan:** None on the original three changes. Change Request 1 (progress indicator) was not in the original plan and was added as a follow-up after user review.
+- **Issues encountered:** None. Sanity import + `getattr` checks confirm `check_action` and `_set_busy` are bound on the class. Manual TUI verification deferred to the user (per the plan — no automated footer/loading snapshot harness in this project).
+- **Key decisions:**
+  - Used `Widget.loading` reactive (canonical Textual mechanism) rather than wiring a custom `LoadingIndicator` widget into the layout. Single attribute, zero layout changes, matches "use textual standard widgets".
+  - Scoped the loading overlay to the `#branches` DataTable (where the user's focus is and where the operation's effect lands) rather than the whole screen. Less visually disruptive.
+  - Did NOT plumb the indicator through `_refresh_worker` (background, runs every 30s automatically) or `_run_interactive_sync_shared` (user is in conflict-resolution screen — busy indicator would be misleading). Limited to user-triggered slow operations.
+  - `try/finally` in the workers is safer than `_set_busy(False)` calls before each early-return — guarantees cleanup on all paths including unexpected exceptions.
+- **Upstream defects identified:** None.
