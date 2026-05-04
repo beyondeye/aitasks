@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [testing, external_tools, codex, gemini]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-03 16:30
-updated_at: 2026-05-04 23:57
+updated_at: 2026-05-05 00:52
 ---
 
 ## Context
