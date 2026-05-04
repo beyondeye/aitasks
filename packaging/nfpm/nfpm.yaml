@@ -34,6 +34,22 @@ overrides:
     recommends:
       - gh
       - glab
+  rpm:
+    depends:
+      - bash >= 4.0
+      - python3 >= 3.9
+      - fzf
+      - jq
+      - git
+      - zstd
+      - tar
+      - curl
+    recommends:
+      - gh
+      - glab
+
+rpm:
+  group: Development/Tools
 
 scripts:
   postinstall: ./packaging/nfpm/postinstall.sh

@@ -127,10 +127,10 @@ jobs:
 
       - name: Build .deb
         run: |
-          VERSION="${VERSION}" nfpm package \
+          nfpm package \
             --packager deb \
             --config packaging/nfpm/nfpm.yaml \
-            --target aitasks_${VERSION}_all.deb
+            --target "aitasks_${VERSION}_all.deb"
 
       - name: Upload to release
         env:
@@ -176,4 +176,68 @@ jobs:
       - name: Uninstall
         run: |
           apt-get remove -y aitasks
+          test ! -e /usr/bin/ait
+
+  build-rpm:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nfpm
+        uses: goreleaser/nfpm-action@v1
+
+      - name: Build .rpm
+        run: |
+          nfpm package \
+            --packager rpm \
+            --config packaging/nfpm/nfpm.yaml \
+            --target "aitasks-${VERSION}-1.noarch.rpm"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "v${VERSION}" "aitasks-${VERSION}-1.noarch.rpm" --clobber
+
+  test-rpm:
+    needs: build-rpm
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [fedora:41, fedora:42, rockylinux:9]
+    runs-on: ubuntu-latest
+    container: ${{ matrix.distro }}
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Install curl
+        run: dnf install -y curl ca-certificates
+
+      - name: Enable EPEL (Rocky/RHEL/Alma only)
+        if: contains(matrix.distro, 'rocky') || contains(matrix.distro, 'almalinux') || contains(matrix.distro, 'rhel')
+        run: |
+          dnf install -y epel-release || \
+            dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+
+      - name: Download .rpm from release
+        run: |
+          curl -fsSL "https://github.com/beyondeye/aitasks/releases/download/v${VERSION}/aitasks-${VERSION}-1.noarch.rpm" -o /tmp/ait.rpm
+
+      - name: Install
+        run: dnf install -y /tmp/ait.rpm
+
+      - name: Verify
+        run: |
+          test -x /usr/bin/ait
+          ait --help 2>&1 | head -10 || true
+          # Shim should report "No ait project found" in an empty dir
+          cd /tmp
+          ait some-command 2>&1 | grep -i "No ait project" || \
+            (echo "Shim did not emit expected no-project message"; exit 1)
+
+      - name: Uninstall
+        run: |
+          dnf remove -y aitasks
           test ! -e /usr/bin/ait
