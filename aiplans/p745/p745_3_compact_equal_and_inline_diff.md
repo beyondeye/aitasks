@@ -143,3 +143,25 @@ The structural approach and code snippets in the source plan are correct. Only l
 
 - The `word_diff_texts` public helper is now reusable across the codebase. Future TUIs that need inline word-diff (e.g., t745_4 diffviewer screen integration) can `from diffviewer import word_diff_texts, TAG_STYLES` directly.
 - Line numbers in the brainstorm `_build_compare_matrix` will shift again after this change. Sibling tasks (t745_4, t745_5) should re-locate the function by name, not by line.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Renamed `_word_diff_texts` → `word_diff_texts` in `.aitask-scripts/diffviewer/diff_display.py` (signature unchanged).
+  - Added back-compat alias `_word_diff_texts = word_diff_texts` immediately after the function so the three internal callers in `diff_display.py` (lines 450, 456, 516) keep working without edits.
+  - Replaced the empty `.aitask-scripts/diffviewer/__init__.py` with a re-export of `word_diff_texts` and `TAG_STYLES`, plus `__all__`.
+  - In `.aitask-scripts/brainstorm/brainstorm_app.py`: added `from diffviewer.diff_display import word_diff_texts, TAG_STYLES` and rewrote the row-build loop in `_build_compare_matrix` to (a) collapse equal-value 2-node rows to a `← same` marker, (b) render inline word-level diff for differing 2-node rows using `TAG_STYLES["replace"]` / `replace_dim`, and (c) preserve the existing similarity-color behavior for n=3+ nodes and equal-value n=3+ rows.
+- **Deviations from plan:** None significant. Plan referenced `brainstorm_app.py:2898-2916` for the row loop; actual location was `_build_compare_matrix` at lines 2971-3024 with the loop at 3001-3018 (drift from t745_1/t745_2 sibling commits). The verified plan called this out and the implementation snippets were unaffected.
+- **Issues encountered:** None. All 68 unit tests in `tests/test_diff_display.py` pass after the rename (they import `_word_diff_texts` via the alias). Smoke-tested `from diffviewer import word_diff_texts, TAG_STYLES` and `import brainstorm.brainstorm_app` — both succeed.
+- **Key decisions:**
+  - Kept the back-compat alias (`_word_diff_texts = word_diff_texts`) rather than updating each internal caller, per the plan. Smaller diff, no risk of touching unrelated logic in `diff_display.py`.
+  - Imported `word_diff_texts` / `TAG_STYLES` at module top in `brainstorm_app.py` (after `from rich.text import Text`), matching the file's existing top-of-module import style. `sys.path` is already extended to `.aitask-scripts/` at lines 12-13 of `brainstorm_app.py`, so `from diffviewer.diff_display import …` resolves at import time.
+- **Upstream defects identified:** None.
+- **Out of scope (confirmed):**
+  - 3+ node comparisons keep the current row-color behavior (yellow if any pair similarity > 0.6, else red); inline word-diff is 2-node only.
+  - Structural-mode diff for very long values: not applied.
+  - Pagination / truncation of long values inside DataTable cells: not applied.
+- **Notes for sibling tasks:**
+  - `word_diff_texts` is now a stable public API. t745_4 (diffviewer screen integration) can import it from either `diffviewer` (package re-export) or `diffviewer.diff_display` (direct).
+  - The brainstorm `_build_compare_matrix` row-loop is now ~37 lines (was 18). Future sibling tasks should re-locate by function name, not by line.
+  - When porting similar "compact equal + word-diff" patterns elsewhere, mind the `n == 2` vs `n >= 3` branching: DataTable cells are atomic, so there is no real cell-spanning, only the `← same` marker convention.
