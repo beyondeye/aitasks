@@ -172,6 +172,43 @@ Follow the standard task-workflow Step 9 archive flow:
 `./.aitask-scripts/aitask_archive.sh 745_2`. Parent t745 stays Ready until all
 remaining children (t745_3, t745_4, t745_5) complete.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-05-04 23:35)
+- **Requested by user:** In the `CompareNodeSelectModal`, (a) add a keyboard shortcut to confirm the comparison since Enter is already used by Checkbox to toggle selection (suggested using `c`), and (b) make the Compare button visibly disabled when fewer than 2 nodes are selected so users see at-a-glance when the action is available.
+- **Changes made:**
+  1. Added `Binding("c", "confirm", "Compare")` to `CompareNodeSelectModal.BINDINGS`. The binding shows in the modal's footer for discoverability.
+  2. Renamed `confirm` to `action_confirm` (the Textual action-name convention so the binding can resolve it). The `@on(Button.Pressed, "#btn_compare")` handler is now a thin shim (`_on_compare_pressed`) that delegates to `action_confirm()` so the button click and the `c` shortcut share one validation path.
+  3. Updated the modal hint Label from `"↑↓ Navigate  Space/Enter Toggle"` to `"↑↓ Navigate  Space/Enter Toggle  c Compare"`.
+  4. Added `_update_compare_button()` helper that disables `#btn_compare` when the selection count is outside `2 <= count <= 4`.
+  5. Added `on_mount()` to set the initial disabled state (no checkboxes ticked → button disabled on first paint).
+  6. Added `@on(Checkbox.Changed) _on_checkbox_changed` to refresh the button state every time a checkbox toggles.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py` (`CompareNodeSelectModal` class only).
+
+### Change Request 2 (2026-05-04 23:38)
+- **Requested by user:** Change the Compare button label from `"Compare"` to `"(C)ompare"` so the keyboard shortcut is visible directly on the button (matching the parenthesized-letter convention used by the brainstorm tab labels).
+- **Changes made:** Updated the `Button` first-arg from `"Compare"` to `"(C)ompare"`.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py` (`CompareNodeSelectModal.compose()`).
+
 ## Final Implementation Notes
 
-(to be filled in at Step 8)
+- **Actual work done:** All six planned edits to `.aitask-scripts/brainstorm/brainstorm_app.py` landed verbatim:
+  (1) appended `Binding("r", "compare_regenerate", "Regenerate")` to `BrainstormApp.BINDINGS` after the five tab bindings;
+  (2) populated `_TAB_SCOPED_ACTIONS` with `{"compare_regenerate": "tab_compare"}`;
+  (3) updated the Compare-tab hint Label text to `"Press 'r' to (re)select nodes, 'D' to open full diff"`;
+  (4) extracted the modal-push logic from `action_tab_compare`'s second-press branch into a new private helper `_open_compare_select_modal()`;
+  (5) `action_tab_compare` second-press branch now delegates to the helper;
+  (6) added new `action_compare_regenerate()` that guards against `ModalScreen` and calls `_open_compare_select_modal()`.
+  Two post-review change requests added a `c` keyboard shortcut on the `CompareNodeSelectModal`, an auto-disabled `(C)ompare` button, and shared validation between the button click and the keyboard shortcut. See **Post-Review Changes** above for the per-request breakdown.
+- **Deviations from plan:** None on the original 6-step plan. Two additive changes during Step 8 review (CR1, CR2) extended the scope to the existing `CompareNodeSelectModal` widget — they were not anticipated in the verified plan but were directly motivated by user testing the new `r` flow and noticing that the modal itself lacked a confirm shortcut and a disabled-state signal.
+- **Issues encountered:** None substantive. The modified test files (`tests/test_init_data.sh`, `tests/test_t167_integration.sh`, `tests/test_t644_branch_mode_upgrade.sh`) that appeared in the working tree during this session are pre-existing WIP unrelated to t745_2 (they reference `python_resolve.sh` and `packaging/` from t732_2/t623_5) and were deliberately left out of the t745_2 commit.
+- **Key decisions:**
+  - Placed the `_open_compare_select_modal` helper directly above its callers in the "Tab switching actions" block rather than near other helpers further up the class, so the helper sits next to its sole caller pair (`action_tab_compare`, `action_compare_regenerate`).
+  - Mirrored the `isinstance(self.screen, ModalScreen)` guard from the existing tab-switch handlers into `action_compare_regenerate` so the `r` key is a no-op while another modal is on top — matches the precedent set by `action_tab_compare` etc. and avoids accidentally re-opening the modal over itself.
+  - For CR1, renamed `confirm` to `action_confirm` (Textual action-name convention) so the new `c` binding can resolve directly. The button's `@on(Button.Pressed, "#btn_compare")` handler is now a one-line shim (`_on_compare_pressed`) that calls `action_confirm()`. This keeps a single source of truth for the validation (the `< 2` and `> 4` notifications) shared between the button and the shortcut.
+  - For CR1's button-disable behavior, used Textual's standard `@on(Checkbox.Changed)` event subscription rather than polling — the `_update_compare_button` helper recomputes the disabled state from `_get_selected()` so there is no parallel state to keep in sync.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t745_4 (`compare_diff` action):** Add the binding to `BrainstormApp.BINDINGS` next to `Binding("r", "compare_regenerate", ...)`. Register `"compare_diff": "tab_compare"` in `_TAB_SCOPED_ACTIONS` (the dict is no longer empty after this task — append the new key). The `Binding`'s `show=` attribute should remain default `True`; `check_action` controls footer visibility.
+  - **CompareNodeSelectModal contract:** The modal now exposes `action_confirm()` as the canonical confirm path (button click and `c` shortcut both route through it). Future callers (e.g., the diffviewer integration in t745_4) that need to open this modal can rely on the existing `_open_compare_select_modal()` helper on `BrainstormApp` and the same `_on_compare_selected` callback that calls `_build_compare_matrix`. The modal's button-disable invariant is `2 <= count <= 4` enforced by `_update_compare_button()` on every Checkbox.Changed event.
+  - **Hint Label copy:** The `'D' to open full diff` half of the new hint is forward-looking copy that t745_4 will wire up; the existing `Shift+D` global handler in `on_key` keeps the diff-open path working until then. No change needed in t745_4 beyond actually implementing the action.
