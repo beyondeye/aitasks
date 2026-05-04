@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t623_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [install_scripts, installation, packaging, debian, ubuntu, wsl, ci]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-22 18:58
-updated_at: 2026-05-03 18:56
+updated_at: 2026-05-04 15:24
 ---
 
 ## Context
