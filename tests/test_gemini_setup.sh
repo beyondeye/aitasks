@@ -242,6 +242,16 @@ echo ""
 echo "=== Test 8: Global Gemini policy install helper ==="
 eval "$(extract_fn "$REPO_DIR/.aitask-scripts/aitask_setup.sh" "install_gemini_global_policy")"
 
+# Strip ~/.aitask/bin from PATH so command -v python3 (in merge_gemini_policies)
+# resolves to a system interpreter, not the framework wrapper at
+# ~/.aitask/bin/python3 — which exec's $HOME/.aitask/venv/bin/python and
+# breaks once HOME is overridden below. Same root-cause class as t732_2.
+ORIG_HOME="$HOME"
+ORIG_PATH="$PATH"
+PATH="${PATH//$ORIG_HOME\/.aitask\/bin:/}"
+PATH="${PATH//:$ORIG_HOME\/.aitask\/bin/}"
+PATH="${PATH//$ORIG_HOME\/.aitask\/bin/}"
+
 GLOBAL_HOME="$TEST_DIR/global_home"
 mkdir -p "$GLOBAL_HOME"
 HOME="$GLOBAL_HOME"
@@ -275,6 +285,10 @@ assert_contains "Global policy includes aitask-pick skill" "argsPattern = \"aita
 assert_contains "Global policy includes aitask-review skill" "argsPattern = \"aitask-review\"" "$merged_global_content"
 assert_not_contains "Global policy avoids broad aitask skill regex" "[Aa][Ii][Tt][Aa][Ss][Kk]-[A-Za-z0-9_-]+" "$merged_global_content"
 assert_eq "Global merge adds seed rules without duplicates" "$expected_global_rule_count" "$merged_global_rule_count"
+
+# Restore PATH/HOME so subsequent tests run in the original environment.
+HOME="$ORIG_HOME"
+PATH="$ORIG_PATH"
 
 echo ""
 echo "=== Test 9: Settings merge (policyPaths union) ==="

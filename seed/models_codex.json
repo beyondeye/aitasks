@@ -1,24 +1,44 @@
 {
   "models": [
     {
+      "name": "gpt5_5",
+      "cli_id": "gpt-5.5",
+      "notes": "Newest frontier model for complex coding, computer use, knowledge work, and research workflows; recommended choice for most Codex tasks (ChatGPT sign-in only)",
+      "verified": {},
+      "verifiedstats": {}
+    },
+    {
       "name": "gpt5_4",
       "cli_id": "gpt-5.4",
-      "notes": "Flagship model for professional work with stronger reasoning, tool use, and agentic workflows, including GPT-5.3-Codex coding capabilities",
+      "notes": "Flagship frontier model for professional work with strong reasoning, tool use, and agentic workflows, including GPT-5.3-Codex coding capabilities",
       "verified": {
         "batch-review": 0,
         "pick": 0,
         "explain": 0
-      }
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "gpt5_4_mini",
+      "cli_id": "gpt-5.4-mini",
+      "notes": "Fast, efficient mini model for responsive coding tasks and subagents; lower-cost option for lighter coding work",
+      "verified": {
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
+      },
+      "verifiedstats": {}
     },
     {
       "name": "gpt5_3codex",
       "cli_id": "gpt-5.3-codex",
-      "notes": "Industry-leading coding model for complex software engineering; its coding capabilities now also power GPT-5.4",
+      "notes": "Industry-leading coding model for complex software engineering; its coding capabilities also power GPT-5.4",
       "verified": {
         "batch-review": 0,
         "pick": 0,
         "explain": 0
-      }
+      },
+      "verifiedstats": {}
     },
     {
       "name": "gpt5_3codex_spark",
@@ -28,43 +48,18 @@
         "batch-review": 0,
         "pick": 0,
         "explain": 0
-      }
+      },
+      "verifiedstats": {}
     },
     {
-      "name": "gpt5_2codex",
-      "cli_id": "gpt-5.2-codex",
-      "notes": "Advanced coding model for real-world engineering; succeeded by GPT-5.3-Codex",
+      "name": "gpt5_2",
+      "cli_id": "gpt-5.2",
+      "notes": "Previous general-purpose model for coding and agentic tasks",
       "verified": {
         "batch-review": 0,
         "pick": 0,
         "explain": 0
-      }
-    },
-    {
-      "name": "gpt5_1codex_max",
-      "cli_id": "gpt-5.1-codex-max",
-      "notes": "Optimized for long-horizon agentic tasks",
-      "verified": {
-        "batch-review": 0,
-        "pick": 0,
-        "explain": 0
-      }
-    },
-    {
-      "name": "gpt5_1codex_mini",
-      "cli_id": "gpt-5.1-codex-mini",
-      "notes": "Smaller, more cost-effective, less-capable version of GPT-5.1-Codex",
-      "verified": {
-        "batch-review": 0,
-        "pick": 0,
-        "explain": 0
-      }
-    },
-    {
-      "name": "gpt5_5",
-      "cli_id": "gpt-5.5",
-      "notes": "Newest frontier model for complex coding, tool use, and agentic workflows; successor to GPT-5.4",
-      "verified": {},
+      },
       "verifiedstats": {}
     }
   ]
