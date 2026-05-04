@@ -1512,15 +1512,20 @@ class BrainstormApp(TuiSwitcherMixin, App):
     BINDINGS = [
         *TuiSwitcherMixin.SWITCHER_BINDINGS,
         Binding("q", "quit", "Quit"),
-        Binding("d", "tab_dashboard", "Dashboard"),
-        Binding("g", "tab_graph", "Graph"),
-        Binding("c", "tab_compare", "Compare"),
-        Binding("a", "tab_actions", "Actions"),
-        Binding("s", "tab_status", "Status"),
+        Binding("d", "tab_dashboard", "Dashboard", show=False),
+        Binding("g", "tab_graph", "Graph", show=False),
+        Binding("c", "tab_compare", "Compare", show=False),
+        Binding("a", "tab_actions", "Actions", show=False),
+        Binding("s", "tab_status", "Status", show=False),
         Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
         Binding("ctrl+shift+r", "retry_patcher_apply",
                 "Retry patcher apply", show=False),
     ]
+
+    # Maps action_name -> required tab id. check_action() hides the binding
+    # from the footer when the active tab does not match. Sibling tasks
+    # (t745_2, t745_4) populate this with their compare-tab actions.
+    _TAB_SCOPED_ACTIONS: dict[str, str] = {}
 
     def __init__(self, task_num: str):
         super().__init__()
@@ -1554,6 +1559,18 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._current_dashboard_node_id: str | None = None
         self._update_title_from_task()
 
+    def check_action(self, action: str, parameters) -> bool | None:
+        required_tab = self._TAB_SCOPED_ACTIONS.get(action)
+        if required_tab is None:
+            return True
+        try:
+            tabbed = self.query_one(TabbedContent)
+        except Exception:
+            return None
+        if tabbed.active != required_tab:
+            return None
+        return True
+
     def _resolve_task_file_path(self) -> Path | None:
         """Return the task file path for self.task_num, or None if not found."""
         tf = self.session_data.get("task_file") if self.session_data else None
@@ -1584,7 +1601,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
             "", id="patcher_impact_banner", classes="initializer-banner"
         )
         with TabbedContent(id="brainstorm_tabs"):
-            with TabPane("Dashboard", id="tab_dashboard"):
+            with TabPane("(D)ashboard", id="tab_dashboard"):
                 with Horizontal(id="dashboard_split"):
                     yield VerticalScroll(id="node_list_pane")
                     yield VerticalScroll(
@@ -1594,9 +1611,9 @@ class BrainstormApp(TuiSwitcherMixin, App):
                         Container(id="dash_node_info"),
                         id="detail_pane",
                     )
-            with TabPane("Graph", id="tab_dag"):
+            with TabPane("(G)raph", id="tab_dag"):
                 yield DAGDisplay(id="dag_content")
-            with TabPane("Compare", id="tab_compare"):
+            with TabPane("(C)ompare", id="tab_compare"):
                 yield VerticalScroll(
                     Label(
                         "Press 'c' to select nodes for comparison, 'D' to diff",
@@ -1604,9 +1621,9 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     ),
                     id="compare_content",
                 )
-            with TabPane("Actions", id="tab_actions"):
+            with TabPane("(A)ctions", id="tab_actions"):
                 yield VerticalScroll(id="actions_content")
-            with TabPane("Status", id="tab_status"):
+            with TabPane("(S)tatus", id="tab_status"):
                 with Horizontal(id="status_header", classes="status-header"):
                     yield Label("Status", classes="status_pane_title")
                     yield PollingIndicator(id="status_polling_indicator")
