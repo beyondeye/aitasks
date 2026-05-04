@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [testing, tui, monitor]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-03 19:14
-updated_at: 2026-05-04 15:32
+updated_at: 2026-05-04 16:26
 ---
 
 ## Origin
