@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t623_3]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [install_scripts, installation, packaging, debian, ubuntu, wsl, ci]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-22 18:58
-updated_at: 2026-05-04 15:32
+updated_at: 2026-05-04 15:54
+completed_at: 2026-05-04 15:54
 ---
 
 ## Context
