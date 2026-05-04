@@ -1,0 +1,12 @@
+agent_name: patcher_001
+agent_type: patcher
+group: patch_001
+launch_mode: interactive
+status: Waiting
+depends_on: []
+created_at: 2026-05-04 12:51:44
+started_at:
+completed_at:
+progress: 0
+pid:
+error_message:
