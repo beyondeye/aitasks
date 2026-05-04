@@ -220,13 +220,69 @@ After review and approval, the standard archival flow applies:
 - Run `./.aitask-scripts/aitask_archive.sh 623_4` to mark Done, move task and
   plan into archived/, release the lock, and commit. Push with `./ait git push`.
 
-## Final Implementation Notes (to be filled in post-implementation)
+## Final Implementation Notes
 
 - **Actual work done:**
-- **Deviations from plan:**
-- **Issues encountered:**
+  - Created `packaging/nfpm/nfpm.yaml` with the shared nfpm config (deb
+    overrides for the 8 deps + 2 recommends; `gh` and `glab` listed
+    individually since nfpm's deb generator does not emit alternatives
+    syntax). Verified locally that the resulting control file lists
+    `Recommends: gh, glab`.
+  - Created `packaging/nfpm/postinstall.sh` (executable) printing the
+    "Run 'ait setup'" hint.
+  - Appended `build-deb` and `test-deb` jobs to
+    `.github/workflows/release-packaging.yml`, after the existing
+    `publish-aur` job. `test-deb` matrix covers `ubuntu:22.04`,
+    `ubuntu:24.04`, `debian:12` with `fail-fast: false`.
+
+- **Deviations from plan:** None.
+
+- **Issues encountered:** None during implementation. Local validation
+  was performed via the `goreleaser/nfpm:latest` Docker image (nfpm not
+  installed natively on the dev machine), and via a `debian:12`
+  container for the install/uninstall round-trip.
+
 - **Key decisions:**
-- **Upstream defects identified:**
-- **Notes for sibling tasks:** (t623_5 extends this child's nfpm.yaml — document
-  any postinstall conventions, group/section quirks, or nfpm version pin
-  decisions).
+  - `recommends:` listed as separate entries `gh` and `glab` rather than
+    a Debian "or" alternative (`gh | glab`) — nfpm's deb generator
+    serializes each list entry verbatim with comma separators, so the
+    "or" alternative would have to be written as a single literal
+    string. The packaging-strategy doc lists it as `gh | glab` only at
+    the doc level; the actual control file ends up `gh, glab`, which
+    is functionally equivalent (apt treats them as independent
+    recommends, neither blocking install). Documented here in case
+    t623_5 (rpm) needs to make a different choice.
+  - No `needs:` linkage between `build-deb` and the homebrew/aur jobs —
+    the deb path is independent and parallelizable.
+  - Pinned `goreleaser/nfpm-action@v1` (major version) consistent with
+    the existing `KSXGitHub/github-actions-deploy-aur@v4.1.2` pinning
+    style — major-version pin is sufficient for nfpm-action because
+    its v1 surface is stable.
+
+- **Local verification done:**
+  - `docker run --rm goreleaser/nfpm:latest package --packager deb --config packaging/nfpm/nfpm.yaml --target …` → built a 1936-byte `.deb`.
+  - `dpkg-deb --contents` → lists only `/usr/bin/ait`.
+  - `dpkg-deb --info` → confirms `Package: aitasks`, `Architecture: all`, `Depends: bash (>= 4.0), python3 (>= 3.9), fzf, jq, git, zstd, tar, curl`, `Recommends: gh, glab`.
+  - `apt-get install` on `debian:12` → postinst printed the hint, `/usr/bin/ait` executable, `ait --help` lists commands, `ait some-command` from `/tmp` emits "No ait project found" matching the test-deb grep.
+  - `apt-get remove -y aitasks` → `/usr/bin/ait` removed.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t623_5 (rpm):** The same `packaging/nfpm/nfpm.yaml` should be
+    extended with an `overrides.rpm:` block (using `requires:` /
+    `recommends:` keys with rpm-style version pins like
+    `bash >= 4.0`). The shared `contents:` block stays as-is — rpm
+    will install the shim to `/usr/bin/ait` on the same paths.
+  - **postinst convention:** `packaging/nfpm/postinstall.sh` is a single
+    `echo` line, intentionally no-op for state. If t623_5 needs an rpm
+    `%post` script, it can either reuse this same file via
+    `scripts.postinstall` (nfpm dispatches to the right scriptlet
+    section per packager) or add a separate file — both work.
+  - **Version pin on nfpm-action:** keep `@v1` major pin in sync with
+    the t623_5 rpm job — divergence between deb/rpm builds on the
+    same release is undesirable.
+  - **Release-asset URL pattern:** `aitasks_${VERSION}_all.deb` follows
+    Debian convention (`<name>_<version>_<arch>.deb`); t623_5's rpm
+    asset should follow rpm convention
+    (`aitasks-${VERSION}-1.noarch.rpm`).
