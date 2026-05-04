@@ -38,6 +38,8 @@ from textual.reactive import reactive
 
 from rich.text import Text
 
+from diffviewer.diff_display import word_diff_texts, TAG_STYLES
+
 from brainstorm.brainstorm_dag import (
     get_dimension_fields,
     get_head,
@@ -3000,22 +3002,41 @@ class BrainstormApp(TuiSwitcherMixin, App):
         # Add dimension rows with color-coded values
         for key in all_keys:
             raw_values = [str(node_dims[nid].get(key, "\u2014")) for nid in selected_nodes]
-
-            # Determine color based on similarity
             unique = set(raw_values)
+            n = len(selected_nodes)
+
             if len(unique) == 1:
-                color = "green"
+                # Equal values: collapse to a single visible value (DataTable
+                # cannot span cells, so use a "\u2190 same" marker for n == 2).
+                if n == 2:
+                    styled = [
+                        Text(raw_values[0], style="green"),
+                        Text("\u2190 same", style="dim green"),
+                    ]
+                else:
+                    styled = [Text(v, style="green") for v in raw_values]
+                table.add_row(key, *styled, key=key)
+                continue
+
+            # Differing values
+            if n == 2:
+                v1, v2 = raw_values
+                t1, t2 = word_diff_texts(
+                    v1, v2,
+                    TAG_STYLES["replace"], TAG_STYLES["replace"],
+                    TAG_STYLES["replace_dim"], TAG_STYLES["replace_dim"],
+                )
+                table.add_row(key, t1, t2, key=key)
             else:
                 max_sim = 0.0
-                for i, v1 in enumerate(raw_values):
-                    for v2 in raw_values[i + 1 :]:
-                        sim = SequenceMatcher(None, v1, v2).ratio()
+                for i, x in enumerate(raw_values):
+                    for y in raw_values[i + 1:]:
+                        sim = SequenceMatcher(None, x, y).ratio()
                         if sim > max_sim:
                             max_sim = sim
                 color = "yellow" if max_sim > 0.6 else "red"
-
-            styled = [Text(v, style=color) for v in raw_values]
-            table.add_row(key, *styled, key=key)
+                styled = [Text(v, style=color) for v in raw_values]
+                table.add_row(key, *styled, key=key)
 
         # Add similarity score summary row
         self._add_similarity_row(table, selected_nodes, node_dims, all_keys)

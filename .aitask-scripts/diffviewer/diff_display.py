@@ -115,7 +115,7 @@ def _styled_lineno(lineno: int | None, tag: str, prefix: str = "") -> Text:
     return Text(text, style=style)
 
 
-def _word_diff_texts(
+def word_diff_texts(
     main_line: str,
     other_line: str,
     main_style: Style,
@@ -160,6 +160,10 @@ def _word_diff_texts(
                 other_text.stylize(other_style, char_start, char_end)
 
     return main_text, other_text
+
+
+_word_diff_texts = word_diff_texts  # back-compat alias for internal callers
+
 
 # Plan identifier colors for multi-diff gutter
 PLAN_COLORS = [
