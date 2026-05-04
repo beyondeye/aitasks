@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [testing, external_tools, codex, gemini]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-03 16:30
-updated_at: 2026-05-03 16:30
+updated_at: 2026-05-04 23:57
 ---
 
 ## Context
