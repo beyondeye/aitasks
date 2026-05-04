@@ -1,8 +1,56 @@
 node_id: n000_init
 parents: []
-description: 'Imported proposal (awaiting reformat): aitask-gate-framework.md'
+description: 'Stateful multi-pass task execution via named gate checkpoints: declared
+  in frontmatter, logged as markers'
 proposal_file: br_proposals/n000_init.md
-created_at: 2026-04-27 22:41
+created_at: 2026-04-27 19:47
 created_by_group: bootstrap
 reference_files:
-- /home/ddt/Work/aitasks/aidocs/gates/aitask-gate-framework.md
+- aidocs/gates/aitask-gate-framework.md
+- aitasks/t635_gates_framework.md
+requirements_stateful_reentry: Re-running a skill on the same task must skip already-done
+  work and resume from the first unmet gate
+requirements_multi_dimensional_state: Tests, review, and docs states must be independently
+  trackable and passable, not collapsed into one linear status
+requirements_parallel_verification: Machine gates with no dependency relationship
+  must be runnable concurrently
+requirements_local_file_authority: Task file must be the single source of truth; remote
+  surfaces are read-only projections
+requirements_human_gate_safety: "Agents must never create signals for human gates\
+  \ \u2014 non-negotiable autonomy control"
+assumption_local_file_authority: Local task file is the authoritative gate state store;
+  remote issue tracker is a projection only
+assumption_additive_adoption: "Tasks without a gates field behave exactly as today\
+  \ \u2014 the framework is fully backward-compatible"
+assumption_no_persisted_gate_status: No gates_passed or gates_failed fields exist;
+  status is derived from Gate Runs section on every read
+assumption_marker_first_format: "Gate run records are marker-first blockquotes \u2014\
+  \ self-delimiting and grep-friendly without custom parsing"
+assumption_task_gate_list_authoritative: Task explicit gates list is authoritative;
+  default_gates in registry used only when task has no gates field
+assumption_human_gate_non_automatable: Human gate signals must come from humans; agents
+  must never bypass or automate signal creation
+assumption_orchestrator_stateless: The orchestrator re-derives all gate state on every
+  invocation; it holds no cross-invocation state of its own
+component_gate_registry: "aitasks/metadata/gates.yaml \u2014 per-gate config: verifier\
+  \ skill, type, max_retries, unlock DAG, signal config"
+component_orchestrator_skill: "aitask-run-gates \u2014 stateless re-entrant skill\
+  \ that reads task + registry, computes unlocked set, and dispatches verifiers"
+component_verifier_skills: "aitask-gate-<name> skill family \u2014 individual gate\
+  \ checkers following a standard five-step contract"
+component_gate_runs_section: "append-only ## Gate Runs section in task body \u2014\
+  \ the event log from which derived gate state is computed"
+component_gate_cli: "scripts/gates.sh \u2014 ait gates/gate subcommands: list, status,\
+  \ unlocked, run, append, pass, fail, log"
+component_sidecar_logs: ".aitask-gates/<task-id>/ \u2014 per-run verifier output logs\
+  \ and remote mirror state cache"
+component_remote_projection: label mirror + singleton comment + event comments via
+  existing multi-platform dispatcher
+tradeoff_marker_vs_fences: "Marker-first blockquotes chosen over paired fences \u2014\
+  \ grep-friendly and avoids mismatched-closer bug on back-to-back same-gate runs"
+tradeoff_derived_vs_persisted_state: "Gate status derived from event log on every\
+  \ read rather than stored as fields \u2014 eliminates drift at cost of re-parsing"
+tradeoff_local_authority_vs_remote_feedback: Local file stays authoritative; one narrow
+  carve-out for reading authorized comment signals from human gates
+tradeoff_bash_vs_python_parser: Primary gate-run parser is bash/awk; Python escape
+  hatch available when awk edge cases arise (AIT_GATES_BACKEND=python)
