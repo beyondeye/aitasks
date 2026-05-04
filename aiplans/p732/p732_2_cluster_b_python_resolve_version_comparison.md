@@ -73,3 +73,17 @@ The two test files now carry identical 4-line REAL_PY resolution blocks. The ait
 ## Step 9
 
 Archive via `./.aitask-scripts/aitask_archive.sh 732_2`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Replaced the 2-line `REAL_PY="$(command -v python3)"` block in `tests/test_python_resolve.sh:42-43` with the 4-line `sys.executable`-first resolution block (with the `[[ -z || ! -x ]]` fallback guard) plus the explanatory comment. Identical to `tests/test_python_resolve_pypy.sh:42-47`.
+- **Deviations from plan:** None — fix matched the verified plan exactly. The lex-vs-numeric comparator hypothesis was ruled out during verification (the plan was updated before implementation to record the correct root cause).
+- **Issues encountered:** The original task description and pre-verify plan misdiagnosed the bug as a "version-comparison logic" issue inside `lib/python_resolve.sh`. The misdiagnosis came from the test's misleading "Python >=3.11 required (found 3.13.0 …)" error, which is emitted by `require_modern_python` when the `-c` exit is non-zero for *any* reason — including the wrapper failure (exit 127). Verification used `bash --noprofile --norc -c '... 2>&1'` (without the `2>/dev/null` redirect that hides the wrapper's stderr) to surface the actual `No such file or directory` error.
+- **Key decisions:**
+  - No production-code change. The framework comparator was already correct, so editing `lib/python_resolve.sh` would have introduced unnecessary churn.
+  - Mirrored the existing pattern rather than extracting a shared helper — kept scope minimal and reviewable. If a `tests/lib/` helper is desired, it belongs in a separate test-scaffold refactor task. (Two callers is below the typical bar for extraction; revisit when a third caller appears.)
+- **Upstream defects identified:** None. The wrapper at `~/.aitask/bin/python3` (`exec "$HOME/.aitask/venv/bin/python" "$@"`) behaves correctly under normal use; it is only fragile inside test scaffolding that overrides `HOME`. That is a test-side concern, not a wrapper defect.
+- **Notes for sibling tasks:**
+  - Cluster B is now fully addressed; all four tests covered by this cluster pass (test_python_resolve: 8/8; test_python_resolve_pypy: 9/9 — already passing pre-task).
+  - Pattern worth remembering for sibling failures (clusters C/D especially): when a test that overrides `HOME` calls a host-side `python3`, verify that `command -v python3` is not picking up `~/.aitask/bin/python3`. The same `sys.executable`-first pattern is the canonical workaround.
+  - When a test reports a misleading error from a stderr-suppressed call site (`2>/dev/null`), re-run the failing call without the redirect inside the same `bash --noprofile --norc` subshell to surface the underlying error before assuming the surface message is correct.
