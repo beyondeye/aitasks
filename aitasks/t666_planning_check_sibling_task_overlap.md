@@ -7,7 +7,7 @@ status: Ready
 labels: [task_workflow, aitask_pick, claudeskills]
 created_at: 2026-04-27 11:41
 updated_at: 2026-04-27 11:41
-boardidx: 160
+boardidx: 190
 ---
 
 Add a step to the planning workflow that requires the agent to search for
