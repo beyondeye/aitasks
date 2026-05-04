@@ -3040,9 +3040,21 @@ class BrainstormApp(TuiSwitcherMixin, App):
         """Patch config (node already selected): patch request."""
         node_id = self._wizard_config.get("_selected_node", "?")
         container.mount(Label(f"[bold]Node:[/] {node_id}"))
-        container.mount(Label("[bold]Patch Request[/]"))
-        container.mount(TextArea(""))
-        container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+        container.mount(
+            Label("[bold]Patch Request[/] \u2014 describe the change to apply to this node")
+        )
+        container.mount(
+            Label("[dim]Type your patch request in the text area below.[/]")
+        )
+        container.mount(TextArea("", classes="ta_patch_request"))
+        container.mount(
+            Button(
+                "Next \u25b6",
+                variant="primary",
+                classes="btn_actions_next",
+                disabled=True,
+            )
+        )
 
     def _config_session_op(self, container: VerticalScroll) -> None:
         """Session operation config: confirmation only."""
@@ -3330,6 +3342,15 @@ class BrainstormApp(TuiSwitcherMixin, App):
             # Config step for 4- or 5-step ops
             if self._actions_collect_config():
                 self._actions_show_confirm()
+
+    @on(TextArea.Changed, ".ta_patch_request")
+    def _on_patch_request_changed(self, event: TextArea.Changed) -> None:
+        """Enable Next button only when the patch request TextArea is non-empty."""
+        has_text = bool(event.text_area.text.strip())
+        try:
+            self.query_one(".btn_actions_next", Button).disabled = not has_text
+        except Exception:
+            pass
 
     @on(Button.Pressed, ".btn_runner_start")
     def _on_runner_start(self, event: Button.Pressed) -> None:
