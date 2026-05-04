@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t623_4]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [install_scripts, installation, packaging, fedora, rhel, ci]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-22 18:58
-updated_at: 2026-05-03 18:56
+updated_at: 2026-05-04 15:59
 ---
 
 ## Context
