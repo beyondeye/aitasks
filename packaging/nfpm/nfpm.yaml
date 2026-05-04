@@ -1,0 +1,39 @@
+name: aitasks
+arch: all
+platform: linux
+version: ${VERSION}
+version_schema: semver
+section: utils
+priority: optional
+maintainer: aitasks maintainers <noreply@aitasks.io>
+description: |
+  File-based task management framework for AI coding agents.
+  Installs the ait global shim. Run 'ait setup' in your project to
+  bootstrap the framework.
+vendor: aitasks
+homepage: https://aitasks.io/
+license: Apache-2.0
+
+contents:
+  - src: ./packaging/shim/ait
+    dst: /usr/bin/ait
+    file_info:
+      mode: 0755
+
+overrides:
+  deb:
+    depends:
+      - bash (>= 4.0)
+      - python3 (>= 3.9)
+      - fzf
+      - jq
+      - git
+      - zstd
+      - tar
+      - curl
+    recommends:
+      - gh
+      - glab
+
+scripts:
+  postinstall: ./packaging/nfpm/postinstall.sh
