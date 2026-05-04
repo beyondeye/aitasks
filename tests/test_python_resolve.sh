@@ -38,8 +38,11 @@ assert_contains() {
     fi
 }
 
-# Resolve a real Python interpreter on the host for stub delegation
-REAL_PY="$(command -v python3)"
+# Resolve to the underlying interpreter so stubs work after HOME is overridden.
+# (`command -v python3` may return the framework wrapper at ~/.aitask/bin/python3,
+# which exec's into $HOME/.aitask/venv/bin/python — broken once HOME=$SCRATCH.)
+REAL_PY="$(python3 -c 'import sys; print(sys.executable)' 2>/dev/null)"
+[[ -z "$REAL_PY" || ! -x "$REAL_PY" ]] && REAL_PY="$(command -v python3)"
 [[ -z "$REAL_PY" ]] && { echo "No python3 on host; cannot run tests."; exit 2; }
 
 TEST_BASH="$(command -v bash)"
