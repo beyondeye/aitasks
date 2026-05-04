@@ -135,6 +135,20 @@ class SyncerApp(TuiSwitcherMixin, App):
         fetch_state = "on" if self._fetch else "off"
         self.sub_title = f"interval={self._interval}s  fetch={fetch_state}"
 
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        selected = self._selected_ref_name()
+        if action == "sync_data" and selected != "aitask-data":
+            return None
+        if action in ("pull", "push") and selected != "main":
+            return None
+        return True
+
+    def _set_busy(self, busy: bool) -> None:
+        try:
+            self.query_one("#branches", DataTable).loading = busy
+        except Exception:
+            pass
+
     def action_refresh(self) -> None:
         self._refresh_worker()
 
@@ -242,34 +256,20 @@ class SyncerApp(TuiSwitcherMixin, App):
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         self._refresh_detail()
+        self.refresh_bindings()
 
     # ---------------------------------------------------------------- actions
 
     def action_sync_data(self) -> None:
-        if self._selected_ref_name() != "aitask-data":
-            self.notify(
-                "Sync (s) is for aitask-data only — use u/p for main.",
-                severity="warning",
-            )
-            return
+        self._set_busy(True)
         self._sync_data_worker()
 
     def action_pull(self) -> None:
-        if self._selected_ref_name() != "main":
-            self.notify(
-                "Pull (u) is wired for main only — use s to sync aitask-data.",
-                severity="warning",
-            )
-            return
+        self._set_busy(True)
         self._main_pull_worker()
 
     def action_push(self) -> None:
-        if self._selected_ref_name() != "main":
-            self.notify(
-                "Push (p) is wired for main only — use s to sync aitask-data.",
-                severity="warning",
-            )
-            return
+        self._set_busy(True)
         self._main_push_worker()
 
     def action_agent_resolve(self) -> None:
@@ -282,8 +282,11 @@ class SyncerApp(TuiSwitcherMixin, App):
 
     @work(thread=True, exclusive=True, group="syncer-action")
     def _sync_data_worker(self) -> None:
-        result = run_sync_batch()
-        self.call_from_thread(self._on_data_sync_done, result)
+        try:
+            result = run_sync_batch()
+            self.call_from_thread(self._on_data_sync_done, result)
+        finally:
+            self.call_from_thread(self._set_busy, False)
 
     def _on_data_sync_done(self, result: SyncResult) -> None:
         status = result.status
@@ -363,62 +366,68 @@ class SyncerApp(TuiSwitcherMixin, App):
 
     @work(thread=True, exclusive=True, group="syncer-action")
     def _main_pull_worker(self) -> None:
-        cwd = self._main_worktree()
-        if not cwd:
-            self.call_from_thread(
-                self.notify, "main worktree not available", severity="error"
-            )
-            return
+        try:
+            cwd = self._main_worktree()
+            if not cwd:
+                self.call_from_thread(
+                    self.notify, "main worktree not available", severity="error"
+                )
+                return
 
-        rc, head, _ = self._git(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
-        head_name = head.strip() if rc == 0 else "?"
-        if head_name != "main":
-            self.call_from_thread(
-                self.notify,
-                f"Switch to main to pull (currently on {head_name}).",
-                severity="warning",
-            )
-            return
+            rc, head, _ = self._git(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
+            head_name = head.strip() if rc == 0 else "?"
+            if head_name != "main":
+                self.call_from_thread(
+                    self.notify,
+                    f"Switch to main to pull (currently on {head_name}).",
+                    severity="warning",
+                )
+                return
 
-        rc, status_out, _ = self._git(["status", "--porcelain"], cwd)
-        if rc == 0 and status_out.strip():
-            self.call_from_thread(
-                self.notify,
-                "Working tree dirty — stash or commit before pulling.",
-                severity="warning",
-            )
-            return
+            rc, status_out, _ = self._git(["status", "--porcelain"], cwd)
+            if rc == 0 and status_out.strip():
+                self.call_from_thread(
+                    self.notify,
+                    "Working tree dirty — stash or commit before pulling.",
+                    severity="warning",
+                )
+                return
 
-        rc, out, err = self._git(["pull", "--ff-only"], cwd)
-        cmd = "git -C <main> pull --ff-only"
-        if rc != 0:
-            tail = "\n".join((err or out).splitlines()[-FAILURE_TAIL_LINES:])
-            self.call_from_thread(
-                self._fail, "main", "pull", cmd, "ERROR", tail, out + err,
-            )
-            return
-        self.call_from_thread(self.notify, "main: Pulled.", severity="information")
-        self.call_from_thread(self.action_refresh)
+            rc, out, err = self._git(["pull", "--ff-only"], cwd)
+            cmd = "git -C <main> pull --ff-only"
+            if rc != 0:
+                tail = "\n".join((err or out).splitlines()[-FAILURE_TAIL_LINES:])
+                self.call_from_thread(
+                    self._fail, "main", "pull", cmd, "ERROR", tail, out + err,
+                )
+                return
+            self.call_from_thread(self.notify, "main: Pulled.", severity="information")
+            self.call_from_thread(self.action_refresh)
+        finally:
+            self.call_from_thread(self._set_busy, False)
 
     @work(thread=True, exclusive=True, group="syncer-action")
     def _main_push_worker(self) -> None:
-        cwd = self._main_worktree()
-        if not cwd:
-            self.call_from_thread(
-                self.notify, "main worktree not available", severity="error"
-            )
-            return
+        try:
+            cwd = self._main_worktree()
+            if not cwd:
+                self.call_from_thread(
+                    self.notify, "main worktree not available", severity="error"
+                )
+                return
 
-        rc, out, err = self._git(["push", "origin", "main:main"], cwd)
-        cmd = "git -C <main> push origin main:main"
-        if rc != 0:
-            tail = "\n".join((err or out).splitlines()[-FAILURE_TAIL_LINES:])
-            self.call_from_thread(
-                self._fail, "main", "push", cmd, "ERROR", tail, out + err,
-            )
-            return
-        self.call_from_thread(self.notify, "main: Pushed.", severity="information")
-        self.call_from_thread(self.action_refresh)
+            rc, out, err = self._git(["push", "origin", "main:main"], cwd)
+            cmd = "git -C <main> push origin main:main"
+            if rc != 0:
+                tail = "\n".join((err or out).splitlines()[-FAILURE_TAIL_LINES:])
+                self.call_from_thread(
+                    self._fail, "main", "push", cmd, "ERROR", tail, out + err,
+                )
+                return
+            self.call_from_thread(self.notify, "main: Pushed.", severity="information")
+            self.call_from_thread(self.action_refresh)
+        finally:
+            self.call_from_thread(self._set_busy, False)
 
     # ---------------------------------------------------- failure escape hatch
 
