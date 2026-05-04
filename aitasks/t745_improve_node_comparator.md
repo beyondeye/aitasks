@@ -5,7 +5,7 @@ depends: []
 issue_type: enhancement
 status: Implementing
 labels: [ait_brainstorm]
-children_to_implement: [t745_1, t745_2]
+children_to_implement: [t745_1, t745_2, t745_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-04 18:51
 updated_at: 2026-05-04 22:21
