@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: [t623_4]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [install_scripts, installation, packaging, fedora, rhel, ci]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-22 18:58
-updated_at: 2026-05-04 15:59
+updated_at: 2026-05-04 16:24
+completed_at: 2026-05-04 16:24
 ---
 
 ## Context
