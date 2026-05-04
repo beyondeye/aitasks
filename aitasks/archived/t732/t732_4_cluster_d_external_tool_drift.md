@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [testing, external_tools, codex, gemini]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-03 16:30
-updated_at: 2026-05-05 00:52
+updated_at: 2026-05-05 01:06
+completed_at: 2026-05-05 01:06
 ---
 
 ## Context
