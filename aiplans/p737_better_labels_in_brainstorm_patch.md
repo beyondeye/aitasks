@@ -153,3 +153,37 @@ After review and commit, follow the standard archival flow per
 `.claude/skills/task-workflow/SKILL.md` Step 9 (no separate branch — current
 branch). Run the project's `verify_build` if configured, then
 `./.aitask-scripts/aitask_archive.sh 737`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Two edits inside
+  `.aitask-scripts/brainstorm/brainstorm_app.py`:
+  1. `_config_patch_no_node` (around line 3039) — replaced the bare
+     `[bold]Patch Request[/]` label with an instructional bold label
+     ("Patch Request — describe the change to apply to this node") plus a
+     `[dim]` helper line ("Type your patch request in the text area below.").
+     The TextArea now carries `classes="ta_patch_request"` and the Next button
+     is mounted with `disabled=True`.
+  2. New `@on(TextArea.Changed, ".ta_patch_request") _on_patch_request_changed`
+     handler placed immediately after `_on_actions_next` (around line 3346).
+     Toggles `.btn_actions_next` `disabled` based on `event.text_area.text.strip()`.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. The decorator + class-scoped CSS selector
+  pattern was already in use elsewhere in the file (e.g. the existing
+  `@on(Button.Pressed, ".btn_actions_next")` handler), so no new imports were
+  needed.
+- **Key decisions:** Kept scope tight to the patch wizard only. Explore-mandate
+  and hybridize-merge-rules wizard steps share the same UX pattern but were
+  intentionally not modified per the task description; if the user wants the
+  same treatment there, those should be follow-up tasks rather than scope
+  creep here.
+- **Upstream defects identified:** None.
+- **Verification performed:**
+  - Static: `python -c "import ast; ast.parse(...)"` passes; full module
+    imports cleanly via `BrainstormApp` and the new method is present.
+  - Unit tests: all 76 brainstorm unit tests pass
+    (`test_brainstorm_dag`, `test_brainstorm_sections`, `test_brainstorm_schemas`,
+    `test_brainstorm_session`, `test_brainstorm_wizard_sections`).
+  - Manual TUI verification: deferred to the user — the implementing agent
+    cannot drive Textual TUIs interactively from a non-TTY shell. The
+    "Verification" section above documents the steps to run.
