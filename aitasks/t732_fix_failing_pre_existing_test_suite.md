@@ -5,9 +5,9 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [testing, qa, bash_scripts]
-children_to_implement: [t732_3, t732_4, t732_6, t732_7]
+children_to_implement: [t732_4, t732_6, t732_7]
 created_at: 2026-05-03 12:37
-updated_at: 2026-05-04 17:30
+updated_at: 2026-05-04 23:48
 boardcol: now
 boardidx: 20
 ---

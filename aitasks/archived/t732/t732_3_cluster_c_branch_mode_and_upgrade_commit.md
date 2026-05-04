@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [testing, branch_mode, upgrade, install_scripts]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-03 16:30
 updated_at: 2026-05-04 23:48
+completed_at: 2026-05-04 23:48
 ---
 
 ## Context
