@@ -387,3 +387,79 @@ Cases:
 5. **Step 9 (Post-Implementation):** follow the standard task-workflow
    archive flow on the current branch (no worktree, fast profile). Plan
    file → `aiplans/p743_brainstorm_apply_patcher_output.md`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as designed across three layers:
+  engine (`brainstorm_session.py:apply_patcher_output` + `_patcher_needs_apply`
+  + `_classify_impact` + `_agent_to_group_name` + delimiter/non-dimension
+  constants), TUI (`brainstorm_app.py:_patcher_sources` tracking, register-time
+  hook in `_run_step2_workflow` patch branch, `_scan_existing_patchers`
+  restart-recovery via input-file regex, 5 s `_patcher_poll_timer`,
+  `_try_apply_patcher_if_needed`, `#patcher_impact_banner` Static widget,
+  `Ctrl+Shift+R` retry binding with `show=False` so the footer isn't
+  cluttered), CLI wrapper + ait route + 5-touchpoint whitelist + tests.
+- **Deviations from plan:** One small but load-bearing addition not in the
+  original plan: the agent-emitted METADATA always carries the *source*
+  proposal_file (per the patcher template — "copy of the parent's YAML with
+  only node_id and parents updated"), which violates `validate_node`'s
+  `node_id ∈ proposal_file` invariant. The fix is a 2-line override of
+  `node_data["proposal_file"]` to `f"{PROPOSALS_DIR}/{new_node_id}.md"` right
+  before `validate_node`. Surfaced by failing tests on the first run; the
+  override is also what `create_node` writes authoritatively, so semantics
+  match.
+- **Issues encountered:** First test run had 2 failures and 7 errors, all
+  from the same root cause (proposal_file invariant above) plus one test
+  bug (forgot to seed `patcher_007_output.md` for the agent_name=patcher_007
+  case). Fixed; final run: 18/18 + 7/7 CLI + 78/78 brainstorm regression.
+- **Key decisions:**
+  - **Source proposal handling:** Reuse parent's proposal verbatim under the
+    new node id via `read_proposal(source_node_id)` + `create_node`. Avoids
+    introducing a new "shared proposal" mechanism.
+  - **Source-node tracking:** In-memory `_patcher_sources` dict for the live
+    case; restart-recovery via parsing the patcher's `_input.md` (the
+    `- Metadata: …/br_nodes/<source>.yaml` line written by
+    `_assemble_input_patcher`). No new persistent file added — keeps the
+    `br_groups.yaml` field untouched (it's still empty in real sessions).
+  - **Polling cadence:** Single 5 s `_patcher_poll_timer` started lazily
+    when the first patcher is registered; auto-stops when
+    `_patcher_sources` empties. Mirrors the initializer's polling pattern
+    but per-agent rather than per-session-singleton.
+  - **Idempotency / refusal-to-overwrite:** Apply raises `ValueError("node
+    n00X already exists")` when the target node is present, ensuring TUI
+    auto-apply and CLI fallback can't double-apply. `_patcher_needs_apply`
+    short-circuits the same gate at the poll layer so the TUI never
+    surfaces a spurious banner on restart.
+  - **Banner widget reuse:** `#patcher_impact_banner` Static reuses the
+    `initializer-banner` CSS class — same visual style, no new theme work.
+  - **Retry binding visibility:** `show=False` on `Ctrl+Shift+R` —
+    discoverable via the banner text ("run `ait brainstorm apply-patcher
+    …`") rather than crowding the footer with a rarely-used key.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks (t739 apply-explorer, t740 apply-synthesizer,
+  t741 apply-detailer):**
+  - `validate_node`'s `node_id ∈ proposal_file` invariant **will bite** any
+    sibling task that lets the agent's emitted `proposal_file` flow into
+    `validate_node` unchanged. Patterns:
+    - Explorer/synthesizer create *new* proposals → set
+      `node_data["proposal_file"] = f"{PROPOSALS_DIR}/{new_node_id}.md"`
+      before validation (or have create_node do it). Same fix as patcher.
+    - Detailer enriches an existing node → either skip the proposal_file
+      override (no new node) or, if a new node is created, mirror the
+      patcher fix.
+  - The `_patcher_sources` / `_register_<role>_source` /
+    `_scan_existing_<role>s` / poll-timer triple is reusable. Consider
+    factoring into a generic `_apply_poller<role>` helper *only after* at
+    least one sibling lands — premature today; matches CLAUDE.md "Refactor
+    duplicates before adding to them" only after the duplicate exists.
+  - The `_PATCHER_INPUT_META_RE` pattern (`-\s*Metadata:\s*\S+/br_nodes/(\w+)\.yaml`)
+    is specific to `_assemble_input_patcher`'s output. Detailer's
+    `_assemble_input_detailer` uses the same line ("- Metadata: …"); the
+    regex generalizes. Synthesizer uses multi-parent input (different
+    structure) — verify before reusing the regex.
+  - Reuse the impact-banner widget id pattern (`#<role>_impact_banner` or
+    `#<role>_apply_banner`) and the `initializer-banner` CSS class for
+    consistent banner styling across all four apply-flows.
+  - The 5-touchpoint whitelist must be repeated for each new helper script.
+    `aitask_audit_wrappers.sh audit-helper-whitelist <name>.sh` is the
+    canonical green-light check.
