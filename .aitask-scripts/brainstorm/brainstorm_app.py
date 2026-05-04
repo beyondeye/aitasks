@@ -759,7 +759,10 @@ def _next_checkbox_index(current: int | None, total: int, direction: int) -> int
 class CompareNodeSelectModal(ModalScreen):
     """Modal for selecting 2-4 nodes to compare in the dimension matrix."""
 
-    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+        Binding("c", "confirm", "Compare"),
+    ]
 
     def __init__(self, node_ids: list[str]):
         super().__init__()
@@ -769,15 +772,18 @@ class CompareNodeSelectModal(ModalScreen):
         with Container(id="compare_select_dialog"):
             yield Label("Select 2\u20134 nodes to compare", id="compare_select_title")
             yield Label(
-                "[dim]\u2191\u2193 Navigate  Space/Enter Toggle[/dim]",
+                "[dim]\u2191\u2193 Navigate  Space/Enter Toggle  c Compare[/dim]",
                 id="compare_select_hint",
             )
             with VerticalScroll(id="compare_checkbox_list"):
                 for nid in self.node_ids:
                     yield Checkbox(nid, id=f"chk_cmp_{nid}")
             with Horizontal(id="compare_select_buttons"):
-                yield Button("Compare", variant="primary", id="btn_compare")
+                yield Button("(C)ompare", variant="primary", id="btn_compare")
                 yield Button("Cancel", variant="default", id="btn_compare_cancel")
+
+    def on_mount(self) -> None:
+        self._update_compare_button()
 
     def _get_selected(self) -> list[str]:
         return [
@@ -785,6 +791,18 @@ class CompareNodeSelectModal(ModalScreen):
             for nid in self.node_ids
             if self.query_one(f"#chk_cmp_{nid}", Checkbox).value
         ]
+
+    def _update_compare_button(self) -> None:
+        try:
+            btn = self.query_one("#btn_compare", Button)
+        except Exception:
+            return
+        count = len(self._get_selected())
+        btn.disabled = not (2 <= count <= 4)
+
+    @on(Checkbox.Changed)
+    def _on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        self._update_compare_button()
 
     def on_key(self, event) -> None:
         if event.key in ("up", "down"):
@@ -814,7 +832,10 @@ class CompareNodeSelectModal(ModalScreen):
         return True
 
     @on(Button.Pressed, "#btn_compare")
-    def confirm(self) -> None:
+    def _on_compare_pressed(self) -> None:
+        self.action_confirm()
+
+    def action_confirm(self) -> None:
         selected = self._get_selected()
         if len(selected) < 2:
             self.notify("Select at least 2 nodes", severity="warning")
@@ -1571,6 +1592,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         Binding("c", "tab_compare", "Compare", show=False),
         Binding("a", "tab_actions", "Actions", show=False),
         Binding("s", "tab_status", "Status", show=False),
+        Binding("r", "compare_regenerate", "Regenerate"),
         Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
         Binding("ctrl+shift+r", "retry_patcher_apply",
                 "Retry patcher apply", show=False),
@@ -1579,7 +1601,9 @@ class BrainstormApp(TuiSwitcherMixin, App):
     # Maps action_name -> required tab id. check_action() hides the binding
     # from the footer when the active tab does not match. Sibling tasks
     # (t745_2, t745_4) populate this with their compare-tab actions.
-    _TAB_SCOPED_ACTIONS: dict[str, str] = {}
+    _TAB_SCOPED_ACTIONS: dict[str, str] = {
+        "compare_regenerate": "tab_compare",
+    }
 
     def __init__(self, task_num: str):
         super().__init__()
@@ -1670,7 +1694,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
             with TabPane("(C)ompare", id="tab_compare"):
                 yield VerticalScroll(
                     Label(
-                        "Press 'c' to select nodes for comparison, 'D' to diff",
+                        "Press 'r' to (re)select nodes, 'D' to open full diff",
                         id="compare_hint",
                     ),
                     id="compare_content",
@@ -1994,22 +2018,29 @@ class BrainstormApp(TuiSwitcherMixin, App):
             return
         self.query_one(TabbedContent).active = "tab_dag"
 
+    def _open_compare_select_modal(self) -> None:
+        nodes = list_nodes(self.session_path)
+        if len(nodes) < 2:
+            self.notify("Need at least 2 nodes to compare", severity="warning")
+            return
+        self.push_screen(
+            CompareNodeSelectModal(nodes),
+            callback=self._on_compare_selected,
+        )
+
     def action_tab_compare(self) -> None:
         if isinstance(self.screen, ModalScreen):
             return
         tabbed = self.query_one(TabbedContent)
         if tabbed.active == "tab_compare":
-            # Already on compare — trigger compare node select
-            nodes = list_nodes(self.session_path)
-            if len(nodes) < 2:
-                self.notify("Need at least 2 nodes to compare", severity="warning")
-            else:
-                self.push_screen(
-                    CompareNodeSelectModal(nodes),
-                    callback=self._on_compare_selected,
-                )
+            self._open_compare_select_modal()
             return
         tabbed.active = "tab_compare"
+
+    def action_compare_regenerate(self) -> None:
+        if isinstance(self.screen, ModalScreen):
+            return
+        self._open_compare_select_modal()
 
     def action_tab_actions(self) -> None:
         if isinstance(self.screen, ModalScreen):
