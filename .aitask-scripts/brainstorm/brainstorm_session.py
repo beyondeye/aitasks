@@ -28,7 +28,9 @@ from .brainstorm_dag import (  # noqa: E402
     PROPOSALS_DIR,
     create_node,
     next_node_id,
+    read_proposal,
     set_head,
+    update_node,
 )
 
 SESSION_FILE = "br_session.yaml"
@@ -395,3 +397,212 @@ def apply_initializer_output(task_num: int | str) -> None:
     (wt / PROPOSALS_DIR / "n000_init.md").write_text(
         proposal_text, encoding="utf-8"
     )
+
+
+_PATCHER_DELIMITERS = (
+    "PATCHED_PLAN_START", "PATCHED_PLAN_END",
+    "IMPACT_START", "IMPACT_END",
+    "METADATA_START", "METADATA_END",
+)
+
+# Structural fields the patcher emits inside METADATA. Stripped before the
+# remainder is passed to ``create_node`` as the ``dimensions`` dict, so that
+# proposal_file is set authoritatively to ``br_proposals/<new>.md`` (the
+# parent's path the agent emits would violate validate_node's
+# ``node_id ∈ proposal_file`` invariant).
+_PATCHER_NON_DIMENSION_FIELDS = frozenset({
+    "node_id", "parents", "description", "proposal_file",
+    "created_at", "created_by_group", "reference_files", "plan_file",
+})
+
+_AGENT_NAME_RE = re.compile(r"^([a-z]+)_([0-9A-Za-z_]+)$")
+
+
+def _agent_to_group_name(agent_name: str) -> str:
+    """Derive a group name from an agent name.
+
+    ``patcher_001`` → ``patch_001``. Returns the input unchanged if the
+    pattern does not match.
+    """
+    m = _AGENT_NAME_RE.match(agent_name)
+    if not m:
+        return agent_name
+    role, suffix = m.group(1), m.group(2)
+    role_to_group = {"patcher": "patch", "explorer": "explore",
+                     "synthesizer": "hybridize", "detailer": "detail"}
+    return f"{role_to_group.get(role, role)}_{suffix}"
+
+
+def _patcher_needs_apply(task_num: int | str, agent_name: str) -> bool:
+    """Return True iff ``<agent_name>_output.md`` contains all six patcher
+    delimiter tokens AND the new node id parsed from the METADATA block
+    does NOT already exist in ``br_nodes/``.
+
+    Guards against the registration-time placeholder ``_output.md``
+    written by ``aitask_crew_addwork.sh`` and against double-apply when
+    the TUI restarts after a successful apply.
+    """
+    wt = crew_worktree(task_num)
+    out_path = wt / f"{agent_name}_output.md"
+    if not out_path.is_file():
+        return False
+    try:
+        text = out_path.read_text(encoding="utf-8")
+    except Exception:
+        return False
+    if not all(token in text for token in _PATCHER_DELIMITERS):
+        return False
+    try:
+        meta_text = _extract_block(text, "METADATA_START", "METADATA_END")
+        meta = _tolerant_yaml_load(meta_text)
+    except Exception:
+        # Delimiters present but body unparseable — let the apply call
+        # surface the structured error.
+        return True
+    if not isinstance(meta, dict):
+        return True
+    new_node_id = meta.get("node_id")
+    if not new_node_id:
+        return True
+    return not (wt / NODES_DIR / f"{new_node_id}.yaml").exists()
+
+
+def _classify_impact(impact_text: str) -> tuple[str, str]:
+    """Return (impact_type, details) for an IMPACT block.
+
+    impact_type is exactly one of ``"NO_IMPACT"`` or ``"IMPACT_FLAG"``.
+    Raises ValueError if the block contains neither marker or both.
+    The full block text is returned as ``details`` for banner display.
+    """
+    has_no_impact = "**NO_IMPACT**" in impact_text
+    has_flag = "**IMPACT_FLAG**" in impact_text
+    if has_no_impact and has_flag:
+        raise ValueError(
+            "IMPACT block contains both **NO_IMPACT** and **IMPACT_FLAG**"
+        )
+    if not has_no_impact and not has_flag:
+        raise ValueError(
+            "IMPACT block must contain exactly one of "
+            "**NO_IMPACT** or **IMPACT_FLAG**"
+        )
+    return ("NO_IMPACT" if has_no_impact else "IMPACT_FLAG", impact_text.strip())
+
+
+def apply_patcher_output(
+    task_num: int | str,
+    agent_name: str,
+    source_node_id: str,
+) -> tuple[str, str, str]:
+    """Parse ``<agent_name>_output.md`` and integrate the patched plan as
+    a new node parented on ``source_node_id``.
+
+    Returns:
+        ``(new_node_id, impact_type, impact_details)``.
+        ``impact_type`` is ``"NO_IMPACT"`` or ``"IMPACT_FLAG"``.
+        ``impact_details`` is the IMPACT block text (stripped) so the TUI
+        can render the affected dimensions / justification verbatim.
+
+    Raises:
+        FileNotFoundError: output file missing OR source proposal missing.
+        ValueError: any delimiter missing, METADATA invalid, IMPACT block
+            ambiguous, or ``new_node_id`` already exists as a node.
+    """
+    wt = crew_worktree(task_num)
+    out_path = wt / f"{agent_name}_output.md"
+    if not out_path.is_file():
+        raise FileNotFoundError(f"No patcher output at {out_path}")
+
+    err_log = wt / f"{agent_name}_apply_error.log"
+
+    try:
+        text = out_path.read_text(encoding="utf-8")
+        plan_text = _extract_block(text, "PATCHED_PLAN_START", "PATCHED_PLAN_END")
+        impact_text = _extract_block(text, "IMPACT_START", "IMPACT_END")
+        meta_text = _extract_block(text, "METADATA_START", "METADATA_END")
+
+        from .brainstorm_schemas import validate_node
+
+        try:
+            node_data = _tolerant_yaml_load(meta_text)
+        except yaml.YAMLError as exc:
+            err_log.write_text(
+                f"apply_patcher_output failed at "
+                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"Original YAML parse error:\n{exc}\n\n"
+                f"METADATA block (first 2000 chars):\n{meta_text[:2000]}\n",
+                encoding="utf-8",
+            )
+            raise
+        if not isinstance(node_data, dict):
+            raise ValueError("patcher METADATA block did not parse as a dict")
+
+        if not node_data.get("created_at"):
+            node_data["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        if not node_data.get("created_by_group"):
+            node_data["created_by_group"] = _agent_to_group_name(agent_name)
+
+        # The patcher template tells the agent to emit a copy of the
+        # parent's YAML with only node_id/parents updated — so
+        # proposal_file still points at the parent. Override it here so
+        # validate_node sees the canonical ``node_id ∈ proposal_file``
+        # invariant; create_node will set the same value authoritatively
+        # below.
+        new_node_id = node_data.get("node_id")
+        if new_node_id:
+            node_data["proposal_file"] = f"{PROPOSALS_DIR}/{new_node_id}.md"
+
+        errs = validate_node(node_data)
+        if errs:
+            raise ValueError(f"patcher METADATA invalid: {errs}")
+
+        if (wt / NODES_DIR / f"{new_node_id}.yaml").exists():
+            raise ValueError(f"node {new_node_id} already exists")
+
+        impact_type, impact_details = _classify_impact(impact_text)
+
+        # Reuse the parent's proposal verbatim — the patcher edits the
+        # plan, never the proposal.
+        source_proposal_text = read_proposal(wt, source_node_id)
+
+        dimensions = {
+            k: v for k, v in node_data.items()
+            if k not in _PATCHER_NON_DIMENSION_FIELDS
+        }
+
+        create_node(
+            session_path=wt,
+            node_id=new_node_id,
+            parents=node_data["parents"],
+            description=node_data["description"],
+            dimensions=dimensions,
+            proposal_content=source_proposal_text,
+            group_name=node_data["created_by_group"],
+            reference_files=node_data.get("reference_files"),
+        )
+
+        plan_rel = f"{PLANS_DIR}/{new_node_id}_plan.md"
+        (wt / PLANS_DIR).mkdir(parents=True, exist_ok=True)
+        (wt / plan_rel).write_text(plan_text, encoding="utf-8")
+        update_node(wt, new_node_id, {"plan_file": plan_rel})
+
+        set_head(wt, new_node_id)
+        next_node_id(wt)
+
+        return new_node_id, impact_type, impact_details
+    except yaml.YAMLError:
+        # Already logged with full block context above.
+        raise
+    except Exception as exc:
+        # Catch-all error log so the TUI / CLI can surface a hint.
+        try:
+            err_log.write_text(
+                f"apply_patcher_output failed at "
+                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"agent_name: {agent_name}\n"
+                f"source_node_id: {source_node_id}\n\n"
+                f"Error: {type(exc).__name__}: {exc}\n",
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+        raise

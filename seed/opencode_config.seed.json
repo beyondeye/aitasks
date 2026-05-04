@@ -19,6 +19,7 @@
       "./.aitask-scripts/aitask_archive.sh *": "allow",
       "./.aitask-scripts/aitask_audit_wrappers.sh *": "allow",
       "./.aitask-scripts/aitask_brainstorm_apply_initializer.sh *": "allow",
+      "./.aitask-scripts/aitask_brainstorm_apply_patcher.sh *": "allow",
       "./.aitask-scripts/aitask_changelog.sh *": "allow",
       "./.aitask-scripts/aitask_claim_id.sh *": "allow",
       "./.aitask-scripts/aitask_codeagent.sh *": "allow",

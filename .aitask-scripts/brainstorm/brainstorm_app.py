@@ -1518,6 +1518,8 @@ class BrainstormApp(TuiSwitcherMixin, App):
         Binding("a", "tab_actions", "Actions"),
         Binding("s", "tab_status", "Status"),
         Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
+        Binding("ctrl+shift+r", "retry_patcher_apply",
+                "Retry patcher apply", show=False),
     ]
 
     def __init__(self, task_num: str):
@@ -1541,6 +1543,14 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._initializer_timer = None
         self._initializer_apply_error: str | None = None
         self._applying_initializer: bool = False
+        # Patcher auto-apply state. Maps agent_name -> source_node_id for
+        # patchers we should poll until applied. Populated at register
+        # time and refreshed at session-load by parsing existing
+        # patcher_*_input.md files.
+        self._patcher_sources: dict[str, str] = {}
+        self._applying_patcher: set[str] = set()
+        self._patcher_apply_errors: dict[str, str] = {}
+        self._patcher_poll_timer = None
         self._current_dashboard_node_id: str | None = None
         self._update_title_from_task()
 
@@ -1570,6 +1580,9 @@ class BrainstormApp(TuiSwitcherMixin, App):
         with Horizontal(id="initializer_row", classes="initializer-row"):
             yield Static("", id="initializer_apply_banner", classes="initializer-banner")
             yield PollingIndicator(id="initializer_polling_indicator")
+        yield Static(
+            "", id="patcher_impact_banner", classes="initializer-banner"
+        )
         with TabbedContent(id="brainstorm_tabs"):
             with TabPane("Dashboard", id="tab_dashboard"):
                 with Horizontal(id="dashboard_split"):
@@ -2100,6 +2113,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
             pass
         self._status_refresh_timer = self.set_interval(30, self._refresh_status_tab)
         self._try_apply_initializer_if_needed()
+        self._scan_existing_patchers()
 
     def _try_apply_initializer_if_needed(self, force: bool = False) -> None:
         """Re-attempt apply_initializer_output if n000_init is still placeholder.
@@ -2152,6 +2166,192 @@ class BrainstormApp(TuiSwitcherMixin, App):
     def action_retry_initializer_apply(self) -> None:
         """ctrl+r: force-retry the initializer apply, even if not flagged."""
         self._try_apply_initializer_if_needed(force=True)
+
+    # ------------------------------------------------------------------
+    # Patcher auto-apply (mirrors initializer pattern)
+    # ------------------------------------------------------------------
+
+    _PATCHER_INPUT_META_RE = re.compile(
+        r"-\s*Metadata:\s*\S+/br_nodes/([A-Za-z0-9_]+)\.yaml"
+    )
+
+    def _register_patcher_source(self, agent_name: str,
+                                 source_node_id: str) -> None:
+        """Main-thread: track a freshly-registered patcher and ensure the
+        poll timer is running."""
+        self._patcher_sources[agent_name] = source_node_id
+        self._ensure_patcher_poll_timer()
+
+    def _ensure_patcher_poll_timer(self) -> None:
+        if self._patcher_poll_timer is not None:
+            return
+        if not self._patcher_sources:
+            return
+        self._patcher_poll_timer = self.set_interval(5, self._poll_patchers)
+
+    def _stop_patcher_poll_timer(self) -> None:
+        if self._patcher_poll_timer is not None:
+            try:
+                self._patcher_poll_timer.stop()
+            except Exception:
+                pass
+            self._patcher_poll_timer = None
+
+    def _scan_existing_patchers(self) -> None:
+        """Scan the worktree for completed patcher agents whose output
+        hasn't been applied yet. Recovers the source_node_id by parsing
+        the agent's _input.md (written by ``_assemble_input_patcher``).
+
+        Idempotent — safe to call from ``_load_existing_session``.
+        """
+        wt = self.session_path
+        if not wt or not Path(wt).is_dir():
+            return
+        try:
+            from brainstorm.brainstorm_session import _patcher_needs_apply
+        except Exception:
+            return
+        for status_path in sorted(Path(wt).glob("patcher_*_status.yaml")):
+            agent = status_path.stem[:-len("_status")]
+            if agent in self._patcher_sources:
+                continue
+            try:
+                data = read_yaml(str(status_path))
+            except Exception:
+                continue
+            if (data or {}).get("status") != "Completed":
+                continue
+            if not _patcher_needs_apply(self.task_num, agent):
+                continue
+            input_path = Path(wt) / f"{agent}_input.md"
+            if not input_path.is_file():
+                continue
+            try:
+                input_text = input_path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            m = self._PATCHER_INPUT_META_RE.search(input_text)
+            if not m:
+                continue
+            self._patcher_sources[agent] = m.group(1)
+        self._ensure_patcher_poll_timer()
+
+    def _poll_patchers(self) -> None:
+        """Timer tick: for each tracked patcher, apply its output if it's
+        Completed. Drops entries whose output has already been applied
+        (idempotent across restarts). Stops the timer when empty.
+        """
+        if not self._patcher_sources:
+            self._stop_patcher_poll_timer()
+            return
+        try:
+            from brainstorm.brainstorm_session import _patcher_needs_apply
+        except Exception:
+            return
+        for agent, source in list(self._patcher_sources.items()):
+            if agent in self._applying_patcher:
+                continue
+            status_path = self.session_path / f"{agent}_status.yaml"
+            if not status_path.is_file():
+                continue
+            try:
+                data = read_yaml(str(status_path))
+            except Exception:
+                continue
+            status = (data or {}).get("status", "")
+            if status != "Completed":
+                continue
+            if not _patcher_needs_apply(self.task_num, agent):
+                # Already applied (e.g., by CLI fallback). Drop and move on.
+                self._patcher_sources.pop(agent, None)
+                continue
+            self._try_apply_patcher_if_needed(agent, source)
+        if not self._patcher_sources:
+            self._stop_patcher_poll_timer()
+
+    def _try_apply_patcher_if_needed(self, agent_name: str,
+                                     source_node_id: str,
+                                     force: bool = False) -> None:
+        """Single-shot apply attempt for one patcher agent. Failures
+        surface via the IMPACT/error banner; success refreshes the DAG.
+        """
+        if agent_name in self._applying_patcher:
+            return
+        from brainstorm.brainstorm_session import (
+            _patcher_needs_apply,
+            apply_patcher_output,
+        )
+        if not force and not _patcher_needs_apply(self.task_num, agent_name):
+            return
+        self._applying_patcher.add(agent_name)
+        try:
+            try:
+                new_id, impact, details = apply_patcher_output(
+                    self.task_num, agent_name, source_node_id,
+                )
+            except Exception as exc:
+                self._patcher_apply_errors[agent_name] = str(exc)
+                self._set_impact_banner(
+                    f"Patcher {agent_name} apply failed: {exc} — "
+                    f"run `ait brainstorm apply-patcher {self.task_num} "
+                    f"{agent_name} {source_node_id}` to retry"
+                )
+                return
+            self._patcher_apply_errors.pop(agent_name, None)
+            self._patcher_sources.pop(agent_name, None)
+            if impact == "IMPACT_FLAG":
+                self._set_impact_banner(
+                    f"Patcher {agent_name} → {new_id}: IMPACT_FLAG — "
+                    f"Explorer regeneration recommended.\n{details}"
+                )
+            else:
+                self._clear_impact_banner()
+                self.notify(f"Patched plan applied → {new_id}.")
+            self._load_existing_session()
+        finally:
+            self._applying_patcher.discard(agent_name)
+
+    def _set_impact_banner(self, msg: str) -> None:
+        try:
+            widget = self.query_one("#patcher_impact_banner", Static)
+            widget.update(msg)
+            widget.add_class("visible")
+        except Exception:
+            pass
+
+    def _clear_impact_banner(self) -> None:
+        try:
+            widget = self.query_one("#patcher_impact_banner", Static)
+            widget.update("")
+            widget.remove_class("visible")
+        except Exception:
+            pass
+
+    def action_retry_patcher_apply(self) -> None:
+        """ctrl+shift+r: force-retry the most recently failed patcher.
+
+        If multiple patchers are tracked, picks the one with the most
+        recent ``_status.yaml`` mtime.
+        """
+        if not self._patcher_sources:
+            return
+        candidates = [
+            (agent, source)
+            for agent, source in self._patcher_sources.items()
+        ]
+        if not candidates:
+            return
+        if len(candidates) == 1:
+            agent, source = candidates[0]
+        else:
+            def _mtime(item):
+                p = self.session_path / f"{item[0]}_status.yaml"
+                try:
+                    return p.stat().st_mtime
+                except Exception:
+                    return 0.0
+            agent, source = max(candidates, key=_mtime)
+        self._try_apply_patcher_if_needed(agent, source, force=True)
 
     def on_tabbed_content_tab_activated(self, event) -> None:
         """Refresh Status tab when it becomes active."""
@@ -3494,6 +3694,11 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     cfg["patch_request"], group_name,
                     launch_mode=launch_mode,
                     target_sections=target_sections,
+                )
+                # Track source node so the auto-apply poller can pass it
+                # to apply_patcher_output when the agent completes.
+                self.call_from_thread(
+                    self._register_patcher_source, agent, cfg["node"],
                 )
                 msg = f"Registered patcher: {agent}"
             else:
