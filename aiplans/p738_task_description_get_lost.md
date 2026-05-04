@@ -219,3 +219,45 @@ is just a memoization wrapper).
 
 Standard archival: this task becomes a Done bug fix, archive via
 `/aitask-pick` Step 9 with `aitask_archive.sh 738`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Modified `TaskInfoCache._resolve()` in
+  `.aitask-scripts/monitor/monitor_shared.py` to search both the active
+  task/plan dirs and the archived dirs (`aitasks/archived/`,
+  `aiplans/archived/`) before giving up. Active dirs are tried first; the
+  archived dir is the fallback. Same logic applies symmetrically to the
+  task file lookup and the plan file lookup. Added a 7-case unit-test
+  module `tests/test_task_info_cache_archived.py` exercising active
+  resolve, archived parent/child resolve, active-wins-on-collision,
+  archived plan resolve (parent + child), and missing-on-both → None.
+- **Deviations from plan:** None. The implementation follows the plan
+  one-to-one, including the docstring noting that bundled archives
+  (`aitasks/archived/_b0/old<N>.tar.zst`) are deliberately not extracted.
+  One extra child-plan test was added on top of the six listed in the plan
+  (the symmetry was free).
+- **Issues encountered:** Mid-implementation `git stash` round-trip
+  surfaced three unrelated working-tree modifications
+  (`.aitask-scripts/brainstorm/brainstorm_app.py`,
+  `.github/workflows/release-packaging.yml`, `packaging/nfpm/nfpm.yaml`)
+  that were not present at the session-start `git status` snapshot — they
+  appear to be the user's in-progress work that surfaced via background
+  sync activity. They are intentionally **not** included in the t738
+  commit.
+- **Key decisions:**
+  - Active-dir-first ordering is deliberate so a fresh task + leftover
+    archived stub (race during archival) consistently resolves to the
+    active file.
+  - `_resolve()` was extended in place rather than refactored into a
+    helper — only two call sites (task file, plan file) and the loop body
+    is small enough that an extracted helper would not improve clarity.
+  - `find_next_sibling()` is intentionally **not** extended to archived
+    siblings — it filters on `status == "Ready"` and would surface
+    already-completed siblings as candidates if archived dirs were added.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/minimonitor_app.py:202` — `_teardown_prior_monitoring` references `self._refresh_timer`, which is never assigned in `__init__`, raising `AttributeError` on the second call. Surfaced when running `tests/test_multi_session_minimonitor.sh` as a regression check; pre-existing on `main` (reproduced after stashing the t738 edits). Out of scope for this task; pure interaction with monitoring state, unrelated to archive lookup.
+- **Build verification:** `python tests/test_task_info_cache_archived.py`
+  → 7/7 OK. Module import smoke (`from monitor.monitor_shared import
+  TaskInfoCache`) clean. Existing shell-level monitor regression
+  (`tests/test_multi_session_minimonitor.sh`) was already failing on
+  `main` before the t738 edits — see Upstream Defects.
