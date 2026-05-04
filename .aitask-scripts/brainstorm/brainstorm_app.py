@@ -739,6 +739,23 @@ class LogDetailModal(ModalScreen):
         self.dismiss(None)
 
 
+def _next_checkbox_index(current: int | None, total: int, direction: int) -> int | None:
+    """Compute next focus index for arrow navigation in a checkbox list.
+
+    Returns the new index, or None if focus should not move (no checkboxes,
+    or already at the boundary). Stops at boundaries (no wrap), consistent
+    with `_navigate_rows`.
+    """
+    if total <= 0:
+        return None
+    if current is None:
+        return 0 if direction == 1 else total - 1
+    new_idx = current + direction
+    if new_idx < 0 or new_idx >= total:
+        return None
+    return new_idx
+
+
 class CompareNodeSelectModal(ModalScreen):
     """Modal for selecting 2-4 nodes to compare in the dimension matrix."""
 
@@ -751,6 +768,10 @@ class CompareNodeSelectModal(ModalScreen):
     def compose(self) -> ComposeResult:
         with Container(id="compare_select_dialog"):
             yield Label("Select 2\u20134 nodes to compare", id="compare_select_title")
+            yield Label(
+                "[dim]\u2191\u2193 Navigate  Space/Enter Toggle[/dim]",
+                id="compare_select_hint",
+            )
             with VerticalScroll(id="compare_checkbox_list"):
                 for nid in self.node_ids:
                     yield Checkbox(nid, id=f"chk_cmp_{nid}")
@@ -764,6 +785,33 @@ class CompareNodeSelectModal(ModalScreen):
             for nid in self.node_ids
             if self.query_one(f"#chk_cmp_{nid}", Checkbox).value
         ]
+
+    def on_key(self, event) -> None:
+        if event.key in ("up", "down"):
+            direction = 1 if event.key == "down" else -1
+            if self._navigate_checkboxes(direction):
+                event.prevent_default()
+                event.stop()
+
+    def _navigate_checkboxes(self, direction: int) -> bool:
+        try:
+            container = self.query_one("#compare_checkbox_list", VerticalScroll)
+        except Exception:
+            return False
+        checkboxes = [
+            w for w in container.children
+            if isinstance(w, Checkbox) and w.can_focus
+        ]
+        if not checkboxes:
+            return False
+        focused = self.focused
+        current = checkboxes.index(focused) if focused in checkboxes else None
+        new_idx = _next_checkbox_index(current, len(checkboxes), direction)
+        if new_idx is None:
+            return False
+        checkboxes[new_idx].focus()
+        checkboxes[new_idx].scroll_visible()
+        return True
 
     @on(Button.Pressed, "#btn_compare")
     def confirm(self) -> None:
@@ -1247,6 +1295,12 @@ class BrainstormApp(TuiSwitcherMixin, App):
 
     #compare_select_title {
         text-style: bold;
+        text-align: center;
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #compare_select_hint {
         text-align: center;
         width: 100%;
         margin-bottom: 1;
