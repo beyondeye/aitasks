@@ -83,6 +83,7 @@ TARBALL="/tmp/aitasks_test_t167.tar.gz"
         aitasks/metadata/claude_settings.seed.json \
         aitasks/metadata/profiles/ \
         ait \
+        packaging/ \
         2>/dev/null
 
     # Also include skills and seed directories if they exist

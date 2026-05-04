@@ -122,6 +122,7 @@ create_data_branch_setup() {
     mkdir -p "$repo_dir/.aitask-scripts/lib"
     cp "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" "$repo_dir/.aitask-scripts/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$repo_dir/.aitask-scripts/lib/"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" "$repo_dir/.aitask-scripts/lib/"
     cp -r "$PROJECT_DIR/seed" "$repo_dir/seed" 2>/dev/null || true
     (
         cd "$repo_dir"

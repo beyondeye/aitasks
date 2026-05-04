@@ -77,6 +77,7 @@ rm -f "$TARBALL"
         aitasks/metadata/claude_settings.seed.json \
         aitasks/metadata/profiles/ \
         ait \
+        packaging/ \
         2>/dev/null
     if [[ -d ".claude/skills" ]]; then
         tar rzf "$TARBALL" .claude/skills/ 2>/dev/null || true
