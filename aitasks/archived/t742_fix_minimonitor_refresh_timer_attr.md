@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_monitormini]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-04 16:24
-updated_at: 2026-05-04 16:41
+updated_at: 2026-05-04 16:58
+completed_at: 2026-05-04 16:58
 ---
 
 ## Origin
