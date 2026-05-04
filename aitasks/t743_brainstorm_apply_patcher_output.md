@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [brainstorm]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-04 16:24
-updated_at: 2026-05-04 16:24
+updated_at: 2026-05-04 16:28
 ---
 
 Implement `apply_patcher_output()` in the brainstorm engine so that when a
