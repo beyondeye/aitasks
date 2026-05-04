@@ -339,3 +339,26 @@ End-to-end:
 ## Step 9 — Post-Implementation reference
 
 Standard archival per `task-workflow/SKILL.md` Step 9. No worktree (chose current branch in Step 5). No issue is linked. The plan file commits separately via `./ait git` with the task ID in the message body.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all 6 deliverables per the plan: (1) `TmuxControlState` enum + supervisor coroutine with backoff in `tmux_control.py`; (2) `_teardown_prior_monitoring()` in monitor_app.py and minimonitor_app.py with `_refresh_timer` capture; (3) control-state badges in both session bars; (4) `tests/test_tmux_control_resilience.sh` with 5 cases (A-E); (5) folded into Case E (state-mutating action parity through subprocess fallback); (6) `aitasks/t719/t719_4_pipe_pane_push.md` downgraded to `low` priority + `## Stability caveats` section appended.
+- **Deviations from plan:** Case C revised after empirical probing showed neither `run-shell` (without -b) nor `if-shell` actually block in tmux control mode — both ack the dispatch immediately and run async. `wait-for` partially works but only the first invocation per channel returns immediately (subsequent calls queue). Rather than chase a synthetic blocking primitive, Case C now uses a deterministic kill-then-burst pattern: kill `tmux -C` subprocess, wait for `is_alive` to flip, then fire 5 sequential `request_sync` calls and assert each completes within `command_timeout` (no hangs). Then verify the supervisor reconnects and a final request succeeds via control. This still proves the resilience contract (no hangs, no exceptions, supervisor recovers) without depending on a fragile in-flight blocking trick.
+- **Issues encountered:**
+  - First Case E run was flaky (3/5 fails). The "issue `kill_pane(A2)` immediately after SIGKILL" path is racy because writes to a freshly-killed subprocess's stdin can buffer in the kernel pipe — the request hangs until `command_timeout` (5 s) before falling back. Resolved by adding a deterministic `await is_alive == False` wait, which pins the test to the documented post-EOF subprocess fallback path that the plan's Step 7 enumerates as one of the "two paths". The other path (truly mid-flight write race) is conceptually covered but not as a hard assertion — would need a different blocking primitive to test reliably.
+  - Discovered that fixture sessions are auto-destroyed by tmux when their last window collapses. Case E adds a `keepalive` window so `list-panes -s -t SESSION` keeps working after both agent panes are killed.
+- **Key decisions:**
+  - **Supervisor poll cadence (0.5 s).** Tighter than the 3 s monitor refresh tick so the badge transition is visible to the user; loose enough that idle bg-loop cost is negligible. Plan's recommendation; kept verbatim.
+  - **Bounded backoff (0.5/1/2/4/8 s × 5 attempts = 15.5 s).** Matches the plan; covers transient failures (channel churn during heavy load) without retrying forever on permanent failures (session destroyed).
+  - **Module-level `_RECONNECT_*` constants** rather than instance attrs. Per memory `feedback_single_source_of_truth_for_versions`: cross-script constants in one place. The supervisor reads them directly; if a future tuning experiment wants per-instance overrides, that change is one edit at module top.
+  - **State exposed via `TmuxMonitor.control_state()`** (deferred-import of enum) rather than via a direct `_backend.state` attribute access. Keeps the layering pattern that tmux_monitor.py already uses for tmux_control (`TYPE_CHECKING`-only top-level import + deferred runtime import).
+  - **Compact badge in minimonitor (`rc:retry` / `rc:fb`)** because the minimonitor session bar is narrow (40-column side column). The full-monitor bar uses verbose `control: reconnecting` / `control: fallback` since it has the width.
+  - **No retroactive switch to `require_ait_python_fast`** for monitor / minimonitor: per CLAUDE.md note, those launchers are exceptions because their bottleneck is `fork+exec(tmux)`, not Python. Sibling task t718_5 will empirically re-evaluate.
+- **Upstream defects identified:** None. Diagnosis in this task surfaced only behaviors of the in-tree control client; no separate pre-existing bug elsewhere in the codebase was implicated.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-04 10:05)
+- **Requested by user:** Confirm minimonitor's auto-despawn behavior (exit when associated codeagent window dies) is preserved.
+- **Changes made:** No code changes — verified behavior is preserved. `_check_auto_close()` (minimonitor_app.py:298) is unchanged; `_refresh_timer` is now properly captured but the timer still fires `_refresh_data` which still calls `_check_auto_close` after the 5 s mount grace. The tmux pane-died hook (`.aitask-scripts/aitask_companion_cleanup.sh`) is at the script layer and untouched. Even mid-reconnect, `_check_auto_close → discover_window_panes → tmux_run` reaches a real answer via the t722 subprocess fallback.
+- **Files affected:** none (verification only).
