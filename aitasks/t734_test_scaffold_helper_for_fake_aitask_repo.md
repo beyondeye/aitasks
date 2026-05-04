@@ -7,7 +7,7 @@ status: Ready
 labels: [testing, bash_scripts, test_infrastructure, refactor]
 created_at: 2026-05-03 18:53
 updated_at: 2026-05-03 18:53
-boardidx: 20
+boardidx: 50
 ---
 
 ## Context

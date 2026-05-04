@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [testing, branch_mode, upgrade, install_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-03 16:30
-updated_at: 2026-05-03 16:30
+updated_at: 2026-05-04 22:31
 ---
 
 ## Context
