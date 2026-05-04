@@ -6,15 +6,58 @@ Archived Sibling Plans: aiplans/archived/p623/p623_1_*.md, p623_2_*.md, p623_3_*
 Worktree: (none — working on current branch)
 Branch: main
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-05-04 16:13
 ---
 
 # Implementation Plan: t623_5 — Fedora/RHEL .rpm packaging
 
+## Context
+
+Fifth child of t623 (more installation methods). Adds `.rpm` packaging on top
+of the shared nfpm config introduced by sibling t623_4, so Fedora, Rocky,
+AlmaLinux, and RHEL users can `dnf install` the aitasks shim instead of
+piping `install.sh`. Shim-only model — package contents are just
+`/usr/bin/ait`; framework downloads on first `ait setup`.
+
+The `.rpm` is built in CI on tag, uploaded as a GitHub release asset, and
+verified by an install-test matrix on real distro containers. No external
+maintainer account is needed — the default `GITHUB_TOKEN` is sufficient.
+Hosted DNF repo at `rpm.aitasks.io` is a deferred follow-up per
+`aidocs/packaging_strategy.md`.
+
+## Verification baseline (confirmed against current codebase, 2026-05-04)
+
+- `packaging/nfpm/nfpm.yaml` exists with `overrides.deb` block from t623_4 ✓
+  (this child appends `overrides.rpm` alongside it).
+- `packaging/nfpm/postinstall.sh` exists, executable, single `echo` line ✓
+  — reusable as-is by the rpm packager (nfpm dispatches the same script
+  to deb postinst and rpm `%post`).
+- `packaging/shim/ait` exists (87-line bash shim, executable) ✓.
+- `.github/workflows/release-packaging.yml` exists with `publish-homebrew`,
+  `publish-aur`, `build-deb`, `test-deb` jobs ✓ — `build-rpm` + `test-rpm`
+  will be appended after `test-deb`.
+- `.github/workflows/release.yml` invokes `release-packaging.yml` with
+  `version` input from `plan` job → GitHub release exists by the time
+  `build-rpm` runs and `gh release upload` succeeds ✓.
+- Shim's no-project error at `packaging/shim/ait:84` is `"Error: No ait
+  project found in any parent directory of $PWD"` — the test-rpm
+  verification grep `"No ait project"` matches ✓.
+- `aidocs/packaging_strategy.md:117` declares the rpm dep set as
+  `bash >= 4.0, python3 >= 3.9, fzf, jq, git, zstd, tar, curl` plus
+  `Recommends: (gh or glab)` — matches this plan ✓.
+- `aidocs/packaging_strategy.md:124-138` Dependency name mapping table
+  confirms rpm-syntax pins (no parens) match the plan ✓.
+
 ## Prerequisites
 
-- t623_1 merged (shim + strategy).
-- t623_2 merged (release-packaging.yml scaffolding).
-- t623_4 merged (created `packaging/nfpm/nfpm.yaml` with deb overrides; this child adds rpm overrides).
+1. t623_1 merged (shim extracted to `packaging/shim/ait`).
+2. t623_2 merged (`release-packaging.yml` scaffolding + `plan` job in
+   `release.yml` exposes version output).
+3. t623_4 merged (created `packaging/nfpm/nfpm.yaml` with deb overrides;
+   this child adds rpm overrides alongside).
+
+All three prerequisites are confirmed satisfied on the current branch.
 
 ## Steps
 
@@ -39,11 +82,24 @@ Add a sibling block under `overrides:` (alongside the existing `deb:` block):
     group: Development/Tools
 ```
 
-Note: `depends` syntax differs (`pkg (>= ver)` for deb vs. `pkg >= ver` for rpm); nfpm translates appropriately per-packager.
+Notes:
+- `depends:` syntax differs from deb (`pkg (>= ver)` for deb vs.
+  `pkg >= ver` for rpm); nfpm translates appropriately per-packager.
+- `recommends:` listed as separate `gh` and `glab` rather than the
+  `(gh or glab)` boolean syntax from `packaging_strategy.md` —
+  consistent with t623_4's deb decision (nfpm serializes each list
+  entry verbatim with comma separators; the boolean form would have
+  to be a single literal string and is functionally equivalent for
+  end-users since neither is a hard requirement).
+- `group: Development/Tools` is rpm-specific (deb uses top-level
+  `section: utils`).
+- Reuses the existing top-level `scripts.postinstall:
+  ./packaging/nfpm/postinstall.sh` — nfpm dispatches it to the rpm
+  `%post` scriptlet automatically.
 
 ### 2. Add `build-rpm` job to `release-packaging.yml`
 
-Mirror `build-deb` from t623_4:
+Append after the existing `test-deb` job. Mirror `build-deb` from t623_4:
 
 ```yaml
   build-rpm:
@@ -70,6 +126,14 @@ Mirror `build-deb` from t623_4:
           gh release upload "v${VERSION}" "aitasks-${VERSION}-1.noarch.rpm" --clobber
 ```
 
+- `goreleaser/nfpm-action@v1` is the same major-version pin used by
+  `build-deb` — keep deb/rpm builds in lockstep.
+- `--clobber` makes the upload idempotent across re-runs of the same
+  tag, matching deb behavior.
+- Asset naming `aitasks-${VERSION}-1.noarch.rpm` follows rpm convention
+  (`<name>-<version>-<release>.<arch>.rpm`); the deb sibling uses
+  `aitasks_${VERSION}_all.deb`.
+
 ### 3. Add `test-rpm` job matrix
 
 ```yaml
@@ -78,7 +142,7 @@ Mirror `build-deb` from t623_4:
     strategy:
       fail-fast: false
       matrix:
-        distro: [fedora:40, fedora:41, rockylinux:9]
+        distro: [fedora:41, fedora:42, rockylinux:9]
     runs-on: ubuntu-latest
     container: ${{ matrix.distro }}
     env:
@@ -97,6 +161,8 @@ Mirror `build-deb` from t623_4:
       - name: Verify
         run: |
           test -x /usr/bin/ait
+          ait --help 2>&1 | head -10 || true
+          # Shim should report "No ait project found" in an empty dir
           cd /tmp
           ait some-command 2>&1 | grep -i "No ait project" || \
             (echo "Shim did not emit expected no-project message"; exit 1)
@@ -107,22 +173,65 @@ Mirror `build-deb` from t623_4:
           test ! -e /usr/bin/ait
 ```
 
-### 4. Validate
+**Matrix versions (verification-time refresh):** original plan used
+`fedora:40, fedora:41, rockylinux:9`. Bumped to `fedora:41, fedora:42,
+rockylinux:9` because Fedora 40 reached EOL ~Nov 2025 and the official
+`fedora:40` Docker tag will not receive security updates. Both
+`fedora:41` and `fedora:42` are currently supported releases (per
+Fedora's N + N-1 policy as of 2026-05-04). `rockylinux:9` retained
+because RHEL 9 is supported until 2032 and is the closest enterprise
+proxy. Implementer should sanity-check current support state at
+implementation time and bump again if Fedora 41 has rolled off.
 
-- Local: `VERSION=0.17.0 nfpm package --packager rpm --config packaging/nfpm/nfpm.yaml --target /tmp/ait.rpm`.
+### 4. Validate locally
+
+- Build:
+  ```bash
+  VERSION=0.17.0 nfpm package \
+    --packager rpm \
+    --config packaging/nfpm/nfpm.yaml \
+    --target /tmp/ait.rpm
+  ```
+  (Use `docker run --rm -v "$PWD:/tmp/src" -w /tmp/src goreleaser/nfpm:latest
+  package …` if nfpm not installed natively, mirroring t623_4 approach.)
+- Inspect:
   - `rpm -qpl /tmp/ait.rpm` lists only `/usr/bin/ait`.
-  - `rpm -qpR /tmp/ait.rpm` shows the expected deps.
+  - `rpm -qpR /tmp/ait.rpm` shows the expected deps with rpm-style pins.
+  - `rpm -qpi /tmp/ait.rpm` shows `Group: Development/Tools` and the
+    description.
   - `rpmlint /tmp/ait.rpm` — errors zero; warnings triaged.
-- `actionlint .github/workflows/release-packaging.yml` clean.
+- Container round-trip on `fedora:42`:
+  ```bash
+  docker run --rm -v /tmp:/host fedora:42 bash -c \
+    "dnf install -y /host/ait.rpm && /usr/bin/ait some-command 2>&1 | grep -i 'No ait project' && dnf remove -y aitasks"
+  ```
+- Lint workflow YAML: `actionlint .github/workflows/release-packaging.yml`
+  clean.
 
 ## Verification Checklist
 
-- [ ] `packaging/nfpm/nfpm.yaml` `overrides.rpm` block present.
-- [ ] Local nfpm build produces a valid `.rpm`.
+- [ ] `packaging/nfpm/nfpm.yaml` `overrides.rpm` block present alongside
+      `overrides.deb`.
+- [ ] Local nfpm build produces a valid `.rpm` with `ait` shim at
+      `/usr/bin/ait`.
+- [ ] `rpm -qpR` shows rpm-style version pins (`bash >= 4.0`, etc.).
 - [ ] `rpmlint` errors zero.
-- [ ] CI matrix passes on fedora:40, fedora:41, rockylinux:9.
-- [ ] Manual test on a Fedora VM: `sudo dnf install aitasks-*.rpm`, `ait setup` works.
+- [ ] CI matrix passes on fedora:41, fedora:42, rockylinux:9 after
+      tagging a prerelease.
+- [ ] Manual test on a Fedora VM/container: download `.rpm` from
+      release, `sudo dnf install ./aitasks-*.rpm`, `ait setup` works in
+      a fresh project.
 - [ ] After `dnf remove aitasks`, `/usr/bin/ait` is gone.
+
+## Step 9: Post-Implementation
+
+After review and approval, the standard archival flow applies:
+
+- Code commit using `feature: <description> (t623_5)` format.
+- Plan-file commit using `./ait git`.
+- Run `./.aitask-scripts/aitask_archive.sh 623_5` to mark Done, move
+  task and plan into archived/, release the lock, and commit. Push
+  with `./ait git push`.
 
 ## Final Implementation Notes (to be filled in post-implementation)
 
@@ -130,4 +239,6 @@ Mirror `build-deb` from t623_4:
 - **Deviations from plan:**
 - **Issues encountered:**
 - **Key decisions:**
-- **Notes for sibling tasks:** (t623_6 consumes URLs / version ranges).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** (t623_6 consumes URLs / version ranges
+  for the install methods documentation page).
