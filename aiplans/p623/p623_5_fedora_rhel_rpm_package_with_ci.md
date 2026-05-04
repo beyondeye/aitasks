@@ -233,12 +233,99 @@ After review and approval, the standard archival flow applies:
   task and plan into archived/, release the lock, and commit. Push
   with `./ait git push`.
 
-## Final Implementation Notes (to be filled in post-implementation)
+## Final Implementation Notes
 
 - **Actual work done:**
+  - Extended `packaging/nfpm/nfpm.yaml` with `overrides.rpm` block
+    (8 deps with rpm-style version pins, 2 recommends).
+  - Added a top-level `rpm:` block carrying `group: Development/Tools`
+    (see Deviations).
+  - Reused the existing `scripts.postinstall: ./packaging/nfpm/postinstall.sh`
+    — nfpm dispatches it to the rpm `%post` scriptlet automatically.
+  - Appended `build-rpm` and `test-rpm` jobs to
+    `.github/workflows/release-packaging.yml`. `test-rpm` matrix covers
+    `fedora:41`, `fedora:42`, `rockylinux:9` with `fail-fast: false`.
+  - Added a conditional EPEL-enablement step in `test-rpm` for
+    Rocky/RHEL/Alma matrix entries (see Deviations).
+  - Cleaned shellcheck-via-actionlint warnings on `build-deb` and
+    `build-rpm` (redundant `VERSION="${VERSION}"` prefix removed,
+    `--target` argument quoted) — symmetric cleanup so the new rpm
+    job and the existing deb job stay consistent.
+
 - **Deviations from plan:**
+  - `group: Development/Tools` could NOT live inside `overrides.rpm` —
+    nfpm rejects it with `field group not found in type
+    nfpm.Overridables`. Moved to a top-level `rpm:` block (the
+    rpm-only extensions dictionary). Verified via `rpm -qpi` that the
+    built package shows `Group: Development/Tools`.
+  - **Added EPEL-enablement step** in `test-rpm` that the original
+    plan did not anticipate. Rocky Linux 9 base repos do not ship
+    `fzf`, so the install fails on `rockylinux:9` without EPEL
+    enabled. Step is gated by `if: contains(matrix.distro, 'rocky') ||
+    contains(matrix.distro, 'almalinux') || contains(matrix.distro,
+    'rhel')` so it does not run on Fedora (which has fzf in main
+    repos). End-users on Rocky/RHEL/Alma will need EPEL too — see
+    Notes for sibling tasks.
+  - **Pre-existing shellcheck warning cleanup on `build-deb`** —
+    out-of-strict-scope but symmetric with the new rpm fix and a
+    one-character-per-line change. Documented under Upstream defects
+    identified in case scope-discipline preferred isolating it.
+
 - **Issues encountered:**
+  - First nfpm build failed with `field group not found in type
+    nfpm.Overridables` — fixed by relocating `group:` to top-level
+    `rpm:` block (Deviations).
+  - First `rockylinux:9` round-trip failed with `nothing provides fzf
+    needed by aitasks-0.17.0-1.noarch` — fixed by adding the EPEL
+    enablement step (Deviations).
+  - No issues on `fedora:41` or `fedora:42` round-trip — install,
+    shim invocation (`No ait project` message), and uninstall all
+    succeed.
+
 - **Key decisions:**
-- **Upstream defects identified:** None
-- **Notes for sibling tasks:** (t623_6 consumes URLs / version ranges
-  for the install methods documentation page).
+  - `group:` placement at top-level `rpm:` rather than inside
+    `overrides.rpm:` — schema-required, not optional.
+  - EPEL enablement scoped to Rocky/RHEL/Alma matrix entries via
+    `contains(matrix.distro, ...)` rather than running unconditionally
+    on Fedora — keeps the Fedora install path closer to a vanilla
+    end-user experience and shaves a few seconds off the matrix
+    entry that does not need it.
+  - EPEL install uses fallback chain: `dnf install -y epel-release ||
+    dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm` —
+    handles both RHEL (where `epel-release` requires the
+    codeready-builder repo) and Rocky/Alma (where it ships in
+    `extras`).
+  - `Recommends: gh, glab` (separate entries) rather than the
+    boolean `(gh or glab)` syntax — same trade-off as t623_4 deb,
+    nfpm does not emit boolean recommends; functionally equivalent
+    for end-users.
+
+- **Upstream defects identified:**
+  - `.github/workflows/release-packaging.yml:130` (pre-fix line
+    number; from t623_4) — `VERSION="${VERSION}" nfpm package …
+    --target aitasks_${VERSION}_all.deb` had three pre-existing
+    shellcheck-via-actionlint warnings (SC2086 unquoted, SC2097
+    forked-process assignment, SC2098 expansion-vs-assignment). I
+    cleaned this in the same commit because it is the same pattern
+    as the new build-rpm job and a non-cleanup would have left the
+    workflow asymmetrically warning. If a stricter scope was wanted,
+    the deb-side fix could have been deferred to a follow-up bug
+    aitask, but inlining it here was strictly less code than two
+    commits.
+
+- **Notes for sibling tasks:**
+  - **t623_6 (installation methods documentation):** must mention
+    that Rocky/RHEL/AlmaLinux users need EPEL enabled before
+    `dnf install ./aitasks-*.rpm`. Suggested wording: "On Rocky,
+    AlmaLinux, or RHEL, first enable EPEL: `sudo dnf install -y
+    epel-release` (or follow your distro's EPEL setup guide)."
+    Fedora users do not need this. Also document the asset-URL
+    pattern: `https://github.com/beyondeye/aitasks/releases/download/v<X.Y.Z>/aitasks-<X.Y.Z>-1.noarch.rpm`.
+  - **Matrix versions:** as of 2026-05-04 the test-rpm matrix uses
+    `fedora:41, fedora:42, rockylinux:9`. When Fedora 43+ becomes
+    standard, bump the matrix accordingly — keep two consecutive
+    Fedora versions plus rockylinux:9 as the enterprise proxy.
+  - **postinst convention:** unchanged — `packaging/nfpm/postinstall.sh`
+    works as-is for both deb and rpm packagers.
+  - **Version pin on nfpm-action:** kept `@v1` major-version pin in
+    sync with `build-deb`. Future bumps should be coordinated.
