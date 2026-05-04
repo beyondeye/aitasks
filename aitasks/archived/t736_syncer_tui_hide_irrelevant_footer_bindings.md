@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [tui, scripts]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-04 10:13
-updated_at: 2026-05-04 10:38
+updated_at: 2026-05-04 10:45
+completed_at: 2026-05-04 10:45
 ---
 
 ## Goal
