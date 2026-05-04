@@ -81,8 +81,8 @@ Study these before implementing:
 
 ## See also (sibling tasks — same gap, different agent types)
 
-- apply-synthesizer (same NODE_YAML+PROPOSAL format as explorer — coordinate
+- t740 apply-synthesizer (same NODE_YAML+PROPOSAL format as explorer — coordinate
   to avoid duplicate code via shared helper)
-- apply-detailer (different format: plan markdown only, updates node's
+- t741 apply-detailer (different format: plan markdown only, updates node's
   `plan_file` field)
-- apply-patcher (three-part output: plan + impact analysis + metadata)
+- t743 apply-patcher (three-part output: plan + impact analysis + metadata)

@@ -71,7 +71,7 @@ Study these before implementing:
 
 ## See also (sibling tasks)
 
-- apply-explorer (same four-delimiter format — implement shared helper there
+- t739 apply-explorer (same four-delimiter format — implement shared helper there
   and reuse here; coordinate to avoid duplication)
-- apply-detailer (different format: plan markdown only)
-- apply-patcher (three-part output with impact analysis)
+- t741 apply-detailer (different format: plan markdown only)
+- t743 apply-patcher (three-part output with impact analysis)

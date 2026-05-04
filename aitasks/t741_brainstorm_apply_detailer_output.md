@@ -77,8 +77,8 @@ Study these before implementing:
 
 ## See also (sibling tasks)
 
-- apply-explorer (creates new nodes; different output format but same general
+- t739 apply-explorer (creates new nodes; different output format but same general
   apply pattern)
-- apply-synthesizer (creates new nodes; same four-delimiter format as explorer)
-- apply-patcher (enriches/forks existing node like detailer does, but
+- t740 apply-synthesizer (creates new nodes; same four-delimiter format as explorer)
+- t743 apply-patcher (enriches/forks existing node like detailer does, but
   three-part output with impact analysis)

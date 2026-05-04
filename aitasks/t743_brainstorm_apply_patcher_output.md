@@ -114,7 +114,7 @@ Study these before implementing:
 
 ## See also (sibling tasks)
 
-- apply-explorer (same general create-node pattern; NODE_YAML+PROPOSAL format)
-- apply-synthesizer (same four-delimiter format as explorer)
-- apply-detailer (enriches existing node like patcher does, but simpler
+- t739 apply-explorer (same general create-node pattern; NODE_YAML+PROPOSAL format)
+- t740 apply-synthesizer (same four-delimiter format as explorer)
+- t741 apply-detailer (enriches existing node like patcher does, but simpler
   single-part output with no impact analysis)
