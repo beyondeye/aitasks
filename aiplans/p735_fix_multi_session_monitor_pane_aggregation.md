@@ -142,20 +142,14 @@ authoritative record of what was actually done. Reference to Step 9
   in production (always has `control_state`). Defensive code in production
   would muddle the contract just to accommodate `__new__` test scaffolds.
 
-- **Upstream defects identified:**
-  - `.aitask-scripts/monitor/minimonitor_app.py:194-219` — `_teardown_prior_monitoring`
-    references `self._refresh_timer` / `self._monitor` without initializer
-    fallback. Production-safe (always called post-`__init__`), but t733 added
-    this helper and its new test-impact wasn't covered. Already fixed at the
-    scaffold layer here; recording for sibling-task awareness.
-  - `.aitask-scripts/monitor/minimonitor_app.py:386` — `_rebuild_session_bar`
-    similarly assumes `self._monitor` exposes `control_state()`. Fine in
-    production; surfaced through the scaffold.
-  - **Original t735 premise (`test_multi_session_monitor.sh` 6/43 failing) does
-    not reproduce.** Verified at HEAD (f55d0dcb) and at cited baseline
-    (32957a2d) — 43/43 passes in both. No upstream defect under the
-    originally-named test; t735's diagnostic context is incorrect (likely
-    transient environmental state when filed).
+- **Upstream defects identified:** None. The two minimonitor_app sites
+  (`_teardown_prior_monitoring` reading `_refresh_timer`/`_monitor`,
+  `_rebuild_session_bar` calling `control_state`) are the exact issue this
+  task fixed via the scaffold catch-up — not separate, pre-existing defects in
+  other modules. Production paths upheld their `__init__` contract throughout.
+  Original t735 premise (`test_multi_session_monitor.sh` 6/43 failing) did
+  not reproduce on `main` or at the cited baseline (32957a2d) — not a defect,
+  just incorrect diagnostic context in the original task filing.
 
 - **Notes for sibling tasks:** This is not a child task. But the broader
   pattern — t733's monitor changes shipped with two test-scaffold drift bugs
