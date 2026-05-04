@@ -136,3 +136,20 @@ No automated test added — footer rendering does not have a snapshot-test harne
 ## Estimated diff size
 
 ~9 lines removed, ~10 lines added in `.aitask-scripts/syncer/syncer_app.py`. Single file, single commit.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-04 13:00)
+
+- **Requested by user:** Add a progress indicator (Textual standard widget) while a sync/pull/push operation is running. Today there is only a notify on completion, so the user has no in-flight feedback that something is happening.
+- **Changes made:**
+  - Added `_set_busy(self, busy: bool)` helper on `SyncerApp` that toggles `self.query_one("#branches", DataTable).loading`. Setting `Widget.loading = True` is Textual's canonical, built-in way to overlay a `LoadingIndicator` on a widget — no custom widget code needed.
+  - `action_sync_data`/`action_pull`/`action_push` each call `self._set_busy(True)` before kicking off their respective worker.
+  - `_sync_data_worker`, `_main_pull_worker`, and `_main_push_worker` each have their existing body wrapped in a `try` block; a `finally` clause queues `self.call_from_thread(self._set_busy, False)` so the indicator is always cleared regardless of which exit path the worker takes (early-return notifies, `_fail` failure-screen path, success path, or unexpected exception).
+  - The indicator is intentionally NOT plumbed through `_refresh_worker` (background, runs every 30s automatically) or `_run_interactive_sync_shared` (user is interactively resolving conflicts). Scope kept to the three explicit user-triggered slow operations.
+- **Files affected:** `.aitask-scripts/syncer/syncer_app.py` (only file).
+- **Verification additions:**
+  - Press `s` on `aitask-data` row → branches table shows the LoadingIndicator overlay until the sync completes (notify fires) or fails (failure screen pushes).
+  - Press `u` or `p` on `main` row → same overlay behavior on success and on `_fail` paths.
+  - Periodic 30s tick should NOT show the loading overlay (refresh worker is not wrapped).
+  - On worker exception (e.g. `run_sync_batch` raises) the overlay still clears thanks to `try/finally`.
