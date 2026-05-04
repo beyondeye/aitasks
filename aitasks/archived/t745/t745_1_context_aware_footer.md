@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7
 created_at: 2026-05-04 22:20
-updated_at: 2026-05-04 22:44
+updated_at: 2026-05-04 22:50
+completed_at: 2026-05-04 22:50
 ---
 
 ## Context
