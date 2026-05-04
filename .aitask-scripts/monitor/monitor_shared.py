@@ -215,26 +215,44 @@ class TaskInfoCache:
         return (sib_id, title)
 
     def _resolve(self, task_id: str, session_name: str = "") -> TaskInfo | None:
-        """Look up task file and parse its content. Pure Python, no subprocess."""
+        """Look up task file and parse its content. Pure Python, no subprocess.
+
+        Searches both the active location (``aitasks/``) and the archived
+        location (``aitasks/archived/``) so that monitor TUIs can keep
+        showing task info for an agent pane whose task has already been
+        archived. Active dirs win when the same id is present in both.
+        Tasks bundled into ``aitasks/archived/_b0/old<N>.tar.zst`` are not
+        extracted — those agents are old enough that lookup misses are
+        acceptable.
+        """
         root = self._root_for_session(session_name)
         tasks_dir = root / "aitasks"
         plans_dir = root / "aiplans"
+        archived_tasks_dir = tasks_dir / "archived"
+        archived_plans_dir = plans_dir / "archived"
 
         if "_" in task_id:
             parent, child = task_id.split("_", 1)
             pattern = f"t{parent}_{child}_*.md"
-            search_dir = tasks_dir / f"t{parent}"
+            search_dirs = (
+                tasks_dir / f"t{parent}",
+                archived_tasks_dir / f"t{parent}",
+            )
         else:
             pattern = f"t{task_id}_*.md"
-            search_dir = tasks_dir
+            search_dirs = (tasks_dir, archived_tasks_dir)
 
-        if not search_dir.is_dir():
-            return None
-        matches = list(search_dir.glob(pattern))
-        if not matches:
+        task_path = None
+        for d in search_dirs:
+            if not d.is_dir():
+                continue
+            matches = list(d.glob(pattern))
+            if matches:
+                task_path = matches[0]
+                break
+        if task_path is None:
             return None
 
-        task_path = matches[0]
         try:
             raw = task_path.read_text(encoding="utf-8")
         except OSError:
@@ -257,31 +275,38 @@ class TaskInfoCache:
             parts = stem.split("_", 1)
             title = parts[1].replace("_", " ") if len(parts) > 1 else stem
 
-        # Find plan file
+        # Find plan file (active dir first, archived as fallback).
         plan_content = None
         if "_" in task_id:
             parent, child = task_id.split("_", 1)
             plan_pattern = f"p{parent}_{child}_*.md"
-            plan_dir = plans_dir / f"p{parent}"
+            plan_dirs = (
+                plans_dir / f"p{parent}",
+                archived_plans_dir / f"p{parent}",
+            )
         else:
             plan_pattern = f"p{task_id}_*.md"
-            plan_dir = plans_dir
+            plan_dirs = (plans_dir, archived_plans_dir)
 
-        if plan_dir.is_dir():
-            plan_matches = list(plan_dir.glob(plan_pattern))
-            if plan_matches:
-                try:
-                    plan_raw = plan_matches[0].read_text(encoding="utf-8")
-                    if plan_raw.startswith("---"):
-                        fm_parts = plan_raw.split("---", 2)
-                        if len(fm_parts) >= 3:
-                            plan_content = fm_parts[2].strip()
-                        else:
-                            plan_content = plan_raw
+        for pd in plan_dirs:
+            if not pd.is_dir():
+                continue
+            plan_matches = list(pd.glob(plan_pattern))
+            if not plan_matches:
+                continue
+            try:
+                plan_raw = plan_matches[0].read_text(encoding="utf-8")
+                if plan_raw.startswith("---"):
+                    fm_parts = plan_raw.split("---", 2)
+                    if len(fm_parts) >= 3:
+                        plan_content = fm_parts[2].strip()
                     else:
                         plan_content = plan_raw
-                except OSError:
-                    pass
+                else:
+                    plan_content = plan_raw
+            except OSError:
+                pass
+            break
 
         return TaskInfo(
             task_id=task_id,
