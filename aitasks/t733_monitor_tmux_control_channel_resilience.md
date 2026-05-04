@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [monitor, tmux, reliability, bug]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-03 18:53
-updated_at: 2026-05-03 19:08
+updated_at: 2026-05-03 19:13
 ---
 
 ## Context

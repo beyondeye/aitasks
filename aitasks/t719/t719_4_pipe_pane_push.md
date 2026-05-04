@@ -1,12 +1,12 @@
 ---
-priority: medium
+priority: low
 effort: high
 depends: [t719_3]
 issue_type: performance
 status: Ready
 labels: [performance, monitor, tui]
 created_at: 2026-04-30 10:28
-updated_at: 2026-04-30 10:28
+updated_at: 2026-05-04 10:00
 ---
 
 ## Context
@@ -133,3 +133,38 @@ After `start_control_client()` succeeds, instantiate subscriber and pass it to m
 
 - Does NOT attempt to replace control-client architecture with pipe-pane-only — the control client is still needed for `list-panes`, `display-message`, etc. Pipe-pane is *additive*, replacing only the per-pane content polling.
 - Does NOT change idle-detection logic.
+
+## Stability caveats (added 2026-05-04 by t733)
+
+Prior to implementation, weigh these stability concerns surfaced during
+the t733 channel-resilience investigation. Pipe-pane introduces strictly
+more failure surface than the current control-mode polling, in exchange
+for sub-second update latency:
+
+- **OOM-on-tmux risk.** tmux uses libevent `bufferevent` for `pipe-pane`
+  output. If the Python consumer cannot drain fast enough, tmux buffers
+  in *its own* memory — unbounded growth, not byte-drop. A busy code
+  agent (Claude Code can burst >100 KB/s during streaming) × N panes ×
+  M monitors increases the probability that a slow Python tick triggers
+  tmux server OOM kill — exactly the "tmux crashed and took everything
+  down" symptom that motivated t733.
+- **Per-pane fd cost.** Each subscribed pane is one fifo + one consumer
+  stdin; on a multi-session dev box (e.g. `aitasks` + `aitasks_mob`)
+  × multiple monitor / minimonitor instances, the count grows quickly.
+  Audit the hard fd ceiling on the user's host before subscribing
+  unconditionally.
+- **Raw VT-stream complexity.** Pipe-pane emits the unrendered terminal
+  byte stream (cursor moves, alt-screen toggles, clearing). The Python
+  consumer must implement a terminal emulator or round-trip through
+  `capture-pane` after the fact to recover the rendered text the
+  compare-mode logic relies on. This is more code than the bench
+  prototype would suggest.
+- **Single-threaded tmux event loop.** Per-pane pipe-pane I/O competes
+  with control-mode + real-terminal rendering on the same loop. Many
+  fifos = more fd-event work per tick.
+
+**Pre-condition:** Do not implement Phase 4b until the t733 resilience
+deliverables (reconnect + transition tests) have landed and been
+validated on a real workload. The investigation phase (4a) can proceed
+independently — the gate's ≥2× decision criterion is the right place
+to weigh the latency win against this risk surface.
