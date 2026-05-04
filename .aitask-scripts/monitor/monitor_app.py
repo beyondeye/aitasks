@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import sys
 from collections.abc import Callable
@@ -29,6 +30,7 @@ from monitor.tmux_monitor import (  # noqa: E402
     TmuxMonitor,
     load_monitor_config,
 )
+from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _ansi_to_rich_text, _TASK_ID_RE, TaskInfo, TaskInfoCache,
     TaskDetailDialog, KillConfirmDialog, format_compare_mode_glyph,
@@ -504,6 +506,7 @@ class MonitorApp(TuiSwitcherMixin, App):
         self._active_zone: Zone = Zone.PANE_LIST
         self._preview_timer: Timer | None = None
         self._delayed_refresh_timer: Timer | None = None
+        self._refresh_timer: Timer | None = None
         self._preview_size_idx: int = PREVIEW_DEFAULT_SIZE
         self._task_cache = TaskInfoCache(project_root)
         self._auto_switch: bool = False
@@ -585,8 +588,40 @@ class MonitorApp(TuiSwitcherMixin, App):
             self.notify(f"Session renamed to '{self._session}'")
         self._start_monitoring()
 
+    def _teardown_prior_monitoring(self) -> None:
+        """Cancel the prior refresh timer and close the prior monitor's
+        control client, if any.
+
+        Called at the top of `_start_monitoring()` so re-entry paths
+        (e.g., the `SessionRenameDialog` callback) do not leak a refresh
+        timer, a `tmux -C attach` subprocess, or a `tmux-control-loop`
+        bg thread. Without this guard, a session-rename re-entry doubles
+        the polling cadence and silently spawns a second control client
+        that lives until the process exits.
+        """
+        if self._refresh_timer is not None:
+            with contextlib.suppress(Exception):
+                self._refresh_timer.stop()
+            self._refresh_timer = None
+        prev = self._monitor
+        if prev is not None:
+            self._monitor = None
+
+            async def _close_prev() -> None:
+                with contextlib.suppress(Exception):
+                    await prev.close_control_client()
+
+            self.run_worker(
+                _close_prev(),
+                exclusive=False,
+                exit_on_error=False,
+                group="tmux-control-teardown",
+            )
+
     def _start_monitoring(self) -> None:
         """Initialize the TmuxMonitor and start refreshing."""
+        self._teardown_prior_monitoring()
+
         kwargs: dict = {}
         if self._agent_prefixes is not None:
             kwargs["agent_prefixes"] = self._agent_prefixes
@@ -623,7 +658,9 @@ class MonitorApp(TuiSwitcherMixin, App):
         except Exception:
             pass
         self.call_later(self._refresh_data)
-        self.set_interval(self._refresh_seconds, self._refresh_data)
+        self._refresh_timer = self.set_interval(
+            self._refresh_seconds, self._refresh_data
+        )
 
     async def on_unmount(self) -> None:
         if getattr(self, "_monitor", None) is not None:
@@ -891,6 +928,15 @@ class MonitorApp(TuiSwitcherMixin, App):
             desync = _get_desync_summary(Path.cwd(), compact=False)
         except Exception:
             desync = ""
+        # Surface the control-channel state only when it is *not* the
+        # steady-state CONNECTED — keep the bar quiet during normal use.
+        state_badge = ""
+        if self._monitor is not None:
+            s = self._monitor.control_state()
+            if s == TmuxControlState.RECONNECTING:
+                state_badge = "  [yellow]control: reconnecting[/]"
+            elif s == TmuxControlState.FALLBACK:
+                state_badge = "  [red]control: fallback[/]"
         if self._monitor is not None and self._monitor.multi_session:
             sessions = {
                 s.pane.session_name for s in self._snapshots.values()
@@ -905,6 +951,7 @@ class MonitorApp(TuiSwitcherMixin, App):
                 f"(attached: {attached})"
                 f"{auto_tag}"
                 f"{desync}"
+                f"{state_badge}"
                 f"  [dim]Tab: switch panel[/]"
             )
         else:
@@ -913,6 +960,7 @@ class MonitorApp(TuiSwitcherMixin, App):
                 f"({total} pane{'s' if total != 1 else ''})"
                 f"{auto_tag}"
                 f"{desync}"
+                f"{state_badge}"
                 f"  [dim]Tab: switch panel[/]"
             )
 

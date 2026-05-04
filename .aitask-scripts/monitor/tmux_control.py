@@ -20,16 +20,23 @@ Key design choices:
   response), so per-id demultiplexing buys nothing over FIFO ordering,
   and a write-lock is required anyway to prevent interleaved bytes on
   stdin.
-- On EOF / `%exit` / broken pipe / timeout: mark `is_alive = False`,
-  resolve all queued and in-flight futures with `(-1, "")`, do not
-  auto-restart. Callers (e.g., `TmuxMonitor._tmux_async`) check
-  `is_alive` and fall back to subprocess.
+- On EOF / `%exit` / broken pipe / timeout in the active client:
+  `TmuxControlClient` flips `is_alive = False` and resolves queued and
+  in-flight futures with `(-1, "")`. `TmuxControlBackend` then runs a
+  supervisor coroutine on its bg loop that respawns `tmux -C attach`
+  with exponential backoff (0.5, 1, 2, 4, 8 s) for up to 5 attempts
+  before giving up. While reconnecting, callers see `is_alive == False`
+  and route through subprocess fallback (in `TmuxMonitor._tmux_async` /
+  `TmuxMonitor.tmux_run`); `TmuxControlBackend.state` exposes the
+  lifecycle (`CONNECTED`, `RECONNECTING`, `FALLBACK`, `STOPPED`) for
+  status indicators.
 """
 from __future__ import annotations
 
 import asyncio
 import collections
 import contextlib
+import enum
 import re
 import threading
 from typing import Optional
@@ -250,6 +257,27 @@ _BACKEND_START_TIMEOUT = 5.0
 _BACKEND_STOP_TIMEOUT = 3.0
 _BACKEND_THREAD_JOIN_TIMEOUT = 3.0
 
+# Supervisor / reconnect tuning. Backoffs are seconds between successive
+# reconnect attempts; the supervisor sleeps the backoff *before* each
+# attempt, so the first respawn is delayed by 0.5 s after the prior client
+# is observed dead. After `_RECONNECT_MAX_ATTEMPTS` consecutive failed
+# spawns the supervisor exits and the backend stays in `FALLBACK` for the
+# rest of its life. `_DEATH_POLL_INTERVAL` is the cadence at which the
+# supervisor polls `client.is_alive` while the channel is healthy — kept
+# tighter than the typical monitor refresh so the badge flips quickly when
+# the channel breaks.
+_RECONNECT_BACKOFFS = (0.5, 1.0, 2.0, 4.0, 8.0)
+_RECONNECT_MAX_ATTEMPTS = 5
+_DEATH_POLL_INTERVAL = 0.5
+
+
+class TmuxControlState(enum.Enum):
+    """Lifecycle state of a `TmuxControlBackend`'s control channel."""
+    CONNECTED = "connected"        # client attached and serving requests
+    RECONNECTING = "reconnecting"  # supervisor is respawning the client
+    FALLBACK = "fallback"          # max attempts exhausted; subprocess only
+    STOPPED = "stopped"            # backend.stop() called or never started
+
 
 class TmuxControlBackend:
     """Owns a dedicated asyncio loop in a background thread that drives a
@@ -273,10 +301,24 @@ class TmuxControlBackend:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
         self._ready = threading.Event()
+        self._state: TmuxControlState = TmuxControlState.STOPPED
+        self._state_lock = threading.Lock()
+        self._reconnect_task: Optional[asyncio.Task] = None
+        self._stop_requested: bool = False
 
     @property
     def is_alive(self) -> bool:
         return self._client is not None and self._client.is_alive
+
+    @property
+    def state(self) -> TmuxControlState:
+        """Current channel state. Thread-safe; safe to call from the UI loop."""
+        with self._state_lock:
+            return self._state
+
+    def _set_state(self, s: TmuxControlState) -> None:
+        with self._state_lock:
+            self._state = s
 
     def start(self) -> bool:
         """Start bg thread + loop, then start the client on it.
@@ -287,6 +329,7 @@ class TmuxControlBackend:
         """
         if self._thread is not None:
             return self.is_alive
+        self._stop_requested = False
         self._ready.clear()
         thread = threading.Thread(
             target=self._thread_main, name="tmux-control-loop", daemon=True
@@ -307,10 +350,84 @@ class TmuxControlBackend:
             ok = False
         if ok:
             self._client = client
+            self._set_state(TmuxControlState.CONNECTED)
+            self._spawn_supervisor()
             return True
         # Client did not attach. Tear down the thread so we don't leak it.
         self.stop()
         return False
+
+    def _spawn_supervisor(self) -> None:
+        """Schedule the reconnect supervisor on the bg loop (fire-and-forget).
+
+        Stores the resulting `asyncio.Task` in `self._reconnect_task` from
+        the bg loop's thread, so cancellation in `stop()` always reads a
+        consistent value.
+        """
+        loop = self._loop
+        if loop is None:
+            return
+
+        def _create_task() -> None:
+            self._reconnect_task = loop.create_task(self._supervisor_loop())
+
+        loop.call_soon_threadsafe(_create_task)
+
+    async def _supervisor_loop(self) -> None:
+        """Watch the active client; respawn on death with bounded backoff.
+
+        Runs on the bg loop. Polls `client.is_alive` at
+        `_DEATH_POLL_INTERVAL`; on death, attempts up to
+        `_RECONNECT_MAX_ATTEMPTS` reconnects spaced by `_RECONNECT_BACKOFFS`.
+        On success, swaps `self._client` to the fresh client and returns to
+        polling. On exhaustion, sets `FALLBACK` and exits — the backend
+        stays subprocess-only for the rest of its life.
+
+        Cooperative shutdown: `stop()` sets `_stop_requested = True` and
+        cancels the task. Both paths exit cleanly.
+        """
+        try:
+            while not self._stop_requested:
+                # Phase 1: wait for the current client to die.
+                while (
+                    self._client is not None
+                    and self._client.is_alive
+                    and not self._stop_requested
+                ):
+                    await asyncio.sleep(_DEATH_POLL_INTERVAL)
+                if self._stop_requested:
+                    return
+
+                # Phase 2: client is dead. Try to reconnect with backoff.
+                self._set_state(TmuxControlState.RECONNECTING)
+                attempts = 0
+                reconnected = False
+                while (
+                    attempts < _RECONNECT_MAX_ATTEMPTS
+                    and not self._stop_requested
+                ):
+                    delay = _RECONNECT_BACKOFFS[
+                        min(attempts, len(_RECONNECT_BACKOFFS) - 1)
+                    ]
+                    await asyncio.sleep(delay)
+                    if self._stop_requested:
+                        return
+                    new_client = TmuxControlClient(
+                        self.session, self.command_timeout
+                    )
+                    if await new_client.start():
+                        self._client = new_client
+                        self._set_state(TmuxControlState.CONNECTED)
+                        reconnected = True
+                        break
+                    attempts += 1
+
+                if not reconnected:
+                    self._set_state(TmuxControlState.FALLBACK)
+                    return
+        except asyncio.CancelledError:
+            # Cooperative shutdown — fall through. State is updated by stop().
+            return
 
     def _thread_main(self) -> None:
         loop = asyncio.new_event_loop()
@@ -329,11 +446,24 @@ class TmuxControlBackend:
     def stop(self) -> None:
         """Close the client (on bg loop), stop the loop, join the thread.
 
-        Idempotent. Safe to call when start() failed partway through.
+        Idempotent. Safe to call when start() failed partway through. Also
+        cancels the reconnect supervisor (if any) before tearing down the
+        client, so an in-flight reconnect attempt cannot create a new
+        `tmux -C attach` subprocess after `stop()` returns.
         """
+        self._stop_requested = True
         loop = self._loop
         client = self._client
         thread = self._thread
+        # Cancel the supervisor before closing the client so it can't
+        # respawn a fresh one in the gap between client.close() and the
+        # loop stopping.
+        if loop is not None and self._reconnect_task is not None:
+            with contextlib.suppress(Exception):
+                cf = asyncio.run_coroutine_threadsafe(
+                    self._cancel_reconnect_task(), loop
+                )
+                cf.result(timeout=1.0)
         if loop is not None and client is not None:
             with contextlib.suppress(Exception):
                 cf = asyncio.run_coroutine_threadsafe(client.close(), loop)
@@ -345,7 +475,23 @@ class TmuxControlBackend:
         self._client = None
         self._loop = None
         self._thread = None
+        self._reconnect_task = None
         self._ready.clear()
+        self._set_state(TmuxControlState.STOPPED)
+
+    async def _cancel_reconnect_task(self) -> None:
+        """Cancel the supervisor task and wait for it to finish.
+
+        Runs on the bg loop. Reads `self._reconnect_task` from the same
+        loop that created it, so the read is consistent. Idempotent —
+        safe if the task already finished or was never created.
+        """
+        task = self._reconnect_task
+        if task is None or task.done():
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
 
     def request_sync(
         self, args: list[str], timeout: Optional[float] = None

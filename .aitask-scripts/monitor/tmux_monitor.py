@@ -231,6 +231,18 @@ class TmuxMonitor:
     def has_control_client(self) -> bool:
         return self._backend is not None and self._backend.is_alive
 
+    def control_state(self) -> "TmuxControlState":
+        """Backend channel state, or `STOPPED` if no backend is attached.
+
+        Returned enum is from `monitor.tmux_control`. Defer-imported to
+        match the existing pattern (`tmux_monitor` keeps `tmux_control` as
+        a TYPE_CHECKING-only import).
+        """
+        from .tmux_control import TmuxControlState
+        if self._backend is None:
+            return TmuxControlState.STOPPED
+        return self._backend.state
+
     async def _tmux_async(
         self, args: list[str], timeout: float = 5.0
     ) -> tuple[int, str]:

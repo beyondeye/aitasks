@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import subprocess
 import sys
@@ -28,6 +29,7 @@ from monitor.tmux_monitor import (  # noqa: E402
     TmuxMonitor,
     load_monitor_config,
 )
+from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _TASK_ID_RE, TaskInfoCache, TaskDetailDialog, format_compare_mode_glyph,
 )
@@ -42,6 +44,7 @@ from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import VerticalScroll  # noqa: E402
 from textual.screen import ModalScreen  # noqa: E402
+from textual.timer import Timer  # noqa: E402
 from textual.widgets import Static  # noqa: E402
 
 
@@ -137,6 +140,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         self._snapshots: dict[str, PaneSnapshot] = {}
         self._focused_pane_id: str | None = None
         self._monitor: TmuxMonitor | None = None
+        self._refresh_timer: Timer | None = None
         self._task_cache = TaskInfoCache(project_root)
         self._mount_time: float = 0.0
         self._own_window_id: str | None = None
@@ -187,8 +191,37 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
 
         self._start_monitoring()
 
+    def _teardown_prior_monitoring(self) -> None:
+        """Cancel the prior refresh timer and close the prior monitor's
+        control client, if any. Mirrors `MonitorApp._teardown_prior_monitoring`.
+
+        Minimonitor does not currently re-enter `_start_monitoring()` (no
+        session-rename flow), but the helper is cheap and protects against
+        future re-entry paths.
+        """
+        if self._refresh_timer is not None:
+            with contextlib.suppress(Exception):
+                self._refresh_timer.stop()
+            self._refresh_timer = None
+        prev = self._monitor
+        if prev is not None:
+            self._monitor = None
+
+            async def _close_prev() -> None:
+                with contextlib.suppress(Exception):
+                    await prev.close_control_client()
+
+            self.run_worker(
+                _close_prev(),
+                exclusive=False,
+                exit_on_error=False,
+                group="tmux-control-teardown",
+            )
+
     def _start_monitoring(self) -> None:
         """Initialize the TmuxMonitor and start refreshing."""
+        self._teardown_prior_monitoring()
+
         kwargs: dict = {}
         if self._agent_prefixes is not None:
             kwargs["agent_prefixes"] = self._agent_prefixes
@@ -219,7 +252,9 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
         )
 
         self.call_later(self._refresh_data)
-        self.set_interval(self._refresh_seconds, self._refresh_data)
+        self._refresh_timer = self.set_interval(
+            self._refresh_seconds, self._refresh_data
+        )
 
     async def on_unmount(self) -> None:
         if getattr(self, "_monitor", None) is not None:
@@ -344,6 +379,15 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             desync = _get_desync_summary(Path.cwd(), compact=True)
         except Exception:
             desync = ""
+        # Surface the control-channel state only when not steady-state.
+        # Compact form fits the narrow minimonitor bar.
+        state_badge = ""
+        if self._monitor is not None:
+            s = self._monitor.control_state()
+            if s == TmuxControlState.RECONNECTING:
+                state_badge = " [yellow]rc:retry[/]"
+            elif s == TmuxControlState.FALLBACK:
+                state_badge = " [red]rc:fb[/]"
         bar = self.query_one("#mini-session-bar", Static)
 
         if self._monitor is not None and self._monitor.multi_session:
@@ -353,10 +397,10 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
                 s.pane.session_name for s in agents if s.pane.session_name
             }
             n = len(sessions) if sessions else 1
-            bar.update(f"multi: {n}s · {total}a{idle_str}{desync}")
+            bar.update(f"multi: {n}s · {total}a{idle_str}{desync}{state_badge}")
         else:
             bar.update(
-                f"{self._session}  {total} agent{'s' if total != 1 else ''}{idle_str}{desync}"
+                f"{self._session}  {total} agent{'s' if total != 1 else ''}{idle_str}{desync}{state_badge}"
             )
 
     async def _rebuild_pane_list(self) -> None:
