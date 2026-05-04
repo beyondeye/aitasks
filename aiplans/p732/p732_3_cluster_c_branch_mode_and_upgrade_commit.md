@@ -199,3 +199,30 @@ Per `task-workflow/SKILL.md` Step 9, archive via `./.aitask-scripts/aitask_archi
 - **Confirms the t734 time-bomb pattern extends beyond `aitask_path.sh`.** `python_resolve.sh` is now also a routinely-required lib for any test that scaffolds a fake `.aitask-scripts/lib/` and sources `aitask_setup.sh` (or anything that transitively sources it). t732_5's note "tests should `source tests/lib/test_scaffold.sh` and call `setup_fake_aitask_repo`" once t734 lands is the right fix; this task just adds one more inline `cp` in the meantime.
 - **Generalizes for upgrade-flow tests:** any new test that builds a synthetic upgrade tarball MUST include `packaging/` until/unless the helper extraction work captures this in a shared seeder. Worth a one-line note in the eventual `tests/lib/test_scaffold.sh` (t734) docstring.
 - **Cluster D / F children should re-grep for any `tar czf … .aitask-scripts/ … ait` patterns** in their failing tests — same time-bomb if `packaging/` is missing.
+
+## Final Implementation Notes
+
+- **Actual work done:** Three one-line patches, no production-code changes.
+  1. `tests/test_init_data.sh` — `create_data_branch_setup()` now copies `lib/python_resolve.sh` alongside `lib/terminal_compat.sh` so sourcing `aitask_setup.sh --source-only` succeeds (previously failed at `aitask_setup.sh:15`).
+  2. `tests/test_t644_branch_mode_upgrade.sh` — `tar czf` argument list now includes `packaging/` so `install_global_shim` (called from `install.sh:1059`) can find `packaging/shim/ait` instead of `die`-ing and aborting `install.sh` before `commit_installed_files` runs.
+  3. `tests/test_t167_integration.sh` — same `packaging/` addition to its `tar czf` argument list.
+
+  All 3 target tests now pass at full counts: `test_init_data` 30/30 (was 7/30), `test_t644_branch_mode_upgrade` 16/16 (was 8/16), `test_t167_integration` 17/17 (was 14/17). Adjacent regression sweep (test_init_data, test_t644_*, test_t167_*, test_task_push, test_brainstorm_cli, test_explain_context, test_migrate_archives) all green.
+
+- **Deviations from plan:** None. The verify-mode plan rewrite anticipated all three patches and the precise insertion sites; implementation matched it line-for-line.
+
+- **Issues encountered:** None blocking. The original task description's hypothesis that `install.sh` / `aitask_setup.sh` had lost the `committed to git` / `Update aitasks framework` strings was misleading — those strings are still present (`install.sh:826`, `856`, `862`; the version-tagged `Update aitasks framework to v${version}` at `install.sh:856`); they simply never executed because `install.sh` exited at `install_global_shim` `die`. Verify-mode caught this by tracing under `bash -x` against a reproduction repo before committing to a code patch.
+
+- **Key decisions:**
+  1. **Strategy 1 (fix tests only)** over Strategy 2 (touch production code). The t732_5 precedent is explicit: when production has correctly evolved (here: t623_1 shim extraction + t695_2/_4 python_resolve refactor) and tests have not caught up, fixing the tests is the in-scope minimum. Touching `install.sh` / `aitask_setup.sh` would have introduced unnecessary churn for behavior already correct in real-world (release-tarball) installs.
+  2. **No helper extraction** — same rationale as t732_2/_5: two/three callers is below the bar. The eventual t734 (`test_scaffold_helper_for_fake_aitask_repo`) is the right home for the convergence; this task adds one more inline `cp` and one more `tar czf` arg.
+  3. **Did not edit `install_script()` in `test_init_data.sh:110`** — that helper only copies `aitask_init_data.sh`, which sources only `terminal_compat.sh`. Adding `python_resolve.sh` there would be dead code. Restricted the patch to `create_data_branch_setup()`, the one helper that actually sources `aitask_setup.sh`.
+
+- **Upstream defects identified:** None.
+
+  The pre-existing `tar rzf "$TARBALL" .claude/skills/` and `tar rzf "$TARBALL" seed/` calls in both `test_t644_branch_mode_upgrade.sh:82-86` and `test_t167_integration.sh:90-94` silently fail (`tar: Cannot update compressed archives`) because `tar -r` doesn't support `.tar.gz`. The errors are swallowed by `2>/dev/null || true`, so `.claude/skills/` and `seed/` never make it into the test tarballs. **This is intentional**: the test scenarios assert "no skills/" and "no seed/" warnings (e.g., `[ait] No seed/profiles/ — skipping profile installation`), so the broken-`tar -r` failure is the test's de-facto way of building a "minimal" tarball. Not a defect, just an obscure idiom. Worth a comment in any future helper extraction (t734).
+
+- **Notes for sibling tasks:**
+  - **Pattern verified for both fronts:** ANY new test that scaffolds a fake `.aitask-scripts/lib/` and sources framework helpers MUST copy both `terminal_compat.sh` AND `python_resolve.sh` (and `aitask_path.sh` per t732_5). ANY new test that builds a synthetic upgrade tarball MUST include `packaging/`. Both rules collapse to "match what `release.yml` actually ships" — if a future test diverges from that list, expect a fresh time-bomb on the next refactor.
+  - **For Cluster D (t732_4 — `test_codex_model_detect`, `test_gemini_setup`):** if either test scaffolds a fake `.aitask-scripts/lib/` or builds an upgrade-style tarball, re-check both rules above before debugging any other symptom.
+  - **For t732_7 (full-suite verification):** when the full test suite is re-run for the parent's verification, the 3 tests fixed here should appear in the green list. If any regresses, the most likely cause is a new lib being sourced from `aitask_setup.sh` (rule 1) or a new path required by `install.sh` (rule 2).
