@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [ait_brainstorm]
-children_to_implement: [t749_1, t749_2]
+children_to_implement: [t749_1, t749_2, t749_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-05 09:18
 updated_at: 2026-05-05 10:41
