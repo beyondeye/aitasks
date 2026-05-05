@@ -309,3 +309,43 @@ run the standard Step 9 archive script.
   description strings stay as-is).
 - Tooltips / hover help (Textual mouse-hover tooltips are a separate
   feature surface and out of scope for this bug).
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `_OPERATION_HELP` (10 entries: 5 design ops +
+  5 lifecycle ops) immediately after `_SESSION_OPS`, with a top-of-block
+  comment naming the templates dir as canonical source and per-entry
+  comments naming the specific template file (or runtime source for
+  lifecycle ops) and the section the I/O contract was derived from.
+  Added `OperationHelpModal(ModalScreen)` after `LogDetailModal`. Added a
+  CSS block for `#op_help_dialog`/`#op_help_title`/`#op_help_scroll`/
+  `#op_help_footer` next to the existing log-modal CSS. Registered an
+  app-level `Binding("question_mark", "op_help", "Op help",
+  key_display="?")` (footer renders `?`, not `question_mark`). Extended
+  `BrainstormApp.check_action` with an `op_help` branch that gates the
+  binding to `tab_actions` AND `_wizard_step == 1` (so the footer hint
+  disappears outside Step 1). Added `action_op_help` that re-checks the
+  same conditions plus `OperationRow` focus and `op_key in
+  _OPERATION_HELP` before pushing the modal. Updated the Step 1 indicator
+  label to append `? Help` after the existing "↑↓ Navigate Enter Select"
+  hint.
+- **Deviations from plan:** None of substance. Two minor refinements made
+  during implementation:
+  1. The `Binding` uses `key_display="?"` (rather than relying on
+     Textual's default), because Textual's `KEY_DISPLAY_ALIASES` has no
+     entry for `question_mark` — without `key_display` the footer would
+     render the literal string `question_mark`.
+  2. `OperationHelpModal.BINDINGS` uses Textual's `question_mark` key
+     name (matching the existing pattern in `settings_app.py` line 1769),
+     not the literal `?` character.
+- **Issues encountered:** Initial `python3` import test failed due to a
+  CWD-relative `sys.path` (resolved by running from `.aitask-scripts/`
+  with absolute path injection). No production-code issues.
+- **Key decisions:** Source-trace comments live at the data site
+  (per-entry, before each `_OPERATION_HELP` value) rather than as a
+  separate appendix or external doc. This matches the
+  `feedback_source_comments_for_derived_help_text` memory and ensures the
+  next contributor editing a help string sees the canonical origin
+  without leaving the file.
+- **Upstream defects identified:** None.
+
