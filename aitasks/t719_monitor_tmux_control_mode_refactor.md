@@ -8,7 +8,7 @@ labels: [performance, monitor, tui]
 children_to_implement: [t719_3, t719_4, t719_5, t719_6]
 created_at: 2026-04-30 08:34
 updated_at: 2026-05-03 09:02
-boardidx: 30
+boardidx: 20
 boardcol: now
 ---
 
