@@ -168,6 +168,249 @@ _SESSION_OPS = [
 ]
 
 
+# Help text condensed from the agent prompt templates in
+# .aitask-scripts/brainstorm/templates/*.md (one prompt per design op) and
+# from the session lifecycle status machine in brainstorm_session.py.
+# When those sources change, update the per-entry source comments below
+# AND the corresponding "summary"/"reads_from_parent"/"produces" fields.
+# Surfaced via the "?" shortcut in Actions wizard Step 1 (OperationHelpModal).
+_OPERATION_HELP: dict[str, dict] = {
+    # Source: .aitask-scripts/brainstorm/templates/explorer.md
+    # I/O contract derived from "## Input" (reads parent YAML metadata,
+    # proposal markdown, plan markdown if one exists, reference files) and
+    # "## Output" (produces a new node: YAML metadata + proposal markdown;
+    # no plan).
+    "explore": {
+        "title": "Explore — Architecture Explorer",
+        "summary": (
+            "Generate a new architectural proposal as a child of an existing "
+            "base node, given an exploration mandate. The new node inherits "
+            "the base node's dimension space and may modify, add, or replace "
+            "values, but never silently drops a dimension."
+        ),
+        "reads_from_parent": [
+            "YAML metadata of the base node (all dimensions: requirements_*, "
+            "assumption_*, component_*, tradeoff_*).",
+            "Proposal markdown of the base node (full architectural narrative).",
+            "Plan markdown of the base node (if one exists).",
+            "Reference files cited by the base node.",
+        ],
+        "produces": [
+            "A new node with `parents = [base_node]`.",
+            "A new YAML metadata file (description, dimensions, "
+            "reference_files, created_by_group).",
+            "A new proposal markdown.",
+            "No plan — use Detail later to derive a plan from this proposal.",
+        ],
+        "use_cases": [
+            "Branch off a parent node to try an alternate architecture under "
+            "specific constraints (e.g., swap a component, relax an "
+            "assumption).",
+            "Iterate on a proposal by exploring a different component or "
+            "assumption space.",
+            "Run several explorers in parallel to fan out a design space.",
+        ],
+    },
+    # Source: .aitask-scripts/brainstorm/templates/comparator.md
+    # I/O from "## Input" — explicitly metadata-only ("You only need the
+    # YAML metadata — do not read proposals, plans, or codebase files") —
+    # and "## Output" (comparison matrix + delta summary; no new node, no
+    # edits to existing nodes).
+    "compare": {
+        "title": "Compare — Tradeoff Analyst",
+        "summary": (
+            "Compare two or more nodes side-by-side across their YAML "
+            "dimensions and produce a tradeoff matrix plus a delta summary. "
+            "Does not read proposals, plans, or codebase files — comparisons "
+            "are kept fast and dimension-focused."
+        ),
+        "reads_from_parent": [
+            "YAML metadata only — across every selected node.",
+            "Does NOT read proposals, plans, or codebase/reference files.",
+        ],
+        "produces": [
+            "A comparison matrix (markdown table) — rows are dimensions, "
+            "columns are nodes plus a Key Tradeoff column.",
+            "A delta summary highlighting critical assumption differences "
+            "and hidden risks.",
+            "Optional winner declaration only when the user supplies a "
+            "scoring metric.",
+            "Does NOT create a new node, modify existing proposals/plans, "
+            "or change YAML metadata.",
+        ],
+        "use_cases": [
+            "Quickly spot dimension differences across sibling design "
+            "variants before picking one.",
+            "Score variants against an explicit metric supplied by the user.",
+            "Surface infrastructure / integration risks that are easy to "
+            "miss when reading proposals individually.",
+        ],
+    },
+    # Source: .aitask-scripts/brainstorm/templates/synthesizer.md
+    # I/O from "## Input" (reads source nodes' YAML metadata + proposal
+    # markdown per the user's merge rules) and "## Output" (new node:
+    # YAML + merged proposal; parents = [all source nodes]; includes a
+    # Conflict Resolutions section).
+    "hybridize": {
+        "title": "Hybridize — Architecture Synthesizer",
+        "summary": (
+            "Merge components from multiple source nodes into a single "
+            "hybrid node according to user-supplied merge rules. The "
+            "hybrid lists every source as a parent and documents how "
+            "conflicts between sources were resolved."
+        ),
+        "reads_from_parent": [
+            "YAML metadata from all selected source nodes.",
+            "Proposal markdown from all selected source nodes.",
+            "Reference files merged & deduplicated from all sources.",
+        ],
+        "produces": [
+            "A new node with `parents = [all source nodes]`.",
+            "A new merged YAML metadata file.",
+            "A new merged proposal markdown including a Conflict "
+            "Resolutions section.",
+            "No plan — use Detail later to derive a plan.",
+        ],
+        "use_cases": [
+            "Combine the data layer from one variant with the API layer "
+            "from another into a unified design.",
+            "Resolve component-level tradeoffs across siblings into a "
+            "single proposal.",
+        ],
+    },
+    # Source: .aitask-scripts/brainstorm/templates/detailer.md
+    # I/O from "## Input" (reads node YAML metadata + proposal markdown +
+    # reference files + project context like CLAUDE.md) and "## Output"
+    # (single plan markdown attached to the same node; does NOT modify
+    # the proposal or YAML metadata).
+    "detail": {
+        "title": "Detail — Implementation Planner",
+        "summary": (
+            "Translate a finalized proposal into a concrete, step-by-step "
+            "implementation plan with file paths, code snippets, and "
+            "verification steps. Steps are ordered by dependency."
+        ),
+        "reads_from_parent": [
+            "YAML metadata of the selected node.",
+            "Proposal markdown of the selected node.",
+            "Reference files (local paths and cached URLs).",
+            "Additional project context (e.g., CLAUDE.md, directory listings).",
+        ],
+        "produces": [
+            "A single implementation plan markdown attached to the same "
+            "node (Prerequisites + Step-by-Step Changes + per-component "
+            "sub-sections).",
+            "Does NOT modify the node's proposal or YAML metadata.",
+        ],
+        "use_cases": [
+            "Convert the leading proposal into something a developer can "
+            "implement directly.",
+            "Re-detail a node after material proposal changes.",
+        ],
+    },
+    # Source: .aitask-scripts/brainstorm/templates/patcher.md
+    # I/O from "## Input" — plan is the edit target; proposal is read-only
+    # and used only for impact analysis — and "## Output" (patched plan +
+    # impact verdict NO_IMPACT/IMPACT_FLAG; optional updated metadata when
+    # the patch flags an architectural change).
+    "patch": {
+        "title": "Patch — Plan Patcher",
+        "summary": (
+            "Apply a surgical, targeted modification to an existing "
+            "implementation plan and assess whether the change has any "
+            "architectural impact. Only the user-requested change is "
+            "applied; unaffected steps remain byte-for-byte identical."
+        ),
+        "reads_from_parent": [
+            "YAML metadata of the selected node.",
+            "Plan markdown of the selected node — the edit target.",
+            "Proposal markdown of the selected node — read-only, used only "
+            "for impact analysis.",
+        ],
+        "produces": [
+            "A patched plan markdown (only requested changes applied).",
+            "An impact verdict: NO_IMPACT (purely local change) or "
+            "IMPACT_FLAG (architectural implications listed).",
+            "Optionally an updated YAML metadata file when the patch flags "
+            "an architectural change (e.g., swapping a component).",
+        ],
+        "use_cases": [
+            "Tweak a step in an approved plan without redoing the whole "
+            "Detail pass.",
+            "Swap one library for another and surface whether the change "
+            "has architectural implications.",
+        ],
+    },
+    # Source: BrainstormApp._is_session_op_disabled (this file) +
+    # session status machine in brainstorm_session.py (init / active /
+    # paused / completed / archived).
+    "pause": {
+        "title": "Pause — Session Lifecycle",
+        "summary": (
+            "Pause an `active` session. While paused, no new operations "
+            "can be launched until the session is resumed. Existing "
+            "in-flight agent runs are not interrupted."
+        ),
+        "use_cases": [
+            "Step away from a session without it accepting new ops.",
+            "Freeze the design space while reviewing a proposal externally.",
+        ],
+    },
+    # Source: brainstorm_session.py — sets status back to `active` on a
+    # paused session.
+    "resume": {
+        "title": "Resume — Session Lifecycle",
+        "summary": (
+            "Resume a `paused` session, returning it to `active` so design "
+            "operations can be launched again."
+        ),
+        "use_cases": [
+            "Continue work on a session that was paused earlier.",
+        ],
+    },
+    # Source: brainstorm_session.finalize_session — copies the HEAD node's
+    # plan into aiplans/ and marks the session `completed`. Requires HEAD
+    # to be set and status to be `active`.
+    "finalize": {
+        "title": "Finalize — Session Lifecycle",
+        "summary": (
+            "Copy the HEAD node's implementation plan into aiplans/ and "
+            "mark the session `completed`. Requires the session to be "
+            "`active` and HEAD to point at a node that has a plan."
+        ),
+        "use_cases": [
+            "Promote the chosen design's plan to the project's canonical "
+            "aiplans/ directory once the brainstorm has converged.",
+        ],
+    },
+    # Source: brainstorm_session.archive_session — flips a `completed`
+    # session to `archived`.
+    "archive": {
+        "title": "Archive — Session Lifecycle",
+        "summary": (
+            "Mark a `completed` session as `archived`. The session and "
+            "its data remain on disk but are surfaced as historical."
+        ),
+        "use_cases": [
+            "Tidy up the active session list after finalization.",
+        ],
+    },
+    # Source: brainstorm_session.delete_session — permanently removes the
+    # session, its worktree directory, and its crew branch.
+    "delete": {
+        "title": "Delete — Session Lifecycle",
+        "summary": (
+            "Permanently delete the session, its worktree directory, and "
+            "its crew git branch. NOT reversible — confirmation required."
+        ),
+        "use_cases": [
+            "Discard an aborted exploration or a session whose history is "
+            "no longer wanted.",
+        ],
+    },
+}
+
+
 # ---------------------------------------------------------------------------
 # Modal Screens
 # ---------------------------------------------------------------------------
@@ -738,6 +981,55 @@ class LogDetailModal(ModalScreen):
 
     @on(Button.Pressed, "#btn_close_log")
     def close_log(self) -> None:
+        self.dismiss(None)
+
+
+class OperationHelpModal(ModalScreen):
+    """Modal showing summary, I/O contract, and use cases for an operation.
+
+    Triggered by the `?` shortcut from Step 1 of the Actions wizard when an
+    `OperationRow` is focused. Content is sourced from `_OPERATION_HELP`
+    (see the source-trace comments above each entry).
+    """
+
+    BINDINGS = [
+        Binding("escape", "close", "Close", show=False),
+        Binding("question_mark", "close", "Close", show=False),
+    ]
+
+    def __init__(self, op_key: str):
+        super().__init__()
+        self.op_key = op_key
+
+    def compose(self) -> ComposeResult:
+        info = _OPERATION_HELP.get(self.op_key)
+        title = info["title"] if info else self.op_key
+        with Container(id="op_help_dialog"):
+            yield Label(f"Operation: {title}", id="op_help_title")
+            yield VerticalScroll(
+                Markdown(self._render_markdown(info), id="op_help_content"),
+                id="op_help_scroll",
+            )
+            yield Label("[dim]Esc / ? close[/]", id="op_help_footer")
+
+    def _render_markdown(self, info: dict | None) -> str:
+        if not info:
+            return f"*No help available for `{self.op_key}`.*"
+        parts: list[str] = [info["summary"], ""]
+        if info.get("reads_from_parent"):
+            parts.append("## Reads from base/parent node(s)")
+            parts.extend(f"- {x}" for x in info["reads_from_parent"])
+            parts.append("")
+        if info.get("produces"):
+            parts.append("## Produces")
+            parts.extend(f"- {x}" for x in info["produces"])
+            parts.append("")
+        if info.get("use_cases"):
+            parts.append("## Use cases")
+            parts.extend(f"- {x}" for x in info["use_cases"])
+        return "\n".join(parts)
+
+    def action_close(self) -> None:
         self.dismiss(None)
 
 
@@ -1598,6 +1890,36 @@ class BrainstormApp(TuiSwitcherMixin, App):
         align: center middle;
     }
 
+    /* Operation help modal */
+    #op_help_dialog {
+        width: 80%;
+        height: 80%;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+    }
+
+    #op_help_title {
+        text-style: bold;
+        text-align: center;
+        dock: top;
+        width: 100%;
+        padding: 1;
+        background: $secondary;
+    }
+
+    #op_help_scroll {
+        height: 1fr;
+        padding: 0 1;
+    }
+
+    #op_help_footer {
+        dock: bottom;
+        width: 100%;
+        text-align: center;
+        padding: 0 1;
+    }
+
     .runner_bar { height: auto; padding: 0 1; margin-bottom: 1; }
 
     Button {
@@ -1615,6 +1937,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         Binding("s", "tab_status", "Status", show=False),
         Binding("r", "compare_regenerate", "Regenerate"),
         Binding("D", "compare_diff", "Diff"),
+        Binding("question_mark", "op_help", "Op help", key_display="?"),
         Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
         Binding("ctrl+shift+r", "retry_patcher_apply",
                 "Retry patcher apply", show=False),
@@ -1669,6 +1992,14 @@ class BrainstormApp(TuiSwitcherMixin, App):
             and not isinstance(self.screen, ModalScreen)
         ):
             return None
+        if action == "op_help":
+            try:
+                tabbed = self.query_one(TabbedContent)
+            except Exception:
+                return None
+            if tabbed.active != "tab_actions" or self._wizard_step != 1:
+                return None
+            return True
         required_tab = self._TAB_SCOPED_ACTIONS.get(action)
         if required_tab is None:
             return True
@@ -2102,6 +2433,23 @@ class BrainstormApp(TuiSwitcherMixin, App):
         if isinstance(self.screen, ModalScreen):
             return
         self.query_one(TabbedContent).active = "tab_status"
+
+    def action_op_help(self) -> None:
+        from textual.actions import SkipAction
+        if isinstance(self.screen, ModalScreen):
+            raise SkipAction
+        try:
+            tabbed = self.query_one(TabbedContent)
+        except Exception:
+            raise SkipAction
+        if tabbed.active != "tab_actions" or self._wizard_step != 1:
+            raise SkipAction
+        focused = self.focused
+        if not isinstance(focused, OperationRow):
+            raise SkipAction
+        if focused.op_key not in _OPERATION_HELP:
+            raise SkipAction
+        self.push_screen(OperationHelpModal(focused.op_key))
 
     # ------------------------------------------------------------------
     # Keyboard navigation helper
@@ -3138,7 +3486,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
             container.mount(Label("[italic]Session is read-only. No operations available.[/]"))
             return
 
-        container.mount(Label("Step 1 \u2014 Select Operation  (\u2191\u2193 Navigate  Enter Select)", classes="actions_step_indicator"))
+        container.mount(Label("Step 1 \u2014 Select Operation  (\u2191\u2193 Navigate  Enter Select  ? Help)", classes="actions_step_indicator"))
 
         status = self.session_data.get("status", "")
         head = get_head(self.session_path)
