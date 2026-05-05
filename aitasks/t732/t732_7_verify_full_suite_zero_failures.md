@@ -1,12 +1,13 @@
 ---
 priority: medium
 effort: low
-depends: [732_1, 732_2, 732_3, 732_4, 732_5, 732_6]
+depends: [t732_1, t732_2, t732_3, t732_4, t732_5, t732_6]
 issue_type: test
-status: Ready
+status: Implementing
 labels: [testing, verification]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-03 16:32
-updated_at: 2026-05-03 16:32
+updated_at: 2026-05-05 09:00
 ---
 
 ## Context
