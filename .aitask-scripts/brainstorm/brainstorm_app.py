@@ -1595,16 +1595,17 @@ class BrainstormApp(TuiSwitcherMixin, App):
         Binding("a", "tab_actions", "Actions", show=False),
         Binding("s", "tab_status", "Status", show=False),
         Binding("r", "compare_regenerate", "Regenerate"),
+        Binding("D", "compare_diff", "Diff"),
         Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
         Binding("ctrl+shift+r", "retry_patcher_apply",
                 "Retry patcher apply", show=False),
     ]
 
     # Maps action_name -> required tab id. check_action() hides the binding
-    # from the footer when the active tab does not match. Sibling tasks
-    # (t745_2, t745_4) populate this with their compare-tab actions.
+    # from the footer when the active tab does not match.
     _TAB_SCOPED_ACTIONS: dict[str, str] = {
         "compare_regenerate": "tab_compare",
+        "compare_diff": "tab_compare",
     }
 
     def __init__(self, task_num: str):
@@ -1640,6 +1641,15 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._update_title_from_task()
 
     def check_action(self, action: str, parameters) -> bool | None:
+        # Hide app-level bindings from the footer when a non-modal screen
+        # (e.g., pushed DiffViewerScreen) is active — the screen owns the
+        # footer. Returning None hides the binding from the footer but
+        # keeps it live, so app shortcuts like `q` still work.
+        if (
+            len(self.screen_stack) > 1
+            and not isinstance(self.screen, ModalScreen)
+        ):
+            return None
         required_tab = self._TAB_SCOPED_ACTIONS.get(action)
         if required_tab is None:
             return True
@@ -1872,25 +1882,6 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 event.stop()
                 return
 
-        # Shift+D: diff proposals on Compare tab (was 'd', now 'D' to avoid Dashboard shortcut conflict)
-        if event.key == "D":
-            if (
-                tabbed.active == "tab_compare"
-                and hasattr(self, "_compare_nodes")
-                and len(self._compare_nodes) >= 2
-            ):
-                n1, n2 = self._compare_nodes[:2]
-                p1 = self.session_path / "br_proposals" / f"{n1}.md"
-                p2 = self.session_path / "br_proposals" / f"{n2}.md"
-                if p1.is_file() and p2.is_file():
-                    subprocess.Popen(["diff", "--color=always", str(p1), str(p2)])
-                    self.notify(f"Diff launched: {n1} vs {n2}")
-                else:
-                    self.notify("Proposal files not found", severity="warning")
-                event.prevent_default()
-                event.stop()
-                return
-
         # b: show task brief
         if event.key == "b":
             spec = getattr(self, "session_data", {}).get("initial_spec", "")
@@ -2043,6 +2034,31 @@ class BrainstormApp(TuiSwitcherMixin, App):
         if isinstance(self.screen, ModalScreen):
             return
         self._open_compare_select_modal()
+
+    def action_compare_diff(self) -> None:
+        if isinstance(self.screen, ModalScreen):
+            return
+        nodes = getattr(self, "_compare_nodes", None)
+        if not nodes or len(nodes) < 2:
+            self.notify(
+                "Pick nodes to compare first (press 'r')",
+                severity="warning",
+            )
+            return
+        n1, n2 = nodes[:2]
+        p1 = self.session_path / "br_proposals" / f"{n1}.md"
+        p2 = self.session_path / "br_proposals" / f"{n2}.md"
+        missing = [p for p in (p1, p2) if not p.is_file()]
+        if missing:
+            self.notify(
+                f"Proposal file missing: {missing[0].name}",
+                severity="warning",
+            )
+            return
+        from diffviewer.diff_viewer_screen import DiffViewerScreen
+        self.push_screen(
+            DiffViewerScreen(str(p1), [str(p2)], mode="classical")
+        )
 
     def action_tab_actions(self) -> None:
         if isinstance(self.screen, ModalScreen):
