@@ -3,11 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [testing, qa, bash_scripts]
-children_to_implement: [t732_7]
 created_at: 2026-05-03 12:37
-updated_at: 2026-05-05 08:48
+updated_at: 2026-05-05 11:09
+completed_at: 2026-05-05 11:09
 boardcol: now
 boardidx: 20
 ---

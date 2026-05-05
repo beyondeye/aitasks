@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t732_1, t732_2, t732_3, t732_4, t732_5, t732_6]
 issue_type: test
-status: Implementing
+status: Done
 labels: [testing, verification]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-03 16:32
-updated_at: 2026-05-05 10:56
+updated_at: 2026-05-05 11:09
+completed_at: 2026-05-05 11:09
 ---
 
 ## Context
