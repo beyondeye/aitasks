@@ -89,3 +89,52 @@ Standard archival flow.
 ## Verification
 
 (Aggregated under the parent task's manual-verification sibling.)
+
+## Final Implementation Notes
+
+- **Actual work done:** Created
+  `.aitask-scripts/brainstorm/brainstorm_op_refs.py` exactly as planned —
+  `OpDataRef` frozen dataclass with closed-set `kind` validation,
+  `file_for_ref` path resolver, `resolve_ref` reader,
+  `_extract_md_section` helper, and the four `list_op_*(group_info)`
+  enumerators (`list_op_inputs`, `list_op_outputs`, `list_op_logs`,
+  `list_op_definition`). Imported `NODES_DIR`, `PROPOSALS_DIR`,
+  `PLANS_DIR` from `brainstorm_dag`. Re-exported the public surface from
+  `.aitask-scripts/brainstorm/__init__.py` via `__all__`. Added
+  `tests/test_brainstorm_op_refs.py` (33 tests across 8 classes).
+- **Deviations from plan:** None of substance. The
+  `_extract_md_section` body trims the heading line via `ln[3:].strip()`
+  (cleaner than the `lstrip("#").strip()` shown in the task description) —
+  semantically equivalent for the only call shape (`## Header`).
+- **Issues encountered:** One test expectation was off-by-one-blank-line
+  (`.strip("\n")` strips leading/trailing newlines from the joined slice,
+  which the test forgot). Fixed the expectation, not the implementation.
+- **Key decisions:**
+  - Re-exports done via `__all__` in `__init__.py` — keeps the public
+    surface explicit and lets `from brainstorm import *` work as
+    documented.
+  - `list_op_definition` filters out a falsy `head_at_creation` rather
+    than emitting a `node_metadata` ref to an empty target — matches
+    t749_1's bootstrap entry shape (`head_at_creation=None`).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **Module path:** `from brainstorm.brainstorm_op_refs import OpDataRef,
+    list_op_inputs, ...` — the symbols are also re-exported from
+    `brainstorm` for short imports.
+  - **Empty-agents convention:** `list_op_inputs(group_info)` returns
+    `[]` when `agents` is missing or empty. Sibling t749_4/t749_5 should
+    treat the empty list as "no input recorded yet, agent registration
+    pending" rather than "no input section for this op".
+  - **Section anchor map:** `_OP_INPUT_SECTION` is the single source of
+    truth for the `## Header` anchor inside each agent's `_input.md`.
+    Adding a new operation type means updating this dict in
+    `brainstorm_op_refs.py`. The anchors mirror what `brainstorm_crew.py`
+    writes (verified at lines 208/277/304/404/453).
+  - **`_extract_md_section`:** Intentionally minimal — matches `## Header`
+    by literal string, runs to the next `## ` line or EOF. Do not extend
+    it for `###`/`#` matching; if a future op needs nested-heading
+    extraction, add a separate helper.
+  - **Test pattern:** `tests/test_brainstorm_op_refs.py` uses `unittest`
+    with `sys.path.insert(0, .aitask-scripts)` (matching
+    `tests/test_brainstorm_groups_persist.py`). No pytest dependency.
+    Run via `python -m unittest tests.test_brainstorm_op_refs -v`.
