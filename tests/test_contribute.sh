@@ -555,7 +555,7 @@ echo "--- Test 26: aitask_codemap.sh --help documents behavior ---"
 output=$(cd "$CODEMAP_DIR" && ./.aitask-scripts/aitask_codemap.sh --help 2>&1)
 exit_code=$?
 assert_eq "codemap --help exits 0" "0" "$exit_code"
-assert_contains "codemap help mentions shared venv" "shared aitasks Python" "$output"
+assert_contains "codemap help mentions framework Python resolver" "framework Python resolved by lib/python_resolve.sh" "$output"
 assert_contains "codemap help mentions git-tracked files" "Only scans directories that contain git-tracked files" "$output"
 assert_contains "codemap help mentions include framework dirs" "--include-framework-dirs" "$output"
 assert_contains "codemap help mentions ignore file" "--ignore-file <path>" "$output"
