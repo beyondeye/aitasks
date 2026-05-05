@@ -105,9 +105,21 @@ if event.key == "down":
 
 The `try/except` guard handles the case where the user opens the Compare tab before pressing `r` (only the `compare_hint` Label is mounted, no table yet).
 
-### Step 5 — Leave the existing "Up on Graph/Compare tab → focus tabs" handler as-is
+### Step 5 — Narrow the existing "Up on Graph/Compare tab → focus tabs" handler to Graph only
 
-The handler at `brainstorm_app.py:1769-1775` already does the right thing for the Graph tab (`tab_dag`) and is a harmless no-op for `tab_compare` once the table consumes Up via its own binding (`CompareDataTable.action_cursor_up`). No change needed.
+The App-level `on_key` handler at `brainstorm_app.py:1800-1806` previously fired for both `tab_dag` and `tab_compare`. On `tab_compare` it preempted `CompareDataTable.action_cursor_up`, so every Up press jumped straight back to the tab bar instead of moving the row cursor. Drop `tab_compare` from the condition — the table's own `action_cursor_up` now handles both row navigation and the row-0 escape:
+
+```python
+# Up on Graph tab: focus tab bar directly (no row widget on this tab).
+# Compare tab handles Up via CompareDataTable.action_cursor_up, which
+# moves the row cursor and only escapes to the tab bar at row 0.
+if event.key == "up" and tabbed.active == "tab_dag":
+    tabs_widget = tabbed.query_one(Tabs)
+    tabs_widget.focus()
+    event.prevent_default()
+    event.stop()
+    return
+```
 
 ## Files modified
 
@@ -133,8 +145,24 @@ Manual TUI verification (no automated test harness for the brainstorm Textual ap
 8. **Other tabs unaffected**: switch through Dashboard / Graph / Actions / Status tabs and confirm their navigation still works.
 9. **Other Compare features unaffected**: press `r` again to re-select nodes (modal opens), press `D` to open the Diff viewer.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-05-05 09:30)
+- **Requested by user:** "there is an issue with up arrow: instead of focusing the next line above it immediately set the focus back to the tab row"
+- **Root cause:** The App-level `on_key` handler at `brainstorm_app.py:1800-1806` matched both `tab_dag` and `tab_compare` and unconditionally focused the tab bar on Up. It fired before `CompareDataTable.action_cursor_up` could move the row cursor. Plan Step 5 had assumed the handler was a "harmless no-op" on Compare; it was not.
+- **Changes made:** Narrowed the App-level Up handler to `tab_dag` only. The compare table's own `action_cursor_up` now drives row navigation and only escapes to the tab bar at row 0. Plan Step 5 rewritten to reflect this.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`, `aiplans/p747_up_down_arrow_navigate_in_compare_tab.md`
+
 ## Step 9 — Post-Implementation
 
 After review/approval, follow Step 9 of `task-workflow/SKILL.md`:
 - Run `./.aitask-scripts/aitask_archive.sh 747`
 - `./ait git push`
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `CompareDataTable(DataTable)` subclass that overrides `action_cursor_up` to escape to the tab bar at row 0; switched `_build_compare_matrix` to use the subclass with `cursor_type="row"`; added `call_after_refresh(table.focus)` so the table is auto-focused once mounted; added a Compare-tab special case in the App-level `on_key` Down-from-tab-bar branch so the table can be re-entered from the tab bar; **narrowed the existing App-level Up handler from `(tab_dag, tab_compare)` to `tab_dag` only** so the table's own `action_cursor_up` actually runs on Compare.
+- **Deviations from plan:** Plan Step 5 originally claimed the App-level "Up on Graph/Compare tab" handler at `brainstorm_app.py:1800-1806` was a harmless no-op on Compare once the table consumed Up via its binding. That assumption was wrong — the App-level handler dispatches ahead of the widget binding and called `event.stop()`, so every Up press preempted the row cursor and jumped straight to the tab bar. Caught by the user during review (see Post-Review Changes Change Request 1). Fix: drop `tab_compare` from the App-level condition and rewrite Step 5 to reflect the actual change.
+- **Issues encountered:** Reclaimed from a prior crashed session — the original implementer (PID 496478) crashed at 2026-05-05 08:53 after writing an uncommitted diff that matched plan steps 1-4 verbatim and Step 5's "no-op" claim. The bug surfaced only at user-test time.
+- **Key decisions:** Kept the row-0 escape inside `CompareDataTable.action_cursor_up` rather than reintroducing a top-level App handler with a `isinstance(self.focused, CompareDataTable)` guard — keeping the escape on the widget itself is more cohesive and avoids two competing Up handlers on the same tab.
+- **Upstream defects identified:** None
