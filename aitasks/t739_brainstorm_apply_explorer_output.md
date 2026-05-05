@@ -7,7 +7,7 @@ status: Ready
 labels: [brainstorm]
 created_at: 2026-05-04 16:24
 updated_at: 2026-05-04 16:24
-boardidx: 80
+boardidx: 100
 ---
 
 Implement `apply_explorer_output()` in the brainstorm engine so that when an

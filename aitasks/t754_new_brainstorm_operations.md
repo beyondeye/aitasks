@@ -3,10 +3,12 @@ priority: high
 effort: low
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ait_brainstorm]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-05 12:15
-updated_at: 2026-05-05 12:15
+updated_at: 2026-05-05 15:16
+boardidx: 10
 ---
 
 in ait brainstorm, the current supported brainstorm operations do not cover all use cases, in this task I want to preset the use cases and design new operations that will help to cover them, by themselves of by the combination of multiple operation (best single operation for most common use cases).
