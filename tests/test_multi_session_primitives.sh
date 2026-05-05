@@ -18,6 +18,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_DIR="$PROJECT_DIR/.aitask-scripts/lib"
 
+# shellcheck source=lib/require_no_tmux.sh
+. "$SCRIPT_DIR/lib/require_no_tmux.sh"
+require_no_tmux
+
 PASS=0
 FAIL=0
 TOTAL=0

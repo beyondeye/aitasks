@@ -23,6 +23,9 @@ LIB_DIR="$PROJECT_DIR/.aitask-scripts/lib"
 
 # shellcheck source=lib/venv_python.sh
 . "$SCRIPT_DIR/lib/venv_python.sh"
+# shellcheck source=lib/require_no_tmux.sh
+. "$SCRIPT_DIR/lib/require_no_tmux.sh"
+require_no_tmux
 
 PASS=0
 FAIL=0

@@ -27,12 +27,17 @@ if ! command -v tmux >/dev/null 2>&1; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
     echo "SKIP: $PYTHON_BIN not available"
     exit 0
 fi
+
+# shellcheck source=lib/require_no_tmux.sh
+. "$SCRIPT_DIR/lib/require_no_tmux.sh"
+require_no_tmux
 
 make_fixture() {
     local fixture_dir
