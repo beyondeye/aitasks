@@ -59,6 +59,7 @@ from brainstorm.brainstorm_session import (
     finalize_session,
     GROUPS_FILE,
     load_session,
+    record_operation,
     save_session,
     session_exists,
 )
@@ -4170,10 +4171,11 @@ class BrainstormApp(TuiSwitcherMixin, App):
         group_name = self._next_group_name(op)
         launch_mode = cfg.get("launch_mode", DEFAULT_LAUNCH_MODE)
         target_sections = cfg.get("target_sections")
+        head_at_creation = get_head(self.session_path)
+        agents_list: list[str] = []
 
         try:
             if op == "explore":
-                agents = []
                 count = cfg["parallel"]
                 suffixes = "abcdefgh"
                 for i in range(count):
@@ -4184,8 +4186,8 @@ class BrainstormApp(TuiSwitcherMixin, App):
                         launch_mode=launch_mode,
                         target_sections=target_sections,
                     )
-                    agents.append(agent)
-                msg = f"Registered {len(agents)} explorer(s): {', '.join(agents)}"
+                    agents_list.append(agent)
+                msg = f"Registered {len(agents_list)} explorer(s): {', '.join(agents_list)}"
             elif op == "compare":
                 agent = register_comparator(
                     self.session_path, crew_id, cfg["nodes"],
@@ -4193,6 +4195,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     launch_mode=launch_mode,
                     target_sections=target_sections,
                 )
+                agents_list.append(agent)
                 msg = f"Registered comparator: {agent}"
             elif op == "hybridize":
                 agent = register_synthesizer(
@@ -4200,6 +4203,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     cfg["merge_rules"], group_name,
                     launch_mode=launch_mode,
                 )
+                agents_list.append(agent)
                 msg = f"Registered synthesizer: {agent}"
             elif op == "detail":
                 agent = register_detailer(
@@ -4208,6 +4212,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     launch_mode=launch_mode,
                     target_sections=target_sections,
                 )
+                agents_list.append(agent)
                 msg = f"Registered detailer: {agent}"
             elif op == "patch":
                 agent = register_patcher(
@@ -4216,6 +4221,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     launch_mode=launch_mode,
                     target_sections=target_sections,
                 )
+                agents_list.append(agent)
                 # Track source node so the auto-apply poller can pass it
                 # to apply_patcher_output when the agent completes.
                 self.call_from_thread(
@@ -4224,6 +4230,16 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 msg = f"Registered patcher: {agent}"
             else:
                 msg = f"Unknown operation: {op}"
+                agents_list = []
+
+            if agents_list:
+                record_operation(
+                    self.task_num,
+                    group_name=group_name,
+                    operation=op,
+                    agents=agents_list,
+                    head_at_creation=head_at_creation,
+                )
 
             self.call_from_thread(self.notify, msg)
             self.call_from_thread(self._actions_show_step1)

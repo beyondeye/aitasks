@@ -151,6 +151,24 @@ def init_session(
     set_head(wt, "n000_init")
     next_node_id(wt)  # increment counter from 0 → 1
 
+    # Record the bootstrap operation group. For blank-init the bootstrap
+    # is complete the moment n000_init is written; for the proposal-file
+    # path the initializer agent will run later and
+    # apply_initializer_output flips status to Completed once it finishes.
+    record_operation(
+        task_num,
+        group_name="bootstrap",
+        operation="bootstrap",
+        agents=[],
+        head_at_creation=None,
+    )
+    update_operation(
+        task_num,
+        "bootstrap",
+        nodes_created="n000_init",
+        status="Completed" if abs_proposal_path is None else "Waiting",
+    )
+
     # Transition session to active
     session_data["status"] = "active"
     write_yaml(str(wt / SESSION_FILE), session_data)
@@ -177,6 +195,76 @@ def save_session(task_num: int | str, updates: dict) -> None:
 def session_exists(task_num: int | str) -> bool:
     """Check if br_session.yaml exists in crew worktree."""
     return (crew_worktree(task_num) / SESSION_FILE).is_file()
+
+
+# ---------------------------------------------------------------------------
+# Operation group persistence (br_groups.yaml)
+# ---------------------------------------------------------------------------
+
+
+def _read_groups_file(path: str) -> dict:
+    """Read br_groups.yaml; return ``{"groups": {}}`` if absent."""
+    if not os.path.isfile(path):
+        return {"groups": {}}
+    return read_yaml(path) or {"groups": {}}
+
+
+def record_operation(
+    task_num: int | str,
+    group_name: str,
+    operation: str,
+    agents: list[str],
+    head_at_creation: str | None,
+) -> None:
+    """Write a fresh group entry to br_groups.yaml.
+
+    Idempotent — overwrites any existing entry with the same name. Status
+    is initialized to "Waiting"; callers use ``update_operation`` to flip
+    it to "Completed" once the operation finishes.
+    """
+    wt = crew_worktree(task_num)
+    path = str(wt / GROUPS_FILE)
+    data = _read_groups_file(path)
+    groups = data.setdefault("groups", {})
+    groups[group_name] = {
+        "operation": operation,
+        "agents": list(agents),
+        "status": "Waiting",
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "head_at_creation": head_at_creation,
+        "nodes_created": [],
+    }
+    write_yaml(path, data)
+
+
+def update_operation(task_num: int | str, group_name: str, **fields) -> None:
+    """Patch fields on an existing group entry in br_groups.yaml.
+
+    Special-case: ``nodes_created="<nid>"`` appends to the list (unique);
+    ``agents_append="<name>"`` appends to the agents list (unique). Any
+    other kwarg overwrites the corresponding field.
+
+    Silently no-ops if the group is missing.
+    """
+    wt = crew_worktree(task_num)
+    path = str(wt / GROUPS_FILE)
+    data = _read_groups_file(path)
+    groups = data.setdefault("groups", {})
+    grp = groups.get(group_name)
+    if grp is None:
+        return
+    for k, v in fields.items():
+        if k == "nodes_created" and isinstance(v, str):
+            lst = grp.setdefault("nodes_created", [])
+            if v not in lst:
+                lst.append(v)
+        elif k == "agents_append" and isinstance(v, str):
+            lst = grp.setdefault("agents", [])
+            if v not in lst:
+                lst.append(v)
+        else:
+            grp[k] = v
+    write_yaml(path, data)
 
 
 def list_sessions() -> list[dict]:
@@ -398,6 +486,13 @@ def apply_initializer_output(task_num: int | str) -> None:
         proposal_text, encoding="utf-8"
     )
 
+    update_operation(
+        task_num,
+        "bootstrap",
+        agents_append="initializer_bootstrap",
+        status="Completed",
+    )
+
 
 _PATCHER_DELIMITERS = (
     "PATCHED_PLAN_START", "PATCHED_PLAN_END",
@@ -587,6 +682,13 @@ def apply_patcher_output(
 
         set_head(wt, new_node_id)
         next_node_id(wt)
+
+        update_operation(
+            task_num,
+            node_data["created_by_group"],
+            nodes_created=new_node_id,
+            status="Completed",
+        )
 
         return new_node_id, impact_type, impact_details
     except yaml.YAMLError:
