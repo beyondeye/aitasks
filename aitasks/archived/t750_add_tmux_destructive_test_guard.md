@@ -3,10 +3,12 @@ priority: high
 effort: low
 depends: []
 issue_type: test
-status: Ready
+status: Done
 labels: [testing, tmux, crash_recovery]
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-05 09:39
-updated_at: 2026-05-05 09:39
+updated_at: 2026-05-05 09:50
+completed_at: 2026-05-05 09:50
 ---
 
 Add a pre-flight guard to all 8 destructive tmux tests that aborts with a clear error message when run from inside an existing tmux session or while other user tmux sessions are alive on the default socket.
