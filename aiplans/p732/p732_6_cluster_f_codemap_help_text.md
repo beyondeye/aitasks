@@ -61,3 +61,12 @@ Do **NOT** modify `aitask_codemap.sh`. The help text is up-to-date and consisten
 ## Step 9 — Post-implementation
 
 Archive via `./.aitask-scripts/aitask_archive.sh 732_6` (handled by the standard task-workflow Step 9).
+
+## Final Implementation Notes
+
+- **Actual work done:** Single-line edit to `tests/test_contribute.sh:558`, replacing the stale literal `"shared aitasks Python"` with `"framework Python resolved by lib/python_resolve.sh"` and renaming the assertion description from `"codemap help mentions shared venv"` to `"codemap help mentions framework Python resolver"`. No other code or test was touched. No changes to `aitask_codemap.sh`.
+- **Deviations from plan:** None. The plan correctly identified case 1 (stale test, current help functionally documents the venv resolution) and the implementation matched it exactly.
+- **Issues encountered:** None. The fix was a one-line text edit; `bash tests/test_contribute.sh` went from 122/123 to 123/123 in a single iteration.
+- **Key decisions:** Chose `"framework Python resolved by lib/python_resolve.sh"` as the new substring because (a) it is the most stable, semantically-meaningful contiguous string in the new help wording, (b) it is unaffected by future trivial path-format edits in the parenthetical line below it, and (c) it cleanly joins the family of sibling assertions on lines 559-562 (which all check stable behavior-naming substrings of the help text).
+- **Upstream defects identified:** None. The drift was purely the result of t695_4's refactor not updating its callers' tests; no separate pre-existing bug was uncovered. (The unrelated, pre-existing modification to `.aitask-scripts/brainstorm/brainstorm_app.py` in the working tree at pick-time was left untouched and is not part of this task.)
+- **Notes for sibling tasks:** Sibling t732_7 (`verify full suite zero failures`) should now find that `tests/test_contribute.sh` is fully green. The pattern used here — when a refactor renames an internal-mechanism string referenced by a test, prefer updating the test to a stable behavior-naming substring of the new wording rather than re-introducing the old phrase — is a generalizable rule for the remaining clusters' tests should they show similar drift.
