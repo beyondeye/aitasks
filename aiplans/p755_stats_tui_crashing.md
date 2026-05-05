@@ -129,3 +129,31 @@ plotext optional install, which remain unchanged.
 
 Standard archival via `aitask_archive.sh 755`. Commit message follows
 `bug: <description> (t755)`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the user-directed fix exactly as planned.
+  `aitask_stats_tui.sh` line 12 reverted from `require_ait_python_fast` to
+  `require_ait_python`. Updated CLAUDE.md (3 hunks: PyPy-exception list, the
+  "fast-path TUIs" enumeration, and the `AIT_USE_PYPY` precedence section's
+  exception line). Updated `aidocs/python_tui_performance.md` row to move
+  stats TUI into the "stay on CPython" enumeration with reasoning. Dropped
+  `stats` from the PyPy install prompt's benefit list in
+  `aitask_setup.sh:584`. Updated `website/content/docs/installation/pypy.md`
+  to drop stats from the fast-path table and add a paragraph in the "TUIs
+  that don't use PyPy" section explaining the plotext dependency.
+- **Deviations from plan:** None. Initial draft proposed mirroring plotext
+  into the PyPy venv; user redirected to "stats TUI doesn't need PyPy" before
+  any implementation began. Plan was rewritten and approved before edits.
+- **Issues encountered:** None. Verification commands (resolver returns
+  CPython; `import plotext` succeeds) passed on the first try after the edit.
+- **Key decisions:**
+  - Per user direction, kept the `'plotext==5.3.2'` install only in the
+    CPython venv. No mirror into PyPy and no extraction of the literal to a
+    shared constant (still only one install site).
+  - User-facing `pypy.md` describes only the current state per the project's
+    documentation convention — no "previously included stats" framing.
+  - Updated CLAUDE.md's `AIT_USE_PYPY` precedence section as well as the
+    "How to apply" exception list, so both places agree that stats TUI is
+    PyPy-exempt.
+- **Upstream defects identified:** None.
