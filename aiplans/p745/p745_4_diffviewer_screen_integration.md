@@ -164,6 +164,75 @@ the original plan was written:
   available, but evaluating its safety against brainstorm's session state
   is its own follow-up if needed).
 
+## Post-Review Changes
+
+### Change Request 1 (2026-05-05)
+- **Requested by user:** When the pushed `DiffViewerScreen` is active, the
+  footer still showed `q Quit` (and other brainstorm app-level bindings),
+  which is misleading because pressing `Esc` is the way to close the diff
+  screen. Hide app-level bindings from the footer while the diff screen is
+  active, but keep `q` live (still quits).
+- **Changes made:** Extended `BrainstormApp.check_action()` to return
+  `None` for any app-level action when `len(self.screen_stack) > 1` and the
+  active screen is not a `ModalScreen`. Returning `None` hides the binding
+  from the footer but leaves the action live. Modal screens (which overlay
+  the underlying screen) are unaffected, preserving existing footer
+  behavior for compare-select and other modals.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`
+
 ## Final Implementation Notes
 
-(to be filled in at Step 8)
+- **Actual work done:** Replaced the backgrounded `subprocess.Popen(["diff", ...])`
+  call on the brainstorm Compare tab with `self.push_screen(DiffViewerScreen(...))`,
+  opening the existing diffviewer Textual screen inside the brainstorm app.
+  Added `Binding("D", "compare_diff", "Diff")` to `BrainstormApp.BINDINGS`,
+  registered `"compare_diff": "tab_compare"` in `_TAB_SCOPED_ACTIONS`,
+  removed the old `Shift+D` block from `on_key()`, and added
+  `action_compare_diff()` (mirroring `action_compare_regenerate`'s
+  `ModalScreen` guard) with deferred import of `DiffViewerScreen`.
+  No launcher (`aitask_brainstorm_tui.sh`) changes — `brainstorm_app.py:11-13`
+  already adds `.aitask-scripts/` to `sys.path`.
+- **Deviations from plan:** None in the core integration. Post-review, the
+  user reported that `q Quit` (and other brainstorm app-level bindings)
+  still appeared in the footer when the pushed `DiffViewerScreen` was
+  active, which was misleading because `Esc` is the actual close key.
+  Extended `BrainstormApp.check_action()` to return `None` for any
+  app-level action when `len(self.screen_stack) > 1` and the active screen
+  is not a `ModalScreen`. This hides the binding from the footer while
+  keeping it live (so `q` still quits). Modal screens are exempted to
+  preserve existing footer behavior for compare-select / NodeDetail / etc.
+- **Issues encountered:** Plan's reference line numbers (BINDINGS at
+  1512–1523, `on_key()` Shift+D block at 1778–1795) and launcher filename
+  (`aitask_brainstorm.sh`) were stale — siblings t745_1/2/3 had shifted
+  the file. Verified the actual locations during the verify-path planning
+  step and updated the plan in place before implementing. The actual
+  launcher is `aitask_brainstorm_tui.sh`; it already had correct sys.path
+  setup.
+- **Key decisions:**
+  - Followed `action_compare_regenerate`'s `ModalScreen` early-return
+    pattern in `action_compare_diff` for consistency with the existing
+    compare-tab action.
+  - Used a deferred import (`from diffviewer.diff_viewer_screen import
+    DiffViewerScreen` inside the action body) to avoid loading
+    diffviewer's transitive imports (merge_engine, plan_loader, etc.) at
+    brainstorm startup.
+  - For the post-review footer fix, scoped the suppression to
+    `len(screen_stack) > 1 and not isinstance(self.screen, ModalScreen)`
+    rather than naming `DiffViewerScreen` specifically — any future
+    non-modal pushed screen will get the same treatment automatically,
+    and modals (which overlay the underlying screen and are typically
+    transient) keep their current footer behavior.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - The `_TAB_SCOPED_ACTIONS` registry pattern from t745_1 continues to
+    cleanly accept new compare-tab entries — drop the action-name → tab-id
+    mapping in and `check_action()` handles footer visibility per tab.
+  - When a future task wants to launch the standalone diffviewer TUI from
+    brainstorm (e.g., to compare a proposal against a non-proposal file),
+    the existing `aitask_diffviewer.sh` is still the right entry point
+    for that distinct flow.
+  - The footer-hiding `check_action()` extension is generic: any future
+    non-modal pushed screen (`Screen` subclass, not `ModalScreen`) will
+    automatically have brainstorm app-level bindings hidden from its
+    footer. Use `ModalScreen` for overlays where preserving the
+    underlying-screen footer is intentional.
