@@ -242,7 +242,8 @@
         "pick": 99,
         "changelog": 96,
         "explore": 99,
-        "test_414_flags": 100
+        "test_414_flags": 100,
+        "wrap": 100
       },
       "verifiedstats": {
         "pick": {
@@ -317,6 +318,27 @@
             "period": "2026-W18",
             "runs": 3,
             "score_sum": 300
+          }
+        },
+        "wrap": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-05",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W19",
+            "runs": 1,
+            "score_sum": 100
           }
         }
       },
