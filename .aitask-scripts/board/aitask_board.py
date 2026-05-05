@@ -3472,7 +3472,10 @@ class KanbanApp(TuiSwitcherMixin, App):
                     self.expanded_tasks, collapsed=is_collapsed,
                 ))
 
-        self.apply_filter()
+        # Defer until after Textual processes pending mounts so the freshly
+        # composed TaskCards are queryable; otherwise view-mode filters silently
+        # no-op and every card stays visible.
+        self.call_after_refresh(self.apply_filter)
 
         # Restore focus to the card matching refocus_filename
         if refocus_filename:
@@ -3518,7 +3521,9 @@ class KanbanApp(TuiSwitcherMixin, App):
 
         self._recompose_column(old_col)
 
-        self.apply_filter()
+        # Defer (see refresh_board for rationale): _recompose_column remounts
+        # cards, so applying the filter synchronously here would race compose.
+        self.call_after_refresh(self.apply_filter)
         if refocus_filename:
             self.call_after_refresh(self._refocus_card, refocus_filename)
 
@@ -3538,7 +3543,9 @@ class KanbanApp(TuiSwitcherMixin, App):
                     self._recompose_column(col)
                     break
 
-        self.apply_filter()
+        # Defer (see refresh_board for rationale): _recompose_column remounts
+        # cards, so applying the filter synchronously here would race compose.
+        self.call_after_refresh(self.apply_filter)
         if refocus_filename:
             self.call_after_refresh(self._refocus_card, refocus_filename)
 
