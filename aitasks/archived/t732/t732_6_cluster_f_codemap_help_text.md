@@ -3,11 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [testing, documentation]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-03 16:31
-updated_at: 2026-05-05 01:09
+updated_at: 2026-05-05 08:48
+completed_at: 2026-05-05 08:48
 ---
 
 ## Context
