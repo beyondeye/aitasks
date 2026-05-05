@@ -581,7 +581,7 @@ setup_pypy_venv() {
 prompt_install_pypy_if_tty() {
     [[ -t 0 ]] || return 1
     [[ -d "$PYPY_VENV_DIR" ]] && return 1
-    info "Optional: PyPy 3.11 for faster TUIs (board, codebrowser, settings, stats, brainstorm)."
+    info "Optional: PyPy 3.11 for faster TUIs (board, codebrowser, settings, brainstorm)."
     printf "  Install PyPy now? Adds ~100-150 MB in ~/.aitask/. [y/N] "
     local answer=""
     read -r answer

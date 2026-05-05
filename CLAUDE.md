@@ -165,9 +165,9 @@ User-facing docs (website, README-level content) describe the **current state on
 
   **Why:** `require_ait_python_fast` auto-routes to PyPy when the user has run `ait setup --with-pypy` (and falls through to CPython otherwise — zero behavior change for non-PyPy users). Forgetting to use the fast variant means new TUIs silently miss out on the PyPy speedup forever, until someone notices and ports them. This drift was the motivating finding of t718_2 (where `aitask_syncer.sh` had been added on `require_ait_python` after the parent task t718 was planned).
 
-  **How to apply:** Default any new long-running Textual TUI launcher to `require_ait_python_fast`. Monitor / minimonitor are exceptions today (their bottleneck is `fork+exec(tmux)`, see t718's parent task) — t718_5 will empirically re-evaluate. Diffviewer is also an exception until its brainstorm integration lands. Do NOT retroactively switch existing launchers without an aitask covering the change.
+  **How to apply:** Default any new long-running Textual TUI launcher to `require_ait_python_fast`. Monitor / minimonitor are exceptions today (their bottleneck is `fork+exec(tmux)`, see t718's parent task) — t718_5 will empirically re-evaluate. Diffviewer is also an exception until its brainstorm integration lands. Stats TUI is also an exception (it depends on `plotext`, which is installed only in the CPython venv; its browse-and-exit interaction profile does not justify mirroring plotext into the PyPy venv). Do NOT retroactively switch existing launchers without an aitask covering the change.
 
-- **`AIT_USE_PYPY` precedence (runtime override).** When PyPy has been installed via `ait setup --with-pypy`, the six fast-path TUIs (board, codebrowser, settings, stats-tui, brainstorm, syncer) auto-route through `~/.aitask/pypy_venv`. The `AIT_USE_PYPY` env var overrides per invocation:
+- **`AIT_USE_PYPY` precedence (runtime override).** When PyPy has been installed via `ait setup --with-pypy`, the five fast-path TUIs (board, codebrowser, settings, brainstorm, syncer) auto-route through `~/.aitask/pypy_venv`. The `AIT_USE_PYPY` env var overrides per invocation:
 
   | `AIT_USE_PYPY` | PyPy installed? | Result |
   |----------------|-----------------|--------|
@@ -177,7 +177,7 @@ User-facing docs (website, README-level content) describe the **current state on
   | unset          | Yes             | PyPy (default once installed) |
   | unset          | No              | CPython (current behavior preserved) |
 
-  Monitor / minimonitor stay on CPython regardless of `AIT_USE_PYPY` — their bottleneck is `fork+exec(tmux)`, not Python execution. Sibling task t718_5 will empirically re-evaluate. Full analysis: `aidocs/python_tui_performance.md`.
+  Monitor / minimonitor / stats-tui stay on CPython regardless of `AIT_USE_PYPY` — monitor/minimonitor's bottleneck is `fork+exec(tmux)`, not Python execution; stats-tui depends on `plotext` (CPython-only). Sibling task t718_5 will empirically re-evaluate monitor/minimonitor. Full analysis: `aidocs/python_tui_performance.md`.
 
 - **`n` is the create-task key** across every aitasks TUI (board, codebrowser, minimonitor, monitor, brainstorm, TUI switcher modal). Do not default to `c` or other alternatives when adding a create-task binding to a new TUI. Related TUIs may bind `n` to "next" (monitor, logview, diffviewer) — those are read-oriented TUIs without a create-task action, so the conflict is only notional.
 - **Priority bindings + `App.query_one` gotcha:** when an `App` and a pushed `Screen` define a binding with the same action name and `priority=True`, the App-level action runs first. If its "am I in the right screen?" guard uses `self.query_one(...)`, the query walks the entire screen stack and will match widgets from underlying screens — so the guard succeeds for the wrong screen, consumes the key, and the active screen's own binding never fires. Scope guards to `self.screen.query_one(...)`. On guard-miss, raise `textual.actions.SkipAction` so the next priority binding (the active screen's own action) gets a chance. Alternative: use distinct action names per screen.

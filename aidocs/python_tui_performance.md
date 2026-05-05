@@ -106,7 +106,7 @@ The existing `ait setup` architecture already has the right shape — PyPy slots
 | Install | `install_modern_python` | `install_pypy`: `uv python install pypy@3.11` (uv supports PyPy as first-class). macOS fallback: `brew install pypy3`. |
 | Venv setup | `setup_python_venv` | `setup_pypy_venv`: same `pip install` line into `~/.aitask/pypy_venv` |
 | Resolver | `require_ait_python` | Add `require_ait_pypy` (returns PyPy if installed, else empty). Cached in `_AIT_RESOLVED_PYPY`. |
-| TUI launchers | All use `require_ait_python` | `aitask_board.sh`, `aitask_codebrowser.sh`, `aitask_settings.sh`, `aitask_stats_tui.sh`, `aitask_brainstorm_tui.sh`, `aitask_syncer.sh` use new `require_ait_python_fast` (PyPy if available, else CPython). `aitask_monitor.sh`, `aitask_minimonitor.sh` **stay on CPython**. Short-lived CLI scripts (`aitask_pick.sh`, `aitask_create.sh`, `aitask_stats.sh`, …) **stay on CPython**. |
+| TUI launchers | All use `require_ait_python` | `aitask_board.sh`, `aitask_codebrowser.sh`, `aitask_settings.sh`, `aitask_brainstorm_tui.sh`, `aitask_syncer.sh` use new `require_ait_python_fast` (PyPy if available, else CPython). `aitask_monitor.sh`, `aitask_minimonitor.sh`, `aitask_stats_tui.sh` **stay on CPython** (monitor/minimonitor's bottleneck is `fork+exec(tmux)`; stats-tui depends on `plotext`, which is installed only in the CPython venv). Short-lived CLI scripts (`aitask_pick.sh`, `aitask_create.sh`, `aitask_stats.sh`, …) **stay on CPython**. |
 | Setup UX | Plotext prompt | Add `--with-pypy` flag and prompt: `Install PyPy for faster TUIs (board, codebrowser)? [y/N]` |
 
 Touchpoints: ~5 files, all additive. Removable in one commit. Existing CPython users see zero change unless they opt in.

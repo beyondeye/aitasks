@@ -10,14 +10,14 @@ description: "Optional PyPy 3.11 sibling interpreter for faster long-running TUI
 aitasks supports an opt-in **PyPy 3.11** sibling interpreter for the
 long-running Textual TUIs. PyPy's tracing JIT typically yields **2-5×**
 speedups on Textual + Rich workloads, helping board / codebrowser /
-settings / stats-tui / brainstorm / syncer TUIs feel snappier under
-heavy use.
+settings / brainstorm / syncer TUIs feel snappier under heavy use.
 
 CPython remains the default. PyPy is sibling, not replacement —
-short-lived CLI scripts (`ait pick`, `ait create`, etc.) and the
-monitor / minimonitor TUIs continue to use CPython, where PyPy's ~150-300
-ms warmup would hurt or where the bottleneck is OS-level (fork/exec) and
-PyPy cannot help.
+short-lived CLI scripts (`ait pick`, `ait create`, etc.), the
+monitor / minimonitor TUIs, and `ait stats-tui` continue to use CPython,
+where PyPy's ~150-300 ms warmup would hurt, where the bottleneck is
+OS-level (fork/exec) and PyPy cannot help, or where the TUI depends on
+a CPython-only package (`plotext`).
 
 ## Install
 
@@ -29,14 +29,13 @@ This installs PyPy 3.11 into `~/.aitask/pypy_venv/` (~100-150 MB) with the
 same dependency set as the regular CPython venv. `ait setup` (without the
 flag) also offers an interactive prompt on TTYs.
 
-Once installed, the six fast-path TUIs auto-route through PyPy:
+Once installed, the five fast-path TUIs auto-route through PyPy:
 
 | TUI            | Command           |
 |----------------|-------------------|
 | Board          | `ait board`       |
 | Code Browser   | `ait codebrowser` |
 | Settings       | `ait settings`    |
-| Stats          | `ait stats-tui`   |
 | Brainstorm     | `ait brainstorm`  |
 | Syncer         | `ait syncer`      |
 
@@ -70,6 +69,9 @@ AIT_USE_PYPY=1 ait codebrowser # error if PyPy not installed
 accelerate. A separate task will empirically verify whether PyPy yields
 any meaningful improvement under representative workloads; until that
 lands, monitor / minimonitor stay on CPython.
+
+`ait stats-tui` stays on CPython because its chart panes depend on the
+`plotext` package, which is installed only in the CPython venv.
 
 `ait stats` (the one-shot CLI variant) and other short-lived CLIs also
 stay on CPython — the ~150-300 ms PyPy warmup would dominate their total
