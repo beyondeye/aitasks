@@ -8,7 +8,7 @@ labels: [testing, verification]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-03 16:32
-updated_at: 2026-05-05 09:12
+updated_at: 2026-05-05 09:54
 ---
 
 ## Context
