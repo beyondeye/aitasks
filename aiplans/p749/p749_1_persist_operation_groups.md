@@ -196,6 +196,74 @@ set -euo pipefail
 Standard archival flow. After this child archives, t749_2
 (op_data_ref_module) becomes pickable.
 
+## Final Implementation Notes
+
+- **Actual work done:** Implemented `record_operation` and
+  `update_operation` in `brainstorm_session.py` exactly as planned.
+  Wired call sites in `init_session` (records bootstrap entry,
+  Completed for blank-init / Waiting for proposal-file path),
+  `apply_initializer_output` (appends initializer agent + flips to
+  Completed), `apply_patcher_output` (appends new node id +
+  Completed). Also extended `_run_design_op` in `brainstorm_app.py`
+  to call `record_operation` for ALL operation types (originally
+  scoped only to explore via the per-branch `agents` local; refactored
+  to a shared `agents_list` collected outside the per-op branch).
+- **Deviations from plan:** (1) Added a small private helper
+  `_read_groups_file` to handle the case where `br_groups.yaml` is
+  missing (unlike `read_yaml`, which raises `FileNotFoundError`). The
+  plan didn't anticipate this since `init_session` always writes the
+  file first in real usage — but a unit test that omitted the seed
+  surfaced it. Helper is a one-line guard; safer than scattering
+  `os.path.isfile` checks at each call site.
+  (2) Test file is `.py` not `.sh` as initially named in the plan;
+  Python integrates with the existing Textual / unittest fixture
+  patterns used by sibling tests.
+- **Issues encountered:** None beyond the missing-file guard above.
+- **Key decisions:**
+  - `agents_append` is a pseudo-kwarg to the variadic
+    `update_operation`. Cleaner than a separate function, since it
+    behaves like the `nodes_created` append-unique semantics already
+    in the same call.
+  - Compare/hybridize/detail/patch operations now also write a group
+    entry (was only explore in implicit pre-existing usage). They have
+    no node-creation step, so `nodes_created` stays empty and the
+    Operation Detail screen surfaces just the agent's input/output/log
+    via the OpDataRef refs in t749_2/t749_5.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - `_read_groups_file` is the canonical "read br_groups.yaml or empty
+    skeleton" helper. Sibling t749_3/t749_4/t749_5 should reuse it
+    rather than re-implementing the missing-file guard.
+  - `agents` for compare/hybridize/detail/patch ops is a single-element
+    list. The `OpDataRef` helpers in t749_2 use `agents[0]` for the
+    canonical user-input ref — works correctly for these single-agent
+    ops too.
+  - The `_run_design_op` refactor lifted `agents` to `agents_list`
+    OUTSIDE the per-op branch. Sibling code touching `_run_design_op`
+    must use `agents_list` (not the per-branch local `agents`).
+
 ## Verification
 
 (Aggregated under the parent task's manual-verification sibling.)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-05 11:42)
+
+- **Requested by user:** "do we have enough unit tests?" — implicit ask
+  to broaden coverage beyond the helpers themselves to the integration
+  call sites.
+- **Changes made:** Added 4 integration tests to
+  `tests/test_brainstorm_groups_persist.py`:
+  1. `init_session` blank-init records bootstrap with `status=Completed`.
+  2. `init_session` proposal-file path records bootstrap with
+     `status=Waiting`.
+  3. `apply_initializer_output` appends `initializer_bootstrap` to the
+     bootstrap entry's `agents` and flips `status` to `Completed`.
+  4. `apply_patcher_output` appends the new node id to the patch
+     group's `nodes_created` and flips `status` to `Completed`.
+  Also added `test_head_at_creation_none_roundtrips` to verify
+  `None` survives the YAML round-trip (relevant for the bootstrap
+  entry which always has `head_at_creation=None`).
+- **Files affected:** `tests/test_brainstorm_groups_persist.py`.
+  Total tests: 7 → 12, all passing.
