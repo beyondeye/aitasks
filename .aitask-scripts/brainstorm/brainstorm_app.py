@@ -24,6 +24,7 @@ from textual.widgets import (
     DirectoryTree,
     Footer,
     Header,
+    Input,
     Label,
     Markdown,
     Static,
@@ -618,15 +619,40 @@ class DeleteSessionModal(ModalScreen):
         self.dismiss(False)
 
 
+class _InlineSectionMinimap:
+    """Lazily-imported SectionMinimap subclass with no Tab binding.
+
+    Used inside `NodeDetailModal` only, where Tab is owned by the dialog (it
+    focuses the minimap). The fullscreen `SectionViewerScreen` continues to
+    use the stock `SectionMinimap` and its built-in Tab toggle.
+
+    Implemented as a function returning the subclass class, so the import of
+    `SectionMinimap` stays lazy (matches the existing pattern at the call
+    sites).
+    """
+
+    _cache = None
+
+    @classmethod
+    def cls(cls):
+        if cls._cache is None:
+            from section_viewer import SectionMinimap as _Base
+
+            class _NoTabMinimap(_Base):
+                BINDINGS: list = []
+
+            cls._cache = _NoTabMinimap
+        return cls._cache
+
+
 class NodeDetailModal(ModalScreen):
     """Modal for viewing node details with tabbed content (Metadata, Proposal, Plan)."""
 
     BINDINGS = [
         Binding("escape", "close", "Close", show=False),
-        Binding("tab", "focus_minimap", "Minimap"),
-        Binding("V", "fullscreen_plan", "Fullscreen plan"),
-        Binding("home", "scroll_to_minimap", "Top", show=True, priority=True),
-        Binding("m", "scroll_to_minimap", None, show=False, priority=True),
+        Binding("tab", "focus_minimap", "Minimap", priority=True),
+        Binding("v", "fullscreen_view", "Fullscreen view"),
+        Binding("e", "export", "Export..."),
     ]
 
     def __init__(self, node_id: str, session_path: Path):
@@ -663,6 +689,7 @@ class NodeDetailModal(ModalScreen):
                 yield Button(
                     "Close", variant="default", id="btn_close_detail"
                 )
+            yield Footer()
 
     def on_mount(self) -> None:
         """Load node data into all three tabs."""
@@ -705,9 +732,8 @@ class NodeDetailModal(ModalScreen):
         parsed_proposal = parse_sections(proposal)
         if parsed_proposal.sections:
             self._proposal_parsed = parsed_proposal
-            from section_viewer import SectionMinimap
             prop_scroll = self.query_one("#proposal_scroll", VerticalScroll)
-            prop_minimap = SectionMinimap(id="proposal_minimap")
+            prop_minimap = _InlineSectionMinimap.cls()(id="proposal_minimap")
             prop_scroll.mount(prop_minimap, before="#proposal_content")
             prop_minimap.populate(parsed_proposal)
 
@@ -720,9 +746,8 @@ class NodeDetailModal(ModalScreen):
         parsed_plan = parse_sections(plan)
         if parsed_plan.sections:
             self._plan_parsed = parsed_plan
-            from section_viewer import SectionMinimap
             plan_scroll = self.query_one("#plan_scroll", VerticalScroll)
-            plan_minimap = SectionMinimap(id="plan_minimap")
+            plan_minimap = _InlineSectionMinimap.cls()(id="plan_minimap")
             plan_scroll.mount(plan_minimap, before="#plan_content")
             plan_minimap.populate(parsed_plan)
 
@@ -750,69 +775,56 @@ class NodeDetailModal(ModalScreen):
             return
         scroll = self.query_one(scroll_id, VerticalScroll)
         md = self.query_one(md_id, Markdown)
-        # Minimap and markdown share the same scroll container, so the
-        # markdown's start offset within the scroll equals the minimap's
-        # rendered height. Compute the y in markdown-local coordinates and
-        # add that offset.
+        # Same correction as SectionAwareMarkdown.scroll_to_section: map the
+        # section's line ratio to the *scrollable* range below the minimap
+        # (scroll.max_scroll_y minus the minimap's outer height), not the
+        # markdown's full virtual height. Multiplying by virtual height
+        # over-shoots by ~one viewport because the bottom viewport-worth of
+        # content does not need to scroll past the visible area.
         total = text.count("\n") + 1
-        y_in_md = estimate_section_y(
-            parsed, event.section_name, total, md.virtual_size.height
+        minimap_height = float(event.control.outer_size.height)
+        max_scroll = float(getattr(scroll, "max_scroll_y", 0) or 0)
+        body_scroll_range = max(0.0, max_scroll - minimap_height)
+        y_in_body = estimate_section_y(
+            parsed, event.section_name, total, body_scroll_range
         )
-        if y_in_md is not None:
+        if y_in_body is not None:
             scroll.scroll_to(
-                y=event.control.outer_size.height + y_in_md, animate=False
+                y=minimap_height + y_in_body, animate=False
             )
-        event.stop()
-
-    def on_section_minimap_toggle_focus(self, event) -> None:
-        """Minimap Tab → focus the matching tab's Markdown."""
-        if event.control.id == "proposal_minimap":
-            self.query_one("#proposal_content", Markdown).focus()
-        elif event.control.id == "plan_minimap":
-            self.query_one("#plan_content", Markdown).focus()
+            # Markdown.can_focus is False, so we focus the parent
+            # VerticalScroll — that's what consumes up/down for scrolling.
+            scroll.focus()
         event.stop()
 
     def action_focus_minimap(self) -> None:
-        """Tab from Markdown → focus the active tab's minimap. SkipAction falls through to default Tab-nav."""
+        """Tab on Proposal/Plan tab → focus the inline minimap.
+
+        No-op when focus is already inside the minimap, so Tab presses while
+        the user is navigating minimap rows do not jump back to row 0.
+        """
         from textual.actions import SkipAction
         tabbed = self.query_one(TabbedContent)
-        focused = self.screen.focused
         if tabbed.active == "tab_proposal":
-            md_sel, mm_sel = "#proposal_content", "#proposal_minimap"
+            mm_sel = "#proposal_minimap"
         elif tabbed.active == "tab_plan":
-            md_sel, mm_sel = "#plan_content", "#plan_minimap"
+            mm_sel = "#plan_minimap"
         else:
-            raise SkipAction()
-        try:
-            md = self.query_one(md_sel, Markdown)
-        except Exception:
-            raise SkipAction()
-        if focused is not md:
             raise SkipAction()
         minimaps = self.query(mm_sel)
         if not minimaps:
             raise SkipAction()
-        minimaps.first().focus_first_row()
+        minimap = minimaps.first()
+        focused = self.screen.focused
+        if focused is not None:
+            walker = focused
+            while walker is not None:
+                if walker is minimap:
+                    return  # Already on minimap (or one of its rows): no-op.
+                walker = walker.parent
+        minimap.focus_first_row()
 
-    def action_scroll_to_minimap(self) -> None:
-        """home/m → scroll active tab back to top and focus its inline minimap."""
-        tabbed = self.query_one(TabbedContent)
-        if tabbed.active == "tab_proposal":
-            scroll_id, mm_id = "#proposal_scroll", "#proposal_minimap"
-        elif tabbed.active == "tab_plan":
-            scroll_id, mm_id = "#plan_scroll", "#plan_minimap"
-        else:
-            return
-        try:
-            scroll = self.query_one(scroll_id, VerticalScroll)
-        except Exception:
-            return
-        scroll.scroll_to(y=0, animate=False)
-        minimaps = self.query(mm_id)
-        if minimaps:
-            minimaps.first().focus_first_row()
-
-    def action_fullscreen_plan(self) -> None:
+    def action_fullscreen_view(self) -> None:
         """V → push SectionViewerScreen for the active tab's content."""
         tabbed = self.query_one(TabbedContent)
         if tabbed.active == "tab_proposal":
@@ -833,12 +845,186 @@ class NodeDetailModal(ModalScreen):
         from section_viewer import SectionViewerScreen
         self.app.push_screen(SectionViewerScreen(content, title=title))
 
+    def action_export(self) -> None:
+        """E → open ExportNodeDetailModal for the active node's content."""
+        tabbed = self.query_one(TabbedContent)
+        active_tab = tabbed.active or ""
+        # Pre-check the active tab; user can adjust in the modal. Metadata
+        # tab pre-checks both so the user can export either or both without
+        # having to flip checkboxes.
+        default_proposal = active_tab in ("tab_proposal", "tab_metadata")
+        default_plan = active_tab in ("tab_plan", "tab_metadata")
+        last_dir = getattr(self.app, "_last_export_dir", None) or str(Path.cwd())
+        self.app.push_screen(
+            ExportNodeDetailModal(
+                node_id=self.node_id,
+                task_num=self.app.task_num,
+                proposal_text=self._proposal_text,
+                plan_text=self._plan_text,
+                default_proposal=default_proposal,
+                default_plan=default_plan,
+                default_dir=last_dir,
+            ),
+            callback=self._on_export_done,
+        )
+
+    def _on_export_done(self, result) -> None:
+        if not result:
+            return
+        self.app._last_export_dir = result["dir"]
+        paths = result["written"]
+        if paths:
+            self.notify("Exported:\n" + "\n".join(paths), timeout=6)
+
     @on(Button.Pressed, "#btn_close_detail")
     def close_detail(self) -> None:
         self.dismiss(None)
 
     def action_close(self) -> None:
         self.dismiss(None)
+
+
+def _open_node_detail_visible(active_tab: str, focused_is_node_row: bool) -> bool:
+    """check_action helper: Enter Open-detail is shown only when the
+    Dashboard tab is active AND a NodeRow is currently focused."""
+    return active_tab == "tab_dashboard" and focused_is_node_row
+
+
+def _validate_export_dir(dir_str: str):
+    """Resolve and ensure the export directory exists.
+
+    Returns (path, None) on success, (None, error_message) on failure.
+    """
+    s = (dir_str or "").strip()
+    if not s:
+        return None, "Output directory is required"
+    target = Path(s).expanduser()
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return None, f"Cannot create directory: {exc}"
+    if not target.is_dir():
+        return None, f"Not a directory: {target}"
+    return target, None
+
+
+def _export_filename(task_num: str, node_id: str, kind: str) -> str:
+    """kind is 'proposal' or 'plan'."""
+    return f"brainstorm_t{task_num}_{node_id}_{kind}.md"
+
+
+def _write_node_exports(
+    target_dir: Path,
+    task_num: str,
+    node_id: str,
+    proposal_text: str,
+    plan_text: str,
+    do_proposal: bool,
+    do_plan: bool,
+) -> list[str]:
+    """Write requested files to target_dir. Returns list of written paths.
+
+    Raises OSError on write failure (caller surfaces via notify).
+    """
+    written: list[str] = []
+    if do_proposal:
+        p = target_dir / _export_filename(task_num, node_id, "proposal")
+        p.write_text(proposal_text, encoding="utf-8")
+        written.append(str(p))
+    if do_plan:
+        p = target_dir / _export_filename(task_num, node_id, "plan")
+        p.write_text(plan_text, encoding="utf-8")
+        written.append(str(p))
+    return written
+
+
+class ExportNodeDetailModal(ModalScreen):
+    """Modal: pick what to export (proposal/plan) and the output directory."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(
+        self,
+        node_id: str,
+        task_num: str,
+        proposal_text: str,
+        plan_text: str,
+        default_proposal: bool,
+        default_plan: bool,
+        default_dir: str,
+    ):
+        super().__init__()
+        self.node_id = node_id
+        self.task_num = task_num
+        self._proposal_text = proposal_text
+        self._plan_text = plan_text
+        self._default_proposal = default_proposal and bool(proposal_text)
+        self._default_plan = default_plan and bool(plan_text)
+        self._default_dir = default_dir
+
+    def compose(self) -> ComposeResult:
+        with Container(id="export_modal_dialog"):
+            yield Label(
+                f"Export node detail: {self.node_id}",
+                id="export_modal_title",
+            )
+            yield Label("Output directory:")
+            yield Input(
+                value=self._default_dir,
+                placeholder="/path/to/dir",
+                id="export_modal_dir",
+            )
+            yield Checkbox(
+                f"Proposal{'' if self._proposal_text else ' (empty)'}",
+                value=self._default_proposal,
+                id="export_modal_chk_proposal",
+                disabled=not self._proposal_text,
+            )
+            yield Checkbox(
+                f"Plan{'' if self._plan_text else ' (empty)'}",
+                value=self._default_plan,
+                id="export_modal_chk_plan",
+                disabled=not self._plan_text,
+            )
+            with Horizontal(id="export_modal_buttons"):
+                yield Button("Export", variant="primary", id="btn_export_ok")
+                yield Button("Cancel", variant="default", id="btn_export_cancel")
+
+    @on(Button.Pressed, "#btn_export_cancel")
+    def _cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    @on(Button.Pressed, "#btn_export_ok")
+    def _confirm(self) -> None:
+        dir_str = self.query_one("#export_modal_dir", Input).value
+        do_proposal = self.query_one("#export_modal_chk_proposal", Checkbox).value
+        do_plan = self.query_one("#export_modal_chk_plan", Checkbox).value
+        if not (do_proposal or do_plan):
+            self.notify("Select at least one of Proposal / Plan", severity="warning")
+            return
+        target, err = _validate_export_dir(dir_str)
+        if err is not None:
+            self.notify(err, severity="error")
+            return
+        try:
+            written = _write_node_exports(
+                target,
+                self.task_num,
+                self.node_id,
+                self._proposal_text,
+                self._plan_text,
+                do_proposal,
+                do_plan,
+            )
+        except OSError as exc:
+            self.notify(f"Write failed: {exc}", severity="error")
+            return
+        self.dismiss({"dir": str(target), "written": written})
 
 
 class AgentModeEditModal(ModalScreen):
@@ -1828,6 +2014,28 @@ class BrainstormApp(TuiSwitcherMixin, App):
         align: center middle;
     }
 
+    /* Export node-detail modal */
+    #export_modal_dialog {
+        width: 70;
+        height: auto;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+    }
+
+    #export_modal_title {
+        text-style: bold;
+        text-align: center;
+        width: 100%;
+        padding-bottom: 1;
+    }
+
+    #export_modal_buttons {
+        height: auto;
+        align: center middle;
+        margin-top: 1;
+    }
+
     /* Agent launch-mode edit modal */
     #mode_modal_dialog {
         width: 60;
@@ -1936,6 +2144,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         Binding("c", "tab_compare", "Compare", show=False),
         Binding("a", "tab_actions", "Actions", show=False),
         Binding("s", "tab_status", "Status", show=False),
+        Binding("enter", "open_node_detail", "Open detail"),
         Binding("r", "compare_regenerate", "Regenerate"),
         Binding("D", "compare_diff", "Diff"),
         Binding("question_mark", "op_help", "Op help", key_display="?"),
@@ -1949,6 +2158,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
     _TAB_SCOPED_ACTIONS: dict[str, str] = {
         "compare_regenerate": "tab_compare",
         "compare_diff": "tab_compare",
+        "open_node_detail": "tab_dashboard",
     }
 
     def __init__(self, task_num: str):
@@ -1981,6 +2191,9 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._patcher_apply_errors: dict[str, str] = {}
         self._patcher_poll_timer = None
         self._current_dashboard_node_id: str | None = None
+        # Remembered for the lifetime of the app; pre-fills the export modal's
+        # directory input so repeated exports default to the previous choice.
+        self._last_export_dir: str | None = None
         self._update_title_from_task()
 
     def check_action(self, action: str, parameters) -> bool | None:
@@ -2010,6 +2223,11 @@ class BrainstormApp(TuiSwitcherMixin, App):
             return None
         if tabbed.active != required_tab:
             return None
+        if action == "open_node_detail":
+            if not _open_node_detail_visible(
+                tabbed.active or "", isinstance(self.focused, NodeRow)
+            ):
+                return None
         return True
 
     def _resolve_task_file_path(self) -> Path | None:
@@ -2241,11 +2459,9 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 event.prevent_default()
                 event.stop()
                 return
-            if isinstance(focused, NodeRow):
-                self.push_screen(NodeDetailModal(focused.node_id, self.session_path))
-                event.prevent_default()
-                event.stop()
-                return
+            # NodeRow Enter is handled by action_open_node_detail (binding) so
+            # the footer hint is surfaced. Falls through here when focus is
+            # something else.
 
         # b: show task brief
         if event.key == "b":
@@ -2365,6 +2581,21 @@ class BrainstormApp(TuiSwitcherMixin, App):
     # ------------------------------------------------------------------
     # Tab switching actions (shown in Footer via BINDINGS)
     # ------------------------------------------------------------------
+
+    def action_open_node_detail(self) -> None:
+        """Enter on a focused NodeRow → open NodeDetailModal.
+
+        Falls through (SkipAction) when focus is anything else, so the
+        existing on_key handlers for GroupRow/StatusLogRow keep working.
+        """
+        from textual.actions import SkipAction
+        if isinstance(self.screen, ModalScreen):
+            raise SkipAction()
+        focused = self.focused
+        if isinstance(focused, NodeRow):
+            self.push_screen(NodeDetailModal(focused.node_id, self.session_path))
+            return
+        raise SkipAction()
 
     def action_tab_dashboard(self) -> None:
         if isinstance(self.screen, ModalScreen):
