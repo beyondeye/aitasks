@@ -106,3 +106,11 @@ This avoids the binding-dispatch path but still exercises the racy `refresh_boar
 
 - The `_implementing_visible_set` / `_git_visible_set` / `_type_visible_set` algorithms themselves are correct (verified by manually invoking them post-pause). No semantic changes needed.
 - No changes to bindings, keymap, or the type-filter dialog UX.
+
+## Final Implementation Notes
+
+- **Actual work done:** Replaced three synchronous `self.apply_filter()` calls in `aitask_board.py` (`refresh_board` line 3475, `refresh_column` line 3521, `refresh_columns` line 3541) with `self.call_after_refresh(self.apply_filter)`. Added a 3-test Textual `Pilot` regression suite at `tests/test_board_view_filter.py` exercising `i` (Implementing), `g` (Git), and `a` (back-to-All) view-mode transitions.
+- **Deviations from plan:** None — the plan's recommended single-primitive fix (`call_after_refresh`) was applied unchanged at the three identified call sites.
+- **Issues encountered:** None during implementation. Reproduced the bug pre-fix (72 visible cards after pressing `i`); verified the fix post-edit (7 visible — the 3 Implementing tasks plus 4 parents/siblings the algorithm pulls in). Sanity-checked the test suite catches the regression by temporarily reverting the `refresh_board` fix; tests failed as expected, then restored.
+- **Key decisions:** Tests are written against the live repo data rather than a tmpdir fixture because `aitask_board` resolves `TASKS_DIR = Path("aitasks")` at module-import time. The tests assert the visible set equals what `_*_visible_set()` returns (data-independent contract), so they remain stable regardless of which tasks happen to be in the repo.
+- **Upstream defects identified:** None.
