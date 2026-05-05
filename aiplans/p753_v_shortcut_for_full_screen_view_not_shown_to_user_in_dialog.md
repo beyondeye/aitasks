@@ -476,3 +476,72 @@ Both forms must pass before the implementation is considered complete.
 ## Step 9 (Post-Implementation)
 
 After review and approval, follow Step 9 of `task-workflow/SKILL.md` for archival. Plan file path will be `aiplans/p753_v_shortcut_for_full_screen_view_not_shown_to_user_in_dialog.md`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-05 12:49)
+
+- **Requested by user:** Three issues during review of the dialog:
+  1. `V` and `E` shortcuts shown as disabled in the modal footer at start, and remained disabled even after switching to Proposal/Plan; only became active after opening one of the popups once. User wants them shown active from the beginning.
+  2. `Tab` on Proposal/Plan tab does nothing (the existing `action_focus_minimap` required focus to already be on the Markdown widget).
+  3. After pressing Enter on a minimap row, focus stays on the minimap; pressing up/down then cycles minimap rows (re-scrolling) instead of scrolling the proposal/plan body from the current position.
+- **Changes made:**
+  1. Removed the `NodeDetailModal.check_action` tab-gate for `V`/`E` and removed the now-unused `_dialog_export_visible` helper. Both bindings are now always shown as active in the dialog footer. Mis-tab presses surface via the existing `action_fullscreen_view` notify warning, and `E` always works (modal lets the user pick proposal/plan via checkboxes regardless of active tab).
+  2. Simplified `NodeDetailModal.action_focus_minimap` to focus the minimap whenever the active tab is Proposal or Plan, regardless of which widget currently holds focus. Combined with the minimap's own priority `Tab` binding (which moves focus back to the Markdown via `ToggleFocus`), this gives a clean Tab toggle between minimap and Markdown.
+  3. Updated `NodeDetailModal.on_section_minimap_section_selected` to call `md.focus()` after `scroll.scroll_to(...)` so subsequent up/down arrow keys bubble to the parent `VerticalScroll` and scroll the proposal/plan body.
+- **Files affected:**
+  - `.aitask-scripts/brainstorm/brainstorm_app.py`
+  - `tests/test_brainstorm_node_export.py` — removed `DialogExportVisibleTests` and the helper from imports.
+
+### Change Request 2 (2026-05-05 12:56)
+
+- **Requested by user:**
+  1. Use lowercase `v` / `e` instead of uppercase `V` / `E` for the dialog shortcuts.
+  2. Round-1 Fix #3 (`md.focus()` after Enter on minimap row) didn't actually transfer focus — pressing up/down still cycled minimap rows.
+- **Changes made:**
+  1. Lowercased the dialog bindings: `Binding("v", "fullscreen_view", ...)` and `Binding("e", "export", ...)`. Both keys are unused inside `NodeDetailModal` and the App's lowercase `e` handler is gated by `if isinstance(self.screen, ModalScreen): return`, so there is no conflict.
+  2. Root cause of the focus transfer not working: `Markdown.can_focus` is `False` in this Textual version, so `md.focus()` was a silent no-op (the same root cause also broke the pre-existing `on_section_minimap_toggle_focus`). Switched both handlers to focus the parent `VerticalScroll` (`#proposal_scroll` / `#plan_scroll`) which IS focusable and consumes ↑/↓ for scrolling. Now Enter on a minimap row scrolls the body and hands off focus so subsequent ↑/↓ scroll the body from the new position.
+- **Files affected:**
+  - `.aitask-scripts/brainstorm/brainstorm_app.py`
+
+### Change Request 3 (2026-05-05 13:09)
+
+- **Requested by user:** Three issues:
+  1. With `Tab` now focusing the minimap, the `home` / `m` shortcut became redundant.
+  2. When the minimap was focused in the dialog, the App footer showed `Tab Content` (from `SectionMinimap.BINDINGS`'s priority Tab binding) and pressing Tab did not actually move focus back to the body. The user wants the dialog footer to show only `Tab Minimap`, and Tab on minimap to be a no-op (the inline view does not need a body↔minimap toggle — that toggle should remain only in the fullscreen viewer).
+  3. Scroll position regression — pressing Enter on a minimap row scrolled further than the section's actual location. The earlier `t690` fix to `SectionAwareMarkdown.scroll_to_section` (use `max_scroll_y` instead of full `virtual_size.height`) was never propagated to the inline-dialog scrolling helper.
+- **Changes made:**
+  1. Removed `Binding("home", ...)`, `Binding("m", ...)`, and the corresponding `action_scroll_to_minimap` method from `NodeDetailModal`. Tab + arrow keys cover the same UX.
+  2. Added a tiny `_InlineSectionMinimap` factory that produces a `SectionMinimap` subclass with `BINDINGS = []`, used only inside `NodeDetailModal`. The fullscreen `SectionViewerScreen` continues to use the stock `SectionMinimap` (its Tab toggle is preserved). Made the dialog's Tab binding `priority=True` so it always wins, and made `action_focus_minimap` a no-op when focus is already inside the minimap (so pressing Tab while navigating minimap rows does not jump back to row 0). Removed the now-dead `on_section_minimap_toggle_focus` handler — the inline minimap subclass cannot fire `ToggleFocus` since its Tab binding was removed.
+  3. Re-derived the scroll target using the same correction as `SectionAwareMarkdown.scroll_to_section`: `body_scroll_range = max(0, scroll.max_scroll_y - minimap_height)`, then `target_y = minimap_height + ratio * body_scroll_range`. This matches what the line-ratio approximation actually means (a fraction of the *scrollable* range, not of the full virtual content height) and eliminates the over-shoot.
+- **Files affected:**
+  - `.aitask-scripts/brainstorm/brainstorm_app.py`
+
+### Change Request 4 (2026-05-05 15:07)
+
+- **Requested by user:** Export dialog is 1–2 rows too short to fit the Export/Cancel buttons.
+- **Changes made:** Removed the `yield Footer()` from `ExportNodeDetailModal.compose()` — the only binding (`escape`) is `show=False`, so the Footer was rendering an empty row. Switched the buttons row CSS from `height: 3; padding-top: 1` (inflated to ≥4 visual rows) to `height: auto; margin-top: 1`, letting the row size to its content while keeping the breathing room above the buttons.
+- **Files affected:**
+  - `.aitask-scripts/brainstorm/brainstorm_app.py`
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Surfaced the dashboard `Enter` shortcut as a footer-visible Binding gated to Dashboard tab + `NodeRow` focus, removing the now-redundant `on_key` branch.
+  - In `NodeDetailModal`, added `Footer()` to the modal's compose, surfaced `v` (Fullscreen view, renamed from "Fullscreen plan") and a new `e` (Export...) shortcut, and made `Tab` always focus the inline minimap (with a no-op when already on the minimap).
+  - Implemented `ExportNodeDetailModal` — a sub-modal with a directory `Input` (pre-filled from `BrainstormApp._last_export_dir`, defaulting to cwd) plus Proposal / Plan checkboxes (the active tab pre-checks the relevant box; empty content disables and labels the checkbox `(empty)`). On submit, writes `brainstorm_t<task>_<node>_<kind>.md` files into the directory and notifies the user with the resulting paths. The chosen directory is remembered on the App for the lifetime of the brainstorm session.
+  - Five module-level pure helpers extracted (`_open_node_detail_visible`, `_validate_export_dir`, `_export_filename`, `_write_node_exports`, plus the modal smoke surface) so the logic is unit-testable.
+  - 21 unit tests in `tests/test_brainstorm_node_export.py` covering helper behavior + modal init.
+- **Deviations from plan:**
+  - Round 1 added a tab-gating `check_action` for `v`/`e` and a `_dialog_export_visible` helper. The user's first review revealed that Textual didn't refresh the footer state on tab change in this version, so the bindings appeared disabled even on Proposal/Plan tabs. Round 2 dropped the gate entirely (both bindings are now always shown active in the dialog footer; `v` notifies a warning on Metadata, `e` works regardless of active tab). The `_dialog_export_visible` helper and its test class were removed.
+  - Round 1 also used uppercase `V` / `E` for symmetry with the pre-existing `V`. Round 2 lowercased to `v` / `e` per user direction.
+  - Round 3 propagated the `t690` `max_scroll_y` correction from `SectionAwareMarkdown` into `NodeDetailModal.on_section_minimap_section_selected` to fix scroll over-shoot, removed the now-redundant `home` / `m` bindings + `action_scroll_to_minimap`, and added `_InlineSectionMinimap` (a `SectionMinimap` subclass with `BINDINGS = []`) so the inline minimap does not advertise its own Tab binding in the dialog footer (the dialog's `Tab Minimap` is the only Tab hint).
+  - Round 4 removed the empty `Footer()` from `ExportNodeDetailModal.compose()` and switched the buttons row to `height: auto; margin-top: 1` to fix the export dialog being 1–2 rows too short.
+- **Issues encountered:**
+  - `Markdown.can_focus` is `False` in this Textual version, making `md.focus()` silently a no-op. This also affected the pre-existing `on_section_minimap_toggle_focus`. Fix was to focus the parent `VerticalScroll` instead — the `_InlineSectionMinimap` rework in Round 3 then made `on_section_minimap_toggle_focus` dead code (the inline minimap can no longer fire `ToggleFocus`), and it was removed.
+  - `mkdir(parents=True, exist_ok=True)` raises `FileExistsError` (an `OSError` subclass) when the path already exists as a non-directory, so the `_validate_export_dir` "Not a directory" branch is only reached when `mkdir` succeeded but the resolved path is somehow not a directory — kept the branch as a defense in depth. Test for "path is a regular file" accepts either error message.
+- **Key decisions:**
+  - Keep the Tab toggle (minimap ↔ body) only in the fullscreen `SectionViewerScreen`. In the inline dialog, Tab is one-way "focus minimap"; the user navigates inside the minimap with ↑/↓ and selects with Enter (which then transfers focus to the body's `VerticalScroll` for arrow-key scrolling).
+  - Always show `v` and `e` as active in the dialog footer rather than tab-gating them — the export modal works regardless of active tab, and the fullscreen action's existing notify-on-Metadata is sufficient feedback.
+  - Export filenames follow a fixed `brainstorm_t<task>_<node>_<kind>.md` pattern in a user-chosen directory; the modal's directory input is remembered for the session.
+- **Upstream defects identified:** None.
