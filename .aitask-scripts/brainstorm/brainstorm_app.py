@@ -1126,6 +1126,25 @@ class ProcessRow(Static, can_focus=True):
         self.refresh()
 
 
+class CompareDataTable(DataTable):
+    """DataTable for the Compare tab.
+
+    When the cursor is at row 0 and Up is pressed, focus returns to the
+    tab bar (matching the Dashboard's NodeRow escape behavior). Otherwise
+    Up moves the row cursor as normal.
+    """
+
+    def action_cursor_up(self) -> None:
+        if self.cursor_row == 0:
+            try:
+                tabbed = self.app.query_one(TabbedContent)
+                tabbed.query_one(Tabs).focus()
+                return
+            except Exception:
+                pass
+        super().action_cursor_up()
+
+
 # ---------------------------------------------------------------------------
 # Main App
 # ---------------------------------------------------------------------------
@@ -1730,6 +1749,18 @@ class BrainstormApp(TuiSwitcherMixin, App):
         if event.key == "down":
             tabs_widget = tabbed.query_one(Tabs)
             if self.focused is tabs_widget:
+                # Compare tab: single DataTable, focus it directly so its
+                # built-in up/down cursor bindings drive section navigation.
+                if tabbed.active == "tab_compare":
+                    try:
+                        table = self.query_one("#compare_table", DataTable)
+                    except Exception:
+                        table = None
+                    if table is not None:
+                        table.focus()
+                        event.prevent_default()
+                        event.stop()
+                        return
                 tab_to_container = {
                     "tab_dashboard": ("node_list_pane", (NodeRow,)),
                     "tab_actions": ("actions_content", (OperationRow,)),
@@ -1766,8 +1797,10 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 event.stop()
                 return
 
-        # Up on Graph/Compare tab: focus tab bar directly
-        if event.key == "up" and tabbed.active in ("tab_dag", "tab_compare"):
+        # Up on Graph tab: focus tab bar directly (no row widget on this tab).
+        # Compare tab handles Up via CompareDataTable.action_cursor_up, which
+        # moves the row cursor and only escapes to the tab bar at row 0.
+        if event.key == "up" and tabbed.active == "tab_dag":
             tabs_widget = tabbed.query_one(Tabs)
             tabs_widget.focus()
             event.prevent_default()
@@ -3010,7 +3043,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
             container.mount(Label("No dimension fields found in selected nodes"))
             return
 
-        table = DataTable(id="compare_table")
+        table = CompareDataTable(id="compare_table", cursor_type="row")
         table.add_column("Dimension", key="dim")
         for nid in selected_nodes:
             table.add_column(nid, key=nid)
@@ -3059,6 +3092,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
 
         container.mount(table)
         self._compare_nodes = selected_nodes
+        self.call_after_refresh(table.focus)
 
     def _add_similarity_row(
         self,
