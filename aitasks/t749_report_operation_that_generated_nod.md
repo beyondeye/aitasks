@@ -3,10 +3,9 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [ait_brainstorm]
 children_to_implement: [t749_1, t749_2, t749_3, t749_4, t749_5, t749_6, t749_7]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-05 09:18
 updated_at: 2026-05-05 10:44
 ---
