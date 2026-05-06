@@ -24,6 +24,7 @@ ait_setup
 archiveformat
 auto-update
 bash_scripts
+brainstom_modules
 brainstorming
 child_tasks
 claudecode
