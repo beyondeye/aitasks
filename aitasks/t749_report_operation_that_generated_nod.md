@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [ait_brainstorm]
-children_to_implement: [t749_4, t749_5, t749_6, t749_7, t749_8]
+children_to_implement: [t749_5, t749_6, t749_7, t749_8]
 created_at: 2026-05-05 09:18
-updated_at: 2026-05-06 12:20
+updated_at: 2026-05-06 22:10
 boardidx: 20
 ---
 
