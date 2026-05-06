@@ -329,3 +329,19 @@ Standard archival flow. No worktree to clean up (fast profile, current branch). 
 ## Notes for Future Tasks (traceability only)
 
 The design doc itself will be the **primary reference** for follow-up Phase A/B/C tasks. The plan to create those tasks is captured in §7 of the doc, not here, so the doc stays the single source of truth for the design.
+
+## Final Implementation Notes
+
+- **Actual work done.** Wrote the design doc to `aidocs/brainstorming/module_decomposition_design.md` (729 lines, 7 top-level sections) per the plan. Three new ops (`decompose`, `sync`, `merge`) plus supporting data-model extensions documented end-to-end. Worked example walks 9 numbered steps through the lifecycle (initial → explore → decompose → explore-within-subgraph → detail/fast-track → implementation → sync → merge → regrow). Roadmap names four follow-up phases (A: data model; B: decompose+merge ops; C: sync op; D: TUI surfaces).
+- **Deviations from plan.** None of substance. The §4.6 worked example ended up with 9 numbered steps (planned for 8) because step 1 was renumbered as the explicit "initial proposal" state to make the per-step state machine readable from the top. The plan's verification target of "8 numbered states" is overshot by one in a way that improves clarity, not a regression.
+- **Issues encountered.** The plan originally cited `brainstorm_app.py:4408` for `_execute_design_op` based on a Phase-1 explore agent's report; the actual line is `4383`. Anchor was corrected during the doc write before commit. Other anchors verified via spot-check.
+- **Key decisions.**
+  - Doc placement chosen as `aidocs/brainstorming/module_decomposition_design.md` (under the existing subdirectory holding `brainstorm_engine_architecture.md`) rather than the user's originally-typed `aidocs/brainstorm_module_decomposition.md` at the top level. Subdirectory placement matches the existing pattern.
+  - Subgraph membership stored as explicit `module_label` field on the node rather than reachability-derived. The trade-off is documented in §4.1; explicit wins because `merge` deliberately produces cross-subgraph parent links and a reachability rule would have to special-case them.
+  - Sync's scan engine stays as a **consumer** of the existing `aitask_explain_context.sh` family (built in t369) — not a re-implementation, not a fork. Phase C's deliverable is glue + the syncer template, nothing more on the scan side. This pivot was a direct response to the user pointing out that t369 already built the helpers we need; an early draft cited codebrowser's Python internals as the prior art, which would have led to duplicate work.
+- **Upstream defects identified:** None.
+- **Notes for sibling/follow-up tasks.**
+  - **Phase A.** Schema changes are additive only; keep `current_head` as a legacy alias of `_umbrella` HEAD so existing sessions continue to load without migration.
+  - **Phase B.** The `merge` op's `parents=[<dest HEAD>, <source HEAD>]` is a 2-parent node — DAG already supports this, but the lineage walker (`get_node_lineage`) currently only follows the first parent. Either accept that lineage stays first-parent-only (the design assumes this) or extend the walker if a future Phase D status view needs full ancestor traversal. Don't extend it just because it looks "more complete" — the design only relies on first-parent-only lineage today.
+  - **Phase C.** When calling `aitask_explain_context.sh`, pick `--max-plans` carefully. The scan can be expensive on first invocation (cache warm-up). For the syncer's first run, `--max-plans 5` is a reasonable default; subsequent re-syncs filtered by `last_synced_at` will see fewer plans and can use the same flag.
+  - **Phase D.** The status badge computation in §4.7 reads task-file frontmatter via the existing `read_yaml`-style helpers in `agentcrew_utils`. No new helper needed.
