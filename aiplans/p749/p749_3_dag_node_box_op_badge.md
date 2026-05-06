@@ -94,3 +94,56 @@ Standard archival flow.
 ## Verification
 
 (Aggregated under the parent task's manual-verification sibling.)
+
+## Final Implementation Notes
+
+- **Actual work done:** Bumped `NODE_ROWS` from 4 to 5 in
+  `.aitask-scripts/brainstorm/brainstorm_dag_display.py`. Added
+  `OP_BADGE_STYLES` (Dracula palette, mirrors `HEAD_BORDER_STYLE` color
+  conventions) and `UNKNOWN_OP_STYLE` constants. Extended `_build_graph`
+  to also return a `node_op_map: dict[str, str]` by reading
+  `br_groups.yaml` once and joining each node's `created_by_group`
+  against the groups dict. Added an `operation` parameter to
+  `_render_node_box` and inserted a new badge row between title and
+  description; renumbered description and bottom-border rows. Threaded
+  `node_op_map` through `_render_layer` (keyword-only, default `None`
+  for back-compat) and `DAGDisplay._render_dag` / `load_dag`. Stored
+  `_node_op_map` on the widget instance.
+- **Deviations from plan:** Used absolute imports
+  (`from agentcrew.agentcrew_utils import read_yaml`,
+  `from brainstorm.brainstorm_session import GROUPS_FILE`) to match the
+  file's existing import style (the plan snippet showed relative
+  imports). Empty/unknown op renders as a blank row (not `[?]`) per the
+  task's "Notes for Sibling Tasks" guidance — explicitly tested. Test
+  file is `.py` (not `.sh` as in plan) for parity with sibling t749_1
+  and t749_2 test layout.
+- **Issues encountered:** None.
+- **Key decisions:**
+  - `node_op_map` defaults to `""` (empty string) for legacy nodes,
+    not `"?"` as the plan example showed — drops the rendering branch
+    to the cleaner "blank badge" path described in the parent task's
+    sibling notes.
+  - `node_op_map` parameter on `_render_layer` is keyword-only with
+    default `None` so existing callers don't break on the new
+    signature.
+  - Reused the truncation idiom from the title row (`text[:inner_w-2]
+    + "…"`) for over-long badge text — defends against a (currently
+    impossible) future op name longer than `inner_w - 2 = 24` chars.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **`OP_BADGE_STYLES` is the canonical color map.** Sibling t749_4
+    (dashboard pane) and t749_5 (Operation Detail screen header) MUST
+    import this constant from `brainstorm.brainstorm_dag_display`, not
+    redefine it. `UNKNOWN_OP_STYLE` is the fallback for unknown ops in
+    any surface that displays an op badge.
+  - **Empty-op convention:** when `created_by_group` resolves to no
+    group entry (legacy session, missing group, missing field), the op
+    is rendered as a blank row — same convention should apply to
+    sibling surfaces. Don't show `[?]` or "(unknown)".
+  - **`_build_graph` 5-tuple:** any sibling code that calls
+    `_build_graph` directly must unpack 5 values now
+    (`nodes, parent_map, child_map, node_descs, node_op_map`).
+  - **Test pattern:** `tests/test_brainstorm_dag_op_badge.py` uses
+    `unittest` + `tempfile` + `yaml.safe_dump` to seed a fake session
+    directory. Run via
+    `python -m unittest tests.test_brainstorm_dag_op_badge -v`.
