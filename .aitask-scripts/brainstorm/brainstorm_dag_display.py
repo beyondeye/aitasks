@@ -21,11 +21,14 @@ from textual.widgets import Static
 from rich.style import Style
 from rich.text import Text
 
+from agentcrew.agentcrew_utils import read_yaml
+
 from brainstorm.brainstorm_dag import (
     get_head,
     list_nodes,
     read_node,
 )
+from brainstorm.brainstorm_session import GROUPS_FILE
 
 # ---------------------------------------------------------------------------
 # Rendering constants
@@ -35,7 +38,7 @@ BOX_WIDTH = 28
 COL_GAP = 4
 COL_STRIDE = BOX_WIDTH + COL_GAP
 EDGE_ROWS = 3
-NODE_ROWS = 4  # top border, title, description, bottom border
+NODE_ROWS = 5  # top border, title, op badge, description, bottom border
 
 # Styles
 BORDER_STYLE = Style(color="#6272A4")
@@ -46,21 +49,45 @@ NODE_ID_STYLE = Style(bold=True)
 DESC_STYLE = Style(color="#F8F8F2")
 EDGE_STYLE = Style(color="#6272A4")
 
+# Operation badge colors (Dracula palette).
+OP_BADGE_STYLES = {
+    "explore":   Style(color="#8BE9FD"),  # cyan
+    "compare":   Style(color="#F1FA8C"),  # yellow
+    "hybridize": Style(color="#FF79C6"),  # magenta
+    "detail":    Style(color="#BD93F9"),  # purple
+    "patch":     Style(color="#FF5555"),  # red
+    "bootstrap": Style(color="#6272A4"),  # dim
+}
+UNKNOWN_OP_STYLE = Style(color="#6272A4", italic=True)
+
 
 # ---------------------------------------------------------------------------
 # Layout algorithm
 # ---------------------------------------------------------------------------
 
 
-def _build_graph(session_path: Path) -> tuple[list[str], dict, dict, dict]:
+def _build_graph(
+    session_path: Path,
+) -> tuple[list[str], dict, dict, dict, dict]:
     """Build adjacency maps from session nodes.
 
-    Returns (node_ids, parent_map, child_map, node_descs).
+    Returns (node_ids, parent_map, child_map, node_descs, node_op_map).
+    ``node_op_map`` maps each node id to its originating operation name
+    (e.g. ``"explore"``) by joining ``created_by_group`` against
+    ``br_groups.yaml``. Falls back to ``""`` when the group entry is
+    missing (legacy sessions with empty br_groups.yaml).
     """
     nodes = list_nodes(session_path)
     parent_map: dict[str, list[str]] = {}
     child_map: dict[str, list[str]] = {}
     node_descs: dict[str, str] = {}
+    node_op_map: dict[str, str] = {}
+
+    groups_path = session_path / GROUPS_FILE
+    groups: dict = {}
+    if groups_path.is_file():
+        gdata = read_yaml(str(groups_path)) or {}
+        groups = gdata.get("groups", {}) or {}
 
     for nid in nodes:
         data = read_node(session_path, nid)
@@ -69,10 +96,13 @@ def _build_graph(session_path: Path) -> tuple[list[str], dict, dict, dict]:
         parents = [p for p in parents if p in nodes]
         parent_map[nid] = parents
         node_descs[nid] = data.get("description", "")
+        group_name = data.get("created_by_group", "")
+        op = (groups.get(group_name) or {}).get("operation", "") if group_name else ""
+        node_op_map[nid] = op
         for p in parents:
             child_map.setdefault(p, []).append(nid)
 
-    return nodes, parent_map, child_map, node_descs
+    return nodes, parent_map, child_map, node_descs, node_op_map
 
 
 def _assign_layers(
@@ -164,10 +194,13 @@ def _render_node_box(
     description: str,
     is_head: bool,
     is_focused: bool,
+    operation: str = "",
 ) -> list[Text]:
     """Render a single node box as BOX_WIDTH-wide Rich Text lines.
 
-    Returns NODE_ROWS lines (top border, title, description, bottom border).
+    Returns NODE_ROWS lines: top border, title, op badge, description,
+    bottom border. ``operation`` is the originating op name; falsy values
+    render a blank badge row (legacy sessions).
     """
     inner_w = BOX_WIDTH - 2  # inside the borders
     border_style = HEAD_BORDER_STYLE if is_head else BORDER_STYLE
@@ -204,14 +237,31 @@ def _render_node_box(
     t.append("|", style=border_style + bg)
     lines.append(t)
 
-    # Row 2: description | Some description   |
+    # Row 2: op badge |  [explore]            |  (blank for unknown op)
+    t_b = Text()
+    t_b.append("|", style=border_style + bg)
+    badge_inner = Text()
+    if operation:
+        badge_text = f"[{operation}]"
+        if len(badge_text) > inner_w - 1:
+            badge_text = badge_text[: inner_w - 2] + "\u2026"
+        badge_style = OP_BADGE_STYLES.get(operation, UNKNOWN_OP_STYLE)
+        badge_inner.append(" " + badge_text, style=badge_style + bg)
+    badge_pad = inner_w - len(badge_inner.plain)
+    if badge_pad > 0:
+        badge_inner.append(" " * badge_pad, style=bg)
+    t_b.append_text(badge_inner)
+    t_b.append("|", style=border_style + bg)
+    lines.append(t_b)
+
+    # Row 3: description | Some description   |
     t2 = Text()
     t2.append("|", style=border_style + bg)
     t2.append(" " + desc.ljust(inner_w - 1), style=DESC_STYLE + bg)
     t2.append("|", style=border_style + bg)
     lines.append(t2)
 
-    # Row 3: bottom border +---...---+
+    # Row 4: bottom border +---...---+
     lines.append(Text(border_str, style=border_style + bg))
 
     return lines
@@ -223,8 +273,10 @@ def _render_layer(
     head: str | None,
     focused_id: str | None,
     total_width: int,
+    node_op_map: dict[str, str] | None = None,
 ) -> list[Text]:
     """Render all node boxes in a layer as full-width lines."""
+    op_map = node_op_map or {}
     # Build individual box lines
     boxes: list[list[Text]] = []
     for nid in layer:
@@ -233,6 +285,7 @@ def _render_layer(
             description=node_descs.get(nid, ""),
             is_head=(nid == head),
             is_focused=(nid == focused_id),
+            operation=op_map.get(nid, ""),
         )
         boxes.append(box)
 
@@ -379,6 +432,7 @@ class DAGDisplay(VerticalScroll):
         self._parent_map: dict[str, list[str]] = {}
         self._child_map: dict[str, list[str]] = {}
         self._node_descs: dict[str, str] = {}
+        self._node_op_map: dict[str, str] = {}
         self._head: str | None = None
         self._node_line_map: dict[str, int] = {}
 
@@ -389,10 +443,13 @@ class DAGDisplay(VerticalScroll):
         """Build layout from session data and render."""
         self._session_path = session_path
 
-        nodes, parent_map, child_map, node_descs = _build_graph(session_path)
+        nodes, parent_map, child_map, node_descs, node_op_map = _build_graph(
+            session_path
+        )
         self._parent_map = parent_map
         self._child_map = child_map
         self._node_descs = node_descs
+        self._node_op_map = node_op_map
         self._head = get_head(session_path)
 
         if not nodes:
@@ -441,6 +498,7 @@ class DAGDisplay(VerticalScroll):
 
             layer_lines = _render_layer(
                 layer, self._node_descs, self._head, focused_id, total_width,
+                node_op_map=self._node_op_map,
             )
             all_lines.extend(layer_lines)
 
