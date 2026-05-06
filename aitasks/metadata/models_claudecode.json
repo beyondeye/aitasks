@@ -269,18 +269,23 @@
         },
         "changelog": {
           "all_time": {
-            "runs": 10,
-            "score_sum": 960
+            "runs": 11,
+            "score_sum": 1060
           },
-          "month": {
+          "prev_month": {
             "period": "2026-04",
             "runs": 10,
             "score_sum": 960
           },
+          "month": {
+            "period": "2026-05",
+            "runs": 1,
+            "score_sum": 100
+          },
           "week": {
-            "period": "2026-W18",
-            "runs": 3,
-            "score_sum": 280
+            "period": "2026-W19",
+            "runs": 1,
+            "score_sum": 100
           }
         },
         "explore": {
