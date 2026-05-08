@@ -219,7 +219,12 @@ Sanity-check the PKGBUILD on an Arch host (or in an
 release. This validates the rendered template, deps, and shim install
 without touching CI.
 
+Run from the repo root — the `sed` step reads `packaging/aur/PKGBUILD.template`
+as a relative path:
+
 ```bash
+cd "$(git rev-parse --show-toplevel)"
+
 # Pick the latest released aitasks version
 VERSION=$(curl -fsSL https://api.github.com/repos/beyondeye/aitasks/releases/latest \
   | jq -r .tag_name | sed 's/^v//')
