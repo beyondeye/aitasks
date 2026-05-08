@@ -2,7 +2,7 @@
 pkgname=aitasks
 pkgver=VERSION_PLACEHOLDER
 pkgrel=1
-pkgdesc="an agentic IDE in your terminal, markdown tasks with YAML frontmatter, git-native, zero infrastructure. Works with Claude Code, Gemini CLI, OpenCode, and Codex CLI."
+pkgdesc="Agentic IDE in your terminal: markdown tasks, YAML frontmatter, git-native"
 arch=('any')
 url="https://aitasks.io/"
 license=('Apache')

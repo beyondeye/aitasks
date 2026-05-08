@@ -1,5 +1,5 @@
 class Aitasks < Formula
-  desc "File-based task management framework for AI coding agents"
+  desc "Agentic IDE in your terminal: markdown tasks, YAML frontmatter, git-native"
   homepage "https://aitasks.io/"
   url "https://github.com/beyondeye/aitasks/releases/download/vVERSION_PLACEHOLDER/ait"
   sha256 "SHA256_PLACEHOLDER"
