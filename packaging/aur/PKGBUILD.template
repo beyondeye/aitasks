@@ -2,7 +2,7 @@
 pkgname=aitasks
 pkgver=VERSION_PLACEHOLDER
 pkgrel=1
-pkgdesc="File-based task management framework for AI coding agents"
+pkgdesc="an agentic IDE in your terminal, markdown tasks with YAML frontmatter, git-native, zero infrastructure. Works with Claude Code, Gemini CLI, OpenCode, and Codex CLI."
 arch=('any')
 url="https://aitasks.io/"
 license=('Apache')
