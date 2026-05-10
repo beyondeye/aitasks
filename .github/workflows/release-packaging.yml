@@ -215,7 +215,7 @@ jobs:
       VERSION: ${{ inputs.version }}
     steps:
       - name: Install curl
-        run: dnf install -y curl ca-certificates
+        run: dnf install -y --allowerasing curl ca-certificates
 
       - name: Enable EPEL (Rocky/RHEL/Alma only)
         if: contains(matrix.distro, 'rocky') || contains(matrix.distro, 'almalinux') || contains(matrix.distro, 'rhel')
