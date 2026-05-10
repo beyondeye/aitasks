@@ -3,13 +3,14 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ci, packaging]
 assigned_to: dario-e@beyond-eye.com
 issue: https://github.com/beyondeye/aitasks/actions/runs/25457909709
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-08 10:49
-updated_at: 2026-05-10 10:35
+updated_at: 2026-05-10 11:01
+completed_at: 2026-05-10 11:01
 ---
 
 The v0.20.0 release workflow has two failing jobs (`packaging / build-deb` and `packaging / build-rpm`) because both reference a GitHub Action that no longer exists.
