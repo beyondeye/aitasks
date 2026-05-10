@@ -137,9 +137,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.20.2: A redesigned home page, Native installs for every platform, and Code browser History screen no longer crashes](blog/v0202-a-redesigned-home-page-native-installs-for-every-platform-code-browser-his/)** -- May 10, 2026
 - **[v0.20.1 Release](blog/v0201/)** -- May 10, 2026
 - **[v0.20.0: Install via your distro's package manager, A dedicated syncer TUI, and Opt-in PyPy fast-path](blog/v0200-install-via-your-distro-s-package-manager-a-dedicated-syncer-tui-opt-in-py/)** -- May 6, 2026
-- **[v0.19.2: Python wrappers that actually stay inside the venv, Warnings before you build on stale main, and Source-tree setup gets the starter tmux config too](blog/v0192-python-wrappers-that-actually-stay-inside-the-venv-warnings-before-you-bui/)** -- Apr 29, 2026
 
 [All releases &rarr;](blog/)
 
