@@ -19,15 +19,15 @@ linkTitle: "aitasks"
 
 {{% blocks/section color="white" type="row" %}}
 
-{{% blocks/feature icon="fa-terminal" title="Agentic IDE in your terminal" %}}
+{{% blocks/feature icon="fa-terminal" title="Agentic IDE in your terminal" url="#take-the-tour" %}}
 Kanban Board, Code Browser, Monitor, Brainstorm, and Settings — all in one tmux session via `ait ide`. Press `j` to hop between TUIs without ever leaving the terminal.
 {{% /blocks/feature %}}
 
-{{% blocks/feature icon="fa-brain" title="Long-term memory for agents" %}}
+{{% blocks/feature icon="fa-brain" title="Long-term memory for agents" url="/docs/concepts/agent-memory/" %}}
 Archived tasks and plans become queryable context for future work. The Code Browser annotates each line back to the task and plan that introduced it — your repo remembers *why*, not just *what*.
 {{% /blocks/feature %}}
 
-{{% blocks/feature icon="fa-code-branch" title="Tight git coupling, AI-enhanced" %}}
+{{% blocks/feature icon="fa-code-branch" title="Tight git coupling, AI-enhanced" url="/docs/workflows/#git" %}}
 PR import/close, issue tracker integration, contribution flow, changelog generation, and AI-assisted reverts — all rooted in git commits and task metadata.
 {{% /blocks/feature %}}
 
@@ -51,7 +51,7 @@ After installing, run `ait setup` in your project (the git repository root). See
 
 {{< blocks/section color="white" >}}
 <div class="text-center mb-4">
-<h2>🎛️ Take the tour</h2>
+<h2 id="take-the-tour">🎛️ Take the tour</h2>
 <p>Five TUIs share a single tmux session. Click any of them to dive in.</p>
 </div>
 <div class="tour-mosaic">
@@ -60,6 +60,9 @@ After installing, run `ait setup` in your project (the git repository root). See
 {{< tour-tile href="/docs/tuis/monitor/" src="imgs/home/monitor.svg" alt="Monitor TUI" caption="Monitor" >}}
 {{< tour-tile href="/docs/tuis/settings/" src="imgs/home/settings.svg" alt="Settings TUI" caption="Settings" >}}
 {{< tour-tile href="/docs/tuis/stats/" src="imgs/home/statistics.svg" alt="Statistics TUI" caption="Stats" >}}
+</div>
+<div class="text-center mt-4">
+<a href="/docs/tuis/">See all TUIs &rarr;</a>
 </div>
 {{< /blocks/section >}}
 
