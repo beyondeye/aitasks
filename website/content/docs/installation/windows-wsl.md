@@ -35,24 +35,37 @@ To open a WSL shell: search for "WSL" in the Windows search box, or type `wsl` i
 
 ---
 
-## Install aitasks
+## Install aitasks (recommended: `.deb` package)
 
-From within your WSL shell, navigate to your project directory and run:
+Once your WSL Ubuntu/Debian shell is up, the cleanest install is the official `.deb` package — same as native Ubuntu. See the [Debian/Ubuntu guide](../debian-apt/) for the full walkthrough; the short version (with [GitHub CLI](https://cli.github.com/) installed):
+
+```bash
+gh release download --repo beyondeye/aitasks --pattern '*.deb'
+sudo apt install ./aitasks_*.deb
+ait setup
+```
+
+If you do not have `gh` installed, see the curl one-liner in the [Debian/Ubuntu guide](../debian-apt/).
+
+> **Ubuntu 20.04 (Focal) on WSL:** the `.deb` install is blocked by apt's dependency solver (Focal ships `python3 = 3.8`, the `.deb` requires `>= 3.9`). Use the [Fallback: install via curl](#fallback-install-via-curl) section below — `ait setup` provisions a modern Python user-scoped via [uv](https://github.com/astral-sh/uv) and sidesteps the system-package dependency.
+
+After setup completes, see [Authentication with Your Git Remote](../#authentication-with-your-git-remote) to configure GitHub access for task locking, sync, and issue integration.
+
+---
+
+## Fallback: install via curl
+
+If you cannot use the `.deb` (e.g., a custom WSL distro without working `apt`, or Ubuntu 20.04 / Debian 11 with an older Python), install via the curl-based bootstrap:
 
 ```bash
 cd /path/to/your-project
 curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash
-```
-
-Then run the setup:
-
-```bash
 ait setup
 ```
 
-The setup will automatically detect WSL and install dependencies via `apt`. If you already have the global `ait` shim installed (from a previous project), you can skip the `curl` step and just run `ait setup` in the new project directory — it will auto-bootstrap the installation.
+`ait setup` automatically detects WSL and installs dependencies via `apt`. It also installs a modern Python (3.11) user-scoped via [uv](https://github.com/astral-sh/uv) into `~/.aitask/python/` if your system Python is too old, so this path works on Ubuntu 20.04 / Debian 11 even when the `.deb` install would fail.
 
-After setup completes, see [Authentication with Your Git Remote](../#authentication-with-your-git-remote) to configure GitHub access for task locking, sync, and issue integration.
+If you already have the global `ait` shim installed (from a previous project), you can skip the `curl` step and just run `ait setup` in the new project directory — it will auto-bootstrap the installation.
 
 ---
 

@@ -56,16 +56,21 @@ AI coding agents are proficient enough to handle real development tasks. The bot
 
 ## ⚡ Quick Install
 
-Install into your project directory:
+Pick your platform:
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash
-ait setup
-```
+| Platform | Install command |
+|----------|-----------------|
+| **macOS** | `brew install beyondeye/aitasks/aitasks` — see the [Homebrew guide](https://aitasks.io/docs/installation/macos/) |
+| **Arch / Manjaro** (AUR) | `yay -S aitasks` or `paru -S aitasks` — see the [AUR guide](https://aitasks.io/docs/installation/arch-aur/) |
+| **Debian / Ubuntu / WSL** | Download the latest `.deb` from [Releases](https://github.com/beyondeye/aitasks/releases/latest) and `sudo apt install ./aitasks_*.deb` — see the [Debian/Ubuntu guide](https://aitasks.io/docs/installation/debian-apt/) |
+| **Fedora / RHEL / Rocky / Alma** | Download the latest `.rpm` from [Releases](https://github.com/beyondeye/aitasks/releases/latest) and `sudo dnf install ./aitasks-*.noarch.rpm` — see the [Fedora guide](https://aitasks.io/docs/installation/fedora-dnf/) |
+| **Other (any POSIX)** | `curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh \| bash` |
 
-> **Windows users:** Run this inside a WSL shell, not PowerShell. See the [Windows/WSL guide](https://aitasks.io/docs/installation/windows-wsl/).
+All install methods drop a single `ait` command on your `$PATH` — the **global shim** (~3 KB). The shim downloads the framework on demand when you run `ait setup` in your project, so the package itself stays tiny and you do not need to re-install it to get framework updates. See the [installation guide](https://aitasks.io/docs/installation/) for the full picture, and the [packaging distribution status & roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_distribution_status.md) for current limitations and how each channel might evolve toward more official repos.
 
-`ait setup` installs dependencies and configures Claude Code permissions. See [`ait setup`](https://aitasks.io/docs/commands/setup-install/) for details.
+After installing, `cd` into your project (the git repository root) and run `ait setup` to bootstrap the framework.
+
+> **Windows users:** Run from a WSL shell, not PowerShell. See the [Windows/WSL guide](https://aitasks.io/docs/installation/windows-wsl/).
 
 Upgrade an existing installation:
 
@@ -74,14 +79,7 @@ ait upgrade latest
 ait setup
 ```
 
-Or for fresh installs without an existing `ait` dispatcher:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash -s -- --force
-ait setup
-```
-
-**Already have the global `ait` shim?** If you've previously run `install.sh` on another project, the global shim at `~/.local/bin/ait` is already installed. You can bootstrap aitasks in any new project directory by simply running:
+**Already have the global `ait` shim?** Once any install method has placed `ait` on your `$PATH`, you can bootstrap aitasks in any new project directory by simply running:
 
 ```bash
 cd /path/to/new-project
@@ -89,8 +87,6 @@ ait setup
 ```
 
 The shim detects that no aitasks project exists, downloads the latest release, installs it, and then runs the full setup — all in one command.
-
-**Windows/WSL users:** See the [Windows/WSL Installation Guide](https://aitasks.io/docs/installation/windows-wsl/) for step-by-step instructions including WSL setup, Claude Code installation, and terminal configuration.
 
 ## 📦 What Gets Installed
 

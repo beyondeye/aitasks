@@ -7,19 +7,21 @@ description: "Install aitasks and configure your development environment"
 
 ## Quick Install
 
-> **macOS prerequisite:** [Homebrew](https://brew.sh) is required. Install it first if you haven't — `ait setup` uses it to install bash 5, Python 3, coreutils, and CLI tools.
+> **Run from the project root.** aitasks expects to be invoked from the directory containing `.git/` — the root of your project's git repository. All install methods below assume you `cd` into that directory first. aitasks stores task files, plans, and configuration inside your repository and relies on git for task IDs, locking, syncing, and archival. Installing in a subdirectory or a non-git directory will not work correctly.
 
-> **Run from the project root.** aitasks expects to be invoked from the directory containing `.git/` — the root of your project's git repository. The curl command (and `ait setup`) must be run from there. aitasks stores task files, plans, and configuration inside your repository and relies on git for task IDs, locking, syncing, and archival. Installing in a subdirectory or a non-git directory will not work correctly.
+Pick your platform:
 
-Install into your project directory (the git repository root):
+| Platform | Install command |
+|----------|-----------------|
+| **macOS** | `brew install beyondeye/aitasks/aitasks` — see the [Homebrew guide](macos/) |
+| **Arch / Manjaro** (AUR) | `yay -S aitasks` or `paru -S aitasks` — see the [AUR guide](arch-aur/) |
+| **Debian / Ubuntu / WSL** | Download the latest `.deb` from [Releases](https://github.com/beyondeye/aitasks/releases/latest) and `sudo apt install ./aitasks_*.deb` — see the [Debian/Ubuntu guide](debian-apt/) |
+| **Fedora / RHEL / Rocky / Alma** | Download the latest `.rpm` from [Releases](https://github.com/beyondeye/aitasks/releases/latest) and `sudo dnf install ./aitasks-*.noarch.rpm` — see the [Fedora guide](fedora-dnf/) |
+| **Other (any POSIX)** | `curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh \| bash` |
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash
-```
+All install methods drop a single `ait` command on your `$PATH` — the **global shim** (~3 KB). The shim downloads the framework on demand when you run `ait setup` in your project, so the installed package stays tiny and you do not need to re-install the package to get framework updates. For the design rationale see the [packaging strategy reference](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_strategy.md); for current limitations of each channel and the roadmap toward more official repos see the [packaging distribution status & roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_distribution_status.md).
 
-> **Windows users:** Run this inside a WSL shell, not PowerShell. See the [Windows/WSL guide](windows-wsl/).
-
-> **macOS users:** Apple Terminal.app has limited tmux support (no truecolor, no right-click menu). See the [macOS guide](macos/) for recommended terminal emulators.
+After installing, `cd` into your project root (where `.git/` lives) and run `ait setup` to install dependencies and configure agent integrations. See [`ait setup`](../commands/setup-install/) for details.
 
 Upgrade an existing installation:
 
@@ -27,22 +29,11 @@ Upgrade an existing installation:
 ait upgrade latest
 ```
 
-Or for fresh installs without an existing `ait` dispatcher:
+> **Windows users:** Run from a WSL shell, not PowerShell. See the [Windows/WSL guide](windows-wsl/).
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash -s -- --force
-```
+> **macOS users:** Apple Terminal.app has limited tmux support (no truecolor, no right-click menu). See the [macOS guide](macos/) for recommended terminal emulators.
 
-After installing, run `ait setup` to install dependencies and configure supported agent integrations. See [`ait setup`](../commands/setup-install/) for details.
-
-**Already have the global `ait` shim?** If you've previously run `ait setup` on another project, the global shim at `~/.local/bin/ait` is already installed. You can bootstrap aitasks in any new project directory by simply running:
-
-```bash
-cd /path/to/new-project    # Must be the git repository root
-ait setup
-```
-
-The shim detects that no aitasks project exists, downloads the latest release, installs it, and then runs the full setup — all in one command. Make sure you are at the root of the git repository (where `.git/` lives), not in a subdirectory.
+> **Already have the global `ait` shim?** Once any install method has placed `ait` on your PATH, you can bootstrap aitasks in any new project directory by running `ait setup` there — the shim auto-downloads the framework on first run. Make sure you are at the root of the git repository (where `.git/` lives), not in a subdirectory.
 
 **Windows/WSL users:** See the [Windows/WSL Installation Guide](windows-wsl/) for step-by-step instructions including WSL setup, agent installation examples, and terminal configuration.
 

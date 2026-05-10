@@ -10,19 +10,22 @@ This guide walks you through aitasks from installation to completing your first 
 
 ## 1. Install aitasks
 
-> **macOS:** [Homebrew](https://brew.sh) must be installed before running `ait setup`.
+Pick the install command for your platform (full per-platform walkthroughs in the [Installation guide](../installation/)):
 
-In your project directory (the root of the git repository, where `.git/` lives):
+| Platform | Install command |
+|----------|-----------------|
+| **macOS** | `brew install beyondeye/aitasks/aitasks` |
+| **Arch / Manjaro** (AUR) | `yay -S aitasks` |
+| **Debian / Ubuntu / WSL** | Download the `.deb` from [Releases](https://github.com/beyondeye/aitasks/releases/latest), then `sudo apt install ./aitasks_*.deb` |
+| **Fedora / RHEL / Rocky / Alma** | Download the `.rpm` from [Releases](https://github.com/beyondeye/aitasks/releases/latest), then `sudo dnf install ./aitasks-*.noarch.rpm` |
+| **Other (any POSIX)** | `curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh \| bash` |
+
+> **Run `ait setup` from the project root.** aitasks expects to be invoked from the directory containing `.git/` — the root of your project's git repository. It uses git branches for task IDs, locking, and syncing, and task and plan files are committed to your repository.
+
+In your project directory (the root of the git repository, where `.git/` lives), run the setup to install dependencies and configure supported agent integrations:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash
-```
-
-> **Run from the project root.** aitasks expects to be invoked from the directory containing `.git/` — the root of your project's git repository. aitasks is tightly integrated with git — it uses git branches for task IDs, locking, and syncing, and task and plan files are committed to your repository. Always run the installer and `ait setup` from there.
-
-Then run the setup to install dependencies and configure supported agent integrations:
-
-```bash
+cd /path/to/your-project
 ait setup
 ```
 

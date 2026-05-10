@@ -2,30 +2,60 @@
 title: "macOS Installation"
 linkTitle: "macOS"
 weight: 25
-description: "Guide for installing and running aitasks on macOS, including terminal-emulator choice"
+description: "Install aitasks on macOS via Homebrew, with notes on terminal-emulator choice"
 depth: [intermediate]
 ---
 
-Step-by-step guide for installing aitasks on macOS, with notes on terminal-emulator compatibility for the recommended `ait ide` workflow.
+Install aitasks on macOS via the official Homebrew tap, then configure your terminal emulator for the best `ait ide` experience.
 
 ## Prerequisites
 
-- macOS 12 (Monterey) or newer
-- [Homebrew](https://brew.sh) — required. `ait setup` uses it to install bash 5, Python 3, coreutils, `fzf`, `gh`/`glab`/`bkt`, `jq`, `git`, and `zstd`.
+- macOS 12 (Monterey) or newer.
+- [Homebrew](https://brew.sh) — required. The `brew install` command below will not run without it.
 
-## Install aitasks
+## What you get
 
-From your project's git-repository root:
+`brew install` places the **aitasks global shim** (a single ~3 KB shell script) at `$(brew --prefix)/bin/ait`. The shim is *not* the framework itself — when you run `ait setup` in a project, the shim downloads the appropriate framework version into that project. This means:
+
+- The installed package stays tiny (~3 KB).
+- Framework updates do NOT require re-installing the package; `ait upgrade latest` (or simply running `ait setup` in a fresh project) fetches the newest framework on demand.
+- `ait --version` *outside* a project shows the shim version; *inside* a project it shows the framework version installed in that project. They are independent.
+
+For the full design rationale, see [`aidocs/packaging_strategy.md`](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_strategy.md).
+
+## Install
 
 ```bash
-cd /path/to/your-project
-curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash
+brew install beyondeye/aitasks/aitasks
+```
+
+This installs the formula from the [`beyondeye/homebrew-aitasks`](https://github.com/beyondeye/homebrew-aitasks) tap (auto-tapped by the qualified install command).
+
+## First project
+
+```bash
+cd /path/to/your-project    # the git repository root
 ait setup
 ```
 
-If you already have the global `ait` shim installed (from a previous project), you can skip the `curl` step and just run `ait setup` in the new project root — it auto-bootstraps.
+`ait setup` installs framework dependencies (Python venv, `fzf`, `gh`/`glab`, `jq`, `git`, `zstd`, etc. — pulled in via Homebrew) and downloads the framework files into your project.
 
-After setup completes, see [Authentication with Your Git Remote]({{< relref "git-remotes" >}}) to configure GitHub access.
+## Upgrade
+
+```bash
+brew update
+brew upgrade aitasks
+```
+
+The Homebrew tap is auto-bumped on every aitasks release, so `brew upgrade` will pick up new versions on the normal Homebrew cadence.
+
+## Uninstall
+
+```bash
+brew uninstall aitasks
+```
+
+> **Note:** Uninstalling the formula removes the `ait` shim only. Per-project files in `aitasks/` and `aiplans/` remain in your repo (committed to git as normal). To stop using aitasks in a specific project, simply remove those directories from the repo and commit.
 
 ## Terminal emulator choice (important)
 
@@ -77,8 +107,10 @@ printf '\e[38;2;255;100;0mTRUECOLOR\e[0m\n'   # should render in orange on truec
 
 If the third line shows orange, truecolor is working. If it shows the literal escape, or a quantized color that is clearly not orange, the outer terminal does not support truecolor.
 
-## Next steps
+## See also
 
+- [Packaging Distribution Status & Roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_distribution_status.md) — current state of the Homebrew tap and the roadmap toward `homebrew-core`.
+- [`ait setup`](../commands/setup-install/) — what `ait setup` configures and how.
 - [Terminal Setup]({{< relref "terminal-setup" >}}) — `ait ide` workflow, `tmux` overview, multi-project sessions.
 - [Getting Started]({{< relref "/docs/getting-started" >}}) — first task walkthrough.
 
