@@ -122,15 +122,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install nfpm
-        uses: goreleaser/nfpm-action@v1
-
-      - name: Build .deb
+      - name: Build .deb (via nfpm Docker image)
         run: |
-          nfpm package \
-            --packager deb \
-            --config packaging/nfpm/nfpm.yaml \
-            --target "aitasks_${VERSION}_all.deb"
+          docker run --rm \
+            -v "$PWD:/tmp/src" -w /tmp/src \
+            -e VERSION \
+            goreleaser/nfpm:latest \
+            package \
+              --packager deb \
+              --config packaging/nfpm/nfpm.yaml \
+              --target "aitasks_${VERSION}_all.deb"
 
       - name: Upload to release
         env:
@@ -185,15 +186,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install nfpm
-        uses: goreleaser/nfpm-action@v1
-
-      - name: Build .rpm
+      - name: Build .rpm (via nfpm Docker image)
         run: |
-          nfpm package \
-            --packager rpm \
-            --config packaging/nfpm/nfpm.yaml \
-            --target "aitasks-${VERSION}-1.noarch.rpm"
+          docker run --rm \
+            -v "$PWD:/tmp/src" -w /tmp/src \
+            -e VERSION \
+            goreleaser/nfpm:latest \
+            package \
+              --packager rpm \
+              --config packaging/nfpm/nfpm.yaml \
+              --target "aitasks-${VERSION}-1.noarch.rpm"
 
       - name: Upload to release
         env:
