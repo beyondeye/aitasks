@@ -240,7 +240,7 @@
       "notes": "Most capable model, 1M context, complex reasoning + agentic coding, 128K output, adaptive thinking",
       "verified": {
         "pick": 99,
-        "changelog": 96,
+        "changelog": 97,
         "explore": 99,
         "test_414_flags": 100,
         "wrap": 100
@@ -269,8 +269,8 @@
         },
         "changelog": {
           "all_time": {
-            "runs": 11,
-            "score_sum": 1060
+            "runs": 12,
+            "score_sum": 1160
           },
           "prev_month": {
             "period": "2026-04",
@@ -279,13 +279,13 @@
           },
           "month": {
             "period": "2026-05",
-            "runs": 1,
-            "score_sum": 100
+            "runs": 2,
+            "score_sum": 200
           },
           "week": {
             "period": "2026-W19",
-            "runs": 1,
-            "score_sum": 100
+            "runs": 2,
+            "score_sum": 200
           }
         },
         "explore": {
