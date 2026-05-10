@@ -173,7 +173,7 @@ class HistoryScreen(Screen):
             self.app.call_from_thread(self._on_reload_chunk, index_chunk, platform, first)
             first = False
 
-    def _on_index_chunk(self, index, platform) -> None:
+    async def _on_index_chunk(self, index, platform) -> None:
         # Always cache on app (even if screen dismissed, so re-open is fast)
         self.app._history_index = index
         self.app._history_platform = platform
@@ -189,13 +189,14 @@ class HistoryScreen(Screen):
                 self.query_one("#history_loading").remove()
             except Exception:
                 pass
-            # Mount the actual content
+            # Mount the actual content. Mounts must be awaited so the panes'
+            # compose() runs before set_data()/set_context() query their children.
             container = Horizontal()
             left = HistoryLeftPane(self._project_root, id="history_left")
             detail = HistoryDetailPane(project_root=self._project_root, id="history_detail")
-            self.mount(container, before=self.query_one(Footer))
-            container.mount(left)
-            container.mount(detail)
+            await self.mount(container, before=self.query_one(Footer))
+            await container.mount(left)
+            await container.mount(detail)
             # Populate with data
             left.set_data(index)
             detail.set_context(self._project_root, index, platform)
