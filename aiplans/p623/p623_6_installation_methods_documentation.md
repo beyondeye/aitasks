@@ -361,11 +361,38 @@ Then **rename the existing "Install aitasks" section** (lines 38–55 in current
 
 After review and approval in Step 8, follow the standard task-workflow Step 9: archive `t623_6` via `aitask_archive.sh 623_6`. Since `t623_7` (manual_verification sibling) remains pending, the parent `t623` will NOT auto-archive — that happens after t623_7 completes.
 
-## Final Implementation Notes (to be filled in post-implementation)
+## Final Implementation Notes
 
 - **Actual work done:**
+  - Created `aidocs/packaging_distribution_status.md` — full snapshot table with live links (Homebrew tap repo, AUR package page, GitHub Releases for .deb/.rpm), per-channel sections (Homebrew, AUR, APT, DNF) each with live link + limitations + cross-refs + concrete roadmap steps, cross-channel concerns (Python 3.9+ requirement traced to `packaging/nfpm/nfpm.yaml:27`, asset signing), and the "Updating user-facing docs when status changes" cross-ref index.
+  - Rewrote `README.md` Quick Install (lines 57–93) as the per-platform table with brew/AUR/.deb/.rpm/curl rows; preserved the "Upgrade an existing installation" + "Already have the global ait shim?" paragraphs below it; added cross-refs to both `packaging_strategy.md` and the new `packaging_distribution_status.md`.
+  - Rewrote `website/content/docs/installation/_index.md` Quick Install with the same per-platform table; preserved Cloning a Repo / Platform Support / What Gets Installed sections verbatim.
+  - Rewrote `website/content/docs/installation/macos.md` in place (URL stable): Prerequisites + What you get (shim-only paragraph) + Install (`brew install beyondeye/aitasks/aitasks`) + First project + Upgrade + Uninstall + Roadmap + the existing Terminal emulator choice section appended verbatim + See also footer.
+  - Created `website/content/docs/installation/arch-aur.md` (`weight: 30`) with the explicit "`pacman -S aitasks` does NOT work" callout, both AUR-helper and `makepkg -si` install paths, upgrade/uninstall/roadmap, See also footer.
+  - Created `website/content/docs/installation/debian-apt.md` (`weight: 40`) with the corrected supported-versions framing (works directly: Debian 11+, Ubuntu 22.04+; Ubuntu 20.04 caveat with two workarounds), three install paths (gh / curl / manual), WSL note, upgrade/uninstall/roadmap, See also.
+  - Created `website/content/docs/installation/fedora-dnf.md` (`weight: 50`) with the EPEL prerequisite callout for Rocky/Alma/RHEL 9, three install paths, upgrade/uninstall/roadmap pointing at COPR as the next channel, See also.
+  - Updated `website/content/docs/installation/windows-wsl.md`: prepended a recommended `.deb` install section (with `gh release download` short version and a Focal caveat directing to Fallback), renamed the existing curl-based section to "Fallback: install via curl", added a paragraph noting `ait setup`'s uv-based Python provisioning so the Fallback works on Ubuntu 20.04 / Debian 11 even when `.deb` install would fail.
+  - Discovered two pages outside the plan's scope still presented curl as the primary install: `website/content/_index.md` (landing page Quick Install) and `website/content/docs/getting-started.md` (Step 1). Updated both to use the same per-platform table for consistency. Without this, the verification check "no curl install as primary recommendation" would have remained partially false.
+
 - **Deviations from plan:**
-- **Issues encountered:**
+  - **macos.md vs macos-brew.md:** plan originally proposed creating a new `macos-brew.md`. Verify-mode pass surfaced the conflict with the existing `macos.md` (terminal-emulator content + inbound links from `_index.md:22`/`:96`). User selected "Rewrite macos.md in place" during the planning AskUserQuestion. Implemented as such — single page covering install + terminal-emulator choice; URLs stable.
+  - **Supported-versions framing for Debian/Ubuntu:** verify-mode pass found the original-plan's blanket "Not supported: Ubuntu 20.04 / Debian 11 (Python < 3.9)" was incorrect. Debian 11 ships Python 3.9 (works directly); Ubuntu 20.04 has Python 3.8 but is recoverable via deadsnakes PPA OR by using the curl install path (which uses `ait setup`'s uv-based Python provisioning per `.aitask-scripts/aitask_setup.sh:374-456`). The user flagged this during plan review; plan + docs revised accordingly.
+  - **Added new `aidocs/packaging_distribution_status.md`:** not in the original plan. User requested during plan review to add a maintainer-facing reference doc capturing limitations, cross-refs, and roadmap steps to "more official" repos. Per a follow-up user request, the doc also includes live links to where each package currently lives (tap repo, AUR page, Releases).
+  - **Two extra files updated outside Step 1–4 scope:** `website/content/_index.md` (landing) and `website/content/docs/getting-started.md` (Step 1). Both still showed curl-install as the *primary* recommendation; updating to per-platform tables was needed to satisfy the verification rule "no curl-install as primary on macOS/Arch/Debian/Fedora pages". Surfaced explicitly in the Step 5 (Cross-references and stylistic checks) verification.
+
+- **Issues encountered:** None substantive. Hugo build clean (only pre-existing deprecation warnings unrelated to this task: `.Language.LanguageDirection` and `.Site.AllPages` deprecations).
+
 - **Key decisions:**
-- **Upstream defects identified:**
-- **Notes for sibling tasks:**
+  - Kept `website/content/docs/installation/macos.md` URL stable (vs. rename / split) to avoid breaking inbound links from `_index.md`. Single page handles both install and terminal-emulator topics.
+  - Used absolute `https://aitasks.io/...` URLs in README.md install table (rendered by GitHub) and Hugo relrefs (`macos/`, `arch-aur/`, etc.) in `_index.md` table cells (rendered by Hugo). Kept the two link styles consistent across both files.
+  - Each per-platform page links to `aidocs/packaging_strategy.md` (architectural rationale) and `aidocs/packaging_distribution_status.md` (current limitations + roadmap) — two complementary docs, separate so each can evolve independently.
+  - Debian/Ubuntu install instructions present three paths (gh / curl / manual) rather than picking one canonical command — different users have different baselines. The `gh` path is listed first (simplest); curl is the recoverable fallback that doesn't depend on having any extra CLI installed.
+  - Removed the "Upgrade an existing installation: `--force` curl bootstrap" paragraph from README and `_index.md`. Reason: with native PMs as the primary install, the `--force` curl bootstrap is no longer the canonical "fresh upgrade" path. Users on PMs upgrade via their PM (`brew upgrade`, `apt install ./new.deb`, etc.); users on the curl fallback already see the full curl command in the table. Kept `ait upgrade latest` mention as the in-project upgrade path.
+
+- **Upstream defects identified:** None. The diagnosis surfaced no separate pre-existing bugs in other scripts/helpers/modules.
+
+- **Notes for sibling tasks (t623_7 manual_verification):**
+  - Sidebar order in the rendered Docsy site is driven by Hugo `weight` frontmatter: `_index.md`=10, `windows-wsl.md`=20, `macos.md`=25, `arch-aur.md`=30, `debian-apt.md`=40, `fedora-dnf.md`=50, `terminal-setup.md`/`pypy.md`/`known-issues.md`/`git-remotes.md` use their existing weights. t623_7 should verify these render in the expected order in the sidebar.
+  - Inbound link references that should remain functional: `_index.md` linking to `macos/` (now from the install table). The HTML output at `website/public/docs/installation/macos/index.html` exists.
+  - Pages t623_7 should click-test from a running `hugo server`: 5 per-platform pages (`macos`, `arch-aur`, `debian-apt`, `fedora-dnf`, `windows-wsl`) plus the new aidocs link from each "See also" footer.
+  - The `aidocs/packaging_distribution_status.md` doc is referenced from README, `_index.md`, and every per-platform page's "See also" footer — t623_7 should click these to verify the GitHub-blob URLs resolve.
