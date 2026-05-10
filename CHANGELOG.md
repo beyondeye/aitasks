@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.20.2
+
+### Bug Fixes
+
+- **Code browser History screen crash** (t761): Fixed a crash when opening the History screen from a cold start; the screen now properly waits for its panes to mount before populating them.
+- **Release packaging tests on Rocky Linux 9** (t759): Fixed the `test-rpm` CI job, which was failing on Rocky Linux 9 due to a `curl` / `curl-minimal` package conflict.
+
+### Documentation
+
+- **Per-platform install instructions** (t623_6): The README and website now document native install methods for each OS — Homebrew on macOS, AUR on Arch, `.deb` for Debian/Ubuntu, `.rpm` for Fedora/Rocky/Alma — alongside the curl fallback. Each platform has its own install page, and a new packaging-status reference doc tracks limitations and roadmap.
+- **Redesigned home page** (t760): The website home page now opens with a split hero (text and screenshot side-by-side) and a "Take the tour" mosaic of TUI screenshots (Board, Code Browser, Monitor, Settings, Stats). Several feature sections gained inline screenshots.
+- **Linked home page feature cards** (t762): The three top feature cards on the home page are now clickable, linking to the tour mosaic, agent memory docs, and the git workflows section.
+
 ## v0.20.1
 
 ### Bug Fixes
