@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [codebrowser, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-10 15:07
-updated_at: 2026-05-10 15:07
+updated_at: 2026-05-10 15:15
 ---
 
 ## Symptom
