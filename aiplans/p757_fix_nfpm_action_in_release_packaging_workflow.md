@@ -139,3 +139,12 @@ This task is implemented on the current branch (no worktree, per fast profile `c
 - Skip `verify_build` if not configured (it isn't for this repo).
 - Run `aitask_archive.sh 757` to move task/plan to archived/, set status Done, release lock, and commit.
 - `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Edited `.github/workflows/release-packaging.yml` exactly as planned. In `build-deb`: replaced the `Install nfpm` (uses: goreleaser/nfpm-action@v1) + `Build .deb` step pair with a single `Build .deb (via nfpm Docker image)` step that runs `docker run --rm -v "$PWD:/tmp/src" -w /tmp/src -e VERSION goreleaser/nfpm:latest package --packager deb …`. Mirrored edit applied to `build-rpm`. Net diff: 18 insertions, 16 deletions, single file.
+- **Deviations from plan:** None.
+- **Issues encountered:** None.
+- **Key decisions:** Used `goreleaser/nfpm:latest` (not pinned) per the plan's recommendation — matches the original `@v1` major-pin spirit and avoids version-pin maintenance burden.
+- **Upstream defects identified:** None.
+- **Out-of-scope item spawned as a follow-up:** Node 20 deprecation warnings for `actions/checkout@v4` and `softprops/action-gh-release@v2` (surfaced by the same release run) were spawned as standalone task **t758** (`upgrade_node20_deprecated_actions_in_release_workflow`). The "Out of scope" subsection of this plan was updated to cross-reference t758.
