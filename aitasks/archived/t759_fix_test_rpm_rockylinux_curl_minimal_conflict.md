@@ -3,11 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ci, packaging, workflows]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-10 12:47
-updated_at: 2026-05-10 12:48
+updated_at: 2026-05-10 12:57
+completed_at: 2026-05-10 12:57
 ---
 
 The `test-rpm (rockylinux:9)` job in the Release Packaging workflow fails at the
