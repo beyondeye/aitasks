@@ -77,3 +77,16 @@ End-to-end CI verification will land naturally on the next release tag (v0.20.2 
 ## Step 9 notes
 
 Standard Step 9 (Post-Implementation) applies. No worktree was created (fast profile), so the branch/worktree cleanup steps are skipped — only the archive script and push run.
+
+## Final Implementation Notes
+
+- **Actual work done:** Single-line edit to `.github/workflows/release-packaging.yml:218`, adding `--allowerasing` to the `dnf install` invocation in the `test-rpm` job. No other files touched.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Both the original failure and the fix were reproduced authoritatively against the same `rockylinux:9` Docker image GitHub Actions uses.
+- **Key decisions:** Picked `--allowerasing` over the smaller "drop curl, keep ca-certificates" alternative because it preserves the original intent (full curl in the test container) and keeps the workflow agnostic to whatever curl variant the base image happens to ship. The fedora 41/42 cases verified there is no regression on images that don't preinstall curl-minimal.
+- **Verification performed:**
+  - Reproduction: `docker run --rm rockylinux:9 dnf install -y curl ca-certificates` → fails with the identical `curl-minimal ... conflicts with curl ...` error from the v0.20.1 CI run.
+  - Fix on rocky 9: `docker run --rm rockylinux:9 dnf install -y --allowerasing curl ca-certificates` → exit 0, `curl 7.76.1` working.
+  - No regression on fedora:41 (`curl 8.9.1`) and fedora:42 (`curl 8.11.1`) → exit 0 in both cases.
+  - End-to-end CI verification will land naturally on the next release tag.
+- **Upstream defects identified:** None.
