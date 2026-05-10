@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: [t623_5]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [install_scripts, installation, packaging, documentation]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-22 18:59
-updated_at: 2026-05-10 12:48
+updated_at: 2026-05-10 13:45
+completed_at: 2026-05-10 13:45
 ---
 
 ## Context
