@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.20.1
+
+### Bug Fixes
+
+- **Release packaging workflow restored** (t757): The .deb and .rpm build jobs now invoke `nfpm` directly via its official Docker image, replacing the deleted `goreleaser/nfpm-action` GitHub Action so release packaging runs again.
+
 ## v0.20.0
 
 ### Features

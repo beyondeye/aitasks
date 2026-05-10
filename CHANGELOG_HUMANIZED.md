@@ -1,5 +1,11 @@
 # Releases
 
+## v0.20.1
+
+A quick maintenance release. The nfpm GitHub Action we relied on for building Debian and RPM packages was deleted upstream, which broke our release pipeline. v0.20.1 swaps it for a direct Docker invocation of the same tool, so .deb and .rpm packages are once again attached to every release.
+
+---
+
 ## v0.20.0
 
 v0.20.0 is a big one — a brand new sync TUI, package-manager installs across four ecosystems, an opt-in PyPy fast-path that makes the long-running TUIs noticeably snappier, and a wave of polish across brainstorm.
