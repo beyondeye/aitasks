@@ -125,3 +125,25 @@ The caller (`_load_data`, line 162-166) uses `self.app.call_from_thread(self._on
 ## Step 9 — Post-Implementation
 
 Standard archival via `aitask_archive.sh 761`. No worktree, no migration concerns, no cross-script touchpoints (single Python file).
+
+## Final Implementation Notes
+
+- **Actual work done:** Converted `_on_index_chunk` in `.aitask-scripts/codebrowser/history_screen.py` from a sync method to `async`, and added `await` on each of the three mount calls (`self.mount(container, ...)`, `container.mount(left)`, `container.mount(detail)`) before invoking `left.set_data(index)` / `detail.set_context(...)`. Added a brief inline comment explaining why the awaits matter. No other call sites or files modified.
+- **Deviations from plan:** None. The implementation matches the plan exactly.
+- **Issues encountered:** None. `app.call_from_thread()` accepted the now-coroutine target without changes to the caller (`_load_data`).
+- **Key decisions:** Chose `await self.mount(...)` over `self.call_after_refresh(...)` because awaiting is the more direct expression of "populate after compose runs" and keeps the control flow linear. `call_from_thread` already supports coroutine callables in the textual version pinned by the project.
+- **Upstream defects identified:** None.
+
+### Verification performed
+
+Headless Textual run reproduced the original crash before the fix:
+```
+NoMatches: No nodes match '#history_list' on HistoryLeftPane(id='history_left')
+textual.worker.WorkerFailed: Worker raised exception: NoMatches(...)
+```
+
+After the fix, three headless scenarios pass cleanly:
+
+1. Press `h` from cold start (no cache) → `HistoryScreen` is on stack, `#history_left` / `#history_list` / `#history_detail` all queryable.
+2. Press `escape` then `h` again → cached re-open path still works.
+3. Press `h` then `r` → in-place refresh completes without crash.
