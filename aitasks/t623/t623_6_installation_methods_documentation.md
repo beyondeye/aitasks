@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t623_5]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [install_scripts, installation, packaging, documentation]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-22 18:59
-updated_at: 2026-04-22 18:59
+updated_at: 2026-05-10 12:48
 ---
 
 ## Context
