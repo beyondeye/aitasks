@@ -323,6 +323,49 @@ No new copy unless a string fails to render.
 4. **Markdownlint** — `_index.md` should still parse as valid
    Hugo/markdown; no new shortcode errors at startup.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-05-10 14:05)
+- **Requested by user:** Three adjustments after the first review:
+  1. Replace the ugly `imgs/aitasks_settings_board_tab.svg` thumbnail
+     in the tour mosaic with a fresh `imgs/home/settings.svg` the user
+     dropped in.
+  2. Add a 5th tile to the tour mosaic for `ait monitor`
+     (`imgs/home/monitor.svg`).
+  3. Use the new `imgs/home/child_tasks.svg` for the
+     task-decomposition section (replacing the
+     `aitasks_board_task_detail.svg` fallback).
+- **Changes made:**
+  - `website/content/_index.md`: tour mosaic now has 5 tiles —
+    Board, Code Browser, Monitor, Settings, Stats — all sourced from
+    `imgs/home/*.svg`. Task-decomposition `static-img` uses
+    `imgs/home/child_tasks.svg`.
+  - `website/assets/scss/_styles_project.scss`: `.tour-mosaic` grid
+    expanded to handle 5 tiles — 2 cols on mobile, 3 cols at md
+    (≥768px), 5 cols at lg (≥992px). Max-width bumped from 1100px to
+    1200px.
+- **Files affected:**
+  - `website/content/_index.md`
+  - `website/assets/scss/_styles_project.scss`
+
+### Change Request 2 (2026-05-10 14:09)
+- **Requested by user:** The Stats TUI doc page is missing a screenshot. Reuse `imgs/home/statistics.svg` (the same one in the home page tour mosaic).
+- **Changes made:** Added a `{{< static-img >}}` shortcode call at the top of `website/content/docs/tuis/stats/_index.md` (between frontmatter and `## Launching`), matching the pattern used in `board/_index.md` and `codebrowser/_index.md`.
+- **Files affected:**
+  - `website/content/docs/tuis/stats/_index.md`
+
+### Change Request 3 (2026-05-10 14:12)
+- **Requested by user:** The Monitor TUI doc page is also missing a screenshot. Reuse `imgs/home/monitor.svg`.
+- **Changes made:** Replaced the `<!-- SCREENSHOT: ... -->` HTML comment placeholder in `website/content/docs/tuis/monitor/_index.md` with a `{{< static-img >}}` shortcode call.
+- **Files affected:**
+  - `website/content/docs/tuis/monitor/_index.md`
+
+### Change Request 4 (2026-05-10 14:14)
+- **Requested by user:** The first/main image on the Settings TUI doc page should be the new `imgs/home/settings.svg` instead of `imgs/aitasks_settings_code_agent_default_models_tab.svg`.
+- **Changes made:** Swapped the src in the first `{{< static-img >}}` call under the "Agent Defaults (a)" subsection. Caption preserved to describe the Agent Defaults tab.
+- **Files affected:**
+  - `website/content/docs/tuis/settings/_index.md`
+
 ## Step 9 (Post-Implementation)
 
 Per workflow: review change summary, commit code changes (regular
@@ -330,3 +373,25 @@ Per workflow: review change summary, commit code changes (regular
 via `./.aitask-scripts/aitask_archive.sh 760`. Issue type
 `documentation` → commit subject:
 `documentation: Redesign home page with split hero and inline TUI screenshots (t760)`.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Added `website/layouts/shortcodes/split-hero.html`: a side-by-side hero shortcode (title, lead, description, CTAs on the left; image on the right).
+  - Added `website/layouts/shortcodes/tour-tile.html`: a single thumbnail tile (linked figure) used inside a `.tour-mosaic` wrapper.
+  - Extended `website/assets/scss/_styles_project.scss` with `.split-hero-grid`, `.tour-mosaic`, and a `:has()`-scoped gradient on the home cover (`#5b21b6 → #1e3a8a`).
+  - Replaced the home-page cover content in `website/content/_index.md` with a `split-hero` invocation and inserted a new "🎛️ Take the tour" section (5-tile mosaic: Board, Code Browser, Monitor, Settings, Stats).
+  - Embedded inline `static-img` screenshots in three feature sections (task decomposition, code review, multi-agent).
+  - Added screenshots to three TUI doc pages that were missing one or had a placeholder: `docs/tuis/stats/_index.md`, `docs/tuis/monitor/_index.md`, and updated the first image in `docs/tuis/settings/_index.md`.
+- **Deviations from plan:**
+  - Tour mosaic grew from 4 to 5 tiles after first review — added Monitor tile per user request. SCSS expanded to `repeat(5, 1fr)` at lg, with a 3-column md breakpoint added for graceful intermediate sizes.
+  - All five user-supplied images (`board.svg`, `child_tasks.svg`, `codebrowser.svg`, `monitor.svg`, `settings.svg`, `statistics.svg`) were placed under `website/static/imgs/home/`. The originally suggested `claude_task_decomposition.webp` was replaced by the user with `child_tasks.svg`.
+  - Three additional doc-page screenshot updates (stats, monitor, settings) were added during review iterations — these were out of the original plan's scope (which targeted only the home page) but were natural follow-ups since the user provided the assets.
+- **Issues encountered:**
+  - First attempt used `{{< absURL ... >}}` and `{{< relurl ... >}}` as Hugo shortcodes; neither exists. Replaced manual `<a><figure>` markup in the mosaic with a new `tour-tile.html` shortcode that uses the `relURL` template function correctly.
+  - Docsy's `blocks/cover` shortcode does not accept a `class=` parameter (its class attribute is hardcoded — see Docsy v0.14.3 `cover.html`). Worked around it with a `:has()` CSS selector that scopes the gradient to the cover that contains the split hero.
+- **Key decisions:**
+  - Kept Docsy's `blocks/cover` as the outer wrapper of the hero so the navbar's `td-navbar-cover` translucent-over-cover behavior is preserved without hacking the navbar partial.
+  - Used `:has()` for scoped gradient styling rather than introducing a body class or theme-level override.
+  - Reused images: `monitor.svg` and `statistics.svg` are used both as home-page section images / tour tiles and as the screenshot at the top of their respective TUI doc pages — single source of truth, less to maintain.
+- **Upstream defects identified:** None.
