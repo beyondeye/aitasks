@@ -1,0 +1,10 @@
+{{- $href := .Get "href" | default "" -}}
+{{- $src := .Get "src" | default "" -}}
+{{- $alt := .Get "alt" | default "" -}}
+{{- $caption := .Get "caption" | default "" -}}
+<a href="{{ $href | relURL }}">
+  <figure>
+    <img src="{{ $src | relURL }}" alt="{{ $alt }}">
+    {{- with $caption }}<figcaption>{{ . }}</figcaption>{{ end }}
+  </figure>
+</a>

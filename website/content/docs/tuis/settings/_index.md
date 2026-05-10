@@ -21,7 +21,7 @@ The Settings TUI organizes configuration into five tabs, each accessible via a k
 
 ### Agent Defaults (a)
 
-{{< static-img src="imgs/aitasks_settings_code_agent_default_models_tab.svg" alt="Agent Defaults tab showing configured models per operation" caption="The Agent Defaults tab shows which code agent and model is configured for each operation" >}}
+{{< static-img src="imgs/home/settings.svg" alt="Settings TUI showing the Agent Defaults tab" caption="The Agent Defaults tab shows which code agent and model is configured for each operation." >}}
 
 Shows the default agent/model for each operation (`task-pick`, `explain`, `batch-review`, `raw`). These defaults are used when launching tasks from the [Board]({{< relref "/docs/tuis/board" >}}) TUI and running explain from the [Code Browser]({{< relref "/docs/tuis/codebrowser" >}}) TUI. Each entry displays:
 

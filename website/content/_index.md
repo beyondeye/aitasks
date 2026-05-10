@@ -3,18 +3,18 @@ title: "aitasks"
 linkTitle: "aitasks"
 ---
 
-{{< blocks/cover title="" image_anchor="top" height="med" color="primary" >}}
-<div class="mx-auto">
-  <img src="imgs/logo_with_text.webp" alt="aitasks logo" style="max-width: 300px; margin-bottom: 1rem;">
-  <p class="lead mt-2">A full agentic IDE in your terminal.</p>
-  <p>Kanban board, code browser, agent monitoring, and AI-enhanced git workflows.</p>
-  <a class="btn btn-lg btn-primary me-3 mb-4" href="docs/">
-    Documentation
-  </a>
-  <a class="btn btn-lg btn-secondary me-3 mb-4" href="https://github.com/beyondeye/aitasks">
-    ⭐ Star on GitHub to support us!
-  </a>
-</div>
+{{< blocks/cover title="" image_anchor="top" height="auto" color="primary" >}}
+{{< split-hero
+    title="aitasks"
+    lead="A full agentic IDE in your terminal."
+    description="Kanban board, code browser, agent monitoring, and AI-enhanced git workflows — all in one tmux session. Press `j` to hop between TUIs without leaving the terminal."
+    image="imgs/home/board.svg"
+    image_alt="aitasks kanban board with three columns of task cards"
+    cta_primary_text="Documentation"
+    cta_primary_href="docs/"
+    cta_secondary_text="⭐ Star on GitHub"
+    cta_secondary_href="https://github.com/beyondeye/aitasks"
+>}}{{< /split-hero >}}
 {{< /blocks/cover >}}
 
 {{% blocks/section color="white" type="row" %}}
@@ -49,8 +49,24 @@ Pick your platform:
 After installing, run `ait setup` in your project (the git repository root). See the [Installation guide]({{< relref "/docs/installation" >}}) for per-platform walkthroughs and detailed setup instructions.
 {{% /blocks/section %}}
 
+{{< blocks/section color="white" >}}
+<div class="text-center mb-4">
+<h2>🎛️ Take the tour</h2>
+<p>Five TUIs share a single tmux session. Click any of them to dive in.</p>
+</div>
+<div class="tour-mosaic">
+{{< tour-tile href="/docs/tuis/board/" src="imgs/home/board.svg" alt="Kanban board" caption="Board" >}}
+{{< tour-tile href="/docs/tuis/codebrowser/" src="imgs/home/codebrowser.svg" alt="Code browser" caption="Code Browser" >}}
+{{< tour-tile href="/docs/tuis/monitor/" src="imgs/home/monitor.svg" alt="Monitor TUI" caption="Monitor" >}}
+{{< tour-tile href="/docs/tuis/settings/" src="imgs/home/settings.svg" alt="Settings TUI" caption="Settings" >}}
+{{< tour-tile href="/docs/tuis/stats/" src="imgs/home/statistics.svg" alt="Statistics TUI" caption="Stats" >}}
+</div>
+{{< /blocks/section >}}
+
 {{% blocks/section color="white" %}}
 ## 🧩 Task decomposition & parallelism
+
+{{< static-img src="imgs/home/child_tasks.svg" alt="Parent task decomposed into child subtasks" caption="A parent task automatically broken into well-scoped child subtasks." >}}
 
 Complex tasks rarely fit a single context window. **aitasks** breaks them into child tasks, propagates sibling context, and runs them in isolated git worktrees so multiple agents can work side by side without stepping on each other.
 
@@ -69,6 +85,8 @@ See [Task decomposition]({{< relref "/docs/workflows/task-decomposition" >}}) an
 {{% blocks/section color="white" %}}
 ## 🔍 AI-enhanced code review
 
+{{< static-img src="imgs/home/codebrowser.svg" alt="Code browser annotated with task history" caption="Code browser annotates each line back to the originating task and plan." >}}
+
 Reviews aren't a checklist — they're a workflow. **aitasks** treats review guides, QA, and code explanations as first-class citizens with traceability back to the originating task.
 
 - Per-language review guides, automatically suggested for changed files
@@ -81,6 +99,8 @@ See [Code review]({{< relref "/docs/workflows/code-review" >}}) and [QA testing]
 
 {{% blocks/section color="light" %}}
 ## 🤖 Multi-agent support with verified scores
+
+{{< static-img src="imgs/home/monitor.svg" alt="Monitor TUI showing live agent panes" caption="Watch multiple agents work side-by-side in the monitor TUI." >}}
 
 One framework, many code agents. **aitasks** unifies Claude Code, Gemini CLI, Codex CLI, and OpenCode under a single `codeagent` wrapper, then accumulates per-model and per-operation success scores from real user feedback.
 

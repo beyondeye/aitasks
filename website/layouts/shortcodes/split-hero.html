@@ -1,0 +1,28 @@
+{{- $title := .Get "title" | default "" -}}
+{{- $lead := .Get "lead" | default "" -}}
+{{- $description := .Get "description" | default "" -}}
+{{- $image := .Get "image" | default "" -}}
+{{- $image_alt := .Get "image_alt" | default "" -}}
+{{- $cta_primary_text := .Get "cta_primary_text" | default "" -}}
+{{- $cta_primary_href := .Get "cta_primary_href" | default "" -}}
+{{- $cta_secondary_text := .Get "cta_secondary_text" | default "" -}}
+{{- $cta_secondary_href := .Get "cta_secondary_href" | default "" -}}
+<div class="split-hero-grid">
+  <div class="split-hero-text">
+    {{- with $title }}<h1 class="split-hero-title">{{ . }}</h1>{{ end }}
+    {{- with $lead }}<p class="split-hero-lead">{{ . | markdownify }}</p>{{ end }}
+    {{- with $description }}<p class="split-hero-desc">{{ . | markdownify }}</p>{{ end }}
+    {{- with .Inner }}<div class="split-hero-inner">{{ . | markdownify }}</div>{{ end }}
+    {{- if or $cta_primary_text $cta_secondary_text }}
+    <div class="split-hero-cta">
+      {{- with $cta_primary_text }}<a class="btn btn-lg btn-primary me-3 mb-2" href="{{ $cta_primary_href | relURL }}">{{ . }}</a>{{ end }}
+      {{- with $cta_secondary_text }}<a class="btn btn-lg btn-secondary me-3 mb-2" href="{{ $cta_secondary_href }}">{{ . }}</a>{{ end }}
+    </div>
+    {{- end }}
+  </div>
+  {{- with $image }}
+  <div class="split-hero-image">
+    <img src="{{ . | relURL }}" alt="{{ $image_alt }}">
+  </div>
+  {{- end }}
+</div>

@@ -9,7 +9,7 @@ depth: [intermediate]
 
 The `ait monitor` command launches an interactive TUI that shows every pane in the current tmux session, categorized as code agents, TUIs, or other panes, with a live preview of the focused pane and keystroke forwarding. It is the dashboard of the ait tmux-based development environment: from a single window you can watch agents work, jump to any other TUI, and interact with running processes without leaving the monitor.
 
-<!-- SCREENSHOT: aitasks_monitor_main_view.svg — monitor dashboard showing the pane list on top and the live preview below -->
+{{< static-img src="imgs/home/monitor.svg" alt="Monitor TUI showing the pane list and live preview" caption="The ait monitor dashboard with categorized panes and live preview." >}}
 
 ## Tutorial
 

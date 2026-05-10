@@ -7,6 +7,8 @@ maturity: [experimental]
 depth: [intermediate]
 ---
 
+{{< static-img src="imgs/home/statistics.svg" alt="Stats TUI showing summary, daily completions, and weekday distribution panes" caption="The Stats TUI with the overview layout active." >}}
+
 ## Launching
 
 ```bash

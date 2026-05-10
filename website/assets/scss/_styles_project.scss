@@ -1,1 +1,100 @@
 // Project-specific Docsy style overrides
+
+// Split hero (used on the home page inside Docsy's blocks/cover)
+.split-hero-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2rem;
+  align-items: center;
+  max-width: 1180px;
+  margin: 0 auto;
+  text-align: left;
+
+  @media (min-width: 992px) {
+    grid-template-columns: 1.05fr 1.25fr;
+  }
+
+  .split-hero-title {
+    font-size: 3.5rem;
+    font-weight: 700;
+    margin: 0 0 1rem;
+    line-height: 1.1;
+  }
+
+  .split-hero-lead {
+    font-size: 1.5rem;
+    margin: 0 0 0.75rem;
+    opacity: 0.95;
+  }
+
+  .split-hero-desc {
+    font-size: 1.05rem;
+    margin: 0 0 1rem;
+    opacity: 0.85;
+  }
+
+  .split-hero-image img {
+    width: 100%;
+    height: auto;
+    border-radius: 8px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    background: #1a1a1a;
+  }
+
+  .split-hero-cta {
+    margin-top: 1.25rem;
+  }
+}
+
+// Subtle gradient backdrop on the home-page cover (replaces flat $primary).
+// Uses :has() to scope to the cover block that hosts the split hero.
+.td-cover-block:has(.split-hero-grid) {
+  background-image: linear-gradient(135deg, #5b21b6 0%, #1e3a8a 100%);
+}
+
+// Tour mosaic — thumbnail tiles linking to the TUI docs.
+.tour-mosaic {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin: 1rem auto 0;
+  max-width: 1200px;
+
+  @media (min-width: 768px) {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  @media (min-width: 992px) {
+    grid-template-columns: repeat(5, 1fr);
+  }
+
+  a {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    transition: transform 0.15s ease;
+
+    &:hover {
+      transform: translateY(-2px);
+    }
+  }
+
+  figure {
+    margin: 0;
+
+    img {
+      width: 100%;
+      height: auto;
+      border-radius: 6px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+      background: #1a1a1a;
+    }
+
+    figcaption {
+      text-align: center;
+      font-size: 0.9rem;
+      margin-top: 0.4rem;
+      color: var(--bs-secondary-color, #555);
+    }
+  }
+}
