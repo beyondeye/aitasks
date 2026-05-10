@@ -105,7 +105,7 @@ If the user prefers reproducibility, pin to `goreleaser/nfpm:v2.46.3` (current l
 
 ### Out of scope (flagged but NOT changed in this task)
 
-- **Node 20 deprecation warnings** for `actions/checkout@v4` and `softprops/action-gh-release@v2` — informational only, surfaced by the same run. Should be tracked as a separate task if/when an upgrade is desired.
+- **Node 20 deprecation warnings** for `actions/checkout@v4` and `softprops/action-gh-release@v2` — informational only, surfaced by the same run. Tracked separately as **t758** (`upgrade_node20_deprecated_actions_in_release_workflow`).
 - **Maintainer-secret gating** (`HOMEBREW_TAP_TOKEN`, `AUR_SSH_PRIVATE_KEY`) — already working as designed (soft-skip with warnings). No change.
 - **Other workflow files** — `grep -rn nfpm-action .github/` confirms the only two references in active code are at lines 126 and 189 of `release-packaging.yml`. No other touchpoints.
 
