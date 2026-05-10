@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [web_site]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-10 17:08
-updated_at: 2026-05-10 17:08
+updated_at: 2026-05-10 17:10
 ---
 
 The home page (`website/content/_index.md`) currently has 3 prominent feature cards near the top but none of them are clickable links. Add doc links and one in-page anchor so visitors can drill into each capability.
