@@ -103,3 +103,20 @@ Per the standard workflow:
 - Code commit message: `documentation: Link top home-page feature cards (t762)`.
 - Plan file commit (under `aiplans/p762_home_page_feature_card_links.md`) committed with `./ait git`.
 - Archival via `./.aitask-scripts/aitask_archive.sh 762`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Three edits to `website/content/_index.md`:
+  1. Added `url="#take-the-tour"`, `url="/docs/concepts/agent-memory/"`, and `url="/docs/workflows/#git"` to the three top `{{% blocks/feature %}}` cards.
+  2. Added `id="take-the-tour"` to the `<h2>🎛️ Take the tour</h2>` heading inside the tour-mosaic section.
+  3. Added a centered `<div class="text-center mt-4"><a href="/docs/tuis/">See all TUIs &rarr;</a></div>` block below the tour mosaic, before the closing `{{< /blocks/section >}}`.
+- **Deviations from plan:**
+  - The "See all TUIs →" CTA was originally planned as a Markdown link (`[See all TUIs &rarr;](/docs/tuis/)`) wrapped in a centered `<div>`. The first build verification revealed this rendered as literal text, because the surrounding section uses the angle-bracket form `{{< blocks/section >}}` which treats inner content as raw HTML — markdown links inside a `<div>` block aren't reprocessed as Goldmark there. Switched to a raw `<a>` HTML element. (The "All releases →" reference at the bottom of the page works because that section uses the percent-form `{{% blocks/section %}}` which does process markdown.)
+  - The task description said "Wrap each of the 3 feature cards in a link", which suggested the entire card would become clickable. In practice Docsy's `blocks/feature` shortcode renders a "Read more" link below the card content when `url=` is set — the same pattern the existing Linux/macOS/Windows cards (lines 117-127) already use, which the task description itself referenced as the prior art. Functionally the goal is met (each card has a discoverable navigation path); the visual treatment is consistent with the existing cards on the page.
+- **Issues encountered:** Markdown-in-HTML rendering inside `{{< >}}` shortcodes (caught in build verification, fixed in second build).
+- **Key decisions:**
+  - Kept the leading-slash absolute URL form specified in the task description (`/docs/concepts/agent-memory/`, `/docs/workflows/#git`) rather than matching the trailing-edge no-slash form used by the bottom Linux/macOS cards. Build verified both forms resolve correctly in Hugo's output.
+  - Used a raw `<h2 id="take-the-tour">` rather than a separate `<span id>` block — cleaner and the heading is already raw HTML inside `{{< blocks/section >}}`.
+  - Used a plain text-link CTA ("See all TUIs →") rather than a `btn-outline-primary` button, matching the lower-page "All releases →" pattern.
+- **Upstream defects identified:** None.
+- **Build verification:** `cd website && hugo build --gc --minify` — clean (only pre-existing `.Language.LanguageDirection` and `.Site.AllPages` deprecation warnings from Docsy theme, unrelated to this task).
