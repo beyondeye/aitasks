@@ -3,11 +3,12 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [ci, packaging]
+assigned_to: dario-e@beyond-eye.com
 issue: https://github.com/beyondeye/aitasks/actions/runs/25457909709
 created_at: 2026-05-08 10:49
-updated_at: 2026-05-08 19:23
+updated_at: 2026-05-10 10:02
 ---
 
 The v0.20.0 release workflow has two failing jobs (`packaging / build-deb` and `packaging / build-rpm`) because both reference a GitHub Action that no longer exists.
