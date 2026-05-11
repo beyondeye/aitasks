@@ -7,23 +7,9 @@ menu:
     weight: 30
 ---
 
-{{< blocks/cover title="About aitasks" height="min" color="primary" >}}
-<p class="lead mt-2">The story behind the framework</p>
-{{< /blocks/cover >}}
-
 {{% blocks/section color="white" %}}
-## How **aitasks** Started
-
-**aitasks** began in February 2026 as a tool born out of professional work as an Android developer. The problem was clear: AI coding agents like Claude Code had become capable enough to handle real development tasks, but the bottleneck had shifted to **intent transfer** — getting structured, contextual instructions to the agent fast enough that the human didn't become the slowdown.
-
-Existing approaches fell into two extremes: heavyweight spec-driven systems that demanded upfront formality, and ad-hoc prompt engineering that didn't scale across tasks. **aitasks** carved out a middle path — **"Light Spec" task files** that start as raw intent and get iteratively refined by the AI agent itself before implementation begins.
-
-From there, **aitasks** grew into a full agentic IDE in the terminal: tasks, plans, review guides, long-term memory, and workflow automation all live inside the project repository itself — no external services, no databases, no daemons. The codebase becomes the single source of truth for both the code and the agent's working context.
+<h2 class="text-center mb-0">About aitasks</h2>
 {{% /blocks/section %}}
-
-{{% blocks/lead color="light" %}}
-**Our approach:** Tasks are living documents, not rigid specifications. Start with raw intent. Let the AI refine context iteratively. Ship when the spec and the code converge.
-{{% /blocks/lead %}}
 
 {{% blocks/section color="white" type="row" %}}
 
@@ -47,10 +33,10 @@ From there, **aitasks** grew into a full agentic IDE in the terminal: tasks, pla
 
 <!-- Update these stats at each release -->
 {{% blocks/feature icon="fa-code" title="By the Numbers" %}}
-**6 releases** since February 2026<br>
-**17 AI Agent skills** built-in (Claude Code, Gemini CLI, Codex CLI, OpenCode)<br>
+**37 releases** since February 2026<br>
+**26 AI Agent skills** built-in (Claude Code, Gemini CLI, Codex CLI, OpenCode)<br>
 **5 platforms** fully supported<br>
-**28+ CLI scripts** in the framework
+**80+ CLI scripts** in the framework
 {{% /blocks/feature %}}
 
 {{% blocks/feature icon="fa-users" title="Community" url="https://github.com/beyondeye/aitasks/issues" url_text="Open an Issue" %}}
@@ -60,11 +46,15 @@ Contributions welcome. Whether it's a bug report, feature request, or pull reque
 {{% /blocks/section %}}
 
 {{% blocks/section color="dark" %}}
+<div class="text-center">
+
 ## Created By
+
+</div>
 
 <div class="row justify-content-center">
 <div class="col-lg-8">
-<div class="d-flex align-items-center mb-3" style="gap: 1.5rem;">
+<div class="d-flex align-items-center justify-content-center mb-3" style="gap: 1.5rem;">
   <img src="https://github.com/beyondeye.png" alt="Dario Elyasy"
        style="width: 80px; height: 80px; border-radius: 50%;">
   <div>
@@ -80,14 +70,16 @@ Contributions welcome. Whether it's a bug report, feature request, or pull reque
   </div>
 </div>
 
-**aitasks** is built and maintained by Dario Elyasy. The framework grew out of real production use — every feature was driven by the need to ship code faster with AI coding agents.
-
 </div>
 </div>
 {{% /blocks/section %}}
 
 {{% blocks/section color="light" %}}
+<div class="text-center">
+
 ## License
+
+</div>
 
 <div class="row justify-content-center">
 <div class="col-lg-8">
