@@ -8,8 +8,8 @@ labels: [install_scripts, installation]
 children_to_implement: [t623_7]
 created_at: 2026-04-22 09:15
 updated_at: 2026-05-10 13:45
-boardcol: now
-boardidx: 10
+boardcol: manual_verifications
+boardidx: 120
 ---
 
 currently the only supported installation method for the aitasks framework is curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash
