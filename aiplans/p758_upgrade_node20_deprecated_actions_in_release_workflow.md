@@ -103,3 +103,19 @@ GitHub-hosted runner. The end-to-end verification is the next release run
 This task uses no worktree; merge step is a no-op. After Step 8 review, the
 `aitask_archive.sh` script will move the task file and plan to `archived/`
 and commit.
+
+## Final Implementation Notes
+
+- **Actual work done:** Bumped `actions/checkout` from `@v4` (6 refs) and `@v5` (1 ref) to `@v6` across all 4 workflow files, and `softprops/action-gh-release` from `@v2` to `@v3` (2 refs in `release.yml`). 9 references total updated; consistent on the latest Node 24-bundled major for each action.
+- **Deviations from plan:** None. Plan executed as written.
+- **Issues encountered:** None. `Edit` with `replace_all=true` worked on `release-packaging.yml` (4 identical lines) and `release.yml` (2 identical `softprops/action-gh-release@v2` lines). Pre-existing uncommitted edits in `.aitask-scripts/brainstorm/brainstorm_app.py` and `website/content/about/_index.md` were unrelated and explicitly excluded from the commit by passing only the 4 workflow files to `git add`.
+- **Key decisions:**
+  - Bumped to `actions/checkout@v6` (released Nov 2025) rather than `@v5`, since v6 is the current latest major and v5 was only a stepping stone. The single `@v5` reference in `contribution-check.yml` was also rolled forward to `@v6` so all workflows match.
+  - Bumped to `softprops/action-gh-release@v3` (released Apr 2026, ~1 month before this task). The v3.0.0 release notes confirm it is purely a Node 20 → Node 24 runtime bump with no API changes — verified the existing `files:`, `body_path:`, and `generate_release_notes:` usage in `release.yml` is unaffected.
+- **Upstream defects identified:** None.
+
+## Verification performed
+
+1. Static audit (post-edit): `grep -rn 'actions/checkout@\|softprops/action-gh-release@' .github/` → 7 hits on `actions/checkout@v6`, 2 hits on `softprops/action-gh-release@v3`, zero stragglers.
+2. YAML well-formedness: all 4 workflow files parsed cleanly via `python3 -c "import yaml; yaml.safe_load(...)"`.
+3. End-to-end verification (zero Node 20 warnings on a real release run) is deferred to the next release cut, as the plan explicitly noted.
