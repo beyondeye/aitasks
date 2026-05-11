@@ -3,11 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [ci, packaging, workflows]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-10 10:29
-updated_at: 2026-05-11 09:44
+updated_at: 2026-05-11 09:54
+completed_at: 2026-05-11 09:54
 ---
 
 The `Release Packaging` workflow surfaces Node 20 deprecation warnings for two GitHub Actions referenced in `.github/workflows/release-packaging.yml`:
