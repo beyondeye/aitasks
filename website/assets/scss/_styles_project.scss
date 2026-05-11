@@ -58,14 +58,10 @@
   grid-template-columns: repeat(2, 1fr);
   gap: 1rem;
   margin: 1rem auto 0;
-  max-width: 1200px;
+  max-width: 900px;
 
   @media (min-width: 768px) {
     grid-template-columns: repeat(3, 1fr);
-  }
-
-  @media (min-width: 992px) {
-    grid-template-columns: repeat(5, 1fr);
   }
 
   a {

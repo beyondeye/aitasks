@@ -52,14 +52,12 @@ After installing, run `ait setup` in your project (the git repository root). See
 {{< blocks/section color="white" >}}
 <div class="text-center mb-4">
 <h2 id="take-the-tour">🎛️ Take the tour</h2>
-<p>Five TUIs share a single tmux session. Click any of them to dive in.</p>
+<p>Seven TUIs share a single tmux session. Click any of them to dive in.</p>
 </div>
 <div class="tour-mosaic">
 {{< tour-tile href="/docs/tuis/board/" src="imgs/home/board.svg" alt="Kanban board" caption="Board" >}}
 {{< tour-tile href="/docs/tuis/codebrowser/" src="imgs/home/codebrowser.svg" alt="Code browser" caption="Code Browser" >}}
 {{< tour-tile href="/docs/tuis/monitor/" src="imgs/home/monitor.svg" alt="Monitor TUI" caption="Monitor" >}}
-{{< tour-tile href="/docs/tuis/settings/" src="imgs/home/settings.svg" alt="Settings TUI" caption="Settings" >}}
-{{< tour-tile href="/docs/tuis/stats/" src="imgs/home/statistics.svg" alt="Statistics TUI" caption="Stats" >}}
 </div>
 <div class="text-center mt-4">
 <a href="/docs/tuis/">See all TUIs &rarr;</a>
