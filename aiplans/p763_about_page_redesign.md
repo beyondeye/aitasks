@@ -132,3 +132,28 @@ group centered as a single flex row directly beneath it.
 ## Files touched
 
 - `website/content/about/_index.md` (single file edit)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-11 10:00)
+- **Requested by user:** Center the "License" heading horizontally (it was previously left-aligned at the top of the License section, mismatching the now-centered "Created By" heading).
+- **Changes made:** Wrapped `## License` in a `<div class="text-center">...</div>` block (same pattern as "Created By"), with blank lines around the Markdown heading so Hugo still parses it as an `<h2>`.
+- **Files affected:** `website/content/about/_index.md`
+
+## Final Implementation Notes
+
+- **Actual work done:** Edited `website/content/about/_index.md` end-to-end per the approved plan:
+  1. Replaced the `{{< blocks/cover >}}` hero banner ("About aitasks" / "The story behind the framework") with a slim `<h2 class="text-center mb-0">About aitasks</h2>` inside a normal white `blocks/section`.
+  2. Deleted the "How aitasks Started" section in its entirety.
+  3. Deleted the "Our approach" `blocks/lead` block (line was a duplicate of the home page anyway).
+  4. Refreshed the "By the Numbers" stats: `6 → 37 releases`, `17 → 26 AI Agent skills`, `28+ → 80+ CLI scripts`, kept `5 platforms`.
+  5. Wrapped `## Created By` in a `<div class="text-center">` and added `justify-content-center` to the author-card flex so the avatar+name/links row is centered.
+  6. Removed the trailing "aitasks is built and maintained by Dario Elyasy…" paragraph.
+  7. After Step 8 review, wrapped `## License` in `<div class="text-center">` to match the "Created By" treatment.
+- **Deviations from plan:** None of substance. The plan's draft for the slim header used `<h2 class="text-center mb-0">…</h2>` inside `{{% blocks/section color="white" %}}` and that's what shipped.
+- **Issues encountered:** None. Hugo build (`hugo build --gc --minify`) completed cleanly twice (after the initial edits and after the License-centering change). Pre-existing deprecation warnings (`.Language.LanguageDirection`, `.Site.AllPages`) are unrelated to this task.
+- **Key decisions:**
+  - Used a literal `<h2>` for the slim "About aitasks" header rather than a Markdown `## About aitasks` to avoid Docsy's auto-generated heading anchor link icon and keep the typography slim.
+  - Kept the `5 platforms` stat unchanged — it matches the 5 install rows on the home page (`macOS brew / Arch AUR / Debian .deb / Fedora .rpm / generic install.sh`).
+  - Rounded `82` CLI scripts down to `80+` for stability across upcoming releases.
+- **Upstream defects identified:** None.
