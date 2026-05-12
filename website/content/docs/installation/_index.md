@@ -9,14 +9,15 @@ description: "Install aitasks and configure your development environment"
 
 > **Run from the project root.** aitasks expects to be invoked from the directory containing `.git/` — the root of your project's git repository. All install methods below assume you `cd` into that directory first. aitasks stores task files, plans, and configuration inside your repository and relies on git for task IDs, locking, syncing, and archival. Installing in a subdirectory or a non-git directory will not work correctly.
 
+## Operating systems
+
 Pick your platform:
 
 | Platform | Install command |
 |----------|-----------------|
 | **macOS** | `brew install beyondeye/aitasks/aitasks` — see the [Homebrew guide](macos/) |
-| **Arch / Manjaro** (AUR) | `yay -S aitasks` or `paru -S aitasks` — see the [AUR guide](arch-aur/) |
-| **Debian / Ubuntu / WSL** | Download the latest `.deb` from [Releases](https://github.com/beyondeye/aitasks/releases/latest) and `sudo apt install ./aitasks_*.deb` — see the [Debian/Ubuntu guide](debian-apt/) |
-| **Fedora / RHEL / Rocky / Alma** | Download the latest `.rpm` from [Releases](https://github.com/beyondeye/aitasks/releases/latest) and `sudo dnf install ./aitasks-*.noarch.rpm` — see the [Fedora guide](fedora-dnf/) |
+| **Linux** (Arch / Debian / Ubuntu / Fedora / RHEL / Rocky / Alma / WSL) | Distro-specific install paths — see the [Linux guide](linux/) |
+| **Windows / WSL** | Use a WSL2 Ubuntu/Debian shell, then follow the Linux `.deb` path — see the [Windows / WSL guide](windows-wsl/) |
 | **Other (any POSIX)** | `curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh \| bash` |
 
 All install methods drop a single `ait` command on your `$PATH` — the **global shim** (~3 KB). The shim downloads the framework on demand when you run `ait setup` in your project, so the installed package stays tiny and you do not need to re-install the package to get framework updates. For the design rationale see the [packaging strategy reference](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_strategy.md); for current limitations of each channel and the roadmap toward more official repos see the [packaging distribution status & roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_distribution_status.md).
@@ -35,9 +36,14 @@ ait upgrade latest
 
 > **Already have the global `ait` shim?** Once any install method has placed `ait` on your PATH, you can bootstrap aitasks in any new project directory by running `ait setup` there — the shim auto-downloads the framework on first run. Make sure you are at the root of the git repository (where `.git/` lives), not in a subdirectory.
 
-**Windows/WSL users:** See the [Windows/WSL Installation Guide](windows-wsl/) for step-by-step instructions including WSL setup, agent installation examples, and terminal configuration.
+## Setup topics
 
-**Agent caveats:** See [Known Agent Issues](known-issues/) for current Claude Code, Gemini CLI, and Codex CLI workflow limitations.
+After installing, see these guides for the rest of the environment:
+
+- [Terminal Setup]({{< relref "terminal-setup" >}}) — terminal emulator + tmux, `ait ide` workflow.
+- [Git Remotes]({{< relref "git-remotes" >}}) — auth for GitHub / GitLab / Bitbucket (required for locking, sync, issues).
+- [Known Agent Issues]({{< relref "known-issues" >}}) — current Claude Code / Gemini CLI / Codex CLI / OpenCode caveats.
+- [PyPy Runtime]({{< relref "pypy" >}}) — optional faster runtime for long-running TUIs.
 
 ## Cloning a Repo That Already Uses aitasks
 
@@ -76,16 +82,6 @@ If you see any of these on a fresh clone, run `./ait setup`:
 
 For background on why task data lives on a separate branch, see the
 [Git branching model]({{< relref "/docs/concepts/git-branching-model" >}}).
-
-## Platform Support
-
-| Platform | Status | Notes |
-|----------|--------|-------|
-| Arch Linux | Fully supported | Primary development platform |
-| Ubuntu/Debian | Fully supported | Includes Pop!_OS, Linux Mint, Elementary |
-| Fedora/RHEL | Fully supported | Includes CentOS, Rocky, Alma |
-| macOS | Fully supported | Requires [Homebrew](https://brew.sh); see the [macOS guide](macos/) for terminal-emulator recommendations |
-| Windows (WSL) | Fully supported | Via WSL with Ubuntu/Debian (see [Windows guide](windows-wsl/)) |
 
 ## What Gets Installed
 

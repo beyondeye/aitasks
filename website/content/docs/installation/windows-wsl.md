@@ -1,7 +1,7 @@
 ---
 title: "Windows & WSL Installation"
 linkTitle: "Windows/WSL"
-weight: 20
+weight: 26
 description: "Guide for installing and running aitasks on Windows via WSL"
 depth: [intermediate]
 ---
@@ -37,7 +37,7 @@ To open a WSL shell: search for "WSL" in the Windows search box, or type `wsl` i
 
 ## Install aitasks (recommended: `.deb` package)
 
-Once your WSL Ubuntu/Debian shell is up, the cleanest install is the official `.deb` package — same as native Ubuntu. See the [Debian/Ubuntu guide](../debian-apt/) for the full walkthrough; the short version (with [GitHub CLI](https://cli.github.com/) installed):
+Once your WSL Ubuntu/Debian shell is up, the cleanest install is the official `.deb` package — same as native Ubuntu. See the [Linux guide — .deb section](../linux/#debian--ubuntu--wsl-deb) for the full walkthrough; the short version (with [GitHub CLI](https://cli.github.com/) installed):
 
 ```bash
 gh release download --repo beyondeye/aitasks --pattern '*.deb'
@@ -45,7 +45,7 @@ sudo apt install ./aitasks_*.deb
 ait setup
 ```
 
-If you do not have `gh` installed, see the curl one-liner in the [Debian/Ubuntu guide](../debian-apt/).
+If you do not have `gh` installed, see the curl one-liner in the [Linux guide — .deb section](../linux/#debian--ubuntu--wsl-deb).
 
 > **Ubuntu 20.04 (Focal) on WSL:** the `.deb` install is blocked by apt's dependency solver (Focal ships `python3 = 3.8`, the `.deb` requires `>= 3.9`). Use the [Fallback: install via curl](#fallback-install-via-curl) section below — `ait setup` provisions a modern Python user-scoped via [uv](https://github.com/astral-sh/uv) and sidesteps the system-package dependency.
 
@@ -69,18 +69,35 @@ If you already have the global `ait` shim installed (from a previous project), y
 
 ---
 
-## Install Claude Code
+## Install Coding Agents
 
-Claude Code must also be installed from within WSL to work with aitasks. Follow the [Claude Code quickstart guide](https://docs.anthropic.com/en/docs/claude-code/overview) for Linux installation instructions — WSL uses the Linux installation path.
+All supported coding agents — Claude Code, Gemini CLI, Codex CLI, and OpenCode — must be installed from within WSL to work with aitasks. Each agent's Linux install path applies; install whichever ones you plan to use.
+
+Most of these agents require Node.js, so install it first (skip if already present):
 
 ```bash
-# Install Node.js if not already present (Claude Code requires it)
+# Install Node.js (required by Claude Code, Gemini CLI, Codex CLI, OpenCode)
 curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
 sudo apt-get install -y nodejs
-
-# Install Claude Code
-npm install -g @anthropic-ai/claude-code
 ```
+
+Then install one or more agents:
+
+```bash
+# Claude Code — see https://docs.anthropic.com/en/docs/claude-code/overview
+npm install -g @anthropic-ai/claude-code
+
+# Gemini CLI — see https://github.com/google-gemini/gemini-cli
+npm install -g @google/gemini-cli
+
+# Codex CLI — see https://github.com/openai/codex
+npm install -g @openai/codex
+
+# OpenCode — see https://opencode.ai
+npm install -g opencode-ai
+```
+
+Run `ait setup` in your project after installing — it auto-detects which agents are present and configures only the ones it finds.
 
 ---
 
@@ -98,20 +115,11 @@ If you prefer an IDE-based workflow:
 
 The default WSL terminal (Windows Terminal) supports tabs and is fully functional for all aitasks features including `ait board`.
 
-### Warp Terminal
-
-[Warp](https://www.warp.dev/) offers built-in Claude Code integration, multi-tab support, and real-time diff viewing.
-
-**Setup with WSL:**
-1. Install Warp for Windows from [warp.dev](https://www.warp.dev/)
-2. Configure your default shell to use WSL in Warp's settings
-3. Warp will automatically connect to your WSL environment
-
 ---
 
 ## Known Issues
 
-- **Legacy console:** The old Windows Console Host (conhost.exe) has limited TUI support. Use Windows Terminal, Warp, or VS Code's integrated terminal instead.
+- **Legacy console:** The old Windows Console Host (conhost.exe) has limited TUI support. Use Windows Terminal or VS Code's integrated terminal instead.
 
 ---
 

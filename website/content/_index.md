@@ -115,7 +115,7 @@ See [`codeagent` command]({{< relref "/docs/commands/codeagent" >}}) and [Verifi
 
 {{% blocks/section color="white" type="row" %}}
 
-{{% blocks/feature icon="fab fa-linux" title="Linux" url="docs/installation/" %}}
+{{% blocks/feature icon="fab fa-linux" title="Linux" url="docs/installation/linux/" %}}
 Arch, Ubuntu, Fedora, and others.
 {{% /blocks/feature %}}
 

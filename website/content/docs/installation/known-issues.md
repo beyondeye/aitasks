@@ -1,7 +1,7 @@
 ---
 title: "Known Agent Issues"
 linkTitle: "Known Issues"
-weight: 30
+weight: 70
 description: "Known integration caveats for ai code agents used with aitasks"
 depth: [intermediate]
 ---

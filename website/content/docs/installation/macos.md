@@ -1,7 +1,7 @@
 ---
 title: "macOS Installation"
 linkTitle: "macOS"
-weight: 25
+weight: 22
 description: "Install aitasks on macOS via Homebrew, with notes on terminal-emulator choice"
 depth: [intermediate]
 ---

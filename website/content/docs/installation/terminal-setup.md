@@ -1,7 +1,7 @@
 ---
 title: "Terminal Setup"
 linkTitle: "Terminal Setup"
-weight: 30
+weight: 40
 description: "Terminal emulator choice, tmux, and the ait ide workflow"
 depth: [intermediate]
 ---

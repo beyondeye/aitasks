@@ -1,7 +1,7 @@
 ---
 title: "Git Remotes"
 linkTitle: "Git Remotes"
-weight: 40
+weight: 50
 description: "Authenticate with GitHub, GitLab, or Bitbucket"
 depth: [advanced]
 ---
