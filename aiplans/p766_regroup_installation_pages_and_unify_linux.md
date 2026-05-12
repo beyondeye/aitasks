@@ -210,3 +210,40 @@ Then proceed to Step 9 of task-workflow (archival).
 - Renaming `windows-wsl.md` to `windows.md` (frontmatter `linkTitle: "Windows/WSL"` already disambiguates).
 - Moving `terminal-setup.md` or `git-remotes.md` out of `installation/` into a new `setup/` section — the task only asks for visual grouping, not directory restructuring.
 - Updating the AUR / Homebrew / Debian / Fedora source packaging configs (those live outside `website/` and are not what t766 is about).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-12 — drop Platform Support table)
+- **Requested by user:** Remove the "Platform Support" table at the end of `_index.md` — per-OS pages already cover supported versions in detail.
+- **Changes made:** Deleted the `## Platform Support` section (5 rows + heading) from `_index.md`. "What Gets Installed" now follows "Cloning a Repo".
+- **Files affected:** `website/content/docs/installation/_index.md`.
+
+### Change Request 2 (2026-05-12 — generalize Windows/WSL agent install)
+- **Requested by user:** The "Install Claude Code" section in windows-wsl.md applies to all supported agents — rename to "Install Coding Agents" and mention Gemini CLI, Codex CLI, OpenCode.
+- **Changes made:** Renamed the H2, added a single shared Node.js install step, added one-line install commands for each agent (Claude Code, Gemini CLI, Codex CLI, OpenCode) with upstream doc links, and noted that `ait setup` auto-detects installed agents.
+- **Files affected:** `website/content/docs/installation/windows-wsl.md`.
+
+### Change Request 3 (2026-05-12 — remove Warp from Windows page)
+- **Requested by user:** Remove the Warp Terminal section.
+- **Changes made:** Deleted the `### Warp Terminal` H3 + body from the Terminal Options section. Also removed the "Warp" mention from the "Legacy console" bullet under Known Issues for consistency.
+- **Files affected:** `website/content/docs/installation/windows-wsl.md`.
+
+### Change Request 4 (2026-05-12 — split PyPy doc)
+- **Requested by user:** PyPy installation subpage is too technical — keep install-related details there and move the rest to a new pypy subpage under Development.
+- **Changes made:**
+  - Created `website/content/docs/development/pypy.md` (weight 30 in Development section) with: resolver semantics, list of fast-path TUIs, CPython-only TUI rationale (monitor / minimonitor / stats-tui), `AIT_USE_PYPY` override table, diagnostics, background link.
+  - Slimmed `website/content/docs/installation/pypy.md` to: intro + install command + disable/remove. Cross-linked to `development/pypy/` for the deeper material.
+  - Existing inbound refs in `setup-install.md` and `_index.md` continue to point at `installation/pypy/` (the install flow) and now flow through to `development/pypy/` for technical depth via the cross-link.
+- **Files affected:** `website/content/docs/installation/pypy.md`, `website/content/docs/development/pypy.md` (new).
+
+## Final Implementation Notes
+
+- **Actual work done:** Unified the three Linux distro pages into `linux.md` with H2 sections per distro family (Arch/AUR, Debian/Ubuntu/WSL/.deb, Fedora/RHEL/Rocky/Alma/.rpm) and a shared "What you get" shim explainer. Deleted `arch-aur.md`, `debian-apt.md`, `fedora-dnf.md`. Reorganized `_index.md` into "Operating systems" and "Setup topics" H2 sections, dropped the redundant "Platform Support" summary table. Updated weights so the sidebar renders macOS → Linux → Windows/WSL → Terminal Setup → Git Remotes → PyPy → Known Issues. Generalized the Windows/WSL agent install section to cover all four supported agents. Removed the Warp section. Split PyPy doc between installation (install flow) and development (resolver internals). Redirected all inbound links (windows-wsl.md, homepage Linux block).
+- **Deviations from plan:** Four post-review change requests (see above) expanded the original scope: dropped Platform Support table, generalized agent install on Windows page, dropped Warp Terminal section, split PyPy doc into install-only vs internals. None of these changed the original t766 acceptance criteria; they ran alongside.
+- **Issues encountered:** Hugo's default heading-anchor algorithm collapses runs of non-word chars to multi-dash anchors (`#arch--manjaro-aur`, `#debian--ubuntu--wsl-deb`, `#fedora--rhel--rocky--alma-rpm`). Verified by inspecting the rendered HTML before redirecting inbound links. The build also leaves stale public/ output for deleted pages; cleaned up `public/docs/installation/{arch-aur,debian-apt,fedora-dnf}/` manually post-build (the deploy pipeline regenerates `public/` from scratch, so this is a local-cleanup only).
+- **Key decisions:**
+  - Used H2 + weight bands (22 / 24 / 26 for OS, 40+ for setup) instead of separate Hugo subsections — preserves all existing relrefs (`{{< relref "terminal-setup" >}}` etc.) while still grouping the sidebar visually.
+  - Per-distro sections in `linux.md` use H2 (top-level) so each gets its own anchor for deep-linking from `windows-wsl.md`. H3 was rejected — H3 anchors are nested under the (now absent) prior H2 and would be harder to reach.
+  - Cross-link from `installation/pypy` → `development/pypy` rather than wholesale-moving the page, since `setup-install.md` and the installation `_index.md` already deep-link to `installation/pypy`. Renaming would have required updating multiple call sites.
+- **Upstream defects identified:** None.
+- **Build verification:** `hugo --gc --minify` clean (189 pages, no broken refs). Anchor IDs verified by inspecting `public/docs/installation/linux/index.html`.
