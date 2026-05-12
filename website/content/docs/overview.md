@@ -29,7 +29,7 @@ Everything you need to plan, implement, review, and ship runs in one tmux sessio
 - **Brainstorm** / **Settings** — idea capture and profile/label management.
 - **`j`-switcher** — jump between TUIs without leaving the terminal.
 
-See also: {{< relref "/docs/concepts/ide-model" >}}, {{< relref "/docs/installation/terminal-setup" >}}, {{< relref "/docs/tuis" >}}.
+See also: [The IDE model]({{< relref "/docs/concepts/ide-model" >}}), [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}), [TUIs]({{< relref "/docs/tuis" >}}).
 
 ### 2. Long-term memory for agents
 
@@ -39,7 +39,7 @@ Archived tasks and plans remain queryable context for future work. The repo does
 - Code Browser annotates each line back to the task and plan that introduced it.
 - `/aitask-explain` traces the evolution of any file through its originating tasks.
 
-See also: {{< relref "/docs/concepts/agent-memory" >}}, {{< relref "/docs/skills/aitask-explain" >}}.
+See also: [Agent memory]({{< relref "/docs/concepts/agent-memory" >}}), [/aitask-explain]({{< relref "/docs/skills/aitask-explain" >}}).
 
 ### 3. Tight git coupling, AI-enhanced
 
@@ -49,7 +49,7 @@ Task state lives in git — no SQL backend, no daemon. Git-based workflows (PRs,
 - PR import/close, issue-tracker integration, and contribution flow across GitHub/GitLab/Bitbucket.
 - Changelog generation from archived tasks; AI-assisted reverts by task ID.
 
-See also: {{< relref "/docs/concepts/git-branching-model" >}}, {{< relref "/docs/workflows/pr-workflow" >}}, {{< relref "/docs/workflows/issue-tracker" >}}, {{< relref "/docs/workflows/revert-changes" >}}.
+See also: [Git branching model]({{< relref "/docs/concepts/git-branching-model" >}}), [PR Import]({{< relref "/docs/workflows/pr-workflow" >}}), [Issue Tracker]({{< relref "/docs/workflows/issue-tracker" >}}), [Revert Changes]({{< relref "/docs/workflows/revert-changes" >}}).
 
 ### 4. Task decomposition & parallelism
 
@@ -60,7 +60,7 @@ Complex tasks rarely fit a single context window. aitasks breaks them into child
 - Git worktrees + atomic locks for true parallel agent work.
 - Plan-verification tracking so picked-up work resumes safely.
 
-See also: {{< relref "/docs/concepts/parent-child" >}}, {{< relref "/docs/workflows/task-decomposition" >}}, {{< relref "/docs/workflows/parallel-development" >}}.
+See also: [Parent and child tasks]({{< relref "/docs/concepts/parent-child" >}}), [Task Decomposition]({{< relref "/docs/workflows/task-decomposition" >}}), [Parallel Development]({{< relref "/docs/workflows/parallel-development" >}}).
 
 ### 5. AI-enhanced code review
 
@@ -70,7 +70,7 @@ Reviews are a workflow, not a checklist. Review guides, QA, and code explanation
 - Batched multi-file reviews that produce follow-up tasks, not just comments.
 - QA workflow that turns review findings into testable child tasks.
 
-See also: {{< relref "/docs/concepts/review-guides" >}}, {{< relref "/docs/workflows/code-review" >}}, {{< relref "/docs/workflows/qa-testing" >}}.
+See also: [Review guides]({{< relref "/docs/concepts/review-guides" >}}), [Code Review]({{< relref "/docs/workflows/code-review" >}}), [QA and Testing]({{< relref "/docs/workflows/qa-testing" >}}).
 
 ### 6. Multi-agent support with verified scores
 
@@ -81,7 +81,7 @@ One framework, many code agents. A single `codeagent` wrapper runs Claude Code, 
 - Verified scores accumulate from your team's actual usage, not synthetic tests.
 - Switch agents per-task without rewriting workflows.
 
-See also: {{< relref "/docs/concepts/agent-attribution" >}}, {{< relref "/docs/concepts/verified-scores" >}}, {{< relref "/docs/commands/codeagent" >}}, {{< relref "/docs/skills/verified-scores" >}}.
+See also: [Agent attribution]({{< relref "/docs/concepts/agent-attribution" >}}), [Verified scores]({{< relref "/docs/concepts/verified-scores" >}}), [Code Agent]({{< relref "/docs/commands/codeagent" >}}), [Verified Scores]({{< relref "/docs/skills/verified-scores" >}}).
 
 ## Additional properties
 
