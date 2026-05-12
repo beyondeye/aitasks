@@ -3,6 +3,7 @@ title: "/aitask-revert"
 linkTitle: "/aitask-revert"
 weight: 35
 description: "Revert changes associated with completed tasks — fully or partially"
+maturity: [stable]
 depth: [advanced]
 ---
 

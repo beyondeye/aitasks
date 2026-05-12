@@ -3,7 +3,7 @@ title: "How-To Guides"
 linkTitle: "How-To Guides"
 weight: 10
 description: "Task-oriented guides for using ait monitor"
-maturity: [stabilizing]
+maturity: [stable]
 depth: [intermediate]
 ---
 

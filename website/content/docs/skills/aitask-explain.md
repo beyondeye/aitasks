@@ -3,6 +3,7 @@ title: "/aitask-explain"
 linkTitle: "/aitask-explain"
 weight: 55
 description: "Explain files: functionality, usage examples, and code evolution traced through aitasks"
+maturity: [stable]
 depth: [intermediate]
 ---
 

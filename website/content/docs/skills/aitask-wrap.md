@@ -3,6 +3,7 @@ title: "/aitask-wrap"
 linkTitle: "/aitask-wrap"
 weight: 45
 description: "Wrap uncommitted changes into an aitask with retroactive documentation and traceability"
+maturity: [stable]
 depth: [intermediate]
 ---
 

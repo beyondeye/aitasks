@@ -3,6 +3,7 @@ title: "/aitask-web-merge"
 linkTitle: "/aitask-web-merge"
 weight: 13
 description: "Merge completed Claude Web branches to main and archive task data"
+maturity: [experimental]
 depth: [advanced]
 ---
 

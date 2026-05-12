@@ -3,7 +3,7 @@ title: "/aitask-fold"
 linkTitle: "/aitask-fold"
 weight: 30
 description: "Identify and merge related tasks into a single task"
-maturity: [stabilizing]
+maturity: [stable]
 depth: [intermediate]
 ---
 

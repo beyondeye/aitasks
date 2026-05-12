@@ -3,6 +3,7 @@ title: "/aitask-reviewguide-merge"
 linkTitle: "/aitask-reviewguide-merge"
 weight: 90
 description: "Compare two similar review guides and merge, split, or keep separate"
+maturity: [stabilizing]
 depth: [advanced]
 ---
 

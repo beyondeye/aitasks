@@ -3,7 +3,7 @@ title: "Kanban Board"
 linkTitle: "Board"
 weight: 10
 description: "TUI Kanban board for visualizing and managing tasks"
-maturity: [stabilizing]
+maturity: [stable]
 depth: [main-concept]
 ---
 

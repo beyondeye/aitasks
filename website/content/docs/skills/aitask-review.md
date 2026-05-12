@@ -3,6 +3,7 @@ title: "/aitask-review"
 linkTitle: "/aitask-review"
 weight: 70
 description: "Review code using configurable review guides, then create tasks from findings"
+maturity: [stable]
 depth: [intermediate]
 ---
 

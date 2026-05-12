@@ -3,7 +3,7 @@ title: "Monitor"
 linkTitle: "Monitor"
 weight: 15
 description: "tmux pane monitor and orchestrator TUI — the dashboard of the ait tmux IDE"
-maturity: [stabilizing]
+maturity: [stable]
 depth: [intermediate]
 ---
 

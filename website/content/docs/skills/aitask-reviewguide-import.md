@@ -3,6 +3,7 @@ title: "/aitask-reviewguide-import"
 linkTitle: "/aitask-reviewguide-import"
 weight: 100
 description: "Import external content as a review guide with proper metadata"
+maturity: [stabilizing]
 depth: [advanced]
 ---
 

@@ -3,7 +3,7 @@ title: "/aitask-explore"
 linkTitle: "/aitask-explore"
 weight: 20
 description: "Explore the codebase interactively, then create a task from findings"
-maturity: [stabilizing]
+maturity: [stable]
 depth: [intermediate]
 ---
 

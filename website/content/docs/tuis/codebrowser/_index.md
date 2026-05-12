@@ -3,7 +3,7 @@ title: "Code Browser"
 linkTitle: "Code Browser"
 weight: 20
 description: "TUI code viewer with syntax highlighting, task annotations, and explain integration"
-maturity: [stabilizing]
+maturity: [stable]
 depth: [intermediate]
 ---
 

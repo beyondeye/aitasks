@@ -3,6 +3,7 @@ title: "/aitask-contribute"
 linkTitle: "/aitask-contribute"
 weight: 23
 description: "Turn local changes into structured contribution issues for the aitasks framework or the current project repo"
+maturity: [stable]
 depth: [advanced]
 ---
 

@@ -3,7 +3,7 @@ title: "Settings"
 linkTitle: "Settings"
 weight: 30
 description: "Centralized TUI for browsing and editing all aitasks configuration"
-maturity: [stabilizing]
+maturity: [stable]
 depth: [intermediate]
 ---
 

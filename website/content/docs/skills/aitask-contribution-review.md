@@ -3,6 +3,7 @@ title: "/aitask-contribution-review"
 linkTitle: "/aitask-contribution-review"
 weight: 24
 description: "Analyze contribution issues for duplicates and overlaps, then import as grouped or single tasks"
+maturity: [stable]
 depth: [advanced]
 ---
 

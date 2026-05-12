@@ -3,7 +3,7 @@ title: "/aitask-pickweb"
 linkTitle: "/aitask-pickweb"
 weight: 12
 description: "Pick and implement a task on Claude Code Web — sandboxed skill with local metadata storage"
-maturity: [stabilizing]
+maturity: [experimental]
 depth: [intermediate]
 ---
 

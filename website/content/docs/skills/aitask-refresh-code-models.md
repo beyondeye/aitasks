@@ -3,6 +3,7 @@ title: "/aitask-refresh-code-models"
 linkTitle: "/aitask-refresh-code-models"
 weight: 55
 description: "Research latest AI code agent models and update model configuration files"
+maturity: [stabilizing]
 depth: [advanced]
 ---
 

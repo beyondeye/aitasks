@@ -3,6 +3,7 @@ title: "/aitask-reviewguide-classify"
 linkTitle: "/aitask-reviewguide-classify"
 weight: 80
 description: "Classify a review guide by assigning metadata and finding similar guides"
+maturity: [stabilizing]
 depth: [advanced]
 ---
 

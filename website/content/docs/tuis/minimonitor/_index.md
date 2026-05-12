@@ -3,6 +3,7 @@ title: "Minimonitor"
 linkTitle: "Minimonitor"
 weight: 17
 description: "Compact sidebar variant of the ait monitor TUI for watching code agents"
+maturity: [stable]
 depth: [intermediate]
 ---
 

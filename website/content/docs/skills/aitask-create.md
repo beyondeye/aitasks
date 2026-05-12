@@ -3,6 +3,7 @@ title: "/aitask-create"
 linkTitle: "/aitask-create"
 weight: 40
 description: "Create a new task file interactively via code agent prompts"
+maturity: [stable]
 depth: [intermediate]
 ---
 

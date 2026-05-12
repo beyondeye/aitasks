@@ -3,6 +3,7 @@ title: "/aitask-pr-import"
 linkTitle: "/aitask-pr-import"
 weight: 22
 description: "Analyze a pull request and create an aitask with implementation plan"
+maturity: [stable]
 depth: [advanced]
 ---
 

@@ -3,6 +3,7 @@ title: "/aitask-qa"
 linkTitle: "/aitask-qa"
 weight: 75
 description: "Run QA analysis on any task — discover tests, run them, identify gaps, and create follow-up test tasks"
+maturity: [stabilizing]
 depth: [intermediate]
 ---
 

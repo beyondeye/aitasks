@@ -3,6 +3,7 @@ title: "/aitask-changelog"
 linkTitle: "/aitask-changelog"
 weight: 60
 description: "Generate a changelog entry from commits and archived plans"
+maturity: [stable]
 depth: [intermediate]
 ---
 

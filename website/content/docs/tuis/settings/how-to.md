@@ -3,7 +3,7 @@ title: "How-To Guides"
 linkTitle: "How-To"
 weight: 20
 description: "Step-by-step guides for common Settings TUI tasks"
-maturity: [stabilizing]
+maturity: [stable]
 depth: [intermediate]
 ---
 

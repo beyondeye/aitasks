@@ -3,7 +3,7 @@ title: "/aitask-pickrem"
 linkTitle: "/aitask-pickrem"
 weight: 11
 description: "Pick and implement a task in remote/non-interactive mode — zero prompts, profile-driven"
-maturity: [stabilizing]
+maturity: [experimental]
 depth: [intermediate]
 ---
 

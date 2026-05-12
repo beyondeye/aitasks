@@ -3,6 +3,7 @@ title: "/aitask-pick"
 linkTitle: "/aitask-pick"
 weight: 10
 description: "Select and implement the next task — the central development skill"
+maturity: [stable]
 depth: [main-concept]
 ---
 

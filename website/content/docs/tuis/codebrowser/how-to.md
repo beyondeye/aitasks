@@ -3,7 +3,7 @@ title: "How-To Guides"
 linkTitle: "How-To Guides"
 weight: 10
 description: "Step-by-step guides for code browser operations"
-maturity: [stabilizing]
+maturity: [stable]
 depth: [intermediate]
 ---
 
