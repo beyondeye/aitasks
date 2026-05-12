@@ -72,3 +72,11 @@ Per task-workflow Step 9:
 - Commit code change with subject `documentation: <description> (t768)`.
 - Archive task via `./.aitask-scripts/aitask_archive.sh 768`.
 - Push via `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Edited the two affected bullets in `website/content/docs/tuis/_index.md` exactly as proposed in the plan. The Board bullet now reads "Kanban-style task board for triaging tasks, setting priorities, organizing work into columns, and deciding what to implement next." The Code Browser bullet now reads "…browsing archived work. Useful when onboarding to unfamiliar code. Also lets you create new tasks that reference specific line ranges in specific files (press `n` on a selected range), with optional automatic merge of existing tasks referencing the same file — see [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}})."
+- **Deviations from plan:** None.
+- **Issues encountered:** None.
+- **Key decisions:** Kept the "Useful when onboarding to unfamiliar code." clause — the user only asked to remove the "end of the workflow" framing, not the onboarding hint. Reused the same `relref` target (`/docs/workflows/create-tasks-from-code`) that the codebrowser page itself already uses.
+- **Upstream defects identified:** None
