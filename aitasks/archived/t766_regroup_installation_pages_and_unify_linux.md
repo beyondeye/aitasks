@@ -3,12 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [web_site, installation]
 file_references: [website/content/docs/installation/_index.md, website/content/docs/installation/arch-aur.md, website/content/docs/installation/debian-apt.md, website/content/docs/installation/fedora-dnf.md, website/content/docs/installation/macos.md, website/content/docs/installation/windows-wsl.md, website/content/docs/installation/terminal-setup.md, website/content/docs/installation/known-issues.md, website/content/docs/installation/git-remotes.md, website/content/docs/installation/pypy.md]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-12 10:50
-updated_at: 2026-05-12 10:52
+updated_at: 2026-05-12 11:11
+completed_at: 2026-05-12 11:11
 ---
 
 The installation pages at `website/content/docs/installation/` are flat and mix OS-specific install pages with cross-cutting installation topics. They should be regrouped so the index clearly separates the two categories, and all Linux distros (Arch/AUR, Debian/Ubuntu/.deb, Fedora/.rpm) should be unified into a single "Linux" page with per-distro subsections.
