@@ -87,3 +87,19 @@ Follow Step 9 of the task-workflow:
 - Commit changes to `website/content/docs/overview.md` with subject `documentation: Render overview "See also" refs as clickable links (t765)`.
 - Commit the plan file via `./ait git`.
 - Archive via `./.aitask-scripts/aitask_archive.sh 765`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Wrapped each of the six `{{< relref "..." >}}` shortcodes in `website/content/docs/overview.md` (lines 32, 42, 52, 63, 73, 84) with a markdown link `[Label]({{< relref "..." >}})`. Labels are the target page `linkTitle` values resolved from each target file's frontmatter.
+- **Deviations from plan:** None.
+- **Issues encountered:** None.
+- **Key decisions:** Used each target page's `linkTitle` as the label (matches the convention in `skills/aitask-fold.md`, `workflows/task-decomposition.md`, `workflows/parallel-development.md`).
+- **Verification performed:** `hugo build --gc --minify` ran in `website/` with no errors and produced 190 pages. Did not run the dev server (build success is sufficient to confirm shortcodes resolve).
+- **Upstream defects identified:** None.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-12)
+- **Requested by user:** During Step 8 review, user redirected to a separate concern: restructure `website/content/docs/installation/` so OS-specific pages (macOS, Linux distros, Windows/WSL) are grouped together with all Linux distros (arch-aur, debian-apt, fedora-dnf) merged into a single Linux page using subsections, and remaining topics (terminal-setup, known-issues, git-remotes, pypy) grouped separately. Also requested updating any links to the per-distro pages.
+- **Decision:** This is a substantial restructure unrelated to t765's overview.md scope. Surfaced as a separate aitask rather than expanding t765's scope. t765's overview.md changes were not critiqued and remain accepted as-is.
+- **Files affected (in t765):** none beyond original implementation.
