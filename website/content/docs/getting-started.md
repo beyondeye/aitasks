@@ -10,15 +10,7 @@ This guide walks you through aitasks from installation to completing your first 
 
 ## 1. Install aitasks
 
-Pick the install command for your platform (full per-platform walkthroughs in the [Installation guide](../installation/)):
-
-| Platform | Install command |
-|----------|-----------------|
-| **macOS** | `brew install beyondeye/aitasks/aitasks` |
-| **Arch / Manjaro** (AUR) | `yay -S aitasks` |
-| **Debian / Ubuntu / WSL** | Download the `.deb` from [Releases](https://github.com/beyondeye/aitasks/releases/latest), then `sudo apt install ./aitasks_*.deb` |
-| **Fedora / RHEL / Rocky / Alma** | Download the `.rpm` from [Releases](https://github.com/beyondeye/aitasks/releases/latest), then `sudo dnf install ./aitasks-*.noarch.rpm` |
-| **Other (any POSIX)** | `curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh \| bash` |
+See the [Installation guide]({{< relref "/docs/installation" >}}) for platform-specific install commands (macOS, Linux distros, Windows/WSL, and POSIX fallback) and troubleshooting.
 
 > **Run `ait setup` from the project root.** aitasks expects to be invoked from the directory containing `.git/` — the root of your project's git repository. It uses git branches for task IDs, locking, and syncing, and task and plan files are committed to your repository.
 
@@ -28,8 +20,6 @@ In your project directory (the root of the git repository, where `.git/` lives),
 cd /path/to/your-project
 ait setup
 ```
-
-See the [Installation guide](../installation/) for platform-specific details and troubleshooting.
 
 ## 2. Start the ait IDE
 
