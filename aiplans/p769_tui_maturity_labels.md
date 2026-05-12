@@ -71,3 +71,23 @@ The `syncer/_index.md` row is in the matrix for traceability only — no edit is
 ## Step 9 (Post-Implementation)
 
 Standard archival: commit code (this task only edits markdown under `website/content/docs/`), then plan file via `./ait git`, then archive via `./.aitask-scripts/aitask_archive.sh 769`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-12 12:05)
+- **Requested by user:** Reported that several skill pages (aitask-contribute, aitask-contribution-review, aitask-create, aitask-explain) had broken Maturity-label rendering, plus called out aitask-explore / aitask-fold / aitask-stats as "is stable".
+- **Investigation:** Source frontmatter was correct on every page (`maturity:` and `depth:` in proper YAML). The broken rendering was reproduced as `<h2 id="th-advanced">th: [advanced]</h2>` in the output HTML, but only for the two pages whose `index.html` files had stale timestamps from before the edits — a partial-build artifact. After `rm -rf website/public/ && hugo build --gc --minify`, every page renders both the sidebar Maturity cloud and the per-article Maturity badge (verified: 2 occurrences of `taxo-maturity` in every skill/TUI page, zero residual stray `<h2 id="th-…">` headings anywhere).
+- **Changes made:** No source-file changes were needed. Re-ran a clean Hugo build to flush stale build output.
+- **Files affected:** none beyond the original matrix — but `website/public/` was rebuilt.
+
+## Final Implementation Notes
+
+- **Actual work done:** Frontmatter edits in 37 markdown files under `website/content/docs/{tuis,skills}/`, all matching the matrix in this plan. 20 in-place value changes (existing `maturity:` line) and 18 inserts of `maturity: [<value>]` immediately above the `depth:` line on pages that previously had no maturity tag.
+- **Deviations from plan:** None. The Hugo `[taxonomies]` block accepted the new term value `stable` without changes (16 pages tagged stable on first build; clean rebuild later corroborated at the expected count of ~27 across all sections).
+- **Issues encountered:** During Step 8 review the user observed broken Maturity-label rendering plus a stray `<h2 id="th-advanced">th: [advanced]</h2>` heading on `aitask-contribute` / `aitask-contribution-review`. Source `.md` files were verified clean; root cause was stale incremental-build output in `website/public/`. Resolved by `rm -rf website/public && hugo build --gc --minify` — every page then rendered both the sidebar Maturity cloud and the per-article Maturity badge (2 occurrences of `taxo-maturity` per page, zero `th: [advanced]` stragglers anywhere under `website/public/docs/`).
+- **Key decisions:**
+  - Introduce the new term value `stable` rather than reusing `stabilizing` for everything; aligns with the task's wording and is well-supported by Hugo's dynamic taxonomy.
+  - Tag only `aitask-pick/_index.md`, not the three subpages (`build-verification.md`, `commit-attribution.md`, `execution-profiles.md`) — keeps the existing one-maturity-tag-per-skill convention.
+  - Skip `syncer/_index.md` (already `stabilizing` and target was `stabilizing`).
+- **Upstream defects identified:** None.
+
