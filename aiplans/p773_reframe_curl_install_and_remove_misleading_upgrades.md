@@ -378,3 +378,11 @@ Also verify `## Uninstall` sections are untouched on all five pages — they cor
 ## Step 9 (Post-Implementation) reminder
 
 Per task-workflow Step 9: review changes with the user, then commit (`documentation: <description> (t773)`), then archive the task.
+
+## Final Implementation Notes
+
+- **Actual work done:** Edited the 5 planned files. Homepage and installation index now lead with the curl one-liner and present native packages under a clearly subordinate "Prefer your distro's package manager?" / "Alternative: native package for your OS" heading. The four `Upgrade` subsections in macOS / Arch / Debian / Fedora install pages were replaced with identical "Framework upgrades are per-project … `ait upgrade latest`" copy. Windows/WSL page restructured: curl is now the primary install path, `.deb` becomes the alternative; the dedicated `## Fallback: install via curl` H2 was removed (its content was merged into the new primary "Install aitasks" section) and a new `### Upgrade` subsection was added pointing to `ait upgrade latest`.
+- **Deviations from plan:** Minor — dropped the standalone `## Operating systems` H2 from `installation/_index.md`. In the original it served as the parent heading for the platform table; under the new structure the table sits beneath `### Alternative: native package for your OS` (a child of `## Quick Install`), so the standalone H2 was redundant. The triple-backtick code fence inside the `{{% blocks/section %}}` shortcode on the homepage rendered correctly (verified in the Hugo build output); the tilde-fence fallback noted in the plan was not needed.
+- **Issues encountered:** None. `hugo build --gc --minify` completed in 788 ms with only pre-existing deprecation warnings (`Language.LanguageDirection`, `Site.AllPages`) unrelated to this task.
+- **Key decisions:** Phrased the replacement "Upgrade" copy identically across all five touched pages so users see consistent guidance regardless of which install page they land on. Followed the user's directive not to mention technical rationale (no "shim is stable", no "package managers don't get framework updates") — just the action.
+- **Upstream defects identified:** None.
