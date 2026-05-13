@@ -180,3 +180,24 @@ Result:
 ## Step 9 reminder
 
 After implementation review approval, follow Step 9 of the shared task-workflow (`./.aitask-scripts/aitask_archive.sh 772`).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Created `website/content/docs/installation/updating-model-lists.md` with `weight: 65`, six sections (Why refresh / One-shot refresh / OpenCode-only quick path / Adding a single known model / Where the files live / Commit conventions) plus a Related links footer. Page is purely navigational — cross-links to `/aitask-refresh-code-models`, `/aitask-add-model`, Settings TUI, verified-scores, `ait codeagent`, and the git-branching-model concept page.
+  - Edited `website/content/docs/installation/_index.md` "Setup topics" list: inserted the new bullet between PyPy and Known Issues, and reordered the existing four bullets to match weight order (terminal-setup 40 → git-remotes 50 → pypy 60 → updating-model-lists 65 → known-issues 70).
+- **Deviations from plan:** None. Implemented exactly as planned. The reorder of pre-existing bullets to match weight order was already part of the plan (noted under "Edit to `_index.md`").
+- **Issues encountered:** None.
+- **Key decisions:**
+  - Weight 65 was chosen to slot the page between PyPy (60) and Known Issues (70), per the task description "after the platform guides".
+  - The page is intentionally short and pointer-only — does not re-document the skills, per CLAUDE.md "redirect cross-refs now, defer content migration" guidance.
+  - Used full `/docs/...` relref paths for cross-section refs and bare slug `updating-model-lists` for the same-directory ref in `_index.md`, matching the surrounding style.
+- **Upstream defects identified:** None.
+
+### Build verification
+
+```
+cd website && hugo build --gc --minify --quiet 2>&1 | grep -i "WARN\|ERROR\|REF_NOT_FOUND"
+```
+
+Empty output — no broken `relref` calls, no Hugo warnings/errors.
