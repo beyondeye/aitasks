@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation, website, installation]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-13 11:25
-updated_at: 2026-05-13 11:25
+updated_at: 2026-05-13 11:27
 ---
 
 Update website documentation so the curl one-liner is presented as the recommended primary install method, and remove misleading per-package-manager "Upgrade" instructions from the per-OS install pages.
