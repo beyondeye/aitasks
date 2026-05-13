@@ -100,3 +100,17 @@ End-to-end:
 ## Reference: Step 9 (Post-Implementation)
 
 After Step 8 approval and commits, task-workflow Step 9 will archive t770 via `./.aitask-scripts/aitask_archive.sh 770` and push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Ran `bash .aitask-scripts/aitask_opencode_models.sh --dry-run` for preview, then `bash .aitask-scripts/aitask_opencode_models.sh --sync-seed` to write the merged result to both `aitasks/metadata/models_opencode.json` and `seed/models_opencode.json`. Discovery returned 50 active models; the merge layer added 11 previously-recorded models back with `status: unavailable` (preserving their `verified` scores), yielding 61 total entries in each file.
+- **Deviations from plan:** None.
+- **Issues encountered:** None — the helper ran cleanly. The pre-existing dirty working tree (`brainstorm_app.py`, `.claude/projects/`, untracked test file) was intentionally not staged; only the t770-relevant `seed/models_opencode.json` was committed on main.
+- **Key decisions:** Used the existing `aitask_opencode_models.sh --sync-seed` rather than re-implementing seed sync or invoking `/aitask-refresh-code-models` interactively — the helper already encapsulates the merge + sync flow and runs unattended.
+- **Verification results:**
+  - `jq '.models | length'` returned `61` for both files.
+  - `diff <(jq -S ...)` between the two JSONs was empty — they are byte-identical after canonicalization.
+  - Status breakdown: 50 active, 11 unavailable.
+  - 1 model with non-zero `verified` scores carried through unchanged.
+- **Upstream defects identified:** None.
+- **Follow-up requested by user during Step 8 review:** Surface website documentation on how to update the available LLM model list for all supported code agents, especially opencode (proposed location: subpage of the installation page). User opted to split this out as a separate task rather than bundle into t770 — a new documentation task will be spawned by the explore skill (or `/aitask-create`) immediately after t770 commits.
