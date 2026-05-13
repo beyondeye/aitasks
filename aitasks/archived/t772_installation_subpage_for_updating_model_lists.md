@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [website, documentation, modelvrapper]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-13 10:25
-updated_at: 2026-05-13 10:31
+updated_at: 2026-05-13 10:41
+completed_at: 2026-05-13 10:41
 ---
 
 Surface the existing model-refresh workflow in the website docs under an Installation subpage. Today the relevant skill pages exist (`website/content/docs/skills/aitask-refresh-code-models.md` and `aitask-add-model.md`) but they are not discoverable from the Installation section, which is where a new user looking for "how do I refresh the supported-models list?" lands first.
