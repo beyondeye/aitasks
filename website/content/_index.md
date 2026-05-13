@@ -142,9 +142,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.20.3: Linux install pages unified, Curl-first install,  with native packages as the alternative, and A page on updating model lists](blog/v0203-linux-install-pages-unified-curl-first-install-with-native-packages-as-the/)** -- May 13, 2026
 - **[v0.20.2: A redesigned home page, Native installs for every platform, and Code browser History screen no longer crashes](blog/v0202-a-redesigned-home-page-native-installs-for-every-platform-code-browser-his/)** -- May 10, 2026
 - **[v0.20.1 Release](blog/v0201/)** -- May 10, 2026
-- **[v0.20.0: Install via your distro's package manager, A dedicated syncer TUI, and Opt-in PyPy fast-path](blog/v0200-install-via-your-distro-s-package-manager-a-dedicated-syncer-tui-opt-in-py/)** -- May 6, 2026
 
 [All releases &rarr;](blog/)
 
