@@ -125,3 +125,19 @@ After editing:
 - All wording uses positive present-tense statements per the CLAUDE.md doc convention ("describe current state only").
 - No frontmatter/metadata fields touched.
 - Step 9: post-implementation merge / archive per task-workflow.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-13 — first review iteration)
+
+- **Requested by user:** the "with full mouse support" phrase was repeated too many times. The Agentic IDE feature card on line 23 was a verbatim copy of the hero description on line 10. Rewrite the feature card so it lists all available TUIs and ends with "all in one tmux session via `ait ide`, with support for multiple projects in multiple sessions" (dropping the duplicate mouse mention and the "Press `j`" phrase).
+- **Changes made:** Replaced line 23 with: "Board, Code Browser, Monitor, Minimonitor, Settings, Stats, Syncer, and Brainstorm — all in one tmux session via `ait ide`, with support for multiple projects in multiple sessions." The hero description (line 10) and the take-the-tour line (line 55) retain their mouse-support mentions; only the feature card was rewritten.
+- **Files affected:** `website/content/_index.md`
+
+## Final Implementation Notes
+
+- **Actual work done:** Updated three TUI mentions on the home page (`website/content/_index.md`) — hero description and take-the-tour line gained "with full mouse support"; take-the-tour additionally expands the acronym to "Terminal User Interface". The Agentic IDE feature card was rewritten per user feedback (Change Request 1) to list all eight TUIs and end with "with support for multiple projects in multiple sessions" (mouse mention removed there to avoid repetition). The TUI index (`docs/tuis/_index.md`) got a one-clause callout in its lead paragraph. Per-TUI docs gained a short "Mouse Support" section: monitor/how-to (bulleted, after Read Pane List), monitor/reference (Mouse Interactions table inside Keyboard Shortcuts), minimonitor/how-to (bulleted + intro line above quick-reference table), settings/how-to (bulleted, top), settings/reference (Mouse Interactions table after Within Tabs), stats/_index (bulleted, before Navigating), syncer/_index (bulleted, between Polling and Actions).
+- **Deviations from plan:** Only the Agentic IDE feature card text diverged from the plan (Change Request 1).
+- **Issues encountered:** None.
+- **Key decisions:** Used "alternative to **Up** / **Down**" / "alternative to **Tab**" phrasing rather than "replaces" so it is clear keyboard remains supported. Listed all 8 TUIs in the feature card (including Brainstorm, even though the take-the-tour says "seven" — this is consistent with the existing TUI index, which documents 8 TUIs).
+- **Upstream defects identified:** None.
