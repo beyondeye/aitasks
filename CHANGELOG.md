@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.20.3
+
+### Improvements
+
+- **Regroup installation pages and unify Linux** (t766): Consolidated the separate Arch / Debian / Fedora install pages into a single Linux page with per-distro sections, and reorganized the Installation index into clear "Operating systems" and "Setup topics" groups for easier navigation.
+
+### Documentation
+
+- **About page redesign** (t763): Refreshed the About page with a slim header, updated project stats (37 releases, 26 skills, 80+ CLI scripts), and centered author and license blocks for a cleaner look.
+- **Only main TUIs on the home page** (t764): Trimmed the home page tour from five tiles to three (Board, Code Browser, Monitor) so the spotlight stays on the most-used TUIs.
+- **Render overview "See also" refs as links** (t765): The cross-references on the Overview page now render as clickable links instead of bare shortcodes.
+- **Getting Started: simpler install pointer** (t767): Replaced the inline per-platform install command table with a single pointer to the Installation guide so the page stays focused on first-run steps.
+- **Codebrowser task-creation mention on TUIs page** (t768): The TUIs index now highlights that the Code Browser can create tasks tied to specific line ranges (press `n`), with optional auto-merge of existing tasks referencing the same file.
+- **Updated maturity labels across TUI and skill docs** (t769): Added or refreshed the maturity tag on 37 doc pages and introduced a new `stable` maturity value, so the sidebar maturity cloud accurately reflects each TUI and skill.
+- **Full mouse support documented across TUI docs** (t771): Every TUI doc page (and the home page tour) now calls out full mouse support — click to select, scroll to navigate — as an alternative to keyboard.
+- **Installation subpage for updating model lists** (t772): New "Updating Model Lists" page under Installation explains how to refresh the supported-models list for OpenCode and friends, and how to register a single known model.
+- **Lead with curl install; point upgrades to `ait upgrade`** (t773): Install pages now lead with the curl one-liner and present native packages as an alternative; per-platform "Upgrade" sections point to `ait upgrade latest` instead of suggesting (misleading) package-manager upgrades.
+
+### Maintenance
+
+- **Bump deprecated Node 20 actions** (t758): Updated `actions/checkout` to v6 and `softprops/action-gh-release` to v3 in release workflows to drop the deprecated Node 20 runtime.
+- **Refresh OpenCode supported-models list** (t770): Refreshed `models_opencode.json` (and the seed copy) with the current set of active models — 50 active plus 11 retained as unavailable for score history — so new projects ship with an up-to-date model list.
+
 ## v0.20.2
 
 ### Bug Fixes
