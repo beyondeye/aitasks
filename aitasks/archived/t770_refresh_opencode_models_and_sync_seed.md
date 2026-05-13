@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [modelvrapper, opencode]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-13 10:15
 updated_at: 2026-05-13 10:24
+completed_at: 2026-05-13 10:24
 ---
 
 Refresh the OpenCode supported-models list in both the local config (`aitasks/metadata/models_opencode.json`) and the seed template (`seed/models_opencode.json`), then commit both.
