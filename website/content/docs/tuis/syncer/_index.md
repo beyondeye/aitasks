@@ -43,6 +43,16 @@ The syncer polls every 30 seconds by default. Each tick recomputes ahead/behind 
 
 The CLI flags `--interval SECS` and `--no-fetch` set the initial values; the `f` toggle changes the fetch state at runtime and the subtitle updates accordingly.
 
+## Mouse Support
+
+The Syncer TUI supports full mouse interaction in addition to the keyboard shortcuts:
+
+- **Click a row in the Branches table** — select that ref (mirrors ↑ / ↓ navigation).
+- **Scroll wheel** — scroll the detail panel and table content.
+- **Click failure-modal buttons** — both **Launch agent to resolve** and **Dismiss** are clickable.
+
+All keyboard actions documented below remain available.
+
 ## Actions
 
 | Key | Target ref | Action |

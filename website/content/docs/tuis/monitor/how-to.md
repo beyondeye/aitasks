@@ -43,6 +43,17 @@ Each card shows:
 
 Classification rules are config-driven — you can change the agent prefixes and the TUI list by editing `aitasks/metadata/project_config.yaml` directly or via [`ait settings`]({{< relref "/docs/tuis/settings" >}}) → Tmux tab. See the [Reference](reference/#pane-classification) for details.
 
+### Mouse Support
+
+Monitor supports full mouse interaction in addition to the keyboard shortcuts:
+
+- **Click a pane card** — focus that card in the pane list (alternative to **Up** / **Down**).
+- **Click inside the preview pane** — move focus into the preview zone (alternative to **Tab**); subsequent keystrokes are forwarded to the underlying tmux pane.
+- **Scroll wheel** — scroll the pane list or preview content in the focused zone.
+- **Click dialog buttons** — confirmation buttons in the kill (`k`), next-sibling (`n`), and task-info (`i`) dialogs are clickable.
+
+All keyboard actions documented below remain available.
+
 ### How to Navigate Between Zones
 
 Monitor uses a zone model with two zones: the pane list and the preview.

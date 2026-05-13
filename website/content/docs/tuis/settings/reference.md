@@ -33,6 +33,15 @@ depth: [advanced]
 | **?** | Toggle field description (summary/expanded) | Profiles |
 | **Escape** | Close dialog or cancel | Modals |
 
+### Mouse Interactions
+
+| Action | Effect |
+|--------|--------|
+| Click a tab name | Switch to that tab |
+| Click a field row | Focus the row (then **Enter** / **Space** edits or cycles) |
+| Click action buttons (Save, Commit, New Profile, etc.) | Activate the button |
+| Scroll wheel | Scroll the focused tab content |
+
 ## Tabs
 
 | Tab | Shortcut | Editable | Description |

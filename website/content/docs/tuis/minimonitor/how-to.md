@@ -45,6 +45,16 @@ Each card in the list shows:
 
 The header bar at the top of the pane shows either `multi: Ns · Ma  N idle` when the multi-session view is active, or `<session>  N agents  N idle` when the view is restricted to the attached session. See [How to Toggle the Multi-Session View](#how-to-toggle-the-multi-session-view) below.
 
+### Mouse Support
+
+Minimonitor supports full mouse interaction in addition to the keyboard shortcuts:
+
+- **Click an agent card** — focus that card (alternative to **Up** / **Down**).
+- **Scroll wheel** — scroll the agent list.
+- **Click dialog buttons** — buttons in the task-info dialog and TUI switcher overlay are clickable.
+
+All keyboard actions documented below remain available.
+
 ### How to Navigate the Agent List
 
 - **Up** / **Down** — Move focus between agent cards within the list.
@@ -143,6 +153,8 @@ tmux:
 You can edit these directly, or use [`ait settings`]({{< relref "/docs/tuis/settings" >}}) → Tmux tab, which writes the same keys.
 
 ### Key Bindings Quick Reference
+
+All actions below are also available via mouse — see [Mouse Support](#mouse-support).
 
 | Key | Action |
 |-----|--------|

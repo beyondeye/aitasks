@@ -47,6 +47,15 @@ depth: [advanced]
 
 > **Note:** In the preview zone, every keystroke that is not handled by a global binding is forwarded to the tmux pane via `tmux send-keys`. Special keys (Enter, Escape, Backspace, arrows, Space, Delete, Home, End, PageUp/Down) and Ctrl-combinations are translated; regular characters are sent literally.
 
+#### Mouse Interactions
+
+| Action | Effect |
+|--------|--------|
+| Click a card in the pane list | Focus that card |
+| Click inside the preview pane | Move focus into the preview zone |
+| Scroll wheel | Scroll the focused zone |
+| Click dialog buttons | Activate the action (Confirm/Cancel on kill, next-sibling, task-info dialogs) |
+
 ### Zone Model
 
 Monitor uses a two-zone model. Focus lives in one of:

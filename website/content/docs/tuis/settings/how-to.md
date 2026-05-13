@@ -7,6 +7,17 @@ maturity: [stable]
 depth: [intermediate]
 ---
 
+## Mouse Support
+
+The Settings TUI supports full mouse interaction in addition to the keyboard shortcuts:
+
+- **Click a tab name** in the tab bar — switch to that tab (alternative to `a` / `b` / `c` / `t` / `m` / `p`).
+- **Click a field row** — focus it; press **Enter** / **Space** to edit or cycle the value.
+- **Click on-screen action buttons** — **Save Profile**, **Commit**, **Save Board Settings**, **Save Project Config**, **New Profile**, and dialog buttons are all clickable, no keyboard equivalent required.
+- **Scroll wheel** — scroll long tab content (Profiles, Models, Project Config).
+
+All keyboard actions documented below remain available.
+
 ## Change the Default Model for an Operation
 
 1. Open the Settings TUI: `ait settings`

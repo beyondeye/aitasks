@@ -9,7 +9,7 @@ aliases:
   - /docs/board/reference/
 ---
 
-The aitasks framework includes several terminal-based user interfaces (TUIs) built with [Textual](https://textual.textualize.io/). Together they form the core of the ait tmux-based development environment: you launch them inside a single tmux session (typically via [`ait ide`]({{< relref "/docs/installation/terminal-setup" >}})) and hop between them with a single keystroke.
+The aitasks framework includes several terminal-based user interfaces (TUIs) built with [Textual](https://textual.textualize.io/), all with **full mouse support** (click, drag, scroll). Together they form the core of the ait tmux-based development environment: you launch them inside a single tmux session (typically via [`ait ide`]({{< relref "/docs/installation/terminal-setup" >}})) and hop between them with a single keystroke.
 
 ## Available TUIs
 

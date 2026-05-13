@@ -78,6 +78,17 @@ The TUI uses a layered configuration:
 
 This split keeps shared presets consistent across a team while letting each developer keep their own customizations local.
 
+## Mouse Support
+
+The Stats TUI supports full mouse interaction in addition to the keyboard shortcuts:
+
+- **Click a pane name** in the sidebar — show that pane on the right (mirrors highlighting via ↑ / ↓).
+- **Click a layout name** in the layout picker — highlight it; click again (or press **Enter**) to activate.
+- **Scroll wheel** — scroll the sidebar, layout picker, or chart content.
+- **Click dialog buttons** — buttons in the new-/edit-/delete-layout dialogs and the pane selector are clickable.
+
+All keyboard actions documented below remain available.
+
 ## Navigating
 
 | Key | Action |

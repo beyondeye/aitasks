@@ -7,7 +7,7 @@ linkTitle: "aitasks"
 {{< split-hero
     title="aitasks"
     lead="A full agentic IDE in your terminal."
-    description="Kanban board, code browser, agent monitoring, and AI-enhanced git workflows — all in one tmux session. Press `j` to hop between TUIs without leaving the terminal."
+    description="Kanban board, code browser, agent monitoring, and AI-enhanced git workflows — all in one tmux session, with full mouse support. Press `j` to hop between TUIs without leaving the terminal."
     image="imgs/home/board.svg"
     image_alt="aitasks kanban board with three columns of task cards"
     cta_primary_text="Documentation"
@@ -20,7 +20,7 @@ linkTitle: "aitasks"
 {{% blocks/section color="white" type="row" %}}
 
 {{% blocks/feature icon="fa-terminal" title="Agentic IDE in your terminal" url="#take-the-tour" %}}
-Kanban Board, Code Browser, Monitor, Brainstorm, and Settings — all in one tmux session via `ait ide`. Press `j` to hop between TUIs without ever leaving the terminal.
+Board, Code Browser, Monitor, Minimonitor, Settings, Stats, Syncer, and Brainstorm — all in one tmux session via `ait ide`, with support for multiple projects in multiple sessions.
 {{% /blocks/feature %}}
 
 {{% blocks/feature icon="fa-brain" title="Long-term memory for agents" url="/docs/concepts/agent-memory/" %}}
@@ -52,7 +52,7 @@ After installing, run `ait setup` in your project (the git repository root). See
 {{< blocks/section color="white" >}}
 <div class="text-center mb-4">
 <h2 id="take-the-tour">🎛️ Take the tour</h2>
-<p>Seven TUIs share a single tmux session. Click any of them to dive in.</p>
+<p>Seven TUIs (Terminal User Interface) share a single tmux session, with full mouse support. Click any of them to dive in.</p>
 </div>
 <div class="tour-mosaic">
 {{< tour-tile href="/docs/tuis/board/" src="imgs/home/board.svg" alt="Kanban board" caption="Board" >}}
