@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: []
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-13 10:15
-updated_at: 2026-05-13 10:17
+updated_at: 2026-05-13 10:31
+completed_at: 2026-05-13 10:31
 ---
 
 The aitasks TUIs support full mouse interaction (click, drag, scroll), but
