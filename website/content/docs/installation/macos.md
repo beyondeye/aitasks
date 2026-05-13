@@ -42,12 +42,11 @@ ait setup
 
 ## Upgrade
 
-```bash
-brew update
-brew upgrade aitasks
-```
+Framework upgrades are per-project. Inside any project that already has aitasks set up, run:
 
-The Homebrew tap is auto-bumped on every aitasks release, so `brew upgrade` will pick up new versions on the normal Homebrew cadence.
+```bash
+ait upgrade latest
+```
 
 ## Uninstall
 

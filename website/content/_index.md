@@ -36,7 +36,15 @@ PR import/close, issue tracker integration, contribution flow, changelog generat
 {{% blocks/section color="light" %}}
 ## ⚡ Quick Install
 
-Pick your platform:
+The simplest way — works on every supported platform:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash
+```
+
+Then run `ait setup` in your project (the git repository root).
+
+### Prefer your distro's package manager?
 
 | Platform | Install command |
 |----------|-----------------|
@@ -44,9 +52,8 @@ Pick your platform:
 | **Arch / Manjaro** (AUR) | `yay -S aitasks` |
 | **Debian / Ubuntu / WSL** | `.deb` from [Releases](https://github.com/beyondeye/aitasks/releases/latest), then `sudo apt install ./aitasks_*.deb` |
 | **Fedora / RHEL / Rocky / Alma** | `.rpm` from [Releases](https://github.com/beyondeye/aitasks/releases/latest), then `sudo dnf install ./aitasks-*.noarch.rpm` |
-| **Other (any POSIX)** | `curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh \| bash` |
 
-After installing, run `ait setup` in your project (the git repository root). See the [Installation guide]({{< relref "/docs/installation" >}}) for per-platform walkthroughs and detailed setup instructions.
+See the [Installation guide]({{< relref "/docs/installation" >}}) for per-platform walkthroughs and detailed setup instructions.
 {{% /blocks/section %}}
 
 {{< blocks/section color="white" >}}

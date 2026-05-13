@@ -9,22 +9,31 @@ description: "Install aitasks and configure your development environment"
 
 > **Run from the project root.** aitasks expects to be invoked from the directory containing `.git/` — the root of your project's git repository. All install methods below assume you `cd` into that directory first. aitasks stores task files, plans, and configuration inside your repository and relies on git for task IDs, locking, syncing, and archival. Installing in a subdirectory or a non-git directory will not work correctly.
 
-## Operating systems
+### Recommended: install via curl
 
-Pick your platform:
+The simplest method — works on every supported platform (macOS, Linux, WSL):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh | bash
+```
+
+Then `cd` into your project root (where `.git/` lives) and run `ait setup` to install dependencies and configure agent integrations. See [`ait setup`](../commands/setup-install/) for details.
+
+### Alternative: native package for your OS
+
+If you prefer your distro's package manager:
 
 | Platform | Install command |
 |----------|-----------------|
 | **macOS** | `brew install beyondeye/aitasks/aitasks` — see the [Homebrew guide](macos/) |
 | **Linux** (Arch / Debian / Ubuntu / Fedora / RHEL / Rocky / Alma / WSL) | Distro-specific install paths — see the [Linux guide](linux/) |
-| **Windows / WSL** | Use a WSL2 Ubuntu/Debian shell, then follow the Linux `.deb` path — see the [Windows / WSL guide](windows-wsl/) |
-| **Other (any POSIX)** | `curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh \| bash` |
+| **Windows / WSL** | Use a WSL2 Ubuntu/Debian shell — see the [Windows / WSL guide](windows-wsl/) |
 
 All install methods drop a single `ait` command on your `$PATH` — the **global shim** (~3 KB). The shim downloads the framework on demand when you run `ait setup` in your project, so the installed package stays tiny and you do not need to re-install the package to get framework updates. For the design rationale see the [packaging strategy reference](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_strategy.md); for current limitations of each channel and the roadmap toward more official repos see the [packaging distribution status & roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_distribution_status.md).
 
-After installing, `cd` into your project root (where `.git/` lives) and run `ait setup` to install dependencies and configure agent integrations. See [`ait setup`](../commands/setup-install/) for details.
+### Upgrade
 
-Upgrade an existing installation:
+Framework upgrades are per-project. Inside any project that already has aitasks set up, run:
 
 ```bash
 ait upgrade latest

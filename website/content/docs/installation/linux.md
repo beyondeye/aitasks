@@ -56,13 +56,11 @@ ait setup
 
 ### Upgrade (Arch)
 
-```bash
-yay -Syu aitasks
-# or
-paru -Syu aitasks
-```
+Framework upgrades are per-project. Inside any project that already has aitasks set up, run:
 
-The AUR package is auto-bumped on every aitasks release.
+```bash
+ait upgrade latest
+```
 
 ### Uninstall (Arch)
 
@@ -135,13 +133,11 @@ WSL2 with Ubuntu 22.04+ or Debian 12+ works identically to native Linux — the 
 
 ### Upgrade (Debian/Ubuntu)
 
-Same flow as install — download the new `.deb` and:
+Framework upgrades are per-project. Inside any project that already has aitasks set up, run:
 
 ```bash
-sudo apt install ./aitasks_*.deb
+ait upgrade latest
 ```
-
-apt detects the existing install and upgrades in place.
 
 ### Uninstall (Debian/Ubuntu)
 
@@ -207,10 +203,10 @@ ait setup
 
 ### Upgrade (Fedora)
 
-Download the new `.rpm` (same path as install) and:
+Framework upgrades are per-project. Inside any project that already has aitasks set up, run:
 
 ```bash
-sudo dnf upgrade ./aitasks-*.noarch.rpm
+ait upgrade latest
 ```
 
 ### Uninstall (Fedora)
