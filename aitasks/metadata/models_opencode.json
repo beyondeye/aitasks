@@ -4,7 +4,7 @@
       "name": "openai_codex_mini_latest",
       "cli_id": "openai/codex-mini-latest",
       "notes": "Codex Mini (200k context, openai provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "batch-review": 0,
         "pick": 0,
@@ -16,7 +16,7 @@
       "name": "openai_gpt_5_1_codex",
       "cli_id": "openai/gpt-5.1-codex",
       "notes": "GPT-5.1 Codex (400k context, openai provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "batch-review": 0,
         "pick": 0,
@@ -28,7 +28,7 @@
       "name": "openai_gpt_5_1_codex_max",
       "cli_id": "openai/gpt-5.1-codex-max",
       "notes": "GPT-5.1 Codex Max (400k context, openai provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "batch-review": 0,
         "pick": 0,
@@ -40,7 +40,7 @@
       "name": "openai_gpt_5_1_codex_mini",
       "cli_id": "openai/gpt-5.1-codex-mini",
       "notes": "GPT-5.1 Codex mini (400k context, openai provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "batch-review": 0,
         "pick": 0,
@@ -64,7 +64,7 @@
       "name": "openai_gpt_5_2_codex",
       "cli_id": "openai/gpt-5.2-codex",
       "notes": "GPT-5.2 Codex (400k context, openai provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "batch-review": 0,
         "pick": 0,
@@ -97,18 +97,6 @@
       "verifiedstats": {}
     },
     {
-      "name": "openai_gpt_5_codex",
-      "cli_id": "openai/gpt-5-codex",
-      "notes": "GPT-5-Codex (400k context, openai provider)",
-      "status": "active",
-      "verified": {
-        "batch-review": 0,
-        "pick": 0,
-        "explain": 0
-      },
-      "verifiedstats": {}
-    },
-    {
       "name": "openai_gpt_5_4",
       "cli_id": "openai/gpt-5.4",
       "notes": "GPT-5.4 (1050k context, openai provider)",
@@ -126,10 +114,82 @@
       }
     },
     {
+      "name": "openai_gpt_5_4_fast",
+      "cli_id": "openai/gpt-5.4-fast",
+      "notes": "GPT-5.4 Fast (1050k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_5_4_mini",
+      "cli_id": "openai/gpt-5.4-mini",
+      "notes": "GPT-5.4 mini (400k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_5_4_mini_fast",
+      "cli_id": "openai/gpt-5.4-mini-fast",
+      "notes": "GPT-5.4 mini Fast (400k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "openai_gpt_5_5",
       "cli_id": "openai/gpt-5.5",
-      "notes": "GPT-5.5 (openai provider)",
+      "notes": "GPT-5.5 (400k context, openai provider)",
       "status": "active",
+      "verified": {
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_5_5_fast",
+      "cli_id": "openai/gpt-5.5-fast",
+      "notes": "GPT-5.5 Fast (400k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_5_5_pro",
+      "cli_id": "openai/gpt-5.5-pro",
+      "notes": "GPT-5.5 Pro (400k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_5_codex",
+      "cli_id": "openai/gpt-5-codex",
+      "notes": "GPT-5-Codex (400k context, openai provider)",
+      "status": "unavailable",
       "verified": {
         "batch-review": 0,
         "pick": 0,
@@ -153,7 +213,7 @@
       "name": "opencode_claude_3_5_haiku",
       "cli_id": "opencode/claude-3-5-haiku",
       "notes": "Claude Haiku 3.5 (200k context, opencode provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "batch-review": 0,
         "pick": 0,
@@ -210,6 +270,18 @@
       "verifiedstats": {}
     },
     {
+      "name": "opencode_claude_opus_4_7",
+      "cli_id": "opencode/claude-opus-4-7",
+      "notes": "Claude Opus 4.7 (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_claude_sonnet_4",
       "cli_id": "opencode/claude-sonnet-4",
       "notes": "Claude Sonnet 4 (1000k context, opencode provider)",
@@ -246,6 +318,18 @@
       "verifiedstats": {}
     },
     {
+      "name": "opencode_deepseek_v4_flash_free",
+      "cli_id": "opencode/deepseek-v4-flash-free",
+      "notes": "DeepSeek V4 Flash Free (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_gemini_3_1_pro",
       "cli_id": "opencode/gemini-3.1-pro",
       "notes": "Gemini 3.1 Pro Preview (1048k context, opencode provider)",
@@ -273,7 +357,7 @@
       "name": "opencode_gemini_3_pro",
       "cli_id": "opencode/gemini-3-pro",
       "notes": "Gemini 3 Pro (1048k context, opencode provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "batch-review": 0,
         "pick": 0,
@@ -285,7 +369,7 @@
       "name": "opencode_glm_4_6",
       "cli_id": "opencode/glm-4.6",
       "notes": "GLM-4.6 (204k context, opencode provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "batch-review": 0,
         "pick": 0,
@@ -297,7 +381,7 @@
       "name": "opencode_glm_4_7",
       "cli_id": "opencode/glm-4.7",
       "notes": "GLM-4.7 (204k context, opencode provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "batch-review": 0,
         "pick": 0,
@@ -314,6 +398,18 @@
         "batch-review": 0,
         "pick": 0,
         "explain": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_glm_5_1",
+      "cli_id": "opencode/glm-5.1",
+      "notes": "GLM-5.1 (204k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0
       },
       "verifiedstats": {}
     },
@@ -438,6 +534,30 @@
       "verifiedstats": {}
     },
     {
+      "name": "opencode_gpt_5_4_mini",
+      "cli_id": "opencode/gpt-5.4-mini",
+      "notes": "GPT-5.4 Mini (400k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_gpt_5_4_nano",
+      "cli_id": "opencode/gpt-5.4-nano",
+      "notes": "GPT-5.4 Nano (400k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_gpt_5_4_pro",
       "cli_id": "opencode/gpt-5.4-pro",
       "notes": "GPT-5.4 Pro (1050k context, opencode provider)",
@@ -452,12 +572,24 @@
     {
       "name": "opencode_gpt_5_5",
       "cli_id": "opencode/gpt-5.5",
-      "notes": "GPT-5.5 (opencode provider)",
+      "notes": "GPT-5.5 (1050k context, opencode provider)",
       "status": "active",
       "verified": {
         "batch-review": 0,
         "pick": 0,
         "explain": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_gpt_5_5_pro",
+      "cli_id": "opencode/gpt-5.5-pro",
+      "notes": "GPT-5.5 Pro (1050k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0
       },
       "verifiedstats": {}
     },
@@ -498,10 +630,22 @@
       "verifiedstats": {}
     },
     {
+      "name": "opencode_kimi_k2_6",
+      "cli_id": "opencode/kimi-k2.6",
+      "notes": "Kimi K2.6 (262k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_minimax_m2_1",
       "cli_id": "opencode/minimax-m2.1",
       "notes": "MiniMax M2.1 (204k context, opencode provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "batch-review": 0,
         "pick": 0,
@@ -530,6 +674,66 @@
         "batch-review": 0,
         "pick": 0,
         "explain": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_minimax_m2_7",
+      "cli_id": "opencode/minimax-m2.7",
+      "notes": "MiniMax M2.7 (204k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_nemotron_3_super_free",
+      "cli_id": "opencode/nemotron-3-super-free",
+      "notes": "Nemotron 3 Super Free (204k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_qwen3_5_plus",
+      "cli_id": "opencode/qwen3.5-plus",
+      "notes": "Qwen3.5 Plus (262k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_qwen3_6_plus",
+      "cli_id": "opencode/qwen3.6-plus",
+      "notes": "Qwen3.6 Plus (262k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_ring_2_6_1t_free",
+      "cli_id": "opencode/ring-2.6-1t-free",
+      "notes": "Ring 2.6 1T Free (262k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0
       },
       "verifiedstats": {}
     }
