@@ -42,8 +42,9 @@ After installing, see these guides for the rest of the environment:
 
 - [Terminal Setup]({{< relref "terminal-setup" >}}) — terminal emulator + tmux, `ait ide` workflow.
 - [Git Remotes]({{< relref "git-remotes" >}}) — auth for GitHub / GitLab / Bitbucket (required for locking, sync, issues).
-- [Known Agent Issues]({{< relref "known-issues" >}}) — current Claude Code / Gemini CLI / Codex CLI / OpenCode caveats.
 - [PyPy Runtime]({{< relref "pypy" >}}) — optional faster runtime for long-running TUIs.
+- [Updating Model Lists]({{< relref "updating-model-lists" >}}) — refresh the supported model lists used by `ait codeagent` and the Settings TUI.
+- [Known Agent Issues]({{< relref "known-issues" >}}) — current Claude Code / Gemini CLI / Codex CLI / OpenCode caveats.
 
 ## Cloning a Repo That Already Uses aitasks
 
