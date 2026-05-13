@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: []
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-13 10:15
-updated_at: 2026-05-13 10:15
+updated_at: 2026-05-13 10:17
 ---
 
 The aitasks TUIs support full mouse interaction (click, drag, scroll), but
