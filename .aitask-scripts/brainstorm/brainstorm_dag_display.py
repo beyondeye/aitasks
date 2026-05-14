@@ -405,8 +405,11 @@ class DAGDisplay(VerticalScroll):
     can_focus = True
 
     BINDINGS = [
-        Binding("j", "next_node", "Next node", show=False),
-        Binding("k", "prev_node", "Previous node", show=False),
+        Binding("j", "next_node", "Next", show=True),
+        Binding("k", "prev_node", "Prev", show=True),
+        Binding("enter", "open_node", "Open", show=True),
+        Binding("h", "head_node", "Set HEAD", show=True),
+        Binding("o", "open_operation", "Operation", show=True),
     ]
 
     class NodeSelected(Message):
@@ -422,6 +425,13 @@ class DAGDisplay(VerticalScroll):
         def __init__(self, node_id: str) -> None:
             super().__init__()
             self.node_id = node_id
+
+    class OperationOpened(Message):
+        """Emitted when o is pressed to open the operation detail screen."""
+
+        def __init__(self, group_name: str) -> None:
+            super().__init__()
+            self.group_name = group_name
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -524,22 +534,6 @@ class DAGDisplay(VerticalScroll):
             target_y = self._node_line_map[focused_id]
             self.scroll_to(0, target_y, animate=False)
 
-    def on_key(self, event) -> None:
-        """Handle Enter and h keys."""
-        if not self._node_order:
-            return
-
-        focused_id = self._node_order[self._focused_idx]
-
-        if event.key == "enter":
-            self.post_message(self.NodeSelected(focused_id))
-            event.prevent_default()
-            event.stop()
-        elif event.key == "h":
-            self.post_message(self.HeadChanged(focused_id))
-            event.prevent_default()
-            event.stop()
-
     def action_next_node(self) -> None:
         """Move focus to next node (j key)."""
         if self._focused_idx < len(self._node_order) - 1:
@@ -551,3 +545,34 @@ class DAGDisplay(VerticalScroll):
         if self._focused_idx > 0:
             self._focused_idx -= 1
             self._render_dag()
+
+    def action_open_node(self) -> None:
+        """Post NodeSelected for the focused node (enter key)."""
+        if not self._node_order:
+            return
+        self.post_message(
+            self.NodeSelected(self._node_order[self._focused_idx])
+        )
+
+    def action_head_node(self) -> None:
+        """Post HeadChanged for the focused node (h key)."""
+        if not self._node_order:
+            return
+        self.post_message(
+            self.HeadChanged(self._node_order[self._focused_idx])
+        )
+
+    def action_open_operation(self) -> None:
+        """Post OperationOpened for the focused node's generating group (o key)."""
+        if not self._node_order or self._session_path is None:
+            return
+        focused_id = self._node_order[self._focused_idx]
+        data = read_node(self._session_path, focused_id)
+        group = data.get("created_by_group", "")
+        if not group:
+            self.app.notify(
+                "No group recorded for this node",
+                severity="warning",
+            )
+            return
+        self.post_message(self.OperationOpened(group))

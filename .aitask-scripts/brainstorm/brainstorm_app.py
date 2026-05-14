@@ -1514,6 +1514,17 @@ class CompareNodeSelectModal(ModalScreen):
 class NodeRow(Static):
     """Focusable row representing a brainstorm node in the dashboard list."""
 
+    BINDINGS = [
+        Binding("o", "open_operation", "Operation", show=True),
+    ]
+
+    class OperationOpened(Message):
+        """Emitted when 'o' is pressed on a focused NodeRow."""
+
+        def __init__(self, group_name: str) -> None:
+            super().__init__()
+            self.group_name = group_name
+
     def __init__(self, node_id: str, description: str, is_head: bool = False):
         super().__init__()
         self.node_id = node_id
@@ -1524,6 +1535,21 @@ class NodeRow(Static):
     def render(self) -> str:
         head_marker = " [bold green]HEAD[/]" if self.is_head else ""
         return f"[bold]{self.node_id}[/]{head_marker}  {self.node_description}"
+
+    def action_open_operation(self) -> None:
+        """Post OperationOpened for this row's generating group (o key)."""
+        session_path = getattr(self.app, "session_path", None)
+        if session_path is None:
+            return
+        data = read_node(session_path, self.node_id)
+        group = data.get("created_by_group", "")
+        if not group:
+            self.app.notify(
+                "No group recorded for this node",
+                severity="warning",
+            )
+            return
+        self.post_message(self.OperationOpened(group))
 
 
 class DimensionRow(Static):
@@ -3820,10 +3846,12 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     except Exception:
                         pass
 
+    @on(DAGDisplay.NodeSelected)
     def on_dag_display_node_selected(self, event: DAGDisplay.NodeSelected) -> None:
         """Open node detail modal from DAG view."""
         self.push_screen(NodeDetailModal(event.node_id, self.session_path))
 
+    @on(DAGDisplay.HeadChanged)
     def on_dag_display_head_changed(self, event: DAGDisplay.HeadChanged) -> None:
         """Update HEAD from DAG view."""
         if not self.read_only:
@@ -3831,6 +3859,24 @@ class BrainstormApp(TuiSwitcherMixin, App):
             self._populate_node_list()
             self._update_session_status()
             self.query_one(DAGDisplay).load_dag(self.session_path)
+
+    @on(DAGDisplay.OperationOpened)
+    def on_dag_display_operation_opened(
+        self, event: DAGDisplay.OperationOpened
+    ) -> None:
+        """Open OperationDetailScreen from DAG view ('o' key)."""
+        self.push_screen(
+            OperationDetailScreen(event.group_name, self.session_path)
+        )
+
+    @on(NodeRow.OperationOpened)
+    def on_node_row_operation_opened(
+        self, event: NodeRow.OperationOpened
+    ) -> None:
+        """Open OperationDetailScreen from dashboard NodeRow ('o' key)."""
+        self.push_screen(
+            OperationDetailScreen(event.group_name, self.session_path)
+        )
 
     def _on_compare_selected(self, selected: list[str] | None) -> None:
         """Handle CompareNodeSelectModal result."""
