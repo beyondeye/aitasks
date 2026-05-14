@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t749_4]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-05 10:43
-updated_at: 2026-05-14 12:19
+updated_at: 2026-05-14 14:08
+completed_at: 2026-05-14 14:08
 ---
 
 ## Context
