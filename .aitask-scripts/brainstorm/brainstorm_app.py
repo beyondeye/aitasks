@@ -57,6 +57,11 @@ from brainstorm.brainstorm_dag_display import (
     OP_BADGE_STYLES,
     UNKNOWN_OP_STYLE,
 )
+from brainstorm.brainstorm_op_refs import (
+    OpDataRef,
+    list_op_inputs,
+    resolve_ref,
+)
 from brainstorm.polling_indicator import PollingIndicator
 from brainstorm.brainstorm_session import (
     archive_session,
@@ -1036,6 +1041,162 @@ class ExportNodeDetailModal(ModalScreen):
             self.notify(f"Write failed: {exc}", severity="error")
             return
         self.dismiss({"dir": str(target), "written": written})
+
+
+class OperationDetailScreen(ModalScreen):
+    """Modal showing everything about the operation that generated a node.
+
+    Pushed by the 'o' keybinding (wired in t749_6) from the brainstorm
+    dashboard. Reads ``br_groups.yaml`` and the agent input/output/log
+    files in the session worktree to render an Overview tab + one
+    per-agent tab.
+    """
+
+    BINDINGS = [
+        Binding("escape", "close", "Close"),
+        Binding("q", "close", "Close", show=False),
+    ]
+
+    def __init__(self, group_name: str, session_path: Path) -> None:
+        super().__init__()
+        self.group_name = group_name
+        self.session_path = session_path
+        self.group_info: dict = {}
+
+    def compose(self) -> ComposeResult:
+        self.group_info = _read_groups(self.session_path).get(
+            self.group_name, {}
+        )
+        if not self.group_info:
+            with Container(id="op_detail_dialog"):
+                yield Label(
+                    f"Operation: {self.group_name}",
+                    id="op_detail_title",
+                )
+                yield Label(
+                    f"(no group entry recorded for `{self.group_name}`)",
+                    id="op_detail_missing",
+                )
+                with Horizontal(id="op_detail_buttons"):
+                    yield Button(
+                        "Close", variant="default", id="btn_close_op_detail"
+                    )
+                yield Footer()
+            return
+
+        with Container(id="op_detail_dialog"):
+            yield Label(self._build_title(), id="op_detail_title")
+            with TabbedContent(id="op_detail_tabs"):
+                with TabPane("Overview", id="op_overview"):
+                    yield VerticalScroll(
+                        *self._build_overview_widgets(),
+                        classes="op_tab_scroll",
+                    )
+                for agent in self.group_info.get("agents") or []:
+                    with TabPane(agent, id=f"tab_agent_{agent}"):
+                        yield VerticalScroll(
+                            *self._build_agent_widgets(agent),
+                            classes="op_tab_scroll",
+                        )
+            with Horizontal(id="op_detail_buttons"):
+                yield Button(
+                    "Close", variant="default", id="btn_close_op_detail"
+                )
+            yield Footer()
+
+    def _build_title(self) -> str:
+        op = self.group_info.get("operation", "?")
+        status = self.group_info.get("status", "Unknown")
+        op_style = OP_BADGE_STYLES.get(op, UNKNOWN_OP_STYLE)
+        color_hex = op_style.color.name if op_style.color else "#888"
+        return (
+            f"[bold {color_hex}]Operation: {op}[/]  "
+            f"[dim]({self.group_name})[/]  "
+            f"\\[{status}]"
+        )
+
+    def _build_overview_widgets(self) -> list:
+        created_at = self.group_info.get("created_at", "")
+        head = self.group_info.get("head_at_creation") or "(none)"
+        nodes_created = self.group_info.get("nodes_created") or []
+        widgets: list = [
+            Static(f"[bold]Created at:[/] {created_at}"),
+            Static(f"[bold]HEAD at creation:[/] {head}"),
+            Static(
+                f"[bold]Nodes created:[/] "
+                f"{', '.join(nodes_created) if nodes_created else '(none yet)'}"
+            ),
+            Static(""),
+        ]
+
+        refs = list_op_inputs(self.group_info)
+        if not refs:
+            widgets.append(
+                Label("[dim](no agents registered yet — input pending)[/]")
+            )
+        else:
+            ref = refs[0]
+            content = resolve_ref(self.session_path, ref)
+            title_suffix = ref.section or "(whole file)"
+            widgets.append(Static(f"[bold]Input — {title_suffix}[/]"))
+            if not content:
+                widgets.append(Label("[dim](no input found)[/]"))
+            else:
+                widgets.append(Markdown(content))
+
+        agents = self.group_info.get("agents") or []
+        if agents:
+            widgets.append(Static(""))
+            widgets.append(Static("[bold]Agent statuses[/]"))
+            for name in agents:
+                widgets.append(Static(self._agent_status_line(name)))
+        return widgets
+
+    def _agent_status_line(self, name: str) -> str:
+        status_path = self.session_path / f"{name}_status.yaml"
+        status = "Unknown"
+        atype = ""
+        if status_path.is_file():
+            try:
+                data = read_yaml(str(status_path)) or {}
+                status = data.get("status", "Unknown")
+                atype = data.get("agent_type", "")
+            except Exception:
+                pass
+        color = AGENT_STATUS_COLORS.get(status, "#888888")
+        type_label = f" ({atype})" if atype else ""
+        return (
+            f"  [{color}]●[/{color}] {name}{type_label}  "
+            f"[{color}]{status}[/{color}]"
+        )
+
+    def _build_agent_widgets(self, name: str) -> list:
+        input_content = resolve_ref(
+            self.session_path, OpDataRef("agent_input", name)
+        )
+        output_content = resolve_ref(
+            self.session_path, OpDataRef("agent_output", name)
+        )
+        log_path = self.session_path / f"{name}_log.txt"
+        log_content = read_log_tail(str(log_path), lines=200)
+
+        return [
+            Static("[bold]Input[/]"),
+            Markdown(input_content or "*(no input file)*"),
+            Static(""),
+            Static("[bold]Output[/]"),
+            Markdown(output_content or "*(agent has not produced output yet)*"),
+            Static(""),
+            Static("[bold]Log (last 200 lines)[/]"),
+            Static(log_content or "*(no log)*", classes="op_agent_log"),
+        ]
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+    @on(Button.Pressed, "#btn_close_op_detail")
+    def _on_close_button(self) -> None:
+        self.dismiss(None)
 
 
 class AgentModeEditModal(ModalScreen):
@@ -2023,6 +2184,49 @@ class BrainstormApp(TuiSwitcherMixin, App):
         dock: bottom;
         height: 3;
         align: center middle;
+    }
+
+    /* Operation detail modal (t749_5) */
+    #op_detail_dialog {
+        width: 80%;
+        height: 90%;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+    }
+
+    #op_detail_title {
+        text-style: bold;
+        text-align: center;
+        dock: top;
+        width: 100%;
+        padding: 1;
+        background: $secondary;
+    }
+
+    #op_detail_tabs {
+        height: 1fr;
+    }
+
+    .op_tab_scroll {
+        height: 1fr;
+        padding: 1 2;
+    }
+
+    #op_detail_buttons {
+        dock: bottom;
+        height: 3;
+        align: center middle;
+    }
+
+    #op_detail_missing {
+        padding: 2;
+        text-align: center;
+        color: $text-muted;
+    }
+
+    .op_agent_log {
+        padding: 1;
     }
 
     /* Export node-detail modal */
