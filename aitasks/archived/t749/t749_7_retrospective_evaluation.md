@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: [t749_6]
 issue_type: chore
-status: Implementing
+status: Done
 labels: [ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7
 created_at: 2026-05-05 10:44
-updated_at: 2026-05-16 20:52
+updated_at: 2026-05-16 23:18
+completed_at: 2026-05-16 23:18
 ---
 
 ## Context
