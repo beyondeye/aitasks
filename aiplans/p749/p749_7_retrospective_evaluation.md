@@ -1,85 +1,201 @@
 ---
 Task: t749_7_retrospective_evaluation.md
 Parent Task: aitasks/t749_report_operation_that_generated_nod.md
-Sibling Tasks: aitasks/t749/t749_1_*.md, aitasks/t749/t749_2_*.md, aitasks/t749/t749_3_*.md, aitasks/t749/t749_4_*.md, aitasks/t749/t749_5_*.md, aitasks/t749/t749_6_*.md
-Archived Sibling Plans: aiplans/archived/p749/p749_*_*.md
-Worktree: (current branch — no separate worktree)
-Branch: main
+Sibling Tasks: aitasks/t749/t749_8_manual_verification_report_operation_that_generated_nod.md
+Archived Sibling Plans: aiplans/archived/p749/p749_1_persist_operation_groups.md, aiplans/archived/p749/p749_2_op_data_ref_module.md, aiplans/archived/p749/p749_3_dag_node_box_op_badge.md, aiplans/archived/p749/p749_4_dashboard_pane_generated_by.md, aiplans/archived/p749/p749_5_operation_detail_screen.md, aiplans/archived/p749/p749_6_o_keybinding_open_screen.md
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7 @ 2026-05-16 22:26
 ---
 
-# Plan: Retrospective evaluation (t749_7)
+# Plan: Retrospective evaluation (t749_7) — verified
 
 ## Context
 
-Final implementation child for t749. Verifies the cumulative behavior,
-updates user-facing docs, and captures retrospective notes.
+`t749_7` is the trailing retrospective-eval child of `t749` (operation
+provenance in the brainstorm TUI). Per the existing plan at
+`aiplans/p749/p749_7_retrospective_evaluation.md`, the original scope was:
+walk-through verification, footer audit, user-facing docs section, and
+parent-plan retrospective notes.
+
+After verifying against the current codebase and consulting the user, two
+of the four sub-tasks are dropped:
+
+1. **Docs** — `website/content/docs/tuis/brainstorm/` does NOT exist; the
+   brainstorm TUI has no dedicated documentation. Writing a partial doc
+   focused only on the new operation-provenance feature is awkward when
+   the umbrella TUI is undocumented and `t749_8` (manual verification) has
+   not yet been run. **Decision:** defer to a new follow-up task that
+   writes the full brainstorm TUI doc once the feature is user-verified.
+
+2. **Retrospective notes in parent plan** — Each archived child plan
+   (`aiplans/archived/p749/p749_1..6`) already has its own comprehensive
+   `Final Implementation Notes`. Synthesizing them into the parent plan
+   would duplicate without adding signal. **Decision:** skip parent-plan
+   retro synthesis.
+
+3. **Footer audit** — Already verified during plan verification:
+   `brainstorm_dag_display.py:408-412` shows all five DAG bindings
+   (`j`, `k`, `enter`, `h`, `o`) with `show=True`; `NodeRow.BINDINGS`
+   at `brainstorm_app.py:1517-1519` has `o` with `show=True`;
+   `OperationDetailScreen.BINDINGS` at `brainstorm_app.py:1055-1058` has
+   visible `escape Close`. No footer adjustments needed.
+
+What remains is therefore minimal: run the test suite and queue the
+follow-up docs task.
+
+## Verification (against existing plan)
+
+- Plan path: `aiplans/p749/p749_7_retrospective_evaluation.md` — found.
+- Test files referenced in the parent plan:
+  - `tests/test_brainstorm_groups_persist.sh` → actually
+    `tests/test_brainstorm_groups_persist.py` (file extension drift).
+  - `tests/test_brainstorm_dag_op_badge.sh` → actually
+    `tests/test_brainstorm_dag_op_badge.py`.
+  - `tests/test_brainstorm_op_refs.py`,
+    `tests/test_brainstorm_operation_detail_screen.py`,
+    `tests/test_brainstorm_dag_op_keybinding.py` — all exist as-is.
+
+  Use `.py` filenames when invoking tests below; do not be misled by the
+  `.sh` paths in the parent plan's Verification section.
+- All 6 sibling child plans are archived under `aiplans/archived/p749/`,
+  meaning all 6 children are Done. t749_7 is the last pending child
+  before the manual-verification sibling t749_8.
+- Parent plan `aiplans/p749_report_operation_that_generated_nod.md` is
+  still active; the parent will auto-archive after t749_7 finishes (and
+  before t749_8 runs as a manual-verification standalone follow-up).
 
 ## Implementation Steps
 
-### Step 1 — End-to-end walk-through
+### Step 1 — Run the brainstorm test suite
 
-Run the full Verification section of the parent plan
-(`aiplans/archived/p749/p749_report_operation_that_generated_nod.md`
-once the parent has archived; before that, the active version is at
-`aiplans/p749_report_operation_that_generated_nod.md`). Note any gap.
+Run all five sibling-defined tests; confirm green. The first three are
+pytest, the rest are also pytest (despite some `.sh` references in old
+plans). All under the project's venv.
 
-### Step 2 — Footer audit
+```bash
+python -m pytest \
+  tests/test_brainstorm_groups_persist.py \
+  tests/test_brainstorm_op_refs.py \
+  tests/test_brainstorm_dag_op_badge.py \
+  tests/test_brainstorm_operation_detail_screen.py \
+  tests/test_brainstorm_dag_op_keybinding.py \
+  -v
+```
 
-Open every affected pane:
+If any test fails:
+- Confirm the failure is reproducible.
+- If it is a real regression introduced by t749_1..t749_6, list it under
+  **Upstream defects identified** in this plan's Final Implementation
+  Notes and surface it during the Step 8 review for a decision (fix
+  here vs. spawn follow-up).
+- If the failure is unrelated (pre-existing flake, env issue), log it in
+  Final Implementation Notes and continue.
 
-- DAG view — footer should read `j Next  k Prev  enter Open  h Set
-  HEAD  o Operation`.
-- Dashboard left pane — footer should include `o Operation`.
-- OperationDetailScreen — footer should include `esc Close`.
+### Step 2 — Footer audit (read-only confirmation)
 
-If any footer is missing a key, flip its `show=False` to `show=True`
-on the relevant Binding.
+No code changes needed. Confirm by grep that the relevant bindings
+are still `show=True` (in case anyone has reverted since the
+archived children landed):
 
-### Step 3 — Docs
+```bash
+grep -n 'Binding("[ojhk]"\|Binding("enter"\|Binding("escape"' \
+  .aitask-scripts/brainstorm/brainstorm_dag_display.py \
+  .aitask-scripts/brainstorm/brainstorm_app.py | head
+```
 
-Edit `website/content/docs/brainstorm/` (or whichever subsection
-documents the brainstorm TUI). Add a short subsection covering:
+Expected: `j`, `k`, `enter`, `h`, `o` in `DAGDisplay.BINDINGS`
+(`brainstorm_dag_display.py:408-412`), `o` in `NodeRow.BINDINGS`
+(`brainstorm_app.py:1517-1519`), and `escape Close` in
+`OperationDetailScreen.BINDINGS` (`brainstorm_app.py:1055-1058`).
 
-- The 5-row DAG node-box layout, with the badge row described.
-- Op-color legend.
-- The `o` keybinding and OperationDetailScreen behaviour.
-- The `OpDataRef` reference primitive (one paragraph for
-  contributors).
+### Step 3 — Create follow-up task for full brainstorm TUI docs
 
-If the site lacks any brainstorm docs section yet, create
-`website/content/docs/brainstorm/operation-provenance.md`.
+Per the **Batch Task Creation Procedure**, create a new standalone
+parent task seeded with the original docs requirements that were
+dropped from t749_7:
 
-### Step 4 — Retrospective notes
+```bash
+./.aitask-scripts/aitask_create.sh --batch \
+  --name 'brainstorm_tui_user_facing_docs' \
+  --priority medium \
+  --effort medium \
+  --issue-type documentation \
+  --labels 'ait_brainstorm,documentation' \
+  --description-file <tmp_desc> \
+  --commit
+```
 
-Update the parent plan's `Final Implementation Notes` section with:
+Description content (`<tmp_desc>`) covers:
 
-- Actual work done vs planned, per child.
-- Any deviations and reasons.
-- Pre-existing defects identified during implementation (under the
-  `Upstream defects identified` bullet — see SKILL.md Step 8).
-- Suggestions for follow-up work explicitly out of scope of t749
-  (e.g., showing operation refs in the Compare tab).
+- Goal: write the missing dedicated brainstorm TUI doc at
+  `website/content/docs/tuis/brainstorm/_index.md`, modeled on the
+  existing per-TUI doc pages (board, codebrowser, settings, monitor,
+  syncer, stats).
+- Section coverage: launch flow (`ait brainstorm <task>`), session
+  layout, dashboard panes, DAG view (including the 5-row node-box and
+  op-color legend introduced in t749_3), Status tab, Compare tab,
+  operations (explore / compare / hybridize / detail / patch /
+  bootstrap), the `o` keybinding and OperationDetailScreen
+  (introduced in t749_5/t749_6), and the `OpDataRef` reference
+  primitive for contributors.
+- Update the brainstorm line in
+  `website/content/docs/tuis/_index.md` to link to the new page and
+  drop the "Dedicated documentation is pending" suffix.
+- Depends on t749_8 (manual verification) — the doc should be written
+  only after a user has confirmed the TUI behaviour matches the
+  intended spec, to avoid drift between docs and actual UX.
+
+Parse the `aitask_create.sh` output for `CREATED:<new_id>:<path>` and
+report the new id to the user.
+
+### Step 4 — Final notes
+
+Do NOT append a synthesised retrospective to
+`aiplans/p749_report_operation_that_generated_nod.md`. Each archived
+child plan already has its own Final Implementation Notes, which is
+sufficient.
+
+Append this plan file's own **Final Implementation Notes** during
+Step 8 per the standard workflow, with:
+
+- **Actual work done:** ran sibling test suite; confirmed footer
+  bindings; spawned follow-up docs task t\<N\>.
+- **Deviations from plan:** docs and parent-plan retro both deferred
+  per user direction (see Context).
+- **Upstream defects identified:** None (or list any test regression
+  caught in Step 1).
+- **Notes for sibling tasks:** none — this is the last sibling before
+  manual verification.
 
 ## Files Modified
 
-- `website/content/docs/brainstorm/operation-provenance.md` — new or
-  expanded
-- `aiplans/p749_report_operation_that_generated_nod.md` — Final
-  Implementation Notes appended
+- `aitasks/...` — only the follow-up task file created in Step 3
+  (handled by `aitask_create.sh --batch --commit`).
+- This plan file — `Final Implementation Notes` appended at Step 8.
+- No code changes, no website docs changes, no parent-plan edits.
 
 ## Verification
 
-1. Run all sibling tests and confirm they pass.
-2. `cd website && ./serve.sh` — visually confirm the new section
-   renders.
-3. Walk through the parent plan's verification section step by step.
+1. `python -m pytest tests/test_brainstorm_groups_persist.py
+   tests/test_brainstorm_op_refs.py
+   tests/test_brainstorm_dag_op_badge.py
+   tests/test_brainstorm_operation_detail_screen.py
+   tests/test_brainstorm_dag_op_keybinding.py -v` — all green.
+2. The follow-up docs task appears in `./ait ls` with
+   `issue_type: documentation` and `depends: [t749_8]` (or the
+   appropriate sibling id).
+3. After t749_7 archives, `aitask_archive.sh` auto-archives the
+   parent t749 (per parent-on-last-child logic — t749_8 is a
+   standalone follow-up, NOT part of t749's
+   `children_to_implement`, so it does not block parent archival.
+   Double-check this assumption when running the archive script —
+   if t749_8 is still listed under the parent's
+   `children_to_implement`, the parent will not auto-archive, and
+   that is acceptable).
 
 ## Step 9 (Post-Implementation)
 
-Standard archival flow. After this child archives, the parent t749
-auto-archives via `aitask_archive.sh`.
-
-## Verification
-
-(Aggregated under the parent task's manual-verification sibling.)
+Standard archival flow via `./.aitask-scripts/aitask_archive.sh 749_7`.
+Watch the script output for `PARENT_ARCHIVED:` to confirm whether t749
+also archived in the same run.
