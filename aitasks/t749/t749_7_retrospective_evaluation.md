@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t749_6]
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [ait_brainstorm]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-05 10:44
-updated_at: 2026-05-05 10:44
+updated_at: 2026-05-16 20:52
 ---
 
 ## Context
