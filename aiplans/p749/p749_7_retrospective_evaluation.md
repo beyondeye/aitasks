@@ -199,3 +199,80 @@ Step 8 per the standard workflow, with:
 Standard archival flow via `./.aitask-scripts/aitask_archive.sh 749_7`.
 Watch the script output for `PARENT_ARCHIVED:` to confirm whether t749
 also archived in the same run.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Ran the five sibling brainstorm test modules via the project venv
+    (`/home/ddt/.aitask/venv/bin/python -m unittest`, since the venv
+    does not ship pytest): 62/62 tests pass across
+    `test_brainstorm_groups_persist`, `test_brainstorm_op_refs`,
+    `test_brainstorm_dag_op_badge`,
+    `test_brainstorm_operation_detail_screen`, and
+    `test_brainstorm_dag_op_keybinding`.
+  - Confirmed footer bindings by grep on the current code:
+    `DAGDisplay.BINDINGS` at
+    `.aitask-scripts/brainstorm/brainstorm_dag_display.py:408-412`
+    has `j Next`, `k Prev`, `enter Open`, `h Set HEAD`, `o Operation`
+    all with `show=True`; `NodeRow.BINDINGS` at
+    `.aitask-scripts/brainstorm/brainstorm_app.py:1517-1519` has `o`
+    with `show=True`; `OperationDetailScreen.BINDINGS` at
+    `.aitask-scripts/brainstorm/brainstorm_app.py:1055-1058` has the
+    footer-visible `escape Close`. No code changes were needed.
+  - Spawned follow-up task **t776**
+    (`brainstorm_tui_user_facing_docs`, `issue_type: documentation`,
+    `depends: [t749_8]`) seeded with the deferred docs scope: write
+    a dedicated brainstorm TUI doc at
+    `website/content/docs/tuis/brainstorm/_index.md` once manual
+    verification (t749_8) has confirmed the operation-provenance
+    behaviour.
+
+- **Deviations from plan:** Two of the four original sub-tasks were
+  dropped after re-verification against the current codebase (user
+  decision, captured in the Context section above):
+  1. **Docs** — deferred to t776 because the brainstorm TUI lacks
+     any umbrella docs; writing a partial doc for one feature ahead
+     of manual verification produces a doc that goes stale fast.
+  2. **Parent-plan retrospective synthesis** — skipped because each
+     archived child plan
+     (`aiplans/archived/p749/p749_{1..6}*.md`) already carries a
+     comprehensive `Final Implementation Notes` section, and the
+     parent plan synthesis would only restate them.
+
+  In addition, the test invocation used `python -m unittest`
+  (matching the actual `unittest.TestCase`-style test files) rather
+  than `pytest` as the parent plan's Verification section suggested —
+  pytest is not installed in the project venv. The parent plan also
+  referenced `.sh` filenames for two of the tests
+  (`test_brainstorm_groups_persist.sh`,
+  `test_brainstorm_dag_op_badge.sh`); the actual files on disk are
+  `.py`. Noted here so future readers do not chase those phantom
+  scripts.
+
+- **Issues encountered:**
+  - First test invocation tried `python -m pytest` per the parent
+    plan; the project venv has no `pytest` module. Switched to
+    `python -m unittest` with explicit module paths
+    (`tests.test_brainstorm_*`) and all tests passed.
+
+- **Key decisions:**
+  - Did **not** retroactively edit the parent plan's Verification
+    section to fix the `.sh`/`pytest` references; that plan is
+    still active and will follow the standard archival flow when
+    t749 auto-archives. Capturing the discrepancy here keeps the
+    archival commit clean and surfaces the gotcha in the
+    sibling-context that future archived-plan readers see.
+  - Deferred all docs work (rather than committing a stub
+    operation-provenance doc) to avoid producing a partial
+    doc that fragments the future full-TUI docs effort.
+
+- **Upstream defects identified:** None. All sibling tests pass and
+  the footer bindings already match the spec from the archived
+  child plans.
+
+- **Notes for sibling tasks:** None — t749_7 is the last child of
+  t749 in the `children_to_implement` list. The manual-verification
+  sibling `t749_8` is a standalone follow-up (not part of
+  `children_to_implement`) and will be picked separately after
+  parent archival. The new follow-up `t776` is a standalone
+  documentation task that depends on `t749_8`.
