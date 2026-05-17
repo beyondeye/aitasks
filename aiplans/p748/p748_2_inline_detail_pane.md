@@ -332,3 +332,114 @@ more specific and combines correctly.
 
 See parent plan. Archive via
 `./.aitask-scripts/aitask_archive.sh 748_2`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-17 14:30)
+
+- **Requested by user:** On the Dashboard tab, Tab toggles focus
+  between the node list and the dimension list, and Up/Down arrows
+  navigate DimensionRow items in the detail pane. The Graph tab did
+  not reproduce this: Tab fell through to default focus traversal, and
+  Up/Down did nothing when a DimensionRow in the right pane was
+  focused.
+- **Changes made:**
+  - Added `_graph_toggle_pane_focus()` mirroring
+    `_dashboard_toggle_pane_focus()` — toggles focus between
+    `DAGDisplay` (left) and the first focusable `DimensionRow` inside
+    `#dag_node_info` (right), with no-op fall-through when the detail
+    pane has no dimension rows.
+  - Extended the app-level `on_key` handler with two new branches for
+    `tab_dag`:
+    - Up/Down when `isinstance(self.focused, DimensionRow)` →
+      `_navigate_rows(direction, "dag_node_info", (DimensionRow,))`.
+      Guarded on `DimensionRow` focus so DAGDisplay's own
+      `prev_layer` / `next_layer` bindings continue to handle Up/Down
+      when the DAG itself is focused.
+    - Tab / Shift+Tab → `_graph_toggle_pane_focus()`.
+- **Files affected:**
+  - `.aitask-scripts/brainstorm/brainstorm_app.py` (one new method,
+    two new on_key branches).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `.aitask-scripts/brainstorm/brainstorm_dag_display.py` — added
+    `DAGDisplay.FocusChanged(node_id)` message class. Posted from:
+    - End of `load_dag()` after the focus clamp + `_render_dag()`,
+      guarded by `if self._node_order:` — primes the detail pane on
+      first Graph-tab entry.
+    - All four arrow actions (`action_prev_col`, `action_next_col`,
+      `action_prev_layer`, `action_next_layer`).
+    - All three event actions (`action_open_node`, `action_head_node`,
+      `action_open_operation`), per t748_1's sibling notes.
+  - `.aitask-scripts/brainstorm/brainstorm_app.py`:
+    - Extracted `_render_node_detail_widgets(node_id) -> (title, widgets)`
+      shared helper. Returns a `Static("(node not readable)")` widget
+      on `read_node` failure instead of silently returning — slight UX
+      improvement over the original silent-return.
+    - `_show_node_detail` reduced to thin caller mounting widgets into
+      `#dash_node_info`.
+    - Added `_show_dag_node_detail` (thin caller for `#dag_node_info`).
+    - Restructured `tab_dag` compose: `Horizontal(id="dag_split")` →
+      `DAGDisplay(id="dag_content")` (60%) + `VerticalScroll` containing
+      `Label(id="dag_node_title")` + `Container(id="dag_node_info")`
+      (40%).
+    - Added CSS rules for `#dag_split`, `#dag_content`,
+      `#dag_detail_pane`, `#dag_node_title`, `#dag_node_info`.
+    - Wired `@on(DAGDisplay.FocusChanged)` handler that calls
+      `_show_dag_node_detail(event.node_id)`.
+    - Renamed `_current_dashboard_node_id` → `_current_focused_node_id`
+      via `replace_all`. Six write/read sites total (including the new
+      `_show_dag_node_detail` write site).
+    - Post-Review Change Request 1: added `_graph_toggle_pane_focus()`
+      mirroring `_dashboard_toggle_pane_focus()`, plus two new on_key
+      branches for `tab_dag` to handle Tab/Shift+Tab pane toggle and
+      Up/Down DimensionRow navigation.
+- **Deviations from plan:**
+  - The original plan listed 5 rename sites for
+    `_current_dashboard_node_id`; the actual final count is 7 (the
+    plan miscounted by not including the new `_show_dag_node_detail`
+    write site, and `_show_brief_in_detail` clears it via
+    `= None`). Using `replace_all` on the unique symbol avoided manual
+    enumeration risk.
+  - Post-Review Change Request 1 added Graph-tab Tab toggling and
+    Up/Down DimensionRow navigation to mirror Dashboard — the original
+    plan only added reactive pane refresh and did not address keyboard
+    parity with the Dashboard. The change preserves DAGDisplay's own
+    `prev_layer`/`next_layer` Up/Down bindings (only intercepts when
+    `self.focused` is a `DimensionRow`).
+- **Issues encountered:** None during implementation.
+- **Key decisions:**
+  - `FocusChanged` is also posted from `action_open_node` /
+    `action_head_node` / `action_open_operation` per t748_1's sibling
+    notes, even though those actions don't change focus. This is
+    harmless re-sync that keeps the detail pane in lockstep after any
+    user action.
+  - The Tab/Up-Down on_key branches for `tab_dag` are guarded on
+    `isinstance(self.focused, DimensionRow)` for Up/Down so DAGDisplay's
+    own arrow bindings keep working when DAGDisplay itself is focused;
+    Tab/Shift+Tab on `tab_dag` always runs the toggle helper, which
+    no-ops back to default traversal when the detail pane is empty.
+  - The `_render_node_detail_widgets` helper is the canonical reuse
+    point for any future per-node detail surface (e.g., Compare tab
+    side panels). Don't re-inline the operation block elsewhere.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - `DAGDisplay.FocusChanged(node_id)` is now defined and wired. Any
+    future action added to `DAGDisplay` that changes the focused node
+    should also `self.post_message(self.FocusChanged(...))`.
+  - The `Horizontal(id="dag_split")` and
+    `VerticalScroll(id="dag_detail_pane")` ids are referenced by CSS
+    — keep them stable.
+  - `_render_node_detail_widgets` is the shared helper — t748_3
+    (view proposal/plan keys) and t748_4 (compare picker) should reuse
+    it if they need to surface node-detail blocks anywhere else.
+  - The `_current_focused_node_id` attribute now serves both
+    Dashboard and Graph tabs uniformly. Anything that needs to know
+    "which node is the user looking at right now" should read this.
+  - For t748_5 (manual verification): add checklist items for
+    Tab/Shift+Tab toggle between DAG and detail pane, Up/Down
+    DimensionRow navigation when right pane is focused, and the
+    initial-tab-entry detail pane population from `load_dag`'s
+    `FocusChanged` emit.
