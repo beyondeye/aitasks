@@ -375,3 +375,47 @@ Standard child-task archival via `./.aitask-scripts/aitask_archive.sh 777_3`. Fi
 - D4 per-agent stub-surface table.
 - D5 `--profile <name>` argument-override convention.
 - D6 Python TUI / `ait skillrun` invocation convention (pass `--profile` through ARGUMENTS; never invoke rendered slash command directly).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Foundational code changes (committed via plain `git`):
+    - `.aitask-scripts/lib/agent_skills_paths.sh` — `agent_skill_dir` body changed to always append the profile suffix AND a trailing hyphen when a non-empty profile is given. Header comment block expanded with the trailing-hyphen rationale and explicit notice that this REVERSES t777_1's "default = no suffix" convention.
+    - `tests/test_skill_template.sh` — 3 assertion updates (default and fast and gemini cases) for the new trailing-hyphen paths. 20/20 PASS.
+    - `tests/test_skill_render.sh` — 6 path updates across test cases 1 (`$SK1-fast-/`), 4 (`$SK1-${SCRATCH_PROFILE_NAME}-/`), 6 (`$SK_A-fast-/` + `$SK_B-fast-/`), 7 (within-skill include target `$SK_S-fast-/` + spurious-dir check `_partial-fast-`), 8 (`$SK_MD-fast-/`). 32/32 PASS.
+    - `.gitignore` — appended 5 lines (1 comment header + 4 trailing-hyphen globs).
+    - `.claude/skills/task-workflow/stub-skill-pattern.md` — new canonical design doc with 8 subsections (3a Purpose, 3b Claude/Codex SKILL.md form, 3c Gemini TOML form, 3d OpenCode MD form, 3e Why Read-and-follow not slash-dispatch, 3f Stub authoring conventions, 3g Per-agent surface table, 3h Argument forwarding contract).
+  - Sibling task description patches (captured by the auto-commit-before-sync hook into commit `522fead6`, message "ait: Auto-commit task changes before sync"):
+    - t777_3 description (this task's own description; minor edits picked up by the auto-commit).
+    - t777_4 — verifier scans Claude/Codex SKILL.md AND Gemini command TOML AND OpenCode command MD; pre-commit hook glob expanded to include `.gemini/commands/` and `.opencode/commands/`.
+    - t777_5 — wrapper invokes user-facing `/<skill> --profile <profile> <args>` (not `/<skill>-<profile>-`); `--profile-override` writes to `aitasks/metadata/profiles/local/_skillrun_<unique>.yaml` with EXIT-trap cleanup.
+    - t777_6 — pilot's per-agent stub paths corrected (4 surfaces, with Gemini and OpenCode stubs in command files, not skill files); Verification Steps updated for trailing-hyphen rendered paths and `--profile <name>` override test.
+    - t777_8..15 — uniform patch via Python script (8 conversion tasks): per-agent surface correction, trailing-hyphen rendered paths, frontmatter `name: aitask-<X>-{{ profile.name }}-`.
+    - t777_17 — per-run editor writes override under `aitasks/metadata/profiles/local/_skillrun_<unique>.yaml` (NOT /tmp); ARGUMENTS-based override convention reinforced.
+    - t777_18 — docs section expanded with per-agent surface table, trailing-hyphen convention, `--profile <name>` override, authoring-dir-naming rule.
+    - t777_20 — `find ... -name "*-<profile>-"` (trailing hyphen); Pitfalls updated.
+
+- **Deviations from plan:** None significant. The plan's Step 6h ("Commit all sibling-description patches together via `./ait git` … `ait: Patch t777 sibling descriptions per t777_3 design (t777_3)`") was preempted by the project's pre-existing auto-commit-before-sync hook, which produced commit `522fead6` with the generic message "Auto-commit task changes before sync". The diff itself is fully correct; only the commit message wording differs. Not amending (per project convention — no force-push / no destructive ops).
+
+- **Issues encountered:**
+  - `tests/test_skill_render.sh` had 6 path references that needed updating from `<skill>-<profile>/` to `<skill>-<profile>-/`. Initial run after the helper update produced 3 FAILs, which surfaced these stale assertions; updated each in turn and re-ran to 32/32 PASS. The within-skill-include spurious-dir check at line 226 also needed updating (`_partial-fast-` instead of `_partial-fast`) — easy to miss because it's a negative assertion ("dir should NOT exist"), so a stale name would silently pass for the wrong reason.
+  - Test framework leaks scratch skill dirs (`_t777_2_test_basic-fast-`, etc.) under `.claude/skills/` during test runs — Claude auto-discovers them via the SKILL.md scan even though they're gitignored. Cleaned manually after each run. NOT a regression of t777_3 (the leak predates this change). Flagged as an upstream defect below.
+
+- **Key decisions:**
+  - **Trailing hyphen for rendered dirs (D2).** User explicitly preferred a single-glob gitignore over per-profile entries ("per profile suffix gitignore require a lot of mantainance"). The trailing-hyphen marker is the simplest cross-agent rendering of "this is generated content" that avoids per-profile maintenance and avoids touching the authoring-dir naming.
+  - **`agent_skill_dir` default-suffix reversal.** Reverses t777_1's "Notes for sibling tasks": "Resolver returns 'default' as a literal string when nothing else applies — t777_5+ should treat that as 'use the unmodified Claude authoring template' (path agent_skill_dir <agent> <skill> with no profile suffix)." That t777_1 decision was incompatible with the stub model (the stub at the no-suffix path would be overwritten by every default-profile render). t777_3 reserves the no-suffix path exclusively for the committed stub.
+  - **Read-and-follow over slash-dispatch (D1).** Avoids the 4-agent validation matrix and the fallback design. Mirrors `task-workflow/SKILL.md → planning.md` idiom already in production. Slash-dispatch may be revisited as an optimization in a separate task once validated.
+  - **Per-agent stub surfaces (D4).** Stubs at `.gemini/commands/<skill>.toml` `prompt` field and `.opencode/commands/<skill>.md` body (NOT under `<agent_root>/skills/`). Gemini and OpenCode never auto-discover skills — they discover commands; the command wrappers ARE the stubs after t777_6+ conversions land.
+  - **`--profile <name>` ARGUMENTS override + `profiles/local/_skillrun_*.yaml` for per-run overrides (D5/D6).** Single mechanism for non-default profile selection at invocation time. Python TUIs and `ait skillrun` append `--profile <name>` to forwarded args; stub parses, strips, dispatches. Per-run override (AgentCommandScreen edit) writes a tempfile under the auto-discovered `profiles/local/` dir and references it by name through the same `--profile` channel.
+  - **Sibling-patch scope.** All 14 sibling task descriptions patched in t777_3 per [[feedback_plan_split_in_scope_children]]. Avoids the cost of every sibling's verify-mode planning re-deriving the t777_3 design.
+
+- **Upstream defects identified:**
+  - `tests/test_skill_render.sh:148` — EXIT trap `cleanup_with_profile` does not remove the scratch skill dirs (`_t777_2_test_basic-fast-`, `_t777_2_test_basic-_t777_2_test_profile-`, etc.) under `.claude/skills/`. After test run, these dirs are left on disk and get auto-discovered by Claude Code as skills (visible in the skills list). Pre-existed t777_3. Recommended fix: extend `cleanup()` to `rm -rf .claude/skills/${TEST_SKILL_PREFIX}*` in addition to the existing scratch-profile YAML cleanup.
+
+- **Notes for sibling tasks:**
+  - **`agent_skill_dir` contract update (binding for t777_4, t777_5, t777_6, t777_8..15, t777_17, t777_20):** Calling `agent_skill_dir <agent> <skill> default` now returns `<root>/<skill>-default-` (trailing hyphen), not `<root>/<skill>`. Calling `agent_skill_dir <agent> <skill>` (no profile arg) is the stub path; this remains `<root>/<skill>`. Subsequent children must read `lib/agent_skills_paths.sh` + this plan's design doc as canonical; do NOT consult t777_1's archived plan for the default-profile convention.
+  - **`stub-skill-pattern.md` is the single source of truth** for stub authoring. t777_6 (pilot) reads §3b–§3d for the 4 canonical bodies. t777_8..15 follow the same. t777_4 verifier scans the 4 surfaces from §3g.
+  - **Trailing-hyphen audit (load-bearing rule):** `ls .claude/skills/ .agents/skills/ .gemini/skills/ .opencode/skills/ 2>/dev/null | grep -- '-$'` MUST return empty after every change that touches skill dir names. Future renames or new authoring skills MUST NOT end with `-`. Documented in `stub-skill-pattern.md` §3f.
+  - **Gitignore is `*-/` per agent root, never `*-<profile>/`** per the user's explicit preference. New profiles do NOT require gitignore updates.
+  - **`--profile <name>` ARGUMENTS forwarding** is the SOLE mechanism for non-default profile selection at invocation time. No TUI, no wrapper, no command should construct or invoke `/<skill>-<profile>-` directly. The rendered slash command is technically auto-discoverable in Claude only; never rely on it.
+  - **Per-run override YAMLs live under `aitasks/metadata/profiles/local/_skillrun_<unique>.yaml`** so `aitask_scan_profiles.sh` picks them up via the existing `local/*.yaml` resolution. NOT under `/tmp/`. t777_5 and t777_17 must use this path.
