@@ -299,6 +299,69 @@ Standard child-task archival per `task-workflow/SKILL.md` Step 9:
 - **t718 parent** — once t718_4 and this task are archived, t718 can be archived too (its `children_to_implement` should drop to empty).
 - **t719 (tmux control mode)** — independent of this task's outcome. Even if PyPy were a small win here, t719's potential 5-20× refresh speedup remains the long-term win for monitor/minimonitor.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-05-17 11:00)
+
+- **Requested by user:** "task t719 is already mostly implemented how do you explain the slow down with pypy?" — call-out that t719's `tmux -C` control-mode refactor was already landed, so the original "fork+exec dominates" assumption embedded in the plan and the first round of measurements no longer reflects the real hot path.
+- **Investigation:** Confirmed `aitasks/archived/t719/t719_2_hot_path_integration.md` exists; `_tmux_async` in `tmux_monitor.py:246` routes through `TmuxControlBackend` when the backend is alive; `monitor_app.py:642` and `minimonitor_app.py:241` both start the control client at app boot. The benchmark I ran first never called `await monitor.start_control_client()`, so `_backend` stayed `None` and `_tmux_async` fell through to the legacy `_run_tmux_async` (fork+exec) path. My initial measurement was of the obsolete fallback path.
+- **Changes made:**
+  1. Rewrote `/tmp/bench_capture_all_async.py` to import `tmux_monitor` as `monitor.tmux_monitor` (fixes its relative import `from .tmux_control import …`), call `await monitor.start_control_client()`, verify `backend=control` is alive, and report which path the run exercised. Added a `--no-control` flag for the comparison.
+  2. Re-ran the full pane-count sweep (3/8/15) on the control-mode path with extended warmup (500 PyPy warmup iterations vs 50 CPython, since PyPy needs many more samples before JIT specializes) and 500 measurement iterations × 3 reps.
+  3. Replaced the "fork+exec dominates" framing in `aidocs/python_tui_performance.md` with a two-table writeup (fallback path + control-mode path) and a corrected rationale section.
+  4. Rewrote the `CLAUDE.md` "Project-Specific Notes" entry to drop the obsolete "until t719 lands" caveat and instead reference t719_4 (pipe-pane push, still pending) as the next point at which the verdict should be re-evaluated.
+- **Files affected:** `/tmp/bench_capture_all_async.py` (uncommitted), `aidocs/python_tui_performance.md`, `CLAUDE.md`.
+- **Final verdict (unchanged):** REVERT. PyPy loses on both the legacy fallback path AND the post-t719_2 control-mode path, for different reasons.
+
 ## Final Implementation Notes
 
-(To be filled in during implementation — measurement table, decision, deviations from plan.)
+- **Actual work done:** Two-phase measurement against PyPy 7.3.21 / Python 3.11.15 vs CPython 3.14.4 on this Linux machine. Set up three isolated benchmark tmux sessions (`pypy_bench_<pid>_{3,8,15}`) with 3/8/15 bash panes, built `/tmp/bench_capture_all_async.py` (uncommitted), and microbenchmarked `TmuxMonitor.capture_all_async()` with `multi_session=False`. **Phase 1** (initial, incorrect — measured the legacy fork+exec fallback because the benchmark never started the control client): N=100 iter, 20 warmup, 3 reps. **Phase 2** (corrected, after user pointed out t719_2 already landed): re-ran the benchmark with `await monitor.start_control_client()` and verified `backend=control` alive; used N=500 iter and 500-iter PyPy warmup / 50-iter CPython warmup to fully prime PyPy's JIT, 3 reps. Also measured `import monitor_app` cold-start (5 reps per interpreter).
+
+  Final result — control-mode path (the path monitor actually takes today):
+
+  | Panes | CPython median | PyPy median | Ratio |
+  |-------|---------------:|------------:|------:|
+  | 3     | 0.37 ms        | 0.65 ms     | PyPy 76% slower |
+  | 8     | 0.62 ms        | 1.18 ms     | PyPy 90% slower |
+  | 15    | 1.03 ms        | 1.01 ms     | ~equal (within noise) |
+
+  Reference — legacy fallback path (pre-t719_2; included for comparison since the benchmark exercises this path when `--no-control` is set):
+
+  | Panes | CPython median | PyPy median | Ratio |
+  |-------|---------------:|------------:|------:|
+  | 3     | 2.75 ms        | 8.90 ms     | PyPy 3.2× slower |
+  | 8     | 3.47 ms        | 19.17 ms    | PyPy 5.5× slower |
+  | 15    | 4.61 ms        | 34.14 ms    | PyPy 7.4× slower |
+
+  Cold-start: CPython 159 ms vs PyPy 325 ms (~2× slower).
+
+  Verdict: **REVERT**. No launcher edits made; `git diff` against base shows zero change to `.aitask-scripts/aitask_monitor.sh` and `.aitask-scripts/aitask_minimonitor.sh`. Documentation updates: `aidocs/python_tui_performance.md` has a new "t718_5 Empirical Verification" section with both result tables and corrected rationale; `CLAUDE.md` "Project-Specific Notes" has a new bullet documenting the negative result and the conditions under which it should be re-evaluated.
+
+- **Deviations from plan:** Four:
+  1. **Part 3 (strace sanity check) was skipped** — `strace` is not installed on this machine. Part 1's microbenchmark measures end-to-end per-tick wall time directly, which is the actual KEEP/REVERT input; the strace check would have only verified the *root cause* of the slowness in the legacy path, not changed the decision.
+  2. **`/usr/bin/time` is not present on this Arch system** — used `date +%s.%N` arithmetic for cold-start timing instead. Functionally equivalent; reported in ms.
+  3. **The decision rule's secondary clause ("PyPy cold-start regression doesn't exceed per-launch savings over 30 ticks") was moot** — there are no per-launch savings to compare against; PyPy is slower on both the per-tick path AND cold-start.
+  4. **The plan's framing ("fork+exec dominates, so PyPy can't help") was based on an obsolete view of the codebase.** t719_2 had already eliminated per-tick fork+exec from the production hot path before this task was picked. The initial measurement had to be redone after the user pointed this out. The corrected measurement (control-mode path) shows PyPy still loses, but for a different reason: per-coroutine + cross-thread overhead. The plan's Context section underestimated how much of t719 was already done — a planning-time miss documented here so future tasks of this class (benchmarking a path that may have already been refactored) explicitly verify the path under test.
+
+- **Issues encountered:**
+  1. `tmux split-window -t "=$S:0"` failed silently — sessions created by `new-session -d -s NAME "command"` index their first window as `1`, not `0`. Switched to bare `-t "$S"` (active window) and rebuilt sessions.
+  2. **Most important methodology bug**: the initial benchmark instantiated `TmuxMonitor` but never called `await monitor.start_control_client()`, so `_backend` stayed `None` and the benchmark exercised the legacy `_run_tmux_async` fallback (fork+exec per pane). This was only caught when the user flagged "t719 is already mostly implemented". Fix: explicitly start the control client in the bench script and assert `monitor._backend.is_alive` before measuring. Lesson: when benchmarking a code path that has an alternate implementation behind a runtime switch (here: backend vs fallback), always assert which path is actually exercised before believing the numbers.
+  3. PyPy JIT under-warmup: 20 warmup iterations was not enough for PyPy on the control-mode path. Increased to 500 PyPy warmup iterations for the final sweep; PyPy median per-tick dropped from ~2 ms to ~1.2 ms post-warmup, but stayed slower than CPython at every realistic pane count.
+
+- **Key decisions:**
+  1. **Use `multi_session=False`** when instantiating `TmuxMonitor` for the bench. Scopes `discover_panes_async()` to the bench session and prevents accidental inclusion of the user's `aitasks` session panes, which would skew pane counts.
+  2. **Three pane-count points (3/8/15)** rather than one "typical" number. The control-mode slowdown ratio *narrows* with pane count (76% → 90% → ~equal), which surfaces the per-tick fixed-overhead nature of PyPy's penalty here and motivates the "re-evaluate after t719_4" guidance.
+  3. **No code edits to launchers** even temporarily — the plan was written so the decision is made *before* editing. The launchers remain unmodified across the entire workflow.
+  4. **Document both paths**, not just the production path. The legacy fallback path numbers stay useful because (a) they describe what happens when the control client fails to start (which `_tmux_async` falls back to), and (b) they validate the historical "fork+exec dominates" framing for the pre-t719 codebase.
+  5. **The CLAUDE.md note explicitly names t719_4 as the next re-evaluation trigger** (not t719 in general), because t719_2 has already landed and PyPy still loses; only a further reshaping of the per-tick work (e.g., pipe-pane push) could plausibly flip the verdict.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t718_4 (manual verification)** — no checklist change required. The fast-path TUI list ratified there is unchanged.
+  - **t718 parent** — after t718_4 archives, t718's `children_to_implement` drops to empty and it can be archived too.
+  - **t719_3 (adaptive polling)** — if/when it archives, the per-tick *frequency* changes, not the per-tick *cost*; this benchmark's per-tick numbers stay relevant. No re-measurement needed for that child alone.
+  - **t719_4 (pipe-pane push)** — when it archives, **re-run this benchmark**. Push-based delivery shifts work from "send a command, await a frame" toward "read and parse pushed frames", which is the workload class where PyPy traditionally helps. The current REVERT verdict may flip there. Reference this plan's bench script structure.
+  - **t719_5 (manual verification of monitor tmux control)** — independent of this task.
+  - **t719_6 (architecture evaluation)** — should cite this task's control-mode numbers as the post-t719_2 baseline against which any further architectural change should compare.
+  - **Future long-running TUIs** should call `require_ait_python_fast` from the start *only* if their hot path is Python-bound (Textual rendering, frontmatter parsing, large data transforms). TUIs whose hot path is per-tick coordinated subprocess/IPC work — where the per-call overhead dominates — should stay on `require_ait_python`. This task is the empirical anchor for that rule.

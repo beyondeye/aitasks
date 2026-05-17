@@ -1,7 +1,7 @@
 ---
 priority: low
 effort: medium
-depends: []
+depends: [t718_5]
 issue_type: performance
 status: Ready
 labels: [performance, tui]
