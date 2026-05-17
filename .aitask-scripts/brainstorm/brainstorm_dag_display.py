@@ -435,6 +435,13 @@ class DAGDisplay(VerticalScroll):
             super().__init__()
             self.group_name = group_name
 
+    class FocusChanged(Message):
+        """Emitted when DAG focus moves to a different node."""
+
+        def __init__(self, node_id: str) -> None:
+            super().__init__()
+            self.node_id = node_id
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._session_path: Path | None = None
@@ -485,6 +492,11 @@ class DAGDisplay(VerticalScroll):
             self._focused_idx = 0
 
         self._render_dag()
+
+        if self._node_order:
+            self.post_message(
+                self.FocusChanged(self._node_order[self._focused_idx])
+            )
 
     def _render_dag(self) -> None:
         """Build full DAG rendering and update display."""
@@ -563,6 +575,9 @@ class DAGDisplay(VerticalScroll):
         if ci > 0:
             self._focused_idx = self._focused_idx_from_layer_col(li, ci - 1)
             self._render_dag()
+            self.post_message(
+                self.FocusChanged(self._node_order[self._focused_idx])
+            )
 
     def action_next_col(self) -> None:
         """Move focus one column right within the current layer (→ key)."""
@@ -573,6 +588,9 @@ class DAGDisplay(VerticalScroll):
         if ci < len(self._layers[li]) - 1:
             self._focused_idx = self._focused_idx_from_layer_col(li, ci + 1)
             self._render_dag()
+            self.post_message(
+                self.FocusChanged(self._node_order[self._focused_idx])
+            )
 
     def action_prev_layer(self) -> None:
         """Move focus to the nearest-center column of the previous layer (↑)."""
@@ -590,6 +608,9 @@ class DAGDisplay(VerticalScroll):
         )
         self._focused_idx = self._focused_idx_from_layer_col(li - 1, best_ci)
         self._render_dag()
+        self.post_message(
+            self.FocusChanged(self._node_order[self._focused_idx])
+        )
 
     def action_next_layer(self) -> None:
         """Move focus to the nearest-center column of the next layer (↓)."""
@@ -607,6 +628,9 @@ class DAGDisplay(VerticalScroll):
         )
         self._focused_idx = self._focused_idx_from_layer_col(li + 1, best_ci)
         self._render_dag()
+        self.post_message(
+            self.FocusChanged(self._node_order[self._focused_idx])
+        )
 
     def action_open_node(self) -> None:
         """Post NodeSelected for the focused node (enter key)."""
@@ -615,6 +639,9 @@ class DAGDisplay(VerticalScroll):
         self.post_message(
             self.NodeSelected(self._node_order[self._focused_idx])
         )
+        self.post_message(
+            self.FocusChanged(self._node_order[self._focused_idx])
+        )
 
     def action_head_node(self) -> None:
         """Post HeadChanged for the focused node (h key)."""
@@ -622,6 +649,9 @@ class DAGDisplay(VerticalScroll):
             return
         self.post_message(
             self.HeadChanged(self._node_order[self._focused_idx])
+        )
+        self.post_message(
+            self.FocusChanged(self._node_order[self._focused_idx])
         )
 
     def action_open_operation(self) -> None:
@@ -638,3 +668,4 @@ class DAGDisplay(VerticalScroll):
             )
             return
         self.post_message(self.OperationOpened(group))
+        self.post_message(self.FocusChanged(focused_id))

@@ -2078,6 +2078,30 @@ class BrainstormApp(TuiSwitcherMixin, App):
         padding: 0;
     }
 
+    /* Graph tab split pane */
+    #dag_split {
+        height: 1fr;
+    }
+
+    #dag_content {
+        width: 60%;
+    }
+
+    #dag_detail_pane {
+        width: 40%;
+        padding: 0 1;
+    }
+
+    #dag_node_title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #dag_node_info {
+        height: auto;
+        padding: 0;
+    }
+
     .meta_field {
         padding: 0;
     }
@@ -2431,7 +2455,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._applying_patcher: set[str] = set()
         self._patcher_apply_errors: dict[str, str] = {}
         self._patcher_poll_timer = None
-        self._current_dashboard_node_id: str | None = None
+        self._current_focused_node_id: str | None = None
         # Remembered for the lifetime of the app; pre-fills the export modal's
         # directory input so repeated exports default to the previous choice.
         self._last_export_dir: str | None = None
@@ -2512,7 +2536,13 @@ class BrainstormApp(TuiSwitcherMixin, App):
                         id="detail_pane",
                     )
             with TabPane("(G)raph", id="tab_dag"):
-                yield DAGDisplay(id="dag_content")
+                with Horizontal(id="dag_split"):
+                    yield DAGDisplay(id="dag_content")
+                    yield VerticalScroll(
+                        Label("", id="dag_node_title"),
+                        Container(id="dag_node_info"),
+                        id="dag_detail_pane",
+                    )
             with TabPane("(C)ompare", id="tab_compare"):
                 yield VerticalScroll(
                     Label(
@@ -2578,12 +2608,37 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 event.stop()
                 return
 
+        # Up/down on Graph tab when a DimensionRow in the right pane is
+        # focused: navigate among DimensionRow widgets in #dag_node_info.
+        # When DAGDisplay itself is focused, its own up/down bindings handle
+        # layer navigation (so we don't intercept here).
+        if (
+            event.key in ("up", "down")
+            and tabbed.active == "tab_dag"
+            and isinstance(self.focused, DimensionRow)
+        ):
+            direction = 1 if event.key == "down" else -1
+            if self._navigate_rows(direction, "dag_node_info", (DimensionRow,)):
+                event.prevent_default()
+                event.stop()
+                return
+
         # Tab / Shift+Tab on Dashboard: toggle focus between the node list (left)
         # and the dimension list (right). Only fires when there is at least one
         # DimensionRow in the detail pane (i.e., a node with dimensions is
         # currently displayed).
         if event.key in ("tab", "shift+tab") and tabbed.active == "tab_dashboard":
             if self._dashboard_toggle_pane_focus():
+                event.prevent_default()
+                event.stop()
+                return
+
+        # Tab / Shift+Tab on Graph: toggle focus between DAGDisplay (left)
+        # and the detail pane DimensionRows (right). Only fires when there
+        # is at least one DimensionRow in #dag_node_info, mirroring the
+        # Dashboard behavior.
+        if event.key in ("tab", "shift+tab") and tabbed.active == "tab_dag":
+            if self._graph_toggle_pane_focus():
                 event.prevent_default()
                 event.stop()
                 return
@@ -2939,9 +2994,9 @@ class BrainstormApp(TuiSwitcherMixin, App):
             if not node_rows:
                 return False
             target = node_rows[0]
-            if self._current_dashboard_node_id:
+            if self._current_focused_node_id:
                 for r in node_rows:
-                    if r.node_id == self._current_dashboard_node_id:
+                    if r.node_id == self._current_focused_node_id:
                         target = r
                         break
             target.focus()
@@ -2951,6 +3006,39 @@ class BrainstormApp(TuiSwitcherMixin, App):
         if isinstance(focused, NodeRow):
             try:
                 container = self.query_one("#dash_node_info")
+            except Exception:
+                return False
+            dim_rows = [
+                w for w in container.children
+                if isinstance(w, DimensionRow) and w.can_focus
+            ]
+            if not dim_rows:
+                return False
+            dim_rows[0].focus()
+            dim_rows[0].scroll_visible()
+            return True
+        return False
+
+    def _graph_toggle_pane_focus(self) -> bool:
+        """Tab toggle between the Graph tab's DAG (left) and detail pane (right).
+
+        Mirrors `_dashboard_toggle_pane_focus`: returns True if focus was
+        moved (caller should stop the event), False otherwise so default
+        Tab traversal still applies.
+        """
+        focused = self.focused
+        try:
+            dag = self.query_one(DAGDisplay)
+        except Exception:
+            return False
+        # Right → left: dimension row → DAGDisplay.
+        if isinstance(focused, DimensionRow):
+            dag.focus()
+            return True
+        # Left → right: DAGDisplay → first dimension row (only if any exist).
+        if focused is dag:
+            try:
+                container = self.query_one("#dag_node_info")
             except Exception:
                 return False
             dim_rows = [
@@ -3702,32 +3790,31 @@ class BrainstormApp(TuiSwitcherMixin, App):
             row = NodeRow(nid, desc, is_head=(nid == head))
             pane.mount(row)
 
-    def _show_node_detail(self, node_id: str) -> None:
-        """Update the right pane with detail for the focused node."""
+    def _render_node_detail_widgets(self, node_id: str) -> tuple[str, list]:
+        """Return (title_text, widgets) for the inline node-detail pane.
+
+        Shared by Dashboard's _show_node_detail and Graph's
+        _show_dag_node_detail. Widgets are unmounted instances ready
+        for mount() into the caller's container.
+        """
         try:
             node_data = read_node(self.session_path, node_id)
         except Exception:
-            return
-
-        self._current_dashboard_node_id = node_id
+            return (f"Node: {node_id}", [Static("(node not readable)")])
 
         desc = node_data.get("description", "")
         parents = node_data.get("parents", [])
         created = node_data.get("created_at", "")
         group = node_data.get("created_by_group", "")
 
-        self.query_one("#dash_node_title", Label).update(f"Node: {node_id}")
-
-        container = self.query_one("#dash_node_info", Container)
-        container.remove_children()
-
-        container.mount(Static(
+        widgets: list = []
+        widgets.append(Static(
             f"[bold $accent]Description:[/] {desc}", classes="meta_field"))
-        container.mount(Static(
+        widgets.append(Static(
             f"[bold $accent]Parents:[/] "
             f"{', '.join(parents) if parents else 'root'}",
             classes="meta_field"))
-        container.mount(Static(
+        widgets.append(Static(
             f"[bold $accent]Created:[/] {created}", classes="meta_field"))
         if group:
             groups = _read_groups(self.session_path)
@@ -3740,26 +3827,25 @@ class BrainstormApp(TuiSwitcherMixin, App):
             op_color = op_style.color
             color_hex = op_color.name if op_color else "#888"
 
-            container.mount(Static(
+            widgets.append(Static(
                 f"[bold $accent]Generated by:[/] [{color_hex} bold]{op}[/]"
                 f"  [dim](group {group})[/]",
                 classes="meta_field"))
             if agents:
-                container.mount(Static(
+                widgets.append(Static(
                     f"[bold $accent]Agents:[/] {', '.join(agents)}",
                     classes="meta_field"))
             if when:
-                container.mount(Static(
+                widgets.append(Static(
                     f"[bold $accent]When:[/] {when}",
                     classes="meta_field"))
-            container.mount(Static(
+            widgets.append(Static(
                 "[dim]Press 'o' for operation details[/]",
                 classes="meta_field"))
 
         dims = get_dimension_fields(node_data)
         grouped = group_dimensions_by_prefix(dims)
         if grouped:
-            # Count proposal sections per dimension key for badge display.
             section_counts: dict[str, int] = {}
             try:
                 proposal = read_proposal(self.session_path, node_id)
@@ -3770,21 +3856,43 @@ class BrainstormApp(TuiSwitcherMixin, App):
             except Exception:
                 pass
 
-            container.mount(Static(""))
-            container.mount(Static("[bold $accent]Dimensions:[/]"))
+            widgets.append(Static(""))
+            widgets.append(Static("[bold $accent]Dimensions:[/]"))
             for _prefix, label, entries in grouped:
-                container.mount(Static(
+                widgets.append(Static(
                     f"[bold $accent]{label}[/]", classes="dim_subheader"))
                 for suffix, value, full_key in entries:
-                    container.mount(DimensionRow(
+                    widgets.append(DimensionRow(
                         suffix, str(value), full_key,
                         section_count=section_counts.get(full_key, 0),
                     ))
 
+        return (f"Node: {node_id}", widgets)
+
+    def _show_node_detail(self, node_id: str) -> None:
+        """Update the Dashboard right pane with detail for the focused node."""
+        self._current_focused_node_id = node_id
+        title_text, widgets = self._render_node_detail_widgets(node_id)
+        self.query_one("#dash_node_title", Label).update(title_text)
+        container = self.query_one("#dash_node_info", Container)
+        container.remove_children()
+        for w in widgets:
+            container.mount(w)
+
+    def _show_dag_node_detail(self, node_id: str) -> None:
+        """Update the Graph tab's inline detail pane for the focused DAG node."""
+        self._current_focused_node_id = node_id
+        title_text, widgets = self._render_node_detail_widgets(node_id)
+        self.query_one("#dag_node_title", Label).update(title_text)
+        container = self.query_one("#dag_node_info", Container)
+        container.remove_children()
+        for w in widgets:
+            container.mount(w)
+
     def _show_brief_in_detail(self, spec: str) -> None:
         """Show the full initial_spec in the detail pane (press b to toggle)."""
         self.query_one("#dash_node_title", Label).update("Task Brief")
-        self._current_dashboard_node_id = None
+        self._current_focused_node_id = None
         container = self.query_one("#dash_node_info", Container)
         container.remove_children()
         # Truncate for the Static widget; full text is in n000_init proposal
@@ -3797,7 +3905,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
 
     def on_dimension_row_activated(self, event: DimensionRow.Activated) -> None:
         """Enter on a DimensionRow → push SectionViewerScreen filtered to matching sections."""
-        node_id = self._current_dashboard_node_id
+        node_id = self._current_focused_node_id
         if not node_id:
             return
         try:
@@ -3863,6 +3971,13 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self.push_screen(
             OperationDetailScreen(event.group_name, self.session_path)
         )
+
+    @on(DAGDisplay.FocusChanged)
+    def on_dag_display_focus_changed(
+        self, event: DAGDisplay.FocusChanged
+    ) -> None:
+        """Refresh the Graph tab's inline detail pane on focus change."""
+        self._show_dag_node_detail(event.node_id)
 
     @on(NodeRow.OperationOpened)
     def on_node_row_operation_opened(
