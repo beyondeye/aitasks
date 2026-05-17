@@ -435,3 +435,91 @@ shared task-workflow Step 9 (`./.aitask-scripts/aitask_archive.sh
   the toast self-dismisses even if `clear_notifications` is
   unavailable.
 - **Files affected:** `.aitask-scripts/brainstorm/brainstorm_dag_display.py`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented `x`/`escape` compare-with picker
+  in the brainstorm Graph tab as planned (steps 1-9): added
+  `ANCHOR_BORDER_STYLE` (Dracula orange `#FFB86C`), `CompareRequested`
+  message class, `_compare_anchor_id` / `_compare_pick_mode` state on
+  `DAGDisplay`, `action_compare_with` / `action_cancel_compare`
+  actions, branched `action_open_node` for compare-confirm (preserving
+  the existing `FocusChanged` emission in the non-pick path), threaded
+  `compare_anchor_id` through `_render_dag` → `_render_layer` →
+  `_render_node_box` with anchor border precedence over HEAD, and
+  added the app-level `@on(DAGDisplay.CompareRequested)` handler that
+  switches to `tab_compare` and rebuilds the diff matrix.
+- **Deviations from plan:** Four interactive iterations were needed
+  to make the Compare-tab activation robust (see Post-Review Changes
+  CR1-4 above). The original plan's handler body
+  (`_build_compare_matrix(...)` then `tabbed.active = "tab_compare"`)
+  could not work as written because:
+  1. `_build_compare_matrix` calls `container.remove_children()`
+     followed by `container.mount(table)` synchronously. Both
+     operations are async-queued; the second consecutive compare
+     attempt races and trips `MountError("id already mounted")`.
+     Fix: `await container.remove_children()` in the handler before
+     calling `_build_compare_matrix` so the previous `#compare_table`
+     is gone first. Required making the handler `async`.
+  2. Textual auto-reverts the active TabPane to keep the focused
+     widget visible. While `DAGDisplay` (focusable, in `tab_dag`)
+     holds focus, `tabbed.active = "tab_compare"` flashes briefly
+     then reverts to `tab_dag`. Fix: focus the parent `Tabs` widget
+     before activating `tab_compare` so no focusable widget is
+     pinned to the deactivating pane.
+  3. The pick-mode `notify(...)` toast persisted past confirm/cancel
+     because Textual's default toast timeout is long. Fix:
+     `self.app.clear_notifications()` (wrapped in try/except for
+     older versions) in both the compare-confirm and cancel paths,
+     plus tight `timeout=2..3` on the surrounding notifies as
+     fallback.
+  Order of operations also changed (tab activation now BEFORE the
+  matrix build, opposite of the original plan).
+- **Issues encountered:**
+  - Textual's `@on(MessageClass)` handlers silently swallow exceptions
+    from the message-dispatch infra, which masked the
+    `MountError("id already mounted")` until a `try/except → notify`
+    wrapper surfaced it. Recommend defensive notify wrappers on any
+    `@on` handler that mutates widget tree, especially when calling
+    into legacy functions that were written for a different call
+    pattern (here: `_build_compare_matrix` assumed the user was
+    already on the Compare tab).
+  - The Textual TabPane auto-revert behavior when the focused widget
+    lives on the deactivating pane is undocumented in the user-facing
+    docs; only manifests when the activation source is keyboard
+    interaction on a focusable widget. Pattern: shift focus to the
+    `Tabs` bar before tab switching from inside a widget action.
+- **Key decisions:**
+  - Anchor color: Dracula orange `#FFB86C` (user-confirmed) instead
+    of the original plan's "yellow" to avoid clashing with the
+    `compare` op-badge style (Dracula yellow `#F1FA8C`).
+  - Used `self.app.notify(...)` to match the existing precedent in
+    `action_open_operation`. DAGDisplay is a Static-based widget;
+    `self.notify(...)` would also work but `self.app.notify` keeps
+    the pattern uniform with sibling actions.
+  - `is_anchor` takes precedence over `is_head` in `_render_node_box`
+    so an anchor on the HEAD node is still visually distinguishable
+    while in pick mode. Once confirmed/cancelled, the HEAD-green
+    border returns.
+- **Upstream defects identified:** None. The `_build_compare_matrix`
+  race (`remove_children()` + `mount()`) is a known Textual idiom
+  limitation, not a defect in any other helper. The TabPane
+  auto-revert is Textual stock behavior, not an aitasks bug.
+- **Notes for sibling tasks:** t748_5 (manual-verification aggregate
+  sibling) should verify the compare-with picker as one of its
+  checklist items. Reuse patterns from this task:
+  1. Any new keyboard-driven tab switcher action that originates
+     from a focusable widget on the current tab should shift focus
+     off that widget (e.g., to the `Tabs` bar) before changing
+     `tabbed.active`, or Textual will auto-revert.
+  2. Calling legacy mount/remount functions like
+     `_build_compare_matrix` from a tight `@on` handler requires
+     pre-flushing children with `await container.remove_children()`
+     to avoid the async mount race.
+  3. Persistent pick-mode toasts must be dismissed on confirm /
+     cancel via `self.app.clear_notifications()` (or unique-IDed
+     toast tracking) — Textual's default timeout is long enough to
+     feel "stuck" to users in fast-paced TUI flows.
+  4. The `ANCHOR_BORDER_STYLE` (`#FFB86C` Dracula orange) is now
+     established as the "user-selected anchor" color. Reuse it for
+     any future "select N nodes" interactions in the Graph tab.
