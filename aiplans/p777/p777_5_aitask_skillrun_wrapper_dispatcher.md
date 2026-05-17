@@ -599,3 +599,54 @@ Standard child-task archival via `./.aitask-scripts/aitask_archive.sh 777_5`. Fi
 - `aitask_codex_plan_invoke.py` is the canonical Codex driver — owns the pexpect dance, the `/plan` prefix, and the prompt-submission timing. Do not reimplement Codex launch logic.
 - `aitask_codeagent.sh:80-83` is the authoritative per-agent model-flag table (`--model` for claude/opencode, `-m` for gemini/codex). Mirror it; do NOT introduce a third source of truth (per `feedback_single_source_of_truth_for_versions`). If sibling tasks add new agents, update both files together.
 - The 5-touchpoint whitelist precedent from t777_2 / t777_4 is documented in CLAUDE.md "Adding a New Helper Script" — follow that checklist verbatim for `aitask_skillrun.sh`.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Created `.aitask-scripts/lib/agent_string.sh` (121 lines) housing `parse_agent_string`, `get_cli_binary`, `get_model_flag`, `get_cli_model_id`, `require_jq`, plus the `SUPPORTED_AGENTS`, `DEFAULT_AGENT_STRING`, `METADATA_DIR`, `PARSED_AGENT`, `PARSED_MODEL` constants/state. Cut from `aitask_codeagent.sh` and re-sourced with `_AIT_AGENT_STRING_LOADED` double-source guard. Caller-overridable via `${METADATA_DIR:-${TASK_DIR:-aitasks}/metadata}` default so `aitask_codeagent.sh`'s post-refactor source line picks up the same path.
+  - Refactored `aitask_codeagent.sh` to source the lib and drop the 76-line block of extracted code. Behavior verified byte-identical via `diff` of `./ait codeagent resolve pick`, `./ait codeagent check claudecode/opus4_7_1m`, `./ait codeagent list-models claudecode` before vs after the refactor.
+  - Created `tests/test_agent_string.sh` (14 cases, all PASS): parse-valid, parse-no-slash dies, parse-unknown-agent dies, 4× get_cli_binary, 4× get_model_flag, double-source guard, DEFAULT_AGENT_STRING non-empty, get_cli_model_id smoke (resolves opus4_7_1m). Pattern matches `tests/test_skill_template.sh`.
+  - Created `.aitask-scripts/aitask_skillrun.sh` (216 lines, shellcheck clean at `-S warning`). Implements: short-name → `aitask-<skill>` synthesis, `--agent-string` + `AIT_AGENT_STRING` + `DEFAULT_AGENT_STRING` precedence, profile autodetect via `aitask_skill_resolve_profile.sh`, `--profile-override` merge (stdin or file) with both dry-run-preview-to-stderr and live-write-to-`local/_skillrun_<unique>.yaml` modes, EXIT-trap cleanup for both override-tempfile and stdin-tempfile, fork-not-exec when override is active (so the trap fires), and the per-agent CMD construction table (claude/gemini positional, opencode `--prompt`, codex via `aitask_codex_plan_invoke.py`).
+  - Added `skillrun)` dispatcher case to `./ait` between `issue-update)` and `setup)`; added `skillrun` to the update-check skip-list at `ait:168`; added "skillrun — Launch a code agent with a profile-aware aitask skill" under Tools in `show_usage`.
+  - Whitelisted `aitask_skillrun.sh` in all 5 touchpoints: `.claude/settings.local.json`, `.gemini/policies/aitasks-whitelist.toml`, `seed/claude_settings.local.json`, `seed/geminicli_policies/aitasks-whitelist.toml`, `seed/opencode_config.seed.json`. Each touchpoint has exactly 1 new entry (verified by grep).
+  - Sibling-test no-regression: `test_skill_template.sh` 20/20, `test_skill_render.sh` 32/32, `test_skill_verify.sh` 27/27 all still PASS.
+
+- **Deviations from plan:**
+  - **Stdin-tempfile pre-capture for `--profile-override -`** — the original heredoc design (`"$PYTHON" - ... <<'PYEOF'`) consumed stdin for the Python script body, leaving `sys.stdin` empty when the override was piped via `echo ... | ait skillrun ... --profile-override -`. Initial smoke-test caught the bug: the override `skip_task_confirmation: false` was silently ignored and the base value remained. Fixed by capturing piped stdin to a `mktemp` file BEFORE invoking Python, then passing the tempfile path. Cleanup added to both the EXIT trap and the live-mode fork path. Added `cleanup_stdin_tempfile` helper alongside `cleanup_override`.
+  - **No `tests/test_skillrun.sh`** — the wrapper is end-to-end gated on a real `.j2` authoring template (t777_6). Comprehensive dry-run verification covers everything implementable today (V4-V10 in the plan); a dedicated test file would duplicate that without exercising new code paths. When t777_6 lands, a follow-up `tests/test_skillrun.sh` could fold in actual end-to-end agent-launch checks. Recommended to add this in t777_6.
+
+- **Issues encountered:**
+  - The bash heredoc / stdin collision (above). Root cause was an obvious bash semantics issue but it was missed during planning because the original `aitask_codeagent.sh` heredoc pattern only reads from argv, never from stdin. Caught by smoke-test V8.
+  - shellcheck SC2034 warning on the cut-and-pasted `PARSED_AGENT` / `PARSED_MODEL` because the setters now live in the lib but readers stay in `aitask_codeagent.sh`. Resolved with in-function `# shellcheck disable=SC2034` directives on the assignment lines (file-level disable wouldn't reach into the function body).
+  - Initial codex model-name guess `gpt5codex` was wrong (V5 first attempt). Real names start with `gpt5_4`, `gpt5_3codex`, etc. Re-ran with `codex/gpt5_4`. This was a documentation/familiarity gap, not a wrapper bug.
+
+- **Key decisions:**
+  - **Lib-extraction-first approach** (vs. parallel implementation). The user explicitly chose Option A ("Extract helpers into lib/agent_string.sh") over the simpler `--model <cli_id>` raw-pass-through. Matches `feedback_single_source_of_truth_for_versions`. The refactor is a pure cut-and-paste with a sourced shim; byte-identical behavior of `./ait codeagent` is the load-bearing safety property.
+  - **`--agent-string` (canonical form), NOT `--agent` + `--model`** (final user direction). Eliminates the parallel-convention risk. Defaults via `${AIT_AGENT_STRING:-$DEFAULT_AGENT_STRING}` env-overridable.
+  - **Short skill names** (`pick`, not `aitask-pick`) per user direction. Wrapper synthesizes `aitask-<skill>` internally. Proactively rejects the long form with a clear error message.
+  - **Always forward `--profile <name>`** regardless of whether the skill is templated (user direction). Friction surfaces the need to convert; non-templated skills' lenient arg parsing absorbs the unknown leading arg.
+  - **Override merge is shallow** (top-level key replacement via `{**base, **override}`). No deep-merge; if a future profile has nested dicts they would be replaced wholesale by the override. Acceptable for the flat-key profile schema as of today.
+  - **EXIT-trap fork pattern** for the override-tempfile path. Bash semantics: `exec` replaces the shell before the EXIT trap can fire, so the no-override path uses `exec` for cleanliness but the override path forks-then-reaps.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **`ait skillrun` is ready for t777_6 to wire into.** When the first `.j2` lands for `aitask-pick`, exercise the full stub-dispatch flow: `./ait skillrun pick --profile fast -- 777`. Confirm the stub at `.claude/skills/aitask-pick/SKILL.md` parses `--profile fast` from ARGUMENTS, strips it, and dispatches to `.claude/skills/aitask-pick-fast-/SKILL.md`. The wrapper has done its job once the slash command reaches the agent.
+  - **Per-agent CMD construction table is the canonical reference** for siblings: claude/gemini take positional slash, opencode takes `--prompt`, codex routes through `aitask_codex_plan_invoke.py` with `$`-prefix prompt. If a new agent is added later, update both `aitask_codeagent.sh:528-619` AND `aitask_skillrun.sh` `case "$PARSED_AGENT"` block — they are conceptually paired.
+  - **`AIT_AGENT_STRING` env override** is available to all skillrun invocations and to `aitask_codeagent.sh` (via the shared lib's `DEFAULT_AGENT_STRING`). Useful for shell aliases or per-skill default selection.
+  - **Per-skill agent-string defaults** (e.g. `pick: claudecode/opus4_7_1m` in userconfig) are NOT wired into skillrun yet. `aitask_codeagent.sh resolve <op>` does the userconfig/project_config lookup; skillrun falls through to `DEFAULT_AGENT_STRING`. A follow-up task could either add a `--skill` resolution path to `cmd_resolve` or shell-out from skillrun to `aitask_codeagent.sh resolve` when `--agent-string` is omitted. Out of scope here.
+  - **`tests/test_skillrun.sh` is the right place** for end-to-end skillrun tests when t777_6 produces the first `.j2`. Mirror `test_skill_render.sh`'s scratch-skill-prefix pattern.
+
+- **Verification results:**
+  - V1 (codeagent byte-identical resolve/check/list-models): PASS — `diff` returns no output for all 3.
+  - V2 (test_agent_string.sh): 14/14 PASS.
+  - V3 (shellcheck -S warning): CLEAN on aitask_skillrun.sh, lib/agent_string.sh, aitask_codeagent.sh.
+  - V4-V7 (dry-run, --agent-string, AIT_AGENT_STRING env, profile autodetect): all produce expected DRY_RUN output.
+  - V8 (--profile-override dry-run preview): post-fix, correctly shows `skip_task_confirmation: false` from override.
+  - V9 (long-form skill rejection): "skillrun: pass the short skill name..." error fires.
+  - V10 (bad agent-string): both `bogus` and `fakeagent/x` die with lib parse errors (confirms source of truth is exercised).
+  - V11 (--profile-override file path): same `skip_task_confirmation: false` override works.
+  - V13 (whitelist count): each of 5 touchpoints = 1.
+  - V14 (./ait --help mentions skillrun): YES.
+  - V15 (skillrun --help): prints usage cleanly.
+  - Sibling-test no-regression: test_skill_template 20/20, test_skill_render 32/32, test_skill_verify 27/27 all still PASS.
