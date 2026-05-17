@@ -22,8 +22,16 @@ from typing import Any
 def render_skill(template_path: Path, profile: dict[str, Any], agent_name: str) -> str:
     import minijinja
 
+    # Loader paths: the template's parent dir for within-skill includes
+    # (e.g. {% include "_partial.j2" %}), plus the parent's parent dir
+    # (the agent skill root) for cross-skill includes
+    # (e.g. {% include "other_skill/SKILL.md.j2" %}). The cross-skill path
+    # is necessary for t777_2+ recursive-render flows where one skill
+    # includes a sibling skill's template.
     env = minijinja.Environment(
-        loader=minijinja.load_from_path([str(template_path.parent)]),
+        loader=minijinja.load_from_path(
+            [str(template_path.parent), str(template_path.parent.parent)]
+        ),
         keep_trailing_newline=True,
         undefined_behavior="strict",
     )
