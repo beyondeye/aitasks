@@ -100,3 +100,26 @@ t777 is a multi-child redesign that replaces the runtime "ask LLM to honor execu
 ## Post-Implementation (Step 9)
 
 Standard child-task archival via `.aitask-scripts/aitask_archive.sh 777_1`. Plan file's "Final Implementation Notes" must include the verified per-agent path mapping and any deviations from this verification document — subsequent children (t777_2+) will read it as primary reference.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `'minijinja>=2.0,<3'` to both pip install lines in `aitask_setup.sh` (CPython :655 and PyPy :574). Created the three foundation helpers (`lib/skill_template.py`, `lib/agent_skills_paths.sh`, `aitask_skill_resolve_profile.sh`) and a 20-assertion test suite (`tests/test_skill_template.sh`). Whitelisted the new resolver in all 5 touchpoints (Claude/Gemini runtime + 3 seed mirrors; Codex skipped per CLAUDE.md prompt-only model). All tests PASS; `shellcheck -x` clean; `aitask_setup.sh` re-run successfully reinstalls minijinja.
+
+- **Deviations from plan:** The original task description's `skill_template.py` snippet used `minijinja.loaders.FileSystemLoader` and caught `minijinja.UndefinedError` — neither exists in the actual `minijinja` Python bindings (verified against `minijinja==2.19.0`). The correct API is `minijinja.load_from_path([dir])` to construct a loader, and `minijinja.TemplateError` for all template errors (strict-undefined surfaces as a `TemplateError` containing the substring `undefined value`). The renderer now wraps `TemplateError` with the template filename in the error message so authoring mistakes in later children are debuggable. **Subsequent children (t777_2+) MUST import via `from minijinja import Environment, load_from_path, TemplateError`, not the loaders submodule.**
+
+- **Issues encountered:** None blocking. The shellcheck `# shellcheck source=...` directives are relative to the project root (CWD where shellcheck runs), not to the test file's location — corrected once during verification.
+
+- **Key decisions:**
+  - `agent_skill_root gemini` → `.gemini/skills` (per CLAUDE.md "Gemini CLI" section), confirmed by user during plan verification. Both `.gemini/skills/` and `.agents/skills/` exist; the per-agent-root model treats each as that agent's canonical root. Codex uses `.agents/skills`. If t777_5+ later need both Gemini paths populated, that should be a per-skill render fan-out, not a change to this helper.
+  - Resolver uses `awk` for YAML parsing (consistent with `aitask_scan_profiles.sh`'s grep-based style) — no full YAML parser dependency required, keeps the helper portable.
+  - Test suite uses inline `assert_eq`/`assert_contains` (matching `test_claim_id.sh`), uses `require_ait_python` for interpreter resolution, and SKIPs cleanly if minijinja isn't installed (rather than failing) so the test passes on a fresh checkout pre-`ait setup`.
+
+- **Upstream defects identified:** None. (The pre-existing modifications to `.aitask-scripts/brainstorm/brainstorm_app.py` and `brainstorm_dag_display.py` were present in the working tree before this task began and are unrelated.)
+
+- **Notes for sibling tasks:**
+  - **minijinja API contract** (most important): `from minijinja import Environment, load_from_path, TemplateError`. Construct env with `Environment(loader=load_from_path([str(dir)]), keep_trailing_newline=True, undefined_behavior="strict")`. Render via `env.render_str(source, **ctx)` — context vars are keyword args, NOT a single dict. The renderer in `lib/skill_template.py` is the canonical entry point — call `render_skill(template_path, profile_dict, agent_name)` from later children's render scripts instead of re-deriving the API.
+  - **`agent_skill_dir` naming convention:** `<root>/<skill>` for `default` (or unspecified) profile, `<root>/<skill>-<profile>` otherwise. This is the directory NAME, not just a subdir — the per-profile SKILL.md.j2 renders into a NEW skill directory. This matches the user feedback `feedback_skills_reread_during_execution.md` (skills are re-read during execution, so per-profile renders must live in distinct dirs).
+  - **Resolver returns `"default"` as a literal string** when nothing else applies — t777_5+ should treat that as "use the unmodified Claude authoring template" (path `agent_skill_dir <agent> <skill>` with no profile suffix).
+  - **Whitelist 5-touchpoint pattern** is documented in CLAUDE.md "Adding a New Helper Script". Each later child that adds a new invokable helper must repeat this; the SKILL.md template render itself is NOT a new invokable, so it does not.
+  - **No `aitasks/` or `aiplans/` file changes are required for the foundation** — this child is pure infrastructure, no user-visible behavior change until t777_2+ start using it.
+
