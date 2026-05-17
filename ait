@@ -51,6 +51,7 @@ Reporting:
 
 Tools:
   codeagent      Manage code agent and model configuration
+  skillrun       Launch a code agent with a profile-aware aitask skill
   explain-runs     Manage aitask-explain run directories
   explain-cleanup  Remove stale aitask-explain run directories
   migrate-archives Convert tar.gz archives to tar.zst / rebucket legacy archives
@@ -165,7 +166,7 @@ check_for_updates() {
 
 # Check for updates (skip for meta-commands, upgrade, and git passthrough)
 case "${1:-help}" in
-    help|--help|-h|--version|-v|upgrade|setup|git|sync|lock|codeagent|crew|brainstorm|settings|monitor|minimonitor|ide|syncer) ;;
+    help|--help|-h|--version|-v|upgrade|setup|git|sync|lock|codeagent|crew|brainstorm|settings|monitor|minimonitor|ide|syncer|skillrun) ;;
     *) check_for_updates ;;
 esac
 
@@ -188,6 +189,7 @@ case "${1:-help}" in
     stats-tui)    shift; exec "$SCRIPTS_DIR/aitask_stats_tui.sh" "$@" ;;
     zip-old)      shift; exec "$SCRIPTS_DIR/aitask_zip_old.sh" "$@" ;;
     issue-update) shift; exec "$SCRIPTS_DIR/aitask_issue_update.sh" "$@" ;;
+    skillrun)     shift; exec "$SCRIPTS_DIR/aitask_skillrun.sh" "$@" ;;
     setup)        shift; exec "$SCRIPTS_DIR/aitask_setup.sh" "$@" ;;
     skill)
         shift

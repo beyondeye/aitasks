@@ -14,107 +14,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# shellcheck source=lib/agent_string.sh
+source "$SCRIPT_DIR/lib/agent_string.sh"
 
 # --- Constants ---
+# DEFAULT_AGENT_STRING, METADATA_DIR, SUPPORTED_AGENTS, PARSED_AGENT, PARSED_MODEL,
+# parse_agent_string, get_cli_binary, get_model_flag, get_cli_model_id, require_jq
+# come from lib/agent_string.sh.
 
-METADATA_DIR="${TASK_DIR:-aitasks}/metadata"
-DEFAULT_AGENT_STRING="claudecode/opus4_7_1m"
 DEFAULT_COAUTHOR_DOMAIN="aitasks.io"
-SUPPORTED_AGENTS=(claudecode geminicli codex opencode)
 SUPPORTED_OPERATIONS=(pick explain batch-review qa explore raw)
 
 # --- Global flags (set by argument parser) ---
 
 OPT_AGENT_STRING=""
 OPT_DRY_RUN=false
-
-# --- Parsed agent string (set by parse_agent_string) ---
-
-PARSED_AGENT=""
-PARSED_MODEL=""
-
-# --- Utility functions ---
-
-require_jq() {
-    if ! command -v jq &>/dev/null; then
-        die "jq is required. Install via your package manager."
-    fi
-}
-
-# Validate and parse an agent string like "claudecode/opus4_6"
-# Sets PARSED_AGENT and PARSED_MODEL
-parse_agent_string() {
-    local agent_string="$1"
-    if [[ ! "$agent_string" =~ ^([a-z]+)/([a-z0-9_]+)$ ]]; then
-        die "Invalid agent string format: '$agent_string'. Expected: <agent>/<model> (e.g., claudecode/opus4_6)"
-    fi
-    PARSED_AGENT="${BASH_REMATCH[1]}"
-    PARSED_MODEL="${BASH_REMATCH[2]}"
-
-    # Validate agent is supported
-    local valid=false
-    for a in "${SUPPORTED_AGENTS[@]}"; do
-        [[ "$a" == "$PARSED_AGENT" ]] && valid=true
-    done
-    if ! $valid; then
-        die "Unknown agent: '$PARSED_AGENT'. Supported: ${SUPPORTED_AGENTS[*]}"
-    fi
-}
-
-# Map agent name to CLI binary name
-get_cli_binary() {
-    local agent="$1"
-    case "$agent" in
-        claudecode) echo "claude" ;;
-        geminicli)  echo "gemini" ;;
-        codex)    echo "codex" ;;
-        opencode) echo "opencode" ;;
-        *) die "Unknown agent: '$agent'" ;;
-    esac
-}
-
-# Map agent name to the CLI flag used for model selection
-get_model_flag() {
-    local agent="$1"
-    case "$agent" in
-        claudecode) echo "--model" ;;
-        geminicli)  echo "-m" ;;
-        codex)    echo "-m" ;;
-        opencode) echo "--model" ;;
-        *) die "Unknown agent: '$agent'" ;;
-    esac
-}
-
-# Look up the CLI model ID from the model config JSON
-# Usage: get_cli_model_id <agent> <model_name>
-get_cli_model_id() {
-    local agent="$1"
-    local model_name="$2"
-    local models_file="$METADATA_DIR/models_${agent}.json"
-
-    if [[ ! -f "$models_file" ]]; then
-        die "Model config not found: $models_file"
-    fi
-
-    local cli_id
-    cli_id=$(jq -r --arg name "$model_name" \
-        '.models[] | select(.name == $name) | .cli_id' "$models_file")
-
-    if [[ -z "$cli_id" || "$cli_id" == "null" ]]; then
-        die "Unknown model '$model_name' for agent '$agent'. Run 'ait codeagent list-models $agent' to see available models."
-    fi
-
-    # Check model status (defaults to "active" for files without status field)
-    local model_status
-    model_status=$(jq -r --arg name "$model_name" \
-        '.models[] | select(.name == $name) | .status // "active"' "$models_file")
-
-    if [[ "$model_status" == "unavailable" ]]; then
-        die "Model '$model_name' is unavailable (not currently marked as available by connected providers). Run 'ait opencode-models' to refresh."
-    fi
-
-    echo "$cli_id"
-}
 
 # Resolve the agent string for an operation using the resolution chain:
 # 1. --agent-string flag
