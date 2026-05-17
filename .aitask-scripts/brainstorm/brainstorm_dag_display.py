@@ -43,6 +43,7 @@ NODE_ROWS = 5  # top border, title, op badge, description, bottom border
 # Styles
 BORDER_STYLE = Style(color="#6272A4")
 HEAD_BORDER_STYLE = Style(color="#50FA7B", bold=True)
+ANCHOR_BORDER_STYLE = Style(color="#FFB86C", bold=True)
 FOCUSED_BG = Style(bgcolor="#44475A")
 HEAD_TAG_STYLE = Style(color="#50FA7B", bold=True)
 NODE_ID_STYLE = Style(bold=True)
@@ -195,6 +196,7 @@ def _render_node_box(
     is_head: bool,
     is_focused: bool,
     operation: str = "",
+    is_anchor: bool = False,
 ) -> list[Text]:
     """Render a single node box as BOX_WIDTH-wide Rich Text lines.
 
@@ -203,7 +205,12 @@ def _render_node_box(
     render a blank badge row (legacy sessions).
     """
     inner_w = BOX_WIDTH - 2  # inside the borders
-    border_style = HEAD_BORDER_STYLE if is_head else BORDER_STYLE
+    if is_anchor:
+        border_style = ANCHOR_BORDER_STYLE
+    elif is_head:
+        border_style = HEAD_BORDER_STYLE
+    else:
+        border_style = BORDER_STYLE
     bg = FOCUSED_BG if is_focused else Style()
 
     # Title: node_id + optional HEAD tag
@@ -274,6 +281,7 @@ def _render_layer(
     focused_id: str | None,
     total_width: int,
     node_op_map: dict[str, str] | None = None,
+    compare_anchor_id: str | None = None,
 ) -> list[Text]:
     """Render all node boxes in a layer as full-width lines."""
     op_map = node_op_map or {}
@@ -286,6 +294,10 @@ def _render_layer(
             is_head=(nid == head),
             is_focused=(nid == focused_id),
             operation=op_map.get(nid, ""),
+            is_anchor=(
+                compare_anchor_id is not None
+                and nid == compare_anchor_id
+            ),
         )
         boxes.append(box)
 
@@ -414,6 +426,8 @@ class DAGDisplay(VerticalScroll):
         Binding("o", "open_operation", "Operation", show=True),
         Binding("p", "view_proposal", "Proposal", show=True),
         Binding("l", "view_plan", "Plan", show=True),
+        Binding("x", "compare_with", "Compare", show=True),
+        Binding("escape", "cancel_compare", show=False),
     ]
 
     class NodeSelected(Message):
@@ -458,6 +472,14 @@ class DAGDisplay(VerticalScroll):
             super().__init__()
             self.node_id = node_id
 
+    class CompareRequested(Message):
+        """Emitted when a second node has been picked for compare."""
+
+        def __init__(self, anchor_id: str, picked_id: str) -> None:
+            super().__init__()
+            self.anchor_id = anchor_id
+            self.picked_id = picked_id
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._session_path: Path | None = None
@@ -470,6 +492,8 @@ class DAGDisplay(VerticalScroll):
         self._node_op_map: dict[str, str] = {}
         self._head: str | None = None
         self._node_line_map: dict[str, int] = {}
+        self._compare_anchor_id: str | None = None
+        self._compare_pick_mode: bool = False
 
     def compose(self):
         yield Static("No DAG loaded", id="dag_display")
@@ -539,6 +563,7 @@ class DAGDisplay(VerticalScroll):
             layer_lines = _render_layer(
                 layer, self._node_descs, self._head, focused_id, total_width,
                 node_op_map=self._node_op_map,
+                compare_anchor_id=self._compare_anchor_id,
             )
             all_lines.extend(layer_lines)
 
@@ -649,15 +674,31 @@ class DAGDisplay(VerticalScroll):
         )
 
     def action_open_node(self) -> None:
-        """Post NodeSelected for the focused node (enter key)."""
+        """Post NodeSelected or finalize compare-pick (enter key)."""
         if not self._node_order:
             return
-        self.post_message(
-            self.NodeSelected(self._node_order[self._focused_idx])
-        )
-        self.post_message(
-            self.FocusChanged(self._node_order[self._focused_idx])
-        )
+        focused_id = self._node_order[self._focused_idx]
+        if self._compare_pick_mode:
+            if focused_id == self._compare_anchor_id:
+                self.app.notify(
+                    "Pick a different node",
+                    severity="warning",
+                    timeout=2,
+                )
+                return
+            anchor = self._compare_anchor_id
+            self._compare_anchor_id = None
+            self._compare_pick_mode = False
+            self._render_dag()
+            # Dismiss the lingering "Select node to compare with..." toast.
+            try:
+                self.app.clear_notifications()
+            except AttributeError:
+                pass
+            self.post_message(self.CompareRequested(anchor, focused_id))
+            return
+        self.post_message(self.NodeSelected(focused_id))
+        self.post_message(self.FocusChanged(focused_id))
 
     def action_head_node(self) -> None:
         """Post HeadChanged for the focused node (h key)."""
@@ -699,3 +740,38 @@ class DAGDisplay(VerticalScroll):
             return
         focused_id = self._node_order[self._focused_idx]
         self.post_message(self.PlanRequested(focused_id))
+
+    def action_compare_with(self) -> None:
+        """Enter compare-pick mode (x key)."""
+        if not self._node_order:
+            return
+        if self._compare_pick_mode:
+            self.app.notify(
+                "Already in compare mode — Enter to confirm, Esc to cancel",
+                severity="information",
+                timeout=2,
+            )
+            return
+        focused_id = self._node_order[self._focused_idx]
+        self._compare_anchor_id = focused_id
+        self._compare_pick_mode = True
+        self._render_dag()
+        self.app.notify(
+            f"Select node to compare with {focused_id} — "
+            "Enter=confirm, Esc=cancel",
+            timeout=3,
+        )
+
+    def action_cancel_compare(self) -> None:
+        """Cancel compare-pick mode (escape key)."""
+        if not self._compare_pick_mode:
+            return
+        self._compare_anchor_id = None
+        self._compare_pick_mode = False
+        self._render_dag()
+        # Dismiss the lingering "Select node to compare with..." toast.
+        try:
+            self.app.clear_notifications()
+        except AttributeError:
+            pass
+        self.app.notify("Compare cancelled", timeout=2)

@@ -4008,6 +4008,38 @@ class BrainstormApp(TuiSwitcherMixin, App):
             SectionViewerScreen(plan, title=f"Plan: {event.node_id}")
         )
 
+    @on(DAGDisplay.CompareRequested)
+    async def on_dag_display_compare_requested(
+        self, event: DAGDisplay.CompareRequested
+    ) -> None:
+        """Render Compare-tab matrix for [anchor, picked] and switch tabs."""
+        # Shift focus off DAGDisplay first: DAGDisplay lives in tab_dag,
+        # so if it remains focused while we activate tab_compare, Textual
+        # auto-reverts the active tab to keep the focused widget visible
+        # (manifests as "Compare flashes, then Graph comes back").
+        tabbed = self.query_one(TabbedContent)
+        try:
+            tabbed.query_one(Tabs).focus()
+        except Exception:
+            pass
+        tabbed.active = "tab_compare"
+        # Pre-flush #compare_content so a previously-mounted #compare_table
+        # is fully gone before _build_compare_matrix re-mounts. Otherwise
+        # the second consecutive compare attempt fails with "id already
+        # mounted" (remove_children is async; mount in the same sync tick
+        # races the removal).
+        container = self.query_one("#compare_content", VerticalScroll)
+        await container.remove_children()
+        try:
+            self._build_compare_matrix(
+                [event.anchor_id, event.picked_id]
+            )
+        except Exception as e:
+            self.notify(
+                f"Compare build failed: {e!s}",
+                severity="error",
+            )
+
     @on(DAGDisplay.FocusChanged)
     def on_dag_display_focus_changed(
         self, event: DAGDisplay.FocusChanged
