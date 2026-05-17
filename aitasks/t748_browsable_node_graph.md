@@ -1,12 +1,11 @@
 ---
 priority: high
 effort: medium
-depends: [749]
+depends: []
 issue_type: enhancement
-status: Implementing
+status: Ready
 labels: [ait_brainstorm]
 children_to_implement: [t748_1, t748_2, t748_3, t748_4]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-05 09:12
 updated_at: 2026-05-17 10:13
 boardidx: 60
