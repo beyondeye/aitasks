@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: [t718_2]
 issue_type: performance
-status: Implementing
+status: Done
 labels: [performance, tui]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-04-30 14:31
 updated_at: 2026-05-17 11:11
+completed_at: 2026-05-17 11:11
 ---
 
 ## Context
