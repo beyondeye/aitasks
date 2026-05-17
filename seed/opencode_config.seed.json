@@ -24,6 +24,7 @@
       "./.aitask-scripts/aitask_claim_id.sh *": "allow",
       "./.aitask-scripts/aitask_skill_resolve_profile.sh *": "allow",
       "./.aitask-scripts/aitask_skill_render.sh *": "allow",
+      "./.aitask-scripts/aitask_skill_verify.sh *": "allow",
       "./.aitask-scripts/aitask_codeagent.sh *": "allow",
       "./.aitask-scripts/aitask_resolve_detected_agent.sh *": "allow",
       "./.aitask-scripts/aitask_codemap.sh *": "allow",

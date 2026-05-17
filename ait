@@ -195,18 +195,20 @@ case "${1:-help}" in
         shift || true
         case "$subcmd" in
             render)            exec "$SCRIPTS_DIR/aitask_skill_render.sh" "$@" ;;
-            # verify and resolve-profile subcommands added in later children
+            verify)            exec "$SCRIPTS_DIR/aitask_skill_verify.sh" "$@" ;;
+            # resolve-profile subcommand added in later children
             --help|-h|"")
                 echo "Usage: ait skill <subcommand> [options]"
                 echo ""
                 echo "Available subcommands:"
                 echo "  render   Render a skill template into a per-profile directory"
+                echo "  verify   Verify all .j2 templates render cleanly + stubs follow canonical pattern"
                 echo ""
                 echo "Run 'ait skill <subcommand> --help' for subcommand-specific help."
                 exit 0
                 ;;
             *) echo "ait skill: unknown subcommand '$subcmd'" >&2
-               echo "Available: render" >&2
+               echo "Available: render, verify" >&2
                exit 1
                ;;
         esac

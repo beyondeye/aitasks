@@ -240,6 +240,20 @@ of skills and commands:
 
 > **Read the sections below only if you need to implement or update skills/commands for a specific tool.**
 
+### Verifying `.j2` Templates Before Commit
+
+When you add or modify a `.j2` authoring template (`.claude/skills/<skill>/SKILL.md.j2`) or any per-agent stub surface (`.claude/skills/<skill>/SKILL.md`, `.agents/skills/<skill>/SKILL.md`, `.gemini/commands/<skill>.toml`, `.opencode/commands/<skill>.md`), run `ait skill verify` before committing:
+
+```bash
+./ait skill verify
+```
+
+This renders every `.j2` against `default.yaml` for all 4 supported agents (claude, codex, gemini, opencode) and asserts each stub surface contains the canonical markers from `.claude/skills/task-workflow/stub-skill-pattern.md` (resolver call, render call, trailing-hyphen Read path). The script exits non-zero on any render error or stub-pattern violation; address every failure before committing.
+
+If no `.j2` templates exist yet, the command prints `ait skill verify: no .j2 templates found — nothing to verify.` and exits 0. That is the expected state until the first authoring template lands.
+
+`ait skill verify` writes nothing to disk (it renders through `lib/skill_template.py` to stdout). It is safe to run anytime.
+
 ### Skill / Workflow Authoring Conventions
 
 - **Agent-specific steps live in their own procedure file.** If a workflow step applies only to one code agent (e.g., Claude Code's internal plan file externalization), put the procedure — commands, output parsing, error handling — in its own `.claude/skills/task-workflow/<name>.md`. Reference it from `SKILL.md` / `planning.md` with a short conditional wrapper: "If running in Claude Code, execute the \<Procedure Name\> (see `<name>.md`). Other agents skip this step because \<reason\>." Never inline agent-specific steps into shared files — when the tree is ported to `.opencode/`, `.gemini/`, `.agents/`, the porter either copies irrelevant steps or silently drops them.
