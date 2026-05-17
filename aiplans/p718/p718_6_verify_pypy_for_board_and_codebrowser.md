@@ -339,3 +339,154 @@ Standard child-task archival per `task-workflow/SKILL.md` Step 9:
   hot path is Python-bound (Textual rendering, frontmatter parsing,
   large data transforms). This task's verdict adds the further data
   point for the rule.
+
+## Final Implementation Notes
+
+- **Actual work done:** Headless Textual `Pilot`-driven benchmark of
+  `KanbanApp` (board) and `CodeBrowserApp` (codebrowser) under CPython
+  3.14.4 vs PyPy 7.3.21 / Python 3.11.15 on this Linux machine. Built
+  two uncommitted bench scripts (`/tmp/bench_board_pilot.py`,
+  `/tmp/bench_codebrowser_pilot.py`), each wrapping
+  `time.perf_counter()` around an `async with app.run_test(size=(160,
+  48)) as pilot:` block exercising a scripted keystroke workload
+  (board: pause + 20× down + 4 view-mode toggles + refresh; codebrowser:
+  pause + 10× pagedown + 10× pageup + end + home, opened with `--focus
+  .aitask-scripts/brainstorm/brainstorm_app.py` to short-circuit the
+  file-tree pane). Initial 5-warmup + 5-rep sweep showed PyPy samples
+  still trending down on board, so re-ran with 5-warmup + 8-rep at
+  steady state. Cold-start measured separately with 5 reps of `python
+  -c "import <module>"` per (TUI, interpreter) cell.
+
+  **Steady-state results (5 warmup + 8 reps per process):**
+
+  | Workload | CPython median | PyPy median | Delta % |
+  |---|---:|---:|---:|
+  | Board (KanbanApp) Pilot | 10108 ms | 8731 ms | **PyPy 13.6% faster** |
+  | Codebrowser (CodeBrowserApp) Pilot | 4067 ms | 4740 ms | **PyPy 16.6% slower** |
+
+  **Cold-start (`import <module>`, 5 reps per cell):**
+
+  | TUI | CPython median | PyPy median |
+  |---|---:|---:|
+  | Board (`import aitask_board`) | 202 ms | 355 ms |
+  | Codebrowser (`import codebrowser_app`) | 173 ms | 341 ms |
+
+  **Verdict per TUI (decision rule applied separately):**
+  - **Board: KEEP.** PyPy 13.6% faster after warmup (above 10%
+    threshold); cold-start regression ~153 ms easily amortized over a
+    typical 30-60 s session. `aitask_board.sh` continues to use
+    `require_ait_python_fast`.
+  - **Codebrowser: REVERT.** PyPy 16.6% slower at steady state;
+    cold-start ~2× slower. `aitask_codebrowser.sh` line 12 reverted
+    from `require_ait_python_fast` → `require_ait_python`.
+
+  Documentation updates:
+  - `aidocs/python_tui_performance.md` — new "t718_6 Empirical
+    Verification" section with workload, per-TUI tables, divergence
+    rationale, and "what would change the verdict" subsection;
+    "Dual-venv, opt-in" row's TUI enumeration updated to drop
+    codebrowser from the fast-path list; Related Tasks list extended.
+  - `CLAUDE.md` — TUI Conventions "How to apply" updated to name
+    codebrowser as an exception (alongside monitor/minimonitor);
+    fast-path TUI count corrected from "five" to "four" (board,
+    settings, brainstorm, syncer); `AIT_USE_PYPY` exclusion list
+    extended to include codebrowser; new Project-Specific Notes bullet
+    anchoring the empirical basis for the codebrowser revert.
+
+- **Deviations from plan:**
+  1. **Increased warmup from 2 to 5 reps** when PyPy showed continued
+     descent in the initial 5-rep measurement window. The original
+     plan's "2-rep warmup with N=5 measurement reps is the same shape
+     as t718_5's *measurement* loop and should suffice" turned out to
+     be wrong for the board workload — PyPy was still warming after 5
+     measurement reps (samples 10090 → 9032 ms over reps 1-5). Switched
+     to 5-warmup + 8-rep for the final cell. Codebrowser converged
+     within 3 warmup reps so the longer sweep just confirmed the
+     verdict. Reinforces t718_5's methodology lesson: PyPy needs more
+     warmup than intuition suggests.
+  2. **Dropped the "3 outer reps of the whole script"** from
+     Implementation Step 3. Within-process variance was small (board
+     p95 within ~5% of median; codebrowser p95 within ~3%) and each
+     rep takes 4-10 s, so a single 5-warmup + 8-rep run per cell was
+     both more rigorous (better JIT amortization) and more
+     time-efficient than three short outer runs.
+  3. **Did not run Part 3 (path-verification sanity check) as a
+     standalone step.** Per the plan's own caveat ("Neither board nor
+     codebrowser has such a switch (no backend/fallback), so this is
+     reduced to a sanity check"), it collapsed into the bench scripts
+     printing `sys.implementation.name` / `sys.version` and verifying
+     the Pilot block completed without raising. No separate work
+     needed.
+
+- **Issues encountered:**
+  1. **First-rep PyPy is dramatically slower than CPython** (board
+     warmup[1]=15.6 s vs CPython warmup[1]=10.0 s). For "glance"
+     sessions (< 5 keystrokes, close immediately) board users would
+     marginally prefer CPython. The KEEP decision assumes typical
+     30-60 s sessions where the steady-state win dominates. Acceptable
+     trade-off; documented in the perf doc.
+  2. **PyPy stderr noise** — every PyPy invocation prints two
+     parenthesized debug lines from a `cython_function_or_method` /
+     `_common_types_metatype` registration shim before any user code
+     runs. Cosmetic; ignored. Could be suppressed by setting
+     `PYPY_DISABLE_JIT=` or filtering stderr, but neither was needed.
+  3. **`shellcheck` SC1091 info-level diagnostics** on the launcher
+     `source` lines are pre-existing (also present on the unmodified
+     `aitask_board.sh`); not introduced by this task. No error-level
+     diagnostics.
+
+- **Key decisions:**
+  1. **Separate verdicts per TUI.** The plan explicitly allowed
+     `mixed`. Measurements supported it cleanly: board's
+     `refresh_board()` exercises heavy interpreted Python per
+     iteration (frontmatter parsing across many task files), which
+     PyPy's JIT amortizes well; codebrowser's hot path is small
+     fragmented Rich/Textual render code dispatched through
+     C-accelerated layers, where PyPy's fixed per-frame overhead
+     dominates.
+  2. **Documented the divergence rationale in the perf doc, not just
+     the verdicts.** Future picks of similar fast-path-evaluation
+     tasks now have a concrete data point for the rule "PyPy wins on
+     heavy interpreted Python in the hot path; loses on small
+     fragmented Rich/Textual frame work" — instead of the prior
+     theoretical "PyPy gives 2-5× on Textual" claim that turned out to
+     be workload-shape-dependent.
+  3. **Did not touch settings / brainstorm / stats / syncer
+     launchers.** Per the task's explicit out-of-scope statement. If
+     subsequent work re-evaluates them, this task's bench-script
+     structure is the template to use.
+  4. **Did not include the user's pre-existing uncommitted
+     `.aitask-scripts/brainstorm/brainstorm_*.py` modifications in the
+     commit.** Those edits appeared in `git status` during the
+     session but are unrelated to t718_6 — they add a
+     `CompareRequested` event handler to the brainstorm TUI, clearly a
+     different task's in-flight work. Left untouched, not staged.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t718_4 (manual verification)** — its checklist's "fast-path TUI
+    list" must now read `board, settings, brainstorm, syncer` (four
+    TUIs, not five). When picked, update the checklist to drop
+    codebrowser from the PyPy smoke-test sweep and add a CPython-only
+    smoke-test for codebrowser. If the parent task t718_4's checklist
+    template references "the five fast-path TUIs", update it before
+    the manual-verification dispatch.
+  - **t718 parent** — once t718_4 archives, t718's
+    `children_to_implement` drops to empty and the parent can be
+    archived.
+  - **Settings / brainstorm / stats / syncer (out of scope here)** —
+    codebrowser's REVERT and board's KEEP together suggest the rule
+    "PyPy wins iff the hot path is heavy interpreted Python" rather
+    than the blanket "assume it helps". Settings and stats are
+    browse-and-exit (short sessions, like codebrowser) and probably
+    track codebrowser. Brainstorm and syncer have heavier per-tick
+    data work and probably track board. None of these is verified —
+    future verification tasks (one each) are the right shape if it
+    becomes worth the time.
+  - **Future long-running TUIs** — call `require_ait_python_fast` from
+    the start only when the hot path is heavy interpreted Python.
+    Specifically: frontmatter parsing across many files, large
+    data-frame transforms, heavy text-tokenization, AST analysis. For
+    Rich/Textual render-heavy hot paths (scroll-and-display, viewer
+    panes, lightweight forms), default to `require_ait_python`.
