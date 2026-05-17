@@ -5,9 +5,9 @@ depends: []
 issue_type: enhancement
 status: Ready
 labels: [ait_brainstorm]
-children_to_implement: [t748_4, t748_5]
+children_to_implement: [t748_5]
 created_at: 2026-05-05 09:12
-updated_at: 2026-05-17 14:32
+updated_at: 2026-05-17 15:44
 boardidx: 10
 ---
 
