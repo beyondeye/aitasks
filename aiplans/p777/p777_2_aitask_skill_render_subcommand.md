@@ -288,3 +288,41 @@ Standard child-task archival via `./.aitask-scripts/aitask_archive.sh 777_2`. Up
 - `agent_authoring_template <skill>` is the single source of truth for authoring template paths.
 - The `crew)` / `brainstorm)` blocks in `./ait` are the canonical sub-dispatch pattern.
 - `tests/test_skill_template.sh` is the canonical test-style template for this project.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Created `.aitask-scripts/aitask_skill_render.sh` with arg parsing, profile resolution via `aitask_scan_profiles.sh`, atomic mv render via `lib/skill_template.py`, skip-if-fresh mtime gate, and a regex-based recursive cross-skill include scan.
+  - Added `skill)` sub-dispatch to `./ait` (immediately after `setup)`).
+  - Whitelisted `aitask_skill_render.sh` in all 5 touchpoints (`.claude/settings.local.json`, `.gemini/policies/aitasks-whitelist.toml`, and three seed mirrors). Codex skipped per the prompt-only exemption.
+  - Created `tests/test_skill_render.sh` with 32 PASS-counted assertions covering: happy-path render, skip-if-fresh, template-mtime / profile-mtime / `--force` re-render triggers, cross-skill recursive include (A → B), within-skill include inlined natively, plain-`.md` include skipped, missing-template / unknown-profile / missing-arg / unknown-agent error paths, missing-include resilience (realpath portability), `ait skill --help` + bogus-subcommand handling, and 5-touchpoint whitelist sanity. All 32 PASS; `shellcheck -x` clean on both new files; t777_1's `test_skill_template.sh` (20/20) still passes after the loader change below.
+
+- **Deviations from plan:**
+  - **R5 (NEW) — Extended `lib/skill_template.py` loader paths.** The original plan's recursive-include semantics required cross-skill `.j2` files to be discoverable. The loader from t777_1 only pointed at the template's parent dir, so `{% include "other_skill/SKILL.md.j2" %}` would error out as "template not found". The minimal, backwards-compatible fix is to pass `[template_path.parent, template_path.parent.parent]` to `minijinja.load_from_path` — same-dir includes still resolve via the first path, cross-skill includes resolve via the second (the agent skill root). This is a one-line change at `lib/skill_template.py:25-32`. Subsequent children (t777_5 / t777_6 / t777_7 / t777_17) MUST author cross-skill includes as `<other_skill>/SKILL.md.j2` (no `../` prefix), not the `../<other_skill>/...` form. Within-skill includes are unchanged.
+  - **R6 (NEW) — Skip-if-fresh uses `>=`, not `>`.** Same-second target+template creation (common in fresh installs and tests) caused `target_mtime > tpl_mtime` to be false, triggering an unnecessary re-render. Switched to `>=` to match `make`-style freshness. Risk: a same-second template edit immediately after render would not retrigger render, but that race is also present (in spirit) with the strict `>` variant — `--force` is the safety valve documented in the script header.
+  - **R7 (FIX) — `aitask_scan_profiles.sh | awk … {exit}` triggered SIGPIPE.** With `set -o pipefail`, awk's early-exit closed the pipe while scan_profiles was still writing, producing exit 141. Fix: capture scan output into `_scan_output` first, then pipe `echo "$_scan_output"` into awk. The upstream command is no longer in the pipefail-monitored pipeline.
+  - **Test 14 reframed.** Originally planned to PATH-shadow `stat` to force the BSD branch on Linux. This is infeasible: GNU and BSD `stat -f` have incompatible semantics (GNU treats `-f` as filesystem-info mode, BSD as a file-format selector), so a shim cannot bridge them. Replaced with a static check that both `stat -c %Y` and `stat -f %m` patterns are present in the script; the native-OS branch is exercised end-to-end by tests 1-12 and 15-17.
+
+- **Issues encountered:**
+  - The SIGPIPE/awk-early-exit interaction took a debug pass (bash -x trace) to spot — caller scripts that pipe `aitask_scan_profiles.sh` into something with an early exit must either capture-first or accept that pipefail will surface 141.
+  - Initial test 6 used `../<other_skill>/SKILL.md.j2` (works for the recursive-scan's realpath resolution but not for the minijinja loader). Switched to `<other_skill>/SKILL.md.j2` after extending the loader paths; recursive-scan now mirrors the loader's two-tier resolution (parent dir first, then agent skill root).
+  - Initial test 2 failed because the strict-greater mtime check was too strict for same-second writes (see R6).
+  - Cleanup-of-leftover-scratch-skill behavior was verified via `ls .claude/skills/ | grep _t777_2 → empty` after a test run.
+
+- **Key decisions:**
+  - **Cross-skill include path convention (binding for later children):** `{% include "<other_skill>/SKILL.md.j2" %}`. NOT `../<other_skill>/SKILL.md.j2`. The loader resolves the bare-skill form via the agent skill root, and the recursive-scan resolves via the same two-tier lookup.
+  - **Recursive-scan regex (binding for t777_5 / t777_17 wrappers if they want to mirror the scan):** `'\{%-?[[:space:]]*include[[:space:]]+["'\'']([^"'\'']+\.j2)["'\'']'`. Extended regex (`grep -oE`), avoids PCRE per CLAUDE.md "grep portability". The `.j2` suffix is required — `.md` references are ignored as canonical content rather than templates to render.
+  - **`_get_mtime` stays inline** (not extracted to `terminal_compat.sh`) because no other helper currently needs it. If t777_4 or t777_5 also need portable mtime resolution, the right move is a sibling refactor that creates a single `terminal_compat.sh::stat_mtime` helper — per [[feedback_single_source_of_truth_for_versions]].
+  - **`aitask_skill_resolve_profile.sh` was NOT whitelisted in this task** — verified to already be whitelisted in all 5 touchpoints from t777_1. The original parent-plan attribution was a misnomer.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **Loader contract changed:** `lib/skill_template.py` now passes `[template_parent, template_parent.parent]` to `minijinja.load_from_path`. Cross-skill includes must use the bare-skill form (`other_skill/SKILL.md.j2`), never `../other_skill/...`. Same-dir includes are unchanged (e.g., `_partial.j2`).
+  - **Pipefail + early-exit awk:** Avoid `cmd | awk '… {exit}'` patterns under `set -o pipefail` — they exit 141 even when the data was retrieved correctly. Capture the upstream output first.
+  - **Skip-if-fresh uses `>=`:** Behaves like `make`. If a downstream task needs strict-greater semantics for some reason, document it explicitly there.
+  - **Script entry points for later wrappers:**
+    - One-shot render: `./ait skill render <skill> --profile <name> --agent <name> [--force]`.
+    - Recursion is automatic via the include-scan (no need for wrappers to walk the include graph).
+    - Wrappers that cannot vouch for include-file freshness should pass `--force` (per the design's skip-if-fresh limitation).
+  - **5-touchpoint whitelist drill** worked exactly as documented in CLAUDE.md; the test suite's test 18 mechanically verifies it.
