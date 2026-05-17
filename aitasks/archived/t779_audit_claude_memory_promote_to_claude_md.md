@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [documentation, meta, claude]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-17 16:44
-updated_at: 2026-05-17 16:46
+updated_at: 2026-05-17 17:14
+completed_at: 2026-05-17 17:14
 ---
 
 Audit the Claude Code auto-memory directory at
