@@ -22,6 +22,7 @@
       "./.aitask-scripts/aitask_brainstorm_apply_patcher.sh *": "allow",
       "./.aitask-scripts/aitask_changelog.sh *": "allow",
       "./.aitask-scripts/aitask_claim_id.sh *": "allow",
+      "./.aitask-scripts/aitask_skill_resolve_profile.sh *": "allow",
       "./.aitask-scripts/aitask_codeagent.sh *": "allow",
       "./.aitask-scripts/aitask_resolve_detected_agent.sh *": "allow",
       "./.aitask-scripts/aitask_codemap.sh *": "allow",

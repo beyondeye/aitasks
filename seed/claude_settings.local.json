@@ -33,6 +33,7 @@
       "Bash(./.aitask-scripts/aitask_brainstorm_apply_patcher.sh:*)",
       "Bash(./.aitask-scripts/aitask_changelog.sh:*)",
       "Bash(./.aitask-scripts/aitask_claim_id.sh:*)",
+      "Bash(./.aitask-scripts/aitask_skill_resolve_profile.sh:*)",
       "Bash(./.aitask-scripts/aitask_codeagent.sh:*)",
       "Bash(./.aitask-scripts/aitask_resolve_detected_agent.sh:*)",
       "Bash(./.aitask-scripts/aitask_codemap.sh:*)",
