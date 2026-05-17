@@ -106,7 +106,7 @@ The existing `ait setup` architecture already has the right shape — PyPy slots
 | Install | `install_modern_python` | `install_pypy`: `uv python install pypy@3.11` (uv supports PyPy as first-class). macOS fallback: `brew install pypy3`. |
 | Venv setup | `setup_python_venv` | `setup_pypy_venv`: same `pip install` line into `~/.aitask/pypy_venv` |
 | Resolver | `require_ait_python` | Add `require_ait_pypy` (returns PyPy if installed, else empty). Cached in `_AIT_RESOLVED_PYPY`. |
-| TUI launchers | All use `require_ait_python` | `aitask_board.sh`, `aitask_codebrowser.sh`, `aitask_settings.sh`, `aitask_brainstorm_tui.sh`, `aitask_syncer.sh` use new `require_ait_python_fast` (PyPy if available, else CPython). `aitask_monitor.sh`, `aitask_minimonitor.sh`, `aitask_stats_tui.sh` **stay on CPython** (monitor/minimonitor's bottleneck is `fork+exec(tmux)`; stats-tui depends on `plotext`, which is installed only in the CPython venv). Short-lived CLI scripts (`aitask_pick.sh`, `aitask_create.sh`, `aitask_stats.sh`, …) **stay on CPython**. |
+| TUI launchers | All use `require_ait_python` | `aitask_board.sh`, `aitask_settings.sh`, `aitask_brainstorm_tui.sh`, `aitask_syncer.sh` use new `require_ait_python_fast` (PyPy if available, else CPython). `aitask_codebrowser.sh`, `aitask_monitor.sh`, `aitask_minimonitor.sh`, `aitask_stats_tui.sh` **stay on CPython** (codebrowser empirically loses on PyPy per t718_6; monitor/minimonitor's bottleneck is `fork+exec(tmux)` and PyPy still loses on the post-t719_2 control-mode path per t718_5; stats-tui depends on `plotext`, which is installed only in the CPython venv). Short-lived CLI scripts (`aitask_pick.sh`, `aitask_create.sh`, `aitask_stats.sh`, …) **stay on CPython**. |
 | Setup UX | Plotext prompt | Add `--with-pypy` flag and prompt: `Install PyPy for faster TUIs (board, codebrowser)? [y/N]` |
 
 Touchpoints: ~5 files, all additive. Removable in one commit. Existing CPython users see zero change unless they opt in.
@@ -208,9 +208,109 @@ PyPy regresses cold-start by ~166 ms (~2× slower). Standard PyPy warmup penalty
 
 Until one of those conditions is met, do not re-run this benchmark or re-attempt the swap.
 
+## t718_6 Empirical Verification — board / codebrowser under PyPy (2026-05-17)
+
+Sibling t718_2 wired the two largest Textual surfaces — `aitask_board.sh`
+(KanbanApp, 5176 LOC) and `aitask_codebrowser.sh` (CodeBrowserApp, 1504 LOC
++ helpers) — to the PyPy fast path on the *theoretical* grounds quoted in
+the *Compile/JIT options* row above. t718_6 measured this directly.
+**Verdict: MIXED — board KEEPs PyPy; codebrowser REVERTs to CPython.**
+
+### Workload
+
+- Machine: Linux (Arch / Hyprland), this repo.
+- CPython: 3.14.4 (`~/.aitask/venv/bin/python`).
+- PyPy: 7.3.21 / Python 3.11.15 (`~/.aitask/pypy_venv/bin/python`).
+- Textual `App.run_test(size=(160, 48))` Pilot driver — same pattern as
+  `tests/test_board_view_filter.py:76`.
+- **Board workload:** `pause → 20× down → a → i → g → a → r → pause`
+  (exercises card navigation, view-mode cycling, and a full refresh that
+  re-reads task files from disk). Avoids modal-pushing keys (`enter`,
+  `n`, `O`, etc.) which would deadlock Pilot.
+- **Codebrowser workload:** open with `--focus
+  .aitask-scripts/brainstorm/brainstorm_app.py` (~5200 LOC,
+  syntax-highlighted), then `pause → 10× pagedown → 10× pageup → end →
+  home → pause`. The `--focus` arg short-circuits the file-tree pane
+  via `_parse_focus_value()` at `codebrowser_app.py:454`.
+- 5 warmup iterations + 8 measurement iterations per (TUI, interpreter)
+  pair within one process. PyPy needed extra warmup to JIT-stabilize
+  (per the t718_5 methodology lesson).
+- Each rep measures startup + workload + teardown via
+  `time.perf_counter()` around the `async with app.run_test(...) as
+  pilot:` block.
+
+### Board (KanbanApp)
+
+| Metric | CPython median | PyPy median | Delta |
+|---|---:|---:|---:|
+| Pilot workload (steady state) | 10108 ms | 8731 ms | **13.6% faster on PyPy** |
+| Cold-start (`import aitask_board`, 5 reps) | 202 ms | 355 ms | 153 ms regression |
+
+PyPy is slower for the first 1-2 workload-equivalents inside the
+process (warmup[1]=15.6 s vs CPython warmup[1]=10.0 s), then converges
+to a steady-state ~14% per-workload win. For a typical 30-60 s board
+session, the per-launch ~150 ms cold-start regression is dwarfed by
+the steady-state savings (~1.3 s per workload-equivalent × ~3-6
+workload-equivalents per session = several seconds saved). Short
+"glance" sessions (< 5 keystrokes, close immediately) marginally
+favor CPython, but those are not the modal usage pattern.
+
+**Verdict: KEEP.** `aitask_board.sh` continues to use
+`require_ait_python_fast`.
+
+### Codebrowser (CodeBrowserApp)
+
+| Metric | CPython median | PyPy median | Delta |
+|---|---:|---:|---:|
+| Pilot workload (steady state) | 4067 ms | 4740 ms | **16.6% slower on PyPy** |
+| Cold-start (`import codebrowser_app`, 5 reps) | 173 ms | 341 ms | 168 ms regression |
+
+PyPy converges flat around 4700-4800 ms after 2-3 warmup iterations
+and never crosses CPython's 4067 ms. Cold-start is ~2× slower. PyPy is
+net-negative across the entire workload size range tested. The
+workload exercises the syntax-highlighter (`code_viewer.py:40-48`) and
+viewport scroll on a 5200-LOC Python file — the kind of Rich-render +
+viewport-diff work the *Compile/JIT options* row above predicted PyPy
+would win on. Empirically it doesn't here, plausibly because Rich's
+rendering pipeline is C-accelerated for color/markup spans and the
+remaining per-keystroke Python work is too small for JIT to amortize.
+
+**Verdict: REVERT.** `aitask_codebrowser.sh` line 12 reverted from
+`require_ait_python_fast` to `require_ait_python`. Codebrowser stays
+on CPython regardless of `AIT_USE_PYPY`.
+
+### Why the two diverge
+
+- Board's workload includes a full `refresh_board()` pass per
+  iteration (read all task files, parse frontmatter, rebuild the
+  Kanban widget tree). This is heavy CPython interpretation —
+  thousands of small Python operations per workload run, exactly the
+  shape PyPy's JIT specializes well on.
+- Codebrowser's workload is dominated by scroll + rendering of an
+  already-parsed AST. The per-keystroke Python work is small and
+  fragmented across many short call sites, which the JIT struggles to
+  amortize while paying its fixed per-frame overhead.
+
+This refines the rule for future long-running TUIs: PyPy is a likely
+win when the hot path is heavy interpreted Python (many operations,
+large data transforms, frontmatter parsing); it tends to lose when the
+hot path is small per-frame Textual/Rich render work dispatched from
+C-accelerated layers.
+
+### What would change the codebrowser verdict
+
+- A workload that re-parses or transforms large amounts of Python at
+  steady state (e.g., live syntax-tree edits, large multi-file
+  re-indexing).
+- A future PyPy release closing the C-extension call-site overhead
+  gap.
+- Re-measurement is appropriate if either condition is met; otherwise
+  do not re-attempt the swap.
+
 ## Related Tasks
 
 - **t257** (`aitasks/t257_performance_when_chaning_selection.md`) — codebrowser scroll/selection lag. Likely a Textual render-diff issue, not interpreter speed. Adjacent to PyPy adoption but not duplicated by it.
-- **t718_5** (this section) — empirical verification of monitor/minimonitor under PyPy. REVERT verdict; CLAUDE.md note added.
-- **t719_2** (archived) — hot-path integration of `tmux -C` control mode; reshaped the hot path that this task benchmarks.
-- **t719_4** (pending) — pipe-pane push. If/when archived, re-run this benchmark before drawing fresh conclusions about PyPy on monitor/minimonitor.
+- **t718_5** (above) — empirical verification of monitor/minimonitor under PyPy. REVERT verdict; CLAUDE.md note added.
+- **t718_6** (this section) — empirical verification of board / codebrowser under PyPy. MIXED verdict: board KEEPs, codebrowser REVERTs.
+- **t719_2** (archived) — hot-path integration of `tmux -C` control mode; reshaped the hot path that t718_5 benchmarks.
+- **t719_4** (pending) — pipe-pane push. If/when archived, re-run the t718_5 benchmark before drawing fresh conclusions about PyPy on monitor/minimonitor.
