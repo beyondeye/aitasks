@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [2, 16]
 issue_type: feature
 status: Ready
 labels: [aitask_pick]
 created_at: 2026-05-17 12:11
-updated_at: 2026-05-17 12:11
+updated_at: 2026-05-17 12:12
 ---
 
 ## Context

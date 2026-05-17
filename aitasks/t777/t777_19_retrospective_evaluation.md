@@ -1,12 +1,12 @@
 ---
 priority: low
 effort: low
-depends: [t777_18]
+depends: [18, 20]
 issue_type: chore
 status: Ready
 labels: [aitask_pick]
 created_at: 2026-05-17 12:02
-updated_at: 2026-05-17 12:02
+updated_at: 2026-05-17 12:12
 ---
 
 ## Context

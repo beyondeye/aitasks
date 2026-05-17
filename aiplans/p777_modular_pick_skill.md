@@ -159,11 +159,34 @@ produces non-empty output (it does NOT diff against a committed
 render, because no profile-suffixed renders are committed). Pre-commit
 hook adopts the verifier.
 
-## Children (19 total)
+### Cache invalidation on profile change
+
+Lazy invalidation is built into the render script (t777_2): "skip-if-fresh"
+compares the rendered SKILL.md mtime against BOTH the template AND
+the profile YAML, re-rendering whenever the profile YAML is newer.
+
+Eager invalidation (t777_20) runs in `ProfileEditScreen.on_save`
+(the extracted widget from t777_16) — after any framework TUI
+saves a modified profile YAML, all `<agent>/skills/*-<profile>/`
+directories are deleted via `aitask_skill_invalidate.sh`. This is
+belt-and-suspenders: surfaces stale-render issues immediately and
+avoids confusion from old rendered content lingering on disk.
+
+Per-run profile overrides (t777_17, written to `/tmp/ait-run-override-<pid>.yaml`)
+do NOT trigger eager invalidation — they are one-shot and do not
+modify the project profile YAML.
+
+Pre-commit
+hook adopts the verifier.
+
+## Children (20 total)
 
 Dependency chain: foundation (1–5) → pilot (6) → shared procs (7) →
-per-skill (8–15) → run-dialog UI (16–17) → polish (18–19). Children
-8–15 can be implemented in any order once 1–7 are done.
+per-skill (8–15) → run-dialog UI (16–17, 20) → docs (18) →
+retrospective (19, blocked by 20). Children 8–15 can be implemented
+in any order once 1–7 are done. **t777_20** (eager-invalidation
+hook into the extracted profile-editor widget) was added after
+initial approval and depends on t777_2 + t777_16.
 
 ### Foundation
 
@@ -406,6 +429,24 @@ smoke-test wrapper.
     `ait skillrun <skill> --profile-override <path> [args]`.
 - Confirm the wrapper from t777_5 already handles
   `--profile-override`; if not, add it here.
+
+**t777_20 — Profile-modification eager invalidation** *(added post-approval; depends on t777_2 + t777_16)*
+
+- Create `.aitask-scripts/aitask_skill_invalidate.sh` — args
+  `<profile_name>`; walks 4 agent skill roots and deletes any
+  `*-<profile>/` directory. Idempotent. Emits
+  `INVALIDATED:<count> ...`.
+- Add `invalidate` subcommand under `skill)` case in `./ait`.
+- Hook into `ProfileEditScreen.on_save` (extracted in t777_16):
+  after profile-YAML write, shell out to the invalidator via
+  `subprocess.run(..., check=False)`. Log failures to TUI but
+  don't error the save.
+- 5-touchpoint whitelist for `aitask_skill_invalidate.sh`.
+- Belt-and-suspenders on top of t777_2's lazy mtime check
+  (covers TUI-mediated profile edits; lazy covers hand-edits).
+- Per-run overrides (t777_17 `/tmp/ait-run-override-*.yaml`)
+  do NOT trigger invalidation — they don't modify the project
+  YAML.
 
 ### Polish
 
