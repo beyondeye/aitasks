@@ -24,3 +24,12 @@ website/.hugo_build.lock
 .aitask-data/
 aitasks
 aiplans
+
+# Per-profile rendered skill variants (on-demand, not committed)
+# Convention: rendered dirs end with a trailing hyphen. Authoring dirs
+# never end with a hyphen, so they are safe. See
+# .claude/skills/task-workflow/stub-skill-pattern.md for the full design.
+.claude/skills/*-/
+.agents/skills/*-/
+.gemini/skills/*-/
+.opencode/skills/*-/

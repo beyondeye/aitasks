@@ -96,7 +96,7 @@ EOF
 
 "$RENDER" "$SK1" --profile fast --agent claude
 
-TARGET1=".claude/skills/${SK1}-fast/SKILL.md"
+TARGET1=".claude/skills/${SK1}-fast-/SKILL.md"
 TOTAL=$((TOTAL + 1))
 if [[ -f "$TARGET1" ]]; then
     PASS=$((PASS + 1))
@@ -148,7 +148,7 @@ cleanup_with_profile() {
 trap cleanup_with_profile EXIT
 
 "$RENDER" "$SK1" --profile "$SCRATCH_PROFILE_NAME" --agent claude
-TARGET1_SCRATCH=".claude/skills/${SK1}-${SCRATCH_PROFILE_NAME}/SKILL.md"
+TARGET1_SCRATCH=".claude/skills/${SK1}-${SCRATCH_PROFILE_NAME}-/SKILL.md"
 SCRATCH_MTIME_BEFORE=$(_t_mtime "$TARGET1_SCRATCH")
 sleep 1
 touch "$SCRATCH_PROFILE_PATH"
@@ -189,8 +189,8 @@ EOF
 
 "$RENDER" "$SK_B" --profile fast --agent claude
 
-TARGET_A=".claude/skills/${SK_A}-fast/SKILL.md"
-TARGET_B=".claude/skills/${SK_B}-fast/SKILL.md"
+TARGET_A=".claude/skills/${SK_A}-fast-/SKILL.md"
+TARGET_B=".claude/skills/${SK_B}-fast-/SKILL.md"
 TOTAL=$((TOTAL + 1))
 if [[ -f "$TARGET_B" ]]; then
     PASS=$((PASS + 1))
@@ -218,12 +218,12 @@ EOF
 
 "$RENDER" "$SK_S" --profile fast --agent claude
 
-TARGET_S=".claude/skills/${SK_S}-fast/SKILL.md"
+TARGET_S=".claude/skills/${SK_S}-fast-/SKILL.md"
 RENDERED_S="$(cat "$TARGET_S" 2>/dev/null || echo "")"
 assert_contains "same-skill include inlined into parent output" "PARTIAL_CONTENT" "$RENDERED_S"
 # No spurious "_partial" skill dir should be created.
 TOTAL=$((TOTAL + 1))
-if [[ ! -d ".claude/skills/_partial-fast" && ! -d ".claude/skills/_partial" ]]; then
+if [[ ! -d ".claude/skills/_partial-fast-" && ! -d ".claude/skills/_partial" ]]; then
     PASS=$((PASS + 1))
 else
     FAIL=$((FAIL + 1)); echo "FAIL: same-skill include should not spawn a sibling skill dir"
@@ -243,7 +243,7 @@ See {% raw %}{% include "something.md" %}{% endraw %} (this is escaped, not a re
 Plain text reference: something.md
 EOF
 "$RENDER" "$SK_MD" --profile fast --agent claude
-TARGET_MD=".claude/skills/${SK_MD}-fast/SKILL.md"
+TARGET_MD=".claude/skills/${SK_MD}-fast-/SKILL.md"
 TOTAL=$((TOTAL + 1))
 if [[ -f "$TARGET_MD" ]]; then
     PASS=$((PASS + 1))

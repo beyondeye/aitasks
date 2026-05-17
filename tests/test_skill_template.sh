@@ -76,10 +76,10 @@ else
     PASS=$((PASS + 1))
 fi
 
-assert_eq "agent_skill_dir claude pick (no profile)"  ".claude/skills/aitask-pick"      "$(agent_skill_dir claude aitask-pick)"
-assert_eq "agent_skill_dir claude pick default"       ".claude/skills/aitask-pick"      "$(agent_skill_dir claude aitask-pick default)"
-assert_eq "agent_skill_dir claude pick fast"          ".claude/skills/aitask-pick-fast" "$(agent_skill_dir claude aitask-pick fast)"
-assert_eq "agent_skill_dir gemini pick fast"          ".gemini/skills/aitask-pick-fast" "$(agent_skill_dir gemini aitask-pick fast)"
+assert_eq "agent_skill_dir claude pick (no profile)"  ".claude/skills/aitask-pick"           "$(agent_skill_dir claude aitask-pick)"
+assert_eq "agent_skill_dir claude pick default"       ".claude/skills/aitask-pick-default-" "$(agent_skill_dir claude aitask-pick default)"
+assert_eq "agent_skill_dir claude pick fast"          ".claude/skills/aitask-pick-fast-"    "$(agent_skill_dir claude aitask-pick fast)"
+assert_eq "agent_skill_dir gemini pick fast"          ".gemini/skills/aitask-pick-fast-"    "$(agent_skill_dir gemini aitask-pick fast)"
 
 assert_eq "agent_authoring_template pick" ".claude/skills/aitask-pick/SKILL.md.j2" "$(agent_authoring_template aitask-pick)"
 

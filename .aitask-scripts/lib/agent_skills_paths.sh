@@ -13,6 +13,18 @@
 #   codex    .agents/skills
 #   gemini   .gemini/skills   (per CLAUDE.md "Gemini CLI" section)
 #   opencode .opencode/skills
+#
+# Rendered-dir naming convention (t777_3):
+#   - With a non-empty <profile> arg (including "default"), agent_skill_dir
+#     returns <root>/<skill>-<profile>- with a TRAILING HYPHEN. The trailing
+#     hyphen is the recognizable "generated" marker that lets .gitignore use
+#     a single `*-/` glob per agent root instead of per-profile entries.
+#   - Without a profile arg, agent_skill_dir returns the no-suffix path
+#     <root>/<skill>. That path is reserved exclusively for the committed
+#     stub SKILL.md / command wrapper — it is NEVER overwritten by a render.
+#   - REVERSES t777_1's "default profile uses no suffix" convention. Renders
+#     for the default profile now go to <skill>-default-/, NOT <skill>/.
+#     See .claude/skills/task-workflow/stub-skill-pattern.md for full design.
 
 [[ -n "${_AIT_AGENT_SKILLS_PATHS_LOADED:-}" ]] && return 0
 _AIT_AGENT_SKILLS_PATHS_LOADED=1
@@ -31,8 +43,12 @@ agent_skill_dir() {
     local agent="$1" skill="$2" profile="${3:-}"
     local root
     root="$(agent_skill_root "$agent")" || return 1
-    if [[ -n "$profile" && "$profile" != "default" ]]; then
-        echo "$root/${skill}-${profile}"
+    # Rendered dirs end with a trailing hyphen — recognizable "generated"
+    # marker so gitignore is a single `*-/` glob per agent root. The
+    # no-profile-arg case returns the no-suffix path, reserved for the
+    # committed stub SKILL.md / command wrapper.
+    if [[ -n "$profile" ]]; then
+        echo "$root/${skill}-${profile}-"
     else
         echo "$root/${skill}"
     fi
