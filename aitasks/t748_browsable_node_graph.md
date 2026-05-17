@@ -5,9 +5,10 @@ depends: [749]
 issue_type: enhancement
 status: Implementing
 labels: [ait_brainstorm]
+children_to_implement: [t748_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-05 09:12
-updated_at: 2026-05-17 09:49
+updated_at: 2026-05-17 10:11
 boardidx: 60
 ---
 
