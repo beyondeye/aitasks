@@ -123,7 +123,7 @@ def on_dag_display_plan_requested(
     )
 ```
 
-No new imports — `read_proposal`, `read_plan`, and `SectionViewerScreen` are already imported at the top of `brainstorm_app.py`.
+`read_proposal` and `read_plan` are already imported at the top of `brainstorm_app.py:44-52`. `SectionViewerScreen` is imported inline inside each handler via `from section_viewer import SectionViewerScreen` (matching the existing local-import convention used elsewhere in `brainstorm_app.py`, e.g. at lines 861 and 3926).
 
 ## Verification
 
@@ -137,3 +137,12 @@ No new imports — `read_proposal`, `read_plan`, and `SectionViewerScreen` are a
 ## Step 9 (Post-Implementation)
 
 Standard task-workflow Step 9. Archive via `./.aitask-scripts/aitask_archive.sh 748_3`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `p` and `l` bindings to `DAGDisplay.BINDINGS` (`.aitask-scripts/brainstorm/brainstorm_dag_display.py`), two new `Message` subclasses (`ProposalRequested`, `PlanRequested`) next to the existing `FocusChanged`, and two `action_*` methods that post those messages with the focused node id. App-level `@on(DAGDisplay.ProposalRequested)` and `@on(DAGDisplay.PlanRequested)` handlers were added in `brainstorm_app.py` immediately after the existing `@on(DAGDisplay.OperationOpened)` handler. Both handlers do the session-IO (`read_proposal` / `read_plan`) and push `SectionViewerScreen`; the plan handler additionally notifies "No plan generated …" when `read_plan` returns `None`/empty.
+- **Deviations from plan:** One minor: `SectionViewerScreen` is **not** imported at the top of `brainstorm_app.py` — it is imported locally at lines 861 and 3926. The new handlers therefore use the same `from section_viewer import SectionViewerScreen` inline-import pattern instead of relying on a top-level import. Plan body has been updated to reflect this.
+- **Issues encountered:** None.
+- **Key decisions:** Followed the Message → `@on(...)` routing pattern (as the plan specified) rather than reading session data inside `DAGDisplay`. Even though the existing `action_open_operation` does direct session-IO (it needs to look up `created_by_group`), the proposal/plan flows only need the focused `node_id`, so keeping the read on the App side is cleaner and consistent across the two new handlers.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** The Message → `@on(...)` pattern in the App is the canonical way to wire DAGDisplay actions that need session-IO. t748_4's planned `CompareRequested` should follow the same shape. `SectionViewerScreen` is imported inline (not at the top of `brainstorm_app.py`) — sibling tasks that push `SectionViewerScreen` from a new App-level handler should match this convention. Footer rendering for the two new bindings was confirmed by Textual at binding declaration time (`show=True`); no extra CSS or footer wiring is needed because of t749_6's earlier sweep.
