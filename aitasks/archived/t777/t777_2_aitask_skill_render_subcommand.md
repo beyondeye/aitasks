@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: [t777_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_pick]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-17 11:57
-updated_at: 2026-05-17 13:03
+updated_at: 2026-05-17 14:33
+completed_at: 2026-05-17 14:33
 ---
 
 ## Context
