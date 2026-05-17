@@ -335,3 +335,103 @@ def on_dag_display_compare_requested(
 See parent plan `aiplans/p748_browsable_node_graph.md` and the
 shared task-workflow Step 9 (`./.aitask-scripts/aitask_archive.sh
 748_4`).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-17 14:55)
+
+- **Requested by user:** After testing in `ait brainstorm 635` (a
+  session with only two nodes), the Compare tab appeared to "close
+  immediately" after picking the second node — suggesting a swallowed
+  exception or an order-of-operations bug.
+- **Root cause hypothesis:** `_build_compare_matrix` calls
+  `query_one("#compare_content", VerticalScroll)` and
+  `container.remove_children()`. The existing working callsite
+  (`_on_compare_selected`) only fires while the user is already on
+  the Compare tab — so `#compare_content` is mounted and the
+  modification is visible. Our new `@on(CompareRequested)` path ran
+  `_build_compare_matrix(...)` first and only then switched the
+  active tab, so the user saw the post-switch view rendered against
+  a `#compare_content` modified in the wrong order (or whose
+  children update was overwritten by Textual's TabbedContent
+  activation). The visible symptom was "screen closes immediately".
+  Additionally, any exception raised inside the `@on` handler is
+  swallowed silently by Textual's message-dispatch infra, hiding the
+  real error from the user.
+- **Changes made:** Reordered the `@on(DAGDisplay.CompareRequested)`
+  handler in `brainstorm_app.py` to (1) set `tabbed.active = "tab_compare"`
+  first, then (2) defer `_build_compare_matrix` via
+  `call_after_refresh` so the Compare TabPane is fully activated/
+  mounted before the matrix is rebuilt. Wrapped the deferred build in
+  a `try/except` that surfaces any exception via `self.notify(...,
+  severity="error")` so future failures are visible instead of
+  silent.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`.
+
+### Change Request 2 (2026-05-17 15:10)
+
+- **Requested by user:** Re-test after Change Request 1 still showed
+  the "closes immediately" symptom on first attempt, and now the
+  second compare attempt surfaced `"Compare build failed: node id
+  already mounted"` (caught by the new try/except notify wrapper).
+  User asked whether the Enter shortcut might be conflicting with
+  the existing node-detail Enter binding.
+- **Root cause confirmed:** The error pinpointed the real bug —
+  `_build_compare_matrix` calls `container.remove_children()` then
+  `container.mount(table)` synchronously. Both operations are
+  async-queued in Textual; on the SECOND consecutive compare attempt,
+  the previous `#compare_table` is still mounted when the new
+  `mount(table)` fires, triggering `MountError("id already mounted")`.
+  The existing modal-based callsite (`_on_compare_selected`) does not
+  trip this because typical user interaction inserts delay (modal
+  close animation) between successive picks; the new keyboard-driven
+  flow exercises it tightly.
+- **Changes made:** Made `on_dag_display_compare_requested` an `async`
+  handler that explicitly `await container.remove_children()` BEFORE
+  calling `_build_compare_matrix(...)`. Pre-flushing guarantees no
+  prior `#compare_table` is around when the new one mounts. Kept the
+  `try/except → notify` wrapper for any other build-time failures.
+- **Enter conflict ruled out:** The App-level `Binding("enter",
+  "open_node_detail", ...)` is non-priority. DAGDisplay's
+  `action_open_node` binding fires first and consumes Enter, so the
+  App-level binding does NOT additionally fire. No double-trigger.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`.
+
+### Change Request 3 (2026-05-17 15:25)
+
+- **Requested by user:** After Change Request 2, the second-compare
+  "id already mounted" error is gone, but the new symptom is that
+  the Compare tab "flashes twice" and the Graph tab comes back, both
+  attempts. The matrix never sticks.
+- **Root cause:** Textual auto-reverts the active TabPane when the
+  currently-focused widget lives on the *deactivating* pane, so the
+  focused widget stays visible. The user reaches the @on handler
+  while `DAGDisplay` (focusable, lives in `tab_dag`) holds focus.
+  Setting `tabbed.active = "tab_compare"` briefly switches the pane,
+  but Textual then re-activates `tab_dag` to keep `DAGDisplay`
+  visible — manifesting as a flash, then revert.
+- **Changes made:** Before activating `tab_compare`, the handler
+  now shifts focus off `DAGDisplay` by focusing the parent `Tabs`
+  widget (the tab bar) — `tabbed.query_one(Tabs).focus()`. With no
+  focusable widget pinned to `tab_dag`, the activation sticks. After
+  `_build_compare_matrix` mounts the table, its existing
+  `call_after_refresh(table.focus)` finishes the focus shift to
+  `#compare_table` so keyboard navigation works.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`.
+
+### Change Request 4 (2026-05-17 15:40)
+
+- **Requested by user:** The "Select node to compare with X —
+  Enter=confirm, Esc=cancel" toast lingers visibly even after the
+  user has confirmed or cancelled the pick. In other Textual TUIs,
+  toasts auto-hide once they are no longer relevant.
+- **Changes made:** In `brainstorm_dag_display.py`,
+  `action_open_node` (compare-confirm path) and `action_cancel_compare`
+  now call `self.app.clear_notifications()` (wrapped in
+  `try/except AttributeError` for older Textual versions) just before
+  posting `CompareRequested` / showing the "Compare cancelled" toast.
+  Also added explicit short `timeout=2` (cancelled / already-in-mode)
+  and `timeout=3` (entry hint) on the surrounding `notify` calls so
+  the toast self-dismisses even if `clear_notifications` is
+  unavailable.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_dag_display.py`.
