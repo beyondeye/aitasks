@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [aitask_pick]
-children_to_implement: [t777_4, t777_5, t777_6, t777_7, t777_8, t777_9, t777_10]
+children_to_implement: [t777_5, t777_6, t777_7, t777_8, t777_9, t777_10]
 created_at: 2026-05-17 09:44
-updated_at: 2026-05-17 16:02
+updated_at: 2026-05-17 16:44
 boardidx: 60
 ---
 
