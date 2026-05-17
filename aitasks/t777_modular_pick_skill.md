@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [aitask_pick]
-children_to_implement: [t777_1, t777_2, t777_3, t777_4, t777_5, t777_6, t777_7, t777_8, t777_9]
+children_to_implement: [t777_1, t777_2, t777_3, t777_4, t777_5, t777_6, t777_7, t777_8, t777_9, t777_10]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-17 09:44
 updated_at: 2026-05-17 12:00
