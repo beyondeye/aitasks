@@ -7,7 +7,7 @@ status: Ready
 labels: [claudeskills]
 created_at: 2026-05-17 10:48
 updated_at: 2026-05-17 10:48
-boardidx: 50
+boardidx: 60
 ---
 
 Claude Code recently changed billing so `claude -p "<prompt>"` (headless/print mode) is charged at a higher rate than interactive invocations. Audit confirmed the aitasks framework already has a small footprint here — only two active call sites — but we should eliminate both and add a guard convention to prevent regressions.

@@ -7,7 +7,7 @@ status: Postponed
 labels: [ait_brainstorm, agentcrew]
 created_at: 2026-04-27 14:06
 updated_at: 2026-04-27 14:06
-boardidx: 70
+boardidx: 80
 ---
 
 Follow-up to t671 (archived as `aiplans/archived/p671_*`).
