@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Done
+archived_reason: superseded
 labels: [ait_brainstorm]
-children_to_implement: [t749_8]
 created_at: 2026-05-05 09:18
-updated_at: 2026-05-16 23:18
+updated_at: 2026-05-17 09:45
+completed_at: 2026-05-17 09:45
 boardidx: 20
 ---
 
