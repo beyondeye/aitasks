@@ -3972,6 +3972,42 @@ class BrainstormApp(TuiSwitcherMixin, App):
             OperationDetailScreen(event.group_name, self.session_path)
         )
 
+    @on(DAGDisplay.ProposalRequested)
+    def on_dag_display_proposal_requested(
+        self, event: DAGDisplay.ProposalRequested
+    ) -> None:
+        """Open SectionViewerScreen with the focused node's proposal ('p' key)."""
+        from section_viewer import SectionViewerScreen
+        try:
+            proposal = read_proposal(self.session_path, event.node_id)
+        except Exception:
+            self.notify(
+                f"No proposal for {event.node_id}", severity="warning"
+            )
+            return
+        self.push_screen(
+            SectionViewerScreen(proposal, title=f"Proposal: {event.node_id}")
+        )
+
+    @on(DAGDisplay.PlanRequested)
+    def on_dag_display_plan_requested(
+        self, event: DAGDisplay.PlanRequested
+    ) -> None:
+        """Open SectionViewerScreen with the focused node's plan ('l' key)."""
+        from section_viewer import SectionViewerScreen
+        try:
+            plan = read_plan(self.session_path, event.node_id)
+        except Exception:
+            plan = None
+        if not plan or not plan.strip():
+            self.notify(
+                f"No plan generated for {event.node_id}", severity="warning"
+            )
+            return
+        self.push_screen(
+            SectionViewerScreen(plan, title=f"Plan: {event.node_id}")
+        )
+
     @on(DAGDisplay.FocusChanged)
     def on_dag_display_focus_changed(
         self, event: DAGDisplay.FocusChanged

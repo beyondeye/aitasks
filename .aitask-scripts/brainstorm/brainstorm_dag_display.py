@@ -412,6 +412,8 @@ class DAGDisplay(VerticalScroll):
         Binding("enter", "open_node", "Open", show=True),
         Binding("h", "head_node", "Set HEAD", show=True),
         Binding("o", "open_operation", "Operation", show=True),
+        Binding("p", "view_proposal", "Proposal", show=True),
+        Binding("l", "view_plan", "Plan", show=True),
     ]
 
     class NodeSelected(Message):
@@ -437,6 +439,20 @@ class DAGDisplay(VerticalScroll):
 
     class FocusChanged(Message):
         """Emitted when DAG focus moves to a different node."""
+
+        def __init__(self, node_id: str) -> None:
+            super().__init__()
+            self.node_id = node_id
+
+    class ProposalRequested(Message):
+        """Emitted when p is pressed to view the focused node's proposal."""
+
+        def __init__(self, node_id: str) -> None:
+            super().__init__()
+            self.node_id = node_id
+
+    class PlanRequested(Message):
+        """Emitted when l is pressed to view the focused node's plan."""
 
         def __init__(self, node_id: str) -> None:
             super().__init__()
@@ -669,3 +685,17 @@ class DAGDisplay(VerticalScroll):
             return
         self.post_message(self.OperationOpened(group))
         self.post_message(self.FocusChanged(focused_id))
+
+    def action_view_proposal(self) -> None:
+        """Post ProposalRequested for the focused node (p key)."""
+        if not self._node_order:
+            return
+        focused_id = self._node_order[self._focused_idx]
+        self.post_message(self.ProposalRequested(focused_id))
+
+    def action_view_plan(self) -> None:
+        """Post PlanRequested for the focused node (l key)."""
+        if not self._node_order:
+            return
+        focused_id = self._node_order[self._focused_idx]
+        self.post_message(self.PlanRequested(focused_id))
