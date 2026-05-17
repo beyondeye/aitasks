@@ -5,11 +5,11 @@ depends: []
 issue_type: performance
 status: Ready
 labels: [performance, setup, tui]
-children_to_implement: [t718_4, t718_5]
+children_to_implement: [t718_4, t718_5, t718_6]
 created_at: 2026-04-30 08:34
-updated_at: 2026-04-30 15:21
-boardidx: 230
+updated_at: 2026-05-17 10:50
 boardcol: unordered
+boardidx: 230
 ---
 
 ## Goal
