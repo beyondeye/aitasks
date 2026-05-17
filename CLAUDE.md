@@ -124,6 +124,8 @@ Most scripts support both **interactive** (uses `fzf`) and **batch** (CLI flags 
 - **wc -l portability:** macOS `wc -l` pads output with leading spaces (`"       1"` vs `"1"`). This is safe in arithmetic contexts (`-gt`, `-le`, `$(())`), but breaks exact string comparisons (`== "1"`). Strip with `| tr -d ' '` when comparing as strings. See `aidocs/sed_macos_issues.md` for details.
 - **mktemp portability:** macOS BSD `mktemp` does not support `--suffix`. Use template patterns instead: `mktemp "${TMPDIR:-/tmp}/prefix_XXXXXX.ext"`. See `aidocs/sed_macos_issues.md` for details.
 - **base64 portability:** macOS uses `base64 -D` for decoding, Linux uses `base64 -d`. The long form `--decode` is not portable across both. In skill files, document both flags. In scripts, use a conditional or avoid `base64` if possible.
+- **No global PATH override for framework-internal binaries.** Do NOT append framework-internal directories (e.g., `~/.aitask/bin`) to the user's interactive shell rc (`~/.zshrc` / `~/.bashrc` / `~/.profile`). That globally overrides system tools (like `python3`) for every program the user runs, not just aitasks subprocesses, and risks silent breakage of the user's unrelated workflows. Instead, ship a sourced lib (e.g., `.aitask-scripts/lib/aitask_path.sh`) that exports `PATH="$HOME/.aitask/bin:$PATH"` idempotently, and source it from the `ait` dispatcher and from every `.aitask-scripts/aitask_*.sh` that may invoke the framework binary (covers skill-direct calls bypassing the dispatcher). The exception is `~/.local/bin` — `ensure_path_in_profile()` correctly manages only that directory because the global `ait` entry-point shim is meant to be user-invocable.
+- **Cross-platform audit for platform-specific bugs.** When fixing a bug on one OS branch (e.g., a Linux-only `_install_pypy_linux` failure), audit the parallel function on the other platform (`_install_pypy_macos`) for the same bug class before finalizing the task scope: hardcoded literals where a constant exists, missing layout symmetry, same single-source-of-truth violations. If the symmetric path has same-family issues, fold them into the same task (a single coherent fix is better than two staggered ones); name a manual-verification follow-up for the platform you can't test from your dev box. Skip this only when the bug is genuinely OS-specific (kernel API quirk, sandbox restriction) with no analog on the other platform.
 
 ## CLI Conventions
 
@@ -218,6 +220,22 @@ User-facing docs (website, README-level content) describe the **current state on
 
   Canonical helper lives at `.aitask-scripts/aitask_companion_cleanup.sh` (shell script, called via `tmux run-shell`, not from a code-agent skill — no whitelisting touchpoints).
 
+- **TUI footer must surface every operation on the affected tab/screen — existing AND new.** When a plan adds keybindings to a Textual TUI tab/screen, the same plan must also flip pre-existing `show=False` bindings and `on_key`-only handlers (no `Binding` declared) on that tab/screen to footer-visible `Binding` declarations. Partial coverage is worse than none because it misleads users into thinking the visible set is complete.
+
+  **How to apply:** When planning a TUI change that touches keybindings:
+  - Audit every existing binding on the affected widget/screen. Convert `on_key`-only handlers to proper `Binding` declarations with `action_*` methods.
+  - Default new bindings to `show=True` with a short, user-friendly label.
+  - For pre-existing `show=False` bindings, propose flipping them to `show=True` (or justify keeping them hidden — e.g., internal navigation that would clutter the footer) in the same plan.
+  - Arrow-key bindings can be footer-visible if they are part of the primary interaction model (e.g., 2D graph navigation); don't reflexively hide them just because Textual examples often do.
+  - Surface this as an explicit deliverable in the child task that introduces the new operations.
+
+- **Tmux-stress tasks: implement outside the user's main aitasks tmux.** For tasks whose tests/verification destructively manipulate tmux (`kill -KILL` of `tmux -C attach` children, `tmux kill-session`, `tmux kill-server`, `tmux pause-pane`, etc. — typical surface: `.aitask-scripts/monitor/`, `tmux_control.py`, `agent_launch_utils.py`, resilience test suites), the implementation must NOT run from inside the user's active aitasks tmux session. Even with per-case `TMUX_TMPDIR` sockets, a wrong test or an embedded helper bug can blast the user's real session and take all running code agents down.
+
+  **How to apply:**
+  - Flag the risk before drafting the verification section. Recommend the user pick the task from a shell that is **not** inside their main aitasks tmux. The plan can still be written from inside; only implement + verify need the outside-tmux precaution.
+  - If the user is mid-pick when the risk surfaces, offer "abort + revert to Ready, keep the plan" as the default action — do not push through implementation.
+  - If only a subset of test cases need a sandboxed tmux, split them into a separate runner script the user invokes from a clean shell.
+
 ## Model Attribution
 
 When running the Model Self-Detection sub-procedure in Claude Code, scan the conversation for **mid-session `/model` switches before** falling back to the initial system message.
@@ -256,7 +274,7 @@ If no `.j2` templates exist yet, the command prints `ait skill verify: no .j2 te
 
 ### Skill / Workflow Authoring Conventions
 
-- **Agent-specific steps live in their own procedure file.** If a workflow step applies only to one code agent (e.g., Claude Code's internal plan file externalization), put the procedure — commands, output parsing, error handling — in its own `.claude/skills/task-workflow/<name>.md`. Reference it from `SKILL.md` / `planning.md` with a short conditional wrapper: "If running in Claude Code, execute the \<Procedure Name\> (see `<name>.md`). Other agents skip this step because \<reason\>." Never inline agent-specific steps into shared files — when the tree is ported to `.opencode/`, `.gemini/`, `.agents/`, the porter either copies irrelevant steps or silently drops them.
+- **Extract new procedures to their own file.** Any new procedure added to an aitasks skill (task-workflow or sibling) goes in its own file (`.claude/skills/<skill>/<name>.md`); the calling `SKILL.md` / `planning.md` carries only a thin "Execute the **\<Procedure Name\>** (see `<name>.md`) with: \<context vars\>" reference. No inlined procedure bodies; no "either inline or extract" alternatives in plans. The agent-specific case (e.g., Claude Code's internal plan-file externalization) is one instance of this rule — wrap the reference in a conditional like "If running in Claude Code, execute …. Other agents skip this step because \<reason\>." Inlined bodies in shared files duplicate when the procedure fires from multiple call-sites, drift silently when the tree is ported to `.opencode/` / `.gemini/` / `.agents/`, and create conflict surface when multiple aitasks touch the same SKILL.md region.
 - **Execution-profile keys vs. guard variables — pick the right lever.** Profile keys (e.g., `qa_mode: ask|never`, `post_plan_action`) are for letting users opt in/out of a procedure; they are the right fix when a step feels overreaching. Guard variables (e.g., `feedback_collected`) are set-once-consume-once flags that prevent DOUBLE execution when the same procedure can be invoked twice via different control-flow paths — they do NOT force a single execution, so they can't be used to "remind agents to fire a prompt." Rule of thumb: if the concern is "agents might forget to fire X", restructure control flow (extract X to its own file, reference explicitly from SKILL.md, make it a numbered step) and add a profile key for opt-out. If the concern is "X might fire twice via re-entry", add a guard variable to the SKILL.md context-variables table and check it at procedure entry — LLMs reading the instructions may not reliably distinguish imperative "execute this" from descriptive "this happens", so a variable is a programmatic guarantee regardless of interpretation.
 - **Context-variable pattern over template substitution engines.** When templates need per-instance values like `CREW_ID` / `AGENT_NAME` (or analogous variables), do NOT introduce a template-substitution engine that interpolates the values at template-write time (e.g., a sed/envsubst pass added to a helper). Instead, follow the "context-variable" pattern already used by `task-workflow`: declare the variables once in a known file the agent reads (e.g., `_instructions.md`, or a shared `_context_variables.md` include), reference them as `${VARNAME}` placeholders throughout the template, and let the agent substitute them at read time.
 
@@ -266,6 +284,19 @@ If no `.j2` templates exist yet, the command prints `ait skill verify: no .j2 te
   - First, check whether the agent already has the values available via a known context source (e.g., its `_instructions.md` written by an existing helper). If so, just reference the variables in the template and tell the agent where the literal values live.
   - If a shared declaration is needed across multiple templates, add a small include file (e.g., `_context_variables.md`) and inline it via the existing `<!-- include: ... -->` mechanism — do NOT add a new substitution pipeline.
   - Reserve write-time variable interpolation for cases where the agent genuinely cannot read the literal values from any context file (rare).
+
+- **SKILL.md files are re-read during execution — never overwrite an in-use one.** Skill definitions on disk (`.claude/skills/<name>/SKILL.md`, `.agents/skills/<name>/SKILL.md`, `.gemini/skills/<name>/SKILL.md`, `.opencode/skills/<name>/SKILL.md`) are read MULTIPLE times by the agent during a skill's execution, not just once at slash-command expansion. Any design that mutates an in-use `SKILL.md` mid-session produces torn reads and inconsistent behavior.
+
+  **How to apply:**
+  - Use per-profile subdirectories (each with its own stable `SKILL.md`) so different (skill, profile) combinations live in different files. For dynamic profile-driven content, render ONCE atomically (mv from tempfile) into a per-profile path, then dispatch via a profile-suffixed slash command (e.g. `/aitask-pick-fast`). The committed no-suffix `/aitask-pick` becomes a thin stub that resolves the active profile and dispatches.
+  - Skills must also be invokable from INSIDE a live agent session (typing `/aitask-pick 42` in Claude), where no external wrapper can intercept. Stub-dispatch from the skill itself is the canonical solution: the stub runs `ait skill render …` (bash), then invokes `/skill-<profile>`.
+  - Atomic mv from tempfile is essential for any render that lands in a skill discovery path.
+
+- **Use recognizable name-suffix conventions for generated artifact dirs, not per-variant gitignore globs.** When a feature generates rendered artifact directories alongside authoring ones (e.g., per-profile rendered SKILL.md variants), encode "generated" into the directory NAME with a single recognizable suffix/prefix marker so the gitignore is one glob per agent root. Convention for aitasks framework rendered SKILL.md dirs: **trailing hyphen** (e.g., `aitask-pick-fast-/`); gitignore is `.claude/skills/*-/` (and same for `.agents/skills/`, `.gemini/skills/`, `.opencode/skills/`). Per-variant globs (`*-fast/`, `*-default/`, …) require maintenance every time a new variant lands; the suffix convention does not. Authoring dir names must NOT end with the marker — verify at design time.
+
+- **Do not route skill invocation through `claude -p "<inlined prompt>"`.** `claude -p` is billed at a higher per-token rate than slash-command invocations against an existing session. Inlining a rendered SKILL.md (often 200–400 lines) into the prompt every invocation multiplies that cost. The wrapper's job is to render → atomically place the rendered file at the agent's discovery path → exec the agent with the natural slash command (`claude '/skill-name <args>'` or invocation inside an existing session). Never pipe rendered SKILL.md content via `-p`. The constraint applies to all four agents (Claude, Codex, Gemini, OpenCode); the rate-difference rationale is documented specifically for Claude.
+
+- **Post-implementation follow-up offers: cross-step state lives in the plan file, not in context variables.** When a Step 8X-style follow-up procedure (8b upstream-defect, 8c manual-verification, future siblings) needs cross-step state — e.g., "did diagnosis surface an upstream defect?" — record it in a dedicated bullet of the plan file's `## Final Implementation Notes` section, and have the follow-up procedure read from that subsection. Use `None` (verbatim) as the positive-assertion sentinel when nothing was found. Do NOT add new entries to SKILL.md's "Context Requirements" table for this kind of state. Plan-file persistence survives context resumes, stays auditable in archived plans, and keeps the recorded finding visible even if the user declines the follow-up offer.
 
 ### Claude Code (source of truth)
 - Skills: `.claude/skills/<name>/SKILL.md`
@@ -291,6 +322,56 @@ If no `.j2` templates exist yet, the command prints `ait skill verify: no .j2 te
 ## Planning Conventions
 
 - **Refactor duplicates before adding to them.** When an implementation plan would edit the same list, set, or configuration in three or more separate files (e.g., adding one value to `DEFAULT_TUI_NAMES`, `_DEFAULT_TUI_NAMES`, `KNOWN_TUIS`, and `project_config.yaml`), propose a single-source-of-truth extraction before accepting the duplicated edit. Duplicated state is the mechanism that produces drift bugs (stale config masking new code defaults). Also evaluate replace-vs-merge semantics for config overrides over code defaults — merge/additive semantics prevent future drift when framework features are added.
+
+- **Plan split: in-scope sibling children, not deferred follow-ups.** When splitting a complex parent task into children, default to all phases as siblings (in scope), plus a trailing retrospective-evaluation child that depends on the others. Do NOT mark later phases as "out-of-scope follow-up tasks" when the parent has scoped them. When committing to a design choice under partial information ("we'll know if this is the right shape once we benchmark"), proactively propose the retrospective-evaluation child — it documents outcomes and files standalone follow-ups only if the collected data justifies them. The retrospective child is bounded by the parent (a *child*, not a deferred top-level task), even though its outputs may include new top-level tasks. Applies to both architectural refactors and exploratory work whose right-next-step depends on what the first step shows.
+
+- **Dead code goes into the sibling refactor task — never a vague follow-up.** When a child-task plan would leave a function / global / branch / file unreachable after the change lands, do NOT write "leave it for a future cleanup" or "follow-up child" without naming the actual sibling. Identify the right sibling task (whose explicit scope is `cleanup / refactor / migrate / remove`) and drop a one-line note into that sibling's task file under `## Notes for sibling tasks` (include file path + line range, so the future implementer doesn't re-trace). If no sibling fits, surface a NEW task creation as part of the current plan. Do not bury cleanup intent in a `# DEPRECATED` comment alone — the load-bearing signal is the task-file note that surfaces in `aitask_ls.sh`-driven workflows.
+
+- **Gate plans on in-flight related tasks instead of forking ahead.** When a planned task **mirrors, clones, or extends** rendering / data presented by another task that is currently `Implementing` or `Editing`, do NOT propose implementing the new task in parallel. Add a "Sequencing — wait for tN to land" section to the plan, mark the new task `depends: [N]` (or `Postponed`), externalize and commit the plan now (so the design isn't lost), but exit via the "Approve and stop here" Step 6 checkpoint. Forking ahead produces diverging UI / data — the new task ships an extension that doesn't include the in-flight task's new fields. During planning, scan `aitasks/t<id>_*.md` for `status: Implementing` and check for meaningful overlap (mirrors / clones / extends, not just file proximity).
+
+- **No fallback-read workarounds for sync/desync root causes.** For local-vs-remote desync symptoms, do NOT extend resolver helpers like `resolve_task_file` / `resolve_plan_file` with `git show <remote_ref>:...` fallback tiers. Such tiers hide the desync, bloat resolver chains, and silently mask stale local state. The right fix is to make desync **visible and resolvable** — best-effort `warn` at script entry points (telling the user "you are out of sync"), and integration with the dedicated syncer TUI + monitor / minimonitor / switcher surfaces. Workarounds that read from `origin` behind the user's back are not acceptable as "deeper fixes."
+
+- **Audit-only tasks with zero findings produce audit-only plans — not speculative regression tests.** When a follow-up audit task ("grep the codebase for the same class of bug") finds zero additional occurrences beyond the single known case, do NOT propose a regression-prevention test, AST scanner, or lint rule as the durable deliverable. The audit itself is the deliverable: document method + findings + "no code changes." A one-off bug with a known mechanism is not evidence of an ongoing pattern. If a second occurrence ever appears, reconsider then — note this trigger in "Out of scope", don't pre-build the infrastructure. (Aligned with the system-prompt rule "Don't add features, refactor, or introduce abstractions beyond what the task requires.")
+
+## Testing Conventions
+
+- **Threading / asyncio migrations require thorough automated coverage — smoke + manual verification is not enough.** When a plan introduces a background thread, dedicated asyncio loop, `run_coroutine_threadsafe` bridge, or any other concurrency primitive, the test plan must enumerate concrete cases across each axis below. Threading bugs hide in race windows that manual smoke cannot reach; skipping any axis is a planning gap, not a "stretch."
+
+  Walk this checklist explicitly in the plan body before exiting plan mode:
+  1. **Lifecycle:** start idempotency, start-after-stop, stop idempotency, stop with pending work.
+  2. **Concurrency:** N concurrent callers from multiple threads — bump N to 50+ to flush latent ordering bugs.
+  3. **Mixed contexts:** sync caller invoked from inside a running asyncio loop on a different thread (the load-bearing test that proves the architecture solves the deadlock the migration was meant to address).
+  4. **Failure recovery:** transport failure (e.g., server killed externally), then next request returns a dead-client sentinel cleanly without raising.
+  5. **Resource boundaries:** binary not on PATH / config missing — start fails cleanly, fallback engages, no thread leaks.
+  6. **Resource cleanup:** after stop, assert thread joined within timeout AND `threading.enumerate()` no longer lists the worker.
+  7. **Behavior parity:** for every operation with a new code path, run new vs old and assert identical results (exact rc; exact stdout when rc==0). Document the contract explicitly when error-path stdout diverges (e.g., control-mode `%error` body vs subprocess stderr) so future maintainers don't tighten the assertion incorrectly.
+
+  If a planned case is flaky on timing (e.g., sub-ms timeout assertions on a fast IPC), DROP the case rather than weakening it with sleeps / retries — note the dropped case in Final Implementation Notes and rely on adjacent cases that exercise the same semantics deterministically.
+
+## Code Conventions
+
+- **Source-trace comments for help text condensed from other files.** When a constant or dict holds user-facing help/summary text **condensed** from another canonical file (agent prompt templates, JSON schemas, external docs), include source-code comments at the data site naming the canonical origin (file path + relevant section/heading) for each entry. Archived plans and tasks are not surfaced when a future contributor opens the source file; the "where did this description come from?" answer must live in the code so the next person editing the help text can verify and re-derive it without spelunking through git history or `aitasks/`.
+
+  Example:
+  ```python
+  # Source: .aitask-scripts/brainstorm/templates/explorer.md
+  # I/O contract from "## Input" + "## Output" sections.
+  "explore": { ... }
+  ```
+
+  If the dict/constant as a whole derives from a single canonical file or directory, add a top-of-block comment naming that location plus per-entry comments naming the section backing each entry. Apply only when the help/summary is a condensation of authoritative content elsewhere — not for inline help written from scratch.
+
+## Reusable Helpers
+
+- **`aitask_explain_context.sh` is the canonical "source files → related plans / tasks" scanner.** For any requirement of the form "given a list of source files, find the aitasks/aiplans that touched them and surface their plan content as context", call the t369 helper family directly:
+
+  ```bash
+  ./.aitask-scripts/aitask_explain_context.sh --max-plans N <file1> [file2...]
+  ```
+
+  Outputs formatted markdown with historical plan content. Internally orchestrates a cache at `.aitask-explain/codebrowser/` (shared with codebrowser — don't write a parallel cache). Family members built in t369: `aitask_explain_context.sh` (orchestrator), `aitask_explain_extract_raw_data.sh`, `aitask_explain_format_context.py`, `aitask_explain_process_raw_data.py`, `aitask_explain_runs.sh`, `aitask_explain_cleanup.sh`.
+
+  Do NOT cite or reinvent codebrowser's Python internals (`history_data.py` / `explain_manager.py`) for new features — those are codebrowser-internal; the bash helpers are the supported public interface. Only build new tooling if the helper genuinely cannot fit (different output shape); prefer extending the existing helper (add a flag) over forking the scan logic.
 
 ## Project-Specific Notes
 
