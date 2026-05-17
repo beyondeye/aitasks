@@ -9,7 +9,7 @@ children_to_implement: [t718_4]
 created_at: 2026-04-30 08:34
 updated_at: 2026-05-17 15:03
 boardcol: unordered
-boardidx: 20
+boardidx: 10
 ---
 
 ## Goal
