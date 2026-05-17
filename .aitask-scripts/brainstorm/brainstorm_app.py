@@ -2588,16 +2588,6 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 event.stop()
                 return
 
-        # Up on Graph tab: focus tab bar directly (no row widget on this tab).
-        # Compare tab handles Up via CompareDataTable.action_cursor_up, which
-        # moves the row cursor and only escapes to the tab bar at row 0.
-        if event.key == "up" and tabbed.active == "tab_dag":
-            tabs_widget = tabbed.query_one(Tabs)
-            tabs_widget.focus()
-            event.prevent_default()
-            event.stop()
-            return
-
         # Actions tab wizard navigation
         if tabbed.active == "tab_actions" and self._wizard_step > 0:
             # Esc: go back to previous wizard step
@@ -3328,9 +3318,14 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._try_apply_patcher_if_needed(agent, source, force=True)
 
     def on_tabbed_content_tab_activated(self, event) -> None:
-        """Refresh Status tab when it becomes active."""
+        """Refresh Status tab when it becomes active; focus DAG on Graph tab."""
         if event.pane.id == "tab_status":
             self._refresh_status_tab()
+        elif event.pane.id == "tab_dag":
+            try:
+                self.query_one(DAGDisplay).focus()
+            except Exception:
+                pass
 
     def _refresh_status_tab(self) -> None:
         """Populate the Status tab with operation groups and agent statuses."""

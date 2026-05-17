@@ -405,8 +405,10 @@ class DAGDisplay(VerticalScroll):
     can_focus = True
 
     BINDINGS = [
-        Binding("j", "next_node", "Next", show=True),
-        Binding("k", "prev_node", "Prev", show=True),
+        Binding("up", "prev_layer", "↑ Layer", show=True),
+        Binding("down", "next_layer", "↓ Layer", show=True),
+        Binding("left", "prev_col", "← Col", show=True),
+        Binding("right", "next_col", "→ Col", show=True),
         Binding("enter", "open_node", "Open", show=True),
         Binding("h", "head_node", "Set HEAD", show=True),
         Binding("o", "open_operation", "Operation", show=True),
@@ -534,17 +536,77 @@ class DAGDisplay(VerticalScroll):
             target_y = self._node_line_map[focused_id]
             self.scroll_to(0, target_y, animate=False)
 
-    def action_next_node(self) -> None:
-        """Move focus to next node (j key)."""
-        if self._focused_idx < len(self._node_order) - 1:
-            self._focused_idx += 1
+    def _layer_col_from_focused(self) -> tuple[int, int] | None:
+        """Return (layer_idx, col_idx) of the focused node, or None."""
+        if not self._node_order or not self._layers:
+            return None
+        focused_id = self._node_order[self._focused_idx]
+        for li, layer in enumerate(self._layers):
+            if focused_id in layer:
+                return (li, layer.index(focused_id))
+        return None
+
+    def _focused_idx_from_layer_col(self, layer_idx: int, col_idx: int) -> int:
+        target_id = self._layers[layer_idx][col_idx]
+        return self._node_order.index(target_id)
+
+    def _col_center(self, col_idx: int) -> int:
+        # Mirrors local center_x() in _render_edges — keep in sync.
+        return col_idx * COL_STRIDE + BOX_WIDTH // 2
+
+    def action_prev_col(self) -> None:
+        """Move focus one column left within the current layer (← key)."""
+        pos = self._layer_col_from_focused()
+        if pos is None:
+            return
+        li, ci = pos
+        if ci > 0:
+            self._focused_idx = self._focused_idx_from_layer_col(li, ci - 1)
             self._render_dag()
 
-    def action_prev_node(self) -> None:
-        """Move focus to previous node (k key)."""
-        if self._focused_idx > 0:
-            self._focused_idx -= 1
+    def action_next_col(self) -> None:
+        """Move focus one column right within the current layer (→ key)."""
+        pos = self._layer_col_from_focused()
+        if pos is None:
+            return
+        li, ci = pos
+        if ci < len(self._layers[li]) - 1:
+            self._focused_idx = self._focused_idx_from_layer_col(li, ci + 1)
             self._render_dag()
+
+    def action_prev_layer(self) -> None:
+        """Move focus to the nearest-center column of the previous layer (↑)."""
+        pos = self._layer_col_from_focused()
+        if pos is None:
+            return
+        li, ci = pos
+        if li == 0:
+            return
+        src_center = self._col_center(ci)
+        target_layer = self._layers[li - 1]
+        best_ci = min(
+            range(len(target_layer)),
+            key=lambda c: abs(self._col_center(c) - src_center),
+        )
+        self._focused_idx = self._focused_idx_from_layer_col(li - 1, best_ci)
+        self._render_dag()
+
+    def action_next_layer(self) -> None:
+        """Move focus to the nearest-center column of the next layer (↓)."""
+        pos = self._layer_col_from_focused()
+        if pos is None:
+            return
+        li, ci = pos
+        if li >= len(self._layers) - 1:
+            return
+        src_center = self._col_center(ci)
+        target_layer = self._layers[li + 1]
+        best_ci = min(
+            range(len(target_layer)),
+            key=lambda c: abs(self._col_center(c) - src_center),
+        )
+        self._focused_idx = self._focused_idx_from_layer_col(li + 1, best_ci)
+        self._render_dag()
 
     def action_open_node(self) -> None:
         """Post NodeSelected for the focused node (enter key)."""
