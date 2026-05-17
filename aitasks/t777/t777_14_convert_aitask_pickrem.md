@@ -18,10 +18,12 @@ Depends on t777_6 (pilot) and t777_7. Converts `aitask-pickrem` (remote/non-inte
 ## Key Files to Modify
 
 - `.claude/skills/aitask-pickrem/SKILL.md.j2` (new) — template (largest)
-- `.claude/skills/aitask-pickrem/SKILL.md` (replace) — stub
-- `.agents/skills/aitask-pickrem/SKILL.md` (replace) — stub
-- `.gemini/skills/aitask-pickrem/SKILL.md` (replace) — stub
-- `.opencode/skills/aitask-pickrem/SKILL.md` (replace) — stub
+- `.claude/skills/aitask-pickrem/SKILL.md` (replace) — Claude stub (per `stub-skill-pattern.md` §3b)
+- `.agents/skills/aitask-pickrem/SKILL.md` (replace) — Codex stub (per `stub-skill-pattern.md` §3b)
+- `.gemini/commands/aitask-pickrem.toml` (replace) — Gemini stub in `prompt` field (per `stub-skill-pattern.md` §3c)
+- `.opencode/commands/aitask-pickrem.md` (replace) — OpenCode stub in body (per `stub-skill-pattern.md` §3d)
+
+NOTE: per t777_3 design, Gemini/OpenCode stubs live in the command-wrapper files, NOT in `<agent_root>/skills/aitask-pickrem/SKILL.md`. Rendered variants land at `.gemini/skills/aitask-pickrem-<profile>-/SKILL.md` and `.opencode/skills/aitask-pickrem-<profile>-/SKILL.md` (trailing-hyphen convention, gitignored) and are reached via the stub's Read-and-follow instruction.
 
 ## Implementation Plan
 

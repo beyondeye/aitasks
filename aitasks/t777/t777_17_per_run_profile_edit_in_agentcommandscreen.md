@@ -13,7 +13,9 @@ updated_at: 2026-05-17 12:01
 
 Depends on t777_5 (wrapper supports `--profile-override`) and t777_16 (reusable `ProfileEditScreen`). Adds the per-run profile editing UI to the `AgentCommandScreen` (the existing modal dialog shown when launching a skill from a Python TUI like `ait board`).
 
-When the user opens the launch dialog and clicks (E)dit on the Profile row, a sub-modal opens with the resolved profile's editable fields. Saving the sub-modal writes a one-shot override YAML; the dialog's `full_command` and `prompt_str` reactives update to launch through `ait skillrun --profile-override <path>`.
+When the user opens the launch dialog and clicks (E)dit on the Profile row, a sub-modal opens with the resolved profile's editable fields. Saving the sub-modal writes a one-shot override YAML under `aitasks/metadata/profiles/local/_skillrun_<unique>.yaml`; the dialog's `full_command` and `prompt_str` reactives update to launch through `ait skillrun --profile-override <path>` (which forwards `--profile _skillrun_<unique>` through ARGUMENTS per the t777_3 D5/D6/D8 stub contract — see `.claude/skills/task-workflow/stub-skill-pattern.md` §3h).
+
+**Per t777_3 design:** the per-run editor is passing a profile choice through ARGUMENTS, NOT rendering a custom slash command or invoking a rendered slash variant directly. The stub in each agent's entry point (`.claude/skills/<skill>/SKILL.md`, `.gemini/commands/<skill>.toml`, etc.) parses `--profile <name>` from ARGUMENTS and dispatches to the rendered variant via Read-and-follow. No changes to AgentCommandScreen's slash-name construction are needed beyond appending `--profile <name>` to the forwarded args.
 
 ## Key Files to Modify
 
@@ -41,7 +43,9 @@ When the user opens the launch dialog and clicks (E)dit on the Profile row, a su
    def action_edit_profile(self):
        def on_save(updated_profile):
            # Write override YAML
-           override_path = f"/tmp/ait-run-override-{os.getpid()}.yaml"
+           # Write to profiles/local/ so it's auto-discovered by aitask_scan_profiles.sh
+           # (NOT /tmp — the stub's resolver looks under profiles/ only).
+           override_path = f"aitasks/metadata/profiles/local/_skillrun_{os.getpid()}.yaml"
            write_yaml(override_path, updated_profile)
            self._profile_override_path = override_path
            self._refresh_command()  # rebuild full_command/prompt_str

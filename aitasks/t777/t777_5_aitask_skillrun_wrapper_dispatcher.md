@@ -14,12 +14,11 @@ updated_at: 2026-05-17 11:58
 Depends on t777_2. Adds the `ait skillrun` wrapper script that:
 
 1. Resolves agent + profile.
-2. Calls `ait skill render` to materialize the per-profile SKILL.md on disk (the wrapper bypasses the stub-dispatch path).
-3. `exec`s the agent CLI with the natural slash-command form `'/<skill>-<profile> <args>'`.
+2. `exec`s the agent CLI with the **user-facing slash-command form** `'/<skill> --profile <profile> <args>'`. The stub at the no-suffix path handles the `--profile` override per the t777_3 design (`stub-skill-pattern.md` §3h). The wrapper does NOT invoke the rendered slash command (`/<skill>-<profile>-`) directly — that path is only auto-discoverable in Claude and not in Gemini/OpenCode/Codex, so dispatching through the stub is the only cross-agent-compatible mechanism.
 
-This wrapper is the entry point for shell users and for the `AgentCommandScreen` TUI (t777_17). It does NOT use `claude -p` (per [[feedback-avoid-claude-p-for-skill-invocation]]).
+This wrapper is the entry point for shell users and for the `AgentCommandScreen` TUI (t777_17). It does NOT use `claude -p` (per [[feedback_avoid_claude_p_for_skill_invocation]]).
 
-Also supports `--profile-override <yaml>` for the AgentCommandScreen per-run editor (t777_17).
+Also supports `--profile-override <yaml>` for the AgentCommandScreen per-run editor (t777_17). The override mechanism writes a tempfile under `aitasks/metadata/profiles/local/<unique>.yaml` (auto-discovered by `aitask_scan_profiles.sh`), invokes the stub with `--profile <unique>`, and registers an EXIT trap to delete the tempfile after the agent process exits.
 
 ## Key Files to Modify
 
@@ -43,19 +42,21 @@ Args: `<skill> [--profile <name>] [--agent <name>] [--profile-override <yaml>] [
 Behavior:
 - `--agent` defaults to `$AIT_AGENT` env, else PATH-autodetect (try `claude` → `codex` → `gemini` → `opencode`)
 - `--profile` defaults to `./.aitask-scripts/aitask_skill_resolve_profile.sh <skill>`
-- `--profile-override <yaml>`: merge the override YAML on top of the resolved profile before render. After merging, write the merged profile to a tempfile and pass to renderer. Delete the override file after render.
-- Call `./.aitask-scripts/aitask_skill_render.sh <skill> --profile <name> --agent <agent>` (renders into the per-profile dir + any referenced shared procs)
-- Construct the launch command:
+- `--profile-override <yaml>`: merge the override YAML on top of the resolved profile, write the merged profile as `aitasks/metadata/profiles/local/_skillrun_<unique>.yaml` (auto-discovered by `aitask_scan_profiles.sh`), and pass `--profile _skillrun_<unique>` to the stub via ARGUMENTS. Register an EXIT trap to delete the tempfile after the agent process exits.
+- (Pre-warming render is optional — the stub itself runs `ait skill render` on every invocation; skip-if-fresh makes the second render a no-op.)
+- Construct the launch command (user-facing slash form; stub handles the `--profile` override):
   ```bash
+  # Forwarded args include the optional --profile pair the stub will strip.
+  forwarded="--profile ${profile} ${args}"
   case "$agent" in
-      claude)   exec claude   "/${skill}-${profile} ${args}" ;;
-      codex)    exec codex    "/${skill}-${profile} ${args}" ;;
-      gemini)   exec gemini   "/${skill}-${profile} ${args}" ;;
-      opencode) exec opencode "/${skill}-${profile} ${args}" ;;
+      claude)   exec claude   "/${skill} ${forwarded}" ;;
+      gemini)   exec gemini   "/${skill} ${forwarded}" ;;
+      opencode) exec opencode "/${skill} ${forwarded}" ;;
+      codex)    exec codex    "/${skill} ${forwarded}" ;;  # see Codex note below
   esac
   ```
-  (Verify exact CLI launch syntax for each agent at impl time — codex/gemini/opencode may differ slightly.)
-- `--dry-run`: print the render command + the launch command, do NOT exec.
+  Codex note: Codex CLI has no slash commands; the wrapper instead synthesizes a one-shot prompt prefix that instructs Codex to load `.agents/skills/<skill>/SKILL.md` and follow it with the forwarded args. Verify the exact Codex prompt-prefix syntax at impl time.
+- `--dry-run`: print the synthesized launch command, do NOT exec.
 
 ### 2. ait dispatcher
 Add near `settings)`, before `setup)`:
@@ -70,11 +71,10 @@ Per CLAUDE.md "Adding a New Helper Script" — entries for `aitask_skillrun.sh`.
 ## Verification Steps
 
 1. `ait skillrun pick --profile fast --agent claude --dry-run 777` prints:
-   - The `ait skill render pick --profile fast --agent claude` invocation
-   - The `claude '/aitask-pick-fast 777'` launch command
-2. `ait skillrun pick --profile fast 777` end-to-end (after t777_6) launches claude with the rendered profile-specific skill.
-3. Profile autodetection: `ait skillrun pick 777` (no --profile) uses the resolver.
+   - The synthesized launch command `claude '/aitask-pick --profile fast 777'`
+2. `ait skillrun pick --profile fast 777` end-to-end (after t777_6) launches claude with the user-facing slash command; the stub dispatches to the rendered fast variant.
+3. Profile autodetection: `ait skillrun pick 777` (no --profile) uses the resolver and forwards `--profile <resolved>` through ARGUMENTS.
 4. Agent autodetection: `ait skillrun pick 777` (no --agent) tries claude → codex → gemini → opencode based on PATH.
-5. `--profile-override` correctly merges and the override file is deleted after render.
+5. `--profile-override` correctly merges to `profiles/local/_skillrun_*.yaml`, the agent process picks it up via the stub, and the tempfile is deleted on EXIT.
 6. `shellcheck .aitask-scripts/aitask_skillrun.sh` clean.
 7. The 5 whitelist files contain the new entries.

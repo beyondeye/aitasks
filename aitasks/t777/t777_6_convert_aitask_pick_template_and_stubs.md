@@ -17,11 +17,15 @@ This is the LARGEST single-skill conversion because aitask-pick has the most pro
 
 ## Key Files to Modify
 
+**Per-agent stub surfaces (per `stub-skill-pattern.md` §3g table from t777_3):**
+
 - `.claude/skills/aitask-pick/SKILL.md.j2` (new) — the template (authoring source of truth)
-- `.claude/skills/aitask-pick/SKILL.md` (replace) — new stub (per the canonical pattern from t777_3)
-- `.agents/skills/aitask-pick/SKILL.md` (replace) — stub for Codex
-- `.gemini/skills/aitask-pick/SKILL.md` (replace) — stub for Gemini (verify path at impl time)
-- `.opencode/skills/aitask-pick/SKILL.md` (replace) — stub for OpenCode
+- `.claude/skills/aitask-pick/SKILL.md` (replace) — Claude stub (per `stub-skill-pattern.md` §3b)
+- `.agents/skills/aitask-pick/SKILL.md` (replace) — Codex stub (per `stub-skill-pattern.md` §3b)
+- `.gemini/commands/aitask-pick.toml` (replace) — Gemini stub in `prompt` field (per `stub-skill-pattern.md` §3c)
+- `.opencode/commands/aitask-pick.md` (replace) — OpenCode stub in body (per `stub-skill-pattern.md` §3d)
+
+NOTE: Gemini and OpenCode do NOT get a stub at `.gemini/skills/aitask-pick/SKILL.md` or `.opencode/skills/aitask-pick/SKILL.md` — those agents do not auto-discover skills as slash commands. Their stub lives in the command-wrapper file, replacing the current static `@`-include to the Claude SKILL.md. Rendered variants land at `.gemini/skills/aitask-pick-<profile>-/SKILL.md` and `.opencode/skills/aitask-pick-<profile>-/SKILL.md` and are reached via the stub's Read-and-follow instruction (not as slash commands).
 
 ## Reference Files for Patterns
 
@@ -49,41 +53,31 @@ Confirm Claude / Codex / Gemini / OpenCode only auto-discover `SKILL.md` (not `*
   - `post_plan_action`, `post_plan_action_for_child` — Step 6 Checkpoint (templated in t777_7)
   - Any others discovered by grep
 
-### 3. Replace SKILL.md with stub (per agent × 4)
-Follow `task-workflow/stub-skill-pattern.md` (from t777_3). Each stub ~15-20 lines:
-```markdown
----
-name: aitask-pick
-description: Resolve the active profile and dispatch to the profile-specific aitask-pick variant.
----
+### 3. Replace each stub surface (4 stubs per skill, per `stub-skill-pattern.md` §3b–§3d)
+- **Claude stub** at `.claude/skills/aitask-pick/SKILL.md` — copy the canonical body from `stub-skill-pattern.md` §3b, substitute `<skill_short_name>=aitask-pick`, `<agent_literal>=claude`, `<agent_root>=.claude/skills`.
+- **Codex stub** at `.agents/skills/aitask-pick/SKILL.md` — copy §3b with `<agent_literal>=codex`, `<agent_root>=.agents/skills`.
+- **Gemini stub** at `.gemini/commands/aitask-pick.toml` `prompt` field — copy §3c, substitute `<skill_short_name>=aitask-pick`.
+- **OpenCode stub** at `.opencode/commands/aitask-pick.md` body — copy §3d, substitute `<skill_short_name>=aitask-pick`.
 
-This is a stub. Execute these steps:
+Each stub uses Read-and-follow (per §3e) — NO slash-dispatch, NO per-agent fallback. The stubs are profile-agnostic dispatchers; the `--profile <name>` argument-override convention is handled inside the stub per §3h.
 
-1. Run `./.aitask-scripts/aitask_skill_resolve_profile.sh pick` to determine the active profile name. Capture the output as `<profile>`.
-
-2. Run `./ait skill render pick --profile <profile> --agent claude` (replace `claude` per agent's stub) to render the profile-specific skill if needed.
-
-3. Invoke `/aitask-pick-<profile>` with the user's original arguments. The dispatched skill executes the full workflow.
-
-If <agent>'s slash-dispatch is unavailable: print "Profile dispatch not supported in <agent>. Run `ait skillrun pick --profile <profile>` from a shell." and abort.
-```
-
-### 4. Render-and-test
-- `./ait skill render pick --profile default --agent claude` should produce `.claude/skills/aitask-pick-default/SKILL.md` (or alternatively `aitask-pick/` if you decide default has no suffix — surface in plan).
-- `./ait skill render pick --profile fast --agent claude` should produce `.claude/skills/aitask-pick-fast/SKILL.md` with the auto-confirm branch inline (no "Profile check:" wording).
-- Repeat for codex/gemini/opencode.
+### 4. Render-and-test (paths reflect t777_3 trailing-hyphen convention)
+- `./ait skill render pick --profile default --agent claude` produces `.claude/skills/aitask-pick-default-/SKILL.md` (default profile gets the `-default-` suffix per t777_3 D2; the no-suffix path is reserved for the stub).
+- `./ait skill render pick --profile fast --agent claude` produces `.claude/skills/aitask-pick-fast-/SKILL.md` with the auto-confirm branch inline.
+- Repeat for codex/gemini/opencode — rendered paths land at `.agents/skills/aitask-pick-fast-/`, `.gemini/skills/aitask-pick-fast-/`, `.opencode/skills/aitask-pick-fast-/`.
 
 ## Verification Steps
 
-1. `ait skill verify` passes.
-2. `ait skillrun pick --profile fast --dry-run 777` shows the render call + the `/aitask-pick-fast 777` launch command.
-3. Manual: render `aitask-pick-fast` for claude, inspect the rendered file, confirm:
+1. `ait skill verify` passes (validates the stub surfaces per t777_4's updated scanner).
+2. `ait skillrun pick --profile fast --dry-run 777` shows the user-facing launch command `claude '/aitask-pick --profile fast 777'`.
+3. Manual: render `aitask-pick-fast-` for claude, inspect the rendered file, confirm:
    - No "Profile check:" wording
    - Auto-confirm text present
-   - frontmatter `name: aitask-pick-fast`
+   - frontmatter `name: aitask-pick-fast-` (matches the rendered dir name)
 4. Manual: render same for codex, confirm `request_user_input` wording appears where AskUserQuestion would in the claude render.
-5. Stub-dispatch test: type `/aitask-pick 777` inside a live claude session. Stub runs, renders, dispatches to `/aitask-pick-<active>`. Skill executes normally.
-6. Repeat stub-dispatch test for codex/gemini/opencode.
+5. Stub-dispatch test (Claude / Codex): type `/aitask-pick 777` (or instruction-trigger for Codex) inside a live session. Stub resolves profile, runs render, Reads `<agent_root>/aitask-pick-<active>-/SKILL.md`, follows it. Skill executes normally.
+6. Stub-dispatch test (Gemini / OpenCode): type `/aitask-pick 777`. The command wrapper (`.gemini/commands/aitask-pick.toml` `prompt` field / `.opencode/commands/aitask-pick.md` body) IS the stub — it runs the resolver, renders, Reads-and-follows the rendered variant.
+7. `--profile <name>` override test: type `/aitask-pick --profile fast 777`. Stub captures `fast`, strips the `--profile fast` from ARGUMENTS, dispatches to the fast variant with `777` as the forwarded ARGUMENTS.
 
 ## Notes
 

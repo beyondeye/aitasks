@@ -59,11 +59,14 @@ deleted=0
 for agent in claude codex gemini opencode; do
     root="$(agent_skill_root "$agent")"
     [[ -d "$root" ]] || continue
+    # Trailing-hyphen rendered-dir convention per t777_3 — match *-<profile>-/,
+    # NOT *-<profile>/. The trailing hyphen ensures we never accidentally
+    # match an authoring dir (authoring dirs never end with `-`).
     while IFS= read -r -d '' dir; do
         info "Invalidating: $dir"
         rm -rf -- "$dir"
         deleted=$((deleted + 1))
-    done < <(find "$root" -maxdepth 1 -type d -name "*-${profile}" -print0)
+    done < <(find "$root" -maxdepth 1 -type d -name "*-${profile}-" -print0)
 done
 echo "INVALIDATED:$deleted directories for profile '$profile'"
 ```
@@ -93,7 +96,7 @@ Per CLAUDE.md "Adding a New Helper Script" — entries for `aitask_skill_invalid
 
 ## Verification Steps
 
-1. `./.aitask-scripts/aitask_skill_invalidate.sh fast` deletes all `<agent>/skills/*-fast/` directories.
+1. `./.aitask-scripts/aitask_skill_invalidate.sh fast` deletes all `<agent>/skills/*-fast-/` directories (trailing-hyphen convention from t777_3).
 2. Idempotent: running twice in a row exits cleanly with `INVALIDATED:0` on the second run.
 3. `ait skill invalidate fast` works via the dispatcher.
 4. End-to-end through `ait settings`: edit a profile, save, observe that the related per-profile directories are deleted; next invocation of the wrapper re-renders fresh.
@@ -106,4 +109,4 @@ Per CLAUDE.md "Adding a New Helper Script" — entries for `aitask_skill_invalid
 
 - **Per-run overrides vs profile saves** — `AgentCommandScreen` writes overrides to `/tmp/ait-run-override-<pid>.yaml`, NOT to the project profile YAML. These do NOT trigger invalidation (and shouldn't — they're one-shot). Only TRUE profile saves (the project YAML being modified) trigger eager invalidation.
 - **Concurrency** — if another agent is currently reading a per-profile SKILL.md when invalidation deletes it, the agent's read might fail mid-execution. Mitigation: document "do not edit profiles while agent sessions are actively running skills" in CLAUDE.md.
-- **`*-<profile>` glob** — matches both `aitask-pick-fast` (intended) and any hyphenated authoring directory whose tail matches the profile name. Most profile names are unique enough; verify the glob doesn't catch unintended directories.
+- **`*-<profile>-` glob (trailing hyphen)** — t777_3's convention requires rendered dirs to end with `-`, so the find glob targets that suffix specifically. Authoring dirs never end with `-` (load-bearing rule audited in t777_3 Step 5), so the glob cannot accidentally hide authoring directories. No additional collision check is needed.
