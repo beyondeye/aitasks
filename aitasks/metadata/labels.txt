@@ -26,6 +26,7 @@ archiveformat
 auto-update
 bash_scripts
 brainstom_modules
+brainstorm_explore
 brainstorming
 child_tasks
 claudecode
