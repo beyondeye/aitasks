@@ -8,7 +8,7 @@ labels: [aitask_pick]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-17 16:44
 updated_at: 2026-05-18 13:10
-boardidx: 30
+boardidx: 40
 ---
 
 ## Origin
