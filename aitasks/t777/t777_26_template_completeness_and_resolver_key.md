@@ -1,7 +1,7 @@
 ---
 priority: high
 effort: medium
-depends: [t777_25, t777_25]
+depends: [t777_25]
 issue_type: bug
 status: Ready
 labels: [aitask_pick, stub_skill_pattern, template]
