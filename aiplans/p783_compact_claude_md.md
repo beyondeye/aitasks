@@ -174,3 +174,61 @@ Standard archival via `task-workflow/SKILL.md` Step 9: commit code changes (CLAU
 - Editing `.claude/skills/` SKILL.md files. (CLAUDE.md is the only entry-point doc being restructured here.)
 - Editing `aidocs/sed_macos_issues.md`, `aidocs/python_tui_performance.md`, `aidocs/stub-skill-pattern.md` — they already cover their domains; only CLAUDE.md's pointers to them are updated.
 - Updating any tests. CLAUDE.md is not exercised by automated tests.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-18 11:30)
+- **Requested by user:** Verify every new aidoc file is properly referenced from CLAUDE.md with a clear list of contexts where it is relevant.
+- **Changes made:** Audited each pointer block against the actual sections in the target aidoc. Added a "Read when:" trigger to each pointer. Found two TUI sections (no auto-commit/push from runtime TUIs; pane-internal cycling with arrows) that had been omitted from the original pointer list. Initially expanded each pointer with an enumerated section list.
+- **Files affected:** CLAUDE.md
+
+### Change Request 2 (2026-05-18 11:34)
+- **Requested by user:** Don't enumerate what is included in each referenced aidoc — only describe WHEN to read each file.
+- **Changes made:** Stripped the section-by-section enumerations from each pointer block. Each pointer is now a short trigger-condition paragraph naming the file and the situations where it should be opened.
+- **Files affected:** CLAUDE.md
+
+### Change Request 3 (2026-05-18 11:38)
+- **Requested by user:** `aidocs/aitasks_authoring_conventions.md` mixes disconnected subjects; split it. Planning conventions should eventually be refactored into `task-workflow/planning.md` (handle as a follow-up). Testing and code conventions should each be their own file. Code conventions should be clearer about whether it covers shell.
+- **Changes made:**
+  - Split the file into four:
+    - `aidocs/aitasks_extension_points.md` — framework extension points (frontmatter field, helper script, install flow, cross-platform audit, no global PATH).
+    - `aidocs/planning_conventions.md` — six plan-authoring rules, with a top-of-file note marking them as candidates for future promotion into `task-workflow/planning.md`.
+    - `aidocs/testing_conventions.md` — threading/asyncio test coverage axes.
+    - `aidocs/code_conventions.md` — source-trace comments; explicitly language-agnostic (bash and Python examples); cross-refs `aidocs/sed_macos_issues.md` for shell portability quirks and notes that general shell style stays in CLAUDE.md.
+  - Deleted the original `aidocs/aitasks_authoring_conventions.md`.
+  - Updated CLAUDE.md to point at the four new files with separate "Read when:" triggers.
+- **Files affected:** CLAUDE.md, aidocs/aitasks_extension_points.md (created), aidocs/planning_conventions.md (created), aidocs/testing_conventions.md (created), aidocs/code_conventions.md (created), aidocs/aitasks_authoring_conventions.md (deleted)
+
+### Change Request 4 (2026-05-18 11:44)
+- **Requested by user:** Create the follow-up task to incorporate planning_conventions.md content into task-workflow/planning.md and trim/remove the standalone aidoc.
+- **Changes made:** Created `aitasks/t784_incorporate_planning_conventions_into_task_workflow.md` with `depends: [783]`, type `refactor`, priority/effort `medium`. The task enumerates the six planning rules to migrate, proposes per-rule placement (numbered step vs anti-patterns section in `planning.md`), lists the four sibling agent trees that need mirroring, and ends with verification steps (`ait skill verify`, real-run spot check, CLAUDE.md pointer cleanup).
+- **Files affected:** aitasks/t784_incorporate_planning_conventions_into_task_workflow.md (created)
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Rewrote `CLAUDE.md` from 52688 bytes (397 lines) to 12610 bytes (286 lines) — a 76% reduction. New structure is a compact index: project orientation + general shell/git/commit conventions inlined; all specialist rules delegated via "Read `aidocs/...` when ..." pointers.
+  - Created six new aidocs files (after the user-requested split):
+    - `aidocs/skill_authoring_conventions.md` (11.6k)
+    - `aidocs/tui_conventions.md` (11.3k)
+    - `aidocs/aitasks_extension_points.md` (5.1k)
+    - `aidocs/planning_conventions.md` (4.9k)
+    - `aidocs/testing_conventions.md` (2.2k)
+    - `aidocs/code_conventions.md` (1.7k)
+  - Every rule from the original CLAUDE.md is preserved across either the new CLAUDE.md or the new aidocs files. No rules were dropped.
+  - All war-story rationales tied to historical task numbers (t624, t718_x, t719_x, t777_22, etc.) were dropped as instructed; the rule statements themselves are intact.
+  - Created follow-up task t784 to incorporate the planning_conventions content into `task-workflow/planning.md` in a future refactor.
+
+- **Deviations from plan:** The original plan called for 3 new aidocs files and a single `aitasks_authoring_conventions.md` covering extension points + planning + testing + code conventions. User-requested split during review produced 4 files instead of 1 in that bucket (6 new aidocs total).
+
+- **Issues encountered:** None. Plan externalization correctly disambiguated the active internal plan with `--internal`. `aitask_update.sh` accepts `--deps` (replace) but not `--deps-add` — used `--deps 783` on the freshly-created t784 (no prior deps to preserve).
+
+- **Key decisions:**
+  - Compaction strategy: extract specialist sections to aidocs/ rather than just shortening prose. This keeps every rule's normative force while removing it from the always-loaded context window.
+  - Pointer style: short "Read `aidocs/X.md` when ..." trigger paragraphs, not enumerated section lists (per user's directive on review).
+  - File granularity: one aidoc per cohesive topic (skill authoring, TUI conventions, extension points, planning, testing, code) — not one big "everything else" file.
+  - `code_conventions.md` is named without "shell" because the rule is genuinely language-agnostic; the file's intro explicitly notes this and cross-refs `sed_macos_issues.md` for shell quirks.
+
+- **Upstream defects identified:** None.
+
+- **Build verification:** Not applicable — CLAUDE.md and the aidocs files are documentation; no `verify_build` configured and no automated tests cover them. Manual verification: confirmed all `aidocs/...` pointers in CLAUDE.md resolve to existing files; confirmed no `t<NNN>` task-number anchors leaked into the new aidocs.
