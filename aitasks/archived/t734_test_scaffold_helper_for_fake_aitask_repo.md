@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [testing, bash_scripts, test_infrastructure, refactor]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-03 18:53
-updated_at: 2026-05-18 15:56
+updated_at: 2026-05-18 18:54
+completed_at: 2026-05-18 18:54
 boardidx: 140
 ---
 
