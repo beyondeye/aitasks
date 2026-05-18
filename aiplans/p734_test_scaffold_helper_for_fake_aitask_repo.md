@@ -212,3 +212,45 @@ false`), so the worktree-removal sub-step is a no-op.
 - Refactoring domain-specific lib copies (`task_utils.sh`, `archive_utils.sh`,
   etc.) — those vary per test by design.
 - Fixing unrelated pre-existing test failures surfaced by the baseline run.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `tests/lib/test_scaffold.sh` with
+  `setup_fake_aitask_repo()` (copies `aitask_path.sh`, `terminal_compat.sh`,
+  `python_resolve.sh`). Ported 43 scaffolder tests via a one-shot Python
+  porter (`/tmp/port_scaffolders.py`, ephemeral — not committed). Added a
+  CLAUDE.md bullet under "Shell Conventions" referencing the helper.
+  Baseline: 110 PASS / 11 FAIL. Post-port: 110 PASS / 11 FAIL — identical
+  failure set, all pre-existing and unrelated (tmux / opencode_setup /
+  skill_verify infrastructure).
+- **Deviations from plan:** None substantive. The plan estimated 43
+  scaffolders from a fresh audit; the porter confirmed exactly 43.
+- **Issues encountered:**
+  - `test_find_files.sh` failed after the port because the helper added
+    `python_resolve.sh` to a directory the test treats as searchable test
+    data — the new file outranked `task_utils.sh` for a "resolve task" query.
+    Fix: restored the test's original scaffold pattern with a NOTE comment
+    explaining the deliberate bypass. The helper-as-floor model accepts this
+    case-by-case opt-out.
+  - `test_contribute.sh` failed because the porter's "look ahead for next
+    cp line to derive the destination" heuristic mis-attributed the upstream
+    `mkdir` (which had no lib copies of its own) to `$local_dir`. Fix:
+    manually restored the upstream mkdir to its original form. The helper
+    site for `$local_dir` and `$PROJECT_TEST_DIR` (line 614) was correct.
+  - `test_init_data.sh` uses `TEST_SCRIPT_DIR` instead of `SCRIPT_DIR`, so
+    the porter's PROJECT_DIR-line regex didn't match — the source line was
+    not auto-inserted. Fixed manually.
+- **Key decisions:**
+  - Used `"$PROJECT_DIR/tests/lib/test_scaffold.sh"` as the source path
+    (rather than `"$SCRIPT_DIR/lib/..."`) so all 43 tests use the same
+    incantation regardless of which `*_SCRIPT_DIR` variable they define.
+  - When a `mkdir -p` line listed `.aitask-scripts/lib` alongside other
+    directories, the porter strips just that token and keeps the line for
+    the remaining dirs — preferable to dropping the whole mkdir.
+  - Helper baseline kept to the three actually-system libs. Domain libs
+    stay in each test's cp list.
+- **Upstream defects identified:** None.
+
+Note: the one-shot port script lived at `/tmp/port_scaffolders.py` for the
+duration of this task; it is intentionally not committed (single-use,
+content embedded in the porter's logic above for reference).
