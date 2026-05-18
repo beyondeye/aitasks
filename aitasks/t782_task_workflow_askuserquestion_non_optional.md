@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [aitask_pick]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-18 10:51
-updated_at: 2026-05-18 10:51
+updated_at: 2026-05-18 11:01
 ---
 
 ## Context
