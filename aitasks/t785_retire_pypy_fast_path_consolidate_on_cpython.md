@@ -7,6 +7,7 @@ status: Ready
 labels: [python, script-performance, ait_setup]
 created_at: 2026-05-18 12:43
 updated_at: 2026-05-18 12:43
+boardidx: 40
 ---
 
 ## Motivation

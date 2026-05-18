@@ -7,6 +7,7 @@ status: Ready
 labels: [agents_md]
 created_at: 2026-05-18 12:30
 updated_at: 2026-05-18 12:30
+boardidx: 20
 ---
 
 ## Context
