@@ -30,23 +30,23 @@ The only valid skips are:
 
 ### 1. Profile check
 
-{% if profile.manual_verification_followup_mode is defined %}
-{% if profile.manual_verification_followup_mode == "never" %}
+{# ---------- manual_verification_followup_mode ---------- #}{% if profile.manual_verification_followup_mode is defined %}
+{# ---------- manual_verification_followup_mode value ---------- #}{% if profile.manual_verification_followup_mode == "never" %}
 Profile '{{ profile.name }}' sets `manual_verification_followup_mode: never`. Display:
 
 > "Profile '{{ profile.name }}': skipping manual-verification follow-up prompt."
 
 Return to the caller (which proceeds to Step 9).
-{% else %}
+{% else %}{# manual_verification_followup_mode: value != "never" (e.g. "ask") #}
 Profile '{{ profile.name }}' sets `manual_verification_followup_mode: {{ profile.manual_verification_followup_mode }}`. Continue with step 2 (no skip).
-{% endif %}
-{% else %}
+{% endif %}{# ---------- end manual_verification_followup_mode value ---------- #}
+{% else %}{# manual_verification_followup_mode: key absent from profile #}
 If the active profile has `manual_verification_followup_mode` set to `"never"`, display:
 
 > "Profile '\<name\>': skipping manual-verification follow-up prompt."
 
 and return to the caller (which proceeds to Step 9). If the key is unset or `"ask"` (the default), continue.
-{% endif %}
+{% endif %}{# ---------- end manual_verification_followup_mode ---------- #}
 
 ### 2. Skip conditions
 

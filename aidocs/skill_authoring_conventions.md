@@ -155,6 +155,64 @@ the existing `SKILL.md` path. The 3 sibling stubs (Codex `SKILL.md`, Gemini
 command TOML, OpenCode command MD) follow §3c-§3d. Run `./ait skill verify` to
 confirm all 4 stub surfaces render cleanly and the closure walk-check passes.
 
+## Jinja comment conventions for profile-aware templates
+
+Profile-aware `.md` / `.md.j2` templates accumulate nested `{% if/elif/else/endif %}`
+blocks fast. Without annotations the file becomes hard to scan: `{% else %}`
+gives no hint about which branch it covers, and `{% endif %}` does not name
+the `{% if %}` it closes. When wrapping any profile check, mark the conditional
+with three companion comments that share a short `<label>`:
+
+1. **Separator before `{% if %}`** — placed on the **same line** as the
+   `{% if %}` tag, plain `{# ... #}`. Keeping it on the same line is the only
+   way to add the visual ruler without changing rendered bytes. Minijinja in
+   this repo runs without `trim_blocks`/`lstrip_blocks` (see
+   `.aitask-scripts/lib/skill_template.py:62-68`), so a comment on its own
+   line would add a blank line to every rendered output. Whitespace-stripping
+   markers (`{#- ... -#}`) over-strip — they consume the existing blank line
+   before `{% if %}`.
+
+2. **Inline comment on `{% elif %}` / `{% else %}`** — same line as the tag,
+   plain `{# ... #}`. The comment states *what triggers this branch*.
+
+3. **Inline comment on `{% endif %}`** — same line as the tag, plain
+   `{# ... #}`, repeating the `<label>` so the close pairs visually with the
+   separator.
+
+The shared `---------- <label> ----------` ruler gives a uniform visual marker
+across the file. `grep -nE '^\{# -+' <file>` enumerates every wrapped region
+in one shot. `<label>` is typically the profile key under test
+(`default_email`, `create_worktree`, `plan_preference`, …); nested blocks get
+their own labels (often the inner key plus a value qualifier).
+
+**Full nested example:**
+
+```jinja
+{# ---------- default_email ---------- #}{% if profile.default_email is defined %}
+  {# ---------- default_email value ---------- #}{% if profile.default_email == "userconfig" %}
+  Use the userconfig email …
+  {% elif profile.default_email == "first" %}{# default_email: literal "first" #}
+  Read emails.txt …
+  {% else %}{# default_email: literal email address #}
+  Use `{{ profile.default_email }}` directly.
+  {% endif %}{# ---------- end default_email value ---------- #}
+{% else %}{# default_email: key absent from profile #}
+  **Profile check:** If the active profile has `default_email` set …
+{% endif %}{# ---------- end default_email ---------- #}
+```
+
+**Render-neutrality requirement.** The convention is engineered so that adding
+these comments to an already-wrapped template produces zero rendered-byte
+change. After adding/editing comments, re-render against every committed
+profile and diff against the matching golden under `tests/golden/procs/<scope>/`
+— the diff must be empty before committing. A non-empty diff means a separator
+was placed on its own line (adds a blank), used `{#- -#}` stripping (drops a
+blank), or that whitespace control on a tag itself changed.
+
+This convention applies to any `.md` / `.md.j2` file rendered by
+`skill_template.py`, including shared procedure files under
+`.claude/skills/task-workflow/` (and its t777-staged sibling `task-workflown/`).
+
 ## Do not route skill invocation through `claude -p "<inlined prompt>"`
 
 `claude -p` is billed at a higher per-token rate than slash-command invocations
