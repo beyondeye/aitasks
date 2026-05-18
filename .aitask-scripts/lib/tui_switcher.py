@@ -285,7 +285,7 @@ class TuiSwitcherOverlay(ModalScreen):
     }
     #switcher_dialog {
         width: 44;
-        height: auto;
+        height: 100%;
         max-height: 30;
         background: $surface;
         border: thick $primary;
@@ -310,10 +310,11 @@ class TuiSwitcherOverlay(ModalScreen):
         width: 100%;
     }
     #switcher_list {
-        height: auto;
-        max-height: 22;
+        height: 1fr;
+        min-height: 3;
     }
     #switcher_hint {
+        dock: bottom;
         text-align: center;
         padding: 1 0 0 0;
         color: $text-muted;
@@ -454,11 +455,19 @@ class TuiSwitcherOverlay(ModalScreen):
         hint.update(text)
 
     def _render_session_row(self) -> None:
-        """Render the top session row; blank in single-session mode."""
+        """Render the top session row; hidden in single-session mode.
+
+        `display = False` so the row contributes zero rows (its
+        `padding: 0 0 1 0` would otherwise consume one row even when the
+        text is empty, stealing space the docked footer needs in small
+        panes — see t789).
+        """
         row = self.query_one("#switcher_session_row", Label)
         if not self._multi_mode:
             row.update("")
+            row.display = False
             return
+        row.display = True
         parts = []
         for s in self._all_sessions:
             name = s.session
