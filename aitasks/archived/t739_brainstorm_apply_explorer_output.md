@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [brainstorm]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-04 16:24
-updated_at: 2026-05-18 15:22
+updated_at: 2026-05-18 15:40
+completed_at: 2026-05-18 15:40
 boardidx: 150
 ---
 
