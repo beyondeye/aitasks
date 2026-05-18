@@ -1,7 +1,7 @@
 ---
 priority: high
 effort: low
-depends: [t777_24, t777_6]
+depends: []
 issue_type: refactor
 status: Ready
 labels: [aitask_pick, stub_skill_pattern]
