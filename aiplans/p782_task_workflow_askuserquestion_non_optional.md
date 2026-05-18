@@ -156,3 +156,11 @@ Append a new bullet to the "Skill / Workflow Authoring Conventions" section (und
 ## Step 9 reference
 
 After implementation, follow task-workflow Step 9 (Post-Implementation) — no separate branch was created (`create_worktree: false` profile), so the workflow goes: review → commit → 8b (no upstream defect expected — this is a pure-docs change) → 8c (manual-verification follow-up offer) → 9 archival → 9b feedback.
+
+## Final Implementation Notes
+- **Actual work done:** Added 4 `⚠️ NON-SKIPPABLE` banner blocks (Step 9 merge approval in `task-workflow/SKILL.md`; top of `upstream-followup.md` / `manual-verification-followup.md` / `satisfaction-feedback.md`) plus a new convention bullet in CLAUDE.md's "Skill / Workflow Authoring Conventions" section. Each banner enumerates the three "DO NOT cover" categories (execution profiles, auto-mode/work-without-stopping directives, generic 'be brief' instructions) and the site-specific valid opt-outs (`currently: none` for Step 9 / Step 8b; `manual_verification_followup_mode: never` for Step 8c; `enableFeedbackQuestions: false` for Step 9b).
+- **Deviations from plan:** None. Plan executed as approved.
+- **Issues encountered:** None.
+- **Key decisions:** Skipped the optional shared-partial factoring (already documented in "Out of scope") — each site has distinct valid-opt-out keys, and plain `.md` files in the skills tree are read directly by the agent (no t777_22 dep-walker on this path).
+- **Upstream defects identified:** None
+- **Cross-agent porting:** `.agents/`, `.gemini/`, `.opencode/` mirrors of `task-workflow/` and CLAUDE.md (where present) should receive the same banners. Per CLAUDE.md "WORKING ON SKILLS / CUSTOM COMMANDS" the user should create sibling aitasks for those agents if mirroring is wanted. Listed for the user as a follow-up at task close, not a Step 8b upstream-defect bullet.
