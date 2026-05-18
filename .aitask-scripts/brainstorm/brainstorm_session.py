@@ -500,12 +500,12 @@ _PATCHER_DELIMITERS = (
     "METADATA_START", "METADATA_END",
 )
 
-# Structural fields the patcher emits inside METADATA. Stripped before the
-# remainder is passed to ``create_node`` as the ``dimensions`` dict, so that
-# proposal_file is set authoritatively to ``br_proposals/<new>.md`` (the
-# parent's path the agent emits would violate validate_node's
-# ``node_id ∈ proposal_file`` invariant).
-_PATCHER_NON_DIMENSION_FIELDS = frozenset({
+# Structural fields the patcher/explorer/synthesizer emit alongside dimension
+# fields. Stripped before the remainder is passed to ``create_node`` as the
+# ``dimensions`` dict, so that proposal_file is set authoritatively to
+# ``br_proposals/<new>.md`` (the parent's path the agent emits would violate
+# validate_node's ``node_id ∈ proposal_file`` invariant).
+_NODE_NON_DIMENSION_FIELDS = frozenset({
     "node_id", "parents", "description", "proposal_file",
     "created_at", "created_by_group", "reference_files", "plan_file",
 })
@@ -516,13 +516,20 @@ _AGENT_NAME_RE = re.compile(r"^([a-z]+)_([0-9A-Za-z_]+)$")
 def _agent_to_group_name(agent_name: str) -> str:
     """Derive a group name from an agent name.
 
-    ``patcher_001`` → ``patch_001``. Returns the input unchanged if the
-    pattern does not match.
+    ``patcher_001`` → ``patch_001``. Parallel explorers share a group, so
+    a trailing single-letter parallel suffix is stripped:
+    ``explorer_001a`` → ``explore_001``. Returns the input unchanged if
+    the pattern does not match.
     """
     m = _AGENT_NAME_RE.match(agent_name)
     if not m:
         return agent_name
     role, suffix = m.group(1), m.group(2)
+    # Strip the parallel-explorer single-letter suffix (a-h) from the
+    # numeric portion when the prefix is digits-only-plus-one-letter.
+    parallel_suffix_match = re.match(r"^(\d+)[a-h]$", suffix)
+    if parallel_suffix_match:
+        suffix = parallel_suffix_match.group(1)
     role_to_group = {"patcher": "patch", "explorer": "explore",
                      "synthesizer": "hybridize", "detailer": "detail"}
     return f"{role_to_group.get(role, role)}_{suffix}"
@@ -661,7 +668,7 @@ def apply_patcher_output(
 
         dimensions = {
             k: v for k, v in node_data.items()
-            if k not in _PATCHER_NON_DIMENSION_FIELDS
+            if k not in _NODE_NON_DIMENSION_FIELDS
         }
 
         create_node(
@@ -708,3 +715,255 @@ def apply_patcher_output(
         except Exception:
             pass
         raise
+
+
+_EXPLORER_DELIMITERS = (
+    "NODE_YAML_START",
+    "NODE_YAML_END",
+    "PROPOSAL_START",
+    "PROPOSAL_END",
+)
+
+_NEW_DIMENSIONS_TAG = "--- NEW_DIMENSIONS ---"
+
+
+def _parse_new_dimensions(text: str) -> list[str]:
+    """Extract dimension keys from an optional ``--- NEW_DIMENSIONS ---``
+    block. The tag has no matching ``_END`` — body extends from the tag to
+    EOF (per ``templates/explorer.md``). The literal ``none`` (any case)
+    means "no new dimensions". Returns an empty list if the tag is absent
+    or the body is empty / ``none``.
+    """
+    idx = text.find(_NEW_DIMENSIONS_TAG)
+    if idx < 0:
+        return []
+    tail = text[idx + len(_NEW_DIMENSIONS_TAG):].strip()
+    if not tail or tail.lower() == "none":
+        return []
+    items = [s.strip() for s in tail.split(",")]
+    return [s for s in items if s and s.lower() != "none"]
+
+
+def _output_has_all_delimiters(text: str, tokens: tuple[str, ...]) -> bool:
+    return all(tok in text for tok in tokens)
+
+
+def _explorer_needs_apply(task_num: int | str, agent_name: str) -> bool:
+    """Return True iff ``<agent_name>_output.md`` contains all four
+    NODE_YAML / PROPOSAL delimiters AND the node_id parsed from the
+    NODE_YAML block does NOT already exist in ``br_nodes/``.
+
+    Guards against the registration-time placeholder ``_output.md``
+    written by ``aitask_crew_addwork.sh`` (which has no delimiters) and
+    against double-apply when the TUI restarts after a successful apply.
+    """
+    wt = crew_worktree(task_num)
+    out_path = wt / f"{agent_name}_output.md"
+    if not out_path.is_file():
+        return False
+    try:
+        text = out_path.read_text(encoding="utf-8")
+    except Exception:
+        return False
+    if not _output_has_all_delimiters(text, _EXPLORER_DELIMITERS):
+        return False
+    try:
+        node_yaml_text = _extract_block(
+            text, "NODE_YAML_START", "NODE_YAML_END"
+        )
+        node_data = _tolerant_yaml_load(node_yaml_text)
+    except Exception:
+        # Delimiters present but body unparseable — let the apply call
+        # surface the structured error.
+        return True
+    if not isinstance(node_data, dict):
+        return True
+    new_node_id = node_data.get("node_id")
+    if not new_node_id:
+        return True
+    return not (wt / NODES_DIR / f"{new_node_id}.yaml").exists()
+
+
+def _apply_node_output(
+    task_num: int | str,
+    agent_name: str,
+    *,
+    expected_role: str,
+) -> tuple[str, list[str]]:
+    """Shared apply core for agents whose output is two delimited blocks
+    (``NODE_YAML`` + ``PROPOSAL``) plus an optional ``NEW_DIMENSIONS``
+    block. Used by ``apply_explorer_output`` and (in t740)
+    ``apply_synthesizer_output``.
+
+    Parses, validates, creates the new node, advances head and the
+    next-node-id counter, and merges any newly emitted dimensions into
+    ``br_graph_state.yaml``'s ``active_dimensions`` list.
+
+    Args:
+        task_num: Brainstorm session task number.
+        agent_name: Agent that produced the output (e.g. ``explorer_001a``).
+        expected_role: Role string used in failure-log prose
+            (``"explorer"`` / ``"synthesizer"``).
+
+    Returns:
+        ``(new_node_id, added_dimensions)`` where ``added_dimensions`` is
+        the subset of NEW_DIMENSIONS that were not already in
+        ``active_dimensions``.
+
+    Raises:
+        FileNotFoundError: output file missing.
+        ValueError: any delimiter missing, YAML/sections invalid, or
+            ``node_id`` already exists.
+    """
+    wt = crew_worktree(task_num)
+    out_path = wt / f"{agent_name}_output.md"
+    if not out_path.is_file():
+        raise FileNotFoundError(
+            f"No {expected_role} output at {out_path}"
+        )
+
+    err_log = wt / f"{agent_name}_apply_error.log"
+
+    try:
+        text = out_path.read_text(encoding="utf-8")
+        node_yaml_text = _extract_block(
+            text, "NODE_YAML_START", "NODE_YAML_END"
+        )
+        proposal_text = _extract_block(
+            text, "PROPOSAL_START", "PROPOSAL_END"
+        )
+
+        from .brainstorm_schemas import validate_node
+        from .brainstorm_sections import parse_sections, validate_sections
+
+        try:
+            node_data = _tolerant_yaml_load(node_yaml_text)
+        except yaml.YAMLError as exc:
+            err_log.write_text(
+                f"apply_{expected_role}_output failed at "
+                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"Original YAML parse error:\n{exc}\n\n"
+                f"NODE_YAML block (first 2000 chars):\n"
+                f"{node_yaml_text[:2000]}\n",
+                encoding="utf-8",
+            )
+            raise
+        if not isinstance(node_data, dict):
+            raise ValueError(
+                f"{expected_role} NODE_YAML block did not parse as a dict"
+            )
+
+        if not node_data.get("created_at"):
+            node_data["created_at"] = datetime.now().strftime(
+                "%Y-%m-%d %H:%M"
+            )
+        if not node_data.get("created_by_group"):
+            node_data["created_by_group"] = _agent_to_group_name(agent_name)
+
+        new_node_id = node_data.get("node_id")
+        if new_node_id:
+            # Override proposal_file so validate_node sees the canonical
+            # ``node_id ∈ proposal_file`` invariant; create_node will set
+            # the same value authoritatively below.
+            node_data["proposal_file"] = (
+                f"{PROPOSALS_DIR}/{new_node_id}.md"
+            )
+
+        errs = validate_node(node_data)
+        if errs:
+            raise ValueError(
+                f"{expected_role} NODE_YAML invalid: {errs}"
+            )
+
+        parsed = parse_sections(proposal_text)
+        serrs = validate_sections(parsed)
+        if serrs:
+            raise ValueError(
+                f"{expected_role} proposal invalid: {serrs}"
+            )
+
+        if (wt / NODES_DIR / f"{new_node_id}.yaml").exists():
+            raise ValueError(f"node {new_node_id} already exists")
+
+        dimensions = {
+            k: v for k, v in node_data.items()
+            if k not in _NODE_NON_DIMENSION_FIELDS
+        }
+
+        create_node(
+            session_path=wt,
+            node_id=new_node_id,
+            parents=node_data["parents"],
+            description=node_data["description"],
+            dimensions=dimensions,
+            proposal_content=proposal_text,
+            group_name=node_data["created_by_group"],
+            reference_files=node_data.get("reference_files"),
+        )
+
+        set_head(wt, new_node_id)
+        next_node_id(wt)
+
+        # Merge any NEW_DIMENSIONS into the session's active_dimensions.
+        added_dimensions: list[str] = []
+        new_dims = _parse_new_dimensions(text)
+        if new_dims:
+            gs_path = wt / GRAPH_STATE_FILE
+            gs = read_yaml(str(gs_path))
+            active = list(gs.get("active_dimensions", []) or [])
+            for dim in new_dims:
+                if dim not in active:
+                    active.append(dim)
+                    added_dimensions.append(dim)
+            if added_dimensions:
+                gs["active_dimensions"] = active
+                write_yaml(str(gs_path), gs)
+
+        update_operation(
+            task_num,
+            node_data["created_by_group"],
+            agents_append=agent_name,
+            nodes_created=new_node_id,
+            status="Completed",
+        )
+
+        return new_node_id, added_dimensions
+    except yaml.YAMLError:
+        # Already logged with full block context above.
+        raise
+    except Exception as exc:
+        try:
+            err_log.write_text(
+                f"apply_{expected_role}_output failed at "
+                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"agent_name: {agent_name}\n\n"
+                f"Error: {type(exc).__name__}: {exc}\n",
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+        raise
+
+
+def apply_explorer_output(
+    task_num: int | str, agent_name: str
+) -> str:
+    """Parse ``<agent_name>_output.md`` and integrate it as a new node.
+
+    The explorer emits two delimited blocks (NODE_YAML + PROPOSAL) and an
+    optional ``--- NEW_DIMENSIONS ---`` tail. The new node is created with
+    parents as declared in NODE_YAML (typically the baseline node), head
+    is advanced to it, and the next-node-id counter is incremented.
+
+    Returns:
+        The new node_id (parsed from NODE_YAML).
+
+    Raises:
+        FileNotFoundError: output file missing.
+        ValueError: any delimiter missing, NODE_YAML or proposal invalid,
+            or the new node_id already exists.
+    """
+    new_id, _added = _apply_node_output(
+        task_num, agent_name, expected_role="explorer",
+    )
+    return new_id

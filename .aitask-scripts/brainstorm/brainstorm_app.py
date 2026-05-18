@@ -2416,6 +2416,8 @@ class BrainstormApp(TuiSwitcherMixin, App):
         Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
         Binding("ctrl+shift+r", "retry_patcher_apply",
                 "Retry patcher apply", show=False),
+        Binding("ctrl+shift+x", "retry_explorer_apply",
+                "Retry explorer apply", show=False),
     ]
 
     # Maps action_name -> required tab id. check_action() hides the binding
@@ -2455,6 +2457,13 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._applying_patcher: set[str] = set()
         self._patcher_apply_errors: dict[str, str] = {}
         self._patcher_poll_timer = None
+        # Explorer auto-apply state. Tracked agent names produce a single
+        # node each via apply_explorer_output; the poll timer fires until
+        # every tracked agent has either applied or been dropped.
+        self._explorer_agents: set[str] = set()
+        self._applying_explorer: set[str] = set()
+        self._explorer_apply_errors: dict[str, str] = {}
+        self._explorer_poll_timer = None
         self._current_focused_node_id: str | None = None
         # Remembered for the lifetime of the app; pre-fills the export modal's
         # directory input so repeated exports default to the previous choice.
@@ -3166,6 +3175,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._status_refresh_timer = self.set_interval(30, self._refresh_status_tab)
         self._try_apply_initializer_if_needed()
         self._scan_existing_patchers()
+        self._scan_existing_explorers()
 
     def _try_apply_initializer_if_needed(self, force: bool = False) -> None:
         """Re-attempt apply_initializer_output if n000_init is still placeholder.
@@ -3404,6 +3414,148 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     return 0.0
             agent, source = max(candidates, key=_mtime)
         self._try_apply_patcher_if_needed(agent, source, force=True)
+
+    # ------------------------------------------------------------------
+    # Explorer auto-apply (mirrors patcher pattern; no source_node_id —
+    # the explorer NODE_YAML carries its own parents list)
+    # ------------------------------------------------------------------
+
+    def _register_explorer_agent(self, agent_name: str) -> None:
+        """Main-thread: track a freshly-registered explorer and ensure the
+        poll timer is running."""
+        self._explorer_agents.add(agent_name)
+        self._ensure_explorer_poll_timer()
+
+    def _ensure_explorer_poll_timer(self) -> None:
+        if self._explorer_poll_timer is not None:
+            return
+        if not self._explorer_agents:
+            return
+        self._explorer_poll_timer = self.set_interval(5, self._poll_explorers)
+
+    def _stop_explorer_poll_timer(self) -> None:
+        if self._explorer_poll_timer is not None:
+            try:
+                self._explorer_poll_timer.stop()
+            except Exception:
+                pass
+            self._explorer_poll_timer = None
+
+    def _scan_existing_explorers(self) -> None:
+        """Scan the worktree for completed explorer agents whose output
+        hasn't been applied yet. Idempotent — safe to call from
+        ``_load_existing_session``.
+        """
+        wt = self.session_path
+        if not wt or not Path(wt).is_dir():
+            return
+        try:
+            from brainstorm.brainstorm_session import _explorer_needs_apply
+        except Exception:
+            return
+        for status_path in sorted(Path(wt).glob("explorer_*_status.yaml")):
+            agent = status_path.stem[:-len("_status")]
+            if agent in self._explorer_agents:
+                continue
+            try:
+                data = read_yaml(str(status_path))
+            except Exception:
+                continue
+            if (data or {}).get("status") != "Completed":
+                continue
+            if not _explorer_needs_apply(self.task_num, agent):
+                continue
+            self._explorer_agents.add(agent)
+        self._ensure_explorer_poll_timer()
+
+    def _poll_explorers(self) -> None:
+        """Timer tick: for each tracked explorer, apply its output if it's
+        Completed. Drops entries whose output has already been applied
+        (idempotent across restarts). Stops the timer when empty.
+        """
+        if not self._explorer_agents:
+            self._stop_explorer_poll_timer()
+            return
+        try:
+            from brainstorm.brainstorm_session import _explorer_needs_apply
+        except Exception:
+            return
+        for agent in list(self._explorer_agents):
+            if agent in self._applying_explorer:
+                continue
+            status_path = self.session_path / f"{agent}_status.yaml"
+            if not status_path.is_file():
+                continue
+            try:
+                data = read_yaml(str(status_path))
+            except Exception:
+                continue
+            status = (data or {}).get("status", "")
+            if status != "Completed":
+                continue
+            if not _explorer_needs_apply(self.task_num, agent):
+                # Already applied (e.g., by CLI fallback). Drop and move on.
+                self._explorer_agents.discard(agent)
+                continue
+            self._try_apply_explorer_if_needed(agent)
+        if not self._explorer_agents:
+            self._stop_explorer_poll_timer()
+
+    def _try_apply_explorer_if_needed(
+        self, agent_name: str, force: bool = False,
+    ) -> None:
+        """Single-shot apply attempt for one explorer agent. Failures
+        surface via the initializer apply banner; success refreshes the
+        DAG.
+        """
+        if agent_name in self._applying_explorer:
+            return
+        from brainstorm.brainstorm_session import (
+            _explorer_needs_apply,
+            apply_explorer_output,
+        )
+        if not force and not _explorer_needs_apply(self.task_num, agent_name):
+            return
+        self._applying_explorer.add(agent_name)
+        try:
+            try:
+                new_id = apply_explorer_output(self.task_num, agent_name)
+            except Exception as exc:
+                self._explorer_apply_errors[agent_name] = str(exc)
+                self._set_apply_banner(
+                    f"Explorer {agent_name} apply failed: {exc} — "
+                    f"run `ait brainstorm apply-explorer {self.task_num} "
+                    f"{agent_name}` to retry"
+                )
+                return
+            self._explorer_apply_errors.pop(agent_name, None)
+            self._explorer_agents.discard(agent_name)
+            self._clear_apply_banner()
+            self.notify(f"Explorer {agent_name} applied → {new_id}.")
+            self._load_existing_session()
+        finally:
+            self._applying_explorer.discard(agent_name)
+
+    def action_retry_explorer_apply(self) -> None:
+        """ctrl+shift+x: force-retry the most recently failed explorer.
+
+        If multiple explorers are tracked, picks the one with the most
+        recent ``_status.yaml`` mtime.
+        """
+        if not self._explorer_agents:
+            return
+        candidates = list(self._explorer_agents)
+        if len(candidates) == 1:
+            agent = candidates[0]
+        else:
+            def _mtime(name: str) -> float:
+                p = self.session_path / f"{name}_status.yaml"
+                try:
+                    return p.stat().st_mtime
+                except Exception:
+                    return 0.0
+            agent = max(candidates, key=_mtime)
+        self._try_apply_explorer_if_needed(agent, force=True)
 
     def on_tabbed_content_tab_activated(self, event) -> None:
         """Refresh Status tab when it becomes active; focus DAG on Graph tab."""
@@ -4880,6 +5032,11 @@ class BrainstormApp(TuiSwitcherMixin, App):
                         target_sections=target_sections,
                     )
                     agents_list.append(agent)
+                    # Track each explorer so the auto-apply poller will
+                    # ingest its output when the agent completes.
+                    self.call_from_thread(
+                        self._register_explorer_agent, agent,
+                    )
                 msg = f"Registered {len(agents_list)} explorer(s): {', '.join(agents_list)}"
             elif op == "compare":
                 agent = register_comparator(
