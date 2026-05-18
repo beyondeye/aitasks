@@ -35,7 +35,7 @@ mapfile -t templates < <(
 )
 
 if [[ ${#templates[@]} -eq 0 ]]; then
-    echo "ait skill verify: no .j2 templates found — nothing to verify."
+    echo "aitask_skill_verify.sh: no .j2 templates found — nothing to verify."
     exit 0
 fi
 
@@ -43,7 +43,7 @@ fi
 
 DEFAULT_PROFILE_YAML="aitasks/metadata/profiles/default.yaml"
 if [[ ! -f "$DEFAULT_PROFILE_YAML" ]]; then
-    echo "ait skill verify: default profile not found at $DEFAULT_PROFILE_YAML" >&2
+    echo "aitask_skill_verify.sh: default profile not found at $DEFAULT_PROFILE_YAML" >&2
     exit 1
 fi
 
@@ -109,8 +109,8 @@ for tpl in "${templates[@]}"; do
                 "$stub_path" "$skill" >&2
             failures=$((failures + 1))
         fi
-        if ! grep -q "ait skill render ${skill}" "$stub_path"; then
-            printf 'STUB_FAIL: %s: missing render call ("ait skill render %s")\n' \
+        if ! grep -q "aitask_skill_render.sh ${skill}" "$stub_path"; then
+            printf 'STUB_FAIL: %s: missing render call ("aitask_skill_render.sh %s")\n' \
                 "$stub_path" "$skill" >&2
             failures=$((failures + 1))
         fi
@@ -123,8 +123,8 @@ for tpl in "${templates[@]}"; do
 done
 
 if (( failures > 0 )); then
-    echo "ait skill verify: $failures failure(s)" >&2
+    echo "aitask_skill_verify.sh: $failures failure(s)" >&2
     exit 1
 fi
 
-echo "ait skill verify: OK (${#templates[@]} template(s) verified across ${#agents[@]} agents)"
+echo "aitask_skill_verify.sh: OK (${#templates[@]} template(s) verified across ${#agents[@]} agents)"

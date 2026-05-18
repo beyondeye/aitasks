@@ -3,7 +3,7 @@
 Specialist guidance for authoring or modifying skills under `.claude/skills/`,
 `.agents/skills/`, `.gemini/skills/`, `.gemini/commands/`, `.opencode/skills/`,
 or `.opencode/commands/`. CLAUDE.md carries only the source-of-truth pointer
-and the `ait skill verify` reminder; the rules below apply when actually
+and the `aitask_skill_verify.sh` reminder; the rules below apply when actually
 editing skill files.
 
 ## Verifying `.j2` templates before commit
@@ -14,7 +14,7 @@ or any per-agent stub surface (`.claude/skills/<skill>/SKILL.md`,
 `.opencode/commands/<skill>.md`), run before committing:
 
 ```bash
-./ait skill verify
+./.aitask-scripts/aitask_skill_verify.sh
 ```
 
 This renders every `.j2` against `default.yaml` for all 4 supported agents
@@ -25,8 +25,9 @@ asserts each stub surface contains the canonical markers from
 Read path). The script exits non-zero on any render error, broken closure
 reference, or stub-pattern violation; address every failure before committing.
 
-If no `.j2` templates exist yet, the command prints `ait skill verify: no .j2
-templates found — nothing to verify.` and exits 0. `ait skill verify` writes
+If no `.j2` templates exist yet, the command prints
+`aitask_skill_verify.sh: no .j2 templates found — nothing to verify.` and
+exits 0. `aitask_skill_verify.sh` writes
 nothing to disk; it is safe to run anytime.
 
 ## Extract new procedures to their own file
@@ -106,7 +107,7 @@ How to apply:
 - Skills must also be invokable from INSIDE a live agent session (typing
   `/aitask-pick 42` in Claude), where no external wrapper can intercept.
   Stub-dispatch from the skill itself is the canonical solution: the stub runs
-  `ait skill render …` (bash), then invokes `/skill-<profile>`.
+  `aitask_skill_render.sh …` (bash), then invokes `/skill-<profile>`.
 - Atomic mv from tempfile is essential for any render that lands in a skill
   discovery path.
 
@@ -132,7 +133,7 @@ as two files in `.claude/skills/<skill>/`:
 
 1. `SKILL.md` — the committed, profile-agnostic **stub** (per
    `aidocs/stub-skill-pattern.md` §3b). Resolves the active profile, calls
-   `ait skill render`, and Read-and-follows the per-profile rendered variant.
+   `aitask_skill_render.sh`, and Read-and-follows the per-profile rendered variant.
 2. `SKILL.md.j2` — the **authoring template** rendered by minijinja against the
    active profile YAML. May reference other `.md` procedures (full-path,
    sibling, or skill-relative — see `aidocs/stub-skill-pattern.md` §3i); the
@@ -152,8 +153,9 @@ once per invocation, then the agent reads that frozen file.
 When converting a skill to be profile-aware, author the `.md.j2` template
 first, then drop the canonical stub from `aidocs/stub-skill-pattern.md` §3b at
 the existing `SKILL.md` path. The 3 sibling stubs (Codex `SKILL.md`, Gemini
-command TOML, OpenCode command MD) follow §3c-§3d. Run `./ait skill verify` to
-confirm all 4 stub surfaces render cleanly and the closure walk-check passes.
+command TOML, OpenCode command MD) follow §3c-§3d. Run
+`./.aitask-scripts/aitask_skill_verify.sh` to confirm all 4 stub surfaces
+render cleanly and the closure walk-check passes.
 
 ## Jinja comment conventions for profile-aware templates
 

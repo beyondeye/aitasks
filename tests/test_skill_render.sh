@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # test_skill_render.sh - Automated tests for t777_2:
 #   - .aitask-scripts/aitask_skill_render.sh (per-profile renderer + dispatch)
-#   - ./ait skill subcommand
 #   - 5-touchpoint whitelist for aitask_skill_render.sh
 # Run: bash tests/test_skill_render.sh
 
@@ -330,20 +329,6 @@ if [[ "$RC" -eq 0 ]]; then
 else
     FAIL=$((FAIL + 1)); echo "FAIL: missing-include reference should not crash renderer (rc=$RC)"
 fi
-
-# --- Test 16: ait skill --help lists 'render' ---
-
-HELP_OUT="$(./ait skill --help 2>&1)"
-assert_contains "ait skill --help lists 'render' subcommand" "render" "$HELP_OUT"
-
-# --- Test 17: ait skill bogus exits 1 with 'unknown subcommand' ---
-
-set +e
-BOGUS_OUT="$(./ait skill bogus 2>&1)"
-RC=$?
-set -e
-assert_nonzero_exit "ait skill bogus exits non-zero" "$RC"
-assert_contains "ait skill bogus error message" "unknown subcommand" "$BOGUS_OUT"
 
 # --- Test 18: 5 whitelist touchpoints each have exactly one entry ---
 

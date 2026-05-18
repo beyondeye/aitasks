@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # test_skill_verify.sh - Automated tests for t777_4:
 #   - .aitask-scripts/aitask_skill_verify.sh
-#   - ./ait skill verify subcommand
 #   - 5-touchpoint whitelist for aitask_skill_verify.sh
 # Run: bash tests/test_skill_verify.sh
 
@@ -108,7 +107,7 @@ name: $skill
 description: stub for test
 ---
 1. ./.aitask-scripts/aitask_skill_resolve_profile.sh $skill
-2. ./ait skill render $skill --profile <profile> --agent claude
+2. ./.aitask-scripts/aitask_skill_render.sh $skill --profile <profile> --agent claude
 3. Read .claude/skills/$skill-<profile>-/SKILL.md
 EOF
     cat > ".agents/skills/$skill/SKILL.md" <<EOF
@@ -117,7 +116,7 @@ name: $skill
 description: stub for test
 ---
 1. ./.aitask-scripts/aitask_skill_resolve_profile.sh $skill
-2. ./ait skill render $skill --profile <profile> --agent codex
+2. ./.aitask-scripts/aitask_skill_render.sh $skill --profile <profile> --agent codex
 3. Read .agents/skills/$skill-<profile>-/SKILL.md
 EOF
     mkdir -p ".gemini/commands" ".opencode/commands"
@@ -125,7 +124,7 @@ EOF
 description = "stub for test"
 prompt = """
 1. ./.aitask-scripts/aitask_skill_resolve_profile.sh $skill
-2. ./ait skill render $skill --profile <profile> --agent gemini
+2. ./.aitask-scripts/aitask_skill_render.sh $skill --profile <profile> --agent gemini
 3. Read .gemini/skills/$skill-<profile>-/SKILL.md
 """
 EOF
@@ -134,7 +133,7 @@ EOF
 description: stub for test
 ---
 1. ./.aitask-scripts/aitask_skill_resolve_profile.sh $skill
-2. ./ait skill render $skill --profile <profile> --agent opencode
+2. ./.aitask-scripts/aitask_skill_render.sh $skill --profile <profile> --agent opencode
 3. Read .opencode/skills/$skill-<profile>-/SKILL.md
 EOF
 }
@@ -209,7 +208,7 @@ OUT="$("$VERIFY" 2>&1)"
 RC=$?
 set -e
 assert_zero_exit "test 4: happy path → exit 0" "$RC"
-assert_contains "test 4: stdout reports 'OK'" "ait skill verify: OK" "$OUT"
+assert_contains "test 4: stdout reports 'OK'" "aitask_skill_verify.sh: OK" "$OUT"
 
 cleanup
 mkdir -p ".claude/skills" ".agents/skills" ".gemini/commands" ".opencode/commands"
@@ -225,7 +224,7 @@ cat > ".claude/skills/$SK_NORES/SKILL.md" <<EOF
 name: $SK_NORES
 description: stub for test (no resolver)
 ---
-2. ./ait skill render $SK_NORES --profile <profile> --agent claude
+2. ./.aitask-scripts/aitask_skill_render.sh $SK_NORES --profile <profile> --agent claude
 3. Read .claude/skills/$SK_NORES-<profile>-/SKILL.md
 EOF
 
@@ -274,7 +273,7 @@ name: $SK_NOREAD
 description: stub for test (no trailing-hyphen Read path)
 ---
 1. ./.aitask-scripts/aitask_skill_resolve_profile.sh $SK_NOREAD
-2. ./ait skill render $SK_NOREAD --profile <profile> --agent claude
+2. ./.aitask-scripts/aitask_skill_render.sh $SK_NOREAD --profile <profile> --agent claude
 3. Read .claude/skills/$SK_NOREAD/SKILL.md
 EOF
 
@@ -287,24 +286,6 @@ assert_contains "test 7: STUB_FAIL names missing trailing-hyphen Read path" "mis
 
 cleanup
 mkdir -p ".claude/skills" ".agents/skills" ".gemini/commands" ".opencode/commands"
-
-# --- Test 8: ./ait skill --help mentions verify ---
-
-set +e
-HELP_OUT="$(./ait skill --help 2>&1)"
-HELP_RC=$?
-set -e
-assert_zero_exit "test 8: ./ait skill --help exits 0" "$HELP_RC"
-assert_contains "test 8: help mentions 'verify'" "verify" "$HELP_OUT"
-
-# --- Test 9: ./ait skill bogus lists 'render, verify' in Available ---
-
-set +e
-BOGUS_OUT="$(./ait skill bogus 2>&1)"
-BOGUS_RC=$?
-set -e
-assert_nonzero_exit "test 9: ./ait skill bogus exits non-zero" "$BOGUS_RC"
-assert_contains "test 9: Available list contains 'render, verify'" "Available: render, verify" "$BOGUS_OUT"
 
 # --- Test 10: 5-touchpoint whitelist — exactly one entry per file ---
 

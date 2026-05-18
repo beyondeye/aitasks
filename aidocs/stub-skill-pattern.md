@@ -33,7 +33,7 @@ This is a profile-aware skill stub. Execute these steps in order, then stop:
    and use the single-line stdout as `<profile>`.
 
 2. **Render per-profile variant.** Run:
-   `./ait skill render <skill_short_name> --profile <profile> --agent <agent_literal>`
+   `./.aitask-scripts/aitask_skill_render.sh <skill_short_name> --profile <profile> --agent <agent_literal>`
    No-op if the per-profile SKILL.md is already up to date.
 
 3. **Dispatch via Read-and-follow.** Read the file at
@@ -67,7 +67,7 @@ This is a profile-aware skill stub. Execute these steps in order, then stop:
    and use the single-line stdout as `<profile>`.
 
 2. **Render per-profile variant.** Run:
-   `./ait skill render <skill_short_name> --profile <profile> --agent gemini`
+   `./.aitask-scripts/aitask_skill_render.sh <skill_short_name> --profile <profile> --agent gemini`
 
 3. **Dispatch via Read-and-follow.** Read the file at
    `.gemini/skills/<skill_short_name>-<profile>-/SKILL.md` and execute its
@@ -101,7 +101,7 @@ This is a profile-aware skill stub. Execute these steps in order, then stop:
    and use the single-line stdout as `<profile>`.
 
 2. **Render per-profile variant.** Run:
-   `./ait skill render <skill_short_name> --profile <profile> --agent opencode`
+   `./.aitask-scripts/aitask_skill_render.sh <skill_short_name> --profile <profile> --agent opencode`
 
 3. **Dispatch via Read-and-follow.** Read the file at
    `.opencode/skills/<skill_short_name>-<profile>-/SKILL.md` and execute its

@@ -120,11 +120,11 @@ done
 
 echo "=== Test 4: per-agent reference rewrites via walk-write ==="
 # Reference rewriting is a walk-write/walk-check property, not a single-file
-# render property. Drive the full closure walk via the `ait skill render`
-# wrapper to write the on-disk per-profile tree, then assert on the entry
-# point file under each agent root.
+# render property. Drive the full closure walk via aitask_skill_render.sh
+# to write the on-disk per-profile tree, then assert on the entry point
+# file under each agent root.
 for agent in "${AGENTS[@]}"; do
-    ./ait skill render aitask-pickn --profile fast --agent "$agent" --force >/dev/null 2>&1
+    ./.aitask-scripts/aitask_skill_render.sh aitask-pickn --profile fast --agent "$agent" --force >/dev/null 2>&1
 done
 
 assert_contains "claude/fast: task-workflown ref rewritten under .claude/skills" \
@@ -149,7 +149,7 @@ for stub in "$CLAUDE_STUB" "$CODEX_STUB" "$GEMINI_STUB" "$OPENCODE_STUB"; do
     assert_contains "$stub: resolve_profile invocation present" \
         "aitask_skill_resolve_profile.sh aitask-pickn" "$body"
     assert_contains "$stub: skill render invocation present" \
-        "ait skill render aitask-pickn" "$body"
+        "aitask_skill_render.sh aitask-pickn" "$body"
     assert_contains "$stub: Read-and-follow marker present" \
         "Dispatch via Read-and-follow" "$body"
 done

@@ -207,8 +207,8 @@ The framework also supports OpenCode, Codex CLI, and Gemini CLI:
 Adapt from the Claude Code version when porting; each agent uses a similar
 markdown-based skill format.
 
-Run `./ait skill verify` before committing any `.j2` template or stub-surface
-change.
+Run `./.aitask-scripts/aitask_skill_verify.sh` before committing any `.j2`
+template or stub-surface change.
 
 **IMPORTANT:** Skill/custom command changes, if not specified otherwise,
 should be done in the Claude Code version first. When such changes take

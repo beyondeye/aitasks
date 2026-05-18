@@ -14,7 +14,7 @@ This is a profile-aware skill stub. Execute these steps in order, then stop:
    and use the single-line stdout as `<profile>`.
 
 2. **Render per-profile variant.** Run:
-   `./ait skill render aitask-pickn --profile <profile> --agent opencode`
+   `./.aitask-scripts/aitask_skill_render.sh aitask-pickn --profile <profile> --agent opencode`
 
 3. **Dispatch via Read-and-follow.** Read the file at
    `.opencode/skills/aitask-pickn-<profile>-/SKILL.md` and execute its
