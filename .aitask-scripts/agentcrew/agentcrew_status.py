@@ -287,7 +287,7 @@ def main() -> None:
 
     # heartbeat
     hb_p = sub.add_parser("heartbeat", help="Update agent heartbeat")
-    hb_p.add_argument("--message", help="Optional progress message")
+    hb_p.add_argument("-m", "--message", help="Optional progress message")
 
     args = parser.parse_args()
 

@@ -221,8 +221,10 @@ ait crew status --crew ${CREW_ID} --agent ${AGENT_NAME} set --progress <N>
 ## Heartbeat / Alive Signal
 Periodically write to your alive file to signal you are active:
 \`\`\`bash
-ait crew status --crew ${CREW_ID} --agent ${AGENT_NAME} heartbeat
+ait crew status --crew ${CREW_ID} --agent ${AGENT_NAME} heartbeat [--message \"<short status>\"]
 \`\`\`
+The optional \`--message\` describes what you just finished (e.g. \"Phase 1
+complete — baseline loaded\"). Use it at every checkpoint.
 
 ## Reading Commands
 Check for intra-run commands (e.g., force stop):
