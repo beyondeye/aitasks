@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: performance
-status: Ready
+status: Done
+archived_reason: superseded
 labels: [performance, setup, tui]
-children_to_implement: [t718_4]
 created_at: 2026-04-30 08:34
-updated_at: 2026-05-17 15:03
+updated_at: 2026-05-18 12:53
+completed_at: 2026-05-18 12:53
 boardcol: unordered
 boardidx: 10
 ---
