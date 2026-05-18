@@ -143,3 +143,40 @@ Standard task-workflow Step 9: commit on `main`, archive via
   can be a separate task if requested.
 - Other TUIs' footer layouts (board, monitor, etc.) — this task is scoped
   to the switcher overlay only.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned. In
+  `.aitask-scripts/lib/tui_switcher.py`: (a) `#switcher_dialog` `height: auto`
+  → `height: 100%` (kept `max-height: 30`) so the dialog has a definite
+  height that `1fr` can compute against and never overflows the viewport;
+  (b) `#switcher_hint` got `dock: bottom` so the keyboard-shortcut footer
+  is pinned to the bottom of the dialog and is always visible regardless of
+  list size; (c) `#switcher_list` `height: auto; max-height: 22` →
+  `height: 1fr; min-height: 3` so the list shares remaining vertical space
+  and scrolls internally when items overflow; (d) `_render_session_row`
+  sets `row.display = False` in single-session mode (and `True` in
+  multi-session) so the empty Label's `padding: 0 0 1 0` does not consume
+  a footer row.
+- Added regression test `tests/test_tui_switcher_footer_fit.sh` (Tier 1,
+  no Textual runtime, no tmux). Asserts the CSS contract
+  (dock:bottom / 1fr / 100% / max-height:30) and the
+  `_render_session_row` display toggle in both single- and multi-session
+  modes. 10/10 assertions pass locally.
+- **Deviations from plan:** None functional. The new test does NOT source
+  `tests/lib/require_no_tmux.sh` — that guard is for tests that
+  create/tear-down their own tmux server, which this test does not need
+  (logic-only). Sourcing it would prevent the test from running from inside
+  a normal tmux session.
+- **Issues encountered:** Initial test run aborted with the
+  "cannot run from inside a tmux session" guard because the multi-session
+  test (the template I copied from) sources `require_no_tmux`. Dropped
+  the source and the guard call — safe because this test only inspects
+  Python-level state via `unittest.mock`.
+- **Key decisions:** Chose Textual-native `dock: bottom` + `1fr` over a
+  programmatic `on_resize` handler. The CSS approach is declarative, has
+  no per-frame recompute cost, and matches the existing dock usage in
+  `monitor_app.py`, `minimonitor_app.py`, `aitask_board.py`, and
+  `sync_action_runner.py`. The `min-height: 3` guard prevents the list
+  from collapsing to zero in extreme small-pane cases.
+- **Upstream defects identified:** None.
