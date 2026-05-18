@@ -290,3 +290,36 @@ Plan file commit goes through `./ait git`. Push.
   (`post_plan_action`) wraps preserve `is_child` priority logic as
   prose. If a future task adds `is_child` as a render-time variable,
   those prose blocks can be tightened to straight-line. Not in scope.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Created `.claude/skills/task-workflown/` as a parallel staging dir (25 files = 5 wrapped + 20 byte-identical copies). The audit's "22 files" expectation was off by 3 — three new procedure files (`related-task-discovery.md`, `task-fold-content.md`, `task-fold-marking.md`) landed in `task-workflow/` after the t777_21 audit was archived. All 3 are identity-passthrough; no impact on wrap scope.
+  - Applied 9 Jinja wraps across 5 files (`SKILL.md` 3, `planning.md` 2 wraps spanning 3 sites, `manual-verification-followup.md` 1, `remote-drift-check.md` 1, `satisfaction-feedback.md` 1).
+  - Renamed staged SKILL.md frontmatter `name: task-workflow` → `name: task-workflown` (with `[t777_7 staged]` marker in description) so the skill loader registers it as a distinct entry — the live `task-workflow` skill name remains unaffected.
+  - Created 15 golden files under `tests/golden/procs/task-workflown/` (5 files × 3 profiles, agent=claude — sibling-only refs make the agent dimension invariant).
+  - Created `tests/test_skill_render_task_workflown.sh` with 50 cases across 5 test classes: per-(file,profile) golden diff, agent byte-identity, `default` profile preserves AskUserQuestion blocks, 20 identity-passthrough files byte-identical to originals, synthetic `remote_drift_check: skip` profile exercises the true branch (no committed profile uses that key).
+  - Filed follow-up sibling **t777_23** (`swap_task_workflown_to_task_workflow`, `depends:[777_6]`) for the atomic rename after t777_6 lands and manually verifies.
+  - **Untouched:** live `.claude/skills/task-workflow/` (verified via `git diff --name-only` returning 0 files).
+
+- **Deviations from plan:**
+  - File count in staging dir was 25 (not 22 per t777_21 audit). Audit was stale; impact = none (the 3 extra files are identity-passthrough). Updated "passthrough" count in test assertion from 17 → 20.
+  - `aitask_create.sh` does not have `--add-depends` (used by p777_22 plan); uses `--deps` instead. Plan text was already correct; the implementation used `--deps`.
+  - `aitask_create.sh --type` (not `--issue-type`) for the issue-type flag. Plan template was wrong; implementation used `--type`.
+
+- **Issues encountered:**
+  - Synthetic YAML profile for Test 5 initially had an unquoted colon in its `description:` field (`(remote_drift_check: skip)`), which YAML parsed as a nested mapping. Fixed by quoting the description string.
+  - `assert_contains` initially used `grep -qi`; switched to `grep -qF` for fixed-string matching to avoid accidentally matching backticks/brackets as regex metacharacters in the golden-file content.
+
+- **Key decisions:**
+  - **Strict-undefined-safe key tests:** all wraps use `{% if profile.X is defined %}` rather than `{% if profile.X %}` because t777_22's renderer runs minijinja in `undefined_behavior="strict"` mode — bare access to a missing key errors at render time. The `is defined` form falls cleanly through to the `{% else %}` branch when the profile doesn't set the key.
+  - **`is_child` priority stays as prose** inside the wrap (option A in the planning AskUserQuestion). The dep-walker only passes `profile` + `agent` to Jinja; extending its signature was rejected as out of scope.
+  - **Staging-dir approach (parallel `task-workflown/`) over in-place edits**: surfaced by user concern during plan review, matched the existing `feedback-stage-under-parallel-name` memory rule. The live skill stays untouched until t777_6's manual verification completes; the t777_23 follow-up does the atomic rename.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t777_6 (PILOT pick conversion):** the `aitask-pick/SKILL.md.j2` template MUST reference `.claude/skills/task-workflown/...` (full-path refs in source) until t777_23 lands. After t777_23, those refs need to be string-replaced back to `task-workflow`.
+  - **t777_8..t777_15 (per-skill conversions):** same — reference `task-workflown/` in source templates; t777_23 rewrites everything in one commit.
+  - **t777_23 (swap follow-up):** the rename must also undo the `name: task-workflown` frontmatter rename in SKILL.md and strip the `[t777_7 staged]` description marker.
+  - **Stale t777_22 test artifacts:** the `_t777_22_test_*` directories visible in the Claude skill registry are scratch dirs from t777_22's integration tests that did not get cleaned up — unrelated to this task; flagging for a future cleanup if not already tracked.
