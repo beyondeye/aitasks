@@ -325,6 +325,88 @@ Per `task-workflow/SKILL.md` Step 9:
 
 No linked issue.
 
+## Partial Implementation Notes (Phase 1-4 landed 2026-05-18)
+
+- **Actual work done:**
+  - Phase 1: smoke-checked the t777_22 renderer by rendering
+    `task-workflown/SKILL.md` against fast/claude. The
+    `default_email: userconfig` branch fires inline — render
+    infrastructure works.
+  - Phase 2: authored `.claude/skills/aitask-pickn/SKILL.md.j2`
+    (copied from live `aitask-pick/SKILL.md`). Three edits:
+    frontmatter `name: aitask-pickn-{{ profile.name }}`, plus
+    `{% if profile.skip_task_confirmation is defined and
+    profile.skip_task_confirmation %}` wraps at lines 44 and 72.
+    Cross-skill references rewritten from `task-workflow/` to
+    `task-workflown/` per the user's hand-off-target decision.
+  - Phase 3: wrote 4 per-agent stubs (claude/codex/gemini/opencode)
+    using `aidocs/stub-skill-pattern.md` §3b/§3c/§3d.
+  - Phase 4: rendered 12 (profile × agent) combos. Dep-walker
+    produced full closures (entry-point + 22-file task-workflown
+    closure under each agent root). 12 golden files under
+    `tests/golden/skills/aitask-pickn/`.
+    `tests/test_skill_render_aitask_pickn.sh` (64 assertions) PASS.
+    `./ait skill verify` reports `OK`. Existing
+    `tests/test_skill_render_task_workflown.sh` 50/50 PASS.
+
+- **Deviations from plan:**
+  - Phase 1 standalone smoke test via `./ait skill render
+    task-workflown` failed: the renderer requires a `SKILL.md.j2`
+    entry-point, and `task-workflown` is reached only via dep-walker
+    from a calling template. Substituted by invoking
+    `lib/skill_template.py` directly to render the procedure file
+    standalone. Phase 4's walk-write covered the dep-walker
+    end-to-end.
+  - Test 4 (cross-agent reference rewrites) initially failed:
+    single-file `render_skill` does not rewrite references —
+    rewriting is a `walk-write` property. Adapted Test 4 to invoke
+    `./ait skill render` and read the on-disk per-profile output.
+
+- **Issues encountered:**
+  - Default-profile render initially raised strict-undefined for
+    `profile.skip_task_confirmation` (absent from `default.yaml`).
+    Fixed by guarding with `is defined and` per the t777_7 wrap
+    convention.
+
+- **Phase 5 + 6 deferred.** Phase 4b (manual end-to-end verification
+  gate) blocks Phase 5 (atomic rename). Manual-verification sibling
+  task **t777_24** filed with the 7-item checklist.
+
+- **Upstream defects identified:**
+  Two bugs surfaced from a live `/aitask-pickn 741` run shared by the
+  user. Both filed as separate sibling tasks; t777_24 now blocks on
+  both via `depends: [t777_26]` (which itself depends on t777_25):
+  - `aidocs/stub-skill-pattern.md:36,70,103` — Step 2 invokes
+    `./ait skill render ...` instead of
+    `./.aitask-scripts/aitask_skill_render.sh ...`. The dispatcher
+    form forces a new allowlist entry; the underlying helper is
+    already whitelisted. Filed as **t777_25** (direct-helper-paths
+    refactor).
+  - `.claude/skills/aitask-pickn/SKILL.md.j2:8-24,191` — template
+    wraps profile-check conditionals but leaves Step 0a (Execute
+    Execution Profile Selection Procedure), Step 0 (`--profile` arg
+    parse), and Step 3 hand-off unwrapped. Rendered body re-resolves
+    profile at runtime, which can disagree with the rendered variant
+    (stub looks up `aitask-pickn` in `default_profiles:`; body looks
+    up `pick` — different keys, different answers, silent override
+    mid-run). Filed as **t777_26** (template-completeness +
+    resolver-key alignment + §3f/§3j docs).
+
+- **Notes for sibling tasks (per-skill conversions t777_8..15):**
+  Three patterns established by this pilot, codified in t777_25/26's
+  scope:
+  1. Stubs call `./.aitask-scripts/aitask_skill_*.sh` directly — not
+     via `./ait skill ...`.
+  2. Wrap Step 0 / Step 0a / Step 3 hand-off and `task-workflow`'s
+     Step 3b in `{% if not profile %}…{% endif %}` so rendered body
+     contains no runtime profile resolution.
+  3. Stub Step 1 resolver lookup uses the short name (`pick`), not
+     the full slash command name (`aitask-pick`).
+
+  All eight conversion tasks (`t777_8..15`) re-wired with
+  `depends: [t777_26]` so they inherit the corrected pattern from
+  the updated `aidocs/stub-skill-pattern.md`.
+
 ## Follow-up: t777_23 (already filed, depends on this task)
 
 After t777_6 lands and manual verification passes, t777_23:
