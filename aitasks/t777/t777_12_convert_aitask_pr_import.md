@@ -6,7 +6,7 @@ issue_type: refactor
 status: Ready
 labels: [aitask_pick]
 created_at: 2026-05-17 12:00
-updated_at: 2026-05-18 10:28
+updated_at: 2026-05-18 14:03
 ---
 
 ## Context
@@ -37,3 +37,22 @@ Same procedure as t777_8/t777_10/t777_11:
 1. `ait skill verify` passes.
 2. `ait skill render pr-import --profile fast --agent claude` produces expected output.
 3. Stub-dispatch end-to-end on all 4 agents.
+
+## Jinja Comment Conventions
+
+When wrapping profile checks in `{% if/elif/else/endif %}` blocks, follow the
+**Jinja comment conventions for profile-aware templates** documented in
+`aidocs/skill_authoring_conventions.md`. In short:
+
+- Separator `{# ---------- <label> ---------- #}` on the **same line** as
+  `{% if %}` (placing it on its own line adds a blank line to the rendered
+  output; `{#- -#}` stripping over-consumes the existing blank line above).
+- Inline `{# <label>: when this branch fires #}` on the **same line** as
+  every `{% elif %}` / `{% else %}`.
+- Inline `{# ---------- end <label> ---------- #}` on the **same line** as
+  every `{% endif %}`.
+
+`<label>` is the profile key under test (`default_email`, `create_worktree`,
+…); nested ifs get their own labels. After wrapping, render the template
+against every committed profile and diff against the matching golden — the
+diff MUST be empty (the convention is engineered to be render-neutral).

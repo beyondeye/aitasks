@@ -157,3 +157,34 @@ output and the tag's existing newline behavior is unchanged.
   hint, and every `{% endif %}` names its label.
 - Manual spot-read of one pending t777 sibling (e.g. t777_8) confirms the new
   conventions paragraph is present and points at the aidocs section.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added a "Jinja comment conventions for profile-aware
+  templates" section to `aidocs/skill_authoring_conventions.md`, applied the
+  convention to all 5 wrapped files in `.claude/skills/task-workflown/`
+  (SKILL.md, planning.md, manual-verification-followup.md,
+  remote-drift-check.md, satisfaction-feedback.md), and appended a "Jinja
+  Comment Conventions" reference section to the 9 pending t777
+  template-writing siblings (t777_{6,8,9,10,11,12,13,14,15}).
+- **Deviations from plan:** The plan initially proposed
+  `{#- ---------- <label> ---------- -#}` on its own line above each
+  `{% if %}`, then regenerating goldens (expecting zero diff). First pilot
+  on `remote-drift-check.md` showed `{#- -#}` over-strips — it consumes the
+  blank line above, deleting two newlines from rendered output. Plain
+  `{# ... #}` on its own line under-strips — it adds a blank line. Resolved
+  by placing the separator on the **same line** as `{% if %}`
+  (`{# ---------- <label> ---------- #}{% if ... %}`), which is provably
+  render-neutral and required no golden regeneration. Updated the aidocs
+  section to document this corrected rule; original
+  "{#- -#}" guidance was removed before publication.
+- **Issues encountered:** Only the whitespace handling above. Confirmed the
+  fix on all 5 files individually (cmp against committed goldens) before
+  proceeding to the next.
+- **Key decisions:** Comments placed on the same line as block tags rather
+  than on separate lines, even though same-line is slightly less visually
+  loud, because zero-diff render guarantees existing 15 goldens stay
+  committed unchanged. The shared `---------- <label> ----------` ruler
+  still scans easily; `grep -nE '^\{# -+' <file>` finds every opener.
+- **Upstream defects identified:** None
+

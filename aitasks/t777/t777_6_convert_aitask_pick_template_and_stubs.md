@@ -6,7 +6,7 @@ issue_type: refactor
 status: Ready
 labels: [aitask_pick]
 created_at: 2026-05-17 11:59
-updated_at: 2026-05-18 13:45
+updated_at: 2026-05-18 14:03
 ---
 
 ## Context
@@ -83,3 +83,22 @@ Each stub uses Read-and-follow (per §3e) — NO slash-dispatch, NO per-agent fa
 
 - This child is the pilot for the per-skill conversions (t777_8..15). Document any patterns/gotchas in `task-workflow/stub-skill-pattern.md` for siblings to leverage.
 - Per CLAUDE.md "Claude-first" rule: the `.j2` template lives ONLY in `.claude/skills/aitask-pick/`. Other agents only get stubs.
+
+## Jinja Comment Conventions
+
+When wrapping profile checks in `{% if/elif/else/endif %}` blocks, follow the
+**Jinja comment conventions for profile-aware templates** documented in
+`aidocs/skill_authoring_conventions.md`. In short:
+
+- Separator `{# ---------- <label> ---------- #}` on the **same line** as
+  `{% if %}` (placing it on its own line adds a blank line to the rendered
+  output; `{#- -#}` stripping over-consumes the existing blank line above).
+- Inline `{# <label>: when this branch fires #}` on the **same line** as
+  every `{% elif %}` / `{% else %}`.
+- Inline `{# ---------- end <label> ---------- #}` on the **same line** as
+  every `{% endif %}`.
+
+`<label>` is the profile key under test (`default_email`, `create_worktree`,
+…); nested ifs get their own labels. After wrapping, render the template
+against every committed profile and diff against the matching golden — the
+diff MUST be empty (the convention is engineered to be render-neutral).
