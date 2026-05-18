@@ -169,14 +169,14 @@ class ContextualFooter(Footer):
     own `compact` reactive retains its default (True).
     """
 
-    PRIMARY_ORDER = ["q", "h", "n", "e", "g"]
+    PRIMARY_ORDER = ["q", "h", "n", "e", "E", "g"]
 
     PANE_SUFFIX_ORDERS = {
         "file_tree":    ["d", "c", "r", "R"],
         "recent_files": ["d", "c"],
         "file_search":  [],
         "code_viewer":  ["w", "c", "t", "d", "r"],
-        "detail_pane":  ["d", "D", "c", "H"],
+        "detail_pane":  ["d", "D", "c", "H", "tab"],
     }
 
     def _focused_pane_id(self) -> str | None:
@@ -371,12 +371,12 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         *TuiSwitcherMixin.SWITCHER_BINDINGS,
         Binding("escape", "handle_escape_key", "Escape", show=False, priority=True),
         Binding("q", "quit", "Quit"),
-        Binding("tab", "toggle_focus", "Toggle Focus", priority=True),
         Binding("r", "refresh_explain", "Refresh annotations"),
         Binding("R", "reset_file_tree", "Reset file tree"),
         Binding("t", "toggle_annotations", "Toggle annotations"),
         Binding("g", "go_to_line", "Go to line"),
         Binding("e", "launch_agent", "Explain"),
+        Binding("E", "open_in_editor", "Edit"),
         Binding("d", "toggle_detail", "Toggle detail"),
         Binding("D", "expand_detail", "Expand detail"),
         Binding("V", "view_plan", "Fullscreen plan"),
@@ -385,6 +385,7 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         Binding("n", "create_task", "New task"),
         Binding("w", "toggle_wrap_mode", "Wrap mode"),
         Binding("c", "copy_file_path", "Copy path"),
+        Binding("tab", "toggle_focus", "Toggle Focus", priority=True),
     ]
 
     DETAIL_DEFAULT_WIDTH = 30
@@ -956,6 +957,22 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
         abs_path = str(self._current_file_path)
         rel_path = str(self._current_file_path.relative_to(self._project_root))
         self.push_screen(CopyFilePathScreen(abs_path, rel_path))
+
+    @work(exclusive=True)
+    async def action_open_in_editor(self) -> None:
+        """Suspend the app and open the current file in $EDITOR."""
+        if not self._current_file_path:
+            self.notify("No file selected", severity="warning")
+            return
+        if sys.platform == "win32":
+            editor = os.environ.get("EDITOR", "notepad")
+        else:
+            editor = os.environ.get("EDITOR", "nano")
+        filepath = self._current_file_path
+        with self.suspend():
+            subprocess.call([editor, str(filepath)])
+        if self.explain_manager:
+            self._refresh_explain_data(filepath)
 
     def action_refresh_explain(self) -> None:
         """Refresh explain data for the current file's directory."""

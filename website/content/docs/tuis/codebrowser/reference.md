@@ -14,15 +14,16 @@ depth: [advanced]
 | Key | Action | Context |
 |-----|--------|---------|
 | `q` | Quit the application | Global |
-| `Tab` | Cycle focus between file tree, code viewer, and detail pane | Global |
 | `r` | Refresh explain annotations for current file's directory | Global |
 | `t` | Toggle annotation gutter visibility | Global |
 | `g` | Open go-to-line dialog | Global |
 | `e` | Launch the configured code agent for explain on the current file | Global |
+| `E` | Open the current file in `$EDITOR` (suspends the TUI; resumes on exit) | Global |
 | `d` | Toggle detail pane visibility | Global |
 | `D` | Toggle detail pane between default and expanded width | Global |
 | `h` | Toggle completed tasks history view | Global |
 | `H` | Open history screen navigated to the task at cursor | Global (requires annotated line) |
+| `Tab` | Cycle focus between file tree, code viewer, and detail pane | Global |
 
 #### History Screen
 
