@@ -2591,6 +2591,18 @@ class BrainstormApp(TuiSwitcherMixin, App):
                         event.prevent_default()
                         event.stop()
                         return
+                # Graph tab: focus the DAGDisplay directly. It manages its
+                # own layer/column navigation via internal bindings.
+                if tabbed.active == "tab_dag":
+                    try:
+                        dag = self.query_one(DAGDisplay)
+                    except Exception:
+                        dag = None
+                    if dag is not None:
+                        dag.focus()
+                        event.prevent_default()
+                        event.stop()
+                        return
                 tab_to_container = {
                     "tab_dashboard": ("node_list_pane", (NodeRow,)),
                     "tab_actions": ("actions_content", (OperationRow,)),
@@ -3558,14 +3570,9 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._try_apply_explorer_if_needed(agent, force=True)
 
     def on_tabbed_content_tab_activated(self, event) -> None:
-        """Refresh Status tab when it becomes active; focus DAG on Graph tab."""
+        """Refresh Status tab when it becomes active."""
         if event.pane.id == "tab_status":
             self._refresh_status_tab()
-        elif event.pane.id == "tab_dag":
-            try:
-                self.query_one(DAGDisplay).focus()
-            except Exception:
-                pass
 
     def _refresh_status_tab(self) -> None:
         """Populate the Status tab with operation groups and agent statuses."""
@@ -4198,6 +4205,18 @@ class BrainstormApp(TuiSwitcherMixin, App):
     ) -> None:
         """Refresh the Graph tab's inline detail pane on focus change."""
         self._show_dag_node_detail(event.node_id)
+
+    @on(DAGDisplay.TopBoundaryHit)
+    def on_dag_display_top_boundary_hit(
+        self, event: DAGDisplay.TopBoundaryHit
+    ) -> None:
+        """Refocus the tab row when Up is pressed at the top of the DAG."""
+        try:
+            tabs_widget = self.query_one(TabbedContent).query_one(Tabs)
+        except Exception:
+            return
+        tabs_widget.focus()
+        event.stop()
 
     @on(NodeRow.OperationOpened)
     def on_node_row_operation_opened(

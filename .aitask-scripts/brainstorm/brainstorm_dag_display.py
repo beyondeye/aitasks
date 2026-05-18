@@ -472,6 +472,13 @@ class DAGDisplay(VerticalScroll):
             super().__init__()
             self.node_id = node_id
 
+    class TopBoundaryHit(Message):
+        """Emitted when Up is pressed while focus is on a layer-0 node.
+
+        The app handles this by refocusing the top tab row so the user can
+        exit the graph via Up, mirroring dashboard/actions/status behavior.
+        """
+
     class CompareRequested(Message):
         """Emitted when a second node has been picked for compare."""
 
@@ -634,12 +641,17 @@ class DAGDisplay(VerticalScroll):
             )
 
     def action_prev_layer(self) -> None:
-        """Move focus to the nearest-center column of the previous layer (↑)."""
+        """Move focus to the nearest-center column of the previous layer (↑).
+
+        At the top layer, emit TopBoundaryHit so the app can refocus the
+        tab row instead of dead-ending here.
+        """
         pos = self._layer_col_from_focused()
         if pos is None:
             return
         li, ci = pos
         if li == 0:
+            self.post_message(self.TopBoundaryHit())
             return
         src_center = self._col_center(ci)
         target_layer = self._layers[li - 1]
