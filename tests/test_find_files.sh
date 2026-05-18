@@ -9,6 +9,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 FIND_SCRIPT="$PROJECT_DIR/.aitask-scripts/aitask_find_files.sh"
 
 PASS=0
@@ -181,7 +182,11 @@ FILEEOF
 }
 FILEEOF
 
-        # Copy the script under test and its dependencies
+        # Copy the script under test and its dependencies.
+        # NOTE: deliberately bypasses tests/lib/test_scaffold.sh — this test
+        # treats `.aitask-scripts/lib/` as searchable test data, so the helper's
+        # extra system libs (python_resolve.sh) would pollute the ranking
+        # assertions.
         mkdir -p .aitask-scripts/lib
         cp "$FIND_SCRIPT" .aitask-scripts/aitask_find_files.sh
         cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/

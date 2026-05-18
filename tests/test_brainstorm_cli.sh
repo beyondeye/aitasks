@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# shellcheck source=lib/test_scaffold.sh
+. "$PROJECT_DIR/tests/lib/test_scaffold.sh"
 ORIG_DIR="$(pwd)"
 
 # File-based counters (work across subshells)
@@ -89,13 +92,11 @@ setup_test_repo() {
         git config user.email "test@test.com"
         git config user.name "Test"
 
-        mkdir -p .aitask-scripts/lib .aitask-scripts/brainstorm .aitask-scripts/agentcrew
+        mkdir -p .aitask-scripts/brainstorm .aitask-scripts/agentcrew
+        setup_fake_aitask_repo "$PWD"
         mkdir -p aitasks/metadata
 
         # Copy required library files
-        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/aitask_path.sh" .aitask-scripts/lib/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/

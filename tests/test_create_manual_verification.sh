@@ -21,6 +21,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=lib/test_scaffold.sh
+. "$PROJECT_DIR/tests/lib/test_scaffold.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -82,7 +85,8 @@ setup_project() {
     git config user.email "test@test.com"
     git config user.name "Test"
 
-    mkdir -p aitasks/metadata aiplans/archived .aitask-scripts/lib
+    mkdir -p aitasks/metadata aiplans/archived
+    setup_fake_aitask_repo "$PWD"
 
     cp "$PROJECT_DIR/.aitask-scripts/aitask_create_manual_verification.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/aitask_create.sh" .aitask-scripts/
@@ -91,12 +95,9 @@ setup_project() {
     cp "$PROJECT_DIR/.aitask-scripts/aitask_fold_mark.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/aitask_verification_parse.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/aitask_verification_parse.py" .aitask-scripts/
-    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
-    cp "$PROJECT_DIR/.aitask-scripts/lib/aitask_path.sh" .aitask-scripts/lib/
-    cp "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" .aitask-scripts/lib/
     chmod +x .aitask-scripts/*.sh
 
     # Stub out `./ait git` so the wrapper's post-seed commit succeeds inside

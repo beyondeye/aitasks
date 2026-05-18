@@ -7,6 +7,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=lib/test_scaffold.sh
+. "$PROJECT_DIR/tests/lib/test_scaffold.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -77,13 +80,12 @@ setup_test_env() {
         git config user.email "test@test.com"
         git config user.name "Test"
 
-        mkdir -p .aitask-scripts/lib aitasks/archived aiplans/archived tests
+        mkdir -p aitasks/archived aiplans/archived tests
+        setup_fake_aitask_repo "$PWD"
 
         cp "$PROJECT_DIR/ait" .
         cp "$PROJECT_DIR/.aitask-scripts/VERSION" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/aitask_migrate_archives.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/aitask_path.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
 
         chmod +x ait .aitask-scripts/aitask_migrate_archives.sh

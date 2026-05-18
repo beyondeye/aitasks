@@ -7,6 +7,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=lib/test_scaffold.sh
+. "$PROJECT_DIR/tests/lib/test_scaffold.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -79,9 +82,8 @@ setup_paired_repos() {
         git checkout -b main --quiet 2>/dev/null || true
 
         # Copy required scripts
-        mkdir -p .aitask-scripts/lib
+        setup_fake_aitask_repo "$PWD"
         cp "$PROJECT_DIR/.aitask-scripts/aitask_web_merge.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
         chmod +x .aitask-scripts/aitask_web_merge.sh
 
         # Initial commit

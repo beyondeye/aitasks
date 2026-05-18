@@ -15,6 +15,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=lib/test_scaffold.sh
+. "$PROJECT_DIR/tests/lib/test_scaffold.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -72,7 +75,8 @@ setup_project() {
         git config user.email "test@test.com"
         git config user.name "Test"
 
-        mkdir -p aitasks/archived aitasks/metadata aitasks/new .aitask-scripts/lib
+        mkdir -p aitasks/archived aitasks/metadata aitasks/new
+        setup_fake_aitask_repo "$PWD"
 
         # Create scripts needed by create + auto-merge + verification
         cp "$PROJECT_DIR/.aitask-scripts/aitask_create.sh" .aitask-scripts/
@@ -82,7 +86,6 @@ setup_project() {
         cp "$PROJECT_DIR/.aitask-scripts/aitask_fold_validate.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/aitask_fold_content.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/aitask_fold_mark.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/ 2>/dev/null || true
         cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/ 2>/dev/null || true

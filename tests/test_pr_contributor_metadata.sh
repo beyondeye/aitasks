@@ -7,6 +7,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=lib/test_scaffold.sh
+. "$PROJECT_DIR/tests/lib/test_scaffold.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -63,13 +66,13 @@ setup_project() {
         git config user.email "test@test.com"
         git config user.name "Test"
 
-        mkdir -p aitasks/archived aitasks/metadata aitasks/new .aitask-scripts/lib
+        mkdir -p aitasks/archived aitasks/metadata aitasks/new
+        setup_fake_aitask_repo "$PWD"
 
         cp "$PROJECT_DIR/.aitask-scripts/aitask_create.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/aitask_update.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/aitask_ls.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/

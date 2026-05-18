@@ -7,6 +7,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=lib/test_scaffold.sh
+. "$PROJECT_DIR/tests/lib/test_scaffold.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -64,9 +67,8 @@ setup_test_env() {
     tmpdir="$(mktemp -d)"
 
     # Copy script and dependencies
-    mkdir -p "$tmpdir/.aitask-scripts/lib"
+    setup_fake_aitask_repo "$tmpdir"
     cp "$PROJECT_DIR/.aitask-scripts/aitask_explain_cleanup.sh" "$tmpdir/.aitask-scripts/"
-    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$tmpdir/.aitask-scripts/lib/"
     chmod +x "$tmpdir/.aitask-scripts/aitask_explain_cleanup.sh"
 
     echo "$tmpdir"

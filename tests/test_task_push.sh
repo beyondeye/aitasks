@@ -5,6 +5,9 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=lib/test_scaffold.sh
+. "$PROJECT_DIR/tests/lib/test_scaffold.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -285,11 +288,9 @@ setup_remote_and_clone
 pushd "$TEST_LOCAL" > /dev/null || exit 1
 
 # Create minimal ait dispatcher structure pointing to real scripts
-mkdir -p .aitask-scripts/lib
+setup_fake_aitask_repo "$PWD"
 cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
 cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
-cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
-cp "$PROJECT_DIR/.aitask-scripts/lib/aitask_path.sh" .aitask-scripts/lib/
 cp "$PROJECT_DIR/ait" ./ait
 chmod +x ./ait
 
@@ -314,11 +315,9 @@ echo "--- Test 9: ait git <other> passes through ---"
 setup_remote_and_clone
 pushd "$TEST_LOCAL" > /dev/null || exit 1
 
-mkdir -p .aitask-scripts/lib
+setup_fake_aitask_repo "$PWD"
 cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
 cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
-cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
-cp "$PROJECT_DIR/.aitask-scripts/lib/aitask_path.sh" .aitask-scripts/lib/
 cp "$PROJECT_DIR/ait" ./ait
 chmod +x ./ait
 git add .aitask-scripts/ ait

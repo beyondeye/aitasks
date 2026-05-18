@@ -5,6 +5,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=lib/test_scaffold.sh
+. "$PROJECT_DIR/tests/lib/test_scaffold.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -76,10 +79,10 @@ setup_repo() {
 populate_repo() {
     local repo_dir="$1"
 
-    mkdir -p "$repo_dir/.aitask-scripts/lib" "$repo_dir/aitasks/metadata"
+    mkdir -p "$repo_dir/aitasks/metadata"
+    setup_fake_aitask_repo "$repo_dir"
 
     cp "$PROJECT_DIR/.aitask-scripts/aitask_usage_update.sh" "$repo_dir/.aitask-scripts/"
-    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$repo_dir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" "$repo_dir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" "$repo_dir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/verified_update_lib.sh" "$repo_dir/.aitask-scripts/lib/"

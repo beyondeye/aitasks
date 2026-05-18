@@ -111,6 +111,13 @@ flags for automation) modes. Example: `aitask_create.sh --batch --name "task"
   scripts. `SKILL.md` must call a script subcommand — never raw archive
   tooling. Format migrations then happen in one place.
 - Use `sed_inplace()` from `terminal_compat.sh` — never `sed -i`.
+- **System libs added to `./ait`'s source-on-startup chain must also be added
+  to `tests/lib/test_scaffold.sh::setup_fake_aitask_repo()` in the same PR.**
+  43 tests scaffold a fake `.aitask-scripts/lib/` via that helper; a missing
+  entry crashes every one of them with `No such file or directory` the next
+  time `./ait` (or a helper that learns to source the new lib) is invoked
+  from the fake repo. Current baseline: `aitask_path.sh`, `terminal_compat.sh`,
+  `python_resolve.sh`.
 
 > **macOS portability quirks** (BSD sed vs GNU sed, `grep -P` unavailable,
 > `wc -l` padding, `mktemp --suffix`, `base64 -D` vs `-d`): see

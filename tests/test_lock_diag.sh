@@ -7,6 +7,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=lib/test_scaffold.sh
+. "$PROJECT_DIR/tests/lib/test_scaffold.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -66,10 +69,10 @@ setup_paired_repos() {
         git config user.email "test@test.com"
         git config user.name "Test"
 
-        mkdir -p aitasks/archived .aitask-scripts/lib
+        mkdir -p aitasks/archived
+        setup_fake_aitask_repo "$PWD"
         cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/aitask_lock_diag.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/

@@ -7,6 +7,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=lib/test_scaffold.sh
+. "$PROJECT_DIR/tests/lib/test_scaffold.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -94,13 +97,12 @@ setup() {
     } > "$upstream_dir/.aitask-scripts/large_script.sh"
 
     # Create local project with modifications
-    mkdir -p "$local_dir/.aitask-scripts/lib"
+    setup_fake_aitask_repo "$local_dir"
     mkdir -p "$local_dir/.claude/skills"
     mkdir -p "$local_dir/aitasks/metadata"
 
     # Copy the script under test and its dependencies
     cp "$PROJECT_DIR/.aitask-scripts/aitask_contribute.sh" "$local_dir/.aitask-scripts/"
-    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$local_dir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" "$local_dir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" "$local_dir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/repo_fetch.sh" "$local_dir/.aitask-scripts/lib/"
@@ -609,14 +611,13 @@ YAML
 
 # Setup a project-mode test directory (non-aitasks remote)
 PROJECT_TEST_DIR="$TMPDIR_TEST/project_test"
-mkdir -p "$PROJECT_TEST_DIR/.aitask-scripts/lib"
+setup_fake_aitask_repo "$PROJECT_TEST_DIR"
 mkdir -p "$PROJECT_TEST_DIR/aitasks/metadata"
 mkdir -p "$PROJECT_TEST_DIR/src/backend/auth" "$PROJECT_TEST_DIR/src/backend/models"
 mkdir -p "$PROJECT_TEST_DIR/src/web"
 
 # Copy scripts
 cp "$PROJECT_DIR/.aitask-scripts/aitask_contribute.sh" "$PROJECT_TEST_DIR/.aitask-scripts/"
-cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$PROJECT_TEST_DIR/.aitask-scripts/lib/"
 cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" "$PROJECT_TEST_DIR/.aitask-scripts/lib/"
 cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" "$PROJECT_TEST_DIR/.aitask-scripts/lib/"
 cp "$PROJECT_DIR/.aitask-scripts/lib/repo_fetch.sh" "$PROJECT_TEST_DIR/.aitask-scripts/lib/"

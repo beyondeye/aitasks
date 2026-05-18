@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# shellcheck source=lib/test_scaffold.sh
+. "$PROJECT_DIR/tests/lib/test_scaffold.sh"
 SCRIPT="$PROJECT_DIR/.aitask-scripts/aitask_explain_context.sh"
 
 PASS=0
@@ -78,7 +81,8 @@ TMPDIR_BASE="$(mktemp -d "${TMPDIR:-/tmp}/explain_ctx_XXXXXX")"
 # Create a minimal git repo for testing
 setup_git_repo() {
     local repo_dir="$TMPDIR_BASE/repo"
-    mkdir -p "$repo_dir/src" "$repo_dir/.aitask-scripts/lib"
+    mkdir -p "$repo_dir/src"
+    setup_fake_aitask_repo "$repo_dir"
     cd "$repo_dir"
     git init -q
     git config user.email "test@test.com"
@@ -105,8 +109,6 @@ SCRIPT_DIR_TU="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR_TU/terminal_compat.sh"
 SHEOF
 
-    cp "$PROJECT_DIR/.aitask-scripts/lib/aitask_path.sh" "$repo_dir/.aitask-scripts/lib/"
-    cp "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" "$repo_dir/.aitask-scripts/lib/"
 
     # Create a source file and commit it
     echo 'print("hello")' > "$repo_dir/src/foo.py"

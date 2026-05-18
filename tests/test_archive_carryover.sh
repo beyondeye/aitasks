@@ -18,6 +18,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=lib/test_scaffold.sh
+. "$PROJECT_DIR/tests/lib/test_scaffold.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -178,20 +181,18 @@ setup_archive_project() {
     git config user.email "test@test.com"
     git config user.name "Test"
 
-    mkdir -p aitasks/archived aitasks/metadata aiplans/archived .aitask-scripts/lib
+    mkdir -p aitasks/archived aitasks/metadata aiplans/archived
+    setup_fake_aitask_repo "$PWD"
 
     cp "$PROJECT_DIR/.aitask-scripts/aitask_archive.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/aitask_update.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/ 2>/dev/null || true
     cp "$PROJECT_DIR/.aitask-scripts/aitask_verification_parse.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/aitask_verification_parse.py" .aitask-scripts/
-    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/ 2>/dev/null || true
-    cp "$PROJECT_DIR/.aitask-scripts/lib/aitask_path.sh" .aitask-scripts/lib/
-    cp "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" .aitask-scripts/lib/
 
     printf '%s' "$STRICT_STUB_CONTENTS" > .aitask-scripts/aitask_create.sh
 

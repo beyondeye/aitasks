@@ -7,6 +7,9 @@ set -e
 TEST_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=lib/test_scaffold.sh
+. "$PROJECT_DIR/tests/lib/test_scaffold.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -109,9 +112,8 @@ setup_local_repo() {
 # Copy the init_data script and its dependency into a test repo
 install_script() {
     local repo_dir="$1"
-    mkdir -p "$repo_dir/.aitask-scripts/lib"
+    setup_fake_aitask_repo "$repo_dir"
     cp "$PROJECT_DIR/.aitask-scripts/aitask_init_data.sh" "$repo_dir/.aitask-scripts/"
-    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$repo_dir/.aitask-scripts/lib/"
 }
 
 # Create aitask-data branch with content using setup_data_branch from aitask_setup.sh
@@ -119,10 +121,8 @@ install_script() {
 create_data_branch_setup() {
     local repo_dir="$1"
     # Copy required scripts for setup
-    mkdir -p "$repo_dir/.aitask-scripts/lib"
+    setup_fake_aitask_repo "$repo_dir"
     cp "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" "$repo_dir/.aitask-scripts/"
-    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$repo_dir/.aitask-scripts/lib/"
-    cp "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" "$repo_dir/.aitask-scripts/lib/"
     cp -r "$PROJECT_DIR/seed" "$repo_dir/seed" 2>/dev/null || true
     (
         cd "$repo_dir"

@@ -7,6 +7,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=lib/test_scaffold.sh
+. "$PROJECT_DIR/tests/lib/test_scaffold.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -80,9 +83,8 @@ setup_paired_repos() {
         mkdir -p aitasks/archived
 
         # Copy the scripts we need
-        mkdir -p .aitask-scripts/lib
+        setup_fake_aitask_repo "$PWD"
         cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
@@ -109,9 +111,8 @@ clone_second_local() {
         git config user.name "Test2"
 
         # Copy scripts
-        mkdir -p .aitask-scripts/lib
+        setup_fake_aitask_repo "$PWD"
         cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
-        cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" .aitask-scripts/lib/
         cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
@@ -436,10 +437,10 @@ TMPDIR_20="$(mktemp -d)"
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
-    mkdir -p aitasks/metadata .aitask-scripts/lib
+    mkdir -p aitasks/metadata
+    setup_fake_aitask_repo "$PWD"
     echo "email: user@test.com" > aitasks/metadata/userconfig.yaml
     cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
-    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
@@ -459,9 +460,9 @@ TMPDIR_21="$(mktemp -d)"
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
-    mkdir -p aitasks/metadata .aitask-scripts/lib
+    mkdir -p aitasks/metadata
+    setup_fake_aitask_repo "$PWD"
     cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
-    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
@@ -481,9 +482,9 @@ TMPDIR_22="$(mktemp -d)"
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
-    mkdir -p aitasks/metadata .aitask-scripts/lib
+    mkdir -p aitasks/metadata
+    setup_fake_aitask_repo "$PWD"
     cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
-    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
@@ -504,9 +505,9 @@ TMPDIR_23="$(mktemp -d)"
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
-    mkdir -p aitasks/metadata .aitask-scripts/lib
+    mkdir -p aitasks/metadata
+    setup_fake_aitask_repo "$PWD"
     cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/
-    cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
