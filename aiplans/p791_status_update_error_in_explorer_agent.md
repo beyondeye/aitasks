@@ -186,3 +186,45 @@ Plan file commit (separate, via `./ait git`):
 ```
 ait: Update plan for t791
 ```
+
+## Final Implementation Notes
+
+- **Actual work done:** Two-line change exactly as planned.
+  1. `.aitask-scripts/agentcrew/agentcrew_status.py:290` — added `-m` as
+     a short alias on the heartbeat sub-parser:
+     `hb_p.add_argument("-m", "--message", …)`.
+  2. `.aitask-scripts/aitask_crew_addwork.sh:221-227` — updated the
+     generated `_instructions.md` Heartbeat block to show
+     `heartbeat [--message "<short status>"]` and a one-line usage hint
+     ("describes what you just finished, use at every checkpoint").
+- **Deviations from plan:** None.
+- **Issues encountered:** None.
+- **Key decisions:**
+  - Defense-in-depth chosen (both edits) rather than docs-only. After
+    user-confirmed plan approval, both changes apply.
+  - Templates (`brainstorm/templates/{explorer,patcher,…}.md`) left
+    untouched — their "with message:" phrasing is correct; the gap was
+    purely in the generated instructions the agent reads at runtime.
+- **Upstream defects identified:** None. (The patcher/detailer agents'
+  silent message-dropping is the same root cause as this task; the fix
+  here addresses it. Not a separate upstream defect.)
+- **Verification performed:**
+  - `shellcheck .aitask-scripts/aitask_crew_addwork.sh` — clean (only
+    pre-existing SC1091/SC2001 info/style warnings unrelated to the
+    change).
+  - `python3 -c "import py_compile; py_compile.compile(…)"` on the edited
+    Python file — OK.
+  - `bash tests/test_crew_status.sh` — 57/57 PASS, including the
+    heartbeat CLI test (which still uses `--message`, so the long form
+    is unchanged).
+  - CLI smoke against existing `brainstorm-635/patcher_001` workspace
+    (gitignored, no repo pollution):
+    - `heartbeat -m "smoke -m alias test (t791)"` →
+      `HEARTBEAT_UPDATED:patcher_001`, `last_message` written.
+    - `heartbeat --message "smoke --message test (t791)"` →
+      `HEARTBEAT_UPDATED:patcher_001`, `last_message` written.
+    - `heartbeat --help` → output now shows `-m, --message MESSAGE`.
+  - Rendered the heredoc fragment in isolation
+    (`CREW_ID=test-crew AGENT_NAME=test_agent`) to confirm the
+    backslash-escapes produce a well-formed Markdown code block with
+    the new `[--message "<short status>"]` syntax.
