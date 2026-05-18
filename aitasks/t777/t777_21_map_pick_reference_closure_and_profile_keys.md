@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [aitask_pick]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-18 08:53
-updated_at: 2026-05-18 08:53
+updated_at: 2026-05-18 09:02
 ---
 
 ## Context
