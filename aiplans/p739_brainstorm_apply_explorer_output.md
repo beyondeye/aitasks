@@ -337,3 +337,46 @@ module:
 ```bash
 python -m unittest tests.test_brainstorm_apply_explorer tests.test_brainstorm_apply_patcher tests.test_brainstorm_session -v
 ```
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented `apply_explorer_output()` and the shared
+  `_apply_node_output()` helper in `brainstorm_session.py`. Added a TUI
+  auto-apply loop (track / scan / poll / try / retry-binding) in
+  `brainstorm_app.py`, wired into `_run_design_op` and
+  `_load_existing_session`. Created CLI fallback
+  `aitask_brainstorm_apply_explorer.sh` and added the `apply-explorer`
+  subcommand to the `ait` dispatcher. Tests: 16 new cases in
+  `tests/test_brainstorm_apply_explorer.py` covering happy path,
+  NEW_DIMENSIONS handling (merge, none, absent), error cases (missing
+  output, missing delimiter, existing node, invalid YAML, invalid node
+  data), and `_explorer_needs_apply` matrix.
+- **Deviations from plan:** None to the public-API surface. One in-scope
+  refinement: `_agent_to_group_name` was updated to strip the trailing
+  parallel-explorer suffix (`explorer_001a` → `explore_001` instead of
+  `explore_001a`), so that `update_operation` actually finds the right
+  group for parallel explorers. The patcher path (no parallel suffix) is
+  unaffected.
+- **Issues encountered:** Initial test for
+  `test_missing_created_by_group_derived_from_agent_name` exposed the
+  parallel-suffix bug above. Fixed in `_agent_to_group_name`; patcher
+  tests stayed green.
+- **Key decisions:**
+  - Made the helper signature minimal — `expected_role` only — so t740's
+    `apply_synthesizer_output` is a one-line wrapper. The
+    `group_name_default` parameter from the original draft turned out to
+    be unused and was dropped.
+  - Reused the existing `#initializer_apply_banner` widget for explorer
+    failure messages (per plan); explorer has no IMPACT_FLAG so the
+    patcher's dedicated impact banner is not needed.
+  - Tracked explorer agents as a flat `set` instead of `dict[group →
+    list]`, since each agent's NODE_YAML carries its own parents and the
+    poll loop only needs the agent name.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** t740 (`apply-synthesizer`) can call
+  `_apply_node_output(task_num, agent_name, expected_role="synthesizer")`
+  directly. The synthesizer TUI hook follows the explorer pattern
+  verbatim (track set, scan, poll, try, retry binding). For agent-name →
+  group-name resolution, note that `_agent_to_group_name` maps
+  `synthesizer_001` → `hybridize_001` (no parallel suffix expected for
+  synthesizers, so the new strip-suffix branch is a no-op for that role).
