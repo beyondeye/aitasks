@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [783]
 issue_type: refactor
 status: Ready
 labels: [agents_md]
