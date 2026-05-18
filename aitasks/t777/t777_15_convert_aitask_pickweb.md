@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: medium
-depends: [t777_14]
+depends: [t777_14, t777_7, t777_22]
 issue_type: refactor
 status: Ready
 labels: [aitask_pick]
 created_at: 2026-05-17 12:01
-updated_at: 2026-05-17 12:01
+updated_at: 2026-05-18 10:28
 ---
 
 ## Context
