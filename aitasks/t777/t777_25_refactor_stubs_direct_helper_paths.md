@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [aitask_pick, stub_skill_pattern]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-18 19:14
-updated_at: 2026-05-18 19:14
+updated_at: 2026-05-18 21:51
 ---
 
 ## Context
