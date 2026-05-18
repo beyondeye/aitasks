@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 # aitask_skill_verify.sh — Verify all .j2 authoring templates render cleanly
 # across the 4 supported agents (default profile) and that each stub surface
-# follows the canonical pattern documented in
-# .claude/skills/task-workflow/stub-skill-pattern.md.
+# follows the canonical pattern documented in aidocs/stub-skill-pattern.md.
 #
 # Usage:
 #   aitask_skill_verify.sh
 #
 # Exit codes:
 #   0  - all checks pass (or no .j2 templates found yet)
-#   1  - one or more failures (render error, empty output, missing/bad stub)
+#   1  - one or more failures (render error, empty output, missing/bad stub,
+#        broken transitive reference, or render error in any closure leaf)
 #
 # Render check uses lib/skill_template.py directly (writes to stdout) instead
 # of aitask_skill_render.sh — verification is purely functional, no disk
-# side effects, and skips the cross-skill recursive include scan.
+# side effects. The closure-walk check (t777_22) is performed via walk-check
+# mode (in-memory, no disk writes).
 
 set -euo pipefail
 
@@ -49,7 +50,7 @@ fi
 PYTHON="$(require_ait_python)"
 SKILL_TEMPLATE_PY="$SCRIPT_DIR/lib/skill_template.py"
 
-# --- Per-skill stub-surface map (mirrors stub-skill-pattern.md §3g) ---
+# --- Per-skill stub-surface map (mirrors aidocs/stub-skill-pattern.md §3g) ---
 
 _stub_path_for() {
     local agent="$1" skill="$2"
@@ -82,8 +83,17 @@ for tpl in "${templates[@]}"; do
         fi
     done
 
+    # --- Closure walk-check (t777_22): every transitive .md ref must resolve
+    # and render cleanly. In-memory only — no disk writes.
+    for agent in "${agents[@]}"; do
+        if ! out="$("$PYTHON" "$SKILL_TEMPLATE_PY" walk-check "$tpl" "$DEFAULT_PROFILE_YAML" "$agent" "$REPO_ROOT" 2>&1)"; then
+            printf 'VERIFY_FAIL: %s agent=%s closure walk error:\n%s\n' "$skill" "$agent" "$out" >&2
+            failures=$((failures + 1))
+        fi
+    done
+
     # --- Stub-pattern check: 4 surfaces per skill ---
-    # Canonical markers from stub-skill-pattern.md §3b-§3d:
+    # Canonical markers from aidocs/stub-skill-pattern.md §3b-§3d:
     #   1) resolver call referencing this skill
     #   2) render call referencing this skill
     #   3) trailing-hyphen Read path with <profile>- placeholder

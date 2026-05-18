@@ -174,17 +174,22 @@ else
     FAIL=$((FAIL + 1)); echo "FAIL: --force should re-render (before=$MTIME_FRESH, after=$MTIME_FORCED)"
 fi
 
-# --- Test 6: Cross-skill include recursion ---
+# --- Test 6: Cross-skill .md-reference recursion (t777_22 dep-walker) ---
+# Was a {% include %} cross-skill test pre-t777_22. The new model walks plain
+# .md refs in the rendered output and renders each referenced source into a
+# per-profile sibling dir.
 
 SK_A="${TEST_SKILL_PREFIX}rec_a"
 SK_B="${TEST_SKILL_PREFIX}rec_b"
 mkdir -p ".claude/skills/$SK_A" ".claude/skills/$SK_B"
-cat > ".claude/skills/$SK_A/SKILL.md.j2" <<'EOF'
-# A skill (agent={{ agent }})
+# A is a leaf with no Jinja markers (only needs SKILL.md, no .md.j2).
+cat > ".claude/skills/$SK_A/SKILL.md" <<'EOF'
+# A skill leaf
 EOF
+# B is the entry (rendered from .md.j2) and references A via full path.
 cat > ".claude/skills/$SK_B/SKILL.md.j2" <<EOF
-# B skill includes A
-{% include "$SK_A/SKILL.md.j2" %}
+# B skill (agent={{ agent }})
+See .claude/skills/${SK_A}/SKILL.md for A.
 EOF
 
 "$RENDER" "$SK_B" --profile fast --agent claude
@@ -201,8 +206,11 @@ TOTAL=$((TOTAL + 1))
 if [[ -f "$TARGET_A" ]]; then
     PASS=$((PASS + 1))
 else
-    FAIL=$((FAIL + 1)); echo "FAIL: cross-skill recursion did not render A: $TARGET_A"
+    FAIL=$((FAIL + 1)); echo "FAIL: dep-walker did not render A leaf: $TARGET_A"
 fi
+B_OUT="$(cat "$TARGET_B" 2>/dev/null || echo "")"
+assert_contains "B's full-path ref rewritten to per-profile dir" \
+    ".claude/skills/${SK_A}-fast-/SKILL.md" "$B_OUT"
 
 # --- Test 7: Same-skill include is inlined, not rendered as separate skill ---
 
@@ -287,11 +295,11 @@ RC=$?
 set -e
 assert_nonzero_exit "unknown agent exits non-zero" "$RC"
 
-# --- Test 13: Portability — Linux branch (stat -c %Y) active in current run ---
+# --- Test 13: Sanity — _t_mtime helper returns a positive integer ---
+# Post-t777_22 the bash-side skip-if-fresh moved to Python (closure-aware), so
+# the bash script no longer contains stat calls. The local _t_mtime helper
+# (used by other tests in this file) is sanity-checked here.
 
-# With PATH unmodified on a Linux host, basic render must succeed; this
-# implicitly exercises the stat -c %Y branch via skip-if-fresh. We sanity-
-# check that _t_mtime returns a positive integer (proves stat invocation).
 M13=$(_t_mtime "$TARGET1")
 TOTAL=$((TOTAL + 1))
 if [[ "$M13" =~ ^[0-9]+$ ]] && (( M13 > 0 )); then
@@ -299,22 +307,6 @@ if [[ "$M13" =~ ^[0-9]+$ ]] && (( M13 > 0 )); then
 else
     FAIL=$((FAIL + 1)); echo "FAIL: _t_mtime did not return positive integer (got '$M13')"
 fi
-
-# --- Test 14: Portability — BSD branch (stat -f %m) is present in the script ---
-#
-# We cannot reliably *simulate* the BSD `stat -f %m` branch on a Linux host:
-# GNU and BSD `stat -f` have incompatible semantics (GNU treats -f as
-# filesystem-info mode; BSD treats it as a file format selector). A PATH
-# shim can intercept the -c branch but cannot convert the GNU semantic of
-# -f into the BSD semantic. So we verify portability statically:
-#   1) The script contains both code paths (`stat -c %Y` and `stat -f %m`).
-#   2) The current-host branch (test 13 above) actually works end-to-end.
-# On a real macOS host, the BSD branch will exercise via the same end-to-end
-# tests (1-12, 15-17) because BSD stat rejects -c, triggering the || fallback.
-
-SCRIPT_BODY="$(cat "$RENDER")"
-assert_contains "script contains GNU/Linux mtime branch (stat -c %Y)" 'stat -c %Y' "$SCRIPT_BODY"
-assert_contains "script contains BSD/macOS mtime branch (stat -f %m)" 'stat -f %m' "$SCRIPT_BODY"
 
 # --- Test 15: realpath without -m — missing .j2 include is skipped, no crash ---
 

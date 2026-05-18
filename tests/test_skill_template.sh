@@ -173,6 +173,121 @@ rm "$SCRATCH_REPO/aitasks/metadata/project_config.yaml"
 OUT="$(cd "$SCRATCH_REPO" && ./.aitask-scripts/aitask_skill_resolve_profile.sh pick)"
 assert_eq "resolver: 'default' when no configs exist" "default" "$OUT"
 
+# --- 6. t777_22 unit tests: discover_refs + rewrite_ref ---
+
+# Scratch closure: A (sibling/skill-relative ref), B (target of ref). Use the
+# real repo's .claude/skills/ tree under a _t777_22_test_unit_ prefix so the
+# resolver can find the files.
+
+REAL_SK_DIR="$PROJECT_DIR/.claude/skills"
+UNIT_A="${REAL_SK_DIR}/_t777_22_test_unit_a"
+UNIT_B="${REAL_SK_DIR}/_t777_22_test_unit_b"
+mkdir -p "$UNIT_A" "$UNIT_B"
+cat > "$UNIT_A/SKILL.md" <<'EOF'
+# Skill A
+EOF
+cat > "$UNIT_B/SKILL.md" <<'EOF'
+# Skill B
+EOF
+unit_cleanup() {
+    rm -rf "${REAL_SK_DIR}"/_t777_22_test_unit_*
+}
+trap unit_cleanup EXIT
+
+# Helper: invoke discover_refs and print resolved kind+rel paths.
+disco_call() {
+    local text="$1" current="$2"
+    "$PYTHON" -c "
+import sys
+sys.path.insert(0, '$PROJECT_DIR/.aitask-scripts/lib')
+from skill_template import discover_refs
+from pathlib import Path
+text = sys.stdin.read()
+current = Path('$current').resolve()
+repo_root = Path('$PROJECT_DIR').resolve()
+for r in discover_refs(text, current, repo_root):
+    rel = r['resolved_source'].relative_to(repo_root)
+    print(r['kind'], r['original_str'], str(rel))
+" <<< "$text"
+}
+
+# Full-path ref
+OUT="$(disco_call 'see .claude/skills/_t777_22_test_unit_a/SKILL.md for details' "$UNIT_B/SKILL.md")"
+assert_contains "discover_refs: full-path matched" "full" "$OUT"
+assert_contains "discover_refs: full-path resolved" ".claude/skills/_t777_22_test_unit_a/SKILL.md" "$OUT"
+
+# Cross-agent-root full-path ref (says .agents/skills/... but resolves under .claude/skills/)
+OUT="$(disco_call 'see .agents/skills/_t777_22_test_unit_a/SKILL.md here' "$UNIT_B/SKILL.md")"
+assert_contains "discover_refs: cross-agent-root full-path normalised to .claude/" ".claude/skills/_t777_22_test_unit_a/SKILL.md" "$OUT"
+
+# Sibling ref (B references its own dir's SKILL.md = self)
+OUT="$(disco_call 'see SKILL.md for context' "$UNIT_B/SKILL.md")"
+assert_contains "discover_refs: sibling matched as sibling kind" "sibling" "$OUT"
+
+# Skill-relative ref
+OUT="$(disco_call 'see _t777_22_test_unit_a/SKILL.md' "$UNIT_B/SKILL.md")"
+assert_contains "discover_refs: skill-relative matched" "skill_relative" "$OUT"
+
+# Non-existent ref → filtered (no output)
+OUT="$(disco_call 'edit the imaginary.md file please' "$UNIT_B/SKILL.md")"
+TOTAL=$((TOTAL + 1))
+if [[ -z "$OUT" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1)); echo "FAIL: discover_refs should filter nonexistent refs (got: $OUT)"
+fi
+
+# Placeholder ref containing <> not matched
+OUT="$(disco_call '<placeholder>/SKILL.md is just a template marker' "$UNIT_B/SKILL.md")"
+TOTAL=$((TOTAL + 1))
+if [[ -z "$OUT" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1)); echo "FAIL: discover_refs should not match <placeholder> strings (got: $OUT)"
+fi
+
+# Helper: invoke rewrite_ref and print result.
+rewrite_call() {
+    local kind="$1" ref_dir="$2" ref_file="$3" agent="$4" profile_name="$5"
+    "$PYTHON" -c "
+import sys
+sys.path.insert(0, '$PROJECT_DIR/.aitask-scripts/lib')
+from skill_template import rewrite_ref
+ref = {'kind': '$kind', 'ref_dir': '$ref_dir', 'ref_file': '$ref_file'}
+print(rewrite_ref(ref, '$agent', '$profile_name'))
+"
+}
+
+assert_eq "rewrite_ref: claude full-path" \
+    ".claude/skills/task-workflow-fast-/planning.md" \
+    "$(rewrite_call full task-workflow planning.md claude fast)"
+assert_eq "rewrite_ref: codex full-path" \
+    ".agents/skills/task-workflow-fast-/planning.md" \
+    "$(rewrite_call full task-workflow planning.md codex fast)"
+assert_eq "rewrite_ref: gemini full-path" \
+    ".gemini/skills/task-workflow-fast-/planning.md" \
+    "$(rewrite_call full task-workflow planning.md gemini fast)"
+assert_eq "rewrite_ref: opencode full-path" \
+    ".opencode/skills/task-workflow-fast-/planning.md" \
+    "$(rewrite_call full task-workflow planning.md opencode fast)"
+assert_eq "rewrite_ref: sibling unchanged" \
+    "planning.md" \
+    "$(rewrite_call sibling task-workflow planning.md claude fast)"
+assert_eq "rewrite_ref: skill_relative becomes full" \
+    ".claude/skills/task-workflow-fast-/planning.md" \
+    "$(rewrite_call skill_relative task-workflow planning.md claude fast)"
+
+# AGENT_ROOTS mapping spot-check
+AR_OUT="$("$PYTHON" -c "
+import sys
+sys.path.insert(0, '$PROJECT_DIR/.aitask-scripts/lib')
+from skill_template import AGENT_ROOTS
+for k, v in AGENT_ROOTS.items():
+    print(k, v)
+")"
+assert_contains "AGENT_ROOTS claude maps to .claude/skills" "claude .claude/skills" "$AR_OUT"
+assert_contains "AGENT_ROOTS opencode maps to .opencode/skills" "opencode .opencode/skills" "$AR_OUT"
+
 # --- Summary ---
 
 echo

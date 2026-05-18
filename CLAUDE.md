@@ -266,7 +266,7 @@ When you add or modify a `.j2` authoring template (`.claude/skills/<skill>/SKILL
 ./ait skill verify
 ```
 
-This renders every `.j2` against `default.yaml` for all 4 supported agents (claude, codex, gemini, opencode) and asserts each stub surface contains the canonical markers from `.claude/skills/task-workflow/stub-skill-pattern.md` (resolver call, render call, trailing-hyphen Read path). The script exits non-zero on any render error or stub-pattern violation; address every failure before committing.
+This renders every `.j2` against `default.yaml` for all 4 supported agents (claude, codex, gemini, opencode), walks each authoring template's dep closure to verify every transitive `.md` reference resolves and renders cleanly (t777_22), and asserts each stub surface contains the canonical markers from `aidocs/stub-skill-pattern.md` (resolver call, render call, trailing-hyphen Read path). The script exits non-zero on any render error, broken closure reference, or stub-pattern violation; address every failure before committing.
 
 If no `.j2` templates exist yet, the command prints `ait skill verify: no .j2 templates found — nothing to verify.` and exits 0. That is the expected state until the first authoring template lands.
 
@@ -293,6 +293,16 @@ If no `.j2` templates exist yet, the command prints `ait skill verify: no .j2 te
   - Atomic mv from tempfile is essential for any render that lands in a skill discovery path.
 
 - **Use recognizable name-suffix conventions for generated artifact dirs, not per-variant gitignore globs.** When a feature generates rendered artifact directories alongside authoring ones (e.g., per-profile rendered SKILL.md variants), encode "generated" into the directory NAME with a single recognizable suffix/prefix marker so the gitignore is one glob per agent root. Convention for aitasks framework rendered SKILL.md dirs: **trailing hyphen** (e.g., `aitask-pick-fast-/`); gitignore is `.claude/skills/*-/` (and same for `.agents/skills/`, `.gemini/skills/`, `.opencode/skills/`). Per-variant globs (`*-fast/`, `*-default/`, …) require maintenance every time a new variant lands; the suffix convention does not. Authoring dir names must NOT end with the marker — verify at design time.
+
+- **Profile-aware skills require a stub + `.md.j2` pair, not a single `SKILL.md`.** An entry-point skill that needs to vary by execution profile MUST be authored as two files in `.claude/skills/<skill>/`:
+  1. `SKILL.md` — the committed, profile-agnostic **stub** (per `aidocs/stub-skill-pattern.md` §3b). Resolves the active profile, calls `ait skill render`, and Read-and-follows the per-profile rendered variant.
+  2. `SKILL.md.j2` — the **authoring template** rendered by minijinja against the active profile YAML. May reference other `.md` procedures (full-path, sibling, or skill-relative — see `aidocs/stub-skill-pattern.md` §3i); the t777_22 dep-walker recursively renders every reachable `.md` into the per-profile sibling tree, with cross-references rewritten to point at the rendered copies.
+
+  Profile-agnostic skills that do not vary by profile keep a single `SKILL.md` and skip the `.j2` template entirely.
+
+  **Why:** A single `SKILL.md` cannot carry profile-conditional content because the agent re-reads it during execution; mutating it mid-session would produce torn reads (see the "SKILL.md files are re-read during execution" rule above). The stub + render-on-invocation model materialises a stable per-(skill, profile) snapshot once per invocation, then the agent reads that frozen file.
+
+  **How to apply:** When converting a skill to be profile-aware (t777_6 pilot, t777_8..t777_15 follow-ups), author the `.md.j2` template first, then drop the canonical stub from `aidocs/stub-skill-pattern.md` §3b at the existing `SKILL.md` path. The 3 sibling stubs (Codex `SKILL.md`, Gemini command TOML, OpenCode command MD) follow §3c-§3d. Run `./ait skill verify` to confirm all 4 stub surfaces render cleanly and the closure walk-check passes.
 
 - **Do not route skill invocation through `claude -p "<inlined prompt>"`.** `claude -p` is billed at a higher per-token rate than slash-command invocations against an existing session. Inlining a rendered SKILL.md (often 200–400 lines) into the prompt every invocation multiplies that cost. The wrapper's job is to render → atomically place the rendered file at the agent's discovery path → exec the agent with the natural slash command (`claude '/skill-name <args>'` or invocation inside an existing session). Never pipe rendered SKILL.md content via `-p`. The constraint applies to all four agents (Claude, Codex, Gemini, OpenCode); the rate-difference rationale is documented specifically for Claude.
 

@@ -160,3 +160,25 @@ The stub's Step 1 parses `ARGUMENTS` (Claude/Codex), `{{args}}` (Gemini), or `$A
 This mirrors today's `/aitask-pick --profile fast 16` user-facing convention: the user (or a Python TUI like `AgentCommandScreen`'s per-run editor, t777_17) supplies an override, the stub honors it, and the rendered variant receives the cleaned args (`16` only — no `--profile fast` residue).
 
 Argument forwarding from `ait skillrun` (t777_5) and Python TUIs uses the same contract: append `--profile <name>` to the ARGUMENTS that get passed to the user-facing slash command (`/<skill>`). No TUI invokes the rendered slash command directly. The override path through ARGUMENTS is the **single** mechanism for non-default profile selection at invocation time.
+
+## 3i. Reference resolution (for the t777_22 dep-walker)
+
+Authoring templates (`SKILL.md.j2`) and shared `.md` procedures may use any of three reference shapes when linking to another procedure file. The dep-walker discovers all three and renders the targets into the per-profile sibling tree.
+
+| Shape | Example | Resolution |
+|-------|---------|-----------|
+| Full path | `.claude/skills/task-workflow/planning.md` | Direct path under the source agent root (`.claude/skills/`, the SoT per t777_1). Ref strings may name any of the four agent roots (`.claude`, `.agents`, `.gemini`, `.opencode`); the walker normalises to `.claude/skills/` for resolution. |
+| Sibling | `planning.md` | Relative to the **current source file's parent dir**. |
+| Skill-relative | `task-workflow/planning.md` (one `/`, no leading `.claude/...`) | Relative to the source agent root (`.claude/skills/`). |
+
+After rendering, references inside the rendered output are rewritten:
+
+- **Full-path** → `<target_root>/<dir>-<profile>-/<file>.md`, where `<target_root>` comes from `--agent` (`.claude/skills` for `claude`, `.agents/skills` for `codex`, `.gemini/skills` for `gemini`, `.opencode/skills` for `opencode`).
+- **Sibling** → unchanged. The sibling file is rendered into the SAME per-profile dir, so the bare-filename reference still resolves correctly when the agent reads the rendered file.
+- **Skill-relative** → rewritten to full-path form: `<target_root>/<dir>-<profile>-/<file>.md`. (Without rewriting, a one-`/` reference would otherwise resolve against the per-profile dir and fail.)
+
+If a candidate path does not resolve to a real source file under `.claude/skills/`, the walker silently skips it. Prose mentions of filenames in narrative text are therefore safe — false positives (e.g., "edit the planning.md file") are filtered by the existence check.
+
+**Cycle handling.** The walker maintains a visited set keyed on the source absolute path. References that point at an already-visited source are still rewritten in the calling file, but are not enqueued for a second render.
+
+**File-extension contract.** Only `SKILL.md.j2` (entry-point templates) carry the `.j2` extension. All referenced procedures keep the plain `.md` extension even if they grow Jinja markers in a later conversion. The walker treats every reachable `.md` as a Jinja template and falls through to an identity transform when no Jinja markers are present.
