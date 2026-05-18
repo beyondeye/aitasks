@@ -227,3 +227,25 @@ skip_task_confirmation
 ## Step 9 — Post-Implementation
 
 Standard child-task archival via `./.aitask-scripts/aitask_archive.sh 777_21`. No code commit, only the plan-file commit; the plan IS the deliverable. The "Final Implementation Notes" section can be a one-liner ("Discovery document complete — see body for closure list, table, and edit summary") since the audit findings already live in this document body.
+
+## Final Implementation Notes
+
+- **Actual work done:** Discovery audit complete — see the body of this document for the BFS closure (23 files), the per-file branch-site table, the 6-file edit list for t777_7, the 17-file passthrough corpus for t777_22, and the 12-key profile-key universe. No code changes.
+
+- **Deviations from plan:** None. Both verification commands produced the expected output: the branch-site grep matched exactly the 6 files listed in the "Files needing t777_7 edits" table, and `stub-skill-pattern.md` is not referenced from any closure file (confirming the CLAUDE.md-only origin).
+
+- **Issues encountered:** Two regex-detection edge cases worth noting for sibling consumers:
+  - `task-workflow/remote-drift-check.md:17` uses `**Profile check.**` (period, not colon). Future audits/walkers should accept both.
+  - The key `remote_drift_check` appears in that file as the inline backticked phrase `` `remote_drift_check: skip` `` rather than a bare token, so a naive bare-token grep within a window misses it. The key IS used — t777_7 will need to wrap the conditional.
+
+- **Key decisions:**
+  - Closure is exactly 23 files. `stub-skill-pattern.md` is intentionally excluded (not referenced from any runtime skill file).
+  - The 17 identity-render files should form a single passthrough corpus in t777_22's golden-file tests — assert byte-identical output across any profile.
+  - `aitask-pick/SKILL.md` is listed under "Files needing t777_7 edits" for completeness, but t777_6 already converted it to a `.j2` template. t777_7's net new edit list is the 5 task-workflow files (9 real `{% if profile.X %}` wrapping sites total: 3+3+1+1+1).
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t777_22 (recursive renderer):** Use the BFS algorithm in §Methodology. Carry a visited-set — confirmed cycles exist (`SKILL.md ↔ planning.md`, `execution-profile-selection.md ↔ execution-profile-selection-auto.md`, `contributor-attribution.md ↔ code-agent-commit-attribution.md`). The renderer's reference-rewrite policy (rewrite `.md` cross-refs to per-profile rendered dir vs. leave as `.md`) is still open — pick during t777_22 planning.
+  - **t777_7 (convert shared procs):** Edit list is precise and exhaustive (5 files, 9 sites). Largest matrix is `planning.md` (~8 profile combinations needed for golden-file coverage). The `remote-drift-check.md` site needs special care because the key is in a backticked-phrase form rather than a bare token.
+  - **Out-of-pick-closure keys:** `explore_auto_continue` and `qa_mode` are NOT consumed in the pick closure — they will surface in t777_8 (explore) and t777_11 (qa) closure audits respectively. Future siblings doing the same audit for their own root should expect to find them.
