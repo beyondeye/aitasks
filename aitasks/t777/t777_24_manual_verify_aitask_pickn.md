@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: [t777_23]
+depends: []
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
