@@ -301,3 +301,28 @@ End-to-end check against the real pick closure is **deferred to t777_6** (the pi
 ## Step 9 — Post-Implementation
 
 Standard child-task archival via `./.aitask-scripts/aitask_archive.sh 777_22`. Commit code changes (Python helpers, bash simplifications, tests, stub-skill-pattern.md doc update) under `feature: Extend renderer for uniform recursive rendering (t777_22)`. Commit plan file separately via `./ait git`. Push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the dep-walker in `lib/skill_template.py` (≈220 LOC new): `FULL_PATH_REF_RE` / `SHORT_REF_RE`, `discover_refs` (yields full / sibling / skill-relative kinds, filters non-existent), `rewrite_ref` (per-kind rewrite policy), `walk_closure` (BFS with visited-set keyed on source path, in-memory closure rendering, closure-aware skip-if-fresh based on max source mtime), atomic per-file writes, two new CLI sub-commands `walk-write` and `walk-check`. Simplified `aitask_skill_render.sh` from 182 lines to 99 lines by removing the bash-side `{% include %}` regex scan and mtime check (both moved to Python). Extended `aitask_skill_verify.sh` with a per-template `walk-check` pass. Moved `stub-skill-pattern.md` from `.claude/skills/task-workflow/` to `aidocs/` and appended a §3i "Reference resolution" section. Added a CLAUDE.md bullet documenting the stub + `.md.j2` pair convention. Updated 4 path references (CLAUDE.md, agent_skills_paths.sh comment, verify-script header + 2 marker comments). Tests: extended `test_skill_template.sh` with +35 cases for `discover_refs`/`rewrite_ref`/`AGENT_ROOTS`; ported `test_skill_render.sh` Test 6 to the new ref model and removed obsolete Test 14 (bash-side stat portability); added `test_skill_render_uniform.sh` with 29 integration cases covering all the documented behaviors. Sibling-task metadata: added `t777_22` (and `t777_7` where missing) to `depends:` on t777_8..t777_15 via `aitask_update.sh`.
+
+- **Deviations from plan:** None of substance. Two minor adjustments during implementation:
+  - The "render any reachable `.md` through minijinja" function in the plan sketch (`_render_source_text`) was inlined as a direct call to `render_skill` instead of a separate wrapper — they would have had identical bodies.
+  - The `--add-depends` flag mentioned in the plan does not exist in `aitask_update.sh`; only `--deps DEPS` (replace-all). Worked around by reading current deps and merging in a small shell loop.
+
+- **Issues encountered:** Initial draft of `discover_refs` matched a path *anywhere* in text, which would have produced false-positive rewrites against placeholder strings like `<skill>-<profile>-/SKILL.md` (used in `aidocs/stub-skill-pattern.md` examples). Resolved by anchoring `SHORT_REF_RE` on non-path-char boundaries (negative lookbehind/lookahead) and filtering all candidates through an existence check (`resolved.is_file()`). Placeholder strings naturally do not resolve to real files and are silently skipped — same path that handles prose mentions of nonexistent filenames.
+
+- **Key decisions:**
+  - Reference-discovery scope is **full + sibling + skill-relative**, not "full only" (per user direction in planning). The walker resolves all three shapes and filters via existence check.
+  - The walker normalises full-path refs from any of the four agent roots to `.claude/skills/...` for source resolution (Claude is SoT per t777_1). Rewriting always targets the requested `--agent`'s root.
+  - Skip-if-fresh moved entirely to Python and is closure-aware: a single stale leaf invalidates the chain. Bash retains only arg parsing + profile YAML resolution + delegation.
+  - Within-skill `{% include "_partial.j2" %}` (native Jinja, scoped to the template's parent dir) is preserved. Cross-skill `{% include "<other>/SKILL.md.j2" %}` was removed — the new dep-walker covers cross-skill via plain `.md` refs.
+  - `stub-skill-pattern.md` was moved to `aidocs/` rather than kept under `.claude/skills/task-workflow/`. Confirmed it is referenced only from CLAUDE.md and from comments in scripts (verify script + paths-lib comment + skillrun comment) — never from any runtime skill closure (per p777_21 audit), never copied to `seed/`, never read at install or runtime. Moving it removes a runtime-vs-authoring ambiguity.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t777_6 (PILOT pick conversion):** Walker is ready; once aitask-pick's `SKILL.md.j2` and the canonical stub land, `./.aitask-scripts/aitask_skill_render.sh aitask-pick --profile fast --agent claude` will recursively render the full 23-file closure into `.claude/skills/aitask-pick-fast-/` plus `task-workflow-fast-/`. Golden-file coverage for production closure is t777_6's responsibility; t777_22 ships only synthetic-fixture coverage.
+  - **t777_7 (convert task-workflow shared procs):** No file-extension changes required (every shared proc stays `.md`). The walker handles sibling refs out-of-the-box — t777_7 does not need to convert sibling refs to full paths.
+  - **t777_8..t777_15:** All sibling tasks now declare `depends: [..., t777_7, t777_22]`. They can author their `.md.j2` templates using whichever ref shape is natural (full-path for cross-skill, sibling for within-skill). See `aidocs/stub-skill-pattern.md` §3i for the full reference-resolution contract.
+  - **Convention to publicise:** The "stub + `.md.j2` pair" requirement is now in CLAUDE.md under `### Skill / Workflow Authoring Conventions`. Future skill authors converting a skill to be profile-aware should follow it.
