@@ -157,3 +157,25 @@ Target — insert `E` row immediately after `e`, and move `Tab` row to the end:
 
 - Changing the editor invocation mechanism (e.g., adding a non-suspending external-terminal launch path). Suspend+resume matches the board precedent and is what the user asked for.
 - Adding `E` to any other screen (history, dialogs). Only the main app context gets the binding.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-18 10:45)
+- **Requested by user:** Footer showed `E Edit` after `R Reset file tree` instead of next to `e Explain`.
+- **Root cause:** The codebrowser uses a custom `ContextualFooter` (`codebrowser_app.py:161`) that sorts visible bindings by `PRIMARY_ORDER = ["q", "h", "n", "e", "g"]` plus per-pane suffix lists. Bindings not in either list fall to the tail and appear in declaration order. The initial fix only changed `BINDINGS` declaration order, which has no effect on footer placement.
+- **Changes made:** Added `"E"` to `ContextualFooter.PRIMARY_ORDER` between `"e"` and `"g"` so it renders adjacent to Explain in every pane. Aligns with the CLAUDE.md "uppercase sibling adjacent to its lowercase primary" rule.
+- **Files affected:** `.aitask-scripts/codebrowser/codebrowser_app.py`
+
+### Change Request 2 (2026-05-18 10:50)
+- **Requested by user:** Move the `Tab Toggle Focus` entry so it appears AFTER `H History for task` in the footer, **without** changing where `H` is shown.
+- **Changes made:** Appended `"tab"` to the `detail_pane` suffix (now `["d", "D", "c", "H", "tab"]`) so in the detail pane (the only pane that displays `H`) `tab` renders right after `H`. In other panes (file tree, code viewer, recent files, file search) `tab` continues to fall to the tail of the unsorted bindings — unchanged from prior behavior. PRIMARY_ORDER reverted to its original value.
+- **Files affected:** `.aitask-scripts/codebrowser/codebrowser_app.py`
+
+## Final Implementation Notes
+
+- **Actual work done:** Added an `E` keybinding to `ait codebrowser` that suspends the TUI, runs `$EDITOR` on the currently-viewed file (nano fallback on Unix, notepad on Windows), then refreshes explain annotations on return. Inserted the new action method `action_open_in_editor` after `action_copy_file_path`. Reordered `BINDINGS` so `tab` is last and `E` is next to `e`. Added `"E"` to `ContextualFooter.PRIMARY_ORDER` so the footer actually renders it next to `e Explain` (the contextual footer is what determines visible order — `BINDINGS` declaration order only affects tail/unsorted entries). Updated the website reference table accordingly.
+- **Deviations from plan:** Initial plan only modified `BINDINGS` declaration order, missing the `ContextualFooter.PRIMARY_ORDER` constant. Fixed during user review.
+- **Issues encountered:** Footer mis-placement reported by user → traced to `ContextualFooter` (codebrowser-specific Footer subclass at `codebrowser_app.py:161`) and its `PRIMARY_ORDER` constant.
+- **Key decisions:** Reused the `board`-side `run_editor` pattern (suspend/subprocess.call/refresh). Editor refresh after exit uses `_refresh_explain_data` since that's the codebrowser-equivalent of board's `manager.load_tasks() + refresh_board()`. Inserted `E` in `PRIMARY_ORDER` immediately after `e` so the uppercase sibling stays adjacent per the CLAUDE.md footer-ordering rule.
+- **Upstream defects identified:** None
+
