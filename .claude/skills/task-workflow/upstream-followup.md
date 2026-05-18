@@ -14,6 +14,20 @@ From the caller (SKILL.md Step 8b):
 
 ## Procedure
 
+**⚠️ NON-SKIPPABLE — Auto mode and execution profiles do NOT bypass the Step 8b prompt.**
+
+The AskUserQuestion in step 2 below is the workflow gate where an upstream
+defect either becomes its own follow-up task or stays buried in this task's
+archived plan. The following do NOT cover this prompt:
+- Execution profiles (no profile key currently bypasses Step 8b).
+- Auto mode / 'work without stopping' system-injected directives.
+- Generic user instructions to 'be brief' or 'don't ask'.
+
+The only valid skips are profile keys explicitly named in this procedure as
+covering Step 8b (currently: none) or the user explicitly typing a decision
+(e.g. "skip the upstream followup" or "create the followup task") in chat
+before the prompt fires.
+
 ### 1. Resolve the plan file and read the "Upstream defects identified" subsection
 
 Resolve the plan file:

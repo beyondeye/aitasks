@@ -14,6 +14,20 @@ From the caller (SKILL.md Step 8c):
 
 ## Procedure
 
+**⚠️ NON-SKIPPABLE — Auto mode and 'work without stopping' directives do NOT bypass the Step 8c prompt.**
+
+The AskUserQuestion in step 4 below is the workflow gate that decides whether
+a standalone manual-verification follow-up task is created. The following do
+NOT cover this prompt:
+- Auto mode / 'work without stopping' system-injected directives.
+- Generic user instructions to 'be brief' or 'don't ask'.
+- Profile keys other than the one named below.
+
+The only valid skips are:
+- The profile key `manual_verification_followup_mode: never` (handled by
+  step 1 below before the prompt is reached), or
+- The user explicitly typing a decision in chat before the prompt fires.
+
 ### 1. Profile check
 
 If the active profile has `manual_verification_followup_mode` set to `"never"`, display:

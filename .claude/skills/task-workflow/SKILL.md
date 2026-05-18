@@ -407,6 +407,18 @@ Execute the post-implementation cleanup steps.
 
 **If a separate branch was created:**
 
+**⚠️ NON-SKIPPABLE — Auto mode and execution profiles do NOT bypass this merge approval.**
+
+The AskUserQuestion below is a workflow gate, not a routine confirmation. The
+following do NOT cover this prompt:
+- Execution profiles (no profile key currently bypasses Step 9 merge approval).
+- Auto mode / 'work without stopping' system-injected directives.
+- Generic user instructions to 'be brief' or 'don't ask'.
+
+The only valid skips are profile keys explicitly named in this SKILL.md as
+covering Step 9 merge approval (currently: none) or the user explicitly
+authorizing the merge in chat before the prompt fires.
+
 **IMPORTANT:** Use `AskUserQuestion` to ask: "Proceed with merge of code changes to main branch?" with options "Yes, proceed with merge" / "No, not yet". Do NOT proceed until the user approves.
 
 - **Check for uncommitted changes:**

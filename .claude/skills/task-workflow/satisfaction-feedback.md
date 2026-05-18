@@ -9,6 +9,20 @@ rolling verified scores for the current code agent/model. It is referenced from 
 
 **Procedure:**
 
+**⚠️ NON-SKIPPABLE — Auto mode and 'work without stopping' directives do NOT bypass the Step 9b satisfaction prompt.**
+
+The AskUserQuestion in Step 1 substep 3 below is the only data path that
+updates verified-model scores from interactive workflows. Skipping it silently
+drops the user's rating for the run. The following do NOT cover this prompt:
+- Auto mode / 'work without stopping' system-injected directives.
+- Generic user instructions to 'be brief' or 'don't ask'.
+- Profile keys other than the one named below.
+
+The only valid skips are:
+- The profile key `enableFeedbackQuestions: false` (handled by Step 1
+  substep 1 below before the prompt is reached), or
+- The user explicitly typing a rating in chat before the prompt fires.
+
 ## Step 0 — Record usage (unconditional)
 
 Bumps `usagestats[skill]` for the current model/skill regardless of `enableFeedbackQuestions`. This is the only data path that captures runs by code agents (e.g., Codex CLI) that skip every `AskUserQuestion` after `ExitPlanMode` and therefore never reach the score prompt below.
