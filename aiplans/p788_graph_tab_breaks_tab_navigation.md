@@ -204,3 +204,36 @@ convention.
 Follow the standard task-workflow Step 9 process: review changes,
 commit with `bug: Fix graph tab stealing focus from tab row (t788)`,
 update the plan with Final Implementation Notes, and archive.
+
+## Final Implementation Notes
+
+- **Actual work done:** All four fixes from the plan were applied
+  exactly as designed.
+  - `brainstorm_dag_display.py`: Added `TopBoundaryHit(Message)`
+    class beside the existing `Message` subclasses. Modified
+    `action_prev_layer` to `post_message(self.TopBoundaryHit())` when
+    `li == 0` (before its early return).
+  - `brainstorm_app.py`: Stripped the `elif event.pane.id == "tab_dag":
+    DAGDisplay.focus()` branch and its docstring claim from
+    `on_tabbed_content_tab_activated`. Inserted a `tab_dag` early-return
+    case in the Down-from-tabs block in `on_key` (mirrors the existing
+    `tab_compare` precedent). Added `on_dag_display_top_boundary_hit`
+    decorated with `@on(DAGDisplay.TopBoundaryHit)`, placed adjacent to
+    the existing `on_dag_display_focus_changed` handler.
+- **Deviations from plan:** None. The handler-name uncertainty noted in
+  the plan (`on_dagdisplay_top_boundary_hit` vs
+  `on_dag_display_top_boundary_hit`) was resolved during implementation
+  by inspecting existing handlers — the codebase uses
+  `on_dag_display_*` (underscore between DAG and Display), driven by the
+  `@on(DAGDisplay.MessageName)` decorator pattern rather than Textual's
+  auto-derived names. Used the decorator pattern for the new handler too.
+- **Issues encountered:** None. Both Python files pass `ast.parse`. No
+  new imports required — `Message`, `Tabs`, and `TabbedContent` were
+  already imported in both files.
+- **Key decisions:** Used a posted `Message` (Textual idiom) rather than
+  exposing layer state via a public method, keeping `DAGDisplay`'s
+  layer/column internals encapsulated. The right-pane DimensionRow
+  navigation (which already had its own non-escalating handler) was
+  intentionally left alone — out of scope per the user's bug report.
+- **Upstream defects identified:** None.
+
