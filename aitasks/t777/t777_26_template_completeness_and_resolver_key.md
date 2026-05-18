@@ -108,14 +108,24 @@ All three apply together. (1)+(2) live in `aitask-pickn/SKILL.md.j2`;
 3. Update the stub Step 1 (resolve active profile) to use the
    task-workflow short name (`pick` for `aitask-pick(n)`), not the full
    slash command name. Document the convention in
-   `aidocs/stub-skill-pattern.md` §3f.
-4. Regenerate goldens for all 12 (profile × agent) aitask-pickn combos
+   `aidocs/stub-skill-pattern.md` §3f (short-name resolver key).
+4. **Document the template-completeness rule in `aidocs/stub-skill-pattern.md`** —
+   add a new §3j (or extend §3f) stating that the rendered body must
+   NEVER re-resolve the profile at runtime: wrap every profile-selection
+   step (Step 0a / Step 3b / equivalents) in `{% if not profile %}…{% endif %}`
+   so it disappears from every rendered variant. Add the four forbidden
+   tokens (`aitask_scan_profiles.sh`, `Execute the Execution Profile
+   Selection Procedure`, `Select Execution Profile`, `refresh execution
+   profile`) as a converter checklist item, and reference the assertion
+   pattern from the test scripts. This documentation is what t777_8..15
+   (per-skill conversions) will follow.
+5. Regenerate goldens for all 12 (profile × agent) aitask-pickn combos
    AND the 5 wrapped task-workflown files × 3 profiles.
-5. Update `tests/test_skill_render_aitask_pickn.sh` assertions: NEW
+6. Update `tests/test_skill_render_aitask_pickn.sh` assertions: NEW
    ones to assert the rendered body has NO mention of `aitask_scan_profiles`,
    `Execute the Execution Profile Selection Procedure`, or "Step 0a:
    Select Execution Profile" — anywhere.
-6. Update `tests/test_skill_render_task_workflown.sh` similarly for
+7. Update `tests/test_skill_render_task_workflown.sh` similarly for
    Step 3b.
 
 ## Key Files to Modify
@@ -127,7 +137,9 @@ All three apply together. (1)+(2) live in `aitask-pickn/SKILL.md.j2`;
 - `.agents/skills/aitask-pickn/SKILL.md` (same)
 - `.gemini/commands/aitask-pickn.toml` (same)
 - `.opencode/commands/aitask-pickn.md` (same)
-- `aidocs/stub-skill-pattern.md` §3f (short-name convention)
+- `aidocs/stub-skill-pattern.md` §3f (short-name resolver-key
+  convention) AND new §3j (template-completeness rule — wrap
+  profile-resolution steps in `{% if not profile %}…{% endif %}`)
 - `tests/test_skill_render_aitask_pickn.sh` + 12 goldens
 - `tests/test_skill_render_task_workflown.sh` + 15 goldens
 

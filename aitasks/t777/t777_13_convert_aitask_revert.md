@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: [t777_12, t777_7, t777_22]
+depends: [t777_12, t777_7, t777_22, t777_26]
 issue_type: refactor
 status: Ready
 labels: [aitask_pick]
