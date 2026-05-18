@@ -4,9 +4,8 @@ Parent Task: aitasks/t777_modular_pick_skill.md
 Sibling Tasks: aitasks/t777/t777_*_*.md
 Parent Plan: aiplans/p777_modular_pick_skill.md
 Base branch: main
-Plan revised: 2026-05-18 (verify-pass + user-directed scope split into new sibs
-+ user-directed uniform recursive rendering — no classification step)
-New depends after this plan: [t777_5, t777_21, t777_22, t777_7]
+Plan revised: 2026-05-18 (re-verified vs current code; hand-off target = task-workflown/)
+Depends: [t777_5, t777_21, t777_22, t777_7]
 plan_verified:
   - claudecode/opus4_7 @ 2026-05-18 08:52
 ---
@@ -15,269 +14,327 @@ plan_verified:
 
 ## Context
 
-t777_1..5 delivered the basic template/render/verify/skillrun
-machinery. Today's verify-pass exploration surfaced that
-`aitask-pick` hands off to `task-workflow/SKILL.md` at Step 3, which
-in turn loads ~16 sub-procedures (planning.md, plan-externalization.md,
-execution-profile-selection.md, agent-attribution.md, …). Some of
-those procedure files contain their own runtime "Profile check:"
-blocks. **Without a render-time mechanism that follows the reference
-graph, the templating model leaks at the very first hand-off** and
-the pilot proves nothing about real composed skills.
+t777_5/21/22/7 all shipped. Concretely verified on 2026-05-18:
+- `aitask_skill_render.sh` (107 lines) + `lib/skill_template.py` implement
+  uniform recursive rendering: `walk-write` / `walk-check`, 3-shape ref
+  regex (`FULL_PATH_REF_RE`), BFS walk with visited-set cycle detection,
+  per-agent path rewriting, closure-aware skip-if-fresh.
+- `aitask_skill_verify.sh` does `walk-check` per agent (lines 73–90).
+- `.gitignore` covers `<root>/skills/*-/` for all 4 agents.
+- `ait skillrun` (269 lines) supports `--profile`, `--profile-override`,
+  `--agent-string`, `--dry-run`, `-- <args>`; dispatcher entry at `ait:192`.
+- `aitask_skill_resolve_profile.sh` resolves profile names for stubs.
+- t777_21 audit lives in the archived plan
+  `aiplans/archived/p777/p777_21_*.md` and enumerates a 23-file closure +
+  6 files needing edits + 12-key profile-key universe.
+- t777_7 wrapped 5 task-workflow files (SKILL.md, planning.md,
+  manual-verification-followup.md, remote-drift-check.md,
+  satisfaction-feedback.md) under the **parallel name** `task-workflown/`
+  per the stage-under-<name>n convention. Live `task-workflow/` is
+  untouched.
+- Test infra: `tests/test_skill_template.sh` (35 pass),
+  `tests/test_skill_render_uniform.sh` (29 pass),
+  `tests/test_skill_render.sh` (31 pass).
 
-Two user directions reshape the plan:
+**Hand-off target decision (user, 2026-05-18):** the pilot template
+references `.claude/skills/task-workflown/...` (staged, Jinja-wrapped),
+NOT live `task-workflow/`. The pilot thereby exercises every wrapped
+profile branch end-to-end. **t777_23** (the swap follow-up, already
+filed) will rename `task-workflown` → `task-workflow` AND update
+`aitask-pick/SKILL.md.j2`'s references from `task-workflown/...` back
+to `task-workflow/...` in the same commit.
 
-1. **Split the architectural work into new sibling tasks** at the
-   t777 level (using next available numbers — t777_20 is the last
-   existing child, so new ones are t777_21, t777_22).
-2. **Uniform recursive rendering.** The renderer ALWAYS renders every
-   referenced markdown file into the per-profile dir, regardless of
-   whether the file uses any profile keys. Files without Jinja
-   syntax pass through unchanged (minijinja identity transform). This
-   removes the audit/classification step entirely, simplifies the
-   renderer logic, and makes future drift self-healing (a procedure
-   that acquires a profile branch tomorrow is automatically included
-   in the per-profile snapshot — no second audit required).
+## Correction vs the previously-approved plan
 
-## Render model (uniform recursive rendering, set by user)
+The earlier plan had three stale references that the re-verification
+caught:
 
-When `ait skill render aitask-pick --profile fast --agent claude`
-runs:
+1. `aidocs/stub-skill-pattern.md` (NOT `task-workflow/stub-skill-pattern.md`)
+   — the doc was moved to `aidocs/` during t777_22.
+2. Hand-off target — now explicitly `task-workflown/` (was ambiguous).
+3. The two `skip_task_confirmation` profile-check blocks in current
+   `aitask-pick/SKILL.md` are at **lines 44 and 72** (single-line
+   "Profile check:" headers), not 44-46 / 72-74. The surrounding blocks
+   (Profile-check header + auto-confirm description + skip-question
+   text) span ~10 lines each.
 
-1. Render the entry-point template
-   `.claude/skills/aitask-pick/SKILL.md.j2` against
-   `(profile=fast, agent=claude)` → output to
-   `.claude/skills/aitask-pick-fast-/SKILL.md`.
-2. Scan the rendered output for **all markdown references** matching
-   `(\.claude|\.agents|\.gemini|\.opencode)/skills/[^/]+/[^/]+\.md` (or
-   the same relative form).
-3. For every reference, treat the referenced file as a Jinja template
-   regardless of extension. Render it through minijinja against the
-   same `(profile, agent)` context. Files without Jinja markers come
-   out byte-identical (identity transform).
-4. Write each rendered reference to its per-profile sibling location:
-   - Source `.claude/skills/task-workflow/SKILL.md`
-   - For `(fast, claude)` → `.claude/skills/task-workflow-fast-/SKILL.md`
-   - For `(fast, codex)`  → `.agents/skills/task-workflow-fast-/SKILL.md`
-   - …same shape for gemini, opencode (using their `<root>/skills/`).
-5. Rewrite the reference in the calling rendered file from
-   `<root>/skills/<dir>/<file>.md` to
-   `<target_root>/skills/<dir>-<profile>-/<file>.md`. `<target_root>`
-   is determined by the current `--agent`.
-6. Recurse on the newly rendered references (cycle-detect via a
-   visited set keyed on source path).
+## Render model recap (already shipped by t777_22)
 
-End result: the per-profile dir is a **self-contained snapshot**. The
-entry-point skill plus every transitive `.md` it references lives
-under `<root>/skills/...-<profile>-/`, all references rewritten to
-sibling per-profile paths. Nothing leaks back to the un-suffixed
-source dirs at runtime.
+When `ait skill render aitask-pick --profile fast --agent claude` runs:
 
-Gitignore already covers `<root>/skills/*-/` for all 4 agents, so
-none of this output goes into git.
+1. Render entry-point `.claude/skills/aitask-pick/SKILL.md.j2` against
+   `(profile=fast, agent=claude)` → `.claude/skills/aitask-pick-fast-/SKILL.md`.
+2. Scan output for `(\.claude|\.agents|\.gemini|\.opencode)/skills/[^/]+/[^/]+\.md`.
+3. Render each referenced file through minijinja (identity pass for
+   files without Jinja markers).
+4. Write to per-profile sibling location, e.g.
+   `.claude/skills/task-workflown-fast-/SKILL.md` for `(fast, claude)`.
+5. Rewrite the reference inline: `<root>/skills/<dir>/<file>.md` →
+   `<target_root>/skills/<dir>-<profile>-/<file>.md`.
+6. Recurse with cycle detection.
 
-## New / re-scoped sibling tasks
+Per-profile dir is a self-contained snapshot; runtime stays under
+`<root>/skills/<name>-<profile>-/`.
 
-### t777_21 — Map `aitask-pick`'s reference closure + identify profile-key sites within it
-- Walk the static reference graph starting from
-  `.claude/skills/aitask-pick/SKILL.md` and produce the full closure of
-  `<root>/skills/...` markdown references.
-- For each file in the closure, grep for `Profile check:` / `profile.`
-  to list the **exact profile keys consumed**. Output as a markdown
-  table in `aiplans/p777/p777_21_*.md`.
-- This is NOT a classification step (uniform recursive rendering
-  removes that need). It is just a discovery doc that drives t777_22's
-  test cases (which files need profile-branch coverage in the
-  golden-file tests) and t777_7's scope (which files need editing to
-  add `{% if profile.<key> %}` branches).
-- Effort: small. No code changes.
+## Scope of t777_6 (5 phases; stage-under-`aitask-pickn` pattern)
 
-### t777_22 — Extend `aitask_skill_render.sh` + `lib/skill_template.py` for uniform recursive rendering
-- Implement the render model above.
-- Reference discovery: regex over rendered output for the markdown
-  path pattern. Add a small whitelist of skip-paths (e.g.
-  `.claude/skills/*/stub-skill-pattern.md` is a doc, not a procedure
-  — but actually still safe to render-as-identity, so probably no
-  whitelist needed).
-- Path rewriting: simple string substitution per reference at write
-  time.
-- Cycle detection: visited set on source path; second hit re-uses
-  the already-rendered target.
-- Skip-if-fresh extends to the dep closure: any stale leaf invalidates
-  the entire chain back to the entry point.
-- `./ait skill verify` extends to walk the dep graph for every
-  authoring template found.
-- Test coverage:
-  - Unit test for reference discovery regex (positive + negative cases).
-  - Unit test for path rewriting.
-  - Cycle-detection test (synthetic A↔B fixture).
-  - Integration test rendering a tiny synthetic skill with one
-    reference, verifying the per-profile sibling tree.
-- Effort: high.
+The currently-running `aitask-pick` is the very skill executing this
+workflow. Broken pilot = broken pick. Stage under parallel name
+`aitask-pickn`, verify end-to-end, then atomic rename.
 
-### t777_7 (existing — re-scope) — Add `{% if profile.<key> %}` branches to `task-workflow/` files identified by t777_21
-- The current `t777_7_convert_task_workflow_shared_procs.md` is
-  vaguely scoped; tighten to: edit only the specific profile-check
-  sites enumerated by t777_21's audit, wrapping each in a Jinja
-  conditional. No renaming, no `.j2` extension needed (renderer
-  treats every `.md` as a template).
-- Add golden-file tests for each modified file, mirroring the pilot's
-  pattern (`tests/golden/procs/task-workflow/<name>-<profile>.md`).
-- Effort: medium.
+### Phase 1 — Smoke-check infrastructure
 
-### Update existing per-skill conversion tasks
-Add `depends: [t777_22, t777_7]` to t777_8..t777_15 (per-skill
-conversions). One-line metadata edit per task — handled inside
-t777_22's plan, not in pilot scope.
+Pick any wrapped file from t777_7 and render it standalone to confirm
+the toolchain end-to-end:
 
-### t777_6 — Pilot conversion of `aitask-pick` (this task, re-scoped)
-- New `depends: [t777_5, t777_21, t777_22, t777_7]`.
-- Status reverts to `Ready` at the end of the current pick session.
+```bash
+./ait skill render task-workflown --profile fast --agent claude --force
+ls .claude/skills/task-workflown-fast-/  # entry-point SKILL.md present
+```
 
-## Scope of t777_6 itself (the pilot, once prereqs land)
+Verify the rendered `SKILL.md` contains the `default_email` auto-resolve
+branch (the fast profile sets `default_email: userconfig`). If this
+fails, stop and fix t777_22 / t777_7 before touching the pilot.
 
-Five steps once the dep-walker exists and `task-workflow/` is template-ready:
+### Phase 2 — Author the entry-point template at `aitask-pickn/SKILL.md.j2`
 
-### Step 1. Smoke-check the new infrastructure
-- Run `./ait skill verify` end-to-end on a known-good shared
-  procedure already delivered by t777_7. Confirm the rendered
-  per-profile snapshot is self-contained.
+Path: `.claude/skills/aitask-pickn/SKILL.md.j2`.
 
-### Step 2. Stage under `aitask-pickn`
-The current `aitask-pick` is the skill running this very workflow; a
-broken pilot leaves the user unable to pick anything. Build template +
-4 stubs + golden tests under the parallel name `aitask-pickn` and
-fully verify before any atomic rename.
+Source: copy current `.claude/skills/aitask-pick/SKILL.md` (225 lines).
 
-### Step 3. Author `.claude/skills/aitask-pickn/SKILL.md`
-**Note** (per uniform rendering): no rename to `.md.j2` is required.
-The file is just `.md`; the renderer treats all `.md` files as
-templates. (We can still adopt `.md.j2` as a *convention* for files
-that intentionally contain Jinja syntax — to be decided in t777_22.)
+Three edits to the copy:
 
-Edits to the staged source:
-- Frontmatter `name: aitask-pick` → `name: aitask-pickn-{{ profile.name }}`.
-- Lines 44-46 — wrap the `skip_task_confirmation` parent-confirm
-  block in `{% if profile.skip_task_confirmation %}…auto-confirm
-  straight-line text…{% else %}…current AskUserQuestion block,
-  unchanged…{% endif %}`.
-- Lines 72-74 — same wrap for the child-confirm block.
-- All other content unchanged. Cross-skill references stay as
-  `.claude/skills/task-workflow/SKILL.md` literal — the dep-walker
-  rewrites per-agent at render time.
-- No `{% raw %}` (no literal Jinja in source — verified).
-- No per-call-site `{% if agent %}` (tool-name mapping handled by
-  per-agent prereq files).
+**Edit 1 — frontmatter name (line ~2):**
+```
+name: aitask-pick      →   name: aitask-pickn-{{ profile.name }}
+```
+Rationale: rendered variant directories are `aitask-pickn-<profile>-/`;
+the slash-command name must match for stub dispatch.
 
-### Step 4. Write the 4 stubs under `aitask-pickn`
-Copy `task-workflow/stub-skill-pattern.md` §3b/§3c/§3d verbatim with
-`<skill_short_name>=aitask-pickn`:
-- `.claude/skills/aitask-pickn/SKILL.md` (§3b, `<agent_literal>=claude`)
-- `.agents/skills/aitask-pickn/SKILL.md` (§3b, `<agent_literal>=codex`)
-- `.gemini/commands/aitask-pickn.toml` (§3c)
-- `.opencode/commands/aitask-pickn.md` (§3d)
+**Edit 2 — parent-task profile check (around line 44).** Wrap the
+"Profile check: If the active profile has `skip_task_confirmation`…"
+block plus its trailing `AskUserQuestion` block:
+```jinja
+{% if profile.skip_task_confirmation %}{# ---------- skip_task_confirmation ---------- #}
+- Display: "Profile '<name>': auto-confirming task selection"
+- Proceed directly to **Step 3** (Task Status Checks).
+{% else %}{# skip_task_confirmation: when false / undefined #}
+<existing AskUserQuestion block, unchanged>
+{% endif %}{# ---------- end skip_task_confirmation ---------- #}
+```
+Follow the Jinja comment conventions documented in
+`aidocs/skill_authoring_conventions.md` (same-line separator and
+inline `endif` label).
 
-**Caveat about staging name + entry-point ambiguity.** If the
-authoring template lives at `.claude/skills/aitask-pickn/SKILL.md`
-(directly, not as `SKILL.md.j2`), and a stub also lives at that same
-path, they collide. Two options to resolve in Step 4:
-- (a) Use `.md.j2` convention for entry-point templates (template at
-  `.claude/skills/aitask-pickn/SKILL.md.j2`, stub at
-  `.claude/skills/aitask-pickn/SKILL.md`). The `.j2` extension is then
-  a convention only for the entry-point templates; referenced
-  procedures keep their `.md` extension.
-- (b) Move the staged template to a sibling dir like
-  `.claude/skills/aitask-pickn-src/SKILL.md` and have the stub render
-  it from there. More intrusive; (a) is simpler.
-- **Recommend (a).** Surface this decision explicitly to t777_22 so
-  the renderer canonicalizes one convention.
+**Edit 3 — child-task profile check (around line 72).** Same wrap shape,
+same comment labels.
 
-### Step 5. Golden-file tests + verify + live dispatch
-- `tests/test_skill_render_aitask_pickn.sh` — for each
-  (profile ∈ {default, fast, remote}) × (agent ∈ {claude, codex,
-  gemini, opencode}):
-  - Render fresh (`--force`).
-  - Diff the entry-point rendered SKILL.md against committed golden
-    `tests/golden/skills/aitask-pickn-<p>-<a>.md`.
-  - Diff each transitively-rendered file in the per-profile snapshot
-    against its committed golden (subdir per profile/agent).
-  - Assert empty diff per file.
-- Stub-marker regression checks on all 4 stub files.
-- `./ait skill verify` — passes (dep-walker validates the
-  transitively-rendered files for `aitask-pickn` too).
-- **Live Claude dispatch test** (user-driven in a fresh session):
-  - `/aitask-pickn 16` — stub resolves `fast`, renders, Reads,
-    follows. Auto-confirm fires; control hands to
-    `.claude/skills/task-workflow-fast-/SKILL.md`; workflow continues
-    to Step 3+.
-  - `/aitask-pickn --profile default 16` — interactive confirm; hands
-    to `task-workflow-default-/SKILL.md`.
-  - Original `/aitask-pick` remains untouched throughout.
+**Reference rewriting:** EVERY mention of `.claude/skills/task-workflow/`
+inside the template body must be rewritten to `.claude/skills/task-workflown/`.
+This is the hand-off target the user picked. (t777_23 reverts this when
+it renames `task-workflown` → `task-workflow`.)
 
-### Step 6. Atomic rename `aitask-pickn` → `aitask-pick`
-Only after Steps 1-5 pass. Single commit:
-1. Delete original `aitask-pick` skill + 3 unified codex/gemini/opencode
-   wrapper files (the files at `.claude/skills/aitask-pick/SKILL.md`,
-   `.agents/skills/aitask-pick/SKILL.md`, `.gemini/commands/aitask-pick.toml`,
-   `.opencode/commands/aitask-pick.md`).
-2. `mv` every staged `aitask-pickn` file to its `aitask-pick`
-   counterpart.
-3. String-replace `aitask-pickn` → `aitask-pick` inside each moved
-   file and in the test script + golden files.
-4. Delete now-empty `.claude/skills/aitask-pickn/` and
-   `.agents/skills/aitask-pickn/`. Clean up local rendered
-   `aitask-pickn-*-/` dirs (gitignored).
-5. Re-render all 12 combos under `aitask-pick`.
-6. Re-run `bash tests/test_skill_render_aitask_pick.sh` and
-   `./ait skill verify` — both must pass.
+**Sanity checks before commit:**
+- No literal Jinja outside the two wrapped blocks (`grep -nE '\{\{|\{%' SKILL.md.j2`
+  should only match the two wraps + the `{{ profile.name }}` in frontmatter).
+- No per-call-site `{% if agent %}` branches — tool-name mapping handled
+  by per-agent prereq files.
 
-### Step 7. Append pilot findings to stub-skill-pattern.md
-Add `## Pilot findings (t777_6)` section documenting:
-- Uniform recursive rendering: every referenced markdown is rendered
-  to the per-profile sibling, even when profile-neutral.
-- Stage-under-`<skill>n` pattern when the skill is currently in use.
-- Golden-file tests are a hard requirement (not optional).
-- Entry-point templates use the `.md.j2` extension convention
-  (resolves stub/template path collision); referenced procedures
-  keep `.md`.
-- Per-agent tool-name mapping stays in prereq files.
+### Phase 3 — Write the 4 stubs under `aitask-pickn`
+
+Source: `aidocs/stub-skill-pattern.md` (185 lines). Substitutions per
+§3b/§3c/§3d:
+
+| Agent     | Stub path                                         | Section | `<agent_literal>` | `<agent_root>` |
+|-----------|---------------------------------------------------|---------|-------------------|----------------|
+| Claude    | `.claude/skills/aitask-pickn/SKILL.md`            | §3b     | `claude`          | `.claude/skills` |
+| Codex     | `.agents/skills/aitask-pickn/SKILL.md`            | §3b     | `codex`           | `.agents/skills` |
+| Gemini    | `.gemini/commands/aitask-pickn.toml` (`prompt`)   | §3c     | `gemini`          | `.gemini/skills` |
+| OpenCode  | `.opencode/commands/aitask-pickn.md`              | §3d     | `opencode`        | `.opencode/skills` |
+
+`<skill_short_name>` = `aitask-pickn` in all four.
+
+Each stub calls `aitask_skill_resolve_profile.sh aitask-pickn` (or honors
+`--profile <name>` from argv per §3h), then `ait skill render aitask-pickn
+--profile <p> --agent <agent_literal>`, then Reads the rendered SKILL.md
+and follows it.
+
+**Path collision note:** template is `.../aitask-pickn/SKILL.md.j2`
+(extension `.md.j2`), stub is `.../aitask-pickn/SKILL.md` (extension
+`.md`). No collision; `.md.j2` is the entry-point convention.
+
+### Phase 4 — Golden-file tests + verify
+
+**Test file:** `tests/test_skill_render_aitask_pickn.sh`.
+
+Matrix: 3 profiles {default, fast, remote} × 4 agents {claude, codex,
+gemini, opencode} = 12 entry-point renders. For each:
+1. `./ait skill render aitask-pickn --profile <p> --agent <a> --force`
+2. Diff entry-point against committed golden
+   `tests/golden/skills/aitask-pickn-<p>-<a>/SKILL.md`.
+3. Diff every transitively-rendered file in the closure
+   (`tests/golden/skills/aitask-pickn-<p>-<a>/<closure-path>`).
+4. Assert empty diff per file.
+
+**Stub-marker regression checks:** assert each of the 4 stub files
+contains the §3b/§3c/§3d marker comment(s) per stub-skill-pattern.md.
+
+**Verify pass:** `./ait skill verify` exits 0; the dep-walker validates
+the new entry-point template + its closure for all 12 combos.
+
+**Live dispatch test (Claude, fresh session) — user-driven:**
+- `/aitask-pickn 16` — stub resolves the project default profile
+  (`fast` per `aitasks/metadata/userconfig.yaml`), renders, Reads,
+  follows. The auto-confirm branch fires inline; control hands to
+  `.claude/skills/task-workflown-fast-/SKILL.md`; workflow continues.
+- `/aitask-pickn --profile default 16` — stub captures `default`,
+  strips `--profile default` from ARGUMENTS, dispatches with `16`
+  forwarded; interactive confirm fires.
+- Live `/aitask-pick` is untouched throughout.
+
+### Phase 4b — Manual end-to-end verification gate (user-driven, BLOCKS Phase 5)
+
+**Hard gate.** Phase 5 (atomic rename) does NOT begin until the user has
+manually exercised `aitask-pickn` end-to-end in a fresh Claude session
+and explicitly signed off. Automated goldens / `ait skill verify`
+PASSING is necessary but NOT sufficient — only live dispatch confirms
+that the rendered closure actually drives a real workflow.
+
+**Verification checklist** (the user runs each; the implementer reads
+results and decides whether to advance to Phase 5):
+
+1. **Fast profile, parent-task path** — In a fresh Claude session in
+   this repo, type `/aitask-pickn 16` (substitute any open parent task
+   the user wants to test against, or a placeholder ID that exists).
+   Expected: auto-confirm fires inline (no "Is this the correct task?"
+   AskUserQuestion); flow lands in `task-workflown-fast-/SKILL.md` at
+   Step 3; the userconfig email resolves silently per `default_email:
+   userconfig`. **Abort the run before any state-changing tool call**
+   so the test does not actually claim a real task.
+
+2. **Default profile, interactive path** — In a fresh session, type
+   `/aitask-pickn --profile default 16`. Expected: the stub strips the
+   `--profile default` arg, dispatches to
+   `aitask-pickn-default-/SKILL.md`, the interactive AskUserQuestion
+   for parent confirmation appears. Cancel via "No, abort".
+
+3. **Child task, fast profile** — In a fresh session, type
+   `/aitask-pickn 777_6` (this very task; safe because it is
+   already-owned by the user, so `aitask_pick_own.sh` will produce
+   `LOCK_RECLAIM:` / `RECLAIM_CRASH:` / `RECLAIM_STATUS:` rather than
+   `OWNED:`). Expected: stub dispatches to fast variant; profile-check
+   for child task auto-confirms; archived sibling plans are gathered;
+   flow lands at Step 3. Abort before destructive ops.
+
+4. **Remote profile (no Claude dispatch — `--dry-run` only)** —
+   `./ait skillrun pick --profile remote --dry-run 16`. Expected:
+   prints a synthesized Claude argv with `/aitask-pickn --profile remote 16`
+   (or equivalent). No process spawn.
+
+5. **Stub-marker spot-check (all 4 agents)** — Read each of the 4 stub
+   files and confirm visually that the stub-skill-pattern.md §3b/§3c/§3d
+   marker comments are present. (Programmatic checks already ran in
+   Phase 4; this is the human eyes-on pass.)
+
+6. **Rendered closure inspection (claude/fast)** — Open
+   `.claude/skills/aitask-pickn-fast-/SKILL.md` and visually confirm:
+   - Frontmatter `name: aitask-pickn-fast-` (matches dir).
+   - No `{% if`, `{% else`, `{% endif`, `{{ profile.` markers leak in
+     the rendered output (Jinja fully expanded).
+   - Auto-confirm text appears inline at the two `skip_task_confirmation`
+     sites; no "Profile check:" headers visible.
+   - References to `task-workflown` are rewritten to
+     `.claude/skills/task-workflown-fast-/...`.
+
+7. **Original `/aitask-pick` regression check** — `/aitask-pick 16`
+   in a fresh session still works exactly as it did before this task
+   landed (it has not been touched yet — but verify nothing in the
+   `aitask-pickn` rollout accidentally broke the live skill, e.g. via a
+   shared stub-skill-pattern.md edit). Abort before destructive ops.
+
+**Sign-off:** the user runs the 7 checks and reports
+PASS / FAIL / DEFER per item. Any FAIL blocks Phase 5; the implementer
+diagnoses, fixes, re-runs `ait skill verify`, re-renders, and re-issues
+the verification request. Any DEFER must be resolved before Phase 5
+unless explicitly waived by the user.
+
+**Optional: file a `manual_verification` sibling task.** If the user
+prefers to track the verification via the framework's own
+`issue_type: manual_verification` flow, the implementer creates
+`t777_<next>_manual_verify_aitask_pickn` via
+`aitask_create_manual_verification.sh` with the 7-item checklist above,
+sets `depends: [t777_6]`, and Phase 5 waits until that task is marked
+`Done`. This is the recommended path because it leaves a durable record
+in the archive. The implementer offers this option at the end of Phase 4
+via the standard manual-verification-followup procedure.
+
+### Phase 5 — Atomic rename `aitask-pickn` → `aitask-pick`
+
+Only after Phase 4b sign-off. Single commit:
+1. Delete the 4 original `aitask-pick` artifacts (the live old-style
+   stubs): `.claude/skills/aitask-pick/SKILL.md`,
+   `.agents/skills/aitask-pick/SKILL.md`,
+   `.gemini/commands/aitask-pick.toml`,
+   `.opencode/commands/aitask-pick.md`.
+2. `mv` every staged `aitask-pickn` file to its `aitask-pick` counterpart
+   (including the `.md.j2` template).
+3. String-replace `aitask-pickn` → `aitask-pick` inside each moved file
+   AND in `tests/test_skill_render_aitask_pickn.sh` (rename file too).
+4. Move `tests/golden/skills/aitask-pickn-*/` → `tests/golden/skills/aitask-pick-*/`.
+5. Delete now-empty `.claude/skills/aitask-pickn/`,
+   `.agents/skills/aitask-pickn/`. Local rendered `aitask-pickn-*-/`
+   trees are gitignored — leave or `rm -rf` as housekeeping.
+6. `./ait skill render aitask-pick --profile <p> --agent <a> --force`
+   for all 12 combos.
+7. `bash tests/test_skill_render_aitask_pick.sh` + `./ait skill verify`
+   — both green.
+
+### Phase 6 — Append pilot findings to `aidocs/stub-skill-pattern.md`
+
+New section `## Pilot findings (t777_6)` documenting:
+- Uniform recursive rendering renders every referenced markdown.
+- Stage-under-`<skill>n` pattern is required when the skill is in active
+  use (canonical entry: `feedback_stage_under_parallel_name`).
+- Golden-file tests are a hard requirement per
+  `feedback_golden_file_tests_for_template_engines`.
+- Entry-point templates use `.md.j2`; referenced procedures keep `.md`.
+- Per-agent tool-name mapping (AskUserQuestion vs request_user_input
+  vs human-prompt) stays in per-agent prereq files, NOT in `{% if agent %}`
+  branches inside the template body.
 
 ## Verification (end-to-end)
 
-1. `./ait skill verify` exits 0 — finds `aitask-pick/SKILL.md.j2`,
-   renders 12 entry-point variants, dep-walks into each per-profile
-   snapshot, validates 4 stubs.
-2. `bash tests/test_skill_render_aitask_pick.sh` passes (entry-point
-   + all transitive goldens + 4 stub-marker checks).
-3. Live dispatch tests in Step 5 work for default and fast profile
-   invocations and continue cleanly through the rendered
-   task-workflow chain.
-4. `git status` shows the expected modifications + new files; no
-   `aitask-pickn` artifacts remain; rendered `*-/` dirs are unstaged.
-
-## Action items at end of this planning session
-
-t777_6's prereqs do not yet exist or are not yet implemented. This
-plan recommends:
-
-1. **Create two new sibling tasks** t777_21 (closure + audit) and
-   t777_22 (recursive renderer) via `Batch Task Creation Procedure`
-   (mode=child, --parent 777).
-2. **Re-scope t777_7** to add profile-key branches in the
-   `task-workflow/` files enumerated by t777_21.
-3. **Update t777_6's `depends:`** to `[t777_5, t777_21, t777_22, t777_7]`.
-4. **Approve this plan and stop here** — release lock, revert t777_6
-   to `Ready`. The user picks t777_21 next when ready, then t777_22,
-   then t777_7, then resumes t777_6.
-
-## Notes for sibling tasks (t777_8..t777_15)
-
-Once t777_22 lands, each per-skill conversion gets
-`depends: [t777_22, t777_7]` added (one-line metadata, handled inside
-t777_22's implementation, not the pilot).
+1. `./ait skill verify` exits 0 — entry-point + closure walk for all
+   12 (profile × agent) combos.
+2. `bash tests/test_skill_render_aitask_pick.sh` passes.
+3. **Phase 4b sign-off**: the user's 7-item manual checklist on
+   `aitask-pickn` is all PASS (no FAIL, no unresolved DEFER) BEFORE
+   Phase 5 begins.
+4. Post-rename: live Claude dispatch handles `/aitask-pick 16`,
+   `/aitask-pick --profile default 16`, and the existing pick flow.
+5. `git status` clean of `aitask-pickn` artifacts after Phase 5.
+6. Rendered `<root>/skills/*-/` dirs unstaged (gitignore intact).
 
 ## Step 9 (Post-Implementation) reference
 
-When t777_6 eventually fires the actual implementation, follow
-`task-workflow/SKILL.md` Step 9: commit code + plan separately, run
-`aitask_archive.sh 777_6`, push. No linked issue.
+Per `task-workflow/SKILL.md` Step 9:
+- Code commit: source template + 4 stubs + test script + goldens, using
+  `refactor: <description> (t777_6)`.
+- Plan commit (separately, via `./ait git`).
+- `aitask_archive.sh 777_6`, then `./ait git push`.
+
+No linked issue.
+
+## Follow-up: t777_23 (already filed, depends on this task)
+
+After t777_6 lands and manual verification passes, t777_23:
+1. Renames `.claude/skills/task-workflown/` → `.claude/skills/task-workflow/`
+   (overwriting the live, untouched copy).
+2. Updates `aitask-pick/SKILL.md.j2`'s body references from
+   `.claude/skills/task-workflown/...` back to `.claude/skills/task-workflow/...`.
+3. Re-renders all 12 combos, re-runs goldens (which now reference
+   `task-workflow-<p>-` paths), commits.
+
+This 2-step landing is the cost of the user's "Reference `task-workflown/`
+(staged)" decision, in exchange for full Jinja-branch exercise in the
+pilot.
