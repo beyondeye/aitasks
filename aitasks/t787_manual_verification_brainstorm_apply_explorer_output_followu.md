@@ -19,3 +19,12 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t739
+
+## Verification Checklist
+
+- [ ] Open `ait brainstorm <task>` TUI with an existing session; trigger an explore operation with 2 parallel explorers; wait for both Completed; confirm TUI auto-applies both nodes and DAG refreshes.
+- [ ] After auto-apply, inspect `br_graph_state.yaml`: head advanced, `next_node_id` incremented, `active_dimensions` extended with any keys the explorer emitted in `NEW_DIMENSIONS`.
+- [ ] Corrupt one explorer's `_output.md` (e.g. truncate the NODE_YAML block), press `ctrl+shift+x`, verify the apply banner shows the `apply-explorer` CLI hint.
+- [ ] Run the suggested CLI command (`ait brainstorm apply-explorer <task> <agent>`) and confirm it surfaces the same error.
+- [ ] Verify the new `apply-explorer` row appears in `ait brainstorm --help`.
+- [ ] TODO: verify `brainstorm_app.py` end-to-end in tmux (interactive surface).
