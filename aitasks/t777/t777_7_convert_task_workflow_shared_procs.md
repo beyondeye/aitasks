@@ -1,58 +1,95 @@
 ---
 priority: high
-effort: high
-depends: [t777_6]
+effort: medium
+depends: [t777_21, t777_22]
 issue_type: refactor
 status: Ready
 labels: [aitask_pick]
 created_at: 2026-05-17 11:59
-updated_at: 2026-05-17 11:59
+updated_at: 2026-05-18 08:54
 ---
 
 ## Context
 
-Depends on t777_6 (pilot). Converts the shared `task-workflow/*.md` procedures (used by ALL skills) to templates. This is HIGH-IMPACT because every skill's behavior is governed by these procedures during task ownership, planning, review, archival, and feedback collection.
+Re-scoped on 2026-05-18 after the t777_6 verify-pass. The original
+scope (a manual classification + bespoke render-path rewriting) is
+obsoleted by **uniform recursive rendering** in t777_22: the
+dep-walker handles cross-skill references uniformly, and every
+referenced `.md` is rendered through minijinja regardless of whether
+it contains profile keys (identity transform when there are none).
 
-Recommended approach (per parent plan): the .j2 templates emit profile-suffixed paths in their cross-references. E.g. the rendered aitask-pick-fast SKILL.md says "see `task-workflow-fast/planning.md`" instead of "see `task-workflow/planning.md`". This avoids stub-per-proc complexity — the rendered chain points to consistent profile-suffixed files end-to-end.
+What this task now owns: **edit the specific profile-check sites in
+`.claude/skills/task-workflow/*.md` enumerated by t777_21's audit**,
+wrapping each in a `{% if profile.<key> %}…{% else %}…{% endif %}`
+block. No file renames (`.md` stays `.md`). No render-path rewriting
+in templates (the dep-walker does it at render time).
 
-## Key Files to Modify
+## Depends on
 
-Convert these `.claude/skills/task-workflow/*.md` to `.j2` templates (verify list by grepping for `profile` at impl time):
-- `SKILL.md` — Steps 3/3b/4/5/6 profile branches (largest)
-- `planning.md` — Step 6.0/6.1/Checkpoint profile branches (second largest)
-- `satisfaction-feedback.md` — `enableFeedbackQuestions`
-- `manual-verification.md` — any profile branches
-- `manual-verification-followup.md` — `manual_verification_followup_mode`
-- `remote-drift-check.md` — `base_branch`
-- `execution-profile-selection.md` — used by Step 0a (the loader). May or may not need templating; assess at impl time. If it stays runtime, it must be smart enough to detect "we're inside a rendered context" and short-circuit.
-- others as discovered
+- **t777_21** — provides the audit table listing exact files +
+  line numbers + profile keys consumed. This task's edit scope is
+  exactly that list, no broader.
+- **t777_22** — provides the dep-walker that turns these edits into
+  per-profile rendered output. Required for tests + verification.
 
-Plain `.md` procedures (no profile branches like `agent-attribution.md`, `lock-release.md`, `task-abort.md`, etc.) stay as plain `.md` — copied unchanged into each agent's `task-workflow-<profile>/` directory at render time.
+## Probable file list (validate against t777_21's audit)
 
-Render machinery:
-- The renderer (t777_2) needs to know that template includes from the skill SKILL.md to task-workflow are profile-suffixed at render time. This may require a template helper like `{% set tw = "task-workflow-" + profile.name %}` and using `{{ tw }}/planning.md` for references.
-- Alternative: at render time, post-process the rendered output to rewrite `task-workflow/` references to `task-workflow-<profile>/` based on the profile name. Surface trade-offs in the plan file.
+Likely needing `{% if profile.<key> %}` wrapping (verify keys at
+impl time):
 
-## Reference Files for Patterns
-
-- Current `.claude/skills/task-workflow/SKILL.md` and `planning.md`
-- `task-workflow/stub-skill-pattern.md` from t777_3
+- `task-workflow/SKILL.md` — Steps 3/3b/4/5/6 profile branches
+  (consumed: `default_email`, `create_worktree`, `base_branch`).
+- `task-workflow/planning.md` — Step 6.0/6.1/Checkpoint branches
+  (consumed: `plan_preference`, `plan_preference_child`,
+  `plan_verification_required`, `plan_verification_stale_after_hours`,
+  `post_plan_action`, `post_plan_action_for_child`).
+- `task-workflow/satisfaction-feedback.md` —
+  `enableFeedbackQuestions`.
+- `task-workflow/manual-verification.md` and
+  `task-workflow/manual-verification-followup.md` —
+  `manual_verification_followup_mode`.
+- `task-workflow/remote-drift-check.md` — `base_branch`.
+- Plain `.md` procedures with no profile branches
+  (`agent-attribution.md`, `lock-release.md`, `task-abort.md`,
+  `issue-update.md`, `pr-close-decline.md`, etc.) stay completely
+  unchanged. The dep-walker renders them as identity transforms.
 
 ## Implementation Plan
 
-1. Audit which procedures actually branch on profile keys: `grep -l "profile" .claude/skills/task-workflow/*.md`
-2. For each procedure with profile branches: convert to `.j2` (preserve all current content, replace "Profile check:" blocks with `{% if %}/{% else %}/{% endif %}`)
-3. Decide on cross-reference strategy (suffix template variable vs post-processing rewrite). Document in `aiplans/p777/p777_7_convert_task_workflow_shared_procs.md`.
-4. Update `aitask_skill_render.sh` (t777_2) if needed to:
-   - Recursively render referenced task-workflow procedures into `<agent>/skills/task-workflow-<profile>/`
-   - Copy plain `.md` procedures unchanged into the same per-profile directory
-5. Per-agent: each agent gets its own rendered `task-workflow-<profile>/` directory tree (rendered from the same Claude-path source).
-6. Update aitask-pick template (from t777_6) to reference `task-workflow-{{ profile.name }}/` paths where relevant.
+1. **Confirm scope** against the t777_21 audit (must already exist).
+2. For each file with profile-check sites, wrap each site in
+   `{% if profile.<key> %}<true-branch text>{% else %}<existing
+   interactive block>{% endif %}`. True-branch text is straight-line
+   "do X" instructions, no LLM decision wording.
+3. **No frontmatter changes.** No file renames. No `.md.j2` extension.
+4. **Cross-skill references stay literal** (`.claude/skills/...`) in
+   source — the dep-walker (t777_22) rewrites per-(profile, agent) at
+   render time.
+5. Add golden-file regression tests for each modified file under
+   `tests/golden/procs/task-workflow/<name>-<profile>-<agent>.md`
+   (or whatever convention t777_22 establishes). Render fresh per
+   (profile × agent), diff against golden, assert empty diff.
 
-## Verification Steps
+## Verification
 
-1. `ait skill render pick --profile fast --agent claude` ALSO produces `.claude/skills/task-workflow-fast/` populated with rendered + copied procs.
-2. The rendered `aitask-pick-fast/SKILL.md` references `task-workflow-fast/` (not `task-workflow/`).
-3. Plain `.md` procs (like `agent-attribution.md`) are present unchanged in `task-workflow-fast/`.
-4. `ait skill verify` passes for all task-workflow `.j2` files against default profile for all 4 agents.
-5. Stub-dispatch end-to-end: `/aitask-pick 777` triggers full flow including task-workflow references — agent successfully reads `task-workflow-<profile>/SKILL.md` Step 3 etc.
+1. `./ait skill verify` exits 0 — dep-walker validates the rendered
+   `task-workflow-<profile>-/` snapshots for all 4 agents × 3
+   profiles.
+2. `bash tests/test_skill_render_task_workflow.sh` (or per-file
+   variants) passes.
+3. Manual smoke: render `aitask-pick --profile fast --agent claude`
+   and inspect the produced
+   `.claude/skills/task-workflow-fast-/planning.md` — the
+   `post_plan_action` block should render as the auto-action
+   straight-line text, not as an interactive AskUserQuestion block.
+
+## Notes for sibling tasks
+
+- t777_6 (PILOT) consumes the rendered output produced by this task.
+- t777_8..t777_15 (per-skill conversions) gain `depends: [t777_22,
+  t777_7]` so they sequence after this. That metadata edit is owned
+  by t777_22's plan, not this task.
+- Best practice surfaced during t777_6 planning: skills decompose
+  into many referenced procedures (CLAUDE.md "Extract new procedures
+  to their own file"). The uniform render model is what makes that
+  decomposition compatible with profile templating.

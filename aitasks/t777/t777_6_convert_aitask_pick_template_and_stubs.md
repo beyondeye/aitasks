@@ -1,13 +1,13 @@
 ---
 priority: high
 effort: high
-depends: [t777_5]
+depends: [t777_5, t777_21, t777_22, t777_7]
 issue_type: refactor
 status: Implementing
 labels: [aitask_pick]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-17 11:59
-updated_at: 2026-05-17 21:57
+updated_at: 2026-05-18 08:54
 ---
 
 ## Context
