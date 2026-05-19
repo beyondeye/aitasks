@@ -230,3 +230,47 @@ at apply time.
 Standard cleanup per `.claude/skills/task-workflown-fast-/SKILL.md`
 Step 9: fast profile works on current branch, no merge step.
 `aitask_archive.sh 795` handles the rest.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the plan as written. The
+  orchestrator now consumes `next_node_id()` at registration time in
+  `register_explorer`, `register_synthesizer`, and `register_patcher`,
+  formatting the assigned id as `n{N:03d}_{agent_name}`. Each
+  `_assemble_input_*` helper grew a required `assigned_node_id`
+  parameter and appends a `## Assigned Node ID` block to the
+  per-agent input markdown. Apply-side counter bumps were removed
+  from both `_apply_node_output` and `apply_patcher_output`; the
+  existing on-disk "already exists" guards remain as the
+  belt-and-suspenders defensive net. Templates for explorer,
+  synthesizer, and patcher were updated to require copying the
+  assigned id verbatim. Three existing assembly tests in
+  `test_brainstorm_crew.py` were updated to pass the new parameter;
+  two new tests were added
+  (`test_explorer_input_includes_assigned_node_id`,
+  `test_distinct_node_ids_for_parallel_siblings`). Counter
+  assertions in `test_brainstorm_apply_explorer.py` and
+  `test_brainstorm_apply_patcher.py` were updated to reflect that
+  apply no longer bumps the counter.
+- **Deviations from plan:** Re-scoped the fix to cover the patcher
+  in addition to explorer/synthesizer after user push-back that "if
+  this is a general problem, it needs a general solution." Patcher's
+  collision risk is structurally identical even though its
+  `max_parallel=1` per group limits the practical likelihood — the
+  uniform pattern is simpler than excluding one node-creator.
+- **Issues encountered:** A first run of the new assembly test
+  asserted the literal word "verbatim" in lowercase markdown, but
+  the rendered prose phrases the requirement as "Do not invent a
+  different id…". Tightened the assertion to match the actual prose.
+- **Key decisions:**
+  - Assigned id format `n{N:03d}_{agent_name}` (e.g.
+    `n002_explorer_001a`). Deterministic, unique across parallel
+    siblings via the agent suffix, descriptive enough for logs.
+  - Skip the "defensive reject mismatched node_id" variant from the
+    task suggestions; the on-disk "node already exists" check is
+    structurally sufficient for the acceptance criteria and avoids
+    re-parsing `_input.md` from the apply path.
+  - Initializer is left untouched — it overwrites the fixed seed id
+    `n000_init` and does not allocate a fresh counter value.
+- **Upstream defects identified:** None.
+
