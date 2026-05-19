@@ -3,24 +3,19 @@ name: aitask-review
 description: Review code using configurable review guides, then create tasks from findings.
 ---
 
-## Prerequisites
+This is a profile-aware skill stub. Execute these steps in order, then stop:
 
-**If you are Codex CLI:** Read **`.agents/skills/codex_interactive_prereqs.md`** BEFORE proceeding.
+1. **Resolve active profile.** Parse ARGUMENTS for `--profile <name>`. If
+   found, use that as `<profile>` and remove the `--profile <name>` pair
+   from ARGUMENTS. Otherwise run:
+   `./.aitask-scripts/aitask_skill_resolve_profile.sh review`
+   and use the single-line stdout as `<profile>`.
 
-**If you are Gemini CLI:** Read **`.agents/skills/geminicli_planmode_prereqs.md`** BEFORE proceeding.
+2. **Render per-profile variant.** Run:
+   `./.aitask-scripts/aitask_skill_render.sh aitask-review --profile <profile> --agent codex`
+   No-op if the per-profile SKILL.md is already up to date.
 
-## Source of Truth
-
-This is a unified skill wrapper for Codex CLI and Gemini CLI. The authoritative skill definition is:
-
-**`.claude/skills/aitask-review/SKILL.md`**
-
-Read that file and follow its complete workflow.
-
-**If you are Codex CLI:** For tool mapping and adaptations, read **`.agents/skills/codex_tool_mapping.md`**.
-
-**If you are Gemini CLI:** For tool mapping and adaptations, read **`.agents/skills/geminicli_tool_mapping.md`**.
-
-## Arguments
-
-Optional `--profile <name>` to override execution profile selection. Example: `/aitask-review --profile fast`.
+3. **Dispatch via Read-and-follow.** Read the file at
+   `.agents/skills/aitask-review-<profile>-/SKILL.md` and execute its
+   instructions as if they were this skill, forwarding the (possibly
+   stripped) ARGUMENTS unchanged.
