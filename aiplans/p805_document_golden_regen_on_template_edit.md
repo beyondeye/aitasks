@@ -243,22 +243,54 @@ plan separately with `./ait git`, push, then archive via
 `./.aitask-scripts/aitask_archive.sh 805`. Profile 'fast' works on
 the current branch so no worktree/branch merge gate is needed.
 
-## Final Implementation Notes (to be filled in at Step 8)
+## Final Implementation Notes
 
 - **Drift audit findings:** 12 stale goldens in
   `tests/golden/skills/aitask-explore/` caused by t800 (`2bf6747e`)
-  editing the template without regenerating goldens. Resolution: all
-  12 regenerated in this task (intended drift). No other skill
-  (`aitask-pick`, `aitask-review`, `task-workflow`) had drift.
-- **Actual work done:** (TBD at Step 8)
-- **Deviations from plan:** (TBD at Step 8)
-- **Issues encountered:** (TBD at Step 8)
+  editing `.claude/skills/aitask-explore/SKILL.md.j2` without
+  regenerating goldens (the exact workflow gap this task documents).
+  Resolution: all 12 regenerated and re-asserted via
+  `tests/test_skill_render_aitask_explore.sh` (118/118 PASS after,
+  106/118 before). No other skill (`aitask-pick`, `aitask-review`,
+  `task-workflow`) had drift.
+- **Actual work done:**
+  - Regenerated 12 goldens in `tests/golden/skills/aitask-explore/`
+    (single render loop, 3 profiles × 4 agents); diffs verified to
+    match t800's intended template move (sync block from Step 0 to
+    inside Step 2b) and nothing else.
+  - Added new subsection "Regenerate goldens after any `.md.j2` or
+    closure edit" to `aidocs/skill_authoring_conventions.md`,
+    immediately after the existing render-neutrality paragraph.
+    Body includes: the rationale (audit signal, don't rubber-stamp),
+    the regenerate command (3 × 4 loop), enforcement pointer
+    (`tests/test_skill_render_*.sh` Test 1), and the same-commit
+    rule.
+  - Extended `aidocs/stub-skill-pattern.md` Pilot Finding #3 with an
+    "Operational rule:" paragraph cross-referencing the new aidocs
+    subsection.
+  - Added one-line pointer to `CLAUDE.md` "Working on Skills /
+    Custom Commands" section, appended to the existing
+    `aitask_skill_verify.sh` reminder.
+- **Deviations from plan:** None substantive. The regenerate command
+  block in the aidocs subsection inlines the helper invocation
+  (`source python_resolve.sh && require_ait_python`) rather than
+  routing through a multi-line shell capture as drafted — cleaner,
+  same result.
+- **Issues encountered:** None. The drift-audit "happy path" turned
+  up exactly one root-cause commit (t800), making the fix-up
+  unambiguous.
 - **Key decisions:**
   - Skipped the optional `aitask_skill_regenerate_goldens.sh` helper —
-    inline loop is short and already in test scripts.
-  - Bundled the 12-file drift fix into this task rather than splitting
-    out (single template, single root-cause commit, unambiguous
-    intent).
+    inline loop is short and already lives in the test scripts.
+  - Bundled the 12-file drift fix into this task rather than
+    splitting out (single template, single root-cause commit,
+    unambiguous intent).
+  - Used `Edit` (not Write) for all three doc files to preserve
+    surrounding content and keep the diff focused.
 - **Upstream defects identified:** None. (The t800 stale-goldens are
-  caught and fixed in this task — that's the task's purpose, not an
-  upstream defect surfaced during diagnosis.)
+  the symptom this task's doc is meant to prevent; surfacing them is
+  the task's purpose, not an out-of-scope defect that needs its own
+  follow-up.)
+- **Verification:** 396/396 tests passing across
+  `test_skill_render_{aitask_pick,aitask_review,aitask_explore,task_workflow}.sh`;
+  `aitask_skill_verify.sh` reports OK (3 templates × 4 agents).
