@@ -8,7 +8,7 @@ labels: [verification, manual]
 verifies: [t777_6]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-18 15:52
-updated_at: 2026-05-19 09:24
+updated_at: 2026-05-19 09:56
 ---
 
 ## Manual Verification Task
@@ -21,7 +21,7 @@ archived; Defer is allowed but creates a carry-over task.
 
 ## Verification Checklist
 
-- [ ] Fast profile, parent-task path: in a fresh Claude session, type `/aitask-pickn 16` (or any open parent task ID). Expected: auto-confirm fires inline (no AskUserQuestion); flow lands in `.claude/skills/task-workflown-fast-/SKILL.md` at Step 3; userconfig email resolves silently. Abort before any state-changing tool call.
+- [x] Fast profile, parent-task path: in a fresh Claude session, type `/aitask-pickn 16` (or any open parent task ID). Expected: auto-confirm fires inline (no AskUserQuestion); flow lands in `.claude/skills/task-workflown-fast-/SKILL.md` at Step 3; userconfig email resolves silently. Abort before any state-changing tool call. — PASS 2026-05-19 09:56
 - [ ] Default profile, interactive path: in a fresh Claude session, type `/aitask-pickn --profile default 16`. Expected: the stub strips `--profile default`, dispatches to `aitask-pickn-default-/SKILL.md`, interactive AskUserQuestion for parent confirmation appears. Cancel via "No, abort".
 - [ ] Child task, fast profile: in a fresh Claude session, type `/aitask-pickn 777_6` (this task — safe, already-owned). Expected: stub dispatches to fast variant; child-task profile-check auto-confirms; archived sibling plans gathered; flow lands at Step 3. Abort before destructive ops.
 - [ ] Remote profile (dry-run only): run `./ait skillrun pick --profile remote --dry-run 16`. Expected: synthesized Claude argv with `/aitask-pick --profile remote 16` (note: this exercises live aitask-pick, not aitask-pickn, since skillrun uses the public skill name). For aitask-pickn equivalent, manually invoke `./ait skill render aitask-pickn --profile remote --agent claude` and inspect `.claude/skills/aitask-pickn-remote-/SKILL.md`.
