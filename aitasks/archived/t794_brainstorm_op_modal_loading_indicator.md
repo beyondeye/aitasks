@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-19 09:34
-updated_at: 2026-05-19 10:40
+updated_at: 2026-05-19 11:03
+completed_at: 2026-05-19 11:03
 ---
 
 In the brainstorm TUI, pressing `o` on a node (either in the node list
