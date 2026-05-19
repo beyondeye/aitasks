@@ -50,10 +50,12 @@ Output one of:
 ### Part 3: Updated Metadata (conditional)
 
 - If NO_IMPACT: Output a copy of the parent's YAML with only node_id and
-  parents updated (new node ID, parent = current node).
+  parents updated. Use the value from the `## Assigned Node ID` section
+  of your `_input.md` **verbatim** as the new node_id; set parent =
+  current node.
 - If IMPACT_FLAG: Output the YAML with affected dimensions updated to
-  reflect the patch. Flag updated fields with a comment
-  "# UPDATED BY PATCH — verify with Explorer."
+  reflect the patch. Use the assigned node_id as above. Flag updated
+  fields with a comment "# UPDATED BY PATCH — verify with Explorer."
 
 ## Rules
 

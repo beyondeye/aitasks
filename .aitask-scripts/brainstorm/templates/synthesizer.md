@@ -23,6 +23,9 @@ You must produce exactly two items, written to your `_output.md` file using
 clear delimiters (same format as Explorer):
 
 ### File 1: Node Metadata (YAML)
+- node_id: Copy the value from the `## Assigned Node ID` section of
+  your `_input.md` **verbatim**. Do not invent a different id, and do
+  not modify it in any way.
 - parents: List ALL source nodes
 - All dimension fields populated according to the merge rules
 - created_at: Current timestamp as `"YYYY-MM-DD HH:MM"` (double-quoted)

@@ -144,6 +144,7 @@ class TestAssembleInputExplorer(BrainstormCrewTestBase):
             self.wt_path, "n000_init",
             "Explore a serverless approach",
             ["database", "cache"],
+            "n001_explorer_001a",
         )
         self.assertIn("# Explorer Input", result)
         self.assertIn("## Exploration Mandate", result)
@@ -166,6 +167,7 @@ class TestAssembleInputExplorer(BrainstormCrewTestBase):
 
         result = _assemble_input_explorer(
             self.wt_path, "n000_init", "Explore", [],
+            "n001_explorer_001a",
         )
         self.assertIn(f"{PLANS_DIR}/n000_init_plan.md", result)
 
@@ -175,8 +177,21 @@ class TestAssembleInputExplorer(BrainstormCrewTestBase):
 
         result = _assemble_input_explorer(
             self.wt_path, "n000_init", "Explore", [],
+            "n001_explorer_001a",
         )
         self.assertIn("No reference files.", result)
+
+    def test_explorer_input_includes_assigned_node_id(self):
+        self._init_session()
+        self._create_test_node("n000_init")
+
+        result = _assemble_input_explorer(
+            self.wt_path, "n000_init", "Explore", [],
+            "n042_explorer_007b",
+        )
+        self.assertIn("## Assigned Node ID", result)
+        self.assertIn("n042_explorer_007b", result)
+        self.assertIn("Do not invent", result)
 
 
 class TestAssembleInputComparator(BrainstormCrewTestBase):
@@ -224,6 +239,7 @@ class TestAssembleInputSynthesizer(BrainstormCrewTestBase):
             self.wt_path,
             ["n001_rel", "n002_nosql"],
             "Take database from n001, cache from n002",
+            "n003_synthesizer_001",
         )
         self.assertIn("# Synthesizer Input", result)
         self.assertIn("## Merge Rules", result)
@@ -243,6 +259,7 @@ class TestAssembleInputSynthesizer(BrainstormCrewTestBase):
 
         result = _assemble_input_synthesizer(
             self.wt_path, ["n001_rel", "n002_nosql"], "merge",
+            "n003_synthesizer_001",
         )
         # Count occurrences of the shared ref in the Reference Files section
         ref_section = result.split("## Reference Files")[1]
@@ -286,6 +303,7 @@ class TestAssembleInputPatcher(BrainstormCrewTestBase):
         result = _assemble_input_patcher(
             self.wt_path, "n003_hybrid",
             "Rename variable X to Y in step 3",
+            "n004_patcher_001",
         )
         self.assertIn("# Patcher Input", result)
         self.assertIn("## Patch Request", result)
@@ -301,6 +319,7 @@ class TestAssembleInputPatcher(BrainstormCrewTestBase):
 
         result = _assemble_input_patcher(
             self.wt_path, "n003_hybrid", "Fix step 2",
+            "n004_patcher_001",
         )
         self.assertNotIn("_plan.md", result)
         self.assertIn(f"{PROPOSALS_DIR}/n003_hybrid.md", result)
@@ -529,6 +548,75 @@ class TestRunAddwork(unittest.TestCase):
         self.assertIn("--launch-mode", cmd)
         idx = cmd.index("--launch-mode")
         self.assertEqual(cmd[idx + 1], "headless")
+
+
+class TestRegisterParallelExplorers(BrainstormCrewTestBase):
+    """Parallel explorers in the same group must get distinct node_ids.
+
+    Regression: t795 — previously, the orchestrator wrote no node_id into
+    `<agent>_input.md`, so each explorer invented one. Two siblings in
+    the same group could pick the same `nXXX_<slug>` and the second
+    apply would fail with `node already exists`, silently losing one
+    explorer's output.
+    """
+
+    def _register_pair(self):
+        from unittest.mock import patch
+
+        from brainstorm.brainstorm_crew import register_explorer
+
+        self._init_session()
+        self._create_test_node("n000_init")
+
+        def fake_run(cmd, capture_output=False, text=False, **kwargs):
+            class Result:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return Result()
+
+        with patch(
+            "brainstorm.brainstorm_crew.subprocess.run", side_effect=fake_run
+        ):
+            name_a = register_explorer(
+                self.wt_path, "brainstorm-888",
+                "Mandate A", "n000_init",
+                group_name="explore_001",
+                agent_suffix="a",
+            )
+            name_b = register_explorer(
+                self.wt_path, "brainstorm-888",
+                "Mandate B", "n000_init",
+                group_name="explore_001",
+                agent_suffix="b",
+            )
+
+        return name_a, name_b
+
+    def _read_assigned_node_id(self, agent_name: str) -> str:
+        path = self.wt_path / f"{agent_name}_input.md"
+        text = path.read_text(encoding="utf-8")
+        marker = "## Assigned Node ID"
+        idx = text.find(marker)
+        self.assertGreaterEqual(
+            idx, 0, f"missing {marker!r} in {agent_name}_input.md",
+        )
+        after = text[idx + len(marker):].lstrip().splitlines()
+        self.assertTrue(after, f"empty Assigned Node ID block in {agent_name}")
+        return after[0].strip()
+
+    def test_distinct_node_ids_for_parallel_siblings(self):
+        name_a, name_b = self._register_pair()
+        self.assertNotEqual(name_a, name_b)
+
+        nid_a = self._read_assigned_node_id(name_a)
+        nid_b = self._read_assigned_node_id(name_b)
+        self.assertNotEqual(
+            nid_a, nid_b,
+            f"parallel explorers got identical node_ids: {nid_a}",
+        )
+        self.assertIn(name_a, nid_a)
+        self.assertIn(name_b, nid_b)
 
 
 if __name__ == "__main__":

@@ -32,6 +32,7 @@ from .brainstorm_dag import (  # noqa: E402
     PLANS_DIR,
     PROPOSALS_DIR,
     _read_graph_state,
+    next_node_id,
     read_node,
     read_plan,
     read_proposal,
@@ -193,6 +194,7 @@ def _assemble_input_explorer(
     base_node_id: str,
     mandate: str,
     active_dimensions: list[str],
+    assigned_node_id: str,
     target_sections: list[str] | None = None,
 ) -> str:
     """Assemble explorer _input.md content with file path references."""
@@ -261,6 +263,15 @@ def _assemble_input_explorer(
                     dim_str = f" [dimensions: {', '.join(s.dimensions)}]" if s.dimensions else ""
                     lines.extend(["", f"### Section: {s.name}{dim_str}", s.content])
 
+    lines.extend([
+        "",
+        "## Assigned Node ID",
+        assigned_node_id,
+        "",
+        "Use this exact value as the `node_id` field of your output YAML.",
+        "Do not invent a different id or modify it in any way.",
+    ])
+
     return "\n".join(lines) + "\n"
 
 
@@ -296,6 +307,7 @@ def _assemble_input_synthesizer(
     session_path: Path,
     parent_node_ids: list[str],
     merge_rules: str,
+    assigned_node_id: str,
 ) -> str:
     """Assemble synthesizer _input.md with source node paths and merge rules."""
     lines = [
@@ -338,6 +350,15 @@ def _assemble_input_synthesizer(
                       "Use these dimension keys in section markers:"])
         for k in sorted(all_dims.keys()):
             lines.append(f"- {k}")
+
+    lines.extend([
+        "",
+        "## Assigned Node ID",
+        assigned_node_id,
+        "",
+        "Use this exact value as the `node_id` field of your output YAML.",
+        "Do not invent a different id or modify it in any way.",
+    ])
 
     return "\n".join(lines) + "\n"
 
@@ -395,6 +416,7 @@ def _assemble_input_patcher(
     session_path: Path,
     node_id: str,
     tweak_request: str,
+    assigned_node_id: str,
     target_sections: list[str] | None = None,
 ) -> str:
     """Assemble patcher _input.md with current node paths and patch request."""
@@ -426,6 +448,15 @@ def _assemble_input_patcher(
                       "Leave all other sections unchanged:"])
         for name in target_sections:
             lines.append(f"- {name}")
+
+    lines.extend([
+        "",
+        "## Assigned Node ID",
+        assigned_node_id,
+        "",
+        "Use this exact value as the `node_id` field of your output YAML.",
+        "Do not invent a different id or modify it in any way.",
+    ])
 
     return "\n".join(lines) + "\n"
 
@@ -496,8 +527,12 @@ def register_explorer(
     gs = _read_graph_state(session_dir)
     active_dimensions = gs.get("active_dimensions", []) or []
 
+    node_num = next_node_id(session_dir)
+    assigned_node_id = f"n{node_num:03d}_{agent_name}"
+
     input_content = _assemble_input_explorer(
         session_dir, base_node_id, mandate, active_dimensions,
+        assigned_node_id,
         target_sections=target_sections,
     )
 
@@ -577,8 +612,11 @@ def register_synthesizer(
     seq = _group_seq(group_name)
     agent_name = f"synthesizer_{seq}"
 
+    node_num = next_node_id(session_dir)
+    assigned_node_id = f"n{node_num:03d}_{agent_name}"
+
     input_content = _assemble_input_synthesizer(
-        session_dir, parent_node_ids, merge_rules
+        session_dir, parent_node_ids, merge_rules, assigned_node_id,
     )
 
     work2do_path = TEMPLATE_DIR / "synthesizer.md"
@@ -658,8 +696,12 @@ def register_patcher(
     seq = _group_seq(group_name)
     agent_name = f"patcher_{seq}"
 
+    node_num = next_node_id(session_dir)
+    assigned_node_id = f"n{node_num:03d}_{agent_name}"
+
     input_content = _assemble_input_patcher(
         session_dir, node_id, tweak_request,
+        assigned_node_id,
         target_sections=target_sections,
     )
 

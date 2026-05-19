@@ -732,7 +732,8 @@ def apply_patcher_output(
         update_node(wt, new_node_id, {"plan_file": plan_rel})
 
         set_head(wt, new_node_id)
-        next_node_id(wt)
+        # next_node_id is consumed at registration time
+        # (see register_patcher in brainstorm_crew.py).
 
         update_operation(
             task_num,
@@ -947,7 +948,8 @@ def _apply_node_output(
         )
 
         set_head(wt, new_node_id)
-        next_node_id(wt)
+        # next_node_id is consumed at registration time
+        # (see register_explorer / register_synthesizer in brainstorm_crew.py).
 
         # Merge any NEW_DIMENSIONS into the session's active_dimensions.
         added_dimensions: list[str] = []

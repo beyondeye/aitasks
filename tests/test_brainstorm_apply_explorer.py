@@ -187,7 +187,9 @@ class ApplyExplorerHappyPathTests(unittest.TestCase):
                 (wt / GRAPH_STATE_FILE).read_text(encoding="utf-8")
             )
             self.assertEqual(gs["current_head"], new_id)
-            self.assertEqual(gs["next_node_id"], 2)
+            # next_node_id is consumed at registration time (t795); apply
+            # no longer bumps the counter. Initial value is preserved.
+            self.assertEqual(gs["next_node_id"], 1)
             self.assertIn(new_id, gs["history"])
 
     def test_reference_files_preserved(self):

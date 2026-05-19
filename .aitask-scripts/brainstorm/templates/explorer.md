@@ -27,7 +27,9 @@ clear delimiters:
 ### File 1: Node Metadata (YAML)
 
 A flat YAML file following the node schema. Requirements:
-- node_id: Use the ID assigned by the orchestrator (provided in input)
+- node_id: Copy the value from the `## Assigned Node ID` section of
+  your `_input.md` **verbatim**. Do not invent a different id, and do
+  not modify it in any way.
 - parents: List the baseline node as parent
 - description: One-line summary of your approach
 - proposal_file: Path to your proposal (br_proposals/<node_id>.md)
