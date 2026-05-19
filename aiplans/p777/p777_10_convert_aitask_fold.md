@@ -301,3 +301,53 @@ in its own Jinja block with the same `is defined and <key>` guard
 
 None — `aitask-fold` references exactly one profile key
 (`explore_auto_continue`); no other behavior to template.
+
+## Final Implementation Notes
+
+- **Actual work done:** Authored `.claude/skills/aitask-fold/SKILL.md.j2`
+  from the existing `aitask-fold/SKILL.md` (deleted "Step 0 (pre-parse):
+  Extract `--profile` argument" and Step 0a "Select Execution Profile";
+  wrapped Step 4's `explore_auto_continue` check in `{% if profile.<key>
+  is defined and profile.<key> %}…{% else %}…{% endif %}` following the
+  inline-comment placement convention; baked profile values into Step 5
+  handoff as `{ name: {{ profile.name }} }` / `{{ profile.name }}.yaml`).
+  Replaced all 4 per-agent surfaces with canonical stubs from
+  `aidocs/stub-skill-pattern.md` §3b-§3d, resolver key `fold`. Generated
+  12 goldens at `tests/golden/skills/aitask-fold/`. Authored
+  `tests/test_skill_render_aitask_fold.sh` (118 assertions across 5 test
+  groups) adapted from the review equivalent — collapsed Test 2 from
+  two-key to single-key, matching the explore-test assertion count.
+- **Deviations from plan:** None substantive. The apostrophe-colon
+  forbidden-substring discipline (`': continuing to implementation`)
+  carried over from t777_8/t777_9 — no false-positive on Notes-section
+  prose.
+- **Issues encountered:** None.
+- **Key decisions:**
+  - Direct conversion (not staged under `aitask-foldn`): per pilot
+    lesson, parallel-name staging applies when the converted skill is
+    driving its own conversion. `aitask-pick` drives here; fold is
+    dormant, so in-place edits are safe.
+  - Tests assert the `{% else %}` arm for `explore_auto_continue` across
+    all three live profiles (default/remote leave it undefined; fast
+    sets it to `false`); the `{% if %}` arm is exercised structurally
+    by `./ait skill verify`.
+  - Test 2 uses `'Tasks folded successfully into t'` as the unique
+    else-arm fingerprint (matches the fold-specific AskUserQuestion
+    prompt; absent from the if-arm).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** Pattern is now stable across four
+  conversions (pick / explore / review / fold). The single-key wrap is
+  identical structure for any skill that consumes one profile key;
+  multi-key skills wrap each key in its own Jinja block (t777_9
+  demonstrated the two-key case). Future siblings
+  (qa/pr-import/revert/pickrem/pickweb) can copy this plan verbatim,
+  substituting slug, resolver key, and the specific profile keys.
+
+## Verification Results (2026-05-19)
+
+- `bash tests/test_skill_render_aitask_fold.sh` → **118/118 PASS**.
+- `./.aitask-scripts/aitask_skill_verify.sh` → **OK** (4 templates × 4
+  agents — aitask-pick + aitask-explore + aitask-review + aitask-fold).
+- Forbidden-token scan on all 12 goldens → clean (no
+  `aitask_scan_profiles.sh`, `Execute the Execution Profile Selection
+  Procedure`, `Select Execution Profile`, or `refresh execution profile`).
