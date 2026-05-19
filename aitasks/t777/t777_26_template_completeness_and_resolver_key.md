@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: [t777_25]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_pick, stub_skill_pattern, template]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-18 21:40
-updated_at: 2026-05-18 21:40
+updated_at: 2026-05-19 08:19
 ---
 
 ## Context
