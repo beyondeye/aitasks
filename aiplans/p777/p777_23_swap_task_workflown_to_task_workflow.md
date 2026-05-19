@@ -87,3 +87,19 @@ These are gitignored; their absence forces a fresh re-render on the next skill i
 ## Step 9 (Post-Implementation)
 
 After approval and commit, do the standard archive flow per `task-workflow/SKILL.md` Step 9: no separate branch was created (profile 'fast': working on current branch), so no merge step; run `./.aitask-scripts/aitask_archive.sh 777_23`, push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Executed the plan as written. Concretely:
+  - §A: `rm -rf .claude/skills/task-workflow/` (25 unwrapped originals removed), `git mv .claude/skills/task-workflown .claude/skills/task-workflow`, SKILL.md frontmatter `name:` flipped to `task-workflow` and `[t777_7 staged] ` description prefix + the "Atomic-rename target..." sentence removed.
+  - §B: `.claude/skills/aitask-pick/SKILL.md.j2` — 3 occurrences of `task-workflown` → `task-workflow` (lines 185, 206, 207, exactly as scoped).
+  - §C: `git mv tests/test_skill_render_task_workflown.sh tests/test_skill_render_task_workflow.sh`; updated header comment, renamed `STAGED_DIR` → `WORKFLOW_DIR`, dropped `ORIG_DIR` variable, deleted Test 4 (the 20-identity-passthrough block) — Tests 1, 2, 3, 3b plus the renumbered synthetic-profile test (was Test 5, now Test 4) all remain.
+  - §D: `git mv tests/golden/procs/task-workflown tests/golden/procs/task-workflow` (15 files).
+  - §E: `tests/test_skill_render_aitask_pick.sh` — 8 `task-workflown` occurrences → `task-workflow`. The 12 `tests/golden/skills/aitask-pick/SKILL-*.md` files updated via `sed -i 's/task-workflown/task-workflow/g'`.
+  - §F: `aidocs/skill_authoring_conventions.md` — dropped the parenthetical mention of the staged sibling (now redundant). `aidocs/stub-skill-pattern.md` — 3 path/dir refs flipped (Step 3b note, render-tests note, pilot-findings closure walk).
+  - §G: Removed all gitignored `task-workflown-{default,fast,remote}-/` and `aitask-pick-{default,fast,remote}-/` rendered dirs across `.claude/`, `.agents/`, `.gemini/`, `.opencode/` (24 dirs) to force clean re-render. They regenerated on the next render invocation by the test suite (Test 4 of `test_skill_render_aitask_pick.sh` uses `--force`).
+- **Deviations from plan:** Also flipped the description text inside `tests/golden/procs/task-workflow/SKILL-{default,fast,remote}.md` (3 files) — the plan only listed the `name: task-workflown` → `task-workflow` flip there, but the SKILL.md description change in §A also propagates through render, so the goldens needed both edits to round-trip. Tests 1 / 2 / 3 / 3b / 4 then all passed.
+- **Issues encountered:** None mechanical. `./ait skill verify` is invoked as the bare helper script `./.aitask-scripts/aitask_skill_verify.sh` — `ait` itself does not register a `skill verify` subcommand yet, so the task description's `./ait skill verify` reads as shorthand for "run the verify helper". Recorded for follow-up below.
+- **Key decisions:** Removed Test 4 from `test_skill_render_task_workflow.sh` outright rather than reducing it to a trivial self-compare. The test's stated purpose ("guard against accidental edits during the staging window") evaporates the moment staging is unwound; keeping a passing-but-meaningless assertion would just be noise. The shared workflow is now the only canonical source.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** Future t777_8..t777_15 per-skill conversions no longer need the staging dance — they can edit `.claude/skills/task-workflow/*.md.j2` (or relevant files) directly. The render closure-walk (t777_22) and golden-test pattern (this task's §E + the workflow render test) are stable. When porting each skill, expect to (a) author or edit a `.j2` for the skill's entry-point, (b) extend `tests/golden/skills/<skill>/SKILL-*.md` (3 profiles × 4 agents = 12 files), (c) update `tests/golden/procs/task-workflow/` only if the new template adds new wrap sites inside the shared workflow.
