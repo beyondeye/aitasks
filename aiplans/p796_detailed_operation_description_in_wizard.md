@@ -209,3 +209,50 @@ today):
 Follow the standard task-workflow Step 9 — no special branch/worktree
 created (profile `fast` → working on current branch), so the merge sub-
 section is skipped; archival proceeds via `aitask_archive.sh 796`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned in
+  `.aitask-scripts/brainstorm/brainstorm_app.py` (single file, +46/-11):
+  - Added module-level `_OP_LABELS` flattening `_DESIGN_OPS + _SESSION_OPS`
+    into an `op_key → (label, brief desc)` dict.
+  - Added `BrainstormApp._mount_op_context_header(container)` which
+    mounts a dim `Label` reading `<Label> — <brief desc>  (? for details)`
+    keyed off `self._wizard_op` via `_OP_LABELS`.
+  - Wired the helper into all four Step 2+ renderers right after the
+    `actions_step_indicator` mount: `_actions_show_node_select`,
+    `_actions_show_section_select`, `_actions_show_config`,
+    `_actions_show_confirm`.
+  - Broadened the `op_help` (`?`) binding by changing the step gate from
+    `self._wizard_step != 1` to `self._wizard_step < 1` in both
+    `check_action` and `action_op_help`.
+  - In `action_op_help` branched on step number: Step 1 still resolves
+    `op_key` from the focused `OperationRow`; Step 2+ resolves it from
+    `self._wizard_op` (with a safety check that op_key is non-empty and
+    present in `_OPERATION_HELP`).
+  - Updated the source-trace comment above `_OPERATION_HELP` to mention
+    both surfaces (inline + modal) and updated the `OperationHelpModal`
+    docstring to reflect that it's now reachable from any wizard step.
+- **Deviations from plan:** None. CSS class `actions_op_context` was added
+  per the plan's forward-compat note (no styling rule defined this task).
+- **Issues encountered:** First `Edit` call hit "File has been modified
+  since read" because the file's mtime had moved between Read and Edit;
+  re-read the offset window and retried successfully — no actual content
+  conflict.
+- **Key decisions:**
+  - Used `self._wizard_step < 1` (rather than `>= 1` / specific upper
+    bound) for symmetry with the prior `!= 1`; the guard is `step < 1`
+    means "not on any wizard step", which is the correct gating.
+  - Kept the `[dim]...[/dim]` Rich markup in the Label text instead of
+    defining a CSS rule, to keep the diff minimal and consistent with the
+    existing dim hint lines (e.g., the Step-2 node-select hint
+    `"[dim]  ↑↓ Navigate  Enter Select  |  Click node + Next[/dim]"`).
+  - `_mount_op_context_header` returns silently when `_wizard_op` isn't
+    in `_OP_LABELS` — defensive guard against future ops added to
+    `_OPERATION_HELP` but missing from `_OP_LABELS`.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** N/A — single task, no children.
+
+Verification: `python3 -c "import ast; ast.parse(...)"` parses cleanly.
+Manual TUI smoke test (steps 1-10 in the plan above) recommended before
+archival.
