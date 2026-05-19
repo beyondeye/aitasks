@@ -26,7 +26,7 @@ as its own child task.
 
 ## Adding a new helper script
 
-Any new script under `.aitask-scripts/` invoked by a skill must be whitelisted
+Any new script under `.aitask-scripts/` invoked by a skill must be allowlisted
 for every code agent's permission system — **both runtime configs (this
 project) AND seed configs (new projects bootstrapped via `ait setup`)**.
 Missing any touchpoint causes users of the corresponding agent to be prompted
@@ -36,16 +36,18 @@ on every invocation.
 |-----------|------------|
 | `.claude/settings.local.json` | `"Bash(./.aitask-scripts/<name>.sh:*)"` in `permissions.allow` |
 | `.gemini/policies/aitasks-whitelist.toml` | `[[rule]]` block with `commandPrefix = "./.aitask-scripts/<name>.sh"`, `decision = "allow"`, `priority = 100` |
+| `.codex/rules/default.rules` | `prefix_rule(pattern = ["./.aitask-scripts/<name>.sh"], decision = "allow", ...)` |
 | `seed/claude_settings.local.json` | mirror of `.claude/settings.local.json` entry |
 | `seed/geminicli_policies/aitasks-whitelist.toml` | mirror of runtime Gemini policy |
+| `seed/codex_rules.default.rules` | mirror of runtime Codex rules |
 | `seed/opencode_config.seed.json` | `"./.aitask-scripts/<name>.sh *": "allow"` |
 
-**Codex exception:** `.codex/config.toml` and `seed/codex_config.seed.toml`
-use a prompt/forbidden-only permission model — no `allow` decision exists.
-Codex does not need a whitelist entry; it prompts by default.
+Codex command allow rules live in `.rules` files, not `.codex/config.toml`.
+The feature is experimental in Codex CLI, so keep the rules format aligned
+with the current OpenAI Codex Rules documentation.
 
 When splitting a plan that introduces one or more new helper scripts, surface
-this 5-touchpoint checklist as an explicit deliverable per helper.
+this 7-touchpoint checklist as an explicit deliverable per helper.
 
 ## Test the full install flow for setup helpers
 

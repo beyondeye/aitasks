@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test_skill_verify.sh - Automated tests for t777_4:
 #   - .aitask-scripts/aitask_skill_verify.sh
-#   - 5-touchpoint whitelist for aitask_skill_verify.sh
+#   - helper whitelist touchpoints for aitask_skill_verify.sh
 # Run: bash tests/test_skill_verify.sh
 
 set -e
@@ -148,14 +148,14 @@ _write_clean_j2() {
 EOF
 }
 
-# --- Test 1: no .j2 templates → exit 0 with informative message ---
+# --- Test 1: baseline repository templates verify cleanly ---
 
 set +e
 OUT="$("$VERIFY" 2>&1)"
 RC=$?
 set -e
-assert_zero_exit "test 1: no .j2 templates → exit 0" "$RC"
-assert_contains "test 1: stdout mentions 'no .j2 templates found'" "no .j2 templates found" "$OUT"
+assert_zero_exit "test 1: baseline templates → exit 0" "$RC"
+assert_contains "test 1: stdout reports verifier OK" "aitask_skill_verify.sh: OK" "$OUT"
 
 # --- Test 2: broken .j2 (strict-undefined) → exit non-zero, stderr contains VERIFY_FAIL ---
 
@@ -287,13 +287,15 @@ assert_contains "test 7: STUB_FAIL names missing trailing-hyphen Read path" "mis
 cleanup
 mkdir -p ".claude/skills" ".agents/skills" ".gemini/commands" ".opencode/commands"
 
-# --- Test 10: 5-touchpoint whitelist — exactly one entry per file ---
+# --- Test 10: helper whitelist touchpoints — exactly one entry per file ---
 
 declare -a WHITELIST_FILES=(
     ".claude/settings.local.json"
     ".gemini/policies/aitasks-whitelist.toml"
+    ".codex/rules/default.rules"
     "seed/claude_settings.local.json"
     "seed/geminicli_policies/aitasks-whitelist.toml"
+    "seed/codex_rules.default.rules"
     "seed/opencode_config.seed.json"
 )
 for f in "${WHITELIST_FILES[@]}"; do

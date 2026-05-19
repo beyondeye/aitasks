@@ -7,7 +7,7 @@ maturity: [experimental]
 depth: [advanced]
 ---
 
-Audit drift between the aitasks skill source-of-truth (`.claude/skills/aitask-*/SKILL.md`) and the four code-agent wrapper trees, plus drift in helper-script whitelist coverage across the five permission-system touchpoints. Generates missing wrappers from inline templates and inserts missing whitelist entries at the alphabetically-correct positions, with a per-phase user confirmation gate. Companion to [`/aitask-add-model`](../../skills/aitask-add-model/) — both are framework-development skills, useful when you are adding skills or helper scripts to the framework itself.
+Audit drift between the aitasks skill source-of-truth (`.claude/skills/aitask-*/SKILL.md`) and the four code-agent wrapper trees, plus drift in helper-script whitelist coverage across the seven permission-system touchpoints. Generates missing wrappers from inline templates and inserts missing whitelist entries at the alphabetically-correct positions, with a per-phase user confirmation gate. Companion to [`/aitask-add-model`](../../skills/aitask-add-model/) — both are framework-development skills, useful when you are adding skills or helper scripts to the framework itself.
 
 **Usage:**
 ```
@@ -25,7 +25,7 @@ After adding a new `.claude/skills/aitask-*/SKILL.md` to the framework, or a new
 
 | Concern | Manual port | `/aitask-audit-wrappers` |
 |---|---|---|
-| Discovery | Hand-grep across trees | Automated (Phase 1: 4 trees + 2 policy files; Phase 2: 5 helper-whitelist touchpoints) |
+| Discovery | Hand-grep across trees | Automated (Phase 1: 4 trees + 2 policy files; Phase 2: 7 helper-whitelist touchpoints) |
 | Coverage matrix | Implicit | Structured `GAP:` / `POLICY_GAP:` / `MISSING:` output |
 | Apply | Hand-write each wrapper | Inline templates rendered from source-of-truth `description` field |
 | Idempotency check | None | Re-run discovery; refuses to declare success if anything remains |
@@ -48,17 +48,19 @@ For each gap, the helper renders a wrapper from inline templates (description au
 
 ## Phase 2 — Helper-script whitelist audit
 
-Scans `.claude/skills/aitask-*/`, `.claude/skills/task-workflow/`, `.claude/skills/user-file-select/`, and `.claude/skills/ait-git/` for `.aitask-scripts/aitask_*.sh` references. For each helper found, verifies it is whitelisted in all five touchpoints from CLAUDE.md "Adding a New Helper Script":
+Scans `.claude/skills/aitask-*/`, `.claude/skills/task-workflow/`, `.claude/skills/user-file-select/`, and `.claude/skills/ait-git/` for `.aitask-scripts/aitask_*.sh` references. For each helper found, verifies it is whitelisted in all seven helper-permission touchpoints:
 
 | # | File | Entry shape |
 |---|---|---|
 | 1 | `.claude/settings.local.json` | `"Bash(./.aitask-scripts/<helper>:*)"` |
 | 2 | `.gemini/policies/aitasks-whitelist.toml` | `[[rule]]` with `commandPrefix = "./.aitask-scripts/<helper>"` |
-| 3 | `seed/claude_settings.local.json` | mirror of #1 |
-| 4 | `seed/geminicli_policies/aitasks-whitelist.toml` | mirror of #2 |
-| 5 | `seed/opencode_config.seed.json` | `"./.aitask-scripts/<helper> *": "allow"` |
+| 3 | `.codex/rules/default.rules` | `prefix_rule(... decision = "allow")` |
+| 4 | `seed/claude_settings.local.json` | mirror of #1 |
+| 5 | `seed/geminicli_policies/aitasks-whitelist.toml` | mirror of #2 |
+| 6 | `seed/codex_rules.default.rules` | mirror of #3 |
+| 7 | `seed/opencode_config.seed.json` | `"./.aitask-scripts/<helper> *": "allow"` |
 
-Codex `.codex/config.toml` is prompt-only — no allow entry needed.
+Codex helper allow entries live in `.rules` files rather than `.codex/config.toml`. Codex rules are experimental, so keep this touchpoint aligned with the current OpenAI Codex Rules documentation.
 
 The skill displays a per-helper × per-touchpoint matrix, collects approval, and inserts missing entries at the alphabetically-correct positions. JSON entries are inserted with format-aware splicing; TOML entries are inserted as `[[rule]]` blocks.
 
@@ -99,4 +101,4 @@ Plus the framework's existing setup tests stay green: [`tests/test_opencode_setu
 ## Related
 
 - [`/aitask-add-model`](../../skills/aitask-add-model/) — Sibling framework-development skill for registering new code-agent models.
-- [Skill authoring conventions in CLAUDE.md](https://github.com/dario-bs/aitasks/blob/main/CLAUDE.md) — "WORKING ON SKILLS / CUSTOM COMMANDS" defines the source-of-truth layout. "Adding a New Helper Script" defines the 5 helper-whitelist touchpoints.
+- [Skill authoring conventions in CLAUDE.md](https://github.com/dario-bs/aitasks/blob/main/CLAUDE.md) — "WORKING ON SKILLS / CUSTOM COMMANDS" defines the source-of-truth layout.

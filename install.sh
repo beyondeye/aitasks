@@ -537,6 +537,13 @@ install_seed_codex_config() {
         info "  Stored Codex CLI config seed"
     fi
 
+    src="$INSTALL_DIR/seed/codex_rules.default.rules"
+    dest="$INSTALL_DIR/aitasks/metadata/codex_rules.default.rules"
+    if [[ -f "$src" ]]; then
+        cp "$src" "$dest"
+        info "  Stored Codex CLI rules seed"
+    fi
+
     src="$INSTALL_DIR/seed/codex_instructions.seed.md"
     dest="$INSTALL_DIR/aitasks/metadata/codex_instructions.seed.md"
     if [[ -f "$src" ]]; then

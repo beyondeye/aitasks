@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test_skill_render.sh - Automated tests for t777_2:
 #   - .aitask-scripts/aitask_skill_render.sh (per-profile renderer + dispatch)
-#   - 5-touchpoint whitelist for aitask_skill_render.sh
+#   - helper whitelist touchpoints for aitask_skill_render.sh
 # Run: bash tests/test_skill_render.sh
 
 set -e
@@ -330,13 +330,15 @@ else
     FAIL=$((FAIL + 1)); echo "FAIL: missing-include reference should not crash renderer (rc=$RC)"
 fi
 
-# --- Test 18: 5 whitelist touchpoints each have exactly one entry ---
+# --- Test 18: whitelist touchpoints each have exactly one entry ---
 
 WL_FILES=(
     ".claude/settings.local.json"
     ".gemini/policies/aitasks-whitelist.toml"
+    ".codex/rules/default.rules"
     "seed/claude_settings.local.json"
     "seed/geminicli_policies/aitasks-whitelist.toml"
+    "seed/codex_rules.default.rules"
     "seed/opencode_config.seed.json"
 )
 for wlf in "${WL_FILES[@]}"; do

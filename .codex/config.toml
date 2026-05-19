@@ -7,9 +7,8 @@ sandbox_mode = "workspace-write"
 [sandbox_workspace_write]
 network_access = true
 
-# Protective rules for destructive commands
-# NOTE: Codex prefix_rules only support "prompt" or "forbidden" decisions
-# There is no "allow" decision — commands cannot be pre-approved like in Claude Code
+# Protective rules for destructive commands.
+# Aitasks helper allow rules live in .codex/rules/default.rules.
 
 [[rules.prefix_rules]]
 pattern = [{ token = "rm" }, { any_of = ["-rf", "-r", "-fr"] }]

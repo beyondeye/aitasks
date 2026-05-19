@@ -27,7 +27,7 @@ If you `ait pick` a task that's already locked by *you* on a different machine, 
 
 ## New skill: aitask-audit-wrappers
 
-Adding a new skill or helper script used to mean hand-editing four parallel wrapper trees (claude/gemini/codex/opencode) and five permission-touchpoint files. The new `aitask-audit-wrappers` skill audits and ports both layers automatically — wrapper drift across agent trees and helper-script whitelist gaps across runtime/seed configs are now a one-command fix.
+Adding a new skill or helper script used to mean hand-editing four parallel wrapper trees (claude/gemini/codex/opencode) and seven permission-touchpoint files. The `aitask-audit-wrappers` skill audits and ports both layers automatically — wrapper drift across agent trees and helper-script whitelist gaps across runtime/seed configs are a one-command fix.
 
 ---
 

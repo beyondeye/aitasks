@@ -108,6 +108,7 @@ For background on why task data lives on a separate branch, see the
 - `.agents/skills/` — Codex CLI skill wrappers
 - `.codex/instructions.md` — aitasks instructions for Codex
 - `.codex/config.toml` — created or merged with aitask settings
+- `.codex/rules/default.rules` — Codex CLI allow rules for aitasks helper scripts
 
 **Optional: OpenCode support** (when `ait setup` detects OpenCode):
 

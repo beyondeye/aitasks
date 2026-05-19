@@ -1959,6 +1959,66 @@ toml_serialize(merged)
     fi
 }
 
+# --- Merge Codex CLI rules/default.rules (add missing aitask helper rules) ---
+codex_rule_helper_name() {
+    local line="$1"
+    case "$line" in
+        *'prefix_rule('*'./.aitask-scripts/aitask_'*'.sh'*)
+            line="${line#*./.aitask-scripts/}"
+            line="${line%%.sh*}.sh"
+            printf '%s\n' "$line"
+            ;;
+    esac
+}
+
+codex_rules_has_helper() {
+    local rules_file="$1"
+    local helper="$2"
+    [[ -f "$rules_file" ]] || return 1
+    grep -qF "pattern = [\"./.aitask-scripts/${helper}\"]" "$rules_file"
+}
+
+merge_codex_rules() {
+    local seed_file="$1"
+    local dest_file="$2"
+
+    if [[ ! -f "$seed_file" ]]; then
+        return
+    fi
+
+    if [[ ! -f "$dest_file" ]]; then
+        cp "$seed_file" "$dest_file"
+        info "  Created .codex/rules/default.rules from seed"
+        return
+    fi
+
+    local tmp
+    tmp=$(mktemp "${TMPDIR:-/tmp}/aitask_codex_rules_XXXXXX")
+    cp "$dest_file" "$tmp"
+
+    local added=0
+    local line helper
+    while IFS= read -r line; do
+        helper="$(codex_rule_helper_name "$line" || true)"
+        [[ -n "$helper" ]] || continue
+        if ! codex_rules_has_helper "$tmp" "$helper"; then
+            if [[ -s "$tmp" ]]; then
+                printf '\n' >> "$tmp"
+            fi
+            printf '%s\n' "$line" >> "$tmp"
+            added=$((added + 1))
+        fi
+    done < "$seed_file"
+
+    if (( added > 0 )); then
+        mv "$tmp" "$dest_file"
+        info "  Merged $added aitask rule(s) into .codex/rules/default.rules"
+    else
+        rm -f "$tmp"
+        info "  .codex/rules/default.rules already contains aitask rules"
+    fi
+}
+
 # --- Codex CLI setup (skills + config + instructions) ---
 setup_codex_cli() {
     local project_dir="$SCRIPT_DIR/.."
@@ -2037,6 +2097,13 @@ setup_codex_cli() {
             info "  Existing .codex/config.toml found — merging aitask settings..."
             merge_codex_settings "$seed_config" "$dest_config"
         fi
+    fi
+
+    # 4. Merge rules/default.rules seed
+    local seed_rules="$project_dir/aitasks/metadata/codex_rules.default.rules"
+    if [[ -f "$seed_rules" ]]; then
+        mkdir -p "$dest_codex/rules"
+        merge_codex_rules "$seed_rules" "$dest_codex/rules/default.rules"
     fi
 }
 

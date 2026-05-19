@@ -144,6 +144,12 @@ priority = 100
 
 [[rule]]
 toolName = "run_shell_command"
+commandPrefix = "./.aitask-scripts/aitask_add_model.sh"
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
 commandPrefix = "./.aitask-scripts/aitask_contribution_review.sh"
 decision = "allow"
 priority = 100

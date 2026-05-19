@@ -25,6 +25,7 @@
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
+      "Bash(./.aitask-scripts/aitask_add_model.sh:*)",
       "Bash(./.aitask-scripts/aitask_ls.sh:*)",
       "Bash(./.aitask-scripts/aitask_update.sh:*)",
       "Bash(./.aitask-scripts/aitask_create.sh:*)",
