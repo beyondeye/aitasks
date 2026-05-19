@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t777_25]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_pick, stub_skill_pattern, template]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-18 21:40
 updated_at: 2026-05-19 08:56
+completed_at: 2026-05-19 08:56
 ---
 
 ## Context
