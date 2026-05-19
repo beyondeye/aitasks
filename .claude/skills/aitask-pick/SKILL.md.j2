@@ -182,7 +182,7 @@ If the selected task is a parent task with children in `aitasks/t<N>/`:
 
 ### Step 3: Hand Off to Shared Workflow
 
-At this point, a task has been selected and confirmed. Set the following context variables, then read and follow `.claude/skills/task-workflown/SKILL.md` starting from **Step 3: Task Status Checks**:
+At this point, a task has been selected and confirmed. Set the following context variables, then read and follow `.claude/skills/task-workflow/SKILL.md` starting from **Step 3: Task Status Checks**:
 
 - **task_file**: Path to the selected task file (e.g., `aitasks/t16_implement_auth.md` or `aitasks/t10/t10_2_add_login.md` for child tasks)
 - **task_id**: The task identifier extracted from the filename (e.g., `16` or `16_2`)
@@ -203,5 +203,5 @@ At this point, a task has been selected and confirmed. Set the following context
 - Parent tasks with pending children show as "Has children" and are sorted normally by priority/effort
 - The `--children` flag of `aitask_ls.sh` lists only children of a specific parent
 - When invoked with a child task argument (e.g., `/aitask-pick 10_2`), the skill goes directly to that child task
-- For the full Execution Profiles schema, shared workflow notes, and customization guide, see `.claude/skills/task-workflown/SKILL.md`
-- Manual-verification tasks (`issue_type: manual_verification`) dispatch to a dedicated checklist loop instead of the plan+implement flow — see `.claude/skills/task-workflown/manual-verification.md`. Post-implementation follow-up creation is handled by Step 8c (`manual-verification-followup.md`).
+- For the full Execution Profiles schema, shared workflow notes, and customization guide, see `.claude/skills/task-workflow/SKILL.md`
+- Manual-verification tasks (`issue_type: manual_verification`) dispatch to a dedicated checklist loop instead of the plan+implement flow — see `.claude/skills/task-workflow/manual-verification.md`. Post-implementation follow-up creation is handled by Step 8c (`manual-verification-followup.md`).

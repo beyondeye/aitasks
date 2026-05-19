@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
-# test_skill_render_task_workflown.sh - Regression tests for t777_7:
-#   - 5 wrapped .md files under .claude/skills/task-workflown/
-#   - 15 golden files under tests/golden/procs/task-workflown/
+# test_skill_render_task_workflow.sh - Regression tests for the wrapped
+# shared workflow under .claude/skills/task-workflow/:
+#   - 5 wrapped .md files
+#   - 15 golden files under tests/golden/procs/task-workflow/
 # Coverage:
 #   1. Per-(file, profile) golden diff for the 5 wrapped files × 3 profiles.
 #   2. Agent byte-identity: rendering SKILL.md with profile=fast across all
-#      4 agents yields byte-identical output (task-workflown uses only
+#      4 agents yields byte-identical output (task-workflow uses only
 #      sibling refs, which the dep-walker leaves unchanged regardless of
 #      --agent).
 #   3. default-profile renders contain the original AskUserQuestion blocks
 #      verbatim (no key is defined → all guards fall through to {% else %}).
-#   4. 20 identity-passthrough files in task-workflown/ are byte-identical
-#      to their task-workflow/ siblings (guard against accidental edits).
-#   5. remote_drift_check synthetic profile demonstrates the true branch
+#   4. remote_drift_check synthetic profile demonstrates the true branch
 #      fires when the key is defined (no committed profile uses it).
-# Run: bash tests/test_skill_render_task_workflown.sh
+# Run: bash tests/test_skill_render_task_workflow.sh
 
 set -e
 
@@ -71,9 +70,8 @@ if ! "$PYTHON" -c 'import minijinja' 2>/dev/null; then
 fi
 
 RENDER="$PYTHON $PROJECT_DIR/.aitask-scripts/lib/skill_template.py"
-STAGED_DIR=".claude/skills/task-workflown"
-ORIG_DIR=".claude/skills/task-workflow"
-GOLDEN_DIR="tests/golden/procs/task-workflown"
+WORKFLOW_DIR=".claude/skills/task-workflow"
+GOLDEN_DIR="tests/golden/procs/task-workflow"
 PROFILES_DIR="aitasks/metadata/profiles"
 
 WRAPPED_FILES=(
@@ -92,19 +90,19 @@ echo "=== Test 1: golden diffs for 5 wrapped files × 3 profiles ==="
 for file in "${WRAPPED_FILES[@]}"; do
     stem="${file%.md}"
     for profile in "${PROFILES[@]}"; do
-        rendered="$($RENDER "$STAGED_DIR/$file" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+        rendered="$($RENDER "$WORKFLOW_DIR/$file" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
         golden_path="$GOLDEN_DIR/${stem}-${profile}.md"
         golden_content="$(cat "$golden_path")"
         assert_eq "golden $stem × $profile" "$golden_content" "$rendered"
     done
 done
 
-# === Test 2: Agent byte-identity (task-workflown has only sibling refs) ===
+# === Test 2: Agent byte-identity (task-workflow has only sibling refs) ===
 
 echo "=== Test 2: agent byte-identity for SKILL.md @ profile=fast ==="
-REF_OUT="$($RENDER "$STAGED_DIR/SKILL.md" "$PROFILES_DIR/fast.yaml" claude 2>&1)"
+REF_OUT="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$PROFILES_DIR/fast.yaml" claude 2>&1)"
 for agent in "${AGENTS[@]}"; do
-    out="$($RENDER "$STAGED_DIR/SKILL.md" "$PROFILES_DIR/fast.yaml" "$agent" 2>&1)"
+    out="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$PROFILES_DIR/fast.yaml" "$agent" 2>&1)"
     if [[ "$out" == "$REF_OUT" ]]; then
         PASS=$((PASS + 1))
     else
@@ -117,7 +115,7 @@ done
 # === Test 3: default profile preserves all AskUserQuestion blocks ===
 
 echo "=== Test 3: default profile keeps existing interactive prose ==="
-DEFAULT_SKILL="$($RENDER "$STAGED_DIR/SKILL.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
+DEFAULT_SKILL="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
 assert_contains "SKILL.md default: create_worktree AskUserQuestion present" \
     'Do you want to create a separate branch and worktree for this task?' "$DEFAULT_SKILL"
 assert_contains "SKILL.md default: base_branch AskUserQuestion present" \
@@ -125,21 +123,21 @@ assert_contains "SKILL.md default: base_branch AskUserQuestion present" \
 assert_contains "SKILL.md default: default_email AskUserQuestion present" \
     'Enter your email to track who is working on this task' "$DEFAULT_SKILL"
 
-DEFAULT_PLAN="$($RENDER "$STAGED_DIR/planning.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
+DEFAULT_PLAN="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
 assert_contains "planning.md default: plan_preference AskUserQuestion present" \
     'An existing implementation plan was found at' "$DEFAULT_PLAN"
 assert_contains "planning.md default: post_plan_action AskUserQuestion present" \
     'Plan saved to' "$DEFAULT_PLAN"
 
-DEFAULT_MVF="$($RENDER "$STAGED_DIR/manual-verification-followup.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
+DEFAULT_MVF="$($RENDER "$WORKFLOW_DIR/manual-verification-followup.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
 assert_contains "manual-verification-followup default: 'never' guidance present" \
     'manual_verification_followup_mode' "$DEFAULT_MVF"
 
-DEFAULT_RDC="$($RENDER "$STAGED_DIR/remote-drift-check.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
+DEFAULT_RDC="$($RENDER "$WORKFLOW_DIR/remote-drift-check.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
 assert_contains "remote-drift-check default: 'skip' fallback prose present" \
     'remote_drift_check: skip' "$DEFAULT_RDC"
 
-DEFAULT_SF="$($RENDER "$STAGED_DIR/satisfaction-feedback.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
+DEFAULT_SF="$($RENDER "$WORKFLOW_DIR/satisfaction-feedback.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
 assert_contains "satisfaction-feedback default: enableFeedbackQuestions prose present" \
     'If `enableFeedbackQuestions` is omitted' "$DEFAULT_SF"
 
@@ -147,7 +145,7 @@ assert_contains "satisfaction-feedback default: enableFeedbackQuestions prose pr
 
 echo "=== Test 3b: SKILL.md rendered output has no Step 3b refresh ==="
 for profile in "${PROFILES[@]}"; do
-    rendered="$($RENDER "$STAGED_DIR/SKILL.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    rendered="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
     assert_not_contains "SKILL.md $profile: no Step 3b heading" \
         "Step 3b: refresh execution profile" "$rendered"
     assert_not_contains "SKILL.md $profile: no scan-profiles call" \
@@ -156,43 +154,9 @@ for profile in "${PROFILES[@]}"; do
         "refresh execution profile" "$rendered"
 done
 
-# === Test 4: 20 identity-passthrough files are byte-identical to originals ===
+# === Test 4: synthetic profile with remote_drift_check: skip fires the true branch ===
 
-echo "=== Test 4: identity-passthrough files byte-identical to task-workflow/ ==="
-PASSTHROUGH_FILES=()
-while IFS= read -r f; do
-    base="$(basename "$f")"
-    # Skip the 5 wrapped files. Skip SKILL.md frontmatter has changed by design.
-    if [[ " ${WRAPPED_FILES[*]} " == *" $base "* ]]; then
-        continue
-    fi
-    PASSTHROUGH_FILES+=("$base")
-done < <(find "$STAGED_DIR" -maxdepth 1 -name '*.md' | sort)
-
-TOTAL=$((TOTAL + 1))
-expected_passthrough=20
-got_passthrough=${#PASSTHROUGH_FILES[@]}
-if [[ "$got_passthrough" == "$expected_passthrough" ]]; then
-    PASS=$((PASS + 1))
-else
-    FAIL=$((FAIL + 1))
-    echo "FAIL: expected $expected_passthrough passthrough files, got $got_passthrough"
-fi
-
-for base in "${PASSTHROUGH_FILES[@]}"; do
-    TOTAL=$((TOTAL + 1))
-    if cmp -s "$STAGED_DIR/$base" "$ORIG_DIR/$base"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: passthrough $base differs between staged and original"
-        diff -u "$ORIG_DIR/$base" "$STAGED_DIR/$base" | head -20
-    fi
-done
-
-# === Test 5: synthetic profile with remote_drift_check: skip fires the true branch ===
-
-echo "=== Test 5: synthetic remote_drift_check: skip profile ==="
+echo "=== Test 4: synthetic remote_drift_check: skip profile ==="
 TMP_PROFILE="$(mktemp "${TMPDIR:-/tmp}/test_rdc_XXXXXX.yaml")"
 trap 'rm -f "$TMP_PROFILE"' EXIT
 cat > "$TMP_PROFILE" <<'YAML'
@@ -200,7 +164,7 @@ name: test_rdc_skip
 description: "Synthetic profile for t777_7 test (remote_drift_check skip)"
 remote_drift_check: skip
 YAML
-SYNTH_OUT="$($RENDER "$STAGED_DIR/remote-drift-check.md" "$TMP_PROFILE" claude 2>&1)"
+SYNTH_OUT="$($RENDER "$WORKFLOW_DIR/remote-drift-check.md" "$TMP_PROFILE" claude 2>&1)"
 assert_contains "synthetic profile triggers true branch (return immediately)" \
     "Profile 'test_rdc_skip' sets" "$SYNTH_OUT"
 assert_not_contains "synthetic profile suppresses fallback prose" \

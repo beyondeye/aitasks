@@ -45,9 +45,17 @@ Bumps `usagestats[skill]` for the current model/skill regardless of `enableFeedb
 
 **Guard:** If `feedback_collected` is `true`, skip the remainder of Step 1 (substeps 1-5 below) — feedback was already collected earlier in this workflow run. Otherwise, set `feedback_collected` to `true` before proceeding.
 
+{# ---------- enableFeedbackQuestions ---------- #}{% if profile.enableFeedbackQuestions is defined %}
+{# ---------- enableFeedbackQuestions value ---------- #}{% if profile.enableFeedbackQuestions %}
+1. Profile '{{ profile.name }}' sets `enableFeedbackQuestions: true`. Continue with step 2 (no skip).
+{% else %}{# enableFeedbackQuestions: value is false / falsy #}
+1. Profile '{{ profile.name }}' sets `enableFeedbackQuestions: false` — skip the remainder of Step 1. Display: `Profile '{{ profile.name }}': feedback questions disabled`.
+{% endif %}{# ---------- end enableFeedbackQuestions value ---------- #}
+{% else %}{# enableFeedbackQuestions: key absent from profile #}
 1. **Profile check:** If the active profile exists and `enableFeedbackQuestions` is set to `false`, skip the remainder of Step 1. Display: `Profile '<name>': feedback questions disabled`.
 
    **Default behavior:** If `enableFeedbackQuestions` is omitted, treat it as `true` and continue normally.
+{% endif %}{# ---------- end enableFeedbackQuestions ---------- #}
 
 2. **Identify yourself:**
 

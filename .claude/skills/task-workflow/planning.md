@@ -26,6 +26,51 @@ Parse the output: `PLAN_FILE:<path>` means found, `NOT_FOUND` means not found.
 
 **If a plan file exists**, read it.
 
+{# ---------- plan_preference / plan_preference_child ---------- #}{% if profile.plan_preference is defined or profile.plan_preference_child is defined %}
+**Profile-driven plan preference** (profile '{{ profile.name }}').
+
+{# ---------- plan_preference vs plan_preference_child resolution ---------- #}{% if profile.plan_preference_child is defined and profile.plan_preference is defined %}
+For **child tasks** (when `is_child` is true), use `plan_preference_child: {{ profile.plan_preference_child }}`. For **parent tasks**, use `plan_preference: {{ profile.plan_preference }}`. Resolve which one applies based on `is_child`, then act on the effective value as follows:
+{% elif profile.plan_preference_child is defined %}{# plan_preference_child defined, plan_preference absent #}
+For **child tasks** (when `is_child` is true), use `plan_preference_child: {{ profile.plan_preference_child }}`. For **parent tasks**, no profile preference is set — fall through to the interactive AskUserQuestion described in the "no profile preference" block below. Act on the effective value as follows when one applies:
+{% else %}{# plan_preference defined, plan_preference_child absent #}
+The effective plan preference is `{{ profile.plan_preference }}`. Act on it as follows:
+{% endif %}{# ---------- end plan_preference vs plan_preference_child resolution ---------- #}
+
+- If the effective value is `"use_current"`: Skip to the **Checkpoint** at the end of Step 6. Display: "Profile '{{ profile.name }}': using existing plan".
+- If the effective value is `"verify"`: Run the **Verify Decision** sub-procedure below, then branch on its result. Display: "Profile '{{ profile.name }}': checking verification status".
+- If the effective value is `"create_new"`: Proceed with step 6.1 as normal. Display: "Profile '{{ profile.name }}': creating plan from scratch".
+
+When the profile resolves the preference, skip the interactive AskUserQuestion below.
+
+**Verify Decision sub-procedure** (profile-driven verify path only):
+
+1. Use `plan_verification_required = {{ profile.plan_verification_required | default(1) }}` (from profile, default 1 when absent).
+2. Use `plan_verification_stale_after_hours = {{ profile.plan_verification_stale_after_hours | default(24) }}` (from profile, default 24 when absent).
+3. Run:
+   ```bash
+   ./.aitask-scripts/aitask_plan_verified.sh decide <plan_file> {{ profile.plan_verification_required | default(1) }} {{ profile.plan_verification_stale_after_hours | default(24) }}
+   ```
+4. Parse the 8-line structured output (`KEY:value` per line):
+   - `TOTAL:<N>` / `FRESH:<M>` / `STALE:<K>` / `LAST:<agent @ timestamp>` (or `LAST:NONE`)
+   - `REQUIRED:<R>` / `STALE_AFTER_HOURS:<H>`
+   - `DISPLAY:<human-readable summary>` — print this line verbatim to the user
+   - `DECISION:<SKIP|ASK_STALE|VERIFY>`
+5. Branch on `DECISION:`:
+   - **`SKIP`** → skip verification entirely; jump to the **Checkpoint** at the end of Step 6 (same as `use_current`).
+   - **`ASK_STALE`** → use `AskUserQuestion`:
+     - Question: the `DISPLAY:` line plus " How would you like to proceed?"
+     - Header: "Stale plan"
+     - Options:
+       - "Verify now" (description: "Enter verify mode; a fresh entry will be appended on exit")
+       - "Skip verification" (description: "Use the existing plan as-is, without refreshing")
+       - "Create plan from scratch" (description: "Discard the existing plan and start fresh")
+     - "Verify now" → enter verification mode (step 6.1 via the verify path).
+     - "Skip verification" → jump to the **Checkpoint** (same as `use_current`).
+     - "Create plan from scratch" → proceed with step 6.1 as normal, ignoring the existing plan.
+   - **`VERIFY`** → enter verification mode directly (step 6.1 via the verify path). Display: "Profile '{{ profile.name }}': no fresh verifications — entering verify mode."
+
+{% else %}{# plan_preference / plan_preference_child: both keys absent #}
 **Profile check:** If the active profile has `plan_preference` set (or `plan_preference_child` for child tasks — `plan_preference_child` takes priority when the current task is a child task):
 - If `"use_current"`: Skip to the **Checkpoint** at the end of Step 6. Display: "Profile '\<name\>': using existing plan"
 - If `"verify"`: Run the **Verify Decision** sub-procedure below, then branch on its result. Display: "Profile '\<name\>': checking verification status"
@@ -72,6 +117,7 @@ Otherwise, use `AskUserQuestion`:
 **If "Use current plan":** Skip to the **Checkpoint** at the end of Step 6.
 **If "Verify plan":** Enter plan mode (step 6.1), but start by reading the existing plan and verifying it against the current codebase. Update the plan if needed.
 **If "Create plan from scratch":** Proceed with step 6.1 as normal, ignoring the existing plan.
+{% endif %}{# ---------- end plan_preference / plan_preference_child ---------- #}
 
 **If no plan file exists**, proceed with step 6.1 as normal.
 
@@ -288,6 +334,22 @@ Base branch: main
 
 **Determine effective post-plan action:**
 
+{# ---------- post_plan_action / post_plan_action_for_child ---------- #}{% if profile.post_plan_action_for_child is defined or profile.post_plan_action is defined %}
+Profile '{{ profile.name }}' configures the post-plan action.
+{# ---------- post_plan_action vs post_plan_action_for_child resolution ---------- #}{% if profile.post_plan_action_for_child is defined and profile.post_plan_action is defined %}
+For **child tasks** (when `is_child` is true), the effective action is `post_plan_action_for_child: {{ profile.post_plan_action_for_child }}`. For **parent tasks**, the effective action is `post_plan_action: {{ profile.post_plan_action }}`. Resolve which one applies based on `is_child`.
+{% elif profile.post_plan_action_for_child is defined %}{# post_plan_action_for_child defined, post_plan_action absent #}
+For **child tasks** (when `is_child` is true), the effective action is `post_plan_action_for_child: {{ profile.post_plan_action_for_child }}`. For **parent tasks**, no profile preference is set — fall through to the interactive AskUserQuestion below.
+{% else %}{# post_plan_action defined, post_plan_action_for_child absent #}
+The effective action is `post_plan_action: {{ profile.post_plan_action }}`.
+{% endif %}{# ---------- end post_plan_action vs post_plan_action_for_child resolution ---------- #}
+
+Then act on the effective value:
+
+- If the effective action is `"start_implementation"`: Display "Profile '{{ profile.name }}': proceeding to implementation". Execute the **Remote Drift Check Procedure** (see `remote-drift-check.md`) with `base_branch`, `plan_file`, and `active_profile` from context. If the procedure ends the workflow ("Stop and re-verify plan" or "Abort task"), do NOT proceed to Step 7. Otherwise, skip the interactive AskUserQuestion below and proceed to Step 7.
+- If the effective action is `"ask"`: show the interactive checkpoint below.
+
+{% else %}{# post_plan_action / post_plan_action_for_child: both keys absent #}
 1. If `is_child` is true AND the active profile has `post_plan_action_for_child` set, use `post_plan_action_for_child` as the effective action.
 2. Otherwise, use the profile's `post_plan_action` value (if set).
 
@@ -297,6 +359,7 @@ Base branch: main
 - Otherwise, skip the AskUserQuestion below and proceed to Step 7.
 
 If the effective action is `"ask"`, or is not set (no profile / key omitted): show the interactive checkpoint below.
+{% endif %}{# ---------- end post_plan_action / post_plan_action_for_child ---------- #}
 
 Otherwise, use `AskUserQuestion`:
 - Question: "Plan saved to `<plan_path>`. How would you like to proceed?"

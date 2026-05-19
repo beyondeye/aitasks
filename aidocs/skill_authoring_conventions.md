@@ -213,7 +213,7 @@ blank), or that whitespace control on a tag itself changed.
 
 This convention applies to any `.md` / `.md.j2` file rendered by
 `skill_template.py`, including shared procedure files under
-`.claude/skills/task-workflow/` (and its t777-staged sibling `task-workflown/`).
+`.claude/skills/task-workflow/`.
 
 ## Do not route skill invocation through `claude -p "<inlined prompt>"`
 

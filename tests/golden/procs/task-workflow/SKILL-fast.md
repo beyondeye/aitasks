@@ -1,6 +1,6 @@
 ---
-name: task-workflown
-description: "[t777_7 staged] Shared implementation workflow for task-based skills, with profile-check sites wrapped in Jinja conditionals. Atomic-rename target for the t777_NN swap follow-up."
+name: task-workflow
+description: "Shared implementation workflow for task-based skills, with profile-check sites wrapped in Jinja conditionals."
 user-invocable: false
 ---
 
@@ -91,9 +91,9 @@ If none of the checks trigger, proceed to Step 4 as normal.
      - Use the selected email and proceed to the **Claim task ownership** step below.
   4. **If `assigned_to` is non-empty** (and matches userconfig, or userconfig is empty): use `assigned_to`. Display: "Using email from task metadata: \<email\>". Skip to **Claim task ownership**.
 
-  5. **Profile-driven email resolution** (profile 'remote', `default_email: userconfig`):
+  5. **Profile-driven email resolution** (profile 'fast', `default_email: userconfig`):
 
-     - Use the userconfig email (from step 2). If userconfig is empty/missing, fall back to reading `aitasks/metadata/emails.txt` (first email). Display: "Profile 'remote': using email \<email\> (from userconfig)". If both are empty, prompt the user via `AskUserQuestion` as described in step 6 below.
+     - Use the userconfig email (from step 2). If userconfig is empty/missing, fall back to reading `aitasks/metadata/emails.txt` (first email). Display: "Profile 'fast': using email \<email\> (from userconfig)". If both are empty, prompt the user via `AskUserQuestion` as described in step 6 below.
 
      - Then skip step 6 and proceed to the **Userconfig sync check** below.
 
@@ -178,14 +178,8 @@ If none of the checks trigger, proceed to Step 4 as normal.
 > **Note:** For fully autonomous remote workflows (Claude Code Web), use the `aitask-pickrem` skill instead — it skips all environment setup and always works on the current branch.
 
 
-- **Profile check:** If the active profile has `create_worktree` set:
-  - If `true`: Create worktree. Display: "Profile '\<name\>': creating worktree"
-  - If `false`: Work on current branch. Display: "Profile '\<name\>': working on current branch"
-  - Skip the AskUserQuestion below
+- Work on the current branch in the current directory. Display: "Profile 'fast': working on current branch". Continue with the **If No** branch below.
 
-  Otherwise, use `AskUserQuestion` to ask:
-  - "Do you want to create a separate branch and worktree for this task?"
-  - Options: "No, work on current branch" (default, first option) / "Yes, create worktree (recommended for complex features or when working in parallel on multiple features)"
 
 
 **If Yes:**

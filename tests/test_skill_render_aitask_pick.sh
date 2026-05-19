@@ -6,7 +6,7 @@
 # Coverage:
 #   1. Per-(profile, agent) golden diff for the entry-point template.
 #      The entry-point uses full-path refs that ARE rewritten per-agent,
-#      so all 12 combos need distinct goldens (unlike task-workflown which
+#      so all 12 combos need distinct goldens (unlike task-workflow which
 #      is agent-byte-identical).
 #   2. Profile-conditional sanity: fast/remote renders contain the
 #      auto-confirm branch; default render preserves AskUserQuestion text.
@@ -146,14 +146,14 @@ for agent in "${AGENTS[@]}"; do
     ./.aitask-scripts/aitask_skill_render.sh aitask-pick --profile fast --agent "$agent" --force >/dev/null 2>&1
 done
 
-assert_contains "claude/fast: task-workflown ref rewritten under .claude/skills" \
-    ".claude/skills/task-workflown-fast-/SKILL.md" "$(cat .claude/skills/aitask-pick-fast-/SKILL.md)"
-assert_contains "codex/fast: task-workflown ref rewritten under .agents/skills" \
-    ".agents/skills/task-workflown-fast-/SKILL.md" "$(cat .agents/skills/aitask-pick-fast-/SKILL.md)"
-assert_contains "gemini/fast: task-workflown ref rewritten under .gemini/skills" \
-    ".gemini/skills/task-workflown-fast-/SKILL.md" "$(cat .gemini/skills/aitask-pick-fast-/SKILL.md)"
-assert_contains "opencode/fast: task-workflown ref rewritten under .opencode/skills" \
-    ".opencode/skills/task-workflown-fast-/SKILL.md" "$(cat .opencode/skills/aitask-pick-fast-/SKILL.md)"
+assert_contains "claude/fast: task-workflow ref rewritten under .claude/skills" \
+    ".claude/skills/task-workflow-fast-/SKILL.md" "$(cat .claude/skills/aitask-pick-fast-/SKILL.md)"
+assert_contains "codex/fast: task-workflow ref rewritten under .agents/skills" \
+    ".agents/skills/task-workflow-fast-/SKILL.md" "$(cat .agents/skills/aitask-pick-fast-/SKILL.md)"
+assert_contains "gemini/fast: task-workflow ref rewritten under .gemini/skills" \
+    ".gemini/skills/task-workflow-fast-/SKILL.md" "$(cat .gemini/skills/aitask-pick-fast-/SKILL.md)"
+assert_contains "opencode/fast: task-workflow ref rewritten under .opencode/skills" \
+    ".opencode/skills/task-workflow-fast-/SKILL.md" "$(cat .opencode/skills/aitask-pick-fast-/SKILL.md)"
 
 # === Test 5: stub-marker checks ===
 

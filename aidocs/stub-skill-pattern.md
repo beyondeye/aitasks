@@ -194,7 +194,7 @@ If a candidate path does not resolve to a real source file under `.claude/skills
 The point of templated dispatch is that the rendered variant has the profile baked in at render time. The rendered body must therefore NEVER re-resolve the profile at runtime. In particular, the following procedures must NOT appear in the source templates (and consequently must not appear in any rendered output):
 
 - Step 0 / Step 0a "Select Execution Profile" — would re-run `aitask_scan_profiles.sh`.
-- task-workflown Step 3b "refresh execution profile" — would re-read the profile YAML.
+- task-workflow Step 3b "refresh execution profile" — would re-read the profile YAML.
 - Any equivalent "Execute the Execution Profile Selection Procedure" hand-off inside the rendered closure.
 
 Profile is mandatory at render time — `skill_template.py::render_skill` always passes a non-empty `profile` binding. The no-profile fallback is dead code and must be **deleted outright** from source templates, not wrapped in `{% if not profile %}…{% endif %}` guards (which just preserves dead documentation in the rendered output).
@@ -206,7 +206,7 @@ Profile is mandatory at render time — `skill_template.py::render_skill` always
 - `Select Execution Profile`
 - `refresh execution profile`
 
-The two render tests (`tests/test_skill_render_aitask_pick.sh`, `tests/test_skill_render_task_workflown.sh`) enforce this with `assert_not_contains` over all rendered combos. New per-skill conversions (t777_8..15) MUST extend the same assertions to their entry-point and procedure goldens.
+The two render tests (`tests/test_skill_render_aitask_pick.sh`, `tests/test_skill_render_task_workflow.sh`) enforce this with `assert_not_contains` over all rendered combos. New per-skill conversions (t777_8..15) MUST extend the same assertions to their entry-point and procedure goldens.
 
 ## Pilot findings (t777_6)
 
@@ -216,7 +216,7 @@ established five patterns that subsequent per-skill conversions
 
 1. **Uniform recursive rendering works end-to-end.**
    `aitask_skill_render.sh`'s walk-write traversed the 22-file
-   `task-workflown/` closure across 12 (profile × agent) renders without
+   `task-workflow/` closure across 12 (profile × agent) renders without
    manual intervention. The reference-rewrite regex (`FULL_PATH_REF_RE`
    in `lib/skill_template.py`) and BFS visited-set are the supported
    public interface — do not reinvent them per skill. Per-skill work

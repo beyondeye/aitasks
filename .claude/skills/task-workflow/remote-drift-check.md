@@ -14,7 +14,11 @@ Detects whether `origin/<base-branch>` has commits the local `<base-branch>` is 
 
 ## Procedure
 
+{# ---------- remote_drift_check ---------- #}{% if profile.remote_drift_check is defined and profile.remote_drift_check == "skip" %}
+1. **Profile '{{ profile.name }}' sets `remote_drift_check: skip`** — return immediately to the caller with no display.
+{% else %}{# remote_drift_check: key absent or value != "skip" #}
 1. **Profile check.** If the active profile has `remote_drift_check: skip`, return immediately with no display.
+{% endif %}{# ---------- end remote_drift_check ---------- #}
 
 2. **Run the helper:**
 

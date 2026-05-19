@@ -1,6 +1,6 @@
 ---
 name: task-workflow
-description: Shared implementation workflow for task-based skills. Handles status checks, assignment, environment setup, planning, implementation, review, and archival.
+description: "Shared implementation workflow for task-based skills, with profile-check sites wrapped in Jinja conditionals."
 user-invocable: false
 ---
 
@@ -76,11 +76,6 @@ After a task is selected and confirmed, perform these checks before proceeding t
 
 If none of the checks trigger, proceed to Step 4 as normal.
 
-### Step 3b: refresh execution profile
-If `active_profile` was provided and is non-null, re-read the profile YAML file using the stored filename: `cat aitasks/metadata/profiles/<active_profile_filename>`. Display: "Refreshing profile: \<name\>". If the file cannot be read (missing or invalid), warn: "Warning: Could not refresh profile '\<name\>', proceeding without profile" and set `active_profile` to null.
-
-If `active_profile` is null (either because no profile was selected by the calling skill, or because the profile name was lost during a long conversation), re-run the profile selection: execute the **Execution Profile Selection Procedure** (see `execution-profile-selection.md`).
-
 ### Step 4: Assign Task to User
 
 - **Email resolution (priority order):**
@@ -95,11 +90,23 @@ If `active_profile` is null (either because no profile was selected by the calli
        - "Use \<userconfig_email\>" (description: "Override with your local email")
      - Use the selected email and proceed to the **Claim task ownership** step below.
   4. **If `assigned_to` is non-empty** (and matches userconfig, or userconfig is empty): use `assigned_to`. Display: "Using email from task metadata: \<email\>". Skip to **Claim task ownership**.
+{# ---------- default_email ---------- #}{% if profile.default_email is defined %}
+  5. **Profile-driven email resolution** (profile '{{ profile.name }}', `default_email: {{ profile.default_email }}`):
+{# ---------- default_email value ---------- #}{% if profile.default_email == "userconfig" %}
+     - Use the userconfig email (from step 2). If userconfig is empty/missing, fall back to reading `aitasks/metadata/emails.txt` (first email). Display: "Profile '{{ profile.name }}': using email \<email\> (from userconfig)". If both are empty, prompt the user via `AskUserQuestion` as described in step 6 below.
+{% elif profile.default_email == "first" %}{# default_email: literal "first" #}
+     - Read `aitasks/metadata/emails.txt` and use the first email address. Display: "Profile '{{ profile.name }}': using email \<email\>". If emails.txt is empty or missing, prompt the user via `AskUserQuestion` as described in step 6 below.
+{% else %}{# default_email: literal email address #}
+     - Use `{{ profile.default_email }}` directly. Display: "Profile '{{ profile.name }}': using email {{ profile.default_email }}".
+{% endif %}{# ---------- end default_email value ---------- #}
+     - Then skip step 6 and proceed to the **Userconfig sync check** below.
+{% else %}{# default_email: key absent from profile #}
   5. **Profile check:** If the active profile has `default_email` set:
      - If value is `"userconfig"`: Use the userconfig email (from step 2). If userconfig is empty/missing, fall back to reading `aitasks/metadata/emails.txt` (first email). Display: "Profile '\<name\>': using email \<email\> (from userconfig)". If both are empty, fall through to the AskUserQuestion below.
      - If value is `"first"`: Read `aitasks/metadata/emails.txt` and use the first email address. Display: "Profile '\<name\>': using email \<email\>". If emails.txt is empty or missing, fall through to the AskUserQuestion below.
      - If value is a literal email address: Use that email directly. Display: "Profile '\<name\>': using email \<email\>"
      - Skip the AskUserQuestion below
+{% endif %}{# ---------- end default_email ---------- #}
 
   6. **Otherwise, ask for email using `AskUserQuestion`:**
      - Read stored emails: `cat aitasks/metadata/emails.txt 2>/dev/null | sort -u`
@@ -180,6 +187,11 @@ If `active_profile` is null (either because no profile was selected by the calli
 
 > **Note:** For fully autonomous remote workflows (Claude Code Web), use the `aitask-pickrem` skill instead — it skips all environment setup and always works on the current branch.
 
+{# ---------- create_worktree ---------- #}{% if profile.create_worktree is defined %}
+{# ---------- create_worktree value ---------- #}{% if profile.create_worktree %}- Create a separate branch and worktree for this task. Display: "Profile '{{ profile.name }}': creating worktree". Continue with the **If Yes** branch below.
+{% else %}{# create_worktree: value is false / falsy #}- Work on the current branch in the current directory. Display: "Profile '{{ profile.name }}': working on current branch". Continue with the **If No** branch below.
+{% endif %}{# ---------- end create_worktree value ---------- #}
+{% else %}{# create_worktree: key absent from profile #}
 - **Profile check:** If the active profile has `create_worktree` set:
   - If `true`: Create worktree. Display: "Profile '\<name\>': creating worktree"
   - If `false`: Work on current branch. Display: "Profile '\<name\>': working on current branch"
@@ -188,6 +200,7 @@ If `active_profile` is null (either because no profile was selected by the calli
   Otherwise, use `AskUserQuestion` to ask:
   - "Do you want to create a separate branch and worktree for this task?"
   - Options: "No, work on current branch" (default, first option) / "Yes, create worktree (recommended for complex features or when working in parallel on multiple features)"
+{% endif %}{# ---------- end create_worktree ---------- #}
 
 **If Yes:**
 
@@ -195,6 +208,9 @@ If `active_profile` is null (either because no profile was selected by the calli
   - For parent: `t16_implement_channel_settings` from `t16_implement_channel_settings.md`
   - For child: `t16_2_add_login` from `t16_2_add_login.md`
 
+{# ---------- base_branch ---------- #}{% if profile.base_branch is defined %}
+- Use base branch `{{ profile.base_branch }}` for this task. Display: "Profile '{{ profile.name }}': using base branch {{ profile.base_branch }}".
+{% else %}{# base_branch: key absent from profile #}
 - **Profile check:** If the active profile has `base_branch` set:
   - Use the specified branch name. Display: "Profile '\<name\>': using base branch \<branch\>"
   - Skip the AskUserQuestion below
@@ -203,6 +219,7 @@ If `active_profile` is null (either because no profile was selected by the calli
   - "Which branch should the new task branch be based on?"
   - Options: "main (Recommended)" / "Other branch"
   - If "Other branch", ask user to specify the branch name
+{% endif %}{# ---------- end base_branch ---------- #}
 
 - Create worktree directory:
   ```bash
@@ -571,7 +588,7 @@ The following procedures are in individual files — read on demand when referen
 - **Manual Verification Follow-up Procedure** (`manual-verification-followup.md`) — Post-implementation prompt offering to create a standalone manual-verification task, with multi-source candidate discovery. Referenced from Step 8c.
 - **Upstream Defect Follow-up Procedure** (`upstream-followup.md`) — Post-implementation prompt offering to spawn a standalone bug aitask for an upstream defect surfaced during diagnosis. Reads the plan file's "Upstream defects identified" subsection. Referenced from Step 8b.
 - **Remote Drift Check Procedure** (`remote-drift-check.md`) — Warn before implementation if `origin/<base-branch>` is ahead of local, with strong emphasis on files the plan touches. Referenced from planning.md Checkpoint.
-- **Execution Profile Selection Procedure** (`execution-profile-selection.md`) — Interactive profile scan and selection. Referenced from Step 0a in calling skills and Step 3b.
+- **Execution Profile Selection Procedure** (`execution-profile-selection.md`) — Interactive profile scan and selection. Referenced from Step 0a in calling skills.
 - **Execution Profile Selection Procedure — Auto-Select** (`execution-profile-selection-auto.md`) — Non-interactive auto-select for remote/web skills. Referenced from Step 1 in aitask-pickrem/aitask-pickweb.
 - **Batch Task Creation Procedure** (`task-creation-batch.md`) — Canonical command templates for creating tasks via `aitask_create.sh --batch`. Referenced from planning.md and multiple skills (explore, review, qa, wrap, pr-import, revert).
 
