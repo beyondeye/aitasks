@@ -282,3 +282,121 @@ Plan file commit (separate, via `./ait git`):
 ```
 ait: Update plan for t792
 ```
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  1. `.aitask-scripts/brainstorm/brainstorm_session.py` — force-canonical
+     `created_by_group` assignment in both apply paths (patcher path at
+     line 643-645 and the shared `_apply_node_output` at line 857-862).
+     The agent's value is no longer trusted; the canonical group name
+     is always written from `_agent_to_group_name(agent_name)`.
+  2. New module-level helper `resolve_node_group(node_id, stored_group,
+     groups)` in `brainstorm_session.py` — defensive 3-step lookup
+     (direct → `nodes_created` membership → suffix match) used by all
+     graph-tab consumers to render the correct operation even on
+     pre-t792 already-stored nodes with drifted values like
+     `op_explore_001`.
+  3. `.aitask-scripts/brainstorm/brainstorm_app.py` — new
+     `_format_progress_bar()` helper extracted from `_mount_agent_row`
+     and reused by the new group-level aggregate bar. `GroupRow` now
+     takes `aggregate_progress=` kwarg and renders the bar when the
+     group is not Completed and at least one agent has progress > 0.
+     New `_compute_group_progress()` instance method reads each agent's
+     `_status.yaml` and returns the rounded mean. The Status-tab
+     refresh wires this in. Graph-tab detail pane and `NodeRow`'s `o`
+     key handler both call `resolve_node_group()` to handle drift.
+  4. `.aitask-scripts/brainstorm/brainstorm_dag_display.py` —
+     `DAGDisplay.action_open_operation` also resolves drift before
+     posting `OperationOpened`, so the modal dialog opens with the
+     canonical group name even for pre-t792 drifted nodes.
+  5. `.aitask-scripts/brainstorm/templates/explorer.md` and
+     `templates/synthesizer.md` — removed `created_by_group` from the
+     agent output schema. The apply-path overwrite makes the agent's
+     value moot; keeping the schema entry would be misleading.
+     `patcher.md` and `detailer.md` don't reference it directly;
+     `initializer.md` keeps its literal `bootstrap` value since the
+     initializer uses a separate apply function (`apply_initializer_output`)
+     that retains the if-missing fallback (no parallel-agent drift risk).
+- **Deviations from plan:**
+  - The plan called for a single defensive fix in the graph-tab detail
+    pane; user testing surfaced two more sites that needed the same
+    resolution: `NodeRow.action_open_operation` (node-list `o` key) and
+    `DAGDisplay.action_open_operation` (DAG view `o` key). The helper
+    was promoted to `brainstorm_session.py` (originally `brainstorm_app.py`)
+    to avoid a circular import from `brainstorm_dag_display.py`.
+- **Issues encountered:** None blocking. The defensive lookup needed to
+  cover three code paths (detail pane + two `o`-key handlers), not just
+  one. Confirmed by the user across two TUI iterations.
+- **Key decisions:**
+  - Force-overwrite in apply paths (not just "if missing"). The agent's
+    value carries no information the orchestrator doesn't already have
+    (`_agent_to_group_name(agent_name)` is total), so trusting it
+    invites drift with no upside.
+  - Mean-across-agents for aggregate progress (rather than min or max).
+    Matches the user's mental model: "the explore op is halfway done."
+  - Suffix-match fallback (`stored_group.endswith(gname)`) is a deliberate
+    asymmetric match — it catches `op_<canonical>` and
+    `operation_<canonical>` without over-matching. Considered prefix-strip
+    of a hard-coded set (`{"op_", "operation_"}`) but the suffix-match is
+    self-extending: any future drift pattern that suffixes the canonical
+    name works automatically.
+- **Upstream defects identified:**
+  - `.aitask-scripts/brainstorm/brainstorm_crew.py:191-264` (`_assemble_input_explorer`) — the assembled explorer `_input.md` never tells the agent which `node_id` to use, yet `templates/explorer.md:30` instructs the agent to "Use the ID assigned by the orchestrator (provided in input)". Parallel explorers must invent IDs; in `brainstorm-635` they happened to pick different slugs (`n002_template_resolved_gates`, `n002_profile_templated_gates`), but a collision would cause the second apply to fail at the `node_id already exists` check (`brainstorm_session.py:885`). Same gap exists for `_assemble_input_synthesizer`.
+- **Verification performed:**
+  - `python3 -m py_compile` on all three edited Python modules — OK.
+  - `bash tests/test_brainstorm_apply_created_by_group.sh` (new) —
+    2/2 PASS. Covers both explorer and patcher apply paths force-canonicalize
+    even when the agent emits a drifted value.
+  - `bash tests/test_brainstorm_group_progress_aggregate.sh` (new) —
+    4/4 PASS. Covers `_format_progress_bar`, mean aggregation arithmetic,
+    `_compute_group_progress` reading real YAML files, and the three
+    `resolve_node_group` resolution paths plus the unresolved fallback.
+  - `bash tests/test_brainstorm_*.sh` — all existing brainstorm tests
+    (cli, init_proposal_file, apply_patcher_cli) still pass.
+  - **Manual TUI verification by the user** on session `brainstorm-635`:
+    - Graph-tab detail pane: `n002_profile_templated_gates` (drifted
+      value `op_explore_001`) now displays the correct `explore`
+      operation and the full agent roster.
+    - `o`-key from DAG view on the same drifted node: opens the
+      `OperationDetailScreen` modal with the canonical `explore_001`
+      title and a populated group entry.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-19)
+- **Requested by user:** The graph-tab detail pane on the drifted node
+  (`n002_profile_templated_gates`) still showed `?` as the operation
+  even after the apply-path force-canonicalize landed (because the
+  apply fix only affects future applies, not the already-stored
+  drifted YAML).
+- **Changes made:** Added `_resolve_node_group` defensive lookup (later
+  promoted to `resolve_node_group` in `brainstorm_session.py`) wired
+  into the graph-tab detail pane. The pane now resolves
+  `op_explore_001` → `explore_001` via the suffix-match path.
+- **Files affected:** `brainstorm_app.py` (initial helper + call site
+  in detail pane).
+
+### Change Request 2 (2026-05-19)
+- **Requested by user:** Pressing `o` on the drifted node opened the
+  operation modal with title `op_explore_001` and body "no group
+  entry recorded" — the modal lookup hadn't received the resolved
+  group.
+- **Changes made:** Promoted the helper to `brainstorm_session.py` as
+  `resolve_node_group` (avoids circular import); applied the same
+  defensive resolution in both `NodeRow.action_open_operation`
+  (`brainstorm_app.py:1539`) and `DAGDisplay.action_open_operation`
+  (`brainstorm_dag_display.py:726`).
+- **Files affected:** `brainstorm_session.py` (helper added),
+  `brainstorm_app.py` (helper deleted + imports updated), 
+  `brainstorm_dag_display.py` (import + resolution wired in),
+  `tests/test_brainstorm_group_progress_aggregate.sh` (import path
+  + name updated).
+
+## Follow-up tasks identified during implementation
+
+- **Loading indicator for `o`-key operation modal.** The
+  `OperationDetailScreen` modal takes a few seconds to open and gives
+  no visual feedback while loading — looks like the TUI is unresponsive.
+  Surfaced by the user during t792 manual verification. Tracked as a
+  separate aitask (enhancement).
