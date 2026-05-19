@@ -8,7 +8,7 @@ labels: [aitask_pick]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-17 11:59
-updated_at: 2026-05-19 10:12
+updated_at: 2026-05-19 10:43
 ---
 
 ## Context
