@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [ait_brainstorm, brainstorm_explore]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-19 09:45
-updated_at: 2026-05-19 09:45
+updated_at: 2026-05-19 11:49
 ---
 
 Upstream defect surfaced during t792 diagnosis.
