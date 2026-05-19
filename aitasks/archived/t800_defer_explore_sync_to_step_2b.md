@@ -3,10 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Done
 labels: [aitask_explore, skill_optiomizations]
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-19 15:19
-updated_at: 2026-05-19 15:19
+updated_at: 2026-05-19 15:26
+completed_at: 2026-05-19 15:26
 ---
 
 Defer the `aitask_pick_own.sh --sync` call in `/aitask-explore` from the upfront Step 0 to the top of Step 2b (Related Task Discovery).
