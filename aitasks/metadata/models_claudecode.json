@@ -350,7 +350,7 @@
       "usagestats": {
         "pick": {
           "all_time": {
-            "runs": 93
+            "runs": 94
           },
           "prev_month": {
             "period": "2026-04",
@@ -358,11 +358,11 @@
           },
           "month": {
             "period": "2026-05",
-            "runs": 75
+            "runs": 76
           },
           "week": {
             "period": "2026-W21",
-            "runs": 19
+            "runs": 20
           }
         },
         "explore": {
