@@ -1,12 +1,13 @@
 ---
 priority: high
 effort: low
-depends: [t777_22, 777_6]
+depends: [t777_22, t777_6]
 issue_type: chore
-status: Ready
+status: Implementing
 labels: []
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-18 12:47
-updated_at: 2026-05-18 12:47
+updated_at: 2026-05-19 11:51
 ---
 
 ## Context
