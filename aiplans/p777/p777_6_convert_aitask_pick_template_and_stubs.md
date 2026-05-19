@@ -324,6 +324,85 @@ Per `task-workflow/SKILL.md` Step 9, see Phase 7 above.
   they inherit the corrected pattern from the updated
   `aidocs/stub-skill-pattern.md`.
 
+## Final Implementation Notes (Phase 5 + Phase 6 landed 2026-05-19)
+
+- **Actual work done:**
+  - Phase 5 atomic rename executed in a single working pass: deleted the
+    4 live `aitask-pick` stubs, moved the 5 staged `aitask-pickn`
+    artifacts (template + 4 stubs) into the `aitask-pick` locations,
+    string-replaced `aitask-pickn`/`aitask_pickn` → `aitask-pick`/`aitask_pick`
+    in every moved file, moved `tests/golden/skills/aitask-pickn/` →
+    `tests/golden/skills/aitask-pick/` (and patched the 12 golden files
+    in-place to clear the `aitask-pickn` tokens), renamed
+    `tests/test_skill_render_aitask_pickn.sh` →
+    `tests/test_skill_render_aitask_pick.sh`, dropped the
+    `aitask-pick|aitask-pickn)` alias from
+    `.aitask-scripts/aitask_skill_verify.sh:71`, and cleaned up the two
+    paired `aitask-pick`/`aitask-pickn` mentions in
+    `aidocs/stub-skill-pattern.md:50,143` plus the stale test-script
+    reference at the bottom of that file. Deleted now-empty staged dirs
+    (`.claude/skills/aitask-pickn/`, `.agents/skills/aitask-pickn/`).
+    Re-rendered all 12 (profile × agent) combos under the new name.
+  - Phase 6 documentation: appended a new `## Pilot findings (t777_6)`
+    section to `aidocs/stub-skill-pattern.md` with five lessons —
+    uniform recursive rendering works, stage-under-`<skill>n` is
+    canonical for in-use skills, golden-file tests are mandatory,
+    entry-point `.md.j2` vs procedure `.md` convention, per-agent tool
+    mapping stays in prereq files (never in template body).
+  - Re-ran `bash tests/test_skill_render_aitask_pick.sh` (116/116 PASS)
+    and `./.aitask-scripts/aitask_skill_verify.sh` (OK). Confirmed only
+    remaining `aitask-pickn` reference outside task/plan/transcript
+    bookkeeping is the intentional historical mention in the new pilot
+    findings section (describing the staging pattern itself).
+
+- **Deviations from plan:**
+  - Plan's Phase 5 step 4 said "single `mv`" for the goldens dir, but
+    the 12 golden files themselves still contained `aitask-pickn`
+    tokens — caught immediately by the first test run (12 failures).
+    Fixed with an in-place `sed` pass on every file in
+    `tests/golden/skills/aitask-pick/*.md`. Plan now reflects this two-step.
+  - Verify script alias drop landed cleanly with one `sed` edit (no
+    edge cases — single occurrence).
+
+- **Issues encountered:**
+  - Initial test run after Phase 5 step 9 (re-render) produced 12 golden
+    diffs because the `mv tests/golden/skills/aitask-pickn → aitask-pick`
+    preserved file *names* but the *content* still had the old token.
+    The plan's diagnosis cookbook ("Diff shows leftover `aitask-pickn`
+    token in a rendered output") covered this exact failure mode, and
+    the fix was the documented `grep -rn aitask-pickn …` + sed pass.
+
+- **Key decisions:**
+  - Kept `task-workflown` references intact in the rendered closure.
+    The `.j2` template body still points at `.claude/skills/task-workflown/`
+    procedures; t777_23 reverts this when it renames `task-workflown` →
+    `task-workflow`. This means the goldens currently reference
+    `task-workflown-<profile>-/SKILL.md` rendered closures — which is
+    correct for the current intermediate state.
+  - The historical `aitask-pickn` mention retained in
+    `aidocs/stub-skill-pattern.md`'s new pilot-findings section is
+    intentional — it documents what the staging-pattern memory
+    (`feedback_stage_under_parallel_name`) actually looked like in
+    practice. Removing it would make the lesson unreadable.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks (per-skill conversions t777_8..15):**
+  Phase 5's golden-file content patch (step beyond the `mv`) is now part
+  of the conversion playbook. When `<skill>n` → `<skill>` atomic rename
+  fires, do BOTH:
+  1. `mv tests/golden/skills/<skill>n → tests/golden/skills/<skill>`
+  2. `sed -i 's/<skill>n/<skill>/g; s/<skill_under>n/<skill_under>/g'
+     tests/golden/skills/<skill>/*.md`
+
+  Otherwise the first post-rename test run produces N×M golden-diff
+  failures (where N = profiles, M = agents). Already captured in the
+  refreshed pilot-findings section as part of the golden-file lesson.
+
+  All five lessons in §"Pilot findings (t777_6)" of
+  `aidocs/stub-skill-pattern.md` are required reading before starting
+  any of t777_8..15.
+
 ## Follow-up: t777_23 (already filed, depends on this task)
 
 After t777_6 lands and manual verification passes, t777_23:
