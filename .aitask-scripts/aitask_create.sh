@@ -1055,6 +1055,37 @@ select_dependencies() {
     echo "$deps"
 }
 
+select_archived_task_ref() {
+    local lines selected path
+    lines=$("$SCRIPT_DIR/aitask_query_files.sh" recent-archived 999 2>/dev/null || true)
+
+    if [[ -z "$lines" ]] || [[ "$lines" == "NO_RECENT_ARCHIVED" ]]; then
+        warn "No archived tasks found." >&2
+        echo ""
+        return
+    fi
+
+    local rows
+    rows=$(echo "$lines" | awk -F'|' '
+        /^RECENT_ARCHIVED:/ {
+            sub(/^RECENT_ARCHIVED:/, "", $1)
+            printf "%s    [%s] %s (%s)\n", $1, $2, $4, $3
+        }')
+
+    selected=$(echo "$rows" | fzf --prompt="Archived task: " --height=20 --no-info \
+        --header="Select archived task to reference (Esc to cancel)" \
+        --preview 'head -80 {1}' --preview-window=right:60% \
+        2>/dev/null || echo "")
+
+    if [[ -z "$selected" ]]; then
+        echo ""
+        return
+    fi
+
+    path=$(echo "$selected" | awk '{print $1}')
+    echo "$path"
+}
+
 # --- Step 3: Task Name ---
 
 sanitize_name() {
@@ -1126,15 +1157,33 @@ $desc_block"
         local -a current_round_refs=()
         while true; do
             local add_file
-            local menu_opts="Add file reference\nDone with files"
+            local menu_opts="Add file reference\nAdd archived task reference\nDone with files"
             if [[ ${#current_round_refs[@]} -gt 0 ]]; then
-                menu_opts="Add file reference\nRemove file reference\nDone with files"
+                menu_opts="Add file reference\nAdd archived task reference\nRemove reference\nDone with files"
             fi
-            add_file=$(echo -e "$menu_opts" | fzf --prompt="Add file? " --height=8 --no-info)
+            add_file=$(echo -e "$menu_opts" | fzf --prompt="Add reference? " --height=8 --no-info)
 
             if [[ "$add_file" == "Done with files" ]] || [[ -z "$add_file" ]]; then
                 break
-            elif [[ "$add_file" == "Remove file reference" ]]; then
+            elif [[ "$add_file" == "Add archived task reference" ]]; then
+                local selected_archived
+                selected_archived=$(select_archived_task_ref)
+                if [[ -n "$selected_archived" ]]; then
+                    if [[ -n "$task_desc" ]]; then
+                        task_desc="$task_desc
+$selected_archived"
+                    else
+                        task_desc="$selected_archived"
+                    fi
+                    # Track in current_round_refs so the in-round Remove
+                    # affordance can drop it. Deliberately NOT added to
+                    # all_file_refs — archived task references stay inline
+                    # in the description only, not in file_references:.
+                    current_round_refs+=("$selected_archived")
+                    success "Added archived ref: $selected_archived" >&2
+                fi
+                continue
+            elif [[ "$add_file" == "Remove reference" ]]; then
                 # Let user pick which file ref to remove
                 local remove_file
                 remove_file=$(printf '%s\n' "${current_round_refs[@]}" | fzf --prompt="Remove which file? " --height=12 --no-info)
