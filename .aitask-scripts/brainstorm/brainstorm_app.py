@@ -1581,16 +1581,22 @@ class NodeRow(Static):
             super().__init__()
             self.group_name = group_name
 
-    def __init__(self, node_id: str, description: str, is_head: bool = False):
+    def __init__(self, node_id: str, description: str, is_head: bool = False,
+                 has_plan: bool = False):
         super().__init__()
         self.node_id = node_id
         self.node_description = description
         self.is_head = is_head
+        self.has_plan = has_plan
         self.can_focus = True
 
     def render(self) -> str:
         head_marker = " [bold green]HEAD[/]" if self.is_head else ""
-        return f"[bold]{self.node_id}[/]{head_marker}  {self.node_description}"
+        plan_marker = (
+            " [bold green]● has plan[/]" if self.has_plan
+            else " [dim]○ no plan[/]"
+        )
+        return f"[bold]{self.node_id}[/]{head_marker}{plan_marker}  {self.node_description}"
 
     def action_open_operation(self) -> None:
         """Post OperationOpened for this row's generating group (o key)."""
@@ -4089,7 +4095,8 @@ class BrainstormApp(TuiSwitcherMixin, App):
         for nid in nodes:
             node_data = read_node(self.session_path, nid)
             desc = node_data.get("description", "")
-            row = NodeRow(nid, desc, is_head=(nid == head))
+            has_plan = bool(node_data.get("plan_file"))
+            row = NodeRow(nid, desc, is_head=(nid == head), has_plan=has_plan)
             pane.mount(row)
 
     def _render_node_detail_widgets(self, node_id: str) -> tuple[str, list]:
@@ -4637,8 +4644,22 @@ class BrainstormApp(TuiSwitcherMixin, App):
         for nid in nodes:
             node_data = read_node(self.session_path, nid)
             desc = node_data.get("description", "")
-            lbl = f"{nid} [green]HEAD[/]" if nid == head else nid
-            container.mount(OperationRow(nid, lbl, desc))
+            has_plan = bool(node_data.get("plan_file"))
+
+            lbl_parts = [nid]
+            if nid == head:
+                lbl_parts.append("[green]HEAD[/]")
+            if has_plan:
+                lbl_parts.append("[bold green]● has plan[/]")
+            else:
+                lbl_parts.append("[dim]○ no plan[/]")
+            lbl = " ".join(lbl_parts)
+
+            disabled = (self._wizard_op == "patch" and not has_plan)
+            if disabled:
+                desc = f"{desc}  [italic](patch unavailable)[/]"
+
+            container.mount(OperationRow(nid, lbl, desc, disabled=disabled))
 
         container.mount(
             Button("Next \u25b6", variant="primary", classes="btn_actions_next", disabled=True)
@@ -4850,6 +4871,14 @@ class BrainstormApp(TuiSwitcherMixin, App):
     def _node_has_sections(self, node_id: str) -> bool:
         """True when the node's plan or proposal has structured sections."""
         return bool(self._node_sections(node_id))
+
+    def _node_has_plan(self, node_id: str) -> bool:
+        """Return True if the node has a plan_file set in its YAML."""
+        try:
+            data = read_node(self.session_path, node_id)
+        except Exception:
+            return False
+        return bool(data.get("plan_file"))
 
     def _actions_collect_config(self) -> bool:
         """Collect and validate config from config step widgets. Returns True if valid."""
@@ -5066,6 +5095,14 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 node = self._wizard_config.get("_selected_node")
                 if not node:
                     self.notify("Select a node first", severity="warning")
+                    return
+                if self._wizard_op == "patch" and not self._node_has_plan(node):
+                    self.notify(
+                        f"Node '{node}' has no plan — patch is only valid on "
+                        f"nodes that already have an implementation plan.",
+                        severity="error",
+                        timeout=6,
+                    )
                     return
                 if self._node_has_sections(node):
                     self._actions_show_section_select()
