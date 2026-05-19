@@ -1,5 +1,5 @@
 ---
-name: aitask-pickn-default
+name: aitask-pick-default
 description: Select the next AI task for implementation from the `aitasks/` directory.
 ---
 
@@ -9,7 +9,7 @@ description: Select the next AI task for implementation from the `aitasks/` dire
 
 If this skill is invoked with a numeric argument:
 
-**Format 1: Parent task (e.g., `/aitask-pickn 16`):**
+**Format 1: Parent task (e.g., `/aitask-pick 16`):**
 - Parse the argument as the task number
 - Find the matching task file and check for children in a single call:
   ```bash
@@ -25,12 +25,12 @@ If this skill is invoked with a numeric argument:
       - Use `AskUserQuestion`:
         - Question: "Is this the correct task? Brief summary: <1-2 sentence summary of the task>"
         - Header: "Confirm task"
-        - Options: "Yes, proceed" (description: "This is the correct task, continue with aitask-pickn workflow") / "No, abort" (description: "Wrong task, cancel the selection")
+        - Options: "Yes, proceed" (description: "This is the correct task, continue with aitask-pick workflow") / "No, abort" (description: "Wrong task, cancel the selection")
       - If "Yes, proceed" → proceed to **Step 3** (Task Status Checks)
       - If "No, abort" → fall back to normal task selection (proceed to Step 1)
 
 
-**Format 2: Child task (e.g., `/aitask-pickn 16_2`):**
+**Format 2: Child task (e.g., `/aitask-pick 16_2`):**
 - Parse as child task ID (parent=16, child=2)
 - Find the matching child task file:
   ```bash
@@ -51,7 +51,7 @@ If this skill is invoked with a numeric argument:
     - Use `AskUserQuestion`:
       - Question: "Is this the correct task? Brief summary: <1-2 sentence summary of the child task> (Parent: <parent task name>)"
       - Header: "Confirm task"
-      - Options: "Yes, proceed" (description: "This is the correct task, continue with aitask-pickn workflow") / "No, abort" (description: "Wrong task, cancel the selection")
+      - Options: "Yes, proceed" (description: "This is the correct task, continue with aitask-pick workflow") / "No, abort" (description: "Wrong task, cancel the selection")
     - If "Yes, proceed" → proceed to **Step 3** (Task Status Checks)
     - If "No, abort" → fall back to normal task selection (proceed to Step 1)
 
@@ -196,6 +196,6 @@ At this point, a task has been selected and confirmed. Set the following context
 - This skill uses the project's `aitask_ls.sh` script for task prioritization
 - Parent tasks with pending children show as "Has children" and are sorted normally by priority/effort
 - The `--children` flag of `aitask_ls.sh` lists only children of a specific parent
-- When invoked with a child task argument (e.g., `/aitask-pickn 10_2`), the skill goes directly to that child task
+- When invoked with a child task argument (e.g., `/aitask-pick 10_2`), the skill goes directly to that child task
 - For the full Execution Profiles schema, shared workflow notes, and customization guide, see `.claude/skills/task-workflown/SKILL.md`
 - Manual-verification tasks (`issue_type: manual_verification`) dispatch to a dedicated checklist loop instead of the plan+implement flow — see `.claude/skills/task-workflown/manual-verification.md`. Post-implementation follow-up creation is handled by Step 8c (`manual-verification-followup.md`).

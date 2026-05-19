@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# test_skill_render_aitask_pickn.sh - Regression tests for t777_6 pilot:
-#   - .claude/skills/aitask-pickn/SKILL.md.j2 (entry-point template)
+# test_skill_render_aitask_pick.sh - Regression tests for t777_6 pilot:
+#   - .claude/skills/aitask-pick/SKILL.md.j2 (entry-point template)
 #   - 4 per-agent stubs (claude/codex/gemini/opencode)
-#   - 12 golden files under tests/golden/skills/aitask-pickn/ (3 profiles × 4 agents)
+#   - 12 golden files under tests/golden/skills/aitask-pick/ (3 profiles × 4 agents)
 # Coverage:
 #   1. Per-(profile, agent) golden diff for the entry-point template.
 #      The entry-point uses full-path refs that ARE rewritten per-agent,
@@ -13,7 +13,7 @@
 #   3. No Jinja markers leak into any rendered entry-point.
 #   4. Stub markers present on all 4 stub files (canonical body fingerprint
 #      from aidocs/stub-skill-pattern.md §3b/§3c/§3d).
-# Run: bash tests/test_skill_render_aitask_pickn.sh
+# Run: bash tests/test_skill_render_aitask_pick.sh
 
 set -e
 
@@ -69,8 +69,8 @@ if ! "$PYTHON" -c 'import minijinja' 2>/dev/null; then
 fi
 
 RENDER="$PYTHON $PROJECT_DIR/.aitask-scripts/lib/skill_template.py"
-TEMPLATE=".claude/skills/aitask-pickn/SKILL.md.j2"
-GOLDEN_DIR="tests/golden/skills/aitask-pickn"
+TEMPLATE=".claude/skills/aitask-pick/SKILL.md.j2"
+GOLDEN_DIR="tests/golden/skills/aitask-pick"
 PROFILES_DIR="aitasks/metadata/profiles"
 
 PROFILES=(default fast remote)
@@ -143,34 +143,34 @@ echo "=== Test 4: per-agent reference rewrites via walk-write ==="
 # to write the on-disk per-profile tree, then assert on the entry point
 # file under each agent root.
 for agent in "${AGENTS[@]}"; do
-    ./.aitask-scripts/aitask_skill_render.sh aitask-pickn --profile fast --agent "$agent" --force >/dev/null 2>&1
+    ./.aitask-scripts/aitask_skill_render.sh aitask-pick --profile fast --agent "$agent" --force >/dev/null 2>&1
 done
 
 assert_contains "claude/fast: task-workflown ref rewritten under .claude/skills" \
-    ".claude/skills/task-workflown-fast-/SKILL.md" "$(cat .claude/skills/aitask-pickn-fast-/SKILL.md)"
+    ".claude/skills/task-workflown-fast-/SKILL.md" "$(cat .claude/skills/aitask-pick-fast-/SKILL.md)"
 assert_contains "codex/fast: task-workflown ref rewritten under .agents/skills" \
-    ".agents/skills/task-workflown-fast-/SKILL.md" "$(cat .agents/skills/aitask-pickn-fast-/SKILL.md)"
+    ".agents/skills/task-workflown-fast-/SKILL.md" "$(cat .agents/skills/aitask-pick-fast-/SKILL.md)"
 assert_contains "gemini/fast: task-workflown ref rewritten under .gemini/skills" \
-    ".gemini/skills/task-workflown-fast-/SKILL.md" "$(cat .gemini/skills/aitask-pickn-fast-/SKILL.md)"
+    ".gemini/skills/task-workflown-fast-/SKILL.md" "$(cat .gemini/skills/aitask-pick-fast-/SKILL.md)"
 assert_contains "opencode/fast: task-workflown ref rewritten under .opencode/skills" \
-    ".opencode/skills/task-workflown-fast-/SKILL.md" "$(cat .opencode/skills/aitask-pickn-fast-/SKILL.md)"
+    ".opencode/skills/task-workflown-fast-/SKILL.md" "$(cat .opencode/skills/aitask-pick-fast-/SKILL.md)"
 
 # === Test 5: stub-marker checks ===
 
 echo "=== Test 5: 4 stub files contain canonical markers ==="
-CLAUDE_STUB=".claude/skills/aitask-pickn/SKILL.md"
-CODEX_STUB=".agents/skills/aitask-pickn/SKILL.md"
-GEMINI_STUB=".gemini/commands/aitask-pickn.toml"
-OPENCODE_STUB=".opencode/commands/aitask-pickn.md"
+CLAUDE_STUB=".claude/skills/aitask-pick/SKILL.md"
+CODEX_STUB=".agents/skills/aitask-pick/SKILL.md"
+GEMINI_STUB=".gemini/commands/aitask-pick.toml"
+OPENCODE_STUB=".opencode/commands/aitask-pick.md"
 
 for stub in "$CLAUDE_STUB" "$CODEX_STUB" "$GEMINI_STUB" "$OPENCODE_STUB"; do
     body="$(cat "$stub")"
     assert_contains "$stub: resolve_profile uses short name 'pick' (t777_26)" \
         "aitask_skill_resolve_profile.sh pick" "$body"
-    assert_not_contains "$stub: resolve_profile does NOT use full slug 'aitask-pickn'" \
-        "aitask_skill_resolve_profile.sh aitask-pickn" "$body"
+    assert_not_contains "$stub: resolve_profile does NOT use full slug 'aitask-pick'" \
+        "aitask_skill_resolve_profile.sh aitask-pick" "$body"
     assert_contains "$stub: skill render invocation present" \
-        "aitask_skill_render.sh aitask-pickn" "$body"
+        "aitask_skill_render.sh aitask-pick" "$body"
     assert_contains "$stub: Read-and-follow marker present" \
         "Dispatch via Read-and-follow" "$body"
 done
@@ -182,14 +182,14 @@ assert_contains "gemini stub: --agent gemini" "--agent gemini" "$(cat "$GEMINI_S
 assert_contains "opencode stub: --agent opencode" "--agent opencode" "$(cat "$OPENCODE_STUB")"
 
 # Per-agent rendered-variant Read target checks
-assert_contains "claude stub: reads from .claude/skills/aitask-pickn-<profile>-" \
-    ".claude/skills/aitask-pickn-<profile>-/SKILL.md" "$(cat "$CLAUDE_STUB")"
-assert_contains "codex stub: reads from .agents/skills/aitask-pickn-<profile>-" \
-    ".agents/skills/aitask-pickn-<profile>-/SKILL.md" "$(cat "$CODEX_STUB")"
-assert_contains "gemini stub: reads from .gemini/skills/aitask-pickn-<profile>-" \
-    ".gemini/skills/aitask-pickn-<profile>-/SKILL.md" "$(cat "$GEMINI_STUB")"
-assert_contains "opencode stub: reads from .opencode/skills/aitask-pickn-<profile>-" \
-    ".opencode/skills/aitask-pickn-<profile>-/SKILL.md" "$(cat "$OPENCODE_STUB")"
+assert_contains "claude stub: reads from .claude/skills/aitask-pick-<profile>-" \
+    ".claude/skills/aitask-pick-<profile>-/SKILL.md" "$(cat "$CLAUDE_STUB")"
+assert_contains "codex stub: reads from .agents/skills/aitask-pick-<profile>-" \
+    ".agents/skills/aitask-pick-<profile>-/SKILL.md" "$(cat "$CODEX_STUB")"
+assert_contains "gemini stub: reads from .gemini/skills/aitask-pick-<profile>-" \
+    ".gemini/skills/aitask-pick-<profile>-/SKILL.md" "$(cat "$GEMINI_STUB")"
+assert_contains "opencode stub: reads from .opencode/skills/aitask-pick-<profile>-" \
+    ".opencode/skills/aitask-pick-<profile>-/SKILL.md" "$(cat "$OPENCODE_STUB")"
 
 # === Summary ===
 

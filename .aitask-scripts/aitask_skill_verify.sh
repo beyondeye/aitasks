@@ -68,7 +68,7 @@ _stub_path_for() {
 _resolver_key_for() {
     local skill="$1"
     case "$skill" in
-        aitask-pick|aitask-pickn) echo "pick" ;;
+        aitask-pick) echo "pick" ;;
         aitask-explore)           echo "explore" ;;
         aitask-qa)                echo "qa" ;;
         aitask-fold)              echo "fold" ;;

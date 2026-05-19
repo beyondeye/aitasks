@@ -47,7 +47,7 @@ Substitutions per stub:
   dir name, the `name:` frontmatter, and the slash command).
 - `<resolver_key>` — the **task-workflow short name** the rendered body
   uses to look up `userconfig.default_profiles.<key>`. For
-  `aitask-pick`/`aitask-pickn` this is `pick`. Distinct from
+  `aitask-pick` this is `pick`. Distinct from
   `<skill_short_name>`. See §3f for the full convention.
 - `<agent_literal>` — `claude` for the Claude stub; `codex` for the Codex stub.
 - `<agent_root>` — `.claude/skills` for Claude; `.agents/skills` for Codex.
@@ -140,7 +140,7 @@ When converting a skill in t777_6 (pilot) or t777_8..15 (others), each conversio
 - **Stub body is profile-agnostic** — it never embeds profile-specific content or branches on profile keys. All profile-conditional logic belongs in the authoring template (`.claude/skills/<skill>/SKILL.md.j2`).
 - **Stub MUST NOT modify state** beyond the resolve + render bash calls. No git operations, no task-file edits, no lock changes.
 - **Authoring dir names MUST NOT end with `-`** — load-bearing for the `*-/` gitignore convention. Verified by the one-shot audit in t777_3 Step 5; future renames or new authoring skills must respect this hard rule.
-- **Resolver key uses the task-workflow short name** (`pick`, `explore`, `qa`, `fold`, `review`, `pr-import`, `revert`, …), NOT the full skill slug. The short name MUST match the `skill_name` value that the body passes to `execution-profile-selection.md`, so the stub and the rendered body resolve the same `userconfig.default_profiles.<key>` entry. Without this match, the stub picks one profile and the body silently overrides to another at runtime. Mapping is stable per skill: `aitask-pick`/`aitask-pickn` → `pick`, `aitask-explore` → `explore`, `aitask-qa` → `qa`, `aitask-fold` → `fold`, `aitask-review` → `review`, `aitask-pr-import` → `pr-import`, `aitask-revert` → `revert`.
+- **Resolver key uses the task-workflow short name** (`pick`, `explore`, `qa`, `fold`, `review`, `pr-import`, `revert`, …), NOT the full skill slug. The short name MUST match the `skill_name` value that the body passes to `execution-profile-selection.md`, so the stub and the rendered body resolve the same `userconfig.default_profiles.<key>` entry. Without this match, the stub picks one profile and the body silently overrides to another at runtime. Mapping is stable per skill: `aitask-pick` → `pick`, `aitask-explore` → `explore`, `aitask-qa` → `qa`, `aitask-fold` → `fold`, `aitask-review` → `review`, `aitask-pr-import` → `pr-import`, `aitask-revert` → `revert`.
 
 ## 3g. Per-agent surface table (canonical reference)
 
@@ -206,4 +206,50 @@ Profile is mandatory at render time — `skill_template.py::render_skill` always
 - `Select Execution Profile`
 - `refresh execution profile`
 
-The two render tests (`tests/test_skill_render_aitask_pickn.sh`, `tests/test_skill_render_task_workflown.sh`) enforce this with `assert_not_contains` over all rendered combos. New per-skill conversions (t777_8..15) MUST extend the same assertions to their entry-point and procedure goldens.
+The two render tests (`tests/test_skill_render_aitask_pick.sh`, `tests/test_skill_render_task_workflown.sh`) enforce this with `assert_not_contains` over all rendered combos. New per-skill conversions (t777_8..15) MUST extend the same assertions to their entry-point and procedure goldens.
+
+## Pilot findings (t777_6)
+
+The pilot conversion of `aitask-pick` (t777_6, completed 2026-05-19)
+established five patterns that subsequent per-skill conversions
+(t777_8..15) should follow:
+
+1. **Uniform recursive rendering works end-to-end.**
+   `aitask_skill_render.sh`'s walk-write traversed the 22-file
+   `task-workflown/` closure across 12 (profile × agent) renders without
+   manual intervention. The reference-rewrite regex (`FULL_PATH_REF_RE`
+   in `lib/skill_template.py`) and BFS visited-set are the supported
+   public interface — do not reinvent them per skill. Per-skill work
+   only authors the entry-point `.j2` and writes goldens.
+
+2. **Stage under `<skill>n` for in-use skills.** The live `aitask-pick`
+   ran every step of this task's own workflow. Editing it in place would
+   have wedged mid-pick. The parallel-name stage (`aitask-pickn` →
+   atomic rename to `aitask-pick`) gave a full golden + manual-verification
+   cycle before the swap. This is the canonical procedure for any future
+   conversion of a skill that drives an active workflow. Canonical memory:
+   `feedback_stage_under_parallel_name`.
+
+3. **Golden-file tests are mandatory.** `./ait skill verify` and "renders
+   without error" catch fewer regressions than committed goldens; the
+   template engine can silently shift output (whitespace, comment
+   placement, conditional bodies). 12 goldens caught the t777_26
+   profile-resolution mismatch the moment it landed. Canonical memory:
+   `feedback_golden_file_tests_for_template_engines`.
+
+4. **Entry-point templates use `.md.j2`; referenced procedures keep
+   `.md`.** The walk-write infrastructure assumes a single `.md.j2`
+   per skill at the entry point. Referenced procedures
+   (`manual-verification.md`, `planning.md`, etc.) MUST be plain `.md`
+   files — even when their bodies contain `{% if profile.… %}` wraps.
+   The render closure handles both shapes; a double-suffix `.md.j2` on a
+   procedure file confuses the walker (it would attempt to render the
+   procedure as a separate entry point).
+
+5. **Per-agent tool mapping lives in prereq files, never in the template
+   body.** Resist the temptation to add
+   `{% if agent == "claude" %} AskUserQuestion … {% elif agent == "codex" %} request_user_input … {% endif %}`
+   branches inside the entry-point template body. They balloon the
+   template and obscure intent. Keep per-agent tool-name mapping in
+   per-agent prereq files (e.g., `geminicli_tool_mapping.md`,
+   `opencode_tool_mapping.md`) that the rendered body Reads-and-follows.
