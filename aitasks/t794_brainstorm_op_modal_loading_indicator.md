@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [ait_brainstorm]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-19 09:34
-updated_at: 2026-05-19 09:59
+updated_at: 2026-05-19 10:40
 ---
 
 In the brainstorm TUI, pressing `o` on a node (either in the node list
