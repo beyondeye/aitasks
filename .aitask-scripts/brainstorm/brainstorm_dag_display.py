@@ -13,6 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from textual import events
 from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.message import Message
@@ -411,6 +412,16 @@ def _render_edges(
 # ---------------------------------------------------------------------------
 
 
+class _DAGStatic(Static):
+    """Static that forwards click coordinates to the parent DAGDisplay."""
+
+    def on_click(self, event: events.Click) -> None:
+        parent = self.parent
+        if isinstance(parent, DAGDisplay):
+            parent._handle_click(event.x, event.y)
+        event.stop()
+
+
 class DAGDisplay(VerticalScroll):
     """ASCII art DAG visualization with keyboard-navigable nodes."""
 
@@ -503,7 +514,7 @@ class DAGDisplay(VerticalScroll):
         self._compare_pick_mode: bool = False
 
     def compose(self):
-        yield Static("No DAG loaded", id="dag_display")
+        yield _DAGStatic("No DAG loaded", id="dag_display")
 
     def load_dag(self, session_path: Path) -> None:
         """Build layout from session data and render."""
@@ -613,6 +624,38 @@ class DAGDisplay(VerticalScroll):
     def _col_center(self, col_idx: int) -> int:
         # Mirrors local center_x() in _render_edges — keep in sync.
         return col_idx * COL_STRIDE + BOX_WIDTH // 2
+
+    def _handle_click(self, x: int, y: int) -> None:
+        """Focus the node whose box contains content-relative coords (x, y).
+
+        No-op if the click falls in a column gap, an edge row between
+        layers, or any empty padding outside a node box.
+        """
+        if not self._node_order or not self._layers:
+            return
+
+        col_idx = x // COL_STRIDE
+        if x - col_idx * COL_STRIDE >= BOX_WIDTH:
+            return
+
+        for layer in self._layers:
+            if not layer:
+                continue
+            top = self._node_line_map.get(layer[0])
+            if top is None:
+                continue
+            if top <= y < top + NODE_ROWS:
+                if col_idx >= len(layer):
+                    return
+                target_id = layer[col_idx]
+                new_idx = self._node_order.index(target_id)
+                if new_idx != self._focused_idx:
+                    self._focused_idx = new_idx
+                    self._render_dag()
+                    self.post_message(self.FocusChanged(target_id))
+                if not self.has_focus:
+                    self.focus()
+                return
 
     def action_prev_col(self) -> None:
         """Move focus one column left within the current layer (← key)."""
