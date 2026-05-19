@@ -187,13 +187,21 @@ _SESSION_OPS = [
     ("delete", "Delete", "Permanently delete session, worktree, and branch"),
 ]
 
+# Flat op_key -> (label, brief description) map built from both op lists.
+# Used by _mount_op_context_header to remind the user which operation the
+# wizard is configuring on Step 2 onwards.
+_OP_LABELS: dict[str, tuple[str, str]] = {
+    op_key: (label, desc) for op_key, label, desc in (_DESIGN_OPS + _SESSION_OPS)
+}
+
 
 # Help text condensed from the agent prompt templates in
 # .aitask-scripts/brainstorm/templates/*.md (one prompt per design op) and
 # from the session lifecycle status machine in brainstorm_session.py.
 # When those sources change, update the per-entry source comments below
 # AND the corresponding "summary"/"reads_from_parent"/"produces" fields.
-# Surfaced via the "?" shortcut in Actions wizard Step 1 (OperationHelpModal).
+# Surfaced inline on Step 2+ (one-line header via _mount_op_context_header)
+# and via the "?" shortcut on every wizard step (OperationHelpModal).
 _OPERATION_HELP: dict[str, dict] = {
     # Source: .aitask-scripts/brainstorm/templates/explorer.md
     # I/O contract derived from "## Input" (reads parent YAML metadata,
@@ -1393,9 +1401,10 @@ class LogDetailModal(ModalScreen):
 class OperationHelpModal(ModalScreen):
     """Modal showing summary, I/O contract, and use cases for an operation.
 
-    Triggered by the `?` shortcut from Step 1 of the Actions wizard when an
-    `OperationRow` is focused. Content is sourced from `_OPERATION_HELP`
-    (see the source-trace comments above each entry).
+    Triggered by the `?` shortcut from any Actions wizard step. On Step 1
+    the op_key comes from the focused `OperationRow`; on Step 2+ it comes
+    from `BrainstormApp._wizard_op`. Content is sourced from
+    `_OPERATION_HELP` (see the source-trace comments above each entry).
     """
 
     BINDINGS = [
@@ -2584,7 +2593,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 tabbed = self.query_one(TabbedContent)
             except Exception:
                 return None
-            if tabbed.active != "tab_actions" or self._wizard_step != 1:
+            if tabbed.active != "tab_actions" or self._wizard_step < 1:
                 return None
             return True
         required_tab = self._TAB_SCOPED_ACTIONS.get(action)
@@ -3080,14 +3089,18 @@ class BrainstormApp(TuiSwitcherMixin, App):
             tabbed = self.query_one(TabbedContent)
         except Exception:
             raise SkipAction
-        if tabbed.active != "tab_actions" or self._wizard_step != 1:
+        if tabbed.active != "tab_actions" or self._wizard_step < 1:
             raise SkipAction
-        focused = self.focused
-        if not isinstance(focused, OperationRow):
+        if self._wizard_step == 1:
+            focused = self.focused
+            if not isinstance(focused, OperationRow):
+                raise SkipAction
+            op_key = focused.op_key
+        else:
+            op_key = self._wizard_op
+        if not op_key or op_key not in _OPERATION_HELP:
             raise SkipAction
-        if focused.op_key not in _OPERATION_HELP:
-            raise SkipAction
-        self.push_screen(OperationHelpModal(focused.op_key))
+        self.push_screen(OperationHelpModal(op_key))
 
     # ------------------------------------------------------------------
     # Keyboard navigation helper
@@ -4532,6 +4545,24 @@ class BrainstormApp(TuiSwitcherMixin, App):
             return False
         return False
 
+    def _mount_op_context_header(self, container: VerticalScroll) -> None:
+        """Mount a one-line dim header showing op name + brief desc.
+
+        Called from step 2 onwards so the user remembers which operation
+        they're configuring. Full description stays in OperationHelpModal,
+        reachable via the `?` shortcut.
+        """
+        info = _OP_LABELS.get(self._wizard_op)
+        if not info:
+            return
+        label_text, desc = info
+        container.mount(
+            Label(
+                f"[dim]{label_text} — {desc}  (? for details)[/dim]",
+                classes="actions_op_context",
+            )
+        )
+
     def _mount_recent_ops(self, container: VerticalScroll) -> None:
         """Append recent operation history from br_groups.yaml."""
         groups_path = self.session_path / GROUPS_FILE
@@ -4589,6 +4620,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 classes="actions_step_indicator",
             )
         )
+        self._mount_op_context_header(container)
         container.mount(
             Label("[dim]  \u2191\u2193 Navigate  Enter Select  |  Click node + Next[/dim]")
         )
@@ -4635,6 +4667,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 classes="actions_step_indicator",
             )
         )
+        self._mount_op_context_header(container)
         container.mount(
             Label("[dim]Leave all unchecked to target the whole document.[/]")
         )
@@ -4664,6 +4697,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 classes="actions_step_indicator",
             )
         )
+        self._mount_op_context_header(container)
 
         if op == "explore":
             self._config_explore_no_node(container)
@@ -4904,6 +4938,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         container = self.query_one("#actions_content", VerticalScroll)
         container.remove_children()
         container.mount(Label(f"Step {total} of {total} \u2014 Confirm  (Esc: Back)", classes="actions_step_indicator"))
+        self._mount_op_context_header(container)
 
         summary_lines = self._build_summary()
         container.mount(Static("\n".join(summary_lines), classes="actions_summary"))
