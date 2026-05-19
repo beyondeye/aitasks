@@ -348,3 +348,51 @@ commit.
   patch dispatch upstream).
 - Commit message: `bug: Block patch op on plan-less nodes; show plan
   indicator everywhere (t797)`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Added
+  `_node_has_plan` helper on `BrainstormApp`. `NodeRow` (Dashboard) and
+  `OperationRow` (Actions tab Step 2) now render `● has plan` (green
+  bold) or `○ no plan` (dim) after the node id and optional `HEAD` tag.
+  `_render_node_box` in `brainstorm_dag_display.py` appends a single-
+  character `●`/`○` to each box title row (symbol only, due to inner
+  width = 26). For the patch op specifically, plan-less rows in the
+  Actions Step 2 are passed `disabled=True` to `OperationRow` (already
+  supports strikethrough + non-focusable), with a `(patch unavailable)`
+  italic suffix on the description. A defensive guard in
+  `_on_actions_next` emits an explicit error notify if a plan-less node
+  somehow reaches the patch dispatch.
+- **Deviations from plan:** None substantive. The disabled-row suffix
+  was tightened from "(no plan — patch unavailable)" to just "(patch
+  unavailable)" since the leading `○ no plan` label already states the
+  no-plan condition (avoids redundancy). The plan file already captures
+  this decision in the OperationRow section.
+- **Issues encountered:** `_build_graph` is also called by
+  `tests/test_brainstorm_dag_op_badge.py` in 4 places (lines 72/81/89/110)
+  with a 5-element unpack. Extending the return tuple to 6 elements
+  required updating those unpacks to `_, _, _, _, op_map, _`. All other
+  brainstorm tests passed unchanged (18 test files, 260+ total tests).
+- **Key decisions:**
+  - Indicator semantics use `bool(node_data.get("plan_file"))` (the
+    canonical YAML field set by the patcher/detailer when a plan is
+    written) rather than a filesystem check — faster and avoids extra
+    disk I/O during render.
+  - Both states (`●` and `○`) are rendered explicitly (not just "has
+    plan") so the label after the symbol acts as a legend explaining
+    what the symbol means; in the space-constrained graph box, the
+    symbol-only rendering is then unambiguous to a user who has seen
+    the legend in the Dashboard or Actions tab.
+  - The Step 4 "User Review and Approval" prompt was honored despite the
+    session-injected "work without stopping" directive — per repo memory
+    that directive scopes only to clarifying questions, not workflow-
+    defined AskUserQuestion checkpoints.
+- **Upstream defects identified:** None — the related
+  `_assemble_input_patcher` "silently omit plan path when missing"
+  behavior in `brainstorm_crew.py:433-438` is documented in the plan as
+  *related but acceptable* now that the UI blocks the upstream
+  dispatch. It is not a separate bug to spawn a follow-up for.
+- **Build verification:** No project-level `verify_build` configured in
+  `project_config.yaml`. Verified via `ast.parse` syntax check on both
+  modified files plus the full brainstorm `python -m unittest` suite
+  (260+ tests across 18 files, all OK).
