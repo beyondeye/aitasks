@@ -5,27 +5,7 @@ description: Select the next AI task for implementation from the `aitasks/` dire
 
 ## Workflow
 
-### Step 0 (pre-parse): Extract `--profile` argument
-
-If the skill arguments contain `--profile <name>`:
-- Extract the `<name>` value (the word following `--profile`)
-- Store it as `profile_override`
-- Remove `--profile <name>` from the argument string before passing to Step 0b
-- If `--profile` appears but no name follows, warn: "Missing profile name after --profile" and set `profile_override` to null
-
-If no `--profile` in arguments, set `profile_override` to null.
-
-Example: `/aitask-pickn --profile fast 42` or `/aitask-pickn 42 --profile fast`
-
-### Step 0a: Select Execution Profile
-
-Execute the **Execution Profile Selection Procedure** (see `.claude/skills/task-workflown/execution-profile-selection.md`) with:
-- `skill_name`: `"pick"`
-- `profile_override`: the value parsed from `--profile` argument (or null)
-
 ### Step 0b: Check for Direct Task Selection (Optional Argument)
-
-**IMPORTANT:** Step 0a (profile selection) MUST complete before Step 0b begins. Step 0b's behavior depends on the profile (e.g., `skip_task_confirmation`). Do NOT parallelize these steps.
 
 If this skill is invoked with a numeric argument:
 
@@ -210,8 +190,8 @@ At this point, a task has been selected and confirmed. Set the following context
 - **is_child**: `true` if a child task was selected (from Step 2d or Step 0b with parent_child format), `false` otherwise
 - **parent_id**: The parent task number if `is_child` is true (e.g., `16`), otherwise null
 - **parent_task_file**: Path to the parent task file if `is_child` is true (e.g., `aitasks/t16_implement_auth.md`), otherwise null
-- **active_profile**: The execution profile loaded in Step 0a (or null if no profile)
-- **active_profile_filename**: The `<filename>` value from the scanner output for the selected profile (e.g., `fast.yaml` or `local/fast.yaml`), or null if no profile
+- **active_profile**: `{ name: {{ profile.name }} }` (baked in at render time)
+- **active_profile_filename**: `{{ profile.name }}.yaml`
 - **previous_status**: `Ready` (the status the task had before being picked)
 - **skill_name**: `"pick"`
 

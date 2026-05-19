@@ -143,6 +143,19 @@ DEFAULT_SF="$($RENDER "$STAGED_DIR/satisfaction-feedback.md" "$PROFILES_DIR/defa
 assert_contains "satisfaction-feedback default: enableFeedbackQuestions prose present" \
     'If `enableFeedbackQuestions` is omitted' "$DEFAULT_SF"
 
+# === Test 3b: rendered SKILL.md must NOT include Step 3b refresh (t777_26) ===
+
+echo "=== Test 3b: SKILL.md rendered output has no Step 3b refresh ==="
+for profile in "${PROFILES[@]}"; do
+    rendered="$($RENDER "$STAGED_DIR/SKILL.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    assert_not_contains "SKILL.md $profile: no Step 3b heading" \
+        "Step 3b: refresh execution profile" "$rendered"
+    assert_not_contains "SKILL.md $profile: no scan-profiles call" \
+        "aitask_scan_profiles.sh" "$rendered"
+    assert_not_contains "SKILL.md $profile: no refresh profile prose" \
+        "refresh execution profile" "$rendered"
+done
+
 # === Test 4: 20 identity-passthrough files are byte-identical to originals ===
 
 echo "=== Test 4: identity-passthrough files byte-identical to task-workflow/ ==="

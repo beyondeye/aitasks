@@ -116,6 +116,25 @@ for profile in "${PROFILES[@]}"; do
     done
 done
 
+# === Test 3b: rendered body must NOT re-resolve profile at runtime (t777_26) ===
+
+echo "=== Test 3b: rendered body has no runtime profile-resolution tokens ==="
+FORBIDDEN_TOKENS=(
+    "aitask_scan_profiles.sh"
+    "Execute the Execution Profile Selection Procedure"
+    "Select Execution Profile"
+    "refresh execution profile"
+)
+for profile in "${PROFILES[@]}"; do
+    for agent in "${AGENTS[@]}"; do
+        rendered="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" "$agent" 2>&1)"
+        for token in "${FORBIDDEN_TOKENS[@]}"; do
+            assert_not_contains "rendered $profile × $agent has no '$token'" \
+                "$token" "$rendered"
+        done
+    done
+done
+
 # === Test 4: cross-agent reference rewrites (via walk-write on-disk output) ===
 
 echo "=== Test 4: per-agent reference rewrites via walk-write ==="
@@ -146,7 +165,9 @@ OPENCODE_STUB=".opencode/commands/aitask-pickn.md"
 
 for stub in "$CLAUDE_STUB" "$CODEX_STUB" "$GEMINI_STUB" "$OPENCODE_STUB"; do
     body="$(cat "$stub")"
-    assert_contains "$stub: resolve_profile invocation present" \
+    assert_contains "$stub: resolve_profile uses short name 'pick' (t777_26)" \
+        "aitask_skill_resolve_profile.sh pick" "$body"
+    assert_not_contains "$stub: resolve_profile does NOT use full slug 'aitask-pickn'" \
         "aitask_skill_resolve_profile.sh aitask-pickn" "$body"
     assert_contains "$stub: skill render invocation present" \
         "aitask_skill_render.sh aitask-pickn" "$body"

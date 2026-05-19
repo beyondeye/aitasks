@@ -8,7 +8,7 @@ This is a profile-aware skill stub. Execute these steps in order, then stop:
 1. **Resolve active profile.** Parse ARGUMENTS for `--profile <name>`. If
    found, use that as `<profile>` and remove the `--profile <name>` pair
    from ARGUMENTS. Otherwise run:
-   `./.aitask-scripts/aitask_skill_resolve_profile.sh aitask-pickn`
+   `./.aitask-scripts/aitask_skill_resolve_profile.sh pick`
    and use the single-line stdout as `<profile>`.
 
 2. **Render per-profile variant.** Run:

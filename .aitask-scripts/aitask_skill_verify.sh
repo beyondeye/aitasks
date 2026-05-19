@@ -62,6 +62,23 @@ _stub_path_for() {
     esac
 }
 
+# Map a skill slug to its task-workflow short name (resolver key). See
+# aidocs/stub-skill-pattern.md §3f. Stub authoring uses the short name in
+# the resolver call so it matches the body's userconfig lookup.
+_resolver_key_for() {
+    local skill="$1"
+    case "$skill" in
+        aitask-pick|aitask-pickn) echo "pick" ;;
+        aitask-explore)           echo "explore" ;;
+        aitask-qa)                echo "qa" ;;
+        aitask-fold)              echo "fold" ;;
+        aitask-review)            echo "review" ;;
+        aitask-pr-import)         echo "pr-import" ;;
+        aitask-revert)            echo "revert" ;;
+        *)                        echo "$skill" ;;  # fallback: identity
+    esac
+}
+
 # --- Verification loop ---
 
 failures=0
@@ -104,9 +121,10 @@ for tpl in "${templates[@]}"; do
             failures=$((failures + 1))
             continue
         fi
-        if ! grep -q "aitask_skill_resolve_profile\.sh ${skill}" "$stub_path"; then
+        resolver_key="$(_resolver_key_for "$skill")"
+        if ! grep -q "aitask_skill_resolve_profile\.sh ${resolver_key}" "$stub_path"; then
             printf 'STUB_FAIL: %s: missing resolver call ("aitask_skill_resolve_profile.sh %s")\n' \
-                "$stub_path" "$skill" >&2
+                "$stub_path" "$resolver_key" >&2
             failures=$((failures + 1))
         fi
         if ! grep -q "aitask_skill_render.sh ${skill}" "$stub_path"; then

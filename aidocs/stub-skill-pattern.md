@@ -29,7 +29,7 @@ This is a profile-aware skill stub. Execute these steps in order, then stop:
 1. **Resolve active profile.** Parse ARGUMENTS for `--profile <name>`. If
    found, use that as `<profile>` and remove the `--profile <name>` pair
    from ARGUMENTS. Otherwise run:
-   `./.aitask-scripts/aitask_skill_resolve_profile.sh <skill_short_name>`
+   `./.aitask-scripts/aitask_skill_resolve_profile.sh <resolver_key>`
    and use the single-line stdout as `<profile>`.
 
 2. **Render per-profile variant.** Run:
@@ -43,9 +43,14 @@ This is a profile-aware skill stub. Execute these steps in order, then stop:
 ```
 
 Substitutions per stub:
-- `<skill_short_name>` — e.g., `aitask-pick`
-- `<agent_literal>` — `claude` for the Claude stub; `codex` for the Codex stub
-- `<agent_root>` — `.claude/skills` for Claude; `.agents/skills` for Codex
+- `<skill_short_name>` — the skill slug, e.g., `aitask-pick` (matches the
+  dir name, the `name:` frontmatter, and the slash command).
+- `<resolver_key>` — the **task-workflow short name** the rendered body
+  uses to look up `userconfig.default_profiles.<key>`. For
+  `aitask-pick`/`aitask-pickn` this is `pick`. Distinct from
+  `<skill_short_name>`. See §3f for the full convention.
+- `<agent_literal>` — `claude` for the Claude stub; `codex` for the Codex stub.
+- `<agent_root>` — `.claude/skills` for Claude; `.agents/skills` for Codex.
 
 ## 3c. Canonical stub body (Gemini — command TOML form)
 
@@ -63,7 +68,7 @@ This is a profile-aware skill stub. Execute these steps in order, then stop:
 1. **Resolve active profile.** Parse {{args}} for `--profile <name>`.
    If found, use that as `<profile>` and remove the `--profile <name>`
    pair from the forwarded args. Otherwise run:
-   `./.aitask-scripts/aitask_skill_resolve_profile.sh <skill_short_name>`
+   `./.aitask-scripts/aitask_skill_resolve_profile.sh <resolver_key>`
    and use the single-line stdout as `<profile>`.
 
 2. **Render per-profile variant.** Run:
@@ -97,7 +102,7 @@ This is a profile-aware skill stub. Execute these steps in order, then stop:
 1. **Resolve active profile.** Parse $ARGUMENTS for `--profile <name>`.
    If found, use that as `<profile>` and remove the `--profile <name>`
    pair. Otherwise run:
-   `./.aitask-scripts/aitask_skill_resolve_profile.sh <skill_short_name>`
+   `./.aitask-scripts/aitask_skill_resolve_profile.sh <resolver_key>`
    and use the single-line stdout as `<profile>`.
 
 2. **Render per-profile variant.** Run:
@@ -135,6 +140,7 @@ When converting a skill in t777_6 (pilot) or t777_8..15 (others), each conversio
 - **Stub body is profile-agnostic** — it never embeds profile-specific content or branches on profile keys. All profile-conditional logic belongs in the authoring template (`.claude/skills/<skill>/SKILL.md.j2`).
 - **Stub MUST NOT modify state** beyond the resolve + render bash calls. No git operations, no task-file edits, no lock changes.
 - **Authoring dir names MUST NOT end with `-`** — load-bearing for the `*-/` gitignore convention. Verified by the one-shot audit in t777_3 Step 5; future renames or new authoring skills must respect this hard rule.
+- **Resolver key uses the task-workflow short name** (`pick`, `explore`, `qa`, `fold`, `review`, `pr-import`, `revert`, …), NOT the full skill slug. The short name MUST match the `skill_name` value that the body passes to `execution-profile-selection.md`, so the stub and the rendered body resolve the same `userconfig.default_profiles.<key>` entry. Without this match, the stub picks one profile and the body silently overrides to another at runtime. Mapping is stable per skill: `aitask-pick`/`aitask-pickn` → `pick`, `aitask-explore` → `explore`, `aitask-qa` → `qa`, `aitask-fold` → `fold`, `aitask-review` → `review`, `aitask-pr-import` → `pr-import`, `aitask-revert` → `revert`.
 
 ## 3g. Per-agent surface table (canonical reference)
 
@@ -182,3 +188,22 @@ If a candidate path does not resolve to a real source file under `.claude/skills
 **Cycle handling.** The walker maintains a visited set keyed on the source absolute path. References that point at an already-visited source are still rewritten in the calling file, but are not enqueued for a second render.
 
 **File-extension contract.** Only `SKILL.md.j2` (entry-point templates) carry the `.j2` extension. All referenced procedures keep the plain `.md` extension even if they grow Jinja markers in a later conversion. The walker treats every reachable `.md` as a Jinja template and falls through to an identity transform when no Jinja markers are present.
+
+## 3j. Template completeness — rendered body must not re-resolve profile
+
+The point of templated dispatch is that the rendered variant has the profile baked in at render time. The rendered body must therefore NEVER re-resolve the profile at runtime. In particular, the following procedures must NOT appear in the source templates (and consequently must not appear in any rendered output):
+
+- Step 0 / Step 0a "Select Execution Profile" — would re-run `aitask_scan_profiles.sh`.
+- task-workflown Step 3b "refresh execution profile" — would re-read the profile YAML.
+- Any equivalent "Execute the Execution Profile Selection Procedure" hand-off inside the rendered closure.
+
+Profile is mandatory at render time — `skill_template.py::render_skill` always passes a non-empty `profile` binding. The no-profile fallback is dead code and must be **deleted outright** from source templates, not wrapped in `{% if not profile %}…{% endif %}` guards (which just preserves dead documentation in the rendered output).
+
+**Forbidden tokens.** The following strings must NOT appear in any rendered output:
+
+- `aitask_scan_profiles.sh`
+- `Execute the Execution Profile Selection Procedure`
+- `Select Execution Profile`
+- `refresh execution profile`
+
+The two render tests (`tests/test_skill_render_aitask_pickn.sh`, `tests/test_skill_render_task_workflown.sh`) enforce this with `assert_not_contains` over all rendered combos. New per-skill conversions (t777_8..15) MUST extend the same assertions to their entry-point and procedure goldens.
