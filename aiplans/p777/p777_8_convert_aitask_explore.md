@@ -252,3 +252,46 @@ Push with `./ait git push`. No linked issue.
 This conversion is a clean reuse of the pilot pattern with one profile key
 (`explore_auto_continue`) and the canonical Jinja wrap. Sibling conversions
 with similar single-key surfaces can copy this plan + bump the slug.
+
+## Final Implementation Notes
+
+- **Actual work done:** Authored `.claude/skills/aitask-explore/SKILL.md.j2`
+  from the existing `aitask-explore/SKILL.md` (deleted Step 0 "Arguments
+  (Optional)" and Step 3b "Select Execution Profile"; wrapped Step 4's
+  `explore_auto_continue` check in `{% if profile.explore_auto_continue is
+  defined and profile.explore_auto_continue %}…{% else %}…{% endif %}`
+  following the inline-comment placement convention; baked profile values
+  into Step 5 handoff). Replaced all 4 per-agent stubs
+  (`.claude/skills/aitask-explore/SKILL.md`,
+  `.agents/skills/aitask-explore/SKILL.md`,
+  `.gemini/commands/aitask-explore.toml`,
+  `.opencode/commands/aitask-explore.md`) with canonical stub bodies from
+  `aidocs/stub-skill-pattern.md` §3b-§3d, resolver key `explore`. Generated
+  12 goldens at `tests/golden/skills/aitask-explore/`. Authored
+  `tests/test_skill_render_aitask_explore.sh` (5 tests, 118 assertions)
+  adapted from the pick equivalent.
+- **Deviations from plan:** None substantive. Test 2's `assert_not_contains`
+  initially false-positive'd on the Notes-section phrase "continuing to
+  implementation"; tightened the forbidden substring to
+  `': continuing to implementation` (apostrophe-colon-prefixed) which only
+  appears in the rendered `{% if %}` branch.
+- **Issues encountered:** None.
+- **Key decisions:**
+  - Direct conversion (not staged under `aitask-exploren`): the pilot's
+    parallel-name staging applied because `aitask-pick` drove its own
+    conversion. Here `aitask-pick` is driving — `aitask-explore` is dormant,
+    so in-place edits are safe.
+  - Test 2 asserts the `{% else %}` arm across all 3 live profiles (none have
+    `explore_auto_continue: true`); the `{% if %}` arm is exercised
+    structurally by `./ait skill verify` rendering without error against
+    every profile.
+- **Upstream defects identified:** None.
+
+## Verification Results (2026-05-19)
+
+- `bash tests/test_skill_render_aitask_explore.sh` → **118/118 PASS**.
+- `./.aitask-scripts/aitask_skill_verify.sh` → **OK** (2 templates × 4
+  agents — aitask-pick + aitask-explore).
+- Forbidden-token scan on all 12 goldens → clean (no
+  `aitask_scan_profiles.sh`, `Execute the Execution Profile Selection
+  Procedure`, `Select Execution Profile`, or `refresh execution profile`).
