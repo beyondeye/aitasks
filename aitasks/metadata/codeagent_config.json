@@ -5,7 +5,7 @@
     "batch-review": "claudecode/sonnet4_6",
     "qa": "claudecode/sonnet4_6",
     "raw": "claudecode/sonnet4_6",
-    "explore": "codex/gpt5_5",
+    "explore": "claudecode/opus4_7_1m",
     "brainstorm-explorer": "claudecode/opus4_7_1m",
     "brainstorm-comparator": "claudecode/sonnet4_6",
     "brainstorm-synthesizer": "claudecode/opus4_7_1m",
