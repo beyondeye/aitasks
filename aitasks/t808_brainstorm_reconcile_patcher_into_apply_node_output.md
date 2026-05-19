@@ -3,10 +3,11 @@ priority: low
 effort: medium
 depends: [740]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [brainstorm, refactor]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-19 23:33
-updated_at: 2026-05-19 23:33
+updated_at: 2026-05-19 23:50
 ---
 
 Reconcile the patcher apply path into the shared `_apply_node_output()`
