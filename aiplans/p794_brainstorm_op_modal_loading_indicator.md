@@ -99,3 +99,119 @@ After approval and implementation, proceed to Step 9
 `./.aitask-scripts/aitask_archive.sh 794` and push via `./ait git
 push`. No separate branch was created (profile `fast` works on the
 current branch).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-19 10:30)
+
+- **Requested by user:** Approach 1 (call-site `self.notify(...)`)
+  didn't actually surface a notification — the modal screen push
+  covers the notification region before it paints. Also asked to
+  centralize the loading indicator inside the modal itself so every
+  call site (current and future) benefits without each having to
+  remember to add feedback.
+- **Changes made:** Reverted the two `self.notify` additions from
+  `on_dag_display_operation_opened` and
+  `on_node_row_operation_opened`. Refactored
+  `OperationDetailScreen` to a two-phase mount:
+  - `compose()` now yields only a lightweight skeleton (title, a
+    `#op_detail_content` container with a `LoadingIndicator` inside,
+    Close button, Footer). No file I/O during compose.
+  - Added `on_mount()` that schedules `_populate_content` via
+    `call_after_refresh` so the loading indicator paints before the
+    heavy reads start.
+  - `_populate_content()` does the `_read_groups(...)` call, the
+    `_build_overview_widgets` / `_build_agent_widgets` calls, then
+    swaps the LoadingIndicator out and mounts the real
+    `TabbedContent` (built dynamically with `tabbed.add_pane(...)`).
+  - Added CSS rules for `#op_detail_content` and `#op_detail_loading`
+    (both `height: 1fr`) so the loading indicator centers in the
+    available space.
+  - Added `LoadingIndicator` to the existing `textual.widgets` import
+    block.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`
+  (modal class + CSS + import; both dispatch sites reverted to their
+  original form).
+
+### Change Request 2 (2026-05-19 10:50)
+
+- **Requested by user:** First refactor approach was directionally
+  right but the modal was silently auto-closing once the
+  LoadingIndicator was removed.
+- **Root cause:** The populate callback was a plain (sync) function
+  scheduled via `call_after_refresh`. It called
+  `content.remove_children()` (returns `AwaitRemove`) and then
+  immediately `content.mount(tabbed)` / `tabbed.add_pane(...)` in
+  the same tick. `_build_compare_matrix` (line ~4250 in the same
+  file) already documents this exact race ("remove_children is
+  async; mount in the same sync tick races the removal") and fixes
+  it by awaiting the removal first. The race here surfaced as a
+  silent screen dismiss instead of a visible "id already mounted"
+  error.
+- **Changes made:**
+  - Converted `_populate_content` to `_populate_content_worker`,
+    an `async` method decorated with `@work` so it runs as a
+    Textual worker and can `await` mount/remove primitives.
+  - `on_mount` now just kicks off the worker — no
+    `call_after_refresh` indirection (the worker itself yields to
+    the event loop after the first refresh).
+  - `await` each `content.mount(...)`, `tabbed.add_pane(...)`, and
+    `loading.remove()` so they sequence correctly. No more
+    `remove_children()` — the LoadingIndicator is `remove()`d as
+    the final step, after the real content is fully mounted.
+  - Wrapped the body in `try/except` that surfaces failures via
+    `self.notify(severity="error")` rather than letting the modal
+    silently disappear.
+
+### Change Request 3 (2026-05-19 11:00)
+
+- **Requested by user:** Auto-focus the tab row in the operation
+  detail dialog after content finishes loading.
+- **Changes made:** After the final `await loading.remove()` in
+  `_populate_content_worker`, focus the tab row via
+  `tabbed.query_one(Tabs).focus()` (wrapped in `try/except` —
+  same defensive pattern used by
+  `on_dag_display_compare_requested` at line ~4256). Otherwise
+  focus would land on the Close button (the only other focusable
+  widget) once the LoadingIndicator is removed.
+
+## Final Implementation Notes
+
+- **Actual work done:** Refactored `OperationDetailScreen` in
+  `.aitask-scripts/brainstorm/brainstorm_app.py` to a two-phase
+  mount. `compose()` now yields only a skeleton (title placeholder,
+  `#op_detail_content` container holding a `LoadingIndicator`,
+  Close button, Footer) — no file I/O. `on_mount` kicks off
+  `_populate_content_worker`, an `@work` async method that reads
+  `br_groups.yaml`, builds the dynamic `TabbedContent` + per-agent
+  `TabPane`s, mounts them, removes the LoadingIndicator, and
+  focuses the tab row. Added a `LoadingIndicator` import to the
+  existing `textual.widgets` block and CSS rules for
+  `#op_detail_content` / `#op_detail_loading`.
+- **Deviations from plan:** Initial plan was approach 1 (call-site
+  `self.notify(...)`). Discarded after Change Request 1 (user
+  reported the notification never surfaced — it gets covered by the
+  push_screen). Approach 2 (in-modal LoadingIndicator) is now in,
+  centralized in the modal so all current and future call sites
+  benefit without per-site changes.
+- **Issues encountered:** Initial approach-2 implementation used a
+  sync populate callback with `content.remove_children()` followed
+  by immediate `content.mount(...)`. Hit the documented Textual
+  race (see `_build_compare_matrix` at line ~4250 in the same file)
+  which manifested here as a silent screen dismiss rather than the
+  more visible "id already mounted" error. Fixed by converting to
+  an `@work` async method and `await`ing each mount/remove. Added
+  defensive try/except that surfaces errors via
+  `notify(severity="error")` instead of silent dismissal.
+- **Key decisions:**
+  1. Don't use `remove_children()` — instead `remove()` only the
+     LoadingIndicator as the final step after content is fully
+     mounted. Avoids needing to await two separate async ops on
+     the same container in tight succession.
+  2. Focus the tab row (`tabbed.query_one(Tabs).focus()`) at the
+     end so arrow-key navigation works immediately and focus
+     doesn't get stuck on the Close button.
+  3. Centralize the loading affordance in the modal rather than at
+     each dispatch site — future call sites get the indicator for
+     free.
+- **Upstream defects identified:** None.
