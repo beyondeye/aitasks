@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [brainstorm]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-04 16:24
-updated_at: 2026-05-19 16:46
+updated_at: 2026-05-19 23:33
+completed_at: 2026-05-19 23:33
 boardidx: 160
 ---
 
