@@ -188,3 +188,16 @@ Update the `--help` usage block (lines 60–127) is **not** required — the cha
 ## Step 9 (Post-Implementation)
 
 After implementation and Step 8 review, follow the standard task-workflow Step 9: clean uncommitted state, no separate branch in 'fast' profile (working on current branch), run `aitask_archive.sh 798`, push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `select_archived_task_ref()` helper in `.aitask-scripts/aitask_create.sh` just below `select_dependencies()`. It calls `aitask_query_files.sh recent-archived 999`, formats `RECENT_ARCHIVED:` lines into `<path>    [<completed_at>] <basename> (<issue_type>)` rows, and shows them in fzf with a path preview. The first whitespace token of the selected row is echoed back as the path. Extended the description-loop sub-menu in `get_task_definition()` with a new "Add archived task reference" option (always available), renamed "Remove file reference" → "Remove reference" and the prompt "Add file? " → "Add reference? " to match the broadened menu, and added a dispatch branch that appends the selected archived path inline to `task_desc` and tracks it in `current_round_refs` only (NOT in `all_file_refs`, so `file_references:` frontmatter stays clean).
+- **Deviations from plan:** None significant. One implementation detail not in the plan sketch: the initial draft included `< /dev/tty` on the fzf call (copy-pasted from the file-walker invocation), which `shellcheck` flagged as `SC2259` because it overrides the piped `echo "$rows"` input. Removed `< /dev/tty`; fzf still draws to the terminal correctly since piped input is the supported mode here.
+- **Issues encountered:** Pre-existing dirty state in the working tree (uncommitted edits under `.claude/skills/aitask-explore/`, `.agents/skills/aitask-explore/`, etc.) — left untouched per task scope. Only `.aitask-scripts/aitask_create.sh` was staged for the t798 code commit.
+- **Key decisions:**
+  - Reused the existing `recent-archived` subcommand of `aitask_query_files.sh` rather than reinventing the archived-task scan loop. Sort order (completed_at desc) matches what an "archived task picker" should default to.
+  - Soft cap of 999 for the limit argument — effectively "all archived tasks", but avoids passing a non-numeric value and keeps the helper's contract intact.
+  - Tracking archived refs in `current_round_refs` (so the in-round Remove flow can drop them) but NOT in `all_file_refs` (so the `file_references:` frontmatter is unaffected). Matches the user's "inline in description only" decision.
+  - Renamed "Remove file reference" → "Remove reference" since the same affordance now drops both kinds; kept the inner `remove_file` variable name to minimise diff noise.
+- **Upstream defects identified:** None.
+
