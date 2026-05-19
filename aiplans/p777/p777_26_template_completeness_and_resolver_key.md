@@ -361,3 +361,54 @@ Standard task-workflow Step 9 applies: archival via
 `aitask_archive.sh 777_26`, plan file consolidation with "Final
 Implementation Notes". No separate branch (profile
 `create_worktree: false`), so the Step 9 merge approval is a no-op.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned — deleted
+  Step 0 + Step 0a from `aitask-pickn/SKILL.md.j2`, deleted Step 3b
+  from `task-workflown/SKILL.md`, baked render-time constants for
+  the Step 3 hand-off `active_profile` / `active_profile_filename`
+  bullets, switched all 4 stubs to call
+  `aitask_skill_resolve_profile.sh pick` (short name), regenerated
+  15 goldens (12 aitask-pickn × profile×agent + 3 task-workflown
+  SKILL.md × profile), and added forbidden-token + short-name
+  assertions to both render tests.
+- **Deviations from plan:** One unplanned addition —
+  `aitask_skill_verify.sh` hardcoded the resolver-call check
+  against the skill slug, which broke after the stubs switched to
+  the short name. Added a `_resolver_key_for()` helper to the
+  verify script that maps slug → short name (with the canonical
+  mapping from §3f) and feeds the stub-pattern check. Without
+  this, `./.aitask-scripts/aitask_skill_verify.sh` would have
+  failed for `aitask-pickn` and every subsequent skill conversion
+  (t777_8..15).
+- **Issues encountered:** None — the renderer is well-behaved and
+  the existing test infrastructure caught the verify-script
+  hardcoded slug immediately.
+- **Key decisions:** Per explicit user feedback during planning,
+  dropped the no-profile fallback **outright** rather than
+  wrapping in `{% if not profile %}…{% endif %}`. Profile is
+  mandatory at render time; the no-profile path is dead code and
+  the `aidocs/stub-skill-pattern.md` §3j codifies this as the
+  canonical authoring rule going forward. Saved to memory as
+  [[feedback_drop_legacy_no_profile_fallback]] for sibling tasks.
+- **Upstream defects identified:** None — both bugs surfaced were
+  scoped to t777_26 itself (the stub/body resolver-key mismatch
+  and the template completeness gap). The
+  `aitask_skill_verify.sh` slug-hardcoding adjustment is in
+  scope for this task because it's a direct consequence of the
+  resolver-key fix, not a separate pre-existing defect.
+- **Notes for sibling tasks:**
+  - The `_resolver_key_for()` mapping in
+    `.aitask-scripts/aitask_skill_verify.sh` is the canonical
+    slug→short-name table. Per-skill conversions in t777_8..15
+    only need to add their slug→short-name pair here (and to the
+    §3f bullet in `aidocs/stub-skill-pattern.md`) — the rest of
+    the verify path is generic.
+  - The forbidden-token Test 3b block in
+    `tests/test_skill_render_aitask_pickn.sh` is the reference
+    implementation for the regression gate documented in §3j.
+    Copy that block into each new per-skill render test.
+  - Per the task notes, this lands BEFORE t777_24
+    re-verification; t777_24's manual checklist becomes the
+    end-to-end regression gate for the stub/body alignment.
