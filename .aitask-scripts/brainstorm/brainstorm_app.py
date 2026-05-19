@@ -2532,6 +2532,8 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 "Retry patcher apply", show=False),
         Binding("ctrl+shift+x", "retry_explorer_apply",
                 "Retry explorer apply", show=False),
+        Binding("ctrl+shift+y", "retry_synthesizer_apply",
+                "Retry synthesizer apply", show=False),
     ]
 
     # Maps action_name -> required tab id. check_action() hides the binding
@@ -2578,6 +2580,14 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._applying_explorer: set[str] = set()
         self._explorer_apply_errors: dict[str, str] = {}
         self._explorer_poll_timer = None
+        # Synthesizer auto-apply state. Tracked agent names produce a
+        # single hybrid node each via apply_synthesizer_output; the poll
+        # timer fires until every tracked agent has either applied or
+        # been dropped.
+        self._synthesizer_agents: set[str] = set()
+        self._applying_synthesizer: set[str] = set()
+        self._synthesizer_apply_errors: dict[str, str] = {}
+        self._synthesizer_poll_timer = None
         self._current_focused_node_id: str | None = None
         # Remembered for the lifetime of the app; pre-fills the export modal's
         # directory input so repeated exports default to the previous choice.
@@ -3306,6 +3316,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._try_apply_initializer_if_needed()
         self._scan_existing_patchers()
         self._scan_existing_explorers()
+        self._scan_existing_synthesizers()
 
     def _try_apply_initializer_if_needed(self, force: bool = False) -> None:
         """Re-attempt apply_initializer_output if n000_init is still placeholder.
@@ -3686,6 +3697,149 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     return 0.0
             agent = max(candidates, key=_mtime)
         self._try_apply_explorer_if_needed(agent, force=True)
+
+    def _register_synthesizer_agent(self, agent_name: str) -> None:
+        """Main-thread: track a freshly-registered synthesizer and ensure
+        the poll timer is running."""
+        self._synthesizer_agents.add(agent_name)
+        self._ensure_synthesizer_poll_timer()
+
+    def _ensure_synthesizer_poll_timer(self) -> None:
+        if self._synthesizer_poll_timer is not None:
+            return
+        if not self._synthesizer_agents:
+            return
+        self._synthesizer_poll_timer = self.set_interval(
+            5, self._poll_synthesizers,
+        )
+
+    def _stop_synthesizer_poll_timer(self) -> None:
+        if self._synthesizer_poll_timer is not None:
+            try:
+                self._synthesizer_poll_timer.stop()
+            except Exception:
+                pass
+            self._synthesizer_poll_timer = None
+
+    def _scan_existing_synthesizers(self) -> None:
+        """Scan the worktree for completed synthesizer agents whose output
+        hasn't been applied yet. Idempotent — safe to call from
+        ``_load_existing_session``.
+        """
+        wt = self.session_path
+        if not wt or not Path(wt).is_dir():
+            return
+        try:
+            from brainstorm.brainstorm_session import _synthesizer_needs_apply
+        except Exception:
+            return
+        for status_path in sorted(Path(wt).glob("synthesizer_*_status.yaml")):
+            agent = status_path.stem[:-len("_status")]
+            if agent in self._synthesizer_agents:
+                continue
+            try:
+                data = read_yaml(str(status_path))
+            except Exception:
+                continue
+            if (data or {}).get("status") != "Completed":
+                continue
+            if not _synthesizer_needs_apply(self.task_num, agent):
+                continue
+            self._synthesizer_agents.add(agent)
+        self._ensure_synthesizer_poll_timer()
+
+    def _poll_synthesizers(self) -> None:
+        """Timer tick: for each tracked synthesizer, apply its output if
+        it's Completed. Drops entries whose output has already been
+        applied (idempotent across restarts). Stops the timer when empty.
+        """
+        if not self._synthesizer_agents:
+            self._stop_synthesizer_poll_timer()
+            return
+        try:
+            from brainstorm.brainstorm_session import _synthesizer_needs_apply
+        except Exception:
+            return
+        for agent in list(self._synthesizer_agents):
+            if agent in self._applying_synthesizer:
+                continue
+            status_path = self.session_path / f"{agent}_status.yaml"
+            if not status_path.is_file():
+                continue
+            try:
+                data = read_yaml(str(status_path))
+            except Exception:
+                continue
+            status = (data or {}).get("status", "")
+            if status != "Completed":
+                continue
+            if not _synthesizer_needs_apply(self.task_num, agent):
+                # Already applied (e.g., by CLI fallback).
+                self._synthesizer_agents.discard(agent)
+                continue
+            self._try_apply_synthesizer_if_needed(agent)
+        if not self._synthesizer_agents:
+            self._stop_synthesizer_poll_timer()
+
+    def _try_apply_synthesizer_if_needed(
+        self, agent_name: str, force: bool = False,
+    ) -> None:
+        """Single-shot apply attempt for one synthesizer agent. Failures
+        surface via the initializer apply banner; success refreshes the
+        DAG.
+        """
+        if agent_name in self._applying_synthesizer:
+            return
+        from brainstorm.brainstorm_session import (
+            _synthesizer_needs_apply,
+            apply_synthesizer_output,
+        )
+        if not force and not _synthesizer_needs_apply(
+            self.task_num, agent_name,
+        ):
+            return
+        self._applying_synthesizer.add(agent_name)
+        try:
+            try:
+                new_id = apply_synthesizer_output(
+                    self.task_num, agent_name,
+                )
+            except Exception as exc:
+                self._synthesizer_apply_errors[agent_name] = str(exc)
+                self._set_apply_banner(
+                    f"Synthesizer {agent_name} apply failed: {exc} — "
+                    f"run `ait brainstorm apply-synthesizer "
+                    f"{self.task_num} {agent_name}` to retry"
+                )
+                return
+            self._synthesizer_apply_errors.pop(agent_name, None)
+            self._synthesizer_agents.discard(agent_name)
+            self._clear_apply_banner()
+            self.notify(f"Synthesizer {agent_name} applied → {new_id}.")
+            self._load_existing_session()
+        finally:
+            self._applying_synthesizer.discard(agent_name)
+
+    def action_retry_synthesizer_apply(self) -> None:
+        """ctrl+shift+y: force-retry the most recently failed synthesizer.
+
+        If multiple synthesizers are tracked, picks the one with the most
+        recent ``_status.yaml`` mtime.
+        """
+        if not self._synthesizer_agents:
+            return
+        candidates = list(self._synthesizer_agents)
+        if len(candidates) == 1:
+            agent = candidates[0]
+        else:
+            def _mtime(name: str) -> float:
+                p = self.session_path / f"{name}_status.yaml"
+                try:
+                    return p.stat().st_mtime
+                except Exception:
+                    return 0.0
+            agent = max(candidates, key=_mtime)
+        self._try_apply_synthesizer_if_needed(agent, force=True)
 
     def on_tabbed_content_tab_activated(self, event) -> None:
         """Refresh Status tab when it becomes active."""
@@ -5275,6 +5429,11 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     launch_mode=launch_mode,
                 )
                 agents_list.append(agent)
+                # Track the synthesizer so the auto-apply poller will
+                # ingest its output when the agent completes.
+                self.call_from_thread(
+                    self._register_synthesizer_agent, agent,
+                )
                 msg = f"Registered synthesizer: {agent}"
             elif op == "detail":
                 agent = register_detailer(

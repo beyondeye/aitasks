@@ -1014,3 +1014,41 @@ def apply_explorer_output(
         task_num, agent_name, expected_role="explorer",
     )
     return new_id
+
+
+def _synthesizer_needs_apply(
+    task_num: int | str, agent_name: str,
+) -> bool:
+    """Synthesizer alias for :func:`_explorer_needs_apply` — the
+    underlying check is role-neutral (delimiter presence + node_id
+    collision). Exists so TUI callers read naturally and mirror the
+    explorer / patcher symmetry.
+    """
+    return _explorer_needs_apply(task_num, agent_name)
+
+
+def apply_synthesizer_output(
+    task_num: int | str, agent_name: str,
+) -> str:
+    """Parse ``<agent_name>_output.md`` and integrate it as a new hybrid
+    node.
+
+    The synthesizer emits two delimited blocks (``NODE_YAML`` +
+    ``PROPOSAL``) with no optional ``NEW_DIMENSIONS`` block. The new
+    node is parented on every source node listed in NODE_YAML's
+    ``parents:`` field (synthesizers merge multiple nodes — see
+    ``templates/synthesizer.md``). Head is advanced to the new node
+    and the next-node-id counter is incremented.
+
+    Returns:
+        The new node_id (parsed from NODE_YAML).
+
+    Raises:
+        FileNotFoundError: output file missing.
+        ValueError: any delimiter missing, NODE_YAML or proposal invalid,
+            or the new node_id already exists.
+    """
+    new_id, _added = _apply_node_output(
+        task_num, agent_name, expected_role="synthesizer",
+    )
+    return new_id
