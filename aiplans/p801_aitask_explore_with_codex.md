@@ -134,4 +134,18 @@ releases but not a hypothetical 5.x with breaking API.
 
 ## Final Implementation Notes
 
-(filled in after implementation)
+- **Actual work done:** Added `'pexpect>=4.9,<5'` to the two pip-install
+  lines in `.aitask-scripts/aitask_setup.sh` (PyPy venv at line 574,
+  CPython venv at line 655). No other code changed.
+- **Deviations from plan:** None.
+- **Issues encountered:** None during implementation. During diagnosis
+  (Phase 1), `pexpect` was manually installed into `~/.aitask/venv/` to
+  confirm the import succeeds and unblock the user immediately; the setup
+  change here makes the install reproducible for fresh installs and for
+  other PCs.
+- **Key decisions:** Pinned `pexpect>=4.9,<5`. Lower bound matches the
+  version installed locally during diagnosis (4.9.0). Upper bound rejects
+  a hypothetical 5.x with breaking API. No conditional / opt-in install
+  — `pexpect` is small and the codex path is one of four supported
+  agents that any user may enable via `codeagent_config.json`.
+- **Upstream defects identified:** None.
