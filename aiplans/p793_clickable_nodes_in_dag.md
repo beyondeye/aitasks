@@ -203,3 +203,34 @@ via `query_one`, which only works once the widget is mounted.
 
 Follow Step 9 of the task-workflow (no separate branch, so just archive on
 current branch via `./.aitask-scripts/aitask_archive.sh 793`).
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `_DAGStatic` (Static subclass) that forwards
+  `on_click` coordinates to its parent `DAGDisplay`. Swapped the inner
+  `Static#dag_display` in `compose()` to `_DAGStatic`. Added
+  `_handle_click(x, y)` on `DAGDisplay` that maps content-relative
+  click coords to a node via `_node_line_map` + column geometry
+  (`COL_STRIDE`, `BOX_WIDTH`, `NODE_ROWS`) and updates `_focused_idx` /
+  posts `FocusChanged` mirroring the existing arrow-key actions. Added
+  `from textual import events` for the `events.Click` type annotation.
+  Wrote `tests/test_brainstorm_dag_click_focus.py` with 4 pilot tests
+  covering: click on a different node, click on the already-focused
+  node (no re-post), click in column gap (no-op), click in edge row
+  between layers (no-op).
+- **Deviations from plan:** None.
+- **Issues encountered:** None — all 4 new tests passed on first run; the
+  3 existing DAG tests (`test_brainstorm_dag.py`,
+  `test_brainstorm_dag_op_badge.py`, `test_brainstorm_dag_op_keybinding.py`)
+  still pass.
+- **Key decisions:**
+  - Single click focuses only; does not invoke Open / HEAD / Operation /
+    Proposal / Plan / Compare. Keeps mouse semantics conservative — keyboard
+    bindings remain the way to trigger actions.
+  - In compare-pick mode, click still only updates focus; the user must
+    press Enter to confirm. Avoids accidental compare confirms.
+  - `_handle_click` skips `_render_dag()` when focus is unchanged (a
+    re-click on the already-focused node), but still calls `self.focus()`
+    so keyboard nav resumes immediately. No `FocusChanged` re-post in that
+    case.
+- **Upstream defects identified:** None
