@@ -5,16 +5,6 @@ description: Explore the codebase interactively, then create a task for implemen
 
 ## Workflow
 
-### Step 0: Sync with Remote (Best-effort)
-
-Do a best-effort sync to ensure the local state is up to date and clean up stale locks:
-
-```bash
-./.aitask-scripts/aitask_pick_own.sh --sync
-```
-
-This is non-blocking — if it fails (e.g., no network, merge conflicts), it continues silently.
-
 ### Step 1: Exploration Setup
 
 Use `AskUserQuestion` to determine the exploration intent:
@@ -103,7 +93,15 @@ Explore the codebase guided by the exploration strategy set in Step 1. Use Read,
 
 ### Step 2b: Related Task Discovery
 
-Before creating a new task, check for existing pending tasks that overlap.
+Before checking for overlapping tasks, do a best-effort sync so the scan and the subsequent task ID assignment see the current remote state:
+
+```bash
+./.aitask-scripts/aitask_pick_own.sh --sync
+```
+
+This is non-blocking — if it fails (e.g., no network, merge conflicts), it continues silently.
+
+Then check for existing pending tasks that overlap.
 
 Execute the **Related Task Discovery Procedure** (see `.claude/skills/task-workflow/related-task-discovery.md`) with:
 - **Matching context:** The exploration findings gathered in Step 2

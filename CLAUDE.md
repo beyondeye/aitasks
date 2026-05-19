@@ -208,7 +208,10 @@ Adapt from the Claude Code version when porting; each agent uses a similar
 markdown-based skill format.
 
 Run `./.aitask-scripts/aitask_skill_verify.sh` before committing any `.j2`
-template or stub-surface change.
+template or stub-surface change. After editing any `.md.j2` or closure
+procedure, regenerate the affected goldens in the same commit — see
+"Regenerate goldens after any `.md.j2` or closure edit" in
+`aidocs/skill_authoring_conventions.md`.
 
 **IMPORTANT:** Skill/custom command changes, if not specified otherwise,
 should be done in the Claude Code version first. When such changes take

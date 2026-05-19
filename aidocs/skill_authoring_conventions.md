@@ -215,6 +215,59 @@ This convention applies to any `.md` / `.md.j2` file rendered by
 `skill_template.py`, including shared procedure files under
 `.claude/skills/task-workflow/`.
 
+## Regenerate goldens after any `.md.j2` or closure edit
+
+When you edit a `.md.j2` template OR any `.md` file in its render closure
+(procedure files under `.claude/skills/task-workflow/`, sibling procedures,
+includes, etc.), regenerate the affected goldens and commit them in the same
+change. Skipping this step causes `tests/test_skill_render_*.sh` Test 1
+(`assert_eq` against the committed golden) to fail on the next run; the
+failure surfaces in CI / locally, but the template edit ships with stale
+goldens until someone notices.
+
+**The diff is the audit signal — review it, don't rubber-stamp it.** Goldens
+exist precisely so the template engine cannot silently shift rendered output
+(whitespace, comment placement, conditional bodies, reference-rewrite
+regressions). The intended diff for a template edit should match what you
+changed; an unrelated diff means a regression (canonical memory:
+`feedback_golden_file_tests_for_template_engines`).
+
+**Regenerate command** (3 profiles × 4 agents per entry-point skill):
+
+```bash
+PYTHON="$(source .aitask-scripts/lib/python_resolve.sh && require_ait_python)"
+TEMPLATE=".claude/skills/<skill>/SKILL.md.j2"
+PROFILES_DIR="aitasks/metadata/profiles"
+GOLDEN_DIR="tests/golden/skills/<skill>"
+
+for profile in default fast remote; do
+  for agent in claude codex gemini opencode; do
+    "$PYTHON" .aitask-scripts/lib/skill_template.py \
+      "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" "$agent" \
+      > "$GOLDEN_DIR/SKILL-${profile}-${agent}.md"
+  done
+done
+```
+
+For procedure goldens under `tests/golden/procs/<scope>/` (e.g.
+`task-workflow/`), the render target is the procedure `.md` file and the
+agent dimension is flattened — see the loop in
+`tests/test_skill_render_task_workflow.sh` for the canonical pattern.
+
+**Enforcement.** `tests/test_skill_render_*.sh` (per entry-point skill) and
+`tests/test_skill_render_task_workflow.sh` run Test 1 with `assert_eq` on
+every golden. Run the relevant test after regenerating to confirm all green
+before committing.
+
+**Commit rule.** Goldens and the template edit land in the **same commit**.
+A separate "regenerate goldens" follow-up commit hides intent — the reviewer
+cannot tell whether the diff is the deliberate consequence of the template
+edit without rediffing against the prior commit's template.
+
+The narrower Jinja-comment render-neutrality rule above is a special case of
+this rule: there the diff MUST be empty; here the diff is whatever the
+template edit produced and MUST be reviewed.
+
 ## Do not route skill invocation through `claude -p "<inlined prompt>"`
 
 `claude -p` is billed at a higher per-token rate than slash-command invocations

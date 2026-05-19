@@ -237,6 +237,14 @@ established five patterns that subsequent per-skill conversions
    profile-resolution mismatch the moment it landed. Canonical memory:
    `feedback_golden_file_tests_for_template_engines`.
 
+   **Operational rule:** goldens must be regenerated and committed
+   alongside *any* edit to a `.md.j2` or closure file — not just at
+   conversion time. A template-only commit ships with stale goldens
+   and silently fails Test 1 on the next test run. See
+   "Regenerate goldens after any `.md.j2` or closure edit" in
+   `aidocs/skill_authoring_conventions.md` for the regenerate command
+   and the same-commit rule.
+
 4. **Entry-point templates use `.md.j2`; referenced procedures keep
    `.md`.** The walk-write infrastructure assumes a single `.md.j2`
    per skill at the entry point. Referenced procedures
