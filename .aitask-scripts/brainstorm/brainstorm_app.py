@@ -26,6 +26,7 @@ from textual.widgets import (
     Header,
     Input,
     Label,
+    LoadingIndicator,
     Markdown,
     Static,
     Tabs,
@@ -1065,45 +1066,90 @@ class OperationDetailScreen(ModalScreen):
         self.group_info: dict = {}
 
     def compose(self) -> ComposeResult:
-        self.group_info = _read_groups(self.session_path).get(
-            self.group_name, {}
-        )
-        if not self.group_info:
-            with Container(id="op_detail_dialog"):
-                yield Label(
-                    f"Operation: {self.group_name}",
-                    id="op_detail_title",
-                )
-                yield Label(
-                    f"(no group entry recorded for `{self.group_name}`)",
-                    id="op_detail_missing",
-                )
-                with Horizontal(id="op_detail_buttons"):
-                    yield Button(
-                        "Close", variant="default", id="btn_close_op_detail"
-                    )
-                yield Footer()
-            return
-
+        # Render a lightweight skeleton synchronously so the modal
+        # appears immediately on `o`. The heavy file reads that
+        # populate the tabs run in on_mount via an async worker,
+        # giving the user instant visual feedback (LoadingIndicator).
         with Container(id="op_detail_dialog"):
-            yield Label(self._build_title(), id="op_detail_title")
-            with TabbedContent(id="op_detail_tabs"):
-                with TabPane("Overview", id="op_overview"):
-                    yield VerticalScroll(
-                        *self._build_overview_widgets(),
-                        classes="op_tab_scroll",
-                    )
-                for agent in self.group_info.get("agents") or []:
-                    with TabPane(agent, id=f"tab_agent_{agent}"):
-                        yield VerticalScroll(
-                            *self._build_agent_widgets(agent),
-                            classes="op_tab_scroll",
-                        )
+            yield Label(
+                f"Operation: {self.group_name}",
+                id="op_detail_title",
+            )
+            with Container(id="op_detail_content"):
+                yield LoadingIndicator(id="op_detail_loading")
             with Horizontal(id="op_detail_buttons"):
                 yield Button(
                     "Close", variant="default", id="btn_close_op_detail"
                 )
             yield Footer()
+
+    def on_mount(self) -> None:
+        # Schedule heavy reads via a worker so the LoadingIndicator
+        # paints first. The worker is async so we can await each
+        # mount/remove (Textual's mount/remove return AwaitMount /
+        # AwaitRemove — racing them produces "id already mounted" or
+        # silent-dismiss crashes, cf. _build_compare_matrix).
+        self._populate_content_worker()
+
+    @work
+    async def _populate_content_worker(self) -> None:
+        try:
+            self.group_info = _read_groups(self.session_path).get(
+                self.group_name, {}
+            )
+            loading = self.query_one("#op_detail_loading", LoadingIndicator)
+            content = self.query_one("#op_detail_content", Container)
+
+            if not self.group_info:
+                await content.mount(
+                    Label(
+                        f"(no group entry recorded for `{self.group_name}`)",
+                        id="op_detail_missing",
+                    )
+                )
+                await loading.remove()
+                return
+
+            self.query_one("#op_detail_title", Label).update(
+                self._build_title()
+            )
+
+            tabbed = TabbedContent(id="op_detail_tabs")
+            await content.mount(tabbed)
+            await tabbed.add_pane(
+                TabPane(
+                    "Overview",
+                    VerticalScroll(
+                        *self._build_overview_widgets(),
+                        classes="op_tab_scroll",
+                    ),
+                    id="op_overview",
+                )
+            )
+            for agent in self.group_info.get("agents") or []:
+                await tabbed.add_pane(
+                    TabPane(
+                        agent,
+                        VerticalScroll(
+                            *self._build_agent_widgets(agent),
+                            classes="op_tab_scroll",
+                        ),
+                        id=f"tab_agent_{agent}",
+                    )
+                )
+            await loading.remove()
+            # Focus the tab row so arrow-key navigation works
+            # immediately (otherwise focus lands on the Close button
+            # after LoadingIndicator removal).
+            try:
+                tabbed.query_one(Tabs).focus()
+            except Exception:
+                pass
+        except Exception as exc:
+            self.notify(
+                f"Failed to load operation details: {exc}",
+                severity="error",
+            )
 
     def _build_title(self) -> str:
         op = self.group_info.get("operation", "?")
@@ -2296,6 +2342,15 @@ class BrainstormApp(TuiSwitcherMixin, App):
         width: 100%;
         padding: 1;
         background: $secondary;
+    }
+
+    #op_detail_content {
+        height: 1fr;
+    }
+
+    #op_detail_loading {
+        height: 1fr;
+        width: 100%;
     }
 
     #op_detail_tabs {
