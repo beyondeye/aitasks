@@ -26,7 +26,6 @@ clear delimiters (same format as Explorer):
 - parents: List ALL source nodes
 - All dimension fields populated according to the merge rules
 - created_at: Current timestamp as `"YYYY-MM-DD HH:MM"` (double-quoted)
-- created_by_group: The operation group ID
 - reference_files: Merged from all parents, deduplicated, with new bridging
   component references added and dropped component references removed
 
@@ -130,7 +129,6 @@ When merging, conflicts are inevitable. Follow this process:
   - All dimension fields per merge rules and conflict resolutions
   - Merged and deduplicated reference_files
   - created_at (current timestamp `"YYYY-MM-DD HH:MM"`, double-quoted)
-  - created_by_group from input
 - Write both YAML metadata and proposal to `_output.md` using delimiters:
   ```
   --- NODE_YAML_START ---

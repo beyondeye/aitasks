@@ -28,7 +28,7 @@ from brainstorm.brainstorm_dag import (
     list_nodes,
     read_node,
 )
-from brainstorm.brainstorm_session import GROUPS_FILE
+from brainstorm.brainstorm_session import GROUPS_FILE, resolve_node_group
 
 # ---------------------------------------------------------------------------
 # Rendering constants
@@ -736,7 +736,18 @@ class DAGDisplay(VerticalScroll):
                 severity="warning",
             )
             return
-        self.post_message(self.OperationOpened(group))
+        # Defensive resolution for pre-t792 drifted ``created_by_group``
+        # values (e.g. ``op_explore_001`` → ``explore_001``).
+        groups_path = self._session_path / GROUPS_FILE
+        groups: dict = {}
+        if groups_path.is_file():
+            try:
+                gdata = read_yaml(str(groups_path)) or {}
+                groups = gdata.get("groups", {}) or {}
+            except Exception:
+                groups = {}
+        resolved_group, _ginfo = resolve_node_group(focused_id, group, groups)
+        self.post_message(self.OperationOpened(resolved_group))
         self.post_message(self.FocusChanged(focused_id))
 
     def action_view_proposal(self) -> None:

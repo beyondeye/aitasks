@@ -70,6 +70,7 @@ from brainstorm.brainstorm_session import (
     GROUPS_FILE,
     load_session,
     record_operation,
+    resolve_node_group,
     save_session,
     session_exists,
 )
@@ -1549,7 +1550,15 @@ class NodeRow(Static):
                 severity="warning",
             )
             return
-        self.post_message(self.OperationOpened(group))
+        # Apply the same defensive resolution used by the graph-tab
+        # detail pane so the operation modal can open even when the
+        # stored ``created_by_group`` is a pre-t792 drifted value
+        # (e.g. ``op_explore_001``).
+        groups = _read_groups(session_path)
+        resolved_group, _ginfo = resolve_node_group(
+            self.node_id, group, groups
+        )
+        self.post_message(self.OperationOpened(resolved_group))
 
 
 class DimensionRow(Static):
@@ -1680,14 +1689,41 @@ class CycleField(Static):
             event.stop()
 
 
+def _format_progress_bar(progress: int) -> str:
+    """Render a 10-block progress bar plus percent label, e.g. ``\u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591 30%``.
+
+    Returns an empty string when ``progress`` is not strictly positive,
+    matching the convention used by per-agent rows. Input is clipped to
+    [0, 100].
+    """
+    try:
+        p = int(progress)
+    except (TypeError, ValueError):
+        return ""
+    p = max(0, min(100, p))
+    if p <= 0:
+        return ""
+    filled = int(10 * p / 100)
+    bar = "\u2588" * filled + "\u2591" * (10 - filled)
+    return f"{bar} {p}%"
+
+
 class GroupRow(Static, can_focus=True):
     """Expandable group row in the Status tab."""
 
-    def __init__(self, name: str, info: dict, expanded: bool = False, **kwargs):
+    def __init__(
+        self,
+        name: str,
+        info: dict,
+        expanded: bool = False,
+        aggregate_progress: int | None = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.group_name = name
         self.group_info = info
         self.expanded = expanded
+        self.aggregate_progress = aggregate_progress
 
     def render(self) -> str:
         arrow = "\u25bc" if self.expanded else "\u25b6"
@@ -1696,9 +1732,17 @@ class GroupRow(Static, can_focus=True):
         color = AGENT_STATUS_COLORS.get(status, "#888888")
         agents = self.group_info.get("agents", [])
         created = self.group_info.get("created_at", "")
+        progress_str = ""
+        # Hide the bar for already-Completed groups (would always read 100%)
+        # and when no agent has progress > 0 yet.
+        if status != "Completed" and self.aggregate_progress:
+            bar = _format_progress_bar(self.aggregate_progress)
+            if bar:
+                progress_str = f"  {bar}"
         return (
             f"{arrow} [bold]{self.group_name}[/bold]  {op}  "
-            f"[{color}]{status}[/{color}]  agents: {len(agents)}  {created}"
+            f"[{color}]{status}[/{color}]  agents: {len(agents)}"
+            f"{progress_str}  {created}"
         )
 
     def on_click(self) -> None:
@@ -3696,8 +3740,13 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 if not isinstance(ginfo, dict):
                     continue
                 expanded = gname in self._expanded_groups
+                aggregate = self._compute_group_progress(wt_path, ginfo)
                 container.mount(
-                    GroupRow(gname, ginfo, expanded=expanded, classes="status_group_row")
+                    GroupRow(
+                        gname, ginfo, expanded=expanded,
+                        aggregate_progress=aggregate,
+                        classes="status_group_row",
+                    )
                 )
                 if expanded:
                     self._mount_group_agents(container, wt_path, ginfo)
@@ -3815,6 +3864,40 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self.notify("Refreshing status...", timeout=2)
         self.set_timer(2.0, self._refresh_status_tab)
 
+    def _compute_group_progress(
+        self, wt_path: str, ginfo: dict
+    ) -> int | None:
+        """Return the mean per-agent progress for a group, rounded to int.
+
+        Reads each agent's ``<name>_status.yaml::progress`` value. Returns
+        ``None`` when the group has no agents on disk so the GroupRow
+        suppresses the bar. Used by Status-tab refresh to give parallel
+        ops (e.g. multi-explorer ``explore_<seq>``) a single aggregate
+        indicator at the group level (t792).
+        """
+        import os
+
+        agent_names = ginfo.get("agents") or []
+        if not agent_names:
+            return None
+        progresses: list[int] = []
+        for name in agent_names:
+            sf = os.path.join(wt_path, f"{name}_status.yaml")
+            if not os.path.isfile(sf):
+                continue
+            try:
+                data = read_yaml(sf)
+            except Exception:
+                continue
+            try:
+                p = int(data.get("progress", 0) or 0)
+            except (TypeError, ValueError):
+                p = 0
+            progresses.append(max(0, min(100, p)))
+        if not progresses:
+            return None
+        return int(round(sum(progresses) / len(progresses)))
+
     def _mount_group_agents(
         self, container: VerticalScroll, wt_path: str, ginfo: dict
     ) -> None:
@@ -3846,16 +3929,8 @@ class BrainstormApp(TuiSwitcherMixin, App):
         atype = data.get("agent_type", "")
         type_label = f" ({atype})" if atype else ""
 
-        try:
-            progress = int(data.get("progress", 0) or 0)
-        except (TypeError, ValueError):
-            progress = 0
-        progress = max(0, min(100, progress))
-        progress_str = ""
-        if progress > 0:
-            filled = int(10 * progress / 100)
-            bar = "\u2588" * filled + "\u2591" * (10 - filled)
-            progress_str = f"  {bar} {progress}%"
+        bar = _format_progress_bar(data.get("progress", 0))
+        progress_str = f"  {bar}" if bar else ""
 
         # Heartbeat info
         alive_path = os.path.join(wt_path, f"{name}_alive.yaml")
@@ -3977,7 +4052,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
             f"[bold $accent]Created:[/] {created}", classes="meta_field"))
         if group:
             groups = _read_groups(self.session_path)
-            ginfo = groups.get(group, {})
+            group, ginfo = resolve_node_group(node_id, group, groups)
             op = ginfo.get("operation", "?")
             agents = ginfo.get("agents") or []
             when = ginfo.get("created_at", "")

@@ -513,6 +513,49 @@ _NODE_NON_DIMENSION_FIELDS = frozenset({
 _AGENT_NAME_RE = re.compile(r"^([a-z]+)_([0-9A-Za-z_]+)$")
 
 
+def resolve_node_group(
+    node_id: str, stored_group: str, groups: dict
+) -> tuple[str, dict]:
+    """Resolve a node's operation group, with defensive fallback.
+
+    Returns ``(resolved_group_name, group_info_dict)``. ``group_info_dict``
+    is empty when no match is found.
+
+    Lookup order:
+
+    1. **Direct match.** ``groups.get(stored_group)`` — the happy path
+       (and the only path for nodes produced by post-t792 applies).
+    2. **nodes_created membership.** Any group whose ``nodes_created``
+       list contains ``node_id``. Authoritative when the registration
+       happened to succeed even though the node's
+       ``created_by_group`` value drifted.
+    3. **Suffix match.** Any existing group name that ``stored_group``
+       ends with (catches drift like ``op_explore_001`` /
+       ``operation_explore_001`` → ``explore_001``).
+
+    Allows graph-tab consumers to render the correct operation for
+    nodes whose ``created_by_group`` field was written by a pre-t792
+    parallel agent that drifted away from the canonical value.
+    """
+    ginfo = groups.get(stored_group) or {}
+    if ginfo:
+        return stored_group, ginfo
+    for gname, ginfo_candidate in groups.items():
+        if not isinstance(ginfo_candidate, dict):
+            continue
+        nodes_created = ginfo_candidate.get("nodes_created") or []
+        if node_id in nodes_created:
+            return gname, ginfo_candidate
+    for gname, ginfo_candidate in groups.items():
+        if (
+            isinstance(ginfo_candidate, dict)
+            and gname != stored_group
+            and stored_group.endswith(gname)
+        ):
+            return gname, ginfo_candidate
+    return stored_group, {}
+
+
 def _agent_to_group_name(agent_name: str) -> str:
     """Derive a group name from an agent name.
 
@@ -640,8 +683,9 @@ def apply_patcher_output(
 
         if not node_data.get("created_at"):
             node_data["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-        if not node_data.get("created_by_group"):
-            node_data["created_by_group"] = _agent_to_group_name(agent_name)
+        # created_by_group is authoritative from the agent name — never
+        # trust the agent's value (parallel agents drift; see t792).
+        node_data["created_by_group"] = _agent_to_group_name(agent_name)
 
         # The patcher template tells the agent to emit a copy of the
         # parent's YAML with only node_id/parents updated — so
@@ -857,8 +901,9 @@ def _apply_node_output(
             node_data["created_at"] = datetime.now().strftime(
                 "%Y-%m-%d %H:%M"
             )
-        if not node_data.get("created_by_group"):
-            node_data["created_by_group"] = _agent_to_group_name(agent_name)
+        # created_by_group is authoritative from the agent name — never
+        # trust the agent's value (parallel agents drift; see t792).
+        node_data["created_by_group"] = _agent_to_group_name(agent_name)
 
         new_node_id = node_data.get("node_id")
         if new_node_id:

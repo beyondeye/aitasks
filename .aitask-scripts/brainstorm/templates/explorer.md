@@ -32,7 +32,6 @@ A flat YAML file following the node schema. Requirements:
 - description: One-line summary of your approach
 - proposal_file: Path to your proposal (br_proposals/<node_id>.md)
 - created_at: Current timestamp as `"YYYY-MM-DD HH:MM"` (double-quoted)
-- created_by_group: The operation group ID provided in the input
 - reference_files: Updated list of codebase files relevant to this proposal.
   Start with the baseline's reference_files. Add files for new components,
   remove files for components that were replaced or dropped.
@@ -153,7 +152,6 @@ applies primarily to the targeted areas.
 - Write the flat YAML node metadata with ALL dimension fields:
   - node_id, parents, description, proposal_file
   - created_at (current timestamp `"YYYY-MM-DD HH:MM"`, double-quoted)
-  - created_by_group (operation group ID from input)
   - reference_files (updated to reflect new architecture)
   - All requirements_*, assumption_*, component_*, tradeoff_* fields
 - Every dimension from the baseline node must appear — never silently drop one
