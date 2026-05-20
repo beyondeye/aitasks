@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [brainstorm, test]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7
 created_at: 2026-05-20 07:55
-updated_at: 2026-05-20 11:31
+updated_at: 2026-05-20 11:37
+completed_at: 2026-05-20 11:37
 ---
 
 ## Origin
