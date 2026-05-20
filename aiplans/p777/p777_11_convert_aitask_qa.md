@@ -278,3 +278,73 @@ sibling procedures), keep procedures as `.md`, golden the entry-point per
 (profile × agent) and each profile-bearing procedure per profile (claude).
 Subsequent skills with procedure files (pr-import / revert / pickrem /
 pickweb) follow this layout.
+
+## Final Implementation Notes
+
+- **Actual work done:** Authored `.claude/skills/aitask-qa/SKILL.md.j2` from
+  the existing `aitask-qa/SKILL.md` (deleted Step 0 `--profile` pre-parse and
+  Step 0a "Select Execution Profile"; relocated the `feedback_collected`
+  init to Step 1; wrapped the Step 1c `qa_tier` check with inline value
+  substitution; dropped the `execution-profile-selection.md` bullet from the
+  Procedures list). Wrapped 3 procedure files: `test-plan-proposal.md` 5b
+  (`qa_mode`, 3-way `elif`), `test-execution.md` 4a (`qa_run_tests`, one-armed
+  bool), `task-selection.md` 1a (`skip_task_confirmation`, two-armed bool);
+  removed the stale `active_profile` Input bullet from each. Replaced all 4
+  per-agent surfaces with canonical stubs (resolver key `qa`). Generated 21
+  goldens (12 entry-point + 9 procedure). Authored
+  `tests/test_skill_render_aitask_qa.sh` (224 assertions across Tests
+  1/1p/2/3/3b/4/5).
+- **Deviations from plan:** The plan listed 5 created/replaced files +
+  3 wrapped procedure files. Implementation reworded **all 6** procedure-file
+  headers ("Referenced from Step N of the main SKILL.md workflow." →
+  "...of the main workflow.") — see Issues below — so 3 extra procedure
+  files (`change-analysis.md`, `test-discovery.md`,
+  `follow-up-task-creation.md`) carry a one-line doc change beyond the
+  planned identity passthrough. No golden impact (those 3 have no profile
+  markers and no golden files).
+- **Issues encountered:** First closure render wrote the **stub** content
+  into the rendered entry-point `aitask-qa-<profile>-/SKILL.md` instead of
+  the rendered template. Root cause: the t777_22 dep-walker's `discover_refs`
+  (`SHORT_REF_RE`) matched the bare token `SKILL.md` in each procedure file's
+  prose header ("the main SKILL.md workflow"); that token resolved to the
+  real stub file `.claude/skills/aitask-qa/SKILL.md`, the walker enqueued it,
+  and its `_target_path_for` collided with the entry-point target
+  (`<skill>-<profile>-/SKILL.md`) — last write (the stub) wins. Fixed
+  in-scope by rewording the 6 procedure-file headers to drop the bare
+  `SKILL.md` token. After the reword the closure renders correctly and the
+  per-agent `satisfaction-feedback.md` ref rewrite works.
+- **Key decisions:**
+  - Direct conversion (not staged under `aitask-qan`): `aitask-pick` drives
+    this conversion, not `aitask-qa` — same call as t777_8/t777_9/t777_10.
+  - `qa_tier` uses inline `{{ profile.qa_tier }}` substitution rather than an
+    `elif` chain — the enum value passes straight through to the `tier`
+    context variable. `qa_mode` does use a 3-way `elif` chain because each
+    value drives different control flow; `qa_mode == "ask"` and unset both
+    fall through to the `{% else %}` interactive arm.
+  - `qa_run_tests` wrapped as a one-armed `{% if %}` (no `{% else %}`): when
+    the key is unset/true the block renders empty and step 4a proceeds.
+  - `skip_task_confirmation` (a task-workflow key, not in the task's stated
+    3-key list) was also wrapped — it lives in `task-selection.md` and would
+    otherwise be dead code referencing the deleted `active_profile`.
+- **Upstream defects identified:** `.aitask-scripts/lib/skill_template.py:146`
+  — `discover_refs` / `SHORT_REF_RE` matches a bare `SKILL.md` token in prose
+  and (when it resolves to a real file) enqueues it as a closure node. For a
+  templated skill whose `SKILL.md` is a stub, a procedure file's prose
+  mention of `SKILL.md` makes the walker render the stub into
+  `<skill>-<profile>-/SKILL.md`, silently overwriting the rendered
+  entry-point (target-path collision in `walk_closure`). The existence-based
+  false-positive filter cannot catch this because the stub file genuinely
+  exists. Worked around here by rewording the procedure files, but any future
+  templated skill with its own procedure files that mention "SKILL.md" in
+  prose will hit the same silent overwrite — worth a separate walker fix
+  (e.g. skip a discovered ref whose target path equals the entry target, or
+  warn on target-path collisions in `walk_closure`).
+- **Notes for sibling tasks:** `aitask-qa` is the first per-skill conversion
+  with its own procedure-file closure. Two reusable lessons: (1) wrap profile
+  checks wherever they live — entry-point template *and* sibling procedure
+  files; goldens go under `tests/golden/skills/<skill>/` (entry, per
+  profile×agent) and `tests/golden/procs/<skill>/` (each profile-bearing
+  procedure, per profile, claude-only). (2) Procedure files must not contain a
+  bare `SKILL.md` token in prose until the dep-walker collision above is
+  fixed — phrase it as "the main workflow". pr-import / revert / pickrem /
+  pickweb conversions should check their procedure files for the same token.
