@@ -369,3 +369,36 @@ the banner appears and `ctrl+shift+d` / `ait brainstorm apply-detailer` retries.
 - Per CLAUDE.md, after implementation run `/aitask-qa 741` for test-gap analysis.
 - Step 9 (Post-Implementation): no separate branch (profile 'fast' works on the
   current branch); commit code + plan separately, then `./.aitask-scripts/aitask_archive.sh 741`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all 6 planned steps exactly as designed.
+  - `templates/detailer.md` — wrapped the plan output in
+    `--- DETAILED_PLAN_START ---` / `--- DETAILED_PLAN_END ---` (Output section
+    + Phase 3 bullet).
+  - `brainstorm_session.py` — added `_DETAILER_DELIMITERS`,
+    `_detailer_needs_apply()` (content-comparison guard), and
+    `apply_detailer_output()` (writes `br_plans/<node>_plan.md`, sets
+    `plan_file` via `update_node`, flips the detail group Completed; no node
+    creation, no graph-state mutation).
+  - `brainstorm_app.py` — detailer auto-apply state, `ctrl+shift+d` retry
+    binding, 7 hook methods mirroring the patcher block, registration in
+    `_run_design_op` and `_scan_existing_detailers()` in
+    `_load_existing_session`.
+  - New `aitask_brainstorm_apply_detailer.sh` CLI fallback + `ait` dispatch.
+  - New `tests/test_brainstorm_apply_detailer.py` (16 tests) and
+    `tests/test_brainstorm_apply_detailer_cli.sh` (8 checks).
+- **Deviations from plan:** None. `brainstorm_dag.py` confirmed unchanged
+  (`update_node()` already merges arbitrary fields).
+- **Issues encountered:** None. All new tests pass; sibling apply regressions
+  (patcher/explorer/synthesizer engine + CLI, brainstorm CLI, session) all
+  still pass; `brainstorm_app` imports and compiles cleanly.
+- **Key decisions:** (1) `_detailer_needs_apply` uses a plan-body content
+  comparison rather than a bare "plan_file set" check, so re-detailing the
+  same node (a later detailer with different content) is still applied.
+  (2) The detailer reuses the patcher's `_PATCHER_INPUT_META_RE` to recover
+  the target node from `<agent>_input.md` — the `## Target Node` Metadata line
+  has the same `/br_nodes/<id>.yaml` shape. (3) Delimiter named
+  `DETAILED_PLAN` (parallel to the patcher's `PATCHED_PLAN`) per user choice
+  during planning — no churn to the shipped patcher.
+- **Upstream defects identified:** None.
