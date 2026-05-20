@@ -366,6 +366,49 @@ set -e
 assert_nonzero_exit "Test11: walk-check surfaces bad-Jinja leaf as non-zero" "$RC"
 
 # ============================================================================
+# Test 12 — Procedure file mentions the skill's own SKILL.md in prose:
+#   the stub must NOT overwrite the rendered entry-point (t817).
+# ============================================================================
+
+SK_STUBREF="${PREFIX}stubref"
+mkdir -p ".claude/skills/$SK_STUBREF"
+# Templated entry: distinguishing rendered content + a Jinja marker.
+cat > ".claude/skills/$SK_STUBREF/SKILL.md.j2" <<'EOF'
+# Stubref RENDERED ENTRY (agent={{ agent }})
+See proc_step.md for the procedure.
+EOF
+# Stub SKILL.md dispatch surface — must never leak into the entry target.
+cat > ".claude/skills/$SK_STUBREF/SKILL.md" <<'EOF'
+# Stubref STUB SURFACE — must not overwrite the rendered entry
+EOF
+# Procedure file mentions the skill's own SKILL.md in prose.
+cat > ".claude/skills/$SK_STUBREF/proc_step.md" <<'EOF'
+# Procedure step
+Referenced from Step 3 of the main SKILL.md workflow.
+EOF
+
+set +e
+"$RENDER" "$SK_STUBREF" --profile fast --agent claude
+RC=$?
+set -e
+assert_eq "Test12: stub-ref render exits 0" "0" "$RC"
+assert_file_exists "Test12: entry target rendered" \
+    ".claude/skills/${SK_STUBREF}-fast-/SKILL.md"
+assert_file_exists "Test12: procedure file rendered" \
+    ".claude/skills/${SK_STUBREF}-fast-/proc_step.md"
+
+STUBREF_OUT="$(cat ".claude/skills/${SK_STUBREF}-fast-/SKILL.md")"
+assert_contains "Test12: entry target keeps rendered template content" \
+    "RENDERED ENTRY (agent=claude)" "$STUBREF_OUT"
+TOTAL=$((TOTAL + 1))
+if echo "$STUBREF_OUT" | grep -qF 'STUB SURFACE'; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: Test12: stub content leaked into rendered entry-point"
+else
+    PASS=$((PASS + 1))
+fi
+
+# ============================================================================
 # Summary
 # ============================================================================
 

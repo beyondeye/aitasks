@@ -248,11 +248,32 @@ def walk_closure(
             child_src = ref["resolved_source"]
             if child_src in visited:
                 continue
-            visited.add(child_src)
             child_target = _target_path_for(child_src, agent, profile_name, repo_root)
+            if child_target == entry_target:
+                # A prose mention of the skill's own SKILL.md resolves to the
+                # entry-point stub, whose target path collides with the
+                # rendered entry-point. The stub is not a real closure
+                # dependency — skip it so it never overwrites the entry.
+                visited.add(child_src)
+                continue
+            visited.add(child_src)
             queue.append((child_src, child_target))
 
         plan.append((src, target, new_raw))
+
+    # Guard: every closure source must map to a distinct target path. The
+    # entry-target collision (prose SKILL.md ref) is filtered above; any
+    # remaining collision is a walker bug — fail loudly instead of letting
+    # the last write silently win.
+    targets_seen: dict[Path, Path] = {}
+    for src, target, _content in plan:
+        prior = targets_seen.get(target)
+        if prior is not None and prior != src:
+            raise RuntimeError(
+                f"Closure target-path collision: '{prior}' and '{src}' "
+                f"both render to '{target}'"
+            )
+        targets_seen[target] = src
 
     if write:
         if force or _is_stale(plan, profile_yaml):
