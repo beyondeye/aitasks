@@ -9,6 +9,8 @@ _AIT_AGENTCREW_UTILS_LOADED=1
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=terminal_compat.sh
 source "$SCRIPT_DIR/terminal_compat.sh"
+# shellcheck source=yaml_utils.sh
+source "$SCRIPT_DIR/yaml_utils.sh"
 
 # --- Constants ---
 AGENTCREW_BRANCH_PREFIX="crew-"
@@ -83,88 +85,10 @@ resolve_crew() {
     echo "$wt_path"
 }
 
-# read_yaml_field <file> <field>
-# Extracts a simple scalar value from a YAML file.
-# Returns empty string if field not found. Safe under pipefail.
-# A flow list the board wrapped across multiple physical lines (PyYAML wraps
-# past ~80 columns) is rejoined onto one line, so list-valued fields such as
-# folded_tasks / verifies are returned whole rather than truncated.
-read_yaml_field() {
-    local file="$1"
-    local field="$2"
-    local value="" capturing=false depth=0 fline opens closes
-    while IFS= read -r fline; do
-        if [[ "$capturing" == false ]]; then
-            [[ "$fline" == "${field}:"* ]] || continue
-            capturing=true
-            value="${fline#"${field}":}"
-        else
-            value="$value $fline"
-        fi
-        opens="${value//[^\[]/}"
-        closes="${value//[^\]]/}"
-        depth=$(( ${#opens} - ${#closes} ))
-        [[ $depth -le 0 ]] && break
-    done < "$file"
-    [[ "$capturing" == false ]] && return 0
-    # Trim surrounding whitespace.
-    value="${value#"${value%%[![:space:]]*}"}"
-    value="${value%"${value##*[![:space:]]}"}"
-    printf '%s\n' "$value"
-}
-
-# read_yaml_list <file> <field>
-# Extracts a YAML list field as newline-separated values.
-# Handles both inline [a, b] and block list formats.
-read_yaml_list() {
-    local file="$1"
-    local field="$2"
-
-    # Capture the field's value, joining a flow list the board wrapped
-    # across multiple physical lines (PyYAML wraps past ~80 columns) onto a
-    # single line. Self-contained — agentcrew_utils.sh is sourced by crew
-    # scripts that do not load task_utils.sh's join_yaml_flow_lists.
-    local value="" capturing=false depth=0 fline opens closes
-    while IFS= read -r fline; do
-        if [[ "$capturing" == false ]]; then
-            [[ "$fline" == "${field}:"* ]] || continue
-            capturing=true
-            value="${fline#"${field}":}"
-        else
-            value="$value $fline"
-        fi
-        opens="${value//[^\[]/}"
-        closes="${value//[^\]]/}"
-        depth=$(( ${#opens} - ${#closes} ))
-        [[ $depth -le 0 ]] && break
-    done < "$file"
-    [[ "$capturing" == false ]] && return 0
-
-    # Strip leading whitespace left by the "${field}:" prefix removal.
-    value="${value#"${value%%[![:space:]]*}"}"
-
-    # Inline format: [a, b, c]
-    if [[ "$value" =~ ^\[.*\]$ ]]; then
-        echo "$value" | tr -d "[]'\"" | tr ',' '\n' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' | grep -v '^$'
-        return 0
-    fi
-
-    # Block format: lines starting with "- "
-    local in_list=false
-    while IFS= read -r fline; do
-        if [[ "$fline" == "${field}:"* ]]; then
-            in_list=true
-            continue
-        fi
-        if $in_list; then
-            if [[ "$fline" =~ ^[[:space:]]*-[[:space:]] ]]; then
-                echo "$fline" | sed 's/^[[:space:]]*-[[:space:]]*//'
-            else
-                break
-            fi
-        fi
-    done < "$file"
-}
+# read_yaml_field and read_yaml_list are defined in yaml_utils.sh (sourced
+# above). They were once a second, independent copy here, colliding with
+# task_utils.sh's read_yaml_field when both libs were sourced — now canonical
+# in one shared place (t815).
 
 # write_yaml_file <file> <content>
 # Writes YAML content to a file via heredoc (content passed as string).

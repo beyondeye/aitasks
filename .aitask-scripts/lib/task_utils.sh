@@ -12,6 +12,8 @@ SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 source "${SCRIPT_DIR}/lib/terminal_compat.sh"
 # shellcheck source=archive_utils.sh
 source "${SCRIPT_DIR}/lib/archive_utils.sh"
+# shellcheck source=yaml_utils.sh
+source "${SCRIPT_DIR}/lib/yaml_utils.sh"
 
 # --- Default directory variables (override before sourcing if needed) ---
 TASK_DIR="${TASK_DIR:-aitasks}"
@@ -245,67 +247,9 @@ format_yaml_list() {
     fi
 }
 
-# Join YAML flow-sequence values that wrap across multiple physical lines.
-# Reads YAML text on stdin; emits it with any "key: [ ... ]" whose brackets
-# span multiple physical lines collapsed onto a single line. Continuation
-# lines are appended with a separating space (harmless — list parsers strip
-# all whitespace). Bracket depth is tracked, so a wrap of any length folds
-# back to one line.
-#
-# PyYAML's yaml.dump (used by the board via task_yaml.py) wraps a flow list
-# once it exceeds ~80 columns. The line-by-line frontmatter parsers below
-# match each physical line against a key regex, so unjoined continuation
-# lines are silently dropped — this filter must run before that matching.
-join_yaml_flow_lists() {
-    local line buffer="" depth=0 opens closes
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        if [[ $depth -gt 0 ]]; then
-            buffer+=" $line"
-        else
-            buffer="$line"
-        fi
-        # Count unbalanced brackets across the accumulated buffer.
-        opens="${buffer//[^\[]/}"
-        closes="${buffer//[^\]]/}"
-        depth=$(( ${#opens} - ${#closes} ))
-        if [[ $depth -le 0 ]]; then
-            printf '%s\n' "$buffer"
-            buffer=""
-            depth=0
-        fi
-    done
-    [[ -n "$buffer" ]] && printf '%s\n' "$buffer"
-    return 0
-}
-
-# --- Helper: read a YAML field from frontmatter ---
-read_yaml_field() {
-    local file_path="$1"
-    local field_name="$2"
-    local in_yaml=false
-
-    while IFS= read -r line; do
-        if [[ "$line" == "---" ]]; then
-            if [[ "$in_yaml" == true ]]; then
-                break
-            else
-                in_yaml=true
-                continue
-            fi
-        fi
-        if [[ "$in_yaml" == true && "$line" =~ ^${field_name}:[[:space:]]*(.*) ]]; then
-            local value="${BASH_REMATCH[1]}"
-            # Trim whitespace
-            value=$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-            echo "$value"
-            return
-        fi
-    # join_yaml_flow_lists rejoins multi-line flow lists (e.g. a wrapped
-    # children_to_implement / verifies) so the field value is matched whole.
-    done < <(join_yaml_flow_lists < "$file_path")
-
-    echo ""
-}
+# join_yaml_flow_lists and read_yaml_field are defined in yaml_utils.sh
+# (sourced above) — a shared lib so agentcrew_utils.sh can reuse the same
+# canonical readers without a copy of its own.
 
 # --- Helper: read status of a folded task ---
 read_task_status() {

@@ -25,12 +25,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
-
-# Source agentcrew_utils.sh for read_yaml_list, preserving SCRIPT_DIR
-_ARCHIVE_SCRIPT_DIR="$SCRIPT_DIR"
-source "$SCRIPT_DIR/lib/agentcrew_utils.sh"
-SCRIPT_DIR="$_ARCHIVE_SCRIPT_DIR"
-unset _ARCHIVE_SCRIPT_DIR
+# read_yaml_field and read_yaml_list come from lib/yaml_utils.sh, which
+# task_utils.sh sources transitively.
 
 # --- Configuration ---
 DRY_RUN=false
