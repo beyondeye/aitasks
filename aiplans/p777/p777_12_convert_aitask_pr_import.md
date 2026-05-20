@@ -252,3 +252,57 @@ files, single `explore_auto_continue` wrap, handoff to `task-workflow`.
 (t777_15) should each first check whether they own procedure files: if yes,
 follow the `aitask-qa` (t777_11) procedure-closure pattern; if no, follow this
 `aitask-explore`/`aitask-pr-import` single-template pattern.
+
+## Final Implementation Notes
+
+- **Actual work done:** Authored `.claude/skills/aitask-pr-import/SKILL.md.j2`
+  from the existing `aitask-pr-import/SKILL.md` (frontmatter
+  `name: aitask-pr-import-{{ profile.name }}`, dropped `user-invocable: true`;
+  deleted the `## Arguments (Optional)` section and Step 0a "Select Execution
+  Profile"; kept Step 0c "Sync with Remote"; wrapped the single Step 6
+  `explore_auto_continue` profile check as a two-armed `{% if %}`/`{% else %}`;
+  baked `active_profile` / `active_profile_filename` into the Step 7 handoff).
+  Replaced all 4 per-agent surfaces with canonical stubs (resolver key
+  `pr-import`): `.claude/skills/aitask-pr-import/SKILL.md`,
+  `.agents/skills/aitask-pr-import/SKILL.md`,
+  `.gemini/commands/aitask-pr-import.toml`,
+  `.opencode/commands/aitask-pr-import.md`. Generated 3 entry-point goldens
+  (`tests/golden/skills/aitask-pr-import/SKILL-<profile>-claude.md`). Authored
+  `tests/test_skill_render_aitask_pr_import.sh` (118 assertions across Tests
+  1/1b/2/3/3b/4/5).
+- **Deviations from plan:** None. The conversion matched the planned
+  `aitask-explore` model exactly — no own procedure files, single profile-key
+  wrap, identity-passthrough of all `task-workflow/` cross-refs.
+- **Issues encountered:** None. `aitask_skill_verify.sh` auto-discovered the
+  new `SKILL.md.j2` (now 6 templates), the resolver key `pr-import` was
+  already wired, and the dep-walker rendered the full `task-workflow` closure
+  for all 4 agents without intervention. The t777_11 bare-`SKILL.md`-token
+  collision did not apply (pre-checked: both `SKILL.md` mentions are
+  `task-workflow/SKILL.md` full-path refs).
+- **Key decisions:**
+  - Direct in-place conversion (not staged under `aitask-pr-importn`):
+    `aitask-pick` drives this conversion, not `aitask-pr-import` — same call
+    as t777_8/t777_9/t777_10/t777_11.
+  - `explore_auto_continue` wrapped as a two-armed `{% if %}`/`{% else %}`
+    bool — all 3 committed profiles (`false` in `fast`, unset in
+    `default`/`remote`) render the `{% else %}` interactive arm; the
+    `{% if %}` arm is covered structurally by `ait skill verify` and the
+    Test 1b invariance assertion.
+  - 3 goldens, claude-only (per the t809 golden-dimensionality refinement) —
+    the basic stdout render does no per-agent rewriting, so codex/gemini/
+    opencode are byte-identical and covered by Test 1b.
+  - `aitask-pr-import`'s current "Save for later" branch (which ends the
+    workflow *without* calling Satisfaction Feedback, unlike `aitask-explore`)
+    was preserved verbatim — a mechanical conversion does not change behavior.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** `aitask-pr-import` confirmed the
+  `aitask-explore` single-template pattern (no own procedure files). Two
+  pre-existing inconsistencies were left intact and are candidates for a
+  follow-up: (1) the orphaned legacy `.opencode/skills/aitask-pr-import/SKILL.md`
+  wrapper (same orphan exists for `aitask-explore`/`aitask-qa` — a
+  framework-wide sweep, not per-skill); (2) the missing Satisfaction Feedback
+  call in the "Save for later" branch vs. `aitask-explore`. `aitask-revert`
+  (t777_13) / `aitask-pickrem` (t777_14) / `aitask-pickweb` (t777_15) should
+  first grep their skill dir for sibling procedure files to choose between
+  the `aitask-qa` (procedure-closure) and `aitask-explore` (single-template)
+  patterns.
