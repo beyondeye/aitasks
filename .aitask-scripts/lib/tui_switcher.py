@@ -171,12 +171,18 @@ _TUI_SHORTCUTS = {
 }
 
 
-def _discover_brainstorm_sessions() -> list[str]:
-    """Scan .aitask-crews/crew-brainstorm-*/ for existing brainstorm sessions.
+def _discover_brainstorm_sessions(project_root: Path | None = None) -> list[str]:
+    """Scan a project's .aitask-crews/crew-brainstorm-*/ for brainstorm sessions.
+
+    ``project_root`` selects which project's ``.aitask-crews/`` is scanned.
+    Defaults to ``Path.cwd()`` for legacy callers; the cross-session switcher
+    passes the SELECTED session's project_root so the listed brainstorm
+    sessions match that session's project — not whichever project the
+    attached session's Python process happens to run from.
 
     Returns list of task numbers with existing sessions.
     """
-    crews_dir = Path(".aitask-crews")
+    crews_dir = (project_root or Path.cwd()) / ".aitask-crews"
     if not crews_dir.is_dir():
         return []
     prefix = "crew-brainstorm-"
@@ -563,7 +569,10 @@ class TuiSwitcherOverlay(ModalScreen):
             item_idx += 1
 
         # --- Dynamic brainstorm session entries ---
-        brainstorm_sessions = _discover_brainstorm_sessions()
+        # Scan the SELECTED session's project (session_project_root, set
+        # above) so on-disk brainstorm sessions follow Left/Right cycling
+        # instead of always reflecting the attached session's project (t814).
+        brainstorm_sessions = _discover_brainstorm_sessions(session_project_root)
         all_brainstorm_nums = set(brainstorm_sessions)
         for name in self._running_names:
             if name.startswith(_BRAINSTORM_PREFIX):
