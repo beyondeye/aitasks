@@ -1786,6 +1786,109 @@ class OperationRow(Static):
             self.post_message(self.Activated(self))
 
 
+class NodeActionSelectModal(ModalScreen):
+    """Modal to pick a single-node operation for a focused DAG node.
+
+    Surfaced via the `A` keybinding on the Graph and Dashboard tabs. Offers
+    the wizard's three single-node operations — explore, detail, patch.
+    Patch is shown disabled when the node has no implementation plan.
+    Returns the chosen op_key string via dismiss(), or None on cancel.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    # Operation keys offered, in display order. Labels/descriptions are
+    # pulled from _OP_LABELS so the picker stays in sync with the wizard.
+    _OPS = ["explore", "detail", "patch"]
+
+    def __init__(self, node_id: str, has_plan: bool):
+        super().__init__()
+        self.node_id = node_id
+        self.has_plan = has_plan
+
+    def compose(self) -> ComposeResult:
+        with Container(id="node_action_dialog"):
+            yield Label(
+                f"Operate on node [bold]{self.node_id}[/]",
+                id="node_action_title",
+            )
+            yield Label(
+                "[dim]↑↓ Navigate  Enter Select  Esc Cancel[/dim]",
+                id="node_action_hint",
+            )
+            with VerticalScroll(id="node_action_list"):
+                for op_key in self._OPS:
+                    label, desc = _OP_LABELS.get(op_key, (op_key, ""))
+                    disabled = (op_key == "patch" and not self.has_plan)
+                    if disabled:
+                        desc = f"{desc}  [italic](node has no plan)[/]"
+                    yield OperationRow(op_key, label, desc, disabled=disabled)
+            with Horizontal(id="node_action_buttons"):
+                yield Button(
+                    "Cancel", variant="default", id="btn_node_action_cancel"
+                )
+
+    def on_mount(self) -> None:
+        self.call_after_refresh(self._focus_first_enabled)
+
+    def _focus_first_enabled(self) -> None:
+        for row in self.query(OperationRow):
+            if not row.op_disabled:
+                row.selected = True
+                row.focus()
+                break
+
+    def _rows(self) -> list:
+        return [r for r in self.query(OperationRow) if r.can_focus]
+
+    def on_key(self, event) -> None:
+        if event.key in ("up", "down"):
+            if self._navigate(1 if event.key == "down" else -1):
+                event.prevent_default()
+                event.stop()
+            return
+        if event.key == "enter":
+            focused = self.focused
+            if isinstance(focused, OperationRow) and not focused.op_disabled:
+                event.prevent_default()
+                event.stop()
+                self.dismiss(focused.op_key)
+
+    def _navigate(self, direction: int) -> bool:
+        rows = self._rows()
+        if not rows:
+            return False
+        focused = self.focused
+        current = rows.index(focused) if focused in rows else None
+        if current is None:
+            new_idx = 0
+        else:
+            new_idx = (current + direction) % len(rows)
+        for r in rows:
+            r.selected = False
+        rows[new_idx].selected = True
+        rows[new_idx].focus()
+        rows[new_idx].scroll_visible()
+        return True
+
+    @on(OperationRow.Activated)
+    def _on_row_activated(self, event: OperationRow.Activated) -> None:
+        # Mouse click on an enabled row selects immediately. stop() keeps
+        # the message off the app-level on_operation_row_activated handler.
+        event.stop()
+        if not event.row.op_disabled:
+            self.dismiss(event.row.op_key)
+
+    @on(Button.Pressed, "#btn_node_action_cancel")
+    def _on_cancel_pressed(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class CycleField(Static):
     """Minimal cycle widget for numeric option selection (left/right keys)."""
 
@@ -2228,6 +2331,40 @@ class BrainstormApp(TuiSwitcherMixin, App):
         margin-top: 1;
     }
 
+    /* Node action selection modal */
+    #node_action_dialog {
+        width: 64;
+        height: auto;
+        max-height: 70%;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+    }
+
+    #node_action_title {
+        text-style: bold;
+        text-align: center;
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #node_action_hint {
+        text-align: center;
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #node_action_list {
+        max-height: 12;
+        padding: 0 1;
+    }
+
+    #node_action_buttons {
+        height: 3;
+        align: center middle;
+        margin-top: 1;
+    }
+
     /* DAG visualization */
     DAGDisplay {
         height: 1fr;
@@ -2613,6 +2750,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         Binding("enter", "open_node_detail", "Open detail"),
         Binding("r", "compare_regenerate", "Regenerate"),
         Binding("D", "compare_diff", "Diff"),
+        Binding("A", "node_action", "Node op"),
         Binding("question_mark", "op_help", "Op help", key_display="?"),
         Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
         Binding("ctrl+shift+r", "retry_patcher_apply",
@@ -2707,6 +2845,16 @@ class BrainstormApp(TuiSwitcherMixin, App):
             except Exception:
                 return None
             if tabbed.active != "tab_actions" or self._wizard_step < 1:
+                return None
+            return True
+        if action == "node_action":
+            try:
+                tabbed = self.query_one(TabbedContent)
+            except Exception:
+                return None
+            if tabbed.active not in ("tab_dashboard", "tab_dag"):
+                return None
+            if not self._current_focused_node_id:
                 return None
             return True
         required_tab = self._TAB_SCOPED_ACTIONS.get(action)
@@ -2944,11 +3092,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 if isinstance(focused, OperationRow) and not focused.op_disabled:
                     if self._wizard_op in _NODE_SELECT_OPS:
                         self._wizard_config["_selected_node"] = focused.op_key
-                        if self._wizard_op == "detail":
-                            self._wizard_config["node"] = focused.op_key
-                            self._actions_show_confirm()
-                        else:
-                            self._actions_show_config()
+                        self._actions_advance_from_node_select(focused.op_key)
                         event.prevent_default()
                         event.stop()
                         return
@@ -3159,6 +3303,111 @@ class BrainstormApp(TuiSwitcherMixin, App):
         if isinstance(self.screen, ModalScreen):
             return
         self.query_one(TabbedContent).active = "tab_dag"
+
+    def action_node_action(self) -> None:
+        """Open the single-node operation picker for the focused node.
+
+        Bound to `A` on the Dashboard and Graph tabs. On pick, the dismiss
+        callback seeds the operation wizard and switches to the Actions tab.
+        """
+        if isinstance(self.screen, ModalScreen):
+            return
+        tabbed = self.query_one(TabbedContent)
+        if tabbed.active not in ("tab_dashboard", "tab_dag"):
+            return
+        node_id = self._current_focused_node_id
+        if not node_id:
+            self.notify("Focus a node first", severity="warning")
+            return
+        if self.read_only:
+            self.notify(
+                "Session is read-only — no operations available.",
+                severity="warning",
+            )
+            return
+        status = self.session_data.get("status", "")
+        if status not in ("init", "active"):
+            self.notify(
+                f"Design operations are unavailable while the session is "
+                f"'{status or 'unknown'}'.",
+                severity="warning",
+            )
+            return
+        if node_id not in list_nodes(self.session_path):
+            # Node was deleted between focus and keypress.
+            self._current_focused_node_id = None
+            self.notify(
+                f"Node '{node_id}' no longer exists.", severity="error"
+            )
+            return
+        has_plan = self._node_has_plan(node_id)
+        self.push_screen(
+            NodeActionSelectModal(node_id, has_plan),
+            lambda result, nid=node_id: self._on_node_action_result(
+                nid, result
+            ),
+        )
+
+    def _on_node_action_result(self, node_id: str, op_key) -> None:
+        """Callback from NodeActionSelectModal: enter the Actions wizard.
+
+        `op_key` is the chosen operation string, or None if cancelled. On
+        cancel nothing happens — no tab was switched, so the user stays on
+        the originating Graph/Dashboard tab.
+        """
+        if not op_key:
+            return
+        # The DAG can mutate (background poll timers) while the modal is open.
+        if node_id not in list_nodes(self.session_path):
+            self.notify(
+                f"Node '{node_id}' no longer exists.", severity="error"
+            )
+            return
+        # Seed wizard state as if Step 1 (operation select) had completed.
+        self._wizard_op = op_key
+        self._set_total_steps()
+        # Render Step 2 (node select) so #actions_content is in a consistent
+        # state, then seed the selected node — _actions_show_node_select
+        # clears _wizard_config, so the seed must happen after it.
+        self._actions_show_node_select()
+        self._wizard_config["_selected_node"] = node_id
+        try:
+            container = self.query_one("#actions_content", VerticalScroll)
+            for row in container.query(OperationRow):
+                row.selected = (row.op_key == node_id)
+            self.query_one(".btn_actions_next", Button).disabled = False
+        except Exception:
+            pass
+        # Advance past node-select into the config / section / confirm step.
+        self._actions_advance_from_node_select(node_id)
+        # Switch to the Actions tab only once the picker modal has fully
+        # closed. `Screen.dismiss` runs this callback *before* `pop_screen`,
+        # and the pop's `ScreenResume` restores focus to the source widget
+        # (DAGDisplay / NodeRow) — switching synchronously here would be
+        # reverted by that restore. The deferred handler runs after the pop
+        # has settled; it focuses a widget inside #actions_content, so
+        # TabbedContent reveals the Actions tab and (being the last focus
+        # change) it sticks.
+        self.call_after_refresh(self._enter_actions_tab)
+
+    def _enter_actions_tab(self) -> None:
+        """Activate the Actions tab and focus its wizard content.
+
+        Deferred entry point for the node-action picker — see
+        `_on_node_action_result`. Focusing a widget inside #actions_content
+        makes TabbedContent reveal the Actions tab; the explicit `active`
+        assignment covers the case where no content widget is focusable.
+        """
+        try:
+            tabbed = self.query_one(TabbedContent)
+            container = self.query_one("#actions_content", VerticalScroll)
+        except Exception:
+            return
+        tabbed.active = "tab_actions"
+        for w in container.query("*"):
+            if getattr(w, "can_focus", False) and w.display:
+                w.focus()
+                return
 
     def _open_compare_select_modal(self) -> None:
         nodes = list_nodes(self.session_path)
@@ -5193,6 +5442,34 @@ class BrainstormApp(TuiSwitcherMixin, App):
         )
         self.call_after_refresh(self._focus_first_operation)
 
+    def _actions_advance_from_node_select(self, node: str) -> bool:
+        """Advance the wizard out of the node-select step for ``node``.
+
+        Canonical logic shared by the Next button, keyboard Enter, and the
+        NodeActionSelectModal callback. Returns False (after notifying) when
+        the operation cannot proceed; True once the next step is rendered.
+        """
+        if not node:
+            self.notify("Select a node first", severity="warning")
+            return False
+        if self._wizard_op == "patch" and not self._node_has_plan(node):
+            self.notify(
+                f"Node '{node}' has no plan — patch is only valid on "
+                f"nodes that already have an implementation plan.",
+                severity="error",
+                timeout=6,
+            )
+            return False
+        if self._node_has_sections(node):
+            self._actions_show_section_select()
+            return True
+        if self._wizard_op == "detail":
+            self._wizard_config["node"] = node
+            self._actions_show_confirm()
+        else:
+            self._actions_show_config()
+        return True
+
     def _actions_show_section_select(self) -> None:
         """Optional step 3: pick sections to target for the selected node."""
         node = self._wizard_config.get("_selected_node", "")
@@ -5637,26 +5914,9 @@ class BrainstormApp(TuiSwitcherMixin, App):
         if self._wizard_step == 2:
             if self._wizard_op in _NODE_SELECT_OPS:
                 # Step 2 is node select; advance
-                node = self._wizard_config.get("_selected_node")
-                if not node:
-                    self.notify("Select a node first", severity="warning")
-                    return
-                if self._wizard_op == "patch" and not self._node_has_plan(node):
-                    self.notify(
-                        f"Node '{node}' has no plan — patch is only valid on "
-                        f"nodes that already have an implementation plan.",
-                        severity="error",
-                        timeout=6,
-                    )
-                    return
-                if self._node_has_sections(node):
-                    self._actions_show_section_select()
-                    return
-                if self._wizard_op == "detail":
-                    self._wizard_config["node"] = node
-                    self._actions_show_confirm()
-                else:
-                    self._actions_show_config()
+                self._actions_advance_from_node_select(
+                    self._wizard_config.get("_selected_node", "")
+                )
             elif self._actions_collect_config():
                 self._actions_show_confirm()
         elif (
