@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_pick]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7
 created_at: 2026-05-20 10:19
-updated_at: 2026-05-20 10:53
+updated_at: 2026-05-20 11:19
+completed_at: 2026-05-20 11:19
 ---
 
 ## Origin
