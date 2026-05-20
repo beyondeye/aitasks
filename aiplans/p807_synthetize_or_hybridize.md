@@ -204,3 +204,38 @@ Manual TUI check (`ait brainstorm`):
 ## Step 9 — Post-Implementation
 On the current branch (no worktree): commit code + plan separately, then archive
 via `./.aitask-scripts/aitask_archive.sh 807` and `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Renamed the brainstorm DAG merge operation `hybridize` →
+  `synthesize` across code, tests, and `aidocs/` design docs, exactly as planned.
+  17 files changed. The agent role / template / config keys were already in the
+  `synthes-` family and stayed untouched, so the op key + agent name are now a
+  consistent verb/noun pair. Added `canonical_op()` + `_LEGACY_OP_ALIASES` in
+  `brainstorm_schemas.py` and applied it at the two read-from-disk boundaries
+  (`brainstorm_op_refs.list_op_inputs`, `brainstorm_dag_display._build_graph`),
+  plus kept `hybridize` as a defensive alias key in `_OP_INPUT_SECTION` and
+  `OP_BADGE_STYLES` — so legacy in-flight sessions with `operation: hybridize`
+  still resolve the Merge Rules section and render the magenta badge.
+- **Deviations from plan:** One deliberate deviation — the plan said to *leave*
+  illustrative node-id examples (`n003_hybrid_db`, `n003_hybrid`) in the docs and
+  test fixtures. They were instead **renamed** to `n003_synth_db` / `n003_synth`
+  for true terminology uniformity (the task's explicit goal); a half-renamed doc
+  would have been worse. `## Merge Rules` (the synthesizer input-contract section
+  header) was kept as planned — renaming it is a separate input-contract change.
+- **Issues encountered:** None functional. Tooling note: the `Edit` tool rejects
+  edits to a file only partially read via `Read` — large files (e.g.
+  `brainstorm_engine_architecture.md`, 1863 lines) had to be read fully first.
+- **Key decisions:** `synthesize` chosen over `hybridize`/`merge` (user-confirmed);
+  backward-compat alias chosen over a clean break (user-confirmed). Box-drawing
+  diagram line in the architecture doc had a trailing space trimmed to preserve
+  alignment after `hybridize`(9)→`synthesize`(10).
+- **Upstream defects identified:** `tests/test_brainstorm_apply_patcher_cli.sh` —
+  the `FAIL: graph state not advanced` sub-check fails on the pristine tree (HEAD
+  8e483a4e), independent of t807. The patcher CLI apply path does not advance
+  `br_graph_state.yaml`'s head. Out of scope for t807 but worth a separate bug
+  task.
+- **Build verification:** all 9 brainstorm Python test files pass; the 7 changed
+  brainstorm modules compile; `shellcheck` clean (info-level SC1091 only); the
+  3 brainstorm shell tests run, with only the pre-existing patcher-CLI failure
+  noted above.
