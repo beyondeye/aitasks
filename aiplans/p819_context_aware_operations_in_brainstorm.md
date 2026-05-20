@@ -196,3 +196,99 @@ Then Step 8 (user review), Step 9 (post-implementation: merge, archive).
 Per CLAUDE.md, this is a Claude Code skill-source-of-truth repo, but this
 change is to the brainstorm TUI (Python), not a skill — no Codex/Gemini/
 OpenCode port needed.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-20 14:34)
+
+- **Requested by user:** Manual testing showed the picker dialog opened
+  fine, but selecting an operation often did nothing — the wizard only
+  started after several attempts on the same node, non-deterministically.
+  Restarting the TUI reproduced it. Symptom of "hidden state" gating the
+  selection.
+- **Root cause:** `Screen.dismiss()` (Textual 8.1.1, `screen.py:1908`)
+  invokes the result callback *before* `pop_screen()`. `pop_screen()`
+  (`app.py:3061`) posts a `ScreenResume` event that restores focus to the
+  pre-modal widget — the `DAGDisplay` / `NodeRow` on the Graph/Dashboard
+  tab. The original `_on_node_action_result` switched to the Actions tab,
+  but the later `ScreenResume` re-focused the source widget and
+  `TabbedContent` reverted the active tab to keep it visible. The tab
+  switch was silently undone; the "works after N tries" was the resulting
+  focus race.
+- **Changes made:** Reworked the flow to be timing-independent. The Actions
+  tab is now switched in `action_node_action` *before* the picker modal is
+  pushed (focus moved off the source widget onto the `Tabs` bar first, so
+  `ScreenResume` restores focus to `Tabs` and the Actions tab sticks).
+  `_on_node_action_result` no longer switches tabs on the success path; it
+  gained an `origin_tab` parameter and restores it on cancel / missing-node.
+  Added `OnNodeActionResultTests` (3 tests) covering the callback contract
+  (cancel restores origin tab, missing node restores origin tab, a valid
+  pick seeds the wizard and keeps the Actions tab).
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`,
+  `tests/test_brainstorm_node_action_modal.py`.
+
+### Change Request 2 (2026-05-20 14:49)
+
+- **Requested by user:** The Change Request 1 fix made it worse — picking
+  an operation now did nothing at all (on the Graph tab).
+- **Root cause (the real one):** `widget.focus()` in Textual is
+  **asynchronous** — it does not update `screen.focused` until a
+  message-pump turn later. Change Request 1's `action_node_action` did
+  `tabbed.query_one(Tabs).focus()` then immediately `push_screen(...)`, so
+  at push time the `DAGDisplay` was *still* the focused widget. The modal
+  screen saved `DAGDisplay` as the focus to restore; on dismiss the pop's
+  `ScreenResume` restored it, and `TabbedContent` reverted to the Graph tab
+  to keep the focused widget visible. (Confirmed by booting the app under
+  the Textual pilot: after `Tabs.focus()`, `app.focused` was unchanged
+  until a `pause()`.) The Dashboard happened to work by timing luck.
+- **Changes made:** `action_node_action` no longer touches tabs or focus —
+  it just opens the picker. The dismiss callback `_on_node_action_result`
+  seeds the wizard and then defers the tab switch via `call_after_refresh`
+  to `_enter_actions_tab`, which runs *after* the modal pop and its
+  `ScreenResume` have fully settled (`call_after_refresh` drains pending
+  messages first). `_enter_actions_tab` sets `tabbed.active` and focuses a
+  widget inside `#actions_content` — being the last focus change, the
+  Actions tab sticks. On cancel nothing happened, so the user naturally
+  stays on the originating tab (no explicit restore needed). Removed the
+  now-unused `_focus_first_in_actions_content`.
+- **Verification added:** New `tests/test_brainstorm_node_action_integration.py`
+  — boots a real `BrainstormApp` over a temp session (`init_session`) and
+  drives it with the Textual pilot: `A` on the Graph and Dashboard tabs,
+  pick an op, assert the Actions tab activates and the wizard is seeded;
+  a repeated-attempts test guards the "works only after retries" symptom;
+  a cancel test. Confirmed deterministic across multiple runs. The
+  `OnNodeActionResultTests` unit tests were updated for the new
+  `_on_node_action_result(node_id, op_key)` signature.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`,
+  `tests/test_brainstorm_node_action_modal.py`,
+  `tests/test_brainstorm_node_action_integration.py`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added the `A` keybinding on the Graph/Dashboard
+  tabs, the `NodeActionSelectModal` picker (Explore/Detail/Patch; Patch
+  disabled when the node has no plan), and the wizard-entry flow that seeds
+  the Actions wizard pre-loaded with the chosen op + node. Extracted
+  `_actions_advance_from_node_select` as the shared node-select advance
+  helper (Next button, keyboard Enter, picker callback). Added CSS, the
+  `check_action` footer-scoping branch, and `_enter_actions_tab`.
+- **Deviations from plan:** Plan §5 had the dismiss callback switch tabs
+  directly; the shipped design defers the tab switch via
+  `call_after_refresh` to `_enter_actions_tab` after the modal pop settles
+  (necessary — see Post-Review Changes CR1/CR2). The plan deferred the
+  end-to-end in-TUI flow to manual verification; a full-app pilot
+  integration test was added instead (`test_brainstorm_node_action_integration.py`).
+- **Issues encountered:** Two review iterations on a focus/timing bug —
+  the modal pop's `ScreenResume` reverted the Actions-tab switch. Root
+  cause was `widget.focus()` being asynchronous in Textual. Resolved by
+  not touching tabs/focus in `action_node_action` and deferring the switch
+  to after the pop settles. Full detail in Post-Review Changes.
+- **Key decisions:** Use `call_after_refresh` + the `TabbedContent`
+  focus-auto-reveal mechanism (focus a widget in `#actions_content`) rather
+  than fighting it; `action_node_action` opens the picker only, so cancel
+  is a natural no-op.
+- **Upstream defects identified:** None. (Diagnosis surfaced a pre-existing
+  bug — keyboard `Enter` on the wizard node-select step skipped section
+  selection for `detail` — but it lives in the same file and was fixed
+  in-scope by routing all three call sites through
+  `_actions_advance_from_node_select`.)
