@@ -248,8 +248,8 @@
       "verifiedstats": {
         "pick": {
           "all_time": {
-            "runs": 219,
-            "score_sum": 21660
+            "runs": 220,
+            "score_sum": 21760
           },
           "prev_month": {
             "period": "2026-04",
@@ -258,13 +258,13 @@
           },
           "month": {
             "period": "2026-05",
-            "runs": 85,
-            "score_sum": 8480
+            "runs": 86,
+            "score_sum": 8580
           },
           "week": {
             "period": "2026-W21",
-            "runs": 31,
-            "score_sum": 3080
+            "runs": 32,
+            "score_sum": 3180
           }
         },
         "changelog": {
@@ -350,7 +350,7 @@
       "usagestats": {
         "pick": {
           "all_time": {
-            "runs": 105
+            "runs": 106
           },
           "prev_month": {
             "period": "2026-04",
@@ -358,11 +358,11 @@
           },
           "month": {
             "period": "2026-05",
-            "runs": 87
+            "runs": 88
           },
           "week": {
             "period": "2026-W21",
-            "runs": 31
+            "runs": 32
           }
         },
         "explore": {
