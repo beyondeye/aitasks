@@ -216,3 +216,46 @@ sanity prints `OK`.
 is confined to a pure serializer function (no TUI/keybinding surface), so the
 TUI-conventions review does not apply. Step 9 will merge on the current branch
 and archive via `aitask_archive.sh 813`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all five planned changes. Added
+  `join_yaml_flow_lists()` (pure-bash, bracket-depth stdin filter) to
+  `lib/task_utils.sh`; routed `aitask_update.sh::parse_yaml_frontmatter`'s
+  parse loop and `task_utils.sh::read_yaml_field` through it; gave
+  `agentcrew_utils.sh::read_yaml_list` a self-contained continuation-line
+  capture loop; added `width=4096` to the board's `yaml.dump` in
+  `task_yaml.py`; and created `tests/test_update_multiline_yaml.sh` (23
+  assertions, all passing).
+- **Deviations from plan:** The plan named one `read_yaml_field` (in
+  `task_utils.sh`). During testing, test 6 revealed a **second**
+  `read_yaml_field` defined in `agentcrew_utils.sh` — and because
+  `aitask_archive.sh` sources `agentcrew_utils.sh` *after* `task_utils.sh`,
+  the agentcrew copy shadows the task_utils copy at archive time. The
+  `task_utils.sh` fix alone left archive still truncating wrapped
+  `folded_tasks` / `verifies`. Fixed `agentcrew_utils.sh::read_yaml_field`
+  too, with the same self-contained capture loop as `read_yaml_list`. Both
+  copies are now correct; the one archive actually uses is covered.
+- **Issues encountered:** None beyond the duplicate-function discovery above.
+  `bash -n` and the regression suite (`test_format_yaml_list`,
+  `test_update_check`, `test_update_landing`, `test_archive_utils`,
+  `test_archive_scan`, `test_archive_folded`) all pass unchanged.
+- **Key decisions:** Two-pronged fix — the board (sole wrapping *producer*)
+  is pinned to single-line output via `width=4096`, while the three bash
+  *consumers* are made wrap-tolerant so already-corrupted/historical files
+  also parse correctly. `join_yaml_flow_lists` joins continuation lines with
+  a separating space, which is harmless because every list parser
+  (`parse_yaml_list`, the `tr`-based split in `read_yaml_list`) strips all
+  whitespace. The `agentcrew_utils.sh` fixes are deliberately self-contained
+  (no dependency on `task_utils.sh`) because crew scripts source
+  `agentcrew_utils.sh` standalone.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/agentcrew_utils.sh:89 — read_yaml_field is a second,
+    independent definition that collides with .aitask-scripts/lib/task_utils.sh:282;
+    whichever lib is sourced last silently wins, a latent footgun beyond this
+    task's scope (both copies are now fixed, but the duplication itself
+    remains).`
+- **Build/lint verification:** `shellcheck` on the three changed shell files
+  reports only pre-existing baseline findings (SC1091 source-not-followed,
+  SC2086/SC2012 in untouched `ls` globs, SC2034 unused `CONTRIBUTE_*` vars);
+  no finding points at the new code.
