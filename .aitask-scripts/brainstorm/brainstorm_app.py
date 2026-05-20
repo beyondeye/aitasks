@@ -1465,6 +1465,19 @@ def _next_checkbox_index(current: int | None, total: int, direction: int) -> int
     return new_idx
 
 
+def _filter_labels(query: str, labels: list[str]) -> list[str]:
+    """Case-insensitive substring filter for wizard fuzzy-search boxes.
+
+    Blank query keeps everything; otherwise keeps labels containing the
+    query as a substring. Order-preserving — matches the substring behaviour
+    of the settings `FuzzySelect` picker.
+    """
+    q = query.strip().lower()
+    if not q:
+        return list(labels)
+    return [lbl for lbl in labels if q in lbl.lower()]
+
+
 class CompareNodeSelectModal(ModalScreen):
     """Modal for selecting 2-4 nodes to compare in the dimension matrix."""
 
@@ -1560,6 +1573,65 @@ class CompareNodeSelectModal(ModalScreen):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+
+class FuzzyCheckList(Container):
+    """Filter box + scrolling multi-select checkbox list.
+
+    A self-contained wizard control group: an `Input` fuzzy-filter box on top
+    and a `VerticalScroll` of native `Checkbox` rows. Rows keep the
+    caller-supplied CSS class, so existing `query("Checkbox.<class>")`-based
+    collection code finds them unchanged.
+
+    Filtering toggles `display` only. A checked row always stays visible —
+    even when it does not match the current filter — so the active selection
+    is never hidden; `.value` is preserved regardless. `↑`/`↓` move focus
+    within this group (the filter box + visible rows); `Tab` group-switching
+    is handled by the parent app.
+    """
+
+    def __init__(self, items, *, item_class: str, default_checked: bool = False,
+                 placeholder: str = "Type to filter…", id: str | None = None):
+        super().__init__(id=id)
+        self._items = [str(it) for it in items]
+        self._item_class = item_class
+        self._default_checked = default_checked
+        self._placeholder = placeholder
+
+    def compose(self) -> ComposeResult:
+        yield Input(placeholder=self._placeholder, classes="fcl_filter")
+        with VerticalScroll(classes="fcl_list"):
+            for label in self._items:
+                yield Checkbox(label, value=self._default_checked,
+                               classes=f"{self._item_class} fcl_item")
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        matched = set(_filter_labels(event.value, self._items))
+        for cb in self.query(Checkbox):
+            # A checked row stays visible even when it does not match the
+            # filter, so the current selection is never hidden from view.
+            cb.display = str(cb.label) in matched or bool(cb.value)
+        focused = self.app.focused
+        if isinstance(focused, Checkbox) and not focused.display:
+            self.query_one(Input).focus()
+
+    def on_key(self, event) -> None:
+        if event.key in ("up", "down"):
+            if self._navigate(1 if event.key == "down" else -1):
+                event.prevent_default()
+                event.stop()
+
+    def _navigate(self, direction: int) -> bool:
+        chain = [self.query_one(Input)]
+        chain += [cb for cb in self.query(Checkbox) if cb.display]
+        focused = self.app.focused
+        current = chain.index(focused) if focused in chain else None
+        new_idx = _next_checkbox_index(current, len(chain), direction)
+        if new_idx is None:
+            return True  # boundary: consume, no move
+        chain[new_idx].focus()
+        chain[new_idx].scroll_visible()
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -2048,6 +2120,21 @@ class BrainstormApp(TuiSwitcherMixin, App):
     }
 
     /* Actions wizard */
+    FuzzyCheckList {
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    FuzzyCheckList .fcl_filter {
+        margin: 0 1;
+    }
+
+    FuzzyCheckList .fcl_list {
+        height: auto;
+        max-height: 10;
+        padding: 0 1;
+    }
+
     .actions_step_indicator {
         text-style: bold;
         text-align: center;
@@ -2855,6 +2942,31 @@ class BrainstormApp(TuiSwitcherMixin, App):
                         event.prevent_default()
                         event.stop()
                         return
+            # Compare/Hybridize config step: Tab cycles whole control groups
+            if (
+                event.key in ("tab", "shift+tab")
+                and self._wizard_step == 2
+                and self._wizard_op in ("compare", "hybridize")
+            ):
+                if self._cycle_wizard_groups(-1 if event.key == "shift+tab" else 1):
+                    event.prevent_default()
+                    event.stop()
+                    return
+            # Compare config step: up/down within the section-checkbox group
+            if (
+                event.key in ("up", "down")
+                and self._wizard_step == 2
+                and self._wizard_op == "compare"
+                and isinstance(self.focused, Checkbox)
+                and "chk_section" in self.focused.classes
+            ):
+                if self._navigate_rows(
+                    1 if event.key == "down" else -1,
+                    "cmp_sections_box", (Checkbox,),
+                ):
+                    event.prevent_default()
+                    event.stop()
+                    return
             # Up/down: navigate OperationRow widgets in wizard steps 1-2
             if event.key in ("up", "down") and self._wizard_step in (1, 2):
                 direction = 1 if event.key == "down" else -1
@@ -3283,6 +3395,89 @@ class BrainstormApp(TuiSwitcherMixin, App):
         focusable[new_idx].focus()
         try:
             focusable[new_idx].scroll_visible()
+        except Exception:
+            pass
+        return True
+
+    def _focus_within(self, container) -> bool:
+        """True if the currently focused widget is `container` or a descendant."""
+        node = self.focused
+        while node is not None:
+            if node is container:
+                return True
+            node = node.parent
+        return False
+
+    def _cycle_wizard_groups(self, direction: int) -> bool:
+        """Tab/Shift+Tab cycle focus between whole control groups on the
+        Compare/Hybridize config step.
+
+        Each group exposes one "entry widget" (the filter box of a
+        FuzzyCheckList, the first section checkbox, the merge-rules TextArea,
+        or the Next button) plus a "membership" widget used to detect which
+        group currently holds focus. Returns True if handled.
+        """
+        try:
+            container = self.query_one("#actions_content", VerticalScroll)
+        except Exception:
+            return False
+
+        def _fcl_group(fcl_id):
+            try:
+                fcl = container.query_one(f"#{fcl_id}", FuzzyCheckList)
+                return (fcl.query_one(Input), fcl)
+            except Exception:
+                return None
+
+        # (entry_widget, membership_widget) pairs, in Tab order.
+        groups: list[tuple] = []
+        if self._wizard_op == "hybridize":
+            node_grp = _fcl_group("hyb_nodes")
+            if node_grp:
+                groups.append(node_grp)
+            try:
+                ta = container.query_one(TextArea)
+                groups.append((ta, ta))
+            except Exception:
+                pass
+        elif self._wizard_op == "compare":
+            node_grp = _fcl_group("cmp_nodes")
+            if node_grp:
+                groups.append(node_grp)
+            dim_grp = _fcl_group("cmp_dims")
+            if dim_grp:
+                groups.append(dim_grp)
+            try:
+                box = container.query_one("#cmp_sections_box", Container)
+                secs = list(box.query("Checkbox.chk_section"))
+                if secs:
+                    groups.append((secs[0], box))
+            except Exception:
+                pass
+        try:
+            btn = container.query_one(".btn_actions_next", Button)
+            groups.append((btn, btn))
+        except Exception:
+            pass
+
+        if not groups:
+            return False
+
+        current = None
+        for i, (_entry, member) in enumerate(groups):
+            if self._focus_within(member):
+                current = i
+                break
+
+        if current is None:
+            new_idx = 0 if direction == 1 else len(groups) - 1
+        else:
+            new_idx = (current + direction) % len(groups)
+
+        entry = groups[new_idx][0]
+        entry.focus()
+        try:
+            entry.scroll_visible()
         except Exception:
             pass
         return True
@@ -4874,6 +5069,11 @@ class BrainstormApp(TuiSwitcherMixin, App):
         )
         self._mount_op_context_header(container)
 
+        if op in ("compare", "hybridize"):
+            container.mount(Label(
+                "[dim]  ↑↓ Navigate  Space Toggle  "
+                "Tab Switch group  Type to filter[/]"))
+
         if op == "explore":
             self._config_explore_no_node(container)
         elif op == "compare":
@@ -4882,6 +5082,14 @@ class BrainstormApp(TuiSwitcherMixin, App):
             self._config_hybridize(container)
         elif op == "patch":
             self._config_patch_no_node(container)
+
+    def _focus_fcl_filter(self, fcl_id: str) -> None:
+        """Focus the filter Input of a FuzzyCheckList by widget id."""
+        try:
+            fcl = self.query_one(f"#{fcl_id}", FuzzyCheckList)
+            fcl.query_one(Input).focus()
+        except Exception:
+            pass
 
     def _config_explore_no_node(self, container: VerticalScroll) -> None:
         """Explore config (node already selected): mandate, parallel count."""
@@ -4897,14 +5105,16 @@ class BrainstormApp(TuiSwitcherMixin, App):
         nodes = list_nodes(self.session_path)
 
         container.mount(Label("[bold]Select Nodes to Compare (2+)[/]"))
-        for nid in nodes:
-            container.mount(Checkbox(nid, classes="chk_node"))
+        container.mount(FuzzyCheckList(
+            nodes, item_class="chk_node",
+            placeholder="Type to filter nodes\u2026", id="cmp_nodes"))
 
         container.mount(Label("[bold]Dimensions[/]"))
         all_dims = self._get_all_dimension_keys()
         if all_dims:
-            for dim in all_dims:
-                container.mount(Checkbox(dim, value=True, classes="chk_dim"))
+            container.mount(FuzzyCheckList(
+                all_dims, item_class="chk_dim", default_checked=True,
+                placeholder="Type to filter dimensions\u2026", id="cmp_dims"))
         else:
             container.mount(Label("[dim]No dimensions found[/]"))
 
@@ -4915,6 +5125,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
 
         self._cmp_section_checks = {}
         self.call_after_refresh(self._refresh_compare_sections)
+        self.call_after_refresh(lambda: self._focus_fcl_filter("cmp_nodes"))
 
     def _refresh_compare_sections(self) -> None:
         """(Re)mount compare section checkboxes based on currently checked nodes."""
@@ -4954,12 +5165,14 @@ class BrainstormApp(TuiSwitcherMixin, App):
         nodes = list_nodes(self.session_path)
 
         container.mount(Label("[bold]Select Source Nodes (2+)[/]"))
-        for nid in nodes:
-            container.mount(Checkbox(nid, classes="chk_node"))
+        container.mount(FuzzyCheckList(
+            nodes, item_class="chk_node",
+            placeholder="Type to filter nodes\u2026", id="hyb_nodes"))
 
         container.mount(Label("[bold]Merge Rules[/]"))
         container.mount(TextArea(""))
         container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+        self.call_after_refresh(lambda: self._focus_fcl_filter("hyb_nodes"))
 
     def _config_patch_no_node(self, container: VerticalScroll) -> None:
         """Patch config (node already selected): patch request."""
