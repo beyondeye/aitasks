@@ -1089,3 +1089,114 @@ def apply_synthesizer_output(
         status="Completed",
     )
     return new_id
+
+
+_DETAILER_DELIMITERS = ("DETAILED_PLAN_START", "DETAILED_PLAN_END")
+
+
+def _detailer_needs_apply(
+    task_num: int | str, agent_name: str, target_node_id: str,
+) -> bool:
+    """Return True iff ``<agent_name>_output.md`` contains both DETAILED_PLAN
+    delimiters AND its plan body differs from the plan already on disk for
+    the target node.
+
+    Guards against the registration-time placeholder ``_output.md`` written
+    by ``aitask_crew_addwork.sh`` (no delimiters) and against re-applying an
+    output the poller already ingested. The body-content comparison — rather
+    than a bare "node already has plan_file" check — keeps re-detailing
+    correct: a later detailer on the same node produces different content
+    and is still applied.
+    """
+    wt = crew_worktree(task_num)
+    out_path = wt / f"{agent_name}_output.md"
+    if not out_path.is_file():
+        return False
+    try:
+        text = out_path.read_text(encoding="utf-8")
+    except Exception:
+        return False
+    if not _output_has_all_delimiters(text, _DETAILER_DELIMITERS):
+        return False
+    try:
+        plan_text = _extract_block(
+            text, "DETAILED_PLAN_START", "DETAILED_PLAN_END"
+        )
+    except ValueError:
+        # Delimiters present but malformed — let the apply call log it.
+        return True
+    plan_path = wt / PLANS_DIR / f"{target_node_id}_plan.md"
+    if not plan_path.is_file():
+        return True
+    try:
+        existing = plan_path.read_text(encoding="utf-8")
+    except Exception:
+        return True
+    return existing.strip("\n") != plan_text
+
+
+def apply_detailer_output(
+    task_num: int | str, agent_name: str, target_node_id: str,
+) -> str:
+    """Parse ``<agent_name>_output.md`` and attach the detailer's plan to an
+    existing node.
+
+    The detailer ENRICHES a node — unlike explorer/synthesizer/patcher it does
+    NOT create a new node, advance ``current_head``, or consume a node id. The
+    single delimited DETAILED_PLAN block is written to
+    ``br_plans/<target_node_id>_plan.md`` and the node's ``plan_file`` field is
+    set via :func:`update_node`.
+
+    Returns:
+        The relative plan path written (e.g. ``br_plans/n001_x_plan.md``).
+
+    Raises:
+        FileNotFoundError: output file missing OR target node missing.
+        ValueError: DETAILED_PLAN delimiters missing or the plan body empty.
+    """
+    wt = crew_worktree(task_num)
+    out_path = wt / f"{agent_name}_output.md"
+    err_log = wt / f"{agent_name}_apply_error.log"
+    if not out_path.is_file():
+        raise FileNotFoundError(f"No detailer output at {out_path}")
+    try:
+        node_path = wt / NODES_DIR / f"{target_node_id}.yaml"
+        if not node_path.is_file():
+            raise FileNotFoundError(
+                f"detailer target node not found: {target_node_id}"
+            )
+
+        text = out_path.read_text(encoding="utf-8")
+        plan_text = _extract_block(
+            text, "DETAILED_PLAN_START", "DETAILED_PLAN_END"
+        )
+        if not plan_text.strip():
+            raise ValueError("detailer DETAILED_PLAN block is empty")
+
+        plan_rel = f"{PLANS_DIR}/{target_node_id}_plan.md"
+        (wt / PLANS_DIR).mkdir(parents=True, exist_ok=True)
+        (wt / plan_rel).write_text(plan_text, encoding="utf-8")
+        update_node(wt, target_node_id, {"plan_file": plan_rel})
+
+        # The detailer enriches an existing node — record the agent and flip
+        # the detail group Completed, but emit no nodes_created (no new node).
+        update_operation(
+            task_num,
+            _agent_to_group_name(agent_name),
+            agents_append=agent_name,
+            status="Completed",
+        )
+        return plan_rel
+    except Exception as exc:
+        try:
+            err_log.write_text(
+                f"apply_detailer_output failed at "
+                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"agent_name: {agent_name}\n"
+                f"target_node_id: {target_node_id}\n\n"
+                f"Error: {type(exc).__name__}: {exc}\n",
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+        raise

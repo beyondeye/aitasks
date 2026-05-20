@@ -20,7 +20,18 @@ Use your tools to explore the codebase further as needed.
 
 <!-- include: _section_format.md -->
 
-Write a single Markdown file to `_output.md` with these required sections, each wrapped in section markers:
+Write your implementation plan to `_output.md`, wrapping the **entire** plan
+document between these two delimiter lines:
+
+```
+--- DETAILED_PLAN_START ---
+<the full plan Markdown — all required sections below>
+--- DETAILED_PLAN_END ---
+```
+
+The delimiters give the apply step a reliable extraction boundary. Each
+required section below is wrapped in its own section markers; those section
+markers stay *inside* the `--- DETAILED_PLAN_* ---` delimiters:
 
 <!-- section: prerequisites -->
 ### Prerequisites
@@ -133,7 +144,8 @@ non-targeted sections unchanged, and rewrite only the targeted sections.
   - All assumptions have verification steps
   - No step references a file or component created in a later step
   - Code snippets follow project conventions
-- Write the final plan Markdown to `_output.md`
+- Write the final plan Markdown to `_output.md`, wrapping the entire document
+  between `--- DETAILED_PLAN_START ---` and `--- DETAILED_PLAN_END ---`
 
 ### Checkpoint 3
 - Execute the **Heartbeat / Alive Signal** procedure from your `_instructions.md` with message: "Phase 3 complete — plan written to output"

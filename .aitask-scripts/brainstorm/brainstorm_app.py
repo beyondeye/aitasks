@@ -2621,6 +2621,8 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 "Retry explorer apply", show=False),
         Binding("ctrl+shift+y", "retry_synthesizer_apply",
                 "Retry synthesizer apply", show=False),
+        Binding("ctrl+shift+d", "retry_detailer_apply",
+                "Retry detailer apply", show=False),
     ]
 
     # Maps action_name -> required tab id. check_action() hides the binding
@@ -2675,6 +2677,14 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._applying_synthesizer: set[str] = set()
         self._synthesizer_apply_errors: dict[str, str] = {}
         self._synthesizer_poll_timer = None
+        # Detailer auto-apply state. Maps agent_name -> target_node_id for
+        # detailers we should poll until applied. The detailer enriches an
+        # existing node (writes its plan, sets plan_file) rather than creating
+        # a node — so this mirrors the patcher's keyed-on-a-node pattern.
+        self._detailer_targets: dict[str, str] = {}
+        self._applying_detailer: set[str] = set()
+        self._detailer_apply_errors: dict[str, str] = {}
+        self._detailer_poll_timer = None
         self._current_focused_node_id: str | None = None
         # Remembered for the lifetime of the app; pre-fills the export modal's
         # directory input so repeated exports default to the previous choice.
@@ -3512,6 +3522,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._scan_existing_patchers()
         self._scan_existing_explorers()
         self._scan_existing_synthesizers()
+        self._scan_existing_detailers()
 
     def _try_apply_initializer_if_needed(self, force: bool = False) -> None:
         """Re-attempt apply_initializer_output if n000_init is still placeholder.
@@ -4035,6 +4046,173 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     return 0.0
             agent = max(candidates, key=_mtime)
         self._try_apply_synthesizer_if_needed(agent, force=True)
+
+    # ------------------------------------------------------------------
+    # Detailer auto-apply (mirrors patcher pattern — keyed on the target
+    # node id; the detailer enriches an existing node, writing its plan)
+    # ------------------------------------------------------------------
+
+    def _register_detailer_target(self, agent_name: str,
+                                  target_node_id: str) -> None:
+        """Main-thread: track a freshly-registered detailer and ensure the
+        poll timer is running."""
+        self._detailer_targets[agent_name] = target_node_id
+        self._ensure_detailer_poll_timer()
+
+    def _ensure_detailer_poll_timer(self) -> None:
+        if self._detailer_poll_timer is not None:
+            return
+        if not self._detailer_targets:
+            return
+        self._detailer_poll_timer = self.set_interval(5, self._poll_detailers)
+
+    def _stop_detailer_poll_timer(self) -> None:
+        if self._detailer_poll_timer is not None:
+            try:
+                self._detailer_poll_timer.stop()
+            except Exception:
+                pass
+            self._detailer_poll_timer = None
+
+    def _scan_existing_detailers(self) -> None:
+        """Scan the worktree for completed detailer agents whose output
+        hasn't been applied yet. Recovers the target_node_id by parsing the
+        agent's _input.md (the ``## Target Node`` Metadata line written by
+        ``_assemble_input_detailer``).
+
+        Idempotent — safe to call from ``_load_existing_session``.
+        """
+        wt = self.session_path
+        if not wt or not Path(wt).is_dir():
+            return
+        try:
+            from brainstorm.brainstorm_session import _detailer_needs_apply
+        except Exception:
+            return
+        for status_path in sorted(Path(wt).glob("detailer_*_status.yaml")):
+            agent = status_path.stem[:-len("_status")]
+            if agent in self._detailer_targets:
+                continue
+            try:
+                data = read_yaml(str(status_path))
+            except Exception:
+                continue
+            if (data or {}).get("status") != "Completed":
+                continue
+            input_path = Path(wt) / f"{agent}_input.md"
+            if not input_path.is_file():
+                continue
+            try:
+                input_text = input_path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            m = self._PATCHER_INPUT_META_RE.search(input_text)
+            if not m:
+                continue
+            target_node_id = m.group(1)
+            if not _detailer_needs_apply(self.task_num, agent, target_node_id):
+                continue
+            self._detailer_targets[agent] = target_node_id
+        self._ensure_detailer_poll_timer()
+
+    def _poll_detailers(self) -> None:
+        """Timer tick: for each tracked detailer, apply its output if it's
+        Completed. Drops entries whose output has already been applied
+        (idempotent across restarts). Stops the timer when empty.
+        """
+        if not self._detailer_targets:
+            self._stop_detailer_poll_timer()
+            return
+        try:
+            from brainstorm.brainstorm_session import _detailer_needs_apply
+        except Exception:
+            return
+        for agent, target in list(self._detailer_targets.items()):
+            if agent in self._applying_detailer:
+                continue
+            status_path = self.session_path / f"{agent}_status.yaml"
+            if not status_path.is_file():
+                continue
+            try:
+                data = read_yaml(str(status_path))
+            except Exception:
+                continue
+            status = (data or {}).get("status", "")
+            if status != "Completed":
+                continue
+            if not _detailer_needs_apply(self.task_num, agent, target):
+                # Already applied (e.g., by CLI fallback). Drop and move on.
+                self._detailer_targets.pop(agent, None)
+                continue
+            self._try_apply_detailer_if_needed(agent, target)
+        if not self._detailer_targets:
+            self._stop_detailer_poll_timer()
+
+    def _try_apply_detailer_if_needed(self, agent_name: str,
+                                      target_node_id: str,
+                                      force: bool = False) -> None:
+        """Single-shot apply attempt for one detailer agent. Failures
+        surface via the initializer apply banner; success refreshes the DAG.
+        """
+        if agent_name in self._applying_detailer:
+            return
+        from brainstorm.brainstorm_session import (
+            _detailer_needs_apply,
+            apply_detailer_output,
+        )
+        if not force and not _detailer_needs_apply(
+            self.task_num, agent_name, target_node_id,
+        ):
+            return
+        self._applying_detailer.add(agent_name)
+        try:
+            try:
+                apply_detailer_output(
+                    self.task_num, agent_name, target_node_id,
+                )
+            except Exception as exc:
+                self._detailer_apply_errors[agent_name] = str(exc)
+                self._set_apply_banner(
+                    f"Detailer {agent_name} apply failed: {exc} — "
+                    f"run `ait brainstorm apply-detailer {self.task_num} "
+                    f"{agent_name} {target_node_id}` to retry"
+                )
+                return
+            self._detailer_apply_errors.pop(agent_name, None)
+            self._detailer_targets.pop(agent_name, None)
+            self._clear_apply_banner()
+            self.notify(
+                f"Detailer {agent_name} applied → {target_node_id} plan."
+            )
+            self._load_existing_session()
+        finally:
+            self._applying_detailer.discard(agent_name)
+
+    def action_retry_detailer_apply(self) -> None:
+        """ctrl+shift+d: force-retry the most recently failed detailer.
+
+        If multiple detailers are tracked, picks the one with the most
+        recent ``_status.yaml`` mtime.
+        """
+        if not self._detailer_targets:
+            return
+        candidates = [
+            (agent, target)
+            for agent, target in self._detailer_targets.items()
+        ]
+        if not candidates:
+            return
+        if len(candidates) == 1:
+            agent, target = candidates[0]
+        else:
+            def _mtime(item):
+                p = self.session_path / f"{item[0]}_status.yaml"
+                try:
+                    return p.stat().st_mtime
+                except Exception:
+                    return 0.0
+            agent, target = max(candidates, key=_mtime)
+        self._try_apply_detailer_if_needed(agent, target, force=True)
 
     def on_tabbed_content_tab_activated(self, event) -> None:
         """Refresh Status tab when it becomes active."""
@@ -5656,6 +5834,11 @@ class BrainstormApp(TuiSwitcherMixin, App):
                     target_sections=target_sections,
                 )
                 agents_list.append(agent)
+                # Track the target node so the auto-apply poller can pass it
+                # to apply_detailer_output when the agent completes.
+                self.call_from_thread(
+                    self._register_detailer_target, agent, cfg["node"],
+                )
                 msg = f"Registered detailer: {agent}"
             elif op == "patch":
                 agent = register_patcher(
