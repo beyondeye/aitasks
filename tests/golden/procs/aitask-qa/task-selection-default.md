@@ -45,16 +45,14 @@ workflow.
 
 **Confirm selection:**
 - Read the task file and generate a 1-2 sentence summary
-{# ---------- skip_task_confirmation ---------- #}{% if profile.skip_task_confirmation is defined and profile.skip_task_confirmation %}
-- Display: "Profile '{{ profile.name }}': auto-confirming task selection". Skip confirmation and proceed.
-{% else %}{# skip_task_confirmation: when false / unset #}
+
 - Use `AskUserQuestion`:
   - Question: "Run QA analysis on this task? Summary: <brief summary>"
   - Header: "Confirm task"
   - Options: "Yes, proceed" / "No, select different task"
 - If "No": fall through to interactive selection (1b)
 - If "Yes": proceed
-{% endif %}{# ---------- end skip_task_confirmation ---------- #}
+
 
 **Determine task context:**
 - Set `is_child` based on whether the task ID contains `_` (e.g., `16_2`)

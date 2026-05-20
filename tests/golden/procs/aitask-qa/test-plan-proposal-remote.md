@@ -59,16 +59,7 @@ Go beyond standard proposals to brainstorm deeper edge cases:
 
 ## 5b: Determine action `[Tier: s, e]`
 
-{# ---------- qa_mode ---------- #}{% if profile.qa_mode is defined and profile.qa_mode == "create_task" %}
-- Display: "Profile '{{ profile.name }}': qa_mode=create_task"
-- Proceed to Step 6 (create follow-up test task).
-{% elif profile.qa_mode is defined and profile.qa_mode == "implement" %}{# qa_mode: implement #}
-- Display: "Profile '{{ profile.name }}': qa_mode=implement"
-- Implement the proposed tests, commit them, then proceed to Step 7.
-{% elif profile.qa_mode is defined and profile.qa_mode == "plan_only" %}{# qa_mode: plan_only #}
-- Display: "Profile '{{ profile.name }}': qa_mode=plan_only"
-- Write the test plan to `aiplans/qa_t<task_id>.md` and proceed to Step 7.
-{% else %}{# qa_mode: "ask", unset, or empty — interactive #}
+
 Use `AskUserQuestion`:
 - Question: "How would you like to proceed with the test plan?"
 - Header: "QA Action"
@@ -82,4 +73,4 @@ Use `AskUserQuestion`:
 **If "Export test plan only":** Write the test plan to `aiplans/qa_t<task_id>.md` and proceed to Step 7.
 **If "Implement tests now":** Implement the proposed tests, commit them, then proceed to Step 7.
 **If "Create follow-up test task":** Proceed to Step 6.
-{% endif %}{# ---------- end qa_mode ---------- #}
+

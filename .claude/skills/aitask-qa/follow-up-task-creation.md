@@ -1,7 +1,7 @@
 # Follow-up Task Creation Procedure
 
 Creates a structured follow-up test task based on the QA analysis. Referenced
-from Step 6 of the main SKILL.md workflow.
+from Step 6 of the main workflow.
 
 **Input:**
 - `task_id` — target task identifier

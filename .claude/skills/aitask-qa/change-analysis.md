@@ -1,7 +1,7 @@
 # Change Analysis Procedure `[Tier: s, e]`
 
 Analyzes the changes introduced by a task — gathers context, detects commits,
-and categorizes changed files. Referenced from Step 2 of the main SKILL.md workflow.
+and categorizes changed files. Referenced from Step 2 of the main workflow.
 
 **This procedure is skipped when `tier = q`.**
 

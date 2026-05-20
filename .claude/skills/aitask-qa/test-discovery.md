@@ -1,7 +1,7 @@
 # Test Discovery Procedure `[Tier: s, e]`
 
 Scans for existing tests, maps them to changed source files, and identifies
-coverage gaps. Referenced from Step 3 of the main SKILL.md workflow.
+coverage gaps. Referenced from Step 3 of the main workflow.
 
 **This procedure is skipped when `tier = q`.**
 

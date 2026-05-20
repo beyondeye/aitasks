@@ -15,10 +15,7 @@ runs a verification gate. Referenced from Step 4 of the main workflow.
 ---
 
 ## 4a: Discover test commands `[Tier: q, s, e]`
-{# ---------- qa_run_tests ---------- #}{% if profile.qa_run_tests is defined and not profile.qa_run_tests %}
 
-**Profile '{{ profile.name }}': test execution disabled.** Skip this entire step (4a–4e) and proceed to Step 5.
-{% endif %}{# ---------- end qa_run_tests ---------- #}
 Read `aitasks/metadata/project_config.yaml` for:
 - `test_command` — primary test runner
 - `lint_command` — linter command
