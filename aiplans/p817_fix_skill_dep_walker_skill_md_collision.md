@@ -197,3 +197,30 @@ the task-workflow Step 9 procedure.
 
 - `.aitask-scripts/lib/skill_template.py` — enqueue-loop skip + collision guard
 - `tests/test_skill_render_uniform.sh` — new Test 12 regression test
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. `walk_closure` in
+  `skill_template.py` now (1) computes `child_target` before marking a ref
+  visited and skips enqueueing it when `child_target == entry_target` (the
+  prose-`SKILL.md` self-reference), and (2) after the BFS loop, runs a
+  target-path collision guard that raises `RuntimeError` if two distinct
+  sources map to the same target. The guard sits before `if write:` so
+  `walk-check` catches collisions too. Added Test 12 to
+  `test_skill_render_uniform.sh`.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. The fix did not change any real skill render
+  output (no real templated skill currently has a procedure file mentioning a
+  bare `SKILL.md` token), so all golden drivers passed unchanged.
+- **Key decisions:** Kept both the targeted skip (graceful no-op for the known
+  benign prose case) and the general collision guard (loud tripwire for any
+  future walker regression), per the task's "either/or" — the combination is
+  strictly better than either alone.
+- **Verification results:** `test_skill_render_uniform.sh` 34/34 (incl. new
+  Test 12), `test_skill_render.sh` 30/30, `test_skill_template.sh` 35/35,
+  `test_skill_render_aitask_qa.sh` 224/224, and the pick/explore/fold/review/
+  task-workflow golden drivers all pass unchanged. `aitask_skill_verify.sh`
+  OK (5 templates × 4 agents). `shellcheck tests/test_skill_render_uniform.sh`
+  surfaces only two pre-existing notes (SC1091 sourced-lib info on line 76,
+  SC2181 style on line 207) — neither introduced by Test 12.
+- **Upstream defects identified:** None.
