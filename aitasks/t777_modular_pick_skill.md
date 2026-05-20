@@ -3,11 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Done
+status: Ready
 labels: [aitask_pick]
+children_to_implement: [t777_11, t777_12, t777_13, t777_14, t777_15, t777_16, t777_17, t777_18, t777_19, t777_20]
 created_at: 2026-05-17 09:44
-updated_at: 2026-05-19 23:50
-completed_at: 2026-05-19 23:50
+updated_at: 2026-05-20 09:20
 boardidx: 20
 ---
 
