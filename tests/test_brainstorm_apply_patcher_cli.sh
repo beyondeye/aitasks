@@ -98,12 +98,15 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# Head moves to the new node; next_node_id is left untouched by apply
+# (it is consumed at agent-registration time, see register_patcher in
+# brainstorm_crew.py), so it stays at the seeded value of 1.
 if grep -q "current_head: n001_cli_test" "$CREW_DIR/br_graph_state.yaml" \
-   && grep -q "next_node_id: 2" "$CREW_DIR/br_graph_state.yaml"; then
-    echo "PASS: graph state advanced"
+   && grep -q "next_node_id: 1" "$CREW_DIR/br_graph_state.yaml"; then
+    echo "PASS: head updated, next_node_id untouched by apply"
     PASS=$((PASS + 1))
 else
-    echo "FAIL: graph state not advanced"
+    echo "FAIL: head not updated or next_node_id wrongly changed"
     FAIL=$((FAIL + 1))
 fi
 
