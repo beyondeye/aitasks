@@ -3,11 +3,10 @@ priority: medium
 effort: medium
 depends: [783]
 issue_type: refactor
-status: Implementing
+status: Ready
 labels: [agents_md]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-18 12:30
-updated_at: 2026-05-20 11:26
+updated_at: 2026-05-20 12:25
 boardidx: 30
 ---
 
