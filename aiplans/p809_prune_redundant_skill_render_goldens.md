@@ -250,3 +250,33 @@ Post-implementation: this runs on the current branch (profile `fast`, no
 worktree). After review/commit, archive via
 `./.aitask-scripts/aitask_archive.sh 809` and `./ait git push` per
 task-workflow Step 9.
+
+## Final Implementation Notes
+
+- **Actual work done:** Deleted 51 redundant golden files (45 byte-identical
+  per-agent entry-point goldens across 5 skills × 3 profiles ×
+  codex/gemini/opencode, + 6 profile-invariant proc dupes for
+  `remote-drift-check`, `test-execution`, `test-plan-proposal`). Updated 6
+  test scripts: entry-point Test 1 collapsed to `claude`-only, new **Test 1b**
+  agent-invariance assertion added to all 5 per-skill suites; `aitask-qa`
+  Test 1p split into `PROC_FILES_VARYING` (task-selection, per-profile
+  goldens) vs `PROC_FILES_INVARIANT` (test-execution / test-plan-proposal,
+  single canonical golden + profile×agent invariance); `task-workflow` Test 1
+  split `WRAPPED_FILES` into varying (4 files) + invariant (remote-drift-check)
+  with a new Test 1b. Updated `aidocs/skill_authoring_conventions.md`
+  (regenerate command 3×4 → 3×claude + a "Golden dimensionality" rule) and
+  `aidocs/stub-skill-pattern.md` (extended Pilot Finding #3).
+- **Deviations from plan:** None of substance. Scope was extended to
+  `aitask-qa` (a 5th skill that postdated the task file) per an upfront
+  AskUserQuestion — so the final golden count is **84 → 33** (the task file's
+  original "63 → ~24" predates `aitask-qa`'s template conversion).
+- **Issues encountered:** None. The byte-identity audit gate passed clean on
+  the first run; all 7 render suites and `aitask_skill_verify.sh` passed
+  after the edits.
+- **Key decisions:** Kept the canonical collapsed proc golden under its
+  existing `<stem>-default.md` name (no rename) to match the task's
+  `rm …{fast,remote}.md` prescription and keep the test's golden-path logic
+  uniform. Test 1b uses `assert_eq` byte-equality (not a golden) so a future
+  `{% if agent %}` gate or profile divergence fails loudly and prompts
+  re-adding per-agent/per-profile goldens surgically.
+- **Upstream defects identified:** None.
