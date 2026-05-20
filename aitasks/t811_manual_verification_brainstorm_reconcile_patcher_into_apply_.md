@@ -19,3 +19,11 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t808
+
+## Verification Checklist
+
+- [ ] Launch a brainstorm session and run a patcher agent; confirm the patcher output auto-applies via the TUI poll loop (_try_apply_patcher_if_needed) and the DAG refreshes with the new patched node.
+- [ ] Confirm an IMPACT_FLAG patcher result populates the patcher impact banner with the IMPACT block text verbatim.
+- [ ] Trigger a patcher apply failure (malformed _output.md) and confirm the error banner shows the `ait brainstorm apply-patcher ...` retry hint.
+- [ ] Press ctrl+shift+r to force-retry a failed patcher apply; confirm it re-applies and clears the impact/error banner.
+- [ ] Confirm explorer and synthesizer auto-apply still create nodes and merge NEW_DIMENSIONS correctly after the shared-core refactor.
