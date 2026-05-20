@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_pick]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-20 09:45
-updated_at: 2026-05-20 09:45
+updated_at: 2026-05-20 09:48
 ---
 
 ## Bug: `aitask_update.sh` frontmatter parser truncates multi-line YAML flow lists
