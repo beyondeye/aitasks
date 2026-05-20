@@ -235,6 +235,10 @@ ait crew command list --crew ${CREW_ID} --agent ${AGENT_NAME}
 ## Writing Output
 Write your results to: ${AGENT_NAME}_output.md
 
+This file already exists with placeholder content. Some file-write tools
+require reading a file before overwriting it — if so, read
+${AGENT_NAME}_output.md once first, then write your results.
+
 ## Your Files
 All your files are in: ${WT_PATH}
 
