@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [testing, claudeskills, skill_optiomizations]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7
 created_at: 2026-05-19 23:55
-updated_at: 2026-05-20 11:36
+updated_at: 2026-05-20 12:09
+completed_at: 2026-05-20 12:09
 ---
 
 ## Context
