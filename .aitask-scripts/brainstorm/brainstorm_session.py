@@ -15,6 +15,7 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 import yaml
 
@@ -633,6 +634,67 @@ def _classify_impact(impact_text: str) -> tuple[str, str]:
     return ("NO_IMPACT" if has_no_impact else "IMPACT_FLAG", impact_text.strip())
 
 
+def _parse_patcher_output(
+    text: str,
+    err_log: Path,
+    expected_role: str,
+    *,
+    wt: Path,
+    source_node_id: str,
+) -> tuple[dict, str, dict]:
+    """Patcher parser: three-block format (PATCHED_PLAN / IMPACT / METADATA).
+
+    The new node's proposal is the parent's proposal verbatim — the patcher
+    edits the plan, never the proposal. ``extras`` carries the plan_text and
+    the classified IMPACT for the wrapper to consume.
+    """
+    plan_text = _extract_block(text, "PATCHED_PLAN_START", "PATCHED_PLAN_END")
+    impact_text = _extract_block(text, "IMPACT_START", "IMPACT_END")
+    meta_text = _extract_block(text, "METADATA_START", "METADATA_END")
+
+    try:
+        node_data = _tolerant_yaml_load(meta_text)
+    except yaml.YAMLError as exc:
+        err_log.write_text(
+            f"apply_{expected_role}_output failed at "
+            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"Original YAML parse error:\n{exc}\n\n"
+            f"METADATA block (first 2000 chars):\n{meta_text[:2000]}\n",
+            encoding="utf-8",
+        )
+        raise
+    if not isinstance(node_data, dict):
+        raise ValueError(
+            f"{expected_role} METADATA block did not parse as a dict"
+        )
+
+    impact_type, impact_details = _classify_impact(impact_text)
+
+    # Reuse the parent's proposal verbatim. Raises FileNotFoundError if
+    # the source proposal is missing.
+    source_proposal_text = read_proposal(wt, source_node_id)
+
+    extras = {
+        "plan_text": plan_text,
+        "impact_type": impact_type,
+        "impact_details": impact_details,
+    }
+    return node_data, source_proposal_text, extras
+
+
+def _write_patcher_plan_file(
+    wt: Path, new_node_id: str, _node_data: dict, extras: dict
+) -> None:
+    """Patcher finalize hook: persist the PATCHED_PLAN block as a plan
+    file and record it on the new node. Runs between create_node and
+    set_head so the plan_file pointer is in place before head advances.
+    """
+    plan_rel = f"{PLANS_DIR}/{new_node_id}_plan.md"
+    (wt / PLANS_DIR).mkdir(parents=True, exist_ok=True)
+    (wt / plan_rel).write_text(extras["plan_text"], encoding="utf-8")
+    update_node(wt, new_node_id, {"plan_file": plan_rel})
+
+
 def apply_patcher_output(
     task_num: int | str,
     agent_name: str,
@@ -653,113 +715,31 @@ def apply_patcher_output(
             ambiguous, or ``new_node_id`` already exists as a node.
     """
     wt = crew_worktree(task_num)
-    out_path = wt / f"{agent_name}_output.md"
-    if not out_path.is_file():
-        raise FileNotFoundError(f"No patcher output at {out_path}")
 
-    err_log = wt / f"{agent_name}_apply_error.log"
-
-    try:
-        text = out_path.read_text(encoding="utf-8")
-        plan_text = _extract_block(text, "PATCHED_PLAN_START", "PATCHED_PLAN_END")
-        impact_text = _extract_block(text, "IMPACT_START", "IMPACT_END")
-        meta_text = _extract_block(text, "METADATA_START", "METADATA_END")
-
-        from .brainstorm_schemas import validate_node
-
-        try:
-            node_data = _tolerant_yaml_load(meta_text)
-        except yaml.YAMLError as exc:
-            err_log.write_text(
-                f"apply_patcher_output failed at "
-                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                f"Original YAML parse error:\n{exc}\n\n"
-                f"METADATA block (first 2000 chars):\n{meta_text[:2000]}\n",
-                encoding="utf-8",
-            )
-            raise
-        if not isinstance(node_data, dict):
-            raise ValueError("patcher METADATA block did not parse as a dict")
-
-        if not node_data.get("created_at"):
-            node_data["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-        # created_by_group is authoritative from the agent name — never
-        # trust the agent's value (parallel agents drift; see t792).
-        node_data["created_by_group"] = _agent_to_group_name(agent_name)
-
-        # The patcher template tells the agent to emit a copy of the
-        # parent's YAML with only node_id/parents updated — so
-        # proposal_file still points at the parent. Override it here so
-        # validate_node sees the canonical ``node_id ∈ proposal_file``
-        # invariant; create_node will set the same value authoritatively
-        # below.
-        new_node_id = node_data.get("node_id")
-        if new_node_id:
-            node_data["proposal_file"] = f"{PROPOSALS_DIR}/{new_node_id}.md"
-
-        errs = validate_node(node_data)
-        if errs:
-            raise ValueError(f"patcher METADATA invalid: {errs}")
-
-        if (wt / NODES_DIR / f"{new_node_id}.yaml").exists():
-            raise ValueError(f"node {new_node_id} already exists")
-
-        impact_type, impact_details = _classify_impact(impact_text)
-
-        # Reuse the parent's proposal verbatim — the patcher edits the
-        # plan, never the proposal.
-        source_proposal_text = read_proposal(wt, source_node_id)
-
-        dimensions = {
-            k: v for k, v in node_data.items()
-            if k not in _NODE_NON_DIMENSION_FIELDS
-        }
-
-        create_node(
-            session_path=wt,
-            node_id=new_node_id,
-            parents=node_data["parents"],
-            description=node_data["description"],
-            dimensions=dimensions,
-            proposal_content=source_proposal_text,
-            group_name=node_data["created_by_group"],
-            reference_files=node_data.get("reference_files"),
+    def _parser(text: str, err_log: Path, expected_role: str):
+        return _parse_patcher_output(
+            text, err_log, expected_role,
+            wt=wt, source_node_id=source_node_id,
         )
 
-        plan_rel = f"{PLANS_DIR}/{new_node_id}_plan.md"
-        (wt / PLANS_DIR).mkdir(parents=True, exist_ok=True)
-        (wt / plan_rel).write_text(plan_text, encoding="utf-8")
-        update_node(wt, new_node_id, {"plan_file": plan_rel})
+    new_node_id, node_data, extras = _apply_node_output(
+        task_num,
+        agent_name,
+        expected_role="patcher",
+        metadata_block_label="METADATA",
+        parser=_parser,
+        finalize=_write_patcher_plan_file,
+        extra_error_context={"source_node_id": source_node_id},
+    )
 
-        set_head(wt, new_node_id)
-        # next_node_id is consumed at registration time
-        # (see register_patcher in brainstorm_crew.py).
+    update_operation(
+        task_num,
+        node_data["created_by_group"],
+        nodes_created=new_node_id,
+        status="Completed",
+    )
 
-        update_operation(
-            task_num,
-            node_data["created_by_group"],
-            nodes_created=new_node_id,
-            status="Completed",
-        )
-
-        return new_node_id, impact_type, impact_details
-    except yaml.YAMLError:
-        # Already logged with full block context above.
-        raise
-    except Exception as exc:
-        # Catch-all error log so the TUI / CLI can surface a hint.
-        try:
-            err_log.write_text(
-                f"apply_patcher_output failed at "
-                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                f"agent_name: {agent_name}\n"
-                f"source_node_id: {source_node_id}\n\n"
-                f"Error: {type(exc).__name__}: {exc}\n",
-                encoding="utf-8",
-            )
-        except Exception:
-            pass
-        raise
+    return new_node_id, extras["impact_type"], extras["impact_details"]
 
 
 _EXPLORER_DELIMITERS = (
@@ -829,31 +809,93 @@ def _explorer_needs_apply(task_num: int | str, agent_name: str) -> bool:
     return not (wt / NODES_DIR / f"{new_node_id}.yaml").exists()
 
 
+def _parse_two_block_output(
+    text: str,
+    err_log: Path,
+    expected_role: str,
+) -> tuple[dict, str, dict]:
+    """Parser for explorer/synthesizer outputs: NODE_YAML + PROPOSAL blocks,
+    with an optional ``--- NEW_DIMENSIONS ---`` tail.
+
+    Returns ``(node_data, proposal_text, extras)`` where ``extras['raw_text']``
+    is the full output text so the caller can re-scan it for NEW_DIMENSIONS.
+    """
+    node_yaml_text = _extract_block(text, "NODE_YAML_START", "NODE_YAML_END")
+    proposal_text = _extract_block(text, "PROPOSAL_START", "PROPOSAL_END")
+
+    try:
+        node_data = _tolerant_yaml_load(node_yaml_text)
+    except yaml.YAMLError as exc:
+        err_log.write_text(
+            f"apply_{expected_role}_output failed at "
+            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"Original YAML parse error:\n{exc}\n\n"
+            f"NODE_YAML block (first 2000 chars):\n"
+            f"{node_yaml_text[:2000]}\n",
+            encoding="utf-8",
+        )
+        raise
+    if not isinstance(node_data, dict):
+        raise ValueError(
+            f"{expected_role} NODE_YAML block did not parse as a dict"
+        )
+
+    from .brainstorm_sections import parse_sections, validate_sections
+
+    parsed = parse_sections(proposal_text)
+    serrs = validate_sections(parsed)
+    if serrs:
+        raise ValueError(f"{expected_role} proposal invalid: {serrs}")
+
+    return node_data, proposal_text, {"raw_text": text}
+
+
 def _apply_node_output(
     task_num: int | str,
     agent_name: str,
     *,
     expected_role: str,
-) -> tuple[str, list[str]]:
-    """Shared apply core for agents whose output is two delimited blocks
-    (``NODE_YAML`` + ``PROPOSAL``) plus an optional ``NEW_DIMENSIONS``
-    block. Used by ``apply_explorer_output`` and (in t740)
-    ``apply_synthesizer_output``.
+    metadata_block_label: str = "NODE_YAML",
+    parser: Callable[
+        [str, Path, str], tuple[dict, str, dict]
+    ] = _parse_two_block_output,
+    finalize: Callable[[Path, str, dict, dict], None] | None = None,
+    extra_error_context: dict | None = None,
+) -> tuple[str, dict, dict]:
+    """Shared apply core for agents whose output produces exactly one new
+    node. Used by ``apply_explorer_output``, ``apply_synthesizer_output``,
+    and ``apply_patcher_output``.
 
-    Parses, validates, creates the new node, advances head and the
-    next-node-id counter, and merges any newly emitted dimensions into
-    ``br_graph_state.yaml``'s ``active_dimensions`` list.
+    The flow-specific parts are injected:
+
+    - ``parser`` parses the raw output text into ``(node_data, proposal_text,
+      extras)``. It is responsible for writing a flow-specific YAML error
+      log (with the relevant block excerpt) and re-raising on
+      :class:`yaml.YAMLError`.
+    - ``finalize`` runs between ``create_node`` and ``set_head``. Used by
+      the patcher to persist the PATCHED_PLAN block as a plan file before
+      head advances.
+    - ``extra_error_context`` adds fields to the catch-all error log
+      (e.g. ``source_node_id`` for the patcher).
 
     Args:
         task_num: Brainstorm session task number.
         agent_name: Agent that produced the output (e.g. ``explorer_001a``).
         expected_role: Role string used in failure-log prose
-            (``"explorer"`` / ``"synthesizer"``).
+            (``"explorer"`` / ``"synthesizer"`` / ``"patcher"``).
+        metadata_block_label: Block name surfaced in validate_node failure
+            messages (``"NODE_YAML"`` or ``"METADATA"``).
+        parser: Output parser strategy. Defaults to the two-block parser
+            used by explorer and synthesizer.
+        finalize: Optional hook invoked between ``create_node`` and
+            ``set_head`` with ``(wt, new_node_id, node_data, extras)``.
+        extra_error_context: Extra ``key: value`` lines appended to the
+            catch-all error log.
 
     Returns:
-        ``(new_node_id, added_dimensions)`` where ``added_dimensions`` is
-        the subset of NEW_DIMENSIONS that were not already in
-        ``active_dimensions``.
+        ``(new_node_id, node_data, extras)``. ``node_data`` is the mutated
+        dict (with ``created_at``, ``created_by_group``, ``proposal_file``
+        overrides applied). ``extras`` is the parser's third return value.
 
     Raises:
         FileNotFoundError: output file missing.
@@ -871,32 +913,9 @@ def _apply_node_output(
 
     try:
         text = out_path.read_text(encoding="utf-8")
-        node_yaml_text = _extract_block(
-            text, "NODE_YAML_START", "NODE_YAML_END"
-        )
-        proposal_text = _extract_block(
-            text, "PROPOSAL_START", "PROPOSAL_END"
-        )
+        node_data, proposal_text, extras = parser(text, err_log, expected_role)
 
         from .brainstorm_schemas import validate_node
-        from .brainstorm_sections import parse_sections, validate_sections
-
-        try:
-            node_data = _tolerant_yaml_load(node_yaml_text)
-        except yaml.YAMLError as exc:
-            err_log.write_text(
-                f"apply_{expected_role}_output failed at "
-                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                f"Original YAML parse error:\n{exc}\n\n"
-                f"NODE_YAML block (first 2000 chars):\n"
-                f"{node_yaml_text[:2000]}\n",
-                encoding="utf-8",
-            )
-            raise
-        if not isinstance(node_data, dict):
-            raise ValueError(
-                f"{expected_role} NODE_YAML block did not parse as a dict"
-            )
 
         if not node_data.get("created_at"):
             node_data["created_at"] = datetime.now().strftime(
@@ -918,14 +937,7 @@ def _apply_node_output(
         errs = validate_node(node_data)
         if errs:
             raise ValueError(
-                f"{expected_role} NODE_YAML invalid: {errs}"
-            )
-
-        parsed = parse_sections(proposal_text)
-        serrs = validate_sections(parsed)
-        if serrs:
-            raise ValueError(
-                f"{expected_role} proposal invalid: {serrs}"
+                f"{expected_role} {metadata_block_label} invalid: {errs}"
             )
 
         if (wt / NODES_DIR / f"{new_node_id}.yaml").exists():
@@ -947,49 +959,58 @@ def _apply_node_output(
             reference_files=node_data.get("reference_files"),
         )
 
+        if finalize is not None:
+            finalize(wt, new_node_id, node_data, extras)
+
         set_head(wt, new_node_id)
-        # next_node_id is consumed at registration time
-        # (see register_explorer / register_synthesizer in brainstorm_crew.py).
+        # next_node_id is consumed at registration time (see
+        # register_explorer / register_synthesizer / register_patcher in
+        # brainstorm_crew.py).
 
-        # Merge any NEW_DIMENSIONS into the session's active_dimensions.
-        added_dimensions: list[str] = []
-        new_dims = _parse_new_dimensions(text)
-        if new_dims:
-            gs_path = wt / GRAPH_STATE_FILE
-            gs = read_yaml(str(gs_path))
-            active = list(gs.get("active_dimensions", []) or [])
-            for dim in new_dims:
-                if dim not in active:
-                    active.append(dim)
-                    added_dimensions.append(dim)
-            if added_dimensions:
-                gs["active_dimensions"] = active
-                write_yaml(str(gs_path), gs)
-
-        update_operation(
-            task_num,
-            node_data["created_by_group"],
-            agents_append=agent_name,
-            nodes_created=new_node_id,
-            status="Completed",
-        )
-
-        return new_node_id, added_dimensions
+        return new_node_id, node_data, extras
     except yaml.YAMLError:
-        # Already logged with full block context above.
+        # Already logged with full block context by the parser.
         raise
     except Exception as exc:
         try:
+            extra_lines = ""
+            if extra_error_context:
+                extra_lines = "".join(
+                    f"{k}: {v}\n" for k, v in extra_error_context.items()
+                )
             err_log.write_text(
                 f"apply_{expected_role}_output failed at "
                 f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                f"agent_name: {agent_name}\n\n"
+                f"agent_name: {agent_name}\n"
+                f"{extra_lines}\n"
                 f"Error: {type(exc).__name__}: {exc}\n",
                 encoding="utf-8",
             )
         except Exception:
             pass
         raise
+
+
+def _merge_new_dimensions(wt: Path, raw_text: str) -> list[str]:
+    """Merge any ``--- NEW_DIMENSIONS ---`` entries from ``raw_text`` into
+    the session's ``active_dimensions``. Returns the dimensions that were
+    newly added (i.e. weren't already present).
+    """
+    new_dims = _parse_new_dimensions(raw_text)
+    if not new_dims:
+        return []
+    gs_path = wt / GRAPH_STATE_FILE
+    gs = read_yaml(str(gs_path))
+    active = list(gs.get("active_dimensions", []) or [])
+    added: list[str] = []
+    for dim in new_dims:
+        if dim not in active:
+            active.append(dim)
+            added.append(dim)
+    if added:
+        gs["active_dimensions"] = active
+        write_yaml(str(gs_path), gs)
+    return added
 
 
 def apply_explorer_output(
@@ -1010,8 +1031,16 @@ def apply_explorer_output(
         ValueError: any delimiter missing, NODE_YAML or proposal invalid,
             or the new node_id already exists.
     """
-    new_id, _added = _apply_node_output(
+    new_id, node_data, extras = _apply_node_output(
         task_num, agent_name, expected_role="explorer",
+    )
+    _merge_new_dimensions(crew_worktree(task_num), extras["raw_text"])
+    update_operation(
+        task_num,
+        node_data["created_by_group"],
+        agents_append=agent_name,
+        nodes_created=new_id,
+        status="Completed",
     )
     return new_id
 
@@ -1048,7 +1077,15 @@ def apply_synthesizer_output(
         ValueError: any delimiter missing, NODE_YAML or proposal invalid,
             or the new node_id already exists.
     """
-    new_id, _added = _apply_node_output(
+    new_id, node_data, extras = _apply_node_output(
         task_num, agent_name, expected_role="synthesizer",
+    )
+    _merge_new_dimensions(crew_worktree(task_num), extras["raw_text"])
+    update_operation(
+        task_num,
+        node_data["created_by_group"],
+        agents_append=agent_name,
+        nodes_created=new_id,
+        status="Completed",
     )
     return new_id
