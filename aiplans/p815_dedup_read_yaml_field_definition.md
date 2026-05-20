@@ -222,3 +222,57 @@ no longer reaches it (grep `.aitask-scripts/` + `tests/` — expected: only
 Profile 'fast', current branch — no worktree to clean up. Commit code +
 `tests/`, then archive via `./.aitask-scripts/aitask_archive.sh 815` and
 `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `.aitask-scripts/lib/yaml_utils.sh` — a pure
+  leaf lib (no dependencies, no `SCRIPT_DIR` use) holding the canonical
+  `join_yaml_flow_lists`, `read_yaml_field`, and `read_yaml_list`, behind a
+  `_AIT_YAML_UTILS_LOADED` double-source guard. `task_utils.sh` and
+  `agentcrew_utils.sh` now `source` it and had their own copies deleted
+  (−62 / −86 lines). `aitask_archive.sh` dropped its dedicated
+  `agentcrew_utils.sh` source and the `SCRIPT_DIR`-preservation dance — it
+  gets both readers transitively via `task_utils.sh`, which eliminated the
+  collision site entirely. The canonical `read_yaml_field` is frontmatter-
+  aware (detects a `---` first line) with a whole-file fallback for plain
+  YAML, making it a behaviour-preserving superset of both old copies. Added
+  `tests/test_yaml_utils.sh` (28 assertions).
+- **Deviations from plan:** One unforeseen issue, resolved cleanly. The plan
+  assumed `yaml_utils.sh` needed no test-infrastructure change. In fact ~33
+  tests `cp` `task_utils.sh`/`agentcrew_utils.sh` into a fake repo and run a
+  script that sources them — all would crash on the missing `yaml_utils.sh`
+  dependency. All 33 call `setup_fake_aitask_repo`, so the fix was a single
+  added `cp` line in `tests/lib/test_scaffold.sh` (the scaffold's base-lib
+  set) rather than 33 per-test edits. The plan's "no test-scaffold change"
+  prediction was wrong; the scaffold edit was added and the plan's
+  out-of-scope note superseded.
+- **Issues encountered:** `test_archive_folded.sh` flipped pass/fail across
+  early runs — root cause was exactly the missing-scaffold-lib crash above
+  (`set -e` aborting after the first test header). Fixed by the
+  `test_scaffold.sh` change. The full suite (`bash tests/test_*.sh`) ends
+  119 passed / 11 failed; all 11 were confirmed **not** regressions —
+  `test_brainstorm_apply_patcher_cli.sh`, `test_codeagent.sh`, and
+  `test_opencode_setup.sh` fail identically on a clean pre-change tree (the
+  first two trace to unrelated concurrent brainstorm WIP present in the
+  working tree from another session; `test_opencode_setup.sh` fails an
+  unrelated "39 vs 33 skill wrappers" assertion), and the 8 tmux /
+  multi-session tests self-abort because the run is inside a tmux session.
+- **Key decisions:** (1) A new dedicated lib (the task's own suggested
+  option) over making `agentcrew_utils.sh` source the heavyweight
+  `task_utils.sh` — crew scripts source `agentcrew_utils.sh` standalone.
+  (2) `yaml_utils.sh` added to the scaffold base set (now 4 libs) because it
+  is a base leaf dependency of the two most-copied add-on libs — consistent
+  with the spirit of the CLAUDE.md scaffold-sync rule, though it is not in
+  `./ait`'s startup chain. (3) `read_yaml_list` moved verbatim (its inline
+  flow-list join kept as-is, not refactored onto `join_yaml_flow_lists`) to
+  keep the move faithful and low-risk; `read_yaml_field` is the only true
+  name collision (verified by `comm -12` of the two libs' function lists).
+- **Upstream defects identified:** None.
+- **Build/lint verification:** `shellcheck` on the four changed shell files
+  reports only pre-existing baseline findings — `SC2034` unused `CONTRIBUTE_*`
+  vars and `SC2086`/`SC2001` in untouched code in `task_utils.sh`, `SC1091`
+  source-not-followed on the new `source` lines, and one `SC2001` (style) at
+  `yaml_utils.sh:135` inside the verbatim-moved `read_yaml_list` (it existed
+  in `agentcrew_utils.sh`'s original copy — carried over unchanged). No
+  finding points at genuinely new logic. The two new `read_yaml_field` /
+  `join_yaml_flow_lists` definitions are shellcheck-clean.
