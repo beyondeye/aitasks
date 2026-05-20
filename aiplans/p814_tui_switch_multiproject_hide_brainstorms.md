@@ -132,3 +132,35 @@ session.
 
 Per the shared task workflow Step 8 (review), Step 9 (archival), and Step 9b
 (feedback).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. `_discover_brainstorm_sessions()`
+  in `.aitask-scripts/lib/tui_switcher.py` gained an optional `project_root`
+  parameter (`(project_root or Path.cwd()) / ".aitask-crews"`), and
+  `_populate_list_for()` now passes the already-computed `session_project_root`
+  to it. New regression test `tests/test_tui_switcher_brainstorm_session.sh`
+  (6 assertions) added.
+- **Deviations from plan:** None.
+- **Issues encountered:** `test_tui_switcher_multi_session.sh` refuses to run
+  from inside a tmux session (its `require_no_tmux.sh` guard) — expected, since
+  this dev session is inside tmux. Its Tier-1 logic block was instead extracted
+  by line range (`sed -n '59,315p'`) and run directly with `PYTHONPATH` set; it
+  executed clean (40 result lines, no exceptions). That test never calls
+  `_discover_brainstorm_sessions` and mocks `_populate_list_for` in every cycle
+  test, so the signature change cannot affect it. The new test is logic-only
+  (no tmux, no Textual runtime) and is safe to run from anywhere.
+- **Key decisions:** Reused the established `project_root or Path.cwd()`
+  fallback idiom already present in `_build_tui_list` / `_render_desync_line`,
+  keeping the no-arg call backward-compatible for legacy/single-session
+  callers. Running brainstorm *windows* were left untouched — tmux already
+  scopes `get_tmux_windows(session)` correctly, so only the on-disk discovery
+  path needed the fix.
+- **Upstream defects identified:** None.
+
+## Verification results
+
+- `bash tests/test_tui_switcher_brainstorm_session.sh` — 6/6 passed
+- `bash tests/test_tui_switcher_footer_fit.sh` — 10/10 passed
+- `test_tui_switcher_multi_session.sh` Tier-1 block (run directly, no tmux) — clean
+- `tui_switcher.py` AST parse — OK
