@@ -4,12 +4,16 @@
 #   - 3 profile-bearing procedure files (task-selection / test-execution /
 #     test-plan-proposal) wrapped with Jinja profile conditionals
 #   - 4 per-agent stubs (claude/codex/gemini/opencode)
-#   - 12 entry-point goldens under tests/golden/skills/aitask-qa/
-#   - 9 procedure goldens under tests/golden/procs/aitask-qa/
+#   - 3 entry-point goldens under tests/golden/skills/aitask-qa/ (3 profiles, claude canonical)
+#   - 5 procedure goldens under tests/golden/procs/aitask-qa/
+#     (task-selection × 3 profiles + test-execution + test-plan-proposal canonical)
 # Coverage:
-#   1.  Per-(profile, agent) golden diff for the entry-point template.
-#   1p. Per-(file, profile) golden diff for the 3 wrapped procedure files,
-#       plus agent-invariance (procedures carry no per-agent refs).
+#   1.  Per-profile golden diff for the entry-point template (claude render).
+#   1b. Agent-dimension invariance for the entry-point (no {% if agent %}).
+#   1p. Procedure goldens: per-(file, profile) diff for the profile-varying
+#       file (task-selection), and a single canonical golden for the
+#       profile-invariant files (test-execution, test-plan-proposal), each
+#       with profile- and agent-invariance assertions.
 #   2.  Profile-conditional sanity for qa_tier / qa_mode / qa_run_tests /
 #       skip_task_confirmation.
 #   3.  No Jinja markers leak into entry-point or procedure renders.
@@ -80,30 +84,49 @@ PROFILES_DIR="aitasks/metadata/profiles"
 
 PROFILES=(default fast remote)
 AGENTS=(claude codex gemini opencode)
-# Procedure files that carry profile conditionals (rendered into the closure).
+# Procedure files rendered into the closure. All carry profile conditionals,
+# but only task-selection's conditional is activated by a committed profile;
+# test-execution / test-plan-proposal render identically across all profiles.
 PROC_FILES=(task-selection test-execution test-plan-proposal)
+PROC_FILES_VARYING=(task-selection)
+PROC_FILES_INVARIANT=(test-execution test-plan-proposal)
 
-# === Test 1: 12 per-(profile, agent) entry-point golden diffs ===
+# === Test 1: per-profile entry-point golden diffs (claude render is canonical) ===
 
-echo "=== Test 1: golden diffs for entry-point × 3 profiles × 4 agents ==="
+echo "=== Test 1: golden diffs for entry-point × 3 profiles ==="
 for profile in "${PROFILES[@]}"; do
-    for agent in "${AGENTS[@]}"; do
-        rendered="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" "$agent" 2>&1)"
-        golden_path="$SKILL_GOLDEN_DIR/SKILL-${profile}-${agent}.md"
-        golden_content="$(cat "$golden_path")"
-        assert_eq "golden SKILL × $profile × $agent" "$golden_content" "$rendered"
+    rendered="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    golden_content="$(cat "$SKILL_GOLDEN_DIR/SKILL-${profile}-claude.md")"
+    assert_eq "golden SKILL × $profile" "$golden_content" "$rendered"
+done
+
+# === Test 1b: entry-point agent dimension invariance ===
+#
+# The entry-point template has no {% if agent %} gate, so the basic
+# stdout render is byte-identical across all 4 agents. Replaces the 9
+# deleted per-agent goldens; fails LOUDLY if agent gating is ever added.
+echo "=== Test 1b: agent renders are byte-identical (no {% if agent %} in template) ==="
+for profile in "${PROFILES[@]}"; do
+    base="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    for agent in codex gemini opencode; do
+        cmp="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" "$agent" 2>&1)"
+        assert_eq "agent invariance $profile/$agent" "$base" "$cmp"
     done
 done
 
-# === Test 1p: 9 per-(file, profile) procedure golden diffs + agent-invariance ===
+# === Test 1p: procedure golden diffs + profile/agent invariance ===
 #
-# The 3 wrapped procedure files reference only each other / the main workflow
-# via prose and carry no per-agent (full-path) refs, so their render is
-# agent-invariant — goldens are claude-only and the codex/gemini/opencode
-# renders must match the claude render byte-for-byte.
+# Procedure files carry no per-agent (full-path) refs, so all renders are
+# agent-invariant — goldens are claude-only. task-selection's profile
+# conditional is activated by committed profiles, so it keeps one golden per
+# profile. test-execution / test-plan-proposal are profile-invariant (no
+# committed profile activates their conditionals): a single canonical
+# -default golden replaces the 4 deleted profile dupes, and an invariance
+# assertion across all profiles × agents fails LOUDLY if that ever changes.
 
-echo "=== Test 1p: procedure golden diffs + agent-invariance ==="
-for f in "${PROC_FILES[@]}"; do
+echo "=== Test 1p: procedure golden diffs + profile/agent invariance ==="
+# Profile-varying procedures: one golden per profile, agent-invariant.
+for f in "${PROC_FILES_VARYING[@]}"; do
     for profile in "${PROFILES[@]}"; do
         rendered="$($RENDER ".claude/skills/aitask-qa/$f.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
         golden_content="$(cat "$PROC_GOLDEN_DIR/$f-$profile.md")"
@@ -111,6 +134,19 @@ for f in "${PROC_FILES[@]}"; do
         for agent in codex gemini opencode; do
             other="$($RENDER ".claude/skills/aitask-qa/$f.md" "$PROFILES_DIR/$profile.yaml" "$agent" 2>&1)"
             assert_eq "proc $f × $profile agent-invariant ($agent==claude)" "$rendered" "$other"
+        done
+    done
+done
+# Profile-invariant procedures: single canonical -default golden + invariance
+# across every profile × agent combination.
+for f in "${PROC_FILES_INVARIANT[@]}"; do
+    base="$($RENDER ".claude/skills/aitask-qa/$f.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
+    golden_content="$(cat "$PROC_GOLDEN_DIR/$f-default.md")"
+    assert_eq "golden proc $f (canonical)" "$golden_content" "$base"
+    for profile in "${PROFILES[@]}"; do
+        for agent in "${AGENTS[@]}"; do
+            cmp="$($RENDER ".claude/skills/aitask-qa/$f.md" "$PROFILES_DIR/$profile.yaml" "$agent" 2>&1)"
+            assert_eq "proc $f invariance $profile/$agent" "$base" "$cmp"
         done
     done
 done

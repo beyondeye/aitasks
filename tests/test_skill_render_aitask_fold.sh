@@ -2,11 +2,13 @@
 # test_skill_render_aitask_fold.sh - Regression tests for t777_10:
 #   - .claude/skills/aitask-fold/SKILL.md.j2 (entry-point template)
 #   - 4 per-agent stubs (claude/codex/gemini/opencode)
-#   - 12 golden files under tests/golden/skills/aitask-fold/ (3 profiles × 4 agents)
+#   - 3 golden files under tests/golden/skills/aitask-fold/ (3 profiles, claude canonical)
 # Coverage:
-#   1. Per-(profile, agent) golden diff for the entry-point template.
-#      The entry-point uses full-path refs that ARE rewritten per-agent,
-#      so all 12 combos need distinct goldens.
+#   1.  Per-profile golden diff for the entry-point template (claude render).
+#   1b. Agent-dimension invariance: codex/gemini/opencode renders are
+#       byte-identical to the claude render (no {% if agent %} in the
+#       template). Per-agent reference rewrites are a walk-write property
+#       covered by Test 4, not the basic stdout render.
 #   2. Profile-conditional sanity: all live profiles leave explore_auto_continue
 #      undefined (default/remote) or false (fast), so the {% else %} arm must
 #      fire and the {% if %} arm must NOT.
@@ -77,15 +79,28 @@ PROFILES_DIR="aitasks/metadata/profiles"
 PROFILES=(default fast remote)
 AGENTS=(claude codex gemini opencode)
 
-# === Test 1: 12 per-(profile, agent) golden diffs ===
+# === Test 1: per-profile golden diffs (claude render is canonical) ===
 
-echo "=== Test 1: golden diffs for entry-point × 3 profiles × 4 agents ==="
+echo "=== Test 1: golden diffs for entry-point × 3 profiles ==="
 for profile in "${PROFILES[@]}"; do
-    for agent in "${AGENTS[@]}"; do
-        rendered="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" "$agent" 2>&1)"
-        golden_path="$GOLDEN_DIR/SKILL-${profile}-${agent}.md"
-        golden_content="$(cat "$golden_path")"
-        assert_eq "golden SKILL × $profile × $agent" "$golden_content" "$rendered"
+    rendered="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    golden_content="$(cat "$GOLDEN_DIR/SKILL-${profile}-claude.md")"
+    assert_eq "golden SKILL × $profile" "$golden_content" "$rendered"
+done
+
+# === Test 1b: agent dimension invariance ===
+#
+# The entry-point template has no {% if agent %} gate, so the basic
+# stdout render is byte-identical across all 4 agents. This single
+# assertion replaces the 9 deleted per-agent goldens; if a future
+# template introduces agent gating it fails LOUDLY — re-add per-agent
+# goldens for that skill then (see aidocs/stub-skill-pattern.md).
+echo "=== Test 1b: agent renders are byte-identical (no {% if agent %} in template) ==="
+for profile in "${PROFILES[@]}"; do
+    base="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    for agent in codex gemini opencode; do
+        cmp="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" "$agent" 2>&1)"
+        assert_eq "agent invariance $profile/$agent" "$base" "$cmp"
     done
 done
 

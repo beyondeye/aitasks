@@ -2,9 +2,12 @@
 # test_skill_render_task_workflow.sh - Regression tests for the wrapped
 # shared workflow under .claude/skills/task-workflow/:
 #   - 5 wrapped .md files
-#   - 15 golden files under tests/golden/procs/task-workflow/
+#   - 13 golden files under tests/golden/procs/task-workflow/
 # Coverage:
-#   1. Per-(file, profile) golden diff for the 5 wrapped files × 3 profiles.
+#   1.  Per-(file, profile) golden diff for the 4 profile-varying wrapped
+#       files × 3 profiles.
+#   1b. remote-drift-check is profile-invariant — a single canonical golden
+#       plus a byte-equality assertion across all 3 profile renders.
 #   2. Agent byte-identity: rendering SKILL.md with profile=fast across all
 #      4 agents yields byte-identical output (task-workflow uses only
 #      sibling refs, which the dep-walker leaves unchanged regardless of
@@ -74,26 +77,48 @@ WORKFLOW_DIR=".claude/skills/task-workflow"
 GOLDEN_DIR="tests/golden/procs/task-workflow"
 PROFILES_DIR="aitasks/metadata/profiles"
 
-WRAPPED_FILES=(
+# remote-drift-check is profile-invariant (its conditional is activated only
+# by a synthetic profile — see Test 4), so it keeps one canonical golden.
+WRAPPED_FILES_VARYING=(
     "SKILL.md"
     "planning.md"
     "manual-verification-followup.md"
-    "remote-drift-check.md"
     "satisfaction-feedback.md"
+)
+WRAPPED_FILES_INVARIANT=(
+    "remote-drift-check.md"
 )
 PROFILES=(default fast remote)
 AGENTS=(claude codex gemini opencode)
 
-# === Test 1: Per-(file, profile) golden diff ===
+# === Test 1: Per-(file, profile) golden diff (profile-varying files) ===
 
-echo "=== Test 1: golden diffs for 5 wrapped files × 3 profiles ==="
-for file in "${WRAPPED_FILES[@]}"; do
+echo "=== Test 1: golden diffs for 4 profile-varying wrapped files × 3 profiles ==="
+for file in "${WRAPPED_FILES_VARYING[@]}"; do
     stem="${file%.md}"
     for profile in "${PROFILES[@]}"; do
         rendered="$($RENDER "$WORKFLOW_DIR/$file" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
         golden_path="$GOLDEN_DIR/${stem}-${profile}.md"
         golden_content="$(cat "$golden_path")"
         assert_eq "golden $stem × $profile" "$golden_content" "$rendered"
+    done
+done
+
+# === Test 1b: profile-invariant wrapped files — canonical golden + invariance ===
+#
+# remote-drift-check's profile conditional is activated only by a synthetic
+# profile (Test 4), so all 3 committed-profile renders are byte-identical.
+# One canonical -default golden replaces the 2 deleted profile dupes; the
+# invariance assertion fails LOUDLY if a committed profile ever diverges it.
+echo "=== Test 1b: profile-invariant wrapped files — canonical golden + invariance ==="
+for file in "${WRAPPED_FILES_INVARIANT[@]}"; do
+    stem="${file%.md}"
+    base="$($RENDER "$WORKFLOW_DIR/$file" "$PROFILES_DIR/default.yaml" claude 2>&1)"
+    golden_content="$(cat "$GOLDEN_DIR/${stem}-default.md")"
+    assert_eq "golden $stem (canonical)" "$golden_content" "$base"
+    for profile in "${PROFILES[@]}"; do
+        rendered="$($RENDER "$WORKFLOW_DIR/$file" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+        assert_eq "$stem profile-invariant ($profile==default)" "$base" "$rendered"
     done
 done
 

@@ -245,6 +245,17 @@ established five patterns that subsequent per-skill conversions
    `aidocs/skill_authoring_conventions.md` for the regenerate command
    and the same-commit rule.
 
+   **Golden dimensionality (t809 refinement):** entry-point goldens are
+   `claude`-only — the basic stdout render performs no per-agent reference
+   rewriting (that is a walk-write property, covered by Test 4), so the
+   `codex`/`gemini`/`opencode` renders are byte-identical to `claude`.
+   Likewise a profile-invariant procedure (its profile conditional
+   activated by no committed profile) keeps one canonical `-default`
+   golden. Both pruned dimensions are guarded by a cheap byte-equality
+   **Test 1b** invariance assertion that fails LOUDLY if a template later
+   introduces a real `{% if agent %}` gate or a profile divergence — at
+   which point the pruned goldens are re-added surgically for that skill.
+
 4. **Entry-point templates use `.md.j2`; referenced procedures keep
    `.md`.** The walk-write infrastructure assumes a single `.md.j2`
    per skill at the entry point. Referenced procedures

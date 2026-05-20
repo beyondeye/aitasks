@@ -232,7 +232,7 @@ regressions). The intended diff for a template edit should match what you
 changed; an unrelated diff means a regression (canonical memory:
 `feedback_golden_file_tests_for_template_engines`).
 
-**Regenerate command** (3 profiles × 4 agents per entry-point skill):
+**Regenerate command** (3 profiles, `claude` render per entry-point skill):
 
 ```bash
 PYTHON="$(source .aitask-scripts/lib/python_resolve.sh && require_ait_python)"
@@ -241,18 +241,29 @@ PROFILES_DIR="aitasks/metadata/profiles"
 GOLDEN_DIR="tests/golden/skills/<skill>"
 
 for profile in default fast remote; do
-  for agent in claude codex gemini opencode; do
-    "$PYTHON" .aitask-scripts/lib/skill_template.py \
-      "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" "$agent" \
-      > "$GOLDEN_DIR/SKILL-${profile}-${agent}.md"
-  done
+  "$PYTHON" .aitask-scripts/lib/skill_template.py \
+    "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude \
+    > "$GOLDEN_DIR/SKILL-${profile}-claude.md"
 done
 ```
+
+**Golden dimensionality.** Entry-point goldens are `claude`-only: the basic
+stdout render applies no per-agent reference rewrites (those are a
+walk-write property, covered by Test 4), so a `codex`/`gemini`/`opencode`
+golden would be a byte-for-byte copy of the `claude` one. Per-agent goldens
+are kept *only* for a skill whose template references `{% if agent %}` (a
+gate that makes the render actually diverge per agent). When introducing
+such a gate, regenerate goldens for all 4 agents in the same commit; the
+per-skill **Test 1b** (agent-invariance check) will fail and remind you.
 
 For procedure goldens under `tests/golden/procs/<scope>/` (e.g.
 `task-workflow/`), the render target is the procedure `.md` file and the
 agent dimension is flattened — see the loop in
-`tests/test_skill_render_task_workflow.sh` for the canonical pattern.
+`tests/test_skill_render_task_workflow.sh` for the canonical pattern. A
+procedure that is also **profile-invariant** (its profile conditional is
+activated by no committed profile) keeps a single canonical
+`<stem>-default.md` golden plus a byte-equality invariance assertion across
+the other profile renders, rather than one golden per profile.
 
 **Enforcement.** `tests/test_skill_render_*.sh` (per entry-point skill) and
 `tests/test_skill_render_task_workflow.sh` run Test 1 with `assert_eq` on
