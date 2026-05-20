@@ -113,6 +113,11 @@ def serialize_frontmatter(metadata: dict, body: str, original_key_order: list) -
         if key in metadata:
             ordered[key] = metadata[key]
 
+    # width=4096 keeps flow lists on a single physical line. PyYAML's
+    # default (80) wraps a long list (e.g. children_to_implement) across
+    # lines, and the bash frontmatter parsers match line-by-line — a
+    # wrapped list would lose its continuation entries on the next edit.
     frontmatter = yaml.dump(ordered, Dumper=_FlowListDumper,
-                            default_flow_style=False, sort_keys=False)
+                            default_flow_style=False, sort_keys=False,
+                            width=4096)
     return f"---\n{frontmatter}---\n{body}"

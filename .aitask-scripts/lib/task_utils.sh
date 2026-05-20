@@ -245,6 +245,39 @@ format_yaml_list() {
     fi
 }
 
+# Join YAML flow-sequence values that wrap across multiple physical lines.
+# Reads YAML text on stdin; emits it with any "key: [ ... ]" whose brackets
+# span multiple physical lines collapsed onto a single line. Continuation
+# lines are appended with a separating space (harmless — list parsers strip
+# all whitespace). Bracket depth is tracked, so a wrap of any length folds
+# back to one line.
+#
+# PyYAML's yaml.dump (used by the board via task_yaml.py) wraps a flow list
+# once it exceeds ~80 columns. The line-by-line frontmatter parsers below
+# match each physical line against a key regex, so unjoined continuation
+# lines are silently dropped — this filter must run before that matching.
+join_yaml_flow_lists() {
+    local line buffer="" depth=0 opens closes
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ $depth -gt 0 ]]; then
+            buffer+=" $line"
+        else
+            buffer="$line"
+        fi
+        # Count unbalanced brackets across the accumulated buffer.
+        opens="${buffer//[^\[]/}"
+        closes="${buffer//[^\]]/}"
+        depth=$(( ${#opens} - ${#closes} ))
+        if [[ $depth -le 0 ]]; then
+            printf '%s\n' "$buffer"
+            buffer=""
+            depth=0
+        fi
+    done
+    [[ -n "$buffer" ]] && printf '%s\n' "$buffer"
+    return 0
+}
+
 # --- Helper: read a YAML field from frontmatter ---
 read_yaml_field() {
     local file_path="$1"
@@ -267,7 +300,9 @@ read_yaml_field() {
             echo "$value"
             return
         fi
-    done < "$file_path"
+    # join_yaml_flow_lists rejoins multi-line flow lists (e.g. a wrapped
+    # children_to_implement / verifies) so the field value is matched whole.
+    done < <(join_yaml_flow_lists < "$file_path")
 
     echo ""
 }

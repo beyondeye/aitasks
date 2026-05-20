@@ -334,7 +334,10 @@ parse_yaml_frontmatter() {
     local yaml_content
     yaml_content=$(echo "$file_content" | head -n $((yaml_end_line + 1)) | tail -n +2 | head -n $((yaml_end_line - 1)))
 
-    # Parse YAML key-value pairs
+    # Parse YAML key-value pairs. join_yaml_flow_lists first rejoins any
+    # flow-sequence value (children_to_implement, depends, labels, ...) that
+    # the board wrapped across multiple lines — otherwise the continuation
+    # lines fail the key regex below and their entries are silently dropped.
     while IFS= read -r line; do
         if [[ "$line" =~ ^([a-z_]+):(.*)$ ]]; then
             local key="${BASH_REMATCH[1]}"
@@ -380,7 +383,7 @@ parse_yaml_frontmatter() {
                     ;;
             esac
         fi
-    done <<< "$yaml_content"
+    done < <(printf '%s\n' "$yaml_content" | join_yaml_flow_lists)
 
     # Extract description (everything after YAML block)
     local total_lines

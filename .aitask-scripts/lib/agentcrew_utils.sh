@@ -84,12 +84,33 @@ resolve_crew() {
 }
 
 # read_yaml_field <file> <field>
-# Extracts a simple scalar value from a YAML file (grep+sed).
+# Extracts a simple scalar value from a YAML file.
 # Returns empty string if field not found. Safe under pipefail.
+# A flow list the board wrapped across multiple physical lines (PyYAML wraps
+# past ~80 columns) is rejoined onto one line, so list-valued fields such as
+# folded_tasks / verifies are returned whole rather than truncated.
 read_yaml_field() {
     local file="$1"
     local field="$2"
-    { grep "^${field}:" "$file" 2>/dev/null || true; } | sed "s/^${field}:[[:space:]]*//" | head -n 1
+    local value="" capturing=false depth=0 fline opens closes
+    while IFS= read -r fline; do
+        if [[ "$capturing" == false ]]; then
+            [[ "$fline" == "${field}:"* ]] || continue
+            capturing=true
+            value="${fline#"${field}":}"
+        else
+            value="$value $fline"
+        fi
+        opens="${value//[^\[]/}"
+        closes="${value//[^\]]/}"
+        depth=$(( ${#opens} - ${#closes} ))
+        [[ $depth -le 0 ]] && break
+    done < "$file"
+    [[ "$capturing" == false ]] && return 0
+    # Trim surrounding whitespace.
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s\n' "$value"
 }
 
 # read_yaml_list <file> <field>
@@ -99,12 +120,28 @@ read_yaml_list() {
     local file="$1"
     local field="$2"
 
-    local line
-    line=$({ grep "^${field}:" "$file" 2>/dev/null || true; } | head -n 1)
-    [[ -z "$line" ]] && return 0
+    # Capture the field's value, joining a flow list the board wrapped
+    # across multiple physical lines (PyYAML wraps past ~80 columns) onto a
+    # single line. Self-contained — agentcrew_utils.sh is sourced by crew
+    # scripts that do not load task_utils.sh's join_yaml_flow_lists.
+    local value="" capturing=false depth=0 fline opens closes
+    while IFS= read -r fline; do
+        if [[ "$capturing" == false ]]; then
+            [[ "$fline" == "${field}:"* ]] || continue
+            capturing=true
+            value="${fline#"${field}":}"
+        else
+            value="$value $fline"
+        fi
+        opens="${value//[^\[]/}"
+        closes="${value//[^\]]/}"
+        depth=$(( ${#opens} - ${#closes} ))
+        [[ $depth -le 0 ]] && break
+    done < "$file"
+    [[ "$capturing" == false ]] && return 0
 
-    local value
-    value=$(echo "$line" | sed "s/^${field}:[[:space:]]*//")
+    # Strip leading whitespace left by the "${field}:" prefix removal.
+    value="${value#"${value%%[![:space:]]*}"}"
 
     # Inline format: [a, b, c]
     if [[ "$value" =~ ^\[.*\]$ ]]; then
