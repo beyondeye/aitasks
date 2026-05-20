@@ -6,9 +6,9 @@ issue_type: refactor
 status: Done
 labels: [testing, claudeskills, skill_optiomizations]
 assigned_to: dario-e@beyond-eye.com
-implemented_with: claudecode/opus4_7
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-19 23:55
-updated_at: 2026-05-20 12:09
+updated_at: 2026-05-20 12:11
 completed_at: 2026-05-20 12:09
 ---
 
