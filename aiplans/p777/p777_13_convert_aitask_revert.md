@@ -256,3 +256,57 @@ procedure files; references both `user-file-select` and `task-workflow`).
 `aitask-pickrem` (t777_14) / `aitask-pickweb` (t777_15) should each first grep
 their skill dir for sibling procedure files to choose between the `aitask-qa`
 (t777_11, procedure-closure) and `aitask-explore` (single-template) patterns.
+
+## Final Implementation Notes
+
+- **Actual work done:** Authored `.claude/skills/aitask-revert/SKILL.md.j2`
+  from the existing `aitask-revert/SKILL.md` (frontmatter
+  `name: aitask-revert-{{ profile.name }}`, dropped `user-invocable: true`;
+  removed the `--profile` bullet from `## Arguments` while keeping the no-arg /
+  numeric-arg bullets; deleted both `### Step 0 (pre-parse): Extract --profile
+  argument` and `### Step 0a: Select Execution Profile`; wrapped the single
+  Step 5 `explore_auto_continue` profile check as a two-armed
+  `{% if %}`/`{% else %}`; baked `active_profile` / `active_profile_filename`
+  into the Step 6 handoff). Replaced all 4 per-agent surfaces with canonical
+  stubs (resolver key `revert`): `.claude/skills/aitask-revert/SKILL.md`,
+  `.agents/skills/aitask-revert/SKILL.md`,
+  `.gemini/commands/aitask-revert.toml`, `.opencode/commands/aitask-revert.md`.
+  Generated 3 entry-point goldens
+  (`tests/golden/skills/aitask-revert/SKILL-<profile>-claude.md`). Authored
+  `tests/test_skill_render_aitask_revert.sh` (122 assertions across Tests
+  1/1b/2/3/3b/4/5).
+- **Deviations from plan:** None. The conversion matched the planned
+  `aitask-explore` model exactly.
+- **Issues encountered:** None. `aitask_skill_verify.sh` auto-discovered the
+  new `SKILL.md.j2` (now 7 templates), the resolver key `revert` was already
+  wired, and the dep-walker rendered the full closure (incl. both the
+  `task-workflow` and `user-file-select` subtrees) for all 4 agents without
+  intervention. `bash tests/test_skill_render_aitask_revert.sh` → 122/122;
+  `./.aitask-scripts/aitask_skill_verify.sh` → OK.
+- **Key decisions:**
+  - Direct in-place conversion (not staged under `aitask-revertn`):
+    `aitask-pick` drives this conversion, not `aitask-revert` — same call as
+    t777_8/.../t777_12.
+  - The `## Arguments` section was **kept (trimmed)**, not deleted: its no-arg
+    and numeric-arg bullets describe genuine runtime behavior implemented by
+    Step 1; only the `--profile` bullet (now owned by the stub) was removed.
+    This differs from `pr-import`, whose entire `## Arguments` section was
+    `--profile`-only and was deleted.
+  - `aitask-revert`'s "Save for later" branch (which calls the Satisfaction
+    Feedback Procedure, unlike `pr-import`'s) was preserved verbatim inside the
+    `{% else %}` arm — mechanical conversion does not change behavior.
+  - Test 4 extended beyond the `aitask-explore` test model with explicit
+    `user-file-select` ref-rewrite assertions — `aitask-revert` references
+    that closure (Step 1 Path B) and the per-agent rewrite must be verified.
+  - 3 goldens, claude-only — the basic stdout render does no per-agent
+    rewriting, so codex/gemini/opencode are byte-identical (Test 1b).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** `aitask-revert` is a structural twin of
+  `aitask-explore` — no own procedure files, single `explore_auto_continue`
+  wrap, references both `user-file-select` and `task-workflow`. Two carryover
+  observations for a framework-wide follow-up (not per-skill): (1) the
+  orphaned legacy `.opencode/skills/aitask-revert/SKILL.md` wrapper, left in
+  place per the explore/qa/pr-import precedent; (2) the 3 non-Claude wrappers
+  previously carried a trailing-period `description` while the Claude
+  SKILL.md did not — the 4 new stubs normalize all 4 to the no-period
+  canonical.
