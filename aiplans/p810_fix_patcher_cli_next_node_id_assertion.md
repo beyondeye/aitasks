@@ -92,3 +92,22 @@ Expected tail: `Total: 7   Passed: 7   Failed: 0` and exit 0.
 
 After approval/implementation: review, commit (`bug: ... (t810)`), and proceed
 through Post-Implementation (archival, merge approval) per the shared workflow.
+
+## Final Implementation Notes
+
+- **Actual work done:** Edited the single assertion block at
+  `tests/test_brainstorm_apply_patcher_cli.sh:101-108` exactly as planned —
+  changed the `next_node_id: 2` grep to `next_node_id: 1`, updated the PASS/FAIL
+  message text from "graph state advanced/not advanced" to "head updated,
+  next_node_id untouched by apply" / "head not updated or next_node_id wrongly
+  changed", and added a 3-line explanatory comment above the block.
+- **Deviations from plan:** None. Implemented exactly as planned.
+- **Issues encountered:** None.
+- **Key decisions:** Asserted the correct contract (`next_node_id` stays `1`)
+  rather than dropping the check outright, so a future regression that wrongly
+  increments the counter on the apply path is still caught.
+- **Upstream defects identified:** None. Diagnosis confirmed the apply code
+  (`apply_patcher_output` / `_apply_node_output()` in `brainstorm_session.py`)
+  is correct as-is — the test assertion was the only defective side.
+- **Verification:** `bash tests/test_brainstorm_apply_patcher_cli.sh` →
+  `Total: 7   Passed: 7   Failed: 0`, exit 0 (was 6/7 before the fix).
