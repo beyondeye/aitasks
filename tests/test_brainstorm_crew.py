@@ -271,18 +271,18 @@ class TestAssembleInputDetailer(BrainstormCrewTestBase):
     def test_basic_detailer_input(self):
         self._init_session()
         self._create_test_node(
-            "n003_hybrid",
+            "n003_synth",
             reference_files=["src/db/schema.ts", "https://redis.io/docs"],
         )
 
         result = _assemble_input_detailer(
-            self.wt_path, "n003_hybrid",
+            self.wt_path, "n003_synth",
             ["CLAUDE.md", "package.json"],
         )
         self.assertIn("# Detailer Input", result)
         self.assertIn("## Target Node", result)
-        self.assertIn(f"{NODES_DIR}/n003_hybrid.yaml", result)
-        self.assertIn(f"{PROPOSALS_DIR}/n003_hybrid.md", result)
+        self.assertIn(f"{NODES_DIR}/n003_synth.yaml", result)
+        self.assertIn(f"{PROPOSALS_DIR}/n003_synth.md", result)
         self.assertIn("## Reference Files", result)
         self.assertIn("src/db/schema.ts", result)
         self.assertIn("## Project Context", result)
@@ -294,14 +294,14 @@ class TestAssembleInputPatcher(BrainstormCrewTestBase):
 
     def test_basic_patcher_input(self):
         self._init_session()
-        self._create_test_node("n003_hybrid")
+        self._create_test_node("n003_synth")
         # Create a plan file
         plan_dir = self.wt_path / PLANS_DIR
-        plan_file = plan_dir / "n003_hybrid_plan.md"
+        plan_file = plan_dir / "n003_synth_plan.md"
         plan_file.write_text("# Plan", encoding="utf-8")
 
         result = _assemble_input_patcher(
-            self.wt_path, "n003_hybrid",
+            self.wt_path, "n003_synth",
             "Rename variable X to Y in step 3",
             "n004_patcher_001",
         )
@@ -309,20 +309,20 @@ class TestAssembleInputPatcher(BrainstormCrewTestBase):
         self.assertIn("## Patch Request", result)
         self.assertIn("Rename variable X to Y in step 3", result)
         self.assertIn("## Current Node", result)
-        self.assertIn(f"{NODES_DIR}/n003_hybrid.yaml", result)
+        self.assertIn(f"{NODES_DIR}/n003_synth.yaml", result)
         self.assertIn("this is what the patcher modifies", result)
         self.assertIn("read-only, for impact analysis", result)
 
     def test_patcher_input_no_plan(self):
         self._init_session()
-        self._create_test_node("n003_hybrid")
+        self._create_test_node("n003_synth")
 
         result = _assemble_input_patcher(
-            self.wt_path, "n003_hybrid", "Fix step 2",
+            self.wt_path, "n003_synth", "Fix step 2",
             "n004_patcher_001",
         )
         self.assertNotIn("_plan.md", result)
-        self.assertIn(f"{PROPOSALS_DIR}/n003_hybrid.md", result)
+        self.assertIn(f"{PROPOSALS_DIR}/n003_synth.md", result)
 
 
 class TestBrainstormAgentTypes(unittest.TestCase):

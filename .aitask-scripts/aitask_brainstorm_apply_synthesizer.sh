@@ -3,8 +3,8 @@
 #
 # Usage: ait brainstorm apply-synthesizer <task_num> <agent_name>
 #
-# Re-parses <agent_name>_output.md and creates a new hybrid node parented on
-# every source node listed in the synthesizer's NODE_YAML. Useful when the
+# Re-parses <agent_name>_output.md and creates a new synthesized node parented
+# on every source node listed in the synthesizer's NODE_YAML. Useful when the
 # TUI's auto-apply didn't run (or didn't get a chance).
 #
 # Output:

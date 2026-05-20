@@ -2,8 +2,8 @@
 
 Covers the engine-side apply flow for synthesizer agents: parsing the
 two-block NODE_YAML + PROPOSAL output (no NEW_DIMENSIONS), creating a
-new hybrid node parented on every source node the synthesizer specified,
-and advancing graph state.
+new synthesized node parented on every source node the synthesizer
+specified, and advancing graph state.
 """
 
 from __future__ import annotations
@@ -32,15 +32,15 @@ from brainstorm.brainstorm_session import (  # noqa: E402
 
 PROPOSAL_BODY = (
     "## Overview\n"
-    "Hybrid proposal body.\n"
+    "Synthesized proposal body.\n"
 )
 
 
 def _node_yaml(
     *,
-    node_id: str = "n002_hybrid",
+    node_id: str = "n002_synth",
     parents=None,
-    description: str = "Hybrid node",
+    description: str = "Synthesized node",
     proposal_file: str | None = None,
     created_at: str | None = None,
     created_by_group: str | None = None,
@@ -159,7 +159,7 @@ class ApplySynthesizerHappyPathTests(unittest.TestCase):
             output = _build_output(
                 node_yaml_text=_node_yaml(
                     created_at="2026-05-04 12:52",
-                    created_by_group="hybridize_001",
+                    created_by_group="synthesize_001",
                     extra_lines=[
                         "component_cache: Redis",
                         "assumption_pool: bounded",
@@ -170,7 +170,7 @@ class ApplySynthesizerHappyPathTests(unittest.TestCase):
 
             new_id = _apply(wt)
 
-            self.assertEqual(new_id, "n002_hybrid")
+            self.assertEqual(new_id, "n002_synth")
             node_data = yaml.safe_load(
                 (wt / NODES_DIR / f"{new_id}.yaml").read_text(
                     encoding="utf-8"
@@ -209,9 +209,9 @@ class ApplySynthesizerHappyPathTests(unittest.TestCase):
             parents = ["n000_init", "n001_explored", "n002_explored_b"]
             output = _build_output(
                 node_yaml_text=_node_yaml(
-                    node_id="n003_hybrid",
+                    node_id="n003_synth",
                     parents=parents,
-                    created_by_group="hybridize_001",
+                    created_by_group="synthesize_001",
                 ),
             )
             _seed_session(
@@ -219,7 +219,7 @@ class ApplySynthesizerHappyPathTests(unittest.TestCase):
                 initial_head="n002_explored_b", initial_next_id=3,
             )
             new_id = _apply(wt)
-            self.assertEqual(new_id, "n003_hybrid")
+            self.assertEqual(new_id, "n003_synth")
             node_data = yaml.safe_load(
                 (wt / NODES_DIR / f"{new_id}.yaml").read_text(
                     encoding="utf-8"
@@ -232,7 +232,7 @@ class ApplySynthesizerHappyPathTests(unittest.TestCase):
             wt = Path(td)
             output = _build_output(
                 node_yaml_text=_node_yaml(
-                    created_by_group="hybridize_001",
+                    created_by_group="synthesize_001",
                     reference_files=["src/a.py", "https://example.com/x"],
                 ),
             )
@@ -253,12 +253,12 @@ class ApplySynthesizerHappyPathTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             wt = Path(td)
             output = _build_output(
-                node_yaml_text=_node_yaml(created_by_group="hybridize_001"),
+                node_yaml_text=_node_yaml(created_by_group="synthesize_001"),
             )
             _seed_session(wt, output_text=output)
             _apply(wt)
             node_data = yaml.safe_load(
-                (wt / NODES_DIR / "n002_hybrid.yaml").read_text(
+                (wt / NODES_DIR / "n002_synth.yaml").read_text(
                     encoding="utf-8"
                 )
             )
@@ -269,16 +269,17 @@ class ApplySynthesizerHappyPathTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             wt = Path(td)
             # No created_by_group line in NODE_YAML — derive from
-            # agent_name (synthesizer_001 → hybridize_001).
+            # agent_name (synthesizer_001 → synthesize_001 via
+            # _agent_to_group_name).
             output = _build_output(node_yaml_text=_node_yaml())
             _seed_session(wt, output_text=output)
             _apply(wt, agent_name="synthesizer_001")
             node_data = yaml.safe_load(
-                (wt / NODES_DIR / "n002_hybrid.yaml").read_text(
+                (wt / NODES_DIR / "n002_synth.yaml").read_text(
                     encoding="utf-8"
                 )
             )
-            self.assertEqual(node_data["created_by_group"], "hybridize_001")
+            self.assertEqual(node_data["created_by_group"], "synthesize_001")
 
 
 class ApplySynthesizerErrorTests(unittest.TestCase):
@@ -302,12 +303,12 @@ class ApplySynthesizerErrorTests(unittest.TestCase):
             wt = Path(td)
             _seed_session(wt)
             # Pre-seed the target node id.
-            (wt / NODES_DIR / "n002_hybrid.yaml").write_text(
-                yaml.safe_dump({"node_id": "n002_hybrid"}),
+            (wt / NODES_DIR / "n002_synth.yaml").write_text(
+                yaml.safe_dump({"node_id": "n002_synth"}),
                 encoding="utf-8",
             )
             output = _build_output(node_yaml_text=_node_yaml(
-                created_by_group="hybridize_001",
+                created_by_group="synthesize_001",
             ))
             (wt / "synthesizer_001_output.md").write_text(
                 output, encoding="utf-8"
@@ -318,7 +319,7 @@ class ApplySynthesizerErrorTests(unittest.TestCase):
     def test_invalid_yaml_writes_error_log(self):
         with tempfile.TemporaryDirectory() as td:
             wt = Path(td)
-            broken_yaml = "node_id: n002_hybrid\nparents: [n000_init\n"
+            broken_yaml = "node_id: n002_synth\nparents: [n000_init\n"
             output = _build_output(node_yaml_text=broken_yaml)
             _seed_session(wt, output_text=output)
             with self.assertRaises(yaml.YAMLError):
@@ -332,10 +333,10 @@ class ApplySynthesizerErrorTests(unittest.TestCase):
             wt = Path(td)
             # Description omitted → validate_node fails.
             output = _build_output(node_yaml_text=(
-                "node_id: n002_hybrid\n"
+                "node_id: n002_synth\n"
                 "parents: [n000_init, n001_explored]\n"
-                "proposal_file: br_proposals/n002_hybrid.md\n"
-                "created_by_group: hybridize_001\n"
+                "proposal_file: br_proposals/n002_synth.md\n"
+                "created_by_group: synthesize_001\n"
             ))
             _seed_session(wt, output_text=output)
             with self.assertRaises(ValueError):
@@ -371,7 +372,7 @@ class SynthesizerNeedsApplyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             wt = Path(td)
             output = _build_output(
-                node_yaml_text=_node_yaml(created_by_group="hybridize_001"),
+                node_yaml_text=_node_yaml(created_by_group="synthesize_001"),
             )
             _seed_session(wt, output_text=output)
             self.assertTrue(self._needs(wt))
@@ -380,11 +381,11 @@ class SynthesizerNeedsApplyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             wt = Path(td)
             output = _build_output(
-                node_yaml_text=_node_yaml(created_by_group="hybridize_001"),
+                node_yaml_text=_node_yaml(created_by_group="synthesize_001"),
             )
             _seed_session(wt, output_text=output)
-            (wt / NODES_DIR / "n002_hybrid.yaml").write_text(
-                yaml.safe_dump({"node_id": "n002_hybrid"}),
+            (wt / NODES_DIR / "n002_synth.yaml").write_text(
+                yaml.safe_dump({"node_id": "n002_synth"}),
                 encoding="utf-8",
             )
             self.assertFalse(self._needs(wt))

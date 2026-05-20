@@ -194,16 +194,16 @@ class TestGetChildren(BrainstormTestBase):
         create_node(self.wt_path, "n000_root", [], "Root", {}, "# Root", "")
         create_node(self.wt_path, "n001_child_a", ["n000_root"], "Child A", {}, "# A", "")
         create_node(self.wt_path, "n002_child_b", ["n000_root"], "Child B", {}, "# B", "")
-        create_node(self.wt_path, "n003_hybrid", ["n001_child_a", "n002_child_b"], "Hybrid", {}, "# H", "")
+        create_node(self.wt_path, "n003_synth", ["n001_child_a", "n002_child_b"], "Synthesized", {}, "# S", "")
 
         children = get_children(self.wt_path, "n000_root")
         self.assertEqual(sorted(children), ["n001_child_a", "n002_child_b"])
 
         children_of_a = get_children(self.wt_path, "n001_child_a")
-        self.assertEqual(children_of_a, ["n003_hybrid"])
+        self.assertEqual(children_of_a, ["n003_synth"])
 
-        children_of_hybrid = get_children(self.wt_path, "n003_hybrid")
-        self.assertEqual(children_of_hybrid, [])
+        children_of_synth = get_children(self.wt_path, "n003_synth")
+        self.assertEqual(children_of_synth, [])
 
 
 class TestNextNodeId(BrainstormTestBase):

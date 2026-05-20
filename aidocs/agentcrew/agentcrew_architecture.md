@@ -330,7 +330,7 @@ Operation groups are a logical grouping of agents registered as part of the same
 
 ### Use Cases
 
-- **Brainstorm engine:** Multiple operations (explore, compare, hybridize) in one persistent crew. Each operation creates a group so agents from earlier operations complete before later ones start.
+- **Brainstorm engine:** Multiple operations (explore, compare, synthesize) in one persistent crew. Each operation creates a group so agents from earlier operations complete before later ones start.
 - **Batch processing:** Register multiple batches of work where earlier batches should finish first.
 
 ### Group Field in Agent Status

@@ -575,7 +575,7 @@ def _agent_to_group_name(agent_name: str) -> str:
     if parallel_suffix_match:
         suffix = parallel_suffix_match.group(1)
     role_to_group = {"patcher": "patch", "explorer": "explore",
-                     "synthesizer": "hybridize", "detailer": "detail"}
+                     "synthesizer": "synthesize", "detailer": "detail"}
     return f"{role_to_group.get(role, role)}_{suffix}"
 
 
@@ -1059,8 +1059,8 @@ def _synthesizer_needs_apply(
 def apply_synthesizer_output(
     task_num: int | str, agent_name: str,
 ) -> str:
-    """Parse ``<agent_name>_output.md`` and integrate it as a new hybrid
-    node.
+    """Parse ``<agent_name>_output.md`` and integrate it as a new
+    synthesized node.
 
     The synthesizer emits two delimited blocks (``NODE_YAML`` +
     ``PROPOSAL``) with no optional ``NEW_DIMENSIONS`` block. The new

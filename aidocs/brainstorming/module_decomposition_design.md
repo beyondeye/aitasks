@@ -15,7 +15,7 @@ document is `aiplans/p754_new_brainstorm_operations.md`.
 `ait brainstorm` today produces a single proposal-graph per task:
 `br_session.yaml` carries a single `task_id`/`task_file`,
 `br_graph_state.yaml` tracks a single `current_head`, and the supported
-operations (`explore`, `compare`, `hybridize`, `detail`, `patch`) all
+operations (`explore`, `compare`, `synthesize`, `detail`, `patch`) all
 evolve that one proposal as a whole.
 
 Three increasingly-common use cases push against this model. They are
@@ -135,7 +135,7 @@ Operations target HEAD. Agents launched by `register_*()` produce new
 nodes, which become the new HEAD. Existing infrastructure that we want
 to **reuse** without modification:
 
-- Per-node multiple parents in `parents` list — already the basis for `hybridize`.
+- Per-node multiple parents in `parents` list — already the basis for `synthesize`.
 - Per-group `nodes_created: list` in `br_groups.yaml` — already supports
   multi-output ops.
 - Section markers in proposal markdown — already let an agent address a
@@ -160,7 +160,7 @@ arose during planning) to the missing capability:
   state for it.
 - **(UC-3 →)** No operation to fork off a module subgraph; no
   operation to fold a refined module's design back up. Today's
-  `hybridize` merges two sibling proposals into one — it is **not**
+  `synthesize` merges two sibling proposals into one — it is **not**
   the same as merging a child subgraph back into its parent. Fast-track
   also has no native path: the user would have to manually create a
   child aitask and lose the brainstorm-side linkage.
@@ -358,7 +358,7 @@ subgraph it joins.
     `module_label=<destination>`,
     `parents=[<destination HEAD>, <source HEAD>]` — a 2-parent node.
     The DAG already supports this (per-node multiple parents was
-    introduced for `hybridize`); the second parent records the
+    introduced for `synthesize`); the second parent records the
     merge provenance.
   - `current_heads[<destination>] = nYYY`.
   - `history[<destination>].append(nYYY)`.
@@ -381,7 +381,7 @@ subgraph it joins.
 
 ### 4.5 Existing ops become module-aware
 
-`explore`, `compare`, `hybridize`, `detail`, `patch` all currently
+`explore`, `compare`, `synthesize`, `detail`, `patch` all currently
 target the single `current_head`. They become module-scoped: the
 wizard gains a "subgraph selector" step (default: most-recently-touched
 subgraph) before the node-selection step. Behind the scenes:
@@ -557,7 +557,7 @@ For `decompose`, `sync`, and `merge`:
 - `.aitask-scripts/brainstorm/brainstorm_op_refs.py:15` (`_OP_INPUT_SECTION`)
   — add entries (`decompose: "Decomposition Plan"`,
   `sync: "Sync Sources"`, `merge: "Merge-Up Rules"`). Note:
-  `hybridize` already uses `"Merge Rules"` — pick the distinct
+  `synthesize` already uses `"Merge Rules"` — pick the distinct
   `"Merge-Up Rules"` label for `merge` to avoid section-name
   collision.
 - New templates (one per new op):

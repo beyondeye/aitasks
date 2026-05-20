@@ -602,7 +602,7 @@ def register_synthesizer(
         crew_id: Crew identifier.
         parent_node_ids: List of source node IDs to merge.
         merge_rules: User's merge instructions.
-        group_name: Operation group name (e.g., "hybridize_001").
+        group_name: Operation group name (e.g., "synthesize_001").
         launch_mode: Launch mode for the agent; one of VALID_LAUNCH_MODES
             (defaults to DEFAULT_LAUNCH_MODE).
 

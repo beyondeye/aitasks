@@ -170,7 +170,7 @@ def get_node_lineage(session_path: Path, node_id: str) -> list[str]:
     """Trace ancestry back to root node. Returns list from root to node_id.
 
     Uses BFS backwards through parents. If the node has multiple parents
-    (hybridization), follows the first parent at each step.
+    (synthesis), follows the first parent at each step.
     """
     lineage = [node_id]
     visited = {node_id}

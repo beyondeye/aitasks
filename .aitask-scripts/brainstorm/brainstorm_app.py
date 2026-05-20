@@ -133,7 +133,7 @@ _NODE_SELECT_OPS = {"explore", "detail", "patch"}
 _WIZARD_OP_TO_AGENT_TYPE = {
     "explore": "explorer",
     "compare": "comparator",
-    "hybridize": "synthesizer",
+    "synthesize": "synthesizer",
     "detail": "detailer",
     "patch": "patcher",
 }
@@ -174,7 +174,7 @@ def _read_groups(session_path: Path) -> dict:
 _DESIGN_OPS = [
     ("explore", "Explore", "Create new design variants from a base node"),
     ("compare", "Compare", "Run agent comparison across nodes"),
-    ("hybridize", "Hybridize", "Merge multiple nodes into a synthesis"),
+    ("synthesize", "Synthesize", "Merge multiple nodes into a synthesis"),
     ("detail", "Detail", "Generate implementation plan for a node"),
     ("patch", "Patch", "Tweak an existing plan"),
 ]
@@ -279,13 +279,13 @@ _OPERATION_HELP: dict[str, dict] = {
     # markdown per the user's merge rules) and "## Output" (new node:
     # YAML + merged proposal; parents = [all source nodes]; includes a
     # Conflict Resolutions section).
-    "hybridize": {
-        "title": "Hybridize — Architecture Synthesizer",
+    "synthesize": {
+        "title": "Synthesize — Architecture Synthesizer",
         "summary": (
             "Merge components from multiple source nodes into a single "
-            "hybrid node according to user-supplied merge rules. The "
-            "hybrid lists every source as a parent and documents how "
-            "conflicts between sources were resolved."
+            "synthesized node according to user-supplied merge rules. The "
+            "synthesized node lists every source as a parent and documents "
+            "how conflicts between sources were resolved."
         ),
         "reads_from_parent": [
             "YAML metadata from all selected source nodes.",
@@ -2668,7 +2668,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         self._explorer_apply_errors: dict[str, str] = {}
         self._explorer_poll_timer = None
         # Synthesizer auto-apply state. Tracked agent names produce a
-        # single hybrid node each via apply_synthesizer_output; the poll
+        # single synthesized node each via apply_synthesizer_output; the poll
         # timer fires until every tracked agent has either applied or
         # been dropped.
         self._synthesizer_agents: set[str] = set()
@@ -2888,7 +2888,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                             self._actions_show_section_select()
                         else:
                             self._actions_show_node_select()
-                    elif self._wizard_op in ("explore", "patch", "compare", "hybridize"):
+                    elif self._wizard_op in ("explore", "patch", "compare", "synthesize"):
                         self._actions_show_config()
                     else:
                         self._actions_show_config()
@@ -2942,11 +2942,11 @@ class BrainstormApp(TuiSwitcherMixin, App):
                         event.prevent_default()
                         event.stop()
                         return
-            # Compare/Hybridize config step: Tab cycles whole control groups
+            # Compare/Synthesize config step: Tab cycles whole control groups
             if (
                 event.key in ("tab", "shift+tab")
                 and self._wizard_step == 2
-                and self._wizard_op in ("compare", "hybridize")
+                and self._wizard_op in ("compare", "synthesize")
             ):
                 if self._cycle_wizard_groups(-1 if event.key == "shift+tab" else 1):
                     event.prevent_default()
@@ -3410,7 +3410,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
 
     def _cycle_wizard_groups(self, direction: int) -> bool:
         """Tab/Shift+Tab cycle focus between whole control groups on the
-        Compare/Hybridize config step.
+        Compare/Synthesize config step.
 
         Each group exposes one "entry widget" (the filter box of a
         FuzzyCheckList, the first section checkbox, the merge-rules TextArea,
@@ -3431,8 +3431,8 @@ class BrainstormApp(TuiSwitcherMixin, App):
 
         # (entry_widget, membership_widget) pairs, in Tab order.
         groups: list[tuple] = []
-        if self._wizard_op == "hybridize":
-            node_grp = _fcl_group("hyb_nodes")
+        if self._wizard_op == "synthesize":
+            node_grp = _fcl_group("syn_nodes")
             if node_grp:
                 groups.append(node_grp)
             try:
@@ -5069,7 +5069,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         )
         self._mount_op_context_header(container)
 
-        if op in ("compare", "hybridize"):
+        if op in ("compare", "synthesize"):
             container.mount(Label(
                 "[dim]  ↑↓ Navigate  Space Toggle  "
                 "Tab Switch group  Type to filter[/]"))
@@ -5078,8 +5078,8 @@ class BrainstormApp(TuiSwitcherMixin, App):
             self._config_explore_no_node(container)
         elif op == "compare":
             self._config_compare(container)
-        elif op == "hybridize":
-            self._config_hybridize(container)
+        elif op == "synthesize":
+            self._config_synthesize(container)
         elif op == "patch":
             self._config_patch_no_node(container)
 
@@ -5160,19 +5160,19 @@ class BrainstormApp(TuiSwitcherMixin, App):
             value = self._cmp_section_checks.get(name, False)
             box.mount(Checkbox(name, value=value, classes="chk_section"))
 
-    def _config_hybridize(self, container: VerticalScroll) -> None:
-        """Hybridize config: multi-node checkboxes + merge rules."""
+    def _config_synthesize(self, container: VerticalScroll) -> None:
+        """Synthesize config: multi-node checkboxes + merge rules."""
         nodes = list_nodes(self.session_path)
 
         container.mount(Label("[bold]Select Source Nodes (2+)[/]"))
         container.mount(FuzzyCheckList(
             nodes, item_class="chk_node",
-            placeholder="Type to filter nodes\u2026", id="hyb_nodes"))
+            placeholder="Type to filter nodes\u2026", id="syn_nodes"))
 
         container.mount(Label("[bold]Merge Rules[/]"))
         container.mount(TextArea(""))
         container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
-        self.call_after_refresh(lambda: self._focus_fcl_filter("hyb_nodes"))
+        self.call_after_refresh(lambda: self._focus_fcl_filter("syn_nodes"))
 
     def _config_patch_no_node(self, container: VerticalScroll) -> None:
         """Patch config (node already selected): patch request."""
@@ -5289,7 +5289,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
             except Exception:
                 config["target_sections"] = None
 
-        elif op == "hybridize":
+        elif op == "synthesize":
             node_cbs = container.query("Checkbox.chk_node")
             selected = [cb.label for cb in node_cbs if cb.value]
             if len(selected) < 2:
@@ -5395,7 +5395,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
             lines.append(f"[bold]Nodes:[/] {', '.join(cfg['nodes'])}")
             dims_str = ", ".join(cfg["dimensions"]) if cfg["dimensions"] else "(all)"
             lines.append(f"[bold]Dimensions:[/] {dims_str}")
-        elif op == "hybridize":
+        elif op == "synthesize":
             lines.append(f"[bold]Source Nodes:[/] {', '.join(cfg['nodes'])}")
             lines.append("[bold]Merge Rules:[/]")
             lines.append(cfg["merge_rules"])
@@ -5448,7 +5448,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 self._actions_show_section_select()
             else:
                 self._actions_show_node_select()
-        elif self._wizard_op in ("explore", "patch", "compare", "hybridize"):
+        elif self._wizard_op in ("explore", "patch", "compare", "synthesize"):
             self._actions_show_config()
         else:
             self._actions_show_config()
@@ -5635,7 +5635,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 )
                 agents_list.append(agent)
                 msg = f"Registered comparator: {agent}"
-            elif op == "hybridize":
+            elif op == "synthesize":
                 agent = register_synthesizer(
                     self.session_path, crew_id, cfg["nodes"],
                     cfg["merge_rules"], group_name,

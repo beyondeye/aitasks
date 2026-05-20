@@ -1,6 +1,6 @@
 # Brainstorm Engine Architecture
 
-The brainstorm engine is an iterative AI design system that uses a DAG-based approach to explore, compare, and hybridize architectural proposals. It builds on AgentCrew for multi-agent orchestration and integrates with the aitasks ecosystem for session management.
+The brainstorm engine is an iterative AI design system that uses a DAG-based approach to explore, compare, and synthesize architectural proposals. It builds on AgentCrew for multi-agent orchestration and integrates with the aitasks ecosystem for session management.
 
 This document is the single reference for data formats, orchestration flow, and agent specifications. It is self-contained — no other documents need to be read to understand the system.
 
@@ -26,7 +26,7 @@ Traditional AI planning conversations suffer from context creep: as requirements
 
 ### Core Concepts
 
-- **Design Space DAG:** Proposals form a Directed Acyclic Graph, not a linear chain. Each node is a self-contained architectural snapshot. Nodes can have multiple parents (hybridization) and multiple children (divergent exploration).
+- **Design Space DAG:** Proposals form a Directed Acyclic Graph, not a linear chain. Each node is a self-contained architectural snapshot. Nodes can have multiple parents (synthesis) and multiple children (divergent exploration).
 - **Node Triad:** Every node consists of three files — metadata (YAML), proposal (Markdown), and optionally a plan (Markdown). The metadata is the queryable index; the Markdown files hold the narrative.
 - **Context Discipline:** The orchestrator never holds full proposals in memory. It reads only metadata and summaries, delegating deep work to subagents.
 - **Bidirectional Flow:** Changes can originate top-down (architectural pivots that cascade to implementation plans) or bottom-up (plan tweaks that may escalate to architectural changes).
@@ -44,7 +44,7 @@ Each brainstorm session is tied to an aitask. The session data lives on the Agen
 ```
 ┌──────────────────────────────────────────────────────────┐
 │                    TUI (future, t419_6)                   │
-│   User commands: explore, compare, hybridize, detail...  │
+│   User commands: explore, compare, synthesize, detail... │
 └──────────────┬───────────────────────────────────────────┘
                │
                ▼
@@ -117,15 +117,15 @@ All files live in the crew worktree at `.aitask-crews/crew-brainstorm-<task_num>
 │   ├── n000_init.yaml
 │   ├── n001_relational.yaml
 │   ├── n002_nosql.yaml
-│   └── n003_hybrid_db.yaml
+│   └── n003_synth_db.yaml
 ├── br_proposals/                # Full architectural narratives (Markdown)
 │   ├── n000_init.md
 │   ├── n001_relational.md
 │   ├── n002_nosql.md
-│   └── n003_hybrid_db.md
+│   └── n003_synth_db.md
 ├── br_plans/                    # Implementation plans (Markdown, optional per node)
 │   ├── n002_nosql_plan.md
-│   └── n003_hybrid_db_plan.md
+│   └── n003_synth_db_plan.md
 └── br_url_cache/                # Cached fetched URL content (gitignored)
     ├── a1b2c3d4.md
     └── e5f6g7h8.md
@@ -212,11 +212,11 @@ Tracks the DAG structure and current position within the design space. One per s
 
 ```yaml
 # DAG state — tracks the design exploration graph
-current_head: n003_hybrid_db        # Node ID of the current baseline (user's working node)
+current_head: n003_synth_db        # Node ID of the current baseline (user's working node)
 history:                             # Ordered list of head transitions (audit trail)
   - n000_init
   - n001_relational
-  - n003_hybrid_db                   # n002 was explored but never became head
+  - n003_synth_db                   # n002 was explored but never became head
 next_node_id: 4                      # Counter for generating the next nXXX ID
 active_dimensions:                   # Dimensions currently being explored
   - database                         # These are used by the TUI to offer comparison options
@@ -240,16 +240,16 @@ Each node is a self-contained snapshot of an architectural proposal. The schema 
 
 ```yaml
 # Node metadata — one file per proposal in the design DAG
-node_id: n003_hybrid_db                # Unique identifier (matches filename stem)
+node_id: n003_synth_db                # Unique identifier (matches filename stem)
 parents:                                # Parent node IDs (enables DAG structure)
   - n001_relational
   - n002_nosql
 description: >-                        # One-line summary of this proposal
   Uses Postgres for core data but adds Redis caching from the NoSQL exploration.
-proposal_file: br_proposals/n003_hybrid_db.md       # Relative path to full proposal
-plan_file: br_plans/n003_hybrid_db_plan.md          # Relative path to implementation plan (optional)
+proposal_file: br_proposals/n003_synth_db.md       # Relative path to full proposal
+plan_file: br_plans/n003_synth_db_plan.md          # Relative path to implementation plan (optional)
 created_at: 2026-03-18 14:30                         # When this node was created
-created_by_group: hybridize_003                      # Operation group that produced this node
+created_by_group: synthesize_003                      # Operation group that produced this node
 
 # --- Reference files (local paths and URLs) ---
 # Resources the agent should read to understand the context for this proposal.
@@ -486,7 +486,7 @@ When a section's content does not map cleanly to a dimension key (e.g., `overvie
 
 ## 5. AgentCrew Integration
 
-The brainstorm engine uses AgentCrew as its orchestration layer. Each session creates a persistent AgentCrew crew, and each brainstorm operation (explore, compare, hybridize, detail, patch) registers agents within an operation group.
+The brainstorm engine uses AgentCrew as its orchestration layer. Each session creates a persistent AgentCrew crew, and each brainstorm operation (explore, compare, synthesize, detail, patch) registers agents within an operation group.
 
 ### Persistent Crew Model
 
@@ -509,10 +509,10 @@ Each user-initiated brainstorm operation creates a named **operation group** —
 - Provenance tracking (every node's `created_by_group` traces back to the operation that created it)
 
 **Naming convention:** `<operation>_<sequence>` where:
-- `<operation>` is one of: `explore`, `compare`, `hybridize`, `detail`, `patch`
+- `<operation>` is one of: `explore`, `compare`, `synthesize`, `detail`, `patch`
 - `<sequence>` is a zero-padded three-digit counter incremented per operation
 
-Examples: `explore_001`, `explore_002`, `compare_003`, `hybridize_004`, `detail_005`, `patch_006`
+Examples: `explore_001`, `explore_002`, `compare_003`, `synthesize_004`, `detail_005`, `patch_006`
 
 ### Operation Group Metadata (br_groups.yaml)
 
@@ -537,8 +537,8 @@ groups:
     head_at_creation: n000_init
     nodes_created: []                       # Comparisons don't create nodes
 
-  hybridize_003:
-    operation: hybridize
+  synthesize_003:
+    operation: synthesize
     agents: [synthesizer_003]
     status: Running
     created_at: 2026-03-18 14:35
@@ -567,7 +567,7 @@ agent_types:
     max_parallel: 1                      # Comparisons are sequential (need all inputs ready)
   synthesizer:
     agent_string: claudecode/opus4_6    # Conflict resolution needs strong reasoning
-    max_parallel: 1                      # Hybridization is sequential
+    max_parallel: 1                      # Synthesis is sequential
   detailer:
     agent_string: claudecode/opus4_6    # Implementation planning needs deep code understanding
     max_parallel: 1                      # One plan at a time
@@ -585,7 +585,7 @@ agent_types:
 Examples:
 - `explorer_001a`, `explorer_001b` — two explorers in group `explore_001`
 - `comparator_002` — single comparator in group `compare_002`
-- `synthesizer_003` — single synthesizer in group `hybridize_003`
+- `synthesizer_003` — single synthesizer in group `synthesize_003` (its agent role name stays `synthesizer`)
 - `initializer_bootstrap` — the sole initializer agent, named with a fixed literal (no `<group_sequence>`) because each session has exactly one bootstrap run. Launched only when a session is initialized with an imported proposal (see §7.1a).
 
 ### Group-Level Commands
@@ -632,7 +632,7 @@ The brainstorm engine's memory is entirely external — stored in YAML metadata,
 As the DAG grows, the relevant context changes:
 - New components introduce new codebase files
 - Abandoned branches become irrelevant
-- Hybridized nodes inherit references from multiple parents
+- Synthesized nodes inherit references from multiple parents
 - The current head's context is always the most important
 
 ### Reference File Tracking
@@ -685,7 +685,7 @@ n002_replace_db_with_mongo (parent: n000):
     - src/db/mongo-client.ts                                 # Added: MongoDB client
     - https://www.mongodb.com/docs/manual/core/document/     # Replaced: Postgres → Mongo docs
 
-n003_hybrid (parents: n001, n002):
+n003_synth (parents: n001, n002):
   reference_files:
     - src/api/router.ts
     - src/cache/redis.ts
@@ -708,9 +708,9 @@ The session manager builds `_input.md` differently for each agent type:
 <The user's request, e.g., "Explore a serverless approach for the API layer">
 
 ## Baseline Node
-- Metadata: .aitask-crews/crew-brainstorm-419/br_nodes/n003_hybrid_db.yaml
-- Proposal: .aitask-crews/crew-brainstorm-419/br_proposals/n003_hybrid_db.md
-- Plan: .aitask-crews/crew-brainstorm-419/br_plans/n003_hybrid_db_plan.md
+- Metadata: .aitask-crews/crew-brainstorm-419/br_nodes/n003_synth_db.yaml
+- Proposal: .aitask-crews/crew-brainstorm-419/br_proposals/n003_synth_db.md
+- Plan: .aitask-crews/crew-brainstorm-419/br_plans/n003_synth_db_plan.md
 
 ## Reference Files
 ### Local
@@ -818,7 +818,7 @@ Use these dimension keys in section markers:
 - component_database
 ```
 
-**Synthesizer is not section-aware.** Hybridization merges *whole proposals*, not subsets of sections, so the wizard does not expose a section picker for hybridize and `register_synthesizer()` has no `target_sections` parameter.
+**Synthesizer is not section-aware.** Synthesis merges *whole proposals*, not subsets of sections, so the wizard does not expose a section picker for synthesize and `register_synthesizer()` has no `target_sections` parameter.
 
 #### Detailer Input Assembly
 
@@ -826,8 +826,8 @@ Use these dimension keys in section markers:
 # Detailer Input
 
 ## Target Node
-- Metadata: br_nodes/n003_hybrid_db.yaml
-- Proposal: br_proposals/n003_hybrid_db.md
+- Metadata: br_nodes/n003_synth_db.yaml
+- Proposal: br_proposals/n003_synth_db.md
 
 ## Reference Files
 ### Local
@@ -861,7 +861,7 @@ Leave other sections unchanged:
 - steps
 - testing
 
-Current plan: .aitask-crews/crew-brainstorm-419/br_plans/n003_hybrid_db_plan.md
+Current plan: .aitask-crews/crew-brainstorm-419/br_plans/n003_synth_db_plan.md
 ```
 
 #### Patcher Input Assembly
@@ -873,9 +873,9 @@ Current plan: .aitask-crews/crew-brainstorm-419/br_plans/n003_hybrid_db_plan.md
 <The user's specific edit request>
 
 ## Current Node
-- Metadata: br_nodes/n003_hybrid_db.yaml
-- Plan: br_plans/n003_hybrid_db_plan.md (this is what the patcher modifies)
-- Proposal: br_proposals/n003_hybrid_db.md (read-only, for impact analysis)
+- Metadata: br_nodes/n003_synth_db.yaml
+- Plan: br_plans/n003_synth_db_plan.md (this is what the patcher modifies)
+- Proposal: br_proposals/n003_synth_db.md (read-only, for impact analysis)
 ```
 
 **Targeted variant** — when the TUI passes `target_sections`, a `## Target Sections` block is appended so the Patcher's surgical edits are constrained to the named sections:
@@ -1022,7 +1022,7 @@ The blank initialization path leaves `n000_init.md` as an empty placeholder so t
 - Compare the new proposals against existing nodes
 - Select one as the new head
 - Explore further from any node
-- Hybridize nodes
+- Synthesize nodes
 
 ### 7.3 Compare
 
@@ -1092,20 +1092,20 @@ The blank initialization path leaves `n000_init.md` as an empty placeholder so t
 
 **What the user decides next:**
 - Select a node as the new head
-- Hybridize specific components from compared nodes
+- Synthesize specific components from compared nodes
 - Explore new approaches informed by the comparison
 
-### 7.4 Hybridize
+### 7.4 Synthesize
 
-**Trigger:** User requests merging components from two or more nodes into a new hybrid node.
+**Trigger:** User requests merging components from two or more nodes into a new synthesized node.
 
 **What the TUI does:**
 1. Collect source node IDs and merge rules (which components from which node)
 2. Read full YAML metadata and proposals for all source nodes
-3. Create operation group: `hybridize_<seq>`
+3. Create operation group: `synthesize_<seq>`
 4. Register a single synthesizer agent
 
-**Hybridize is not section-aware:** the wizard does not present a section-select step, and `register_synthesizer()` does not accept `target_sections`. Hybridization always operates on whole proposals.
+**Synthesize is not section-aware:** the wizard does not present a section-select step, and `register_synthesizer()` does not accept `target_sections`. Synthesis always operates on whole proposals.
 
 **Agents created:**
 - Type: `synthesizer`
@@ -1116,7 +1116,7 @@ The blank initialization path leaves `n000_init.md` as an empty placeholder so t
 **Agent work2do:**
 
 ```markdown
-# Task: Synthesizer — Hybridize <node_list>
+# Task: Synthesizer — Synthesize <node_list>
 
 ## Phase 1: Read Source Nodes
 - Read all source node metadata and proposals from _input.md
@@ -1133,21 +1133,21 @@ The blank initialization path leaves `n000_init.md` as an empty placeholder so t
 - Document all conflict resolutions
 
 ### Checkpoint 2
-- report_alive: "Conflicts resolved — generating hybrid proposal"
+- report_alive: "Conflicts resolved — generating synthesized proposal"
 - update_progress: 40
 - check_commands
 
-## Phase 3: Generate Hybrid Proposal
+## Phase 3: Generate Synthesized Proposal
 - Write the unified proposal following the template
 - Clearly mark which components are inherited from which parent
 - Document new bridging components and updated assumptions
 
 ### Checkpoint 3
-- report_alive: "Hybrid proposal complete — writing metadata"
+- report_alive: "Synthesized proposal complete — writing metadata"
 - update_progress: 70
 - check_commands
 
-## Phase 4: Generate Hybrid Metadata
+## Phase 4: Generate Synthesized Metadata
 - Write the flat YAML node with parents listing all source nodes
 - Ensure all dimensions are correctly populated
 - Mark inherited components with their source node
@@ -1164,19 +1164,19 @@ The blank initialization path leaves `n000_init.md` as an empty placeholder so t
 ## Completion
 - update_status: Completed
 - update_progress: 100
-- report_alive: "Hybridization complete"
+- report_alive: "Synthesis complete"
 ```
 
 **What outputs are produced:**
-- New hybrid node YAML in `br_nodes/`
-- New hybrid proposal Markdown in `br_proposals/`
-- Updated `br_graph_state.yaml` (new node, hybrid node typically becomes new head)
+- New synthesized node YAML in `br_nodes/`
+- New synthesized proposal Markdown in `br_proposals/`
+- Updated `br_graph_state.yaml` (new node, synthesized node typically becomes new head)
 - Updated `br_groups.yaml`
 
 **What the user decides next:**
-- Review the hybrid for correctness
+- Review the synthesized node for correctness
 - Proceed to detail/implement
-- Further refine via exploration or additional hybridization
+- Further refine via exploration or additional synthesis
 
 ### 7.5 Detail
 
@@ -1572,7 +1572,7 @@ You will receive:
 6. Dimension Keys: merged union of dimension keys from all parents, for use in
    section markers
 
-The synthesizer does not accept `target_sections` — hybridization always
+The synthesizer does not accept `target_sections` — synthesis always
 operates on whole proposals.
 
 ## Output
@@ -1601,7 +1601,7 @@ When merging, conflicts are inevitable. Follow this process:
 
 1. **Identify conflicts:** For each component being merged, check if it has
    dependencies on components from a different source node that won't be
-   present in the hybrid.
+   present in the synthesized node.
 
 2. **Resolution strategies (in priority order):**
    a. **Adapter/Bridge:** Introduce a bridging component (e.g., an ORM
@@ -1618,8 +1618,8 @@ When merging, conflicts are inevitable. Follow this process:
 ## Rules
 
 1. Never silently drop a dimension from any source node. If a dimension
-   exists in any parent, it must appear in the hybrid.
-2. For each component in the hybrid, annotate its source in the proposal:
+   exists in any parent, it must appear in the synthesized node.
+2. For each component in the synthesized node, annotate its source in the proposal:
    "(inherited from nXXX)" or "(new: introduced to bridge nXXX and nYYY)."
 3. If you introduce a bridging component, add it as a new component_* field
    and include its tradeoffs.

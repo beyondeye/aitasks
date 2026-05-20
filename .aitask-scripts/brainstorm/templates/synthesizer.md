@@ -48,7 +48,7 @@ When merging, conflicts are inevitable. Follow this process:
 
 1. **Identify conflicts:** For each component being merged, check if it has
    dependencies on components from a different source node that won't be
-   present in the hybrid.
+   present in the synthesized node.
 
 2. **Resolution strategies (in priority order):**
    a. **Adapter/Bridge:** Introduce a bridging component (e.g., an ORM
@@ -65,8 +65,8 @@ When merging, conflicts are inevitable. Follow this process:
 ## Rules
 
 1. Never silently drop a dimension from any source node. If a dimension
-   exists in any parent, it must appear in the hybrid.
-2. For each component in the hybrid, annotate its source in the proposal:
+   exists in any parent, it must appear in the synthesized node.
+2. For each component in the synthesized node, annotate its source in the proposal:
    "(inherited from nXXX)" or "(new: introduced to bridge nXXX and nYYY)."
 3. If you introduce a bridging component, add it as a new component_* field
    and include its tradeoffs.
@@ -127,7 +127,7 @@ When merging, conflicts are inevitable. Follow this process:
 
 ## Phase 4: Write Output
 
-- Generate the hybrid YAML node metadata:
+- Generate the synthesized YAML node metadata:
   - parents listing ALL source nodes
   - All dimension fields per merge rules and conflict resolutions
   - Merged and deduplicated reference_files

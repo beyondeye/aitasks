@@ -11,14 +11,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .brainstorm_dag import NODES_DIR, PLANS_DIR, PROPOSALS_DIR
+from .brainstorm_schemas import canonical_op
 
 _OP_INPUT_SECTION = {
-    "explore":   "Exploration Mandate",
-    "compare":   "Comparison Request",
-    "hybridize": "Merge Rules",
-    "detail":    None,
-    "patch":     "Patch Request",
-    "bootstrap": "Mandate",
+    "explore":    "Exploration Mandate",
+    "compare":    "Comparison Request",
+    "synthesize": "Merge Rules",
+    "hybridize":  "Merge Rules",  # legacy alias (t807)
+    "detail":     None,
+    "patch":      "Patch Request",
+    "bootstrap":  "Mandate",
 }
 
 _VALID_KINDS = {
@@ -90,7 +92,7 @@ def _extract_md_section(text: str, header: str) -> str:
 
 def list_op_inputs(group_info: dict) -> list[OpDataRef]:
     agents = group_info.get("agents") or []
-    op = group_info.get("operation", "")
+    op = canonical_op(group_info.get("operation", ""))
     if not agents:
         return []
     section = _OP_INPUT_SECTION.get(op)

@@ -1,7 +1,7 @@
 """Tests for the brainstorm wizard fuzzy-filter helper (t806).
 
 Pure-logic test for `_filter_labels`, the case-insensitive substring filter
-backing the Hybridize/Compare wizard `FuzzyCheckList` search boxes. End-to-end
+backing the Synthesize/Compare wizard `FuzzyCheckList` search boxes. End-to-end
 TUI behaviour (Pilot/manual) is verified separately during interactive
 testing.
 """

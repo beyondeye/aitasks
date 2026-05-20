@@ -53,7 +53,23 @@ GROUP_REQUIRED = [
     "operation", "agents", "status", "created_at",
     "head_at_creation", "nodes_created",
 ]
-GROUP_OPERATIONS = ["explore", "compare", "hybridize", "detail", "patch"]
+GROUP_OPERATIONS = ["explore", "compare", "synthesize", "detail", "patch"]
+
+# Legacy operation names kept readable for in-flight sessions on disk.
+# t807 renamed the DAG op "hybridize" -> "synthesize" (agent stays
+# "synthesizer"). Old br_groups.yaml entries / created_by_group values
+# still carry "hybridize"; canonical_op() normalizes them at read time.
+_LEGACY_OP_ALIASES = {"hybridize": "synthesize"}
+
+
+def canonical_op(op: str) -> str:
+    """Normalize a persisted operation name to its current canonical form.
+
+    Legacy in-flight brainstorm sessions persist ``operation: hybridize``;
+    this maps it to ``synthesize``. Current / unknown values pass through.
+    """
+    return _LEGACY_OP_ALIASES.get(op, op)
+
 
 # ---------------------------------------------------------------------------
 # Validators

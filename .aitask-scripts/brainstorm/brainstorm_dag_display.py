@@ -29,6 +29,7 @@ from brainstorm.brainstorm_dag import (
     list_nodes,
     read_node,
 )
+from brainstorm.brainstorm_schemas import canonical_op
 from brainstorm.brainstorm_session import GROUPS_FILE, resolve_node_group
 
 # ---------------------------------------------------------------------------
@@ -54,12 +55,13 @@ EDGE_STYLE = Style(color="#6272A4")
 
 # Operation badge colors (Dracula palette).
 OP_BADGE_STYLES = {
-    "explore":   Style(color="#8BE9FD"),  # cyan
-    "compare":   Style(color="#F1FA8C"),  # yellow
-    "hybridize": Style(color="#FF79C6"),  # magenta
-    "detail":    Style(color="#BD93F9"),  # purple
-    "patch":     Style(color="#FF5555"),  # red
-    "bootstrap": Style(color="#6272A4"),  # dim
+    "explore":    Style(color="#8BE9FD"),  # cyan
+    "compare":    Style(color="#F1FA8C"),  # yellow
+    "synthesize": Style(color="#FF79C6"),  # magenta
+    "hybridize":  Style(color="#FF79C6"),  # legacy alias (t807) — magenta
+    "detail":     Style(color="#BD93F9"),  # purple
+    "patch":      Style(color="#FF5555"),  # red
+    "bootstrap":  Style(color="#6272A4"),  # dim
 }
 UNKNOWN_OP_STYLE = Style(color="#6272A4", italic=True)
 
@@ -103,7 +105,9 @@ def _build_graph(
         parent_map[nid] = parents
         node_descs[nid] = data.get("description", "")
         group_name = data.get("created_by_group", "")
-        op = (groups.get(group_name) or {}).get("operation", "") if group_name else ""
+        op = canonical_op(
+            (groups.get(group_name) or {}).get("operation", "")
+        ) if group_name else ""
         node_op_map[nid] = op
         node_has_plan_map[nid] = bool(data.get("plan_file"))
         for p in parents:

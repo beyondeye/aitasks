@@ -25,6 +25,7 @@ from brainstorm.brainstorm_dag import (  # noqa: E402
     PLANS_DIR,
     PROPOSALS_DIR,
 )
+from brainstorm.brainstorm_schemas import canonical_op  # noqa: E402
 
 
 class TestOpDataRefValidation(unittest.TestCase):
@@ -177,11 +178,11 @@ class TestListOpInputs(unittest.TestCase):
 
     def test_section_per_operation(self):
         cases = {
-            "explore":   "Exploration Mandate",
-            "compare":   "Comparison Request",
-            "hybridize": "Merge Rules",
-            "patch":     "Patch Request",
-            "bootstrap": "Mandate",
+            "explore":    "Exploration Mandate",
+            "compare":    "Comparison Request",
+            "synthesize": "Merge Rules",
+            "patch":      "Patch Request",
+            "bootstrap":  "Mandate",
         }
         for op, expected_section in cases.items():
             with self.subTest(op=op):
@@ -189,6 +190,17 @@ class TestListOpInputs(unittest.TestCase):
                 refs = list_op_inputs(info)
                 self.assertEqual(len(refs), 1)
                 self.assertEqual(refs[0].section, expected_section)
+
+    def test_legacy_hybridize_operation_still_resolves(self):
+        # Backward-compat (t807): in-flight sessions persist
+        # operation: hybridize; it must still resolve to the Merge Rules
+        # section, the same as the canonical "synthesize".
+        legacy = list_op_inputs({"operation": "hybridize",
+                                 "agents": ["synthesizer_001"]})
+        current = list_op_inputs({"operation": "synthesize",
+                                  "agents": ["synthesizer_001"]})
+        self.assertEqual(legacy[0].section, "Merge Rules")
+        self.assertEqual(legacy[0].section, current[0].section)
 
     def test_detail_op_has_no_section(self):
         info = {"operation": "detail", "agents": ["a"]}
@@ -264,6 +276,23 @@ class TestListOpDefinition(unittest.TestCase):
 
     def test_missing_fields_returns_empty(self):
         self.assertEqual(list_op_definition({}), [])
+
+
+class TestCanonicalOp(unittest.TestCase):
+    """Backward-compat normalization of legacy operation names (t807)."""
+
+    def test_legacy_hybridize_maps_to_synthesize(self):
+        self.assertEqual(canonical_op("hybridize"), "synthesize")
+
+    def test_canonical_synthesize_passes_through(self):
+        self.assertEqual(canonical_op("synthesize"), "synthesize")
+
+    def test_other_operations_pass_through(self):
+        for op in ("explore", "compare", "detail", "patch", "bootstrap"):
+            self.assertEqual(canonical_op(op), op)
+
+    def test_unknown_value_passes_through(self):
+        self.assertEqual(canonical_op("weird_unknown_op"), "weird_unknown_op")
 
 
 if __name__ == "__main__":
