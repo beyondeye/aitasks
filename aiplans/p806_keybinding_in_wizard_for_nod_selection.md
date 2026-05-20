@@ -267,3 +267,50 @@ Standard cleanup: commit code (`bug:` prefix, `(t806)` suffix) and the plan
 file separately, archive via `./.aitask-scripts/aitask_archive.sh 806`, push.
 No worktree (current-branch workflow). No skill/template changes ⇒ no
 Codex/Gemini/OpenCode port and no `aitask_skill_verify.sh` run needed.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-20 — review)
+- **Requested by user:** Manual TUI testing showed the fuzzy filter *hid*
+  currently-checked rows that did not match the query. The agreed behaviour is
+  that selected items stay visible regardless of the filter.
+- **Changes made:** `FuzzyCheckList.on_input_changed` now sets
+  `cb.display = matched OR cb.value` — a checked row stays visible even when
+  it does not match the filter; only unchecked non-matching rows are hidden.
+  Updated the `FuzzyCheckList` docstring accordingly.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added the `FuzzyCheckList(Container)` widget and the
+  pure `_filter_labels` helper to `brainstorm_app.py`; rewired
+  `_config_hybridize` / `_config_compare` to use it for node/dimension
+  selection; added `Tab`/`Shift+Tab` group cycling (`_cycle_wizard_groups` +
+  `_focus_within`), section-checkbox `↑`/`↓` nav, `_focus_fcl_filter`
+  auto-focus, a hint line, and CSS. Added `tests/test_brainstorm_wizard_filter.py`
+  (7 tests for `_filter_labels`).
+- **Deviations from plan:** Filter visibility rule changed during review —
+  the plan specified `display = matched` (checked-but-unmatched rows hidden,
+  state preserved). Per Change Request 1 it is now `display = matched OR
+  checked`, so the active selection always stays on screen. No other
+  deviations.
+- **Issues encountered:** The Edit tool's JSON transport unescapes `\uXXXX`
+  sequences, so the codebase's `\uXXXX`-escape convention for arrow glyphs
+  could not be authored via the tool; the new hint line uses literal `↑↓`
+  (valid UTF-8 Python source, functionally identical; the file already mixes
+  literal unicode like `●○` with escapes). Not a functional issue.
+- **Key decisions:** Built a local `FuzzyCheckList` widget rather than
+  reusing the settings `FuzzySelect` — `FuzzySelect` is single-list /
+  single-select and would consume the arrow keys. Native `Checkbox` rows keep
+  their caller-supplied CSS class, so existing recursive
+  `query("Checkbox.chk_node" / ".chk_dim")` collection in
+  `_actions_collect_config` / `_refresh_compare_sections` works unchanged.
+  Arrow nav within a list lives in the widget's own `on_key`; `Tab` cycles
+  whole control groups via app-level `_cycle_wizard_groups`.
+- **Upstream defects identified:** None.
+- **Verification:** All 20 brainstorm Python tests pass; the new
+  `test_brainstorm_wizard_filter.py` passes; throwaway Pilot smoke tests (the
+  `FuzzyCheckList` widget, the full wizard driven against a real brainstorm
+  session for both Compare and Hybridize incl. Tab cycling and fuzzy
+  filtering, and the checked-stays-visible rule) all passed; `BrainstormApp`
+  CSS parses and the app starts.
