@@ -3,11 +3,13 @@ priority: low
 effort: medium
 depends: [740]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [brainstorm, refactor]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-19 23:33
-updated_at: 2026-05-19 23:50
+updated_at: 2026-05-20 07:58
+completed_at: 2026-05-20 07:58
 ---
 
 Reconcile the patcher apply path into the shared `_apply_node_output()`
