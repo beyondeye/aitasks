@@ -7,7 +7,7 @@ status: Implementing
 labels: [brainstorm]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-04 16:24
-updated_at: 2026-05-18 19:18
+updated_at: 2026-05-20 11:26
 boardidx: 170
 ---
 
