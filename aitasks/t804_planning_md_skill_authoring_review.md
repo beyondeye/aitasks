@@ -7,6 +7,8 @@ status: Ready
 labels: [review, skill, task-workflow]
 created_at: 2026-05-19 17:22
 updated_at: 2026-05-19 17:22
+boardcol: now
+boardidx: 30
 ---
 
 Address findings from a Skill Authoring Best Practices review of `.claude/skills/task-workflow/planning.md`.

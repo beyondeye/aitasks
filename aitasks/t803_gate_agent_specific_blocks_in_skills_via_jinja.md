@@ -7,6 +7,7 @@ status: Ready
 labels: [aitask_pick]
 created_at: 2026-05-19 16:41
 updated_at: 2026-05-19 16:41
+boardidx: 30
 ---
 
 ## Problem
