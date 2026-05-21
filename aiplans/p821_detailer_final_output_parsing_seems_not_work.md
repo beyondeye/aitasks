@@ -208,3 +208,33 @@ relaunched TUI applies the plan when the agent completes (plan written to
 - Run `/aitask-qa 821` for test-gap analysis after implementation.
 - Step 9: profile 'fast' works on the current branch; commit code + plan
   separately, then `./.aitask-scripts/aitask_archive.sh 821`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned.
+  - `brainstorm_session.py`: added the `_AGENT_FAILED_STATUSES` tuple
+    (`Error`, `Aborted`) and the pure `_agent_apply_scan_should_track`
+    decision helper, placed right after `_agent_to_group_name`.
+  - `brainstorm_app.py`: rewrote all four `_scan_existing_<role>()`
+    functions to read `status`, compute `needs_apply` only when
+    `Completed`, and gate tracking through `_agent_apply_scan_should_track`
+    — so in-flight agents are now seeded into the tracking
+    set/dict. All four `_poll_<role>()` timers now drop terminally-failed
+    (`Error`/`Aborted`) agents before the `status != "Completed"` skip, so
+    a tracked in-flight agent that later fails does not leak an idle timer.
+    Patcher/detailer read the node id from `_input.md` for in-flight agents
+    too (the input read was moved before the `needs_apply` computation).
+    Updated the four scan docstrings.
+  - `tests/test_brainstorm_session.py`: added `AgentApplyScanShouldTrackTests`
+    (3 tests) covering in-flight / completed / failed statuses.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. All five brainstorm test suites pass
+  (78 tests) and `brainstorm.brainstorm_app` imports cleanly.
+- **Key decisions:** For the patcher/detailer scans the `_input.md` parse
+  was moved ahead of the `needs_apply` computation (the plan called for
+  this) so an in-flight agent missing a parseable input is `continue`-d
+  before reaching the decision helper — the tracking dict always has a
+  valid node id.
+- **Upstream defects identified:** None. The "runner stops immediately"
+  symptom is a verified consequence of the same scan bug (the runner
+  monitors agents, all of which were terminal), not a separate defect.
