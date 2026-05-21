@@ -579,6 +579,27 @@ def _agent_to_group_name(agent_name: str) -> str:
     return f"{role_to_group.get(role, role)}_{suffix}"
 
 
+# Agent _status.yaml values that are terminal but yield no applyable
+# output — the TUI auto-apply scan/poll stop watching these agents.
+_AGENT_FAILED_STATUSES = ("Error", "Aborted")
+
+
+def _agent_apply_scan_should_track(status: str, needs_apply: bool) -> bool:
+    """Decide whether ``_scan_existing_<role>`` should track an agent.
+
+    - Error/Aborted → never (no output will ever come).
+    - Completed     → only if its output still needs applying.
+    - Anything else (Waiting/Ready/Running/Paused/empty — still in flight)
+      → yes, so the poll timer is alive to apply on completion.
+      ``needs_apply`` is meaningless mid-run and is ignored.
+    """
+    if status in _AGENT_FAILED_STATUSES:
+        return False
+    if status == "Completed":
+        return needs_apply
+    return True
+
+
 def _patcher_needs_apply(task_num: int | str, agent_name: str) -> bool:
     """Return True iff ``<agent_name>_output.md`` contains all six patcher
     delimiter tokens AND the new node id parsed from the METADATA block

@@ -3856,9 +3856,10 @@ class BrainstormApp(TuiSwitcherMixin, App):
             self._patcher_poll_timer = None
 
     def _scan_existing_patchers(self) -> None:
-        """Scan the worktree for completed patcher agents whose output
-        hasn't been applied yet. Recovers the source_node_id by parsing
-        the agent's _input.md (written by ``_assemble_input_patcher``).
+        """Scan the worktree for patcher agents that are in-flight or
+        completed-but-unapplied, so the poll timer keeps watching them.
+        Recovers the source_node_id by parsing the agent's _input.md
+        (written by ``_assemble_input_patcher``).
 
         Idempotent — safe to call from ``_load_existing_session``.
         """
@@ -3866,7 +3867,10 @@ class BrainstormApp(TuiSwitcherMixin, App):
         if not wt or not Path(wt).is_dir():
             return
         try:
-            from brainstorm.brainstorm_session import _patcher_needs_apply
+            from brainstorm.brainstorm_session import (
+                _agent_apply_scan_should_track,
+                _patcher_needs_apply,
+            )
         except Exception:
             return
         for status_path in sorted(Path(wt).glob("patcher_*_status.yaml")):
@@ -3877,10 +3881,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 data = read_yaml(str(status_path))
             except Exception:
                 continue
-            if (data or {}).get("status") != "Completed":
-                continue
-            if not _patcher_needs_apply(self.task_num, agent):
-                continue
+            status = (data or {}).get("status", "")
             input_path = Path(wt) / f"{agent}_input.md"
             if not input_path.is_file():
                 continue
@@ -3890,6 +3891,12 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 continue
             m = self._PATCHER_INPUT_META_RE.search(input_text)
             if not m:
+                continue
+            needs_apply = (
+                _patcher_needs_apply(self.task_num, agent)
+                if status == "Completed" else False
+            )
+            if not _agent_apply_scan_should_track(status, needs_apply):
                 continue
             self._patcher_sources[agent] = m.group(1)
         self._ensure_patcher_poll_timer()
@@ -3903,7 +3910,10 @@ class BrainstormApp(TuiSwitcherMixin, App):
             self._stop_patcher_poll_timer()
             return
         try:
-            from brainstorm.brainstorm_session import _patcher_needs_apply
+            from brainstorm.brainstorm_session import (
+                _AGENT_FAILED_STATUSES,
+                _patcher_needs_apply,
+            )
         except Exception:
             return
         for agent, source in list(self._patcher_sources.items()):
@@ -3917,6 +3927,9 @@ class BrainstormApp(TuiSwitcherMixin, App):
             except Exception:
                 continue
             status = (data or {}).get("status", "")
+            if status in _AGENT_FAILED_STATUSES:
+                self._patcher_sources.pop(agent, None)
+                continue
             if status != "Completed":
                 continue
             if not _patcher_needs_apply(self.task_num, agent):
@@ -4038,15 +4051,18 @@ class BrainstormApp(TuiSwitcherMixin, App):
             self._explorer_poll_timer = None
 
     def _scan_existing_explorers(self) -> None:
-        """Scan the worktree for completed explorer agents whose output
-        hasn't been applied yet. Idempotent — safe to call from
-        ``_load_existing_session``.
+        """Scan the worktree for explorer agents that are in-flight or
+        completed-but-unapplied, so the poll timer keeps watching them.
+        Idempotent — safe to call from ``_load_existing_session``.
         """
         wt = self.session_path
         if not wt or not Path(wt).is_dir():
             return
         try:
-            from brainstorm.brainstorm_session import _explorer_needs_apply
+            from brainstorm.brainstorm_session import (
+                _agent_apply_scan_should_track,
+                _explorer_needs_apply,
+            )
         except Exception:
             return
         for status_path in sorted(Path(wt).glob("explorer_*_status.yaml")):
@@ -4057,9 +4073,12 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 data = read_yaml(str(status_path))
             except Exception:
                 continue
-            if (data or {}).get("status") != "Completed":
-                continue
-            if not _explorer_needs_apply(self.task_num, agent):
+            status = (data or {}).get("status", "")
+            needs_apply = (
+                _explorer_needs_apply(self.task_num, agent)
+                if status == "Completed" else False
+            )
+            if not _agent_apply_scan_should_track(status, needs_apply):
                 continue
             self._explorer_agents.add(agent)
         self._ensure_explorer_poll_timer()
@@ -4073,7 +4092,10 @@ class BrainstormApp(TuiSwitcherMixin, App):
             self._stop_explorer_poll_timer()
             return
         try:
-            from brainstorm.brainstorm_session import _explorer_needs_apply
+            from brainstorm.brainstorm_session import (
+                _AGENT_FAILED_STATUSES,
+                _explorer_needs_apply,
+            )
         except Exception:
             return
         for agent in list(self._explorer_agents):
@@ -4087,6 +4109,9 @@ class BrainstormApp(TuiSwitcherMixin, App):
             except Exception:
                 continue
             status = (data or {}).get("status", "")
+            if status in _AGENT_FAILED_STATUSES:
+                self._explorer_agents.discard(agent)
+                continue
             if status != "Completed":
                 continue
             if not _explorer_needs_apply(self.task_num, agent):
@@ -4177,15 +4202,18 @@ class BrainstormApp(TuiSwitcherMixin, App):
             self._synthesizer_poll_timer = None
 
     def _scan_existing_synthesizers(self) -> None:
-        """Scan the worktree for completed synthesizer agents whose output
-        hasn't been applied yet. Idempotent — safe to call from
-        ``_load_existing_session``.
+        """Scan the worktree for synthesizer agents that are in-flight or
+        completed-but-unapplied, so the poll timer keeps watching them.
+        Idempotent — safe to call from ``_load_existing_session``.
         """
         wt = self.session_path
         if not wt or not Path(wt).is_dir():
             return
         try:
-            from brainstorm.brainstorm_session import _synthesizer_needs_apply
+            from brainstorm.brainstorm_session import (
+                _agent_apply_scan_should_track,
+                _synthesizer_needs_apply,
+            )
         except Exception:
             return
         for status_path in sorted(Path(wt).glob("synthesizer_*_status.yaml")):
@@ -4196,9 +4224,12 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 data = read_yaml(str(status_path))
             except Exception:
                 continue
-            if (data or {}).get("status") != "Completed":
-                continue
-            if not _synthesizer_needs_apply(self.task_num, agent):
+            status = (data or {}).get("status", "")
+            needs_apply = (
+                _synthesizer_needs_apply(self.task_num, agent)
+                if status == "Completed" else False
+            )
+            if not _agent_apply_scan_should_track(status, needs_apply):
                 continue
             self._synthesizer_agents.add(agent)
         self._ensure_synthesizer_poll_timer()
@@ -4212,7 +4243,10 @@ class BrainstormApp(TuiSwitcherMixin, App):
             self._stop_synthesizer_poll_timer()
             return
         try:
-            from brainstorm.brainstorm_session import _synthesizer_needs_apply
+            from brainstorm.brainstorm_session import (
+                _AGENT_FAILED_STATUSES,
+                _synthesizer_needs_apply,
+            )
         except Exception:
             return
         for agent in list(self._synthesizer_agents):
@@ -4226,6 +4260,9 @@ class BrainstormApp(TuiSwitcherMixin, App):
             except Exception:
                 continue
             status = (data or {}).get("status", "")
+            if status in _AGENT_FAILED_STATUSES:
+                self._synthesizer_agents.discard(agent)
+                continue
             if status != "Completed":
                 continue
             if not _synthesizer_needs_apply(self.task_num, agent):
@@ -4324,9 +4361,10 @@ class BrainstormApp(TuiSwitcherMixin, App):
             self._detailer_poll_timer = None
 
     def _scan_existing_detailers(self) -> None:
-        """Scan the worktree for completed detailer agents whose output
-        hasn't been applied yet. Recovers the target_node_id by parsing the
-        agent's _input.md (the ``## Target Node`` Metadata line written by
+        """Scan the worktree for detailer agents that are in-flight or
+        completed-but-unapplied, so the poll timer keeps watching them.
+        Recovers the target_node_id by parsing the agent's _input.md (the
+        ``## Target Node`` Metadata line written by
         ``_assemble_input_detailer``).
 
         Idempotent — safe to call from ``_load_existing_session``.
@@ -4335,7 +4373,10 @@ class BrainstormApp(TuiSwitcherMixin, App):
         if not wt or not Path(wt).is_dir():
             return
         try:
-            from brainstorm.brainstorm_session import _detailer_needs_apply
+            from brainstorm.brainstorm_session import (
+                _agent_apply_scan_should_track,
+                _detailer_needs_apply,
+            )
         except Exception:
             return
         for status_path in sorted(Path(wt).glob("detailer_*_status.yaml")):
@@ -4346,8 +4387,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
                 data = read_yaml(str(status_path))
             except Exception:
                 continue
-            if (data or {}).get("status") != "Completed":
-                continue
+            status = (data or {}).get("status", "")
             input_path = Path(wt) / f"{agent}_input.md"
             if not input_path.is_file():
                 continue
@@ -4359,7 +4399,11 @@ class BrainstormApp(TuiSwitcherMixin, App):
             if not m:
                 continue
             target_node_id = m.group(1)
-            if not _detailer_needs_apply(self.task_num, agent, target_node_id):
+            needs_apply = (
+                _detailer_needs_apply(self.task_num, agent, target_node_id)
+                if status == "Completed" else False
+            )
+            if not _agent_apply_scan_should_track(status, needs_apply):
                 continue
             self._detailer_targets[agent] = target_node_id
         self._ensure_detailer_poll_timer()
@@ -4373,7 +4417,10 @@ class BrainstormApp(TuiSwitcherMixin, App):
             self._stop_detailer_poll_timer()
             return
         try:
-            from brainstorm.brainstorm_session import _detailer_needs_apply
+            from brainstorm.brainstorm_session import (
+                _AGENT_FAILED_STATUSES,
+                _detailer_needs_apply,
+            )
         except Exception:
             return
         for agent, target in list(self._detailer_targets.items()):
@@ -4387,6 +4434,9 @@ class BrainstormApp(TuiSwitcherMixin, App):
             except Exception:
                 continue
             status = (data or {}).get("status", "")
+            if status in _AGENT_FAILED_STATUSES:
+                self._detailer_targets.pop(agent, None)
+                continue
             if status != "Completed":
                 continue
             if not _detailer_needs_apply(self.task_num, agent, target):

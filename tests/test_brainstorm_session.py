@@ -28,6 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
 
 from brainstorm.brainstorm_session import (  # noqa: E402
+    _agent_apply_scan_should_track,
     apply_initializer_output,
     n000_needs_apply,
 )
@@ -219,6 +220,39 @@ class ApplyInitializerDefaultsTests(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             self._run_apply(lines)
         self.assertIn("description", str(ctx.exception))
+
+
+class AgentApplyScanShouldTrackTests(unittest.TestCase):
+    """The TUI auto-apply scan decision helper.
+
+    Regression coverage for t821: a fresh TUI loaded while an agent is
+    still ``Running`` must keep tracking it so the poll timer applies its
+    output on completion.
+    """
+
+    IN_FLIGHT_STATUSES = ("Waiting", "Ready", "Running", "Paused", "")
+
+    def test_in_flight_always_tracked(self):
+        # In-flight agents are tracked regardless of ``needs_apply`` —
+        # ``needs_apply`` is meaningless before the agent completes.
+        for status in self.IN_FLIGHT_STATUSES:
+            for needs_apply in (True, False):
+                with self.subTest(status=status, needs_apply=needs_apply):
+                    self.assertTrue(
+                        _agent_apply_scan_should_track(status, needs_apply)
+                    )
+
+    def test_completed_tracked_only_if_needs_apply(self):
+        self.assertTrue(_agent_apply_scan_should_track("Completed", True))
+        self.assertFalse(_agent_apply_scan_should_track("Completed", False))
+
+    def test_failed_statuses_never_tracked(self):
+        for status in ("Error", "Aborted"):
+            for needs_apply in (True, False):
+                with self.subTest(status=status, needs_apply=needs_apply):
+                    self.assertFalse(
+                        _agent_apply_scan_should_track(status, needs_apply)
+                    )
 
 
 if __name__ == "__main__":
