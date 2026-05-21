@@ -3,11 +3,10 @@ priority: medium
 effort: medium
 depends: [t777_15]
 issue_type: refactor
-status: Implementing
+status: Ready
 labels: [aitask_pick]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-17 12:01
-updated_at: 2026-05-20 16:38
+updated_at: 2026-05-21 16:45
 ---
 
 ## Context
