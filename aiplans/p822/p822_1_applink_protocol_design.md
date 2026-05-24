@@ -72,3 +72,18 @@ Author two markdown files under a new `aidocs/applink/` subdirectory (matches th
 - Implementation of the protocol (will be a follow-up task created after t822_2)
 - Mobile-side bindings (lives in `../aitasks_mobile`, user mirrors task manually)
 - Cryptographic primitive details (mention TLS + bearer at high level; cite "Detailed crypto review deferred")
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `aidocs/applink/protocol.md` (Overview, Transport choice with decision matrix, Message envelope with kind/error tables, Pairing flow as 8-step sequence, Connection state machine with transitions table, Versioning rules, Out of scope) and `aidocs/applink/permissions.md` (Overview, three default profiles with capability table, full verb gating table seeded from `tmux_monitor.py:585-720` + `monitor_app.py:1489`, Storage and selection with YAML schema, 5-step extension checklist for new profiles). Added an 11-line `## Mobile Companion` section to `CLAUDE.md` pointing at the new subdir.
+- **Deviations from plan:** None. The plan's "verified verb source-of-truth range" note (585-720 plus the `cycle_compare_mode` lookup) was applied directly when authoring the verb gating table — `cycle_compare_mode` ended up cited at `monitor_app.py:1489` (the action handler) which calls `tmux_monitor.py:480` (the underlying method).
+- **Issues encountered:** None during implementation. Verify mode caught the verb-range drift (plan cited 585-675, actual is 585-720) before any docs were written.
+- **Key decisions:**
+  - Cited `cycle_compare_mode` via its `monitor_app.py:1489` action handler rather than the underlying `tmux_monitor.py:480` method, because the action handler is what mobile-issued verbs will eventually replace.
+  - Left `forward_key` out of the v1 verb gating table with an explicit forward-pointer note — t822_3 will fold the `_TEXTUAL_TO_TMUX` map into the canonical verb when it produces the full inventory.
+  - Used `wss://` (TLS over WebSocket) and TLS-cert-fingerprint pinning in the QR as the v1 security baseline; full crypto review is explicitly deferred (matches plan's "Out of scope" line).
+- **Upstream defects identified:** None. Diagnosis did not surface any pre-existing bugs in `monitor/` or elsewhere — the cited code paths are all healthy.
+- **Notes for sibling tasks:**
+  - **t822_2 (TUI + QR + pairing token):** `protocol.md §Pairing flow` is the canonical source for the QR URI shape (`applink://<lan-ip>:<port>/pair?t=<base64url(T)>&fp=<fp>`) and the `pair` request/response payloads. Implement `pairing.py` directly against that section; no further questions needed.
+  - **t822_3 (monitor port design):** The verb gating table in `permissions.md` is **seed only**. Replace it with the canonical inventory once you've audited `monitor_app.py:1262-1799` and `tmux_monitor.py:585-720` for any verbs missed in the t822 Explore. Also: fold the `_TEXTUAL_TO_TMUX` map into a single `forward_key` verb — the current table reflects that decision is yours to make, and `permissions.md` already explains it under the "Notes" subsection.
+  - **Both siblings:** `aidocs/applink/` is now an established subdirectory; add `monitor_port_design.md` there (t822_3) and the new `pairing.py` reference docs there (t822_2 if needed). The cross-reference links between protocol.md, permissions.md, and monitor_port_design.md already exist as forward refs — no extra wiring needed when t822_3 lands.
