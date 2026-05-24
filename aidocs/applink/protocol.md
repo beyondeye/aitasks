@@ -143,6 +143,46 @@ The `v` field is the protocol major version.
 - **Client picks the highest mutually-supported version** for subsequent frames. v1 clients ignore unknown `payload` keys in v1 responses.
 - **Cross-network transports** (relay, WebRTC) plug in without a version bump — they share the same envelope and verb namespace; only the connect URI scheme differs.
 
+## Roadmap to cross-network
+
+v1 is LAN-only, but the design is deliberately staged so each subsequent phase reuses the parts that took the most thought (envelope, pairing, verbs, permissions) and only swaps the connectivity layer. The four phases:
+
+| Phase | Connectivity | Who hosts | New protocol work |
+|-------|--------------|-----------|-------------------|
+| **1. LAN WebSocket** (v1, this document) | Same Wi-Fi only | Nobody (PC is server) | Full envelope, pairing, state machine, permissions |
+| **2. Tunnel escape hatch** | Anywhere reachable by user-owned tunnel (`ssh -L`, `cloudflared`, Tailscale, ZeroTier) | User | **None.** The phone connects to a tunnel endpoint exactly as if it were a LAN host. Documented as a `how-to`, not a protocol change. |
+| **3. First-party relay** | Anywhere with internet | Hosted broker (we ship a self-hostable reference impl) | QR scheme + outbound-socket model; relay-broker pinning replaces direct cert pinning |
+| **4. P2P via signaling** (optional) | Anywhere NAT allows | Relay used as signaling only; frames flow P2P over WebRTC datagrams | Same envelope wrapped in WebRTC data channels; ICE/STUN/TURN config |
+
+### What carries forward unchanged
+
+These are designed to be transport-independent in v1 and remain identical across all four phases:
+
+- `## Message envelope` — same JSON shape; same `kind`/`verb`/`auth`/`id` semantics.
+- `## Pairing flow` — token T + bearer model. The QR payload contents change between phases (see below), but the *flow* (server issues T, mobile redeems T for a bearer, subsequent frames carry the bearer) does not.
+- `## Connection state machine` — `Discovering → Pairing → Connected → Suspended → Disconnected` transitions are transport-agnostic. `Suspended → Connected` reconnect logic generalizes to relay reconnects and WebRTC ICE-restart.
+- `## Versioning` — the `v` field already covers additive cross-network changes without a version bump (see "Cross-network transports plug in without a version bump" in §Versioning).
+- All command verbs and permission profiles (see [permissions.md](permissions.md)) — gating is on the verb, not the transport.
+
+### What changes per phase
+
+| Concern | Phase 1 (LAN) | Phase 2 (tunnel) | Phase 3 (relay) | Phase 4 (WebRTC) |
+|---------|---------------|------------------|-----------------|------------------|
+| QR URI scheme | `applink://<lan-ip>:<port>/pair?t=...&fp=...` | Same scheme; `<lan-ip>:<port>` is a tunnel endpoint | `applink://<broker-host>/r/<session-id>?t=...` | Phase 3 URI + an `ice=` parameter listing STUN/TURN endpoints |
+| Server-side socket | Inbound (PC listens) | Inbound via tunnel | **Outbound** (PC dials broker) | Outbound to broker for signaling; P2P thereafter |
+| TLS trust | Self-signed cert + fingerprint pinning | Inherits tunnel's trust model (often user's CA / Tailscale identity) | Broker uses a real CA cert; **end-to-end key exchange** added on top (broker is not trusted with frame contents) | Same as Phase 3 for signaling; DTLS-SRTP for the data channel |
+| Discovery | LAN IP detected by server | User-typed or copy-pasted from tunnel UI | Broker assigns session ID at QR-generation time | Phase 3 mechanism |
+| Failure modes | Wi-Fi drops | Tunnel daemon down | Broker unreachable / banned IP | ICE failure (fall back to relayed mode through TURN) |
+
+### Why ship Phase 1 first
+
+- **Zero infra to validate the design.** Envelope, pairing, verb gating, permission profiles, and state-machine transitions can all be exercised end-to-end before we commit to operating a broker.
+- **Permanent offline fallback.** Even after Phase 3 ships, Phase 1 remains useful when the broker is down, the user is on an air-gapped network, or corporate firewalls block egress to our broker host.
+- **Tunnel users get cross-network for free** in Phase 2 — many devs already run Tailscale / `cloudflared` and need no further work from us.
+- **Phase 3 design is unblocked but not started.** The relay is the larger investment (hosting, abuse mitigation, ToS, end-to-end key exchange spec) and can begin once Phase 1 has shaken out the verb/gating decisions.
+
+The relay design itself (broker dial protocol, session-ID issuance, end-to-end key exchange replacing direct fingerprint pinning, broker pricing/hosting) is **deferred to a future design task** — to be created after the Phase 1 implementation has landed and we have real usage to inform the broker contract.
+
 ## Out of scope (this document)
 
 - Cryptographic primitive review — TLS suite selection, cert rotation, bearer-token entropy audit are deferred to a follow-up security task.
