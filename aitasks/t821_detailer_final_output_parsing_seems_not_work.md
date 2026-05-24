@@ -8,7 +8,7 @@ labels: [ait_brainstorm, brainstorm_detailer]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-20 12:58
-updated_at: 2026-05-20 15:55
+updated_at: 2026-05-24 15:13
 boardidx: 90
 ---
 
