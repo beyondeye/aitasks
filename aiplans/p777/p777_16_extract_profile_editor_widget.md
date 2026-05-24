@@ -161,6 +161,52 @@ line 847+ — those keep working via the re-import.
 See **Step 9 (Post-Implementation)** of the task workflow for cleanup,
 archival, and merge.
 
+## Final Implementation Notes
+
+- **Actual work done:** Created `.aitask-scripts/lib/profile_editor.py` (~580
+  lines) holding the four constants (`_UNSET`, `PROFILE_SCHEMA`,
+  `PROFILE_FIELD_INFO`, `PROFILE_FIELD_GROUPS`), the two widgets
+  (`CycleField`, `ConfigRow`), the `EditStringScreen` modal, the two new
+  shared helpers (`compose_profile_fields()`, `collect_profile_values()`),
+  and the new `ProfileEditScreen(ModalScreen)` API for the t777_17 consumer.
+  In `settings_app.py`, the seven moved symbols are deleted (-510 net
+  lines), re-imported from `profile_editor`, the `_populate_profiles_tab()`
+  field-rendering loop now delegates to `compose_profile_fields(data,
+  id_prefix=f"{safe_fn}_{rc}", expanded_field=self._expanded_field)`, and
+  `_save_profile()` collapses to a single `collect_profile_values()` call
+  plus `self.notify(...)` for each returned error.
+- **Deviations from plan:** (a) The plan listed `ProfileEditScreen` in the
+  settings_app re-import block; I dropped it since settings_app never
+  references it — t777_17 will import it directly from `profile_editor`.
+  Similarly trimmed `PROFILE_FIELD_GROUPS` and `_UNSET` from the import
+  because they are no longer referenced in settings_app once the inline
+  loop and `_save_profile` are replaced by helper calls.
+  (b) Plan line numbers shifted slightly during verification:
+  `_populate_profiles_tab` extended to 2878 (was 2872) and `_save_profile`
+  started at 2953 (plan said 2958). Corrected in §Step Order before
+  implementation. Helpers landed at the planned addresses.
+- **Issues encountered:** None blocking. The first attempt to delete
+  `PROFILE_FIELD_INFO` via `Edit` produced an awkward renamed placeholder;
+  recovered with a short `python3` slice to drop lines 145-356 cleanly. No
+  behavior touched.
+- **Key decisions:** Kept `ConfigRow.config_layer` and `subordinate`
+  parameters in the moved class verbatim — they are not used by the modal
+  but remain required by the board/project/tmux/export call sites that
+  reimport `ConfigRow` from `profile_editor`. The new `ProfileEditScreen`
+  hard-codes `id_prefix="modal"` because there is only ever one such modal
+  on the stack at a time; if multiple per-run modals are ever needed they
+  can pass an explicit prefix.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** Detailed notes for **t777_17** follow below
+  in the existing "Notes for sibling tasks (t777_17)" section. Other
+  observations useful for downstream siblings: the shared renderer treats
+  `config_layer="project"` as a fixed default since per-run editing has no
+  user/project distinction — the badge color is therefore always green in
+  the new modal. If t777_20 (profile-modification invalidation) needs to
+  diff a "before" vs "after" dict, `collect_profile_values(query_one,
+  base_data, id_prefix=...)` already returns a fresh dict it can compare
+  against `base_data`.
+
 ## Notes for sibling tasks (t777_17)
 
 - Import the modal as `from profile_editor import ProfileEditScreen`.
