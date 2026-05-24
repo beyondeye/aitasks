@@ -6,6 +6,8 @@ Archived Sibling Plans: aiplans/archived/p822/p822_*_*.md
 Worktree: (current branch — profile fast)
 Branch: (current branch — profile fast)
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-05-24 09:46
 ---
 
 # Plan: t822_1 — applink protocol & permissions design (aidocs only)
@@ -13,6 +15,10 @@ Base branch: main
 ## Context
 
 First of three children under parent t822 introducing `ait applink`. This child unblocks the other two by locking the wire-protocol contract and the permission-profile vocabulary. Docs-only PR — no Python, no shell, no website changes.
+
+## Verification status
+
+Re-verified 2026-05-24 under profile `fast` (`plan_preference_child: verify`, `DECISION:VERIFY`). All load-bearing assumptions confirmed sound; one minor drift noted below.
 
 ## Approach
 
@@ -39,7 +45,7 @@ Author two markdown files under a new `aidocs/applink/` subdirectory (matches th
      - `read_only` — snapshots only, no command verbs
      - `monitor_control` — snapshots + `send_keys`, `send_enter`, `switch_to_pane`, `cycle_compare_mode`
      - `full` — all of the above plus `kill_pane`, `kill_window`, `spawn_tui`
-   - `## Verb gating table` — rows = the 7 verbs identified in t822 parent Explore (cite `.aitask-scripts/monitor/tmux_monitor.py:585-675`), columns = the 3 profiles, cells = ✓/✗. (t822_3 will produce the canonical version with snapshot/modal verbs added; this doc seeds it.)
+   - `## Verb gating table` — rows = the 7 verbs identified in the t822 Explore. **Verified source-of-truth range: `.aitask-scripts/monitor/tmux_monitor.py:585-720` (the original plan cited 585-675, but `spawn_tui` is actually at line 718). `cycle_compare_mode` lives elsewhere — grep before embedding.** Columns = the 3 profiles; cells = ✓/✗. (t822_3 will produce the canonical version with snapshot/modal verbs added; this doc seeds it.)
    - `## Storage and selection` — store profiles under `aitasks/metadata/applink_profiles/<name>.yaml` (gitignored if they hold device-specific data; document the decision); at pairing time the user picks a profile from the TUI before showing the QR.
    - `## Adding a new profile` — extension checklist (style match `aidocs/gitremoteproviderintegration.md` "Extension Checklist").
 3. **`CLAUDE.md`** — add a short section `## Mobile Companion` with one paragraph and a pointer to `aidocs/applink/`. Place it near other "Project-Specific Notes" or as its own top-level section near the end.
@@ -49,7 +55,7 @@ Author two markdown files under a new `aidocs/applink/` subdirectory (matches th
 - `aidocs/gitremoteproviderintegration.md` — style template
 - `aidocs/brainstorming/` — multi-doc subdir example
 - `aidocs/tui_conventions.md` — top-of-doc tone reference
-- `.aitask-scripts/monitor/tmux_monitor.py:585-675` — verb list source of truth
+- `.aitask-scripts/monitor/tmux_monitor.py:585-720` — verb list source of truth (corrected range)
 - `.aitask-scripts/monitor/monitor_app.py:84-111` — Textual → tmux key map (informs `forward_key` verb design)
 
 ## Verification
