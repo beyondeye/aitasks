@@ -3,11 +3,13 @@ priority: medium
 effort: high
 depends: [t777_13, t777_7, t777_22, t777_26]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [aitask_pick]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-17 12:01
-updated_at: 2026-05-24 15:05
+updated_at: 2026-05-24 18:13
+completed_at: 2026-05-24 18:13
 ---
 
 ## Context
