@@ -489,3 +489,25 @@ Standard child-task archival. Profile `fast` → no worktree (work on current br
 - Push via `./ait git push`.
 
 The 4 stubs cover all 4 agents in this same task — no separate Codex/Gemini/OpenCode follow-up tasks needed.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implementation followed the approved plan verbatim. Authored `.claude/skills/aitask-pickrem/SKILL.md.j2` (462-line render under remote.yaml, down from 507-line source), replaced 4 stub files (Claude/Codex/Gemini/OpenCode) with the conditional-Read pattern, added `aitask-pickrem)` resolver-key entry and committed-variant existence check to `aitask_skill_verify.sh`, hooked `_maybe_rerender_pickrem` into the settings TUI's `_save_profile`, narrowed the `.gitignore` un-ignore to `aitask-pickrem-remote-/` + `task-workflow-remote-/` per agent root, generated the single remote-profile golden, and rendered the closure for 4 agents × remote profile (96 committed files total: 4 pickrem SKILL.md + 88 transitive task-workflow-remote- procs).
+- **Deviations from plan:** None of material substance. Minor scope adjustments during implementation:
+  - The `.gitignore` un-ignore landed at directory-level (`!<root>/task-workflow-remote-/`) rather than per-file enumeration, because the dep-walker emits 22 transitive procs per agent root for pickrem's closure and per-file un-ignores would balloon the .gitignore. Directory-level un-ignore is also cleaner for the t777_29 generalization (one un-ignore per `(skill, profile)` × agent root rather than per-file).
+  - Plan said "pickrem references three task-workflow procs" but the dep-walker pulls in 22 procs transitively (planning.md alone references task-creation-batch.md, contributor-attribution.md, etc.). Committed the full closure.
+- **Issues encountered:** None blocking.
+  - First smoke render showed 6 `AskUserQuestion` mentions in the rendered output — investigation confirmed all 6 are descriptive prose ("no AskUserQuestion calls", "AskUserQuestion does not work"), not invocations. Test 7 was written to grep for the invocation marker `Use \`AskUserQuestion\`` instead of the bare token.
+  - The first `aitask_plan_externalize.sh` call returned `MULTIPLE_CANDIDATES` because an older internal plan file existed alongside the new one — passed `--internal <path>` explicitly to disambiguate.
+- **Key decisions:**
+  - Used `{% if profile.<key> is defined and ... %}` guards consistently (matches `aitask-pick/SKILL.md.j2:24` precedent). This is what allows `aitask_skill_verify.sh` to render pickrem under `default.yaml` without strict-undefined errors despite `default.yaml` defining only `name` and `description`.
+  - Inlined `{{ profile.abort_revert_status | default("Ready") }}` for the single-string `abort_revert_status` interpolation rather than wrapping it in `{% if/else %}` — minijinja 2.x supports `default()` (used elsewhere in the codebase).
+  - Dropped the `post_plan_action` and `review_action` "Read … from profile" prose entirely since those keys have a single supported value each. No wrap needed.
+  - The conditional-Read stub pattern (`If <committed path> exists, skip render; else render`) is a strict superset of the canonical §3b body — it preserves `aitask_skill_render.sh aitask-pickrem` and `--agent <literal>` substrings in the "Otherwise run" branch, so the existing verify-script grep markers all match without special-casing.
+  - Settings TUI hook attached to the App-level `_save_profile` method (line 2502) rather than `ConfigManager.save_profile` (line 447) because the App method has access to `self.notify` for user-facing toasts.
+- **Test results:** `bash tests/test_skill_render_aitask_pickrem.sh` → 72/72 pass. `./.aitask-scripts/aitask_skill_verify.sh` → OK (8 templates × 4 agents verified, plus the pickrem-specific committed-variant existence check). Sibling regression `bash tests/test_skill_render_aitask_revert.sh` → 122/122 pass.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t777_15 (`aitask-pickweb`)** can follow this same conditional-Read + committed-remote-variant pattern with three additional considerations: (a) pickweb has stricter sandboxing (no cross-branch ops, stores state in `.aitask-data-updated/`), so its closure may diverge from pickrem's task-workflow refs; (b) the same `.gitignore` un-ignore block can be extended with `aitask-pickweb-remote-/` lines; (c) the same `_maybe_rerender_pickrem` settings hook should be generalized to iterate over a list of headless skills (already TODO-marked for t777_29).
+  - **t777_29 (Follow-up: headless marker generalization)** is fully designed in the plan body's "Follow-up Task Design" section. Four `TODO(t777_29):` markers planted at: `aitask_skill_verify.sh` (resolver-key entry + committed-variant block), `.gitignore` (entire un-ignore block), `settings_app.py` (`_maybe_rerender_pickrem` body). Generalization should land after t777_15 ships (two consumers is the trigger).
+
