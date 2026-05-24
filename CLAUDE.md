@@ -294,3 +294,14 @@ the existing helper (add a flag) over forking the scan logic.
   children are created; single-task follow-ups are offered at Step 8c after
   "Commit changes". See `website/content/docs/workflows/manual-verification.md`
   for the end-to-end workflow.
+
+## Mobile Companion
+
+`ait applink` is the TUI that bridges a local `ait` workspace to a mobile
+companion app (developed in the sibling repo `../aitasks_mobile`, Kotlin
+Multiplatform) over a paired, QR-bootstrapped LAN WebSocket. The wire
+protocol, pairing flow, connection state machine, and permission profiles
+are documented under `aidocs/applink/` — see
+`aidocs/applink/protocol.md` and `aidocs/applink/permissions.md`. The
+canonical command-verb inventory and `ait monitor` port design live in
+`aidocs/applink/monitor_port_design.md` (authored separately).
