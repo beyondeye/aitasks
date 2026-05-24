@@ -3,25 +3,25 @@ name: aitask-pickrem
 description: Pick and implement a task in remote/non-interactive mode. All decisions from execution profile - no AskUserQuestion calls.
 ---
 
-## Prerequisites
+This is a profile-aware skill stub. Pre-rendered variants for headless
+profiles (currently `remote`) are committed to the repo so the skill works in
+environments where the rendering toolchain (minijinja) is unavailable —
+e.g., Claude Code Web. Other profiles render on demand. Execute these steps
+in order, then stop:
 
-**If you are Codex CLI:** Read **`.agents/skills/codex_interactive_prereqs.md`** BEFORE proceeding.
+1. **Resolve active profile.** Parse ARGUMENTS for `--profile <name>`. If
+   found, use that as `<profile>` and remove the `--profile <name>` pair
+   from ARGUMENTS. Otherwise run:
+   `./.aitask-scripts/aitask_skill_resolve_profile.sh pickrem`
+   and use the single-line stdout as `<profile>`.
 
-**If you are Gemini CLI:** Read **`.agents/skills/geminicli_planmode_prereqs.md`** BEFORE proceeding.
+2. **Render only if needed.** If the committed pre-rendered file at
+   `.agents/skills/aitask-pickrem-<profile>-/SKILL.md` already exists, skip
+   this step. Otherwise run:
+   `./.aitask-scripts/aitask_skill_render.sh aitask-pickrem --profile <profile> --agent codex`
+   (requires `ait setup` to have installed minijinja).
 
-## Source of Truth
-
-This is a unified skill wrapper for Codex CLI and Gemini CLI. The authoritative skill definition is:
-
-**`.claude/skills/aitask-pickrem/SKILL.md`**
-
-Read that file and follow its complete workflow.
-
-**If you are Codex CLI:** For tool mapping and adaptations, read **`.agents/skills/codex_tool_mapping.md`**.
-
-**If you are Gemini CLI:** For tool mapping and adaptations, read **`.agents/skills/geminicli_tool_mapping.md`**.
-
-## Arguments
-
-Required task ID: `16` (parent) or `16_2` (child). Fully autonomous, no interactive prompts.
-Optional `--profile <name>` to override execution profile auto-selection. Example: `/aitask-pickrem 16 --profile remote`.
+3. **Dispatch via Read-and-follow.** Read the file at
+   `.agents/skills/aitask-pickrem-<profile>-/SKILL.md` and execute its
+   instructions as if they were this skill, forwarding the (possibly
+   stripped) ARGUMENTS unchanged.

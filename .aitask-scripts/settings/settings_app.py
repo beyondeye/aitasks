@@ -2501,6 +2501,60 @@ class SettingsApp(TuiSwitcherMixin, App):
         layer = self.config_mgr.profile_layers.get(filename, "project")
         self.config_mgr.save_profile(filename, data, layer=layer)
         self.notify(f"Profile '{filename}' saved")
+        self._maybe_rerender_pickrem(filename)
+
+    def _maybe_rerender_pickrem(self, filename: str) -> None:
+        """Auto-render aitask-pickrem when a headless profile is saved.
+
+        TODO(t777_29): generalize — read `headless: true` flag from profile YAML
+        and `prerender_for_headless` marker from each skill's j2 frontmatter.
+        Currently hardcoded to `remote.yaml` × `aitask-pickrem`.
+        """
+        if filename != "remote.yaml":
+            return
+        template_path = Path(".claude/skills/aitask-pickrem/SKILL.md.j2")
+        if not template_path.exists():
+            return
+        rendered_paths: list[str] = []
+        for agent in ("claude", "codex", "gemini", "opencode"):
+            proc = subprocess.run(
+                [
+                    "./.aitask-scripts/aitask_skill_render.sh",
+                    "aitask-pickrem", "--profile", "remote",
+                    "--agent", agent, "--force",
+                ],
+                capture_output=True, text=True,
+            )
+            if proc.returncode != 0:
+                self.notify(
+                    f"Auto-rerender of aitask-pickrem failed for agent={agent}: "
+                    f"{(proc.stderr or proc.stdout).strip()[:200]}",
+                    severity="warning", timeout=8,
+                )
+                return
+            rendered_paths.extend(self._pickrem_rendered_paths(agent))
+        if rendered_paths:
+            subprocess.run(
+                ["git", "add", "--", *rendered_paths],
+                capture_output=True, text=True,
+            )
+            self.notify(
+                f"Re-rendered aitask-pickrem (remote × 4 agents) and "
+                f"staged {len(rendered_paths)} file(s).",
+                severity="information", timeout=5,
+            )
+
+    def _pickrem_rendered_paths(self, agent: str) -> list[str]:
+        root_map = {
+            "claude":   ".claude/skills",
+            "codex":    ".agents/skills",
+            "gemini":   ".gemini/skills",
+            "opencode": ".opencode/skills",
+        }
+        root = Path(root_map[agent]) / "aitask-pickrem-remote-"
+        if not root.exists():
+            return []
+        return [str(p) for p in root.rglob("*.md")]
 
     def _handle_save_profile(self, result: str | None, filename: str):
         if result is None:

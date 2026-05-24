@@ -75,6 +75,7 @@ _resolver_key_for() {
         aitask-review)            echo "review" ;;
         aitask-pr-import)         echo "pr-import" ;;
         aitask-revert)            echo "revert" ;;
+        aitask-pickrem)           echo "pickrem" ;;  # TODO(t777_29): generalize via prerender marker
         *)                        echo "$skill" ;;  # fallback: identity
     esac
 }
@@ -138,6 +139,27 @@ for tpl in "${templates[@]}"; do
             failures=$((failures + 1))
         fi
     done
+
+    # --- Headless prerender check (pickrem only for now) ---
+    # TODO(t777_29): generalize — read `prerender_for_headless` marker from j2
+    # frontmatter and the `headless: true` flag from profile YAML; this hardcode
+    # exists only until the marker mechanism lands.
+    if [[ "$skill" == "aitask-pickrem" ]]; then
+        for agent in "${agents[@]}"; do
+            case "$agent" in
+                claude)   root=".claude/skills" ;;
+                codex)    root=".agents/skills" ;;
+                gemini)   root=".gemini/skills" ;;
+                opencode) root=".opencode/skills" ;;
+            esac
+            committed="$root/$skill-remote-/SKILL.md"
+            if [[ ! -f "$committed" ]]; then
+                printf 'PRERENDER_FAIL: %s: missing committed remote variant (run aitask_skill_render.sh aitask-pickrem --profile remote --agent %s and commit)\n' \
+                    "$committed" "$agent" >&2
+                failures=$((failures + 1))
+            fi
+        done
+    fi
 done
 
 if (( failures > 0 )); then
