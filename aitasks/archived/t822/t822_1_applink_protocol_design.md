@@ -3,11 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-24 09:31
-updated_at: 2026-05-24 09:42
+updated_at: 2026-05-24 12:46
+completed_at: 2026-05-24 12:46
 ---
 
 Design the wire protocol, auth/pairing model, and permission profiles for the new `ait applink` TUI that bridges a local `ait ide` tmux session to a mobile companion app (developed in sibling repo `../aitasks_mobile`, Kotlin Multiplatform). This child produces design docs only — no runtime code.
