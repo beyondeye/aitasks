@@ -7,7 +7,7 @@ status: Ready
 labels: [brainstorm]
 created_at: 2026-05-20 12:10
 updated_at: 2026-05-21 16:47
-boardidx: 80
+boardidx: 10
 ---
 
 Single-source the implementation-plan content contract shared by the brainstorm
