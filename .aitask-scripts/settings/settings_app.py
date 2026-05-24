@@ -90,40 +90,15 @@ _BOARD_USER_KEYS = {"settings"}
 
 DEFAULT_REFRESH_OPTIONS = ["0", "1", "2", "5", "10", "15", "30"]
 
-# Profile schema: key -> (type, options)
-# type: "bool", "enum", "string", "int"
-PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
-    "name": ("string", None),
-    "description": ("string", None),
-    "skip_task_confirmation": ("bool", None),
-    "default_email": ("enum", ["userconfig", "first"]),
-    "create_worktree": ("bool", None),
-    "base_branch": ("string", None),
-    "plan_preference": ("enum", ["use_current", "verify", "create_new"]),
-    "plan_preference_child": ("enum", ["use_current", "verify", "create_new"]),
-    "plan_verification_required": ("int", None),
-    "plan_verification_stale_after_hours": ("int", None),
-    "post_plan_action": ("enum", ["start_implementation", "ask"]),
-    "post_plan_action_for_child": ("enum", ["start_implementation", "ask"]),
-    "enableFeedbackQuestions": ("bool", None),
-    "manual_verification_followup_mode": ("enum", ["ask", "never"]),
-    "explore_auto_continue": ("bool", None),
-    "review_default_modes": ("string", None),
-    "review_auto_continue": ("bool", None),
-    "force_unlock_stale": ("bool", None),
-    "done_task_action": ("enum", ["archive", "skip"]),
-    "orphan_parent_action": ("enum", ["archive", "skip"]),
-    "complexity_action": ("enum", ["single_task", "create_children"]),
-    "review_action": ("enum", ["commit", "need_changes", "abort"]),
-    "issue_action": ("enum", ["close_with_notes", "comment_only", "close_silently", "skip"]),
-    "abort_plan_action": ("enum", ["keep", "discard"]),
-    "abort_revert_status": ("enum", ["Ready", "Editing"]),
-    "qa_mode": ("enum", ["ask", "create_task", "implement", "plan_only"]),
-    "qa_run_tests": ("bool", None),
-    "qa_tier": ("enum", ["q", "s", "e"]),
-}
-
-_UNSET = "(unset)"
+from profile_editor import (  # noqa: E402
+    PROFILE_FIELD_INFO,
+    PROFILE_SCHEMA,
+    CycleField,
+    ConfigRow,
+    EditStringScreen,
+    collect_profile_values,
+    compose_profile_fields,
+)
 
 # Operation descriptions shown in the Agent Defaults tab
 OPERATION_DESCRIPTIONS: dict[str, str] = {
@@ -165,217 +140,6 @@ EXPORT_CATEGORIES: dict[str, list[str]] = {
     "Model configs": ["models_*.json", "models_*.local.json"],
 }
 
-# Profile field info: key -> (short_description, detailed_description)
-PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
-    "name": (
-        "Display name shown when selecting a profile",
-        "The profile name appears in the selection prompt when picking a task. "
-        "Choose a short, descriptive name (e.g., 'fast', 'worktree', 'remote')."
-    ),
-    "description": (
-        "Description shown below profile name during selection",
-        "A brief sentence explaining the profile's purpose. Shown alongside the name "
-        "in the profile selection prompt at the start of aitask-pick/aitask-explore."
-    ),
-    "skip_task_confirmation": (
-        "Auto-confirm task selection without asking",
-        "When true, skips the 'Is this the correct task?' confirmation in aitask-pick (Step 0b). "
-        "The task summary is still displayed but the workflow proceeds immediately. "
-        "When false or unset, the user must confirm before proceeding."
-    ),
-    "default_email": (
-        "Email for task assignment: userconfig, first, or literal",
-        "Controls how the email is resolved when claiming a task (Step 4):\n"
-        "  'userconfig': from aitasks/metadata/userconfig.yaml (falls back to first in emails.txt)\n"
-        "  'first': first email from aitasks/metadata/emails.txt\n"
-        "  A literal email address: uses that exact email\n"
-        "  (unset): prompts the user to select or enter an email"
-    ),
-    "create_worktree": (
-        "Create a separate git worktree for the task",
-        "When true, creates a new branch and worktree in aiwork/<task_name>/ (Step 5). "
-        "When false, works directly on the current branch. "
-        "Worktrees are useful for parallel work on multiple tasks."
-    ),
-    "base_branch": (
-        "Branch to base new task branches on (e.g., main)",
-        "Only used when create_worktree is true. Specifies the branch the new task branch "
-        "is created from. Common values: 'main', 'develop'. "
-        "When unset, the user is asked to choose."
-    ),
-    "plan_preference": (
-        "Existing plan handling: use_current / verify / create_new",
-        "Controls what happens when a plan file already exists (Step 6.0):\n"
-        "  'use_current': skip planning, use existing plan as-is\n"
-        "  'verify': enter plan mode to check if the plan is still valid\n"
-        "  'create_new': discard existing plan and start fresh\n"
-        "  (unset): ask the user interactively"
-    ),
-    "plan_preference_child": (
-        "Override plan_preference for child tasks only",
-        "Same values as plan_preference but only applies to child tasks. "
-        "Takes priority over plan_preference when the current task is a child. "
-        "Useful for e.g. always verifying child plans while reusing parent plans."
-    ),
-    "plan_verification_required": (
-        "Fresh verifications needed to skip re-verification",
-        "Number of fresh (non-stale) plan_verified entries that must exist in a "
-        "plan file for the verify path to SKIP re-verification. Only consulted "
-        "when plan_preference (or plan_preference_child) is 'verify'. Default: 1."
-    ),
-    "plan_verification_stale_after_hours": (
-        "Hours before a verification is considered stale",
-        "Age (in hours) after which a plan_verified entry is considered stale "
-        "and no longer counts toward the required fresh count. Default: 24."
-    ),
-    "post_plan_action": (
-        "After plan approval: start_implementation = skip checkpoint",
-        "Controls what happens after the plan is approved (Step 6 checkpoint):\n"
-        "  'start_implementation': proceed directly to implementation\n"
-        "  'ask': always show the post-plan checkpoint (same as unset)\n"
-        "  (unset): ask the user whether to start, revise, or abort\n"
-        "Note: plan approval via ExitPlanMode is always required and cannot be skipped."
-    ),
-    "post_plan_action_for_child": (
-        "Override post_plan_action for child tasks only",
-        "Same values as post_plan_action ('start_implementation' or 'ask'), "
-        "but only applies when the current task is a child. Takes priority over "
-        "post_plan_action in that case. Omit to fall back to post_plan_action."
-    ),
-    "enableFeedbackQuestions": (
-        "Ask satisfaction feedback questions at the end of supported skills",
-        "Controls whether supported skills ask for a quick satisfaction rating after completion. "
-        "When false, the Satisfaction Feedback Procedure is skipped. "
-        "When true or unset, feedback questions remain enabled. "
-        "Use false for unattended or non-interactive workflows such as remote profiles."
-    ),
-    "manual_verification_followup_mode": (
-        "Post-commit manual-verification follow-up prompt: ask or never",
-        "Controls task-workflow Step 8c — whether to offer a manual-verification "
-        "follow-up task after committing implementation changes:\n"
-        "  'ask': prompt after commit to queue a manual-verification follow-up\n"
-        "  'never': skip the prompt entirely\n"
-        "  (unset): same as 'ask'\n"
-        "Set to 'never' for non-interactive or remote profiles."
-    ),
-    "explore_auto_continue": (
-        "Auto-continue to implementation in exploration mode",
-        "Used by aitask-explore. When true, automatically continues to the implementation "
-        "phase after exploration completes. When false or unset, asks the user."
-    ),
-    "review_default_modes": (
-        "Comma-separated review-guide names to auto-select",
-        "Used by aitask-review. When set, auto-selects these review guides instead "
-        "of prompting. Values are the 'name' field from each review guide's frontmatter, "
-        "comma-separated (e.g., 'code_conventions,security'). Leave unset to be prompted."
-    ),
-    "review_auto_continue": (
-        "Auto-continue to implementation in review mode",
-        "Used by aitask-review. When true, automatically continues to the implementation "
-        "phase after review completes. When false or unset, asks the user. Default: false."
-    ),
-    "force_unlock_stale": (
-        "Auto force-unlock stale task locks without asking",
-        "When true, automatically overrides stale locks held by other users/machines (Step 4). "
-        "When false or unset, prompts the user to decide how to handle locked tasks."
-    ),
-    "done_task_action": (
-        "(Remote) Done-but-unarchived tasks: archive or skip",
-        "Only used by aitask-pickrem (remote/autonomous mode). Controls what happens "
-        "when a picked task already has status 'Done' but hasn't been archived:\n"
-        "  'archive': proceed to archive automatically\n"
-        "  'skip': leave the task as-is and end the workflow"
-    ),
-    "orphan_parent_action": (
-        "(Remote) Orphaned parent tasks: archive or skip",
-        "Only used by aitask-pickrem. Controls what happens when a parent task has "
-        "all children completed but the parent itself isn't archived:\n"
-        "  'archive': archive the parent automatically\n"
-        "  'skip': leave the parent as-is"
-    ),
-    "complexity_action": (
-        "(Remote) Complex tasks: single_task or create_children",
-        "Only used by aitask-pickrem. When a task is assessed as complex:\n"
-        "  'single_task': implement as a single task regardless of complexity\n"
-        "  'create_children': break into child subtasks automatically"
-    ),
-    "review_action": (
-        "(Remote) Review decision: commit, need_changes, or abort",
-        "Only used by aitask-pickrem. After implementation completes:\n"
-        "  'commit': auto-commit changes without review\n"
-        "  'need_changes': flag for additional changes (unusual for autonomous mode)\n"
-        "  'abort': discard changes and revert task status"
-    ),
-    "issue_action": (
-        "(Remote) Linked issue handling after archival",
-        "Only used by aitask-pickrem. When the task has a linked issue:\n"
-        "  'close_with_notes': post implementation notes and close the issue\n"
-        "  'comment_only': post notes but leave the issue open\n"
-        "  'close_silently': close without posting a comment\n"
-        "  'skip': don't touch the linked issue"
-    ),
-    "abort_plan_action": (
-        "(Remote) On abort: keep or discard plan file",
-        "Only used by aitask-pickrem. When a task is aborted:\n"
-        "  'keep': preserve the plan file for future reference\n"
-        "  'discard': delete the plan file"
-    ),
-    "abort_revert_status": (
-        "(Remote) Status to revert to on abort: Ready or Editing",
-        "Only used by aitask-pickrem. When a task is aborted, the task status "
-        "is reverted to this value:\n"
-        "  'Ready': task goes back to the Ready queue\n"
-        "  'Editing': task stays in Editing state"
-    ),
-    "qa_mode": (
-        "Action after QA test plan proposal",
-        "Controls what happens after /aitask-qa generates a test plan.\n"
-        "  ask         — Prompt with AskUserQuestion (default)\n"
-        "  create_task — Auto-create a follow-up test task\n"
-        "  implement   — Implement proposed tests in current session\n"
-        "  plan_only   — Export test plan to file without further action\n\n"
-        "Omitting this key shows the interactive prompt.",
-    ),
-    "qa_run_tests": (
-        "Run discovered tests during QA analysis",
-        "When true (default), /aitask-qa executes discovered tests and lints.\n"
-        "Set to false to skip test execution and only analyze coverage gaps.\n\n"
-        "Useful when tests are slow or require special setup.",
-    ),
-    "qa_tier": (
-        "QA analysis depth: q (quick), s (standard), e (exhaustive)",
-        "Used by /aitask-qa Step 1c. When set, skips the tier selection prompt.\n"
-        "  'q': Quick — existing tests + lint only\n"
-        "  's': Standard — full analysis with test plan\n"
-        "  'e': Exhaustive — full analysis + edge cases + verification gate\n"
-        "  (unset): prompts the user"
-    ),
-}
-
-# Logical grouping of profile fields for display
-PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
-    ("Identity", ["name", "description"]),
-    ("Task Selection", ["skip_task_confirmation", "default_email"]),
-    ("Branch & Worktree", ["create_worktree", "base_branch"]),
-    ("Planning", [
-        "plan_preference",
-        "plan_preference_child",
-        "plan_verification_required",
-        "plan_verification_stale_after_hours",
-        "post_plan_action",
-        "post_plan_action_for_child",
-    ]),
-    ("Feedback", ["enableFeedbackQuestions"]),
-    ("Manual Verification", ["manual_verification_followup_mode"]),
-    ("QA Analysis", ["qa_mode", "qa_run_tests", "qa_tier"]),
-    ("Exploration", ["explore_auto_continue"]),
-    ("Review", ["review_default_modes", "review_auto_continue"]),
-    ("Lock Management", ["force_unlock_stale"]),
-    ("Remote Workflow", [
-        "done_task_action", "orphan_parent_action", "complexity_action",
-        "review_action", "issue_action", "abort_plan_action", "abort_revert_status",
-    ]),
-]
 
 # Tab shortcut keys -> TabPane IDs
 _TAB_SHORTCUTS = {
@@ -706,142 +470,6 @@ class ConfigManager:
 
 
 # ---------------------------------------------------------------------------
-# Widgets
-# ---------------------------------------------------------------------------
-class CycleField(Static):
-    """Focusable widget that cycles through options with Left/Right keys."""
-
-    can_focus = True
-
-    class Changed(Message):
-        def __init__(self, field: "CycleField", value: str):
-            super().__init__()
-            self.field = field
-            self.value = value
-
-    def __init__(self, label: str, options: list, current: str, field_key: str,
-                 id: str | None = None):
-        super().__init__(id=id)
-        self.label = label
-        self.options = options
-        self.field_key = field_key
-        self.current_index = options.index(current) if current in options else 0
-
-    @property
-    def current_value(self) -> str:
-        return self.options[self.current_index]
-
-    def render(self) -> str:
-        parts = []
-        for i, opt in enumerate(self.options):
-            if i == self.current_index:
-                parts.append(f"[bold reverse] {opt} [/]")
-            else:
-                parts.append(f" {opt} ")
-        options_str = " | ".join(parts)
-        return f"  {self.label}:  [dim]\u25c0[/] {options_str} [dim]\u25b6[/]"
-
-    def cycle_prev(self):
-        self.current_index = (self.current_index - 1) % len(self.options)
-        self.refresh()
-        self.post_message(self.Changed(self, self.current_value))
-
-    def cycle_next(self):
-        self.current_index = (self.current_index + 1) % len(self.options)
-        self.refresh()
-        self.post_message(self.Changed(self, self.current_value))
-
-    def _option_index_at(self, cx: int) -> int | None:
-        """Map content x-coordinate to option index, -1 for ◀, -2 for ▶."""
-        prefix_len = len(f"  {self.label}:  \u25c0 ")
-        if cx == prefix_len - 2:
-            return -1
-        pos = prefix_len
-        for i, opt in enumerate(self.options):
-            opt_width = len(opt) + 2
-            if pos <= cx < pos + opt_width:
-                return i
-            pos += opt_width
-            if i < len(self.options) - 1:
-                pos += 3
-        if cx == pos + 1:
-            return -2
-        return None
-
-    def on_click(self, event) -> None:
-        """Select option directly when clicked."""
-        content_offset = event.get_content_offset(self)
-        if content_offset is None:
-            return
-        idx = self._option_index_at(content_offset.x)
-        if idx == -1:
-            self.cycle_prev()
-        elif idx == -2:
-            self.cycle_next()
-        elif idx is not None and idx != self.current_index:
-            self.current_index = idx
-            self.refresh()
-            self.post_message(self.Changed(self, self.current_value))
-
-    def on_key(self, event):
-        if event.key == "left":
-            self.cycle_prev()
-            event.prevent_default()
-            event.stop()
-        elif event.key == "right":
-            self.cycle_next()
-            event.prevent_default()
-            event.stop()
-
-    def on_focus(self):
-        self.add_class("cycle-focused")
-
-    def on_blur(self):
-        self.remove_class("cycle-focused")
-
-
-class ConfigRow(Static):
-    """Focusable config key-value display with layer badge."""
-
-    can_focus = True
-
-    def __init__(self, key: str, value: str, config_layer: str = "project",
-                 row_key: str = "", id: str | None = None,
-                 subordinate: bool = False, raw_value: str | None = None,
-                 extra_indent: int = 0):
-        super().__init__(id=id)
-        self.key = key
-        self.value = value
-        self.raw_value = raw_value if raw_value is not None else value
-        self.config_layer = config_layer
-        self.row_key = row_key or key
-        self.subordinate = subordinate
-        self.extra_indent = extra_indent
-
-    def render(self) -> str:
-        if self.config_layer == "user":
-            badge = "[#FFB86C][USER][/]"
-        else:
-            badge = "[#50FA7B][PROJECT][/]"
-
-        pad = " " * self.extra_indent
-
-        if self.subordinate:
-            # Indented subordinate row (user override under project)
-            has_override = self.value not in ("(inherits project)", "(not set)", "")
-            clear_hint = "  [dim](d to remove)[/dim]" if has_override else ""
-            return f"      {pad}\u2514 {badge}  {self.value}{clear_hint}"
-
-        return f"  {pad}{badge}  [bold]{self.key}:[/bold]  {self.value}"
-
-    def on_focus(self):
-        self.add_class("row-focused")
-
-    def on_blur(self):
-        self.remove_class("row-focused")
-
-
-# ---------------------------------------------------------------------------
 # Modal Screens
 # ---------------------------------------------------------------------------
 class ExportScreen(ModalScreen):
@@ -1062,40 +690,6 @@ class ImportScreen(ModalScreen):
 
     @on(Button.Pressed, "#btn_import_cancel")
     @on(Button.Pressed, "#btn_import_cancel2")
-    def do_cancel(self):
-        self.dismiss(None)
-
-    def action_cancel(self):
-        self.dismiss(None)
-
-
-class EditStringScreen(ModalScreen):
-    """Modal for editing a single string value (profile fields)."""
-
-    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
-
-    def __init__(self, key: str, current_value: str):
-        super().__init__()
-        self.key = key
-        self.current_value = current_value
-
-    def compose(self) -> ComposeResult:
-        with Container(id="edit_dialog"):
-            yield Label(f"Edit: [bold]{self.key}[/bold]", id="edit_title")
-            yield Input(value=self.current_value, id="edit_input")
-            with Horizontal(id="edit_buttons"):
-                yield Button("Save", variant="success", id="btn_edit_save")
-                yield Button("Cancel", variant="default", id="btn_edit_cancel")
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        self.do_save()
-
-    @on(Button.Pressed, "#btn_edit_save")
-    def do_save(self):
-        value = self.query_one("#edit_input", Input).value
-        self.dismiss({"key": self.key, "value": value})
-
-    @on(Button.Pressed, "#btn_edit_cancel")
     def do_cancel(self):
         self.dismiss(None)
 
@@ -2781,70 +2375,13 @@ class SettingsApp(TuiSwitcherMixin, App):
             classes="profile-header",
         ))
 
-        # Render fields grouped
-        for group_label, field_keys in PROFILE_FIELD_GROUPS:
-            container.mount(Label(f"  {group_label}", classes="section-header"))
-            for key in field_keys:
-                if key not in PROFILE_SCHEMA:
-                    continue
-                ktype, options = PROFILE_SCHEMA[key]
-                current_raw = data.get(key)
-                widget_id = f"profile_{key}__{safe_fn}_{rc}"
-
-                if ktype == "bool":
-                    if current_raw is True:
-                        current = "true"
-                    elif current_raw is False:
-                        current = "false"
-                    else:
-                        current = _UNSET
-                    container.mount(CycleField(
-                        key, ["true", "false", _UNSET], current,
-                        key, id=widget_id,
-                    ))
-                elif ktype == "enum":
-                    opts = list(options or []) + [_UNSET]
-                    current = str(current_raw) if current_raw is not None else _UNSET
-                    if current not in opts:
-                        opts.insert(0, current)
-                    container.mount(CycleField(
-                        key, opts, current, key, id=widget_id,
-                    ))
-                elif ktype == "string":
-                    current = str(current_raw) if current_raw is not None else ""
-                    row = ConfigRow(
-                        key, current, config_layer="project", row_key=key,
-                        id=f"profile_str_{key}__{safe_fn}_{rc}",
-                    )
-                    container.mount(row)
-                elif ktype == "int":
-                    if isinstance(current_raw, bool):
-                        current = ""
-                    elif isinstance(current_raw, (int, float)):
-                        current = str(int(current_raw))
-                    elif current_raw is None:
-                        current = ""
-                    else:
-                        current = str(current_raw)
-                    row = ConfigRow(
-                        key, current, config_layer="project", row_key=key,
-                        id=f"profile_int_{key}__{safe_fn}_{rc}",
-                    )
-                    container.mount(row)
-
-                # Field description
-                info = PROFILE_FIELD_INFO.get(key)
-                if info:
-                    if self._expanded_field == key:
-                        container.mount(Label(
-                            f"      [dim]{info[1]}[/dim]",
-                            classes="section-hint",
-                        ))
-                    else:
-                        container.mount(Label(
-                            f"      [dim]{info[0]}[/dim]",
-                            classes="section-hint",
-                        ))
+        # Render fields grouped (delegates to shared renderer in lib/profile_editor.py)
+        for w in compose_profile_fields(
+            data,
+            id_prefix=f"{safe_fn}_{rc}",
+            expanded_field=self._expanded_field,
+        ):
+            container.mount(w)
 
         # --- Action buttons ---
         container.mount(Label(""))
@@ -2951,62 +2488,15 @@ class SettingsApp(TuiSwitcherMixin, App):
             )
 
     def _save_profile(self, filename: str):
-        data = dict(self.config_mgr.profiles.get(filename, {}))
+        base = dict(self.config_mgr.profiles.get(filename, {}))
         safe_fn = _safe_id(filename)
         rc = self._profiles_tab_rc
 
-        for key, (ktype, options) in PROFILE_SCHEMA.items():
-            widget_id = f"profile_{key}__{safe_fn}_{rc}"
-            str_widget_id = f"profile_str_{key}__{safe_fn}_{rc}"
-
-            if ktype in ("bool", "enum"):
-                try:
-                    field = self.query_one(f"#{widget_id}", CycleField)
-                    val = field.current_value
-                    if val == _UNSET:
-                        data.pop(key, None)
-                    elif ktype == "bool":
-                        data[key] = val == "true"
-                    else:
-                        data[key] = val
-                except Exception:
-                    pass
-            elif ktype == "string":
-                try:
-                    row = self.query_one(f"#{str_widget_id}", ConfigRow)
-                    val = row.value
-                    if val:
-                        data[key] = val
-                    else:
-                        data.pop(key, None)
-                except Exception:
-                    pass
-            elif ktype == "int":
-                int_widget_id = f"profile_int_{key}__{safe_fn}_{rc}"
-                try:
-                    row = self.query_one(f"#{int_widget_id}", ConfigRow)
-                    val = (row.value or "").strip()
-                    if not val:
-                        data.pop(key, None)
-                    else:
-                        try:
-                            iv = int(val)
-                            if iv < 0:
-                                self.notify(
-                                    f"{key}: must be >= 0, got '{val}' "
-                                    "— not saved",
-                                    severity="error",
-                                )
-                            else:
-                                data[key] = iv
-                        except ValueError:
-                            self.notify(
-                                f"{key}: '{val}' is not an integer "
-                                "— not saved",
-                                severity="error",
-                            )
-                except Exception:
-                    pass
+        data, errors = collect_profile_values(
+            self.query_one, base, id_prefix=f"{safe_fn}_{rc}",
+        )
+        for msg in errors:
+            self.notify(msg, severity="error")
 
         layer = self.config_mgr.profile_layers.get(filename, "project")
         self.config_mgr.save_profile(filename, data, layer=layer)
