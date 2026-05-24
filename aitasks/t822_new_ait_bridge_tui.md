@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [ait_bridge]
-children_to_implement: [t822_1]
+children_to_implement: [t822_1, t822_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-24 08:40
 updated_at: 2026-05-24 09:31
