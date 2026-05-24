@@ -1,11 +1,11 @@
 ---
 Task: t777_16_extract_profile_editor_widget.md
 Parent Task: aitasks/t777_modular_pick_skill.md
-Sibling Tasks: aitasks/t777/t777_14_convert_aitask_pickrem.md, aitasks/t777/t777_15_convert_aitask_pickweb.md, aitasks/t777/t777_17_per_run_profile_edit_in_agentcommandscreen.md, aitasks/t777/t777_18_docs_update_claudemd_and_website.md, aitasks/t777/t777_19_retrospective_evaluation.md, aitasks/t777/t777_20_profile_modification_invalidation.md
+Sibling Tasks: aitasks/t777/t777_14_convert_aitask_pickrem.md, aitasks/t777/t777_15_convert_aitask_pickweb.md, aitasks/t777/t777_17_per_run_profile_edit_in_agentcommandscreen.md, aitasks/t777/t777_18_docs_update_claudemd_and_website.md, aitasks/t777/t777_19_retrospective_evaluation.md, aitasks/t777/t777_20_profile_modification_invalidation.md, aitasks/t777/t777_27_recover_runtime_skills_and_parity_tests.md, aitasks/t777/t777_28_dedup_template_branches_common_proc_and_macros.md
 Archived Sibling Plans: aiplans/archived/p777/p777_10_convert_aitask_fold.md, aiplans/archived/p777/p777_11_convert_aitask_qa.md, aiplans/archived/p777/p777_12_convert_aitask_pr_import.md, aiplans/archived/p777/p777_13_convert_aitask_revert.md, aiplans/archived/p777/p777_1_minijinja_dep_renderer_paths_resolver.md, aiplans/archived/p777/p777_21_map_pick_reference_closure_and_profile_keys.md, aiplans/archived/p777/p777_22_extend_renderer_for_uniform_recursive_rendering.md, aiplans/archived/p777/p777_23_swap_task_workflown_to_task_workflow.md, aiplans/archived/p777/p777_25_refactor_stubs_direct_helper_paths.md, aiplans/archived/p777/p777_26_template_completeness_and_resolver_key.md, aiplans/archived/p777/p777_2_aitask_skill_render_subcommand.md, aiplans/archived/p777/p777_3_stub_skill_design_and_gitignore.md, aiplans/archived/p777/p777_4_aitask_skill_verify_and_precommit.md, aiplans/archived/p777/p777_5_aitask_skillrun_wrapper_dispatcher.md, aiplans/archived/p777/p777_6_convert_aitask_pick_template_and_stubs.md, aiplans/archived/p777/p777_7_convert_task_workflow_shared_procs.md, aiplans/archived/p777/p777_8_convert_aitask_explore.md, aiplans/archived/p777/p777_9_convert_aitask_review.md
 Base branch: main
 plan_verified:
-  - claudecode/opus4_7_1m @ 2026-05-21 16:45
+  - claudecode/opus4_7_1m @ 2026-05-24 17:33
 ---
 
 # Plan: t777_16 — Extract profile-editor widget to `lib/profile_editor.py`
@@ -23,8 +23,8 @@ description assumed a single `EditValueScreen`/`ProfileEditScreen` class
 existed in `settings_app.py` to extract as a pure refactor. It does **not**:
 
 - There is **no `ProfileEditScreen` modal**. Profile editing in `ait settings`
-  is rendered *inline in a tab* by `_populate_profiles_tab()`
-  (`settings_app.py:2697-2872`), tightly coupled to `SettingsApp` state.
+  is rendered *inline in a tab* by `_populate_profiles_tab()`, tightly coupled
+  to `SettingsApp` state.
 - The existing pieces are constants, two field widgets, and one field-edit
   modal — listed below.
 - t777_17 needs a real modal, which must be **built new**, not extracted.
@@ -34,6 +34,10 @@ primitives to `lib/profile_editor.py`, add a shared field-rendering
 generator + value-collector, and a new `ProfileEditScreen(ModalScreen)`.
 `ait settings` keeps its inline Profiles tab but delegates field rendering to
 the shared helper — UX of `ait settings` is unchanged.
+
+**Re-verified 2026-05-24.** All referenced symbols still present; the only
+drift is line-number shift in two methods (corrected below). Independence
+from sibling t777_15 reconfirmed.
 
 ## Critical Files
 
@@ -56,13 +60,15 @@ Moved verbatim from `settings_app.py` (no logic change):
 | `EditStringScreen` | lines 1072-1104 | modal (`ModalScreen`) |
 
 **Stays in `settings_app.py`** (not needed by the per-run editor): the
-profile-*management* modals `ProfilePickerScreen`, `NewProfileScreen`,
-`SaveProfileConfirmScreen`, `DeleteProfileConfirmScreen`; and the
-project-config editors `EditVerifyBuildScreen`, `VerifyBuildPresetScreen`
+profile-*management* modals `ProfilePickerScreen` (line 1256), `NewProfileScreen`
+(line 1294), `SaveProfileConfirmScreen` (line 1384),
+`DeleteProfileConfirmScreen` (line 1351); and the project-config editors
+`EditVerifyBuildScreen` (line 1106), `VerifyBuildPresetScreen` (line 1195)
 (`verify_build` is a project-config field, not a profile field).
 
-`CycleField`/`ConfigRow` are also used by other settings tabs (board,
-project, tmux) and `ExportScreen` — those keep working via the re-import.
+`CycleField`/`ConfigRow` are also used by other settings tabs (board tab
+`_populate_board_tab` line 2214+, project, tmux) and `ExportScreen.compose()`
+line 847+ — those keep working via the re-import.
 
 ## New code in `lib/profile_editor.py`
 
@@ -78,7 +84,7 @@ project, tmux) and `ExportScreen` — those keep working via the re-import.
 
 2. **`collect_profile_values(query_one, base_data, *, id_prefix)`**
    → `(updated_data: dict, errors: list[str])`. Extracted from
-   `_save_profile` at `settings_app.py:2958-3010` (reads each widget by id,
+   `_save_profile` at `settings_app.py:2953-3012` (reads each widget by id,
    applies bool/enum/string/int coercion, `_UNSET` → key removed, negative /
    non-int → appended to `errors` instead of `self.notify`). Caller does the
    `notify`.
@@ -112,10 +118,11 @@ project, tmux) and `ExportScreen` — those keep working via the re-import.
    `from profile_editor import (_UNSET, PROFILE_SCHEMA, PROFILE_FIELD_INFO,
    PROFILE_FIELD_GROUPS, CycleField, ConfigRow, EditStringScreen,
    ProfileEditScreen, compose_profile_fields, collect_profile_values)`.
-5. Rewrite `_populate_profiles_tab()` field loop (`2784-2847`) to
+5. Rewrite `_populate_profiles_tab()` field loop (the inner loop currently at
+   lines 2784-2847 of the method spanning 2697-2878) to
    `for w in compose_profile_fields(data, id_prefix=f"{safe_fn}_{rc}",
    expanded_field=self._expanded_field): container.mount(w)`.
-6. Rewrite `_save_profile()` (`2958-3013`) to call
+6. Rewrite `_save_profile()` (`2953-3012`) to call
    `collect_profile_values(self.query_one, ..., id_prefix=f"{safe_fn}_{rc}")`,
    then `self.notify` each returned error, then `config_mgr.save_profile`.
 7. Verify the profile-string Enter handler (~`settings_app.py:1759`) still
