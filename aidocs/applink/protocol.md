@@ -143,6 +143,18 @@ The `v` field is the protocol major version.
 - **Client picks the highest mutually-supported version** for subsequent frames. v1 clients ignore unknown `payload` keys in v1 responses.
 - **Cross-network transports** (relay, WebRTC) plug in without a version bump — they share the same envelope and verb namespace; only the connect URI scheme differs.
 
+## Pane content transport
+
+Pane content (the streamed tmux output that drives the mobile render loop) does **not** flow through the JSON envelope above. It uses a parallel **binary data plane** over WebSocket binary frames, with its own schema, framing, delta strategy, and back-pressure rules. The full design is canonical in [content_transport.md](content_transport.md); the short summary:
+
+- **Encoding:** per-line **styled spans** (text + fg/bg/attrs/width), packed in MessagePack. Server parses ANSI once; mobile never sees raw escape sequences and needs no VT parser.
+- **Frame types:** `keyframe`, `delta`, `append`, `cursor`, `dim` — all final from day 1, all frame-independent (a keyframe alone is enough to render any state).
+- **Subscription:** mobile sends a control-plane `subscribe` verb with the panes to follow, focused/idle cadences, and a forced-keyframe interval. `focus` raises one pane's cadence; `request_keyframe` is the sole recovery path after a gap.
+- **Bandwidth:** idle panes cost zero bytes; a focused busy pane stays under ~1 KB per refresh at 4 Hz after `permessage-deflate`.
+- **Staged rollout, fixed format:** Stage 1 ships keyframes only; Stages 2-5 add delta, append fast-path, viewport clipping, and history RPC. No `v` bump across stages — additive per the [Versioning](#versioning) rules.
+
+The data plane is gated by the same permission profiles defined in [permissions.md](permissions.md): the `snapshot` push (i.e. all data-plane frames) is allowed in every profile; `subscribe` / `focus` / `request_keyframe` are control verbs gated identically.
+
 ## Roadmap to cross-network
 
 v1 is LAN-only, but the design is deliberately staged so each subsequent phase reuses the parts that took the most thought (envelope, pairing, verbs, permissions) and only swaps the connectivity layer. The four phases:
