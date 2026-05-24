@@ -59,11 +59,16 @@ Seed table:
 
 (Validate at write time by `grep -nE 'def (send|kill|switch|spawn|cycle)' .aitask-scripts/monitor/tmux_monitor.py` and ensuring every match has a row.)
 
-### 4. Snapshot data model on the wire
-- Field-by-field mapping of `PaneSnapshot` / `TmuxPaneInfo` (`tmux_monitor.py:150-171`) to JSON keys.
-- Scroll-anchor strategy: substring-anchor (NOT pixel offset). Rationale: snapshot lines reflow on mobile; pixel offsets break across rerenders. Mobile sends `{"focus_anchor":"<last-visible-line-substring>"}` and PC sends back the next snapshot with that anchor marked.
-- Two-tier refresh cadence: 3s default, 0.3s when mobile reports `"focused":true` (matches `monitor_app.py:1268-1274`). Mobile sends focused-state changes as push frames.
-- Delta vs. full-frame: full snapshots in v1 (simpler), delta as v2 (deferred; note in §8).
+### 4. Wiring `PaneSnapshot` to the content-transport spec
+
+The wire format is **fixed** by `aidocs/applink/content_transport.md` (per-line styled spans, 5 frame types `keyframe`/`delta`/`append`/`cursor`/`dim`, MessagePack over WebSocket binary frames). This section maps the existing monitor data model onto that format — it does **not** redefine the wire format.
+
+- **`PaneSnapshot.text` → row encoding.** `tmux_monitor.py:150-171`'s `PaneSnapshot.text` field carries `tmux capture-pane -e` output. The wiring code (see §8 follow-up "applink: snapshot push loop") parses ANSI/SGR sequences into rows of styled spans per [content_transport.md §Row encoding](../../aidocs/applink/content_transport.md#row-encoding-the-core-decision). Decide and document the parser approach (candidates: `pyte`, an ad-hoc SGR parser tuned for `capture-pane -e` output, or `ansicon`-style state machine).
+- **Refresh cadence wiring.** Tie `monitor_app.py:1268-1274`'s timer into content_transport.md's `subscribe.cadence_focused_ms` / `cadence_idle_ms`. Default mapping: 3 s → `3000`, 0.3 s focused → `250`.
+- **Focus-state forwarding.** Map mobile's `focus` control verb onto the monitor's per-pane focused-state flag; no protocol change needed on the wire.
+- **Scroll anchor — no wire impact.** With content_transport.md's frame-independent keyframes + `frame_id` chain (see content_transport.md §Frame integrity and recovery), the substring-anchor mechanism in `monitor_app.py:494-504` is **a render-side concern only**; mobile rebuilds scroll position from `frame_id` continuity rather than from substring matching. Document this explicitly to head off duplicate state.
+- **Deltification responsibility.** content_transport.md assigns delta computation to the server (row hashing + changed-row collection, Stage 2). Specify where this runs in the monitor pipeline — likely a `monitor_core` helper invoked by the applink listener, **not** by `monitor_app.py`'s render loop (so the Textual UI and the applink listener can share a single hash cache).
+- **Append fast-path detection.** content_transport.md §`append` requires bottom-cursor + no-upper-changes detection. Document where this check lives (most naturally next to the deltifier).
 
 ### 5. Modal-dialog handshakes
 RPC sequences for each modal that today calls `App.push_screen` (`monitor_app.py:1565-1598` etc.):
@@ -84,15 +89,17 @@ Confirm every verb in §3 is covered by exactly one profile band in `aidocs/appl
 Each bullet is phrased to be liftable into an `ait task create` invocation:
 - **Refactor: extract `monitor_core.py`** — move the §2 functions into a new module, leaving thin shims in `tmux_monitor.py` / `tmux_control.py` / `monitor_shared.py` for backwards compatibility. Verify `ait monitor` still launches.
 - **applink: WebSocket listener** — wire `applink.applink_app` to start a TLS WS server on launch, accept the `pair` verb, and route subsequent frames per the verb table in §3. Integrates with `monitor_core` for snapshot generation.
-- **applink: snapshot push loop** — implement the 3s/0.3s cadence and substring-anchor logic from §4. Wire focus-state push frames from the mobile.
+- **applink: snapshot push loop (Stage 1 of content_transport.md)** — implement the 3 s / 0.3 s cadence, parse `tmux capture-pane -e` into the row/span schema, emit `keyframe`, `cursor`, and `dim` frames. Wire `focus` and `subscribe` control verbs.
+- **applink: delta engine (Stage 2 of content_transport.md)** — row hashing + changed-row collection on the server; emit `delta` frames against `prev_frame_id`. Add the recovery path (`request_keyframe`).
+- **applink: append fast-path (Stage 3 of content_transport.md)** — bottom-cursor detection + `append` frame emission for log-streaming panes.
 - **applink: modal handshake plumbing** — implement §5 request/response correlation by `id` field.
 - **applink-mode flag for `aitask_monitor.sh`** — `--headless-for-applink` flag that skips Textual startup and exposes the core only via the applink listener.
-- **applink: delta snapshots (v2)** — only after v1 ships, profile snapshot size and decide if deltas are worth the complexity.
 
 ## Reference files (read-only)
 
 - `aidocs/applink/protocol.md` (from t822_1) — JSON envelope, pairing flow
 - `aidocs/applink/permissions.md` (from t822_1) — profile names + verb gating
+- `aidocs/applink/content_transport.md` (from t822_1 follow-up) — **canonical wire format for pane content (row/span schema, 5 frame types, refresh control). Consume; do not redefine.**
 - `.aitask-scripts/monitor/monitor_app.py` (1870 lines)
 - `.aitask-scripts/monitor/tmux_monitor.py` (774 lines)
 - `.aitask-scripts/monitor/tmux_control.py` (547 lines)
@@ -107,6 +114,7 @@ Each bullet is phrased to be liftable into an `ait task create` invocation:
 - Every profile from `aidocs/applink/permissions.md` is used at least once in §3
 - 5 random file:line refs in the doc resolve to lines that still match the description
 - §8 has at least 3 cleanly-scoped follow-up bullets
+- §4 does **not** redefine the wire format — it cites `content_transport.md` for row/span schema and frame types; the doc's contribution is the *wiring* of `PaneSnapshot` and the monitor refresh loop onto that format
 - `git diff --stat` shows only `aidocs/applink/monitor_port_design.md` (no code changes)
 
 No runtime tests (doc-only).

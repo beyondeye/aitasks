@@ -6,7 +6,7 @@ issue_type: documentation
 status: Ready
 labels: [ait_bridge]
 created_at: 2026-05-24 09:32
-updated_at: 2026-05-24 09:32
+updated_at: 2026-05-24 16:00
 ---
 
 Design doc only: spec how the existing `ait monitor` TUI will be ported to drive a mobile client over the `applink` protocol. Identifies the headless-core extraction seam, maps every existing command verb to a protocol message + permission profile, defines the snapshot data model and refresh cadence, and enumerates the modal-dialog handshakes. Produces no code changes under `.aitask-scripts/monitor/`.
@@ -39,11 +39,13 @@ This task explicitly does NOT modify any code under `.aitask-scripts/monitor/`.
      - Proposed `applink` request frame (verb name, payload schema)
      - Permission profile that gates it (matches t822_1's `permissions.md`)
      - Whether a confirmation modal is required
-  4. **Snapshot data model on the wire.** JSON shape for `PaneSnapshot`:
-     - Field-by-field mapping from the dataclass
-     - Scroll-anchor strategy (substring-anchor, NOT pixel offset — see `monitor_app.py:494-504` for rationale)
-     - Two-tier refresh cadence (3s default, 0.3s when focused — `monitor_app.py:1268-1274`); how the mobile client signals "focused" state
-     - Delta vs. full-frame strategy (recommend full snapshots for v1; defer deltas)
+  4. **Wiring `PaneSnapshot` to the content-transport spec.** The wire format is **fixed** by `aidocs/applink/content_transport.md` (per-line styled spans, 5 frame types `keyframe`/`delta`/`append`/`cursor`/`dim`, MessagePack over WS binary). This section maps the existing monitor data model onto that format — it does **NOT** redefine the wire format:
+     - `PaneSnapshot.text` → row/span encoding (pick an ANSI/SGR parser approach: `pyte`, ad-hoc, etc.)
+     - Refresh cadence wiring: `monitor_app.py:1268-1274`'s 3 s / 0.3 s timer → content_transport.md's `cadence_idle_ms` / `cadence_focused_ms` knobs
+     - Focus-state forwarding: map mobile's `focus` control verb onto the per-pane focused-state flag
+     - Scroll anchor: document that the substring-anchor mechanism in `monitor_app.py:494-504` is a **render-side** concern; the wire uses content_transport.md's `frame_id` chain for continuity
+     - Deltification responsibility: where row hashing + changed-row collection runs in the monitor pipeline (likely `monitor_core`, not `monitor_app`)
+     - Append fast-path detection (bottom-cursor + no-upper-changes) lives next to the deltifier
   5. **Modal-dialog handshakes.** RPC request/response design for `KillConfirmDialog`, `SessionRenameDialog`, `TaskDetailDialog`.
   6. **Task-detail RPC.** How `TaskInfoCache` (`monitor_shared.py:217-321`) is served to the mobile client (which has no filesystem access) — either as a side RPC or embedded in the snapshot.
   7. **Out of scope / deferred follow-up tasks.** Bullet list of clearly-scoped successor tasks:
@@ -56,6 +58,7 @@ This task explicitly does NOT modify any code under `.aitask-scripts/monitor/`.
 
 - `aidocs/applink/protocol.md` (from t822_1) — JSON envelope to use
 - `aidocs/applink/permissions.md` (from t822_1) — permission profile names
+- `aidocs/applink/content_transport.md` (from t822_1 follow-up) — **canonical wire format for pane content (row/span schema, 5 frame types, refresh control); consume, do not redefine**
 - `.aitask-scripts/monitor/monitor_app.py` — full code (1870 lines; consult specific line refs above)
 - `.aitask-scripts/monitor/tmux_monitor.py` (774 lines)
 - `.aitask-scripts/monitor/tmux_control.py` (547 lines)
