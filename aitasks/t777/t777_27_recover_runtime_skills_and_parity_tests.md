@@ -6,8 +6,9 @@ issue_type: test
 status: Implementing
 labels: [tests, t777, skill-templates]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-23 23:39
-updated_at: 2026-05-25 16:08
+updated_at: 2026-05-25 16:45
 ---
 
 # Goal
