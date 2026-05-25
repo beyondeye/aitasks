@@ -141,6 +141,8 @@ parse_args() {
             --deps) BATCH_DEPS="$2"; shift 2 ;;
             --verifies) BATCH_VERIFIES="$2"; shift 2 ;;
             --parent|-P) BATCH_PARENT="$2"; shift 2 ;;
+            # --project is handled in main() before parse_args (cross-repo
+            # redirect); never reaches here.
             --no-sibling-dep) BATCH_NO_SIBLING_DEP=true; shift ;;
             --assigned-to|-a) BATCH_ASSIGNED_TO="$2"; shift 2 ;;
             --issue) BATCH_ISSUE="$2"; shift 2 ;;
@@ -1689,6 +1691,67 @@ run_batch_mode() {
 # --- Main ---
 
 main() {
+    # Cross-repo redirect (t826_1): if `--project <name>` appears, resolve
+    # the name to a sibling aitasks project root, then re-exec that
+    # project's own aitask_create.sh with `--project <name>` stripped. The
+    # forwarded invocation keeps all other flags intact (`--batch`,
+    # `--name`, etc.). Requires `--batch`; rejects mixed `--parent`.
+    local project_name=""
+    local has_batch=false
+    local has_parent=false
+    local forwarded=()
+    local _i=0
+    local _argv=("$@")
+    while [[ $_i -lt ${#_argv[@]} ]]; do
+        case "${_argv[$_i]}" in
+            --project)
+                project_name="${_argv[$_i+1]:-}"
+                [[ -n "$project_name" ]] || die "--project requires a value"
+                _i=$((_i + 2))
+                ;;
+            --batch)
+                has_batch=true
+                forwarded+=("${_argv[$_i]}")
+                _i=$((_i + 1))
+                ;;
+            --parent|-P)
+                has_parent=true
+                forwarded+=("${_argv[$_i]}" "${_argv[$_i+1]:-}")
+                _i=$((_i + 2))
+                ;;
+            *)
+                forwarded+=("${_argv[$_i]}")
+                _i=$((_i + 1))
+                ;;
+        esac
+    done
+
+    if [[ -n "$project_name" ]]; then
+        [[ "$has_batch" == true ]]  || die "--project requires --batch"
+        [[ "$has_parent" == false ]] || die "--project cannot be combined with --parent"
+
+        local resolved
+        resolved=$("$SCRIPT_DIR/aitask_project_resolve.sh" "$project_name")
+        case "$resolved" in
+            RESOLVED:*)
+                local root="${resolved#RESOLVED:}"
+                local target_script="$root/.aitask-scripts/aitask_create.sh"
+                [[ -x "$target_script" ]] || die "Resolved $project_name → $root, but $target_script is missing or not executable"
+                cd "$root"
+                exec "$target_script" "${forwarded[@]}"
+                ;;
+            STALE:*)
+                die "Project '$project_name' is registered but its path is stale: ${resolved#STALE:}"
+                ;;
+            NOT_FOUND:*)
+                die "Project '$project_name' is not registered. Run \`cd /path/to/$project_name && ait projects add\`."
+                ;;
+            *)
+                die "Resolver returned unexpected output: $resolved"
+                ;;
+        esac
+    fi
+
     parse_args "$@"
 
     # Handle batch mode

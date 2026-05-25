@@ -107,6 +107,10 @@ command -v tmux >/dev/null || die "tmux is not installed. Install it first, then
 # up automatically when the tmux server exits.
 set_project_registry() {
     tmux set-environment -g "AITASKS_PROJECT_${SESSION}" "$(pwd)" 2>/dev/null || true
+    # Cross-repo project registry (t826_1): also write a persistent index
+    # entry so other repos can resolve this project by name even after the
+    # tmux session ends. Best-effort — never fails the ide startup.
+    "$SCRIPT_DIR/aitask_projects.sh" add "$(pwd)" >/dev/null 2>&1 || true
 }
 
 ensure_syncer_window() {

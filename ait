@@ -2,6 +2,10 @@
 set -euo pipefail
 
 AIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Capture the caller's working directory before the cd below — needed by
+# `ait projects add` (and any future helper that wants the user's intent
+# rather than the script-anchored cwd).
+export AIT_INVOCATION_PWD="$PWD"
 cd "$AIT_DIR"  # CRITICAL: ensures TASK_DIR="aitasks" works in all scripts
 # shellcheck source=.aitask-scripts/lib/aitask_path.sh
 source "$AIT_DIR/.aitask-scripts/lib/aitask_path.sh"
@@ -22,6 +26,7 @@ show_usage() {
 Usage: ait <command> [options]
 
 TUI:
+  applink        Launch the App Linker TUI (mobile pairing)
   board          Launch the task board TUI
   codebrowser    Launch the code browser TUI
   diffviewer     Launch the diff viewer TUI
@@ -166,7 +171,7 @@ check_for_updates() {
 
 # Check for updates (skip for meta-commands, upgrade, and git passthrough)
 case "${1:-help}" in
-    help|--help|-h|--version|-v|upgrade|setup|git|sync|lock|codeagent|crew|brainstorm|settings|monitor|minimonitor|ide|syncer|skillrun) ;;
+    help|--help|-h|--version|-v|upgrade|setup|git|sync|lock|codeagent|crew|brainstorm|settings|monitor|minimonitor|ide|syncer|skillrun|projects) ;;
     *) check_for_updates ;;
 esac
 
@@ -177,12 +182,14 @@ case "${1:-help}" in
     upgrade)      shift; exec "$SCRIPTS_DIR/aitask_upgrade.sh" "$@" ;;
     issue-import) shift; exec "$SCRIPTS_DIR/aitask_issue_import.sh" "$@" ;;
     pr-import)    shift; exec "$SCRIPTS_DIR/aitask_pr_import.sh" "$@" ;;
+    applink)      shift; exec "$SCRIPTS_DIR/aitask_applink.sh" "$@" ;;
     board)        shift; exec "$SCRIPTS_DIR/aitask_board.sh" "$@" ;;
     codebrowser)  shift; exec "$SCRIPTS_DIR/aitask_codebrowser.sh" "$@" ;;
     diffviewer)   shift; exec "$SCRIPTS_DIR/aitask_diffviewer.sh" "$@" ;;
     minimonitor)  shift; exec "$SCRIPTS_DIR/aitask_minimonitor.sh" "$@" ;;
     monitor)      shift; exec "$SCRIPTS_DIR/aitask_monitor.sh" "$@" ;;
     ide)          shift; exec "$SCRIPTS_DIR/aitask_ide.sh" "$@" ;;
+    projects)     shift; exec "$SCRIPTS_DIR/aitask_projects.sh" "$@" ;;
     settings)     shift; exec "$SCRIPTS_DIR/aitask_settings.sh" "$@" ;;
     syncer)       shift; exec "$SCRIPTS_DIR/aitask_syncer.sh" "$@" ;;
     stats)        shift; exec "$SCRIPTS_DIR/aitask_stats.sh" "$@" ;;

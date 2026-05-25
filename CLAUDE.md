@@ -303,6 +303,15 @@ the existing helper (add a flag) over forking the scan logic.
   children are created; single-task follow-ups are offered at Step 8c after
   "Commit changes". See `website/content/docs/workflows/manual-verification.md`
   for the end-to-end workflow.
+- **Cross-repo coordination.** When a task / plan / commit needs to
+  reach into a sibling aitasks project, reference it by logical name —
+  never by sibling-directory path (`../aitasks/`). The `ait projects`
+  subcommand (`list` / `add` / `resolve` / `exec`) and `ait create
+  --batch --project <name>` resolve names against the per-user registry
+  at `~/.config/aitasks/projects.yaml`. Cross-repo task IDs use the
+  `aitasks#835_3` notation (preferred without `t`; accepted with `t`).
+  See `aidocs/cross_repo_references.md` for the registry schema,
+  resolver semantics, and notation regex.
 
 ## Mobile Companion
 
