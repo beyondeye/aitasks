@@ -8,187 +8,136 @@ plan_verified:
   - claudecode/opus4_7_1m @ 2026-05-25 12:06
 ---
 
-# Plan: t777_20 — Profile-modification eager invalidation (verification refresh)
+# Plan: t777_20 — Profile-modification eager re-render
 
 ## Context
 
-When a user edits an execution profile YAML through any framework TUI (the `ait settings` Profiles tab, or the per-run "Save as persistent" path in `AgentCommandScreen`), every per-profile rendered skill directory for that profile (`<agent>/skills/*-<profile>-/`) becomes stale. Today, staleness is caught only on the next wrapper invocation by `aitask_skill_render.sh`'s "skip-if-fresh" mtime check. That works, but:
+When a user edits an execution profile YAML through any framework TUI (the `ait settings` Profiles tab, or the per-run "Save persistent" branch in `AgentCommandScreen`), every per-profile rendered skill closure for that profile (`<agent>/skills/*-<profile>-/`) becomes stale. Today, staleness is caught only on the next wrapper invocation by `aitask_skill_render.sh`'s "skip-if-fresh" mtime check. That works for correctness, but the rendered files lingering on disk between save and next invocation are confusing if the user inspects the rendered dirs directly.
 
-- Old rendered content lingers on disk between save and next invocation — confusing if the user inspects the rendered dirs directly.
-- A stale-render bug masked by mtime drift would not surface until much later.
+This child task adds **eager synchronous re-render** at the save sites so the on-disk view matches the saved YAML immediately. The lazy mtime check still covers the "user edits YAML by hand outside the TUI" case unchanged, and continues to cover cross-machine sync (a `git pull` of a new profile YAML never fires the eager path).
 
-This child task (t777_20) adds **eager invalidation** as a belt-and-suspenders complement: when the framework writes a profile YAML, it immediately deletes the affected rendered directories. The lazy mtime check still covers the "user edits YAML by hand outside the TUI" case unchanged.
+## Why re-render and not invalidate (rm -rf)
 
-**The helper is internal-only — no `ait` dispatcher entry, no policy whitelist.** It is shelled out from Python save hooks by its full path (`./.aitask-scripts/aitask_skill_invalidate.sh`). The `ait` dispatcher is reserved for commands a human would plausibly type manually; this one fails that bar. The 7-touchpoint helper whitelist is required only for scripts called from agent skills under their sandboxed permission systems — this script is only ever called from Python TUI subprocess and from a manual shell, neither of which goes through agent allow-lists.
+The original task description called for a `aitask_skill_invalidate.sh` helper that deletes every per-profile rendered directory. That approach has a real race against active agent sessions:
 
-## Verification deltas from the existing plan
+- The renderer (`aitask_skill_render.sh` → `skill_template.py walk-write`) uses **atomic per-file overwrites**. On Unix, an agent that already opened `SKILL.md` keeps reading the old inode through its existing file handle, so an overwrite mid-flow is safe.
+- A `rm -rf` on the rendered directory is strictly **more destructive**: an agent that has not yet opened a referenced procedure file (e.g. `task-workflow-fast-/agent-attribution.md`) would get `ENOENT` the next time it tries.
 
-Three concrete deviations from the existing `aiplans/p777/p777_20_*.md` plan, surfaced by the codebase verification and user direction:
+Re-rendering through the regular renderer code path inherits the atomic-overwrite guarantee, so concurrently running agents are not affected.
 
-1. **No `ait skill invalidate` CLI.** The original task description mentions an `ait skill invalidate <profile>` CLI. Dropped: `ait` subcommands are reserved for user-facing commands. The helper is invoked only from Python save hooks via its full script path. Manual / debug runs use the same path.
-
-2. **No 7-touchpoint policy whitelist.** The original plan listed (incorrectly, 5) whitelist files. Dropped entirely: the helper is never invoked from inside an agent skill — only from Python `subprocess.run([...])` and from manual shell invocation. Neither path consults the per-agent allow-lists, so the entries would be dead weight.
-
-3. **Two save sinks, not one.** The original plan said to hook `ProfileEditScreen.on_save`. That widget doesn't write to disk itself — it dispatches to caller-supplied callbacks. The two actual save sinks are:
-   - `.aitask-scripts/settings/settings_app.py::ConfigMgr.save_profile()` (line 447) — used by the Settings TUI Profiles tab inline editor.
-   - `.aitask-scripts/lib/agent_command_screen.py::_on_profile_saved_persistent()` (line 786) — used by AgentCommandScreen's per-run "Save persistent" branch.
-
-   Both write YAML directly via `yaml.dump` / `yaml.safe_dump`. The hook must be added in **both** places. (`_on_profile_saved_one_shot()` at line 810 writes one-shot overrides to a `_skillrun_<pid>_<ts>.yaml` filename — these MUST NOT trigger invalidation; we only patch the persistent path.)
+**The helper is internal-only — no `ait` dispatcher entry, no policy whitelist.** It is shelled out from Python save hooks by its full path (`./.aitask-scripts/aitask_skill_rerender.sh`). The `ait` dispatcher is reserved for commands a human would plausibly type manually. The 7-touchpoint policy whitelist is required only for scripts called from inside an AI-agent skill — this one is called from Python TUI subprocess and from manual shell, neither of which consults the per-agent allow-lists.
 
 ## Critical files
 
 | Action | Path |
 |--------|------|
-| Create | `.aitask-scripts/aitask_skill_invalidate.sh` |
-| Create | `tests/test_skill_invalidate.sh` (automated tests) |
-| Modify | `.aitask-scripts/settings/settings_app.py` (hook in `ConfigMgr.save_profile`, line 447) |
-| Modify | `.aitask-scripts/lib/agent_command_screen.py` (hook in `_on_profile_saved_persistent`, line 786) |
+| Create | `.aitask-scripts/aitask_skill_rerender.sh` |
+| Create | `tests/test_skill_rerender.sh` |
+| Modify | `.aitask-scripts/settings/settings_app.py` (hook in `ConfigManager.save_profile`) |
+| Modify | `.aitask-scripts/lib/agent_command_screen.py` (hook in `_on_profile_saved_persistent`) |
 
-No edits to `ait` (see deviation #1) and no whitelist edits (see deviation #2).
+No edits to `ait`. No whitelist edits. `_on_profile_saved_one_shot()` is deliberately untouched: one-shot overrides write to `_skillrun_<pid>_<ts>.yaml` and do not represent edits to a base profile, so they must not trigger a re-render of base-profile dirs.
 
-## Implementation steps
+## Implementation
 
-### 1. `aitask_skill_invalidate.sh`
+### 1. `aitask_skill_rerender.sh`
 
 ```bash
 #!/usr/bin/env bash
-# aitask_skill_invalidate.sh - Delete per-profile rendered skill directories.
+# aitask_skill_rerender.sh - Refresh every rendered skill closure for one profile.
 #
-# Usage: aitask_skill_invalidate.sh <profile_name>
-#
-# Walks each agent's skill root and removes every directory whose name ends
-# in "-<profile_name>-" (the trailing-hyphen rendered-dir convention from
-# t777_3 / agent_skills_paths.sh). Authoring directories never end with `-`,
-# so this glob cannot accidentally hit them.
-#
-# Emits: "INVALIDATED:<N> directories for profile '<name>'" on stdout.
-# Idempotent: second run on the same profile emits INVALIDATED:0.
-
+# Usage: aitask_skill_rerender.sh <profile_name>
 set -euo pipefail
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# shellcheck source=lib/agent_skills_paths.sh
+# shellcheck source=.aitask-scripts/lib/agent_skills_paths.sh
 source "$SCRIPT_DIR/lib/agent_skills_paths.sh"
-# shellcheck source=lib/terminal_compat.sh
+# shellcheck source=.aitask-scripts/lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 
-profile="${1:?usage: aitask_skill_invalidate.sh <profile_name>}"
-deleted=0
+profile="${1:?usage: aitask_skill_rerender.sh <profile_name>}"
+rerendered=0
 for agent in claude codex gemini opencode; do
     root="$(agent_skill_root "$agent")" || continue
     [[ -d "$root" ]] || continue
     while IFS= read -r -d '' dir; do
-        info "Invalidating: $dir"
-        rm -rf -- "$dir"
-        deleted=$((deleted + 1))
+        base="$(basename "$dir")"
+        skill="${base%-"${profile}"-}"
+        [[ "$skill" == "$base" ]] && continue
+        template="$(agent_authoring_template "$skill")"
+        if [[ ! -f "$template" ]]; then
+            info "Skipping orphaned rendered dir (no template): $dir"
+            continue
+        fi
+        info "Re-rendering: $skill (profile=$profile, agent=$agent)"
+        "$SCRIPT_DIR/aitask_skill_render.sh" "$skill" \
+            --profile "$profile" --agent "$agent"
+        rerendered=$((rerendered + 1))
     done < <(find "$root" -maxdepth 1 -type d -name "*-${profile}-" -print0)
 done
-echo "INVALIDATED:$deleted directories for profile '$profile'"
+echo "RERENDERED:$rerendered (skill,agent) pairs for profile '$profile'"
 ```
 
 Notes:
-- Reuses the same 4-agent loop convention used elsewhere (no separate agent-list constant exists in the framework).
-- Uses `agent_skill_root` from `lib/agent_skills_paths.sh` instead of hard-coding paths.
-- `info()` comes from `terminal_compat.sh` (matches existing helper style).
-- `chmod +x` after creation.
+- No `--force` to the renderer: the profile YAML mtime was just bumped by the save, so the renderer's skip-if-fresh check naturally detects staleness and rebuilds. Subsequent calls for skills already refreshed via another skill's closure walk become no-ops.
+- Orphaned rendered dirs (rendered tree present, authoring template missing) are explicitly skipped — re-rendering them would fail. The helper does not delete them either; they wait for a separate cleanup pass.
+- 4-agent loop matches the framework convention (no separate agent-list constant exists; `_maybe_rerender_pickrem` uses the same literal list).
 
-### 2. Hook into `ConfigMgr.save_profile` (Settings TUI)
+### 2. Hook in `ConfigManager.save_profile` (Settings TUI)
 
-In `.aitask-scripts/settings/settings_app.py`, `ConfigMgr.save_profile` (line 447) is the canonical sink for the Settings TUI Profiles tab. `subprocess` is already imported (used by `_maybe_rerender_pickrem`).
+After the YAML write completes, call the helper via `subprocess.run` with `check=False, timeout=60`. `subprocess` is already imported in `settings_app.py` (used by `_maybe_rerender_pickrem`). Any OSError or timeout is silently ignored — the renderer's lazy mtime check is the correctness safety net.
 
-After the `with open(path, "w") ... yaml.dump(...)` block (line 454-455), before `self.profiles[filename] = data`, insert:
+### 3. Hook in `_on_profile_saved_persistent` (AgentCommandScreen)
 
-```python
-# Eager invalidate per-profile rendered skill directories so the next
-# wrapper invocation forces a fresh render. Lazy mtime check still
-# covers hand-edits outside the TUI.
-profile_name = Path(filename).stem  # "fast.yaml" -> "fast"
-try:
-    subprocess.run(
-        ["./.aitask-scripts/aitask_skill_invalidate.sh", profile_name],
-        check=False, capture_output=True, text=True, timeout=10,
-    )
-except (OSError, subprocess.TimeoutExpired):
-    pass  # Belt-and-suspenders: lazy check still catches staleness.
-```
+`agent_command_screen.py` already has the persistent-save sink (added by t777_17). Add `import subprocess` to the stdlib imports, then call the helper right after the success notify and before the override-clear / row-refresh block. Failures notify the user but do not block.
 
-`Path` is already imported (used in `_pickrem_rendered_paths`).
+`_on_profile_saved_one_shot()` is intentionally NOT hooked: one-shot overrides are throwaway YAMLs whose lifetime does not justify regenerating base-profile rendered closures.
 
-### 3. Hook into `_on_profile_saved_persistent` (AgentCommandScreen)
+### 4. Automated tests — `tests/test_skill_rerender.sh`
 
-In `.aitask-scripts/lib/agent_command_screen.py`, `_on_profile_saved_persistent` (line 786). After the successful YAML write (line 799) and the success notify (line 803), before the override-clear / refresh block:
+Modeled on `tests/test_skill_verify.sh`. The scratch workspace uses prefix `_t777_20_test_` and an `EXIT` trap for cleanup. Test coverage (8 cases, ~27 asserts):
 
-```python
-# Eager invalidate per-profile rendered skill directories (t777_20).
-import subprocess  # add at top if not present
-try:
-    subprocess.run(
-        ["./.aitask-scripts/aitask_skill_invalidate.sh", name],
-        check=False, capture_output=True, text=True, timeout=10,
-    )
-except (OSError, subprocess.TimeoutExpired):
-    self.app.notify(
-        "Profile saved but invalidation helper failed — next render "
-        "will still re-check freshness.",
-        severity="warning", timeout=5,
-    )
-```
+1. Helper exists and is executable.
+2. No-arg invocation fails with non-zero exit + usage message.
+3. Empty state → `RERENDERED:0`.
+4. **Orphaned rendered dirs (no authoring template) are skipped, not deleted.** Seeds `_t777_20_test_orphan_a-<profile>-/` etc. across all 4 agent roots; asserts dirs survive and helper reports `RERENDERED:0`.
+5. Unknown profile name → no-op `RERENDERED:0`.
+6. Missing agent root (rename one away) is handled gracefully; restored in cleanup.
+7. **End-to-end real-skill re-render.** Uses the project's real `aitask-pick` skill and `fast` profile (skipped if either fixture missing). Bumps `fast.yaml` mtime, runs the helper, asserts the rendered `aitask-pick-fast-/SKILL.md` mtime moved forward — confirms the renderer was actually invoked end-to-end.
+8. `shellcheck -x` clean.
 
-Check whether `subprocess` is already imported at the top of the file; if not, add it next to other stdlib imports. (`_on_profile_saved_one_shot` at line 810 is **deliberately untouched** — one-shot overrides write to `_skillrun_<pid>_<ts>.yaml` and the rendered dirs use the resolved base profile name, not the one-shot suffix.)
-
-### 4. Automated tests — `tests/test_skill_invalidate.sh`
-
-Model on `tests/test_skill_verify.sh` (same `assert_eq` / `assert_contains` / `assert_zero_exit` / `assert_nonzero_exit` helpers, same scratch-workspace pattern with a `_t777_20_test_` prefix and an `EXIT` trap cleanup). The script is hermetic — it creates scratch directories under each of the four real agent roots, runs the helper, and tears down on exit.
-
-Test cases (numbered for the test output):
-
-1. **Helper exists and is executable.** `[[ -x .aitask-scripts/aitask_skill_invalidate.sh ]]`.
-2. **No-arg usage fails.** Invoke without arguments → non-zero exit, stderr contains `usage`.
-3. **Idempotent on empty state.** Run with a profile name that has no rendered dirs → exits 0, stdout matches `INVALIDATED:0 directories`.
-4. **Deletes only trailing-hyphen dirs for the requested profile.** Pre-create across all 4 agent roots:
-   - Targets to delete: `<root>/_t777_20_test_skill_a-<profile>-/SKILL.md`, `<root>/_t777_20_test_skill_b-<profile>-/SKILL.md` — touch a file inside each so we know the whole tree got removed (not just the directory shell).
-   - Decoys that must survive: `<root>/_t777_20_test_skill_a/` (authoring — no trailing hyphen), `<root>/_t777_20_test_skill_a-<otherprofile>-/` (different profile, same prefix). Use `<profile>=t77720tfast` and `<otherprofile>=t77720tslow` — uncommon enough not to collide with real profiles.
-   - Run the helper; assert `INVALIDATED:8` (2 dirs × 4 agents), targets gone, decoys intact.
-5. **Second run is idempotent.** Re-run on the same profile after step 4 → `INVALIDATED:0`.
-6. **Skips missing agent roots gracefully.** Temporarily rename one agent root to a side path (e.g. `.opencode/skills` → `.opencode/skills.bak_t77720`), run the helper, assert zero exit and no error. Restore the directory in cleanup.
-7. **Unknown profile name is a no-op.** Run with a clearly non-existent profile name → exits 0, `INVALIDATED:0`.
-8. **`shellcheck` clean.** `shellcheck .aitask-scripts/aitask_skill_invalidate.sh` exits 0.
-
-The cleanup trap MUST run on every exit path:
-```bash
-cleanup() {
-    rm -rf .claude/skills/_t777_20_test_* .agents/skills/_t777_20_test_* \
-           .gemini/skills/_t777_20_test_* .opencode/skills/_t777_20_test_*
-    # Restore opencode/skills if it was renamed in test 6
-    [[ -d .opencode/skills.bak_t77720 && ! -d .opencode/skills ]] && \
-        mv .opencode/skills.bak_t77720 .opencode/skills
-}
-trap cleanup EXIT
-```
-
-This test runs standalone via `bash tests/test_skill_invalidate.sh` and prints a `PASSED: M / TOTAL: M` summary in the same shape as sibling test scripts.
+Cleanup trap removes all `_t777_20_test_*` directories from every agent root, and restores `.opencode/skills` if test 6 renamed it.
 
 ## Verification
 
-The automated tests in step 4 are the primary correctness gate. The checks below are end-to-end / manual:
+1. Automated tests pass: `bash tests/test_skill_rerender.sh` reports `FAIL: 0`.
+2. Settings TUI end-to-end (manual): `ait settings` → Profiles tab → edit `fast` → Save. Watch the rendered files under `.claude/skills/*-fast-/`: their mtimes advance and content reflects the YAML edits.
+3. AgentCommandScreen end-to-end (manual): in `ait board`, push an agent-command screen, edit profile, click "Save persistent". Same observation: rendered files refresh in place. "Save as one-shot" does NOT trigger a refresh.
+4. Lazy check still works: hand-edit `aitasks/metadata/profiles/fast.yaml` outside any TUI; do not run rerender; trigger a wrapper — renderer's skip-if-fresh still catches the mtime change and re-renders.
+5. `shellcheck -x .aitask-scripts/aitask_skill_rerender.sh` clean.
 
-1. **Automated tests pass:** `bash tests/test_skill_invalidate.sh` reports `FAIL: 0` for all 8 cases.
+## Pitfalls
 
-2. **Re-render restores deleted dirs:** After running `./.aitask-scripts/aitask_skill_invalidate.sh fast`, invoke any `/aitask-pick`-like wrapper that targets the `fast` profile — the renderer must recreate the deleted `<agent>/skills/*-fast-/` directories on first invocation.
-
-3. **Settings TUI end-to-end (manual):** Open `ait settings` → Profiles tab → edit `fast` → Save. Confirm the matching `*-fast-/` directories are gone. Next wrapper invocation re-renders them.
-
-4. **AgentCommandScreen end-to-end (manual):** In `ait board`, trigger an agent-command screen, edit profile, click "Save persistent". Confirm invalidation fired (`*-<profile>-/` dirs removed). The "Save as one-shot" button must NOT trigger invalidation (verify by saving a one-shot and confirming the base-profile rendered dirs are untouched).
-
-5. **Lazy check still works:** Hand-edit `aitasks/metadata/profiles/fast.yaml` outside any TUI; do not run invalidate; trigger a wrapper — the renderer's skip-if-fresh check must still detect the mtime change and re-render.
-
-## Pitfalls (carried forward, refined)
-
-- **One-shot overrides are intentionally excluded.** Saved-as-one-shot files use `_skillrun_<pid>_<ts>` filenames; invalidating their rendered dirs (which don't exist as separate entries — one-shots reuse the resolved base profile's render at runtime) would needlessly destroy other users' cache. Hook ONLY in the persistent paths.
-- **Concurrent agent reads.** If a skill is mid-execution reading a per-profile SKILL.md when invalidation deletes the directory, that read may fail. This is a documented limitation in CLAUDE.md (already flagged in parent t777 plan).
-- **Trailing-hyphen glob is load-bearing.** The `*-<profile>-` suffix ensures we never hit authoring directories (which by design never end with `-`, gitignored as `*-/`). Do NOT relax the glob.
+- **One-shot overrides are intentionally excluded.** Saved-as-one-shot files use `_skillrun_<pid>_<ts>` filenames; rerendering for those throwaway profiles would create transient rendered dirs that the next prune cycle would remove anyway.
+- **Cross-machine sync still relies on the lazy path.** A `git pull` that brings in a new profile YAML never triggers the eager hook — only the user who *typed the save* gets the synchronous refresh. The lazy mtime check covers the puller.
+- **Orphaned rendered dirs are preserved, not cleaned up.** If a skill's authoring template is removed but its rendered dirs persist, the helper logs and skips them. A separate cleanup pass (or a future enhancement) would be needed to garbage-collect orphans.
+- **Trailing-hyphen glob is load-bearing.** The `*-<profile>-` suffix ensures the helper never iterates authoring directories (which by design never end with `-`, gitignored as `*-/`). Do NOT relax the glob.
 
 ## Post-implementation
 
 Step 9 (post-implementation) of the task-workflow handles archival, branch cleanup, and push. Per profile 'fast' on current branch — no worktree created, no branch to merge.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-25)
+- **Requested by user:** Concern raised about the original `aitask_skill_invalidate.sh` design — race against running agents that have rendered procedure files open, plus the realization that eager invalidation does not provide correctness (the lazy mtime check already does).
+- **Changes made:** Replaced the rm-rf-based invalidation helper with `aitask_skill_rerender.sh`, which calls the regular renderer (atomic per-file overwrites). Updated both save hooks. Rewrote test suite with an end-to-end test that verifies real re-render of `aitask-pick-fast-/SKILL.md`.
+- **Files affected:** Created `.aitask-scripts/aitask_skill_rerender.sh` and `tests/test_skill_rerender.sh`; removed the never-committed `aitask_skill_invalidate.sh` and `test_skill_invalidate.sh`; updated hooks in `.aitask-scripts/settings/settings_app.py` and `.aitask-scripts/lib/agent_command_screen.py` (the latter's prior `aitask_skill_invalidate.sh` reference came in via the t777_17 commit).
+
+## Final Implementation Notes
+
+- **Actual work done:** New helper `aitask_skill_rerender.sh` (61 lines, shellcheck-x clean). Two save-hook patches: 11-line block in `settings_app.py::ConfigManager.save_profile`, 14-line block in `agent_command_screen.py::_on_profile_saved_persistent` (which already had its `import subprocess` and the old hook from t777_17 — converted in place). Test suite `tests/test_skill_rerender.sh` (8 test groups, 27 asserts including end-to-end re-render of `aitask-pick` against the real `fast` profile, all pass).
+- **Deviations from plan:** The mid-implementation pivot from invalidate (rm-rf) to re-render (synchronous renderer call) was driven by recognizing the race against running agents. See Post-Review Changes. Also dropped the original task description's `ait skill invalidate` CLI surface and 7-touchpoint whitelist entirely (the helper is never invoked from inside an agent skill, only from Python TUI subprocess).
+- **Issues encountered:** `shellcheck -x` flagged `SC2295` on `${base%-${profile}-}` — fixed by quoting the inner expansion: `${base%-"${profile}"-}`. First test draft had a decoy "authoring directory" with a real `SKILL.md.j2` that made an "orphan" test case appear non-orphaned and trigger a render error — renamed orphans to use a distinct `_t777_20_test_orphan_*` prefix so they could never collide with seeded templates.
+- **Key decisions:** No `--force` to the renderer: the profile YAML mtime was just bumped by the save, so skip-if-fresh naturally rebuilds stale files and avoids redundant work when a skill is reached transitively via another skill's closure walk. Hook timeout raised from the original 10 s to 60 s to give the renderer enough time across all skills × 4 agents on the first uncached run.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** The orphan-rendered-dir cleanup (rendered tree present, authoring template gone) is not handled — a future task could add a periodic prune. The 4-agent loop literal `claude codex gemini opencode` recurs across multiple helpers (`_maybe_rerender_pickrem`, `_pickrem_rendered_paths`, this helper, the test). If a 5th agent is ever added, all of those need updating; a shared bash array constant in `lib/agent_skills_paths.sh` would consolidate that.
