@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: [t822_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-24 09:31
-updated_at: 2026-05-25 16:50
+updated_at: 2026-05-25 18:03
+completed_at: 2026-05-25 18:03
 ---
 
 Create the bare-bones `ait applink` Textual TUI and a working QR-pairing screen. No transport wiring yet — this child delivers the TUI skeleton, dispatcher wiring, dependency declaration, and a QR pairing screen that consumes the token shape defined in t822_1.
