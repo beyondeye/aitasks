@@ -1,3 +1,7 @@
+project:
+  name: aitasks
+  git_remote: https://github.com/beyondeye/aitasks.git
+
 codeagent_coauthor_domain: aitasks.io
 test_command: null
 lint_command: null

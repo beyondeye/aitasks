@@ -228,3 +228,99 @@ verification-derived refinements folded in.)
 
 After implementation and review, follow the shared workflow's Step 9.
 No worktree to clean (profile `fast` works on the current branch).
+
+## Final Implementation Notes
+
+- **Actual work done:** All nine plan steps landed as designed.
+  - `seed/project_config.yaml` got a commented `project: { name,
+    git_remote }` template; `aitasks/metadata/project_config.yaml` is
+    populated with `name: aitasks` + the GitHub remote.
+  - `aitask_project_resolve.sh` implements the three-step fallback
+    (live tmux scan via `discover_aitasks_sessions()`, per-user index,
+    process env var).
+  - `aitask_projects.sh` implements all four verbs (`list`/`add`/
+    `resolve`/`exec`) with atomic registry writes and `last_opened`
+    preservation across re-adds.
+  - `ait` wires the `projects)` dispatcher case, adds `projects` to
+    the no-update-check exemption, and now exports `AIT_INVOCATION_PWD`
+    before its own `cd "$AIT_DIR"` so `cmd_add` sees the caller's pwd
+    instead of the script-anchored cwd.
+  - `aitask_ide.sh` invokes `aitask_projects.sh add "$(pwd)"` from
+    inside `set_project_registry()` (rather than at a single call
+    site), so all three callers (lines 127/136/149) auto-register.
+  - `aitask_create.sh` handles `--project` in `main()` before
+    `parse_args` (resolve → cd → exec); strips `--project <name>`
+    from the forwarded argv; rejects `--project` without `--batch`
+    and `--project` combined with `--parent`.
+  - `aidocs/cross_repo_references.md` documents the registry schema,
+    resolver order/output protocol, consumer surfaces, and the
+    `aitasks#835_3` notation regex.
+  - CLAUDE.md gained a "Cross-Repo Coordination" pointer.
+  - Three new tests under `tests/` cover the resolver matrix, the
+    `ait projects` round-trip, and the `--project` flag's three
+    validation cases plus the end-to-end redirect (35 assertions, all
+    green).
+- **Deviations from plan:**
+  - **Hook placement.** Plan said "after the existing `tmux
+    set-environment` call (line 109)"; placed it *inside*
+    `set_project_registry()` (lines 108–110) so all three call sites
+    benefit. Used `$SCRIPT_DIR` (singular) per the script's actual
+    variable.
+  - **Registry TSV separator.** Initially used `\t`, which collapsed
+    consecutive empty fields under `read -r`'s whitespace IFS handling
+    (empty `git_remote` then `last_opened` got mis-assigned). Switched
+    every TSV use to `|` (non-whitespace), then extended
+    `list_registry_entries` to emit a 4-field row (name, path, remote,
+    last_opened) so `last_opened` survives re-adds for other entries.
+  - **`AIT_INVOCATION_PWD` capture in `ait`.** Added a one-line export
+    before the existing `cd "$AIT_DIR"` so `cmd_add` defaults to the
+    caller's pwd instead of the script's. Without this, `ait projects
+    add` always registered the ait wrapper's own project regardless of
+    the invocation directory.
+- **Issues encountered:**
+  - `env_lookup_path` initially returned non-zero when the env var was
+    empty (last command was a failed `[[ -n ... ]]`), which made the
+    enclosing command substitution exit non-zero and aborted the
+    resolver under `set -euo pipefail`. Fixed by replacing the
+    `&&`-chain with an `|| return 0` guard.
+  - One `BATCH_PROJECT` SC2034 (dead var) and two SC2016s (intentional
+    backticks in single-quoted YAML header) showed up under shellcheck.
+    Dead var deleted; SC2016s disabled inline.
+- **Key decisions:**
+  - Resolver step 3 is a *process* env var fallback (not the
+    tmux-global env that `discover_aitasks_sessions()` already covers
+    via `_read_registry_entry()`). Documented this explicitly in the
+    aidoc so future readers don't try to consolidate the two.
+  - The resolver is *internal* and not whitelisted; consumers go
+    through `ait projects resolve <name>` or shell out to
+    `aitask_projects.sh` / `aitask_create.sh --project`. Skills never
+    call it directly (per
+    `feedback_whitelist_only_for_skill_invoked_helpers`).
+  - `ait create --batch --project X --parent Y` is rejected (cross-
+    project parent linkage is explicitly out of scope for v1; the
+    notation is documented but no parser exists yet).
+- **Upstream defects identified:** None — `ait`'s blanket
+  `cd "$AIT_DIR"` was a pre-existing design choice, not a bug; the
+  `AIT_INVOCATION_PWD` capture is a small forward-looking addition,
+  not a fix.
+- **Notes for sibling tasks:**
+  - **t826_2 (TUI switcher inactive projects):** the registry surface
+    is `~/.config/aitasks/projects.yaml`; iterate via
+    `aitask_projects.sh list` (TSV-friendly via list_registry_entries)
+    or by calling the resolver per name. Live-vs-OK-vs-STALE
+    annotation is already in `cmd_list` — reuse the same string
+    constants for consistency. Status semantics:
+      * `LIVE` — currently a live tmux session (resolved via
+        `discover_aitasks_sessions()`).
+      * `OK` — registered, path still holds the marker file.
+      * `STALE` — registered, marker file missing.
+  - **t826_3 (website workflow doc):** the authoring-side aidoc at
+    `aidocs/cross_repo_references.md` is the source of truth for the
+    registry schema, resolver order, and `aitasks#835_3` notation.
+    The website page should *cross-reference* that aidoc rather than
+    re-derive the schema (per CLAUDE.md: "redirect cross-refs now,
+    defer content migration").
+  - **Sister-repo population (out of scope):** for the registry to
+    cover `aitasks_mobile`, that repo's `aitasks/metadata/
+    project_config.yaml` needs its own `project:` block — a one-line
+    follow-up task in the sister repo.
