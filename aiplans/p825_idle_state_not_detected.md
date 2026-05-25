@@ -275,3 +275,56 @@ time only if actually identified during implementation):
   patterns against a live pane.
 - Per-pane agent detection so we can match only the relevant per-agent
   pattern group instead of `all_patterns()`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-25 15:30)
+- **Requested by user:** Document the prompt-pattern file in `aidocs/`
+  (referenced from `CLAUDE.md`) so future contributors know where to add
+  new patterns when the monitor fails to flag an agent as idle / awaiting.
+- **Changes made:** Added `aidocs/monitor_idle_and_prompt_detection.md`
+  covering when to edit `prompt_patterns.py`, what NOT to do
+  (dot-stripping, YAML-ifying patterns, applying to non-AGENT panes), the
+  matching pipeline, and the UI rendering contract. Added a CLAUDE.md
+  pointer under `## TUI Development` next to the `tui_conventions.md` and
+  `python_tui_performance.md` pointers.
+- **Files affected:** `aidocs/monitor_idle_and_prompt_detection.md` (new),
+  `CLAUDE.md`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. New
+  `prompt_patterns.py` module with per-agent regex registry; extended
+  `PaneSnapshot` and `TmuxMonitor` (new `prompt_patterns` kwarg) and
+  `_finalize_capture` with positive prompt detection gated on AGENT panes;
+  added `format_pane_status()` helper in `monitor_shared.py` and wired the
+  three status-render sites through it; added `awaiting` count to both
+  session bars with idle-decrement so PROMPT panes do not double-count;
+  taught `_maybe_auto_switch` (the actual method name — the plan called it
+  `_switch_to_idle`) to prefer awaiting panes over idle ones. Six new
+  tests in `tests/test_prompt_detection.py`, all PASS; `t715` compare-mode
+  tests still PASS.
+- **Deviations from plan:**
+  1. The plan said "monitor_app.py `_switch_to_idle()`" but the actual
+     method is `_maybe_auto_switch`. Same intent.
+  2. The minimonitor agent line previously rendered `"ok"` for active
+     panes; the plan called for replacing the inline status with
+     `format_pane_status(snap)`, which returns `"Active"`. Followed the
+     plan — minor user-visible label change.
+  3. Plan referenced "monitor_app.py:117 area (AgentBar / one-line bar)"
+     but there is no `AgentBar` class; the equivalent is `SessionBar`. Added
+     awaiting + idle counts to `SessionBar`'s rendered output and updated
+     the docstring (previously claimed it showed idle count but never did).
+  4. Added Post-Review docs change request 1 in response to user feedback
+     after the initial review prompt — see above.
+- **Issues encountered:** None of significance.
+- **Key decisions:**
+  - Dot color also follows the `awaiting > idle > active` priority
+    (magenta / yellow / green) in both monitor and minimonitor agent
+    cards, so the visual scan matches the status badge.
+  - Documented the file location (`prompt_patterns.py`) and the editing
+    contract in a dedicated `aidocs/` file (rather than folding into
+    `tui_conventions.md`) because the module is non-UI and the editing
+    trigger ("monitor fails to flag agent X as idle") is its own concrete
+    use case.
+- **Upstream defects identified:** None.
