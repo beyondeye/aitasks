@@ -32,26 +32,38 @@ pipelines include.
 
 The two pipelines use **different** include mechanisms:
 
-| Pipeline | Renderer | Include syntax | Base dir |
-|----------|----------|----------------|----------|
-| detailer.md | `resolve_template_includes()` (bash, in `agentcrew_utils.sh`) | `<!-- include: X -->` | `.aitask-scripts/brainstorm/templates/` |
+| Pipeline | Renderer | Include syntax | Base dir(s) |
+|----------|----------|----------------|-------------|
+| detailer.md | `resolve_template_includes()` (bash, in `agentcrew_utils.sh`) | `<!-- include: X -->` | single base dir (today) — `.aitask-scripts/brainstorm/templates/` |
 | planning.md | minijinja via `skill_template.py` dep-walker | `{% include "X" %}` | minijinja `load_from_path` = `[<skill dir>, <skills root>]` |
 
-The canonical fragment must live at
-`.aitask-scripts/brainstorm/templates/_plan_contract.md` (requirement #1).
-detailer.md reaches it trivially (same dir). minijinja's loader for planning.md
-currently searches only `.claude/skills/task-workflow/` and `.claude/skills/`
-— it cannot see the brainstorm `templates/` dir.
+The canonical fragment lives at a **neutral, shared-includes location**:
+`.aitask-scripts/skill_templates/_plan_contract.md`. Parking it under
+`brainstorm/templates/` would mis-signal ownership — the fragment is shared
+between brainstorm (`detailer.md`) and a skill (`planning.md`), neither of
+which is privileged. A dedicated `skill_templates/` dir also makes the
+"includes only, never rendered standalone" intent explicit.
 
-**Chosen bridge: extend the minijinja include search path.** `render_skill()`
-in `skill_template.py` will add `<repo>/.aitask-scripts/brainstorm/templates/`
-to its `load_from_path` list. planning.md then uses
-`{% include "_plan_contract.md" %}` and minijinja resolves it to the same
-canonical file the bash resolver uses. This keeps a true single source of
-truth — no symlink, no copy, no second drift surface — and the renderer change
-is ~10 lines. (Rejected: a symlink in the skills tree is portability-fragile
+**Chosen bridge: teach both resolvers about the neutral dir.**
+
+1. **Bash side:** extend `resolve_template_includes()` to accept multiple
+   base dirs and search them in order. Callers pass their primary dir (e.g.
+   the work2do dir for crew agents) plus a fallback to
+   `.aitask-scripts/skill_templates/`. This lets `detailer.md` keep
+   `<!-- include: _section_format.md -->` (brainstorm-local) AND add
+   `<!-- include: _plan_contract.md -->` (resolved against the neutral dir).
+   `_section_format.md` stays where it is — it is brainstorm-specific.
+2. **minijinja side:** `render_skill()` in `skill_template.py` adds
+   `<repo>/.aitask-scripts/skill_templates/` to its `load_from_path` list.
+   planning.md uses `{% include "_plan_contract.md" %}` and minijinja resolves
+   it to the same canonical file the bash resolver uses.
+
+This keeps a true single source of truth — no symlink, no copy, no second
+drift surface. Rejected: a symlink in the skills tree is portability-fragile
 and confuses the dep-walker's tree scan; pre-resolving `<!-- include -->` in
-Python would re-implement the bash resolver — ironic for a de-dup task.)
+Python would re-implement the bash resolver — ironic for a de-dup task.
+Rejected (earlier draft): keeping the fragment under `brainstorm/templates/`
+— rejected because the fragment is not brainstorm-owned.
 
 **Staleness closure:** minijinja resolves `{% include %}` *during* render, so
 an included file never appears in the dep-walker's closure `plan` list and
@@ -81,7 +93,9 @@ detailer.md as a thin overlay around the include.
 
 ### Step 1 — Create the canonical fragment
 
-**New file:** `.aitask-scripts/brainstorm/templates/_plan_contract.md`
+**New file:** `.aitask-scripts/skill_templates/_plan_contract.md`
+**New dir:** `.aitask-scripts/skill_templates/` (dedicated to includes-only,
+shared between bash crew templates and minijinja skill templates).
 
 Marker-free markdown. No `{{ }}` / `{% %}` (it is rendered verbatim by
 minijinja) and no `*.md` filename mentions (so the dep-walker's ref scanner
@@ -185,13 +199,74 @@ The `{% include %}` tag sits at column 0 on its own line; the fragment's
 `### …` headers render as sub-sections of `## 6.1: Planning`. This is the
 first `{% include %}` used by any skill `.md` (verified: none exist today).
 
-### Step 4 — Extend the minijinja renderer (the bridge + staleness)
+### Step 4a — Extend the bash resolver (`resolve_template_includes`)
+
+**File:** `.aitask-scripts/lib/agentcrew_utils.sh`
+
+Today the resolver takes a single `base_dir`. Extend it to accept multiple
+base dirs and search them in order; the first hit wins. This lets the
+brainstorm detailer keep `_section_format.md` next to it (resolved against
+the brainstorm templates dir) AND add `_plan_contract.md` (resolved against
+the neutral `skill_templates/` dir).
+
+```bash
+# resolve_template_includes <base_dir> [base_dir2 ...]
+# Reads template content from stdin, writes resolved content to stdout.
+# Resolves <!-- include: filename --> directives by searching each base_dir
+# in order. The first existing match wins. One-level only. Missing includes
+# emit a warning and preserve the directive line as-is.
+resolve_template_includes() {
+    local base_dirs=("$@")
+    [[ ${#base_dirs[@]} -eq 0 ]] && die "resolve_template_includes: requires at least one base_dir"
+    local line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ \<\!--[[:space:]]+include:[[:space:]]+([^[:space:]]+)[[:space:]]+--\> ]]; then
+            local inc_name="${BASH_REMATCH[1]}"
+            local found=""
+            for d in "${base_dirs[@]}"; do
+                if [[ -f "$d/$inc_name" ]]; then
+                    found="$d/$inc_name"
+                    break
+                fi
+            done
+            if [[ -n "$found" ]]; then
+                cat "$found"
+            else
+                warn "Template include not found in any base_dir: $inc_name"
+                printf '%s\n' "$line"
+            fi
+        else
+            printf '%s\n' "$line"
+        fi
+    done
+}
+```
+
+Update the lone production caller in `aitask_crew_addwork.sh`:
+
+```bash
+# Before:
+WORK2DO_CONTENT="$(printf '%s\n' "$WORK2DO_CONTENT" | resolve_template_includes "$WORK2DO_DIR")"
+# After:
+SKILL_TEMPLATES_DIR="$(cd "$AIT_REPO_ROOT/.aitask-scripts/skill_templates" 2>/dev/null && pwd || true)"
+if [[ -n "$SKILL_TEMPLATES_DIR" ]]; then
+    WORK2DO_CONTENT="$(printf '%s\n' "$WORK2DO_CONTENT" | resolve_template_includes "$WORK2DO_DIR" "$SKILL_TEMPLATES_DIR")"
+else
+    WORK2DO_CONTENT="$(printf '%s\n' "$WORK2DO_CONTENT" | resolve_template_includes "$WORK2DO_DIR")"
+fi
+```
+
+(`AIT_REPO_ROOT` already resolved by `ait` dispatcher; verify the exact var
+name at implementation time and fall back to a repo-root finder helper if
+needed.)
+
+### Step 4b — Extend the minijinja renderer (the bridge + staleness)
 
 **File:** `.aitask-scripts/lib/skill_template.py`
 
-1. Add a repo-root finder and the brainstorm-templates include dir, with no
-   change to `render_skill()`'s signature (so the legacy CLI path used by the
-   golden tests keeps working):
+1. Add a repo-root finder and the shared-includes dir, with no change to
+   `render_skill()`'s signature (so the legacy CLI path used by the golden
+   tests keeps working):
    ```python
    def _find_repo_root(start: Path) -> Path | None:
        for p in [start, *start.parents]:
@@ -203,9 +278,9 @@ first `{% include %}` used by any skill `.md` (verified: none exist today).
        dirs = [template_path.parent, template_path.parent.parent]
        root = _find_repo_root(template_path)
        if root is not None:
-           bt = root / ".aitask-scripts" / "brainstorm" / "templates"
-           if bt.is_dir():
-               dirs.append(bt)
+           st = root / ".aitask-scripts" / "skill_templates"
+           if st.is_dir():
+               dirs.append(st)
        return dirs
    ```
 2. In `render_skill()`, build `load_from_path` from `_include_search_dirs(...)`
@@ -251,10 +326,15 @@ goldens change; `SKILL-*`, `manual-verification-followup-*`,
   - Add a planning.md agent byte-identity check (the include resolves
     agent-agnostically — same shape as the existing Test 2 for SKILL.md).
 - **`tests/test_crew_template_includes.sh`**
-  - Add Test 8: copy the real `detailer.md` + `_section_format.md` +
-    `_plan_contract.md` into a temp `templates/` dir, run
-    `resolve_template_includes`, assert the contract content appears and no
-    residual `<!-- include:` directive remains.
+  - Update the existing tests' invocations to the new variadic signature
+    (one base dir still works — backward-compatible).
+  - Add Test 8: multi-base-dir resolution. Place an include target in a
+    secondary base dir and confirm the resolver finds it after the primary
+    dir misses. Use the real `detailer.md` + `_section_format.md` (primary
+    dir) + `_plan_contract.md` (secondary dir), run
+    `resolve_template_includes <primary> <secondary>`, assert both
+    `_section_format.md` and the contract content appear and no residual
+    `<!-- include:` directive remains.
 
 ### Step 7 — Cross-agent port (requirement #5)
 
@@ -287,13 +367,15 @@ byte-identical planning.md output (Step "Verification" below).
 
 | File | Change |
 |------|--------|
-| `.aitask-scripts/brainstorm/templates/_plan_contract.md` | **new** — canonical fragment |
-| `.aitask-scripts/brainstorm/templates/detailer.md` | include the fragment; drop duplicated `## Rules` + section bodies |
+| `.aitask-scripts/skill_templates/_plan_contract.md` | **new** — canonical fragment (new dir) |
+| `.aitask-scripts/brainstorm/templates/detailer.md` | include the fragment (resolved against new neutral dir); drop duplicated `## Rules` + section bodies |
 | `.claude/skills/task-workflow/planning.md` | `{% include "_plan_contract.md" %}` in §6.1 |
-| `.aitask-scripts/lib/skill_template.py` | extend minijinja loader path; track `{% include %}` staleness |
+| `.aitask-scripts/lib/agentcrew_utils.sh` | `resolve_template_includes()` accepts multiple base dirs |
+| `.aitask-scripts/aitask_crew_addwork.sh` | pass `skill_templates/` as fallback base dir |
+| `.aitask-scripts/lib/skill_template.py` | extend minijinja loader path with `skill_templates/`; track `{% include %}` staleness |
 | `tests/golden/procs/task-workflow/planning-{default,fast,remote}.md` | regenerated |
 | `tests/test_skill_render_task_workflow.sh` | new assertions |
-| `tests/test_crew_template_includes.sh` | new Test 8 |
+| `tests/test_crew_template_includes.sh` | new Test 8 for multi-base-dir resolution |
 
 ## Verification
 
@@ -310,7 +392,9 @@ byte-identical planning.md output (Step "Verification" below).
 3. **Closure verify** — `./.aitask-scripts/aitask_skill_verify.sh` passes
    (its `walk-check` renders planning.md through the new loader path).
 4. **Brainstorm include** — `resolve_template_includes` on the real
-   `detailer.md` yields the contract content and no residual directive.
+   `detailer.md` (with both `brainstorm/templates/` and `skill_templates/`
+   as base dirs) yields both `_section_format.md` content and the contract
+   content, with no residual directive.
 5. **Test suites**
    ```bash
    bash tests/test_skill_render_task_workflow.sh
@@ -328,3 +412,185 @@ byte-identical planning.md output (Step "Verification" below).
 
 Follow **Step 9** of the task-workflow: review (Step 8), commit code +
 plan separately, archive t818, push.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-25 — first user review)
+
+- **Requested by user:**
+  1. planning.md must not pull in the detailer's contract verbatim — the two
+     specs are similar but **not equal**. planning.md's included fragment
+     must match the *current* planning.md spec verbatim.
+  2. detailer.md was structurally rewritten by the refactor: the
+     `<!-- section: ... -->` markers (parsed by `ait brainstorm` to identify
+     sections and dimensions) moved from inline section bodies into a
+     separated "Section markers" subsection. **detailer.md must remain
+     byte-identical to its pre-task state.**
+  3. The architectural mistake was unifying the contract across two
+     pipelines that have different structures (detailer: two-level
+     proposal + plan; planning.md: single-level plan). Keep them separate.
+- **Changes made:**
+  1. Reverted detailer.md to its committed (pre-task) content (verified
+     `git diff` empty for that file).
+  2. Deleted `.aitask-scripts/skill_templates/_plan_contract.md` (the
+     unified fragment) and replaced it with
+     `.aitask-scripts/skill_templates/_planning_plan_contract.md`, whose
+     body is the current planning.md "Detailed" spec **verbatim** (same
+     four-line bullet, same indentation). Switched the include directive
+     to `{%- include "_planning_plan_contract.md" -%}` (whitespace strip)
+     so the rendered planning.md is byte-identical to its committed
+     pre-task version (verified `git diff` empty for all three
+     `tests/golden/procs/task-workflow/planning-*.md`).
+  3. `test_skill_render_task_workflow.sh` Test 2c: replaced the
+     contract-Verification-Checklist assertions with positive checks for
+     the planning-specific phrasing AND **negative** checks that ensure
+     detailer-specific headings (`Verification Checklist`, `### Authoring
+     Rules`) do NOT leak into planning.md — this regresses if anyone
+     re-unifies the two contracts.
+  4. `test_crew_template_includes.sh` Test 8: rewrote in terms of
+     synthetic fragments (`_primary_only.md`, `_fallback_only.md`) so it
+     still exercises multi-base-dir resolution + first-hit-wins + missing-
+     in-all-dirs semantics without depending on a (now non-existent)
+     shared brainstorm-side include. Removed Test 9 entirely (its
+     real-file dependency on detailer.md importing `_plan_contract.md` no
+     longer holds).
+- **Preserved (per user's "preserve this refactoring"):**
+  - `.aitask-scripts/skill_templates/` directory as a neutral home for
+    skill-side template fragments.
+  - `resolve_template_includes()` multi-base-dir capability (general infra
+    even though brainstorm uses single-dir today).
+  - `aitask_crew_addwork.sh` passes `skill_templates/` as fallback base
+    dir — harmless when the include is brainstorm-local, useful if a
+    future brainstorm template wants to consume a shared fragment.
+  - `skill_template.py`: `_find_repo_root`, `_include_search_dirs`,
+    `INCLUDE_RE`, `_resolve_include_deps`, and the include-deps fold into
+    `_is_stale` — minijinja `{% include %}` is now first-class with
+    correct staleness propagation.
+- **Files affected:**
+  - `.aitask-scripts/brainstorm/templates/detailer.md` (reverted)
+  - `.aitask-scripts/skill_templates/_plan_contract.md` (deleted)
+  - `.aitask-scripts/skill_templates/_planning_plan_contract.md` (new)
+  - `.claude/skills/task-workflow/planning.md` (include line + whitespace
+    strip)
+  - `tests/golden/procs/task-workflow/planning-{default,fast,remote}.md`
+    (re-regenerated — now byte-identical to pre-task committed state)
+  - `tests/test_skill_render_task_workflow.sh` (Test 2c rewritten +
+    negative anti-leak assertions)
+  - `tests/test_crew_template_includes.sh` (Test 8 rewritten with
+    synthetic fragments, Test 9 removed)
+
+### Change Request 2 (2026-05-25 — second user review)
+
+- **Requested by user:** "Since jinja templating is not used in practice in
+  any of brainstorm ops, how can we document that it is supported? Can
+  you introduce a short fragment (the main planning instructions) from
+  the detailer, without messing up with sections and dimensions comments,
+  so that we have templating active and tested in unit tests?"
+- **Reading:** Change Request 1 reverted detailer.md, which left the new
+  `.aitask-scripts/skill_templates/` neutral dir with no brainstorm-side
+  consumer — the bridge infrastructure existed but was never crossed in
+  production. User wants the bridge actually exercised (not just
+  capability-tested in synthetic fixtures).
+- **Changes made:**
+  1. Extracted detailer.md's `## Rules` body (5 numbered authoring rules,
+     lines 84–95 of the pre-task file) into
+     `.aitask-scripts/skill_templates/_detailer_rules.md` — verbatim.
+     Chose `## Rules` because it lives **outside** all
+     `<!-- section: ... -->` markers (no risk to brainstorm's section/
+     dimensions parsing) and is the closest thing detailer.md has to
+     general "planning instructions".
+  2. Replaced the extracted body in detailer.md with a single line
+     `<!-- include: _detailer_rules.md -->`. After bash resolution
+     through `(brainstorm/templates/, skill_templates/)`, detailer.md
+     reads byte-identically to its pre-task content — verified by
+     resolving and diffing against `git show HEAD:detailer.md` (the only
+     residual diff is the pre-existing `_section_format.md` include,
+     which also expanded — that's identical behavior to pre-task).
+  3. Added Test 9 in `test_crew_template_includes.sh` covering the
+     **production** bridge: runs the resolver on the real `detailer.md`
+     with both real dirs and asserts (a) rule prose appears, (b) the
+     include directive is gone, (c) brainstorm's section markers
+     (`prerequisites`, `step_by_step`, `verification`) are still in
+     their original positions with their `dimensions:` attributes
+     intact, (d) **without** the `skill_templates/` fallback the
+     resolver warns about the missing include — proving the fragment
+     genuinely lives in the neutral dir and is not silently shadowed by
+     a stray copy under `brainstorm/templates/`.
+  4. Added `.aitask-scripts/skill_templates/README.md` documenting the
+     dir's role: production consumers (planning.md and detailer.md), the
+     two renderer pipelines that search it (minijinja loader + bash
+     resolver), staleness behavior, and which test files exercise each
+     side.
+- **Files affected:**
+  - `.aitask-scripts/brainstorm/templates/detailer.md` (Rules body
+    replaced by `<!-- include: _detailer_rules.md -->`; section markers
+    untouched)
+  - `.aitask-scripts/skill_templates/_detailer_rules.md` (new — verbatim
+    Rules content)
+  - `.aitask-scripts/skill_templates/README.md` (new — bridge
+    documentation)
+  - `tests/test_crew_template_includes.sh` (new Test 9 covering the
+    production bridge + missing-fallback warning path)
+
+## Final Implementation Notes
+
+- **Actual work done:** Extended the framework's template-include
+  infrastructure so minijinja-rendered skill templates and bash-resolved
+  brainstorm templates share a common neutral fragments dir
+  (`.aitask-scripts/skill_templates/`). Both pipelines now actively cross
+  the bridge in production: `task-workflow/planning.md` includes
+  `_planning_plan_contract.md` (minijinja side), and
+  `brainstorm/templates/detailer.md` includes `_detailer_rules.md` (bash
+  side). The two fragments contain pipeline-specific content — the dir
+  shares infrastructure, not content. README at
+  `.aitask-scripts/skill_templates/README.md` documents the bridge.
+- **Deviations from plan:** The original plan unified the contract across
+  detailer.md and planning.md. User review (Change Request 1) rejected the
+  unification because the two pipelines have fundamentally different
+  structures (two-level proposal+plan vs single-level plan) and because
+  the detailer's `<!-- section: ... -->` markers are parsed by
+  `ait brainstorm` and must stay in their original positions. Final state
+  keeps the infrastructure but uses **separate** per-pipeline contracts.
+  User review (Change Request 2) then asked that the bridge actually be
+  exercised on the brainstorm side (not only on the skill side), so a
+  short safe fragment (the 5 `## Rules` authoring rules — outside all
+  section markers) was extracted from detailer.md into the shared dir.
+  Final detailer.md is byte-identical post-resolution to its pre-task
+  content (verified).
+- **Issues encountered:**
+  - Initial fragment HTML comment contained literal `{% include %}` syntax
+    which tripped the minijinja parser inside planning.md's render — fixed
+    by rephrasing the comment to avoid the literal Jinja tag syntax (later
+    moot when the fragment was replaced).
+  - `{% include "..." %}` without whitespace-control inserted leading and
+    trailing blank lines in the rendered output, breaking byte-identity
+    with the pre-task planning.md golden. Switched to `{%- ... -%}` (strip
+    both sides). The Jinja-only comment `{# ... #}` inside the fragment is
+    invisible to minijinja's renderer, preserving verbatim output.
+  - `walk_closure()` needed to read each source file's RAW text (pre-render)
+    to capture `{% include %}` directives even when conditionals would
+    suppress execution — added a separate `src.read_text()` call before
+    `render_skill()` for include-dep scanning. Without this, profile-gated
+    include sites would silently bypass staleness tracking.
+- **Key decisions:**
+  - Multi-base-dir resolver design (variadic args, first-hit-wins) chosen
+    over keyword args or a separate "shared" arg to keep the interface
+    minimal and backward-compatible (callers passing a single dir still
+    work — tests 1–7 unchanged).
+  - `_resolve_include_deps()` collects deps across the entire closure walk
+    (set union), folded once into `_is_stale()` — avoids re-resolving
+    includes on every staleness check and correctly handles the case where
+    multiple sources include the same fragment.
+  - `aitask_crew_addwork.sh`'s skill_templates fallback now has a
+    production consumer (`detailer.md` → `_detailer_rules.md`); the
+    fallback search is no longer hypothetical.
+  - Chose `## Rules` for the brainstorm-side extraction because it is the
+    largest detailer.md region that lives **outside** all
+    `<!-- section: ... -->` markers — a fragment containing or
+    surrounding a marker would change the marker's textual position in
+    the rendered file, which `ait brainstorm`'s section parser would
+    see. Test 9 pins this by asserting all three section markers
+    (`prerequisites`, `step_by_step`, `verification`) and their
+    `dimensions:` attributes still appear in the post-resolution output.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** N/A (parent task, no children).
