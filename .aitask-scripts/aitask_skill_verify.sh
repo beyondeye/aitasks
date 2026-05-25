@@ -166,4 +166,16 @@ if (( failures > 0 )); then
     exit 1
 fi
 
+# --- Parity check (t777_27): runtime vs rendered, against frozen pre-rewrite
+# fixtures. Skipped silently if the fixtures are not present (e.g., on a
+# checkout that predates Phase 1 of t777_27).
+PARITY_TEST="$REPO_ROOT/tests/test_skill_parity_runtime_vs_rendered.sh"
+PARITY_FIXTURES="$REPO_ROOT/tests/fixtures/skills/aitask-pick/SKILL.md.pre-rewrite"
+if [[ -f "$PARITY_TEST" && -f "$PARITY_FIXTURES" ]]; then
+    if ! bash "$PARITY_TEST" >/dev/null 2>&1; then
+        echo "VERIFY_FAIL: parity test failed — run: bash $PARITY_TEST" >&2
+        exit 1
+    fi
+fi
+
 echo "aitask_skill_verify.sh: OK (${#templates[@]} template(s) verified across ${#agents[@]} agents)"
