@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [777]
 issue_type: test
-status: Implementing
+status: Done
 labels: [testing, test_infrastructure, triage]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-18 18:58
-updated_at: 2026-05-25 17:34
+updated_at: 2026-05-25 18:09
+completed_at: 2026-05-25 18:09
 boardidx: 20
 ---
 
