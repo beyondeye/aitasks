@@ -186,3 +186,41 @@ Standard task-workflow Step 9 cleanup:
   `aitasks/metadata/project_config.yaml`).
 - `./.aitask-scripts/aitask_archive.sh 823` to archive the task.
 - `./ait git push` after archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly as planned. One-line change in
+  `.aitask-scripts/lib/desync_state.py:45-46` switching `repo_root()`
+  from `Path(__file__).resolve().parents[2]` to `Path.cwd().resolve()`,
+  plus one new regression test
+  `test_repo_root_follows_cwd_not_helper_location` in
+  `tests/test_desync_state.py` that installs the helper in one project
+  and invokes it with `cwd=<other project>`, asserting the output
+  reflects the cwd project.
+- **Deviations from plan:** Minor test-scaffold tweaks discovered during
+  execution: (1) `make_main_project(root / "a")` requires its target
+  directory to exist beforehand — added explicit `(root / "a").mkdir()`
+  and `(root / "b").mkdir()` calls; (2) after `git clone` the cloned
+  copy needs `git checkout main` before its first commit/push (matches
+  the pattern in `test_json_lines_and_text_for_remote_ahead_main`). No
+  semantic changes to the test logic.
+- **Issues encountered:** None blocking. Confirmed the new test fails
+  with the legacy `repo_root()` and passes with the fix
+  (stash/unstash round-trip).
+- **Key decisions:** Stuck with `Path.cwd().resolve()` rather than
+  adding a `--repo-root` CLI flag. Every existing caller already sets
+  cwd correctly, so the CLI flag would have been YAGNI surface area.
+- **Upstream defects identified:** `tests/test_desync_state.py` test
+  `test_changelog_warns_for_data_desync_and_ignores_bad_helper_output`
+  is a pre-existing failure unrelated to this task — it dies inside
+  `copy_changelog()` because that helper does not copy
+  `.aitask-scripts/lib/yaml_utils.sh`, which `task_utils.sh:16` now
+  sources. Confirmed via `git stash` round-trip that the failure
+  reproduces on `main` without any of this task's changes. Defect
+  location: `tests/test_desync_state.py:49 — copy_changelog() lib-file
+  list omits yaml_utils.sh, so aitask_changelog.sh --gather crashes
+  in test scaffold`.
+- **Build verification:** Skipped — no `verify_build` configured. Test
+  suite verification: 5 of 6 tests pass; the 1 failure is the
+  pre-existing `test_changelog_warns_for_data_desync_and_ignores_bad_helper_output`
+  listed above (not caused by this change).
