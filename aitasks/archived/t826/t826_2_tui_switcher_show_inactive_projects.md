@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t826_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [tui, tui_switcher, cross_repo]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-25 17:17
-updated_at: 2026-05-25 23:07
+updated_at: 2026-05-25 23:22
+completed_at: 2026-05-25 23:22
 ---
 
 ## Context
