@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t777_26]
 issue_type: test
-status: Implementing
+status: Done
 labels: [tests, t777, skill-templates]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-23 23:39
-updated_at: 2026-05-25 16:45
+updated_at: 2026-05-25 17:00
+completed_at: 2026-05-25 17:00
 ---
 
 # Goal
