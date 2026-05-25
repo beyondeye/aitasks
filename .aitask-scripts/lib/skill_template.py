@@ -56,12 +56,39 @@ AGENT_ROOTS = {
 SOURCE_AGENT_ROOT = ".claude/skills"  # Claude is source of truth (t777_1).
 
 
+# Cross-pipeline include bridge (t818): shared markdown fragments live in
+# .aitask-scripts/skill_templates/ and are consumed by both the bash crew
+# template resolver (resolve_template_includes in agentcrew_utils.sh) and
+# this minijinja renderer via {% include %}.
+def _find_repo_root(start: Path) -> Path | None:
+    for p in [start, *start.parents]:
+        if (p / ".aitask-scripts").is_dir():
+            return p
+    return None
+
+
+def _include_search_dirs(template_path: Path) -> list[Path]:
+    """Return the ordered list of dirs minijinja's loader should search for
+    {% include %} targets. Mirrors the dep-walker's resolution for
+    {% include %} staleness tracking."""
+    dirs = [template_path.parent, template_path.parent.parent]
+    root = _find_repo_root(template_path)
+    if root is not None:
+        st = root / ".aitask-scripts" / "skill_templates"
+        if st.is_dir():
+            dirs.append(st)
+    return dirs
+
+
+INCLUDE_RE = re.compile(r'\{%-?\s*include\s+["\']([^"\']+)["\']')
+
+
 def render_skill(template_path: Path, profile: dict[str, Any], agent_name: str) -> str:
     import minijinja
 
     env = minijinja.Environment(
         loader=minijinja.load_from_path(
-            [str(template_path.parent), str(template_path.parent.parent)]
+            [str(d) for d in _include_search_dirs(template_path)]
         ),
         keep_trailing_newline=True,
         undefined_behavior="strict",
@@ -187,13 +214,41 @@ def _atomic_write(target: Path, content: str) -> None:
     os.replace(str(tmp), str(target))
 
 
-def _is_stale(plan: list, profile_yaml: Path) -> bool:
-    """True if any target is missing or older than any closure source / profile YAML."""
+def _resolve_include_deps(source_abs: Path, raw_text: str) -> set[Path]:
+    """Scan raw template source for `{% include "X" %}` directives and resolve
+    each name against the same search dirs the runtime loader uses. Returns
+    the set of existing matches. minijinja resolves includes at render time
+    so they never appear in the dep-walker's source list — folding them into
+    the staleness check makes editing a shared fragment correctly invalidate
+    every consuming rendered file."""
+    dirs = _include_search_dirs(source_abs)
+    deps: set[Path] = set()
+    for m in INCLUDE_RE.finditer(raw_text):
+        name = m.group(1)
+        for d in dirs:
+            candidate = (d / name).resolve()
+            if candidate.is_file():
+                deps.add(candidate)
+                break
+    return deps
+
+
+def _is_stale(plan: list, profile_yaml: Path, include_deps: set[Path] | None = None) -> bool:
+    """True if any target is missing or older than any closure source /
+    profile YAML / runtime-resolved {% include %} dep."""
     max_source_mtime = profile_yaml.stat().st_mtime
     for src, _t, _c in plan:
         st = src.stat().st_mtime
         if st > max_source_mtime:
             max_source_mtime = st
+    if include_deps:
+        for dep in include_deps:
+            try:
+                st = dep.stat().st_mtime
+            except OSError:
+                continue
+            if st > max_source_mtime:
+                max_source_mtime = st
     for _s, target, _c in plan:
         if not target.is_file():
             return True
@@ -225,9 +280,18 @@ def walk_closure(
     visited: set[Path] = {entry_template.resolve()}
     queue: deque = deque([(entry_template.resolve(), entry_target)])
     plan: list = []
+    include_deps: set[Path] = set()
 
     while queue:
         src, target = queue.popleft()
+        # Scan raw source for {% include %} directives BEFORE rendering, so
+        # we capture them even when conditionals would suppress execution.
+        try:
+            raw_source = src.read_text(encoding="utf-8")
+        except OSError:
+            raw_source = ""
+        include_deps |= _resolve_include_deps(src, raw_source)
+
         try:
             raw = render_skill(src, profile, agent)
         except Exception as e:
@@ -276,7 +340,7 @@ def walk_closure(
         targets_seen[target] = src
 
     if write:
-        if force or _is_stale(plan, profile_yaml):
+        if force or _is_stale(plan, profile_yaml, include_deps):
             for _src, target, content in plan:
                 _atomic_write(target, content)
 

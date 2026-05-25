@@ -157,9 +157,17 @@ else
 fi
 
 # --- Resolve template includes ---
+# Pass the work2do file's own dir as the primary base, plus the shared
+# .aitask-scripts/skill_templates/ as a fallback so cross-pipeline includes
+# (e.g. _plan_contract.md shared with skill templates) resolve.
 if [[ "$WORK2DO_FILE" != "-" && "$WORK2DO_FILE" != "/dev/null" && -n "$WORK2DO_CONTENT" ]]; then
     WORK2DO_DIR="$(cd "$(dirname "$WORK2DO_FILE")" && pwd)"
-    WORK2DO_CONTENT="$(printf '%s\n' "$WORK2DO_CONTENT" | resolve_template_includes "$WORK2DO_DIR")"
+    SKILL_TEMPLATES_DIR="$SCRIPT_DIR/skill_templates"
+    if [[ -d "$SKILL_TEMPLATES_DIR" ]]; then
+        WORK2DO_CONTENT="$(printf '%s\n' "$WORK2DO_CONTENT" | resolve_template_includes "$WORK2DO_DIR" "$SKILL_TEMPLATES_DIR")"
+    else
+        WORK2DO_CONTENT="$(printf '%s\n' "$WORK2DO_CONTENT" | resolve_template_includes "$WORK2DO_DIR")"
+    fi
 fi
 
 # --- Create agent files ---

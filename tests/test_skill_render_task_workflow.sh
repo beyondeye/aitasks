@@ -137,6 +137,48 @@ for agent in "${AGENTS[@]}"; do
     TOTAL=$((TOTAL + 1))
 done
 
+# === Test 2b: agent byte-identity for planning.md @ profile=fast (t818) ===
+# The shared {% include "_plan_contract.md" %} resolves agent-agnostically
+# (the include target is markdown, not a refs-bearing template), so the
+# rendered planning.md is identical across all 4 agent trees.
+echo "=== Test 2b: agent byte-identity for planning.md @ profile=fast ==="
+REF_PLAN="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/fast.yaml" claude 2>&1)"
+for agent in "${AGENTS[@]}"; do
+    out="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/fast.yaml" "$agent" 2>&1)"
+    if [[ "$out" == "$REF_PLAN" ]]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: planning.md fast render differs for agent=$agent vs claude"
+    fi
+    TOTAL=$((TOTAL + 1))
+done
+
+# === Test 2c: planning.md resolves _planning_plan_contract.md (t818) ===
+# Verifies the {% include "_planning_plan_contract.md" %} directive resolves
+# through the extended minijinja loader path (search dir =
+# .aitask-scripts/skill_templates/). The fragment is the planning-specific
+# "Detailed" spec — kept separate from detailer.md's contract by design
+# (detailer has a two-level proposal+plan structure, planning.md is
+# single-level; unifying the two breaks brainstorm's section-marker
+# parsing). Catches regressions where the include target moves or the
+# loader path config drifts.
+echo "=== Test 2c: planning.md embeds resolved _planning_plan_contract.md ==="
+for profile in "${PROFILES[@]}"; do
+    rendered="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    assert_contains "planning.md $profile: planning spec present" \
+        'Create a detailed, step-by-step implementation plan. "Detailed" means:' "$rendered"
+    assert_contains "planning.md $profile: planning spec continuation present" \
+        "code snippets for non-trivial modifications" "$rendered"
+    assert_not_contains "planning.md $profile: no literal include tag survives" \
+        '{% include' "$rendered"
+    # Negative: detailer-specific contract content must NOT leak into planning.md.
+    assert_not_contains "planning.md $profile: no detailer Verification Checklist" \
+        "Verification Checklist" "$rendered"
+    assert_not_contains "planning.md $profile: no detailer Authoring Rules section" \
+        "### Authoring Rules" "$rendered"
+done
+
 # === Test 3: default profile preserves all AskUserQuestion blocks ===
 
 echo "=== Test 3: default profile keeps existing interactive prose ==="

@@ -98,21 +98,33 @@ write_yaml_file() {
     printf '%s\n' "$content" > "$file"
 }
 
-# resolve_template_includes <base_dir>
+# resolve_template_includes <base_dir> [base_dir2 ...]
 # Reads template content from stdin, writes resolved content to stdout.
-# Resolves <!-- include: filename --> directives relative to base_dir.
-# One-level only (included files are not scanned for further includes).
-# Missing includes emit a warning and preserve the directive line as-is.
+# Resolves <!-- include: filename --> directives by searching each base_dir
+# in order; the first existing match wins. One-level only (included files
+# are not scanned for further includes). Missing includes emit a warning
+# and preserve the directive line as-is.
 resolve_template_includes() {
-    local base_dir="$1"
+    local base_dirs=("$@")
+    if [[ ${#base_dirs[@]} -eq 0 ]]; then
+        die "resolve_template_includes: requires at least one base_dir"
+    fi
     local line
     while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ "$line" =~ \<\!--[[:space:]]+include:[[:space:]]+([^[:space:]]+)[[:space:]]+--\> ]]; then
-            local inc_file="$base_dir/${BASH_REMATCH[1]}"
-            if [[ -f "$inc_file" ]]; then
-                cat "$inc_file"
+            local inc_name="${BASH_REMATCH[1]}"
+            local found=""
+            local d
+            for d in "${base_dirs[@]}"; do
+                if [[ -f "$d/$inc_name" ]]; then
+                    found="$d/$inc_name"
+                    break
+                fi
+            done
+            if [[ -n "$found" ]]; then
+                cat "$found"
             else
-                warn "Template include not found: $inc_file"
+                warn "Template include not found in any base_dir: $inc_name"
                 printf '%s\n' "$line"
             fi
         else
