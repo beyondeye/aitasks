@@ -7,7 +7,7 @@ status: Ready
 labels: [aitakspickrem, codexcli]
 created_at: 2026-03-08 17:13
 updated_at: 2026-03-08 17:13
-boardidx: 100
+boardidx: 90
 boardcol: next
 ---
 
