@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [brainstorming, ait_monitor, aitask_create]
-children_to_implement: [t826_1]
+children_to_implement: [t826_1, t826_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-25 14:28
 updated_at: 2026-05-25 17:17
