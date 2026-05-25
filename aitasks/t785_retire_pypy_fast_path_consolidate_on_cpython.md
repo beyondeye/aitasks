@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [python, script-performance, ait_setup]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-18 12:43
-updated_at: 2026-05-18 12:43
+updated_at: 2026-05-25 09:16
 boardidx: 100
 ---
 
