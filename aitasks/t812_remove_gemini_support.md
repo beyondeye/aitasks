@@ -11,3 +11,7 @@ boardidx: 80
 ---
 
 google is phasing out geminicli, and substituting it with antigravitycli that is different product: need to clarifiy (integrated with antigravity2.0): in any case geminicli support should be completely removed, and evaluate if to add support for antigravity cli or not. also remove all references to geminicli from documentation. this is complex task that need to be split in child tasks
+for more information on antigravitycli and how to migrate from geminicli to antigravitycli, see https://antigravity.google/docs/gcli-migration. see also https://antigravity.google/docs/cli-features.
+and also https://antigravity.google/docs/cli-using
+I have generated also aidocs/geminicli_to_agy.md with more detailed guidance on how to migrate from geminicli to antigravitycli. so basically the scope of this task is to migrate current support for geminicli in aitasks framework to support instead for agy
+

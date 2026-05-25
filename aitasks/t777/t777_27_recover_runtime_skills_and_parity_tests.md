@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: [t777_26]
 issue_type: test
-status: Ready
+status: Implementing
 labels: [tests, t777, skill-templates]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-23 23:39
-updated_at: 2026-05-23 23:39
+updated_at: 2026-05-25 14:00
 ---
 
 # Goal
