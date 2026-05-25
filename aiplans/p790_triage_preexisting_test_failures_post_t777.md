@@ -196,3 +196,47 @@ IDs once `aitask_create.sh --batch` returns them.
 
 Standard archival flow per task-workflow Step 9. Profile `fast`, current
 branch — no worktree to remove.
+
+## Final Implementation Notes
+
+- **Actual work done:** Captured the post-t777 baseline (130 PASS / 10 FAIL
+  — 1 down from the 2026-05-18 baseline of 11 FAIL, the dropped test being
+  `test_skill_verify.sh`). Reproduced each remaining failure (logs in
+  `/tmp/t790_logs/`), classified into three root-cause buckets, and filed
+  three follow-up tasks:
+  - **t827** (bug, depends: [790]) — `tests/test_codeagent.sh` scaffold is
+    missing a copy of `lib/agent_string.sh` (sourced by
+    `aitask_codeagent.sh:18`).
+  - **t828** (test, depends: [790]) — `tests/test_opencode_setup.sh`
+    `expected_skill_count` count-glob differs from the packaging/staging
+    copy-glob; the 6 t777 profile-variant skills (`task-workflow-*-`,
+    `user-file-select-*-`) are counted but not copied.
+  - **t829** (test, depends: [790]) — the regression-loop driver buckets
+    the tmux-safety-guard early exits (8 tests) as FAIL; switch to a SKIP
+    exit code (e.g. 77) and teach the driver to surface SKIP separately.
+- **Deviations from plan:** None. The bucketing matched the plan exactly;
+  no dismissals.
+- **Issues encountered:** `aitask_create.sh --batch` accepts `--deps`
+  (line 75 of the script), but I omitted it on the initial creates and
+  patched it after the fact with three `aitask_update.sh --batch
+  --deps "790"` calls + one follow-up commit. Minor process nit — next
+  time, pass `--deps 790` to the original create call.
+- **Key decisions:**
+  - All 10 failing tests fit cleanly into 3 root causes, so 3 follow-up
+    tasks rather than 10.
+  - Bucket-C fix (tmux SKIP exit code) routed to a single task even though
+    it touches 8 test files — they share one root cause (the guard +
+    driver contract), so one task is correct per
+    `aidocs/planning_conventions.md` (lists-touching-3-plus-files rule).
+  - For t827, recommended scoping the `agent_string.sh` copy to
+    `tests/test_codeagent.sh` rather than
+    `tests/lib/test_scaffold.sh::setup_fake_aitask_repo()` because
+    `agent_string.sh` is a domain lib, not a `./ait` source-on-startup
+    system lib. CLAUDE.md is explicit about the scaffold's "Current
+    baseline" being system libs only (`aitask_path.sh`,
+    `terminal_compat.sh`, `python_resolve.sh`).
+- **Upstream defects identified:** None. All three follow-up tasks are
+  defects in the **tests themselves** (or the regression-driver contract),
+  not in production code. The `aitask_codeagent.sh` /
+  `lib/agent_string.sh` / `.opencode/skills/*-*-/` paths under test are
+  all behaving correctly — the test fixtures simply drifted.
