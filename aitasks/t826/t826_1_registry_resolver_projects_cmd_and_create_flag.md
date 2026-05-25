@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ait_cli, aitask_create, cross_repo]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-25 17:17
-updated_at: 2026-05-25 17:17
+updated_at: 2026-05-25 17:30
 ---
 
 ## Context
