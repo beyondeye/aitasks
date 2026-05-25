@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [ait_cli, aitask_create, cross_repo]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-25 17:17
-updated_at: 2026-05-25 17:30
+updated_at: 2026-05-25 17:38
 ---
 
 ## Context
