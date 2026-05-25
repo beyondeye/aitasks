@@ -516,7 +516,7 @@ setup_python_venv() {
     textual_before=$("$VENV_DIR/bin/pip" show textual 2>/dev/null \
         | awk '/^Version:/ {print $2}') || true
 
-    "$VENV_DIR/bin/pip" install --quiet 'textual>=8.1.1,<9' 'pyyaml==6.0.3' 'linkify-it-py==2.1.0' 'tomli>=2.4.0,<3' 'minijinja>=2.0,<3' 'pexpect>=4.9,<5'
+    "$VENV_DIR/bin/pip" install --quiet 'textual>=8.1.1,<9' 'pyyaml==6.0.3' 'linkify-it-py==2.1.0' 'tomli>=2.4.0,<3' 'minijinja>=2.0,<3' 'pexpect>=4.9,<5' 'segno>=1.5,<2'
 
     local textual_after=""
     textual_after=$("$VENV_DIR/bin/pip" show textual 2>/dev/null \

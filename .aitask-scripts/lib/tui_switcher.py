@@ -168,6 +168,7 @@ _TUI_SHORTCUTS = {
     "stats": "t",
     "syncer": "y",
     "git": "g",
+    "applink": "a",
 }
 
 
@@ -334,6 +335,7 @@ class TuiSwitcherOverlay(ModalScreen):
         Binding("enter", "select_tui", "Switch", show=False),
         Binding("left", "prev_session", "Prev session", show=False, priority=True),
         Binding("right", "next_session", "Next session", show=False, priority=True),
+        Binding("a", "shortcut_applink", "App Linker", show=False),
         Binding("b", "shortcut_board", "Board", show=False),
         Binding("m", "shortcut_monitor", "Monitor", show=False),
         Binding("c", "shortcut_codebrowser", "Code Browser", show=False),
@@ -690,6 +692,9 @@ class TuiSwitcherOverlay(ModalScreen):
                 and target_name == self._current_tui):
             return
         self._switch_to(target_name, target_name in self._running_names)
+
+    def action_shortcut_applink(self) -> None:
+        self._shortcut_switch("applink")
 
     def action_shortcut_board(self) -> None:
         self._shortcut_switch("board")

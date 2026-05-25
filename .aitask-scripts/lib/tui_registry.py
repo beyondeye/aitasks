@@ -20,6 +20,7 @@ TUI_REGISTRY: list[tuple[str, str | None, str | None, bool]] = [
     ("codebrowser", "Code Browser",  "ait codebrowser", True),
     ("settings",    "Settings",      "ait settings",    True),
     ("stats",       "Statistics",    "ait stats-tui",   True),
+    ("applink",     "App Linker",    "ait applink",     True),
     ("diffviewer",  "Diff Viewer",   "ait diffviewer",  True),
     ("syncer",      "Syncer",        "ait syncer",      True),
     ("brainstorm",  None,            None,              False),

@@ -13,6 +13,7 @@ The aitasks framework includes several terminal-based user interfaces (TUIs) bui
 
 ## Available TUIs
 
+- **[App Linker](applink/)** (`ait applink`) — Pairs the mobile companion app (separate `aitasks_mobile` repo) to your local workspace over LAN, bootstrapped by a QR code rendered in the terminal. Experimental — the pairing-bootstrap skeleton ships first; full WebSocket transport is a follow-up.
 - **[Monitor](monitor/)** (`ait monitor`) — Dashboard of every pane across every aitasks tmux session on the current tmux server by default, categorized into code agents, TUIs, and other panes, with a live preview of the focused pane and keystroke forwarding. This is the home screen of the ait IDE.
 - **[Minimonitor](minimonitor/)** (`ait minimonitor`) — Narrow sidebar variant of monitor, designed to sit next to a code agent pane so you can watch every running agent (across every aitasks session) and launch follow-up work without giving up screen real estate.
 - **[Board](board/)** (`ait board`) — Kanban-style task board for triaging tasks, setting priorities, organizing work into columns, and deciding what to implement next.
