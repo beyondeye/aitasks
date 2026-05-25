@@ -43,7 +43,7 @@ class RefState:
 
 
 def repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    return Path.cwd().resolve()
 
 
 def run_git(worktree: Path, args: list[str]) -> subprocess.CompletedProcess[str]:

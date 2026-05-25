@@ -239,6 +239,36 @@ class DesyncStateTests(unittest.TestCase):
             self.assertNotIn("Local aitask-data branch is", combined)
             self.assertIn("=== TASK t1 ===", proc.stdout)
 
+    def test_repo_root_follows_cwd_not_helper_location(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "a").mkdir()
+            (root / "b").mkdir()
+            project_a, origin_a = make_main_project(root / "a")
+            project_b, _origin_b = make_main_project(root / "b")
+
+            other_a = root / "a-other"
+            git(root, "clone", "--quiet", str(origin_a), str(other_a))
+            config_identity(other_a)
+            git(other_a, "checkout", "main")
+            (other_a / "a_only.txt").write_text("a\n", encoding="utf-8")
+            git(other_a, "add", "a_only.txt")
+            git(other_a, "commit", "--quiet", "-m", "a remote change")
+            git(other_a, "push", "--quiet", "origin", "main")
+
+            helper_in_a = project_a / ".aitask-scripts" / "lib" / "desync_state.py"
+            self.assertTrue(helper_in_a.is_file())
+
+            data = json.loads(run(
+                ["python3", str(helper_in_a), "snapshot", "--ref", "main",
+                 "--fetch", "--json"],
+                cwd=project_b,
+            ).stdout)
+            ref = data["refs"][0]
+            self.assertEqual(ref["status"], "ok")
+            self.assertEqual(ref["behind"], 0)
+            self.assertNotIn("a_only.txt", ref["remote_changed_paths"])
+
 
 if __name__ == "__main__":
     unittest.main()
