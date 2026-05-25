@@ -533,9 +533,9 @@ or direct `python3` if Python is on PATH; mirror existing
 - Visual indicators for inactive entries in the switcher's Session
   row (user said "probably not needed" — activity is implied by
   switch-vs-spawn behavior on selection).
-- **Stale registry handling / UX** — deferred to the new sibling
-  brainstorm task created in Step 0 (will be `t826_5`, assuming
-  t826_4 is the last existing sibling). t826_2 silently excludes
+- **Stale registry handling / UX** — deferred to sibling brainstorm
+  task `t826_5` (`aitasks/t826/t826_5_brainstorm_stale_registry_ux.md`,
+  created in Step 0). t826_2 silently excludes
   STALE entries (path missing the marker file) from the switcher,
   matching how `_walk_up_to_aitasks` already filters. All richer
   behaviors — surfacing stale entries, prune/update/remove
