@@ -50,6 +50,15 @@ def format_compare_mode_glyph(mode: str, is_override: bool) -> str:
     return f"[{color}]{glyph}[/]"
 
 
+def format_pane_status(snap: PaneSnapshot) -> str:
+    """Render a pane's status badge with awaiting_input > is_idle > active priority."""
+    if getattr(snap, "awaiting_input", False):
+        return f"[bold magenta]PROMPT {int(snap.idle_seconds)}s[/]"
+    if snap.is_idle:
+        return f"[yellow]IDLE {int(snap.idle_seconds)}s[/]"
+    return "[green]Active[/]"
+
+
 def _ansi_to_rich_text(ansi_str: str) -> Text:
     """Convert ANSI text to Rich Text with a forced dark background.
 
@@ -426,11 +435,7 @@ class KillConfirmDialog(ModalScreen):
         snap = self._snap
         pane = snap.pane
 
-        if snap.is_idle:
-            idle_s = int(snap.idle_seconds)
-            status = f"[yellow]IDLE ({idle_s}s)[/]"
-        else:
-            status = "[green]Active[/]"
+        status = format_pane_status(snap)
 
         with Container(id="kill-dialog"):
             yield Static(

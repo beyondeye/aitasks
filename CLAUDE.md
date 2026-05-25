@@ -238,6 +238,13 @@ in Codex CLI / Gemini CLI / OpenCode versions.
 > framework's Python runtime choice (current state: single CPython 3.14+
 > venv; the document records the retired PyPy fast path and the trigger
 > conditions under which re-investigation would be warranted).
+>
+> **Read `aidocs/monitor_idle_and_prompt_detection.md`** when `ait monitor`
+> / `ait minimonitor` fails to flag an agent that is visibly waiting on
+> user input, when adding a new code-agent CLI, or when changing how idle
+> vs. "awaiting user input" is detected. The patterns live in
+> `.aitask-scripts/monitor/prompt_patterns.py` and are edited in-place when
+> a new agent's prompt wording shows up.
 
 ## Planning / Testing / Code Conventions
 

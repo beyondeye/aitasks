@@ -39,6 +39,8 @@ from agent_launch_utils import (  # noqa: E402
     tmux_window_target,
 )
 
+from .prompt_patterns import PromptPattern, all_patterns
+
 
 class PaneCategory(Enum):
     AGENT = "agent"
@@ -168,6 +170,8 @@ class PaneSnapshot:
     timestamp: float        # time.monotonic()
     idle_seconds: float     # seconds since last content change
     is_idle: bool           # idle_seconds > threshold (only meaningful for AGENT panes)
+    awaiting_input: bool = False
+    awaiting_input_kind: str = ""   # name of the first matching prompt pattern
 
 
 class TmuxMonitor:
@@ -188,6 +192,7 @@ class TmuxMonitor:
         tui_names: set[str] | None = None,
         multi_session: bool = True,
         compare_mode_default: str = DEFAULT_COMPARE_MODE,
+        prompt_patterns: list[PromptPattern] | None = None,
     ):
         self.session = session
         self.capture_lines = capture_lines
@@ -199,6 +204,7 @@ class TmuxMonitor:
         if compare_mode_default not in COMPARE_MODES:
             compare_mode_default = DEFAULT_COMPARE_MODE
         self.compare_mode_default = compare_mode_default
+        self.prompt_patterns = list(prompt_patterns) if prompt_patterns is not None else all_patterns()
 
         self._last_content: dict[str, str] = {}
         self._last_change_time: dict[str, float] = {}
@@ -514,12 +520,24 @@ class TmuxMonitor:
             else False
         )
 
+        awaiting_input = False
+        awaiting_input_kind = ""
+        if pane.category == PaneCategory.AGENT and self.prompt_patterns:
+            stripped_text = compare_value if mode == COMPARE_MODE_STRIPPED else _strip_ansi(content)
+            for p in self.prompt_patterns:
+                if p.regex.search(stripped_text):
+                    awaiting_input = True
+                    awaiting_input_kind = p.name
+                    break
+
         return PaneSnapshot(
             pane=pane,
             content=content,
             timestamp=now,
             idle_seconds=idle_seconds,
             is_idle=is_idle,
+            awaiting_input=awaiting_input,
+            awaiting_input_kind=awaiting_input_kind,
         )
 
     def _capture_args(self, pane_id: str) -> list[str]:

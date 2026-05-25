@@ -32,6 +32,7 @@ from monitor.tmux_monitor import (  # noqa: E402
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _TASK_ID_RE, TaskInfoCache, TaskDetailDialog, format_compare_mode_glyph,
+    format_pane_status,
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
@@ -372,8 +373,11 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
             if s.pane.category == PaneCategory.AGENT
         ]
         total = len(agents)
-        idle_count = sum(1 for a in agents if a.is_idle)
+        awaiting_count = sum(1 for a in agents if getattr(a, "awaiting_input", False))
+        idle_count = sum(1 for a in agents
+                         if a.is_idle and not getattr(a, "awaiting_input", False))
 
+        awaiting_str = f" [bold magenta]{awaiting_count} awaiting[/]" if awaiting_count > 0 else ""
         idle_str = f" [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
         try:
             desync = _get_desync_summary(Path.cwd(), compact=True)
@@ -397,10 +401,10 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
                 s.pane.session_name for s in agents if s.pane.session_name
             }
             n = len(sessions) if sessions else 1
-            bar.update(f"multi: {n}s · {total}a{idle_str}{desync}{state_badge}")
+            bar.update(f"multi: {n}s · {total}a{awaiting_str}{idle_str}{desync}{state_badge}")
         else:
             bar.update(
-                f"{self._session}  {total} agent{'s' if total != 1 else ''}{idle_str}{desync}{state_badge}"
+                f"{self._session}  {total} agent{'s' if total != 1 else ''}{awaiting_str}{idle_str}{desync}{state_badge}"
             )
 
     async def _rebuild_pane_list(self) -> None:
@@ -434,13 +438,13 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
                     classes="mini-session-divider",
                 ))
 
-            if snap.is_idle:
-                idle_s = int(snap.idle_seconds)
+            if getattr(snap, "awaiting_input", False):
+                dot = "[bold magenta]\u25cf[/]"
+            elif snap.is_idle:
                 dot = "[yellow]\u25cf[/]"
-                status = f"[yellow]IDLE {idle_s}s[/]"
             else:
                 dot = "[green]\u25cf[/]"
-                status = "[green]ok[/]"
+            status = format_pane_status(snap)
 
             mode = self._monitor.get_compare_mode(snap.pane.pane_id)
             is_override = self._monitor.is_compare_mode_overridden(snap.pane.pane_id)

@@ -34,6 +34,7 @@ from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _ansi_to_rich_text, _TASK_ID_RE, TaskInfo, TaskInfoCache,
     TaskDetailDialog, KillConfirmDialog, format_compare_mode_glyph,
+    format_pane_status,
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
@@ -114,7 +115,7 @@ _TEXTUAL_TO_TMUX = {
 # -- Widgets ------------------------------------------------------------------
 
 class SessionBar(Static):
-    """One-line bar showing session name, pane count, idle count."""
+    """One-line bar showing session name, pane count, awaiting + idle counts."""
     pass
 
 
@@ -858,7 +859,11 @@ class MonitorApp(TuiSwitcherMixin, App):
         ])
 
     def _maybe_auto_switch(self) -> bool:
-        """Switch focus to the most-idle agent if the current agent is active.
+        """Switch focus to a pane that needs attention if the current is active.
+
+        Priority: awaiting_input > is_idle. Awaiting panes are surfaced first
+        because they are blocked on user input — no idle-threshold wait
+        required.
 
         Returns True if focus was switched, False otherwise.
         """
@@ -867,9 +872,20 @@ class MonitorApp(TuiSwitcherMixin, App):
         current_snap = self._snapshots.get(self._focused_pane_id)
         if current_snap is None or current_snap.pane.category != PaneCategory.AGENT:
             return False
-        # If focused agent is idle, keep it — it needs attention
-        if current_snap.is_idle:
+        # If focused agent already needs attention, keep it
+        if getattr(current_snap, "awaiting_input", False) or current_snap.is_idle:
             return False
+        # Prefer awaiting-input panes over idle ones — they need attention
+        # more urgently (blocked on a prompt).
+        awaiting = [
+            snap for snap in self._snapshots.values()
+            if snap.pane.category == PaneCategory.AGENT
+            and getattr(snap, "awaiting_input", False)
+        ]
+        if awaiting:
+            awaiting.sort(key=lambda s: s.idle_seconds, reverse=True)
+            self._focused_pane_id = awaiting[0].pane.pane_id
+            return True
         # Find idle agents, sorted by most idle first
         idle_agents = [
             snap for snap in self._snapshots.values()
@@ -922,6 +938,15 @@ class MonitorApp(TuiSwitcherMixin, App):
 
     def _rebuild_session_bar(self) -> None:
         total = len(self._snapshots)
+        agents = [
+            s for s in self._snapshots.values()
+            if s.pane.category == PaneCategory.AGENT
+        ]
+        awaiting_count = sum(1 for a in agents if getattr(a, "awaiting_input", False))
+        idle_count = sum(1 for a in agents
+                         if a.is_idle and not getattr(a, "awaiting_input", False))
+        awaiting_str = f"  [bold magenta]{awaiting_count} awaiting[/]" if awaiting_count > 0 else ""
+        idle_str = f"  [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
         bar = self.query_one("#session-bar", SessionBar)
         auto_tag = "  [bold yellow][AUTO][/]" if self._auto_switch else ""
         try:
@@ -949,6 +974,8 @@ class MonitorApp(TuiSwitcherMixin, App):
                 f"tmux Monitor — {len(sessions)} {session_word} "
                 f"· {total} {pane_word} · multi "
                 f"(attached: {attached})"
+                f"{awaiting_str}"
+                f"{idle_str}"
                 f"{auto_tag}"
                 f"{desync}"
                 f"{state_badge}"
@@ -958,6 +985,8 @@ class MonitorApp(TuiSwitcherMixin, App):
             bar.update(
                 f"tmux Monitor — session: {self._session} "
                 f"({total} pane{'s' if total != 1 else ''})"
+                f"{awaiting_str}"
+                f"{idle_str}"
                 f"{auto_tag}"
                 f"{desync}"
                 f"{state_badge}"
@@ -974,13 +1003,13 @@ class MonitorApp(TuiSwitcherMixin, App):
         return stdout.strip() or None
 
     def _format_agent_card_text(self, snap: PaneSnapshot) -> str:
-        if snap.is_idle:
-            idle_s = int(snap.idle_seconds)
+        if getattr(snap, "awaiting_input", False):
+            dot = "[bold magenta]\u25cf[/]"
+        elif snap.is_idle:
             dot = "[yellow]\u25cf[/]"
-            status = f"[yellow]IDLE {idle_s}s[/]"
         else:
             dot = "[green]\u25cf[/]"
-            status = "[green]Active[/]"
+        status = format_pane_status(snap)
         if self._monitor is not None:
             mode = self._monitor.get_compare_mode(snap.pane.pane_id)
             is_override = self._monitor.is_compare_mode_overridden(snap.pane.pane_id)
