@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [brainstorming, ait_monitor, aitask_create]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-25 14:28
-updated_at: 2026-05-25 14:28
+updated_at: 2026-05-25 16:07
 ---
 
 Brainstorm and refine: easier cross-repo references when an aitasks project's task needs to reach into a sister aitasks project (create a task there, reference a file/spec, coordinate work across both).
