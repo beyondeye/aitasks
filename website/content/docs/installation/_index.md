@@ -51,6 +51,7 @@ After installing, see these guides for the rest of the environment:
 
 - [Terminal Setup]({{< relref "terminal-setup" >}}) — terminal emulator + tmux, `ait ide` workflow.
 - [Git Remotes]({{< relref "git-remotes" >}}) — auth for GitHub / GitLab / Bitbucket (required for locking, sync, issues).
+- [PyPy Runtime]({{< relref "pypy" >}}) — optional faster runtime for `ait board`.
 - [Updating Model Lists]({{< relref "updating-model-lists" >}}) — refresh the supported model lists used by `ait codeagent` and the Settings TUI.
 - [Known Agent Issues]({{< relref "known-issues" >}}) — current Claude Code / Gemini CLI / Codex CLI / OpenCode caveats.
 
@@ -126,6 +127,7 @@ For background on why task data lives on a separate branch, see the
 
 - CLI tools: `fzf`, `gh` (for GitHub), `glab` (for GitLab), or `bkt` (for Bitbucket), `jq`, `git`, `zstd`
 - Python venv at `~/.aitask/venv/` with `textual` (>=8.1), `pyyaml`, `linkify-it-py`, `tomli` (plus optional `plotext` when enabled for `ait stats-tui` chart panes). Versions are pinned — see `ait setup` for details
+- Optional: PyPy 3.11 venv at `~/.aitask/pypy_venv/` for faster `ait board` — see [PyPy Runtime]({{< relref "pypy" >}})
 - Global `ait` shim at `~/.local/bin/ait`
 - Claude Code permissions in `.claude/settings.local.json` (see [Claude Code Permissions](../commands/setup-install/#claude-code-permissions))
 

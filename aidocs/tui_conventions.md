@@ -4,21 +4,62 @@ Specialist guidance for authoring or modifying Textual-based TUIs under
 `.aitask-scripts/` (board, monitor, minimonitor, codebrowser, brainstorm,
 settings, syncer, stats-tui, diffviewer, the TUI switcher, etc.).
 
-## TUI launchers resolve Python via `require_ait_python`
+## Long-running Textual TUI launchers may call `require_ait_python_fast` (current scope: `ait board` only)
 
-When introducing a new launcher `.sh` under `.aitask-scripts/` for a Textual
-TUI — long-running or short-lived — use:
+`require_ait_python_fast` resolves to PyPy when the user has run
+`ait setup --with-pypy`, and falls through to CPython otherwise. At present
+the only launcher that uses it is `aitask_board.sh`:
 
 ```bash
-PYTHON="$(require_ait_python)"
+PYTHON="$(require_ait_python_fast)"
 ```
 
-at the top of the script. All TUIs share a single CPython 3.14+ venv at
-`~/.aitask/venv/`, resolved through `lib/python_resolve.sh`. The framework
-has one Python runtime; no per-TUI interpreter selection.
+All other launchers — including `aitask_settings.sh`, `aitask_brainstorm_tui.sh`,
+`aitask_syncer.sh` — stay on `require_ait_python`. These three were previously
+routed to the fast path "by analogy with board" but were never empirically
+measured; that routing-by-analogy is what t785 cited when retiring the entire
+fast path. t831 brought the fast path back scoped to board only.
 
-For historical context on the retired PyPy fast path and the conditions
-under which a future re-evaluation would be warranted, see
+**Rule for new fast-path adoption.** Do not add `require_ait_python_fast` to
+a launcher without a per-TUI benchmark following the t718_6 protocol
+(`aidocs/python_tui_performance.md`, "t718_6 Empirical Verification"). Routing
+by analogy is no longer acceptable.
+
+**Permanent exceptions** (empirically verified — keep on CPython regardless of
+benchmark interest):
+- `codebrowser` (PyPy ~17% slower steady-state, ~2× slower cold-start)
+- `monitor` / `minimonitor` (PyPy 76–90% slower at typical pane counts)
+- `stats-tui` (depends on `plotext`, installed only in the CPython venv)
+- `diffviewer` (until its brainstorm integration lands)
+
+Short-lived CLIs (one-shot helpers, `ait create`, status reporters) keep
+`require_ait_python` to avoid the ~150-300 ms PyPy warmup penalty. Full
+evidence and tables: `aidocs/python_tui_performance.md`.
+
+## `AIT_USE_PYPY` precedence (runtime override)
+
+When PyPy has been installed via `ait setup --with-pypy`, `aitask_board.sh`
+auto-routes through `~/.aitask/pypy_venv`. The `AIT_USE_PYPY` env var
+overrides per invocation, but **only on launchers that call
+`require_ait_python_fast`** (currently just `aitask_board.sh`):
+
+| `AIT_USE_PYPY` | PyPy installed? | Result for `ait board` |
+|----------------|-----------------|------------------------|
+| `1`            | Yes             | PyPy (forced) |
+| `1`            | No              | error: install with `ait setup --with-pypy` |
+| `0`            | (any)           | CPython (override) |
+| unset          | Yes             | PyPy (default once installed) |
+| unset          | No              | CPython (current behavior preserved) |
+
+`ait settings`, `ait brainstorm`, `ait syncer`, and other launchers that
+use `require_ait_python` ignore `AIT_USE_PYPY` — the env var precedence
+lives inside `require_ait_python_fast`. To A/B-test one of those TUIs
+under PyPy, point `AIT_PYTHON` at the PyPy venv binary for that invocation
+(`AIT_PYTHON=~/.aitask/pypy_venv/bin/python ait settings`); this is a
+manual hook intended for measurement, not a supported runtime mode.
+
+Codebrowser / monitor / minimonitor / stats-tui stay on CPython regardless of
+`AIT_USE_PYPY` (see the exceptions list above). Full analysis:
 `aidocs/python_tui_performance.md`.
 
 ## `n` is the create-task key across every aitasks TUI

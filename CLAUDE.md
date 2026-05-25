@@ -234,10 +234,11 @@ in Codex CLI / Gemini CLI / OpenCode versions.
 > `.sh`, when adding keybindings to an existing TUI, or when spawning tmux
 > panes / windows from framework code.
 >
-> **Read `aidocs/python_tui_performance.md`** when re-evaluating the
-> framework's Python runtime choice (current state: single CPython 3.14+
-> venv; the document records the retired PyPy fast path and the trigger
-> conditions under which re-investigation would be warranted).
+> **Read `aidocs/python_tui_performance.md`** when re-evaluating a TUI's
+> Python runtime (CPython vs PyPy) choice. The framework currently routes
+> only `ait board` through the PyPy fast path; the document records the
+> empirical evidence for that scoping decision and the criteria for
+> reconsidering other TUIs.
 >
 > **Read `aidocs/monitor_idle_and_prompt_detection.md`** when `ait monitor`
 > / `ait minimonitor` fails to flag an agent that is visibly waiting on

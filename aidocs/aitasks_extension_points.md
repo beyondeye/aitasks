@@ -72,12 +72,11 @@ How to apply:
 
 ## Cross-platform audit for platform-specific bugs
 
-When fixing a bug on one OS branch (e.g., a Linux-only
-`_install_modern_python_linux` failure inside `aitask_setup.sh`), audit the
-parallel function on the other platform (`_install_modern_python_macos`)
-for the same bug class before finalizing the task scope: hardcoded literals
-where a constant exists, missing layout symmetry, same
-single-source-of-truth violations.
+When fixing a bug on one OS branch (e.g., a Linux-only `_install_pypy_linux`
+failure), audit the parallel function on the other platform
+(`_install_pypy_macos`) for the same bug class before finalizing the task
+scope: hardcoded literals where a constant exists, missing layout symmetry,
+same single-source-of-truth violations.
 
 If the symmetric path has same-family issues, fold them into the same task (a
 single coherent fix is better than two staggered ones); name a manual-
