@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [ait_cli, aitask_create, cross_repo]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-25 17:17
-updated_at: 2026-05-25 17:38
+updated_at: 2026-05-25 17:59
+completed_at: 2026-05-25 17:59
 ---
 
 ## Context
