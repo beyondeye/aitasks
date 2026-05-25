@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [pypy, aitask_board]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-25 18:26
-updated_at: 2026-05-25 18:26
+updated_at: 2026-05-25 18:27
 ---
 
 after working with ait board after removing support for pypy in aitasks. see
