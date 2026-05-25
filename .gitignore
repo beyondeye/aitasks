@@ -37,14 +37,18 @@ aiplans
 # TODO(t777_29): replace the block below with an auto-generated section managed
 # by aitask_regen_gitignore_prerender.sh (scans `headless: true` profiles ×
 # `prerender_for_headless: true` skills). For now hardcoded to:
-#   pickrem (headless skill) × remote profile × 4 agents,
-#   plus the task-workflow-remote- closure pickrem transitively depends on.
+#   pickrem + pickweb (headless skills) × remote profile × 4 agents,
+#   plus the task-workflow-remote- closure pickrem/pickweb transitively depend on.
 # Pre-rendered headless variants committed so the skill works in Claude Code
 # Web where `ait setup` has not run.
 !.claude/skills/aitask-pickrem-remote-/
 !.agents/skills/aitask-pickrem-remote-/
 !.gemini/skills/aitask-pickrem-remote-/
 !.opencode/skills/aitask-pickrem-remote-/
+!.claude/skills/aitask-pickweb-remote-/
+!.agents/skills/aitask-pickweb-remote-/
+!.gemini/skills/aitask-pickweb-remote-/
+!.opencode/skills/aitask-pickweb-remote-/
 !.claude/skills/task-workflow-remote-/
 !.agents/skills/task-workflow-remote-/
 !.gemini/skills/task-workflow-remote-/

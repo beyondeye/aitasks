@@ -76,6 +76,7 @@ _resolver_key_for() {
         aitask-pr-import)         echo "pr-import" ;;
         aitask-revert)            echo "revert" ;;
         aitask-pickrem)           echo "pickrem" ;;  # TODO(t777_29): generalize via prerender marker
+        aitask-pickweb)           echo "pickweb" ;;  # TODO(t777_29): generalize via prerender marker
         *)                        echo "$skill" ;;  # fallback: identity
     esac
 }
