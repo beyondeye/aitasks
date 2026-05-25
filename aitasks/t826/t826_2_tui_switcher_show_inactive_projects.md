@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [tui, tui_switcher, cross_repo]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-25 17:17
-updated_at: 2026-05-25 18:06
+updated_at: 2026-05-25 23:07
 ---
 
 ## Context

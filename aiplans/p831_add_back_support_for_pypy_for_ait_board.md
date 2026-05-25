@@ -265,3 +265,76 @@ Standard cleanup per `task-workflow-fast-/SKILL.md` Step 9:
 - `./ait git push`.
 - The un-archived t729 will re-appear in the board's manual-verification
   column and be pickable in a subsequent session.
+
+## Final Implementation Notes
+
+- **Actual work done:** Plan executed as written. 12 files staged for the
+  t831 code commit, plus t729 un-archive on the `aitask-data` branch.
+  `git revert --no-commit 84d34173` restored all 15 files t785 removed
+  (launchers, resolver, setup install code, test, aidocs, website).
+  Forward-edited `aitask_settings.sh`, `aitask_brainstorm_tui.sh`,
+  `aitask_syncer.sh` back to `require_ait_python` (no net diff vs HEAD).
+  Forward-edited docs to express board-only scope. The single CLAUDE.md
+  conflict was resolved by keeping the t825-added
+  `monitor_idle_and_prompt_detection.md` pointer alongside a rewritten
+  `python_tui_performance.md` pointer for board-only state.
+- **Deviations from plan:** Three:
+  1. **Setup-script prompt line edit added** beyond the plan's
+     enumeration: `aitask_setup.sh::prompt_install_pypy_if_tty` had a
+     pre-t785 `info "Optional: PyPy 3.11 for faster TUIs (board,
+     codebrowser, settings, brainstorm)."` line that the revert
+     restored verbatim; tightened it to `"Optional: PyPy 3.11 for
+     faster 'ait board'."` for scope honesty.
+  2. **Website `development/pypy.md` got a larger rewrite than the
+     plan implied.** The restored file listed five fast-path TUIs and
+     described codebrowser as routed through PyPy — both stale even
+     before t785 (codebrowser was reverted by t718_6). Rewrote the
+     resolver-semantics table to list only `ait board`, rewrote the
+     "TUIs that stay on CPython" section to cover codebrowser /
+     settings / brainstorm / syncer / monitor / minimonitor / stats /
+     stats-tui, and added an explicit `AIT_PYTHON=~/.aitask/pypy_venv/bin/python
+     ait <command>` example for ad-hoc A/B testing on non-fast-path
+     launchers.
+  3. **`AIT_USE_PYPY` documentation correctness.** Initial doc draft
+     in `tui_conventions.md` overstated the env var's reach, claiming
+     it would route any launcher through PyPy. Verified against
+     `python_resolve.sh:133` — `AIT_USE_PYPY` is only honored when
+     `require_ait_python_fast` is called, which now means only
+     `ait board`. Corrected the table and added an explicit pointer
+     to `AIT_PYTHON=` as the supported one-off override for other
+     launchers.
+- **Issues encountered:** None during implementation. One unrelated
+  working-tree file (`agent_launch_utils.py`, belonging to in-progress
+  t826_2) was already modified before the session started; explicitly
+  excluded from the t831 staging.
+- **Key decisions:**
+  - **t729 un-archived rather than re-created from scratch.** Moving
+    the existing file preserves history (`./ait git mv`) and its
+    original `created_at: 2026-04-30`. Cleared the "Obsoleted by
+    retirement (t785)" body section, set status back to Ready,
+    removed `completed_at`, refreshed `updated_at`.
+  - **Settings/brainstorm/syncer left on CPython unchanged from
+    HEAD.** Per the user's "for now to use only for ait board"
+    scoping. Their fast-path routing was historically by-analogy
+    (never benchmarked, per t785's plan); the doc updates now
+    encode an explicit rule that any future fast-path adoption
+    requires a t718_6-style empirical benchmark, not analogy.
+  - **`AIT_PYTHON` documented as the ad-hoc PyPy override** for
+    non-fast-path launchers. Reuses the existing `AIT_PYTHON`
+    interpreter-override hook in `resolve_python` — no new code
+    surface introduced for A/B testing.
+- **Upstream defects identified:** None — the t785 revert is mechanical
+  and the restored code is the same content that shipped in v0.20.0
+  (and ran in production until 2026-05-25).
+- **Smoke verification done in-task:**
+  - `bash -n` syntax-clean on all six modified bash scripts.
+  - `declare -F` after sourcing the resolver returns all expected
+    functions: `resolve_python`, `require_python`, `require_modern_python`,
+    `require_ait_python`, `resolve_pypy_python`, `require_ait_pypy`,
+    `require_ait_python_fast`.
+  - `bash tests/test_python_resolve_pypy.sh` — **9/9 PASS**.
+  - Launcher grep: `aitask_board.sh` uses `require_ait_python_fast`;
+    the other three TUIs use `require_ait_python`.
+  - `shellcheck` on all 6 scripts: only pre-existing info-level findings
+    (SC1091 source-not-followed, SC2015 A&&B||C in setup.sh, SC2034
+    `current_minor` warning) — all present in HEAD before t831.

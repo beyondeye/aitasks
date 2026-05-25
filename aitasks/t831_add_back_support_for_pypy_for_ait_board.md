@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [pypy, aitask_board]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-25 18:26
-updated_at: 2026-05-25 18:27
+updated_at: 2026-05-25 23:06
 ---
 
 after working with ait board after removing support for pypy in aitasks. see

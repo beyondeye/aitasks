@@ -547,3 +547,133 @@ or direct `python3` if Python is on PATH; mirror existing
 
 After implementation and review, follow the shared workflow's Step 9.
 No worktree to clean (profile `fast` works on the current branch).
+
+## Final Implementation Notes
+
+- **Actual work done:** All 8 plan steps landed as designed.
+  - **Step 0** — Spawned sibling brainstorm `t826_5_brainstorm_stale_registry_ux.md`
+    capturing the stale-registry UX design space; auto-registered under
+    `t826.children_to_implement`.
+  - **Step 1** — `AitasksSession` gained `is_live: bool = True` (default
+    preserves all existing constructor sites).
+  - **Steps 2-3** — Added `_read_registry_index()` + `_read_default_session()`
+    helpers in `agent_launch_utils.py`. Both use plain line-parsers
+    (no PyYAML dep), mirroring the awk patterns from
+    `aitask_projects.sh::list_registry_entries` and
+    `aitask_ide.sh::resolve_session` for behavioral parity.
+  - **Step 4** — `discover_aitasks_sessions` takes a keyword-only
+    `include_registered=False`. When True: live-tmux loop runs
+    unchanged, then registry entries are appended (deduped on
+    `project_name`) as synthesized `AitasksSession(is_live=False)`
+    entries. The default-false call shape is byte-identical to today.
+  - **Step 5** — Created `.aitask-scripts/lib/tmux_bootstrap.sh` with
+    `spawn_session_detached <project_root>` + four parameterized
+    `_tmux_bootstrap_*` helpers (resolve_session, read_syncer_autostart,
+    set_project_registry, ensure_syncer_window). Source-and-CLI dual
+    form: sourced by `aitask_ide.sh`, shelled out to by the switcher.
+    Idempotent — `tmux has-session` guard means re-invoking on a live
+    session is a no-op except for refreshing the persistent registry.
+  - **Step 5b** — Refactored `aitask_ide.sh` to source the helper and
+    delegate; the fresh-session path collapsed from 6 lines of inline
+    bootstrap to a single `spawn_session_detached "$(pwd)"` call.
+  - **Step 6** — `tui_switcher.py` passes `include_registered=True` in
+    `on_mount`, gained an `_ensure_session_live()` helper that
+    shells out to `tmux_bootstrap.sh` for inactive entries (with
+    notification on failure), and wires the guard into the three
+    spawn entry points: `_switch_to`, `action_shortcut_explore`,
+    `action_shortcut_create`. `_launch_git_with_companion` is called
+    from `_switch_to` so it inherits the guard transparently.
+  - **Step 7** — Two new test files:
+    `tests/test_discover_include_registered.py` (6 tests covering
+    `is_live=False`, session-name resolution, env-var override,
+    stale-skip, sorted output, live-deduplication of name-clashing
+    entries) and `tests/test_discover_default_unchanged.py` (4
+    regression tests pinning the no-flag contract: empty/no-tmux
+    case, live-entry case, no-leak-from-registry, kwarg-only
+    signature). 10/10 pass.
+
+- **Deviations from plan:**
+  - **`session: str | None` rejected in favor of `is_live: bool`** —
+    explicitly flagged in the plan's Verification Notes #4. Adding
+    a new field (default-True) preserved every downstream caller
+    that today does `s.session.startswith(...)` etc., versus
+    threading `Optional[str]` through every call site.
+  - **`_ensure_session_live` flips the cached entry to `is_live=True`
+    after a successful bootstrap** — not in the plan; added to avoid
+    re-triggering bootstrap on subsequent actions within the same
+    overlay session (e.g. user spawns explore then create on the
+    same inactive-now-live session). `AitasksSession` is frozen so
+    the slot is replaced, not mutated.
+  - **`_launch_git_with_companion` not explicitly guarded** — it's
+    only reachable from `_switch_to` (the `name == "git"` branch on
+    line 783), so the `_switch_to` top-level guard already covers
+    it. Saved one duplicate call.
+
+- **Issues encountered:**
+  - shellcheck SC2317 ("unreachable") on the standard
+    `return 0 2>/dev/null || true` double-source guard in
+    `tmux_bootstrap.sh` — silenced inline; pattern is standard
+    across the codebase.
+  - shellcheck SC1091 ("not following: dynamic path") on
+    `source "$_TMUX_BOOTSTRAP_LIB_DIR/terminal_compat.sh"` —
+    silenced inline; same info-level noise the rest of the repo
+    accepts on its `$SCRIPT_DIR`-anchored sources.
+  - Pre-existing `tests/test_git_tui_config.py` failures (3 errors,
+    all `from .prompt_patterns` relative-import in
+    `tmux_monitor.py` when imported as a top-level module) reproduce
+    on a clean tree — not caused by t826_2. Flagged in Upstream
+    Defects below.
+
+- **Key decisions:**
+  - **Line parser over subprocess for reading the registry.**
+    `_read_registry_index` in Python mirrors the bash awk parser 1:1.
+    A subprocess-shell to `aitask_projects.sh` would require a new
+    machine-readable verb on the bash side AND adds spawn cost on
+    every switcher render. Line parser is ~30 lines of Python and
+    has no runtime dependency.
+  - **Dedupe by `project_name`** when merging registry into live
+    results — not by `session` name (which can differ between a
+    project's `tmux.default_session` config and the name a user
+    happened to start the session under via `ait ide --session foo`).
+    `project_name` is the durable identity in both views.
+  - **Bootstrap helper is `lib/tmux_bootstrap.sh`, not
+    `aitask_tmux_bootstrap.sh`** — not a user-facing CLI surface
+    (no `ait tmux-bootstrap` verb), so it lives under `lib/`
+    alongside the other shared bash helpers
+    (`terminal_compat.sh`, `yaml_utils.sh`). Not added to `./ait`'s
+    source-on-startup chain — only `aitask_ide.sh` sources it, so
+    `tests/lib/test_scaffold.sh` needs no update (decision noted in
+    Verification Note #5).
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/tmux_monitor.py:42 — relative import
+    `from .prompt_patterns import ...` fails when `tmux_monitor` is
+    imported as a top-level module (without the `monitor.` package
+    prefix). Causes 3 errors in `tests/test_git_tui_config.py`. The
+    test imports `tmux_monitor` via `sys.path` insertion of the
+    `monitor/` directory, so the dotted-relative import has no
+    parent. Fix is either to switch the import to
+    `from prompt_patterns import ...` (matching how the test loads
+    the module) or to have the test load it via package-qualified
+    import. Pre-existing on `main`, out of scope for t826_2.
+
+- **Notes for sibling tasks:**
+  - **t826_3 (website docs):** When documenting the
+    `~/.config/aitasks/projects.yaml` registry workflow, mention
+    that the TUI switcher now shows registered-but-inactive
+    projects in its Session: row (no extra visual marker — activity
+    is implied by switch-vs-spawn behavior). The bootstrap helper
+    `tmux_bootstrap.sh::spawn_session_detached` is the canonical
+    way to "spin up a project's tmux session on-demand" and is
+    safe to call multiple times (idempotent via `tmux has-session`).
+  - **t826_4 (manual verification):** Add a checklist item covering
+    the inactive-project bootstrap flow: open switcher, cycle to an
+    inactive registered project, pick any TUI, confirm tmux session
+    is spawned with seeded monitor window, confirm `switch-client`
+    teleports the user to it, confirm `ait monitor` (still scoped
+    to live-only) doesn't surface the inactive entry.
+  - **t826_5 (stale-registry UX brainstorm):** The current behavior
+    is silent exclusion at `_read_registry_index` time. That
+    helper's "skip if marker missing" line is the single hook
+    point where surfacing logic could be added (return a richer
+    `(name, path, status)` tuple instead of `(name, path)`).

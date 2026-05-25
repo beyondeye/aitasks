@@ -3,23 +3,14 @@ priority: medium
 effort: medium
 depends: [727]
 issue_type: chore
-status: Done
+status: Ready
 labels: [verification, manual]
 verifies: [727]
 created_at: 2026-04-30 16:01
-updated_at: 2026-05-25 10:23
-completed_at: 2026-05-25 10:23
+updated_at: 2026-05-25 19:00
 boardcol: manual_verifications
 boardidx: 10
 ---
-
-## Obsoleted by retirement (t785, 2026-05-25)
-
-The PyPy fast path retired by **t785** removed `ait setup --with-pypy`,
-`AIT_USE_PYPY`, `require_ait_pypy`, `resolve_pypy_python`, and the
-macOS PyPy install path (`_install_pypy_macos`). Every checklist item
-below references a code path that no longer exists. The task is
-archived as Done without execution.
 
 ## Manual Verification Task
 
