@@ -65,20 +65,18 @@ _stub_path_for() {
 # Map a skill slug to its task-workflow short name (resolver key). See
 # aidocs/stub-skill-pattern.md §3f. Stub authoring uses the short name in
 # the resolver call so it matches the body's userconfig lookup.
+#
+# Default convention: strip the `aitask-` prefix. Skills whose resolver key
+# diverges from this convention can drop a single-line `resolver_key.txt`
+# sidecar into their authoring dir to override.
 _resolver_key_for() {
     local skill="$1"
-    case "$skill" in
-        aitask-pick) echo "pick" ;;
-        aitask-explore)           echo "explore" ;;
-        aitask-qa)                echo "qa" ;;
-        aitask-fold)              echo "fold" ;;
-        aitask-review)            echo "review" ;;
-        aitask-pr-import)         echo "pr-import" ;;
-        aitask-revert)            echo "revert" ;;
-        aitask-pickrem)           echo "pickrem" ;;  # TODO(t777_29): generalize via prerender marker
-        aitask-pickweb)           echo "pickweb" ;;  # TODO(t777_29): generalize via prerender marker
-        *)                        echo "$skill" ;;  # fallback: identity
-    esac
+    local sidecar=".claude/skills/${skill}/resolver_key.txt"
+    if [[ -f "$sidecar" ]]; then
+        head -n1 "$sidecar"
+    else
+        echo "${skill#aitask-}"
+    fi
 }
 
 # --- Verification loop ---

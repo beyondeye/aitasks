@@ -3,21 +3,21 @@ name: aitask-pick
 description: Select the next AI task for implementation from the `aitasks/` directory.
 ---
 
-## Plan Mode Prerequisites
+@.opencode/skills/opencode_planmode_prereqs.md
+@.opencode/skills/opencode_tool_mapping.md
 
-**BEFORE executing the workflow**, read **`.opencode/skills/opencode_planmode_prereqs.md`**
-and follow its guidance for plan mode phases.
+This is a profile-aware skill stub. Execute these steps in order, then stop:
 
-## Source of Truth
+1. **Resolve active profile.** Parse $ARGUMENTS for `--profile <name>`.
+   If found, use that as `<profile>` and remove the `--profile <name>`
+   pair. Otherwise run:
+   `./.aitask-scripts/aitask_skill_resolve_profile.sh pick`
+   and use the single-line stdout as `<profile>`.
 
-This is an OpenCode wrapper. The authoritative skill definition is:
+2. **Render per-profile variant.** Run:
+   `./.aitask-scripts/aitask_skill_render.sh aitask-pick --profile <profile> --agent opencode`
 
-**`.claude/skills/aitask-pick/SKILL.md`**
-
-Read that file and follow its complete workflow. For tool mapping and
-OpenCode adaptations, read **`.opencode/skills/opencode_tool_mapping.md`**.
-
-## Arguments
-
-Accepts an optional task ID: `/aitask-pick 16` (parent) or `/aitask-pick 16_2` (child). Without argument, follows interactive selection.
-Optional `--profile <name>` to override execution profile selection. Example: `/aitask-pick --profile fast 16`.
+3. **Dispatch via Read-and-follow.** Read the file at
+   `.opencode/skills/aitask-pick-<profile>-/SKILL.md` and execute its
+   instructions as if they were this command, forwarding the (possibly
+   stripped) $ARGUMENTS unchanged.

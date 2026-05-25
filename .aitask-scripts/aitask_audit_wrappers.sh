@@ -151,8 +151,45 @@ Arguments: {{args}}
 EOF
 }
 
+# True if this skill is templated (has a SKILL.md.j2 entry-point template).
+# Templated skills dispatch through the profile-aware renderer; their wrappers
+# must be §3b/§3d-style stubs, not the legacy "Source of Truth" pointer.
+_skill_is_templated() {
+    local skill="$1"
+    [[ -f "${SOURCE_SKILLS_DIR}/${skill}/SKILL.md.j2" ]]
+}
+
 render_agents_skill() {
     local skill="$1" description="$2" arguments="$3"
+
+    if _skill_is_templated "$skill"; then
+        local resolver_key="${skill#aitask-}"
+        cat <<EOF
+---
+name: ${skill}
+description: ${description}
+---
+
+This is a profile-aware skill stub. Execute these steps in order, then stop:
+
+1. **Resolve active profile.** Parse ARGUMENTS for \`--profile <name>\`. If
+   found, use that as \`<profile>\` and remove the \`--profile <name>\` pair
+   from ARGUMENTS. Otherwise run:
+   \`./.aitask-scripts/aitask_skill_resolve_profile.sh ${resolver_key}\`
+   and use the single-line stdout as \`<profile>\`.
+
+2. **Render per-profile variant.** Run:
+   \`./.aitask-scripts/aitask_skill_render.sh ${skill} --profile <profile> --agent codex\`
+   No-op if the per-profile SKILL.md is already up to date.
+
+3. **Dispatch via Read-and-follow.** Read the file at
+   \`.agents/skills/${skill}-<profile>-/SKILL.md\` and execute its
+   instructions as if they were this skill, forwarding the (possibly
+   stripped) ARGUMENTS unchanged.
+EOF
+        return
+    fi
+
     cat <<EOF
 ---
 name: ${skill}
@@ -179,6 +216,37 @@ EOF
 
 render_opencode_skill() {
     local skill="$1" description="$2" arguments="$3"
+
+    if _skill_is_templated "$skill"; then
+        local resolver_key="${skill#aitask-}"
+        cat <<EOF
+---
+name: ${skill}
+description: ${description}
+---
+
+@.opencode/skills/opencode_planmode_prereqs.md
+@.opencode/skills/opencode_tool_mapping.md
+
+This is a profile-aware skill stub. Execute these steps in order, then stop:
+
+1. **Resolve active profile.** Parse \$ARGUMENTS for \`--profile <name>\`.
+   If found, use that as \`<profile>\` and remove the \`--profile <name>\`
+   pair. Otherwise run:
+   \`./.aitask-scripts/aitask_skill_resolve_profile.sh ${resolver_key}\`
+   and use the single-line stdout as \`<profile>\`.
+
+2. **Render per-profile variant.** Run:
+   \`./.aitask-scripts/aitask_skill_render.sh ${skill} --profile <profile> --agent opencode\`
+
+3. **Dispatch via Read-and-follow.** Read the file at
+   \`.opencode/skills/${skill}-<profile>-/SKILL.md\` and execute its
+   instructions as if they were this command, forwarding the (possibly
+   stripped) \$ARGUMENTS unchanged.
+EOF
+        return
+    fi
+
     cat <<EOF
 ---
 name: ${skill}
