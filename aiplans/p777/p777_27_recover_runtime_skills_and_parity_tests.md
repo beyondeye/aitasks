@@ -1,14 +1,18 @@
 ---
 Task: t777_27_recover_runtime_skills_and_parity_tests.md
 Parent Task: aitasks/t777_modular_pick_skill.md
-Sibling Tasks: aitasks/t777/t777_*_*.md
-Archived Sibling Plans: aiplans/archived/p777/p777_*_*.md
-Worktree: (none — profile 'fast', working on current branch)
-Branch: main
+Sibling Tasks: aitasks/t777/t777_18_docs_update_claudemd_and_website.md, aitasks/t777/t777_19_retrospective_evaluation.md, aitasks/t777/t777_28_dedup_template_branches_common_proc_and_macros.md
+Archived Sibling Plans: aiplans/archived/p777/p777_10_convert_aitask_fold.md, aiplans/archived/p777/p777_11_convert_aitask_qa.md, aiplans/archived/p777/p777_12_convert_aitask_pr_import.md, aiplans/archived/p777/p777_13_convert_aitask_revert.md, aiplans/archived/p777/p777_14_convert_aitask_pickrem.md, aiplans/archived/p777/p777_15_convert_aitask_pickweb.md, aiplans/archived/p777/p777_16_extract_profile_editor_widget.md, aiplans/archived/p777/p777_17_per_run_profile_edit_in_agentcommandscreen.md, aiplans/archived/p777/p777_1_minijinja_dep_renderer_paths_resolver.md, aiplans/archived/p777/p777_20_profile_modification_invalidation.md, aiplans/archived/p777/p777_21_map_pick_reference_closure_and_profile_keys.md, aiplans/archived/p777/p777_22_extend_renderer_for_uniform_recursive_rendering.md, aiplans/archived/p777/p777_23_swap_task_workflown_to_task_workflow.md, aiplans/archived/p777/p777_25_refactor_stubs_direct_helper_paths.md, aiplans/archived/p777/p777_26_template_completeness_and_resolver_key.md, aiplans/archived/p777/p777_29_fix_opencode_skill_legacy_pointers.md, aiplans/archived/p777/p777_2_aitask_skill_render_subcommand.md, aiplans/archived/p777/p777_3_stub_skill_design_and_gitignore.md, aiplans/archived/p777/p777_4_aitask_skill_verify_and_precommit.md, aiplans/archived/p777/p777_5_aitask_skillrun_wrapper_dispatcher.md, aiplans/archived/p777/p777_6_convert_aitask_pick_template_and_stubs.md, aiplans/archived/p777/p777_7_convert_task_workflow_shared_procs.md, aiplans/archived/p777/p777_8_convert_aitask_explore.md, aiplans/archived/p777/p777_9_convert_aitask_review.md
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-05-25 16:35
 ---
 
 # Plan: t777_27 — Recover pre-rewrite skills + add parity tests
+
+**(Verified re-render — 2026-05-25. Corrects Phase 2 render invocation and
+sentinel-ABSENT semantics; everything else carries over from the original
+plan unchanged.)**
 
 ## Context
 
@@ -34,6 +38,48 @@ refactor.
 (`.github/workflows/release.yml:107-120`) and from `install.sh`, so
 nothing under `tests/fixtures/` ever ships downstream.
 
+## Verification findings (what changed vs. original plan)
+
+Confirmed by direct codebase check at verify time:
+
+- **SHAs resolve.** `git rev-parse f1b01895` → `f1b018959a…`; `git rev-parse
+  c46366fc` → `c46366fc06…`. Pre-rewrite `aitask-pick/SKILL.md` at
+  `f1b01895` is 225 lines. `git ls-tree -r c46366fc -- .claude/skills/task-workflow/`
+  lists exactly 25 files. ✅ unchanged.
+- **`tests/` packaging boundary intact** (`.github/workflows/release.yml`
+  still excludes `tests/`; no regression). ✅ unchanged.
+- **Existing test harness pattern.** `tests/test_skill_render_aitask_pick.sh`
+  and `tests/test_skill_render_task_workflow.sh` render via
+  `$PYTHON .aitask-scripts/lib/skill_template.py <template> <profile.yaml>
+  <agent>` to **stdout** and compare in-memory. They do NOT call
+  `aitask_skill_render.sh` for the per-file render — only Test 4 of the
+  aitask-pick test uses it (for the closure walk-write check). The
+  data-driven assertions match against the stdout output. ✅ adopt this
+  pattern.
+- **`aitask_skill_render.sh` flag surface.** Help confirms only
+  `--profile`, `--agent`, `--force` are supported. **There is NO
+  `--output-dir` flag** — that part of the original plan's Phase 2 loop
+  is invalid. Renders always land at
+  `.claude/skills/<skill>-<profile>-/SKILL.md` (and nested closure files)
+  on disk. ⚠️ correct in Phase 2.
+- **Sentinel semantics.** The "Enter your email to track who is working
+  on this task" AskUserQuestion text appears in *all three* rendered
+  `task-workflow-*-/SKILL.md` files (line 103) because the fallback
+  AskUserQuestion is still emitted under "If both are empty, prompt the
+  user via `AskUserQuestion`". The profile-driven path adds the `Profile
+  '<p>': using email …` Display line *in addition*. So a naive
+  sentinel-ABSENT of "Enter your email" against fast/remote renders
+  would falsely fail. ⚠️ refine to **cross-profile** sentinel-ABSENT (a
+  profile-specific Display sentence must appear ONLY in its own profile,
+  not in another profile's render). The "Enter your email" text is now
+  asserted absent only from the `default` profile *vs.* "Profile
+  'default': using email" being absent from default — re-cast as a
+  presence/absence pair on the same Display sentinel.
+- **No `aitask-pick-default-` on-disk render.** Only `aitask-pick-fast-/`
+  exists today; remote/default would be created by the test if needed.
+  Switching to the in-memory `$RENDER` pattern avoids the need for
+  on-disk closures for aitask-pick. ✅ resolved by Phase 2 correction.
+
 ## Phase 1 — Land fixtures (one `chore:` commit, provenance-visible)
 
 Create `tests/fixtures/skills/` (sibling to `tests/golden/` and
@@ -55,8 +101,7 @@ tests/fixtures/skills/
     └── … (one .pre-rewrite per file in `git ls-tree -r c46366fc -- .claude/skills/task-workflow/`, 25 files total)
 ```
 
-Extraction commands (verified — `git rev-parse f1b01895`/`c46366fc` resolve;
-`git ls-tree -r c46366fc -- .claude/skills/task-workflow/ | wc -l` = 25):
+Extraction commands (verified — SHAs resolve and the 25-file count is exact):
 
 ```bash
 mkdir -p tests/fixtures/skills/aitask-pick tests/fixtures/skills/task-workflow
@@ -84,88 +129,130 @@ Write `tests/fixtures/skills/README.md` (concise, ≤ 25 lines):
 
 **Commit:** `chore: Recover pre-rewrite skill fixtures for parity testing (t777_27)`
 
-## Phase 2 — Land the parity test
+## Phase 2 — Land the parity test (CORRECTED)
 
 New file: `tests/test_skill_parity_runtime_vs_rendered.sh` (~250 lines).
-Patterns mirror `tests/test_skill_render_aitask_pick.sh`
+Patterns mirror `tests/test_skill_render_task_workflow.sh`
 (`assert_eq`/`assert_contains`/`assert_not_contains`, PASS/FAIL counter,
-minijinja-availability SKIP guard).
+minijinja-availability SKIP guard). **In-memory render via
+`$RENDER` (skill_template.py to stdout) — same pattern as
+existing render tests.** Do NOT call `aitask_skill_render.sh
+--output-dir` (flag does not exist) and do NOT depend on
+on-disk `.claude/skills/<skill>-<profile>-/` state.
+
+### Render helpers (top of test)
+
+```bash
+PYTHON="$($PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh)"
+RENDER="$PYTHON $PROJECT_DIR/.aitask-scripts/lib/skill_template.py"
+
+PICK_SKILL="$PROJECT_DIR/.claude/skills/aitask-pick/SKILL.md.j2"
+WORKFLOW_DIR="$PROJECT_DIR/.claude/skills/task-workflow"
+PROFILES_DIR="$PROJECT_DIR/aitasks/metadata/profiles"
+
+render_file() {                                # render_file <abs_template> <profile>
+    $RENDER "$1" "$PROFILES_DIR/$2.yaml" claude 2>&1
+}
+```
 
 ### Assertion table (data-driven; comments cite pre-rewrite line numbers)
 
-Hard-coded bash arrays (or here-doc fed into a parser loop). Each row:
-`SKILL|PROFILE|FIXTURE_LINE|KEY|SENTINEL_PRESENT|SENTINEL_ABSENT|NOTE`.
+Hard-coded bash arrays. Each row:
+`SKILL|FILE|PROFILE|FIXTURE_LINE|KEY|SENTINEL_PRESENT|SENTINEL_ABSENT|NOTE`.
 
-Concrete rows derived from the audit in `p777_21` + the Explore-agent
-verification against current rendered output (`.claude/skills/aitask-pick-<p>-/SKILL.md`,
-`.claude/skills/task-workflow-<p>-/SKILL.md`):
+The `FILE` column (new vs. original plan) lets each row target a specific
+closure file — `SKILL.md.j2` for aitask-pick, `SKILL.md` / `planning.md` /
+`manual-verification-followup.md` / `satisfaction-feedback.md` /
+`remote-drift-check.md` for task-workflow. `FILE` is resolved relative
+to `WORKFLOW_DIR` for `task-workflow`, or to the absolute `PICK_SKILL`
+for `aitask-pick`.
 
-| Skill | File / line in fixture | Key | `fast` / `remote` sentinel-PRESENT | `default` sentinel-PRESENT (= ASK case) |
-|-------|-----------------------|-----|------------------------------------|----------------------------------------|
-| aitask-pick | SKILL.md:44 (parent confirm) | `skip_task_confirmation` | `auto-confirming task selection` | `AskUserQuestion` + "Is this the correct task" |
-| aitask-pick | SKILL.md:72 (child confirm) | `skip_task_confirmation` | `auto-confirming task selection` (second site) | `AskUserQuestion` (second site) |
-| task-workflow | SKILL.md:98 | `default_email` | `Profile '<p>': using email` | `Enter your email to track who is working on this task` |
-| task-workflow | SKILL.md:183 | `create_worktree` | `working on current branch` (fast) / `creating worktree` (remote) | `Do you want to work on a new branch and worktree` |
-| task-workflow | SKILL.md:198 | `base_branch` | `using base branch` | `Which branch should the new task branch be based on` |
-| task-workflow | planning.md:29 | `plan_preference` / `_child` | profile-specific verify/use_current display string | `How would you like to proceed with the plan` |
-| task-workflow | planning.md:294 | `post_plan_action` / `_for_child` | `proceeding to implementation` (when value=`start_implementation`) | `Plan saved to` + 4-option `AskUserQuestion` |
-| task-workflow | manual-verification-followup.md:19 | `manual_verification_followup_mode` | `Profile '<p>': skipping manual verification follow-up offer` (value=`never`) | manual-verification-followup `AskUserQuestion` text |
-| task-workflow | satisfaction-feedback.md:34 | `enableFeedbackQuestions` | feedback-skipped (sentinel-absent of AskUserQuestion) when `false` | satisfaction `AskUserQuestion` text when undefined/`true` |
-| task-workflow | remote-drift-check.md:17 | `remote_drift_check` | (silent return — sentinel: absence of drift-check output) when value=`skip` | `Remote drift detected` warning text otherwise |
+**Sentinel semantics (refined):** a row asserts BOTH a presence and the
+absence of the *complementary* sentinel from the same profile's render.
+`SENTINEL_ABSENT` is the *other-profile*'s Display sentinel, not the
+fallback-text leak. Example: for `default_email` at fast,
+`SENTINEL_PRESENT = "Profile 'fast': using email"`,
+`SENTINEL_ABSENT = "Profile 'default': using email"`. Cross-profile rows
+catch both arms.
 
-Coverage target: every profile key from
-`p777_21`'s 12-key universe (`skip_task_confirmation`, `default_email`,
-`create_worktree`, `base_branch`, `plan_preference`, `plan_preference_child`,
-`post_plan_action`, `post_plan_action_for_child`, `plan_verification_required`,
-`enableFeedbackQuestions`, `remote_drift_check`,
-`manual_verification_followup_mode`) — one row per key per representative
-value, including the undefined / ASK case (i.e. the `default` profile).
+Concrete rows (representative — full table covers all 12 keys ×
+{default, fast, remote}, ~30 rows total):
+
+| Skill | File | Profile | Fixture line | Key | PRESENT | ABSENT (cross-profile) |
+|-------|------|---------|--------------|-----|---------|------------------------|
+| aitask-pick | SKILL.md.j2 | fast    | SKILL.md:44 (parent confirm) | `skip_task_confirmation` | `Profile 'fast': auto-confirming task selection` | `Is this the correct task to work on` |
+| aitask-pick | SKILL.md.j2 | remote  | SKILL.md:44 | `skip_task_confirmation` | `Profile 'remote': auto-confirming task selection` | `Is this the correct task to work on` |
+| aitask-pick | SKILL.md.j2 | default | SKILL.md:44 | `skip_task_confirmation` | `Is this the correct task to work on` | `Profile 'fast': auto-confirming task selection` |
+| aitask-pick | SKILL.md.j2 | fast    | SKILL.md:72 (child confirm)  | `skip_task_confirmation` | `Profile 'fast': auto-confirming task selection` (second occurrence) | `Is this the correct child task to work on` |
+| task-workflow | SKILL.md | fast    | SKILL.md:98  | `default_email`  | `Profile 'fast': using email`  | `Profile 'default': using email` |
+| task-workflow | SKILL.md | remote  | SKILL.md:98  | `default_email`  | `Profile 'remote': using email`| `Profile 'fast': using email` |
+| task-workflow | SKILL.md | default | SKILL.md:98  | `default_email`  | `Enter your email to track who is working on this task` | `Profile 'fast': using email` |
+| task-workflow | SKILL.md | fast    | SKILL.md:183 | `create_worktree`| `working on current branch`    | `Do you want to work on a new branch and worktree` |
+| task-workflow | SKILL.md | remote  | SKILL.md:183 | `create_worktree`| `creating worktree`            | `Do you want to work on a new branch and worktree` |
+| task-workflow | SKILL.md | default | SKILL.md:183 | `create_worktree`| `Do you want to work on a new branch and worktree` | `working on current branch` |
+| task-workflow | SKILL.md | fast    | SKILL.md:198 | `base_branch`    | `using base branch`            | `Which branch should the new task branch be based on` (only when profile sets base_branch; if unset the AskUserQuestion still appears — verify) |
+| task-workflow | planning.md | fast    | planning.md:29  | `plan_preference` / `_child` | `Profile 'fast': using existing plan` (parent) / `Profile 'fast': checking verification status` (child) | `How would you like to proceed with the plan` |
+| task-workflow | planning.md | default | planning.md:29  | `plan_preference` | `How would you like to proceed with the plan` | `Profile 'fast': using existing plan` |
+| task-workflow | planning.md | fast    | planning.md:294 | `post_plan_action` / `_for_child` | `Profile 'fast': proceeding to implementation` (when value=`start_implementation`) | `Plan saved to` + 4-option AskUserQuestion text |
+| task-workflow | manual-verification-followup.md | fast    | mvf.md:19 | `manual_verification_followup_mode` | (`never`-only assertion; for `ask` profile both arms coexist) | manual-verification-followup AskUserQuestion text |
+| task-workflow | satisfaction-feedback.md | default | sf.md:34 | `enableFeedbackQuestions` | satisfaction `AskUserQuestion` text (always present in default) | profile-skip Display line (`skipping satisfaction feedback`) |
+| task-workflow | remote-drift-check.md  | default | rdc.md:17 | `remote_drift_check`     | `Remote drift detected` warning | `Profile '<p>': skipping drift check` |
+
+Coverage target: every profile key from `p777_21`'s 12-key universe
+(`skip_task_confirmation`, `default_email`, `create_worktree`,
+`base_branch`, `plan_preference`, `plan_preference_child`,
+`post_plan_action`, `post_plan_action_for_child`,
+`plan_verification_required`, `enableFeedbackQuestions`,
+`remote_drift_check`, `manual_verification_followup_mode`) — one row per
+key per representative value, including the undefined / ASK case (i.e.
+the `default` profile).
 
 ### Per-row assertion loop
 
 ```bash
 for ROW in "${ROWS[@]}"; do
-  IFS='|' read -r SKILL PROFILE FIXTURE_LINE KEY PRESENT ABSENT NOTE <<<"$ROW"
-  # Render the current .j2 closure for this (skill, profile) into a tmpdir.
-  # Use the existing helper directly (no `./ait skill ...` indirection).
-  RENDER_OUT=$(./.aitask-scripts/aitask_skill_render.sh "$SKILL" \
-      --profile "$PROFILE" --agent claude --output-dir "$TMPDIR/render" --force 2>&1)
+  IFS='|' read -r SKILL FILE PROFILE FIXTURE_LINE KEY PRESENT ABSENT NOTE <<<"$ROW"
 
-  # Locate the rendered top-level file for this skill.
-  RENDERED_FILE="$TMPDIR/render/skills/${SKILL}-${PROFILE}-/SKILL.md"
+  # Resolve template path.
+  if [[ "$SKILL" == "aitask-pick" ]]; then
+      TEMPLATE="$PICK_SKILL"                              # always SKILL.md.j2
+  else
+      TEMPLATE="$WORKFLOW_DIR/$FILE"
+  fi
 
-  # Assert sentinel presence/absence.
-  if [[ -n "$PRESENT" ]]; then
-    assert_contains "$SKILL/$PROFILE key=$KEY (fixture:$FIXTURE_LINE) present" \
-                    "$PRESENT" "$(<"$RENDERED_FILE")"
-  fi
-  if [[ -n "$ABSENT" ]]; then
-    assert_not_contains "$SKILL/$PROFILE key=$KEY (fixture:$FIXTURE_LINE) absent" \
-                        "$ABSENT" "$(<"$RENDERED_FILE")"
-  fi
+  RENDERED="$(render_file "$TEMPLATE" "$PROFILE")"
+
+  [[ -n "$PRESENT" ]] && assert_contains \
+      "$SKILL/$FILE/$PROFILE key=$KEY (fixture:$FIXTURE_LINE) present" \
+      "$PRESENT" "$RENDERED"
+  [[ -n "$ABSENT" ]] && assert_not_contains \
+      "$SKILL/$FILE/$PROFILE key=$KEY (fixture:$FIXTURE_LINE) absent" \
+      "$ABSENT" "$RENDERED"
 done
 ```
 
 ### Cross-check: every pre-rewrite conditional has at least one render arm
 
 After the per-row loop, a second pass scans each pre-rewrite fixture for
-`If the active profile|Profile check[.:]|If the effective action is`
-lines. For each match, build the union of sentinels-PRESENT across all 3
-profiles for that row and assert that **at least one** of them appears in
-**some** profile's render. This catches the failure mode where a
-template author deletes both arms by accident.
+guard sentences matching the regex
+`If the active profile|Profile check[.:]|If the effective action is`.
+For each match, build the union of `SENTINEL_PRESENT` across all 3
+profiles for that fixture line and assert that **at least one** of them
+appears in **some** profile's render. This catches the failure mode
+where a template author deletes both arms by accident.
 
 ### Failure messaging
 
 On `assert_contains` failure, print: fixture file + line, the conditional
 sentence (head -1 of the fixture line + next 2 lines), the expected
-sentinel, and the rendered file path so the developer can `diff` quickly.
+sentinel, the profile, and the (in-memory) rendered output's first 60
+lines so the developer can diff visually. No on-disk artifact needed.
 
 ### No-leak assertion
 
-Cheap re-affirmation of an existing invariant: every rendered file under
-the per-skill tmpdir must contain no `{%` or `{{` tokens. Already covered
-by `tests/test_skill_render_aitask_pick.sh` and
+Cheap re-affirmation of an existing invariant: every rendered string
+produced by `render_file` must contain no `{%` or `{{` tokens. Already
+covered by `tests/test_skill_render_aitask_pick.sh` and
 `tests/test_skill_render_task_workflow.sh`; replicated here so this test
 stands alone.
 
@@ -196,7 +283,7 @@ regressions. Two deliberate breakages, each reverted before final commit:
    `{% if profile.skip_task_confirmation is defined and profile.skip_task_confirmation %}`
    auto-confirm arm in `.claude/skills/aitask-pick/SKILL.md.j2` (one of
    the two sites). Re-run the test. **Expect:** `aitask-pick/fast` and
-   `aitask-pick/remote` rows fail with "sentinel-PRESENT missing"; `default`
+   `aitask-pick/remote` rows fail with sentinel-PRESENT missing; `default`
    row still passes. Revert the edit.
 2. **AskUserQuestion text mutation:** Temporarily change the
    AskUserQuestion question wording in the `default` arm of
@@ -213,8 +300,8 @@ so a future reader can see the test was empirically validated.
 
 Per `task-workflow/SKILL.md` Step 9, no deviations:
 
-1. **Phase 1 commit** (already done): `chore: Recover pre-rewrite skill
-   fixtures for parity testing (t777_27)`.
+1. **Phase 1 commit**: `chore: Recover pre-rewrite skill fixtures for
+   parity testing (t777_27)`.
 2. **Phase 2 + 3 commit**: `test: Add parity test
    tests/test_skill_parity_runtime_vs_rendered.sh (t777_27)`. Touches the
    new test file and (if Phase 3.2 lands) `.aitask-scripts/aitask_skill_verify.sh`.
@@ -223,8 +310,7 @@ Per `task-workflow/SKILL.md` Step 9, no deviations:
 4. **Archive**: `./.aitask-scripts/aitask_archive.sh 777_27`.
 5. **Push**: `./ait git push`.
 
-Attribution per `code-agent-commit-attribution.md`.
-No linked issue.
+Attribution per `code-agent-commit-attribution.md`. No linked issue.
 
 ## Out of scope (mirrors task spec — explicit)
 
