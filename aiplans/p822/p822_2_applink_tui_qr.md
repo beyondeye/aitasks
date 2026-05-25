@@ -227,3 +227,44 @@ Standard cleanup per task-workflow Step 9:
 - Push via `./ait git push`
 - Archive task and plan via `./.aitask-scripts/aitask_archive.sh 822_2`
 - Parent t822 keeps `t822_3`, `t822_4`, `t822_5` pending — archival will only close this child
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-25)
+
+- **Requested by user:** (a) Move `applink` in the switcher list so it appears **after** the Statistics TUI (not in alphabetical position). (b) Assign a single-letter keyboard shortcut like every other switcher-visible TUI. (c) Clarify how the regenerate action interacts with already-paired clients — stable connection IDs must survive a regenerate. (d) Stop showing the raw `applink://` URI in the final TUI; the QR alone is sufficient and the plaintext URI leaks the pairing token to bystanders.
+- **Changes made:**
+  - `.aitask-scripts/lib/tui_registry.py` — moved the `applink` entry to position 5 (after `stats`, before `diffviewer`).
+  - `.aitask-scripts/lib/tui_switcher.py` — added `"applink": "a"` to `_TUI_SHORTCUTS`, added `Binding("a", "shortcut_applink", "App Linker", show=False)` to `BINDINGS`, and added `action_shortcut_applink()` calling `self._shortcut_switch("applink")`.
+  - `.aitask-scripts/applink/applink_app.py` — removed the `Static(self._uri, id="pairing_uri")` widget and its CSS block; pruned the matching `query_one("#pairing_uri", …).update(...)` call inside `action_regenerate`; added a comment explaining the regenerate invariant.
+  - `.aitask-scripts/applink/pairing.py` — expanded `generate_token()` docstring with the **Stable-connection-ID invariant**: regenerating only invalidates the unused pairing token; already-issued bearers (and their connection IDs) stay valid. The t822_3 follow-up that wires the WebSocket listener must preserve this invariant.
+  - `website/content/docs/tuis/applink/_index.md`, `how-to.md`, `reference.md` — removed mentions of the raw URI display and documented the regenerate invariant.
+- **Files affected:** `.aitask-scripts/lib/tui_registry.py`, `.aitask-scripts/lib/tui_switcher.py`, `.aitask-scripts/applink/applink_app.py`, `.aitask-scripts/applink/pairing.py`, `website/content/docs/tuis/applink/_index.md`, `website/content/docs/tuis/applink/how-to.md`, `website/content/docs/tuis/applink/reference.md`.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Created `.aitask-scripts/applink/` package: `__init__.py`, `pairing.py` (token generation, LAN IP probe with UDP-connect fallback, URI builder, TLS fingerprint stub), `qr_widget.py` (`TerminalQR(Static)` — walks `segno.QRCode.matrix` directly and emits half-block Unicode for compact rendering; auto-selects Micro QR when payload fits), `applink_app.py` (`ApplinkApp(TuiSwitcherMixin, App)` with `PairingScreen` + `StatusScreen`, `--smoke` headless entry).
+  - Created `.aitask-scripts/aitask_applink.sh` launcher mirroring `aitask_brainstorm_tui.sh` (sources `aitask_path.sh`, `python_resolve.sh`, `terminal_compat.sh`; dep-checks `textual` + `segno`; warns on incapable terminals; supports `--help`).
+  - Wired `ait applink` dispatcher case in `ait` and added help-text line under the `TUI:` section.
+  - Registered `applink` in `TUI_REGISTRY` (positioned after `stats` per user feedback) and added `a` shortcut wiring in `lib/tui_switcher.py` (`_TUI_SHORTCUTS`, `BINDINGS`, `action_shortcut_applink`).
+  - Added `'segno>=1.5,<2'` to the unified pip install in `aitask_setup.sh:519`.
+  - Added `tests/test_applink_smoke.sh` (boots `ApplinkApp` headlessly via `--smoke`).
+  - Wrote three website pages under `website/content/docs/tuis/applink/` (`_index.md`, `how-to.md`, `reference.md`) and added an Available-TUIs entry pointing at them.
+- **Deviations from plan:**
+  - Plan originally placed `applink` alphabetically in `TUI_REGISTRY`; user review requested it after `stats`. Plan also did not specify a switcher shortcut letter — added during review.
+  - Plan included a dim raw-URI `Static` below the QR for debugging; user requested it removed because it leaks the pairing token in plaintext. Done; the QR is now sufficient, and the `--smoke` test still exercises URI construction internally.
+  - LAN IP detection added a second fallback (UDP-connect to 8.8.8.8 to read the kernel-selected source address) beyond what the plan called for, because `getaddrinfo(gethostname())` returns only loopback on some Linux setups.
+- **Issues encountered:**
+  - `require_ait_python_fast` (cited in the original task description) does not exist; the canonical helper is `require_ait_python()`. Caught during plan verification (verify path).
+  - `segno` was not pre-installed in the ait venv; installed locally via `~/.aitask/venv/bin/pip install 'segno>=1.5,<2'` for smoke-testing. The `aitask_setup.sh` edit ensures fresh installs pick it up.
+- **Key decisions:**
+  - Kept `segno` over `qrcode` (user preference) specifically for Micro QR support — `qr_widget.TerminalQR` passes `micro=None` so segno auto-picks; the v1 pairing URI is too long for Micro but the widget is forward-compatible (future short-data screens like fingerprint-only verification).
+  - Custom half-block widget instead of `segno.terminal()`: 2-char-wide cells give a square QR in standard terminal cell aspect ratio (~2:1).
+  - Two-screen design (`PairingScreen`, `StatusScreen`) managed via `push_screen`/`pop_screen`, mirroring `codebrowser_app.py` rather than the larger `brainstorm_app.py`.
+  - Stable-connection-ID invariant: regenerate only rotates the unused pairing token; bearers issued to already-paired clients (and their connection IDs) survive. Documented in `pairing.generate_token()` docstring and in the website docs so the t822_3 follow-up enforces it when implementing bearer issuance.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t822_3 (monitor port design / WebSocket listener):** When implementing the `pair` request handler, preserve the stable-connection-ID invariant — bearers issued before a regenerate must continue to validate. Swap `compute_self_signed_fingerprint()` (currently returns `"NOT-IMPLEMENTED"`) for the real TLS-cert fingerprint then; that single-function replacement is the only pairing-side change needed here.
+  - **t822_4 (manual verification):** verification items now include the switcher shortcut (`j` then `a`) and confirming that the raw URI is NOT shown in the Pairing screen.
+  - **t822_5 (hostname field in QR):** already wired — `build_pairing_uri()` accepts an optional `hostname` kwarg and emits `&name=<urlencoded(hostname)>`. The `ApplinkApp` passes `socket.gethostname()` automatically.
