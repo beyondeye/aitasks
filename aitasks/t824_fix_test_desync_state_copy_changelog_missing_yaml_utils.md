@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [test, bug]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-25 11:50
-updated_at: 2026-05-25 11:50
+updated_at: 2026-05-25 17:18
 ---
 
 ## Symptom
