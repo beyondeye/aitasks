@@ -94,9 +94,15 @@ The PC server is always-on (started by the user via `ait applink`). The phone bo
 2. **Server computes its TLS-cert fingerprint** — SHA-256 of the self-signed cert's DER form, base64url-encoded. (Cert lifecycle and crypto-suite review are deferred — see "Out of scope".)
 3. **TUI renders QR.** The QR encodes:
    ```
-   applink://<lan-ip>:<port>/pair?t=<base64url(T)>&fp=<fp>
+   applink://<lan-ip>:<port>/pair?t=<base64url(T)>&fp=<fp>&name=<urlencoded(hostname)>
    ```
-4. **Phone scans the QR**, parses `<lan-ip>`, `<port>`, `t`, `fp`. It opens a `wss://<lan-ip>:<port>/` connection, pinning the server's cert to `fp`.
+   - `name` is OPTIONAL and additive. The TUI sets it to the URL-encoded
+     PC hostname (e.g. `socket.gethostname()` / `hostnamectl --static`).
+     Mobile clients use it as the default value for a user-editable PC
+     label on the connection list. Older clients that ignore unknown
+     query params are unaffected (per §Versioning rule for additive
+     payload fields, applied here to the QR URL).
+4. **Phone scans the QR**, parses `<lan-ip>`, `<port>`, `t`, `fp`, and (optionally) `name`. It opens a `wss://<lan-ip>:<port>/` connection, pinning the server's cert to `fp`.
 5. **Phone sends pair request:**
    ```json
    {"v":1, "id":"p1", "kind":"req", "verb":"pair",
