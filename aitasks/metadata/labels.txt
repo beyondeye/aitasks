@@ -23,6 +23,7 @@ ait_bridge
 ait_dispatcher
 ait_settings
 ait_setup
+applink
 archiveformat
 auto-update
 bash_scripts
