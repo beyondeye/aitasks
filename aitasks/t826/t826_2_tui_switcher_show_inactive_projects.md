@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t826_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [tui, tui_switcher, cross_repo]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-25 17:17
-updated_at: 2026-05-25 17:17
+updated_at: 2026-05-25 18:06
 ---
 
 ## Context
