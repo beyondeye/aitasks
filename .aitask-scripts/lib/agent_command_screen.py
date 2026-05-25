@@ -800,17 +800,17 @@ class AgentCommandScreen(ModalScreen):
             self.app.notify(f"Failed to save profile: {exc}", severity="error")
             return
         self.app.notify(f"Saved profile '{name}' to profiles/local/")
-        # Eager-invalidate per-profile rendered skill directories (t777_20).
-        # The renderer's mtime check is the safety net; this just makes the
-        # staleness visible on disk immediately after the save.
+        # Synchronously refresh every rendered skill closure for this
+        # profile (t777_20). Atomic per-file overwrites keep any open
+        # SKILL.md handles in concurrently-running agents valid.
         try:
             subprocess.run(
-                ["./.aitask-scripts/aitask_skill_invalidate.sh", name],
-                check=False, capture_output=True, text=True, timeout=10,
+                ["./.aitask-scripts/aitask_skill_rerender.sh", name],
+                check=False, capture_output=True, text=True, timeout=60,
             )
         except (OSError, subprocess.TimeoutExpired):
             self.app.notify(
-                "Profile saved but invalidation helper failed — "
+                "Profile saved but rerender helper failed — "
                 "next render will still re-check freshness.",
                 severity="warning", timeout=5,
             )

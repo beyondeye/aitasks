@@ -455,6 +455,19 @@ class ConfigManager:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
         self.profiles[filename] = data
         self.profile_layers[filename] = layer
+        # Synchronously refresh every rendered skill closure for this
+        # profile so the on-disk view matches the saved YAML immediately.
+        # The renderer's atomic per-file overwrite keeps any currently-open
+        # SKILL.md handles in active agent sessions valid (Unix inode
+        # semantics); deleting the dirs would not have that guarantee.
+        try:
+            subprocess.run(
+                ["./.aitask-scripts/aitask_skill_rerender.sh",
+                 Path(filename).stem],
+                check=False, capture_output=True, text=True, timeout=60,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
 
     def delete_profile(self, filename: str):
         """Delete a profile file from disk (handles both layers)."""
