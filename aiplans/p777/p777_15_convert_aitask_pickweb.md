@@ -240,3 +240,74 @@ The plan's high-level scope is sound and current; minor additions below.
    should print the filename (i.e., no legacy-pointer phrase present).
 5. Confirm `aitasks/t777/t777_29_*.md` exists and is added to
    `children_to_implement` of `t777_modular_pick_skill.md`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Authored `.claude/skills/aitask-pickweb/SKILL.md.j2`
+  (357 lines) and the four canonical agent stubs plus the OpenCode
+  skill-registry leftover fix (5 stubs total). Pre-rendered the `remote`
+  profile for all 4 agents under `<root>/aitask-pickweb-remote-/`. Patched
+  `.gitignore` to unblock the new pre-rendered dirs, registered `pickweb`
+  in `aitask_skill_verify.sh::_resolver_key_for`, and authored a
+  87-assertion regression test
+  (`tests/test_skill_render_aitask_pickweb.sh`) cloned from the pickrem
+  test with pickweb-specific Test 2 assertions (use_current branch,
+  `.aitask-data-updated/` web layout, absence of ownership/archive/`./ait git`
+  invocations) and a new Test 9 that asserts the OpenCode skill-registry
+  leftover is gone (no legacy "Source of Truth" phrase). Committed golden
+  file. All 87 tests pass; `./.aitask-scripts/aitask_skill_verify.sh`
+  reports OK across 9 templates × 4 agents.
+
+- **Deviations from plan:** None substantive. The only minor adjustment:
+  Test 2 assertions for "no ownership / no archive / no ./ait git" had
+  to be tightened to look for actual bash invocation patterns (e.g.
+  `./.aitask-scripts/aitask_archive.sh`, `./ait git add`) rather than
+  bare names, because pickweb's body legitimately documents those names
+  in descriptive prose (e.g. "NO archival (`aitask_archive.sh`) —
+  completion marker written instead"). The negative assertions now
+  forbid the invocation pattern but allow the docstring mention.
+
+- **Issues encountered:** Two related to leftover state:
+  1. `aitask_skill_verify.sh::_resolver_key_for` switch-arm needed an
+     explicit `aitask-pickweb)` entry; without it the global verifier
+     fails with `STUB_FAIL: missing resolver call`. This is a known
+     TODO(t777_29) hardcoded-mapping pattern — pickrem has the same
+     workaround.
+  2. `.gitignore`'s `*-/` ignore rule blocks committing
+     `aitask-pickweb-remote-/SKILL.md` × 4. Added 4 exclamation-mark
+     overrides next to the existing pickrem overrides (also flagged
+     under the same TODO(t777_29) auto-generation comment).
+
+- **Upstream defects identified:**
+  - `.opencode/skills/<skill>/SKILL.md:1 — pre-templating-era "Source of Truth" pointer surface remains broken for 7 already-templated skills (pick, pickrem, explore, review, fold, qa, pr-import, revert). Pointer redirects to `.claude/skills/<skill>/SKILL.md` which is now the §3b Claude stub, so OpenCode auto-discovery routes through the wrong agent root. Captured as follow-up task t777_29.
+  - `.aitask-scripts/aitask_audit_wrappers.sh:180 — `render_opencode_skill` still emits the legacy pointer; `/aitask-audit-wrappers --phase=skills` would re-create the broken pointer even after a manual fix. Captured as part of t777_29.
+
+- **Key decisions:**
+  - Replaced (rather than deleted) `.opencode/skills/aitask-pickweb/SKILL.md`
+    with a §3d-style stub identical to `.opencode/commands/aitask-pickweb.md`
+    so OpenCode's description-based skill auto-discovery (declared in
+    `.opencode/instructions.md`) still works.
+  - Deferred broader 7-skill cleanup to t777_29 per user scoping
+    decision; this task fixes only its own surface.
+  - Hardcoded `post_plan_action: start_implementation` (single line) in
+    the rendered Step 5 Checkpoint instead of wrapping in a Jinja
+    conditional, because pickweb's profile schema only recognizes one
+    value for that key. Future profile values would need a conditional;
+    none exist today.
+
+- **Test results:** `bash tests/test_skill_render_aitask_pickweb.sh` →
+  Tests: 87, Passed: 87, Failed: 0.
+  `./.aitask-scripts/aitask_skill_verify.sh` → OK (9 templates × 4 agents).
+
+- **Notes for sibling tasks:**
+  - When porting any remaining "Pick"-family skill, expect the same
+    `.opencode/skills/<slug>/SKILL.md` leftover pattern and the same
+    `_resolver_key_for` and `.gitignore` patches. t777_29 will eliminate
+    the per-skill `_resolver_key_for` hardcoding via a prerender marker
+    — sibling tasks landing before t777_29 should still patch
+    `_resolver_key_for` and `.gitignore` explicitly.
+  - The `Render only if needed` (conditional-Read) stub pattern is now
+    the established convention for headless skills that ship
+    pre-rendered variants. Reuse pickrem/pickweb stub bodies verbatim
+    with name substitutions.
+
