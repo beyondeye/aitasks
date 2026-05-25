@@ -27,9 +27,12 @@ Usage:
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 
+import yaml
 from textual import on, work
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
@@ -55,6 +58,28 @@ from agent_launch_utils import (  # noqa: E402
 
 _NEW_SESSION_SENTINEL = "__new_session__"
 _NEW_WINDOW_SENTINEL = "__new_window__"
+
+_PROFILES_DIR = Path("aitasks/metadata/profiles")
+_LOCAL_PROFILES_DIR = _PROFILES_DIR / "local"
+_SKILLRUN_PRUNE_AGE_SECONDS = 3600  # 1 hour
+
+
+def _prune_stale_skillrun_overrides() -> None:
+    """Best-effort remove _skillrun_*.yaml in profiles/local/ older than 1h.
+
+    Long enough that an in-flight agent has already loaded its override (the
+    on-disk file is no longer load-bearing once read), short enough that the
+    directory does not accumulate stale per-run overrides.
+    """
+    if not _LOCAL_PROFILES_DIR.is_dir():
+        return
+    now = time.time()
+    for p in _LOCAL_PROFILES_DIR.glob("_skillrun_*.yaml"):
+        try:
+            if now - p.stat().st_mtime > _SKILLRUN_PRUNE_AGE_SECONDS:
+                p.unlink(missing_ok=True)
+        except OSError:
+            continue
 
 
 def pick_initial_session(
@@ -91,7 +116,7 @@ class AgentCommandScreen(ModalScreen):
     #agent_cmd_dialog {
         width: 80%;
         height: auto;
-        max-height: 80%;
+        max-height: 90%;
         background: $surface;
         border: thick $accent;
         padding: 1 2;
@@ -104,18 +129,18 @@ class AgentCommandScreen(ModalScreen):
     #agent_cmd_input {
         margin: 0 0 1 0;
     }
-    #agent_row {
+    #agent_row, #profile_row {
         height: 3;
         width: 100%;
         align: left middle;
         margin: 0 0 1 0;
     }
-    #agent_row Label {
+    #agent_row Label, #profile_row Label {
         height: 3;
         padding: 0 1;
         content-align: left middle;
     }
-    #agent_row Button {
+    #agent_row Button, #profile_row Button {
         margin: 0 1;
         width: auto;
         min-width: 10;
@@ -206,6 +231,8 @@ class AgentCommandScreen(ModalScreen):
         Binding("R", "run", "Run", show=False),
         Binding("d", "tab_direct", "Direct tab", show=False),
         Binding("D", "tab_direct", "Direct tab", show=False),
+        Binding("e", "edit_profile", "Edit Profile", show=False),
+        Binding("E", "edit_profile", "Edit Profile", show=False),
     ]
 
     # Per-project remembered selections, keyed by resolved project_root.
@@ -229,6 +256,8 @@ class AgentCommandScreen(ModalScreen):
         operation_args: list[str] | None = None,
         default_agent_string: str | None = None,
         default_tmux_window: str | None = None,
+        skill_name: str | None = None,
+        default_profile: str | None = None,
     ):
         super().__init__()
         self.title_text = title
@@ -247,10 +276,27 @@ class AgentCommandScreen(ModalScreen):
         self._split_horizontal = self._tmux_defaults["default_split"] == "horizontal"
         self._selected_session: str | None = None
         self._selected_window: str | None = None
+        # Per-run profile editing state. Profile row is rendered only when
+        # skill_name is set (operation alone is not enough — brainstorm uses
+        # `operation=None` but has a slash-command-less launch).
+        self.skill_name = skill_name
+        self.default_profile = default_profile
+        self.current_profile_name: str | None = default_profile
+        self._profile_override_name: str | None = None
+        _prune_stale_skillrun_overrides()
 
     def compose(self):
         with Container(id="agent_cmd_dialog"):
             yield Label(self.title_text, id="agent_cmd_title")
+            if self.skill_name:
+                with Horizontal(id="profile_row"):
+                    yield Label(
+                        f"Profile: {self.current_profile_name or '(default)'}",
+                        id="profile_row_label",
+                    )
+                    yield Button(
+                        "(E)dit", variant="primary", id="btn_edit_profile",
+                    )
             if self.operation:
                 with Horizontal(id="agent_row"):
                     yield Label(
@@ -321,6 +367,7 @@ class AgentCommandScreen(ModalScreen):
                     pass
 
         self._refresh_agent_row()
+        self._refresh_profile_row()
 
     def _populate_tmux_tab(self) -> None:
         tmux = self.query_one("#tmux_content")
@@ -626,7 +673,7 @@ class AgentCommandScreen(ModalScreen):
         new_cmd = resolve_dry_run_command(
             self._project_root,
             self.operation,
-            *self.operation_args,
+            *self._build_command_args(),
             agent_string=agent_string,
         )
         if new_cmd:
@@ -640,6 +687,19 @@ class AgentCommandScreen(ModalScreen):
                 f"Failed to resolve command for {agent_string}",
                 severity="error",
             )
+
+    def _build_command_args(self) -> list[str]:
+        """Build args for resolve_dry_run_command.
+
+        Prepends `--profile <override_name>` when a one-shot override is
+        active, so agent-change and profile-edit code paths converge on the
+        same arg shape (stub contract: agent's slash command receives
+        --profile parsed from ARGUMENTS).
+        """
+        args = list(self.operation_args)
+        if self._profile_override_name:
+            args = ["--profile", self._profile_override_name] + args
+        return args
 
     def _refresh_agent_row(self) -> None:
         if not self.operation:
@@ -662,6 +722,184 @@ class AgentCommandScreen(ModalScreen):
         else:
             use_last_btn.add_class("hidden")
 
+    def _refresh_profile_row(self) -> None:
+        if not self.skill_name:
+            return
+        try:
+            label = self.query_one("#profile_row_label", Label)
+            label.update(f"Profile: {self.current_profile_name or '(default)'}")
+        except Exception:
+            return
+
+    def action_edit_profile(self) -> None:
+        if not self.skill_name:
+            return
+        from profile_editor import ProfileEditScreen
+        data = self._load_active_profile_data()
+        base_name = (
+            self._profile_override_name
+            or self.current_profile_name
+            or "(default)"
+        )
+        title = f"Edit Profile: {base_name}"
+        self.app.push_screen(
+            ProfileEditScreen(
+                data,
+                on_save_persistent=self._on_profile_saved_persistent,
+                on_save_one_shot=self._on_profile_saved_one_shot,
+                title=title,
+            )
+        )
+
+    def _load_active_profile_data(self) -> dict:
+        """Load the in-flight override or the active base profile YAML.
+
+        local/ shadows project/ — same precedence as
+        aitask_scan_profiles.sh. Returns an empty dict if no file is found
+        (the schema still renders, with every field as _UNSET).
+        """
+        if self._profile_override_name:
+            path = _LOCAL_PROFILES_DIR / f"{self._profile_override_name}.yaml"
+            if path.is_file():
+                try:
+                    with open(path) as f:
+                        return yaml.safe_load(f) or {}
+                except OSError:
+                    pass
+        name = self.current_profile_name or self.default_profile
+        if not name:
+            return {}
+        candidates = [
+            _LOCAL_PROFILES_DIR / f"{name}.yaml",
+            _PROFILES_DIR / f"{name}.yaml",
+        ]
+        for p in candidates:
+            if p.is_file():
+                try:
+                    with open(p) as f:
+                        return yaml.safe_load(f) or {}
+                except OSError:
+                    continue
+        return {}
+
+    def _on_profile_saved_persistent(self, updated: dict) -> None:
+        if not self.skill_name:
+            return
+        name = self.default_profile or self.current_profile_name
+        if not name:
+            self.app.notify("No active profile to save", severity="error")
+            return
+        updated = dict(updated)
+        updated["name"] = name
+        _LOCAL_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+        out_path = _LOCAL_PROFILES_DIR / f"{name}.yaml"
+        try:
+            with open(out_path, "w") as f:
+                yaml.safe_dump(updated, f, sort_keys=False)
+        except OSError as exc:
+            self.app.notify(f"Failed to save profile: {exc}", severity="error")
+            return
+        self.app.notify(f"Saved profile '{name}' to profiles/local/")
+        # Eager-invalidate per-profile rendered skill directories (t777_20).
+        # The renderer's mtime check is the safety net; this just makes the
+        # staleness visible on disk immediately after the save.
+        try:
+            subprocess.run(
+                ["./.aitask-scripts/aitask_skill_invalidate.sh", name],
+                check=False, capture_output=True, text=True, timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            self.app.notify(
+                "Profile saved but invalidation helper failed — "
+                "next render will still re-check freshness.",
+                severity="warning", timeout=5,
+            )
+        if self._profile_override_name:
+            # Persistent save supersedes the one-shot override — reset the
+            # dialog command back to the resolved profile name.
+            self._clear_one_shot_override()
+        self._refresh_profile_row()
+
+    def _on_profile_saved_one_shot(self, updated: dict) -> None:
+        if not self.skill_name:
+            return
+        if self._profile_override_name is None:
+            unique = f"{os.getpid()}_{int(time.time() * 1000)}"
+            self._profile_override_name = f"_skillrun_{unique}"
+        name = self._profile_override_name
+        updated = dict(updated)
+        updated["name"] = name
+        base_desc = updated.get("description") or ""
+        if "(per-run override)" not in base_desc:
+            updated["description"] = f"{base_desc} (per-run override)".strip()
+        _LOCAL_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+        out_path = _LOCAL_PROFILES_DIR / f"{name}.yaml"
+        try:
+            with open(out_path, "w") as f:
+                yaml.safe_dump(updated, f, sort_keys=False)
+        except OSError as exc:
+            self.app.notify(
+                f"Failed to write override: {exc}", severity="error"
+            )
+            return
+        self.current_profile_name = name
+        self._apply_profile_override()
+        self._refresh_profile_row()
+
+    def _apply_profile_override(self) -> None:
+        if not self.operation or not self._profile_override_name:
+            return
+        new_args = self._build_command_args()
+        new_cmd = resolve_dry_run_command(
+            self._project_root,
+            self.operation,
+            *new_args,
+            agent_string=self.current_agent_string,
+        )
+        if new_cmd:
+            self.full_command = new_cmd
+            try:
+                self.query_one("#agent_cmd_input", Input).value = new_cmd
+            except Exception:
+                pass
+            self.prompt_str = (
+                f"/aitask-{self.skill_name} {' '.join(new_args)}".rstrip()
+            )
+        else:
+            self.app.notify(
+                f"Failed to resolve command with override profile "
+                f"{self._profile_override_name}",
+                severity="error",
+            )
+
+    def _clear_one_shot_override(self) -> None:
+        """Reset the dialog to use the base profile (no override)."""
+        if not self._profile_override_name:
+            return
+        # Leave the override file in profiles/local/ — the 1h prune handles
+        # cleanup. Mid-run deletion would be a no-op anyway since the agent
+        # has already read it.
+        self._profile_override_name = None
+        self.current_profile_name = self.default_profile
+        if not self.operation:
+            return
+        new_cmd = resolve_dry_run_command(
+            self._project_root, self.operation,
+            *self._build_command_args(),
+            agent_string=self.current_agent_string,
+        )
+        if new_cmd:
+            self.full_command = new_cmd
+            try:
+                self.query_one("#agent_cmd_input", Input).value = new_cmd
+            except Exception:
+                pass
+            if self.skill_name:
+                self.prompt_str = (
+                    f"/aitask-{self.skill_name} "
+                    f"{' '.join(self.operation_args)}"
+                ).rstrip()
+
     @on(Button.Pressed, "#btn_change_agent")
     def _btn_change_agent(self) -> None:
         self.action_change_agent()
@@ -669,6 +907,10 @@ class AgentCommandScreen(ModalScreen):
     @on(Button.Pressed, "#btn_use_last_agent")
     def _btn_use_previous_agent(self) -> None:
         self.action_use_previous_agent()
+
+    @on(Button.Pressed, "#btn_edit_profile")
+    def _btn_edit_profile(self) -> None:
+        self.action_edit_profile()
 
     def on_key(self, event) -> None:
         focused = self.app.focused
@@ -683,6 +925,11 @@ class AgentCommandScreen(ModalScreen):
         if event.key in ("u", "U"):
             if self.operation:
                 self.action_use_previous_agent()
+            event.prevent_default()
+            return
+        if event.key in ("e", "E"):
+            if self.skill_name:
+                self.action_edit_profile()
             event.prevent_default()
             return
         if not self._tmux_available:

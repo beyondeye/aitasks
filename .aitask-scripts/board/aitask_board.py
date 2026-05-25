@@ -3817,16 +3817,23 @@ class KanbanApp(TuiSwitcherMixin, App):
     def action_nav_left(self):
         if self._modal_is_active():
             focused = self.screen.focused
-            if isinstance(focused, CycleField):
-                focused.cycle_prev()
+            # Duck-type: any widget exposing cycle_prev() qualifies.
+            # The board defines its own CycleField; modal screens pushed by
+            # the board (e.g. ProfileEditScreen from lib/profile_editor.py)
+            # define a separate CycleField with the same API. isinstance
+            # against the board-local class would miss the modal's.
+            cycle_prev = getattr(focused, "cycle_prev", None)
+            if callable(cycle_prev):
+                cycle_prev()
             return
         self._nav_lateral(-1)
 
     def action_nav_right(self):
         if self._modal_is_active():
             focused = self.screen.focused
-            if isinstance(focused, CycleField):
-                focused.cycle_next()
+            cycle_next = getattr(focused, "cycle_next", None)
+            if callable(cycle_next):
+                cycle_next()
             return
         self._nav_lateral(1)
 
@@ -3897,6 +3904,8 @@ class KanbanApp(TuiSwitcherMixin, App):
                                 operation="pick",
                                 operation_args=[num],
                                 default_agent_string=agent_string,
+                                skill_name="pick",
+                                default_profile=self._resolve_pick_profile(),
                             )
                             def on_pick_result(pick_result):
                                 if pick_result == "run":
@@ -3998,6 +4007,8 @@ class KanbanApp(TuiSwitcherMixin, App):
                 operation="pick",
                 operation_args=[num],
                 default_agent_string=agent_string,
+                skill_name="pick",
+                default_profile=self._resolve_pick_profile(),
             )
             def on_pick_result(pick_result):
                 if pick_result == "run":
@@ -4147,6 +4158,23 @@ class KanbanApp(TuiSwitcherMixin, App):
         """Resolve the full pick command via --dry-run, return command string or None."""
         num = task_num.lstrip("t")
         return resolve_dry_run_command(Path("."), "pick", num)
+
+    def _resolve_pick_profile(self) -> str:
+        """Resolve the active profile name for the pick skill.
+
+        Falls back to "default" on any error so the launch dialog still
+        opens; the Profile row label will simply show "default".
+        """
+        try:
+            result = subprocess.run(
+                [".aitask-scripts/aitask_skill_resolve_profile.sh", "pick"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip() or "default"
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
+        return "default"
 
     @work(exclusive=True)
     async def run_aitask_pick(self, filename):

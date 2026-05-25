@@ -76,6 +76,21 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
 
 _UNSET = "(unset)"
 
+
+class _NoArrowsVerticalScroll(VerticalScroll):
+    """VerticalScroll with the left/right scroll bindings removed.
+
+    Default VerticalScroll binds left/right to scroll_left/scroll_right and
+    propagates them via ancestor binding-bubble even when CycleField's
+    on_key fires first. Stripping the conflicting bindings lets CycleField
+    cleanly own arrow keys for option cycling.
+    """
+
+    BINDINGS = [
+        b for b in VerticalScroll.BINDINGS
+        if b.key not in ("left", "right")
+    ]
+
 # Profile field info: key -> (short_description, detailed_description)
 PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
     "name": (
@@ -616,41 +631,154 @@ def collect_profile_values(
 class ProfileEditScreen(ModalScreen):
     """Modal for editing an execution profile's fields.
 
-    Usage:
+    Usage (single-callback / legacy):
         def on_save(updated: dict) -> None:
             ...  # persist `updated` somewhere
 
         screen = ProfileEditScreen(profile_data, on_save, title="Edit fast")
         app.push_screen(screen)
 
-    The screen also dismisses with the updated dict on Save, or `None` on
-    Cancel/Escape, so callback-style use is supported too.
+    Usage (dual-save, e.g. AgentCommandScreen per-run editor):
+        screen = ProfileEditScreen(
+            profile_data,
+            on_save_persistent=save_persistent,
+            on_save_one_shot=save_one_shot,
+        )
+
+    When both `on_save_persistent` and `on_save_one_shot` are wired, two
+    Save buttons are rendered and the dismiss payload becomes
+    `(mode, updated)` where `mode` is `"persistent"` or `"one_shot"`. The
+    single-callback shape (passing only `on_save=`) keeps the legacy
+    dismiss payload (`updated` dict).
     """
 
-    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+        Binding("s", "save_persistent", "Save", show=False),
+        Binding("S", "save_persistent", "Save", show=False),
+        Binding("o", "save_one_shot", "Save as one-shot", show=False),
+        Binding("O", "save_one_shot", "Save as one-shot", show=False),
+    ]
+
+    # Self-contained CSS so the modal looks/behaves the same regardless of
+    # which App pushes it. SettingsApp has equivalent CSS at App level for
+    # its inline Profiles tab; both must stay consistent because the same
+    # CycleField/ConfigRow widgets back both surfaces.
+    DEFAULT_CSS = """
+    #profile_edit_dialog {
+        width: 80%;
+        height: 90%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #profile_edit_title {
+        text-align: center;
+        height: 1;
+        padding: 0 0 0 0;
+    }
+    #profile_edit_help {
+        height: 1;
+        padding: 0 0 1 0;
+        color: $text-muted;
+        text-align: center;
+    }
+    #profile_edit_scroll {
+        height: 1fr;
+        margin: 0 0 1 0;
+    }
+    #profile_edit_buttons {
+        height: 3;
+        width: 100%;
+        align: center middle;
+    }
+    #profile_edit_buttons Button { margin: 0 1; }
+
+    /* Row + cycle widgets — must match SettingsApp CSS so focus, section
+       styling, and field heights render correctly when the modal is pushed
+       from any App (e.g. ait board's AgentCommandScreen, not just settings). */
+    ConfigRow { height: 1; width: 100%; padding: 0 1; }
+    ConfigRow.row-focused { background: $primary 20%; }
+    CycleField { height: 1; width: 100%; padding: 0 1; }
+    CycleField.cycle-focused { background: $primary 20%; }
+    .section-header {
+        text-style: bold;
+        padding: 1 0 0 1;
+        color: $accent;
+    }
+    .section-hint {
+        padding: 0 0 0 3;
+        color: $text-muted;
+    }
+    """
 
     def __init__(
         self,
         profile_data: dict,
         on_save: Callable[[dict], None] | None = None,
         *,
+        on_save_persistent: Callable[[dict], None] | None = None,
+        on_save_one_shot: Callable[[dict], None] | None = None,
         title: str = "Edit Profile",
+        persistent_button_label: str = "(S)ave",
+        one_shot_button_label: str = "Save as (O)ne-shot",
     ):
         super().__init__()
         self.profile_data = dict(profile_data)
-        self._on_save = on_save
+        # Legacy `on_save` maps to the persistent slot when explicit
+        # persistent/one-shot callbacks were not provided.
+        self._on_save_persistent = on_save_persistent or on_save
+        self._on_save_one_shot = on_save_one_shot
+        self._dual_mode = on_save_one_shot is not None
         self._title = title
+        self._persistent_button_label = persistent_button_label
+        self._one_shot_button_label = one_shot_button_label
 
     def compose(self) -> ComposeResult:
         with Container(id="profile_edit_dialog"):
             yield Label(f"[bold]{self._title}[/bold]", id="profile_edit_title")
-            with VerticalScroll(id="profile_edit_scroll"):
+            yield Label(
+                "[dim]↑↓: navigate  |  ←→: cycle  |  Enter: edit string/int  "
+                "|  S: save  |  O: save one-shot  |  Esc: cancel[/dim]",
+                id="profile_edit_help",
+            )
+            with _NoArrowsVerticalScroll(id="profile_edit_scroll"):
                 yield from compose_profile_fields(
                     self.profile_data, id_prefix="modal",
                 )
             with Horizontal(id="profile_edit_buttons"):
-                yield Button("Save", variant="success", id="btn_profile_edit_save")
+                yield Button(
+                    self._persistent_button_label, variant="success",
+                    id="btn_profile_edit_save",
+                )
+                if self._dual_mode:
+                    yield Button(
+                        self._one_shot_button_label, variant="primary",
+                        id="btn_profile_edit_save_oneshot",
+                    )
                 yield Button("Cancel", variant="default", id="btn_profile_edit_cancel")
+
+    def on_mount(self) -> None:
+        """Take VerticalScroll out of the focus chain and seed focus on the
+        first editable field.
+
+        VerticalScroll is focusable by default in Textual 8.x; leaving it in
+        the focus chain causes initial focus to land on the scroll container
+        instead of a field. The `_NoArrowsVerticalScroll` subclass also
+        strips the Left/Right scroll bindings so they cannot eat arrow keys
+        that should reach CycleField.
+        """
+        try:
+            scroll = self.query_one("#profile_edit_scroll", _NoArrowsVerticalScroll)
+            scroll.can_focus = False
+        except Exception:
+            pass
+        try:
+            for w in self.query("CycleField, ConfigRow"):
+                w.focus()
+                break
+        except Exception:
+            pass
 
     def on_key(self, event):
         """Enter on a profile string/int row -> push EditStringScreen."""
@@ -687,7 +815,7 @@ class ProfileEditScreen(ModalScreen):
             pass
 
     @on(Button.Pressed, "#btn_profile_edit_save")
-    def do_save(self):
+    def do_save_persistent(self):
         updated, errors = collect_profile_values(
             self.query_one, self.profile_data, id_prefix="modal",
         )
@@ -695,9 +823,28 @@ class ProfileEditScreen(ModalScreen):
             for msg in errors:
                 self.app.notify(msg, severity="error")
             return
-        if self._on_save is not None:
-            self._on_save(updated)
-        self.dismiss(updated)
+        if self._on_save_persistent is not None:
+            self._on_save_persistent(updated)
+        # Preserve legacy dismiss payload (just `updated`) when only the
+        # legacy single-callback shape is in use; emit (mode, updated) when
+        # the caller opted into dual-save semantics.
+        if self._dual_mode:
+            self.dismiss(("persistent", updated))
+        else:
+            self.dismiss(updated)
+
+    @on(Button.Pressed, "#btn_profile_edit_save_oneshot")
+    def do_save_one_shot(self):
+        updated, errors = collect_profile_values(
+            self.query_one, self.profile_data, id_prefix="modal",
+        )
+        if errors:
+            for msg in errors:
+                self.app.notify(msg, severity="error")
+            return
+        if self._on_save_one_shot is not None:
+            self._on_save_one_shot(updated)
+        self.dismiss(("one_shot", updated))
 
     @on(Button.Pressed, "#btn_profile_edit_cancel")
     def do_cancel(self):
@@ -705,3 +852,10 @@ class ProfileEditScreen(ModalScreen):
 
     def action_cancel(self):
         self.dismiss(None)
+
+    def action_save_persistent(self) -> None:
+        self.do_save_persistent()
+
+    def action_save_one_shot(self) -> None:
+        if self._dual_mode:
+            self.do_save_one_shot()
