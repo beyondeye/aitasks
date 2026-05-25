@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [790]
 issue_type: test
 status: Ready
 labels: [testing, test_infrastructure, tmux]
 created_at: 2026-05-25 18:04
-updated_at: 2026-05-25 18:04
+updated_at: 2026-05-25 18:05
 ---
 
 ## Context

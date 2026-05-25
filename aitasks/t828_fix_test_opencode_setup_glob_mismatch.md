@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [790]
 issue_type: test
 status: Ready
 labels: [testing, test_infrastructure]
 created_at: 2026-05-25 18:04
-updated_at: 2026-05-25 18:04
+updated_at: 2026-05-25 18:05
 ---
 
 ## Context
