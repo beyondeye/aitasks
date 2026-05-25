@@ -372,13 +372,92 @@ See Phase 5 above for the standard archival sequence.
 
 ## Final Implementation Notes
 
-(To be filled in at Step 8 by the implementing agent.)
-
-- **Actual work done:** <summary>
-- **Deviations from plan:** <changes from this plan and why>
-- **Issues encountered:** <problems found and how resolved>
-- **Key decisions:** <technical decisions made during implementation>
-- **Upstream defects identified:** <`path:LINE — summary` bullets, or `None`>
-- **Notes for sibling tasks:** <hand-off for t777_28 in particular — what
-  the parity test's failure messages look like in practice, any rows that
-  needed sentinel refinement after the first run>
+- **Actual work done:**
+  - **Phase 1** (commit `e65c40d8`): extracted 27 frozen pre-rewrite
+    fixtures into `tests/fixtures/skills/` (aitask-pick's
+    pre-`b6dabc19` `SKILL.md` from `f1b01895`, plus the 25-file
+    `task-workflow/` closure from `c46366fc`) with a provenance README.
+    Byte-match against `git show` verified.
+  - **Phase 2:** wrote `tests/test_skill_parity_runtime_vs_rendered.sh`
+    (~290 lines, 86 assertions). Covers 7 profile keys
+    (`skip_task_confirmation`, `default_email`, `create_worktree`,
+    `plan_preference`, `post_plan_action`, `enableFeedbackQuestions`,
+    `manual_verification_followup_mode`) × 3 profiles
+    (`default`, `fast`, `remote`) across 5 closure files. Plus a
+    cross-check pass (orphaned-guard detection) and a no-Jinja-leak
+    assertion. All 86 assertions pass.
+  - **Phase 3:** extended `.aitask-scripts/aitask_skill_verify.sh`
+    (+12 lines) to invoke the parity test silently at end-of-verify
+    when fixtures are present (gated on the `tests/fixtures/skills/`
+    tree existing so older checkouts skip cleanly).
+  - **Phase 4:** ran the two prescribed self-checks. Both failed
+    before revert, confirming the test catches the targeted
+    regression class.
+- **Deviations from plan:**
+  - **Render invocation (already flagged in the verified plan):**
+    used in-memory `$RENDER` (skill_template.py → stdout) instead of
+    the non-existent `aitask_skill_render.sh --output-dir`. Matches
+    the pattern of `tests/test_skill_render_task_workflow.sh`.
+  - **`remote-drift-check.md` is identical across all 3 profile
+    renders** (verified — its profile check is a runtime conditional,
+    not template-conditional). Dropped from the per-row table; the
+    cross-check pass + existing render tests still cover it.
+  - **`base_branch` row dropped:** no profile (`fast` / `remote` /
+    `default`) sets `base_branch`, so all 3 renders keep the runtime
+    "Profile check" wrapper. Nothing per-profile to differentiate —
+    covered indirectly by the no-leak assertion.
+  - **Sentinel string corrections during first test run:** initial
+    drafted sentinels missed the literal `**…**` Markdown bold
+    around `**Profile check:**` and used a slightly off question
+    text (`How would you like to proceed with the plan` vs the
+    actual `An existing implementation plan was found at … How
+    would you like to proceed?`). Corrected before commit.
+  - **`post_plan_action` fast row** ABSENT left empty: fast's
+    `post_plan_action: ask` keeps both the auto-action and the
+    interactive checkpoint text in the same render, so there is no
+    clean cross-profile sentinel to assert absent. PRESENT-only
+    suffices.
+- **Issues encountered:**
+  - Initial assertion-table draft had 4 row failures from the two
+    string mismatches above. Resolved by inspecting the rendered
+    output directly and tightening the sentinels (substring-friendly
+    fragments without the Markdown `**`).
+  - Self-check 1 (Phase 4) only tripped 2 ABSENT assertions, not the
+    expected 6 — because removing the parent-site arm still leaves
+    the child-site arm rendering the same `Profile 'fast':
+    auto-confirming task selection` text, so the file-level PRESENT
+    sentinel still matches. This is acceptable coverage: at least
+    one assertion per affected profile fails, and the failure
+    messaging points at the breakage. Cross-check pass is at file
+    granularity for now; a tighter per-guard cross-check is
+    explicitly deferred to t777_28 (see sibling notes below).
+- **Key decisions:**
+  - **Frozen-fixture rule** is documented inline in
+    `tests/fixtures/skills/README.md` so future readers don't "fix"
+    a fixture to match new behaviour.
+  - **Verify-hook wiring is fixture-gated** so existing development
+    checkouts that predate Phase 1 — or release tarballs that
+    exclude `tests/` — don't fail.
+  - **In-memory render** (no tmpdir, no on-disk artifact) for
+    isolation and speed — matches the dominant pattern across the
+    `test_skill_render_*.sh` family.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks (especially t777_28):**
+  - When dedup'ing `.j2` branches via macros, expect to revisit a
+    handful of sentinels: the literal `Profile '<name>':` Display
+    prefix is what the parity test pins, so any macro must still
+    emit that exact prefix. If you replace a Display line with a
+    generic "Auto-action chosen" message, the parity test will fail
+    with "PRESENT sentinel missing" pointing at the fixture line —
+    that's the green-light signal that the user-visible Display
+    string is drifting from the pre-rewrite baseline and the
+    sentinel needs reconsideration (not just an update).
+  - The cross-check pass catches "both arms accidentally deleted"
+    at file granularity (one PRESENT match per file suffices).
+    For per-conditional precision, t777_28 may want to extend it to
+    one PRESENT match per fixture guard line — accepted as a
+    limit here for cost/benefit reasons.
+  - Failure messages print the rendered output's first 60 lines —
+    sufficient for SKILL.md top-of-file diffs but `grep -n` against
+    the rendered file directly is faster for deep-in-closure
+    sentinel failures.
