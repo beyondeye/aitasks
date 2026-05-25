@@ -234,8 +234,10 @@ in Codex CLI / Gemini CLI / OpenCode versions.
 > `.sh`, when adding keybindings to an existing TUI, or when spawning tmux
 > panes / windows from framework code.
 >
-> **Read `aidocs/python_tui_performance.md`** when re-evaluating a TUI's
-> Python runtime (CPython vs PyPy) choice.
+> **Read `aidocs/python_tui_performance.md`** when re-evaluating the
+> framework's Python runtime choice (current state: single CPython 3.14+
+> venv; the document records the retired PyPy fast path and the trigger
+> conditions under which re-investigation would be warranted).
 
 ## Planning / Testing / Code Conventions
 

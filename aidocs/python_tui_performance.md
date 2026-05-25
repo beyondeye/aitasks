@@ -1,5 +1,34 @@
 # Python TUI Performance Options
 
+## Status (2026-05-25): PyPy fast path retired (t785)
+
+The PyPy fast path proposed below (Option A / Option C) was implemented in
+**t718** (v0.20.0) and **retired in t785** after empirical verification
+(see *t718_5* and *t718_6* sections later in this file) showed the actual
+wins were much smaller than predicted, or negative:
+
+- **Board** — +13.6% steady-state but −153 ms cold-start.
+- **Codebrowser** — −17% steady-state, −168 ms cold-start (already reverted).
+- **Monitor / minimonitor** — 76-90% slower (already excluded).
+- **Settings / brainstorm / syncer** — routed by analogy with board, never
+  measured.
+
+CPython 3.14.4 (with adaptive specialization + tail-call interpreter) has
+narrowed the gap further, while PyPy is stuck on Python 3.11.15 (PyPy 7.3.22,
+April 2026) with no stable 3.12 release in sight. The framework now uses a
+single CPython venv at `~/.aitask/venv/`, resolved exclusively through
+`require_ait_python`.
+
+The retired surface — `require_ait_python_fast`, `require_ait_pypy`,
+`AIT_USE_PYPY`, `ait setup --with-pypy`, `~/.aitask/pypy_venv/` —  is gone.
+Python 3.12+ syntax (PEP 695 type statements, `typing.override`, `tomllib`,
+etc.) is no longer blocked.
+
+The sections below are kept as historical record: the original investigation
+that motivated t718, and the empirical verification that motivated t785.
+
+---
+
 Investigation of options to speed up the aitasks Python TUIs (board, codebrowser, monitor, minimonitor) without rewriting source code, while keeping cross-platform support.
 
 ## Current Stack
@@ -128,7 +157,14 @@ Most flexible. `AIT_USE_PYPY=1 ait board` routes just that invocation through Py
 
 You don't ship PyPy yourself — `ait setup` installs it via `uv` (already a dependency on Linux) or brew. Disk cost: ~50-80 MB PyPy + ~50 MB second venv = ~100-150 MB additional in `~/.aitask/`. Acceptable for an opt-in feature.
 
-## Recommendations
+## Recommendations (historical, superseded by t785 retirement)
+
+These were the recommendations that motivated t718. They are kept verbatim
+for traceability; the actual outcome — board's ~13.6% win not justifying
+the dual-venv plumbing once the codebrowser, monitor/minimonitor, and
+settings/brainstorm/syncer measurements landed — is documented in the
+"Status" section at the top of this file and in the t718_5 / t718_6
+sections below. Current guidance: use `require_ait_python` everywhere.
 
 1. **Profile first.** Spend an hour with `py-spy record` on a slow board interaction and a slow codebrowser scroll. The result determines which option to pursue:
    - If >50% of samples are inside `textual/` → PyPy.
@@ -137,9 +173,12 @@ You don't ship PyPy yourself — `ait setup` installs it via `uv` (already a dep
 
 2. **Treat board/codebrowser separately from monitor/minimonitor.** The fixes are different classes:
    - Board/codebrowser → PyPy spike (Option C is the cheapest entry point).
-   - Monitor/minimonitor → tmux control mode (`tmux -C`) refactor, replacing per-tick subprocess spawns with one persistent connection. 5-20× refresh speedup potential and reduces tmux server load.
+   - Monitor/minimonitor → tmux control mode (`tmux -C`) refactor, replacing per-tick subprocess spawns with one persistent connection. 5-20× refresh speedup potential and reduces tmux server load. (Landed as t719_2.)
 
-3. **Don't adopt Python 3.12+ syntax in new code** until PyPy 3.12 ships, if PyPy integration goes ahead.
+3. ~~**Don't adopt Python 3.12+ syntax in new code** until PyPy 3.12 ships.~~
+   **Obsolete (t785).** With the PyPy fast path retired, Python 3.12+ syntax
+   is unblocked — actual adoption is the subject of a future modernization
+   task.
 
 ## t718_5 Empirical Verification — monitor/minimonitor under PyPy (2026-05-17)
 
@@ -314,3 +353,38 @@ C-accelerated layers.
 - **t718_6** (this section) — empirical verification of board / codebrowser under PyPy. MIXED verdict: board KEEPs, codebrowser REVERTs.
 - **t719_2** (archived) — hot-path integration of `tmux -C` control mode; reshaped the hot path that t718_5 benchmarks.
 - **t719_4** (pending) — pipe-pane push. If/when archived, re-run the t718_5 benchmark before drawing fresh conclusions about PyPy on monitor/minimonitor.
+- **t785** (this retirement) — removed `require_ait_python_fast`, the PyPy
+  install path, and `AIT_USE_PYPY`. Consolidates the framework on CPython
+  3.14+.
+
+## Trigger to reconsider PyPy
+
+Do not re-investigate PyPy unless *all* of the following are simultaneously
+true. Partial progress on one condition is not enough.
+
+1. **PyPy 3.12+ ships as a stable release.** Current state (April 2026):
+   PyPy 7.3.22 is still on Python 3.11.15 with no public 3.12 ETA. Until
+   PyPy reaches Python 3.13 (parity with CPython 3.14's syntax surface),
+   adopting PyPy would force the codebase to *unlearn* any 3.12+ idioms it
+   has picked up post-t785.
+
+2. **A fresh re-run of the t718_6 board workload measures ≥10% steady-state
+   win on PyPy** with the JIT fully warmed (5-iter warmup, 8-iter
+   measurement, per t718_6 methodology). The previous +13.6% measurement
+   was not enough; for the dual-venv overhead to be worth eating again, the
+   board win needs to be larger or the cost has to be cheaper.
+
+3. **Codebrowser is at parity or better** on the same re-run (≥0% delta).
+   The codebrowser regression (−17% on t718_6) is what forced the per-TUI
+   exception list — any path forward must include this TUI or it will
+   silently fragment again.
+
+4. **CPython has not closed the gap itself.** Specifically: if a CPython
+   release ships JIT enabled-by-default and reproduces the prior PyPy win on
+   the t718_6 board workload, PyPy adoption buys nothing further. Verify
+   `sys._jit.is_enabled()` on the user's interpreter before re-measuring.
+
+If all four conditions hold, propose a new task to re-evaluate. Do not
+re-introduce `require_ait_python_fast` or `AIT_USE_PYPY` ahead of that
+re-evaluation — those symbols were removed because the dual-venv pattern
+is the actual cost being avoided.

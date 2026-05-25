@@ -31,12 +31,6 @@ _AIT_PYTHON_RESOLVE_LOADED=1
 # testing only.
 AIT_VENV_PYTHON_MIN="${AIT_VENV_PYTHON_MIN:-3.11}"
 
-# PyPy interpreter — opt-in via `ait setup --with-pypy`. Single source of
-# truth (per feedback_single_source_of_truth_for_versions.md): aitask_setup.sh
-# reads these via the existing `source python_resolve.sh` line.
-AIT_PYPY_PREFERRED="${AIT_PYPY_PREFERRED:-3.11}"
-PYPY_VENV_DIR="${PYPY_VENV_DIR:-$HOME/.aitask/pypy_venv}"
-
 # shellcheck source=terminal_compat.sh
 source "$(dirname "${BASH_SOURCE[0]}")/terminal_compat.sh"
 
@@ -92,54 +86,4 @@ require_modern_python() {
 
 require_ait_python() {
     require_modern_python "$AIT_VENV_PYTHON_MIN"
-}
-
-resolve_pypy_python() {
-    if [[ -n "${_AIT_RESOLVED_PYPY:-}" ]]; then
-        echo "$_AIT_RESOLVED_PYPY"
-        return 0
-    fi
-    local cand resolved
-    local candidates=(
-        "${AIT_PYPY:-}"
-        "$PYPY_VENV_DIR/bin/python"
-        "pypy$AIT_PYPY_PREFERRED"
-        pypy3
-    )
-    for cand in "${candidates[@]}"; do
-        [[ -z "$cand" ]] && continue
-        if [[ "$cand" == /* ]]; then
-            resolved="$cand"
-        else
-            resolved="$(command -v "$cand" 2>/dev/null || true)"
-        fi
-        [[ -z "$resolved" || ! -x "$resolved" ]] && continue
-        if "$resolved" -c "import sys; sys.exit(0 if sys.implementation.name == 'pypy' else 1)" 2>/dev/null; then
-            _AIT_RESOLVED_PYPY="$resolved"
-            echo "$resolved"
-            return 0
-        fi
-    done
-    return 0
-}
-
-require_ait_pypy() {
-    local p
-    p="$(resolve_pypy_python)"
-    [[ -z "$p" ]] && die "PyPy not found. Run 'ait setup --with-pypy' to install it."
-    echo "$p"
-}
-
-require_ait_python_fast() {
-    case "${AIT_USE_PYPY:-}" in
-        1) require_ait_pypy; return 0 ;;
-        0) require_ait_python; return 0 ;;
-    esac
-    local p
-    p="$(resolve_pypy_python)"
-    if [[ -n "$p" ]]; then
-        echo "$p"
-        return 0
-    fi
-    require_ait_python
 }
