@@ -375,7 +375,11 @@ class TuiSwitcherOverlay(ModalScreen):
             yield Label("", id="switcher_hint")
 
     def on_mount(self) -> None:
-        self._init_multi_state(discover_aitasks_sessions())
+        # include_registered=True surfaces projects from the per-user
+        # registry (~/.config/aitasks/projects.yaml) even when no live
+        # tmux session exists for them. Selecting one bootstraps its
+        # session on-demand (see _ensure_session_live below).
+        self._init_multi_state(discover_aitasks_sessions(include_registered=True))
         self._render_hint()
         self._render_session_row()
         self._render_desync_line(self._project_root_for_session(self._session))
@@ -396,6 +400,57 @@ class TuiSwitcherOverlay(ModalScreen):
             if s.session == session:
                 return s.project_root
         return Path.cwd()
+
+    def _ensure_session_live(self) -> bool:
+        """Bootstrap the selected session if it is registered-but-inactive.
+
+        Called before any action that would spawn a window in
+        ``self._session``. Looks up the entry in ``self._all_sessions``;
+        when ``is_live=False``, shells out to ``tmux_bootstrap.sh`` to
+        create the session, then flips the cached entry's ``is_live``
+        flag. No-op for live entries and for sessions not tracked in
+        ``self._all_sessions`` (legacy single-session fallback).
+
+        Returns True on success or no-op; False if the bootstrap helper
+        failed (a user-facing notification is emitted in that case).
+        """
+        idx = next(
+            (i for i, s in enumerate(self._all_sessions)
+             if s.session == self._session),
+            None,
+        )
+        if idx is None or self._all_sessions[idx].is_live:
+            return True
+        entry = self._all_sessions[idx]
+        script = str(Path(__file__).resolve().parent / "tmux_bootstrap.sh")
+        try:
+            result = subprocess.run(
+                ["bash", script, str(entry.project_root)],
+                capture_output=True, text=True, timeout=15,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+            self.app.notify(
+                f"Failed to bootstrap session for {entry.project_name}: {exc}",
+                severity="error",
+            )
+            return False
+        if result.returncode != 0:
+            err = (result.stderr or "").strip().splitlines()[-1:] or ["unknown error"]
+            self.app.notify(
+                f"Failed to bootstrap session for {entry.project_name}: {err[0]}",
+                severity="error",
+            )
+            return False
+        # Flip the cached entry to live so _teleport_if_cross and any
+        # follow-up actions in this overlay session no longer re-trigger
+        # the bootstrap. Dataclass is frozen so we replace the tuple slot.
+        self._all_sessions[idx] = AitasksSession(
+            session=entry.session,
+            project_root=entry.project_root,
+            project_name=entry.project_name,
+            is_live=True,
+        )
+        return True
 
     def _spawn_in_session(
         self,
@@ -431,10 +486,12 @@ class TuiSwitcherOverlay(ModalScreen):
     def _init_multi_state(self, sessions: list[AitasksSession]) -> None:
         """Decide `_multi_mode` from the discovered sessions.
 
-        True iff at least two aitasks sessions exist AND the attached session
-        is one of them. If the overlay was opened from a non-aitasks session
-        (no `AITASKS_PROJECT_<sess>` registry entry and no pane cwd that walks
-        up to an aitasks project), fall back to single-session view.
+        True iff at least two aitasks sessions exist (live OR registered
+        but inactive) AND the attached session is one of them. If the
+        overlay was opened from a non-aitasks session (no live entry
+        matches the attached session), fall back to single-session view
+        — even if the registry has entries, since the user is not
+        currently working in an aitasks project context.
         """
         self._all_sessions = sessions
         self._multi_mode = (
@@ -735,6 +792,8 @@ class TuiSwitcherOverlay(ModalScreen):
 
     def action_shortcut_explore(self) -> None:
         """Launch a new explore agent session (always new window) in the SELECTED session."""
+        if not self._ensure_session_live():
+            return
         n = 1
         while f"agent-explore-{n}" in self._running_names:
             n += 1
@@ -754,6 +813,8 @@ class TuiSwitcherOverlay(ModalScreen):
 
     def action_shortcut_create(self) -> None:
         """Launch ait create in a new tmux window in the SELECTED session."""
+        if not self._ensure_session_live():
+            return
         project_root = self._project_root_for_session(self._session)
         try:
             proc = self._spawn_in_session("create-task", "ait create")
@@ -769,6 +830,10 @@ class TuiSwitcherOverlay(ModalScreen):
         self.dismiss("create-task")
 
     def _switch_to(self, name: str, running: bool, window_index: str | None = None) -> None:
+        # Bootstrap the selected session if it is registered-but-inactive
+        # (t826_2). No-op for live sessions.
+        if not self._ensure_session_live():
+            return
         try:
             if running:
                 target = tmux_window_target(

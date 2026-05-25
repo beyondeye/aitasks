@@ -78,11 +78,18 @@ class AitasksSession:
     Produced by :func:`discover_aitasks_sessions` when a session's pane cwd
     walks up into an aitasks project root, or when the session's name matches
     an ``AITASKS_PROJECT_<sess>`` global env entry set by ``ait ide``.
+
+    When ``include_registered=True`` is passed to
+    :func:`discover_aitasks_sessions`, synthesized entries are also produced
+    from the per-user registry at ``~/.config/aitasks/projects.yaml``; those
+    carry ``is_live=False`` and their ``session`` field is the project's
+    configured tmux session name (resolved from its ``project_config.yaml``).
     """
 
     session: str          # tmux session name
     project_root: Path    # absolute path to the project root
     project_name: str     # basename(project_root), for display
+    is_live: bool = True  # False when synthesized from the per-user registry
 
 
 def find_terminal() -> str | None:
@@ -252,7 +259,112 @@ def _read_registry_entry(session: str) -> Path | None:
     return path
 
 
-def discover_aitasks_sessions() -> list[AitasksSession]:
+def _read_registry_index() -> list[tuple[str, Path]]:
+    """Read ``~/.config/aitasks/projects.yaml`` as ``(name, path)`` pairs.
+
+    Mirrors ``aitask_projects.sh::list_registry_entries`` with a simple line
+    parser — no PyYAML dependency. Honors the ``AITASKS_PROJECTS_INDEX``
+    env var (same override the bash side supports). Skips entries whose path
+    no longer holds ``aitasks/metadata/project_config.yaml`` (stale entries
+    are treated as absent here; the brainstorm at t826_5 will design the
+    user-facing UX for surfacing them).
+    """
+    index_path = os.environ.get("AITASKS_PROJECTS_INDEX")
+    if not index_path:
+        index_path = os.path.expanduser("~/.config/aitasks/projects.yaml")
+    if not os.path.isfile(index_path):
+        return []
+
+    def _unquote(s: str) -> str:
+        s = s.strip()
+        if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
+            s = s[1:-1]
+        return s
+
+    entries: list[tuple[str, Path]] = []
+    cur_name = ""
+    cur_path = ""
+
+    def _flush() -> None:
+        nonlocal cur_name, cur_path
+        if cur_name and cur_path:
+            p = Path(cur_path)
+            if (p / "aitasks" / "metadata" / "project_config.yaml").is_file():
+                entries.append((cur_name, p))
+        cur_name = ""
+        cur_path = ""
+
+    try:
+        with open(index_path, encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.rstrip("\n")
+                stripped = line.lstrip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                if stripped.startswith("- name:"):
+                    _flush()
+                    cur_name = _unquote(stripped[len("- name:"):])
+                    continue
+                if stripped.startswith("name:") and line.startswith(" "):
+                    _flush()
+                    cur_name = _unquote(stripped[len("name:"):])
+                    continue
+                if stripped.startswith("path:") and line.startswith(" "):
+                    cur_path = _unquote(stripped[len("path:"):])
+                    continue
+        _flush()
+    except OSError:
+        return []
+
+    return entries
+
+
+def _read_default_session(project_root: Path) -> str:
+    """Read ``tmux.default_session`` from a project's config; default ``aitasks``.
+
+    Mirrors ``aitask_ide.sh::resolve_session`` (lines 46-72), reading the
+    top-level ``tmux:`` block and its ``default_session:`` child. Falls back
+    to the literal ``"aitasks"`` when the field is absent (matching the bash
+    default), so an unconfigured project's effective session name is stable
+    across the live-tmux scan and the registry-synthesis path.
+    """
+    cfg = project_root / "aitasks" / "metadata" / "project_config.yaml"
+    if not cfg.is_file():
+        return "aitasks"
+
+    def _unquote(s: str) -> str:
+        s = s.strip()
+        if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
+            s = s[1:-1]
+        return s
+
+    in_tmux_block = False
+    try:
+        with open(cfg, encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.rstrip("\n")
+                if not line or line.lstrip().startswith("#"):
+                    continue
+                # Top-level non-comment line: enter / exit tmux: block.
+                if line[:1] not in (" ", "\t"):
+                    in_tmux_block = line.startswith("tmux:")
+                    continue
+                if not in_tmux_block:
+                    continue
+                stripped = line.lstrip()
+                if stripped.startswith("default_session:"):
+                    val = _unquote(stripped[len("default_session:"):])
+                    if val:
+                        return val
+                    break
+    except OSError:
+        pass
+    return "aitasks"
+
+
+def discover_aitasks_sessions(
+    *, include_registered: bool = False
+) -> list[AitasksSession]:
     """Enumerate aitasks-like tmux sessions on the current tmux server.
 
     Detection is per-session in priority order:
@@ -267,17 +379,26 @@ def discover_aitasks_sessions() -> list[AitasksSession]:
     session name for stable display. Returns an empty list when tmux is
     unavailable or no aitasks sessions are running. No module-level caching —
     each call re-queries tmux so long-running monitors see live state.
+
+    When ``include_registered=True``, additionally emits synthesized entries
+    for every registered project in ``~/.config/aitasks/projects.yaml`` that
+    is not already covered by a live session (deduped on ``project_name``).
+    Synthesized entries carry ``is_live=False`` and a ``session`` field
+    resolved from each project's ``tmux.default_session`` config. Default
+    ``False`` so existing callers (notably ``ait monitor``) see identical
+    output to today.
     """
     try:
         result = subprocess.run(
             ["tmux", "list-sessions", "-F", "#{session_name}"],
             capture_output=True, text=True, timeout=5,
         )
+        sessions = (
+            [s for s in result.stdout.strip().splitlines() if s]
+            if result.returncode == 0 else []
+        )
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return []
-    if result.returncode != 0:
-        return []
-    sessions = [s for s in result.stdout.strip().splitlines() if s]
+        sessions = []
 
     found: list[AitasksSession] = []
     for session in sessions:
@@ -311,6 +432,18 @@ def discover_aitasks_sessions() -> list[AitasksSession]:
             project_root=project_root,
             project_name=project_root.name,
         ))
+
+    if include_registered:
+        live_names = {s.project_name for s in found}
+        for name, root in _read_registry_index():
+            if name in live_names:
+                continue
+            found.append(AitasksSession(
+                session=_read_default_session(root),
+                project_root=root,
+                project_name=name,
+                is_live=False,
+            ))
 
     found.sort(key=lambda s: s.session)
     return found

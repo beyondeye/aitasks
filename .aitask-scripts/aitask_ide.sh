@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+# shellcheck source=lib/tmux_bootstrap.sh
+source "$SCRIPT_DIR/lib/tmux_bootstrap.sh"
 
 SESSION_OVERRIDE=""
 while [[ $# -gt 0 ]]; do
@@ -48,76 +50,23 @@ resolve_session() {
         echo "$SESSION_OVERRIDE"
         return
     fi
-    local cfg="aitasks/metadata/project_config.yaml"
-    if [[ -f "$cfg" ]]; then
-        local name
-        name=$(awk '
-            /^tmux:/ { intmux=1; next }
-            intmux && /^  default_session:/ {
-                sub(/^  default_session:[ \t]*/, "")
-                gsub(/"/, "")
-                gsub(/'"'"'/, "")
-                sub(/[[:space:]]+$/, "")
-                print
-                exit
-            }
-            /^[^ #]/ && !/^tmux:/ { intmux=0 }
-        ' "$cfg")
-        if [[ -n "$name" ]]; then
-            echo "$name"
-            return
-        fi
-    fi
-    echo "aitasks"
-}
-
-read_syncer_autostart() {
-    local cfg="aitasks/metadata/project_config.yaml"
-    [[ -f "$cfg" ]] || { echo "0"; return; }
-    local out
-    out=$(awk '
-        /^tmux:/ { intmux=1; next }
-        intmux && /^  syncer:/ { insyncer=1; next }
-        insyncer && /^    autostart:/ {
-            sub(/^    autostart:[ \t]*/, "")
-            gsub(/"/, "")
-            gsub(/'"'"'/, "")
-            sub(/[[:space:]]+$/, "")
-            if ($0 == "true") { print "1"; exit }
-            print "0"; exit
-        }
-        /^[^ #]/ && !/^tmux:/ { intmux=0; insyncer=0 }
-        intmux && /^  [^ ]/ && !/^  syncer:/ { insyncer=0 }
-    ' "$cfg" 2>/dev/null)
-    [[ -z "$out" ]] && out="0"
-    echo "$out"
+    _tmux_bootstrap_resolve_session "$(pwd)"
 }
 
 SESSION=$(resolve_session)
-SYNCER_AUTOSTART=$(read_syncer_autostart)
 # Exact-match tmux target — prevents prefix-match collisions when another
 # project's session name shares a prefix (e.g. 'aitasks' vs 'aitasks_mob').
 SESSION_T="=${SESSION}"
 
 command -v tmux >/dev/null || die "tmux is not installed. Install it first, then re-run 'ait ide'."
 
-# Register this project's root under a per-session global env var so that
-# multi-session aitasks features (monitor, switcher) can detect the session as
-# aitasks-like even before any pane cd's into the project directory. Cleaned
-# up automatically when the tmux server exits.
+# Thin wrappers that delegate to the shared bootstrap helpers (t826_2).
 set_project_registry() {
-    tmux set-environment -g "AITASKS_PROJECT_${SESSION}" "$(pwd)" 2>/dev/null || true
-    # Cross-repo project registry (t826_1): also write a persistent index
-    # entry so other repos can resolve this project by name even after the
-    # tmux session ends. Best-effort — never fails the ide startup.
-    "$SCRIPT_DIR/aitask_projects.sh" add "$(pwd)" >/dev/null 2>&1 || true
+    _tmux_bootstrap_set_project_registry "$(pwd)" "$SESSION"
 }
 
 ensure_syncer_window() {
-    [[ "$SYNCER_AUTOSTART" == "1" ]] || return 0
-    if ! tmux list-windows -t "$SESSION_T" -F '#{window_name}' 2>/dev/null | grep -qx 'syncer'; then
-        tmux new-window -t "${SESSION_T}:" -n syncer 'ait syncer' 2>/dev/null || true
-    fi
+    _tmux_bootstrap_ensure_syncer_window "$(pwd)" "$SESSION"
 }
 
 if [[ -n "${TMUX:-}" ]]; then
@@ -145,11 +94,8 @@ if tmux has-session -t "$SESSION_T" 2>/dev/null; then
     exec tmux attach -t "$SESSION_T" \; select-window -t "${SESSION_T}:monitor"
 fi
 
-# `new-session -s` takes a literal session name to create, not a target to
-# resolve — do not prefix it with '='. Use -d + set-environment + attach so
-# the registry write happens while the server is up but before the caller's
-# process is replaced by the attached client.
-tmux new-session -d -s "$SESSION" -n monitor 'ait monitor'
-set_project_registry
-ensure_syncer_window
+# Fresh-session path. spawn_session_detached handles new-session + env
+# registry + syncer in one call (shared with the TUI switcher's
+# inactive-project bootstrap path, t826_2). Then attach.
+spawn_session_detached "$(pwd)"
 exec tmux attach -t "$SESSION_T"
