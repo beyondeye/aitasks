@@ -117,3 +117,29 @@ Use the same `assert_*` helpers as `tests/test_skill_render_aitask_pickweb.sh` (
 ## Step 9: Post-Implementation
 
 Standard archival per `task-workflow-fast-/SKILL.md` Step 9 (current branch, no worktree). Commit code (8 skill files + 2 scripts + 1 test) with `refactor: <description> (t777_29)`. Plan file via `./ait git`.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Rewrote 8 `.opencode/skills/<skill>/SKILL.md` files (pick, pickrem, explore, review, fold, qa, pr-import, revert) as §3d-style stubs mirroring `.opencode/commands/<skill>.md`, with skill `name:` frontmatter added (required by OpenCode skills, not by commands). pickrem additionally carries the conditional-Read "Render only if needed" pattern (matches the pre-rendered headless skill pattern; pickweb's stub from t777_15 is the parallel reference).
+  - Patched `aitask_audit_wrappers.sh`: added `_skill_is_templated()` helper that checks for `.claude/skills/<skill>/SKILL.md.j2`; both `render_agents_skill` and `render_opencode_skill` branch on it. Templated skills get the §3b (Codex) / §3d (OpenCode) stub; non-templated keep the legacy "Source of Truth" pointer.
+  - Collapsed `aitask_skill_verify.sh::_resolver_key_for` from a 9-arm hardcoded switch to a default `${skill#aitask-}` plus an optional `resolver_key.txt` sidecar override. Both TODOs at lines 78–79 removed. No sidecar files are needed today (all current resolver keys match the default convention).
+  - Added `tests/test_opencode_skill_legacy_pointers.sh` (81 assertions across 9 templated skills): existence, no legacy "Source of Truth" phrase, no `.claude/skills/<skill>/SKILL.md` pointer, short-name resolver call, full-slug renderer call, `--agent opencode`, `<skill>-<profile>-/SKILL.md` Read path, "Dispatch via Read-and-follow" marker.
+
+- **Deviations from plan:** None of substance. The plan called for symmetric detection in `render_agents_skill` as a "lower-stakes" extra; implemented as planned.
+
+- **Issues encountered:**
+  - `aitask_plan_externalize.sh` uses positional `<task_id> --internal <path>`, not the `--task-id` flag form. Discovered via `--help`.
+  - The working tree had pre-existing modifications to `aitask_board.py`, `agent_command_screen.py`, and `profile_editor.py` (sibling tasks' WIP). Excluded these from the commit via explicit `git add` of only the t777_29 files.
+
+- **Key decisions:**
+  - Audit-wrapper's templated-skill branch emits the **plain** §3d (no conditional-Read), not the pickrem/pickweb "Render only if needed" variant. Pickrem and pickweb's conditional-Read pattern is hand-authored; a `--force` regenerate via the auditor would drop the conditional-Read line and would need a manual touch-up. Acceptable because (a) files are committed and the auditor refuses to overwrite without `--force` (line 252), and (b) the regression test asserts the resolver/render/Read markers but does NOT assert the conditional-Read line for non-pickweb skills — so pickrem's conditional-Read is currently uncovered if regenerated.
+  - Resolver-key default `${skill#aitask-}` chosen over a marker file because all 9 current templated skills satisfy it. Sidecar `resolver_key.txt` documented as the future opt-out; no sidecar files committed.
+  - Did NOT generalize the headless prerender check (verify script line 146 TODO) — out of scope for this task; that requires adding a `prerender_for_headless` marker mechanism to `.j2` frontmatter and `headless: true` to profile YAML.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - For t777_28 (dedup template branches): the new `_skill_is_templated()` helper in `aitask_audit_wrappers.sh` (now also referenced indirectly by the regression test's filter — both walk `.claude/skills/<skill>/SKILL.md.j2`) is a candidate concentration point if the dedup work introduces a registry of templated skills.
+  - For t777_27 (recover runtime skills + parity tests): the regression test in this task is a useful template — it iterates over the templated-skill set via `find .claude/skills -name 'SKILL.md.j2'` and applies per-skill assertions. The same pattern generalizes to other agent surfaces (`.agents/skills/`, `.gemini/commands/`).
+  - The `_resolver_key_for` collapse establishes the **default convention** that every new templated skill's resolver key must equal `${skill#aitask-}` unless a `resolver_key.txt` sidecar overrides it. Document this in `aidocs/stub-skill-pattern.md` §3f when t777_18 (docs update) lands.

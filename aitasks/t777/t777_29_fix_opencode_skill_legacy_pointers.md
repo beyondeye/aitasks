@@ -6,8 +6,9 @@ issue_type: refactor
 status: Implementing
 labels: [aitask_pick]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-25 10:29
-updated_at: 2026-05-25 10:55
+updated_at: 2026-05-25 11:34
 ---
 
 ## Context
