@@ -5,10 +5,10 @@ depends: [t826_1]
 issue_type: feature
 status: Implementing
 labels: [brainstorming, cross_repo, aitask_query, aitask_create]
-children_to_implement: [t832_1, t832_2]
+children_to_implement: [t832_1, t832_2, t832_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-25 22:30
-updated_at: 2026-05-26 18:26
+updated_at: 2026-05-26 18:27
 boardidx: 80
 ---
 
