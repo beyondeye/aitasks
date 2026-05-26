@@ -310,3 +310,43 @@ AITASKS_PROJECTS_INDEX=/tmp/dt_reg.yaml ait projects doctor   # press k, then ch
 No worktree to clean (fast profile, current branch). After approval
 and commit, archive via `./.aitask-scripts/aitask_archive.sh 826_9`,
 which also drops `t826_9` from the parent's `children_to_implement`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `cmd_doctor` (~110 lines), dispatcher
+  case, `--help` block entry, and module-header verb-list entry in
+  `.aitask-scripts/aitask_projects.sh`. New `tests/test_aitask_projects_doctor.sh`
+  (10 tests, all passing) using the same `seed_stale_entry` pattern
+  as the prune test. The `--clone` happy-path test initialises
+  `OK_ROOT` as a real git repo and uses `file://$OK_ROOT` as the
+  clone source, so the test runs entirely hermetically (no network).
+- **Deviations from plan:** One — when `--clone` is *not* active and
+  the user types `c`, the plan said "falls into 'unrecognized' branch".
+  The implemented behavior is **more helpful**: the `c|C)` case arm
+  matches first, checks `can_clone`, and warns "Clone not available
+  (requires --clone and a git_remote)." rather than the generic
+  "Unrecognized action" message. The test was updated to assert the
+  helpful warning. Net behavior (entry kept, registry unchanged) is
+  identical.
+- **Issues encountered:** Initial test for the clone-disabled `c`
+  input asserted the generic "Unrecognized action" warning per the
+  plan; updated assertion to match the implemented helpful warning
+  (a more user-friendly path than what the plan literally specified).
+- **Key decisions:**
+  - `cmd_update` is called inside a subshell `( cmd_update ... )`
+    so its `die()` on missing-marker does not abort the whole doctor
+    loop. The doctor warns "Update failed - entry left as-is." and
+    moves on.
+  - After a successful `git clone`, no registry write happens — the
+    marker-file presence flips classification on the next run
+    automatically. Idempotent and self-healing.
+  - Test uses a local `file://` git source rather than mocking
+    `git clone` via PATH override, which is hermetic and avoids the
+    portability quirks of PATH-stubbing.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** Doctor uses the established
+  pattern of arrays (`stale_names=()`, `stale_paths=()`, etc.) for
+  per-entry state, matching `cmd_prune`. The subshell wrapper around
+  `cmd_update` is the right pattern any time a doctor-like
+  orchestrator wraps a `die()`-on-error atomic verb — extend this to
+  child E (t826_10) if its StaleEntryModal calls `cmd_update`.
