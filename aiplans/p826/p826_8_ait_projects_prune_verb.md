@@ -251,3 +251,59 @@ Test cases:
 Follow shared workflow Step 9 after Step 8 approval. Profile `fast`
 works on the current branch; no worktree to clean up. Archival closes
 t826_8 and leaves t826_9 / t826_10 / t826_3 / t826_4 pickable.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned.
+  - `.aitask-scripts/aitask_projects.sh` gained `cmd_prune` (with
+    `--dry-run`, `--yes`/`-y`, `-h`/`--help`, and an explicit
+    "Unknown argument" `die` for everything else). It composes
+    `list_registry_entries` + `classify_registry_entry "$name"
+    "$path"` (two-arg form, OK/STALE only) into parallel
+    `stale_names` / `stale_paths` arrays, then either dry-lists,
+    prompts per entry, or force-removes via `cmd_remove "$name"
+    --force`.
+  - `main()` learned a `prune` case (placed between `update` and
+    `resolve` to match the verb order in `show_help`).
+  - `show_help()`, the file-top verb summary comment, and the
+    Examples block were all extended with the new verb and two
+    example invocations (`--dry-run`, `--yes`).
+  - `tests/test_aitask_projects_prune.sh` (18 assertions) covers
+    no-stale, `--dry-run`, `--yes`, interactive `y\nn\n`, and
+    unknown-flag rejection. Modeled on
+    `tests/test_aitask_projects_remove.sh` for a consistent feel.
+- **Deviations from plan:** None.
+- **Issues encountered:** None.
+- **Key decisions:**
+  - The "Found N stale entries." header is always printed —
+    including when N=0 — so the test suite and any future
+    automation can match a single canonical line. The "Pruned K
+    of N stale entries." summary fires on every mutating path
+    (interactive or `--yes`); `--dry-run` skips it (nothing to
+    summarize).
+  - Per-entry `cmd_remove --force` chosen over a single bulk `awk`
+    rewrite. The t826_7 final notes flagged the bulk-awk approach
+    as an atomicity win; at the expected registry size (handful
+    of entries per user) the readability of "prune composes
+    remove" is the more valuable property. Each `cmd_remove` call
+    still goes through `build_registry_yaml` + `atomic_write`, so
+    each step is independently atomic on disk.
+  - `read -r ans || true` mirrors `cmd_remove` (line 355) and
+    keeps the prompt safe under `set -euo pipefail` when stdin is
+    closed.
+  - Test scaffolding nukes the seeded project root after `add`
+    succeeds — the cleanest way to manufacture STALE rows: the
+    registry retains the entry, but the marker file is gone so
+    `classify_registry_entry` returns `STALE`.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t826_9 (`doctor`)** can reuse the exact `stale_names` /
+    `stale_paths` collection loop in `cmd_prune` as the input to
+    its interactive triage. The branching changes — instead of
+    a `y/N` confirm-then-remove, doctor's per-entry prompt routes
+    to `cmd_remove`, `cmd_update <new_path>`, or skip.
+  - The `name → path` line format used by `--dry-run` (`  %s → %s`
+    with two-space indent) is a good template for any future
+    "preview before mutate" output in this script.
+- **Build verification:** N/A (`verify_build` is unset in this
+  project).
