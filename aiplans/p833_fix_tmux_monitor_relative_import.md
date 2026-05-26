@@ -140,3 +140,45 @@ The other imports in the file (`agent_launch_utils`, `tui_switcher`,
 - Update plan with Final Implementation Notes.
 - Run `aitask_archive.sh 833` to archive task + plan.
 - Push via `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Realigned `tests/test_git_tui_config.py` with the
+  sys.path pattern already used by `tests/test_prompt_detection.py` and
+  `tests/test_idle_compare_modes.py`. Replaced
+  `sys.path.insert(.aitask-scripts/monitor)` with
+  `sys.path.insert(.aitask-scripts)`, and rewrote three
+  `from tmux_monitor import …` statements (lines 115, 125, 177) as
+  `from monitor.tmux_monitor import …`. The other imports
+  (`agent_launch_utils`, `tui_switcher`, `tui_registry`) remained bare,
+  served by the still-present `.aitask-scripts/lib/` sys.path entry.
+
+- **Deviations from plan:** The task description proposed editing
+  `.aitask-scripts/monitor/tmux_monitor.py:42` to drop the relative import.
+  Empirical verification (see Context) showed that change breaks every
+  consumer that imports via `monitor.tmux_monitor` — i.e., `monitor_app.py`,
+  `minimonitor_app.py`, `test_prompt_detection.py`, and
+  `test_idle_compare_modes.py`. Fixed the test instead. No production code
+  was touched.
+
+- **Issues encountered:** None during implementation. The pre-edit
+  exploration spent most of the time verifying the regression hazard of
+  the task author's suggested fix.
+
+- **Key decisions:** Chose test-side alignment over a sys.path-injection
+  variant in `tmux_monitor.py`. The latter would have created a real risk
+  of two distinct `prompt_patterns` module instances (one as
+  `monitor.prompt_patterns`, one as bare `prompt_patterns`), undermining
+  class identity for `PromptPattern`.
+
+- **Upstream defects identified:** None.
+
+## Verification (after fix)
+
+- `python3 tests/test_git_tui_config.py` → `Ran 17 tests in 0.063s … OK`
+- `bash tests/run_all_python_tests.sh` → `Ran 777 tests in 18.371s … OK`
+- Production import path still works:
+  ```
+  python3 -c "import sys; sys.path.insert(0, '.aitask-scripts'); from monitor.tmux_monitor import TmuxMonitor; print('OK')"
+  # OK
+  ```
