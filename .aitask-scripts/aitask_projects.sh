@@ -18,6 +18,10 @@
 #   update <name> <new_path>
 #                          - Repoint an existing entry to a new on-disk
 #                            root; refreshes last_opened, keeps git_remote.
+#   prune [--dry-run] [--yes]
+#                          - Drop every STALE registry entry (path no
+#                            longer holds the aitasks marker). Prompts
+#                            per entry unless --yes.
 #   resolve <name>         - Re-emit the resolver's structured output for
 #                            <name> (RESOLVED:/NOT_FOUND:/STALE:).
 #   exec <name> -- <cmd>   - Resolve <name>, cd into the root, exec <cmd>.
@@ -50,6 +54,10 @@ Verbs:
                              Prompts for confirmation unless --force.
   update <name> <new_path>   Repoint <name> to a new on-disk root
                              (refreshes last_opened, keeps git_remote).
+  prune [--dry-run] [--yes]  Drop every STALE registry entry (path no
+                             longer holds the aitasks marker). Prompts
+                             per entry unless --yes; --dry-run lists
+                             matches without modifying the registry.
   resolve <name>             Print the resolver output for <name>:
                                RESOLVED:<path>
                                NOT_FOUND:<name>
@@ -69,6 +77,8 @@ Examples:
   ait projects list
   ait projects remove old_project --force
   ait projects update aitasks_mobile /new/path/to/aitasks_mobile
+  ait projects prune --dry-run
+  ait projects prune --yes
   ait projects resolve aitasks
   ait projects exec aitasks -- pwd
   ait projects exec aitasks -- ./.aitask-scripts/aitask_ls.sh -v 5
@@ -415,6 +425,75 @@ cmd_update() {
     info "Updated $name → $new_path"
 }
 
+# --- Verb: prune --------------------------------------------------------
+
+cmd_prune() {
+    local dry_run=0
+    local assume_yes=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run) dry_run=1; shift ;;
+            --yes|-y)  assume_yes=1; shift ;;
+            -h|--help)
+                echo "Usage: ait projects prune [--dry-run] [--yes]"
+                return 0
+                ;;
+            *) die "Unknown argument: $1" ;;
+        esac
+    done
+
+    local tsv
+    tsv=$(list_registry_entries || true)
+
+    local stale_names=()
+    local stale_paths=()
+    if [[ -n "$tsv" ]]; then
+        while IFS='|' read -r name path _remote _last; do
+            [[ -z "$name" ]] && continue
+            local status
+            status=$(classify_registry_entry "$name" "$path")
+            if [[ "$status" == "STALE" ]]; then
+                stale_names+=("$name")
+                stale_paths+=("$path")
+            fi
+        done <<< "$tsv"
+    fi
+
+    local total=${#stale_names[@]}
+    echo "Found $total stale entries."
+    if [[ "$total" -eq 0 ]]; then
+        return 0
+    fi
+
+    if [[ "$dry_run" -eq 1 ]]; then
+        local i
+        for ((i = 0; i < total; i++)); do
+            printf '  %s → %s\n' "${stale_names[i]}" "${stale_paths[i]}"
+        done
+        return 0
+    fi
+
+    local pruned=0
+    local i
+    for ((i = 0; i < total; i++)); do
+        local name="${stale_names[i]}"
+        local path="${stale_paths[i]}"
+        if [[ "$assume_yes" -ne 1 ]]; then
+            printf "Prune '%s' (path: %s)? [y/N]: " "$name" "$path" >&2
+            local ans=""
+            read -r ans || true
+            case "$ans" in
+                y|Y) ;;
+                *) continue ;;
+            esac
+        fi
+        cmd_remove "$name" --force
+        pruned=$((pruned + 1))
+    done
+
+    echo "Pruned $pruned of $total stale entries."
+}
+
 # --- Verb: resolve ------------------------------------------------------
 
 cmd_resolve() {
@@ -480,6 +559,10 @@ main() {
         update)
             shift
             cmd_update "$@"
+            ;;
+        prune)
+            shift
+            cmd_prune "$@"
             ;;
         resolve)
             shift
