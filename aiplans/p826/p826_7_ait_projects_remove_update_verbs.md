@@ -206,3 +206,23 @@ Modeled on `tests/test_projects_cmd.sh` (same scaffolding: `assert_eq` / `assert
 ## Step 9 reference
 
 Follow shared workflow Step 9 after Step 8 approval. Profile `fast` works on the current branch; no worktree to clean up. Archival closes t826_7 and leaves t826_8 / t826_9 / t826_10 / t826_3 / t826_4 pickable as siblings.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned.
+  - `aitask_projects.sh` gained two new verb handlers: `cmd_remove` (with `--force` flag, interactive confirmation when omitted) and `cmd_update` (rebuild-via-`awk -F'|'` row-replace that refreshes `last_opened` and preserves `git_remote`).
+  - `main()` dispatcher learned `remove|rm` and `update` cases (placed between `add` and `resolve`, matching the verb order in `show_help`).
+  - `show_help()` and the file-top verb summary list were both extended with the two new verbs and two new examples.
+  - Test scaffolding: `tests/test_aitask_projects_remove.sh` (11 assertions) and `tests/test_aitask_projects_update.sh` (14 assertions), both modeled on `tests/test_projects_cmd.sh` for a consistent feel.
+- **Deviations from plan:** None. Minor cosmetic adjustment: the `cmd_remove` flag-parsing loop follows a slightly more verbose `while/case` layout than the inline plan example to keep multi-token arg handling readable.
+- **Issues encountered:** None.
+- **Key decisions:**
+  - `read -r ans || true` (with `|| true`) makes the interactive prompt safe under `set -euo pipefail` when stdin is closed (CI / piped contexts). It defaults to the `*` branch ("Aborted").
+  - `cmd_remove` validates entry existence **before** the `--force` / interactive split, so a typo on a non-existent name fails fast without prompting.
+  - `cmd_update` preserves `git_remote` verbatim (per the brainstorm). Users who need to refresh `git_remote` after a move can re-run `ait projects add` — which is idempotent and rewrites the row from the project's own `project_config.yaml`.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t826_8 (`prune`)** should call `list_registry_entries`, filter STALE via `classify_registry_entry "$name" "$path"` (no third arg), then for each STALE name either invoke `cmd_remove "$name" --force` directly (cheap) or rebuild the registry once with a single awk `$1 != skip1 && $1 != skip2 && ...` pass (one atomic write instead of N). The single-awk approach is preferable for atomicity.
+  - **t826_9 (`doctor`)** is the interactive wrapper: list STALE rows, prompt per-row with options that map to `cmd_remove`, `cmd_update <new_path>`, or skip. The two new verbs are the building blocks; doctor only needs the orchestration layer.
+  - The `awk -F'|'` row-replace pattern in `cmd_update` is also the right template for any future "edit one field of one row" verb (e.g., renaming a registry entry).
+- **Build verification:** N/A (`verify_build` is unset in this project).
