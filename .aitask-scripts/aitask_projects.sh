@@ -12,6 +12,12 @@
 #   add [<path>]           - Register the project at <path> (default: $(pwd)).
 #                            Idempotent — replaces an existing entry of
 #                            the same name. Refreshes `last_opened`.
+#   remove <name> [--force]
+#                          - Drop a single entry from the registry.
+#                            Prompts for confirmation unless --force.
+#   update <name> <new_path>
+#                          - Repoint an existing entry to a new on-disk
+#                            root; refreshes last_opened, keeps git_remote.
 #   resolve <name>         - Re-emit the resolver's structured output for
 #                            <name> (RESOLVED:/NOT_FOUND:/STALE:).
 #   exec <name> -- <cmd>   - Resolve <name>, cd into the root, exec <cmd>.
@@ -40,6 +46,10 @@ Verbs:
                              (LIVE / OK / STALE).
   add [<path>]               Register the project at <path> (default:
                              current directory). Idempotent.
+  remove <name> [--force]    Drop the named entry from the registry.
+                             Prompts for confirmation unless --force.
+  update <name> <new_path>   Repoint <name> to a new on-disk root
+                             (refreshes last_opened, keeps git_remote).
   resolve <name>             Print the resolver output for <name>:
                                RESOLVED:<path>
                                NOT_FOUND:<name>
@@ -57,6 +67,8 @@ resolver order.
 Examples:
   cd /path/to/aitasks_mobile && ait projects add
   ait projects list
+  ait projects remove old_project --force
+  ait projects update aitasks_mobile /new/path/to/aitasks_mobile
   ait projects resolve aitasks
   ait projects exec aitasks -- pwd
   ait projects exec aitasks -- ./.aitask-scripts/aitask_ls.sh -v 5
@@ -305,6 +317,104 @@ cmd_add() {
     info "Registered $new_name → $target_path"
 }
 
+# --- Verb: remove -------------------------------------------------------
+
+cmd_remove() {
+    local name=""
+    local force=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --force) force=1; shift ;;
+            -h|--help)
+                echo "Usage: ait projects remove <name> [--force]"
+                return 0
+                ;;
+            -*) die "Unknown flag: $1" ;;
+            *)
+                [[ -z "$name" ]] || die "Usage: ait projects remove <name> [--force]"
+                name="$1"
+                shift
+                ;;
+        esac
+    done
+    [[ -n "$name" ]] || die "Usage: ait projects remove <name> [--force]"
+
+    local tsv
+    tsv=$(list_registry_entries || true)
+    if [[ -z "$tsv" ]]; then
+        die "No registered projects."
+    fi
+    # Confirm the entry exists before prompting / mutating.
+    if ! awk -F'|' -v want="$name" '$1 == want { found=1 } END { exit !found }' <<< "$tsv"; then
+        die "Project '$name' is not registered."
+    fi
+
+    if [[ "$force" -ne 1 ]]; then
+        printf "Remove '%s' from registry? [y/N]: " "$name" >&2
+        local ans=""
+        read -r ans || true
+        case "$ans" in
+            y|Y) ;;
+            *)
+                info "Aborted."
+                return 0
+                ;;
+        esac
+    fi
+
+    local tsv_out
+    tsv_out=$(awk -F'|' -v skip="$name" '$1 != skip { print }' <<< "$tsv")
+
+    local body
+    body=$(printf '%s\n' "$tsv_out" | build_registry_yaml)
+    atomic_write "$REGISTRY_FILE" "$body"
+
+    info "Removed $name"
+}
+
+# --- Verb: update -------------------------------------------------------
+
+cmd_update() {
+    local name="${1:-}"
+    local new_path="${2:-}"
+    [[ -n "$name" && -n "$new_path" ]] \
+        || die "Usage: ait projects update <name> <new_path>"
+
+    if [[ ! -d "$new_path" ]]; then
+        die "Path does not exist: $new_path"
+    fi
+    if [[ ! -f "$new_path/aitasks/metadata/project_config.yaml" ]]; then
+        die "Not an aitasks project (no aitasks/metadata/project_config.yaml under $new_path)"
+    fi
+    new_path=$(cd "$new_path" && pwd)
+
+    local tsv
+    tsv=$(list_registry_entries || true)
+    if [[ -z "$tsv" ]]; then
+        die "No registered projects."
+    fi
+    if ! awk -F'|' -v want="$name" '$1 == want { found=1 } END { exit !found }' <<< "$tsv"; then
+        die "Project '$name' is not registered."
+    fi
+
+    local today
+    today=$(date -u +"%Y-%m-%d")
+
+    local tsv_out
+    tsv_out=$(awk -F'|' \
+        -v name="$name" \
+        -v new_path="$new_path" \
+        -v today="$today" \
+        '$1 == name { print $1 "|" new_path "|" $3 "|" today; next } { print }' \
+        <<< "$tsv")
+
+    local body
+    body=$(printf '%s\n' "$tsv_out" | build_registry_yaml)
+    atomic_write "$REGISTRY_FILE" "$body"
+
+    info "Updated $name → $new_path"
+}
+
 # --- Verb: resolve ------------------------------------------------------
 
 cmd_resolve() {
@@ -362,6 +472,14 @@ main() {
         add)
             shift
             cmd_add "$@"
+            ;;
+        remove|rm)
+            shift
+            cmd_remove "$@"
+            ;;
+        update)
+            shift
+            cmd_update "$@"
             ;;
         resolve)
             shift
