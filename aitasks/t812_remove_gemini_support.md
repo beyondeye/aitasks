@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [geminicli]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-20 08:01
-updated_at: 2026-05-20 08:01
+updated_at: 2026-05-26 09:12
 boardidx: 10
 ---
 
@@ -14,4 +15,3 @@ google is phasing out geminicli, and substituting it with antigravitycli that is
 for more information on antigravitycli and how to migrate from geminicli to antigravitycli, see https://antigravity.google/docs/gcli-migration. see also https://antigravity.google/docs/cli-features.
 and also https://antigravity.google/docs/cli-using
 I have generated also aidocs/geminicli_to_agy.md with more detailed guidance on how to migrate from geminicli to antigravitycli. so basically the scope of this task is to migrate current support for geminicli in aitasks framework to support instead for agy
-
