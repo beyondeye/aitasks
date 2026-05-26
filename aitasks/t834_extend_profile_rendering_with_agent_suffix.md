@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [codeagent, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-26 12:12
-updated_at: 2026-05-26 12:12
+updated_at: 2026-05-26 18:26
 boardidx: 40
 ---
 
