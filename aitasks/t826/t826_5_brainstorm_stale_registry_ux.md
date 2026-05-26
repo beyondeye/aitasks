@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t826_4]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [brainstorming, cross_repo, tui_switcher, aitask_projects]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-25 19:05
-updated_at: 2026-05-25 19:05
+updated_at: 2026-05-26 11:16
 ---
 
 ## Context
