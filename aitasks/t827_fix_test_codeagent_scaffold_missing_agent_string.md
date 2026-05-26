@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [790]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [testing, test_infrastructure]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-25 18:04
-updated_at: 2026-05-25 18:05
+updated_at: 2026-05-26 18:05
 boardidx: 100
 ---
 
