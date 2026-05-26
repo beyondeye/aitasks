@@ -181,3 +181,39 @@ Follow shared workflow Step 9 after Step 8 approval. Profile `fast`
 works on the current branch; no worktree to clean up. Archival closes
 t826_6 and leaves the next children (t826_7 / t826_8 / t826_9 /
 t826_10 / t826_3 / t826_4) pickable.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned.
+  - `AitasksSession` gained `is_stale: bool = False` (after `is_live`,
+    keeping field order intuitive).
+  - `_read_registry_index()` now returns `list[tuple[str, Path, str]]`;
+    `_flush()` no longer gates the append on the marker probe and tags
+    each entry with `"OK"` or `"STALE"`.
+  - `discover_aitasks_sessions()`'s `include_registered` branch unpacks
+    the new 3-tuple and propagates `is_stale=(status == "STALE")` to
+    synthesized `AitasksSession` rows.
+  - `aitask_projects.sh` gained `classify_registry_entry <name> <path>
+    [<live>]` (Helpers section); `cmd_list` now calls it instead of
+    the inlined `if/elif/else`. Public verb output is unchanged.
+- **Deviations from plan:** None.
+- **Issues encountered:** None.
+- **Key decisions:** `classify_registry_entry` takes the live-names
+  list as an optional third arg (newline-separated, same shape as
+  `live_tmux_project_names` output). This keeps the helper reusable
+  for the upcoming `prune` / `doctor` verbs (which won't care about
+  LIVE) while preserving today's `cmd_list` LIVE/OK/STALE output.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - Children B (t826_7 — remove/update), C (t826_8 — prune),
+    D (t826_9 — doctor) should call `classify_registry_entry` with
+    no third arg when they only need OK/STALE classification.
+  - Child E (t826_10 — switcher) consumes `AitasksSession.is_stale`
+    directly; the marker-probe runs every render per the brainstorm's
+    "no caching" decision.
+  - `_read_default_session(root)` is called on STALE entries too. For
+    a STALE row the config file is missing, so it falls back to the
+    literal `"aitasks"` — an informational placeholder. Child E
+    should never spawn that session; it should push the
+    `StaleEntryModal` first.
+- **Build verification:** N/A (`verify_build` is unset in this project).

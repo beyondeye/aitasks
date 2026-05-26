@@ -6,8 +6,9 @@ issue_type: refactor
 status: Implementing
 labels: [cross_repo, aitask_projects, registry]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-26 12:02
-updated_at: 2026-05-26 12:09
+updated_at: 2026-05-26 12:21
 ---
 
 ## Context
