@@ -40,16 +40,18 @@ rendering at that path without filename disambiguation.
 
 ### Sibling task overview
 
-| Task | Scope |
-|------|-------|
-| **t812** *(this plan)* | Remove all geminicli support from the framework. |
-| **t813** *(new sibling)* | Extend execution-profile skill rendering to support an **agent-type suffix** in rendered filenames when multiple agents share a physical skills directory (e.g., `.agents/skills/aitask-pick-fast-codex-/SKILL.md` vs `aitask-pick-fast-agy-/SKILL.md`). Prerequisite for t814. |
-| **t814** *(new sibling)* | Add `agy` (Antigravity CLI) as a first-class supported code agent (depends on t813 for the rendering enhancement). |
+| Conceptual ID | Actual ID | Scope |
+|---------------|-----------|-------|
+| **t812** *(this plan)* | t812 | Remove all geminicli support from the framework. |
+| **t813** *(new sibling)* | **t834** | Extend execution-profile skill rendering to support an **agent-type suffix** in rendered filenames when multiple agents share a physical skills directory (e.g., `.agents/skills/aitask-pick-fast-codex-/SKILL.md` vs `aitask-pick-fast-agy-/SKILL.md`). Prerequisite for adding agy. |
+| **t814** *(new sibling)* | **t835** | Add `agy` (Antigravity CLI) as a first-class supported code agent (depends on t834 for the rendering enhancement). |
 
-t813 and t814 will be created with `aitask_create.sh --batch` (no `--parent`)
-during the post-plan-approval step of t812, with seed metadata and brief
-descriptions so they're discoverable but planned in fresh contexts when
-picked.
+Throughout this plan and the child plans, the conceptual names "t813" and
+"t814" are used. The actual IDs assigned at creation time are **t834** and
+**t835** — match by content, not by literal ID.
+
+t834 and t835 have been created with `aitask_create.sh --batch` (no
+`--parent`) alongside this plan's commit.
 
 ---
 
