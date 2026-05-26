@@ -36,3 +36,18 @@ cp "$PROJECT_DIR/.aitask-scripts/lib/agent_string.sh" "$tmpdir/.aitask-scripts/l
 
 - `bash tests/test_codeagent.sh` reaches all assertions and exits 0.
 - No edit to `tests/lib/test_scaffold.sh`.
+
+## Final Implementation Notes
+- **Actual work done:** Added a single `cp` line for `agent_string.sh` to
+  `tests/test_codeagent.sh::setup_test_env()` alongside the existing
+  inline copies of `task_utils.sh` and `archive_utils.sh`. No other
+  changes required.
+- **Deviations from plan:** None.
+- **Issues encountered:** None.
+- **Key decisions:** Followed t827's stated approach exactly — the copy
+  is inline in the test file, not in `tests/lib/test_scaffold.sh`, per the
+  CLAUDE.md baseline that scaffold ships only `aitask_path.sh`,
+  `terminal_compat.sh`, `python_resolve.sh`.
+- **Upstream defects identified:** None.
+- **Verification:** Full `bash tests/test_codeagent.sh` run: PASS 95/95,
+  exit 0.
