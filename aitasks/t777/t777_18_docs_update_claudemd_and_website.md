@@ -8,7 +8,9 @@ labels: [aitask_pick]
 created_at: 2026-05-17 12:02
 updated_at: 2026-05-17 12:02
 ---
-
+## General note
+This task definition is outdated: we have added MANY sibling tasks after the initial planning, we reorganized CLAUDE.md and already partially addresses some of the doucmentation of how templating affect skill authoring.
+there are also tasks related to this (look at recent task completion history) related to jinja templating for skills that contains information that is relevant for the documentation of the final implementation in the website.
 ## Context
 
 Depends on most preceding children (specifically t777_1..15 so the conventions and helper scripts exist to document). Adds a "Skill Template Authoring Conventions" section to CLAUDE.md and user-facing documentation in the website.
