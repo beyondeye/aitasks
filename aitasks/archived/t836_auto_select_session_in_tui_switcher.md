@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [aitask_monitor, tui_switcher]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-26 12:20
-updated_at: 2026-05-26 13:07
+updated_at: 2026-05-26 13:31
+completed_at: 2026-05-26 13:31
 boardidx: 20
 ---
 
