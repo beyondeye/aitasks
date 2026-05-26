@@ -348,12 +348,20 @@ class TuiSwitcherOverlay(ModalScreen):
         Binding("n", "shortcut_create", "New Task", show=False),
     ]
 
-    def __init__(self, session: str, current_tui: str = "") -> None:
+    def __init__(
+        self,
+        session: str,
+        current_tui: str = "",
+        selected_session: str | None = None,
+    ) -> None:
         super().__init__()
         # _session is the OPERATING / SELECTED session — what the overlay
         # currently points at. Mutated by Left/Right. All shortcuts,
-        # _switch_to, and _launch_git_with_companion read this.
-        self._session = session
+        # _switch_to, and _launch_git_with_companion read this. Callers can
+        # pre-select a non-attached session via ``selected_session`` (e.g.
+        # monitor / minimonitor opening the switcher with the focused
+        # agent's session already selected — t836).
+        self._session = selected_session or session
         # _attached_session is the tmux client's current session — used only
         # by _render_session_row (to mark the attached session with ▶) and
         # _teleport_if_cross (to decide whether switch-client is needed).
@@ -498,6 +506,12 @@ class TuiSwitcherOverlay(ModalScreen):
             len(sessions) >= 2
             and any(s.session == self._attached_session for s in sessions)
         )
+        # If the caller pre-selected a session that does not appear in the
+        # discovered list (e.g. the agent's session died between focus and
+        # overlay push), fall back to the attached session so the
+        # session-row markers and _cycle_session indexing stay consistent.
+        if sessions and not any(s.session == self._session for s in sessions):
+            self._session = self._attached_session
 
     def _render_hint(self) -> None:
         hint = self.query_one("#switcher_hint", Label)
@@ -951,6 +965,16 @@ class TuiSwitcherMixin:
         Binding("j", "tui_switcher", "TUI switcher", show=False),
     ]
 
+    def _switcher_selected_session(self) -> str | None:
+        """Return a tmux session name to pre-select in the switcher overlay.
+
+        Override in subclasses (e.g. monitor / minimonitor) to open the
+        switcher with the focused agent's session already selected.
+        Default ``None`` means use the attached session — the original
+        single-session behavior.
+        """
+        return None
+
     def action_tui_switcher(self) -> None:
         if not os.environ.get("TMUX"):
             self.notify("TUI switcher requires tmux", severity="warning")
@@ -961,4 +985,7 @@ class TuiSwitcherMixin:
             defaults = load_tmux_defaults(Path.cwd())
             session = defaults.get("default_session", "aitasks")
         current = getattr(self, "current_tui_name", "")
-        self.push_screen(TuiSwitcherOverlay(session=session, current_tui=current))
+        selected = self._switcher_selected_session()
+        self.push_screen(TuiSwitcherOverlay(
+            session=session, current_tui=current, selected_session=selected,
+        ))

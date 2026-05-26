@@ -936,6 +936,22 @@ class MonitorApp(TuiSwitcherMixin, App):
         # rebuild). Required so the preview-zone indicator survives ticks.
         self._update_selected_card_indicator()
 
+    def _switcher_selected_session(self) -> str | None:
+        """Pre-select the focused agent pane's session in the TUI switcher.
+
+        When the focused row is a code-agent card belonging to a non-attached
+        tmux session, the switcher opens with that session already selected
+        — saving the user a Left/Right cycle (t836). Non-agent rows fall
+        through to the default attached-session behavior.
+        """
+        pid = self._focused_pane_id
+        if not pid:
+            return None
+        snap = self._snapshots.get(pid)
+        if snap is None or snap.pane.category != PaneCategory.AGENT:
+            return None
+        return snap.pane.session_name or None
+
     def _rebuild_session_bar(self) -> None:
         total = len(self._snapshots)
         agents = [

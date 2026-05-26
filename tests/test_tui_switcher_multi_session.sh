@@ -108,6 +108,32 @@ ov._init_multi_state([
 print("OUTSIDE_MULTI_MODE:" + str(ov._multi_mode))
 
 
+# --- selected_session pre-selects a non-attached session (t836) ---
+
+ov = ts.TuiSwitcherOverlay(session="s1", selected_session="s2")
+print("PRESEL_SESSION:" + ov._session)
+print("PRESEL_ATTACHED:" + ov._attached_session)
+
+# selected_session=None falls back to attached (default behavior)
+ov = ts.TuiSwitcherOverlay(session="s1")
+print("NOPRESEL_SESSION:" + ov._session)
+print("NOPRESEL_ATTACHED:" + ov._attached_session)
+
+# Unknown pre-selected session gets reset to attached during _init_multi_state
+ov = ts.TuiSwitcherOverlay(session="s1", selected_session="s_dead")
+ov._init_multi_state([
+    AitasksSession("s1", Path("/p1"), "p1"),
+    AitasksSession("s3", Path("/p3"), "p3"),
+])
+print("STALE_PRESEL_SESSION:" + ov._session)
+print("STALE_PRESEL_ATTACHED:" + ov._attached_session)
+
+# Mixin's _switcher_selected_session() default returns None
+class _Stub(ts.TuiSwitcherMixin):
+    pass
+print("MIXIN_DEFAULT_HOOK:" + repr(_Stub()._switcher_selected_session()))
+
+
 # --- _cycle_session: forward, back, wrap ---
 
 ov = make_overlay(session="s1")
@@ -334,6 +360,14 @@ assert_eq "multi-session _session initial" "s1" "${R[MULTI_SESSION]:-}"
 assert_eq "multi-session _attached_session" "s1" "${R[MULTI_ATTACHED]:-}"
 
 assert_eq "attached not in aitasks-sessions -> _multi_mode False" "False" "${R[OUTSIDE_MULTI_MODE]:-}"
+
+assert_eq "selected_session pre-selects _session (t836)" "s2" "${R[PRESEL_SESSION]:-}"
+assert_eq "selected_session leaves _attached_session at session arg" "s1" "${R[PRESEL_ATTACHED]:-}"
+assert_eq "no selected_session: _session == session (regression)" "s1" "${R[NOPRESEL_SESSION]:-}"
+assert_eq "no selected_session: _attached_session == session (regression)" "s1" "${R[NOPRESEL_ATTACHED]:-}"
+assert_eq "stale pre-selected session resets to attached on init" "s1" "${R[STALE_PRESEL_SESSION]:-}"
+assert_eq "stale pre-selected session leaves _attached_session" "s1" "${R[STALE_PRESEL_ATTACHED]:-}"
+assert_eq "TuiSwitcherMixin._switcher_selected_session default = None" "None" "${R[MIXIN_DEFAULT_HOOK]:-}"
 
 assert_eq "cycle +1 mutates _session (s1 -> s2)" "s2" "${R[CYCLE_FWD_SESSION]:-}"
 assert_eq "cycle +1 leaves _attached_session" "s1" "${R[CYCLE_FWD_ATTACHED]:-}"
