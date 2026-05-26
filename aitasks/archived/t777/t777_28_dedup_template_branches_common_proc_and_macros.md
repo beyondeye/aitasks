@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t777_27]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [t777, skill-templates, minijinja]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-23 23:39
-updated_at: 2026-05-26 09:50
+updated_at: 2026-05-26 13:02
+completed_at: 2026-05-26 13:02
 ---
 
 # Goal
