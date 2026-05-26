@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [aitask_monitor]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-25 18:23
-updated_at: 2026-05-26 09:15
+updated_at: 2026-05-26 09:43
 boardidx: 60
 ---
 
