@@ -5,10 +5,10 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [geminicli]
-children_to_implement: [t812_1, t812_2, t812_3]
+children_to_implement: [t812_1, t812_2, t812_3, t812_4]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-20 08:01
-updated_at: 2026-05-26 12:06
+updated_at: 2026-05-26 12:07
 boardidx: 10
 ---
 
