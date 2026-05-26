@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t832_1]
 issue_type: feature
 status: Ready
 labels: [cross_repo, aitask_explain]
 created_at: 2026-05-26 18:26
-updated_at: 2026-05-26 18:26
+updated_at: 2026-05-26 18:30
 ---
 
 ## Context

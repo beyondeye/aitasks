@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [t832_1, t832_3, t832_7]
 issue_type: feature
 status: Ready
 labels: [cross_repo, task_workflow]
 created_at: 2026-05-26 18:28
-updated_at: 2026-05-26 18:28
+updated_at: 2026-05-26 18:30
 ---
 
 ## Context

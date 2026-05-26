@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [t832_1, t832_2, t832_3, t832_4, t832_5, t832_7, t832_8]
 issue_type: feature
 status: Ready
 labels: [cross_repo, retrospective]
 created_at: 2026-05-26 18:28
-updated_at: 2026-05-26 18:28
+updated_at: 2026-05-26 18:30
 ---
 
 ## Context
