@@ -291,6 +291,47 @@ else
 fi
 
 # ============================================================================
+# Test 7b — Staleness via {% from %} import (t777_28)
+#
+# The dep-walker's `_resolve_template_deps()` must track {% from %} and
+# {% import %} directives the same way it tracks {% include %}: touching
+# the imported macro file must invalidate the consumer's cached render.
+# ============================================================================
+
+SK_FROM="${PREFIX}from_consumer"
+mkdir -p ".claude/skills/$SK_FROM"
+cat > ".claude/skills/$SK_FROM/_macros.j2" <<'EOF'
+{% macro greet(name) -%}
+Hello, {{ name }}!
+{%- endmacro %}
+EOF
+cat > ".claude/skills/$SK_FROM/SKILL.md.j2" <<'EOF'
+# From-import consumer
+{% from "_macros.j2" import greet %}
+{{ greet("world") }}
+EOF
+
+"$RENDER" "$SK_FROM" --profile fast --agent claude
+FROM_TARGET=".claude/skills/${SK_FROM}-fast-/SKILL.md"
+assert_file_exists "Test7b: from-import consumer rendered" "$FROM_TARGET"
+assert_contains "Test7b: macro expansion present in render" \
+    "Hello, world!" "$(cat "$FROM_TARGET")"
+
+FROM_M1=$(_t_mtime "$FROM_TARGET")
+sleep 1
+# Touch the imported macro file — staleness check must catch it.
+touch ".claude/skills/$SK_FROM/_macros.j2"
+"$RENDER" "$SK_FROM" --profile fast --agent claude
+FROM_M2=$(_t_mtime "$FROM_TARGET")
+TOTAL=$((TOTAL + 1))
+if (( FROM_M2 > FROM_M1 )); then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: Test7b: touching {% from %} macro file did not invalidate consumer (mtime: $FROM_M1→$FROM_M2)"
+fi
+
+# ============================================================================
 # Test 8 — --force re-renders unconditionally
 # ============================================================================
 

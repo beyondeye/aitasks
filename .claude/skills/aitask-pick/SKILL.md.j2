@@ -5,6 +5,24 @@ description: Select the next AI task for implementation from the `aitasks/` dire
 
 ## Workflow
 
+{# Macro confirm_task_selection: emits the `skip_task_confirmation` decision
+   block with the given `indent` (e.g. "      " for the parent block, "    "
+   for the child block) and `summary` placeholder. Co-located with its
+   call-sites in Step 0b. See `aidocs/skill_authoring_conventions.md`
+   "Jinja templating in skills" for the macro-placement convention. #}
+{%- macro confirm_task_selection(indent, summary) -%}
+{% if profile.skip_task_confirmation is defined and profile.skip_task_confirmation -%}
+{{ indent }}- Display: "Profile '{{ profile.name }}': auto-confirming task selection"
+{{ indent }}- Proceed directly to **Step 3** (Task Status Checks)
+{% else -%}
+{{ indent }}- Use `AskUserQuestion`:
+{{ indent }}  - Question: "Is this the correct task? Brief summary: {{ summary }}"
+{{ indent }}  - Header: "Confirm task"
+{{ indent }}  - Options: "Yes, proceed" (description: "This is the correct task, continue with aitask-pick workflow") / "No, abort" (description: "Wrong task, cancel the selection")
+{{ indent }}- If "Yes, proceed" → proceed to **Step 3** (Task Status Checks)
+{{ indent }}- If "No, abort" → fall back to normal task selection (proceed to Step 1)
+{% endif -%}
+{%- endmacro -%}
 ### Step 0b: Check for Direct Task Selection (Optional Argument)
 
 If this skill is invoked with a numeric argument:
@@ -21,17 +39,8 @@ If this skill is invoked with a numeric argument:
     - **Show task summary and confirm:**
       - Read the task file content
       - Generate a brief 1-2 sentence summary of the task description
-{# ---------- skip_task_confirmation ---------- #}{% if profile.skip_task_confirmation is defined and profile.skip_task_confirmation %}
-      - Display: "Profile '{{ profile.name }}': auto-confirming task selection"
-      - Proceed directly to **Step 3** (Task Status Checks)
-{% else %}{# skip_task_confirmation: when false / undefined #}
-      - Use `AskUserQuestion`:
-        - Question: "Is this the correct task? Brief summary: <1-2 sentence summary of the task>"
-        - Header: "Confirm task"
-        - Options: "Yes, proceed" (description: "This is the correct task, continue with aitask-pick workflow") / "No, abort" (description: "Wrong task, cancel the selection")
-      - If "Yes, proceed" → proceed to **Step 3** (Task Status Checks)
-      - If "No, abort" → fall back to normal task selection (proceed to Step 1)
-{% endif %}{# ---------- end skip_task_confirmation ---------- #}
+
+{{ confirm_task_selection("      ", "<1-2 sentence summary of the task>") }}
 
 **Format 2: Child task (e.g., `/aitask-pick 16_2`):**
 - Parse as child task ID (parent=16, child=2)
@@ -50,17 +59,8 @@ If this skill is invoked with a numeric argument:
     Parse the output: lines prefixed `ARCHIVED_PLAN:` are archived sibling plan files (primary context source for completed siblings). Lines prefixed `ARCHIVED_TASK:` are fallback for siblings without archived plans. Lines prefixed `PENDING_SIBLING:` are pending sibling task files. Lines prefixed `PENDING_PLAN:` are pending sibling plans. If output is `NO_CONTEXT`, there are no sibling context files. Read the files listed in the output.
   - **Show task summary and confirm:**
     - Generate a brief 1-2 sentence summary of the child task description, mentioning the parent task name for context
-{# ---------- skip_task_confirmation (child) ---------- #}{% if profile.skip_task_confirmation is defined and profile.skip_task_confirmation %}
-    - Display: "Profile '{{ profile.name }}': auto-confirming task selection"
-    - Proceed directly to **Step 3** (Task Status Checks)
-{% else %}{# skip_task_confirmation (child): when false / undefined #}
-    - Use `AskUserQuestion`:
-      - Question: "Is this the correct task? Brief summary: <1-2 sentence summary of the child task> (Parent: <parent task name>)"
-      - Header: "Confirm task"
-      - Options: "Yes, proceed" (description: "This is the correct task, continue with aitask-pick workflow") / "No, abort" (description: "Wrong task, cancel the selection")
-    - If "Yes, proceed" → proceed to **Step 3** (Task Status Checks)
-    - If "No, abort" → fall back to normal task selection (proceed to Step 1)
-{% endif %}{# ---------- end skip_task_confirmation (child) ---------- #}
+
+{{ confirm_task_selection("    ", "<1-2 sentence summary of the child task> (Parent: <parent task name>)") }}
 
 **If no file is found:**
 - Display error message

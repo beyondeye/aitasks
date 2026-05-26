@@ -80,7 +80,14 @@ def _include_search_dirs(template_path: Path) -> list[Path]:
     return dirs
 
 
-INCLUDE_RE = re.compile(r'\{%-?\s*include\s+["\']([^"\']+)["\']')
+# Dep-walker tracks three Jinja directives that pull in another template
+# at runtime: {% include "X" %}, {% from "X" import Y %}, {% import "X" as Y %}.
+# Touching any referenced file must invalidate cached renders of the consumer.
+TEMPLATE_DEP_RES = [
+    re.compile(r'\{%-?\s*include\s+["\']([^"\']+)["\']'),
+    re.compile(r'\{%-?\s*from\s+["\']([^"\']+)["\']\s+import\b'),
+    re.compile(r'\{%-?\s*import\s+["\']([^"\']+)["\']'),
+]
 
 
 def render_skill(template_path: Path, profile: dict[str, Any], agent_name: str) -> str:
@@ -214,22 +221,24 @@ def _atomic_write(target: Path, content: str) -> None:
     os.replace(str(tmp), str(target))
 
 
-def _resolve_include_deps(source_abs: Path, raw_text: str) -> set[Path]:
-    """Scan raw template source for `{% include "X" %}` directives and resolve
-    each name against the same search dirs the runtime loader uses. Returns
-    the set of existing matches. minijinja resolves includes at render time
-    so they never appear in the dep-walker's source list — folding them into
-    the staleness check makes editing a shared fragment correctly invalidate
-    every consuming rendered file."""
+def _resolve_template_deps(source_abs: Path, raw_text: str) -> set[Path]:
+    """Scan raw template source for {% include %} / {% from %} / {% import %}
+    directives and resolve each referenced filename against the same search
+    dirs the runtime loader uses. Returns the set of existing matches.
+    minijinja resolves these directives at render time so they never appear
+    in the dep-walker's source list — folding them into the staleness check
+    makes editing a shared fragment (procedure include, macro library, …)
+    correctly invalidate every consuming rendered file."""
     dirs = _include_search_dirs(source_abs)
     deps: set[Path] = set()
-    for m in INCLUDE_RE.finditer(raw_text):
-        name = m.group(1)
-        for d in dirs:
-            candidate = (d / name).resolve()
-            if candidate.is_file():
-                deps.add(candidate)
-                break
+    for regex in TEMPLATE_DEP_RES:
+        for m in regex.finditer(raw_text):
+            name = m.group(1)
+            for d in dirs:
+                candidate = (d / name).resolve()
+                if candidate.is_file():
+                    deps.add(candidate)
+                    break
     return deps
 
 
@@ -290,7 +299,7 @@ def walk_closure(
             raw_source = src.read_text(encoding="utf-8")
         except OSError:
             raw_source = ""
-        include_deps |= _resolve_include_deps(src, raw_source)
+        include_deps |= _resolve_template_deps(src, raw_source)
 
         try:
             raw = render_skill(src, profile, agent)

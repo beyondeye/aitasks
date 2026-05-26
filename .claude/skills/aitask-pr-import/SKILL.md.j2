@@ -255,27 +255,8 @@ Read back the created task file to confirm the assigned task ID:
 The script automatically handles transitive folds and removes folded child tasks from their parent's `children_to_implement`.
 
 ### Step 6: Decision Point
-
-{# ---------- explore_auto_continue ---------- #}{% if profile.explore_auto_continue is defined and profile.explore_auto_continue %}
-- Display: "Profile '{{ profile.name }}': continuing to implementation"
-- Skip the AskUserQuestion below and proceed directly to the handoff
-{% else %}{# explore_auto_continue: when false / undefined #}
-Use `AskUserQuestion`:
-- Question: "Task created successfully. How would you like to proceed?"
-- Header: "Proceed"
-- Options:
-  - "Save for later" (description: "Task saved — pick it up later with /aitask-pick <N>")
-  - "Continue to implementation" (description: "Proceed to plan and implement now")
-
-**Note:** Default is "Save for later" (first option) — unlike aitask-explore which defaults to "Continue to implementation". This is intentional: PR-originated tasks typically need more review before implementation.
-
-**If "Save for later":**
-- Inform user: "Task t\<N\>_\<name\>.md is ready. Run `/aitask-pick <N>` when you want to implement it."
-- End the workflow.
-
-**If "Continue to implementation":**
-- Proceed to Step 7.
-{% endif %}{# ---------- end explore_auto_continue ---------- #}
+{% from "_auto_continue_block.j2" import auto_continue_block %}
+{{ auto_continue_block(question="Task created successfully. How would you like to proceed?", continue_description="Proceed to plan and implement now", continue_target="Step 7", inform_filename="t\\<N\\>_\\<name\\>.md", default_option="save", post_options_note='**Note:** Default is "Save for later" (first option) — unlike aitask-explore which defaults to "Continue to implementation". This is intentional: PR-originated tasks typically need more review before implementation.') }}
 
 ### Step 7: Hand Off to Shared Workflow
 

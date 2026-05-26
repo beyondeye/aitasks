@@ -174,26 +174,8 @@ Read back the created task file to confirm the assigned task ID:
 The script automatically handles transitive folds and removes folded child tasks from their parent's `children_to_implement`.
 
 ### Step 4: Decision Point
-
-{# ---------- explore_auto_continue ---------- #}{% if profile.explore_auto_continue is defined and profile.explore_auto_continue %}
-- Display: "Profile '{{ profile.name }}': continuing to implementation"
-- Skip the AskUserQuestion below and proceed directly to the handoff
-{% else %}{# explore_auto_continue: when false / undefined #}
-Use `AskUserQuestion`:
-- Question: "Task created successfully. How would you like to proceed?"
-- Header: "Proceed"
-- Options:
-  - "Continue to implementation" (description: "Start implementing the task now via the standard workflow")
-  - "Save for later" (description: "Task saved — pick it up later with /aitask-pick <N>")
-
-**If "Save for later":**
-- Inform user: "Task t\<N\>_\<name\>.md is ready. Run `/aitask-pick <N>` when you want to implement it."
-- Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/satisfaction-feedback.md`) with `skill_name` = `"explore"`.
-- End the workflow.
-
-**If "Continue to implementation":**
-- Proceed to the handoff below.
-{% endif %}{# ---------- end explore_auto_continue ---------- #}
+{% from "_auto_continue_block.j2" import auto_continue_block %}
+{{ auto_continue_block(question="Task created successfully. How would you like to proceed?", continue_description="Start implementing the task now via the standard workflow", continue_target="the handoff below", inform_filename="t\\<N\\>_\\<name\\>.md", feedback_skill_name="explore") }}
 
 ### Step 5: Hand Off to Shared Workflow
 

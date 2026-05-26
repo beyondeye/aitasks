@@ -1,0 +1,69 @@
+{#-
+Shared Jinja macro for the post-task-creation "Continue / Save for later"
+decision-point block. Consumed via {% from "_auto_continue_block.j2" import auto_continue_block %}
+in 4 skills (aitask-explore, aitask-fold, aitask-pr-import, aitask-revert).
+
+The IF arm fires when `profile.explore_auto_continue == true` (no committed
+profile sets this) — verbiage matches the pre-t777_28 inline blocks. The
+ELSE arm renders the AskUserQuestion with per-skill parameters.
+
+Parameters:
+  question                Full AskUserQuestion `Question:` string.
+  continue_description    The "Continue to implementation" option description.
+  continue_target         Where "Continue to implementation" jumps in the ELSE
+                          arm (e.g. "the handoff below", "Step 6", "Step 7").
+  inform_filename         Filename template embedded in the Save-for-later
+                          "Inform user" line, e.g. "t<N>_<name>.md".
+  inform_label            Leading word in the Save-for-later Inform-user line
+                          (i.e. "<inform_label> <inform_filename> is ready.").
+                          Default: "Task". aitask-revert overrides to
+                          "Revert task" to match its rendered output.
+  inform_pick_arg         The argument passed to /aitask-pick in the Inform
+                          user line (e.g. "<N>", "<primary_id>").
+                          Default: "<N>".
+  default_option          "continue" (Continue-first) or "save" (Save-first,
+                          PR-import). Default: "continue".
+  post_options_note       Optional skill-specific note rendered between the
+                          Options list and the "If" sections. Empty string
+                          means no note. Default: "".
+  feedback_skill_name     If non-empty, emit a Satisfaction Feedback
+                          Procedure call on the Save-for-later branch with
+                          this skill_name. Default: "" (no feedback call).
+
+Whitespace contract: the macro return begins and ends with `\n`, so the
+call-site renders cleanly as one block inside the surrounding skill body.
+See `aidocs/skill_authoring_conventions.md` "Jinja templating in skills"
+for the macro-placement convention and the broader dedup rules.
+-#}
+{%- macro auto_continue_block(question, continue_description, continue_target, inform_filename, inform_label="Task", inform_pick_arg="<N>", default_option="continue", post_options_note="", feedback_skill_name="") %}
+{% if profile.explore_auto_continue is defined and profile.explore_auto_continue -%}
+- Display: "Profile '{{ profile.name }}': continuing to implementation"
+- Skip the AskUserQuestion below and proceed directly to the handoff
+{%- else -%}
+Use `AskUserQuestion`:
+- Question: "{{ question }}"
+- Header: "Proceed"
+- Options:
+{%- if default_option == "save" %}
+  - "Save for later" (description: "Task saved — pick it up later with /aitask-pick <N>")
+  - "Continue to implementation" (description: "{{ continue_description }}")
+{%- else %}
+  - "Continue to implementation" (description: "{{ continue_description }}")
+  - "Save for later" (description: "Task saved — pick it up later with /aitask-pick <N>")
+{%- endif %}
+
+{% if post_options_note -%}
+{{ post_options_note }}
+
+{% endif -%}
+**If "Save for later":**
+- Inform user: "{{ inform_label }} {{ inform_filename }} is ready. Run `/aitask-pick {{ inform_pick_arg }}` when you want to implement it."
+{%- if feedback_skill_name %}
+- Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/satisfaction-feedback.md`) with `skill_name` = `"{{ feedback_skill_name }}"`.
+{%- endif %}
+- End the workflow.
+
+**If "Continue to implementation":**
+- Proceed to {{ continue_target }}.
+{% endif %}
+{%- endmacro -%}

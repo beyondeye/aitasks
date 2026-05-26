@@ -215,6 +215,132 @@ This convention applies to any `.md` / `.md.j2` file rendered by
 `skill_template.py`, including shared procedure files under
 `.claude/skills/task-workflow/`.
 
+## Jinja templating in skills
+
+Skill templates do more than profile-conditionals. As template authoring
+matures the framework actively expands its use of Jinja constructs to
+deduplicate branch text. This section covers the constructs available
+and where each belongs.
+
+### Macros — in-file vs. shared
+
+Reach for a `{% macro %}` whenever the same block of text is repeated
+with a small set of varying inputs (indent, summary, question, etc.).
+Two placements:
+
+- **In-file `{% macro %}`** — duplicated block lives entirely within one
+  `.j2` template. Define the macro **immediately before its first
+  call-site**, not at the top of the file. Co-location keeps the
+  abstraction readable; the reader hits the macro definition right
+  before they hit a `{{ macro(...) }}` call. minijinja allows macros
+  anywhere before their first use (forward references fail).
+
+  Canonical example: `confirm_task_selection(indent, summary)` in
+  `.claude/skills/aitask-pick/SKILL.md.j2`. Both parent-task and
+  child-task confirmation blocks invoke it with their differing indent
+  depth and summary string.
+
+- **Shared macro via `{% from "X" import Y %}`** — same block duplicated
+  across multiple skills. The macro lives under
+  `.aitask-scripts/skill_templates/_<topic>.j2` (leading underscore
+  marks it as a fragment, not a runtime procedure). Each calling
+  `SKILL.md.j2` does `{% from "_<topic>.j2" import <macro_name> %}`
+  followed by `{{ <macro_name>(...) }}` at the call-site.
+
+  Canonical example: `auto_continue_block(...)` in
+  `.aitask-scripts/skill_templates/_auto_continue_block.j2`, consumed
+  by `aitask-explore`, `aitask-fold`, `aitask-pr-import`, and
+  `aitask-revert` to dedup their post-task-creation decision-point
+  block.
+
+The dep-walker in `skill_template.py` tracks `{% include %}`,
+`{% from %}`, and `{% import %}` directives for staleness — touching a
+fragment correctly invalidates every consumer's rendered output on the
+next `aitask_skill_render.sh` run.
+
+### When to use what
+
+| Lever | Use when | Avoid when |
+|-------|----------|------------|
+| In-file `{% macro %}` | The duplication is wholly within one template. | Same block is duplicated across multiple skills (use shared macro). |
+| Shared `{% from %}` + macro | Same block is duplicated across multiple skills. | A genuinely long procedure with 0–2 well-named parameters (use procedure-markdown). |
+| `{% include %}` of a shared fragment | The fragment is a self-contained text block with no per-call parameters, OR per-call variables can be bound by the caller via `{% set %}` immediately before the include. | The caller needs to pass per-call parameters cleanly (macro is more idiomatic). |
+| Procedure-markdown extraction (e.g. `.claude/skills/task-workflow/<X>.md`) | The "procedure" is long (multi-section), has 0–2 well-named parameters, and is invoked at agent-runtime (not Jinja-render-time). Canonical example: `satisfaction-feedback.md`. | The block is short and parameter-heavy (the procedure-reference + runtime substitution becomes more verbose than just inlining the block). |
+
+### The shared-fragment directory
+
+`.aitask-scripts/skill_templates/` is the canonical home for
+Jinja fragments shared across skills (macros, includes). The directory
+also serves the brainstorm-crew bash pipeline — see
+`.aitask-scripts/skill_templates/README.md` for the dual-pipeline rules
+and naming conventions. Fragment filenames lead with an underscore
+(`_auto_continue_block.j2`, `_planning_plan_contract.md`,
+`_detailer_rules.md`) to mark them as "not-a-skill, not-a-procedure" —
+just a reusable text fragment.
+
+### Whitespace-control flags
+
+Tags can prefix `{%-` / `{{-` to strip preceding whitespace (including
+newlines) up to the next non-whitespace character, or suffix `-%}` /
+`-}}` to strip the same trailing whitespace. Use these to keep macro
+definitions and conditional blocks from leaking blank lines into the
+rendered output.
+
+The render-neutrality rule from the **Jinja comment conventions** section
+above applies here too: changing a flag should produce zero golden diff
+unless the change is intentional. When tuning a new macro's output,
+**the golden diff is the authoritative check** — predict, render, diff,
+adjust. minijinja's exact stripping behaviour matters more than what
+"feels right"; iterate on the goldens until they match.
+
+### minijinja caveats
+
+minijinja is NOT 100% Jinja2-compatible. The constructs the framework
+relies on are:
+
+```
+{{ var }}              {{- var -}}
+{% if %} / {% elif %} / {% else %} / {% endif %}
+{% for %} / {% endfor %}
+{% set %}
+{% include "X" %}
+{% from "X" import Y [as Z] %}
+{% import "X" as lib %}
+{% macro foo(arg, kwarg="default") %} ... {% endmacro %}
+{% raw %} ... {% endraw %}
+{# comment #}              {#- comment -#}
+```
+
+Out of scope: `{% extends %}` and `{% block %}` (template inheritance
+with arbitrary Python is intentionally excluded — see the renderer's
+module docstring at `.aitask-scripts/lib/skill_template.py:8-11`),
+the broader Jinja2 filter library (minijinja's set is smaller), and
+the `do` extension.
+
+### How to read a profile-aware template
+
+Predicting rendered output of a templated `SKILL.md.j2` without running
+the renderer is a load-bearing skill — coding agents editing skills need
+to reason about behaviour from source alone. Two reading habits:
+
+1. **Scan top to bottom, branching at each `{% if %}` separator.**
+   The `{# ---------- <key> ---------- #}` comment convention pins each
+   conditional to a profile key. Imagine which arm fires for the
+   `default`, `fast`, and `remote` profiles by consulting
+   `aitasks/metadata/profiles/<name>.yaml`. Keys absent from a profile
+   YAML evaluate as `is defined`→false, exercising the `{% else %}` arm.
+
+2. **For macros, substitute the call-site arguments mentally.**
+   When you encounter `{{ macro_name(arg1, arg2=...) }}`, jump to the
+   macro definition (in-file for `{% macro %}`, in the shared fragment
+   for `{% from "X" import %}` cases), mentally substitute the arguments
+   into the macro body, then continue scanning. Default arguments live
+   in the macro signature.
+
+When in doubt, render with the test driver and diff against the golden
+— but build the mental model first. The golden tells you what the
+output IS; the template tells you why.
+
 ## Regenerate goldens after any `.md.j2` or closure edit
 
 When you edit a `.md.j2` template OR any `.md` file in its render closure

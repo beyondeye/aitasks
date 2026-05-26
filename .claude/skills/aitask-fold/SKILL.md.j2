@@ -74,25 +74,8 @@ Merge the folded task content into the primary and update frontmatter in two scr
 Parse the `aitask_fold_mark.sh` output for a `COMMITTED:<hash>` line confirming the fold was committed.
 
 ### Step 4: Decision Point
-
-{# ---------- explore_auto_continue ---------- #}{% if profile.explore_auto_continue is defined and profile.explore_auto_continue %}
-- Display: "Profile '{{ profile.name }}': continuing to implementation"
-- Skip the AskUserQuestion below and proceed directly to the handoff
-{% else %}{# explore_auto_continue: when false / undefined #}
-Use `AskUserQuestion`:
-- Question: "Tasks folded successfully into t\<primary_id\>. How would you like to proceed?"
-- Header: "Proceed"
-- Options:
-  - "Continue to implementation" (description: "Start implementing the merged task now via the standard workflow")
-  - "Save for later" (description: "Task saved — pick it up later with /aitask-pick <N>")
-
-**If "Save for later":**
-- Inform user: "Task t\<primary_id\>_\<name\>.md is ready. Run `/aitask-pick <primary_id>` when you want to implement it."
-- End the workflow.
-
-**If "Continue to implementation":**
-- Proceed to the handoff below.
-{% endif %}{# ---------- end explore_auto_continue ---------- #}
+{% from "_auto_continue_block.j2" import auto_continue_block %}
+{{ auto_continue_block(question="Tasks folded successfully into t\\<primary_id\\>. How would you like to proceed?", continue_description="Start implementing the merged task now via the standard workflow", continue_target="the handoff below", inform_filename="t\\<primary_id\\>_\\<name\\>.md", inform_pick_arg="<primary_id>") }}
 
 ### Step 5: Hand Off to Shared Workflow
 
