@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: [790]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [testing, test_infrastructure]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-25 18:04
-updated_at: 2026-05-26 18:05
+updated_at: 2026-05-26 18:23
+completed_at: 2026-05-26 18:23
 boardidx: 100
 ---
 
