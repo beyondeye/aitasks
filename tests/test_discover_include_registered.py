@@ -24,7 +24,11 @@ from unittest import mock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".aitask-scripts", "lib"))
 
 import agent_launch_utils
-from agent_launch_utils import AitasksSession, discover_aitasks_sessions
+from agent_launch_utils import (
+    AitasksSession,
+    _read_registry_index,
+    discover_aitasks_sessions,
+)
 
 
 def _make_fake_project(tmp: Path, *, default_session: str | None = None) -> Path:
@@ -102,14 +106,49 @@ class IncludeRegisteredTests(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].project_name, "proj_env")
 
-    def test_stale_entry_silently_excluded(self):
+    def test_stale_entry_surfaces_with_is_stale_true(self):
         # Registry points at a path that doesn't contain the marker
-        # file — the entry must be skipped without error.
+        # file — the entry must reach the consumer with is_stale=True
+        # so the TUI switcher can render it distinctly (t826_6).
         idx = self.tmp / "projects.yaml"
         _make_registry(idx, [("ghost", self.tmp / "nonexistent")])
         os.environ["AITASKS_PROJECTS_INDEX"] = str(idx)
         result = discover_aitasks_sessions(include_registered=True)
-        self.assertEqual(result, [])
+        self.assertEqual(len(result), 1)
+        entry = result[0]
+        self.assertFalse(entry.is_live)
+        self.assertTrue(entry.is_stale)
+        self.assertEqual(entry.project_name, "ghost")
+        # _read_default_session falls back to "aitasks" when the
+        # project_config.yaml is missing — acceptable for STALE rows,
+        # the session name is informational.
+        self.assertEqual(entry.session, "aitasks")
+
+    def test_ok_entry_has_is_stale_false(self):
+        proj = _make_fake_project(self.tmp / "proj_ok", default_session="ok_sess")
+        self._set_registry([("proj_ok", proj)])
+        result = discover_aitasks_sessions(include_registered=True)
+        self.assertEqual(len(result), 1)
+        self.assertFalse(result[0].is_stale)
+        self.assertFalse(result[0].is_live)
+
+    def test_read_registry_index_returns_status_tuples(self):
+        # Direct unit test: _read_registry_index must return a list of
+        # (name, path, status) triples, with status ∈ {"OK", "STALE"}.
+        proj_ok = _make_fake_project(self.tmp / "ok_proj")
+        idx = self.tmp / "projects.yaml"
+        _make_registry(idx, [
+            ("ok_proj", proj_ok),
+            ("stale_proj", self.tmp / "no_such_dir"),
+        ])
+        os.environ["AITASKS_PROJECTS_INDEX"] = str(idx)
+        entries = _read_registry_index()
+        self.assertEqual(len(entries), 2)
+        for tup in entries:
+            self.assertEqual(len(tup), 3)
+        names = {e[0]: e[2] for e in entries}
+        self.assertEqual(names["ok_proj"], "OK")
+        self.assertEqual(names["stale_proj"], "STALE")
 
     def test_multiple_entries_emitted_sorted(self):
         proj_x = _make_fake_project(self.tmp / "px", default_session="bbb")

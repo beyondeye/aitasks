@@ -194,6 +194,27 @@ build_registry_yaml() {
     }
 }
 
+# Classify a registry entry by (name, path).
+# Optional 3rd arg: newline-separated list of currently-live project_names
+# (from live_tmux_project_names). When provided and the name matches, the
+# entry is classified LIVE; otherwise OK / STALE based on the marker file.
+# Echoes exactly one of: LIVE / OK / STALE.
+classify_registry_entry() {
+    local name="$1"
+    local path="$2"
+    local live="${3:-}"
+
+    if [[ -n "$live" ]] && grep -Fxq "$name" <<< "$live" 2>/dev/null; then
+        printf 'LIVE\n'
+        return 0
+    fi
+    if [[ -d "$path" && -f "$path/aitasks/metadata/project_config.yaml" ]]; then
+        printf 'OK\n'
+    else
+        printf 'STALE\n'
+    fi
+}
+
 # --- Verb: list ---------------------------------------------------------
 
 # Returns a sorted, newline-separated list of project_name values for
@@ -229,13 +250,7 @@ cmd_list() {
         [[ -z "$name" ]] && continue
         has_any=1
         local status
-        if grep -Fxq "$name" <<< "$live" 2>/dev/null; then
-            status="LIVE"
-        elif [[ -d "$path" && -f "$path/aitasks/metadata/project_config.yaml" ]]; then
-            status="OK"
-        else
-            status="STALE"
-        fi
+        status=$(classify_registry_entry "$name" "$path" "$live")
         if [[ -n "$remote" ]]; then
             printf '%-20s  %-7s  %s  (%s)\n' "$name" "$status" "$path" "$remote"
         else

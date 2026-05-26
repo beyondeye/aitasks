@@ -84,12 +84,16 @@ class AitasksSession:
     from the per-user registry at ``~/.config/aitasks/projects.yaml``; those
     carry ``is_live=False`` and their ``session`` field is the project's
     configured tmux session name (resolved from its ``project_config.yaml``).
+    STALE registry rows (path missing the
+    ``aitasks/metadata/project_config.yaml`` marker) additionally carry
+    ``is_stale=True`` so downstream UIs can render them distinctly.
     """
 
-    session: str          # tmux session name
-    project_root: Path    # absolute path to the project root
-    project_name: str     # basename(project_root), for display
-    is_live: bool = True  # False when synthesized from the per-user registry
+    session: str           # tmux session name
+    project_root: Path     # absolute path to the project root
+    project_name: str      # basename(project_root), for display
+    is_live: bool = True   # False when synthesized from the per-user registry
+    is_stale: bool = False # True when synthesized from a STALE registry row
 
 
 def find_terminal() -> str | None:
@@ -259,15 +263,15 @@ def _read_registry_entry(session: str) -> Path | None:
     return path
 
 
-def _read_registry_index() -> list[tuple[str, Path]]:
-    """Read ``~/.config/aitasks/projects.yaml`` as ``(name, path)`` pairs.
+def _read_registry_index() -> list[tuple[str, Path, str]]:
+    """Read ``~/.config/aitasks/projects.yaml`` as ``(name, path, status)`` triples.
 
     Mirrors ``aitask_projects.sh::list_registry_entries`` with a simple line
     parser — no PyYAML dependency. Honors the ``AITASKS_PROJECTS_INDEX``
-    env var (same override the bash side supports). Skips entries whose path
-    no longer holds ``aitasks/metadata/project_config.yaml`` (stale entries
-    are treated as absent here; the brainstorm at t826_5 will design the
-    user-facing UX for surfacing them).
+    env var (same override the bash side supports). Annotates each entry
+    with ``"OK"`` (path holds the ``aitasks/metadata/project_config.yaml``
+    marker) or ``"STALE"`` (marker missing) so downstream callers can
+    decide whether to render or skip.
     """
     index_path = os.environ.get("AITASKS_PROJECTS_INDEX")
     if not index_path:
@@ -281,7 +285,7 @@ def _read_registry_index() -> list[tuple[str, Path]]:
             s = s[1:-1]
         return s
 
-    entries: list[tuple[str, Path]] = []
+    entries: list[tuple[str, Path, str]] = []
     cur_name = ""
     cur_path = ""
 
@@ -290,7 +294,9 @@ def _read_registry_index() -> list[tuple[str, Path]]:
         if cur_name and cur_path:
             p = Path(cur_path)
             if (p / "aitasks" / "metadata" / "project_config.yaml").is_file():
-                entries.append((cur_name, p))
+                entries.append((cur_name, p, "OK"))
+            else:
+                entries.append((cur_name, p, "STALE"))
         cur_name = ""
         cur_path = ""
 
@@ -384,9 +390,10 @@ def discover_aitasks_sessions(
     for every registered project in ``~/.config/aitasks/projects.yaml`` that
     is not already covered by a live session (deduped on ``project_name``).
     Synthesized entries carry ``is_live=False`` and a ``session`` field
-    resolved from each project's ``tmux.default_session`` config. Default
-    ``False`` so existing callers (notably ``ait monitor``) see identical
-    output to today.
+    resolved from each project's ``tmux.default_session`` config; STALE
+    registry rows (path missing the marker file) additionally carry
+    ``is_stale=True``. Default ``False`` so existing callers (notably
+    ``ait monitor``) see identical output to today.
     """
     try:
         result = subprocess.run(
@@ -435,7 +442,7 @@ def discover_aitasks_sessions(
 
     if include_registered:
         live_names = {s.project_name for s in found}
-        for name, root in _read_registry_index():
+        for name, root, status in _read_registry_index():
             if name in live_names:
                 continue
             found.append(AitasksSession(
@@ -443,6 +450,7 @@ def discover_aitasks_sessions(
                 project_root=root,
                 project_name=name,
                 is_live=False,
+                is_stale=(status == "STALE"),
             ))
 
     found.sort(key=lambda s: s.session)
