@@ -41,7 +41,7 @@ from tui_switcher import TuiSwitcherMixin  # noqa: E402
 
 import subprocess  # noqa: E402
 from agent_launch_utils import resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, tmux_session_target  # noqa: E402
-from agent_command_screen import AgentCommandScreen  # noqa: E402
+from agent_command_screen import AgentCommandScreen, resolve_skill_profile  # noqa: E402
 
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
@@ -1710,6 +1710,8 @@ class MonitorApp(TuiSwitcherMixin, App):
             operation="pick",
             operation_args=[target_id],
             default_agent_string=agent_string,
+            skill_name="pick",
+            default_profile=resolve_skill_profile("pick", target_root),
         )
 
         def on_pick_result(pick_result):
@@ -1788,6 +1790,8 @@ class MonitorApp(TuiSwitcherMixin, App):
             operation="pick",
             operation_args=[task_id],
             default_agent_string=agent_string,
+            skill_name="pick",
+            default_profile=resolve_skill_profile("pick", target_root),
         )
 
         old_window_name = snap.pane.window_name

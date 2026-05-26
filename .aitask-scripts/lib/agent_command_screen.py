@@ -82,6 +82,30 @@ def _prune_stale_skillrun_overrides() -> None:
             continue
 
 
+def resolve_skill_profile(
+    skill_name: str,
+    project_root: Path | str = ".",
+) -> str:
+    """Resolve the active profile name for a given skill.
+
+    Returns the profile name (e.g., "fast") on success, or "default" on
+    any error (missing script, timeout, non-zero exit). The default
+    ensures the launch dialog still opens — the Profile row will simply
+    show "default".
+    """
+    script = Path(project_root) / ".aitask-scripts" / "aitask_skill_resolve_profile.sh"
+    try:
+        result = subprocess.run(
+            [str(script), skill_name],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip() or "default"
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    return "default"
+
+
 def pick_initial_session(
     sessions: list[str],
     default_from_config: str | None,

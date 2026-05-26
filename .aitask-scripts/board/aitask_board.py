@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for
-from agent_command_screen import AgentCommandScreen
+from agent_command_screen import AgentCommandScreen, resolve_skill_profile
 from agent_launch_utils import find_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, launch_or_focus_codebrowser, load_tmux_defaults, maybe_spawn_minimonitor, _lookup_window_name, tmux_window_target
 from sync_action_runner import (
     SyncConflictScreen,
@@ -4160,21 +4160,8 @@ class KanbanApp(TuiSwitcherMixin, App):
         return resolve_dry_run_command(Path("."), "pick", num)
 
     def _resolve_pick_profile(self) -> str:
-        """Resolve the active profile name for the pick skill.
-
-        Falls back to "default" on any error so the launch dialog still
-        opens; the Profile row label will simply show "default".
-        """
-        try:
-            result = subprocess.run(
-                [".aitask-scripts/aitask_skill_resolve_profile.sh", "pick"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if result.returncode == 0:
-                return result.stdout.strip() or "default"
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            pass
-        return "default"
+        """Resolve the active profile name for the pick skill."""
+        return resolve_skill_profile("pick")
 
     @work(exclusive=True)
     async def run_aitask_pick(self, filename):

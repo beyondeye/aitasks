@@ -28,7 +28,7 @@ from itertools import groupby
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-from agent_command_screen import AgentCommandScreen
+from agent_command_screen import AgentCommandScreen, resolve_skill_profile
 from agent_launch_utils import find_terminal as _find_terminal, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, _lookup_window_name, tmux_session_target
 from tui_switcher import TuiSwitcherMixin
 
@@ -1389,6 +1389,8 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
                 operation="explain",
                 operation_args=[arg],
                 default_agent_string=agent_string,
+                skill_name="explain",
+                default_profile=resolve_skill_profile("explain", self._project_root),
             )
             def on_result(result):
                 if result == "run":
