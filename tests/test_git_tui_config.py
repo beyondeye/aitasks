@@ -11,8 +11,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
-sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "monitor"))
 
 from agent_launch_utils import KNOWN_GIT_TUIS, detect_git_tuis, load_tmux_defaults
 
@@ -112,7 +112,7 @@ class TestLoadTmuxDefaultsGitTui(unittest.TestCase):
 class TestGitInTuiSets(unittest.TestCase):
     def test_git_in_default_tui_names(self):
         """'git' is in DEFAULT_TUI_NAMES in tmux_monitor."""
-        from tmux_monitor import DEFAULT_TUI_NAMES
+        from monitor.tmux_monitor import DEFAULT_TUI_NAMES
         self.assertIn("git", DEFAULT_TUI_NAMES)
 
     def test_git_in_tui_switcher_names(self):
@@ -122,7 +122,7 @@ class TestGitInTuiSets(unittest.TestCase):
 
     def test_stats_in_default_tui_names(self):
         """'stats' is in DEFAULT_TUI_NAMES in tmux_monitor."""
-        from tmux_monitor import DEFAULT_TUI_NAMES
+        from monitor.tmux_monitor import DEFAULT_TUI_NAMES
         self.assertIn("stats", DEFAULT_TUI_NAMES)
 
     def test_stats_in_tui_switcher_names(self):
@@ -174,7 +174,7 @@ class TestTuiWindowNamesMergeSemantics(unittest.TestCase):
 
     def test_config_tui_names_merges_with_defaults(self):
         """Custom tui_window_names in config augment (not replace) the registry defaults."""
-        from tmux_monitor import load_monitor_config
+        from monitor.tmux_monitor import load_monitor_config
         with tempfile.TemporaryDirectory() as tmpdir:
             root = self._write_config(
                 tmpdir,
