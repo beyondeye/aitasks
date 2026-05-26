@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [t826_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [brainstorming, cross_repo, aitask_query, aitask_create]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-25 22:30
-updated_at: 2026-05-25 22:30
+updated_at: 2026-05-26 15:22
 boardidx: 80
 ---
 
