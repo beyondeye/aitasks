@@ -7,6 +7,7 @@ status: Ready
 labels: [codeagent, claudeskills]
 created_at: 2026-05-26 12:12
 updated_at: 2026-05-26 12:12
+boardidx: 40
 ---
 
 ## Context

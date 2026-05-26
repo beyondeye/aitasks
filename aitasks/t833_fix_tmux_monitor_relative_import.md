@@ -3,11 +3,12 @@ priority: low
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [ait_monitor, testing]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-25 23:09
-updated_at: 2026-05-25 23:09
-boardidx: 110
+updated_at: 2026-05-26 12:56
+boardidx: 130
 ---
 
 ## Context

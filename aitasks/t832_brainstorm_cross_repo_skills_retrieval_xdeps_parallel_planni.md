@@ -7,7 +7,7 @@ status: Ready
 labels: [brainstorming, cross_repo, aitask_query, aitask_create]
 created_at: 2026-05-25 22:30
 updated_at: 2026-05-25 22:30
-boardidx: 30
+boardidx: 80
 ---
 
 Brainstorm and scope: teach framework skills and helper scripts to use the
