@@ -419,3 +419,125 @@ covering:
 - Whether the macro-default-parameter strategy was clean enough that
   call-sites only mention diverging params, or whether keyword passing was
   too noisy in practice.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all three levers as planned.
+  1. **Framework extension** — `skill_template.py:83` now exports
+     `TEMPLATE_DEP_RES` (a list of 3 regexes covering `{% include %}`,
+     `{% from %}`, `{% import %}`). `_resolve_include_deps` renamed to
+     `_resolve_template_deps` and iterates the list. One call-site
+     updated at line 302. A new staleness assertion pair (Test 7b, 3
+     assertions) added to `tests/test_skill_render_uniform.sh` confirms
+     touching a `{% from %}`-imported macro file invalidates the
+     consumer.
+  2. **Lever 1 (cross-skill)** — new
+     `.aitask-scripts/skill_templates/_auto_continue_block.j2` defines
+     the `auto_continue_block(...)` macro. Imported via `{% from %}`
+     and invoked from `aitask-explore`, `aitask-fold`,
+     `aitask-pr-import`, `aitask-revert` (each ~2 lines: a `{% from %}`
+     line plus a `{{ macro_call(...) }}` line).
+  3. **Lever 2 (in-file)** — `confirm_task_selection(indent, summary)`
+     macro defined in `aitask-pick/SKILL.md.j2` immediately before
+     Step 0b. Both call-sites (parent + child confirmation) replaced
+     with single-line `{{ macro_call(...) }}`.
+  4. **Lever 3 (docs)** — new "Jinja templating in skills" section
+     added to `aidocs/skill_authoring_conventions.md` after the
+     existing "Jinja comment conventions" section. Cross-link added in
+     `.aitask-scripts/skill_templates/README.md` plus an entry for the
+     new `_auto_continue_block.j2` fragment under "Fragment naming and
+     scope".
+
+- **Deviations from plan:**
+  - The macro had to grow one additional parameter beyond what the plan
+    table listed: `inform_label` (default "Task"; `aitask-revert`
+    overrides to "Revert task"). The plan's parameter list assumed the
+    Inform-user line always started with "Task ..." but `aitask-revert`
+    uses "Revert task ...".
+  - Call-sites use **single-line kwargs** (not multi-line). Initial
+    attempt with multi-line kwargs (more readable) saved only ~46 lines
+    net across the 5 templates, below the ≥60 target. Tightening to
+    single-line kwargs brought the savings to **72 lines net** (≥60 ✓).
+    The macro definition itself (with multi-line parameter docstring
+    and named parameters) is the readable surface; call-sites are
+    parameter-passing.
+
+- **Issues encountered:**
+  - **Whitespace tuning was the hard part.** minijinja's `{%- -%}`
+    strip semantics interact subtly with multi-line macro definitions:
+    the `{%- macro X -%}` form (both sides strip) eats leading/trailing
+    blank lines inside the body; `{%- macro X %}` (no trailing strip)
+    is required to preserve a leading newline in the macro return.
+    Similar care needed at the body trailing edge: `{% endif %}` +
+    `{%- endmacro -%}` produces exactly one trailing newline (the
+    `\n` after the body's last content line is preserved by
+    `{% endif %}` no-strip, then the `\n` after the endif line is
+    eaten by `{%-` of endmacro). Predicting this from the spec is
+    fiddly; the golden diff is the authoritative check (per the
+    documentation-section guidance: "predict, render, diff, adjust").
+  - **Call-site source structure also affects rendered whitespace.**
+    Removed the blank line between `### Step N: Decision Point` and
+    `{% from %}` in the 4 calling templates because the `{% from %}`
+    directive's line ending contributes a `\n` (so the source-side
+    blank line would yield 3 blank lines between header and the macro
+    output, not the desired 2).
+
+- **Key decisions:**
+  - **`{% from %}` over `{% include %}` + `{% set %}`** — both work,
+    but `{% from %}` + macro call is more idiomatic for parameter
+    passing and produces cleaner call-sites. Required extending the
+    dep-walker (one regex list addition).
+  - **Macro in `.j2` file, not `.md`** — the shared fragment is
+    pure Jinja machinery (macro definitions), so `.j2` extension
+    signals "not a runtime procedure markdown". The dep-walker treats
+    either extension uniformly.
+  - **Co-locate `confirm_task_selection` macro with its call-sites**
+    (just above `### Step 0b`) instead of at the top of the file —
+    matches minijinja's permissive macro-placement semantics and
+    avoids a top-of-file declaration future readers have to scroll
+    back to.
+  - **PR-import-specific "default is Save for later" note** goes
+    through a `post_options_note` macro parameter rather than living
+    inline outside the macro call. Keeps the entire decision-point
+    block expanded by the macro; the parameter signals "PR-import's
+    note belongs in this exact position".
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - The `{% from %}` / `{% import %}` staleness tracking is now
+    available framework-wide. Future skills can freely import macros
+    from `.aitask-scripts/skill_templates/` fragments and expect
+    correct re-render on macro-file edits.
+  - The `_auto_continue_block.j2` macro can be reused by any future
+    skill that needs the same "Continue / Save for later"
+    decision-point UX after creating a task. Parameters: see the
+    macro docstring.
+  - When proposing future `.j2` dedup work, follow the rule of thumb
+    in the new "Jinja templating in skills" docs section: macros for
+    1–N parameters (render-time substitution); procedure-markdown for
+    long procedures with 0–2 well-named runtime parameters.
+  - The closure-walker test fixtures under `.claude/skills/_t777_22_test_*/`
+    are auto-cleaned by `test_skill_render_uniform.sh`'s `trap cleanup
+    EXIT`, but they show up in the skill-listing system reminders
+    during a test run — harmless artifact.
+
+- **Verification summary** (all green):
+  - `bash tests/test_skill_render_aitask_pick.sh` — 116/116
+  - `bash tests/test_skill_render_aitask_explore.sh` — 118/118
+  - `bash tests/test_skill_render_aitask_fold.sh` — 118/118
+  - `bash tests/test_skill_render_aitask_pr_import.sh` — 118/118
+  - `bash tests/test_skill_render_aitask_revert.sh` — 122/122
+  - `bash tests/test_skill_render_uniform.sh` — 37/37
+  - `bash tests/test_skill_render_task_workflow.sh` — 58/58
+  - `bash tests/test_skill_parity_runtime_vs_rendered.sh` — 86/86
+  - `bash tests/test_skill_verify.sh` — 25/25
+  - `./.aitask-scripts/aitask_skill_verify.sh` — OK (9 templates × 4 agents)
+  - `shellcheck .aitask-scripts/aitask_*.sh` — clean (rc=0; only
+    pre-existing style warnings on untouched scripts)
+  - All 15 (skill × profile) goldens byte-identical to
+    pre-refactor; no golden churn.
+
+- **Build verification:** Project has no `verify_build` configured
+  (`aitasks/metadata/project_config.yaml` is absent or omits the key);
+  Step 9 will skip build verification.
