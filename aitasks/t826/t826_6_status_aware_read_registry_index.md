@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t826_5]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [cross_repo, aitask_projects, registry]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-26 12:02
-updated_at: 2026-05-26 12:02
+updated_at: 2026-05-26 12:09
 ---
 
 ## Context
