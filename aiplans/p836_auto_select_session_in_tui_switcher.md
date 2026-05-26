@@ -233,3 +233,42 @@ shellcheck .aitask-scripts/aitask_*.sh   # untouched by this task, but free
 After approval and implementation, follow the shared workflow's Step 9
 (post-implementation): commit code + plan separately, archive via
 `./.aitask-scripts/aitask_archive.sh 836`, push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. (1) Added optional
+  `selected_session` constructor arg to `TuiSwitcherOverlay`; the field
+  defaults to the existing `session` arg, so single-call sites are
+  unchanged. (2) Added defensive reset in `_init_multi_state` that drops
+  back to `_attached_session` when the pre-selected name is not in the
+  discovered session list. (3) Added a `_switcher_selected_session()`
+  hook on `TuiSwitcherMixin` (default `None`); `action_tui_switcher` now
+  passes the hook's return value through as `selected_session`.
+  (4) Overrode the hook in both `MonitorApp` and `MiniMonitorApp` to
+  return the focused agent pane's `session_name` (with a
+  `PaneCategory.AGENT` guard).
+- **Deviations from plan:** None. Implementation matches the plan
+  one-for-one.
+- **Issues encountered:** `tests/test_tui_switcher_multi_session.sh`
+  refuses to run from inside a tmux session (intentional safety guard
+  that prevents the test's tmux-server teardown from killing the user's
+  attached server). Verified the new Tier-1 logic-level assertions by
+  re-running the same Python block manually outside the shell wrapper —
+  all 7 new assertions pass. Full shell test must be re-run from a
+  non-tmux shell.
+- **Key decisions:**
+  - **Hook on the mixin (not a per-subclass `action_tui_switcher`
+    override).** Both monitor TUIs reach the switcher via the inherited
+    `TuiSwitcherMixin.action_tui_switcher`. Adding a hook keeps the
+    orchestration centralized — future changes to the mixin (CSS,
+    fallback session resolution, new args) are one-file changes, not
+    three.
+  - **Pre-selection lives on the overlay's existing
+    `_session` / `_attached_session` split.** No new state needed —
+    the overlay already separates "selected/operating" from "attached
+    client" session; the constructor just stopped collapsing them.
+  - **Defensive `_init_multi_state` reset.** If the focused agent's
+    session dies between focus and overlay push, `_cycle_session`'s
+    `names.index(self._session)` would raise. Reset to attached on init
+    when the pre-selected name is absent from the discovered list.
+- **Upstream defects identified:** None.
