@@ -160,6 +160,42 @@ class IncludeRegisteredTests(unittest.TestCase):
         self.assertEqual([s.session for s in result], ["aaa", "bbb"])
         self.assertEqual([s.project_name for s in result], ["py", "px"])
 
+    def test_live_entry_dedupes_stale_registered_with_same_project_name(self):
+        # Parallel of the OK-dedup test below: a STALE registry entry
+        # sharing project_name with a live entry must NOT leak through
+        # (the live one wins; the user is already in the session).
+        # Locks the de-dup invariant for the t826_10 stale-render path
+        # so a future tweak to discover_aitasks_sessions does not
+        # surface STALE ghosts next to live rows.
+        ghost_root = self.tmp / "no_such_dir"  # marker missing -> STALE
+        self._set_registry([("shared", ghost_root)])
+        # Live project's basename must equal the registry name for
+        # dedup-by-project_name to fire (project_name comes from
+        # project_root.name on the live side).
+        live_only_project = _make_fake_project(
+            self.tmp / "shared", default_session="live_sess",
+        )
+        with mock.patch.object(
+            agent_launch_utils, "_walk_up_to_aitasks",
+            side_effect=lambda p: live_only_project if p == live_only_project else None,
+        ):
+            def _fake_tmux(argv, *a, **k):
+                if argv[:2] == ["tmux", "list-sessions"]:
+                    return mock.Mock(returncode=0, stdout="live_sess\n", stderr="")
+                if argv[:2] == ["tmux", "list-panes"]:
+                    return mock.Mock(returncode=0, stdout=f"{live_only_project}\n", stderr="")
+                if argv[0] == "tmux":
+                    return mock.Mock(returncode=1, stdout="", stderr="")
+                return mock.Mock(returncode=0, stdout="", stderr="")
+            with mock.patch.object(
+                agent_launch_utils.subprocess, "run", side_effect=_fake_tmux,
+            ):
+                result = discover_aitasks_sessions(include_registered=True)
+        # Only the live entry survives — no STALE ghost beside it.
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0].is_live)
+        self.assertFalse(result[0].is_stale)
+
     def test_live_entry_dedupes_registered_with_same_project_name(self):
         proj = _make_fake_project(self.tmp / "shared", default_session="not_used")
         self._set_registry([("shared", proj)])

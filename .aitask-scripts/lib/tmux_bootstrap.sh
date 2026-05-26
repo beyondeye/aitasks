@@ -135,8 +135,13 @@ spawn_session_detached() {
         return 2
     fi
     if [[ ! -f "$root/aitasks/metadata/project_config.yaml" ]]; then
+        # Structured sentinel consumed by tui_switcher._ensure_session_live
+        # (race-condition path: entry was OK at switcher mount but went
+        # STALE before bootstrap). Followed by the human-readable detail
+        # so casual CLI users still see what went wrong.
+        echo "BOOTSTRAP_FAILED:stale_path" >&2
         echo "spawn_session_detached: not an aitasks project: $root" >&2
-        return 2
+        return 42
     fi
 
     local session session_t

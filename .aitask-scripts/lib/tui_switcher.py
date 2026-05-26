@@ -51,6 +51,7 @@ from agent_launch_utils import (  # noqa: E402
     tmux_session_target,
     tmux_window_target,
 )
+from stale_entry_modal import RegistryRefresh, StaleEntryModal  # noqa: E402
 from tui_registry import BRAINSTORM_PREFIX as _BRAINSTORM_PREFIX, TUI_NAMES as _TUI_NAMES, switcher_tuis  # noqa: E402
 
 
@@ -409,6 +410,43 @@ class TuiSwitcherOverlay(ModalScreen):
                 return s.project_root
         return Path.cwd()
 
+    def _handle_stale_selection(self) -> bool:
+        """If the SELECTED session is a STALE registry entry, push the
+        StaleEntryModal and return True so the caller short-circuits
+        and does NOT proceed with bootstrap/spawn. Returns False when
+        the entry is not stale (or not tracked) so the caller proceeds
+        normally.
+        """
+        idx = next(
+            (i for i, s in enumerate(self._all_sessions)
+             if s.session == self._session),
+            None,
+        )
+        if idx is None:
+            return False
+        entry = self._all_sessions[idx]
+        if not entry.is_stale:
+            return False
+        self._push_stale_modal(entry.project_name, entry.project_root)
+        return True
+
+    def _push_stale_modal(self, name: str, project_root: Path) -> None:
+        self.app.push_screen(StaleEntryModal(name, project_root))
+
+    def on_registry_refresh(self, event: RegistryRefresh) -> None:
+        """Re-run session discovery and rebuild the Session: row after
+        the StaleEntryModal mutates the registry (prune or repoint).
+        """
+        event.stop()
+        self._all_sessions = discover_aitasks_sessions(include_registered=True)
+        # Selected session may have been removed (prune); fall back to
+        # the attached session so subsequent actions are well-defined.
+        if not any(s.session == self._session for s in self._all_sessions):
+            self._session = self._attached_session
+        self._render_session_row()
+        self._render_desync_line(self._project_root_for_session(self._session))
+        self._populate_list_for(self._session)
+
     def _ensure_session_live(self) -> bool:
         """Bootstrap the selected session if it is registered-but-inactive.
 
@@ -443,7 +481,16 @@ class TuiSwitcherOverlay(ModalScreen):
             )
             return False
         if result.returncode != 0:
-            err = (result.stderr or "").strip().splitlines()[-1:] or ["unknown error"]
+            stderr_text = (result.stderr or "").strip()
+            if "BOOTSTRAP_FAILED:stale_path" in stderr_text:
+                # Race: entry was OK at switcher mount but went STALE
+                # before bootstrap. Push the same modal as the up-front
+                # guard so the user can prune/repoint inline.
+                self._push_stale_modal(
+                    entry.project_name, entry.project_root,
+                )
+                return False
+            err = stderr_text.splitlines()[-1:] or ["unknown error"]
             self.app.notify(
                 f"Failed to bootstrap session for {entry.project_name}: {err[0]}",
                 severity="error",
@@ -553,10 +600,20 @@ class TuiSwitcherOverlay(ModalScreen):
             attached = name == self._attached_session
             selected = name == self._session
             prefix = "▶ " if attached else "  "
-            if selected:
-                parts.append(f"[reverse]{prefix}{name}[/]")
+            suffix = " (stale)" if s.is_stale else ""
+            label = f"{prefix}{name}{suffix}"
+            if s.is_stale:
+                # STALE rows render dimmed regardless of selection so
+                # the status remains unambiguous; selection still shows
+                # via reverse on the dimmed text.
+                if selected:
+                    parts.append(f"[reverse][dim]{label}[/][/]")
+                else:
+                    parts.append(f"[dim]{label}[/]")
+            elif selected:
+                parts.append(f"[reverse]{label}[/]")
             else:
-                parts.append(f"[dim]{prefix}{name}[/]")
+                parts.append(f"[dim]{label}[/]")
         row.update("Session: " + "  ".join(parts))
 
     def _render_desync_line(self, project_root: Path) -> None:
@@ -806,6 +863,8 @@ class TuiSwitcherOverlay(ModalScreen):
 
     def action_shortcut_explore(self) -> None:
         """Launch a new explore agent session (always new window) in the SELECTED session."""
+        if self._handle_stale_selection():
+            return
         if not self._ensure_session_live():
             return
         n = 1
@@ -827,6 +886,8 @@ class TuiSwitcherOverlay(ModalScreen):
 
     def action_shortcut_create(self) -> None:
         """Launch ait create in a new tmux window in the SELECTED session."""
+        if self._handle_stale_selection():
+            return
         if not self._ensure_session_live():
             return
         project_root = self._project_root_for_session(self._session)
@@ -844,6 +905,11 @@ class TuiSwitcherOverlay(ModalScreen):
         self.dismiss("create-task")
 
     def _switch_to(self, name: str, running: bool, window_index: str | None = None) -> None:
+        # If the selected entry is a STALE registry row (t826_10), push
+        # the StaleEntryModal up-front so the user can prune/repoint
+        # without burning a failing bootstrap subprocess first.
+        if self._handle_stale_selection():
+            return
         # Bootstrap the selected session if it is registered-but-inactive
         # (t826_2). No-op for live sessions.
         if not self._ensure_session_live():
