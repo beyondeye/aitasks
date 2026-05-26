@@ -6,7 +6,8 @@ Archived Sibling Plans: (none yet — first child)
 Worktree: (current branch — fast profile)
 Branch: main
 Base branch: main
-plan_verified: []
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-05-26 12:27
 ---
 
 # Plan: Remove geminicli from agent infrastructure (t812_1)
@@ -24,13 +25,15 @@ inverse-direction reference (when t814 adds agy) is **Codex CLI**.
 |------|----------------------------------------|--------|
 | `.aitask-scripts/lib/agent_string.sh` | 28, 73, 85 | Remove `geminicli` enum entry + `--cli-id` flag mapping |
 | `.aitask-scripts/aitask_resolve_detected_agent.sh` | 23 | Drop `geminicli` from `SUPPORTED_AGENTS` |
-| `.aitask-scripts/aitask_codeagent.sh` | 147–276 | Delete `format_gemini_model_label()` + geminicli invocation block |
-| `.aitask-scripts/lib/agent_model_picker.py` | 40, 285 | Drop `models_geminicli.json` registration + picker UI branch |
-| `.aitask-scripts/stats/stats_data.py` | 59, 251, 276, 451, 644, 681 | Remove gemini model parsing + stats labels |
+| `.aitask-scripts/aitask_codeagent.sh` | 3, 5, 147–276, 468–486, 589, 605 | Delete `format_gemini_model_label()`, both geminicli invocation cases, header comment refs, and help-text examples |
+| `.aitask-scripts/aitask_verified_update.sh` | 12, 42 | Drop `geminicli` from `SUPPORTED_AGENTS` + help-text agent list |
+| `.aitask-scripts/aitask_usage_update.sh` | 12, 43 | Drop `geminicli` from `SUPPORTED_AGENTS` + help-text agent list |
+| `.aitask-scripts/lib/agent_model_picker.py` | 10, 40, 285 | Drop `models_geminicli.json` registration + picker UI branch + docstring agent list |
+| `.aitask-scripts/stats/stats_data.py` | 59, 251, 276, 451, 644–647, 681–684 | Remove gemini model parsing regex + stats labels + display name |
 | `.aitask-scripts/monitor/prompt_patterns.py` | 39 | Remove the empty `gemini` entry |
-| `.aitask-scripts/settings/settings_app.py` | 133, 2532, 2564 | Remove TUI display labels |
-| `.aitask-scripts/aitask_review_detect_env.sh` | (TBD on read) | Drop gemini detection branch |
-| `.aitask-scripts/aitask_add_model.sh` | (TBD on read) | Drop gemini-registry manipulation cases |
+| `.aitask-scripts/settings/settings_app.py` | 133, 2532, 2564 | Remove TUI display labels + gemini path mapping |
+| `.aitask-scripts/aitask_review_detect_env.sh` | 295, 298 | Drop `.gemini/skills/` and `.gemini/commands/` path-match branch |
+| `.aitask-scripts/aitask_add_model.sh` | 24, 285 | Drop `geminicli` from `SUPPORTED_AGENTS` + help-text agent list |
 | `aitasks/metadata/models_geminicli.json` | — | Delete file |
 
 ## Step-by-step
