@@ -36,16 +36,17 @@ trap 'rm -rf "$TEST_DIR"' EXIT
 
 # Derive expected counts from the upstream source-of-truth dirs so the tests
 # stay self-maintaining as the catalog grows.
-expected_skill_count=$(find "$REPO_DIR/.opencode/skills" -mindepth 2 -maxdepth 2 -name "SKILL.md" -type f | wc -l | tr -d ' ')
+expected_skill_count=$(git -C "$REPO_DIR" ls-files '.opencode/skills/aitask-*/SKILL.md' | wc -l | tr -d ' ')
 expected_command_count=$(find "$REPO_DIR/.opencode/commands" -type f -name "*.md" | wc -l | tr -d ' ')
 
 echo "=== Test 1: OpenCode skills packaging (release workflow sim) ==="
 mkdir -p "$TEST_DIR/opencode_skills"
 mkdir -p "$TEST_DIR/opencode_commands"
-for skill_dir in "$REPO_DIR/.opencode/skills"/aitask-*/; do
+while IFS= read -r skill_md; do
+    skill_dir="$REPO_DIR/$(dirname "$skill_md")"
     [ -d "$skill_dir" ] || continue
     cp -r "$skill_dir" "$TEST_DIR/opencode_skills/$(basename "$skill_dir")"
-done
+done < <(git -C "$REPO_DIR" ls-files '.opencode/skills/aitask-*/SKILL.md')
 [ -f "$REPO_DIR/.opencode/skills/opencode_tool_mapping.md" ] && \
     cp "$REPO_DIR/.opencode/skills/opencode_tool_mapping.md" "$TEST_DIR/opencode_skills/"
 [ -f "$REPO_DIR/.opencode/skills/opencode_planmode_prereqs.md" ] && \
