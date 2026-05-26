@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ait_monitor, testing]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-25 23:09
-updated_at: 2026-05-26 13:08
+updated_at: 2026-05-26 13:09
+completed_at: 2026-05-26 13:09
 boardidx: 130
 ---
 
