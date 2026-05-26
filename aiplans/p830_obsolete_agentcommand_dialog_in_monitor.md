@@ -195,3 +195,24 @@ Follow the shared task-workflow Step 9 (commit, push, archive). No
 worktree to clean up because profile 'fast' is working on `main`
 directly. Verify build (if configured in `project_config.yaml`) runs
 clean.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added module-level `resolve_skill_profile()`
+  helper to `.aitask-scripts/lib/agent_command_screen.py`. Refactored
+  `aitask_board.py::_resolve_pick_profile` to delegate to it. Wired
+  `skill_name` + `default_profile` constructor kwargs into the four
+  missing call sites: `monitor_app.py` pick (line 1706) and restart
+  (line 1784), `codebrowser_app.py` explain (line 1385), and
+  `history_screen.py` QA (line 391). Each callsite uses its
+  call-site-local project-root variable (`target_root` in monitor,
+  `self._project_root` in codebrowser) so the lookup script resolves
+  against the right repo when launching across projects.
+- **Deviations from plan:** None.
+- **Issues encountered:** None.
+- **Key decisions:** Helper lives alongside `AgentCommandScreen` in the
+  same module (`lib/agent_command_screen.py`) rather than a new file —
+  every existing caller already imports from there. The board's
+  `_resolve_pick_profile` method was kept as a thin delegating wrapper
+  to preserve any external references (none found, but cheap to keep).
+- **Upstream defects identified:** None.
