@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [aitask_monitor, tui_switcher]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-26 12:20
-updated_at: 2026-05-26 12:20
+updated_at: 2026-05-26 13:07
 boardidx: 20
 ---
 
