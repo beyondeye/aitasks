@@ -22,6 +22,10 @@
 #                          - Drop every STALE registry entry (path no
 #                            longer holds the aitasks marker). Prompts
 #                            per entry unless --yes.
+#   doctor [--clone]       - Interactive scan: per-entry prune /
+#                            update / clone / keep / skip-all over
+#                            STALE rows. Clone branch is opt-in via
+#                            --clone.
 #   resolve <name>         - Re-emit the resolver's structured output for
 #                            <name> (RESOLVED:/NOT_FOUND:/STALE:).
 #   exec <name> -- <cmd>   - Resolve <name>, cd into the root, exec <cmd>.
@@ -58,6 +62,11 @@ Verbs:
                              longer holds the aitasks marker). Prompts
                              per entry unless --yes; --dry-run lists
                              matches without modifying the registry.
+  doctor [--clone]           Interactive scan: walk every STALE entry
+                             and offer prune / update / clone / keep /
+                             skip-all per entry. Clone is opt-in via
+                             --clone and only offered for entries that
+                             have a git_remote.
   resolve <name>             Print the resolver output for <name>:
                                RESOLVED:<path>
                                NOT_FOUND:<name>
@@ -79,6 +88,8 @@ Examples:
   ait projects update aitasks_mobile /new/path/to/aitasks_mobile
   ait projects prune --dry-run
   ait projects prune --yes
+  ait projects doctor
+  ait projects doctor --clone
   ait projects resolve aitasks
   ait projects exec aitasks -- pwd
   ait projects exec aitasks -- ./.aitask-scripts/aitask_ls.sh -v 5
@@ -494,6 +505,124 @@ cmd_prune() {
     echo "Pruned $pruned of $total stale entries."
 }
 
+# --- Verb: doctor -------------------------------------------------------
+
+cmd_doctor() {
+    local enable_clone=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --clone) enable_clone=1; shift ;;
+            -h|--help)
+                echo "Usage: ait projects doctor [--clone]"
+                return 0
+                ;;
+            *) die "Unknown argument: $1" ;;
+        esac
+    done
+
+    local tsv
+    tsv=$(list_registry_entries || true)
+
+    local stale_names=() stale_paths=() stale_remotes=() stale_lasts=()
+    if [[ -n "$tsv" ]]; then
+        while IFS='|' read -r name path remote last; do
+            [[ -z "$name" ]] && continue
+            local status
+            status=$(classify_registry_entry "$name" "$path")
+            if [[ "$status" == "STALE" ]]; then
+                stale_names+=("$name")
+                stale_paths+=("$path")
+                stale_remotes+=("$remote")
+                stale_lasts+=("$last")
+            fi
+        done <<< "$tsv"
+    fi
+
+    local total=${#stale_names[@]}
+    echo "Found $total stale entries."
+    [[ "$total" -eq 0 ]] && return 0
+
+    local i
+    for ((i = 0; i < total; i++)); do
+        local idx=$((i + 1))
+        local name="${stale_names[i]}"
+        local path="${stale_paths[i]}"
+        local remote="${stale_remotes[i]}"
+        local last="${stale_lasts[i]}"
+
+        printf '\n[%d/%d] STALE: %s -> %s\n' "$idx" "$total" "$name" "$path"
+        [[ -n "$last"   ]] && printf '         last opened: %s\n' "$last"
+        [[ -n "$remote" ]] && printf '         git_remote:  %s\n' "$remote"
+
+        # Only offer `c`lone when --clone is set AND the entry has a remote.
+        local can_clone=0 actions
+        if [[ "$enable_clone" -eq 1 && -n "$remote" ]]; then
+            can_clone=1
+            actions="[p]rune / [u]pdate / [c]lone / [k]eep / [s]kip-all"
+        else
+            actions="[p]rune / [u]pdate / [k]eep / [s]kip-all"
+        fi
+        printf '         Action? %s : ' "$actions" >&2
+
+        local ans=""
+        read -r ans || true
+
+        case "$ans" in
+            p|P)
+                cmd_remove "$name" --force
+                ;;
+            u|U)
+                printf '         New path: ' >&2
+                local new_path=""
+                read -r new_path || true
+                if [[ -z "$new_path" ]]; then
+                    warn "No path given - skipping."
+                    continue
+                fi
+                # cmd_update die()s on a missing-marker error; running it in
+                # a subshell isolates set -e so the doctor loop continues.
+                if ( cmd_update "$name" "$new_path" ); then
+                    :
+                else
+                    warn "Update failed - entry left as-is."
+                fi
+                ;;
+            c|C)
+                if [[ "$can_clone" -ne 1 ]]; then
+                    warn "Clone not available (requires --clone and a git_remote)."
+                    continue
+                fi
+                printf '         Clone %s into %s? [y/N]: ' "$remote" "$path" >&2
+                local confirm=""
+                read -r confirm || true
+                case "$confirm" in
+                    y|Y) ;;
+                    *) info "Clone declined."; continue ;;
+                esac
+                if git clone "$remote" "$path"; then
+                    if [[ -f "$path/aitasks/metadata/project_config.yaml" ]]; then
+                        info "Cloned and now OK."
+                    else
+                        warn "Cloned but no aitasks/metadata/project_config.yaml - entry remains STALE."
+                    fi
+                else
+                    warn "git clone failed - entry remains STALE."
+                fi
+                ;;
+            k|K)
+                info "Keeping $name."
+                ;;
+            s|S)
+                info "Skipping remaining entries."
+                break
+                ;;
+            *)
+                warn "Unrecognized action '$ans' - keeping entry."
+                ;;
+        esac
+    done
+}
+
 # --- Verb: resolve ------------------------------------------------------
 
 cmd_resolve() {
@@ -563,6 +692,10 @@ main() {
         prune)
             shift
             cmd_prune "$@"
+            ;;
+        doctor)
+            shift
+            cmd_doctor "$@"
             ;;
         resolve)
             shift
