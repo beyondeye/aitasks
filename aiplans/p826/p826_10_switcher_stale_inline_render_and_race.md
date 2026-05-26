@@ -580,3 +580,39 @@ shellcheck .aitask-scripts/lib/tmux_bootstrap.sh
 Follow shared workflow Step 9 after Step 8 approval. Profile `fast`
 works on the current branch — no worktree to clean. Archival closes
 t826_10 and leaves t826_3 / t826_4 as the remaining children of t826.
+
+## Final Implementation Notes
+
+- **Actual work done:** All 4 plan steps landed as designed.
+  - **Step 1** — `spawn_session_detached` in `.aitask-scripts/lib/tmux_bootstrap.sh` now emits `BOOTSTRAP_FAILED:stale_path` on stderr (plus the existing human-readable detail) and exits 42 when the marker file is missing.
+  - **Step 2** — New `.aitask-scripts/lib/stale_entry_modal.py` ships `StaleEntryModal` (Prune / Repoint / Cancel), `_RepointInputScreen` (text-input modal for the new path), and `RegistryRefresh` (Textual `Message`). All CSS is self-contained per the `feedback_modal_self_contained_css` memory. `PROJECTS_SH` is a class attribute so tests can override the path; both subprocess wrappers also catch `TimeoutExpired` / `FileNotFoundError` / `OSError` and surface them as notify-error messages.
+  - **Step 3a** — `_render_session_row` in `tui_switcher.py` now dims STALE rows and appends ` (stale)`; selection still shows via `[reverse]` on the dimmed text.
+  - **Step 3b** — `_handle_stale_selection` and `_push_stale_modal` helpers added; wired at the top of `_switch_to`, `action_shortcut_explore`, and `action_shortcut_create` so STALE selections short-circuit before any bootstrap subprocess runs.
+  - **Step 3c** — `_ensure_session_live` now greps stderr for `BOOTSTRAP_FAILED:stale_path` and routes to the same modal (race-condition path).
+  - **Step 3d** — `on_registry_refresh` re-runs `discover_aitasks_sessions(include_registered=True)`, falls back to the attached session if the selected entry got pruned, and re-renders both the Session row and the desync line + window list.
+  - **Step 4a** — `tests/test_stale_entry_modal.py` (7 tests covering CSS self-containment, prune happy path, repoint happy path, cancel, prune failure, repoint failure keeps modal open, empty input no-op).
+  - **Step 4b** — `tests/test_discover_include_registered.py` gained a STALE-by-name dedup regression next to the existing OK dedup test.
+
+- **Deviations from plan:**
+  - **Repoint failure does NOT dismiss the modal.** The plan's snippet returned without dismissing on subprocess failure (no explicit dismiss). The implementation explicitly leaves the modal open so the user can retry with a different path. Added as `test_repoint_failure_keeps_modal_open` to lock that behavior; the plan's test list (cases 1-6) becomes 7 with this addition.
+  - **The pre-spawn guard pushes the modal without retry-after-repoint coordination.** The plan mused that the caller "can branch on whether to retry the original spawn — pruned entries can't be retried, but repointed entries can." Not implemented — after the modal returns, the overlay just refreshes the session list via `on_registry_refresh` and the user re-issues the action. Simpler and matches what the manual verification flow actually does.
+  - **`mock.patch.object(StaleEntryModal, 'app', mock.Mock())` pattern in tests.** The plan said "monkeypatch app / dismiss / post_message on the instance"; `app` is a read-only property on Textual's `MessagePump`, so the test fixture patches it at the class level for the duration of each test instead. `dismiss` and `post_message` are regular methods and can be stubbed per-instance, which is what the harness does.
+
+- **Issues encountered:**
+  - First test pass failed on `modal.app = mock.Mock()` because `Screen.app` is a read-only property. Fixed by switching the fixture to `mock.patch.object(StaleEntryModal, 'app', ...)` in `setUp` / `tearDown`.
+  - First STALE-dedup test asserted `len(result) == 1` but actually saw 2 entries — the live and registry side had different basenames (`shared` vs `shared_live_root`), so the dedup-by-`project_name` did not fire. Fixed by aligning the live project's directory basename to the registry name.
+
+- **Key decisions:**
+  - **Exit code 42 for the structured failure.** Distinct non-zero so a positional check is unambiguous if ever needed, but the switcher consumes the stderr sentinel — the exit code is informational. Pre-existing argument-validation failures (`return 2`) are untouched.
+  - **Single sentinel for both the up-front guard and the race path.** The stale guard runs before the bootstrap subprocess; the structured-stderr detection only fires when the up-front guard missed (registry entry was OK at switcher mount but went STALE between mount and selection). Both paths converge on the same `_push_stale_modal` call, so the UX is uniform regardless of *when* the staleness was detected.
+  - **No retry-after-repoint plumbing.** After a successful prune or repoint, `on_registry_refresh` rebuilds `_all_sessions`, the modal dismisses, and the user picks up where they left off — re-issuing the shortcut for the (now live) repointed entry. Simpler than a callback-driven auto-retry and matches the way the rest of the switcher handles state mutations.
+  - **`_RepointInputScreen` lives in the same module as `StaleEntryModal`.** It is only used from there and has no reuse value, so the indirection of a separate file is unwarranted.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t826_3 (website docs):** When documenting STALE registry recovery, mention that the TUI switcher now dims STALE entries with a `(stale)` suffix and offers an inline Prune / Repoint modal. The CLI `ait projects prune` / `doctor` flows remain available for batch operations; the TUI modal is for the "I clicked a stale entry by accident, fix it now" path.
+  - **t826_4 (manual verification aggregate):** Add checklist items covering (a) STALE row rendering, (b) Prune branch, (c) Repoint branch, (d) the race-condition path (delete marker mid-switcher-session, then activate). The race-condition test is the one that proves `BOOTSTRAP_FAILED:stale_path` actually routes correctly — easy to forget without an explicit checklist line.
+  - **Future modals invoked from `lib/`:** The `mock.patch.object(<ModalClass>, 'app', mock.Mock())` test fixture is the right pattern for unit-testing modals outside a running App. Re-use rather than fighting the read-only property.
+
+- **Build verification:** N/A (`verify_build` is unset in this project).
