@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t826_6, t826_6]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [cross_repo, aitask_projects]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-26 12:02
-updated_at: 2026-05-26 12:02
+updated_at: 2026-05-26 12:30
 ---
 
 ## Context
