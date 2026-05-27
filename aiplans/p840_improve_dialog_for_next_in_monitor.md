@@ -242,6 +242,34 @@ archive). Refer to the shared workflow for the canonical archival steps.
 
 Should the list support **typing-to-filter** (like the codebrowser
 `SiblingPickerModal`)? The user's spec doesn't ask for it and most
-parents have ≤10 children, so v1 omits it. If you want it, we add an
-`Input` widget at the top and an `on_input_changed` filter pass —
-trivial extension on top of this plan. Asked below.
+parents have ≤10 children, so v1 omits it. **Resolved:** user chose
+plain list, no filter.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Added
+  `TaskInfoCache.find_ready_siblings` (two-pass: first reads & captures
+  status + depends for every child, then computes sibling-blocking ids
+  in a pure-Python second pass — no extra file I/O). Added
+  `_SiblingRow` + `ChooseSiblingModal` after `NextSiblingDialog`. Split
+  `_on_next_sibling_result` into a thin dispatcher (`"pick"` →
+  `_launch_pick_for_sibling`, `"choose"` → push the new modal) plus the
+  extracted `_launch_pick_for_sibling` helper. Renamed the
+  `NextSiblingDialog` button "Choose child" → "Choose sibling" and the
+  button id `btn-choose-child` → `btn-choose-sibling`.
+- **Deviations from plan:** None. The plan's "Open Question" was
+  resolved before coding (plain list, no `Input` import).
+- **Issues encountered:** None. `python3 -m py_compile` passed for both
+  files on first try.
+- **Key decisions:**
+  - Per-row up/down navigation logic lives on `_SiblingRow` itself
+    (`on_key` + `_focus_neighbor`), keeping `ChooseSiblingModal`
+    declarative — same pattern as `codebrowser/history_detail.py`'s
+    `_SiblingItem`.
+  - OK button falls back to the first row when focus is on a button
+    (not a row), so a one-click flow without arrow navigation works.
+  - "Blocked by sibling" is scoped intentionally to in-family
+    dependencies (depends entries prefixed `<parent>_`). Cross-parent
+    deps are common (and usually long-resolved tasks); surfacing them
+    in this picker would add noise without aiding the pick decision.
+- **Upstream defects identified:** None.
