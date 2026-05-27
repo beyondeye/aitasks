@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t812_2]
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [geminicli, setup, ci]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-26 12:06
-updated_at: 2026-05-26 12:06
+updated_at: 2026-05-27 17:11
 ---
 
 ## Context

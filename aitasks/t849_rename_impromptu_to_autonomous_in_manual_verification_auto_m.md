@@ -6,8 +6,9 @@ issue_type: refactor
 status: Implementing
 labels: [manual_verification, task_workflow, skill_authoring]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-27 16:24
-updated_at: 2026-05-27 16:37
+updated_at: 2026-05-27 17:10
 ---
 
 ## Context
