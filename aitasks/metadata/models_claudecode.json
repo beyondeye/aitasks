@@ -290,8 +290,8 @@
         },
         "explore": {
           "all_time": {
-            "runs": 29,
-            "score_sum": 2880
+            "runs": 30,
+            "score_sum": 2980
           },
           "prev_month": {
             "period": "2026-04",
@@ -300,13 +300,13 @@
           },
           "month": {
             "period": "2026-05",
-            "runs": 11,
-            "score_sum": 1100
+            "runs": 12,
+            "score_sum": 1200
           },
           "week": {
             "period": "2026-W22",
-            "runs": 1,
-            "score_sum": 100
+            "runs": 2,
+            "score_sum": 200
           }
         },
         "test_414_flags": {
