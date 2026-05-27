@@ -399,23 +399,169 @@ Standard archival. Final Implementation Notes **must** include the
 `### For t814 (add-agy): inverse instructions` subsection per parent
 plan's binding requirement.
 
-## Final Implementation Notes (template)
+## Final Implementation Notes
 
-- **Actual work done:** …
-- **Deviations from plan:** …
-- **Issues encountered:** …
-- **Key decisions:** …
-- **Upstream defects identified:** None (or list)
-- **Notes for sibling tasks:** …
+- **Actual work done:** Removed geminicli from 9 renderer-layer scripts
+  (`skill_template.py`, `agent_skills_paths.sh`, `aitask_skill_render.sh`,
+  `aitask_skillrun.sh`, `aitask_skill_rerender.sh`, `aitask_skill_verify.sh`,
+  `aitask_audit_wrappers.sh`, `aitask_contribute.sh`, `aitask_codemap.py`/`.sh`).
+  Deleted `.gemini/` tree entirely (commands/, policies/, skills/,
+  settings.json — 30+ rendered files). Deleted `.agents/skills/geminicli_*.md`,
+  `aidocs/geminicli_tools.md`, `aidocs/extract_geminicli_tools.sh`, and
+  `tests/test_gemini_setup.sh`. Re-applied 14 non-templated
+  `.agents/skills/aitask-*/SKILL.md` stubs (also stripped the "unified
+  Codex CLI and Gemini CLI" prose from `render_agents_skill()`'s
+  Source-of-Truth template). Stripped gemini from 18 test files
+  (10 per-skill render tests + `test_skill_render_task_workflow.sh` +
+  `test_skill_template.sh`, `test_skill_render.sh`,
+  `test_skill_render_uniform.sh`, `test_skill_rerender.sh`,
+  `test_skill_verify.sh`, `test_plan_verified.sh`, `test_contribute.sh`,
+  `test_aitask_stats_py.py`, `test_brainstorm_crew.py`). Extended
+  `aidocs/adding_a_new_codeagent.md` (+~290 lines): cleaned 8 gemini
+  examples in §1/§6d, added §11a (skill-rendering test footprint), and
+  added §12 (wrapper templates), §13 (policy/whitelist touchpoints
+  numbering including retirement convention), §14 (contribution-area
+  registry), §15 (codemap framework-dirs), §16 (shared helper docs).
+  Added a "Hardcoded agent enums to update in lockstep" subsection to
+  §1c naming every script that hardcodes the agent enum.
+
+- **Deviations from plan:** Plan-mid pivot at user request — added
+  `aidocs/adding_a_new_codeagent.md` extension to scope (originally
+  unscoped, addressed via plan-mode re-edit before approval). One
+  additional renderer-template line discovered during stub regeneration:
+  the legacy "unified skill wrapper for Codex CLI and Gemini CLI" intro
+  in `render_agents_skill()` (now "Codex CLI skill wrapper"). Stub
+  re-apply ran across **all** non-templated `aitask-*` skills (14),
+  not just the 10 originally listed — `aitask-explain`,
+  `aitask-stats`, `aitask-reviewguide-classify`, and `aitask-explore`
+  were also non-templated. Two pickrem/pickweb codex stubs with
+  hand-edited "Render only if needed" prose were force-restored from
+  HEAD after the apply-wrapper overwrote them.
+
+- **Issues encountered:**
+  - First pass of bulk test-cleanup regex deleted lines but left an
+    orphan `done` in `test_skill_render_aitask_wrap.sh` (the
+    `for other in gemini opencode` line was deleted but the matching
+    `done` survived). Fixed by reinstating `for other in opencode`.
+  - `apply-wrapper agents <skill> --force` over-applied to two
+    templated skills with hand-edited stub bodies (pickweb, pickrem).
+    Restored from HEAD before continuing.
+  - `./ait git rm` rejected paths because the data-branch working tree
+    didn't include them — fell back to plain `git rm`, which handled
+    the paths in the main worktree.
+
+- **Key decisions:**
+  - **Touchpoint IDs 2 and 5 retired but not renumbered** in
+    `aitask_audit_wrappers.sh::touchpoint_file()`. Keeping the numeric
+    slots stable means existing callers that pass numeric IDs do not
+    silently shift to a different file. Documented as the convention
+    in new §13 of `adding_a_new_codeagent.md`.
+  - For `test_plan_verified.sh:241` and `test_brainstorm_crew.py:418`,
+    substituted `geminicli/<model>` with `codex/gpt5_4` to preserve
+    multi-agent test coverage of the append/config mechanism.
+  - For `test_aitask_stats_py.py` lines 92, 379, **deleted** the
+    `models_geminicli.json` fixture writes entirely rather than
+    substituting. The fixture writes were paired with t812_1's
+    now-deleted geminicli stats parsing — without a consumer they
+    serve no purpose.
+  - Deleted Test 9 in `test_skill_render_uniform.sh` (cross-agent
+    rewriting via gemini) rather than substituting with opencode —
+    Test 8 already covers the opencode equivalent.
+  - For `test_skill_verify.sh` Test 3 ("missing gemini stub"
+    assertion), simply removed the assertion. The claude/codex/opencode
+    triple still proves the missing-stub detection mechanism works.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t812_3 scope confirmation:** `aitask_setup.sh` carries ~30
+    geminicli references (lines 976, 1596–1865, 2071, 2656, plus
+    `geminicli_skills/`, `geminicli_commands/`, `geminicli_policies/`,
+    `geminicli_settings.seed.json` staging-dir constants and the seed
+    directory itself). The contribute-area registry was already cleaned
+    by this task.
+  - **t812_4 scope confirmation:** Sources tied to renderer output
+    (`.claude/skills/task-workflow/{model-self-detection,satisfaction-feedback}.md`)
+    still mention geminicli — rendered copies in
+    `.agents/skills/task-workflow-*-codex-/` will refresh from the
+    sources on next render. Tolerated by §Verification grep. Related
+    aidocs (`stub-skill-pattern.md`,
+    `issue_type_vocabulary_duplication.md`,
+    `aitasks_extension_points.md`, `skill_authoring_conventions.md`)
+    also still mention gemini; t812_4 owns them.
+  - **Goldens:**
+    `tests/golden/procs/task-workflow/satisfaction-feedback-{default,fast,remote}.md`
+    and `tests/fixtures/skills/task-workflow/model-self-detection.md.pre-rewrite`
+    still reference `geminicli` because they're frozen captures of
+    out-of-scope sources. Refresh during t812_4.
+  - **Test pattern for agent enum changes:** The 17-file footprint
+    documented in §11a of `adding_a_new_codeagent.md` is now the
+    canonical reference; future agent add/remove tasks should budget
+    for it.
 
 ### For t814 (add-agy): inverse instructions
 
-- **Files re-touched by agy:** (fill with file list + line ranges).
-- **Pattern removed (anchor example):** the `gemini)` case in
-  `agent_skills_paths.sh::agent_skill_root` mapping to `.gemini/skills`,
-  the `AGENT_ROOTS["gemini"]` entry in `skill_template.py`, the
-  `render_gemini_command()` template function in `aitask_audit_wrappers.sh`,
-  and the `gemini` entry in `aitask_skill_verify.sh::_stub_path_for`.
+- **Files re-touched by agy (exact list + ranges where geminicli was
+  removed):**
+  - `.aitask-scripts/lib/skill_template.py` — `FULL_PATH_REF_RE`
+    regex alternation (line 38), `AGENT_ROOTS` dict (line ~52),
+    `AGENT_SHARED_SKILLS_ROOT` dict (line ~62), parts-validity tuple in
+    `_skill_name_from_source()` (line ~147).
+  - `.aitask-scripts/lib/agent_skills_paths.sh` — path-mapping doc
+    comment (line ~17), `agent_skill_root()` case (line ~43),
+    `agent_shared_skills_root()` case (line ~54).
+  - `.aitask-scripts/aitask_skill_render.sh` — `--agent` usage text
+    (line 37).
+  - `.aitask-scripts/aitask_skillrun.sh` — per-agent CMD `case` (was
+    lines 231–233), header-comment invocation example (line 18),
+    `--agent-string` example in `--help` (line 62).
+  - `.aitask-scripts/aitask_skill_rerender.sh` — outer agent loop
+    (line 39).
+  - `.aitask-scripts/aitask_skill_verify.sh` — `_stub_path_for()` case
+    (line ~57), `agents=(...)` array (line ~82).
+  - `.aitask-scripts/aitask_audit_wrappers.sh` — header comment
+    (lines 6, 11–12), constants (`TREE_GEMINI_COMMANDS`,
+    `POLICY_RUNTIME`, `POLICY_SEED` — all deleted), `wrapper_path()`
+    case, `cmd_discover()` trees enum, deleted `cmd_discover_policy()`,
+    deleted `render_gemini_command()`, deleted `cmd_apply_policy()`,
+    deleted `insert_activate_skill_rule()`, deleted
+    `insert_toml_command_prefix_rule()`, `touchpoint_file()` cases 2/5
+    deleted (retired), `helper_present_in_touchpoint()` `2|5)` branch
+    deleted, `cmd_audit_helper_whitelist()` and
+    `cmd_apply_helper_whitelist()` loop tuples `1 2 3 4 5 6 7` →
+    `1 3 4 6 7`, dispatcher cases `discover-policy` / `apply-policy`
+    deleted, usage text updated (touchpoints, trees, subcommands).
+    Also `render_agents_skill()` non-templated branch: dropped the
+    "**If you are Gemini CLI:**" line AND changed the intro from
+    "unified skill wrapper for Codex CLI and Gemini CLI" to "Codex CLI
+    skill wrapper".
+  - `.aitask-scripts/aitask_contribute.sh` — `AREAS` entry (line 49),
+    `--area` help-text choices (line 712).
+  - `.aitask-scripts/aitask_codemap.py` — `FRAMEWORK_DIRS` set (line
+    18), and the matching usage-doc line in
+    `aitask_codemap.sh` (line 56).
+
+- **Pattern removed (anchor examples):**
+  - In `agent_skills_paths.sh`:
+    ```bash
+    gemini)   echo ".gemini/skills" ;;   # agent_skill_root
+    gemini)   echo "false" ;;            # agent_shared_skills_root
+    ```
+  - In `skill_template.py`:
+    ```python
+    "gemini":   ".gemini/skills",        # AGENT_ROOTS
+    "gemini":   False,                   # AGENT_SHARED_SKILLS_ROOT
+    ```
+  - In `aitask_audit_wrappers.sh::render_agents_skill()` (the deleted
+    sentence after the Codex line):
+    ```markdown
+    **If you are Gemini CLI:** For tool mapping and adaptations, read
+    **`.agents/skills/geminicli_tool_mapping.md`**.
+    ```
+  - The deleted `render_gemini_command()` function emitted
+    `.gemini/commands/<skill>.toml` files using a TOML `prompt = """..."""`
+    block referencing `@.claude/skills/<skill>/SKILL.md` and
+    `@.gemini/skills/geminicli_tool_mapping.md`.
 - **Inverse instruction:** to add agy, mirror the **codex** entry in
   `agent_skills_paths.sh` — agy maps to `.agents/skills` (same as
   codex). The rendered file location collides with codex; rely on
