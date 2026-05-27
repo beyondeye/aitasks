@@ -3999,29 +3999,27 @@ class BrainstormApp(TuiSwitcherMixin, App):
             pass
 
     def action_retry_patcher_apply(self) -> None:
-        """ctrl+shift+r: force-retry the most recently failed patcher.
+        """ctrl+shift+r: force-retry a patcher apply.
 
-        If multiple patchers are tracked, picks the one with the most
-        recent ``_status.yaml`` mtime.
+        Walks the worktree (rather than ``self._patcher_sources``) so the
+        retry works after auto-apply has already drained the tracking
+        dict — the previously-applied-then-corrupted case mirroring t787
+        item #3 / t837. Recovers ``source_node_id`` from
+        ``self._patcher_sources`` if present, else by re-parsing the
+        agent's ``_input.md``.
         """
-        if not self._patcher_sources:
+        agent = self._pick_completed_agent_for_retry("patcher")
+        if agent is None:
+            self.notify("No completed patcher agents to retry.")
             return
-        candidates = [
-            (agent, source)
-            for agent, source in self._patcher_sources.items()
-        ]
-        if not candidates:
+        source = self._patcher_sources.get(agent)
+        if source is None:
+            source = self._recover_node_id_from_input(agent)
+        if source is None:
+            self.notify(
+                f"Cannot retry {agent}: source_node_id not recoverable."
+            )
             return
-        if len(candidates) == 1:
-            agent, source = candidates[0]
-        else:
-            def _mtime(item):
-                p = self.session_path / f"{item[0]}_status.yaml"
-                try:
-                    return p.stat().st_mtime
-                except Exception:
-                    return 0.0
-            agent, source = max(candidates, key=_mtime)
         self._try_apply_patcher_if_needed(agent, source, force=True)
 
     # ------------------------------------------------------------------
@@ -4157,6 +4155,55 @@ class BrainstormApp(TuiSwitcherMixin, App):
         finally:
             self._applying_explorer.discard(agent_name)
 
+    def _pick_completed_agent_for_retry(self, role: str) -> str | None:
+        """Walk the session worktree and return the agent name with the
+        most recent ``_status.yaml`` mtime whose status is ``Completed``,
+        for the given role prefix (``explorer``, ``patcher``,
+        ``synthesizer``, ``detailer``). Returns ``None`` if the worktree
+        is missing or no Completed agent is found. Shared by the four
+        ``action_retry_*_apply`` methods so the retry path keeps working
+        after auto-apply has drained the in-memory tracking container.
+        """
+        wt = self.session_path
+        if not wt or not Path(wt).is_dir():
+            return None
+        candidates: list[tuple[str, float]] = []
+        for status_path in Path(wt).glob(f"{role}_*_status.yaml"):
+            agent = status_path.stem[: -len("_status")]
+            try:
+                data = read_yaml(str(status_path))
+            except Exception:
+                continue
+            if (data or {}).get("status", "") != "Completed":
+                continue
+            try:
+                mtime = status_path.stat().st_mtime
+            except Exception:
+                mtime = 0.0
+            candidates.append((agent, mtime))
+        if not candidates:
+            return None
+        return max(candidates, key=lambda p: p[1])[0]
+
+    def _recover_node_id_from_input(self, agent: str) -> str | None:
+        """Re-parse ``<agent>_input.md`` for the node-id captured by
+        ``_PATCHER_INPUT_META_RE``. Used by the patcher / detailer retry
+        actions to recover ``source_node_id`` / ``target_node_id`` when
+        the in-memory tracking entry has been drained by auto-apply.
+        """
+        wt = self.session_path
+        if not wt or not Path(wt).is_dir():
+            return None
+        input_path = Path(wt) / f"{agent}_input.md"
+        if not input_path.is_file():
+            return None
+        try:
+            text = input_path.read_text(encoding="utf-8")
+        except Exception:
+            return None
+        m = self._PATCHER_INPUT_META_RE.search(text)
+        return m.group(1) if m else None
+
     def action_retry_explorer_apply(self) -> None:
         """ctrl+shift+x: force-retry an explorer apply.
 
@@ -4167,28 +4214,10 @@ class BrainstormApp(TuiSwitcherMixin, App):
         instead so the manual retry path also covers the
         already-applied-then-corrupted case exercised by t787 item #3.
         """
-        wt = self.session_path
-        if not wt or not Path(wt).is_dir():
-            return
-        candidates: list[tuple[str, float]] = []
-        for status_path in Path(wt).glob("explorer_*_status.yaml"):
-            agent = status_path.stem[: -len("_status")]
-            try:
-                data = read_yaml(str(status_path))
-            except Exception:
-                continue
-            status = (data or {}).get("status", "")
-            if status != "Completed":
-                continue
-            try:
-                mtime = status_path.stat().st_mtime
-            except Exception:
-                mtime = 0.0
-            candidates.append((agent, mtime))
-        if not candidates:
+        agent = self._pick_completed_agent_for_retry("explorer")
+        if agent is None:
             self.notify("No completed explorer agents to retry.")
             return
-        agent = max(candidates, key=lambda p: p[1])[0]
         self._try_apply_explorer_if_needed(agent, force=True)
 
     def _register_synthesizer_agent(self, agent_name: str) -> None:
@@ -4326,24 +4355,16 @@ class BrainstormApp(TuiSwitcherMixin, App):
             self._applying_synthesizer.discard(agent_name)
 
     def action_retry_synthesizer_apply(self) -> None:
-        """ctrl+shift+y: force-retry the most recently failed synthesizer.
+        """ctrl+shift+y: force-retry a synthesizer apply.
 
-        If multiple synthesizers are tracked, picks the one with the most
-        recent ``_status.yaml`` mtime.
+        Walks the worktree (rather than ``self._synthesizer_agents``) so
+        the retry works after auto-apply has already drained the tracking
+        set — mirrors the t837 fix for explorer.
         """
-        if not self._synthesizer_agents:
+        agent = self._pick_completed_agent_for_retry("synthesizer")
+        if agent is None:
+            self.notify("No completed synthesizer agents to retry.")
             return
-        candidates = list(self._synthesizer_agents)
-        if len(candidates) == 1:
-            agent = candidates[0]
-        else:
-            def _mtime(name: str) -> float:
-                p = self.session_path / f"{name}_status.yaml"
-                try:
-                    return p.stat().st_mtime
-                except Exception:
-                    return 0.0
-            agent = max(candidates, key=_mtime)
         self._try_apply_synthesizer_if_needed(agent, force=True)
 
     # ------------------------------------------------------------------
@@ -4501,29 +4522,26 @@ class BrainstormApp(TuiSwitcherMixin, App):
             self._applying_detailer.discard(agent_name)
 
     def action_retry_detailer_apply(self) -> None:
-        """ctrl+shift+d: force-retry the most recently failed detailer.
+        """ctrl+shift+d: force-retry a detailer apply.
 
-        If multiple detailers are tracked, picks the one with the most
-        recent ``_status.yaml`` mtime.
+        Walks the worktree (rather than ``self._detailer_targets``) so
+        the retry works after auto-apply has already drained the tracking
+        dict — mirrors the t837 fix for explorer. Recovers
+        ``target_node_id`` from ``self._detailer_targets`` if present,
+        else by re-parsing the agent's ``_input.md``.
         """
-        if not self._detailer_targets:
+        agent = self._pick_completed_agent_for_retry("detailer")
+        if agent is None:
+            self.notify("No completed detailer agents to retry.")
             return
-        candidates = [
-            (agent, target)
-            for agent, target in self._detailer_targets.items()
-        ]
-        if not candidates:
+        target = self._detailer_targets.get(agent)
+        if target is None:
+            target = self._recover_node_id_from_input(agent)
+        if target is None:
+            self.notify(
+                f"Cannot retry {agent}: target_node_id not recoverable."
+            )
             return
-        if len(candidates) == 1:
-            agent, target = candidates[0]
-        else:
-            def _mtime(item):
-                p = self.session_path / f"{item[0]}_status.yaml"
-                try:
-                    return p.stat().st_mtime
-                except Exception:
-                    return 0.0
-            agent, target = max(candidates, key=_mtime)
         self._try_apply_detailer_if_needed(agent, target, force=True)
 
     def on_tabbed_content_tab_activated(self, event) -> None:
