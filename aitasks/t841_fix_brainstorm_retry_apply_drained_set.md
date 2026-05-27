@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [verification, bug]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-27 11:06
-updated_at: 2026-05-27 11:48
+updated_at: 2026-05-27 12:21
 ---
 
 ## Origin
