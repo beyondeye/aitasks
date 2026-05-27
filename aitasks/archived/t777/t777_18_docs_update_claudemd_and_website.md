@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: [t777_17]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [aitask_pick]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-17 12:02
-updated_at: 2026-05-27 10:57
+updated_at: 2026-05-27 11:00
+completed_at: 2026-05-27 11:00
 ---
 
 ## General note
