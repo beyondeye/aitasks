@@ -317,27 +317,188 @@ Standard archival. Final Implementation Notes **must** include the
 `### For t814 (add-agy): inverse instructions` subsection per parent
 plan's binding requirement.
 
-## Final Implementation Notes (template)
+## Final Implementation Notes
 
-- **Actual work done:** …
-- **Deviations from plan:** …
-- **Issues encountered:** …
-- **Key decisions:** …
-- **Upstream defects identified:** None (or list)
-- **Notes for sibling tasks:** …
+- **Actual work done:**
+  - `.aitask-scripts/aitask_setup.sh`: deleted `setup_gemini_cli`,
+    `merge_gemini_policies`, `merge_gemini_settings`,
+    `install_gemini_global_policy` (4 functions, ~340 lines). Removed
+    the `_is_agent_installed gemini` case branch, the
+    `_is_agent_installed gemini → setup_gemini_cli` orchestration
+    block, the shared-helper-doc copy-loop entries for
+    `geminicli_tool_mapping.md` / `geminicli_planmode_prereqs.md`
+    (with comment fix), the `agent_type` docstring comment, and the
+    `.gemini/` + `GEMINI.md` entries from
+    `commit_framework_files()::check_paths`. Also fixed an inline
+    comment that mentioned `GEMINI.md`.
+  - `install.sh`: deleted `install_gemini_staging` and
+    `install_seed_gemini_config` (~75 lines). Removed their
+    orchestration calls in the main install flow, the shared-helper-doc
+    copy-loop entries (with comment fix), and the `.gemini/` +
+    `GEMINI.md` entries from
+    `commit_installed_files()::check_paths`.
+  - `.github/workflows/release.yml`: removed the entire "Build gemini
+    commands, policies, and helper docs" step (~20 lines), the four
+    `gemini_*` references from the release-tarball `tar -czf` args,
+    and the shared-helper-doc copy-loop entries from the codex build
+    step (with comment fix).
+  - `seed/`: deleted `geminicli_instructions.seed.md`,
+    `geminicli_settings.seed.json`, `geminicli_policies/`,
+    `models_geminicli.json`.
+  - `aidocs/adding_a_new_codeagent.md`: dropped `Gemini CLI` from the
+    intro example list. Extended the Index. Added §17 (Setup CLI
+    orchestration) with sub-sections 17a–17g covering
+    `_is_agent_installed`, `setup_<agent>_cli`, optional policy
+    helpers, orchestration block, helper-doc copy-loop tuple,
+    `agent_type` docstring, and the `check_paths` framework-paths
+    list. Added §18 (Install staging) with 18a–18e. Added §19
+    (Release packaging) with 19a–19c. Added §20 (Seed assets) with
+    20a–20d. Added §21 (Helper-doc copy-loop fan-out across the 3
+    lockstep sites with a touchpoint table). Added §22 (Per-agent
+    runtime dotdir / framework-paths). Updated the "More sections"
+    stub to reflect new coverage.
+
+- **Deviations from plan:**
+  - Plan called for `.gemini/` "gitignore-skip" entries. Closer
+    reading showed these are actually entries in `check_paths=(...)`
+    arrays inside `commit_framework_files()` /
+    `commit_installed_files()` — used for auto-staging framework
+    paths to git, not literal gitignore-skip lists. Same effect
+    (preserving `.gemini/` in user repos); plan terminology
+    corrected to "framework-paths list" in the new §17g / §18e.
+  - Plan also missed `GEMINI.md` in both `check_paths` arrays —
+    removed in lockstep.
+  - Plan missed an inline reference to `GEMINI.md` in the
+    `update_agentsmd()` comment block (~line 1053) — also cleaned.
+  - `tests/test_gemini_setup.sh` already deleted by t812_2 (noted in
+    verify-mode pass; Step 5 was a no-op as predicted).
+
+- **Issues encountered:** None — all line-number claims in the
+  verified plan held up, and the function-body deletions composed
+  cleanly with no orphaned references.
+
+- **Key decisions:**
+  - For §21 (Helper-doc copy-loop fan-out) the cross-site touchpoint
+    is now documented as a table with file/line/loop-variable
+    columns. This is the same pattern used in §13 (Policy/whitelist
+    touchpoints) and §1c's "Hardcoded agent enums" subsection — they
+    are the project's preferred shape for cross-file lockstep lists.
+  - §17 was split into 7 sub-sections (17a–17g) instead of one block
+    because the touchpoints are independent (case branch vs.
+    function body vs. orchestration vs. comment) and each one is the
+    natural anchor a future author would search for when adding /
+    removing an agent.
+  - §22 was kept separate from §17g / §18e (instead of folded into
+    them) because the `check_paths` lists touch **two** files in
+    lockstep — pulling the convention out into a numbered section
+    makes the duplication discoverable and gives a single canonical
+    home for the "shared-root agents don't need their own dotdir"
+    rule.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t812_4 (docs):** the website docs and the `aidocs/` files
+    flagged as t812_4 scope by t812_2 are still pending. Specifically
+    `aidocs/aitasks_extension_points.md`,
+    `aidocs/stub-skill-pattern.md`,
+    `aidocs/skill_authoring_conventions.md`,
+    `aidocs/issue_type_vocabulary_duplication.md`, and
+    `.claude/skills/task-workflow/model-self-detection.md` (plus the
+    `satisfaction-feedback.md` source and its associated goldens).
+    `aidocs/geminicli_to_agy.md` stays (t814 input).
+  - **t812_5 (cleanup):** any pending geminicli aitasks themselves
+    are out of scope for this child — handled by t812_5.
 
 ### For t814 (add-agy): inverse instructions
 
-- **Files re-touched by agy:** (file list + line ranges of deletions).
-- **Pattern removed (anchor example):** function names removed
-  (`setup_gemini_cli`, `install_gemini_staging`, etc.).
+- **Files re-touched by agy (exact list + ranges where geminicli was
+  removed):**
+  - `.aitask-scripts/aitask_setup.sh`:
+    - `_is_agent_installed()` case (was line 103) — add `agy)
+      command -v <cli> &>/dev/null ;;`.
+    - `assemble_aitasks_instructions()` docstring (line ~974) — add
+      `agy` to the `agent_type:` enumeration.
+    - `update_agentsmd()` doc comment (line ~1053) — add agy's
+      project-level instructions file to the list if applicable.
+    - `setup_codex_cli()` helper-doc copy-loop tuple (line ~1766) —
+      add `agy_tool_mapping.md` / `agy_planmode_prereqs.md` if
+      applicable (see §21 in `adding_a_new_codeagent.md`).
+    - "Other agents" orchestration block (line ~1960) — add `if
+      _is_agent_installed agy; then setup_agy_cli; fi`.
+    - `commit_framework_files()::check_paths` array (line ~2340) —
+      add `.agy/` and (if any) `AGY.md`. Note agy shares
+      `.agents/skills/` with codex via the shared-root mechanism,
+      so the dotdir may not be needed (see §22).
+    - **New function `setup_agy_cli()`** modeled on `setup_codex_cli()`.
+  - `install.sh`:
+    - Shared-helper-doc copy loop in `install_codex_staging()` (line
+      ~482) — mirror the §21 tuple update.
+    - **New functions `install_agy_staging()` and
+      `install_seed_agy_config()`** modeled on the codex equivalents.
+    - Orchestration calls in main install flow (line ~975) — add
+      `install_agy_staging` + `install_seed_agy_config`.
+    - `commit_installed_files()::check_paths` (line ~700) — mirror
+      the `aitask_setup.sh` array changes.
+  - `.github/workflows/release.yml`:
+    - Helper-doc copy loop in the codex build step (line ~57) —
+      mirror the §21 tuple update.
+    - Tarball `tar -czf` args (line ~105) — add any new agy staging
+      dirs if agy introduces its own (most likely it reuses
+      `codex_skills/` via the shared root and needs no new entry).
+  - `seed/`:
+    - **New `seed/agy_instructions.seed.md`** (Layer-2 instructions
+      — adapt geminicli's content with the tool-name updates per
+      `aidocs/geminicli_to_agy.md`: `run_shell_command` →
+      `run_command`, `web_fetch` → `read_url_content`).
+    - **New `seed/models_agy.json`** (per-agent model registry seed).
+    - `seed/agy_settings.seed.json` / `seed/agy_policies/` only if
+      agy ships per-agent settings or policies — `aidocs/geminicli_to_agy.md`
+      says it does not, so skip both.
+
+- **Pattern removed (anchor examples):**
+  - Function family deleted: `setup_gemini_cli`,
+    `merge_gemini_policies`, `merge_gemini_settings`,
+    `install_gemini_global_policy`, `install_gemini_staging`,
+    `install_seed_gemini_config`. agy will need
+    `setup_agy_cli` + `install_agy_staging` +
+    `install_seed_agy_config` (the three merge helpers can be
+    skipped per the global-sandboxing scoping in §17c).
+  - `.gemini/` and `GEMINI.md` entries removed from both
+    `check_paths` arrays — agy mirror lives in §22's "Per-agent
+    runtime dotdir" guidance.
+  - "Build gemini commands, policies, and helper docs" release-yml
+    step removed entirely — agy will reuse the codex build step
+    via the shared-root mechanism (no new step needed if agy ships
+    no `.agy/`).
+
 - **Inverse instruction:** to add agy, implement `setup_agy_cli()`
   modeled on `setup_codex_cli()` (lighter — no policy install
   because agy handles policies globally). In `install.sh`, mirror
-  `install_codex_*` for agy. In `release.yml`, mirror codex
-  packaging steps. Add `seed/agy_instructions.seed.md` (adapt
-  geminicli's Layer-2 instructions with the tool-name updates per
-  `aidocs/geminicli_to_agy.md`) and `seed/models_agy.json`.
-- **Hidden coupling discovered during removal:** ordering
-  constraints, gitignore-skip entries, agent-install markers
-  (`.aitask-installed-<agent>`), etc.
+  `install_codex_*` for agy. In `release.yml`, the codex build step
+  already covers agy via the shared-root mechanism — only the
+  helper-doc copy-loop tuple in that step needs the agy entries.
+  Add `seed/agy_instructions.seed.md` and `seed/models_agy.json`.
+  Follow the §17–§22 checklist in `adding_a_new_codeagent.md` for
+  the full touchpoint list.
+
+- **Hidden coupling discovered during removal:**
+  - **`check_paths` array is duplicated across two files** by
+    intent (`aitask_setup.sh::commit_framework_files()` and
+    `install.sh::commit_installed_files()` cannot source a shared
+    helper because `install.sh` runs stand-alone via `curl|bash`
+    before extraction). Cataloged as the §17g/§18e/§22
+    cross-reference.
+  - **Helper-doc copy-loop tuple is duplicated across three files**
+    (`aitask_setup.sh`, `install.sh`, `release.yml`) — same reason:
+    one runs at user-setup time, one at install time, one at
+    build time, and none can source a shared helper. Cataloged as
+    §21.
+  - The `_is_agent_installed gemini → setup_gemini_cli`
+    orchestration block (and its codex / opencode siblings) is
+    **not** generated by any helper — it is a hand-written
+    if-block per agent. Adding agy means adding a new block;
+    removing the gemini variant required a precise delete.
+  - The `agent_type` enumeration in the
+    `assemble_aitasks_instructions()` docstring is a comment, not
+    a runtime check, and is easy to miss. Cataloged as §17f.
