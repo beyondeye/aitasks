@@ -1,8 +1,0 @@
-{
-  "general": {
-    "defaultApprovalMode": "default"
-  },
-  "policyPaths": [
-    ".gemini/policies/"
-  ]
-}

@@ -1,10 +1,10 @@
 # Adding a New Code Agent to the aitasks Framework
 
 End-to-end checklist for wiring a new code agent (Claude Code, Codex CLI,
-Gemini CLI, OpenCode, agy, …) into the aitasks framework. Each section
-covers one architectural concern. Sections are independent and can be
-addressed in any order, but the order presented here is the path of least
-friction (no rework, no temporary inconsistency).
+OpenCode, agy, …) into the aitasks framework. Each section covers one
+architectural concern. Sections are independent and can be addressed in any
+order, but the order presented here is the path of least friction (no
+rework, no temporary inconsistency).
 
 > **Scope.** This doc covers what is needed *inside the aitasks framework*
 > to make a new agent first-class: skill discovery, rendering, command
@@ -30,9 +30,15 @@ friction (no rework, no temporary inconsistency).
 - [14. Contribution-area registry (`aitask_contribute.sh`)](#14-contribution-area-registry-aitask_contributesh)
 - [15. Codemap framework-dirs set](#15-codemap-framework-dirs-set)
 - [16. Shared helper docs in `.agents/skills/`](#16-shared-helper-docs-in-agentsskills)
+- [17. Setup CLI orchestration (`aitask_setup.sh`)](#17-setup-cli-orchestration-aitask_setupsh)
+- [18. Install staging (`install.sh`)](#18-install-staging-installsh)
+- [19. Release packaging (`.github/workflows/release.yml`)](#19-release-packaging-githubworkflowsreleaseyml)
+- [20. Seed assets (`seed/<agent>_*`)](#20-seed-assets-seedagent_)
+- [21. Helper-doc copy-loop fan-out (3 sites in lockstep)](#21-helper-doc-copy-loop-fan-out-3-sites-in-lockstep)
+- [22. Per-agent runtime dotdir (gitignore-skip / framework-paths)](#22-per-agent-runtime-dotdir-gitignore-skip--framework-paths)
 
-*(More sections to be added as the migration playbook expands: setup /
-install (`aitask_setup.sh`), contributor docs, website docs, etc.)*
+*(More sections to be added as the migration playbook expands:
+contributor docs, website docs, etc.)*
 
 ---
 
@@ -881,3 +887,274 @@ When adding an agent that needs per-agent prereqs:
 When retiring an agent: `./ait git rm` the two prereq docs, remove
 the "If you are …" line(s), and re-apply every affected stub to flush
 the now-dangling references.
+
+## 17. Setup CLI orchestration (`aitask_setup.sh`)
+
+`.aitask-scripts/aitask_setup.sh` runs `ait setup` for the user — it
+detects which agent CLIs are installed on PATH and invokes a per-agent
+`setup_<agent>_cli()` function for each one found. The canonical
+worked example below is **`setup_codex_cli`** (codex has the lighter
+footprint analogous to what agy will need: no policy install, no
+global merge).
+
+### 17a. `_is_agent_installed()` case branch
+
+Near the top of the script (currently around line 100), the
+`_is_agent_installed()` helper has a `case` block mapping agent name to
+a `command -v <cli>` check:
+
+```bash
+_is_agent_installed() {
+    case "$1" in
+        claude)    command -v claude &>/dev/null ;;
+        codex)     command -v codex &>/dev/null ;;
+        opencode)  command -v opencode &>/dev/null ;;
+        *)         return 1 ;;
+    esac
+}
+```
+
+Add a `<agent>)` clause whose body is `command -v <cli> &>/dev/null`.
+The `<cli>` is the binary name the user invokes (e.g., `codex`,
+`opencode`).
+
+### 17b. `setup_<agent>_cli()`
+
+Main per-agent installer. Resolves staging dirs under
+`aitasks/metadata/<agent>_*`, copies them into the per-agent runtime
+dirs (`.<agent>/skills`, `.<agent>/commands`, …), writes the assembled
+Layer-2 instructions via `assemble_aitasks_instructions "$project_dir"
+"<agent>"`, and (for agents that support policies) invokes the
+optional policy helpers from §17c.
+
+Use `setup_codex_cli` as the template if the new agent has no policy
+support. Use a previously deleted `setup_<agent>_cli` (consult git
+history of `aitask_setup.sh` for the closest analogue) only if the
+agent needs per-project policy files — most modern agents do not.
+
+### 17c. Optional policy helpers
+
+Only required for agents that support per-project policy files (none
+currently — the Gemini CLI variant was retired in t812_3). When
+needed, mirror the deleted pattern:
+
+- `merge_<agent>_policies(seed_file, dest_file)` — TOML/JSON
+  rule-merge logic, deduplicating by tool/command identifier.
+- `merge_<agent>_settings(seed_file, dest_file)` — settings.json
+  merge (e.g., `policyPaths` list union).
+- `install_<agent>_global_policy(source_policy)` — optional global
+  policy sync into `$HOME/.<agent>/policies/`, guarded by an explicit
+  user prompt.
+
+Codex, OpenCode, and agy do **not** need these helpers (they use
+global sandboxing or runtime-only policies).
+
+### 17d. Orchestration block
+
+Near the bottom of the script (currently around line 1960), the
+"Other agents" block iterates each non-Claude agent:
+
+```bash
+if _is_agent_installed codex; then
+    echo ""
+    setup_codex_cli
+fi
+```
+
+Add an analogous block for the new agent. Order is not significant.
+
+### 17e. Helper-doc copy-loop tuple
+
+If the new agent ships shared helper docs in
+`.agents/skills/<agent>_*.md` (see §16 and §21), add them to the
+`for doc in ...; do` tuple inside the codex `.agents/skills`
+staging loop in `setup_codex_cli` (currently around line 1766). This
+is **one of three lockstep sites** — see §21.
+
+### 17f. Agent_type docstring comment
+
+The `assemble_aitasks_instructions()` function (currently around
+line 974) has a docstring comment listing valid `agent_type` values:
+
+```bash
+# agent_type: claude, codex, opencode (omit for shared-only)
+```
+
+Add the new agent to that enumeration so the docstring stays in sync.
+
+### 17g. Framework-paths list (`commit_framework_files`)
+
+`commit_framework_files()` (currently around line 2330) maintains a
+`check_paths=(...)` array of repo-relative paths that are auto-staged
+by `ait setup` at the end of the run. If the new agent has a
+top-level runtime dotdir (e.g., `.codex/`, `.opencode/`) or a
+root-level instructions file (e.g., `AGENTS.md`, `CLAUDE.md`), append
+the corresponding entries here. This list is **duplicated in
+`install.sh::commit_installed_files()`** — see §22.
+
+## 18. Install staging (`install.sh`)
+
+The top-level `install.sh` is what users run via `curl | bash`. It
+unpacks the release tarball, then copies per-agent staging artifacts
+into the user's `aitasks/metadata/<agent>_*` slots. `aitask_setup.sh`
+(§17) consumes those slots later.
+
+### 18a. `install_<agent>_staging()`
+
+Pulls release-tarball staging dirs (`<agent>_skills/`,
+`<agent>_commands/`, …) from `$INSTALL_DIR/` into
+`aitasks/metadata/<agent>_*` and removes the originals. Mirror
+`install_codex_staging` (or whichever staging function exists for an
+agent with comparable structure). Skip clauses for assets the new
+agent doesn't ship (e.g., no policies → no `<agent>_policies/`
+clause).
+
+### 18b. `install_seed_<agent>_config()`
+
+Copies bundled seed files from `seed/<agent>_*` into
+`aitasks/metadata/`. At minimum:
+`seed/<agent>_instructions.seed.md` →
+`aitasks/metadata/<agent>_instructions.seed.md`. Add seed entries
+only for asset types the agent actually ships (see §20).
+
+### 18c. Orchestration calls
+
+In the main install flow (currently around line 980), add invocations
+for both staging and seed functions:
+
+```bash
+info "Storing <Agent> staging files..."
+install_<agent>_staging
+
+info "Storing <Agent> config seeds..."
+install_seed_<agent>_config
+```
+
+### 18d. Helper-doc copy-loop tuple
+
+If the new agent ships helper docs (see §16, §21), add them to the
+shared codex `codex_skills/` copy loop in
+`install_codex_staging` (currently around line 482). This is **one
+of three lockstep sites** — see §21.
+
+### 18e. Framework-paths list (`commit_installed_files`)
+
+`commit_installed_files()` (currently around line 695) maintains a
+`check_paths=(...)` array that mirrors the one in
+`aitask_setup.sh::commit_framework_files()` (§17g). Both arrays must
+list the same paths — `install.sh` runs stand-alone via `curl|bash`
+before extraction and cannot source a shared helper, so the
+duplication is intentional. **If you change one, change the other.**
+
+## 19. Release packaging (`.github/workflows/release.yml`)
+
+The release workflow assembles the install tarball that `install.sh`
+later consumes. For each per-agent staging asset that ends up in
+`aitasks/metadata/<agent>_*` (§18a, §18b), a corresponding build step
+must populate the matching staging dir at workflow-build time.
+
+### 19a. "Build `<agent>` …" step
+
+Modeled on the codex build step (currently around line 47, "Build
+codex skills directory from .agents/skills"). For shared-root agents
+(those whose `agent_shared_skills_root` returns `.agents/skills`),
+the codex step already covers them — no additional step needed.
+
+For agents with their own root (rare; current example: opencode):
+add a dedicated step that mkdirs the staging dirs and copies from the
+in-repo runtime tree.
+
+### 19b. Helper-doc copy-loop tuple
+
+The "Copy shared helper docs" loop inside the codex build step
+(currently around line 57) is **one of three lockstep sites** — see
+§21. Add the new agent's helper docs here if applicable.
+
+### 19c. Tarball assembly
+
+The "Create release tarball" step (currently around line 105) lists
+all staging dirs that get bundled into
+`aitasks-<version>.tar.gz`. If the new agent introduces new
+top-level staging dirs (rare — most agents reuse `codex_skills/` via
+the shared-root mechanism), add them to the `tar -czf ...` argument
+list.
+
+## 20. Seed assets (`seed/<agent>_*`)
+
+Per-agent seed files ship in the framework repo under `seed/` and are
+the source-of-truth defaults for first-run setup. The release tarball
+includes `seed/` verbatim; `install.sh::install_seed_<agent>_config`
+(§18b) copies them into `aitasks/metadata/`.
+
+### 20a. `seed/<agent>_instructions.seed.md`
+
+The Layer-2 system prompt / instructions block that
+`setup_<agent>_cli` assembles together with the shared Layer-1
+content (via `assemble_aitasks_instructions "$project_dir"
+"<agent>"`) and writes to the user's per-agent instructions file
+(e.g., `AGENTS.md` for codex, the agent's project-level
+instructions file).
+
+### 20b. `seed/models_<agent>.json`
+
+Per-agent model registry seed consumed by the stats/picker code.
+Also referenced in §3 (model registry), §4 (model picker), §5
+(stats). The seed is copied into `aitasks/metadata/` during install
+if absent.
+
+### 20c. `seed/<agent>_settings.seed.json` *(optional)*
+
+Settings defaults — only for agents that have a per-agent settings
+file (`.claude/settings.local.json`, the retired
+`.gemini/settings.json`). Codex and OpenCode use config files
+(`config.toml`, `opencode.json`) handled by separate merge helpers,
+not seed JSON.
+
+### 20d. `seed/<agent>_policies/` *(optional)*
+
+Policy seed directory — only for agents with policy support
+(scoping mirrors §17c's `merge_<agent>_policies`). Currently no
+agent ships one (the Gemini CLI variant was retired in t812_3).
+
+## 21. Helper-doc copy-loop fan-out (3 sites in lockstep)
+
+Shared helper docs in `.agents/skills/<agent>_tool_mapping.md` and
+`.agents/skills/<agent>_planmode_prereqs.md` (see §16) are copied to
+release staging by **three independent copy loops** that all carry
+the same tuple. Adding a new agent that ships helper docs requires
+editing **all three**; removing one requires the inverse.
+
+| Site | Approx. line | Loop variable |
+|------|--------------|---------------|
+| `.aitask-scripts/aitask_setup.sh::setup_codex_cli()` | ~1766 | `for doc in codex_tool_mapping.md codex_interactive_prereqs.md; do` |
+| `install.sh::install_codex_staging()` | ~482 | (same tuple) |
+| `.github/workflows/release.yml` (codex build step) | ~57 | (same tuple) |
+
+Each loop has a preceding comment ("Copy shared helper docs (codex)")
+that must be kept in sync with the tuple.
+
+The three sites are intentionally independent — the workflow runs at
+build time, the install script runs at install time, and `ait setup`
+runs at user-setup time. None can source a shared helper.
+
+## 22. Per-agent runtime dotdir (gitignore-skip / framework-paths)
+
+If the new agent has a top-level runtime directory (e.g., `.codex/`,
+`.opencode/`) that should be staged by `ait setup` / `install.sh`
+and appear in user repos, two parallel `check_paths` arrays must
+include `.<agent>/`:
+
+- `.aitask-scripts/aitask_setup.sh::commit_framework_files()` (~ line
+  2340) — see §17g.
+- `install.sh::commit_installed_files()` (~ line 700) — see §18e.
+
+If the agent also introduces a root-level instructions file
+(`AGENTS.md`, `CLAUDE.md`, the retired `GEMINI.md`), add it to the
+same two arrays.
+
+**Agents that share `.agents/skills/` via the shared-root mechanism
+in §1 typically do NOT need their own dotdir** — their rendered
+skills live under `.agents/skills/<skill>-<profile>-<agent>-/` and
+the `.agents/` entry already covers them. The dotdir convention is
+for agents with their own private root (`.claude/`, `.codex/`,
+`.opencode/`).

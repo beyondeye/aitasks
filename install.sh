@@ -478,8 +478,8 @@ install_codex_staging() {
         cp -r "$skill_dir". "$INSTALL_DIR/aitasks/metadata/codex_skills/$skill_name/"
     done
 
-    # Copy shared helper docs (codex + gemini)
-    for doc in codex_tool_mapping.md codex_interactive_prereqs.md geminicli_tool_mapping.md geminicli_planmode_prereqs.md; do
+    # Copy shared helper docs (codex)
+    for doc in codex_tool_mapping.md codex_interactive_prereqs.md; do
         if [[ -f "$INSTALL_DIR/codex_skills/$doc" ]]; then
             cp "$INSTALL_DIR/codex_skills/$doc" "$INSTALL_DIR/aitasks/metadata/codex_skills/$doc"
         fi
@@ -559,47 +559,6 @@ install_seed_codex_config() {
     fi
 }
 
-# --- Store Gemini CLI staging files ---
-install_gemini_staging() {
-    if [[ ! -d "$INSTALL_DIR/gemini_skills" && ! -d "$INSTALL_DIR/gemini_commands" \
-          && ! -d "$INSTALL_DIR/gemini_policies" && ! -f "$INSTALL_DIR/gemini_settings.json" ]]; then
-        return
-    fi
-
-    if [[ -d "$INSTALL_DIR/gemini_skills" ]]; then
-        # Only stage helper docs (skill wrappers are now unified in codex_skills)
-        mkdir -p "$INSTALL_DIR/aitasks/metadata/geminicli_skills"
-        for doc in geminicli_tool_mapping.md geminicli_planmode_prereqs.md; do
-            if [[ -f "$INSTALL_DIR/gemini_skills/$doc" ]]; then
-                cp "$INSTALL_DIR/gemini_skills/$doc" "$INSTALL_DIR/aitasks/metadata/geminicli_skills/$doc"
-            fi
-        done
-
-        rm -rf "$INSTALL_DIR/gemini_skills"
-        info "  Stored Gemini CLI helper docs staging at aitasks/metadata/geminicli_skills/"
-    fi
-
-    if [[ -d "$INSTALL_DIR/gemini_commands" ]]; then
-        mkdir -p "$INSTALL_DIR/aitasks/metadata/geminicli_commands"
-        cp -r "$INSTALL_DIR/gemini_commands/." "$INSTALL_DIR/aitasks/metadata/geminicli_commands/"
-        rm -rf "$INSTALL_DIR/gemini_commands"
-        info "  Stored Gemini CLI commands staging at aitasks/metadata/geminicli_commands/"
-    fi
-
-    if [[ -d "$INSTALL_DIR/gemini_policies" ]]; then
-        mkdir -p "$INSTALL_DIR/aitasks/metadata/geminicli_policies"
-        cp -r "$INSTALL_DIR/gemini_policies/." "$INSTALL_DIR/aitasks/metadata/geminicli_policies/"
-        rm -rf "$INSTALL_DIR/gemini_policies"
-        info "  Stored Gemini CLI policies staging at aitasks/metadata/geminicli_policies/"
-    fi
-
-    if [[ -f "$INSTALL_DIR/gemini_settings.json" ]]; then
-        cp "$INSTALL_DIR/gemini_settings.json" "$INSTALL_DIR/aitasks/metadata/geminicli_settings.seed.json"
-        rm -f "$INSTALL_DIR/gemini_settings.json"
-        info "  Stored Gemini CLI settings seed at aitasks/metadata/geminicli_settings.seed.json"
-    fi
-}
-
 # --- Store OpenCode config and instructions seeds ---
 install_seed_opencode_config() {
     local src dest
@@ -616,33 +575,6 @@ install_seed_opencode_config() {
     if [[ -f "$src" ]]; then
         cp "$src" "$dest"
         info "  Stored OpenCode instructions seed"
-    fi
-}
-
-# --- Store Gemini CLI config and instructions seeds ---
-install_seed_gemini_config() {
-    local src dest
-
-    src="$INSTALL_DIR/seed/geminicli_instructions.seed.md"
-    dest="$INSTALL_DIR/aitasks/metadata/geminicli_instructions.seed.md"
-    if [[ -f "$src" ]]; then
-        cp "$src" "$dest"
-        info "  Stored Gemini CLI instructions seed"
-    fi
-
-    src="$INSTALL_DIR/seed/geminicli_policies"
-    dest="$INSTALL_DIR/aitasks/metadata/geminicli_policies"
-    if [[ -d "$src" && ! -d "$dest" ]]; then
-        mkdir -p "$dest"
-        cp -r "$src/." "$dest/"
-        info "  Stored Gemini CLI policies seed"
-    fi
-
-    src="$INSTALL_DIR/seed/geminicli_settings.seed.json"
-    dest="$INSTALL_DIR/aitasks/metadata/geminicli_settings.seed.json"
-    if [[ -f "$src" && ! -f "$dest" ]]; then
-        cp "$src" "$dest"
-        info "  Stored Gemini CLI settings seed"
     fi
 }
 
@@ -773,12 +705,10 @@ commit_installed_files() {
         ".claude/skills/"
         ".agents/"
         ".codex/"
-        ".gemini/"
         ".opencode/"
         ".gitignore"
         ".github/workflows/"
         "CLAUDE.md"
-        "GEMINI.md"
         "AGENTS.md"
         "opencode.json"
     )
@@ -1046,12 +976,6 @@ main() {
 
     info "Storing OpenCode config seeds..."
     install_seed_opencode_config
-
-    info "Storing Gemini CLI staging files..."
-    install_gemini_staging
-
-    info "Storing Gemini CLI config seeds..."
-    install_seed_gemini_config
 
     # Clean up seed directory after all seed installers have run
     rm -rf "$INSTALL_DIR/seed"
