@@ -223,6 +223,91 @@ class TaskInfoCache:
         _, sib_id, title = candidates[0]
         return (sib_id, title)
 
+    def find_ready_siblings(
+        self, task_id: str, session_name: str = ""
+    ) -> list[tuple[str, str, list[str]]]:
+        """List pending Ready siblings of ``task_id``.
+
+        Returns rows of ``(sib_id, title, blocking_sibling_ids)`` sorted by
+        child number ascending. ``blocking_sibling_ids`` lists sibling ids
+        under the same parent that appear in this sibling's ``depends``
+        field and are not yet ``Done`` — so callers can show a
+        "blocked by tX" hint while still allowing the row to be picked.
+
+        Same parent/exclude rules as ``find_next_sibling``: when ``task_id``
+        is a child, the current sibling is excluded; when ``task_id`` is a
+        parent, all Ready children are returned.
+        """
+        if "_" in task_id:
+            parent, _child = task_id.split("_", 1)
+            exclude_id: str | None = task_id
+        else:
+            parent = task_id
+            exclude_id = None
+
+        root = self._root_for_session(session_name)
+        search_dir = root / "aitasks" / f"t{parent}"
+        if not search_dir.is_dir():
+            return []
+
+        # First pass: collect every sibling's status + parsed metadata so
+        # the second pass can compute "blocked by sibling" without re-reading.
+        sib_status: dict[str, str] = {}
+        parsed_rows: list[tuple[int, str, str, list[str]]] = []
+        child_re = re.compile(rf'^t{re.escape(parent)}_(\d+)_')
+        for path in sorted(search_dir.glob(f"t{parent}_*_*.md")):
+            m = child_re.match(path.stem)
+            if not m:
+                continue
+            sib_child = m.group(1)
+            sib_id = f"{parent}_{sib_child}"
+            try:
+                raw = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            parsed = parse_frontmatter(raw)
+            if parsed is None:
+                continue
+            metadata, body, _ = parsed
+            status = str(metadata.get("status", "")).strip()
+            sib_status[sib_id] = status
+            if status != "Ready":
+                continue
+            if exclude_id is not None and sib_id == exclude_id:
+                continue
+            title = None
+            for line in body.splitlines():
+                ls = line.strip()
+                if ls.startswith("# "):
+                    title = ls[2:].strip()
+                    break
+            if not title:
+                parts = path.stem.split("_", 2)
+                title = parts[2].replace("_", " ") if len(parts) > 2 else path.stem
+            depends_raw = metadata.get("depends", []) or []
+            # Normalize "t42" / "42" / 42 to bare numeric strings.
+            depends_norm = [str(d).lstrip("t") for d in depends_raw]
+            parsed_rows.append((int(sib_child), sib_id, title, depends_norm))
+
+        if not parsed_rows:
+            return []
+
+        # Second pass: a blocker is a depends entry whose normalized form
+        # matches "<parent>_<n>" of another sibling whose status is not Done.
+        rows: list[tuple[str, str, list[str]]] = []
+        for _child_num, sib_id, title, depends_norm in sorted(parsed_rows, key=lambda r: r[0]):
+            blocking: list[str] = []
+            for dep in depends_norm:
+                # Only sibling deps shaped as "<parent>_<n>" are relevant
+                # here; cross-parent deps are not surfaced (the "blocked by
+                # sibling" hint is intentionally scoped to siblings).
+                if not dep.startswith(f"{parent}_"):
+                    continue
+                if sib_status.get(dep, "") != "Done":
+                    blocking.append(dep)
+            rows.append((sib_id, title, blocking))
+        return rows
+
     def _resolve(self, task_id: str, session_name: str = "") -> TaskInfo | None:
         """Look up task file and parse its content. Pure Python, no subprocess.
 

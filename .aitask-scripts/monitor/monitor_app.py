@@ -295,14 +295,143 @@ class NextSiblingDialog(ModalScreen):
             yield Static("\n".join(lines), id="next-sib-details")
             with Container(id="next-sib-buttons"):
                 yield Button(f"Pick t{self._suggested_id}", variant="warning", id="btn-pick-suggested")
-                yield Button("Choose child", variant="primary", id="btn-choose-child")
+                yield Button("Choose sibling", variant="primary", id="btn-choose-sibling")
                 yield Button("Cancel", variant="default", id="btn-cancel")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-pick-suggested":
             self.dismiss(("pick", self._suggested_id))
-        elif event.button.id == "btn-choose-child":
+        elif event.button.id == "btn-choose-sibling":
             self.dismiss(("choose", self._parent_id))
+        else:
+            self.dismiss(None)
+
+    def action_dismiss_dialog(self) -> None:
+        self.dismiss(None)
+
+
+class _SiblingRow(Static):
+    """A focusable sibling row inside ChooseSiblingModal."""
+
+    can_focus = True
+
+    DEFAULT_CSS = """
+    _SiblingRow {
+        height: 1;
+        padding: 0 1;
+    }
+    _SiblingRow:focus {
+        background: $accent 30%;
+    }
+    """
+
+    def __init__(self, sib_id: str, title: str, blocking_ids: list[str], **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._sib_id = sib_id
+        self._title = title
+        self._blocking_ids = blocking_ids
+
+    @property
+    def sib_id(self) -> str:
+        return self._sib_id
+
+    def render(self) -> str:
+        base = f"  [bold #7aa2f7]t{self._sib_id}[/]  {self._title}"
+        if self._blocking_ids:
+            blockers = " ".join(f"t{b}" for b in self._blocking_ids)
+            base += f"  [bold red]⛔ blocked by {blockers}[/]"
+        return base
+
+    def on_key(self, event) -> None:
+        if event.key == "enter":
+            self.screen.dismiss(self._sib_id)
+            event.prevent_default()
+            event.stop()
+        elif event.key == "down":
+            self._focus_neighbor(1)
+            event.prevent_default()
+            event.stop()
+        elif event.key == "up":
+            self._focus_neighbor(-1)
+            event.prevent_default()
+            event.stop()
+
+    def _focus_neighbor(self, delta: int) -> None:
+        parent = self.parent
+        if parent is None:
+            return
+        rows = [w for w in parent.children if isinstance(w, _SiblingRow)]
+        try:
+            idx = rows.index(self)
+        except ValueError:
+            return
+        new_idx = max(0, min(len(rows) - 1, idx + delta))
+        if new_idx != idx:
+            rows[new_idx].focus()
+            rows[new_idx].scroll_visible()
+
+
+class ChooseSiblingModal(ModalScreen):
+    """Modal dialog letting the user pick a Ready sibling task by name."""
+
+    BINDINGS = [Binding("escape", "dismiss_dialog", "Close", show=False)]
+
+    DEFAULT_CSS = """
+    ChooseSiblingModal { align: center middle; }
+    #choose-sib-dialog {
+        width: 70%;
+        max-height: 80%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #choose-sib-header { text-style: bold; color: $accent; margin: 0 0 1 0; }
+    #choose-sib-context { color: $text-muted; margin: 0 0 1 0; }
+    #choose-sib-list { height: 1fr; min-height: 3; margin: 0 0 1 0; }
+    #choose-sib-help { color: $text-muted; margin: 0 0 1 0; }
+    #choose-sib-buttons { width: 100%; height: auto; layout: horizontal; }
+    #choose-sib-buttons Button { margin: 0 1; }
+    """
+
+    def __init__(self, parent_id: str, siblings: list[tuple[str, str, list[str]]]) -> None:
+        super().__init__()
+        self._parent_id = parent_id
+        self._siblings = siblings
+
+    def compose(self) -> ComposeResult:
+        with Container(id="choose-sib-dialog"):
+            yield Static("[bold]Choose Sibling[/]", id="choose-sib-header")
+            yield Static(
+                f"Parent: [bold]t{self._parent_id}[/]  ·  {len(self._siblings)} Ready sibling(s)",
+                id="choose-sib-context",
+            )
+            with VerticalScroll(id="choose-sib-list"):
+                for sib_id, title, blocking_ids in self._siblings:
+                    yield _SiblingRow(sib_id, title, blocking_ids)
+            yield Static(
+                "[dim]\\[↑/↓] navigate  \\[Enter/OK] select  \\[Esc] cancel[/]",
+                id="choose-sib-help",
+            )
+            with Container(id="choose-sib-buttons"):
+                yield Button("OK", variant="primary", id="btn-ok")
+                yield Button("Cancel", variant="default", id="btn-cancel")
+
+    def on_mount(self) -> None:
+        rows = list(self.query(_SiblingRow))
+        if rows:
+            rows[0].focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-ok":
+            focused = self.focused
+            if isinstance(focused, _SiblingRow):
+                self.dismiss(focused.sib_id)
+                return
+            rows = list(self.query(_SiblingRow))
+            if rows:
+                self.dismiss(rows[0].sib_id)
+            else:
+                self.dismiss(None)
         else:
             self.dismiss(None)
 
@@ -1685,8 +1814,39 @@ class MonitorApp(TuiSwitcherMixin, App):
         """Callback after next-sibling dialog."""
         if result is None:
             return
-        action, target_id = result
+        action, payload = result
+        if action == "pick":
+            self._launch_pick_for_sibling(payload)
+            return
+        # action == "choose": payload is parent_id; open the sibling picker.
+        pane_id = self._focused_pane_id
+        if pane_id is None or self._monitor is None:
+            return
+        snap = self._snapshots.get(pane_id)
+        if not snap:
+            return
+        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        if not task_id:
+            return
+        sess = snap.pane.session_name
+        siblings = self._task_cache.find_ready_siblings(task_id, sess)
+        if not siblings:
+            self.notify("No Ready siblings to choose from", severity="warning")
+            return
 
+        def _on_picked(sib_id: str | None) -> None:
+            if sib_id:
+                self._launch_pick_for_sibling(sib_id)
+
+        self.push_screen(ChooseSiblingModal(payload, siblings), callback=_on_picked)
+
+    def _launch_pick_for_sibling(self, target_id: str) -> None:
+        """Launch `/aitask-pick <target_id>` for the focused pane's session.
+
+        Kills the current pane first if the current task is a parent split
+        into children, was archived, or is Done — matching the heuristic
+        used by the immediate "Pick t<N>" path.
+        """
         pane_id = self._focused_pane_id
         if pane_id is None or self._monitor is None:
             return
@@ -1699,16 +1859,12 @@ class MonitorApp(TuiSwitcherMixin, App):
         sess = snap.pane.session_name
         current_info = self._task_cache.get_task_info(task_id, sess)
 
-        # Resolve pick command in the project that owns the focused pane's
-        # session — siblings live in that same project.
         target_root = self._root_for_snap(snap)
         full_cmd = resolve_dry_run_command(target_root, "pick", target_id)
         if not full_cmd:
             self.notify(f"Failed to resolve pick command for t{target_id}", severity="error")
             return
 
-        # Kill current pane if task is Done, archived (info is None), or a
-        # parent task whose implementation has moved to its children.
         is_parent_with_children = "_" not in task_id
         if is_parent_with_children or not current_info or current_info.status == "Done":
             old_name = snap.pane.window_name
