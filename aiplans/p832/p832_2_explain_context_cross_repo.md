@@ -167,3 +167,93 @@ Plan is sound — no updates required.
 Standard task-workflow Step 9 applies: merge if separate branch (n/a
 here since fast profile works on current branch), `aitask_archive.sh
 832_2`, push, satisfaction feedback.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `.aitask-scripts/aitask_explain_context.sh`: added an
+    `INPUT_BY_PROJECT` associative array (newline-separated file lists
+    per project key), an `add_input_file` collector, and a
+    `classify_token` helper that routes positional tokens through the
+    `^([a-z0-9_-]+)#(.+)$` regex (`<name>#<file>`) or falls back to the
+    `_local_` project key. `parse_args` learned a `--project <name>:<file>`
+    case (validates `:` separator, non-empty halves). A new
+    `process_directory_in_project <root> <dir_key>` thin wrapper
+    subshells `cd "$root"` and re-emits the inner `process_directory`'s
+    `ref:rundir` pair with both halves prepended by `$(pwd)` so the
+    caller's PWD doesn't matter when the Python formatter opens them.
+    A new `resolve_project_root` shells out to
+    `aitask_project_resolve.sh` for non-local names and dies-with-hint
+    on `STALE:` / `NOT_FOUND:` (wording mirrors `lib/cross_repo_reexec.sh`).
+    `main()` now iterates `INPUT_BY_PROJECT`, groups each project's
+    files by dir, dispatches per-(project, dir_key) pair, and
+    aggregates ref:rundir pairs into a single `format_context.py` call.
+    `show_help()` documents both new surfaces with examples.
+  - `tests/test_explain_context_cross_repo.sh` (new): 22 assertions
+    covering the explicit pair form, `#` notation, mixed forms, cache
+    placement inside each project's tree (and absence in caller's
+    CWD), NOT_FOUND / STALE / missing-value / missing-colon / empty-
+    halves error wording, and help-text mention of new surfaces.
+- **Deviations from plan:**
+  - **PWD-vs-formatter path bug** discovered during first test run:
+    the inner `process_directory` echoed `ref:rundir` as project-
+    relative paths (e.g. `.aitask-explain/codebrowser/src__.../reference.yaml`).
+    After the subshell exited back to caller PWD those paths no longer
+    resolved and `format_context.py` warned "reference.yaml not found"
+    for every project. Fixed by absolutizing both halves of the pair
+    inside `process_directory_in_project` before exiting the subshell.
+    Plan implicitly assumed the inner script's outputs were path-
+    portable; they were not. Added an inline comment to make the
+    contract explicit.
+  - Did **not** extract a shared `lib/cross_repo_notation.py` (or bash
+    equivalent). Per the plan's "Coordination with sibling tasks"
+    section, the regex stays inline here (single line, single use
+    site); t832_8 will introduce the Python variant for TUI use.
+- **Issues encountered:**
+  - Initial test failures driven entirely by the PWD bug above. After
+    the absolutize fix, all 22 cross-repo assertions pass; existing
+    `tests/test_explain_context.sh` (29 assertions) stays green; no
+    regressions.
+  - Manual cross-repo smoke against `aitasks_mobile` initially looked
+    silent — turned out to be a cold cache for `aiplans/` that the
+    extract pipeline didn't repopulate (uninstrumented cache miss
+    suppressed via `2>/dev/null`). Switched the smoke to
+    `libs/build.gradle.kts` (cached in `libs__20260525_101934`), which
+    rendered cross-repo unified markdown immediately. Also verified
+    the mixed local-+-cross-repo form (`./.aitask-scripts/aitask_ls.sh
+    aitasks_mobile#libs/build.gradle.kts`) produces a single document
+    containing tasks from both projects (t260_1 local + t10_5 mobile).
+- **Key decisions:**
+  - **Absolutize at the subshell boundary, not in `format_context.py`**
+    — keeps the Python formatter agnostic to cross-repo concerns.
+  - **`_local_` as the default project key** preserves the existing
+    positional-arg path verbatim. Bare positional file arguments still
+    work exactly as before.
+  - **`--project` value must contain `:`** even when the path itself
+    contains other colons — `${arg%%:*}` / `${arg#*:}` are non-greedy
+    on the *first* colon. Project names are constrained to
+    `[a-z0-9_-]` by the registry regex, so a project name will never
+    accidentally contain a colon.
+  - **Newline-separated lists in the assoc-array value** — bash
+    `declare -A` cannot hold array values; the newline join + `while
+    IFS= read -r f` split is the standard workaround. File paths
+    containing literal newlines would break this, but that's not a
+    real-world concern for source files.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - The `aitasks#<file>` regex used here is intentionally inline
+    (`^([a-z0-9_-]+)#(.+)$`). t832_8 (board TUI) and t832_5
+    (parallel-planning procedure) should each implement their own
+    short Python equivalent — extracting a shared
+    `lib/cross_repo_notation.py` is **not** justified for ~3 lines of
+    regex per consumer.
+  - The `process_directory_in_project` subshell-and-absolutize pattern
+    is the answer to the broader question "how do I run a script that
+    reads CWD-relative state inside another project without leaking
+    paths back". If t832_5 / t832_8 ever need the same trick, lift it
+    into `lib/cross_repo_reexec.sh` as a sibling helper (e.g.
+    `cross_repo_subshell_emit`).
+  - Per-project cache lives at
+    `<project_root>/.aitask-explain/codebrowser/` exactly where each
+    project's own codebrowser/explain runs already write. No
+    invalidation policy needed beyond what codebrowser already does.
