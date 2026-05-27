@@ -60,7 +60,7 @@ machine.
 
 ## Dependencies
 
-- `textual>=8.1.1,<9`
+- `textual>=8.2.7,<9`
 - `segno>=1.5,<2` (chosen over `qrcode` for built-in Micro QR support)
 
 Both are installed by `ait setup`.
