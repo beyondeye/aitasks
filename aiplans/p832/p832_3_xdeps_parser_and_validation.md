@@ -124,4 +124,116 @@ Both-or-neither. `Done`-only satisfaction semantics (enforced in t832_4).
 
 ## Final Implementation Notes
 
-(To be filled by the implementing agent during/after execution.)
+- **Actual work done:**
+  - `aitask_ls.sh`: added `xdeps)` / `xdeprepo)` case arms in
+    `parse_yaml_frontmatter` (before closing `esac`) and `xdeps_text=""` /
+    `xdeprepo_text=""` to the `parse_task_metadata` reset block.
+  - `lib/task_utils.sh`: added `read_xdeps()` (returns normalized csv via
+    `parse_yaml_list` + `normalize_task_ids`) and `read_xdeprepo()`
+    (returns the scalar via `read_yaml_field`), placed next to
+    `read_task_status()`.
+  - `aitask_create.sh`: new globals `BATCH_XDEPS` / `BATCH_XDEPREPO`; new
+    `--xdeps` / `--xdeprepo` flags in `parse_args()` and `show_help`; new
+    `validate_xdeps_pair()` invoked right after the status validation;
+    emission added at all 3 frontmatter heredoc sites (child, draft,
+    parent) — fields emitted only when `BATCH_XDEPS` is non-empty.
+  - `aitask_fold_validate.sh`: after `VALID:<id>:<file>` emission, when
+    `--exclude-self` is provided, compares the foldee's `xdeps`/`xdeprepo`
+    against the primary's and emits a non-blocking
+    `WARNING:<id>:xdeps_loss:<repo>:<deps>` line if folding would drop
+    cross-repo deps. Backward compatible — existing callers ignore
+    unknown line types.
+  - New tests: `test_xdeps_parser.sh` (5 assertions),
+    `test_xdeps_validation.sh` (14 assertions),
+    `test_xdeps_fold_warn.sh` (9 assertions). All pass.
+  - Regression-verified: `test_fold_validate.sh`, `test_fold_content.sh`,
+    `test_fold_mark.sh`, `test_create_project_flag.sh`,
+    `test_create_silent_stdout.sh`, `test_create_manual_verification.sh`,
+    `test_query_files_cross_repo.sh` all pass unchanged.
+  - TUI round-trip verified end-to-end: PyYAML re-quotes the child IDs
+    (`'2_3'`), but bash's `parse_yaml_list` strips quotes and
+    `normalize_task_ids` re-attaches the `t` prefix, so `read_xdeps`
+    returns the canonical `1,t2_3` after a board edit.
+- **Deviations from plan:**
+  - Plan step 4 said to validate xdeps existence via
+    `aitask_query_files.sh task-file --project <name> <N>`. Switched
+    to `task-status` (also added in t832_1) because `task-file` only
+    accepts parent IDs (`<N>`) while `xdeps` may legitimately contain
+    child IDs (`<N>_<M>`). `task-status` accepts both and emits a
+    canonical `STATUS:NOT_FOUND` for missing ids; the validator
+    accepts any `STATUS:<value>` (Ready, Implementing, Done, etc.) as
+    existence proof.
+  - Did NOT thread `BATCH_XDEPS` / `BATCH_XDEPREPO` through the 16-arg
+    function signatures of `create_child_task_file`,
+    `create_draft_file`, and `create_task_file`. Instead, the
+    emission heredocs read the globals directly. Justification: the
+    new fields are batch-only for v1 (interactive mode does not yet
+    surface them per the plan's silent scope cut), and adding two
+    more positional args to each signature plus all callers would
+    have meant ~12 mechanical edits with high "wrong-slot" risk. The
+    existing `BATCH_AUTO_MERGE` reads-via-global precedent justifies
+    keeping the heredocs simple.
+  - The fold-validator warning uses the existing `--exclude-self <id>`
+    flag as the primary indicator (it is the only signal currently
+    passed by all callers — `aitask_create.sh auto_merge` and the
+    planning skill's ad-hoc fold), so the warning fires correctly
+    without introducing a new flag. Callers that don't pass
+    `--exclude-self` keep the strict VALID/INVALID-only contract.
+- **Issues encountered:**
+  - First `test_xdeps_parser.sh` run errored because sourcing
+    `lib/task_utils.sh` from a test outside `.aitask-scripts/` made
+    its `SCRIPT_DIR` self-default to `tests/`, which doesn't contain
+    `lib/terminal_compat.sh`. Fixed by pinning `SCRIPT_DIR=
+    $PROJECT_DIR/.aitask-scripts` in the test before sourcing.
+  - The plan cited line numbers 222-251 (case block) and 287-298
+    (reset block) in `aitask_ls.sh`. Pre-verification (in this
+    session's verify pass) confirmed they had shifted to 224-268 and
+    303-315 respectively. Anchors (`depends)` case and the
+    `contributor_text=""` reset line) were used as insertion targets
+    rather than the stale line numbers.
+- **Key decisions:**
+  - **`task-status` over `task-file` for existence check** — see
+    deviations note above.
+  - **`WARNING:` as new line type** in `aitask_fold_validate.sh`
+    rather than promoting an `INVALID:xdeps_loss` (which would block
+    fold). Spec says "warn, do not block"; existing callers only
+    pattern-match `VALID:` / `INVALID:`, so unknown lines silently
+    drop — backward compatible.
+  - **Skipped scaffold update.** `lib/task_utils.sh` is not in
+    `./ait`'s source-on-startup chain, so per CLAUDE.md the
+    `tests/lib/test_scaffold.sh::setup_fake_aitask_repo` baseline
+    does not need a copy of it. (The new tests source the lib from
+    the real `.aitask-scripts/` via absolute path.)
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **`BATCH_XDEPS` / `BATCH_XDEPREPO` are the canonical batch
+    globals.** t832_5 (parallel-planning procedure) emits via
+    `aitask_create.sh --batch --project <name> --xdeps ... --xdeprepo ...`
+    and the flag spellings are now load-bearing. The validator at
+    creation time refuses silently-broken plans, so the procedure
+    can call create directly without separate validation.
+  - **`xdeps_text` / `xdeprepo_text` in `aitask_ls.sh`** are the
+    stable parser-output names. t832_4 will read them in
+    `calculate_blocked_status()` to compute the cross-repo blocked
+    flag. The reset block ordering matters only insofar as both
+    must be reset for every task before parse — current placement
+    after `contributor_text=""` satisfies that.
+  - **t832_7 (`aitask_update.sh --project`) inherits the `WARNING:`
+    line type.** If t832_7 ever wraps `aitask_fold_validate` behind
+    a different caller (e.g. cross-repo fold), the same parsing
+    contract — VALID / INVALID / optional WARNING — applies.
+  - **t832_7 also owns the local-only `aitask_update.sh --xdeps` /
+    `--xdeprepo` flag work** (administrative-edit subset). t832_3
+    deliberately did not pre-add those flags so they can land in
+    one PR alongside the `--project` cross-repo update + lock-check
+    + status-allowlist orchestration that gives them their
+    guardrails. There is no half-implemented local-only variant to
+    rip out later.
+  - **TUI round-trip preserves quoting.** `task_yaml.py` emits child
+    IDs in xdeps as `'N_M'` (PyYAML's default for tokens with `_`),
+    but every reader strips quotes, so the consumer-side
+    normalization stays identical to local `depends:`. t832_8 should
+    not need an xdeps-specific `_normalize_task_ids` call unless the
+    goal is to canonicalize the on-disk representation to
+    `t<N>_<M>` — currently quoted-raw is fine because every reader
+    normalizes.
