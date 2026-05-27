@@ -173,7 +173,7 @@ done
 assert_contains "claude/remote: task-workflow ref rewritten under .claude/skills" \
     ".claude/skills/task-workflow-remote-/agent-attribution.md" "$(cat .claude/skills/aitask-pickweb-remote-/SKILL.md)"
 assert_contains "codex/remote: task-workflow ref rewritten under .agents/skills" \
-    ".agents/skills/task-workflow-remote-/agent-attribution.md" "$(cat .agents/skills/aitask-pickweb-remote-/SKILL.md)"
+    ".agents/skills/task-workflow-remote-codex-/agent-attribution.md" "$(cat .agents/skills/aitask-pickweb-remote-codex-/SKILL.md)"
 assert_contains "gemini/remote: task-workflow ref rewritten under .gemini/skills" \
     ".gemini/skills/task-workflow-remote-/agent-attribution.md" "$(cat .gemini/skills/aitask-pickweb-remote-/SKILL.md)"
 assert_contains "opencode/remote: task-workflow ref rewritten under .opencode/skills" \
@@ -214,7 +214,7 @@ assert_contains "opencode skill-stub: --agent opencode" "--agent opencode" "$(ca
 assert_contains "claude stub: reads from .claude/skills/aitask-pickweb-<profile>-" \
     ".claude/skills/aitask-pickweb-<profile>-/SKILL.md" "$(cat "$CLAUDE_STUB")"
 assert_contains "codex stub: reads from .agents/skills/aitask-pickweb-<profile>-" \
-    ".agents/skills/aitask-pickweb-<profile>-/SKILL.md" "$(cat "$CODEX_STUB")"
+    ".agents/skills/aitask-pickweb-<profile>-codex-/SKILL.md" "$(cat "$CODEX_STUB")"
 assert_contains "gemini stub: reads from .gemini/skills/aitask-pickweb-<profile>-" \
     ".gemini/skills/aitask-pickweb-<profile>-/SKILL.md" "$(cat "$GEMINI_STUB")"
 assert_contains "opencode stub: reads from .opencode/skills/aitask-pickweb-<profile>-" \
@@ -225,17 +225,18 @@ assert_contains "opencode skill-stub: reads from .opencode/skills/aitask-pickweb
 # === Test 6: committed remote-variant freshness ===
 
 echo "=== Test 6: committed remote-variant matches fresh render ==="
+# shellcheck source=.aitask-scripts/lib/agent_skills_paths.sh
+source "$PROJECT_DIR/.aitask-scripts/lib/agent_skills_paths.sh"
 for agent in "${AGENTS[@]}"; do
-    case "$agent" in
-        claude)   root=".claude/skills" ;;
-        codex)    root=".agents/skills" ;;
-        gemini)   root=".gemini/skills" ;;
-        opencode) root=".opencode/skills" ;;
-    esac
-    committed_path="$root/aitask-pickweb-remote-/SKILL.md"
+    # Shared-root agents (codex, +agy in t814) carry the -<agent>- segment (t834).
+    committed_path="$(agent_skill_dir "$agent" aitask-pickweb remote)/SKILL.md"
+    # File is not yet tracked or not yet in HEAD (first run pre-commit, e.g.,
+    # right after a t834-style rename) — skip the freshness diff; Test 8
+    # catches missing files separately.
     if ! git ls-files --error-unmatch "$committed_path" >/dev/null 2>&1; then
-        # File is not yet tracked (first run pre-commit) — skip the freshness
-        # diff; Test 8 catches missing files separately.
+        continue
+    fi
+    if ! git cat-file -e "HEAD:$committed_path" 2>/dev/null; then
         continue
     fi
     fresh="$(cat "$committed_path")"
@@ -256,13 +257,8 @@ done
 
 echo "=== Test 8: committed remote-variant files exist on disk ==="
 for agent in "${AGENTS[@]}"; do
-    case "$agent" in
-        claude)   root=".claude/skills" ;;
-        codex)    root=".agents/skills" ;;
-        gemini)   root=".gemini/skills" ;;
-        opencode) root=".opencode/skills" ;;
-    esac
-    path="$root/aitask-pickweb-remote-/SKILL.md"
+    # Shared-root agents (codex, +agy in t814) carry the -<agent>- segment (t834).
+    path="$(agent_skill_dir "$agent" aitask-pickweb remote)/SKILL.md"
     TOTAL=$((TOTAL + 1))
     if [[ -f "$path" ]]; then
         PASS=$((PASS + 1))

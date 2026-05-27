@@ -169,7 +169,7 @@ done
 assert_contains "claude/fast: task-workflow ref rewritten under .claude/skills" \
     ".claude/skills/task-workflow-fast-/SKILL.md" "$(cat .claude/skills/aitask-revert-fast-/SKILL.md)"
 assert_contains "codex/fast: task-workflow ref rewritten under .agents/skills" \
-    ".agents/skills/task-workflow-fast-/SKILL.md" "$(cat .agents/skills/aitask-revert-fast-/SKILL.md)"
+    ".agents/skills/task-workflow-fast-codex-/SKILL.md" "$(cat .agents/skills/aitask-revert-fast-codex-/SKILL.md)"
 assert_contains "gemini/fast: task-workflow ref rewritten under .gemini/skills" \
     ".gemini/skills/task-workflow-fast-/SKILL.md" "$(cat .gemini/skills/aitask-revert-fast-/SKILL.md)"
 assert_contains "opencode/fast: task-workflow ref rewritten under .opencode/skills" \
@@ -178,7 +178,7 @@ assert_contains "opencode/fast: task-workflow ref rewritten under .opencode/skil
 assert_contains "claude/fast: user-file-select ref rewritten under .claude/skills" \
     ".claude/skills/user-file-select-fast-/SKILL.md" "$(cat .claude/skills/aitask-revert-fast-/SKILL.md)"
 assert_contains "codex/fast: user-file-select ref rewritten under .agents/skills" \
-    ".agents/skills/user-file-select-fast-/SKILL.md" "$(cat .agents/skills/aitask-revert-fast-/SKILL.md)"
+    ".agents/skills/user-file-select-fast-codex-/SKILL.md" "$(cat .agents/skills/aitask-revert-fast-codex-/SKILL.md)"
 assert_contains "gemini/fast: user-file-select ref rewritten under .gemini/skills" \
     ".gemini/skills/user-file-select-fast-/SKILL.md" "$(cat .gemini/skills/aitask-revert-fast-/SKILL.md)"
 assert_contains "opencode/fast: user-file-select ref rewritten under .opencode/skills" \
@@ -214,7 +214,7 @@ assert_contains "opencode stub: --agent opencode" "--agent opencode" "$(cat "$OP
 assert_contains "claude stub: reads from .claude/skills/aitask-revert-<profile>-" \
     ".claude/skills/aitask-revert-<profile>-/SKILL.md" "$(cat "$CLAUDE_STUB")"
 assert_contains "codex stub: reads from .agents/skills/aitask-revert-<profile>-" \
-    ".agents/skills/aitask-revert-<profile>-/SKILL.md" "$(cat "$CODEX_STUB")"
+    ".agents/skills/aitask-revert-<profile>-codex-/SKILL.md" "$(cat "$CODEX_STUB")"
 assert_contains "gemini stub: reads from .gemini/skills/aitask-revert-<profile>-" \
     ".gemini/skills/aitask-revert-<profile>-/SKILL.md" "$(cat "$GEMINI_STUB")"
 assert_contains "opencode stub: reads from .opencode/skills/aitask-revert-<profile>-" \

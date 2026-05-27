@@ -117,7 +117,7 @@ description: stub for test
 ---
 1. ./.aitask-scripts/aitask_skill_resolve_profile.sh $skill
 2. ./.aitask-scripts/aitask_skill_render.sh $skill --profile <profile> --agent codex
-3. Read .agents/skills/$skill-<profile>-/SKILL.md
+3. Read .agents/skills/$skill-<profile>-codex-/SKILL.md
 EOF
     mkdir -p ".gemini/commands" ".opencode/commands"
     cat > ".gemini/commands/$skill.toml" <<EOF

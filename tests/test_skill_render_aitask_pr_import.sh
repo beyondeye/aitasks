@@ -162,7 +162,7 @@ done
 assert_contains "claude/fast: task-workflow ref rewritten under .claude/skills" \
     ".claude/skills/task-workflow-fast-/SKILL.md" "$(cat .claude/skills/aitask-pr-import-fast-/SKILL.md)"
 assert_contains "codex/fast: task-workflow ref rewritten under .agents/skills" \
-    ".agents/skills/task-workflow-fast-/SKILL.md" "$(cat .agents/skills/aitask-pr-import-fast-/SKILL.md)"
+    ".agents/skills/task-workflow-fast-codex-/SKILL.md" "$(cat .agents/skills/aitask-pr-import-fast-codex-/SKILL.md)"
 assert_contains "gemini/fast: task-workflow ref rewritten under .gemini/skills" \
     ".gemini/skills/task-workflow-fast-/SKILL.md" "$(cat .gemini/skills/aitask-pr-import-fast-/SKILL.md)"
 assert_contains "opencode/fast: task-workflow ref rewritten under .opencode/skills" \
@@ -198,7 +198,7 @@ assert_contains "opencode stub: --agent opencode" "--agent opencode" "$(cat "$OP
 assert_contains "claude stub: reads from .claude/skills/aitask-pr-import-<profile>-" \
     ".claude/skills/aitask-pr-import-<profile>-/SKILL.md" "$(cat "$CLAUDE_STUB")"
 assert_contains "codex stub: reads from .agents/skills/aitask-pr-import-<profile>-" \
-    ".agents/skills/aitask-pr-import-<profile>-/SKILL.md" "$(cat "$CODEX_STUB")"
+    ".agents/skills/aitask-pr-import-<profile>-codex-/SKILL.md" "$(cat "$CODEX_STUB")"
 assert_contains "gemini stub: reads from .gemini/skills/aitask-pr-import-<profile>-" \
     ".gemini/skills/aitask-pr-import-<profile>-/SKILL.md" "$(cat "$GEMINI_STUB")"
 assert_contains "opencode stub: reads from .opencode/skills/aitask-pr-import-<profile>-" \

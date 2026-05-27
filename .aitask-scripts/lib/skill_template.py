@@ -53,7 +53,26 @@ AGENT_ROOTS = {
     "gemini":   ".gemini/skills",
     "opencode": ".opencode/skills",
 }
+# Agents whose physical skills root is shared with another agent. Shared
+# roots get an additional -<agent>- segment in rendered dir names so two
+# agents writing into the same root do not collide (t834). Mirror of
+# agent_shared_skills_root() in lib/agent_skills_paths.sh.
+AGENT_SHARED_SKILLS_ROOT = {
+    "claude":   False,
+    "codex":    True,
+    "gemini":   False,
+    "opencode": False,
+}
 SOURCE_AGENT_ROOT = ".claude/skills"  # Claude is source of truth (t777_1).
+
+
+def _render_dir_name(skill: str, profile_name: str, agent: str) -> str:
+    """Return the rendered-dir basename for a (skill, profile, agent) triple.
+    Shared-root agents get an extra `-<agent>-` segment so they do not
+    collide with other agents writing into the same physical root."""
+    if AGENT_SHARED_SKILLS_ROOT.get(agent, False):
+        return f"{skill}-{profile_name}-{agent}-"
+    return f"{skill}-{profile_name}-"
 
 
 # Cross-pipeline include bridge (t818): shared markdown fragments live in
@@ -142,7 +161,7 @@ def _target_path_for(source_abs: Path, agent: str, profile_name: str, repo_root:
     skill = parts[2]
     rest = parts[3:]
     target_root = AGENT_ROOTS[agent]
-    return repo_root / target_root / f"{skill}-{profile_name}-" / Path(*rest)
+    return repo_root / target_root / _render_dir_name(skill, profile_name, agent) / Path(*rest)
 
 
 def discover_refs(text: str, current_source: Path, repo_root: Path):
@@ -211,7 +230,8 @@ def rewrite_ref(ref: dict, agent: str, profile_name: str) -> str:
     if ref["kind"] == "sibling":
         return ref["ref_file"]
     target_root = AGENT_ROOTS[agent]
-    return f"{target_root}/{ref['ref_dir']}-{profile_name}-/{ref['ref_file']}"
+    dir_name = _render_dir_name(ref["ref_dir"], profile_name, agent)
+    return f"{target_root}/{dir_name}/{ref['ref_file']}"
 
 
 def _atomic_write(target: Path, content: str) -> None:
@@ -284,7 +304,7 @@ def walk_closure(
     if skill is None:
         raise ValueError(f"Entry template not under <agent_root>/skills/: {entry_template}")
     target_root = AGENT_ROOTS[agent]
-    entry_target = repo_root / target_root / f"{skill}-{profile_name}-" / "SKILL.md"
+    entry_target = repo_root / target_root / _render_dir_name(skill, profile_name, agent) / "SKILL.md"
 
     visited: set[Path] = {entry_template.resolve()}
     queue: deque = deque([(entry_template.resolve(), entry_target)])

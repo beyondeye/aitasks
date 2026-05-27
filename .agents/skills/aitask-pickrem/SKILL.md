@@ -16,12 +16,12 @@ in order, then stop:
    and use the single-line stdout as `<profile>`.
 
 2. **Render only if needed.** If the committed pre-rendered file at
-   `.agents/skills/aitask-pickrem-<profile>-/SKILL.md` already exists, skip
+   `.agents/skills/aitask-pickrem-<profile>-codex-/SKILL.md` already exists, skip
    this step. Otherwise run:
    `./.aitask-scripts/aitask_skill_render.sh aitask-pickrem --profile <profile> --agent codex`
    (requires `ait setup` to have installed minijinja).
 
 3. **Dispatch via Read-and-follow.** Read the file at
-   `.agents/skills/aitask-pickrem-<profile>-/SKILL.md` and execute its
+   `.agents/skills/aitask-pickrem-<profile>-codex-/SKILL.md` and execute its
    instructions as if they were this skill, forwarding the (possibly
    stripped) ARGUMENTS unchanged.

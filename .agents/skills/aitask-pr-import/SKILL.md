@@ -16,6 +16,6 @@ This is a profile-aware skill stub. Execute these steps in order, then stop:
    No-op if the per-profile SKILL.md is already up to date.
 
 3. **Dispatch via Read-and-follow.** Read the file at
-   `.agents/skills/aitask-pr-import-<profile>-/SKILL.md` and execute its
+   `.agents/skills/aitask-pr-import-<profile>-codex-/SKILL.md` and execute its
    instructions as if they were this skill, forwarding the (possibly
    stripped) ARGUMENTS unchanged.

@@ -132,9 +132,19 @@ for tpl in "${templates[@]}"; do
                 "$stub_path" "$skill" >&2
             failures=$((failures + 1))
         fi
-        if ! grep -q "${skill}-<profile>-/SKILL\.md" "$stub_path"; then
-            printf 'STUB_FAIL: %s: missing trailing-hyphen Read path ("%s-<profile>-/SKILL.md")\n' \
-                "$stub_path" "$skill" >&2
+        # Shared-root agents (codex today, +agy in t814) carry an additional
+        # `-<agent>-` segment in the rendered dir name; other agents keep
+        # the simpler `-<profile>-` form. The stub literal must match.
+        if [[ "$(agent_shared_skills_root "$agent")" == "true" ]]; then
+            stub_read_literal="${skill}-<profile>-${agent}-/SKILL\\.md"
+            stub_read_display="${skill}-<profile>-${agent}-/SKILL.md"
+        else
+            stub_read_literal="${skill}-<profile>-/SKILL\\.md"
+            stub_read_display="${skill}-<profile>-/SKILL.md"
+        fi
+        if ! grep -q "$stub_read_literal" "$stub_path"; then
+            printf 'STUB_FAIL: %s: missing trailing-hyphen Read path ("%s")\n' \
+                "$stub_path" "$stub_read_display" >&2
             failures=$((failures + 1))
         fi
     done
@@ -145,13 +155,7 @@ for tpl in "${templates[@]}"; do
     # exists only until the marker mechanism lands.
     if [[ "$skill" == "aitask-pickrem" ]]; then
         for agent in "${agents[@]}"; do
-            case "$agent" in
-                claude)   root=".claude/skills" ;;
-                codex)    root=".agents/skills" ;;
-                gemini)   root=".gemini/skills" ;;
-                opencode) root=".opencode/skills" ;;
-            esac
-            committed="$root/$skill-remote-/SKILL.md"
+            committed="$(agent_skill_dir "$agent" "$skill" "remote")/SKILL.md"
             if [[ ! -f "$committed" ]]; then
                 printf 'PRERENDER_FAIL: %s: missing committed remote variant (run aitask_skill_render.sh aitask-pickrem --profile remote --agent %s and commit)\n' \
                     "$committed" "$agent" >&2

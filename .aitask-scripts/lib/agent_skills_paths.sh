@@ -4,21 +4,28 @@
 #
 # Provides:
 #   agent_skill_root <agent>                 - echo the per-agent skill root dir
+#   agent_shared_skills_root <agent>         - echo true|false: whether this
+#                                              agent's root is physically shared
+#                                              with another agent
 #   agent_skill_dir  <agent> <skill> [prof]  - echo the per-(skill,profile) dir
 #   agent_authoring_template <skill>         - echo the authoring template path
 #                                              (Claude is the source of truth)
 #
 # Path mapping (verified t777_1, 2026-05-17):
 #   claude   .claude/skills
-#   codex    .agents/skills
-#   gemini   .gemini/skills   (per CLAUDE.md "Gemini CLI" section)
+#   codex    .agents/skills    (shared with future agy agent, t814)
+#   gemini   .gemini/skills    (per CLAUDE.md "Gemini CLI" section)
 #   opencode .opencode/skills
 #
-# Rendered-dir naming convention (t777_3):
-#   - With a non-empty <profile> arg (including "default"), agent_skill_dir
-#     returns <root>/<skill>-<profile>- with a TRAILING HYPHEN. The trailing
-#     hyphen is the recognizable "generated" marker that lets .gitignore use
-#     a single `*-/` glob per agent root instead of per-profile entries.
+# Rendered-dir naming convention (t777_3, extended by t834):
+#   - With a non-empty <profile> arg (including "default") and a NON-shared
+#     root, agent_skill_dir returns <root>/<skill>-<profile>- with a TRAILING
+#     HYPHEN. The trailing hyphen is the recognizable "generated" marker
+#     that lets .gitignore use a single `*-/` glob per agent root.
+#   - With a non-empty <profile> arg and a SHARED root (codex today, +agy
+#     in t814), agent_skill_dir returns <root>/<skill>-<profile>-<agent>-
+#     so two agents writing into the same root do not overwrite each
+#     other's renders. The trailing hyphen is preserved.
 #   - Without a profile arg, agent_skill_dir returns the no-suffix path
 #     <root>/<skill>. That path is reserved exclusively for the committed
 #     stub SKILL.md / command wrapper — it is NEVER overwritten by a render.
@@ -39,16 +46,34 @@ agent_skill_root() {
     esac
 }
 
+# Whether the agent's physical skills root is shared with another agent.
+# Shared roots get an additional -<agent>- segment in rendered dir names
+# so two agents writing into the same root do not collide (t834).
+agent_shared_skills_root() {
+    case "$1" in
+        claude)   echo "false" ;;
+        codex)    echo "true" ;;
+        gemini)   echo "false" ;;
+        opencode) echo "false" ;;
+        *)        echo "agent_shared_skills_root: unknown agent: $1" >&2; return 1 ;;
+    esac
+}
+
 agent_skill_dir() {
     local agent="$1" skill="$2" profile="${3:-}"
-    local root
+    local root shared
     root="$(agent_skill_root "$agent")" || return 1
     # Rendered dirs end with a trailing hyphen — recognizable "generated"
     # marker so gitignore is a single `*-/` glob per agent root. The
     # no-profile-arg case returns the no-suffix path, reserved for the
     # committed stub SKILL.md / command wrapper.
     if [[ -n "$profile" ]]; then
-        echo "$root/${skill}-${profile}-"
+        shared="$(agent_shared_skills_root "$agent")" || return 1
+        if [[ "$shared" == "true" ]]; then
+            echo "$root/${skill}-${profile}-${agent}-"
+        else
+            echo "$root/${skill}-${profile}-"
+        fi
     else
         echo "$root/${skill}"
     fi

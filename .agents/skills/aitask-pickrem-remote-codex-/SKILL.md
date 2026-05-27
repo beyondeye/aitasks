@@ -194,7 +194,7 @@ While in plan mode:
 
 - Explore the codebase to understand the relevant architecture
 - **Folded Tasks Note:** If the task has a `folded_tasks` frontmatter field, the task description already contains all relevant content from the folded tasks. No need to read the original folded task files.
-- **Ad-Hoc Fold Request:** If the task description contains a request to fold other tasks (e.g., "fold t42 and t43 into this task") — including child task IDs like `16_2` — execute the **Ad-Hoc Fold Procedure** from `.agents/skills/task-workflow-remote-/planning.md`. Remote mode is non-interactive: **skip the user confirmation step** and proceed automatically if all validations pass. If no valid tasks remain after validation, continue planning without folding.
+- **Ad-Hoc Fold Request:** If the task description contains a request to fold other tasks (e.g., "fold t42 and t43 into this task") — including child task IDs like `16_2` — execute the **Ad-Hoc Fold Procedure** from `.agents/skills/task-workflow-remote-codex-/planning.md`. Remote mode is non-interactive: **skip the user confirmation step** and proceed automatically if all validations pass. If no valid tasks remain after validation, continue planning without folding.
 - **Complexity:** Always implement as a single task (do NOT break into child subtasks — child creation requires interactive prompts not available in remote mode)
 - **Testing requirement:** When the task involves code changes (not documentation/config-only tasks), the implementation plan MUST include a "Verification" section specifying:
   - What automated tests to write or update
@@ -261,7 +261,7 @@ Before starting implementation, verify that ownership/lock was acquired (Step 5 
   - Parse output: `OWNED` → proceed. Any failure (`LOCK_FAILED`, `LOCK_ERROR`, `LOCK_INFRA_MISSING`, or script error) → trigger the **Abort Procedure**.
   - No `AskUserQuestion` calls (remote mode constraint).
 
-**Record implementing agent:** Execute the **Agent Attribution Procedure** (see `.agents/skills/task-workflow-remote-/agent-attribution.md`) to record which code agent and model is implementing this task.
+**Record implementing agent:** Execute the **Agent Attribution Procedure** (see `.agents/skills/task-workflow-remote-codex-/agent-attribution.md`) to record which code agent and model is implementing this task.
 
 Follow the approved plan, working in the current directory.
 
@@ -319,7 +319,7 @@ Update the external plan file as you progress:
      ```bash
      git add <changed_code_files>
      # First execute the Contributor Attribution Procedure and the
-     # Code-Agent Commit Attribution Procedure from .agents/skills/task-workflow-remote-/code-agent-commit-attribution.md,
+     # Code-Agent Commit Attribution Procedure from .agents/skills/task-workflow-remote-codex-/code-agent-commit-attribution.md,
      # then compose one final commit message.
      git commit -m "$(cat <<'EOF'
      <issue_type>: <description> (t<task_id>)

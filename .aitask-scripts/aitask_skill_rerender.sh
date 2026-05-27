@@ -39,10 +39,22 @@ rerendered=0
 for agent in claude codex gemini opencode; do
     root="$(agent_skill_root "$agent")" || continue
     [[ -d "$root" ]] || continue
+    # Shared-root agents emit dirs of the form `<skill>-<profile>-<agent>-`
+    # (t834); other agents use the simpler `<skill>-<profile>-` form.
+    # The glob and suffix-strip pattern must match what was emitted.
+    shared="$(agent_shared_skills_root "$agent")"
+    if [[ "$shared" == "true" ]]; then
+        find_glob="*-${profile}-${agent}-"
+    else
+        find_glob="*-${profile}-"
+    fi
     while IFS= read -r -d '' dir; do
         base="$(basename "$dir")"
-        # Strip the trailing "-<profile>-" suffix to recover the skill name.
-        skill="${base%-"${profile}"-}"
+        if [[ "$shared" == "true" ]]; then
+            skill="${base%-"${profile}"-"${agent}"-}"
+        else
+            skill="${base%-"${profile}"-}"
+        fi
         [[ "$skill" == "$base" ]] && continue  # paranoia: no suffix match
         # Skip rendered dirs whose authoring template has been removed —
         # the renderer would error and we have nothing to refresh.
@@ -55,7 +67,7 @@ for agent in claude codex gemini opencode; do
         "$SCRIPT_DIR/aitask_skill_render.sh" "$skill" \
             --profile "$profile" --agent "$agent"
         rerendered=$((rerendered + 1))
-    done < <(find "$root" -maxdepth 1 -type d -name "*-${profile}-" -print0)
+    done < <(find "$root" -maxdepth 1 -type d -name "$find_glob" -print0)
 done
 
 echo "RERENDERED:$rerendered (skill,agent) pairs for profile '$profile'"

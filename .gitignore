@@ -41,15 +41,17 @@ aiplans
 #   plus the task-workflow-remote- closure pickrem/pickweb transitively depend on.
 # Pre-rendered headless variants committed so the skill works in Claude Code
 # Web where `ait setup` has not run.
+# t834: agents with a shared physical root (codex today; +agy in t814) carry
+# an extra -<agent>- segment in their rendered-dir name.
 !.claude/skills/aitask-pickrem-remote-/
-!.agents/skills/aitask-pickrem-remote-/
+!.agents/skills/aitask-pickrem-remote-codex-/
 !.gemini/skills/aitask-pickrem-remote-/
 !.opencode/skills/aitask-pickrem-remote-/
 !.claude/skills/aitask-pickweb-remote-/
-!.agents/skills/aitask-pickweb-remote-/
+!.agents/skills/aitask-pickweb-remote-codex-/
 !.gemini/skills/aitask-pickweb-remote-/
 !.opencode/skills/aitask-pickweb-remote-/
 !.claude/skills/task-workflow-remote-/
-!.agents/skills/task-workflow-remote-/
+!.agents/skills/task-workflow-remote-codex-/
 !.gemini/skills/task-workflow-remote-/
 !.opencode/skills/task-workflow-remote-/

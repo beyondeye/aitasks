@@ -243,8 +243,8 @@ assert_contains "claude/fast: task-workflow ref rewritten under .claude/skills" 
     ".claude/skills/task-workflow-fast-/satisfaction-feedback.md" \
     "$(cat .claude/skills/aitask-qa-fast-/SKILL.md)"
 assert_contains "codex/fast: task-workflow ref rewritten under .agents/skills" \
-    ".agents/skills/task-workflow-fast-/satisfaction-feedback.md" \
-    "$(cat .agents/skills/aitask-qa-fast-/SKILL.md)"
+    ".agents/skills/task-workflow-fast-codex-/satisfaction-feedback.md" \
+    "$(cat .agents/skills/aitask-qa-fast-codex-/SKILL.md)"
 assert_contains "gemini/fast: task-workflow ref rewritten under .gemini/skills" \
     ".gemini/skills/task-workflow-fast-/satisfaction-feedback.md" \
     "$(cat .gemini/skills/aitask-qa-fast-/SKILL.md)"
@@ -287,7 +287,7 @@ assert_contains "opencode stub: --agent opencode" "--agent opencode" "$(cat "$OP
 assert_contains "claude stub: reads from .claude/skills/aitask-qa-<profile>-" \
     ".claude/skills/aitask-qa-<profile>-/SKILL.md" "$(cat "$CLAUDE_STUB")"
 assert_contains "codex stub: reads from .agents/skills/aitask-qa-<profile>-" \
-    ".agents/skills/aitask-qa-<profile>-/SKILL.md" "$(cat "$CODEX_STUB")"
+    ".agents/skills/aitask-qa-<profile>-codex-/SKILL.md" "$(cat "$CODEX_STUB")"
 assert_contains "gemini stub: reads from .gemini/skills/aitask-qa-<profile>-" \
     ".gemini/skills/aitask-qa-<profile>-/SKILL.md" "$(cat "$GEMINI_STUB")"
 assert_contains "opencode stub: reads from .opencode/skills/aitask-qa-<profile>-" \

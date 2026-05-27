@@ -12,6 +12,8 @@ A **stub** is the small, profile-agnostic dispatch logic that the agent reads wh
 
 The stub is committed to git. The rendered variants live in trailing-hyphen directories (e.g., `.claude/skills/aitask-pick-fast-/`) that are gitignored via the single `*-/` glob per agent root.
 
+**Shared-root agents (t834).** When two agents target the same physical root (today: codex + future agy under `.agents/skills/`), the rendered-dir name carries an additional `-<agent>-` segment to avoid collisions: `.agents/skills/aitask-pick-fast-codex-/` and `.agents/skills/aitask-pick-fast-agy-/`. The trailing hyphen is preserved so the `*-/` gitignore glob still works. The "shared root" set is the single source of truth `agent_shared_skills_root` in `.aitask-scripts/lib/agent_skills_paths.sh` (mirror: `AGENT_SHARED_SKILLS_ROOT` in `.aitask-scripts/lib/skill_template.py`). Non-shared agents (claude, gemini, opencode) keep the `<skill>-<profile>-/` naming.
+
 **Per-agent, the stub lives at the agent's actual entry point** — not at a uniform path. Claude auto-discovers skill SKILL.md files; Codex loads SKILL.md by instruction reference; Gemini and OpenCode auto-discover **command wrappers**, not skills. The stub therefore takes different file shapes per agent (SKILL.md for Claude/Codex; command-wrapper file for Gemini/OpenCode). See §3g for the canonical mapping.
 
 ## 3b. Canonical stub body (Claude / Codex — `SKILL.md` form)
@@ -37,9 +39,9 @@ This is a profile-aware skill stub. Execute these steps in order, then stop:
    No-op if the per-profile SKILL.md is already up to date.
 
 3. **Dispatch via Read-and-follow.** Read the file at
-   `<agent_root>/<skill_short_name>-<profile>-/SKILL.md` and execute its
-   instructions as if they were this skill, forwarding the (possibly
-   stripped) ARGUMENTS unchanged.
+   `<agent_root>/<rendered_dir>/SKILL.md` and execute its instructions as
+   if they were this skill, forwarding the (possibly stripped) ARGUMENTS
+   unchanged.
 ```
 
 Substitutions per stub:
@@ -51,6 +53,10 @@ Substitutions per stub:
   `<skill_short_name>`. See §3f for the full convention.
 - `<agent_literal>` — `claude` for the Claude stub; `codex` for the Codex stub.
 - `<agent_root>` — `.claude/skills` for Claude; `.agents/skills` for Codex.
+- `<rendered_dir>` — `<skill_short_name>-<profile>-` for non-shared roots
+  (Claude). For shared roots (Codex today; +agy in t814) it carries the
+  agent segment: `<skill_short_name>-<profile>-<agent_literal>-`. See §3g
+  for the per-agent surface table.
 
 ## 3c. Canonical stub body (Gemini — command TOML form)
 
@@ -147,9 +153,11 @@ When converting a skill in t777_6 (pilot) or t777_8..15 (others), each conversio
 | Agent | Stub authoring location | `<agent_literal>` | Rendered variant location |
 |-------|------------------------|-------------------|----------------------|
 | Claude | `.claude/skills/<skill>/SKILL.md` | `claude` | `.claude/skills/<skill>-<profile>-/SKILL.md` |
-| Codex | `.agents/skills/<skill>/SKILL.md` | `codex` | `.agents/skills/<skill>-<profile>-/SKILL.md` |
+| Codex | `.agents/skills/<skill>/SKILL.md` | `codex` | `.agents/skills/<skill>-<profile>-codex-/SKILL.md` |
 | Gemini | `.gemini/commands/<skill>.toml` `prompt` field | `gemini` | `.gemini/skills/<skill>-<profile>-/SKILL.md` |
 | OpenCode | `.opencode/commands/<skill>.md` body | `opencode` | `.opencode/skills/<skill>-<profile>-/SKILL.md` |
+
+The codex row's extra `-codex-` segment is gated by `agent_shared_skills_root codex == true` in `.aitask-scripts/lib/agent_skills_paths.sh` (mirror: `AGENT_SHARED_SKILLS_ROOT["codex"] == True` in `.aitask-scripts/lib/skill_template.py`). The same rule applies to any future agent whose `agent_skill_root` collides with another agent's (e.g., agy in t814 → `.agents/skills/<skill>-<profile>-agy-/SKILL.md`).
 
 Notes:
 - In Claude, the rendered variant at `<skill>-<profile>-/SKILL.md` is technically auto-discoverable as a slash command (`/aitask-pick-fast-`). The stub flow never invokes that path; the trailing-hyphen slash command is a side effect of the dir naming and is not part of the normal invocation flow.
@@ -179,9 +187,9 @@ Authoring templates (`SKILL.md.j2`) and shared `.md` procedures may use any of t
 
 After rendering, references inside the rendered output are rewritten:
 
-- **Full-path** → `<target_root>/<dir>-<profile>-/<file>.md`, where `<target_root>` comes from `--agent` (`.claude/skills` for `claude`, `.agents/skills` for `codex`, `.gemini/skills` for `gemini`, `.opencode/skills` for `opencode`).
+- **Full-path** → `<target_root>/<dir>-<profile>[-<agent>]-/<file>.md`, where `<target_root>` comes from `--agent` (`.claude/skills` for `claude`, `.agents/skills` for `codex`, `.gemini/skills` for `gemini`, `.opencode/skills` for `opencode`). The `-<agent>-` segment appears only when `<target_root>` is shared (t834; today: codex; +agy in t814).
 - **Sibling** → unchanged. The sibling file is rendered into the SAME per-profile dir, so the bare-filename reference still resolves correctly when the agent reads the rendered file.
-- **Skill-relative** → rewritten to full-path form: `<target_root>/<dir>-<profile>-/<file>.md`. (Without rewriting, a one-`/` reference would otherwise resolve against the per-profile dir and fail.)
+- **Skill-relative** → rewritten to full-path form: `<target_root>/<dir>-<profile>[-<agent>]-/<file>.md`. (Without rewriting, a one-`/` reference would otherwise resolve against the per-profile dir and fail.)
 
 If a candidate path does not resolve to a real source file under `.claude/skills/`, the walker silently skips it. Prose mentions of filenames in narrative text are therefore safe — false positives (e.g., "edit the planning.md file") are filtered by the existence check.
 
