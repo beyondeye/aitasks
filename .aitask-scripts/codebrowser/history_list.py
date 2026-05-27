@@ -126,8 +126,9 @@ class HistoryTaskItem(Static):
         type_badge = f"[{color}]\\[{t.issue_type}][/]" if t.issue_type else ""
         date = f"[dim]{t.commit_date[:10]}[/]" if t.commit_date else ""
         labels = _format_labels(t.labels)
+        no_code_marker = "  [#FFB86C]\\[no-code][/]" if not t.has_code_commits else ""
         line1 = f"  {task_num}  {name}{children}"
-        line2 = f"      {type_badge}  {date}  {labels}"
+        line2 = f"      {type_badge}  {date}{no_code_marker}  {labels}"
         return f"{line1}\n{line2}"
 
     def on_key(self, event) -> None:

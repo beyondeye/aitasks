@@ -215,6 +215,74 @@ class TestLoadTaskIndex(GitRepoTestBase):
         tmp2.cleanup()
 
 
+class TestLoadTaskIndexNoCodeCommit(GitRepoTestBase):
+    """Archived tasks without (tNN) code commit fall back to archive commit."""
+
+    def setUp(self):
+        super().setUp()
+        # Add a manual-verification-style archived task with no (t100) commit.
+        archived = self.root / "aitasks" / "archived"
+        _make_task_file(
+            archived / "t100_verify_only.md",
+            status="Done",
+            priority="medium",
+            effort="low",
+            issue_type="manual_verification",
+            labels=["verification"],
+            completed_at="2026-03-21 12:00",
+        )
+        _git(self.root, "add", "aitasks/archived/t100_verify_only.md")
+        # Archive commit — message matches aitask_archive.sh's recipe.
+        _git(
+            self.root,
+            "commit",
+            "-m",
+            "ait: Archive completed t100 task and plan files",
+        )
+
+    def test_no_code_commit_appears_in_index(self):
+        index = load_task_index(self.root)
+        t100 = next((t for t in index if t.task_id == "100"), None)
+        self.assertIsNotNone(t100, "t100 should be in the index via archive-commit fallback")
+        self.assertFalse(t100.has_code_commits)
+        self.assertNotEqual(t100.commit_hash, "")
+        self.assertEqual(t100.issue_type, "manual_verification")
+
+    def test_code_commit_task_keeps_has_code_commits_true(self):
+        index = load_task_index(self.root)
+        t42 = next((t for t in index if t.task_id == "42"), None)
+        self.assertIsNotNone(t42)
+        self.assertTrue(t42.has_code_commits)
+
+
+class TestLoadTaskIndexMtimeFallback(GitRepoTestBase):
+    """Archived loose tasks with no commit signals fall back to file mtime."""
+
+    def setUp(self):
+        super().setUp()
+        archived = self.root / "aitasks" / "archived"
+        # Loose file, NEVER committed and no archive commit either.
+        _make_task_file(
+            archived / "t200_legacy.md",
+            status="Done",
+            priority="low",
+            effort="low",
+            issue_type="chore",
+            labels=["legacy"],
+            completed_at="2024-01-01 00:00",
+        )
+
+    def test_mtime_fallback_appears_in_index(self):
+        index = load_task_index(self.root)
+        t200 = next((t for t in index if t.task_id == "200"), None)
+        self.assertIsNotNone(t200, "t200 should be in the index via mtime fallback")
+        self.assertFalse(t200.has_code_commits)
+        self.assertEqual(t200.commit_hash, "")
+        # commit_date is a parseable ISO timestamp from the file mtime.
+        from datetime import datetime
+        datetime.fromisoformat(t200.commit_date)
+
+
 class TestLoadTaskContent(GitRepoTestBase):
     def test_loose_parent(self):
         content = load_task_content(self.root, "42")

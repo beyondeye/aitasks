@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
@@ -32,6 +33,7 @@ class CompletedTask:
     commit_hash: str  # short hash of most recent commit
     file_source: str  # "loose" or "tar"
     metadata: dict  # full frontmatter dict
+    has_code_commits: bool = True
 
 
 @dataclass
@@ -97,15 +99,97 @@ def _build_commit_map(project_root: Path) -> dict:
     return commit_map
 
 
+def _build_archive_commit_map(project_root: Path) -> dict:
+    """Build task_id -> (hash, date, message) map from archive commits.
+
+    Archive commits (e.g. ``ait: Archive completed t787 task and plan files``)
+    are written by ``aitask_archive.sh`` and serve as fallback anchors for
+    tasks that have no ``(tNN)``-tagged source commit (manual-verification,
+    brainstorm, etc.).
+    """
+    archive_map: dict = {}
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "log",
+                "--all",
+                "--grep=^ait: Archive completed t",
+                "--format=%H %aI %s",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=project_root,
+        )
+        if result.returncode == 0:
+            archive_re = re.compile(
+                r"^ait:\s+Archive completed t(\d+(?:_\d+)?)\b"
+            )
+            for line in result.stdout.strip().splitlines():
+                if not line:
+                    continue
+                parts = line.split(" ", 2)
+                if len(parts) < 3:
+                    continue
+                hash_val, date_val, msg = parts
+                m = archive_re.match(msg)
+                if not m:
+                    continue
+                tid = m.group(1)
+                if tid not in archive_map or date_val > archive_map[tid][1]:
+                    archive_map[tid] = (hash_val[:12], date_val, msg)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return archive_map
+
+
+def _mtime_anchor(
+    archived_dir: Path, tid: str, filename: str
+) -> Optional[Tuple[str, str, str]]:
+    """Return (hash, iso_date, msg) anchored to the archived file's mtime.
+
+    Returns None when the file is not a loose archived ``.md`` (e.g.
+    tar-bundled legacy task with no commit signals).
+    """
+    if "_" in tid:
+        parent = tid.split("_")[0]
+        candidate = archived_dir / f"t{parent}" / filename
+    else:
+        candidate = archived_dir / filename
+    try:
+        st = candidate.stat()
+    except OSError:
+        return None
+    iso = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
+    return ("", iso, f"(mtime fallback for t{tid})")
+
+
 def _merge_chunk(
-    buffer: list, commit_map: dict
+    buffer: list,
+    commit_map: dict,
+    archive_commit_map: dict,
+    archived_dir: Path,
 ) -> List[CompletedTask]:
-    """Merge a buffer of (task_id, metadata, filename) tuples with commit_map."""
+    """Merge a buffer of (task_id, metadata, filename) tuples into CompletedTasks.
+
+    Anchor priority: code commit > archive commit > file mtime. Drops rows
+    only when none of the three signals resolves (tar-bundled legacy tasks
+    with no commits).
+    """
     tasks = []
     for tid, metadata, filename in buffer:
-        if tid not in commit_map:
-            continue
-        hash_val, date_val, msg = commit_map[tid]
+        has_code = False
+        if tid in commit_map:
+            hash_val, date_val, msg = commit_map[tid]
+            has_code = True
+        elif tid in archive_commit_map:
+            hash_val, date_val, msg = archive_commit_map[tid]
+        else:
+            anchor = _mtime_anchor(archived_dir, tid, filename)
+            if anchor is None:
+                continue
+            hash_val, date_val, msg = anchor
+
         name = _extract_name_from_filename(filename)
         tasks.append(
             CompletedTask(
@@ -119,6 +203,7 @@ def _merge_chunk(
                 commit_hash=hash_val,
                 file_source="loose",
                 metadata=metadata,
+                has_code_commits=has_code,
             )
         )
     return tasks
@@ -135,6 +220,7 @@ def load_task_index_progressive(
     """
     archived_dir = project_root / "aitasks" / "archived"
     commit_map = _build_commit_map(project_root)
+    archive_commit_map = _build_archive_commit_map(project_root)
 
     tasks: List[CompletedTask] = []
     buffer: list = []
@@ -143,13 +229,13 @@ def load_task_index_progressive(
         if tid is not None:
             buffer.append((tid, metadata, filename))
         if len(buffer) >= chunk_size:
-            tasks.extend(_merge_chunk(buffer, commit_map))
+            tasks.extend(_merge_chunk(buffer, commit_map, archive_commit_map, archived_dir))
             tasks.sort(key=lambda t: t.commit_date, reverse=True)
             buffer = []
             yield list(tasks)
     # Final flush
     if buffer:
-        tasks.extend(_merge_chunk(buffer, commit_map))
+        tasks.extend(_merge_chunk(buffer, commit_map, archive_commit_map, archived_dir))
         tasks.sort(key=lambda t: t.commit_date, reverse=True)
     yield list(tasks)
 

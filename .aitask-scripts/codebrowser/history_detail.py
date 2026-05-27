@@ -735,6 +735,14 @@ class HistoryDetailPane(VerticalScroll):
             self.mount(_SectionHeader(f"Commits ({len(commits)})"))
             for commit in commits:
                 self.mount(CommitLinkField(commit, self._platform_info))
+        elif not task.has_code_commits:
+            self.mount(_SectionHeader("Commits"))
+            self.mount(
+                MetadataField(
+                    "  [dim]No source-code commits — framework activity "
+                    "only (see aitask-data branch)[/dim]"
+                )
+            )
 
         # -- Children (for parent tasks) --
         if not is_child:
