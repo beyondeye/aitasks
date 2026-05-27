@@ -94,7 +94,6 @@ setup_test_env() {
 
     # Copy model configs
     cp "$PROJECT_DIR/aitasks/metadata/models_claudecode.json" "$tmpdir/aitasks/metadata/"
-    cp "$PROJECT_DIR/aitasks/metadata/models_geminicli.json" "$tmpdir/aitasks/metadata/"
     cp "$PROJECT_DIR/aitasks/metadata/models_codex.json" "$tmpdir/aitasks/metadata/"
     cp "$PROJECT_DIR/aitasks/metadata/models_opencode.json" "$tmpdir/aitasks/metadata/"
     cp "$PROJECT_DIR/seed/codeagent_config.json" "$tmpdir/aitasks/metadata/"
@@ -131,11 +130,10 @@ assert_exit_zero "codex plan helper compiles" python3 -m py_compile "$PROJECT_DI
 TMPDIR_TEST="$(setup_test_env)"
 CODEAGENT="$TMPDIR_TEST/.aitask-scripts/aitask_codeagent.sh"
 
-# Test 2: list-agents outputs all 4 agents
+# Test 2: list-agents outputs all 3 agents
 echo "--- Test 2: list-agents ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" list-agents 2>&1)
 assert_contains "list-agents shows claudecode" "AGENT:claudecode" "$output"
-assert_contains "list-agents shows geminicli" "AGENT:geminicli" "$output"
 assert_contains "list-agents shows codex" "AGENT:codex" "$output"
 assert_contains "list-agents shows opencode" "AGENT:opencode" "$output"
 
@@ -165,21 +163,21 @@ assert_contains "resolve returns cli_id" "CLI_ID:claude-opus-4-7\[1m\]" "$output
 
 # Test 6: resolve with --agent-string override
 echo "--- Test 6: resolve with --agent-string override ---"
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string geminicli/gemini2_5pro resolve pick 2>&1)
-assert_contains "override agent string" "AGENT_STRING:geminicli/gemini2_5pro" "$output"
-assert_contains "override resolves geminicli" "AGENT:geminicli" "$output"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 resolve pick 2>&1)
+assert_contains "override agent string" "AGENT_STRING:codex/gpt5_4" "$output"
+assert_contains "override resolves codex" "AGENT:codex" "$output"
 
 # Test 7: resolve with local config overrides project config
 echo "--- Test 7: resolve with local config ---"
 cat > "$TMPDIR_TEST/aitasks/metadata/codeagent_config.local.json" << 'LOCALEOF'
 {
   "defaults": {
-    "pick": "geminicli/gemini3pro"
+    "pick": "codex/gpt5_4"
   }
 }
 LOCALEOF
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve pick 2>&1)
-assert_contains "local config overrides project config" "AGENT_STRING:geminicli/gemini3pro" "$output"
+assert_contains "local config overrides project config" "AGENT_STRING:codex/gpt5_4" "$output"
 # Clean up local config
 rm "$TMPDIR_TEST/aitasks/metadata/codeagent_config.local.json"
 
@@ -366,29 +364,6 @@ assert_contains "coauthor returns GPT name" "AGENT_COAUTHOR_NAME:OpenCode/GPT 5.
 echo "--- Test 25b: coauthor OpenCode GPT 5.4 openai provider ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor opencode/openai_gpt_5_4 2>&1)
 assert_contains "coauthor returns GPT 5.4 name" "AGENT_COAUTHOR_NAME:OpenCode/GPT 5.4" "$output"
-
-# Test 26: coauthor returns Gemini CLI metadata
-echo "--- Test 26: coauthor Gemini CLI metadata ---"
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor geminicli/gemini2_5pro 2>&1)
-assert_contains "coauthor returns agent string" "AGENT_STRING:geminicli/gemini2_5pro" "$output"
-assert_contains "coauthor returns name" "AGENT_COAUTHOR_NAME:Gemini CLI/2.5 Pro" "$output"
-assert_contains "coauthor returns email" "AGENT_COAUTHOR_EMAIL:geminicli@aitasks.io" "$output"
-assert_contains "coauthor returns trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Gemini CLI/2.5 Pro <geminicli@aitasks.io>" "$output"
-
-# Test 26b: coauthor Gemini CLI custom domain
-echo "--- Test 26b: coauthor Gemini CLI custom domain ---"
-cat > "$TMPDIR_TEST/aitasks/metadata/project_config.yaml" << 'YAMLEOF'
-codeagent_coauthor_domain: gemini.example
-verify_build:
-YAMLEOF
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor geminicli/gemini3_1pro 2>&1)
-assert_contains "coauthor uses custom domain for email" "AGENT_COAUTHOR_EMAIL:geminicli@gemini.example" "$output"
-assert_contains "coauthor uses model-aware trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Gemini CLI/3.1 Pro Preview <geminicli@gemini.example>" "$output"
-
-# Test 26c: coauthor Gemini CLI falls back to raw model token when unknown
-echo "--- Test 26c: coauthor Gemini CLI unknown model fallback ---"
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor geminicli/unknown_model 2>&1)
-assert_contains "coauthor falls back to raw model token" "AGENT_COAUTHOR_NAME:Gemini CLI/unknown_model" "$output"
 
 # Restore project config before help and remaining tests
 cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"

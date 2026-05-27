@@ -6,8 +6,8 @@ The module is Textual-dependent but has no settings_app dependency.
 
 Public API:
 - AgentModelPickerScreen — ModalScreen with a single fuzzy list that cycles
-  through seven modes via Shift+Left / Shift+Right:
-    top, top_usage, all, codex, opencode, claudecode, geminicli
+  through six modes via Shift+Left / Shift+Right:
+    top, top_usage, all, codex, opencode, claudecode
 - FuzzySelect / FuzzyOption — reusable fuzzy-search list widget
 - MODEL_FILES — {provider: Path} map of models_*.json files
 - load_all_models(project_root) — load every models_*.json into a dict
@@ -37,7 +37,6 @@ METADATA_DIR = Path("aitasks") / "metadata"
 MODEL_FILES = {
     "claudecode": METADATA_DIR / "models_claudecode.json",
     "codex": METADATA_DIR / "models_codex.json",
-    "geminicli": METADATA_DIR / "models_geminicli.json",
     "opencode": METADATA_DIR / "models_opencode.json",
 }
 
@@ -267,7 +266,7 @@ class FuzzySelect(Container):
 
 
 class AgentModelPickerScreen(ModalScreen):
-    """Single-screen picker that cycles through seven model lists.
+    """Single-screen picker that cycles through six model lists.
 
     Lists are switched with Shift+Left / Shift+Right. The fuzzy-search Input
     inside the FuzzySelect remains usable for letter-based filtering.
@@ -282,7 +281,6 @@ class AgentModelPickerScreen(ModalScreen):
         ("codex",      "All codex models"),
         ("opencode",   "All opencode models"),
         ("claudecode", "All Claude models"),
-        ("geminicli",  "All Gemini models"),
     ]
 
     DEFAULT_CSS = """

@@ -36,7 +36,6 @@ PROMPT_PATTERNS_BY_AGENT: dict[str, list[PromptPattern]] = {
         PromptPattern("codex_yes_proceed", re.compile(r"Yes,? proceed \(y\)")),
     ],
     "opencode": [],
-    "gemini": [],
     "all": [],   # generic prompts that match across agents — add as needed
 }
 

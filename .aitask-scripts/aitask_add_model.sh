@@ -21,7 +21,7 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 
 REPO_ROOT="${AITASK_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
-SUPPORTED_AGENTS=(claudecode geminicli codex)
+SUPPORTED_AGENTS=(claudecode codex)
 
 # --- Common helpers ---
 
@@ -282,7 +282,7 @@ Subcommands:
   promote-config               --agent <a> --name <n> --ops <csv>             [--dry-run]
   promote-default-agent-string --agent <a> --name <n>                         [--dry-run]
 
-Supported agents: claudecode, geminicli, codex.
+Supported agents: claudecode, codex.
 Use aitask-refresh-code-models for opencode (provider-gated, CLI-discovered).
 
 --dry-run prints a unified diff and exits without writing any file.

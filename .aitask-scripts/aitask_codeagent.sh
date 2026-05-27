@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # aitask_codeagent.sh - Unified wrapper for AI code agent invocation and model selection
-# Supports Claude Code, Gemini CLI, Codex CLI, and OpenCode with configurable model selection.
+# Supports Claude Code, Codex CLI, and OpenCode with configurable model selection.
 #
-# Agent string format: <agent>/<model>  (e.g., claudecode/opus4_6, geminicli/gemini3pro)
+# Agent string format: <agent>/<model>  (e.g., claudecode/opus4_6, codex/gpt5_4)
 #
 # Usage: ait codeagent <command> [options]
 # Run 'ait codeagent --help' for details.
@@ -144,33 +144,6 @@ format_claude_model_label() {
     echo "$raw_model"
 }
 
-format_gemini_model_label() {
-    local raw_model="$1"
-
-    if [[ "$raw_model" =~ ^gemini-([0-9\.]+)-([a-z]+)(-[a-z]+)?$ ]]; then
-        local version="${BASH_REMATCH[1]}"
-        local type="${BASH_REMATCH[2]}"
-        local suffix="${BASH_REMATCH[3]:-}"
-        
-        local cap_type
-        cap_type="$(tr '[:lower:]' '[:upper:]' <<< "${type:0:1}")${type:1}"
-        
-        local label="$version $cap_type"
-        
-        if [[ -n "$suffix" ]]; then
-            suffix="${suffix:1}"
-            local cap_suffix
-            cap_suffix="$(tr '[:lower:]' '[:upper:]' <<< "${suffix:0:1}")${suffix:1}"
-            label+=" $cap_suffix"
-        fi
-        
-        echo "$label"
-        return
-    fi
-
-    echo "$raw_model"
-}
-
 format_opencode_model_label() {
     local raw_cli_id="$1"
     # Strip provider prefix (everything before and including /)
@@ -243,14 +216,6 @@ get_agent_coauthor_name() {
                 echo "Claude Code/$model_name"
             fi
             ;;
-        geminicli)
-            cli_id="$(lookup_cli_model_id_if_known "$agent" "$model_name")"
-            if [[ -n "$cli_id" && "$cli_id" != "null" ]]; then
-                echo "Gemini CLI/$(format_gemini_model_label "$cli_id")"
-            else
-                echo "Gemini CLI/$model_name"
-            fi
-            ;;
         opencode)
             cli_id="$(lookup_cli_model_id_if_known "$agent" "$model_name")"
             if [[ -n "$cli_id" && "$cli_id" != "null" ]]; then
@@ -273,7 +238,6 @@ get_agent_coauthor_email() {
     case "$agent" in
         codex) echo "codex@$domain" ;;
         claudecode) echo "claudecode@$domain" ;;
-        geminicli) echo "geminicli@$domain" ;;
         opencode) echo "opencode@$domain" ;;
         *) die "Coauthor metadata for agent '$agent' is not supported yet" ;;
     esac
@@ -465,25 +429,6 @@ build_invoke_command() {
                     ;;
             esac
             ;;
-        geminicli)
-            case "$operation" in
-                pick)
-                    CMD+=("/aitask-pick ${args[*]}")
-                    ;;
-                explain)
-                    CMD+=("/aitask-explain ${args[*]}")
-                    ;;
-                qa)
-                    CMD+=("/aitask-qa ${args[*]}")
-                    ;;
-                explore)
-                    CMD+=("/aitask-explore")
-                    ;;
-                batch-review|raw)
-                    CMD+=("${args[@]}")
-                    ;;
-            esac
-            ;;
         codex)
             case "$operation" in
                 pick)
@@ -586,7 +531,7 @@ Options:
   -h, --help             Show this help
 
 Operations: pick, explain, batch-review, qa, explore, raw
-Agent string format: <agent>/<model> (e.g., claudecode/opus4_6, geminicli/gemini3pro)
+Agent string format: <agent>/<model> (e.g., claudecode/opus4_6, codex/gpt5_4)
 
 Resolution chain (highest priority first):
   1. --agent-string flag
@@ -602,7 +547,7 @@ Examples:
   ait codeagent coauthor-domain
   ait codeagent check "claudecode/opus4_6"
   ait codeagent invoke pick 42
-  ait codeagent --agent-string geminicli/gemini2_5pro invoke explain src/
+  ait codeagent --agent-string codex/gpt5_4 invoke explain src/
   ait codeagent --dry-run invoke pick 42
 EOF
 }

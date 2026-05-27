@@ -56,7 +56,6 @@ DAY_FULL_NAMES = [
 AGENT_DISPLAY_NAMES = {
     "claudecode": "Claude Code",
     "codex": "Codex",
-    "geminicli": "Gemini CLI",
     "opencode": "OpenCode",
     "unknown": "Unknown",
 }
@@ -248,7 +247,7 @@ def load_model_cli_ids(project_root: Optional[Path] = None) -> Dict[Tuple[str, s
     result: Dict[Tuple[str, str], str] = {}
     _, _, metadata_dir = _paths_for(project_root)
 
-    for agent in ("claudecode", "codex", "geminicli", "opencode"):
+    for agent in ("claudecode", "codex", "opencode"):
         path = metadata_dir / f"models_{agent}.json"
         if not path.exists():
             continue
@@ -273,7 +272,7 @@ def load_verified_rankings(project_root: Optional[Path] = None) -> VerifiedRanki
     all_providers aggregation using canonical_model_id() normalization.
     """
     _, _, metadata_dir = _paths_for(project_root)
-    agents = ("claudecode", "codex", "geminicli", "opencode")
+    agents = ("claudecode", "codex", "opencode")
 
     # Collect raw verifiedstats: {(agent, cli_id): {op: {window: {runs, score_sum, period?}}}}
     raw: Dict[Tuple[str, str], Dict[str, Dict[str, dict]]] = {}
@@ -448,7 +447,7 @@ def load_usage_rankings(project_root: Optional[Path] = None) -> UsageRankingData
     WINDOW_KEYS — recent is synthesized from month + prev_month.
     """
     _, _, metadata_dir = _paths_for(project_root)
-    agents = ("claudecode", "codex", "geminicli", "opencode")
+    agents = ("claudecode", "codex", "opencode")
 
     raw: Dict[Tuple[str, str], Dict[str, Dict[str, dict]]] = {}
     for agent in agents:
@@ -641,14 +640,6 @@ def model_key_from_cli_id(cli_id: str) -> str:
         major, minor, family = match.groups()
         return f"{family}{major}_{minor}"
 
-    match = re.match(r"^gemini-([0-9]+(?:\.[0-9]+)?)-([a-z]+)(?:-([a-z]+))?$", value)
-    if match:
-        version, model_type, suffix = match.groups()
-        key = f"gemini{version.replace('.', '_')}{model_type}"
-        if suffix and suffix != "preview":
-            key += f"_{suffix}"
-        return key
-
     return slugify_key(value)
 
 
@@ -677,14 +668,6 @@ def model_display_from_cli_id(cli_id: str) -> str:
     if match:
         major, minor, family = match.groups()
         return f"{family.capitalize()} {major}.{minor}"
-
-    match = re.match(r"^gemini-([0-9]+(?:\.[0-9]+)?)-([a-z]+)(?:-([a-z]+))?$", value)
-    if match:
-        version, model_type, suffix = match.groups()
-        label = f"Gemini {version} {model_type.capitalize()}"
-        if suffix and suffix != "preview":
-            label += f" {suffix.capitalize()}"
-        return label
 
     return titleize_words(value)
 

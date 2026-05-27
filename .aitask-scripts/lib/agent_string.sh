@@ -25,7 +25,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/terminal_compat.sh"
 
 DEFAULT_AGENT_STRING="${DEFAULT_AGENT_STRING:-claudecode/opus4_7_1m}"
 METADATA_DIR="${METADATA_DIR:-${TASK_DIR:-aitasks}/metadata}"
-SUPPORTED_AGENTS=(claudecode geminicli codex opencode)
+SUPPORTED_AGENTS=(claudecode codex opencode)
 
 # --- Parsed agent string (set by parse_agent_string; read by callers in
 # aitask_codeagent.sh and aitask_skillrun.sh after sourcing) ---
@@ -70,7 +70,6 @@ get_cli_binary() {
     local agent="$1"
     case "$agent" in
         claudecode) echo "claude" ;;
-        geminicli)  echo "gemini" ;;
         codex)    echo "codex" ;;
         opencode) echo "opencode" ;;
         *) die "Unknown agent: '$agent'" ;;
@@ -82,7 +81,6 @@ get_model_flag() {
     local agent="$1"
     case "$agent" in
         claudecode) echo "--model" ;;
-        geminicli)  echo "-m" ;;
         codex)    echo "-m" ;;
         opencode) echo "--model" ;;
         *) die "Unknown agent: '$agent'" ;;

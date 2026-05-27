@@ -184,7 +184,7 @@ teardown_fixture
 echo "=== Test 4: promote-default-agent-string rejects non-claudecode + updates lines 21 & 663 ==="
 setup_fixture
 # Rejection path
-result=$(bash "$HELPER" promote-default-agent-string --agent geminicli --name gemini3pro 2>&1 || true)
+result=$(bash "$HELPER" promote-default-agent-string --agent codex --name gpt5_4 2>&1 || true)
 assert_contains "rejects non-claudecode" "only supports agent 'claudecode'" "$result"
 # Apply path
 bash "$HELPER" promote-default-agent-string --agent claudecode --name opus4_7 >/dev/null

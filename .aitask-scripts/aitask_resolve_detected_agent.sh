@@ -20,7 +20,7 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/task_utils.sh"
 
 METADATA_DIR="${TASK_DIR:-aitasks}/metadata"
-SUPPORTED_AGENTS=(claudecode geminicli codex opencode)
+SUPPORTED_AGENTS=(claudecode codex opencode)
 
 # --- Fast path: env var override ---
 if [[ -n "${AITASK_AGENT_STRING:-}" ]]; then

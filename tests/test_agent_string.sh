@@ -63,15 +63,13 @@ else
     PASS=$((PASS + 1))
 fi
 
-# --- Tests 4-7: get_cli_binary mapping ---
+# --- Tests 4-6: get_cli_binary mapping ---
 assert_eq "get_cli_binary claudecode" "claude"   "$(bash -c "source '$LIB'; get_cli_binary claudecode")"
-assert_eq "get_cli_binary geminicli"  "gemini"   "$(bash -c "source '$LIB'; get_cli_binary geminicli")"
 assert_eq "get_cli_binary codex"      "codex"    "$(bash -c "source '$LIB'; get_cli_binary codex")"
 assert_eq "get_cli_binary opencode"   "opencode" "$(bash -c "source '$LIB'; get_cli_binary opencode")"
 
-# --- Tests 8-11: get_model_flag mapping ---
+# --- Tests 7-9: get_model_flag mapping ---
 assert_eq "get_model_flag claudecode" "--model" "$(bash -c "source '$LIB'; get_model_flag claudecode")"
-assert_eq "get_model_flag geminicli"  "-m"      "$(bash -c "source '$LIB'; get_model_flag geminicli")"
 assert_eq "get_model_flag codex"      "-m"      "$(bash -c "source '$LIB'; get_model_flag codex")"
 assert_eq "get_model_flag opencode"   "--model" "$(bash -c "source '$LIB'; get_model_flag opencode")"
 

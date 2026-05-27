@@ -292,10 +292,9 @@ test_directory_patterns() {
             found_csharp_dir=true
         fi
 
-        # AI Agent config directories (.claude/, .gemini/, .opencode/, .codex/, .agents/)
+        # AI Agent config directories (.claude/, .opencode/, .codex/, .agents/)
         if [[ "$found_aiagents_dir" == false ]]; then
             if [[ "$f" == .claude/skills/* || "$f" == .claude/commands/* \
-               || "$f" == .gemini/skills/* || "$f" == .gemini/commands/* \
                || "$f" == .opencode/skills/* || "$f" == .opencode/commands/* \
                || "$f" == .codex/prompts/* || "$f" == .agents/skills/* ]]; then
                 add_score "aiagents" "$weight"

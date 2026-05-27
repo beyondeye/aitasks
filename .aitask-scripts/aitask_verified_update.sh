@@ -9,7 +9,7 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/verified_update_lib.sh"
 
-SUPPORTED_AGENTS=(claudecode geminicli codex opencode)
+SUPPORTED_AGENTS=(claudecode codex opencode)
 
 AGENT_STRING=""
 CLI_AGENT=""
@@ -39,7 +39,7 @@ Concurrency note:
 
 Options:
   --agent-string STR  Agent string in the form <agent>/<model>
-  --agent NAME        Agent name (claudecode, geminicli, codex, opencode)
+  --agent NAME        Agent name (claudecode, codex, opencode)
   --cli-id ID         Raw model ID from agent runtime (e.g. claude-opus-4-6)
                       Use --agent + --cli-id as alternative to --agent-string
   --skill NAME        Skill identifier to update (for example: pick, explain)

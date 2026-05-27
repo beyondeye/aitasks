@@ -130,7 +130,6 @@ CONFIG_FILE_DESCRIPTIONS: dict[str, str] = {
     "codeagent_config.local.json": "User-specific AI model overrides",
     "models_claudecode.json": "Claude Code model list and verification scores",
     "models_codex.json": "Codex CLI model list and verification scores",
-    "models_geminicli.json": "Gemini CLI model list and verification scores",
     "models_opencode.json": "OpenCode model list and verification scores",
 }
 
@@ -2529,7 +2528,7 @@ class SettingsApp(TuiSwitcherMixin, App):
         if not template_path.exists():
             return
         rendered_paths: list[str] = []
-        for agent in ("claude", "codex", "gemini", "opencode"):
+        for agent in ("claude", "codex", "opencode"):
             proc = subprocess.run(
                 [
                     "./.aitask-scripts/aitask_skill_render.sh",
@@ -2552,7 +2551,7 @@ class SettingsApp(TuiSwitcherMixin, App):
                 capture_output=True, text=True,
             )
             self.notify(
-                f"Re-rendered aitask-pickrem (remote × 4 agents) and "
+                f"Re-rendered aitask-pickrem (remote × 3 agents) and "
                 f"staged {len(rendered_paths)} file(s).",
                 severity="information", timeout=5,
             )
@@ -2561,7 +2560,6 @@ class SettingsApp(TuiSwitcherMixin, App):
         root_map = {
             "claude":   ".claude/skills",
             "codex":    ".agents/skills",
-            "gemini":   ".gemini/skills",
             "opencode": ".opencode/skills",
         }
         root = Path(root_map[agent]) / "aitask-pickrem-remote-"
