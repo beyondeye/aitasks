@@ -6,9 +6,10 @@ issue_type: enhancement
 status: Implementing
 labels: [codeagent, claudeskills]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-26 12:12
-updated_at: 2026-05-26 18:26
-boardidx: 40
+updated_at: 2026-05-26 18:58
+boardidx: 30
 ---
 
 ## Context

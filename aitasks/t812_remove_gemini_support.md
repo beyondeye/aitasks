@@ -8,7 +8,7 @@ labels: [geminicli]
 children_to_implement: [t812_1, t812_2, t812_3, t812_4, t812_5]
 created_at: 2026-05-20 08:01
 updated_at: 2026-05-26 12:07
-boardidx: 60
+boardidx: 50
 ---
 
 google is phasing out geminicli, and substituting it with antigravitycli that is different product: need to clarifiy (integrated with antigravity2.0): in any case geminicli support should be completely removed, and evaluate if to add support for antigravity cli or not. also remove all references to geminicli from documentation. this is complex task that need to be split in child tasks
