@@ -2,7 +2,7 @@
 date: 2026-05-27
 title: "v0.21.0: Profile-aware skill templating, Brainstorm: auto-apply,  DAG navigation,  and operation detail, and Cross-repo project registry"
 linkTitle: "v0.21.0"
-description: "v0.21.0 is a big one — a foundational refactor of how skills are authored and dispatched, the brainstorm TUI graduating from "experiment" to a real DAG-driven planning workflow, first-class cross-repo project plumbing, and a fresh mobile-companion bridge."
+description: "v0.21.0 is a big one — a foundational refactor of how skills are authored and dispatched, the brainstorm TUI graduating from \"experiment\" to a real DAG-driven planning workflow, first-class cross-repo project plumbing, and a fresh mobile-companion bridge."
 author: "aitasks team"
 ---
 

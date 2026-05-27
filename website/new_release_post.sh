@@ -241,6 +241,15 @@ generate_title() {
     fi
 }
 
+# Escape backslashes and double quotes for safe interpolation inside a
+# YAML double-quoted scalar. Order matters: backslashes first.
+yaml_escape_dq() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    printf '%s' "$s"
+}
+
 # --- Generate one-line description ---
 generate_description() {
     if [[ "$HUMANIZED" == true ]]; then
@@ -272,13 +281,17 @@ if [[ "$AUTO_MODE" == true ]]; then
     TITLE=$(generate_title)
     DESCRIPTION=$(generate_description)
 
+    # Escape for safe interpolation into double-quoted YAML scalars.
+    TITLE_YAML=$(yaml_escape_dq "$TITLE")
+    DESCRIPTION_YAML=$(yaml_escape_dq "$DESCRIPTION")
+
     {
         cat << FRONTMATTER
 ---
 date: $RELEASE_DATE
-title: "$TITLE"
+title: "$TITLE_YAML"
 linkTitle: "v$VERSION"
-description: "$DESCRIPTION"
+description: "$DESCRIPTION_YAML"
 author: "aitasks team"
 ---
 
@@ -294,6 +307,21 @@ FRONTMATTER
 **Full changelog:** [v$VERSION on GitHub](https://github.com/beyondeye/aitasks/releases/tag/v$VERSION)
 FOOTER
     } > "$OUTPUT_FILE"
+
+    # Smoke check: ensure the generated frontmatter parses as YAML.
+    if ! python3 - "$OUTPUT_FILE" <<'PY'
+import sys, yaml
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+parts = content.split("---", 2)
+if len(parts) < 3:
+    sys.exit("frontmatter delimiters missing")
+yaml.safe_load(parts[1])
+PY
+    then
+        die "Generated blog post has invalid YAML frontmatter: $OUTPUT_FILE"
+    fi
 
     info "Created blog post: $OUTPUT_FILE"
 
