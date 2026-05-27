@@ -4158,24 +4158,37 @@ class BrainstormApp(TuiSwitcherMixin, App):
             self._applying_explorer.discard(agent_name)
 
     def action_retry_explorer_apply(self) -> None:
-        """ctrl+shift+x: force-retry the most recently failed explorer.
+        """ctrl+shift+x: force-retry an explorer apply.
 
-        If multiple explorers are tracked, picks the one with the most
-        recent ``_status.yaml`` mtime.
+        After a successful auto-apply the agent is dropped from
+        ``self._explorer_agents`` and is not re-tracked by
+        ``_scan_existing_explorers`` (its node already exists, so
+        ``_explorer_needs_apply`` returns False). Walk the worktree
+        instead so the manual retry path also covers the
+        already-applied-then-corrupted case exercised by t787 item #3.
         """
-        if not self._explorer_agents:
+        wt = self.session_path
+        if not wt or not Path(wt).is_dir():
             return
-        candidates = list(self._explorer_agents)
-        if len(candidates) == 1:
-            agent = candidates[0]
-        else:
-            def _mtime(name: str) -> float:
-                p = self.session_path / f"{name}_status.yaml"
-                try:
-                    return p.stat().st_mtime
-                except Exception:
-                    return 0.0
-            agent = max(candidates, key=_mtime)
+        candidates: list[tuple[str, float]] = []
+        for status_path in Path(wt).glob("explorer_*_status.yaml"):
+            agent = status_path.stem[: -len("_status")]
+            try:
+                data = read_yaml(str(status_path))
+            except Exception:
+                continue
+            status = (data or {}).get("status", "")
+            if status != "Completed":
+                continue
+            try:
+                mtime = status_path.stat().st_mtime
+            except Exception:
+                mtime = 0.0
+            candidates.append((agent, mtime))
+        if not candidates:
+            self.notify("No completed explorer agents to retry.")
+            return
+        agent = max(candidates, key=lambda p: p[1])[0]
         self._try_apply_explorer_if_needed(agent, force=True)
 
     def _register_synthesizer_agent(self, agent_name: str) -> None:
