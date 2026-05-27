@@ -19,3 +19,10 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t843
+
+## Verification Checklist
+
+- [ ] Confirm `./.aitask-scripts/aitask_verification_parse.sh --help` exits 0 and prints a usage line mentioning `seed`, `parse`, `set`, `summary`.
+- [ ] Confirm `aitasks/metadata/profiles/fast.yaml` parses as valid YAML and contains a top-level `name:` field equal to `fast`.
+- [ ] Confirm `aitasks/metadata/profiles/default.yaml` parses as valid YAML and contains a top-level `name:` field equal to `default`.
+- [ ] Confirm the `manual_verification_auto_mode` key is documented in `.claude/skills/task-workflow/profiles.md`.
