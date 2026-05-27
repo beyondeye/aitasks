@@ -17,9 +17,12 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 # --- Defaults ---
 MAX_PLANS=0
 INPUT_FILES=()
+declare -A INPUT_BY_PROJECT=()
 CODEBROWSER_DIR=".aitask-explain/codebrowser"
 EXTRACT_SCRIPT="$SCRIPT_DIR/aitask_explain_extract_raw_data.sh"
 FORMAT_SCRIPT="$SCRIPT_DIR/aitask_explain_format_context.py"
+RESOLVE_SCRIPT="$SCRIPT_DIR/aitask_project_resolve.sh"
+LOCAL_PROJECT_KEY="_local_"
 
 PYTHON="$(require_ait_python)"
 
@@ -27,22 +30,60 @@ PYTHON="$(require_ait_python)"
 
 show_help() {
     cat << 'EOF'
-Usage: aitask_explain_context.sh --max-plans N <file1> [file2...]
+Usage: aitask_explain_context.sh --max-plans N <file_or_token> [...]
 
 Gather historical architectural context from aitask-explain data.
+
+Input tokens (mixable in a single invocation):
+  <path>                       Bare file path — resolved against the local project.
+  --project <name>:<path>      Resolve <path> against the project registered as <name>.
+                               The pair is repeatable.
+  <name>#<path>                Short notation equivalent to --project <name>:<path>.
 
 Options:
   --max-plans N    Maximum plans per file for greedy selection (required; 0 = no-op)
   --help, -h       Show help
 
 Output:
-  Formatted markdown to stdout with historical plan content.
+  ONE unified markdown document to stdout, spanning all referenced projects.
   Progress messages go to stderr.
+
+Notes:
+  Each project's cache lands under its own .aitask-explain/codebrowser/ tree.
+  Cross-repo names resolve via aitask_project_resolve.sh (registry +
+  AITASKS_PROJECT_<name> env override).
 
 Examples:
   ./.aitask-scripts/aitask_explain_context.sh --max-plans 3 .aitask-scripts/aitask_archive.sh
   ./.aitask-scripts/aitask_explain_context.sh --max-plans 1 src/foo.py src/bar.py
+  ./.aitask-scripts/aitask_explain_context.sh --max-plans 1 \
+      --project aitasks_mobile:src/foo.kt --project aitasks:.aitask-scripts/aitask_ls.sh
+  ./.aitask-scripts/aitask_explain_context.sh --max-plans 1 \
+      aitasks_mobile#src/foo.kt aitasks#.aitask-scripts/aitask_ls.sh
 EOF
+}
+
+add_input_file() {
+    local project="$1" file="$2"
+    INPUT_FILES+=("$file")
+    if [[ -n "${INPUT_BY_PROJECT[$project]:-}" ]]; then
+        INPUT_BY_PROJECT["$project"]+=$'\n'"$file"
+    else
+        INPUT_BY_PROJECT["$project"]="$file"
+    fi
+}
+
+# Classify a positional token and route it to add_input_file. Tokens matching
+# `<name>#<path>` are treated as cross-repo references (mirrors the
+# `aitasks#835_3` notation from aidocs/cross_repo_references.md, adapted to
+# file paths). Anything else is a local file.
+classify_token() {
+    local token="$1"
+    if [[ "$token" =~ ^([a-z0-9_-]+)#(.+)$ ]]; then
+        add_input_file "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+    else
+        add_input_file "$LOCAL_PROJECT_KEY" "$token"
+    fi
 }
 
 parse_args() {
@@ -53,17 +94,30 @@ parse_args() {
                 MAX_PLANS="$2"
                 shift 2
                 ;;
+            --project)
+                [[ $# -ge 2 ]] || die "--project requires a value"
+                local arg="$2"
+                [[ "$arg" == *:* ]] || die "--project requires <name>:<file>, got '$arg'"
+                local pname="${arg%%:*}"
+                local pfile="${arg#*:}"
+                [[ -n "$pname" && -n "$pfile" ]] || die "--project requires non-empty name and file, got '$arg'"
+                add_input_file "$pname" "$pfile"
+                shift 2
+                ;;
             --help|-h)
                 show_help
                 exit 0
                 ;;
             --)
                 shift
-                INPUT_FILES+=("$@")
+                while [[ $# -gt 0 ]]; do
+                    classify_token "$1"
+                    shift
+                done
                 break
                 ;;
             *)
-                INPUT_FILES+=("$1")
+                classify_token "$1"
                 shift
                 ;;
         esac
@@ -151,6 +205,28 @@ check_stale() {
     fi
 }
 
+process_directory_in_project() {
+    local project_root="$1"
+    local dir_key="$2"
+    # Subshell so the caller's PWD is preserved. Cache writes happen via the
+    # relative CODEBROWSER_DIR, so cd'ing into the project root lands the
+    # cache inside that project's own .aitask-explain/codebrowser/ tree.
+    # We absolutize the emitted ref:rundir pair so the caller (in a different
+    # CWD) can hand it to the Python formatter without path resolution
+    # surprises.
+    (
+        cd "$project_root" || exit 1
+        local pair
+        pair=$(process_directory "$dir_key") || exit 1
+        [[ -n "$pair" ]] || exit 1
+        local ref_rel="${pair%%:*}"
+        local run_rel="${pair#*:}"
+        local abs_root
+        abs_root=$(pwd)
+        printf '%s:%s\n' "$abs_root/$ref_rel" "$abs_root/$run_rel"
+    )
+}
+
 process_directory() {
     local dir_key="$1"
 
@@ -206,6 +282,30 @@ process_directory() {
     echo "${ref_yaml}:${run_dir}"
 }
 
+resolve_project_root() {
+    local name="$1"
+    if [[ "$name" == "$LOCAL_PROJECT_KEY" ]]; then
+        pwd
+        return 0
+    fi
+    local resolved
+    resolved=$("$RESOLVE_SCRIPT" "$name")
+    case "$resolved" in
+        RESOLVED:*)
+            echo "${resolved#RESOLVED:}"
+            ;;
+        STALE:*)
+            die "Project '$name' is registered but its path is stale: ${resolved#STALE:}. Run \`cd /path/to/$name && ait projects add\` to refresh."
+            ;;
+        NOT_FOUND:*)
+            die "Project '$name' is not registered. Run \`cd /path/to/$name && ait projects add\`."
+            ;;
+        *)
+            die "Resolver returned unexpected output for '$name': $resolved"
+            ;;
+    esac
+}
+
 main() {
     parse_args "$@"
 
@@ -217,24 +317,28 @@ main() {
         die "No input files specified. Usage: $0 --max-plans N <file1> [file2...]"
     fi
 
-    # Group files by directory (collect unique dir keys)
-    declare -A dir_groups
-    for f in "${INPUT_FILES[@]}"; do
-        local dir
-        dir=$(dirname "$f")
-        local key
-        key=$(dir_to_key "$dir")
-        dir_groups["$key"]=1
-    done
-
-    # Process each directory and collect ref:rundir pairs
+    # Per project: resolve root, group its files by directory, process each
+    # directory inside the project's tree, accumulate ref:rundir pairs.
     local ref_pairs=()
-    for dir_key in "${!dir_groups[@]}"; do
-        local pair
-        pair=$(process_directory "$dir_key" 2>/dev/null) || continue
-        if [[ "$pair" == *"/reference.yaml:"* ]]; then
-            ref_pairs+=("$pair")
-        fi
+    local project_name files_blob f dir key project_root pair
+    for project_name in "${!INPUT_BY_PROJECT[@]}"; do
+        project_root=$(resolve_project_root "$project_name")
+        files_blob="${INPUT_BY_PROJECT[$project_name]}"
+        declare -A dir_groups=()
+        while IFS= read -r f; do
+            [[ -n "$f" ]] || continue
+            dir=$(dirname "$f")
+            key=$(dir_to_key "$dir")
+            dir_groups["$key"]=1
+        done <<< "$files_blob"
+
+        for key in "${!dir_groups[@]}"; do
+            pair=$(process_directory_in_project "$project_root" "$key" 2>/dev/null) || continue
+            if [[ "$pair" == *"/reference.yaml:"* ]]; then
+                ref_pairs+=("$pair")
+            fi
+        done
+        unset dir_groups
     done
 
     if [[ ${#ref_pairs[@]} -eq 0 ]]; then
@@ -247,7 +351,9 @@ main() {
         ref_args+=(--ref "$pair")
     done
 
-    # Call the Python formatter
+    # Call the Python formatter once with all refs. Target files are passed
+    # stripped of any project prefix; reference.yaml stores project-relative
+    # paths, so the formatter matches them correctly across all refs.
     "$PYTHON" "$FORMAT_SCRIPT" \
         --max-plans "$MAX_PLANS" \
         "${ref_args[@]}" \
