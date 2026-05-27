@@ -380,3 +380,4 @@ python -m unittest tests.test_brainstorm_apply_explorer tests.test_brainstorm_ap
   group-name resolution, note that `_agent_to_group_name` maps
   `synthesizer_001` → `hybridize_001` (no parallel suffix expected for
   synthesizers, so the new strip-suffix branch is a no-op for that role).
+- **Manual-verification failure:** item "Corrupt one explorer's `_output.md` (e.g. truncate the NODE_YAML block), press `ctrl+shift+x`, verify the apply banner shows the `apply-explorer` CLI hint." failed; follow-up task t837.
