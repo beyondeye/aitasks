@@ -39,6 +39,7 @@ codeagent
 codebrowser
 codexcli
 crash_recovery
+custom_shortcuts
 development
 differ
 execution_profiles
