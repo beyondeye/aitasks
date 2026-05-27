@@ -8,7 +8,7 @@ labels: [verification, manual]
 verifies: [843]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-27 14:47
-updated_at: 2026-05-27 15:58
+updated_at: 2026-05-27 16:00
 boardidx: 70
 ---
 
@@ -24,7 +24,7 @@ archived; Defer is allowed but creates a carry-over task.
 
 ## Verification Checklist
 
-- [ ] Confirm `./.aitask-scripts/aitask_verification_parse.sh --help` exits 0 and prints a usage line mentioning `seed`, `parse`, `set`, `summary`.
-- [ ] Confirm `aitasks/metadata/profiles/fast.yaml` parses as valid YAML and contains a top-level `name:` field equal to `fast`.
-- [ ] Confirm `aitasks/metadata/profiles/default.yaml` parses as valid YAML and contains a top-level `name:` field equal to `default`.
-- [ ] Confirm the `manual_verification_auto_mode` key is documented in `.claude/skills/task-workflow/profiles.md`.
+- [x] Confirm `./.aitask-scripts/aitask_verification_parse.sh --help` exits 0 and prints a usage line mentioning `seed`, `parse`, `set`, `summary`. — PASS 2026-05-27 15:59 auto: --help exited 0 and listed seed/parse/set/summary subcommands
+- [x] Confirm `aitasks/metadata/profiles/fast.yaml` parses as valid YAML and contains a top-level `name:` field equal to `fast`. — PASS 2026-05-27 15:59 auto: yaml.safe_load parsed file; top-level name == 'fast'
+- [x] Confirm `aitasks/metadata/profiles/default.yaml` parses as valid YAML and contains a top-level `name:` field equal to `default`. — PASS 2026-05-27 16:00 auto: yaml.safe_load parsed file; top-level name == 'default'
+- [x] Confirm the `manual_verification_auto_mode` key is documented in `.claude/skills/task-workflow/profiles.md`. — PASS 2026-05-27 16:00 auto: grep found manual_verification_auto_mode in .claude/skills/task-workflow/profiles.md line 40
