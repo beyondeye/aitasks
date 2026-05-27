@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [codebrowser]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-27 08:45
-updated_at: 2026-05-27 11:01
+updated_at: 2026-05-27 11:06
+completed_at: 2026-05-27 11:06
 ---
 
 ## Problem
