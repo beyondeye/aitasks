@@ -154,3 +154,18 @@ Plan file commit goes separately via `./ait git` per CLAUDE.md.
 - TUI / website work (covered by t845 / t846 — they will pick up the new term naturally when picked).
 - `.gemini/skills/task-workflow-*-/` — left as-is; will be deleted by t812_2.
 - The `task-workflow-_skillrun_416236_*-` stray dir under `.claude/skills/` — not touched (cleaned by skillrun lifecycle).
+
+## Final Implementation Notes
+
+- **Actual work done:** Verbatim rename `impromptu` → `autonomous` across the 4 source-of-truth files in `.claude/skills/task-workflow/` (auto-verification.md, manual-verification.md, profiles.md, SKILL.md), re-rendered all 30 (skill,agent) pairs per profile via `aitask_skill_rerender.sh default fast remote`, and regenerated 9 golden files (3 procedure files × 3 profiles) under `tests/golden/procs/task-workflow/`.
+- **Deviations from plan:** None — the rename was purely mechanical. The git diff is symmetric (77 insertions, 77 deletions across 25 tracked files), confirming no behavioral change beyond the term swap.
+- **Issues encountered:** None.
+- **Key decisions:** Confirmed during planning that `.gemini/skills/task-workflow-*-/` should be skipped — t812_2 (Implementing) is removing the gemini render path wholesale; refreshing those rendered files would have been wasted work. Verified via `aitask_skill_rerender.sh` that only `claude codex opencode` are still wired into the rerender driver. The `-default-` and `-fast-` rendered dirs were refreshed on disk but don't show in `git status` because only `-remote-` profile-variant dirs are tracked in git for `task-workflow/` (the others are gitignored).
+- **Upstream defects identified:** None.
+
+## Verification results
+
+- `./.aitask-scripts/aitask_skill_verify.sh` → `aitask_skill_verify.sh: OK (10 template(s) verified across 3 agents)`
+- `bash tests/test_skill_render_task_workflow.sh` → `Tests: 62, Passed: 62, Failed: 0`
+- `grep -rn "impromptu" .claude/skills/task-workflow/ .claude/skills/task-workflow-*-/ .agents/skills/task-workflow-*-codex-/ .opencode/skills/task-workflow-*-/ tests/golden/procs/task-workflow/` → no matches (gemini scope excluded per plan).
+- Render check confirmed prompt label: `manual-verification.md` @ default profile line 59 reads `- "Yes, autonomous (Recommended)"`.
