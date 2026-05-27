@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t826_2]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [website, docs, cross_repo]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-25 17:18
-updated_at: 2026-05-25 17:18
+updated_at: 2026-05-27 14:07
 ---
 
 ## Context
