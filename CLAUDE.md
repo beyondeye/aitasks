@@ -200,7 +200,8 @@ implementation in `.claude/skills/`.
 
 The framework also supports OpenCode, Codex CLI, and Gemini CLI:
 - **Gemini CLI:** `.gemini/commands/` and `.gemini/skills/`
-- **Codex CLI:** `.agents/skills/` (shared with Gemini CLI); `.codex/` holds
+- **Codex CLI:** `.agents/skills/` (shared with future `agy` agent — see
+  "Skill templating and per-profile dispatch" below); `.codex/` holds
   only `config.toml` and `instructions.md`
 - **OpenCode:** `.opencode/skills/<name>/SKILL.md` and `.opencode/commands/`
 
@@ -225,6 +226,10 @@ in Codex CLI / Gemini CLI / OpenCode versions.
 >
 > **Read `aidocs/stub-skill-pattern.md`** when authoring or modifying a
 > profile-aware skill's stub surface or `.md.j2` authoring template.
+>
+> **Read `aidocs/adding_a_new_codeagent.md`** when adding a new code agent
+> to the framework (skill discovery / rendering, shared-root semantics,
+> rerender driver, headless variants, goldens regeneration).
 
 ### Skill templating and per-profile dispatch
 
