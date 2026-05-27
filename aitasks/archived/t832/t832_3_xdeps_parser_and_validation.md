@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t832_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [cross_repo, xdeps]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-26 18:27
-updated_at: 2026-05-27 16:57
+updated_at: 2026-05-27 17:26
+completed_at: 2026-05-27 17:26
 ---
 
 ## Context
