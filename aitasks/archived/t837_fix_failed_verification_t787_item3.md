@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [739]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [verification, bug]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-27 08:10
-updated_at: 2026-05-27 10:59
+updated_at: 2026-05-27 11:10
+completed_at: 2026-05-27 11:10
 ---
 
 ## Failed verification item from t739
