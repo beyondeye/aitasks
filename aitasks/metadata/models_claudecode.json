@@ -367,7 +367,7 @@
         },
         "explore": {
           "all_time": {
-            "runs": 13
+            "runs": 14
           },
           "prev_month": {
             "period": "2026-04",
@@ -375,11 +375,11 @@
           },
           "month": {
             "period": "2026-05",
-            "runs": 12
+            "runs": 13
           },
           "week": {
             "period": "2026-W22",
-            "runs": 2
+            "runs": 3
           }
         },
         "wrap": {
