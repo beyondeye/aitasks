@@ -18,6 +18,11 @@
 #   ./.aitask-scripts/aitask_query_files.sh active-children <N>
 #   ./.aitask-scripts/aitask_query_files.sh resolve <N>
 #   ./.aitask-scripts/aitask_query_files.sh recent-archived [limit]
+#   ./.aitask-scripts/aitask_query_files.sh task-status <N|N_M>
+#
+# Add `--project <name>` before the subcommand to redirect the call to a
+# sibling aitasks project registered in the per-user index. The sibling's
+# own aitask_query_files.sh runs in its own root.
 
 set -euo pipefail
 
@@ -28,14 +33,22 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/task_utils.sh"
 # shellcheck source=lib/archive_scan.sh
 source "$SCRIPT_DIR/lib/archive_scan.sh"
+# shellcheck source=lib/cross_repo_reexec.sh
+source "$SCRIPT_DIR/lib/cross_repo_reexec.sh"
 
 # --- Help ---
 show_help() {
     cat <<'EOF'
-Usage: aitask_query_files.sh <subcommand> [arguments]
+Usage: aitask_query_files.sh [--project <name>] <subcommand> [arguments]
 
 Query task and plan file locations. Returns structured output for
 skill-based automation (no interactive prompts, no side effects).
+
+Cross-repo:
+  --project <name>             Re-exec the call inside the sibling aitasks
+                               project <name> (resolved via the per-user
+                               registry at ~/.config/aitasks/projects.yaml).
+                               Must appear before the subcommand.
 
 Subcommands:
   task-file <N>                Find active task file for number N
@@ -49,6 +62,9 @@ Subcommands:
   archived-task <N|N_M>        Find archived task file (parent N or child N_M)
   resolve <N>                  Combined: task-file + has-children in one call
   recent-archived [limit]      List recently archived tasks (default: 15)
+  task-status <N|N_M>          Emit STATUS:<value> for task N (or child N_M);
+                               value is Ready/Editing/Implementing/Postponed/
+                               Done/Folded/NOT_FOUND. Archived tasks → Done.
 
 Output format (structured lines):
   TASK_FILE:<path>           Active task file found
@@ -84,6 +100,8 @@ Examples:
   ./.aitask-scripts/aitask_query_files.sh archived-children 16
   ./.aitask-scripts/aitask_query_files.sh archived-task 16
   ./.aitask-scripts/aitask_query_files.sh recent-archived 5
+  ./.aitask-scripts/aitask_query_files.sh task-status 16_2
+  ./.aitask-scripts/aitask_query_files.sh --project sibling task-file 16
 EOF
 }
 
@@ -437,8 +455,54 @@ cmd_recent_archived() {
     done <<< "$sorted"
 }
 
+cmd_task_status() {
+    [[ $# -lt 1 ]] && die "task-status requires a task id argument (N or N_M)"
+    local id
+    id=$(strip_prefix "$1")
+
+    local file=""
+    if [[ "$id" =~ ^([0-9]+)_([0-9]+)$ ]]; then
+        local parent="${BASH_REMATCH[1]}"
+        local child="${BASH_REMATCH[2]}"
+        file=$(ls "$TASK_DIR"/t"${parent}"/t"${parent}"_"${child}"_*.md 2>/dev/null || true)
+    elif [[ "$id" =~ ^[0-9]+$ ]]; then
+        file=$(ls "$TASK_DIR"/t"${id}"_*.md 2>/dev/null || true)
+    else
+        die "Invalid task id: '$1' (expected a number like 16, t16, or 16_2)"
+    fi
+
+    if [[ -n "$file" ]]; then
+        local status
+        status=$(read_task_status "$file")
+        echo "STATUS:${status:-NOT_FOUND}"
+        return
+    fi
+
+    # Not active — try archived. Archived tasks are always Done.
+    local archived
+    archived=$(cmd_archived_task "$id" | head -n 1)
+    if [[ "$archived" == ARCHIVED_TASK:* || "$archived" == ARCHIVED_TASK_ARCHIVE:* ]]; then
+        echo "STATUS:Done"
+        return
+    fi
+
+    echo "STATUS:NOT_FOUND"
+}
+
 # --- Main dispatch ---
 main() {
+    # Cross-repo redirect (t832_1): if `--project <name>` appears anywhere
+    # in argv, resolve <name> to a sibling aitasks project root and re-exec
+    # the sibling's own aitask_query_files.sh with `--project <name>`
+    # stripped. The forwarded argv keeps the subcommand and its arguments
+    # intact.
+    cross_repo_reexec_or_continue "aitask_query_files.sh" "$@"
+    if [[ ${#CROSS_REPO_FORWARDED_ARGV[@]} -gt 0 ]]; then
+        set -- "${CROSS_REPO_FORWARDED_ARGV[@]}"
+    else
+        set --
+    fi
+
     if [[ $# -eq 0 ]]; then
         show_help
         exit 0
@@ -492,6 +556,10 @@ main() {
         recent-archived)
             shift
             cmd_recent_archived "$@"
+            ;;
+        task-status)
+            shift
+            cmd_task_status "$@"
             ;;
         *)
             die "Unknown subcommand: '$1'. Use --help for usage."

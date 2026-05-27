@@ -10,7 +10,7 @@
 # "foo.py:10-20^30-40^89-100" all count as a match for path "foo.py".
 #
 # Usage:
-#   ./.aitask-scripts/aitask_find_by_file.sh <path>
+#   ./.aitask-scripts/aitask_find_by_file.sh [--project <name>] <path>
 #
 # Output:
 #   TASK:<task_id>:<task_file>   one line per matching task
@@ -26,15 +26,33 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# shellcheck source=lib/cross_repo_reexec.sh
+source "$SCRIPT_DIR/lib/cross_repo_reexec.sh"
+
+# Cross-repo redirect (t832_1): if `--project <name>` appears in argv,
+# resolve <name> and re-exec the sibling's own aitask_find_by_file.sh in
+# its root with `--project <name>` stripped. No-op when --project absent.
+cross_repo_reexec_or_continue "aitask_find_by_file.sh" "$@"
+if [[ ${#CROSS_REPO_FORWARDED_ARGV[@]} -gt 0 ]]; then
+    set -- "${CROSS_REPO_FORWARDED_ARGV[@]}"
+else
+    set --
+fi
 
 TASK_DIR="${TASK_DIR:-aitasks}"
 
 show_help() {
     cat <<'EOF'
-Usage: aitask_find_by_file.sh <path>
+Usage: aitask_find_by_file.sh [--project <name>] <path>
 
 Find pending (Ready/Editing) tasks whose file_references frontmatter
 list contains an entry for the given path.
+
+Cross-repo:
+  --project <name>    Re-exec the call inside the sibling aitasks project
+                      <name> (resolved via the per-user registry at
+                      ~/.config/aitasks/projects.yaml). Must appear before
+                      the <path> argument.
 
 Arguments:
   <path>    File path to search for. Matching is path-only: line

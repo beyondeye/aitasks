@@ -3,8 +3,21 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# shellcheck source=lib/cross_repo_reexec.sh
+source "$SCRIPT_DIR/lib/cross_repo_reexec.sh"
 
 TASK_DIR="aitasks"
+
+# Cross-repo redirect (t832_1): if `--project <name>` appears anywhere in
+# argv, resolve <name> to a sibling aitasks project root and re-exec the
+# sibling's own aitask_ls.sh with `--project <name>` stripped. The
+# forwarded argv keeps all other flags intact.
+cross_repo_reexec_or_continue "aitask_ls.sh" "$@"
+if [[ ${#CROSS_REPO_FORWARDED_ARGV[@]} -gt 0 ]]; then
+    set -- "${CROSS_REPO_FORWARDED_ARGV[@]}"
+else
+    set --
+fi
 
 # --- Help Function ---
 show_help() {
@@ -30,6 +43,10 @@ OPTIONS:
   -c, --children PARENT  List only children of specified parent task number.
   --all-levels  Show all tasks including children (flat list).
   --tree        Show hierarchical tree view with children indented.
+  --project NAME  Re-exec this listing inside the sibling aitasks project
+                NAME (resolved via the per-user registry at
+                ~/.config/aitasks/projects.yaml). Must appear before any
+                other flag/argument.
   -h, --help    Show this help message.
 
 METADATA FORMAT:
