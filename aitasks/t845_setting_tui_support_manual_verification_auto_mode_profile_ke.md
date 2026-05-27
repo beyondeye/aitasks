@@ -7,6 +7,7 @@ status: Ready
 labels: [manual_verification, ait_settings, tui, task_workflow]
 created_at: 2026-05-27 13:32
 updated_at: 2026-05-27 13:32
+boardidx: 40
 ---
 
 ## Context

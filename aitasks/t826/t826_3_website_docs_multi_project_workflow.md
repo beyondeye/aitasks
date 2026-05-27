@@ -6,8 +6,9 @@ issue_type: documentation
 status: Implementing
 labels: [website, docs, cross_repo]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-25 17:18
-updated_at: 2026-05-27 14:07
+updated_at: 2026-05-27 14:08
 ---
 
 ## Context
