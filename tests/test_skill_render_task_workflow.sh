@@ -2,7 +2,7 @@
 # test_skill_render_task_workflow.sh - Regression tests for the wrapped
 # shared workflow under .claude/skills/task-workflow/:
 #   - 5 wrapped .md files
-#   - 13 golden files under tests/golden/procs/task-workflow/
+#   - 19 golden files under tests/golden/procs/task-workflow/
 # Coverage:
 #   1.  Per-(file, profile) golden diff for the 4 profile-varying wrapped
 #       files × 3 profiles.
@@ -82,7 +82,9 @@ PROFILES_DIR="aitasks/metadata/profiles"
 WRAPPED_FILES_VARYING=(
     "SKILL.md"
     "planning.md"
+    "manual-verification.md"
     "manual-verification-followup.md"
+    "auto-verification.md"
     "satisfaction-feedback.md"
 )
 WRAPPED_FILES_INVARIANT=(
@@ -93,7 +95,7 @@ AGENTS=(claude codex gemini opencode)
 
 # === Test 1: Per-(file, profile) golden diff (profile-varying files) ===
 
-echo "=== Test 1: golden diffs for 4 profile-varying wrapped files × 3 profiles ==="
+echo "=== Test 1: golden diffs for 6 profile-varying wrapped files × 3 profiles ==="
 for file in "${WRAPPED_FILES_VARYING[@]}"; do
     stem="${file%.md}"
     for profile in "${PROFILES[@]}"; do

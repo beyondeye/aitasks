@@ -40,6 +40,67 @@ Parse the output for `TOTAL:<N>`.
 
   **If "Abort":** execute the **Task Abort Procedure** (see `task-abort.md`) and end.
 
+### 1.5. Auto-execution mode offer
+
+Offer to auto-verify the checklist (whole-list pass) before entering the
+interactive Pass/Fail/Skip/Defer loop. The per-item `auto` verb in step 2's
+"Other" branch remains independently available regardless of what happens
+here.
+
+{# ---------- manual_verification_auto_mode ---------- #}{% if profile.manual_verification_auto_mode is defined %}
+{% if profile.manual_verification_auto_mode == "never" %}
+Profile '{{ profile.name }}' sets `manual_verification_auto_mode: never`.
+Skip the up-front prompt and proceed to step 2 (interactive loop).
+{% elif profile.manual_verification_auto_mode == "impromptu" %}
+Profile '{{ profile.name }}' sets `manual_verification_auto_mode: impromptu`.
+Skip the up-front prompt; execute the **Auto-Verification Procedure** (see
+`auto-verification.md`) with `strategy = "impromptu"`. When the procedure
+returns, fall through to step 2 for any items still in `pending` / `defer`.
+{% elif profile.manual_verification_auto_mode == "prebuilt_approve" %}
+Profile '{{ profile.name }}' sets `manual_verification_auto_mode:
+prebuilt_approve`. Skip the up-front prompt; execute the **Auto-Verification
+Procedure** with `strategy = "prebuilt"` and `approval_required = true`.
+Fall through to step 2 when it returns.
+{% elif profile.manual_verification_auto_mode == "prebuilt_autorun" %}
+Profile '{{ profile.name }}' sets `manual_verification_auto_mode:
+prebuilt_autorun`. Skip the up-front prompt; execute the **Auto-Verification
+Procedure** with `strategy = "prebuilt"` and `approval_required = false`.
+Fall through to step 2 when it returns.
+{% else %}{# manual_verification_auto_mode == "ask" or any other value #}
+Profile '{{ profile.name }}' sets `manual_verification_auto_mode: {{ profile.manual_verification_auto_mode }}`. Show the prompt below.
+{% endif %}
+{% else %}{# key absent — defaults to "ask" #}
+Use `AskUserQuestion`:
+- Question: "Try to auto-verify checklist items before the interactive loop?
+  The agent will inspect each item, attempt to verify it (CLI calls, file
+  inspection, tmux interaction with TUIs), and mark pass/fail/defer. Items
+  it can't automate are left pending and you'll work through them
+  interactively as usual."
+- Header: "Auto-verify"
+- Options:
+  - "Yes, impromptu (Recommended)" (description: "Agent picks a
+    verification approach per item on the fly, runs it, and documents what
+    was actually done at the end in the plan file. Fastest; no upfront
+    plan-design step.")
+  - "Yes, design plan first and approve" (description: "Agent designs the
+    per-item execution plan up front, enters plan mode, you approve via
+    ExitPlanMode, then it executes. Use when you want to veto risky
+    automation (fake-data creation, irreversible commands) before it
+    happens.")
+  - "No, go straight to interactive" (description: "Skip auto-execution.
+    The `auto` verb is still available per-item via the Other field in
+    step 2.")
+
+Branch on the answer:
+- "Yes, impromptu" → execute the **Auto-Verification Procedure** (see
+  `auto-verification.md`) with `strategy = "impromptu"`. Fall through to
+  step 2 when it returns.
+- "Yes, design plan first and approve" → execute the procedure with
+  `strategy = "prebuilt"` and `approval_required = true`. Fall through to
+  step 2.
+- "No, go straight to interactive" → proceed directly to step 2.
+{% endif %}{# ---------- end manual_verification_auto_mode ---------- #}
+
 ### 2. Main loop — render checklist, then ask about the current item
 
 This is a re-entrant outer loop: every state mutation (single-option answer or
@@ -90,7 +151,8 @@ reflects the current state and the "current item" is always the first remaining
 
    ```
    Tip: in the Other field you can batch-resolve multiple items in one go,
-   e.g. "3 pass, 4 fail, 5 skip not applicable" (verbs: pass / fail / skip / defer).
+   e.g. "3 pass, 4 fail, 5 skip not applicable, 6 auto"
+   (verbs: pass / fail / skip / defer / auto).
    ```
 
 5. **Identify the CURRENT item:** the first item whose state is `pending` or
@@ -154,11 +216,11 @@ reflects the current state and the "current item" is always the first remaining
 
    - **(ii) Batch update** — the text is one or more entries matching the
      pattern `<idx> <verb> [args]`, separated by commas, semicolons, or
-     newlines. `<verb>` is `pass | fail | skip | defer` (case-insensitive).
-     `<idx>` must be a valid item index (1-based) currently in state `pending`
-     or `defer`. Also accept a **shorthand single-entry form with no leading
-     index** (e.g., the user types just `pass`, `skip not applicable`) — apply
-     it to the current item.
+     newlines. `<verb>` is `pass | fail | skip | defer | auto`
+     (case-insensitive). `<idx>` must be a valid item index (1-based)
+     currently in state `pending` or `defer`. Also accept a **shorthand
+     single-entry form with no leading index** (e.g., the user types just
+     `pass`, `skip not applicable`, `auto`) — apply it to the current item.
 
      For each parsed entry, in order, run the same per-state command as the
      single-option choices above:
@@ -169,6 +231,7 @@ reflects the current state and the "current item" is always the first remaining
      | fail  | `./.aitask-scripts/aitask_verification_followup.sh --from <task_id> --item <idx>` (handle `FOLLOWUP_CREATED` / `ORIGIN_AMBIGUOUS` / `ERROR` exactly as in the single-option Fail branch) |
      | skip  | `./.aitask-scripts/aitask_verification_parse.sh set <task_file> <idx> skip --note "<rest-of-entry-text>"` (rest-of-entry-text = everything after `skip` until the next delimiter; if empty, prompt once for a reason via `AskUserQuestion`) |
      | defer | `./.aitask-scripts/aitask_verification_parse.sh set <task_file> <idx> defer` |
+     | auto  | execute the **Auto-Verification Procedure** (see `auto-verification.md`) with `single_item = <idx>` and `strategy = "impromptu"` (per-item auto is always impromptu — no plan-design or approval gate for a single item). The procedure runs the item, marks state via `set --note`, and appends an Execution Log entry to the plan file. If automation cannot reach a verdict, the item is marked `defer` with a reason. |
 
      **Validation:** if any entry references an out-of-range index, an index
      already in a terminal state (`pass` / `fail` / `skip`), or an unknown
