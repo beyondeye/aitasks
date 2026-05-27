@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [geminicli, codeagents]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-26 12:05
-updated_at: 2026-05-27 13:33
+updated_at: 2026-05-27 14:55
+completed_at: 2026-05-27 14:55
 ---
 
 ## Context
