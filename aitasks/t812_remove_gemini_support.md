@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [geminicli]
-children_to_implement: [t812_2, t812_3, t812_4, t812_5]
+children_to_implement: [t812_3, t812_4, t812_5]
 created_at: 2026-05-20 08:01
-updated_at: 2026-05-27 14:55
+updated_at: 2026-05-27 16:56
 boardidx: 30
 ---
 
