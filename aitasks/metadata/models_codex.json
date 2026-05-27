@@ -23,6 +23,23 @@
             "period": "2026-W21",
             "runs": 1
           }
+        },
+        "pick": {
+          "all_time": {
+            "runs": 1
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-05",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W22",
+            "runs": 1
+          }
         }
       }
     },
