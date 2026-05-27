@@ -353,14 +353,140 @@ to list the new section.
 Standard archival. Final Implementation Notes **must** include the
 `### For t814 (add-agy): inverse instructions` subsection.
 
-## Final Implementation Notes (template)
+## Final Implementation Notes
 
-- **Actual work done:** …
-- **Deviations from plan:** …
-- **Issues encountered:** …
-- **Key decisions:** …
-- **Upstream defects identified:** None (or list)
-- **Notes for sibling tasks:** …
+- **Actual work done:** Removed all current-state geminicli mentions from 46
+  files across the framework (README, CLAUDE.md, 17 website docs + 3
+  newly-discovered ones, 6 skill-closure source files, 4 aidocs reference
+  docs, golden snapshots, and a new CHANGELOG entry). Rendered closures
+  for all 3 profiles × 3 agents refreshed via `aitask_skill_rerender.sh`.
+  Extended `aidocs/adding_a_new_codeagent.md` with new §23 documenting the
+  user-facing-docs + skill-closure touchpoints surfaced during this sweep.
+- **Deviations from plan:** Three additional website surfaces missed by
+  the initial verification grep were caught by the final grep and
+  fixed inline: `website/content/_index.md` (Hugo home page),
+  `website/content/about/_index.md` (about-page stats line),
+  `website/content/docs/tuis/board/how-to.md` (Pick-button description).
+  Documented in §23f's website-docs list for future agent adds/removes.
+- **Issues encountered:** None blocking. The rerender skipped some
+  orphaned-rendered dirs whose `.j2` source no longer exists (cosmetic
+  log noise — verified the actual rendered content updated correctly).
+- **Key decisions:**
+  1. **Genericization rule:** blurb / tagline prose (README, overview,
+     intros) was rewritten to "Claude Code and all other supported coding
+     agents" instead of just dropping `geminicli` from fixed enumerations
+     — at user's explicit direction. Normative enumerations (CLI mapping
+     tables, per-agent install sections, TUI value lists, settings rows)
+     kept literal. The distinction is now codified in the new
+     `feedback_generic_agent_enumerations_in_docs` memory and in §23b of
+     `adding_a_new_codeagent.md`.
+  2. **stub-skill-pattern.md §3c deletion:** chose option (b) — delete
+     the Gemini-TOML stub-form worked example outright rather than
+     replacing with a Codex variant — because §3b already covers the
+     Codex+Claude SKILL.md form and §3d covers the OpenCode MD form;
+     §3c was Gemini-specific (TOML command wrapper) with no surviving
+     analogue.
+  3. **CHANGELOG placement:** added a new top-level "Unreleased" section
+     under "Removals", noting the entire t812 effort. Did NOT touch
+     historical CHANGELOG entries describing Gemini CLI work in v0.9.0
+     and earlier.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks (t812_5):** The sibling-task disposition flow
+  in t812_5 should re-check the new §23 sweep — if any of the four
+  pending Gemini-specific aitasks (t343, t344, t345, t401_3) need
+  current-state docs updates to redirect users to agy or close cleanly,
+  those edits inherit the same genericization-vs-literal-enumeration
+  rule from §23b. No skill-closure files mention Gemini anymore; the
+  fan-out concern is resolved as of this commit.
+
+### For t814 (add-agy): inverse instructions
+
+- **Files re-touched by agy:**
+  - **Top-level prose (3 files):** `README.md`, `CLAUDE.md`,
+    `CHANGELOG.md` (new entry).
+  - **Website docs — genericized surfaces** that need agy added back as
+    a specific anchor only if doing so adds editorial weight:
+    `website/content/_index.md`, `website/content/about/_index.md`,
+    `website/content/docs/overview.md`,
+    `website/content/docs/getting-started.md`,
+    `website/content/docs/skills/_index.md`,
+    `website/content/docs/installation/_index.md`,
+    `website/content/docs/concepts/agent-attribution.md`,
+    `website/content/docs/concepts/verified-scores.md`,
+    `website/content/docs/skills/aitask-pick/commit-attribution.md`,
+    `website/content/docs/skills/aitask-refresh-code-models.md`,
+    `website/content/docs/tuis/board/how-to.md`. The default for agy
+    should be to leave the genericized phrasing intact unless the
+    enumeration is normative.
+  - **Website docs — normative enumerations** that need a new agy row:
+    `website/content/docs/commands/codeagent.md` (CLI mapping table +
+    list-agents/list-models output examples),
+    `website/content/docs/installation/known-issues.md` (add a new
+    `## Antigravity CLI` H2 with agy-specific caveats — analogous to
+    Codex's section structure),
+    `website/content/docs/installation/updating-model-lists.md` (add
+    `agy` to the agent list),
+    `website/content/docs/installation/windows-wsl.md` (add `agy` to
+    the install instructions),
+    `website/content/docs/skills/aitask-add-model.md` (new row in the
+    Supported Agents table),
+    `website/content/docs/development/skills/aitask-audit-wrappers.md`
+    (wrapper-tree table + touchpoint table — note touchpoint IDs 2 and
+    5 stay vacant; pick the next free ID),
+    `website/content/docs/tuis/settings/{_index,how-to,reference}.md`
+    (TUI value enumerations).
+  - **Skill-closure source files (6 files):** add agy to the agent-
+    identifier list and per-agent detection branch in
+    `.claude/skills/task-workflow/{model-self-detection,satisfaction-feedback,plan-externalization}.md`,
+    `.claude/skills/aitask-{add-model,refresh-code-models,audit-wrappers}/SKILL.md`.
+  - **aidocs (5 files):** add agy rows to
+    `aitasks_extension_points.md` (touchpoint table — pick the next
+    free ID; do NOT reuse retired Gemini IDs 2 and 5),
+    `model_reference_locations.md` (model registry table + supported
+    agents table — add as `yes (limited)` like codex, since agy will
+    likely be promote-limited too),
+    `issue_type_vocabulary_duplication.md` (add the
+    `seed/agy_instructions.seed.md` line to the agent-identification-
+    only note),
+    `stub-skill-pattern.md` (§3g table row + the "one stub per (skill,
+    agent surface)" count — bump from 3 stubs to 4 stubs per skill).
+- **Pattern removed (by this task):** geminicli mentions in
+  agent-enumeration prose, the `.gemini/` directory listing in
+  CLAUDE.md's stub-surface table, the per-agent stub-form §3c in
+  `stub-skill-pattern.md`, the wrapper-tree row in audit-wrappers
+  surfaces, and the satisfaction-feedback / model-self-detection
+  "Use one of …" identifier list.
+- **Inverse instruction:** to add agy, add `Antigravity CLI (agy)` to
+  each normative enumeration (modeled on codex's row position — agy
+  shares `.agents/skills/` per t834). Re-run
+  `./.aitask-scripts/aitask_skill_rerender.sh <profile>` for each of
+  default/fast/remote after source edits, then regenerate
+  `tests/golden/procs/task-workflow/satisfaction-feedback-*.md` (and
+  any other affected goldens) in the same commit. Add a new CHANGELOG
+  entry under the next pending release. Apply the genericization rule
+  to blurb prose — if a tagline already says "Claude Code and all
+  other supported coding agents", leave it alone unless agy carries
+  enough editorial weight to anchor explicitly.
+- **Hidden coupling discovered during removal:**
+  - The `task-workflow` closure has 3 separate procedure files
+    (`model-self-detection.md`, `satisfaction-feedback.md`,
+    `plan-externalization.md`) that each enumerate the agent list
+    independently. A new-agent add needs to edit all three.
+  - The `.claude/skills/task-workflow/` source has NO `.md.j2` entry
+    point (it's a procedure-only closure pulled in by parent skills).
+    The rerender script logs "orphaned rendered dir" for these but
+    still updates them transitively when parent skills are rendered.
+    This is correct behavior but the log noise can be confusing.
+  - Three website docs (`_index.md` home page, `about/_index.md`,
+    `tuis/board/how-to.md`) had agent enumerations that the original
+    plan missed — they're now documented in §23f of
+    `adding_a_new_codeagent.md` so future sweeps catch them.
+  - The `aidocs/adding_a_new_codeagent.md` playbook itself mentions
+    "geminicli" several times as part of documenting which agents
+    were retired and where to grep. These mentions are intentional
+    (they describe the history / detection process) and should remain
+    — they're caught by the final-grep filter (`grep -v
+    aidocs/adding_a_new_codeagent.md`).
 
 ### For t814 (add-agy): inverse instructions
 
