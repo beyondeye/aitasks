@@ -214,3 +214,64 @@ End-to-end pass after all edits:
 Standard task-workflow Step 9: merge approval, branch cleanup, archival,
 and push. No special considerations beyond regenerating goldens in the
 same commit as the source change.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all 10 plan steps. Added the
+  `agent_shared_skills_root` helper in
+  `.aitask-scripts/lib/agent_skills_paths.sh` (declares codex as the only
+  shared-root agent today) and its Python mirror
+  `AGENT_SHARED_SKILLS_ROOT` in `.aitask-scripts/lib/skill_template.py`
+  with a `_render_dir_name()` helper. Threaded the new naming through
+  `_target_path_for`, `walk_closure` entry-target composition, and
+  `rewrite_ref`. Refactored `aitask_skill_rerender.sh` to pick the
+  per-agent glob (`*-${profile}-${agent}-` vs `*-${profile}-`) and
+  matching suffix-strip. Rewrote `aitask_skill_verify.sh`'s stub
+  trailing-hyphen Read-path assertion to be per-agent and switched the
+  headless prerender check to compose paths via `agent_skill_dir`.
+  Updated all 10 codex stubs in `.agents/skills/<skill>/SKILL.md` to
+  point at the new `-<profile>-codex-/SKILL.md` Read path. Updated
+  `.gitignore` codex headless negations, the stub-pattern reference doc
+  (§3a, §3b substitutions, §3g surface table, §3i resolution rules),
+  the audit-wrappers script's stub template, the template unit tests
+  (added `agent_shared_skills_root` and shared-root `rewrite_ref`
+  assertions), every per-skill render test (sed-rewrote codex
+  assertions to include `-codex-`), and the synthetic-fixture stub
+  body in `test_skill_verify.sh`. Re-rendered and replaced the
+  pre-committed codex remote variants (`aitask-pickrem-remote-codex-`,
+  `aitask-pickweb-remote-codex-`, `task-workflow-remote-codex-`) with
+  `git rm -r` of the old paths plus `git add` of the new ones; git
+  detected the renames cleanly.
+- **Deviations from plan:** Two test-suite robustness fixes were
+  needed beyond the plan: the per-skill `Test 6 (committed remote-
+  variant freshness)` in pickrem/pickweb required an extra
+  `git cat-file -e HEAD:` guard so a freshly-renamed file (tracked in
+  index but not yet in HEAD) skips the freshness diff instead of
+  failing — pre-existing freshness check only guarded `ls-files`. Also
+  patched `.aitask-scripts/aitask_audit_wrappers.sh` whose embedded
+  stub template literal still spelled the old codex Read path (not
+  enumerated in the plan but surfaced during the sweep).
+- **Issues encountered:** First test-run flushed two regressions:
+  (1) Test 5 stub-marker checks in 10 per-skill render tests still
+  expected the un-suffixed codex Read literal — fixed via a targeted
+  sed across those files; (2) Test 6/8 in pickrem/pickweb still
+  hardcoded the old `aitask-pickrem-remote-/` paths — refactored both
+  to source `agent_skills_paths.sh` and use `agent_skill_dir`. The
+  test_skill_verify synthetic "good" stub-maker also needed updating
+  for the codex stub literal. All resolved in one pass.
+- **Key decisions:**
+  - Per-agent property over runtime root-collision detection — the
+    user picked the explicit per-agent flag option during planning, so
+    `agent_shared_skills_root` is a separate case statement parallel
+    to `agent_skill_root`. Same shape in the Python mirror.
+  - Trailing hyphen preserved on the shared-root form
+    (`<skill>-<profile>-<agent>-`), keeping the `*-/` gitignore glob
+    load-bearing across both forms.
+  - The vestigial `task-workflow-remote-/related-task-discovery.md`
+    file (which was committed for the codex variant but is not
+    transitively reachable from pickrem/pickweb entry points) was
+    correctly dropped by the closure walker and shows as `D` in
+    `git status`. This matches the actual closure; codex's claude
+    counterpart still has the file because it was never re-rendered.
+- **Upstream defects identified:** None.
+
