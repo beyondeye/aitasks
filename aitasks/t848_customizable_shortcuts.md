@@ -5,9 +5,10 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [custom_shortcuts]
+children_to_implement: [t848_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-27 15:00
-updated_at: 2026-05-27 16:56
+updated_at: 2026-05-27 17:27
 boardidx: 80
 ---
 
