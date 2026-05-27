@@ -184,6 +184,36 @@ worktree cleanup or branch merge is needed. Run `aitask_archive.sh 844`,
 which moves task/plan files to archived and commits the archival. Then
 `./ait git push`.
 
+## Final Implementation Notes
+
+- **Actual work done:** Patched the v0210 blog post (single line, escaped two
+  inner `"` characters); added `yaml_escape_dq()` helper to
+  `website/new_release_post.sh` and applied it to `$TITLE`/`$DESCRIPTION`
+  before the auto-mode YAML heredoc; added a Python-based YAML smoke check
+  after the generated file is written.
+- **Deviations from plan:** None substantive. The landing-page entry built by
+  `update_landing_page` keeps the unescaped `$TITLE` (the plan already noted
+  this was acceptable since the landing-page consumes it as markdown link
+  text, not a YAML scalar).
+- **Issues encountered:** None.
+- **Key decisions:** Used the script's pre-existing `die()` helper for the
+  smoke-check failure path (no extra sourcing needed). Used a Python
+  heredoc for the smoke check to keep the script self-contained — `python3`
+  is already required by the Hugo workflow and is widely available.
+- **Verification performed:**
+  - `python3 -c "import yaml; yaml.safe_load(...)"` parses the patched v0210
+    frontmatter; `title` and `description` decode correctly.
+  - `bash -n website/new_release_post.sh` passes.
+  - Synthetic regression: ran the script in auto mode against a crafted
+    `CHANGELOG_HUMANIZED.md` containing `"experiment"`, `"real"`, and a stray
+    `\`; the generated blog file's frontmatter parses cleanly and the
+    Python parse round-trips the embedded quotes/backslash as expected.
+  - `cd website && hugo build --gc --minify --quiet` succeeds.
+    `public/blog/v0210-.../index.html` renders with the correct `<title>`
+    and a `<meta name=description>` tag containing the full description
+    (inner quotes rendered as `&ldquo;…&rdquo;`).
+- **Upstream defects identified:** None.
+
 ## Notes
 
 - All edits are localized to `website/`. No framework code, no skills, no
