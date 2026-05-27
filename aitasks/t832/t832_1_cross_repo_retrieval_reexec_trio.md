@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [cross_repo, aitask_query]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-26 18:25
-updated_at: 2026-05-26 18:25
+updated_at: 2026-05-27 13:34
 ---
 
 ## Context
