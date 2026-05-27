@@ -290,3 +290,48 @@ commits.
 
 Follow the standard task-workflow Step 8 → Step 9 flow: commit code +
 plan file separately, then archive and push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Added
+  `has_code_commits: bool = True` field to `CompletedTask`. Added
+  `_build_archive_commit_map(project_root)` greping
+  `^ait: Archive completed t<N>` on `--all` branches. Added
+  `_mtime_anchor(archived_dir, tid, filename)` for loose-file mtime
+  fallback. Rewrote `_merge_chunk` to walk the three-step anchor
+  priority (code > archive > mtime). Wired both maps and `archived_dir`
+  through `load_task_index_progressive`. Updated
+  `HistoryTaskItem.render` to show a dim `[no-code]` marker (color
+  `#FFB86C`, matching the codebrowser palette). Updated
+  `_render_task` in `history_detail.py` to mount a "No source-code
+  commits — framework activity only" empty-state row in the Commits
+  section when `not task.has_code_commits`. Added two new test classes
+  (`TestLoadTaskIndexNoCodeCommit`, `TestLoadTaskIndexMtimeFallback`)
+  plus a regression assertion that code-anchored tasks still have
+  `has_code_commits=True`.
+- **Deviations from plan:** None. The minor concrete touch was
+  importing `datetime, timezone` at module-level rather than inside
+  `_mtime_anchor` — cleaner and the import is otherwise harmless.
+- **Issues encountered:** `pytest` is not in the venv; ran the tests
+  via `python3 -m unittest tests.test_history_data -v` instead.
+  Reference for future runs of this test file.
+- **Key decisions:**
+  - The archive-commit grep matches `^ait: Archive completed t<N>`
+    only (not a broader "any framework commit touching the archived
+    file"). This is intentional: that recipe is the canonical archival
+    commit written by `aitask_archive.sh`, present for every task
+    archived under the current workflow. A broader scan would be
+    O(commits × files) more expensive without surfacing additional
+    tasks.
+  - mtime fallback uses `datetime.fromtimestamp(..., tz=timezone.utc)`
+    to produce an ISO-8601 string with the same lexicographic-order
+    semantics as git's `%aI` — so the unified
+    `tasks.sort(key=lambda t: t.commit_date, reverse=True)` continues
+    to work without per-source merge logic.
+  - Empty-state Commits row uses `MetadataField`, the existing
+    non-focusable dim row widget — no new widget class needed.
+- **Upstream defects identified:** None.
+- **End-to-end verification:** `load_task_index` on the real repo
+  surfaces 37 previously-hidden no-code tasks (including t787 anchored
+  at archive commit `5f2b5bd7` on 2026-05-27). t604 unchanged
+  (`has_code_commits=True`, anchored at the `(t604)` code commit).

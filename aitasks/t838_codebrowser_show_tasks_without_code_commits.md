@@ -6,8 +6,9 @@ issue_type: enhancement
 status: Implementing
 labels: [codebrowser]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-27 08:45
-updated_at: 2026-05-27 10:19
+updated_at: 2026-05-27 11:01
 ---
 
 ## Problem
