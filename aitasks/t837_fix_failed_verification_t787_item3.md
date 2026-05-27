@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [739]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [verification, bug]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-27 08:10
-updated_at: 2026-05-27 08:10
+updated_at: 2026-05-27 10:19
 ---
 
 ## Failed verification item from t739
