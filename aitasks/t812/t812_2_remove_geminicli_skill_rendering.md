@@ -6,8 +6,9 @@ issue_type: chore
 status: Implementing
 labels: [geminicli, skills]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-26 12:06
-updated_at: 2026-05-27 15:59
+updated_at: 2026-05-27 16:24
 ---
 
 ## Context

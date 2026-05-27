@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [manual_verification, task_workflow, skill_authoring]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-27 16:24
-updated_at: 2026-05-27 16:24
+updated_at: 2026-05-27 16:37
 ---
 
 ## Context
