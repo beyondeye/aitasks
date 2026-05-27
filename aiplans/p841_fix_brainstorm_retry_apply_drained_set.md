@@ -221,3 +221,23 @@ silent no-op.
 
 See Step 9 (Post-Implementation) of the task-workflow skill for cleanup,
 archival, and merge steps.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `_pick_completed_agent_for_retry(role)` and
+  `_recover_node_id_from_input(agent)` helpers on `BrainstormApp`, then
+  rewrote the four `action_retry_<role>_apply` methods (explorer, patcher,
+  synthesizer, detailer) to scan the worktree via the new helper instead
+  of reading the in-memory tracking container. Patcher/detailer fall back
+  to `_input.md` re-parsing (via `_PATCHER_INPUT_META_RE`) when the
+  drained tracking dict no longer has the node-id. All four call sites now
+  surface a `notify("No completed <role> agents to retry.")` instead of a
+  silent no-op when the worktree has no Completed agent of that role.
+- **Deviations from plan:** None. The plan was executed as written.
+- **Issues encountered:** None.
+- **Key decisions:** Refactored `action_retry_explorer_apply` (already
+  correct per t837) onto the new shared helper rather than leaving it as
+  the lone inline implementation — matched the task description's
+  "share one implementation" suggestion and avoids drift between the four
+  retry actions.
+- **Upstream defects identified:** None.
