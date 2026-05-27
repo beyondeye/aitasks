@@ -293,6 +293,27 @@ calculate_blocked_status() {
         done
     fi
 
+    # Check cross-repo dependencies (xdeps + xdeprepo)
+    if [[ -n "$xdeps_text" && -n "$xdeprepo_text" ]]; then
+        IFS=',' read -ra XDEPS <<< "$xdeps_text"
+        for xdep_id in "${XDEPS[@]}"; do
+            local xdep_status display_id
+            display_id="${xdep_id#t}"
+            xdep_status=$("$SCRIPT_DIR/aitask_query_files.sh" task-status \
+                --project "$xdeprepo_text" "$xdep_id" 2>/dev/null | \
+                sed -n 's/^STATUS://p')
+            if [[ -z "$xdep_status" || "$xdep_status" == "NOT_FOUND" ]]; then
+                blocked=1
+                blocking_info="${blocking_info:+$blocking_info,}${xdeprepo_text}#${display_id} (UNREACHABLE)"
+                break
+            elif [[ "$xdep_status" != "Done" ]]; then
+                blocked=1
+                blocking_info="${blocking_info:+$blocking_info,}${xdeprepo_text}#${display_id}"
+                break
+            fi
+        done
+    fi
+
     # Track if task has children (for display purposes only, doesn't affect blocking/sorting)
     if [[ -n "$children_to_implement_text" ]]; then
         has_children=1
