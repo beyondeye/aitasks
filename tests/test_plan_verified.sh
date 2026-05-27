@@ -238,11 +238,11 @@ assert_eq "append into empty_list → inline [] replaced" "0" "$inline_empty"
 echo "--- append: existing list → appended ---"
 PLAN="$SANDBOX/p_append_existing.md"
 make_plan_with_fresh_entries "$PLAN" 1
-"$HELPER" append "$PLAN" "geminicli/gemini_3"
+"$HELPER" append "$PLAN" "codex/gpt5_4"
 result=$("$HELPER" read "$PLAN")
 line_count=$(printf '%s\n' "$result" | wc -l | tr -d ' ')
 assert_eq "append into existing → 2 entries" "2" "$line_count"
-assert_contains "append into existing → new agent present" "geminicli/gemini_3|" "$result"
+assert_contains "append into existing → new agent present" "codex/gpt5_4|" "$result"
 assert_contains "append into existing → old agent still present" "claudecode/opus4_6|" "$result"
 
 # --- decide tests ---

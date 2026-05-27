@@ -15,7 +15,6 @@ FRAMEWORK_DIRS = {
     "aiplans",
     "aireviewguides",
     ".claude",
-    ".gemini",
     ".agents",
     ".opencode",
     "seed",

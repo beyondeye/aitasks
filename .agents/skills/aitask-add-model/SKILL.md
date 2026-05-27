@@ -5,7 +5,7 @@ description: Register a known code-agent model in models_<agent>.json, optionall
 
 ## Source of Truth
 
-This is a unified skill wrapper for Codex CLI and Gemini CLI. The authoritative skill definition is:
+This is a Codex CLI skill wrapper. The authoritative skill definition is:
 
 **`.claude/skills/aitask-add-model/SKILL.md`**
 
@@ -13,8 +13,6 @@ Read that file and follow its complete workflow.
 
 **If you are Codex CLI:** For tool mapping and adaptations, read **`.agents/skills/codex_tool_mapping.md`**.
 
-**If you are Gemini CLI:** For tool mapping and adaptations, read **`.agents/skills/geminicli_tool_mapping.md`**.
-
 ## Arguments
 
-Accepts optional flags: `--agent <name>`, `--name <id>`, `--cli-id <str>`, `--notes <text>`, `--promote`, `--promote-ops <csv>`, `--dry-run`. Without arguments, prompts for missing inputs interactively. Example: `--agent claudecode --name opus4_7_1m --cli-id 'claude-opus-4-7[1m]' --promote`.
+See source skill documentation.

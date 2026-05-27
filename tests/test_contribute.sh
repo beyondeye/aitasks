@@ -210,7 +210,6 @@ assert_eq "list-areas exits 0" "0" "$exit_code"
 assert_contains "list-areas has MODE" "MODE:" "$output"
 assert_contains "list-areas has scripts" "AREA|scripts|" "$output"
 assert_contains "list-areas has claude-skills" "AREA|claude-skills|" "$output"
-assert_contains "list-areas has gemini" "AREA|gemini|" "$output"
 assert_contains "list-areas has codex" "AREA|codex|" "$output"
 assert_contains "list-areas has opencode" "AREA|opencode|" "$output"
 

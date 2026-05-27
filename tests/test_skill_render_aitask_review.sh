@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # test_skill_render_aitask_review.sh - Regression tests for t777_9:
 #   - .claude/skills/aitask-review/SKILL.md.j2 (entry-point template)
-#   - 4 per-agent stubs (claude/codex/gemini/opencode)
+#   - 3 per-agent stubs (claude/codex/opencode)
 #   - 3 golden files under tests/golden/skills/aitask-review/ (3 profiles, claude canonical)
 # Coverage:
 #   1.  Per-profile golden diff for the entry-point template (claude render).
-#   1b. Agent-dimension invariance: codex/gemini/opencode renders are
+#   1b. Agent-dimension invariance: codex/opencode renders are
 #       byte-identical to the claude render (no {% if agent %} in the
 #       template). Per-agent reference rewrites are a walk-write property
 #       covered by Test 4, not the basic stdout render.
@@ -14,7 +14,7 @@
 #      review_auto_continue must fire, and the {% if %} arms must NOT.
 #   3. No Jinja markers leak into any rendered entry-point.
 #   3b. Rendered body must NOT re-resolve profile (t777_26 forbidden tokens).
-#   4. Stub markers present on all 4 stub files (canonical body fingerprint
+#   4. Stub markers present on all 3 stub files (canonical body fingerprint
 #      from aidocs/stub-skill-pattern.md §3b/§3c/§3d).
 # Run: bash tests/test_skill_render_aitask_review.sh
 
@@ -77,7 +77,7 @@ GOLDEN_DIR="tests/golden/skills/aitask-review"
 PROFILES_DIR="aitasks/metadata/profiles"
 
 PROFILES=(default fast remote)
-AGENTS=(claude codex gemini opencode)
+AGENTS=(claude codex opencode)
 
 # === Test 1: per-profile golden diffs (claude render is canonical) ===
 
@@ -98,7 +98,7 @@ done
 echo "=== Test 1b: agent renders are byte-identical (no {% if agent %} in template) ==="
 for profile in "${PROFILES[@]}"; do
     base="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
-    for agent in codex gemini opencode; do
+    for agent in codex opencode; do
         cmp="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" "$agent" 2>&1)"
         assert_eq "agent invariance $profile/$agent" "$base" "$cmp"
     done
@@ -168,20 +168,17 @@ assert_contains "claude/fast: task-workflow ref rewritten under .claude/skills" 
     ".claude/skills/task-workflow-fast-/SKILL.md" "$(cat .claude/skills/aitask-review-fast-/SKILL.md)"
 assert_contains "codex/fast: task-workflow ref rewritten under .agents/skills" \
     ".agents/skills/task-workflow-fast-codex-/SKILL.md" "$(cat .agents/skills/aitask-review-fast-codex-/SKILL.md)"
-assert_contains "gemini/fast: task-workflow ref rewritten under .gemini/skills" \
-    ".gemini/skills/task-workflow-fast-/SKILL.md" "$(cat .gemini/skills/aitask-review-fast-/SKILL.md)"
 assert_contains "opencode/fast: task-workflow ref rewritten under .opencode/skills" \
     ".opencode/skills/task-workflow-fast-/SKILL.md" "$(cat .opencode/skills/aitask-review-fast-/SKILL.md)"
 
 # === Test 5: stub-marker checks ===
 
-echo "=== Test 5: 4 stub files contain canonical markers ==="
+echo "=== Test 5: 3 stub files contain canonical markers ==="
 CLAUDE_STUB=".claude/skills/aitask-review/SKILL.md"
 CODEX_STUB=".agents/skills/aitask-review/SKILL.md"
-GEMINI_STUB=".gemini/commands/aitask-review.toml"
 OPENCODE_STUB=".opencode/commands/aitask-review.md"
 
-for stub in "$CLAUDE_STUB" "$CODEX_STUB" "$GEMINI_STUB" "$OPENCODE_STUB"; do
+for stub in "$CLAUDE_STUB" "$CODEX_STUB" "$OPENCODE_STUB"; do
     body="$(cat "$stub")"
     assert_contains "$stub: resolve_profile uses short name 'review' (t777_26)" \
         "aitask_skill_resolve_profile.sh review" "$body"
@@ -196,7 +193,6 @@ done
 # Per-agent agent_literal substitution checks
 assert_contains "claude stub: --agent claude" "--agent claude" "$(cat "$CLAUDE_STUB")"
 assert_contains "codex stub: --agent codex" "--agent codex" "$(cat "$CODEX_STUB")"
-assert_contains "gemini stub: --agent gemini" "--agent gemini" "$(cat "$GEMINI_STUB")"
 assert_contains "opencode stub: --agent opencode" "--agent opencode" "$(cat "$OPENCODE_STUB")"
 
 # Per-agent rendered-variant Read target checks
@@ -204,8 +200,6 @@ assert_contains "claude stub: reads from .claude/skills/aitask-review-<profile>-
     ".claude/skills/aitask-review-<profile>-/SKILL.md" "$(cat "$CLAUDE_STUB")"
 assert_contains "codex stub: reads from .agents/skills/aitask-review-<profile>-" \
     ".agents/skills/aitask-review-<profile>-codex-/SKILL.md" "$(cat "$CODEX_STUB")"
-assert_contains "gemini stub: reads from .gemini/skills/aitask-review-<profile>-" \
-    ".gemini/skills/aitask-review-<profile>-/SKILL.md" "$(cat "$GEMINI_STUB")"
 assert_contains "opencode stub: reads from .opencode/skills/aitask-review-<profile>-" \
     ".opencode/skills/aitask-review-<profile>-/SKILL.md" "$(cat "$OPENCODE_STUB")"
 

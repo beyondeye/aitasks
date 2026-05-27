@@ -33,9 +33,9 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-# t777_22: full-path refs <root>/skills/<dir>/<file>.md across all 4 agent roots.
+# t777_22: full-path refs <root>/skills/<dir>/<file>.md across all agent roots.
 FULL_PATH_REF_RE = re.compile(
-    r'(?P<root>\.claude|\.agents|\.gemini|\.opencode)/skills/'
+    r'(?P<root>\.claude|\.agents|\.opencode)/skills/'
     r'(?P<dir>[A-Za-z0-9._-]+)/'
     r'(?P<file>[A-Za-z0-9._-]+\.md)\b'
 )
@@ -50,7 +50,6 @@ SHORT_REF_RE = re.compile(
 AGENT_ROOTS = {
     "claude":   ".claude/skills",
     "codex":    ".agents/skills",
-    "gemini":   ".gemini/skills",
     "opencode": ".opencode/skills",
 }
 # Agents whose physical skills root is shared with another agent. Shared
@@ -60,7 +59,6 @@ AGENT_ROOTS = {
 AGENT_SHARED_SKILLS_ROOT = {
     "claude":   False,
     "codex":    True,
-    "gemini":   False,
     "opencode": False,
 }
 SOURCE_AGENT_ROOT = ".claude/skills"  # Claude is source of truth (t777_1).
@@ -144,7 +142,7 @@ def _skill_name_from_source(source_abs: Path, repo_root: Path) -> str | None:
     if (
         len(parts) >= 4
         and parts[1] == "skills"
-        and parts[0] in (".claude", ".agents", ".gemini", ".opencode")
+        and parts[0] in (".claude", ".agents", ".opencode")
     ):
         return parts[2]
     return None

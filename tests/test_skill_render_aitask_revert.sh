@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # test_skill_render_aitask_revert.sh - Regression tests for t777_13:
 #   - .claude/skills/aitask-revert/SKILL.md.j2 (entry-point template)
-#   - 4 per-agent stubs (claude/codex/gemini/opencode)
+#   - 3 per-agent stubs (claude/codex/opencode)
 #   - 3 golden files under tests/golden/skills/aitask-revert/ (3 profiles, claude canonical)
 # Coverage:
 #   1.  Per-profile golden diff for the entry-point template (claude render).
-#   1b. Agent-dimension invariance: codex/gemini/opencode renders are
+#   1b. Agent-dimension invariance: codex/opencode renders are
 #       byte-identical to the claude render (no {% if agent %} in the
 #       template). Per-agent reference rewrites are a walk-write property
 #       covered by Test 4, not the basic stdout render.
@@ -17,7 +17,7 @@
 #   4. Per-agent reference rewrites: aitask-revert references BOTH the
 #      task-workflow and user-file-select closures — both must be rewritten
 #      to the per-agent rendered-variant path.
-#   5. Stub markers present on all 4 stub files (canonical body fingerprint
+#   5. Stub markers present on all 3 stub files (canonical body fingerprint
 #      from aidocs/stub-skill-pattern.md §3b/§3c/§3d).
 # Run: bash tests/test_skill_render_aitask_revert.sh
 
@@ -80,7 +80,7 @@ GOLDEN_DIR="tests/golden/skills/aitask-revert"
 PROFILES_DIR="aitasks/metadata/profiles"
 
 PROFILES=(default fast remote)
-AGENTS=(claude codex gemini opencode)
+AGENTS=(claude codex opencode)
 
 # === Test 1: per-profile golden diffs (claude render is canonical) ===
 
@@ -101,7 +101,7 @@ done
 echo "=== Test 1b: agent renders are byte-identical (no {% if agent %} in template) ==="
 for profile in "${PROFILES[@]}"; do
     base="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
-    for agent in codex gemini opencode; do
+    for agent in codex opencode; do
         cmp="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" "$agent" 2>&1)"
         assert_eq "agent invariance $profile/$agent" "$base" "$cmp"
     done
@@ -170,8 +170,6 @@ assert_contains "claude/fast: task-workflow ref rewritten under .claude/skills" 
     ".claude/skills/task-workflow-fast-/SKILL.md" "$(cat .claude/skills/aitask-revert-fast-/SKILL.md)"
 assert_contains "codex/fast: task-workflow ref rewritten under .agents/skills" \
     ".agents/skills/task-workflow-fast-codex-/SKILL.md" "$(cat .agents/skills/aitask-revert-fast-codex-/SKILL.md)"
-assert_contains "gemini/fast: task-workflow ref rewritten under .gemini/skills" \
-    ".gemini/skills/task-workflow-fast-/SKILL.md" "$(cat .gemini/skills/aitask-revert-fast-/SKILL.md)"
 assert_contains "opencode/fast: task-workflow ref rewritten under .opencode/skills" \
     ".opencode/skills/task-workflow-fast-/SKILL.md" "$(cat .opencode/skills/aitask-revert-fast-/SKILL.md)"
 
@@ -179,20 +177,17 @@ assert_contains "claude/fast: user-file-select ref rewritten under .claude/skill
     ".claude/skills/user-file-select-fast-/SKILL.md" "$(cat .claude/skills/aitask-revert-fast-/SKILL.md)"
 assert_contains "codex/fast: user-file-select ref rewritten under .agents/skills" \
     ".agents/skills/user-file-select-fast-codex-/SKILL.md" "$(cat .agents/skills/aitask-revert-fast-codex-/SKILL.md)"
-assert_contains "gemini/fast: user-file-select ref rewritten under .gemini/skills" \
-    ".gemini/skills/user-file-select-fast-/SKILL.md" "$(cat .gemini/skills/aitask-revert-fast-/SKILL.md)"
 assert_contains "opencode/fast: user-file-select ref rewritten under .opencode/skills" \
     ".opencode/skills/user-file-select-fast-/SKILL.md" "$(cat .opencode/skills/aitask-revert-fast-/SKILL.md)"
 
 # === Test 5: stub-marker checks ===
 
-echo "=== Test 5: 4 stub files contain canonical markers ==="
+echo "=== Test 5: 3 stub files contain canonical markers ==="
 CLAUDE_STUB=".claude/skills/aitask-revert/SKILL.md"
 CODEX_STUB=".agents/skills/aitask-revert/SKILL.md"
-GEMINI_STUB=".gemini/commands/aitask-revert.toml"
 OPENCODE_STUB=".opencode/commands/aitask-revert.md"
 
-for stub in "$CLAUDE_STUB" "$CODEX_STUB" "$GEMINI_STUB" "$OPENCODE_STUB"; do
+for stub in "$CLAUDE_STUB" "$CODEX_STUB" "$OPENCODE_STUB"; do
     body="$(cat "$stub")"
     assert_contains "$stub: resolve_profile uses short name 'revert' (t777_26)" \
         "aitask_skill_resolve_profile.sh revert" "$body"
@@ -207,7 +202,6 @@ done
 # Per-agent agent_literal substitution checks
 assert_contains "claude stub: --agent claude" "--agent claude" "$(cat "$CLAUDE_STUB")"
 assert_contains "codex stub: --agent codex" "--agent codex" "$(cat "$CODEX_STUB")"
-assert_contains "gemini stub: --agent gemini" "--agent gemini" "$(cat "$GEMINI_STUB")"
 assert_contains "opencode stub: --agent opencode" "--agent opencode" "$(cat "$OPENCODE_STUB")"
 
 # Per-agent rendered-variant Read target checks
@@ -215,8 +209,6 @@ assert_contains "claude stub: reads from .claude/skills/aitask-revert-<profile>-
     ".claude/skills/aitask-revert-<profile>-/SKILL.md" "$(cat "$CLAUDE_STUB")"
 assert_contains "codex stub: reads from .agents/skills/aitask-revert-<profile>-" \
     ".agents/skills/aitask-revert-<profile>-codex-/SKILL.md" "$(cat "$CODEX_STUB")"
-assert_contains "gemini stub: reads from .gemini/skills/aitask-revert-<profile>-" \
-    ".gemini/skills/aitask-revert-<profile>-/SKILL.md" "$(cat "$GEMINI_STUB")"
 assert_contains "opencode stub: reads from .opencode/skills/aitask-revert-<profile>-" \
     ".opencode/skills/aitask-revert-<profile>-/SKILL.md" "$(cat "$OPENCODE_STUB")"
 

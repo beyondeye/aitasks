@@ -82,7 +82,6 @@ cleanup() {
     rm -rf \
         "$PROJECT_DIR"/.claude/skills/"${TEST_PREFIX}"* \
         "$PROJECT_DIR"/.agents/skills/"${TEST_PREFIX}"* \
-        "$PROJECT_DIR"/.gemini/skills/"${TEST_PREFIX}"* \
         "$PROJECT_DIR"/.opencode/skills/"${TEST_PREFIX}"* 2>/dev/null || true
     if [[ -n "$OPENCODE_ROOT_BAK" && -d "$OPENCODE_ROOT_BAK" ]]; then
         [[ -d "$PROJECT_DIR/.opencode/skills" ]] || mv "$OPENCODE_ROOT_BAK" "$PROJECT_DIR/.opencode/skills"
@@ -90,7 +89,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-AGENT_ROOTS=(.claude/skills .agents/skills .gemini/skills .opencode/skills)
+AGENT_ROOTS=(.claude/skills .agents/skills .opencode/skills)
 
 seed_orphans_and_decoys() {
     # Orphan rendered dirs: their authoring template at

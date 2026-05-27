@@ -79,10 +79,8 @@ cleanup() {
     # shellcheck disable=SC2115
     rm -rf "$PROJECT_DIR"/.claude/skills/"${TEST_SKILL_PREFIX}"* \
            "$PROJECT_DIR"/.agents/skills/"${TEST_SKILL_PREFIX}"* \
-           "$PROJECT_DIR"/.gemini/skills/"${TEST_SKILL_PREFIX}"* \
            "$PROJECT_DIR"/.opencode/skills/"${TEST_SKILL_PREFIX}"*
-    rm -f "$PROJECT_DIR"/.gemini/commands/"${TEST_SKILL_PREFIX}"*.toml \
-          "$PROJECT_DIR"/.opencode/commands/"${TEST_SKILL_PREFIX}"*.md
+    rm -f "$PROJECT_DIR"/.opencode/commands/"${TEST_SKILL_PREFIX}"*.md
 }
 trap cleanup EXIT
 # Pre-clean in case a prior aborted run left scratch dirs / files.
@@ -92,7 +90,6 @@ cleanup
 # shellcheck disable=SC2115
 rm -rf "$PROJECT_DIR"/.claude/skills/_t777_2_test_* \
        "$PROJECT_DIR"/.agents/skills/_t777_2_test_* \
-       "$PROJECT_DIR"/.gemini/skills/_t777_2_test_* \
        "$PROJECT_DIR"/.opencode/skills/_t777_2_test_*
 
 # Helper: write the canonical 4 stub surfaces for a given skill name.
@@ -119,15 +116,7 @@ description: stub for test
 2. ./.aitask-scripts/aitask_skill_render.sh $skill --profile <profile> --agent codex
 3. Read .agents/skills/$skill-<profile>-codex-/SKILL.md
 EOF
-    mkdir -p ".gemini/commands" ".opencode/commands"
-    cat > ".gemini/commands/$skill.toml" <<EOF
-description = "stub for test"
-prompt = """
-1. ./.aitask-scripts/aitask_skill_resolve_profile.sh $skill
-2. ./.aitask-scripts/aitask_skill_render.sh $skill --profile <profile> --agent gemini
-3. Read .gemini/skills/$skill-<profile>-/SKILL.md
-"""
-EOF
+    mkdir -p ".opencode/commands"
     cat > ".opencode/commands/$skill.md" <<EOF
 ---
 description: stub for test
@@ -177,7 +166,7 @@ assert_contains "test 2: failure names the broken skill" "$SK_BROKEN" "$OUT"
 
 # Clean up scratch from test 2 before the next case.
 cleanup
-mkdir -p ".claude/skills" ".agents/skills" ".gemini/commands" ".opencode/commands"
+mkdir -p ".claude/skills" ".agents/skills" ".opencode/commands"
 
 # --- Test 3: well-formed .j2 with no stubs → exit non-zero, 4 STUB_FAILs ---
 
@@ -191,11 +180,10 @@ set -e
 assert_nonzero_exit "test 3: no stubs → exit non-zero" "$RC"
 assert_contains "test 3: missing claude stub" ".claude/skills/$SK_NOSTUB/SKILL.md: missing stub for claude" "$OUT"
 assert_contains "test 3: missing codex stub"  ".agents/skills/$SK_NOSTUB/SKILL.md: missing stub for codex" "$OUT"
-assert_contains "test 3: missing gemini stub" ".gemini/commands/$SK_NOSTUB.toml: missing stub for gemini" "$OUT"
 assert_contains "test 3: missing opencode stub" ".opencode/commands/$SK_NOSTUB.md: missing stub for opencode" "$OUT"
 
 cleanup
-mkdir -p ".claude/skills" ".agents/skills" ".gemini/commands" ".opencode/commands"
+mkdir -p ".claude/skills" ".agents/skills" ".opencode/commands"
 
 # --- Test 4: well-formed .j2 + valid stubs in all 4 surfaces → exit 0 ---
 
@@ -211,7 +199,7 @@ assert_zero_exit "test 4: happy path → exit 0" "$RC"
 assert_contains "test 4: stdout reports 'OK'" "aitask_skill_verify.sh: OK" "$OUT"
 
 cleanup
-mkdir -p ".claude/skills" ".agents/skills" ".gemini/commands" ".opencode/commands"
+mkdir -p ".claude/skills" ".agents/skills" ".opencode/commands"
 
 # --- Test 5: stub missing resolver call → STUB_FAIL: missing resolver call ---
 
@@ -236,7 +224,7 @@ assert_nonzero_exit "test 5: missing resolver call → exit non-zero" "$RC"
 assert_contains "test 5: STUB_FAIL names missing resolver call" "missing resolver call" "$OUT"
 
 cleanup
-mkdir -p ".claude/skills" ".agents/skills" ".gemini/commands" ".opencode/commands"
+mkdir -p ".claude/skills" ".agents/skills" ".opencode/commands"
 
 # --- Test 6: stub missing render call → STUB_FAIL: missing render call ---
 
@@ -260,7 +248,7 @@ assert_nonzero_exit "test 6: missing render call → exit non-zero" "$RC"
 assert_contains "test 6: STUB_FAIL names missing render call" "missing render call" "$OUT"
 
 cleanup
-mkdir -p ".claude/skills" ".agents/skills" ".gemini/commands" ".opencode/commands"
+mkdir -p ".claude/skills" ".agents/skills" ".opencode/commands"
 
 # --- Test 7: stub missing trailing-hyphen Read path → STUB_FAIL: missing trailing-hyphen Read path ---
 
@@ -285,16 +273,14 @@ assert_nonzero_exit "test 7: missing Read path → exit non-zero" "$RC"
 assert_contains "test 7: STUB_FAIL names missing trailing-hyphen Read path" "missing trailing-hyphen Read path" "$OUT"
 
 cleanup
-mkdir -p ".claude/skills" ".agents/skills" ".gemini/commands" ".opencode/commands"
+mkdir -p ".claude/skills" ".agents/skills" ".opencode/commands"
 
 # --- Test 10: helper whitelist touchpoints — exactly one entry per file ---
 
 declare -a WHITELIST_FILES=(
     ".claude/settings.local.json"
-    ".gemini/policies/aitasks-whitelist.toml"
     ".codex/rules/default.rules"
     "seed/claude_settings.local.json"
-    "seed/geminicli_policies/aitasks-whitelist.toml"
     "seed/codex_rules.default.rules"
     "seed/opencode_config.seed.json"
 )

@@ -14,7 +14,6 @@
 # Path mapping (verified t777_1, 2026-05-17):
 #   claude   .claude/skills
 #   codex    .agents/skills    (shared with future agy agent, t814)
-#   gemini   .gemini/skills    (per CLAUDE.md "Gemini CLI" section)
 #   opencode .opencode/skills
 #
 # Rendered-dir naming convention (t777_3, extended by t834):
@@ -40,7 +39,6 @@ agent_skill_root() {
     case "$1" in
         claude)   echo ".claude/skills" ;;
         codex)    echo ".agents/skills" ;;
-        gemini)   echo ".gemini/skills" ;;
         opencode) echo ".opencode/skills" ;;
         *)        echo "agent_skill_root: unknown agent: $1" >&2; return 1 ;;
     esac
@@ -53,7 +51,6 @@ agent_shared_skills_root() {
     case "$1" in
         claude)   echo "false" ;;
         codex)    echo "true" ;;
-        gemini)   echo "false" ;;
         opencode) echo "false" ;;
         *)        echo "agent_shared_skills_root: unknown agent: $1" >&2; return 1 ;;
     esac

@@ -65,7 +65,6 @@ source "$PATHS_LIB"
 
 assert_eq "agent_skill_root claude"   ".claude/skills"   "$(agent_skill_root claude)"
 assert_eq "agent_skill_root codex"    ".agents/skills"   "$(agent_skill_root codex)"
-assert_eq "agent_skill_root gemini"   ".gemini/skills"   "$(agent_skill_root gemini)"
 assert_eq "agent_skill_root opencode" ".opencode/skills" "$(agent_skill_root opencode)"
 
 # Unknown agent: non-zero exit + stderr message
@@ -79,7 +78,6 @@ fi
 assert_eq "agent_skill_dir claude pick (no profile)"  ".claude/skills/aitask-pick"               "$(agent_skill_dir claude aitask-pick)"
 assert_eq "agent_skill_dir claude pick default"       ".claude/skills/aitask-pick-default-"     "$(agent_skill_dir claude aitask-pick default)"
 assert_eq "agent_skill_dir claude pick fast"          ".claude/skills/aitask-pick-fast-"        "$(agent_skill_dir claude aitask-pick fast)"
-assert_eq "agent_skill_dir gemini pick fast"          ".gemini/skills/aitask-pick-fast-"        "$(agent_skill_dir gemini aitask-pick fast)"
 # t834: codex shares its root with future agy, so renders carry an extra -codex- segment.
 assert_eq "agent_skill_dir codex pick fast"           ".agents/skills/aitask-pick-fast-codex-"  "$(agent_skill_dir codex aitask-pick fast)"
 assert_eq "agent_skill_dir codex pick (no profile)"   ".agents/skills/aitask-pick"              "$(agent_skill_dir codex aitask-pick)"
@@ -88,7 +86,6 @@ assert_eq "agent_skill_dir opencode pick fast"        ".opencode/skills/aitask-p
 # t834: agent_shared_skills_root
 assert_eq "agent_shared_skills_root claude"   "false" "$(agent_shared_skills_root claude)"
 assert_eq "agent_shared_skills_root codex"    "true"  "$(agent_shared_skills_root codex)"
-assert_eq "agent_shared_skills_root gemini"   "false" "$(agent_shared_skills_root gemini)"
 assert_eq "agent_shared_skills_root opencode" "false" "$(agent_shared_skills_root opencode)"
 
 assert_eq "agent_authoring_template pick" ".claude/skills/aitask-pick/SKILL.md.j2" "$(agent_authoring_template aitask-pick)"
@@ -275,9 +272,6 @@ assert_eq "rewrite_ref: claude full-path" \
 assert_eq "rewrite_ref: codex full-path (shared root → agent suffix)" \
     ".agents/skills/task-workflow-fast-codex-/planning.md" \
     "$(rewrite_call full task-workflow planning.md codex fast)"
-assert_eq "rewrite_ref: gemini full-path" \
-    ".gemini/skills/task-workflow-fast-/planning.md" \
-    "$(rewrite_call full task-workflow planning.md gemini fast)"
 assert_eq "rewrite_ref: opencode full-path" \
     ".opencode/skills/task-workflow-fast-/planning.md" \
     "$(rewrite_call full task-workflow planning.md opencode fast)"

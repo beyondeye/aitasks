@@ -36,7 +36,7 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 profile="${1:?usage: aitask_skill_rerender.sh <profile_name>}"
 
 rerendered=0
-for agent in claude codex gemini opencode; do
+for agent in claude codex opencode; do
     root="$(agent_skill_root "$agent")" || continue
     [[ -d "$root" ]] || continue
     # Shared-root agents emit dirs of the form `<skill>-<profile>-<agent>-`

@@ -3,7 +3,7 @@
 #   - .claude/skills/aitask-qa/SKILL.md.j2 (entry-point template)
 #   - 3 profile-bearing procedure files (task-selection / test-execution /
 #     test-plan-proposal) wrapped with Jinja profile conditionals
-#   - 4 per-agent stubs (claude/codex/gemini/opencode)
+#   - 3 per-agent stubs (claude/codex/opencode)
 #   - 3 entry-point goldens under tests/golden/skills/aitask-qa/ (3 profiles, claude canonical)
 #   - 5 procedure goldens under tests/golden/procs/aitask-qa/
 #     (task-selection × 3 profiles + test-execution + test-plan-proposal canonical)
@@ -19,7 +19,7 @@
 #   3.  No Jinja markers leak into entry-point or procedure renders.
 #   3b. Rendered output must NOT re-resolve profile (t777_26 forbidden tokens).
 #   4.  Per-agent reference rewrites for the task-workflow full-path ref.
-#   5.  Stub markers present on all 4 stub files (canonical body fingerprint
+#   5.  Stub markers present on all 3 stub files (canonical body fingerprint
 #       from aidocs/stub-skill-pattern.md §3b/§3c/§3d).
 # Run: bash tests/test_skill_render_aitask_qa.sh
 
@@ -83,7 +83,7 @@ PROC_GOLDEN_DIR="tests/golden/procs/aitask-qa"
 PROFILES_DIR="aitasks/metadata/profiles"
 
 PROFILES=(default fast remote)
-AGENTS=(claude codex gemini opencode)
+AGENTS=(claude codex opencode)
 # Procedure files rendered into the closure. All carry profile conditionals,
 # but only task-selection's conditional is activated by a committed profile;
 # test-execution / test-plan-proposal render identically across all profiles.
@@ -108,7 +108,7 @@ done
 echo "=== Test 1b: agent renders are byte-identical (no {% if agent %} in template) ==="
 for profile in "${PROFILES[@]}"; do
     base="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
-    for agent in codex gemini opencode; do
+    for agent in codex opencode; do
         cmp="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" "$agent" 2>&1)"
         assert_eq "agent invariance $profile/$agent" "$base" "$cmp"
     done
@@ -131,7 +131,7 @@ for f in "${PROC_FILES_VARYING[@]}"; do
         rendered="$($RENDER ".claude/skills/aitask-qa/$f.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
         golden_content="$(cat "$PROC_GOLDEN_DIR/$f-$profile.md")"
         assert_eq "golden proc $f × $profile" "$golden_content" "$rendered"
-        for agent in codex gemini opencode; do
+        for agent in codex opencode; do
             other="$($RENDER ".claude/skills/aitask-qa/$f.md" "$PROFILES_DIR/$profile.yaml" "$agent" 2>&1)"
             assert_eq "proc $f × $profile agent-invariant ($agent==claude)" "$rendered" "$other"
         done
@@ -245,9 +245,6 @@ assert_contains "claude/fast: task-workflow ref rewritten under .claude/skills" 
 assert_contains "codex/fast: task-workflow ref rewritten under .agents/skills" \
     ".agents/skills/task-workflow-fast-codex-/satisfaction-feedback.md" \
     "$(cat .agents/skills/aitask-qa-fast-codex-/SKILL.md)"
-assert_contains "gemini/fast: task-workflow ref rewritten under .gemini/skills" \
-    ".gemini/skills/task-workflow-fast-/satisfaction-feedback.md" \
-    "$(cat .gemini/skills/aitask-qa-fast-/SKILL.md)"
 assert_contains "opencode/fast: task-workflow ref rewritten under .opencode/skills" \
     ".opencode/skills/task-workflow-fast-/satisfaction-feedback.md" \
     "$(cat .opencode/skills/aitask-qa-fast-/SKILL.md)"
@@ -259,13 +256,12 @@ assert_contains "claude/fast: procedure files rendered into closure dir" \
 
 # === Test 5: stub-marker checks ===
 
-echo "=== Test 5: 4 stub files contain canonical markers ==="
+echo "=== Test 5: 3 stub files contain canonical markers ==="
 CLAUDE_STUB=".claude/skills/aitask-qa/SKILL.md"
 CODEX_STUB=".agents/skills/aitask-qa/SKILL.md"
-GEMINI_STUB=".gemini/commands/aitask-qa.toml"
 OPENCODE_STUB=".opencode/commands/aitask-qa.md"
 
-for stub in "$CLAUDE_STUB" "$CODEX_STUB" "$GEMINI_STUB" "$OPENCODE_STUB"; do
+for stub in "$CLAUDE_STUB" "$CODEX_STUB" "$OPENCODE_STUB"; do
     body="$(cat "$stub")"
     assert_contains "$stub: resolve_profile uses short name 'qa' (t777_26)" \
         "aitask_skill_resolve_profile.sh qa" "$body"
@@ -280,7 +276,6 @@ done
 # Per-agent agent_literal substitution checks
 assert_contains "claude stub: --agent claude" "--agent claude" "$(cat "$CLAUDE_STUB")"
 assert_contains "codex stub: --agent codex" "--agent codex" "$(cat "$CODEX_STUB")"
-assert_contains "gemini stub: --agent gemini" "--agent gemini" "$(cat "$GEMINI_STUB")"
 assert_contains "opencode stub: --agent opencode" "--agent opencode" "$(cat "$OPENCODE_STUB")"
 
 # Per-agent rendered-variant Read target checks
@@ -288,8 +283,6 @@ assert_contains "claude stub: reads from .claude/skills/aitask-qa-<profile>-" \
     ".claude/skills/aitask-qa-<profile>-/SKILL.md" "$(cat "$CLAUDE_STUB")"
 assert_contains "codex stub: reads from .agents/skills/aitask-qa-<profile>-" \
     ".agents/skills/aitask-qa-<profile>-codex-/SKILL.md" "$(cat "$CODEX_STUB")"
-assert_contains "gemini stub: reads from .gemini/skills/aitask-qa-<profile>-" \
-    ".gemini/skills/aitask-qa-<profile>-/SKILL.md" "$(cat "$GEMINI_STUB")"
 assert_contains "opencode stub: reads from .opencode/skills/aitask-qa-<profile>-" \
     ".opencode/skills/aitask-qa-<profile>-/SKILL.md" "$(cat "$OPENCODE_STUB")"
 

@@ -46,7 +46,6 @@ CONTRIBUTE_PLATFORM=""
 AREAS=(
     "scripts|.aitask-scripts/|Core scripts (shell and Python)"
     "claude-skills|.claude/skills/|Claude Code skills"
-    "gemini|.gemini/skills/,.gemini/commands/|Gemini CLI skills and commands"
     "codex|.agents/skills/|Codex CLI skills"
     "opencode|.opencode/skills/,.opencode/commands/|OpenCode skills and commands"
     "website|website/|Website documentation (clone/fork mode only)"
@@ -709,7 +708,7 @@ Modes:
 Options:
   --target <mode>           Target mode: framework (default) or project
   --parent <area>           Parent area for hierarchical drill-down (project mode)
-  --area <name>             Contribution area (scripts, claude-skills, gemini, codex, opencode, website)
+  --area <name>             Contribution area (scripts, claude-skills, codex, opencode, website)
   --area-path <path>        Custom area path (alternative to --area)
   --files <f1,f2,...>       Specific files to include (comma-separated)
   --title <text>            Contribution title (required for issue creation)

@@ -53,7 +53,7 @@ Discovery behavior:
   - Always skips `.git`, `node_modules`, and `__pycache__`
   - Skips framework-owned top-level directories by default:
     `.aitask-scripts`, `aitasks`, `aiplans`, `aireviewguides`, `.claude`,
-    `.gemini`, `.agents`, `.opencode`, `seed`
+    `.agents`, `.opencode`, `seed`
   - `aidocs/` and `aiwork/` are treated as normal project directories
   - `--ignore-file` applies extra gitignore-style filtering to tracked paths
 

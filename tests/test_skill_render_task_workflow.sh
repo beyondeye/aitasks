@@ -91,7 +91,7 @@ WRAPPED_FILES_INVARIANT=(
     "remote-drift-check.md"
 )
 PROFILES=(default fast remote)
-AGENTS=(claude codex gemini opencode)
+AGENTS=(claude codex opencode)
 
 # === Test 1: Per-(file, profile) golden diff (profile-varying files) ===
 

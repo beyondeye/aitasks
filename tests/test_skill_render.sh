@@ -73,7 +73,6 @@ cleanup() {
     # Remove any scratch skill dirs (template authoring dirs + rendered output dirs).
     # shellcheck disable=SC2115
     rm -rf "$PROJECT_DIR"/.claude/skills/"${TEST_SKILL_PREFIX}"* \
-           "$PROJECT_DIR"/.gemini/skills/"${TEST_SKILL_PREFIX}"* \
            "$PROJECT_DIR"/.agents/skills/"${TEST_SKILL_PREFIX}"* \
            "$PROJECT_DIR"/.opencode/skills/"${TEST_SKILL_PREFIX}"*
 }
@@ -334,10 +333,8 @@ fi
 
 WL_FILES=(
     ".claude/settings.local.json"
-    ".gemini/policies/aitasks-whitelist.toml"
     ".codex/rules/default.rules"
     "seed/claude_settings.local.json"
-    "seed/geminicli_policies/aitasks-whitelist.toml"
     "seed/codex_rules.default.rules"
     "seed/opencode_config.seed.json"
 )

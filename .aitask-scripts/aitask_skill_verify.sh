@@ -57,7 +57,6 @@ _stub_path_for() {
     case "$agent" in
         claude)   echo ".claude/skills/$skill/SKILL.md" ;;
         codex)    echo ".agents/skills/$skill/SKILL.md" ;;
-        gemini)   echo ".gemini/commands/$skill.toml" ;;
         opencode) echo ".opencode/commands/$skill.md" ;;
     esac
 }
@@ -82,7 +81,7 @@ _resolver_key_for() {
 # --- Verification loop ---
 
 failures=0
-agents=(claude codex gemini opencode)
+agents=(claude codex opencode)
 
 for tpl in "${templates[@]}"; do
     skill="$(basename "$(dirname "$tpl")")"

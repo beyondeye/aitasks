@@ -415,9 +415,9 @@ class TestGetAgentTypes(unittest.TestCase):
 
     def test_reads_project_config(self):
         """Reads brainstorm-* keys from project codeagent_config.json."""
-        self._write_full_config({"brainstorm-explorer": "geminicli/gemini_2_5_pro"})
+        self._write_full_config({"brainstorm-explorer": "codex/gpt5_4"})
         result = get_agent_types(config_root=Path(self.tmpdir))
-        self.assertEqual(result["explorer"]["agent_string"], "geminicli/gemini_2_5_pro")
+        self.assertEqual(result["explorer"]["agent_string"], "codex/gpt5_4")
         self.assertEqual(result["comparator"]["agent_string"], "claudecode/sonnet4_6")
 
     def test_local_overrides_project(self):

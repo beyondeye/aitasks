@@ -25,10 +25,14 @@ friction (no rework, no temporary inconsistency).
 - [9. Review-env detection (`.<agent>/skills/` path matchers)](#9-review-env-detection-agentskills-path-matchers)
 - [10. `aitask add-model` whitelist + help text](#10-aitask-add-model-whitelist--help-text)
 - [11. Test fixtures and assertions](#11-test-fixtures-and-assertions)
+- [12. Wrapper templates (`aitask_audit_wrappers.sh`)](#12-wrapper-templates-aitask_audit_wrapperssh)
+- [13. Policy / whitelist touchpoints](#13-policy--whitelist-touchpoints)
+- [14. Contribution-area registry (`aitask_contribute.sh`)](#14-contribution-area-registry-aitask_contributesh)
+- [15. Codemap framework-dirs set](#15-codemap-framework-dirs-set)
+- [16. Shared helper docs in `.agents/skills/`](#16-shared-helper-docs-in-agentsskills)
 
 *(More sections to be added as the migration playbook expands: setup /
-install (`aitask_setup.sh`), tool-mapping prereq files, whitelist /
-permission setup, contributor docs, website docs, etc.)*
+install (`aitask_setup.sh`), contributor docs, website docs, etc.)*
 
 ---
 
@@ -42,7 +46,7 @@ overwrite each other.
 
 The framework solves this by adding an **agent-id segment** to the
 rendered-dir name for any agent declared as `shared_skills_root: true`.
-Non-shared agents (claude, gemini, opencode) keep the simpler
+Non-shared agents (claude, opencode) keep the simpler
 `<skill>-<profile>-/` form unchanged.
 
 ### 1a. Rendered-path naming
@@ -51,7 +55,6 @@ Non-shared agents (claude, gemini, opencode) keep the simpler
 |-------|-------------------|---------|-----------------------|
 | claude | `.claude/skills` | no | `.claude/skills/<skill>-<profile>-/SKILL.md` |
 | codex | `.agents/skills` | **yes** | `.agents/skills/<skill>-<profile>-codex-/SKILL.md` |
-| gemini | `.gemini/skills` | no | `.gemini/skills/<skill>-<profile>-/SKILL.md` |
 | opencode | `.opencode/skills` | no | `.opencode/skills/<skill>-<profile>-/SKILL.md` |
 | *new shared-root agent* | (same as another) | **yes** | `<root>/<skill>-<profile>-<agent>-/SKILL.md` |
 
@@ -73,7 +76,6 @@ diff in each file).
            claude)   echo ".claude/skills" ;;
            codex)    echo ".agents/skills" ;;
            agy)      echo ".agents/skills" ;;        # NEW
-           gemini)   echo ".gemini/skills" ;;
            opencode) echo ".opencode/skills" ;;
            *)        echo "agent_skill_root: unknown agent: $1" >&2; return 1 ;;
        esac
@@ -84,7 +86,6 @@ diff in each file).
            claude)   echo "false" ;;
            codex)    echo "true"  ;;
            agy)      echo "true"  ;;                 # NEW (shares .agents/skills)
-           gemini)   echo "false" ;;
            opencode) echo "false" ;;
            *)        echo "agent_shared_skills_root: unknown agent: $1" >&2; return 1 ;;
        esac
@@ -99,14 +100,12 @@ diff in each file).
        "claude":   ".claude/skills",
        "codex":    ".agents/skills",
        "agy":      ".agents/skills",      # NEW
-       "gemini":   ".gemini/skills",
        "opencode": ".opencode/skills",
    }
    AGENT_SHARED_SKILLS_ROOT = {
        "claude":   False,
        "codex":    True,
        "agy":      True,                  # NEW
-       "gemini":   False,
        "opencode": False,
    }
    ```
@@ -126,10 +125,32 @@ based on `agent_shared_skills_root` — no further changes inside the
 loop body.
 
 ```bash
-for agent in claude codex agy gemini opencode; do   # NEW agent inserted
+for agent in claude codex agy opencode; do   # NEW agent inserted
     ...
 done
 ```
+
+**Hardcoded agent enums to update in lockstep.** The renderer driver
+loop is one of several places that hardcodes the full agent set. When
+adding (or retiring) an agent, update every site below — there is no
+single source of truth that all of them consult at runtime:
+
+- `.aitask-scripts/aitask_skill_render.sh` — `--agent` help text (the
+  list shown by `--help`).
+- `.aitask-scripts/aitask_skillrun.sh` — per-agent `CMD` `case`
+  controlling how each agent's CLI is invoked (binary, model flag,
+  argv shape).
+- `.aitask-scripts/aitask_skill_rerender.sh` — outer agent loop.
+- `.aitask-scripts/aitask_skill_verify.sh` — `agents=(...)` array used
+  for render/walk/stub validation, plus `_stub_path_for()` case that
+  resolves the per-agent stub path.
+- `.aitask-scripts/aitask_audit_wrappers.sh` — `cmd_discover()` trees
+  enum and `wrapper_path()` / `cmd_render_wrapper()` cases.
+- `.aitask-scripts/lib/skill_template.py` — `AGENT_ROOTS`,
+  `AGENT_SHARED_SKILLS_ROOT`, the `FULL_PATH_REF_RE` regex alternation,
+  and the parts-validity tuple in `_skill_name_from_source()`.
+- `.aitask-scripts/lib/agent_skills_paths.sh` — `agent_skill_root()`
+  and `agent_shared_skills_root()` cases (covered in §1b).
 
 ### 1d. Write the per-agent stub
 
@@ -513,7 +534,7 @@ PROMPT_PATTERNS_BY_AGENT: dict[str, list[PromptPattern]] = {
 
 The dict key is the **monitor-side agent shortname**, which is NOT
 necessarily the `agent_string.sh` name. The mapping is informal today
-(claude vs. claudecode, gemini vs. geminicli) — pick the name that
+(e.g. claude vs. claudecode) — pick the name that
 matches existing usage in `ait monitor`'s codepath.
 
 Patterns are populated when an agent's prompt wording is observed in
@@ -630,4 +651,233 @@ bash tests/test_stats_data.sh
 bash tests/test_stats_verified_rankings.sh
 ```
 
+### 11a. Skill-rendering test footprint
+
+The §1 (skill rendering) layer carries an additional test footprint
+that is hit on every agent add/remove:
+
+**Per-skill render tests** — one file per user-invokable skill, each
+hard-coding the full agent set:
+
+```
+tests/test_skill_render_aitask_explore.sh
+tests/test_skill_render_aitask_fold.sh
+tests/test_skill_render_aitask_pick.sh
+tests/test_skill_render_aitask_pickrem.sh
+tests/test_skill_render_aitask_pickweb.sh
+tests/test_skill_render_aitask_pr_import.sh
+tests/test_skill_render_aitask_qa.sh
+tests/test_skill_render_aitask_review.sh
+tests/test_skill_render_aitask_revert.sh
+tests/test_skill_render_aitask_wrap.sh
+tests/test_skill_render_task_workflow.sh
+```
+
+Each contains an `AGENTS=(claude codex opencode)` array, inner
+per-agent loops (`for agent in codex opencode; …`), and a per-agent
+stub block (today: only `.opencode/commands/<skill>.md` and
+`.agents/skills/<skill>/SKILL.md` — see §1d). When adding a new agent,
+extend `AGENTS=`, mirror the codex stub-assertion block, and add a
+cross-agent rewrite assertion checking that refs from `.claude/skills`
+are rewritten to the new agent's root.
+
+**Framework-level skill tests** — touch the renderer / verifier itself:
+
+```
+tests/test_skill_template.sh           # agent_skill_root / _shared_skills_root / rewrite_ref
+tests/test_skill_render.sh             # end-to-end render via aitask_skill_render.sh
+tests/test_skill_render_uniform.sh     # cross-agent path-rewriting parity
+tests/test_skill_rerender.sh           # AGENT_ROOTS array + per-agent rerender loop
+tests/test_skill_verify.sh             # stub-pattern + render + closure walk
+```
+
+These need updates whenever the agent enum changes; some assert specific
+agent root paths (e.g. `.opencode/skills`), others enumerate `AGENT_ROOTS`
+or the stub-path mapping directly.
+
 ---
+
+## 12. Wrapper templates (`aitask_audit_wrappers.sh`)
+
+For agents that ship as **wrappers around the Claude Code source of
+truth** (today: Codex CLI, OpenCode), `aitask_audit_wrappers.sh`
+renders and applies the per-agent stub `SKILL.md` (or `.toml` /
+`.md` command) from a template embedded in the script.
+
+### 12a. Per-tree renderer functions
+
+Each "tree" (output flavor) has its own renderer:
+
+| Tree | Output path | Renderer function |
+|------|-------------|-------------------|
+| `agents` | `.agents/skills/<skill>/SKILL.md` | `render_agents_skill()` |
+| `opencode-skill` | `.opencode/skills/<skill>/SKILL.md` | `render_opencode_skill()` |
+| `opencode-command` | `.opencode/commands/<skill>.md` | `render_opencode_command()` |
+
+Adding a new agent that needs its own wrapper tree (e.g., a
+`gemini`-style `<agent>/commands/<skill>.toml` flavor) requires:
+
+1. Add the tree name to the `tree in agents opencode-skill …` list in
+   `cmd_discover()`.
+2. Add a `wrapper_path()` case mapping the tree to its on-disk path.
+3. Add a `render_<tree>_<kind>()` function emitting the stub body.
+4. Add a `cmd_render_wrapper()` case routing the tree to the renderer.
+5. Add the tree to the Trees table in `usage()`.
+
+### 12b. Templated vs non-templated stubs
+
+`render_agents_skill()` and `render_opencode_skill()` each branch on
+`_skill_is_templated()`. Templated skills (those with a
+`.claude/skills/<skill>/SKILL.md.j2` entry-point) emit a
+profile-aware **stub** (resolve profile → run renderer → Read-and-follow
+the per-profile rendered file). Non-templated skills emit a legacy
+"Source of Truth" stub pointing at the Claude SKILL.md, with optional
+per-agent "If you are <Agent> CLI: read <agent>_tool_mapping.md" lines.
+
+When adding an agent, decide which template you need:
+
+- **Shared-root agent with per-agent prerender** (codex pattern): the
+  templated branch already emits `--agent <name>` and reads from
+  `.agents/skills/<skill>-<profile>-<agent>-/SKILL.md`. Just point the
+  renderer at the new agent name in the stub literal.
+- **Non-templated wrapper** (legacy "Source of Truth"): if the new
+  agent needs a per-agent tool-mapping prereq doc, add an "**If you
+  are <Agent> CLI:** read `.agents/skills/<agent>_tool_mapping.md`"
+  line in `render_agents_skill()` (mirroring how Codex is wired
+  today) — see §16.
+
+### 12c. Stub-refresh discipline
+
+Editing any of the `render_*` functions affects **future renders only**
+— stubs already committed to git keep their old content. After such a
+change, re-apply each affected wrapper:
+
+```bash
+./.aitask-scripts/aitask_audit_wrappers.sh apply-wrapper <tree> <skill> --force
+```
+
+Non-templated skills hit this most often (the legacy "Source of Truth"
+stub embeds per-agent prose); templated stubs are largely
+self-contained but still need a refresh when the resolver-key or
+agent suffix changes.
+
+---
+
+## 13. Policy / whitelist touchpoints
+
+`aitask_audit_wrappers.sh::touchpoint_file()` enumerates the
+permission/policy files that gate aitasks helper scripts across
+supported agents. The numbering is **kept stable** even when
+touchpoints are retired so callers that pass numeric IDs don't
+silently shift to a different file.
+
+Current touchpoints:
+
+```
+1 = .claude/settings.local.json                   (claudecode Bash permission)
+3 = .codex/rules/default.rules                    (codex prefix_rule)
+4 = seed/claude_settings.local.json               (seed mirror of #1)
+6 = seed/codex_rules.default.rules                (seed mirror of #3)
+7 = seed/opencode_config.seed.json                (opencode bash permission)
+```
+
+(IDs 2 and 5 were the gemini runtime/seed policies, retired in t812_2.)
+
+When adding an agent:
+
+1. Pick the next free numeric ID (do **not** reuse a retired ID — keep
+   them stable too). Add the file path in `touchpoint_file()`.
+2. Add a matching case to `helper_present_in_touchpoint()`.
+3. Add the apply-side helper (e.g. a per-agent `insert_…_line()`) and
+   route it in `cmd_apply_helper_whitelist()`.
+4. Add the ID to the `for touchpoint in 1 3 4 6 7; do …` loops in
+   `cmd_audit_helper_whitelist()` and `cmd_apply_helper_whitelist()`.
+5. Update the Touchpoints table in `usage()`.
+
+When **retiring** an agent's touchpoint(s): zero out the cases (no
+reuse) and drop the IDs from the iteration loops only — leave the
+numeric slots vacant.
+
+---
+
+## 14. Contribution-area registry (`aitask_contribute.sh`)
+
+`aitask_contribute.sh` lets users file framework contributions against
+a named area. Each area binds a name → directory roots → description.
+
+```bash
+AREAS=(
+    "scripts|.aitask-scripts/|Core scripts (shell and Python)"
+    "claude-skills|.claude/skills/|Claude Code skills"
+    "codex|.agents/skills/|Codex CLI skills"
+    "opencode|.opencode/skills/,.opencode/commands/|OpenCode skills and commands"
+    "website|website/|Website documentation (clone/fork mode only)"
+)
+```
+
+To register a new agent:
+
+1. Add a `"<agent>|<comma-separated-paths>|<description>"` entry to
+   `AREAS` at the alphabetical position alongside its siblings.
+2. Update the `--area` choices in the help text (in `usage()`) to
+   include the new name.
+
+To retire an agent: delete the matching entry and update the help text.
+
+---
+
+## 15. Codemap framework-dirs set
+
+`.aitask-scripts/aitask_codemap.py`'s `FRAMEWORK_DIRS` set declares
+the top-level directories `ait codemap` excludes by default (unless
+`--include-framework-dirs` is passed). Any per-agent root that lives
+at the repo root must be listed here:
+
+```python
+FRAMEWORK_DIRS = {
+    ".aitask-scripts",
+    "aitasks",
+    "aiplans",
+    "aireviewguides",
+    ".claude",
+    ".agents",
+    ".opencode",
+    "seed",
+}
+```
+
+When adding an agent with a root at the repo top level
+(`<root>/skills/...`, `<root>/commands/...`), add the root path here.
+Also update the same enumeration in the usage doc string of the bash
+wrapper (`aitask_codemap.sh`) so `--help` stays in sync.
+
+---
+
+## 16. Shared helper docs in `.agents/skills/`
+
+Non-templated wrappers for codex (and future shared-root agents) read
+per-agent tool-mapping and plan-mode prereq docs from `.agents/skills/`:
+
+- `.agents/skills/codex_tool_mapping.md` — codex-specific tool-name
+  translations from the Claude source (e.g., what `Read` maps to).
+- `.agents/skills/codex_interactive_prereqs.md` — interactive-mode
+  prerequisites for codex (read before entering plan mode).
+
+`render_agents_skill()` emits "If you are <Agent> CLI: read
+`.agents/skills/<agent>_tool_mapping.md`" lines for each such agent.
+
+When adding an agent that needs per-agent prereqs:
+
+1. Create `.agents/skills/<agent>_tool_mapping.md` (and
+   `<agent>_planmode_prereqs.md` if applicable). Mirror the structure
+   of the codex equivalents.
+2. Add the matching "If you are …" line to `render_agents_skill()`
+   (and to `render_opencode_skill()` if the agent also lands in
+   opencode's tree).
+3. Re-apply every affected non-templated wrapper stub
+   (`apply-wrapper agents <skill> --force`) so the new "If you are …"
+   line lands in the committed stubs.
+
+When retiring an agent: `./ait git rm` the two prereq docs, remove
+the "If you are …" line(s), and re-apply every affected stub to flush
+the now-dangling references.

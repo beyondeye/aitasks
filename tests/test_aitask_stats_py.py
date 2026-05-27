@@ -89,10 +89,6 @@ class TestCollection(unittest.TestCase):
             ]}),
             encoding="utf-8",
         )
-        (metadata / "models_geminicli.json").write_text(
-            json.dumps({"models": [{"name": "gemini2_5pro", "cli_id": "gemini-2.5-pro"}]}),
-            encoding="utf-8",
-        )
         (metadata / "models_opencode.json").write_text(
             json.dumps(
                 {
@@ -373,11 +369,6 @@ class TestVerifiedRankings(unittest.TestCase):
                     }
                 ]
             }),
-            encoding="utf-8",
-        )
-
-        (metadata / "models_geminicli.json").write_text(
-            json.dumps({"models": [{"name": "gemini2_5pro", "cli_id": "gemini-2.5-pro"}]}),
             encoding="utf-8",
         )
 

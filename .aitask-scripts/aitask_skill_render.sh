@@ -34,7 +34,7 @@ Arguments:
                      .claude/skills/<skill>/SKILL.md.j2.
   --profile <name>   Execution profile name (must match a file in
                      aitasks/metadata/profiles/).
-  --agent <name>     Agent name: claude | codex | gemini | opencode.
+  --agent <name>     Agent name: claude | codex | opencode.
   --force            Re-render every closure target unconditionally.
 EOF
 }

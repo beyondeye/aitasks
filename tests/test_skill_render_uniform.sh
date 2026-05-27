@@ -88,7 +88,6 @@ cleanup() {
     rm -rf \
         "$PROJECT_DIR"/.claude/skills/"${PREFIX}"* \
         "$PROJECT_DIR"/.agents/skills/"${PREFIX}"* \
-        "$PROJECT_DIR"/.gemini/skills/"${PREFIX}"* \
         "$PROJECT_DIR"/.opencode/skills/"${PREFIX}"*
 }
 trap cleanup EXIT
@@ -347,19 +346,8 @@ else
 fi
 
 # ============================================================================
-# Test 9 — Cross-agent rewriting (gemini)
+# Test 9 — (retired: gemini cross-agent rewriting; opencode equivalent in Test 8)
 # ============================================================================
-
-"$RENDER" "$SK_A" --profile fast --agent gemini
-
-assert_file_exists "Test9: gemini A target rendered" \
-    ".gemini/skills/${SK_A}-fast-/SKILL.md"
-assert_file_exists "Test9: gemini B target rendered" \
-    ".gemini/skills/${SK_B}-fast-/SKILL.md"
-
-GEM_A_OUT="$(cat ".gemini/skills/${SK_A}-fast-/SKILL.md")"
-assert_contains "Test9: claude-mentioned ref rewritten to gemini target root" \
-    ".gemini/skills/${SK_B}-fast-/SKILL.md" "$GEM_A_OUT"
 
 # ============================================================================
 # Test 10 — walk-check: clean closure exits 0, no disk writes

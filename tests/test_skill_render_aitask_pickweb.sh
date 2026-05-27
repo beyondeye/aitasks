@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # test_skill_render_aitask_pickweb.sh - Regression tests for t777_15:
 #   - .claude/skills/aitask-pickweb/SKILL.md.j2 (entry-point template, headless-only)
-#   - 5 stubs: 4 canonical (claude/codex/gemini/opencode) + 1 OpenCode skill-registry
+#   - 5 stubs: 3 canonical (claude/codex/opencode) + 1 OpenCode skill-registry
 #   - 1 golden file under tests/golden/skills/aitask-pickweb/ (remote × claude canonical)
 #   - 4 pre-rendered committed remote variants under <root>/aitask-pickweb-remote-/
 # Coverage:
 #   1.  Golden diff for the entry-point template (remote × claude render).
-#   1b. Agent-dimension invariance: claude/codex/gemini/opencode renders are
+#   1b. Agent-dimension invariance: claude/codex/opencode renders are
 #       byte-identical (no {% if agent %} in the template).
 #   2.  Pickweb-specific branches fire (plan_preference use_current default,
 #       .aitask-data-updated/ web layout, no ownership/archive calls).
@@ -81,7 +81,7 @@ TEMPLATE=".claude/skills/aitask-pickweb/SKILL.md.j2"
 GOLDEN_DIR="tests/golden/skills/aitask-pickweb"
 PROFILES_DIR="aitasks/metadata/profiles"
 
-AGENTS=(claude codex gemini opencode)
+AGENTS=(claude codex opencode)
 
 # pickweb is a headless-only skill — only the remote profile is meaningful.
 PROFILE="remote"
@@ -97,7 +97,7 @@ assert_eq "golden SKILL × $PROFILE" "$golden_content" "$rendered"
 
 echo "=== Test 1b: agent renders are byte-identical (no {% if agent %} in template) ==="
 base="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$PROFILE.yaml" claude 2>&1)"
-for agent in codex gemini opencode; do
+for agent in codex opencode; do
     cmp="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$PROFILE.yaml" "$agent" 2>&1)"
     assert_eq "agent invariance $PROFILE/$agent" "$base" "$cmp"
 done
@@ -174,8 +174,6 @@ assert_contains "claude/remote: task-workflow ref rewritten under .claude/skills
     ".claude/skills/task-workflow-remote-/agent-attribution.md" "$(cat .claude/skills/aitask-pickweb-remote-/SKILL.md)"
 assert_contains "codex/remote: task-workflow ref rewritten under .agents/skills" \
     ".agents/skills/task-workflow-remote-codex-/agent-attribution.md" "$(cat .agents/skills/aitask-pickweb-remote-codex-/SKILL.md)"
-assert_contains "gemini/remote: task-workflow ref rewritten under .gemini/skills" \
-    ".gemini/skills/task-workflow-remote-/agent-attribution.md" "$(cat .gemini/skills/aitask-pickweb-remote-/SKILL.md)"
 assert_contains "opencode/remote: task-workflow ref rewritten under .opencode/skills" \
     ".opencode/skills/task-workflow-remote-/agent-attribution.md" "$(cat .opencode/skills/aitask-pickweb-remote-/SKILL.md)"
 
@@ -184,11 +182,10 @@ assert_contains "opencode/remote: task-workflow ref rewritten under .opencode/sk
 echo "=== Test 5: 4 canonical stub files + 1 OpenCode skill-registry contain canonical conditional-Read markers ==="
 CLAUDE_STUB=".claude/skills/aitask-pickweb/SKILL.md"
 CODEX_STUB=".agents/skills/aitask-pickweb/SKILL.md"
-GEMINI_STUB=".gemini/commands/aitask-pickweb.toml"
 OPENCODE_STUB=".opencode/commands/aitask-pickweb.md"
 OPENCODE_SKILL_STUB=".opencode/skills/aitask-pickweb/SKILL.md"
 
-for stub in "$CLAUDE_STUB" "$CODEX_STUB" "$GEMINI_STUB" "$OPENCODE_STUB" "$OPENCODE_SKILL_STUB"; do
+for stub in "$CLAUDE_STUB" "$CODEX_STUB" "$OPENCODE_STUB" "$OPENCODE_SKILL_STUB"; do
     body="$(cat "$stub")"
     assert_contains "$stub: resolve_profile uses short name 'pickweb' (t777_26)" \
         "aitask_skill_resolve_profile.sh pickweb" "$body"
@@ -206,7 +203,6 @@ done
 # Per-agent agent_literal substitution checks
 assert_contains "claude stub: --agent claude" "--agent claude" "$(cat "$CLAUDE_STUB")"
 assert_contains "codex stub: --agent codex" "--agent codex" "$(cat "$CODEX_STUB")"
-assert_contains "gemini stub: --agent gemini" "--agent gemini" "$(cat "$GEMINI_STUB")"
 assert_contains "opencode stub: --agent opencode" "--agent opencode" "$(cat "$OPENCODE_STUB")"
 assert_contains "opencode skill-stub: --agent opencode" "--agent opencode" "$(cat "$OPENCODE_SKILL_STUB")"
 
@@ -215,8 +211,6 @@ assert_contains "claude stub: reads from .claude/skills/aitask-pickweb-<profile>
     ".claude/skills/aitask-pickweb-<profile>-/SKILL.md" "$(cat "$CLAUDE_STUB")"
 assert_contains "codex stub: reads from .agents/skills/aitask-pickweb-<profile>-" \
     ".agents/skills/aitask-pickweb-<profile>-codex-/SKILL.md" "$(cat "$CODEX_STUB")"
-assert_contains "gemini stub: reads from .gemini/skills/aitask-pickweb-<profile>-" \
-    ".gemini/skills/aitask-pickweb-<profile>-/SKILL.md" "$(cat "$GEMINI_STUB")"
 assert_contains "opencode stub: reads from .opencode/skills/aitask-pickweb-<profile>-" \
     ".opencode/skills/aitask-pickweb-<profile>-/SKILL.md" "$(cat "$OPENCODE_STUB")"
 assert_contains "opencode skill-stub: reads from .opencode/skills/aitask-pickweb-<profile>-" \

@@ -15,7 +15,6 @@
 # Per-agent invocation (full_skill = "aitask-<skill>"; binary/model_flag/cli_id
 # resolved from agent-string via lib/agent_string.sh):
 #   claudecode -> exec claude --model <cli_id> "/<full_skill> --profile <profile> <args>"
-#   geminicli  -> exec gemini -m <cli_id> "/<full_skill> --profile <profile> <args>"
 #   opencode   -> exec opencode --model <cli_id> --prompt "/<full_skill> --profile <profile> <args>"
 #   codex      -> python3 aitask_codex_plan_invoke.py --prompt "$<full_skill> --profile <profile> <args>" -- codex -m <cli_id>
 #
@@ -59,7 +58,7 @@ Options:
 Examples:
   ait skillrun pick                              # pick a task with the default profile + agent
   ait skillrun pick --profile fast 777_5         # explicit profile + skill arg
-  ait skillrun pick --agent-string geminicli/gemini3pro --dry-run -- 777
+  ait skillrun pick --agent-string codex/gpt5_4 --dry-run -- 777
   echo "skip_task_confirmation: false" | \
       ait skillrun pick --profile fast --profile-override - -- 777
 
@@ -226,9 +225,6 @@ forwarded="${forwarded_args[*]}"
 CMD=()
 case "$PARSED_AGENT" in
     claudecode)
-        CMD=("$binary" "$model_flag" "$cli_id" "/${full_skill} ${forwarded}")
-        ;;
-    geminicli)
         CMD=("$binary" "$model_flag" "$cli_id" "/${full_skill} ${forwarded}")
         ;;
     opencode)
