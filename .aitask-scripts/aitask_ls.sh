@@ -265,6 +265,13 @@ parse_yaml_frontmatter() {
                 contributor)
                     contributor_text="$value"
                     ;;
+                xdeprepo)
+                    xdeprepo_text="$value"
+                    ;;
+                xdeps)
+                    xdeps_text=$(parse_yaml_list "$value")
+                    xdeps_text=$(normalize_task_ids "$xdeps_text")
+                    ;;
             esac
         fi
     done < "$file_path"
@@ -313,6 +320,8 @@ parse_task_metadata() {
     issue_text=""
     pull_request_text=""
     contributor_text=""
+    xdeps_text=""
+    xdeprepo_text=""
 
     # Parse YAML front matter
     parse_yaml_frontmatter "$file_path"

@@ -33,6 +33,8 @@ BATCH_TYPE="feature"
 BATCH_STATUS="Ready"
 BATCH_LABELS=""
 BATCH_DEPS=""
+BATCH_XDEPS=""
+BATCH_XDEPREPO=""
 BATCH_VERIFIES=""
 BATCH_COMMIT=false
 BATCH_SILENT=false
@@ -73,6 +75,12 @@ Batch mode (for automation):
   --issue URL            Issue tracker URL (e.g., GitHub issue URL)
   --labels, -l LABELS    Comma-separated labels
   --deps DEPS            Comma-separated dependency task numbers
+  --xdeps DEPS           Comma-separated cross-repo dependency task numbers
+                         (in the format used inside --xdeprepo). Requires
+                         --xdeprepo. IDs are validated cross-repo at create.
+  --xdeprepo NAME        Cross-repo project name (resolved via the registry)
+                         that --xdeps numbers refer to. Both fields are
+                         required together.
   --verifies VERIFIES    Comma-separated task IDs this task manually verifies
                          (for issue_type: manual_verification)
   --file-ref REF         Append a file reference; repeatable. REF format:
@@ -139,6 +147,8 @@ parse_args() {
             --status|-s) BATCH_STATUS="$2"; shift 2 ;;
             --labels|-l) BATCH_LABELS="$2"; shift 2 ;;
             --deps) BATCH_DEPS="$2"; shift 2 ;;
+            --xdeps) BATCH_XDEPS="$2"; shift 2 ;;
+            --xdeprepo) BATCH_XDEPREPO="$2"; shift 2 ;;
             --verifies) BATCH_VERIFIES="$2"; shift 2 ;;
             --parent|-P) BATCH_PARENT="$2"; shift 2 ;;
             # --project is handled in main() before parse_args (cross-repo
@@ -397,6 +407,13 @@ create_child_task_file() {
         echo "priority: $priority"
         echo "effort: $effort"
         echo "depends: $deps_yaml"
+        # Cross-repo deps (both-or-neither, validated by validate_xdeps_pair)
+        if [[ -n "${BATCH_XDEPS:-}" ]]; then
+            local xdeps_yaml
+            xdeps_yaml=$(format_yaml_list "$BATCH_XDEPS")
+            echo "xdeps: $xdeps_yaml"
+            echo "xdeprepo: $BATCH_XDEPREPO"
+        fi
         echo "issue_type: $issue_type"
         echo "status: $status"
         echo "labels: $labels_yaml"
@@ -484,6 +501,13 @@ create_draft_file() {
         echo "priority: $priority"
         echo "effort: $effort"
         echo "depends: $deps_yaml"
+        # Cross-repo deps (both-or-neither, validated by validate_xdeps_pair)
+        if [[ -n "${BATCH_XDEPS:-}" ]]; then
+            local xdeps_yaml
+            xdeps_yaml=$(format_yaml_list "$BATCH_XDEPS")
+            echo "xdeps: $xdeps_yaml"
+            echo "xdeprepo: $BATCH_XDEPREPO"
+        fi
         echo "issue_type: $issue_type"
         echo "status: $status"
         echo "labels: $labels_yaml"
@@ -851,6 +875,56 @@ validate_task_type() {
         valid=$(get_valid_task_types | tr '\n' ', ' | sed 's/,$//')
         die "Invalid type: $type (must be one of: $valid)"
     fi
+}
+
+# Validate the cross-repo dep pair: both BATCH_XDEPS and BATCH_XDEPREPO must
+# be set together (both-or-neither); BATCH_XDEPREPO must resolve via the
+# project registry; each id in BATCH_XDEPS must exist in the cross-repo
+# project.  No-op if both are empty (most tasks).
+validate_xdeps_pair() {
+    if [[ -z "$BATCH_XDEPS" && -z "$BATCH_XDEPREPO" ]]; then
+        return 0
+    fi
+    if [[ -z "$BATCH_XDEPS" || -z "$BATCH_XDEPREPO" ]]; then
+        die "--xdeps and --xdeprepo must be provided together (both-or-neither)."
+    fi
+
+    # Resolve the cross-repo project via the registry (t826_1).
+    local resolved
+    resolved=$("$SCRIPT_DIR/aitask_project_resolve.sh" "$BATCH_XDEPREPO" 2>/dev/null || true)
+    case "$resolved" in
+        RESOLVED:*) ;;
+        STALE:*)
+            die "Project '$BATCH_XDEPREPO' is registered but its path is stale: ${resolved#STALE:}"
+            ;;
+        NOT_FOUND:*|"")
+            die "Project '$BATCH_XDEPREPO' is not registered. Run \`cd /path/to/$BATCH_XDEPREPO && ait projects add\`."
+            ;;
+        *)
+            die "Project resolver returned unexpected output for '$BATCH_XDEPREPO': $resolved"
+            ;;
+    esac
+
+    # Validate each xdeps id exists cross-repo. Uses `task-status` which
+    # accepts both parent (N) and child (N_M) IDs and emits STATUS:NOT_FOUND
+    # for missing tasks; archived tasks resolve to STATUS:Done.
+    local IFS=','
+    local id
+    for id in $BATCH_XDEPS; do
+        id="${id#t}"
+        [[ -z "$id" ]] && continue
+        local result
+        result=$("$SCRIPT_DIR/aitask_query_files.sh" --project "$BATCH_XDEPREPO" task-status "$id" 2>/dev/null || true)
+        case "$result" in
+            STATUS:NOT_FOUND|"")
+                die "--xdeps id $id not found in cross-repo project '$BATCH_XDEPREPO'."
+                ;;
+            STATUS:*) ;;
+            *)
+                die "Unexpected task-status output for xdeps id $id in '$BATCH_XDEPREPO': $result"
+                ;;
+        esac
+    done
 }
 
 # Get labels interactively - sets SELECTED_LABELS variable
@@ -1442,6 +1516,13 @@ create_task_file() {
         echo "priority: $priority"
         echo "effort: $effort"
         echo "depends: $deps_yaml"
+        # Cross-repo deps (both-or-neither, validated by validate_xdeps_pair)
+        if [[ -n "${BATCH_XDEPS:-}" ]]; then
+            local xdeps_yaml
+            xdeps_yaml=$(format_yaml_list "$BATCH_XDEPS")
+            echo "xdeps: $xdeps_yaml"
+            echo "xdeprepo: $BATCH_XDEPREPO"
+        fi
         echo "issue_type: $issue_type"
         echo "status: $status"
         echo "labels: $labels_yaml"
@@ -1567,6 +1648,10 @@ run_batch_mode() {
         Ready|Editing|Implementing|Postponed) ;;
         *) die "Invalid status: $BATCH_STATUS (must be Ready, Editing, Implementing, or Postponed)" ;;
     esac
+
+    # Validate cross-repo dependency pair (xdeps + xdeprepo): both-or-neither,
+    # repo must resolve, IDs must exist cross-repo. Normalize empty strings.
+    validate_xdeps_pair
 
     # Sanitize task name
     local task_name

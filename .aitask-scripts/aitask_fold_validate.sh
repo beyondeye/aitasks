@@ -110,4 +110,50 @@ for raw_id in "${ids[@]}"; do
     fi
 
     echo "VALID:${id}:${file}"
+
+    # Cross-repo dep warning: if the foldee carries xdeps/xdeprepo that the
+    # primary task (--exclude-self) does not also carry, folding silently
+    # drops those deps. Emit a non-blocking WARNING line so callers can
+    # surface it to the user. Skipped when --exclude-self is absent (no
+    # primary task is known).
+    if [[ -n "$exclude_self" ]]; then
+        foldee_xdeprepo=$(read_xdeprepo "$file")
+        foldee_xdeps=$(read_xdeps "$file")
+        if [[ -n "$foldee_xdeprepo" || -n "$foldee_xdeps" ]]; then
+            primary_file=""
+            if [[ "$exclude_self" =~ ^([0-9]+)_([0-9]+)$ ]]; then
+                p_parent="${BASH_REMATCH[1]}"
+                p_child="${BASH_REMATCH[2]}"
+                primary_file=$(ls "$TASK_DIR"/t"${p_parent}"/t"${p_parent}"_"${p_child}"_*.md 2>/dev/null | head -1 || true)
+            elif [[ "$exclude_self" =~ ^[0-9]+$ ]]; then
+                primary_file=$(ls "$TASK_DIR"/t"${exclude_self}"_*.md 2>/dev/null | head -1 || true)
+            fi
+
+            primary_xdeprepo=""
+            primary_xdeps=""
+            if [[ -n "$primary_file" && -f "$primary_file" ]]; then
+                primary_xdeprepo=$(read_xdeprepo "$primary_file")
+                primary_xdeps=$(read_xdeps "$primary_file")
+            fi
+
+            mismatch=0
+            if [[ "$foldee_xdeprepo" != "$primary_xdeprepo" ]]; then
+                mismatch=1
+            else
+                # Same xdeprepo: every foldee id must also be in primary's xdeps.
+                IFS=',' read -ra _fdeps <<< "$foldee_xdeps"
+                for _fid in "${_fdeps[@]}"; do
+                    [[ -z "$_fid" ]] && continue
+                    if [[ ",${primary_xdeps}," != *",${_fid},"* ]]; then
+                        mismatch=1
+                        break
+                    fi
+                done
+            fi
+
+            if [[ "$mismatch" -eq 1 ]]; then
+                echo "WARNING:${id}:xdeps_loss:${foldee_xdeprepo}:${foldee_xdeps}"
+            fi
+        fi
+    fi
 done

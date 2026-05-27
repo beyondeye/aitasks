@@ -257,6 +257,26 @@ read_task_status() {
     read_yaml_field "$file_path" "status"
 }
 
+# --- Cross-repo dependency field readers ---
+
+# Read the xdeps list as a normalized comma-separated string (e.g. "1,t42_3").
+# Empty when the field is absent.
+read_xdeps() {
+    local file_path="$1"
+    local raw
+    raw=$(read_yaml_field "$file_path" "xdeps")
+    [[ -z "$raw" ]] && return 0
+    local parsed
+    parsed=$(parse_yaml_list "$raw")
+    normalize_task_ids "$parsed"
+}
+
+# Read the xdeprepo scalar (cross-repo project name). Empty when absent.
+read_xdeprepo() {
+    local file_path="$1"
+    read_yaml_field "$file_path" "xdeprepo"
+}
+
 # Normalize child task IDs: ensure entries with underscore have 't' prefix.
 # e.g. "85_2,t85_3,16" -> "t85_2,t85_3,16"
 normalize_task_ids() {
