@@ -34,7 +34,7 @@ menu:
 <!-- Update these stats at each release -->
 {{% blocks/feature icon="fa-code" title="By the Numbers" %}}
 **37 releases** since February 2026<br>
-**26 AI Agent skills** built-in (Claude Code, Gemini CLI, Codex CLI, OpenCode)<br>
+**26 AI Agent skills** built-in (Claude Code and all other supported coding agents)<br>
 **5 platforms** fully supported<br>
 **80+ CLI scripts** in the framework
 {{% /blocks/feature %}}

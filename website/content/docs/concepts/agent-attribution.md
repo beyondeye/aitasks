@@ -10,11 +10,11 @@ depth: [advanced]
 
 **Agent attribution** is the per-task record of which code agent and model did the implementation. It surfaces in three places:
 
-1. The task's `implemented_with` frontmatter field, written at the start of implementation in the form `<agent>/<model>` — for example `claudecode/opus4_7_1m`, `geminicli/gemini3pro`, `codex/gpt5_4`. The `<model>` segment is the `name` field from `aitasks/metadata/models_<agent>.json`, not the raw runtime CLI ID.
+1. The task's `implemented_with` frontmatter field, written at the start of implementation in the form `<agent>/<model>` — for example `claudecode/opus4_7_1m`, `codex/gpt5_4`, `opencode/kimi_k2_5`. The `<model>` segment is the `name` field from `aitasks/metadata/models_<agent>.json`, not the raw runtime CLI ID.
 2. A `Co-Authored-By:` trailer appended to the implementation commit, naming the model with a project-configurable email domain.
 3. The verified-scores subsystem, which keys per-operation satisfaction ratings off the same `<agent>/<model>` string.
 
-The `<model>` segment is a normalized short ID resolved from the agent's runtime model — Claude Code reads it from its system message, Codex CLI from `~/.codex/config.toml`, Gemini CLI from `~/.gemini/settings.json`, and OpenCode from its system context. A wrapper-set `AITASK_AGENT_STRING` environment variable overrides self-detection when present.
+The `<model>` segment is a normalized short ID resolved from the agent's runtime model — each supported coding agent has its own self-detection path (Claude Code reads it from its system message, Codex CLI from `~/.codex/config.toml`, OpenCode from its system context, etc.). A wrapper-set `AITASK_AGENT_STRING` environment variable overrides self-detection when present.
 
 ## Why it exists
 

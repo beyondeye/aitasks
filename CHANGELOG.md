@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Removals
+
+- **Remove Gemini CLI Support** (t812): Removed `geminicli` from the framework: agent identity layer, skill rendering and templating, setup/install/release pipeline, and all current-state documentation. Google is sunsetting Gemini CLI in favor of Antigravity CLI (agy); see t813 and t814 for the agy migration path. Existing CHANGELOG / blog references to Gemini CLI are preserved as historical record.
+
 ## v0.21.1
 
 ### Bug Fixes

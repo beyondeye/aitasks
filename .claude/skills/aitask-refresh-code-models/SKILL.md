@@ -13,7 +13,7 @@ Read all model config files and the project defaults:
 2. Read each file to get the current model list per agent
 3. Read `aitasks/metadata/codeagent_config.json` to identify which models are configured as defaults for each operation (these will be marked "IN USE" in the change report)
 
-Extract the agent name from each filename: `models_claudecode.json` → `claudecode`, `models_geminicli.json` → `geminicli`, etc.
+Extract the agent name from each filename: `models_claudecode.json` → `claudecode`, `models_codex.json` → `codex`, etc.
 
 ### Step 2: Select Agents to Update
 
@@ -55,7 +55,6 @@ If a WebFetch URL fails (404, redirect to different content), fall back to WebSe
 Use generic terms — do NOT hardcode year references:
 
 - **Claude**: `"Anthropic Claude models API model IDs latest"`
-- **Gemini**: `"Google Gemini API models latest available"`
 - **Codex**: `"OpenAI Codex CLI models latest"`
 - **OpenCode**: Uses CLI discovery only (see below) — web research is NOT used for OpenCode
 
@@ -143,7 +142,7 @@ Stage and commit the changes using the appropriate git commands:
 
 **Metadata files** (task data branch):
 ```bash
-./ait git add aitasks/metadata/models_claudecode.json aitasks/metadata/models_geminicli.json aitasks/metadata/models_codex.json aitasks/metadata/models_opencode.json
+./ait git add aitasks/metadata/models_claudecode.json aitasks/metadata/models_codex.json aitasks/metadata/models_opencode.json
 ./ait git commit -m "ait: Refresh code agent model configurations"
 ```
 
@@ -151,7 +150,7 @@ Only include files that were actually modified — skip unchanged agent files.
 
 **Seed files** (main branch, only if `seed/` exists and files were updated):
 ```bash
-git add seed/models_claudecode.json seed/models_geminicli.json seed/models_codex.json seed/models_opencode.json
+git add seed/models_claudecode.json seed/models_codex.json seed/models_opencode.json
 git commit -m "ait: Sync refreshed models to seed templates"
 ```
 
@@ -175,7 +174,6 @@ Examples:
 | Display Name | name | cli_id |
 |---|---|---|
 | Claude Opus 4.6 | `opus4_6` | `claude-opus-4-6` |
-| Gemini 2.5 Pro | `gemini2_5pro` | `gemini-2.5-pro` |
 | GPT-5.3 Codex Spark | `gpt5_3codex_spark` | `gpt-5.3-codex-spark` |
 | Kimi K2.5 | `kimi_k2_5` | `kimi-k2.5` |
 
@@ -187,11 +185,6 @@ These URLs are used during the web research phase (Step 3). They are checked for
 - https://platform.claude.com/docs/en/about-claude/models/overview
 - https://platform.claude.com/docs/en/about-claude/models/all-models
 - Key info: Claude Code uses `--model` flag. Prefer explicit versioned IDs (e.g., `claude-opus-4-6`) over aliases (`opus`).
-
-### Gemini (Google)
-- https://ai.google.dev/gemini-api/docs/models
-- https://github.com/google-gemini/gemini-cli/discussions
-- Key info: Gemini CLI uses `-m` flag. Model IDs may include `-preview` suffix.
 
 ### Codex (OpenAI)
 - https://platform.openai.com/docs/models

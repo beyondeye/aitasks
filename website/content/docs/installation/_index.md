@@ -53,7 +53,7 @@ After installing, see these guides for the rest of the environment:
 - [Git Remotes]({{< relref "git-remotes" >}}) — auth for GitHub / GitLab / Bitbucket (required for locking, sync, issues).
 - [PyPy Runtime]({{< relref "pypy" >}}) — optional faster runtime for `ait board`.
 - [Updating Model Lists]({{< relref "updating-model-lists" >}}) — refresh the supported model lists used by `ait codeagent` and the Settings TUI.
-- [Known Agent Issues]({{< relref "known-issues" >}}) — current Claude Code / Gemini CLI / Codex CLI / OpenCode caveats.
+- [Known Agent Issues]({{< relref "known-issues" >}}) — current per-agent caveats across all supported coding agents.
 
 ## Cloning a Repo That Already Uses aitasks
 
@@ -116,12 +116,6 @@ For background on why task data lives on a separate branch, see the
 - `.opencode/commands/` — OpenCode command wrappers
 - `.opencode/instructions.md` — aitasks instructions for OpenCode
 - `opencode.json` — merged with aitask settings
-
-**Optional: Gemini CLI support** (when `ait setup` detects Gemini CLI):
-
-- `.gemini/skills/` — Gemini CLI skill wrappers
-- `.gemini/commands/` — Gemini CLI command wrappers
-- `GEMINI.md` — aitasks instructions for Gemini CLI
 
 **Global dependencies** (installed once per machine via `ait setup`):
 

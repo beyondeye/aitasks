@@ -36,9 +36,9 @@ rework, no temporary inconsistency).
 - [20. Seed assets (`seed/<agent>_*`)](#20-seed-assets-seedagent_)
 - [21. Helper-doc copy-loop fan-out (3 sites in lockstep)](#21-helper-doc-copy-loop-fan-out-3-sites-in-lockstep)
 - [22. Per-agent runtime dotdir (gitignore-skip / framework-paths)](#22-per-agent-runtime-dotdir-gitignore-skip--framework-paths)
+- [23. User-facing documentation & skill-closure files](#23-user-facing-documentation--skill-closure-files)
 
-*(More sections to be added as the migration playbook expands:
-contributor docs, website docs, etc.)*
+*(More sections to be added as the migration playbook expands.)*
 
 ---
 
@@ -1158,3 +1158,182 @@ skills live under `.agents/skills/<skill>-<profile>-<agent>-/` and
 the `.agents/` entry already covers them. The dotdir convention is
 for agents with their own private root (`.claude/`, `.codex/`,
 `.opencode/`).
+
+## 23. User-facing documentation & skill-closure files
+
+Adding or retiring an agent touches a layer of **prose** that the
+sections above do not — README/CLAUDE.md, the Hugo website, internal
+`aidocs/` reference docs, and skill-closure `.md` files that enumerate
+agent names. These do not break the framework if missed, but they
+diverge from reality and confuse users. The first sweep (geminicli
+removal in t812_4) revealed the pattern; codify it so future
+adds/removes are mechanical.
+
+### 23a. Top-level docs
+
+- `README.md` — three current-state mentions of the supported-agent
+  set (the tagline, the "Multi-agent support" feature blurb, and the
+  Code Agent Skills documentation link). Use the **genericization
+  rule** below.
+- `CLAUDE.md` — "Working on Skills / Custom Commands" section. Three
+  load-bearing references per agent:
+  1. The `The framework also supports …` sentence listing the
+     non-Claude agents.
+  2. The bulleted **dotdir list** (`.codex/`, `.opencode/`, …) under
+     that sentence — per-agent stub-surface description.
+  3. The "Per-agent stub surface and rendered-variant location"
+     table (4-column form: Agent / Stub location / Rendered variant
+     / notes). One row per agent.
+- `CHANGELOG.md` — append a new entry under the next pending release
+  recording the add/remove. Do NOT rewrite historical entries.
+
+### 23b. Genericization rule (load-bearing for prose stability)
+
+When the supported-agent set appears in **marketing / introductory /
+blurb prose** (README taglines, website overview / getting-started /
+skills-index intros, in-paragraph examples), do **not** enumerate the
+full list. Use the agent-set-agnostic phrasing instead:
+
+- Preferred: `Claude Code and all other supported coding agents`
+- Acceptable (when one or two anchors carry editorial weight):
+  `Claude Code, Codex, and all other supported coding agents`
+
+**Why:** every fixed enumeration in prose is a churn site each time the
+agent set changes. Marketing-style enumerations have no normative
+value — the agent set IS the documentation only when each agent
+contributes an agent-specific code path / instruction.
+
+Apply the literal-enumeration rule (NOT the genericization rule) where
+the list IS the documentation:
+
+- CLI mapping tables (`website/content/docs/commands/codeagent.md`'s
+  Agent / CLI Binary / Model Flag table).
+- Per-agent install instructions
+  (`website/content/docs/installation/windows-wsl.md`'s `npm install`
+  block).
+- Per-agent known-issue sections
+  (`website/content/docs/installation/known-issues.md`'s `## <Agent>`
+  H2 sections).
+- Add-model support tables
+  (`website/content/docs/skills/aitask-add-model.md`).
+- Wrapper-tree audit tables
+  (`website/content/docs/development/skills/aitask-audit-wrappers.md`).
+- Settings-TUI value enumerations
+  (`website/content/docs/tuis/settings/*.md`).
+- Skill-closure model-self-detection lists (see §23d).
+- Touchpoint and stub-surface tables in `aidocs/`.
+
+### 23c. Internal `aidocs/` reference docs
+
+These describe the **current state of the codebase**; outdated entries
+mislead readers and the dep-walker. Audit per-agent rows on every
+add/remove:
+
+| File | Surface | Edit on add/remove |
+|---|---|---|
+| `aidocs/aitasks_extension_points.md` | Helper-script whitelist touchpoint table | Add/remove per-agent rows; renumber **only** by leaving retired slots vacant (numbering is stable). |
+| `aidocs/model_reference_locations.md` | Inventory tables (model registry, supported agents) | Add/remove rows for `aitasks/metadata/models_<agent>.json` and the seed mirror. |
+| `aidocs/stub-skill-pattern.md` | §3g per-agent surface table, §3b/§3d/§3e stub-form subsections, the "one stub per (skill, agent surface)" count, the dep-walker reference-resolution roots list | Add/remove a row, a subsection, and the bare agent-root reference (`.<agent>` literal). |
+| `aidocs/issue_type_vocabulary_duplication.md` | "agent-identification only" seed file list | Add/remove the `seed/<agent>_instructions.seed.md` entry. |
+
+### 23d. Skill-closure `.md` files (Claude-Code source, fan-out via rerender)
+
+Non-templated procedure files inside `.claude/skills/` closures that
+hardcode the agent enumeration must be edited at the **source**
+(`.claude/skills/<skill>/`), then refreshed for every profile via
+`./.aitask-scripts/aitask_skill_rerender.sh <profile>`. The rerender
+fan-out applies the change to every per-profile, per-agent rendered
+variant (`<.claude|.opencode|.agents>/skills/<skill>-<profile>-[<agent>-]/`).
+
+Current sites (canonical list — re-grep `geminicli` / `gemini` after
+this task to confirm none re-introduced):
+
+- `.claude/skills/task-workflow/model-self-detection.md` — the
+  "MUST be one of these exact strings" agent-identifier list.
+- `.claude/skills/task-workflow/satisfaction-feedback.md` — same shape
+  (Step 2 self-detection fallback).
+- `.claude/skills/task-workflow/plan-externalization.md` — the
+  "Other code agents (…) do not have an internal plan-mode file"
+  enumeration.
+- `.claude/skills/aitask-add-model/SKILL.md` — `--agent` validation
+  list and the agent-options AskUserQuestion.
+- `.claude/skills/aitask-refresh-code-models/SKILL.md` — agent
+  filename pattern example, the git-add command line listing each
+  `models_<agent>.json`, the research-URL bullets, and the model-
+  naming-convention examples.
+- `.claude/skills/aitask-audit-wrappers/SKILL.md` — wrapper-tree
+  enumeration, helper-whitelist touchpoint table, and the per-phase
+  apply commands.
+
+**Fan-out rule:** one source edit × 3 profiles × N agents = up to
+`3 × N` closure refreshes per source edit (e.g., 9 for the current
+claude/codex/opencode set). Always invoke the rerender driver —
+never hand-edit a rendered `*-/` directory.
+
+### 23e. Golden snapshots — closure-edit trigger
+
+Per `aidocs/skill_authoring_conventions.md` and the CLAUDE.md
+"Regenerate goldens after any `.md.j2` or closure edit" rule, **any**
+edit to a closure `.md` file requires regenerating its goldens in
+the same commit. For each affected procedure:
+
+```bash
+PYTHON="$(./.aitask-scripts/lib/python_resolve.sh require_ait_python)"
+for profile in default fast remote; do
+  "$PYTHON" .aitask-scripts/lib/skill_template.py \
+    .claude/skills/task-workflow/<procedure>.md \
+    aitasks/metadata/profiles/$profile.yaml claude \
+    > tests/golden/procs/task-workflow/<procedure>-$profile.md
+done
+```
+
+Confirm with `bash tests/test_skill_render_task_workflow.sh` — it
+diffs every (procedure × profile) pair against its golden.
+
+### 23f. Website docs sweep
+
+The Hugo source tree under `website/content/docs/` carries the
+largest single surface of agent enumerations. The current canonical
+file set (as of t812_4) is:
+
+- **Blurb / tagline prose** (genericize per §23b):
+  `overview.md`, `getting-started.md`, `skills/_index.md`,
+  `installation/_index.md`, `concepts/agent-attribution.md`,
+  `concepts/verified-scores.md`,
+  `skills/aitask-pick/commit-attribution.md`,
+  `skills/aitask-refresh-code-models.md`.
+- **Normative enumerations** (keep literal, add/remove a row per agent):
+  `commands/codeagent.md`, `installation/known-issues.md`,
+  `installation/updating-model-lists.md`,
+  `installation/windows-wsl.md`,
+  `skills/aitask-add-model.md`,
+  `development/skills/aitask-audit-wrappers.md`,
+  `tuis/settings/_index.md`, `tuis/settings/how-to.md`,
+  `tuis/settings/reference.md`.
+
+After any add/remove, build the site to catch broken cross-references:
+
+```bash
+cd website && hugo build --gc --minify
+```
+
+### 23g. Final grep sanity check
+
+```bash
+grep -rn '<old-agent>\|<old-agent-display-name>' \
+  --include='*.md' --include='*.j2' --include='*.toml' \
+  --include='*.json' . \
+  | grep -v -E '^./(aitasks|aiplans)/archived/' \
+  | grep -v '^./.claude/projects/'
+```
+
+Acceptable post-removal residue:
+- `CHANGELOG.md` / `CHANGELOG_HUMANIZED.md` historical entries.
+- Dated blog posts under `website/content/blog/`.
+- `aidocs/<old-agent>_to_<new-agent>.md` migration guides retained
+  for follow-up tasks.
+- `seed/reviewguides/*/` / `aireviewguides/*/` `source_url:`
+  provenance citations (NOT current-state framework prose).
+- The new CHANGELOG entry recording the add/remove itself.
+
+If the grep flags anything outside this list, the sweep is incomplete.

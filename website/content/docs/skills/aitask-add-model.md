@@ -49,8 +49,7 @@ Everything add-mode does, plus:
 | Agent | Add-mode | Promote-mode | Notes |
 |-------|----------|--------------|-------|
 | `claudecode` | yes | yes (full) | Owns `DEFAULT_AGENT_STRING` |
-| `geminicli` | yes | yes (limited) | Promotion only touches config + seed |
-| `codex` | yes | yes (limited) | Same as geminicli |
+| `codex` | yes | yes (limited) | Promotion only touches config + seed |
 | `opencode` | no | no | Use [`/aitask-refresh-code-models`](../aitask-refresh-code-models/) — OpenCode models are gated by provider availability |
 
 ## Manual-Review List

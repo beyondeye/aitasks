@@ -5,13 +5,13 @@ weight: 50
 description: "Reference for aitasks skills across supported code agents"
 ---
 
-aitasks provides code agent skills that automate the full task lifecycle. Claude Code is the source of truth (`/aitask-*`); Gemini CLI and OpenCode use the same slash-command style, while Codex CLI wrappers use `$aitask-*`.
+aitasks provides code agent skills that automate the full task lifecycle. Claude Code is the source of truth (`/aitask-*`); OpenCode and other slash-style agents use the same syntax, while Codex CLI wrappers use `$aitask-*`.
 
-_Claude Code / Codex CLI / Gemini CLI / OpenCode (agent availability depends on installed wrappers)_.
+_Claude Code, Codex CLI, OpenCode, and other supported coding agents (agent availability depends on installed wrappers)_.
 
 > **Start here:** [`/aitask-pick`](aitask-pick/) is the hub skill — it drives the full pick → plan → implement → review → archive lifecycle. Read that first, then branch based on use case: creation with [`/aitask-explore`](aitask-explore/), batch/remote with [`/aitask-pickrem`](aitask-pickrem/) or [`/aitask-pickweb`](aitask-pickweb/), review with [`/aitask-review`](aitask-review/) and [`/aitask-qa`](aitask-qa/).
 
-> **Multi-agent support:** Codex CLI and Gemini CLI wrappers are installed in `.agents/skills/`; OpenCode wrappers are installed in `.opencode/skills/`. Invoke skills with `/aitask-pick`, `/aitask-create`, etc. in Claude Code, Gemini CLI, and OpenCode, or with `$aitask-pick`, `$aitask-create`, etc. in Codex CLI. Run `ait setup` to install the wrappers detected for your agent. Interactive Codex skills require **plan mode** because `request_user_input` is only available there; OpenCode uses native `skill` and native `ask`, so this caveat does not apply there. However, if OpenCode is launched in plan mode, its read-only tool restriction may cause task locking to be skipped — see [Known Issues]({{< relref "/docs/installation/known-issues" >}}).
+> **Multi-agent support:** Codex CLI wrappers are installed in `.agents/skills/`; OpenCode wrappers are installed in `.opencode/skills/`; Claude Code skills live in `.claude/skills/`. Invoke skills with `/aitask-pick`, `/aitask-create`, etc. in Claude Code, OpenCode, and other slash-style agents, or with `$aitask-pick`, `$aitask-create`, etc. in Codex CLI. Run `ait setup` to install the wrappers detected for your agent. Interactive Codex skills require **plan mode** because `request_user_input` is only available there; OpenCode uses native `skill` and native `ask`, so this caveat does not apply there. However, if OpenCode is launched in plan mode, its read-only tool restriction may cause task locking to be skipped — see [Known Issues]({{< relref "/docs/installation/known-issues" >}}).
 
 > **Run from the project root.** aitasks expects to be invoked from the directory containing `.git/` — the root of your project's git repository. All skills use relative paths (e.g., `./.aitask-scripts/aitask_ls.sh`) and expect to start there. Launching an agent from a subdirectory can break path-based permissions and wrapper assumptions, and in Claude Code it will also trigger repeated permission prompts. Always `cd` there before launching your agent.
 

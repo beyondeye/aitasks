@@ -35,10 +35,8 @@ on every invocation.
 | Touchpoint | Entry shape |
 |-----------|------------|
 | `.claude/settings.local.json` | `"Bash(./.aitask-scripts/<name>.sh:*)"` in `permissions.allow` |
-| `.gemini/policies/aitasks-whitelist.toml` | `[[rule]]` block with `commandPrefix = "./.aitask-scripts/<name>.sh"`, `decision = "allow"`, `priority = 100` |
 | `.codex/rules/default.rules` | `prefix_rule(pattern = ["./.aitask-scripts/<name>.sh"], decision = "allow", ...)` |
 | `seed/claude_settings.local.json` | mirror of `.claude/settings.local.json` entry |
-| `seed/geminicli_policies/aitasks-whitelist.toml` | mirror of runtime Gemini policy |
 | `seed/codex_rules.default.rules` | mirror of runtime Codex rules |
 | `seed/opencode_config.seed.json` | `"./.aitask-scripts/<name>.sh *": "allow"` |
 

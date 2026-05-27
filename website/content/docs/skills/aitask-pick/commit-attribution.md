@@ -88,7 +88,6 @@ The resolver generates agent-specific emails such as:
 
 - `codex@aitasks.io`
 - `claudecode@aitasks.io`
-- `geminicli@aitasks.io`
 - `opencode@aitasks.io`
 
 `ait setup` seeds this field with `aitasks.io`, and teams can change it to any domain they want to use for custom code-agent attribution.

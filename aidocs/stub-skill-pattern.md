@@ -12,9 +12,9 @@ A **stub** is the small, profile-agnostic dispatch logic that the agent reads wh
 
 The stub is committed to git. The rendered variants live in trailing-hyphen directories (e.g., `.claude/skills/aitask-pick-fast-/`) that are gitignored via the single `*-/` glob per agent root.
 
-**Shared-root agents (t834).** When two agents target the same physical root (today: codex + future agy under `.agents/skills/`), the rendered-dir name carries an additional `-<agent>-` segment to avoid collisions: `.agents/skills/aitask-pick-fast-codex-/` and `.agents/skills/aitask-pick-fast-agy-/`. The trailing hyphen is preserved so the `*-/` gitignore glob still works. The "shared root" set is the single source of truth `agent_shared_skills_root` in `.aitask-scripts/lib/agent_skills_paths.sh` (mirror: `AGENT_SHARED_SKILLS_ROOT` in `.aitask-scripts/lib/skill_template.py`). Non-shared agents (claude, gemini, opencode) keep the `<skill>-<profile>-/` naming.
+**Shared-root agents (t834).** When two agents target the same physical root (today: codex + future agy under `.agents/skills/`), the rendered-dir name carries an additional `-<agent>-` segment to avoid collisions: `.agents/skills/aitask-pick-fast-codex-/` and `.agents/skills/aitask-pick-fast-agy-/`. The trailing hyphen is preserved so the `*-/` gitignore glob still works. The "shared root" set is the single source of truth `agent_shared_skills_root` in `.aitask-scripts/lib/agent_skills_paths.sh` (mirror: `AGENT_SHARED_SKILLS_ROOT` in `.aitask-scripts/lib/skill_template.py`). Non-shared agents (claude, opencode) keep the `<skill>-<profile>-/` naming.
 
-**Per-agent, the stub lives at the agent's actual entry point** — not at a uniform path. Claude auto-discovers skill SKILL.md files; Codex loads SKILL.md by instruction reference; Gemini and OpenCode auto-discover **command wrappers**, not skills. The stub therefore takes different file shapes per agent (SKILL.md for Claude/Codex; command-wrapper file for Gemini/OpenCode). See §3g for the canonical mapping.
+**Per-agent, the stub lives at the agent's actual entry point** — not at a uniform path. Claude auto-discovers skill SKILL.md files; Codex loads SKILL.md by instruction reference; OpenCode auto-discovers **command wrappers**, not skills. The stub therefore takes different file shapes per agent (SKILL.md for Claude/Codex; command-wrapper file for OpenCode). See §3g for the canonical mapping.
 
 ## 3b. Canonical stub body (Claude / Codex — `SKILL.md` form)
 
@@ -57,39 +57,6 @@ Substitutions per stub:
   (Claude). For shared roots (Codex today; +agy in t814) it carries the
   agent segment: `<skill_short_name>-<profile>-<agent_literal>-`. See §3g
   for the per-agent surface table.
-
-## 3c. Canonical stub body (Gemini — command TOML form)
-
-This goes at `.gemini/commands/<skill_short_name>.toml`, replacing the current static `@`-include to the Claude SKILL.md. The Gemini command-wrapper convention `@`-includes the runtime prereqs before the stub body, mirroring the existing pattern.
-
-```toml
-description = "<copied from authoring template frontmatter>"
-prompt = """
-
-@.agents/skills/geminicli_planmode_prereqs.md
-@.agents/skills/geminicli_tool_mapping.md
-
-This is a profile-aware skill stub. Execute these steps in order, then stop:
-
-1. **Resolve active profile.** Parse {{args}} for `--profile <name>`.
-   If found, use that as `<profile>` and remove the `--profile <name>`
-   pair from the forwarded args. Otherwise run:
-   `./.aitask-scripts/aitask_skill_resolve_profile.sh <resolver_key>`
-   and use the single-line stdout as `<profile>`.
-
-2. **Render per-profile variant.** Run:
-   `./.aitask-scripts/aitask_skill_render.sh <skill_short_name> --profile <profile> --agent gemini`
-
-3. **Dispatch via Read-and-follow.** Read the file at
-   `.gemini/skills/<skill_short_name>-<profile>-/SKILL.md` and execute its
-   instructions as if they were this command, forwarding the (possibly
-   stripped) args unchanged.
-
-Forwarded args: {{args}}
-"""
-```
-
-The Gemini stub hardcodes `--agent gemini` in Step 2. The prereq includes (`geminicli_planmode_prereqs.md`, `geminicli_tool_mapping.md`) are pulled in at command-load time and are NOT duplicated into the rendered variant.
 
 ## 3d. Canonical stub body (OpenCode — command MD form)
 
@@ -138,11 +105,10 @@ When converting a skill in t777_6 (pilot) or t777_8..15 (others), each conversio
 
 - **Stub frontmatter `name:` / TOML `description=` / OpenCode frontmatter `description:` match the no-suffix slash command** (e.g., `aitask-pick`, NOT `aitask-pick-fast-`).
 - **Stubs are committed to git.** Rendered variants (trailing-hyphen dirs) are gitignored.
-- **One stub per (skill, agent surface)** — 4 stubs total per skill:
+- **One stub per (skill, agent surface)** — 3 stubs total per skill:
   1. Claude SKILL.md (per §3b)
   2. Codex SKILL.md (per §3b)
-  3. Gemini command TOML (per §3c)
-  4. OpenCode command MD (per §3d)
+  3. OpenCode command MD (per §3d)
 - **Stub body is profile-agnostic** — it never embeds profile-specific content or branches on profile keys. All profile-conditional logic belongs in the authoring template (`.claude/skills/<skill>/SKILL.md.j2`).
 - **Stub MUST NOT modify state** beyond the resolve + render bash calls. No git operations, no task-file edits, no lock changes.
 - **Authoring dir names MUST NOT end with `-`** — load-bearing for the `*-/` gitignore convention. Verified by the one-shot audit in t777_3 Step 5; future renames or new authoring skills must respect this hard rule.
@@ -154,7 +120,6 @@ When converting a skill in t777_6 (pilot) or t777_8..15 (others), each conversio
 |-------|------------------------|-------------------|----------------------|
 | Claude | `.claude/skills/<skill>/SKILL.md` | `claude` | `.claude/skills/<skill>-<profile>-/SKILL.md` |
 | Codex | `.agents/skills/<skill>/SKILL.md` | `codex` | `.agents/skills/<skill>-<profile>-codex-/SKILL.md` |
-| Gemini | `.gemini/commands/<skill>.toml` `prompt` field | `gemini` | `.gemini/skills/<skill>-<profile>-/SKILL.md` |
 | OpenCode | `.opencode/commands/<skill>.md` body | `opencode` | `.opencode/skills/<skill>-<profile>-/SKILL.md` |
 
 The codex row's extra `-codex-` segment is gated by `agent_shared_skills_root codex == true` in `.aitask-scripts/lib/agent_skills_paths.sh` (mirror: `AGENT_SHARED_SKILLS_ROOT["codex"] == True` in `.aitask-scripts/lib/skill_template.py`). The same rule applies to any future agent whose `agent_skill_root` collides with another agent's (e.g., agy in t814 → `.agents/skills/<skill>-<profile>-agy-/SKILL.md`).
@@ -162,12 +127,11 @@ The codex row's extra `-codex-` segment is gated by `agent_shared_skills_root co
 Notes:
 - In Claude, the rendered variant at `<skill>-<profile>-/SKILL.md` is technically auto-discoverable as a slash command (`/aitask-pick-fast-`). The stub flow never invokes that path; the trailing-hyphen slash command is a side effect of the dir naming and is not part of the normal invocation flow.
 - In Codex, the rendered variant at `.agents/skills/<skill>-<profile>-/SKILL.md` is reached via the stub's Read instruction. Codex does not auto-discover slash commands.
-- In Gemini and OpenCode, the rendered variant lives under `<agent_root>/skills/`, NOT under `<agent_root>/commands/`. The command wrapper is the stub; the rendered file is the dispatch target reached via Read-and-follow.
-- `.gemini/skills/` is currently empty in this repo. Per-skill conversion tasks (t777_6+) create the gemini rendered dirs for the first time on first render call.
+- In OpenCode, the rendered variant lives under `.opencode/skills/`, NOT under `.opencode/commands/`. The command wrapper is the stub; the rendered file is the dispatch target reached via Read-and-follow.
 
 ## 3h. Argument forwarding contract
 
-The stub's Step 1 parses `ARGUMENTS` (Claude/Codex), `{{args}}` (Gemini), or `$ARGUMENTS` (OpenCode) for the optional `--profile <name>` pair. If found:
+The stub's Step 1 parses `ARGUMENTS` (Claude/Codex) or `$ARGUMENTS` (OpenCode) for the optional `--profile <name>` pair. If found:
 - Use the captured `<name>` as the active profile (overrides resolver).
 - Remove the `--profile <name>` pair from the forwarded args before Step 3.
 
@@ -181,13 +145,13 @@ Authoring templates (`SKILL.md.j2`) and shared `.md` procedures may use any of t
 
 | Shape | Example | Resolution |
 |-------|---------|-----------|
-| Full path | `.claude/skills/task-workflow/planning.md` | Direct path under the source agent root (`.claude/skills/`, the SoT per t777_1). Ref strings may name any of the four agent roots (`.claude`, `.agents`, `.gemini`, `.opencode`); the walker normalises to `.claude/skills/` for resolution. |
+| Full path | `.claude/skills/task-workflow/planning.md` | Direct path under the source agent root (`.claude/skills/`, the SoT per t777_1). Ref strings may name any of the supported agent roots (`.claude`, `.agents`, `.opencode`); the walker normalises to `.claude/skills/` for resolution. |
 | Sibling | `planning.md` | Relative to the **current source file's parent dir**. |
 | Skill-relative | `task-workflow/planning.md` (one `/`, no leading `.claude/...`) | Relative to the source agent root (`.claude/skills/`). |
 
 After rendering, references inside the rendered output are rewritten:
 
-- **Full-path** → `<target_root>/<dir>-<profile>[-<agent>]-/<file>.md`, where `<target_root>` comes from `--agent` (`.claude/skills` for `claude`, `.agents/skills` for `codex`, `.gemini/skills` for `gemini`, `.opencode/skills` for `opencode`). The `-<agent>-` segment appears only when `<target_root>` is shared (t834; today: codex; +agy in t814).
+- **Full-path** → `<target_root>/<dir>-<profile>[-<agent>]-/<file>.md`, where `<target_root>` comes from `--agent` (`.claude/skills` for `claude`, `.agents/skills` for `codex`, `.opencode/skills` for `opencode`). The `-<agent>-` segment appears only when `<target_root>` is shared (t834; today: codex; +agy in t814).
 - **Sibling** → unchanged. The sibling file is rendered into the SAME per-profile dir, so the bare-filename reference still resolves correctly when the agent reads the rendered file.
 - **Skill-relative** → rewritten to full-path form: `<target_root>/<dir>-<profile>[-<agent>]-/<file>.md`. (Without rewriting, a one-`/` reference would otherwise resolve against the per-profile dir and fail.)
 
@@ -256,7 +220,7 @@ established five patterns that subsequent per-skill conversions
    **Golden dimensionality (t809 refinement):** entry-point goldens are
    `claude`-only — the basic stdout render performs no per-agent reference
    rewriting (that is a walk-write property, covered by Test 4), so the
-   `codex`/`gemini`/`opencode` renders are byte-identical to `claude`.
+   `codex`/`opencode` renders are byte-identical to `claude`.
    Likewise a profile-invariant procedure (its profile conditional
    activated by no committed profile) keeps one canonical `-default`
    golden. Both pruned dimensions are guarded by a cheap byte-equality
@@ -278,5 +242,5 @@ established five patterns that subsequent per-skill conversions
    `{% if agent == "claude" %} AskUserQuestion … {% elif agent == "codex" %} request_user_input … {% endif %}`
    branches inside the entry-point template body. They balloon the
    template and obscure intent. Keep per-agent tool-name mapping in
-   per-agent prereq files (e.g., `geminicli_tool_mapping.md`,
+   per-agent prereq files (e.g., `codex_tool_mapping.md`,
    `opencode_tool_mapping.md`) that the rendered body Reads-and-follows.

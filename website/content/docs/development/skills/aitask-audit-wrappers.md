@@ -7,7 +7,7 @@ maturity: [experimental]
 depth: [advanced]
 ---
 
-Audit drift between the aitasks skill source-of-truth (`.claude/skills/aitask-*/SKILL.md`) and the four code-agent wrapper trees, plus drift in helper-script whitelist coverage across the seven permission-system touchpoints. Generates missing wrappers from inline templates and inserts missing whitelist entries at the alphabetically-correct positions, with a per-phase user confirmation gate. Companion to [`/aitask-add-model`](../../skills/aitask-add-model/) — both are framework-development skills, useful when you are adding skills or helper scripts to the framework itself.
+Audit drift between the aitasks skill source-of-truth (`.claude/skills/aitask-*/SKILL.md`) and the code-agent wrapper trees, plus drift in helper-script whitelist coverage across the permission-system touchpoints. Generates missing wrappers from inline templates and inserts missing whitelist entries at the alphabetically-correct positions, with a per-phase user confirmation gate. Companion to [`/aitask-add-model`](../../skills/aitask-add-model/) — both are framework-development skills, useful when you are adding skills or helper scripts to the framework itself.
 
 **Usage:**
 ```
@@ -25,42 +25,34 @@ After adding a new `.claude/skills/aitask-*/SKILL.md` to the framework, or a new
 
 | Concern | Manual port | `/aitask-audit-wrappers` |
 |---|---|---|
-| Discovery | Hand-grep across trees | Automated (Phase 1: 4 trees + 2 policy files; Phase 2: 7 helper-whitelist touchpoints) |
-| Coverage matrix | Implicit | Structured `GAP:` / `POLICY_GAP:` / `MISSING:` output |
+| Discovery | Hand-grep across trees | Automated (Phase 1: wrapper trees; Phase 2: helper-whitelist touchpoints) |
+| Coverage matrix | Implicit | Structured `GAP:` / `MISSING:` output |
 | Apply | Hand-write each wrapper | Inline templates rendered from source-of-truth `description` field |
 | Idempotency check | None | Re-run discovery; refuses to declare success if anything remains |
 
 ## Phase 1 — Skill wrapper audit and port
 
-Scans every `.claude/skills/aitask-*/SKILL.md` and ensures all four wrappers exist:
+Scans every `.claude/skills/aitask-*/SKILL.md` and ensures the per-agent wrappers exist:
 
-- `.gemini/commands/<name>.toml` — Gemini CLI command wrapper.
-- `.agents/skills/<name>/SKILL.md` — unified Codex CLI + Gemini CLI skill wrapper.
+- `.agents/skills/<name>/SKILL.md` — Codex CLI (and other shared-root agents) skill wrapper.
 - `.opencode/skills/<name>/SKILL.md` — OpenCode skill wrapper.
 - `.opencode/commands/<name>.md` — OpenCode command wrapper.
 
-Plus two `activate_skill` policy lists for Gemini CLI:
-
-- `.gemini/policies/aitasks-whitelist.toml` — runtime layer.
-- `seed/geminicli_policies/aitasks-whitelist.toml` — seed layer (shipped with the framework, used by [`tests/test_gemini_setup.sh`](https://github.com/dario-bs/aitasks/blob/main/tests/test_gemini_setup.sh) to derive expected `activate_skill` counts dynamically).
-
-For each gap, the helper renders a wrapper from inline templates (description auto-extracted from the source-of-truth SKILL.md frontmatter via `read_yaml_field`). The skill displays the rendered diff per-gap, collects approval via `AskUserQuestion`, then writes approved wrappers and inserts approved policy entries at the alphabetically-correct positions.
+For each gap, the helper renders a wrapper from inline templates (description auto-extracted from the source-of-truth SKILL.md frontmatter via `read_yaml_field`). The skill displays the rendered diff per-gap, collects approval via `AskUserQuestion`, then writes approved wrappers at the alphabetically-correct positions.
 
 ## Phase 2 — Helper-script whitelist audit
 
-Scans `.claude/skills/aitask-*/`, `.claude/skills/task-workflow/`, `.claude/skills/user-file-select/`, and `.claude/skills/ait-git/` for `.aitask-scripts/aitask_*.sh` references. For each helper found, verifies it is whitelisted in all seven helper-permission touchpoints:
+Scans `.claude/skills/aitask-*/`, `.claude/skills/task-workflow/`, `.claude/skills/user-file-select/`, and `.claude/skills/ait-git/` for `.aitask-scripts/aitask_*.sh` references. For each helper found, verifies it is whitelisted in all helper-permission touchpoints:
 
 | # | File | Entry shape |
 |---|---|---|
 | 1 | `.claude/settings.local.json` | `"Bash(./.aitask-scripts/<helper>:*)"` |
-| 2 | `.gemini/policies/aitasks-whitelist.toml` | `[[rule]]` with `commandPrefix = "./.aitask-scripts/<helper>"` |
 | 3 | `.codex/rules/default.rules` | `prefix_rule(... decision = "allow")` |
 | 4 | `seed/claude_settings.local.json` | mirror of #1 |
-| 5 | `seed/geminicli_policies/aitasks-whitelist.toml` | mirror of #2 |
 | 6 | `seed/codex_rules.default.rules` | mirror of #3 |
 | 7 | `seed/opencode_config.seed.json` | `"./.aitask-scripts/<helper> *": "allow"` |
 
-Codex helper allow entries live in `.rules` files rather than `.codex/config.toml`. Codex rules are experimental, so keep this touchpoint aligned with the current OpenAI Codex Rules documentation.
+Touchpoint IDs 2 and 5 are intentionally left vacant (numbering stays stable across additions and removals of touchpoints — see [`aidocs/adding_a_new_codeagent.md`](https://github.com/beyondeye/aitasks/blob/main/aidocs/adding_a_new_codeagent.md) §13). Codex helper allow entries live in `.rules` files rather than `.codex/config.toml`. Codex rules are experimental, so keep this touchpoint aligned with the current OpenAI Codex Rules documentation.
 
 The skill displays a per-helper × per-touchpoint matrix, collects approval, and inserts missing entries at the alphabetically-correct positions. JSON entries are inserted with format-aware splicing; TOML entries are inserted as `[[rule]]` blocks.
 
@@ -71,11 +63,9 @@ Structured stdout lines emitted by the helper:
 | Prefix | Meaning |
 |---|---|
 | `GAP:<tree>:<skill>` | Wrapper missing in `<tree>` for `<skill>` |
-| `POLICY_GAP:<runtime\|seed>:<skill>` | `activate_skill` rule missing in policy |
 | `HELPER:<basename>` | Helper script discovered in skill references |
 | `MISSING:<touchpoint>:<helper>` | Helper not whitelisted in touchpoint |
 | `WROTE:<path>` | Wrapper file written |
-| `WROTE:<file>:<skill>` | Policy entry inserted |
 | `WROTE:<touchpoint>:<helper>:<file>` | Helper-whitelist entry inserted |
 
 All subcommands exit 0 unless catastrophic; errors go to stderr.
@@ -90,13 +80,12 @@ Re-running discovery after a successful apply produces empty output:
 
 ```bash
 ./.aitask-scripts/aitask_audit_wrappers.sh discover
-./.aitask-scripts/aitask_audit_wrappers.sh discover-policy
 ./.aitask-scripts/aitask_audit_wrappers.sh discover-helpers \
   | sed 's|^HELPER:||' \
   | xargs -I{} ./.aitask-scripts/aitask_audit_wrappers.sh audit-helper-whitelist {}
 ```
 
-Plus the framework's existing setup tests stay green: [`tests/test_opencode_setup.sh`](https://github.com/dario-bs/aitasks/blob/main/tests/test_opencode_setup.sh) and [`tests/test_gemini_setup.sh`](https://github.com/dario-bs/aitasks/blob/main/tests/test_gemini_setup.sh) derive their expected counts dynamically from the source of truth, so adding skills via this audit grows the test expectations naturally.
+Plus the framework's per-agent setup tests stay green: [`tests/test_opencode_setup.sh`](https://github.com/dario-bs/aitasks/blob/main/tests/test_opencode_setup.sh) and the equivalent suites for other supported agents derive their expected counts dynamically from the source of truth, so adding skills via this audit grows the test expectations naturally.
 
 ## Related
 

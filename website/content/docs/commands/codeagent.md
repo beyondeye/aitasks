@@ -8,7 +8,7 @@ depth: [intermediate]
 
 ## ait codeagent
 
-Unified wrapper for invoking AI code agents (Claude Code, Gemini CLI, Codex CLI, OpenCode) with configurable per-operation model selection.
+Unified wrapper for invoking AI code agents (Claude Code and other supported coding agents) with configurable per-operation model selection.
 
 ```bash
 ait codeagent list-agents                              # Show available agents
@@ -17,7 +17,7 @@ ait codeagent resolve task-pick                        # Show configured agent/m
 ait codeagent check "claudecode/opus4_6"               # Validate an agent string
 ait codeagent coauthor "codex/gpt5_4"                  # Resolve commit coauthor metadata
 ait codeagent invoke task-pick 42                      # Pick task 42 with configured agent
-ait codeagent --agent-string geminicli/gemini2_5pro invoke explain src/  # Override agent
+ait codeagent --agent-string codex/gpt5_4 invoke explain src/  # Override agent
 ait codeagent --dry-run invoke task-pick 42            # Preview command without running
 ```
 
@@ -27,14 +27,13 @@ An agent string identifies both the code agent and the model to use, in the form
 
 ```
 claudecode/opus4_6
-geminicli/gemini2_5pro
 codex/gpt5_3codex
 opencode/kimi_k2_5
 ```
 
 **Naming rules:**
-- Agent names use lowercase letters only: `claudecode`, `geminicli`, `codex`, `opencode`
-- Model names use lowercase letters, digits, and underscores: `opus4_6`, `gemini3pro`, `gpt5_3codex_spark`
+- Agent names use lowercase letters only: `claudecode`, `codex`, `opencode`
+- Model names use lowercase letters, digits, and underscores: `opus4_6`, `gpt5_3codex_spark`, `kimi_k2_5`
 - No dots, hyphens, or uppercase characters in agent strings
 
 ### Supported Agents
@@ -42,7 +41,6 @@ opencode/kimi_k2_5
 | Agent | CLI Binary | Model Flag | Notes |
 |-------|-----------|------------|-------|
 | `claudecode` | `claude` | `--model` | Claude Code CLI |
-| `geminicli` | `gemini` | `-m` | Gemini CLI |
 | `codex` | `codex` | `-m` | Codex CLI |
 | `opencode` | `opencode` | `--model` | OpenCode CLI |
 
@@ -72,7 +70,6 @@ ait codeagent list-agents
 Output format:
 ```
 AGENT:claudecode BINARY:claude STATUS:available
-AGENT:geminicli BINARY:gemini STATUS:not-found
 AGENT:codex BINARY:codex STATUS:not-found
 AGENT:opencode BINARY:opencode STATUS:not-found
 ```
@@ -91,8 +88,8 @@ Output format:
 === claudecode ===
 MODEL:opus4_6 CLI_ID:claude-opus-4-6 NOTES:Most intelligent model VERIFIED:task-pick=80,explain=80,batch-review=0
 
-=== geminicli ===
-MODEL:gemini2_5pro CLI_ID:gemini-2.5-pro NOTES:Stable, best for complex tasks VERIFIED:task-pick=0,explain=0,batch-review=0
+=== codex ===
+MODEL:gpt5_4 CLI_ID:gpt-5.4 NOTES:Best Codex model for complex tasks VERIFIED:task-pick=0,explain=0,batch-review=0
 ```
 
 #### resolve
@@ -193,12 +190,12 @@ Per-user overrides, gitignored. Same schema as the project config. Only include 
 ```json
 {
   "defaults": {
-    "pick": "geminicli/gemini2_5pro"
+    "pick": "codex/gpt5_4"
   }
 }
 ```
 
-This user would use Gemini for pick but inherit the project defaults for all other operations.
+This user would use Codex for pick but inherit the project defaults for all other operations.
 
 Both config files can be edited directly or through the [Settings TUI](../../tuis/settings/).
 

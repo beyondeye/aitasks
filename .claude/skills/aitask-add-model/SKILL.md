@@ -24,7 +24,7 @@ filesystem untouched.
 
 If invoked with CLI flags, parse them directly. Supported flags:
 
-- `--agent <name>` — one of `claudecode`, `geminicli`, `codex`
+- `--agent <name>` — one of `claudecode`, `codex`
 - `--name <id>` — lowercase, `^[a-z][a-z0-9_]*$` (e.g., `opus4_7`)
 - `--cli-id <id>` — exact CLI model ID (e.g., `claude-opus-4-7`)
 - `--notes "<text>"` — one-line description
@@ -35,7 +35,7 @@ If invoked with CLI flags, parse them directly. Supported flags:
 
 If any required input is missing, collect it via `AskUserQuestion`:
 
-- **agent** — options: `claudecode`, `geminicli`, `codex`, `opencode (not supported — use aitask-refresh-code-models)`
+- **agent** — options: `claudecode`, `codex`, `opencode (not supported — use aitask-refresh-code-models)`
 - **name** — free text, validate client-side against the regex
 - **cli-id** — free text
 - **notes** — free text

@@ -110,9 +110,9 @@ See [Code review]({{< relref "/docs/workflows/code-review" >}}) and [QA testing]
 
 {{< static-img src="imgs/home/monitor.svg" alt="Monitor TUI showing live agent panes" caption="Watch multiple agents work side-by-side in the monitor TUI." >}}
 
-One framework, many code agents. **aitasks** unifies Claude Code, Gemini CLI, Codex CLI, and OpenCode under a single `codeagent` wrapper, then accumulates per-model and per-operation success scores from real user feedback.
+One framework, many code agents. **aitasks** unifies Claude Code and all other supported coding agents under a single `codeagent` wrapper, then accumulates per-model and per-operation success scores from real user feedback.
 
-- Drop-in support for Claude Code, Gemini CLI, Codex CLI, OpenCode
+- Drop-in support for Claude Code and all other supported coding agents
 - Per-operation scoring (planning, implementation, review) instead of generic benchmarks
 - Verified scores accumulate from your team's actual usage, not synthetic tests
 - Switch agents per-task without rewriting workflows

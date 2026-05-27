@@ -17,7 +17,7 @@
 
 ---
 
-A full agentic IDE in your terminal — kanban board, code browser, agent monitoring, and AI-enhanced git workflows — integrated with AI code agents ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Codex CLI](https://github.com/openai/codex), [OpenCode](https://github.com/opencode-ai/opencode)) via skills. Tasks are markdown files with YAML frontmatter stored in your repo alongside your code. No backend. No database. Just git.
+A full agentic IDE in your terminal — kanban board, code browser, agent monitoring, and AI-enhanced git workflows — integrated with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and all other supported coding agents via skills. Tasks are markdown files with YAML frontmatter stored in your repo alongside your code. No backend. No database. Just git.
 
 Built for maximizing development speed 🚀 AND human-to-agent intent transfer efficiency 💬.
 
@@ -36,7 +36,7 @@ AI coding agents are proficient enough to handle real development tasks. The bot
 - **🔀 Tight git coupling, AI-enhanced** — PR import/close, issue tracker integration, contribution flow, changelog generation, and AI-assisted reverts — all rooted in git commits and task metadata.
 - **🧩 Task decomposition & parallelism** — auto-explode complex tasks into child tasks; sibling context propagates via archived plans; git worktrees + atomic locks for parallel agent work.
 - **🔍 AI-enhanced code review** — per-language review guides, batched multi-file reviews producing follow-up tasks, QA workflow with test-coverage analysis.
-- **🤖 Multi-agent support with verified scores** — unified `codeagent` wrapper over Claude Code / Gemini CLI / Codex CLI / OpenCode; per-model/per-operation scores accumulated from user feedback.
+- **🤖 Multi-agent support with verified scores** — unified `codeagent` wrapper over Claude Code and all other supported coding agents; per-model/per-operation scores accumulated from user feedback.
 
 - **Dual-Mode CLI** — interactive mode for humans (optimized for flow, no context switching) and batch mode for agents (programmatic task/status updates).
 
@@ -121,7 +121,7 @@ The shim detects that no aitasks project exists, downloads the latest release, i
 
 - **[Workflow Guides](https://aitasks.io/docs/workflows/)** — End-to-end guides for common usage patterns: capturing ideas fast, tmux IDE, complex task decomposition, parallel development, code review, QA, PR workflow, and more.
 
-- **[Code Agent Skills](https://aitasks.io/docs/skills/)** — Reference for `/aitask-pick`, `/aitask-explore`, `/aitask-create`, and other skill integrations across Claude Code, Gemini CLI, Codex CLI, and OpenCode.
+- **[Code Agent Skills](https://aitasks.io/docs/skills/)** — Reference for `/aitask-pick`, `/aitask-explore`, `/aitask-create`, and other skill integrations across Claude Code and all other supported coding agents.
 
 - **[Command Reference](https://aitasks.io/docs/commands/)** — Complete CLI reference for all `ait` subcommands.
 

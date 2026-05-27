@@ -24,7 +24,7 @@ All keyboard actions documented below remain available.
 2. Press **a** to go to the **Agent Defaults** tab
 3. Navigate to the operation you want to change (e.g., `task-pick`)
 4. Press **Enter** to open the agent/model picker
-5. **Step 1:** Select the code agent (claudecode, geminicli, codex, opencode)
+5. **Step 1:** Select the code agent (claudecode, codex, opencode)
 6. **Step 2:** Select the model from the list, then choose the target layer:
    - **Project** -- Saves to `codeagent_config.json` (shared, git-tracked)
    - **User** -- Saves to `codeagent_config.local.json` (personal, gitignored)

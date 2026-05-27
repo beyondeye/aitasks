@@ -40,7 +40,7 @@ Each has **two** lines: the YAML frontmatter sample and the commit-message-forma
 | `.codex/instructions.md` | Same two sections (Codex CLI mirror) |
 | `.opencode/instructions.md` | Same two sections (OpenCode mirror) |
 
-Note: `seed/codex_instructions.seed.md`, `seed/geminicli_instructions.seed.md`, `seed/opencode_instructions.seed.md` are **agent-identification only** and do not list types — leave alone.
+Note: `seed/codex_instructions.seed.md`, `seed/opencode_instructions.seed.md` are **agent-identification only** and do not list types — leave alone.
 
 ### 3. Claude Code skill files
 

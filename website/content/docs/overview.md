@@ -74,9 +74,9 @@ See also: [Review guides]({{< relref "/docs/concepts/review-guides" >}}), [Code 
 
 ### 6. Multi-agent support with verified scores
 
-One framework, many code agents. A single `codeagent` wrapper runs Claude Code, Gemini CLI, Codex CLI, and OpenCode — and accumulates per-model and per-operation success scores from real user feedback.
+One framework, many code agents. A single `codeagent` wrapper runs Claude Code and all other supported coding agents — and accumulates per-model and per-operation success scores from real user feedback.
 
-- Drop-in support for Claude Code, Gemini CLI, Codex CLI, OpenCode.
+- Drop-in support for Claude Code and all other supported coding agents.
 - Per-operation scoring (planning, implementation, review) instead of generic benchmarks.
 - Verified scores accumulate from your team's actual usage, not synthetic tests.
 - Switch agents per-task without rewriting workflows.

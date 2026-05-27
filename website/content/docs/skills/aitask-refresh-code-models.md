@@ -38,7 +38,7 @@ The skill follows an 8-step workflow:
 
 ## Model Naming Convention
 
-Model `name` fields follow strict rules: lowercase only, underscores replace dots/hyphens, version numbers concatenated (e.g., Opus 4.6 → `opus4_6`, Gemini 2.5 Pro → `gemini2_5pro`).
+Model `name` fields follow strict rules: lowercase only, underscores replace dots/hyphens, version numbers concatenated (e.g., Opus 4.6 → `opus4_6`, GPT-5.3 Codex Spark → `gpt5_3codex_spark`).
 
 ## Related
 

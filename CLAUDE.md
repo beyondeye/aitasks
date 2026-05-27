@@ -198,8 +198,7 @@ initial system message.
 The **source of truth** for skills and custom commands is the Claude Code
 implementation in `.claude/skills/`.
 
-The framework also supports OpenCode, Codex CLI, and Gemini CLI:
-- **Gemini CLI:** `.gemini/commands/` and `.gemini/skills/`
+The framework also supports Codex CLI and OpenCode:
 - **Codex CLI:** `.agents/skills/` (shared with future `agy` agent — see
   "Skill templating and per-profile dispatch" below); `.codex/` holds
   only `config.toml` and `instructions.md`
@@ -217,12 +216,12 @@ procedure, regenerate the affected goldens in the same commit — see
 **IMPORTANT:** Skill/custom command changes, if not specified otherwise,
 should be done in the Claude Code version first. When such changes take
 place, suggest separate aitasks to update the corresponding skills/commands
-in Codex CLI / Gemini CLI / OpenCode versions.
+in the other supported coding agents.
 
 > **Read `aidocs/skill_authoring_conventions.md`** when editing anything
-> under `.claude/skills/`, `.agents/skills/`, `.gemini/commands/`,
-> `.gemini/skills/`, `.opencode/skills/`, or `.opencode/commands/` — or when
-> designing a new skill, procedure, or per-profile variant.
+> under `.claude/skills/`, `.agents/skills/`, `.opencode/skills/`, or
+> `.opencode/commands/` — or when designing a new skill, procedure, or
+> per-profile variant.
 >
 > **Read `aidocs/stub-skill-pattern.md`** when authoring or modifying a
 > profile-aware skill's stub surface or `.md.j2` authoring template.
@@ -246,7 +245,6 @@ Per-agent stub surface and rendered-variant location:
 |-------|---------------|---------------------------|
 | Claude | `.claude/skills/<skill>/SKILL.md` | `.claude/skills/<skill>-<profile>-/SKILL.md` |
 | Codex | `.agents/skills/<skill>/SKILL.md` | `.agents/skills/<skill>-<profile>-codex-/SKILL.md` |
-| Gemini | `.gemini/commands/<skill>.toml` (`prompt` field) | `.gemini/skills/<skill>-<profile>-/SKILL.md` |
 | OpenCode | `.opencode/commands/<skill>.md` | `.opencode/skills/<skill>-<profile>-/SKILL.md` |
 
 Rendered dir names end with a hyphen so each agent root has a single `*-/`

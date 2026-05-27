@@ -19,9 +19,9 @@ Refreshing periodically keeps these surfaces accurate as vendor offerings change
 
 ## One-shot refresh of all agents
 
-The [`/aitask-refresh-code-models`]({{< relref "/docs/skills/aitask-refresh-code-models" >}}) skill walks through all four agents in a single run:
+The [`/aitask-refresh-code-models`]({{< relref "/docs/skills/aitask-refresh-code-models" >}}) skill walks through all supported agents in a single run:
 
-- **claudecode**, **codex**, **geminicli** — discovered via web research (`WebSearch` + `WebFetch` against vendor documentation URLs).
+- **claudecode**, **codex** — discovered via web research (`WebSearch` + `WebFetch` against vendor documentation URLs).
 - **opencode** — discovered via CLI (`bash .aitask-scripts/aitask_opencode_models.sh`), because the available OpenCode models depend on which providers the user has connected locally.
 
 The skill preserves existing `verified` scores and never auto-removes models — deprecated entries are flagged for explicit user approval. Run it from the project root:
@@ -59,7 +59,7 @@ Add `--promote --promote-ops <ops>` to also set the new model as the default for
 | `aitasks/metadata/models_<agent>.json` | Runtime model list — read by `ait codeagent`, Settings TUI, and stats. | Task-data branch (committed via `./ait git`). |
 | `seed/models_<agent>.json` | Template for new projects bootstrapped with `ait setup`. | Source-repo branch (committed via plain `git`). Only present in the framework source repo. |
 
-`<agent>` is one of: `claudecode`, `codex`, `geminicli`, `opencode`.
+`<agent>` is one of: `claudecode`, `codex`, `opencode`.
 
 ## Commit conventions
 

@@ -65,7 +65,7 @@ Press **Enter** on a row to edit the value, then use **Save Project Config** to 
 
 {{< static-img src="imgs/aitasks_settings_llmmodels_tab.svg" alt="Models tab showing available models per agent" caption="The Models tab is a read-only display of all configured models" >}}
 
-Read-only display of all available models organized by agent (claudecode, codex, geminicli, opencode). For each model, shows:
+Read-only display of all available models organized by agent (claudecode, codex, opencode). For each model, shows:
 
 - **Name** -- Internal identifier used in agent strings
 - **CLI ID** -- Exact model ID passed to the CLI

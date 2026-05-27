@@ -73,12 +73,12 @@ ait upgrade latest
 
 ## Install Coding Agents
 
-All supported coding agents — Claude Code, Gemini CLI, Codex CLI, and OpenCode — must be installed from within WSL to work with aitasks. Each agent's Linux install path applies; install whichever ones you plan to use.
+All supported coding agents must be installed from within WSL to work with aitasks. Each agent's Linux install path applies; install whichever ones you plan to use.
 
 Most of these agents require Node.js, so install it first (skip if already present):
 
 ```bash
-# Install Node.js (required by Claude Code, Gemini CLI, Codex CLI, OpenCode)
+# Install Node.js (required by Claude Code, Codex CLI, OpenCode, and other Node-based agents)
 curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
 sudo apt-get install -y nodejs
 ```
@@ -88,9 +88,6 @@ Then install one or more agents:
 ```bash
 # Claude Code — see https://docs.anthropic.com/en/docs/claude-code/overview
 npm install -g @anthropic-ai/claude-code
-
-# Gemini CLI — see https://github.com/google-gemini/gemini-cli
-npm install -g @google/gemini-cli
 
 # Codex CLI — see https://github.com/openai/codex
 npm install -g @openai/codex

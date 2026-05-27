@@ -8,7 +8,7 @@ depth: [advanced]
 
 ## What it is
 
-A **verified score** is a numeric rating attached to a (code agent, model, operation) triple — for example "claudecode/opus4_7 / implementation" or "geminicli/gemini-2.5-pro / code-review". Every time a user completes a skill they are prompted for a 1-5 satisfaction rating; those ratings are stored, time-windowed (all-time / month / week), and aggregated into score buckets:
+A **verified score** is a numeric rating attached to a (code agent, model, operation) triple — for example "claudecode/opus4_7 / implementation" or "codex/gpt5_4 / code-review". Every time a user completes a skill they are prompted for a 1-5 satisfaction rating; those ratings are stored, time-windowed (all-time / month / week), and aggregated into score buckets:
 
 | Bucket | Range |
 |--------|-------|

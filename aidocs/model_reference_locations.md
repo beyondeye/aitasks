@@ -34,12 +34,11 @@ Notes:
 | File | Line | Context | Tag |
 |---|---|---|---|
 | `aitasks/metadata/models_claudecode.json` | 4,5,134,135,145,146,156 | Model entries: `opus4_6`, `sonnet4_6`, `haiku4_5`, `opus4_5` | `covered_by_refresh` / `needed_for_add` |
-| `aitasks/metadata/models_geminicli.json` | — | Gemini model entries (no claude refs) | `covered_by_refresh` / `needed_for_add` |
 | `aitasks/metadata/models_codex.json` | — | Codex model entries | `covered_by_refresh` / `needed_for_add` |
 | `aitasks/metadata/models_opencode.json` | 154,190,226 | Provider-prefixed entries: `opencode/claude-haiku-4-5`, `opencode/claude-opus-4-6`, `opencode/claude-sonnet-4-6` | `covered_by_refresh` (via `aitask_opencode_models.sh` discovery) |
 | `seed/models_claudecode.json` | 4,5,14,15,24,25,34 | Synced copy of metadata | `covered_by_refresh` / `needed_for_add` |
 | `seed/models_opencode.json` | 14,15 | Synced copy | `covered_by_refresh` / `needed_for_add` |
-| `seed/models_geminicli.json` / `seed/models_codex.json` | — | Synced copies | `covered_by_refresh` / `needed_for_add` |
+| `seed/models_codex.json` | — | Synced copy | `covered_by_refresh` / `needed_for_add` |
 
 ### 2. Operational defaults (per-op agent strings)
 
@@ -162,8 +161,7 @@ Those are the files a new skill must touch to promote a model to default.
 | Agent | Supported in add-mode | Supported in promote-mode | Notes |
 |---|---|---|---|
 | `claudecode` | yes | yes (full) | Owns `DEFAULT_AGENT_STRING` + brainstorm fallbacks |
-| `geminicli` | yes | yes (limited) | No equivalent `DEFAULT_AGENT_STRING`; promotion only touches `codeagent_config.json` + seed |
-| `codex` | yes | yes (limited) | Same as geminicli |
+| `codex` | yes | yes (limited) | No equivalent `DEFAULT_AGENT_STRING`; promotion only touches `codeagent_config.json` + seed |
 | `opencode` | **limited** | no | Use `aitask-refresh-code-models` for opencode — models are gated by provider availability and discovered via `aitask_opencode_models.sh`. This skill should refuse `--agent opencode` with a clear pointer to the other skill. |
 
 ### Mode contracts

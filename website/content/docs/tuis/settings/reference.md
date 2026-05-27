@@ -72,7 +72,6 @@ depth: [advanced]
 | `aitasks/metadata/board_config.local.json` | User | Yes (Board) | User board settings (gitignored) |
 | `aitasks/metadata/project_config.yaml` | Project | Yes (Project Config) | Shared workflow settings such as coauthor domain and build verification |
 | `aitasks/metadata/models_claudecode.json` | Project | No | Claude Code model definitions |
-| `aitasks/metadata/models_geminicli.json` | Project | No | Gemini CLI model definitions |
 | `aitasks/metadata/models_codex.json` | Project | No | Codex CLI model definitions |
 | `aitasks/metadata/models_opencode.json` | Project | No | OpenCode model definitions |
 | `aitasks/metadata/profiles/*.yaml` | Project | Yes (Profiles) | Execution profiles (git-tracked) |

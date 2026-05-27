@@ -6,19 +6,13 @@ user-invocable: true
 
 ## Overview
 
-The aitasks framework keeps skills in one source-of-truth tree (`.claude/skills/aitask-*/SKILL.md`) and ports them to four wrapper trees so other code agents can invoke them:
+The aitasks framework keeps skills in one source-of-truth tree (`.claude/skills/aitask-*/SKILL.md`) and ports them to the per-agent wrapper trees so other code agents can invoke them:
 
-- `.gemini/commands/<name>.toml` — Gemini CLI command wrappers.
-- `.agents/skills/<name>/SKILL.md` — unified Codex CLI + Gemini CLI skill wrappers.
+- `.agents/skills/<name>/SKILL.md` — Codex CLI (and other shared-root agents) skill wrappers.
 - `.opencode/skills/<name>/SKILL.md` — OpenCode skill wrappers.
 - `.opencode/commands/<name>.md` — OpenCode command wrappers.
 
-Plus two `activate_skill` policy lists that grant the Gemini CLI permission to invoke each skill:
-
-- `.gemini/policies/aitasks-whitelist.toml` (runtime; gitignored layer)
-- `seed/geminicli_policies/aitasks-whitelist.toml` (seed mirror; shipped with the framework)
-
-This skill audits every source-of-truth `aitask-*` skill against all six locations and offers to port any that are missing. Phase 2 (added in t691_2) extends the audit to helper-script whitelist coverage across the 5 touchpoints from CLAUDE.md "Adding a New Helper Script".
+This skill audits every source-of-truth `aitask-*` skill against the wrapper locations and offers to port any that are missing. Phase 2 (added in t691_2) extends the audit to helper-script whitelist coverage across the helper-permission touchpoints from CLAUDE.md "Adding a New Helper Script".
 
 ## Usage
 
@@ -43,21 +37,19 @@ Run the helper to list wrapper gaps:
 
 ```bash
 ./.aitask-scripts/aitask_audit_wrappers.sh discover
-./.aitask-scripts/aitask_audit_wrappers.sh discover-policy
 ```
 
 Parse the output:
 - `GAP:<tree>:<skill>` — wrapper missing in that tree.
-- `POLICY_GAP:<runtime|seed>:<skill>` — `activate_skill` rule missing in that policy file.
 
-Build a coverage matrix (one row per `aitask-*` skill, columns: gemini, agents, opencode-skill, opencode-command, policy-runtime, policy-seed). Display it.
+Build a coverage matrix (one row per `aitask-*` skill, columns: agents, opencode-skill, opencode-command). Display it.
 
-If both lists are empty, print "Phase 1 — no wrapper gaps. ✓" and skip to Phase 2 (or exit if `--phase=skills`).
+If the list is empty, print "Phase 1 — no wrapper gaps. ✓" and skip to Phase 2 (or exit if `--phase=skills`).
 
 ### Step 3 — Phase 1 confirmation gate
 
 Use `AskUserQuestion` to ask: "Apply Phase 1 wrapper-port fixes?" with options:
-- "Apply all" — fix every `GAP:` / `POLICY_GAP:` line.
+- "Apply all" — fix every `GAP:` line.
 - "Apply selected" — narrow with a follow-up multiSelect AskUserQuestion (one option per gap).
 - "Skip Phase 1" — leave the wrapper trees untouched.
 
@@ -69,7 +61,6 @@ For each approved gap:
 
 ```bash
 ./.aitask-scripts/aitask_audit_wrappers.sh apply-wrapper <tree> <skill_name>
-./.aitask-scripts/aitask_audit_wrappers.sh apply-policy  <runtime|seed> <skill_name>
 ```
 
 Collect the `WROTE:` lines emitted by the helper.
@@ -81,8 +72,7 @@ If `apply-wrapper` refuses to overwrite an existing file (returns non-zero), sur
 Stage the changes and commit. Two commits if both phases run; one commit if only Phase 1.
 
 ```bash
-git add .gemini/commands/ .agents/skills/ .opencode/skills/ .opencode/commands/ \
-        .gemini/policies/aitasks-whitelist.toml seed/geminicli_policies/aitasks-whitelist.toml
+git add .agents/skills/ .opencode/skills/ .opencode/commands/
 git commit -m "feature: Audit and port aitask skill wrappers across code-agent trees"
 ```
 
@@ -90,7 +80,7 @@ git commit -m "feature: Audit and port aitask skill wrappers across code-agent t
 
 ### Step 6 — Phase 1 idempotency assert
 
-Re-run discovery. If any `GAP:` or `POLICY_GAP:` lines remain (excluding gaps the user explicitly chose to skip), warn loudly. The user can re-run the skill to address them.
+Re-run discovery. If any `GAP:` lines remain (excluding gaps the user explicitly chose to skip), warn loudly. The user can re-run the skill to address them.
 
 ### Step 7 — Phase 2 discovery (helper-script whitelist)
 
@@ -113,12 +103,14 @@ Each `MISSING:<touchpoint>:<helper>` indicates the helper is not whitelisted in 
 | # | File | Entry shape |
 |---|---|---|
 | 1 | `.claude/settings.local.json` | `"Bash(./.aitask-scripts/<helper>:*)"` in `permissions.allow` |
-| 2 | `.gemini/policies/aitasks-whitelist.toml` | `[[rule]]` with `commandPrefix = "./.aitask-scripts/<helper>"` |
-| 3 | `seed/claude_settings.local.json` | mirror of #1 |
-| 4 | `seed/geminicli_policies/aitasks-whitelist.toml` | mirror of #2 |
-| 5 | `seed/opencode_config.seed.json` | `"./.aitask-scripts/<helper> *": "allow"` |
+| 3 | `.codex/rules/default.rules` | `prefix_rule(... decision = "allow")` |
+| 4 | `seed/claude_settings.local.json` | mirror of #1 |
+| 6 | `seed/codex_rules.default.rules` | mirror of #3 |
+| 7 | `seed/opencode_config.seed.json` | `"./.aitask-scripts/<helper> *": "allow"` |
 
-Build a per-helper × per-touchpoint matrix (rows = helpers with at least one missing touchpoint, columns = touchpoints 1–5). Display it.
+Touchpoint IDs 2 and 5 are intentionally left vacant — numbering stays stable across additions and removals of touchpoints (see `aidocs/adding_a_new_codeagent.md` §13).
+
+Build a per-helper × per-touchpoint matrix (rows = helpers with at least one missing touchpoint, columns = the live touchpoint IDs). Display it.
 
 If no `MISSING:` lines remain, print "Phase 2 — no helper-whitelist gaps. ✓" and skip to Step 9.
 
@@ -154,11 +146,11 @@ Stage the changed permission files and commit separately from Phase 1:
 
 ```bash
 git add .claude/settings.local.json \
-        .gemini/policies/aitasks-whitelist.toml \
+        .codex/rules/default.rules \
         seed/claude_settings.local.json \
-        seed/geminicli_policies/aitasks-whitelist.toml \
+        seed/codex_rules.default.rules \
         seed/opencode_config.seed.json
-git commit -m "chore: Audit helper-script whitelist coverage across 5 touchpoints"
+git commit -m "chore: Audit helper-script whitelist coverage across touchpoints"
 ```
 
 (Audit runs invoked from a tracked aitask should append the `(t<task_id>)` suffix per the standard convention.)
@@ -174,19 +166,17 @@ Structured stdout lines emitted by the helper:
 | Prefix | Meaning |
 |---|---|
 | `GAP:<tree>:<skill>` | Wrapper missing in `<tree>` for `<skill>` |
-| `POLICY_GAP:<runtime|seed>:<skill>` | `activate_skill` rule missing in policy |
 | `WROTE:<path>` | Wrapper file written |
-| `WROTE:<file>:<skill>` | Policy entry inserted |
 
 All subcommands exit 0 unless catastrophic. Errors go to stderr.
 
 ## Self-bootstrap
 
-The helper script audits the source of truth (`.claude/skills/aitask-*/SKILL.md`) and ports to the four wrapper trees. When this skill is itself first introduced into the framework, its wrappers do not yet exist in the trees, so the helper would refuse to "audit" itself out of nothing. The first set of wrappers for `aitask-audit-wrappers` was therefore written by hand at introduction time. From then on the skill audits itself like any other.
+The helper script audits the source of truth (`.claude/skills/aitask-*/SKILL.md`) and ports to the wrapper trees. When this skill is itself first introduced into the framework, its wrappers do not yet exist in the trees, so the helper would refuse to "audit" itself out of nothing. The first set of wrappers for `aitask-audit-wrappers` was therefore written by hand at introduction time. From then on the skill audits itself like any other.
 
 ## See also
 
 - `aitask-add-model` — companion developer-facing skill for registering new code-agent models.
 - CLAUDE.md "WORKING ON SKILLS / CUSTOM COMMANDS" — defines source of truth + per-agent ports.
-- CLAUDE.md "Adding a New Helper Script" — defines the 5 helper-script whitelist touchpoints scanned by Phase 2.
-- `tests/test_opencode_setup.sh` and `tests/test_gemini_setup.sh` — verification of cross-agent counts (auto-adjust per t679).
+- CLAUDE.md "Adding a New Helper Script" — defines the helper-script whitelist touchpoints scanned by Phase 2.
+- `tests/test_opencode_setup.sh` and equivalent per-agent setup tests — verification of cross-agent counts (auto-adjust per t679).

@@ -6,7 +6,7 @@ description: "First-time setup and your first task workflow"
 depth: [main-concept]
 ---
 
-This guide walks you through aitasks from installation to completing your first task with Claude Code, Gemini CLI, OpenCode, or Codex CLI.
+This guide walks you through aitasks from installation to completing your first task with Claude Code or any of the other supported coding agents.
 
 ## 1. Install aitasks
 
@@ -74,7 +74,7 @@ You can also start the pick skill directly from a code agent prompt in any tmux 
 /aitask-pick
 ```
 
-Use the same command in Claude Code, Gemini CLI, and OpenCode. In Codex CLI, use:
+Use the same command in Claude Code, OpenCode, and other slash-style supported agents. In Codex CLI, use:
 
 ```
 $aitask-pick
@@ -99,7 +99,7 @@ As you work, explore these features:
 - [Terminal Setup](../installation/terminal-setup/) — full `ait ide` command reference: flags, session naming, and the shared-session gotcha.
 - [The IDE model]({{< relref "/docs/concepts/ide-model" >}}) — the conceptual overview of how `ait ide` organises tmux around the monitor TUI.
 - [Workflow Guides](../workflows/) — Common patterns like capturing ideas fast, task decomposition, and parallel development
-- [Code Agent Skills](../skills/) — All available agent skills (`/aitask-pick` in Claude Code, Gemini CLI, and OpenCode; `$aitask-pick` in Codex CLI, etc.)
+- [Code Agent Skills](../skills/) — All available agent skills (`/aitask-pick` in Claude Code, OpenCode, and other slash-style agents; `$aitask-pick` in Codex CLI, etc.)
 - [Command Reference](../commands/) — Full CLI reference for all `ait` subcommands
 
 ---
