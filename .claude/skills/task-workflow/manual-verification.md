@@ -51,10 +51,10 @@ here.
 {% if profile.manual_verification_auto_mode == "never" %}
 Profile '{{ profile.name }}' sets `manual_verification_auto_mode: never`.
 Skip the up-front prompt and proceed to step 2 (interactive loop).
-{% elif profile.manual_verification_auto_mode == "impromptu" %}
-Profile '{{ profile.name }}' sets `manual_verification_auto_mode: impromptu`.
+{% elif profile.manual_verification_auto_mode == "autonomous" %}
+Profile '{{ profile.name }}' sets `manual_verification_auto_mode: autonomous`.
 Skip the up-front prompt; execute the **Auto-Verification Procedure** (see
-`auto-verification.md`) with `strategy = "impromptu"`. When the procedure
+`auto-verification.md`) with `strategy = "autonomous"`. When the procedure
 returns, fall through to step 2 for any items still in `pending` / `defer`.
 {% elif profile.manual_verification_auto_mode == "prebuilt_approve" %}
 Profile '{{ profile.name }}' sets `manual_verification_auto_mode:
@@ -78,7 +78,7 @@ Use `AskUserQuestion`:
   interactively as usual."
 - Header: "Auto-verify"
 - Options:
-  - "Yes, impromptu (Recommended)" (description: "Agent picks a
+  - "Yes, autonomous (Recommended)" (description: "Agent picks a
     verification approach per item on the fly, runs it, and documents what
     was actually done at the end in the plan file. Fastest; no upfront
     plan-design step.")
@@ -92,8 +92,8 @@ Use `AskUserQuestion`:
     step 2.")
 
 Branch on the answer:
-- "Yes, impromptu" → execute the **Auto-Verification Procedure** (see
-  `auto-verification.md`) with `strategy = "impromptu"`. Fall through to
+- "Yes, autonomous" → execute the **Auto-Verification Procedure** (see
+  `auto-verification.md`) with `strategy = "autonomous"`. Fall through to
   step 2 when it returns.
 - "Yes, design plan first and approve" → execute the procedure with
   `strategy = "prebuilt"` and `approval_required = true`. Fall through to
@@ -231,7 +231,7 @@ reflects the current state and the "current item" is always the first remaining
      | fail  | `./.aitask-scripts/aitask_verification_followup.sh --from <task_id> --item <idx>` (handle `FOLLOWUP_CREATED` / `ORIGIN_AMBIGUOUS` / `ERROR` exactly as in the single-option Fail branch) |
      | skip  | `./.aitask-scripts/aitask_verification_parse.sh set <task_file> <idx> skip --note "<rest-of-entry-text>"` (rest-of-entry-text = everything after `skip` until the next delimiter; if empty, prompt once for a reason via `AskUserQuestion`) |
      | defer | `./.aitask-scripts/aitask_verification_parse.sh set <task_file> <idx> defer` |
-     | auto  | execute the **Auto-Verification Procedure** (see `auto-verification.md`) with `single_item = <idx>` and `strategy = "impromptu"` (per-item auto is always impromptu — no plan-design or approval gate for a single item). The procedure runs the item, marks state via `set --note`, and appends an Execution Log entry to the plan file. If automation cannot reach a verdict, the item is marked `defer` with a reason. |
+     | auto  | execute the **Auto-Verification Procedure** (see `auto-verification.md`) with `single_item = <idx>` and `strategy = "autonomous"` (per-item auto is always autonomous — no plan-design or approval gate for a single item). The procedure runs the item, marks state via `set --note`, and appends an Execution Log entry to the plan file. If automation cannot reach a verdict, the item is marked `defer` with a reason. |
 
      **Validation:** if any entry references an out-of-range index, an index
      already in a terminal state (`pass` / `fail` / `skip`), or an unknown

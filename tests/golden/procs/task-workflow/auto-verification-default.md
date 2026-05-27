@@ -4,7 +4,7 @@ Automated verification for `manual_verification` tasks. Invoked from
 `manual-verification.md` Step 1.5 (whole checklist) and Step 2 (single item,
 via the `auto` verb). Supports two strategies:
 
-- **Impromptu** — execute each item inline, picking the verification
+- **Autonomous** — execute each item inline, picking the verification
   approach on the fly. The plan file is written **at the end** as a
   retroactive record of what was actually run. This is the default the
   Step 1.5 prompt recommends.
@@ -20,9 +20,9 @@ via the `auto` verb). Supports two strategies:
 | `task_id` | string | task identifier (e.g. `787` or `571_7`) |
 | `is_child` | boolean | whether `task_id` is a child task |
 | `parent_id` | string/null | parent number if `is_child`, else null |
-| `strategy` | string | `"impromptu"` or `"prebuilt"` |
+| `strategy` | string | `"autonomous"` or `"prebuilt"` |
 | `approval_required` | boolean | only meaningful when `strategy == "prebuilt"`; ignored otherwise. `true` → `EnterPlanMode` + `ExitPlanMode` |
-| `single_item` | int/null | when set, restrict to that one item index (Step 2 per-item path); null = whole checklist. **Forces `strategy = "impromptu"`** regardless of the caller's value. |
+| `single_item` | int/null | when set, restrict to that one item index (Step 2 per-item path); null = whole checklist. **Forces `strategy = "autonomous"`** regardless of the caller's value. |
 | `active_profile` | object | loaded execution profile |
 
 ## Plan file path
@@ -49,7 +49,7 @@ written).
 
 ### 2. Strategy branch
 
-#### 2a. Impromptu (`strategy == "impromptu"`)
+#### 2a. Autonomous (`strategy == "autonomous"`)
 
 For each target item, in order:
 
@@ -121,7 +121,7 @@ For each target item, in order:
 
 ### 3. Write or finalise the plan file
 
-- **Impromptu path:** Write the plan file (Write tool) now, with sections:
+- **Autonomous path:** Write the plan file (Write tool) now, with sections:
   - Frontmatter header per "Plan file path" above.
   - `## Execution Log` — for each item processed: `### Item <idx>` with:
     - `- Item text: <text>`
