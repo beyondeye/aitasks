@@ -143,3 +143,23 @@ Skip per the verification finding above (no CLI listing where `ait skillrun` wou
 ## Step 9 reference
 
 After implementation: review (Step 8), commit code and plan separately (per CLAUDE.md "Git Operations on Task/Plan Files"), and proceed through Step 8/8b/8c/9 of task-workflow as normal. Docs-only — no Codex/Gemini/OpenCode skill porting needed (per the "Working on Skills / Custom Commands" rule, doc changes do not have parallel skill files to update).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `CLAUDE.md` — added "Skill templating and per-profile dispatch" subsection at the end of "Working on Skills / Custom Commands", before "## TUI Development". 53-line addition covering: stub + `.md.j2` pair, render-on-invocation flow, 4-row per-agent surface table (codex row shows the `-codex-` shared-root segment), trailing-hyphen rendered-dir + `*-/` gitignore convention, two invocation paths (`/aitask-pick --profile` and `ait skillrun`), three Jinja patterns (`{% if profile.X %}`, `{% if agent == "Y" %}`, `{% raw %}`), the same-commit goldens rule, and a third read-on-demand pointer to `aidocs/agent_runtime_guards_audit.md`.
+  - `website/content/docs/concepts/skill-templating.md` (new, ~140 lines) — user-facing concept page placed alongside `execution-profiles.md` rather than under `workflows/` (deviated from the original task description to match the post-task-creation `concepts/` reorganization). Covers: what & why, three invocation paths (slash command / `ait skillrun` / `AgentCommandScreen` TUI Profile-Edit with persistent vs one-shot saves), dispatch walk-through, per-agent surface table (with codex-suffix explanation), rendered-dir + gitignore convention, short authoring pointer + three absolute-github links to `aidocs/`.
+  - `website/content/docs/concepts/_index.md` — added a "Skill templating" bullet under "Workflow primitives", between Execution profiles and Verified scores.
+  - `website/content/docs/concepts/execution-profiles.md` — added a "Skill templating" bullet to "See also" and switched the "Next:" pointer to flow into the new page.
+- **Deviations from plan:**
+  1. New website page placed under `concepts/` (alongside `execution-profiles.md`) rather than `workflows/` per the original task description. The task's preamble explicitly flagged itself as outdated; verification confirmed `concepts/` is the structurally correct home post-website-reorg, and the user approved this in the plan exit.
+  2. Did not touch README.md — verification found no formal CLI command listing where `ait skillrun` would fit cleanly.
+- **Issues encountered:** None. `./.aitask-scripts/aitask_skill_verify.sh` clean (10 templates verified across 4 agents). `hugo build --gc --minify` builds 198 pages without broken-ref errors (two pre-existing deprecation warnings unrelated to this change). Forbidden-phrase grep clean.
+- **Key decisions:**
+  - Doc-only task — no skill/template/code edits, so no goldens to regenerate. `ait skill verify` ran as a sanity check.
+  - CLAUDE.md addition stays thin (≤55 lines) and points to `aidocs/` for the long form, per project memory `feedback_authoring_docs_in_aidocs`.
+  - Per-agent surface table is duplicated between CLAUDE.md and the website page (necessary — CLAUDE.md reader needs it without leaving the file; website reader needs it without a checkout).
+- **Upstream defects identified:**
+  - `CLAUDE.md:203 — "Codex CLI: \`.agents/skills/\` (shared with Gemini CLI)"`. The "shared with Gemini CLI" parenthetical is stale. Gemini's skills root is `.gemini/skills/` (see `.aitask-scripts/lib/agent_skills_paths.sh::agent_skill_root`); `.agents/skills/` is shared between codex and the future `agy` agent (t814 / t834), not gemini. Out of scope for this docs-only task — file as a tiny follow-up doc fix.
+- **Notes for sibling tasks:** Last child of t777 in the current `children_to_implement` list. After archival, the parent t777_modular_pick_skill should be archivable.
+

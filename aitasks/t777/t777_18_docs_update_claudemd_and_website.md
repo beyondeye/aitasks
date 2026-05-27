@@ -6,8 +6,9 @@ issue_type: documentation
 status: Implementing
 labels: [aitask_pick]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-17 12:02
-updated_at: 2026-05-27 10:06
+updated_at: 2026-05-27 10:57
 ---
 
 ## General note
