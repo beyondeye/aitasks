@@ -22,6 +22,7 @@ The files and structures that make up the framework's primary state.
 The building blocks that shape how skills and code agents behave.
 
 - **[Execution profiles]({{< relref "/docs/concepts/execution-profiles" >}})** — Pre-answered workflow questions that switch a skill from interactive to automated.
+- **[Skill templating]({{< relref "/docs/concepts/skill-templating" >}})** — How profile-aware skills materialize per-(skill, profile, agent) variants on demand via templated dispatch.
 - **[Verified scores]({{< relref "/docs/concepts/verified-scores" >}})** — How user satisfaction ratings accumulate into per-model, per-operation reliability scores.
 - **[Agent attribution]({{< relref "/docs/concepts/agent-attribution" >}})** — How each task records which code agent and model implemented it.
 - **[Locks]({{< relref "/docs/concepts/locks" >}})** — How concurrent agents avoid stepping on each other's tasks.

@@ -32,7 +32,8 @@ The full key reference and customization guide live in the [`/aitask-pick` execu
 
 - [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick" >}}) — the primary consumer of profiles
 - [Settings TUI]({{< relref "/docs/tuis/settings" >}}) — view and edit profiles interactively
+- [Skill templating]({{< relref "/docs/concepts/skill-templating" >}}) — how the active profile materializes into a per-run skill body
 
 ---
 
-**Next:** [Verified scores]({{< relref "/docs/concepts/verified-scores" >}})
+**Next:** [Skill templating]({{< relref "/docs/concepts/skill-templating" >}})
