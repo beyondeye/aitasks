@@ -1,5 +1,125 @@
 # Changelog
 
+## v0.21.0
+
+### Features
+
+- **Brainstorm Apply Explorer Output** (t739): Brainstorm now auto-applies explorer agent outputs into DAG nodes when they complete, with a `ctrl+shift+x` retry binding and an `apply-explorer` CLI fallback for failure recovery.
+- **Brainstorm Apply Synthesizer Output** (t740): Brainstorm auto-applies synthesizer agent outputs to create hybrid nodes linked to multiple parents, with a `ctrl+shift+y` retry binding and an `apply-synthesizer` CLI fallback.
+- **Brainstorm Apply Detailer Output** (t741): Brainstorm auto-applies detailer agent outputs, writing the detailed plan into the node and updating its `plan_file` reference, with a `ctrl+shift+d` retry binding.
+- **Operation Detail Screen** (t749_5): Added an `OperationDetailScreen` modal to the brainstorm TUI showing an operation Overview plus per-agent Input / Output / log tail tabs.
+- **Aitask Skill Render Subcommand** (t777_2): Added the renderer that produces per-profile skill variants from `.md.j2` templates, with skip-if-fresh caching and cross-skill include resolution.
+- **Stub Skill Design and Gitignore** (t777_3): Established the canonical "stub + per-profile render" model so each agent's skill surface dispatches to a profile-specific rendered variant, with a `*-/` gitignore convention for the generated dirs.
+- **Aitask Skill Verify and Precommit** (t777_4): Added `aitask_skill_verify.sh` to validate that `.md.j2` templates render cleanly across all profiles and agents and that per-agent stubs carry the canonical dispatch markers.
+- **Aitask Skillrun Wrapper Dispatcher** (t777_5): Added `ait skillrun` for launching any code agent with a profile-aware aitask skill, including `--profile-override` for ad-hoc YAML merges and `--dry-run` previews.
+- **Per Run Profile Edit in AgentCommandScreen** (t777_17): The launch dialog now has an `(E)dit` button to tweak the active execution profile for either a one-shot run or persistent save, propagated through to the rendered prompt.
+- **Profile Modification Invalidation** (t777_20): Saving a profile from the settings or launch TUIs now eagerly re-renders all affected per-profile skill variants so running agents see the new values on next invocation.
+- **Extend Renderer for Uniform Recursive Rendering** (t777_22): The skill renderer now walks the full reference closure of a template, rewriting cross-skill `.md` references per agent root and tracking staleness across the entire dependency graph.
+- **Support Open in Editor in Codebrowser** (t781): Added an `E` keybinding to the codebrowser TUI that suspends to `$EDITOR` on the currently-viewed file, then refreshes annotations on return.
+- **Clickable Nodes in DAG** (t793): Brainstorm Graph-tab DAG nodes are now click-focusable, mirroring arrow-key focus behavior; actions still require keyboard confirmation.
+- **Detailed Operation Description in Wizard** (t796): The brainstorm Actions wizard now shows the operation label plus a brief description on every step beyond Step 1, with `?` reachable from any wizard step.
+- **Allow Archived Tasks in Task Dependencies in Create** (t798): `ait create` now offers a fzf-based picker for adding archived task references inline into a task description.
+- **Context Aware Operations in Brainstorm** (t819): Added an `A` keybinding on the brainstorm Graph/Dashboard tabs that pops a picker for Explore / Detail / Patch on the focused node and pre-seeds the Actions wizard with the choice.
+- **Applink TUI QR** (t822_2): Added the `ait applink` TUI which generates a QR code carrying a LAN pairing URI for the mobile companion app, including hostname and TLS-fingerprint fields.
+- **Applink QR Add Hostname Field** (t822_5): The applink QR pairing URL now includes an optional `name=` field carrying the local hostname for friendly device identification on the mobile side.
+- **Registry Resolver Projects Cmd and Create Flag** (t826_1): Added the cross-repo project registry at `~/.config/aitasks/projects.yaml` plus the `ait projects` command (list/add/resolve/exec) and `ait create --project <name>` flag for cross-repo task creation.
+- **TUI Switcher Show Inactive Projects** (t826_2): The TUI switcher's Session row now surfaces registered-but-inactive projects; selecting one transparently spawns a tmux session for it on demand.
+- **Ait Projects Remove Update Verbs** (t826_7): Added `ait projects remove` (with `--force`) and `ait projects update` verbs to manage entries in the cross-repo registry.
+- **Ait Projects Prune Verb** (t826_8): Added `ait projects prune` to bulk-remove stale registry entries whose marker file is gone, with `--dry-run` and `--yes` modes.
+- **Ait Projects Doctor Verb** (t826_9): Added `ait projects doctor` for interactive triage of stale registry entries with options to prune, repoint, or clone the missing project back.
+- **Switcher Stale Inline Render and Race** (t826_10): The TUI switcher dims stale registry entries with a `(stale)` suffix and pops an inline Prune / Repoint modal when one is selected, including the race-condition path when an entry goes stale mid-session.
+
+### Bug Fixes
+
+- **Template Completeness and Resolver Key** (t777_26): Dropped the runtime profile-resolution fallback in templated skills and fixed the resolver-key mismatch between stubs and bodies so per-profile dispatch lands on the correct variant.
+- **Graph Tab Breaks Tab Navigation** (t788): Pressing Up on the brainstorm Graph tab's top layer now escalates focus back to the tab row instead of trapping the user inside the DAG view.
+- **Missing Shortcuts from TUI Switcher Footer** (t789): The TUI switcher footer is now pinned to the bottom of the dialog and stays visible regardless of list size, so keyboard shortcuts remain discoverable.
+- **Status Update Error in Explorer Agent** (t791): Crew agents can now use `-m` as a short alias for `--message` on the heartbeat command, and the generated instructions show the message syntax explicitly.
+- **Brainstorm Explore Progress** (t792): Brainstorm now force-canonicalizes each agent's `created_by_group` on apply, defends graph-tab consumers against historical drift, and shows a group-level aggregate progress bar in the Status tab.
+- **Brainstorm Explorer Input Missing Node ID** (t795): Brainstorm now assigns the node ID to each explorer/synthesizer/patcher agent at registration time, so parallel siblings cannot collide on the same generated node.
+- **Disallow Patch for Node Without Plan** (t797): The brainstorm UI now shows a `has plan` / `no plan` indicator on each node and disables the patch operation for nodes without a plan, preventing silent failures.
+- **Aitask Explore With Codex** (t801): `ait setup` now installs `pexpect` so the `aitask explore` workflow launches Codex without import errors on fresh installs.
+- **Add Codex Rules Allowlist Support** (t802): Added runtime and seed Codex allow-rules so the `codex` agent can be launched through aitasks without hand-editing rules files.
+- **Keybinding in Wizard for Node Selection** (t806): The brainstorm Hybridize / Compare wizards now offer a fuzzy filter plus Tab group cycling and arrow-key checkbox navigation, with checked rows always visible.
+- **Synthetize or Hybridize** (t807): Renamed the brainstorm DAG merge operation from `hybridize` to `synthesize` across code, tests, and docs, with a backward-compat alias so in-flight sessions still render correctly.
+- **Fix Patcher CLI Next Node ID Assertion** (t810): Fixed a brainstorm patcher CLI test that wrongly asserted `next_node_id` would advance on apply — the apply path is correct, the assertion was off-by-one.
+- **Fix Aitask Update Multiline YAML List Parsing** (t813): YAML frontmatter parsers now correctly join multi-line flow-list values (e.g. wrapped `folded_tasks`, `verifies`) so `ait update`, archive, and crew tools no longer truncate them.
+- **TUI Switch Multiproject Hide Brainstorms** (t814): The TUI switcher's brainstorm session discovery is now scoped to the selected project's `.aitask-crews/`, so multi-project switches don't surface cross-project brainstorms.
+- **Dedup Read YAML Field Definition** (t815): Consolidated two competing `read_yaml_field` definitions into a single shared `yaml_utils.sh` lib, eliminating a silent function-collision risk at archive time.
+- **Fix Skill Dep Walker SKILL.md Collision** (t817): The skill dep-walker now skips self-referencing `SKILL.md` prose mentions and raises a loud collision error if two distinct sources ever map to the same target path.
+- **Brainstorm Ops Fail to Write Output** (t820): Crew `_instructions.md` now tells the agent to read the pre-existing `<agent>_output.md` placeholder before writing, preventing accidental overwrites that produced empty operation results.
+- **Detailer Final Output Parsing Seems Not Work** (t821): Brainstorm's auto-apply scan now tracks in-flight agents (not just Completed ones) and prunes terminally-failed ones from polling, so detailer/patcher output is reliably picked up.
+- **Fix TUI Switcher Desync Line Stale Across Sessions** (t823): The desync helper now resolves the repo root from cwd rather than the script's install location, so the switcher's desync line reflects the active project in multi-project setups.
+- **Fix Test Desync State Copy Changelog Missing YAML Utils** (t824): Added the missing `yaml_utils.sh` to the changelog-test scaffold's file list so the test no longer crashes on missing-source errors.
+- **Idle State Not Detected** (t825): The monitor TUI now distinguishes "agent awaiting user input" from "idle" via per-agent prompt regex patterns, surfaces a separate `awaiting` count, and prefers awaiting panes when auto-switching.
+- **Fix Test Codeagent Scaffold Missing Agent String** (t827): Added `agent_string.sh` to the codeagent test scaffold so the test suite no longer fails on a missing source library.
+- **Obsolete AgentCommand Dialog in Monitor** (t830): The per-run profile edit now propagates through to launch dialogs in monitor, codebrowser, and history-screen TUIs, not just the board.
+- **Add Back Support for PyPy for Ait Board** (t831): Restored the optional PyPy fast path scoped to `ait board` only (the four other TUIs stay on CPython), with `AIT_PYTHON=` documented as the ad-hoc override for A/B testing.
+- **Fix Tmux Monitor Relative Import** (t833): Aligned a stray `tmux_monitor` test with the canonical `monitor.tmux_monitor` import path used by all peer tests, fixing three test errors.
+- **Fix Failed Verification t787 Item3** (t837): The `ctrl+shift+x` retry binding in brainstorm now rescans the worktree for completed explorer agents instead of consuming an in-memory set, with a clear notify when no candidates exist.
+
+### Enhancements
+
+- **2D Arrow Navigation** (t748_1): The brainstorm Graph tab DAG now navigates with all four arrow keys (prev/next layer plus prev/next column with nearest-center snap), replacing the prior `j`/`k`-only flow.
+- **Inline Detail Pane** (t748_2): The brainstorm Graph tab now has a right-side inline detail pane that updates as you navigate the DAG, plus Tab/Shift+Tab to toggle focus between the DAG and the detail.
+- **View Proposal Plan Keys** (t748_3): Added `p` and `l` bindings on the brainstorm Graph tab to view the focused node's proposal or plan in the section viewer.
+- **Compare With Picker** (t748_4): The brainstorm Graph tab now has an `x` binding to pick a compare-with anchor (highlighted in Dracula orange), `enter` to confirm, and `escape` to cancel, opening the Compare tab with the diff matrix.
+- **O Keybinding Open Screen** (t749_6): Added the `o` binding on brainstorm DAG and NodeRow widgets to open the `OperationDetailScreen` for the focused node's generating group.
+- **Minijinja Comments** (t786): Wrapped Jinja conditionals in templated skills with a documented same-line comment ruler convention, making profile-aware blocks easier to scan without disturbing rendered output.
+- **Brainstorm Op Modal Loading Indicator** (t794): The brainstorm `OperationDetailScreen` now shows a loading indicator while it gathers content, eliminating the previous blank-modal pause when opening.
+- **Defer Explore Sync to Step 2b** (t800): The `aitask-explore` skill defers its remote sync to Step 2b so the first user prompt fires faster, with sync still happening before any task creation.
+- **Extend Profile Rendering with Agent Suffix** (t834): Rendered skill dirs in shared roots (currently codex) now carry an extra `-<agent>-` suffix so multiple agents sharing one root cannot collide on the same target path.
+- **Auto Select Session in TUI Switcher** (t836): Opening the TUI switcher from a focused agent pane in monitor/minimonitor now pre-selects that pane's session instead of always starting on the attached session.
+- **Codebrowser Show Tasks Without Code Commits** (t838): The codebrowser history now surfaces archived tasks that have no `(tNN)` code commits, anchored on their archival commit or file mtime, with a dim `[no-code]` marker.
+
+### Improvements
+
+- **Test Scaffold Helper for Fake Aitask Repo** (t734): Consolidated the per-test "copy these libs into a fake aitask repo" boilerplate into a shared `setup_fake_aitask_repo()` helper, reducing per-test duplication across 43 tests.
+- **Convert Aitask Pick Template and Stubs** (t777_6): Piloted converting `aitask-pick` to the stub + `.md.j2` template model, producing the rename + golden-file playbook reused by sibling skill conversions.
+- **Convert Task Workflow Shared Procs** (t777_7): Staged a templated copy of the shared `task-workflow` procedure files with Jinja-wrapped profile checks, in a parallel `task-workflown/` dir to avoid disturbing live skill execution.
+- **Convert Aitask Explore** (t777_8): Converted `aitask-explore` to the templated stub + per-profile `.md.j2` model with the canonical `explore_auto_continue` profile wrap.
+- **Convert Aitask Review** (t777_9): Converted `aitask-review` to the templated stub + per-profile `.md.j2` model, wrapping `review_default_modes` and `review_auto_continue` profile checks.
+- **Convert Aitask Fold** (t777_10): Converted `aitask-fold` to the templated stub + per-profile `.md.j2` model with its `explore_auto_continue` profile wrap.
+- **Convert Aitask QA** (t777_11): Converted `aitask-qa` to the templated stub model (including its own procedure-file closure) with wraps for `qa_tier`, `qa_mode`, `qa_run_tests`, and `skip_task_confirmation`.
+- **Convert Aitask PR Import** (t777_12): Converted `aitask-pr-import` to the templated stub + per-profile `.md.j2` model with its `explore_auto_continue` wrap.
+- **Convert Aitask Revert** (t777_13): Converted `aitask-revert` to the templated stub + per-profile `.md.j2` model, preserving its `user-file-select` closure references.
+- **Convert Aitask Pickrem** (t777_14): Converted the remote/headless `aitask-pickrem` skill to a templated model with pre-committed remote-profile renders so headless agents pick up the right variant without a runtime render step.
+- **Convert Aitask Pickweb** (t777_15): Converted `aitask-pickweb` to the templated model with pre-committed remote-profile renders and fixed the OpenCode skill-registry leftover that misrouted pickweb to the wrong agent root.
+- **Extract Profile Editor Widget** (t777_16): Extracted the profile-editor widgets, schema, and `ProfileEditScreen` modal from `settings_app.py` into a shared `lib/profile_editor.py` so other TUIs can mount the same modal.
+- **Refactor Stubs Direct Helper Paths** (t777_25): Removed the `ait skill` subcommands; profile-aware skill stubs now invoke the helper scripts (`aitask_skill_render.sh`, `aitask_skill_verify.sh`) directly.
+- **Dedup Template Branches Common Proc and Macros** (t777_28): Deduplicated the Continue / Save-for-later decision-point block across 4 skill templates via a shared Jinja macro, plus inlined the parent/child confirmation prompt as a macro inside `aitask-pick`.
+- **Fix OpenCode Skill Legacy Pointers** (t777_29): Rewrote 8 OpenCode `.opencode/skills/<skill>/SKILL.md` files as proper dispatch stubs so OpenCode skill auto-discovery routes through the correct agent root for templated skills.
+- **Retire PyPy Fast Path Consolidate on CPython** (t785): Removed the PyPy fast path from the framework (launchers, resolver, installer, env vars, tests, docs) after empirical evidence showed PyPy was slower than CPython for most TUI workloads. (Note: t831 later restored a board-only PyPy path.)
+- **Gate Agent Specific Blocks in Skills Via Jinja** (t803): Converted `aitask-wrap` to the templated stub model, gating its "Recent Claude Plans" check on `{% if agent == "claude" %}` so other agents see a cleaner skill body.
+- **Brainstorm Reconcile Patcher Into Apply Node Output** (t808): Reconciled the brainstorm patcher apply path into the shared `_apply_node_output` core with a parser-strategy hook, so explorer/synthesizer/patcher all share one error-handling and validation site.
+- **Prune Redundant Skill Render Goldens** (t809): Pruned 51 byte-identical agent-variant goldens from the skill-render test suite and added byte-equality cross-checks, so divergence is caught loudly rather than carried as redundant fixtures.
+- **Align Detailer Planning Plan Contract** (t818): Added a shared `skill_templates/` fragments dir bridging minijinja-rendered skill templates and bash-resolved brainstorm templates, exercised by both pipelines.
+- **Status Aware Read Registry Index** (t826_6): The project-registry reader now classifies each entry as OK or STALE up front, surfacing stale registry rows to the TUI switcher and CLI doctor flows.
+
+### Documentation
+
+- **Docs Update CLAUDEmd and Website** (t777_18): Added a "Skill templating and per-profile dispatch" section to CLAUDE.md plus a new `concepts/skill-templating` website page covering the stub + render flow, per-agent surfaces, and Jinja patterns.
+- **Audit Claude Memory Promote to Claude MD** (t779): Promoted 19 durable rules from per-user Claude memory into CLAUDE.md, organized into Skill / Shell / TUI / Planning / Testing / Code Conventions plus a Reusable Helpers section.
+- **Task Workflow AskUserQuestion Non Optional** (t782): Added explicit `⚠️ NON-SKIPPABLE` banners at the Step 8b/8c/9/9b workflow gates documenting which (and only which) profile keys may legitimately opt out.
+- **Document Golden Regen on Template Edit** (t805): Added a "regenerate goldens after any `.md.j2` or closure edit" rule to the skill-authoring docs and fixed 12 stale goldens that the audit surfaced.
+- **Applink Protocol Design** (t822_1): Added `aidocs/applink/` design docs covering the WebSocket protocol, message envelope, pairing flow, connection state machine, permission profiles, and verb gating table for the mobile companion.
+
+### Performance
+
+- **Verify PyPy for Monitor Minimonitor** (t718_5): Benchmarked PyPy vs CPython for the monitor/minimonitor hot path; PyPy was slower at every realistic pane count so both TUIs stay on CPython.
+- **Verify PyPy for Board and Codebrowser** (t718_6): Benchmarked PyPy vs CPython for board and codebrowser; kept board on PyPy (13.6% faster) and reverted codebrowser to CPython (PyPy was 16.6% slower for its render-heavy hot path).
+- **Compact CLAUDE MD** (t783): Compacted CLAUDE.md from 397 lines to 286 (-76% bytes) by extracting six specialist topics into `aidocs/` files referenced via "read when…" pointers, reducing always-loaded context size.
+
+### Maintenance
+
+- **Minijinja Dep Renderer Paths Resolver** (t777_1): Added the foundation for profile-aware skill rendering: `minijinja` dependency, the `lib/skill_template.py` renderer, agent-skill path helpers, and the profile resolver helper.
+- **Swap Task Workflown to Task Workflow** (t777_23): Promoted the staged `task-workflown/` template skill back to the live `task-workflow/` skill name, completing the conversion started in t777_7.
+
+### Tests
+
+- **Recover Runtime Skills and Parity Tests** (t777_27): Added a parity test suite that renders the converted skills against frozen pre-rewrite fixtures and asserts each profile produces the expected per-profile user-visible text, guarding against silent rewrite drift.
+- **Fix Test OpenCode Setup Glob Mismatch** (t828): Pinned the OpenCode setup test's install set to the `git ls-files` tracked skills so it no longer fails when locally-rendered profile-variant dirs are present.
+
 ## v0.20.3
 
 ### Improvements
