@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.21.1
+
+### Bug Fixes
+
+- **Fix Brainstorm Retry Apply Drained Set** (t841): The `ctrl+shift+x/y/d` retry-apply bindings in brainstorm now rescan the worktree for completed explorer/synthesizer/patcher/detailer agents instead of consuming a one-shot in-memory set, so retries no longer silently no-op after the original apply ran. Surfaces a "No completed agents to retry" notify when the worktree is empty.
+- **Fix v0.21.0 Blog YAML and Release Post Quoting** (t844): Repaired the v0.21.0 blog frontmatter (unescaped inner quotes broke the YAML parse) and hardened `website/new_release_post.sh` to escape title/description fields plus run a Python YAML smoke check after generation, preventing future release posts from shipping broken frontmatter.
+
+### Enhancements
+
+- **Improve Dialog for Next in Monitor** (t840): The monitor TUI's next-task dialog now offers a "Choose sibling" picker listing every ready sibling of the current task with blocked-by-sibling annotations, so you can pivot mid-family without backing out to the board.
+- **Textual 8.2.7 Floor**: Bumped the minimum `textual` version to 8.2.7 across `ait setup` and the applink reference docs to pick up upstream text-selection improvements in TUI screens.
+
 ## v0.21.0
 
 ### Features
