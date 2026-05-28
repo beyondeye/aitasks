@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [837]
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [verification, manual]
 verifies: [837]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-27 11:10
-updated_at: 2026-05-28 09:23
+updated_at: 2026-05-28 09:24
+completed_at: 2026-05-28 09:24
 boardidx: 40
 ---
 
