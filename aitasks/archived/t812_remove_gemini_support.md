@@ -3,11 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [geminicli]
-children_to_implement: [t812_5]
 created_at: 2026-05-20 08:01
-updated_at: 2026-05-28 03:28
+updated_at: 2026-05-28 08:49
+completed_at: 2026-05-28 08:49
 boardidx: 30
 ---
 
