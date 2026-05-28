@@ -448,3 +448,71 @@ python3 -m py_compile .aitask-scripts/board/aitask_board.py
   Ready** (preserved from current Impl-view sibling grouping). This is
   intentional — `locked` is a *context* view, not a leaf filter. The doc
   note must make this explicit.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-28 09:18)
+- **Requested by user:** "The horizontal space reserved to show the filters
+  is too narrow — the `g Git` and `t Type` add-ons are hidden behind the
+  search box."
+- **Changes made:** Widened the CSS `#view_col { width: 36 }` rule (sized
+  for the old 31-char selector) to `width: 48` to accommodate the new
+  selector text `[a All | l Locked | f Free]   g Git   t Type` (~44 chars
+  + 2 cols horizontal padding).
+- **Files affected:** `.aitask-scripts/board/aitask_board.py` (single
+  CSS-rule line in the `KanbanApp.CSS` block; line ~3183). Pilot tests
+  remain green (headless, CSS-agnostic).
+
+### Change Request 2 (2026-05-28 09:18)
+- **Requested by user:** "The `f Free` label has a spurious `\` at the end
+  in the rendered output."
+- **Root cause:** The closing-bracket segment was emitted as
+  `r"[dim]\][/]"`. Rich markup only requires escaping `[` (the tag start)
+  with `\[`; the `]` does not need escaping outside a tag context, so the
+  literal backslash was being rendered to the screen.
+- **Changes made:** Replaced `r"[dim]\][/]"` with `"[dim]][/]"` (no
+  backslash). Verified via `rich.Console` round-trip that the visible
+  output is `[a All | l Locked | f Free]   g Git   t Type` with no
+  stray characters.
+- **Files affected:** `.aitask-scripts/board/aitask_board.py`
+  (`ViewSelector.render` closing-bracket line). Pilot tests still green.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the full plan as approved. Refactored
+  `KanbanApp.view_mode` into three independent state vars
+  (`base_filter`, `git_filter_active`, `type_filter_active`). Rewrote
+  `ViewSelector` with the bracketed-radio + two-toggle layout and
+  segment-range click hit-testing. Added `_set_base_filter`,
+  `_toggle_git_filter`, `_toggle_type_filter` dispatchers. Renamed
+  `_implementing_visible_set` → `_locked_visible_set` and broadened to
+  `status==Implementing OR lock_map`. Added `_free_visible_set` with the
+  parent-cascade rule. Rewrote `apply_filter` as AND-of-sets.
+  Renamed/broadened `_auto_expand_locked`. Updated the docs reference page
+  and replaced the test suite (4 updated, 5 new tests, all green).
+- **Deviations from plan:** None at the architectural level. Two small
+  layout/markup bugs surfaced during user review and are recorded above
+  under Post-Review Changes (CSS width 36 → 48; Rich bracket escape).
+- **Issues encountered:**
+  - The new selector string is ~46 cols wide; the existing `#view_col
+    { width: 36 }` CSS rule (sized for the old 31-col selector) clipped
+    the add-on toggles behind the search box. Fixed in CR1.
+  - Rich's markup syntax only requires escaping `[` (with `\[`). My
+    initial render used `\]` symmetrically — which Rich rendered as a
+    literal backslash. Fixed in CR2.
+- **Key decisions:**
+  - `_locked_visible_set` preserves the context-grouping behavior of the
+    old `_implementing_visible_set` (busy child → include parent + all
+    siblings). This makes `locked` a "see what's in flight + its
+    surrounding work" view, not a strict leaf filter. `_free_visible_set`,
+    by contrast, is a strict per-task check with parent cascade — the two
+    are leaf-level inverses but `locked` is a superset at the
+    context/sibling level. Documented this in the user-facing reference.
+  - Did not route the new `l` / `f` bindings through the t848 shortcut
+    registry; t848_2 will sweep all of `KanbanApp.BINDINGS` wholesale.
+  - Did not persist `base_filter` / add-on flags across sessions — matches
+    the prior behavior (board always starts in `all`).
+- **Upstream defects identified:** None. The pre-existing docs note about
+  "three task filtering modes" was incorrect before this change as well
+  (four modes existed), but it's superseded by the rewrite — not a
+  separate upstream defect.
