@@ -58,6 +58,10 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
     "post_plan_action_for_child": ("enum", ["start_implementation", "ask"]),
     "enableFeedbackQuestions": ("bool", None),
     "manual_verification_followup_mode": ("enum", ["ask", "never"]),
+    "manual_verification_auto_mode": (
+        "enum",
+        ["ask", "never", "autonomous", "prebuilt_approve", "prebuilt_autorun"],
+    ),
     "explore_auto_continue": ("bool", None),
     "review_default_modes": ("string", None),
     "review_auto_continue": ("bool", None),
@@ -184,6 +188,20 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "  (unset): same as 'ask'\n"
         "Set to 'never' for non-interactive or remote profiles."
     ),
+    "manual_verification_auto_mode": (
+        "Up-front auto-execution prompt mode for manual-verification tasks",
+        "Controls Manual Verification Step 1.5 — whether the up-front "
+        "auto-execute prompt fires, and which strategy runs when it is "
+        "suppressed:\n"
+        "  'ask': prompt fires (autonomous / pre-built+approve / skip)\n"
+        "  'never': skip prompt; go straight to interactive\n"
+        "  'autonomous': skip prompt; run autonomous strategy\n"
+        "  'prebuilt_approve': skip prompt; design + approve + execute\n"
+        "  'prebuilt_autorun': skip prompt; design + execute, no approval\n"
+        "  (unset): same as 'ask'\n"
+        "The per-item `auto` verb in the interactive loop is always "
+        "available regardless of this setting."
+    ),
     "explore_auto_continue": (
         "Auto-continue to implementation in exploration mode",
         "Used by aitask-explore. When true, automatically continues to the implementation "
@@ -292,7 +310,10 @@ PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
         "post_plan_action_for_child",
     ]),
     ("Feedback", ["enableFeedbackQuestions"]),
-    ("Manual Verification", ["manual_verification_followup_mode"]),
+    ("Manual Verification", [
+        "manual_verification_followup_mode",
+        "manual_verification_auto_mode",
+    ]),
     ("QA Analysis", ["qa_mode", "qa_run_tests", "qa_tier"]),
     ("Exploration", ["explore_auto_continue"]),
     ("Review", ["review_default_modes", "review_auto_continue"]),
