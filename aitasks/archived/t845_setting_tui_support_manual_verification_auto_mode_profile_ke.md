@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: [843]
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [manual_verification, ait_settings, tui, task_workflow]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-27 13:32
-updated_at: 2026-05-28 10:25
+updated_at: 2026-05-28 11:45
+completed_at: 2026-05-28 11:45
 boardidx: 50
 ---
 
