@@ -5,7 +5,7 @@ depends: [834]
 issue_type: feature
 status: Implementing
 labels: [codeagent]
-children_to_implement: [t835_1, t835_2]
+children_to_implement: [t835_1, t835_2, t835_3]
 folded_tasks: [835_1, 835_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-26 12:13
