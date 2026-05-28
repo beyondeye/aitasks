@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: [834]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codeagent]
 folded_tasks: [835_1, 835_2]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-26 12:13
-updated_at: 2026-05-28 10:02
+updated_at: 2026-05-28 11:48
 boardidx: 90
 ---
 
