@@ -218,4 +218,76 @@ existing `tests/test_aitask_update_*.sh` style):
 
 ## Final Implementation Notes
 
-(To be filled by the implementing agent during/after execution.)
+- **Actual work done:**
+  - Added `--xdeps` / `--xdeprepo` local-flag support to `aitask_update.sh`
+    (globals, parse_args cases, parser cases in `parse_yaml_frontmatter`,
+    new `write_task_file` positional args, batch-mode new_xdeps/new_xdeprepo
+    resolution with both-or-neither validation, saved/restored in the
+    `handle_child_task_completion` parent-write path, `has_update` flags).
+  - Added cross-repo `--project` dispatch at the top of `main()`, mirroring
+    `aitask_create.sh`. Drops `--parent` (update has none), refuses
+    `--name` cross-repo (rename collision risk), enforces status-transition
+    allowlist (refuses `Implementing` / `Done` / `Folded` cross-repo).
+  - Sentinel env var `AIT_CROSS_REPO_REEXEC=1` gates a lock-check inside
+    the re-exec'd target's `run_batch_mode`: probes `aitask_lock.sh --check`,
+    refuses when a different host or owner holds the lock. Same host +
+    same owner is fine (admin update while picking).
+  - `show_help()` documents `--project` + the allowlist + the lock guard.
+- **Deviations from plan:**
+  - **Validator extraction.** Plan said "Reuse `validate_xdeps_pair` from
+    `lib/task_utils.sh`", but the function actually lived in
+    `aitask_create.sh:884` (the plan's claim was wrong). Moved the
+    function to `lib/task_utils.sh` so both `create.sh` and `update.sh`
+    share it; the create.sh definition was replaced with a pointer comment.
+    The function body is unchanged otherwise.
+  - **Update validator call site.** `validate_xdeps_pair` reads the
+    `BATCH_XDEPS` / `BATCH_XDEPREPO` globals. Update's batch flow
+    resolves `new_xdeps` / `new_xdeprepo` from the SET sentinels first
+    (so existing values survive unrelated updates), then temporarily
+    points the globals at the resolved values for the validation call
+    and restores them afterwards.
+  - **`has_update` extension.** Added `BATCH_XDEPS_SET` /
+    `BATCH_XDEPREPO_SET` to the `has_update` checklist (caught only
+    after the first test run because the script otherwise dies with
+    "No update parameters specified").
+- **Issues encountered:**
+  - First-pass `validate_xdeps_pair` move kept implicit reads of `BATCH_*`
+    globals; added `:-` defaults to be explicit about the no-globals case.
+  - The both-or-neither half-clear case (`--xdeps ""` alone) triggers the
+    validator path correctly because the SET sentinels go true for either
+    flag.
+- **Key decisions:**
+  - Lock-check is gated behind `AIT_CROSS_REPO_REEXEC=1` (not universally
+    on) so plain local updates don't pay the `git fetch` cost. Local
+    callers go through `aitask_pick_own.sh` which already owns the lock.
+  - `Folded` is in the refused set in addition to the plan's
+    `Implementing` / `Done`. Folding requires reading both task bodies;
+    cross-repo folding semantics are unsettled (parent t826 out-of-scope).
+  - `--name` refusal is enforced at the dispatch layer (before `cd` +
+    `exec`), not inside the re-exec'd target. Same as the
+    status-transition allowlist — fail fast in the originating repo so
+    the cross-repo project's file system is never touched.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t832_5 (parallel-planning procedure)** can now wire symmetric
+    cross-edges. Sequence: (1) create local children with
+    `aitask_create.sh --batch`. (2) Create cross-repo children with
+    `aitask_create.sh --batch --project B --xdeps L1,L2 --xdeprepo A`.
+    (3) Back-fill local children: `aitask_update.sh --batch <local_id>
+    --xdeps S1,S2 --xdeprepo B`. The cross-repo back-fill direction
+    (B's xdeps → A) goes through `aitask_update.sh --batch
+    --project B <cross_id> --xdeps L1,L2 --xdeprepo A`.
+  - **The `validate_xdeps_pair` move is permanent and shared.** Any future
+    caller (cross-repo fold, board mutation, etc.) should set
+    `BATCH_XDEPS` / `BATCH_XDEPREPO` then invoke the function; there is
+    no longer a per-script copy.
+  - **The lock-check sentinel pattern** (`AIT_CROSS_REPO_REEXEC=1`) is the
+    only signal that distinguishes a re-exec'd cross-repo invocation from
+    a plain local invocation. A future cross-repo helper (e.g. cross-repo
+    fold) should set the same sentinel before `exec`. The plan's
+    suggestion of a `lib/cross_repo_lock_guard.sh` extraction can wait
+    until that second consumer materializes.
+  - **Status-transition allowlist** is the policy boundary — any new
+    framework status must be classified as administrative (allow) or
+    workflow (refuse). The `Folded` addition is documented in
+    `show_help()` and the dispatch case statement.
