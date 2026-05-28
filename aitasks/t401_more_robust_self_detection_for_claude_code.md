@@ -5,9 +5,9 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [task_workflow]
-children_to_implement: [t401_2, t401_4, t401_3]
+children_to_implement: [t401_2, t401_4]
 created_at: 2026-03-16 10:51
-updated_at: 2026-03-16 11:58
+updated_at: 2026-05-28 08:42
 boardcol: next
 boardidx: 110
 ---
