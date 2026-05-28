@@ -1,2 +1,4 @@
 name: default
 description: Standard interactive workflow - all questions asked normally
+manual_verification_followup_mode: never
+manual_verification_auto_mode: autonomous
