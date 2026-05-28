@@ -6,6 +6,8 @@ Archived Sibling Plans: aiplans/archived/p832/p832_*_*.md
 Worktree: aiwork/t832_10_aitask_create_interactive_cross_repo
 Branch: aitask/t832_10_aitask_create_interactive_cross_repo
 Base branch: main
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-05-28 17:27
 ---
 
 # Plan: aitask-create interactive cross-repo support (t832_10)
@@ -283,6 +285,47 @@ metadata-only trigger is verified to fire on `xdeprepo`-tagged tasks.
 - Templating `aitask-create` to `.j2` — orthogonal cleanup task.
 - TUI display of `xdeprepo` in `ait board` (t832_8).
 - N-way (≥3) cross-repo plans.
+
+## Plan Verification Notes (2026-05-28)
+
+Verified the plan against current `main`. Concrete decisions locked
+during verification (these resolve the "TBD" spots in the original
+plan body):
+
+- **New helper subcommand for project enumeration:** add
+  `aitask_project_resolve.sh list` (no `--` prefix; matches other
+  subcommands) emitting `PROJECT:<name>:<path>:<status>` per line
+  where status ∈ {`RESOLVED`, `STALE`}. Whitelist via
+  `aitask_audit_wrappers.sh apply-helper-whitelist
+  aitask_project_resolve.sh` (5 touchpoints).
+- **New `labels` subcommand on `aitask_query_files.sh`:** emit
+  one `LABEL:<name>` line per non-blank, non-comment line in
+  `aitasks/metadata/labels.txt`. Reuses the existing `--project`
+  re-exec path, so cross-repo labels just work via
+  `aitask_query_files.sh --project <name> labels`.
+- **Validator relaxation:** `validate_xdeps_pair` in
+  `lib/task_utils.sh` allows `xdeprepo` alone (intent-only). The
+  remaining failure case is `xdeps` without `xdeprepo` (xdeps need
+  a project). `aitask_create.sh` emits the two YAML lines
+  independently so a `--xdeprepo`-only invocation writes only
+  `xdeprepo:` to the draft. **This is load-bearing** for the
+  metadata-only trigger contract t832_5 will land.
+- **Labels prompt is new for ALL tasks (not just cross-repo):** the
+  current SKILL.md hardcodes `labels: []`. The simplest cut adds a
+  multiSelect labels prompt during Step 3, and in cross-repo mode
+  the candidate list is the union of local + cross-repo labels.
+- **Defer Steps 4 and 5** per the original plan: notation polish
+  and cross-repo file picker stay out of this task.
+- **Test surface:** drive batch mode through the CLI (the
+  established pattern; `AskUserQuestion` is Claude-driven and not
+  shell-testable). New tests: `test_project_resolve_list.sh`,
+  `test_query_files_labels.sh`, `test_aitask_create_xdeprepo_alone.sh`.
+  Update `test_xdeps_validation.sh` case 2 (only `--xdeprepo` now
+  succeeds).
+- **Inertness ack:** t832_5 (the trigger consumer) and t832_9 (the
+  manual verification of t832_1..8) are still Ready as of plan
+  verification. User explicitly chose to ship t832_10 first
+  anyway; the captured metadata is harmless until t832_5 lands.
 
 ## Final Implementation Notes
 
