@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t835_1]
 issue_type: test
-status: Ready
+status: Folded
 labels: [task_workflow]
+folded_into: 835
 created_at: 2026-05-28 08:41
-updated_at: 2026-05-28 08:41
+updated_at: 2026-05-28 10:02
 ---
 
 ## Context

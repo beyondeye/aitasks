@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Folded
 labels: [codeagent]
+folded_into: 835
 created_at: 2026-05-28 08:41
-updated_at: 2026-05-28 08:41
+updated_at: 2026-05-28 10:02
 ---
 
 ## Context

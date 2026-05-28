@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [t832_1, t832_3, t832_7]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [cross_repo, task_workflow]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-26 18:28
-updated_at: 2026-05-26 18:30
+updated_at: 2026-05-28 10:04
 ---
 
 ## Context

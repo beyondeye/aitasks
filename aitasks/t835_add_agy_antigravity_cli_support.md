@@ -5,9 +5,9 @@ depends: [834]
 issue_type: feature
 status: Ready
 labels: [codeagent]
-children_to_implement: [t835_1, t835_2]
+folded_tasks: [835_1, 835_2]
 created_at: 2026-05-26 12:13
-updated_at: 2026-05-28 08:41
+updated_at: 2026-05-28 10:02
 boardidx: 90
 ---
 
@@ -119,6 +119,36 @@ shape, ideally **mirroring the t812 child structure** (1:1 inverse
 correspondence). This makes side-by-side reading of paired archived
 plans (t812 removal vs t814 addition) much easier for future
 maintenance.
+
+## Inherited concerns — agy model-id detection
+
+Two child tasks (t835_1, t835_2) were created externally before this
+parent's own planning pass; both target the model-self-detection
+surface of scope item 1 ("Code-agent identity layer"). They have been
+folded back into this parent so planning can decide where their
+substance belongs in the final child split.
+
+**From t835_1** *(migrated from t345 — geminicli-era)*: agy's reliable
+model-id identification surface must be identified and wired into
+`aitask_resolve_detected_agent.sh` and the Model Self-Detection
+Sub-Procedure. Candidates to test in practice: `agy --version`, a
+`cli_help`/`cli_info` equivalent, or `~/.gemini/settings.json`
+inspection. Detection must work headless (no interactive prompt). The
+chosen surface must produce a valid `AGENT_STRING:agy/<name>` matching
+an entry in `aitasks/metadata/models_agy.json`.
+
+**From t835_2** *(migrated from t401_3 — geminicli-era)*: end-to-end
+verification of the agy detection path: launch agy, trigger a workflow
+that invokes model-self-detection (e.g. `/aitask-pick` on a test task),
+confirm `./.aitask-scripts/aitask_parse_detected_agent.sh --agent agy
+--cli-id <model_id>` returns the expected `AGENT_STRING:agy/<name>`,
+and verify `implemented_with` is written correctly to the task
+frontmatter. Presumes the t835_1 surface choice has landed first.
+
+The planner is expected to either (a) carve a dedicated child for the
+model-id detection surface plus its end-to-end verification, or
+(b) absorb both concerns into the broader scope-item-1 child, depending
+on the final child shape.
 
 ## Out of scope
 
