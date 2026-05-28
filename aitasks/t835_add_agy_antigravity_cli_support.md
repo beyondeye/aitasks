@@ -5,10 +5,10 @@ depends: [834]
 issue_type: feature
 status: Ready
 labels: [codeagent]
-children_to_implement: [t835_1, t835_2, t835_3, t835_4, t835_5, t835_6]
+children_to_implement: [t835_1, t835_2, t835_3, t835_4, t835_5, t835_6, t835_7]
 folded_tasks: [835_1, 835_2]
 created_at: 2026-05-26 12:13
-updated_at: 2026-05-28 12:19
+updated_at: 2026-05-28 17:22
 boardidx: 90
 ---
 
