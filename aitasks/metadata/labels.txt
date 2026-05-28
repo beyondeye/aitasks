@@ -75,6 +75,7 @@ stats_ui
 task-archive
 task_workflow
 testing
+test_marker
 tmux
 tui
 tui_switcher
