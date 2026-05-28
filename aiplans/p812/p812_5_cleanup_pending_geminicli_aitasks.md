@@ -6,7 +6,8 @@ Archived Sibling Plans: aiplans/archived/p812/p812_1_*.md, p812_2_*.md, p812_3_*
 Worktree: (current branch — fast profile)
 Branch: main
 Base branch: main
-plan_verified: []
+plan_verified:
+  - claudecode/opus4_7_1m @ 2026-05-28 08:20
 ---
 
 # Plan: Cleanup pending geminicli-related aitasks (t812_5)
@@ -21,45 +22,155 @@ tasks targeting geminicli-specific behavior need disposition:
 - `aitasks/t345_identifying_model_id_in_gemini.md`
 - `aitasks/t401/t401_3_verify_detection_geminicli.md`
 
-## Suggested dispositions
+## ID alias note — "t814" → **t835**
 
-| Task | Suggested | Reason |
-|------|-----------|--------|
-| t343 | Close as obsolete | geminicli-specific workflow bug |
-| t344 | Close as obsolete | agy uses sandboxed exec, no seed-exec-permission concern |
-| t345 | Re-evaluate; close OR create new child of t814 | Model-id detection may re-apply to agy |
-| t401_3 | Close as obsolete (child) | Note disposition in parent t401 |
+The original t812 parent plan referenced the add-agy task as "t814".
+It was actually created as `aitasks/t835_add_agy_antigravity_cli_support.md`.
+Per t835's own description (lines 62-65), the inverse-instruction
+subsection title `### For t814 (add-agy): inverse instructions` is
+preserved verbatim across all t812 child plans — match by content, not
+ID. When this plan says "create a child of t814", read as "create a
+child of t835".
+
+## Dispositions (verified 2026-05-28)
+
+| Task | Disposition | Reason |
+|------|-------------|--------|
+| t343 | Close as obsolete | geminicli-specific planning-step skip bug (gitignored-path read failure); agy uses markdown skills + native sandbox — not applicable. |
+| t344 | Close as obsolete | agy uses nsjail-sandboxed execution + global `~/.gemini/policies/`; no project-level exec-permission concern. |
+| **t345** | **Migrate to a new child of t835** (`identifying_model_id_in_agy`) | Model-id detection is a real concern for agy and must be tested there. Rebrand the original geminicli framing for agy. |
+| **t401_3** | **Migrate to a new child of t835** (`verify_detection_agy`) + remove from t401.children_to_implement | Detection verification must be done for agy, not geminicli. Rebrand the original geminicli test for agy. |
 
 ## Step-by-step
 
-For each pending task:
+### Phase A — Create the two t835 children first
 
-1. Read the task file to understand original intent.
-2. Decide: close-as-obsolete OR migrate-to-t814.
-3. **Close as obsolete:**
-   ```bash
-   # Append a brief obsolescence note to the task body
-   # (use Edit tool to append to the file body)
-   ./.aitask-scripts/aitask_update.sh --batch <task_num> \
-     --status Done
-   ./.aitask-scripts/aitask_archive.sh <task_num>
-   ```
-4. **Migrate to t814:** do NOT rename in place. After t814 exists,
-   create a fresh child of t814 with the relevant content. Then
-   close the original as obsolete with a pointer to the new task.
-5. **For t401_3 (child task):** also update parent t401's
-   `children_to_implement` list to drop t401_3, add a note in
-   t401's body explaining the disposition.
-6. Commit each disposition via `./ait git commit`.
+Both new children are created **before** closing the source tasks, so
+each close-note can include a pointer to a real new task ID.
+
+```bash
+./.aitask-scripts/aitask_create.sh --batch \
+  --parent 835 \
+  --name identifying_model_id_in_agy \
+  --priority medium --effort low \
+  --issue-type bug \
+  --labels codeagent \
+  --desc-file <(cat <<'EOF'
+## Context
+
+Migrated from t345 (geminicli-era). Reliable model-id identification
+was a non-obvious surface for geminicli — only the `cli_help` tool
+gave a consistent answer. For agy (Antigravity CLI), the equivalent
+surface must be identified and wired into the framework's detection
+path.
+
+## Original concern (t345 verbatim)
+
+In gemini CLI the only reliable way to identify the current model id
+was to call the `cli_help` tool. Need to update the task_workflow to
+use a similarly reliable method for agy.
+
+## Scope
+
+1. Identify agy's reliable model-id surface (candidates: `agy --version`,
+   a `cli_help`/`cli_info` equivalent, or `~/.gemini/settings.json`
+   inspection). Test each in practice.
+2. Wire the chosen method into `aitask_resolve_detected_agent.sh` and
+   the Model Self-Detection Sub-Procedure so agy returns a valid
+   `AGENT_STRING:agy/<name>` matching an entry in `models_agy.json`.
+3. Ensure detection works headless (no interactive prompt required).
+
+## Verification
+
+- Launch agy in a test repo; run a workflow that triggers
+  model-self-detection; confirm `implemented_with` is written
+  correctly to the task frontmatter.
+EOF
+)
+```
+
+```bash
+./.aitask-scripts/aitask_create.sh --batch \
+  --parent 835 \
+  --name verify_detection_agy \
+  --priority medium --effort low \
+  --issue-type test \
+  --labels task_workflow \
+  --desc-file <(cat <<'EOF'
+## Context
+
+Migrated from t401_3 (geminicli-era). t401_1 established
+`.aitask-scripts/aitask_parse_detected_agent.sh` as the canonical
+agent parser. This task verifies the procedure works end-to-end when
+running from agy (Antigravity CLI), replacing the geminicli-targeted
+verification.
+
+## Verification Steps
+
+1. Launch agy in this repository.
+2. Run a workflow that triggers model-self-detection (e.g.,
+   `/aitask-pick` on a test task, or manually invoke the Agent
+   Attribution Procedure).
+3. Confirm the script is called correctly:
+   `./.aitask-scripts/aitask_parse_detected_agent.sh --agent agy --cli-id <model_id>`
+4. Verify the output is a valid `AGENT_STRING:agy/<name>` matching
+   an entry in `aitasks/metadata/models_agy.json`.
+5. Check that `implemented_with` is written correctly to the task
+   frontmatter.
+
+## Key Files (anticipated)
+
+- `.aitask-scripts/aitask_parse_detected_agent.sh` — script being
+  verified for the agy code path.
+- `.agents/skills/...` or agy-specific skill surface — Agent String
+  section may need updating.
+- `aitasks/metadata/models_agy.json` — agy models registry.
+
+## Special Considerations
+
+agy identifies its model differently from geminicli (see sibling
+task `identifying_model_id_in_agy`). This verification assumes that
+sibling has landed first; if not, escalate to its planner.
+EOF
+)
+```
+
+Parse `CREATED:t835_<N>:<path>` lines from each call to capture the
+actual assigned IDs (referenced as `t835_<MODEL_ID>` and
+`t835_<VERIFY_ID>` below).
+
+### Phase B — Close source tasks
+
+For each of t343, t344, t345, t401_3:
+
+1. Append a brief obsolescence note to the task file's body. For t345
+   and t401_3, include a pointer to the new t835 child ID.
+2. `./.aitask-scripts/aitask_update.sh --batch <task_num> --status Done`
+3. `./.aitask-scripts/aitask_archive.sh <task_num>` (handles git
+   commit internally).
+
+### Phase C — Update parent t401 for t401_3 closure
+
+1. Edit `aitasks/t401_more_robust_self_detection_for_claude_code.md`:
+   - Remove `t401_3` from `children_to_implement`
+     (becomes `[t401_2, t401_4]`).
+   - Add a short body note explaining the disposition (closure +
+     pointer to new t835 child).
+2. `./ait git add aitasks/t401_*.md`
+3. `./ait git commit -m "ait: Drop t401_3 from t401 children after geminicli removal"`
 
 ## Verification
 
 1. None of t343, t344, t345, t401_3 appear in `ait board` /
    `aitask_ls.sh -v` as Ready.
-2. The four files are archived (or migrated to t814 child).
+2. t343 and t344 are archived under `aitasks/archived/`; t345 and
+   t401_3 are archived under `aitasks/archived/` AND their concerns
+   live in new t835 children under `aitasks/t835/`.
 3. `grep -rn 'geminicli' aitasks/ --include='*.md'` returns only
-   sibling-task files (`t812*`, `t813*`, `t814*`) and archived
+   sibling-task files (`t812*`, `t813*`, `t835*`) and archived
    files.
+4. Parent t401's `children_to_implement` is `[t401_2, t401_4]` and
+   the body contains the disposition note for t401_3.
 
 ## Step 9 (Post-Implementation)
 
@@ -79,10 +190,27 @@ benefit from the migrate/close decisions).
 
 ### For t814 (add-agy): inverse instructions
 
-- **Migrated-to-t814 task IDs:** (list any that genuinely
-  transferred, with new t814 child ID and one-line summary).
-- **Closed as obsolete:** (list of IDs + reason — e.g., "t344:
-  agy uses sandboxed exec, no seed permission concern").
-- **Hidden coupling discovered:** anything about the original task
-  framing that informs agy's design (e.g., t345's model-id surface
-  concerns may inform how agy exposes its model id).
+- **Migrated-to-t814 (now t835) task IDs:**
+  - `t345 → t835_<MODEL_ID>_identifying_model_id_in_agy` — model-id
+    detection surface for agy must be researched and wired into the
+    resolver.
+  - `t401_3 → t835_<VERIFY_ID>_verify_detection_agy` — end-to-end
+    verification of agy detection through
+    `aitask_parse_detected_agent.sh`.
+- **Closed as obsolete (no migration):**
+  - `t343` — geminicli planning-step skip bug (gitignored-path read
+    failure); agy uses markdown skills + native sandbox, not
+    applicable.
+  - `t344` — geminicli exec-permission/project-level config issue;
+    agy uses nsjail + global `~/.gemini/policies/`, no
+    framework-installed local policy concern.
+- **Hidden coupling discovered:**
+  - t344's framing flagged that **project-level permission systems
+    are silently ignored** by some agents in favor of global config
+    (`~/.gemini/...`). agy uses `~/.gemini/policies/` globally —
+    `ait setup` must NOT install local policy files for agy (per
+    `aidocs/geminicli_to_agy.md`).
+  - t345's framing flagged that geminicli's model-id surface was
+    inconsistent — only `cli_help` was reliable. The migrated
+    t835 child should evaluate agy's surface explicitly; do not
+    assume `agy --version` is sufficient without practical testing.
