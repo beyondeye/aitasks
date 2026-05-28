@@ -5,7 +5,7 @@ depends: [834]
 issue_type: feature
 status: Ready
 labels: [codeagent]
-children_to_implement: [t835_1]
+children_to_implement: [t835_1, t835_2]
 created_at: 2026-05-26 12:13
 updated_at: 2026-05-28 08:41
 boardidx: 90
