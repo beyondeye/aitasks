@@ -5,10 +5,11 @@ depends: [834]
 issue_type: feature
 status: Implementing
 labels: [codeagent]
+children_to_implement: [t835_1]
 folded_tasks: [835_1, 835_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-26 12:13
-updated_at: 2026-05-28 11:48
+updated_at: 2026-05-28 12:17
 boardidx: 90
 ---
 
