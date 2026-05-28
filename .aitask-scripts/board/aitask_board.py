@@ -592,50 +592,90 @@ class ColumnHeader(Static):
                     yield ColumnEditButton(self.col_id)
 
 class ViewSelector(Static):
-    """Shows the current view mode with clickable keyboard shortcuts."""
+    """Shows the current filter state with clickable keyboard shortcuts.
 
-    MODES = [
+    Layout: ``[a All | l Locked | f Free]   g Git   t Type``
+    - Three mutually-exclusive base filters in brackets (radio).
+    - Two independent add-on toggles to the right.
+    """
+
+    BASES = [
         ("a", "All", "all"),
+        ("l", "Locked", "locked"),
+        ("f", "Free", "free"),
+    ]
+    ADDONS = [
         ("g", "Git", "git"),
-        ("i", "Impl", "implementing"),
         ("t", "Type", "type"),
     ]
-    SEPARATOR = " \u2502 "
+    BASE_SEP = " | "
+    ADDON_GAP = "   "
 
-    def __init__(self, active_mode: str = "all", **kwargs):
+    def __init__(self, base: str = "all", git_on: bool = False, type_on: bool = False, **kwargs):
         super().__init__(**kwargs)
-        self.active_mode = active_mode
+        self.active_base = base
+        self.git_on = git_on
+        self.type_on = type_on
+        # Populated by render(): list of (start_col, end_col, target_id) where
+        # target_id is one of the base ids ("all"/"locked"/"free") or addon
+        # ids ("git"/"type"). Drives on_click() hit-testing.
+        self._click_targets: list[tuple[int, int, str]] = []
 
     def render(self) -> str:
-        parts = []
-        for key, label, mode_id in self.MODES:
-            if self.active_mode == mode_id:
-                parts.append(f"[bold cyan]{key} {label}[/]")
+        parts: list[str] = []
+        targets: list[tuple[int, int, str]] = []
+        col = 0
+
+        # Opening bracket (dim).
+        parts.append(r"[dim]\[[/]")
+        col += 1
+
+        # Base radio segments.
+        for i, (key, label, base_id) in enumerate(self.BASES):
+            if i > 0:
+                parts.append(f"[dim]{self.BASE_SEP}[/]")
+                col += len(self.BASE_SEP)
+            seg_text = f"{key} {label}"
+            if self.active_base == base_id:
+                parts.append(f"[bold cyan]{seg_text}[/]")
             else:
-                parts.append(f"[dim]{key} {label}[/]")
-        return self.SEPARATOR.join(parts)
+                parts.append(f"[dim]{seg_text}[/]")
+            targets.append((col, col + len(seg_text), base_id))
+            col += len(seg_text)
+
+        # Closing bracket (dim). Rich only requires escaping `[` (with `\[`),
+        # not `]` — emit it literally.
+        parts.append("[dim]][/]")
+        col += 1
+
+        # Add-on toggle segments.
+        for key, label, addon_id in self.ADDONS:
+            parts.append(f"[dim]{self.ADDON_GAP}[/]")
+            col += len(self.ADDON_GAP)
+            seg_text = f"{key} {label}"
+            active = (addon_id == "git" and self.git_on) or (addon_id == "type" and self.type_on)
+            if active:
+                parts.append(f"[bold cyan]{seg_text}[/]")
+            else:
+                parts.append(f"[dim]{seg_text}[/]")
+            targets.append((col, col + len(seg_text), addon_id))
+            col += len(seg_text)
+
+        self._click_targets = targets
+        return "".join(parts)
 
     def on_click(self, event):
-        # Walk visible "key label" segments + separators to find which mode
-        # the click landed on. CSS padding 0 1 shifts content by 1.
+        # CSS padding 0 1 shifts content by 1 column on the left.
         x = event.x - 1
-        sep_width = len(self.SEPARATOR)
-        offset = 0
-        for key, label, mode_id in self.MODES:
-            seg_width = len(key) + 1 + len(label)
-            offset += seg_width
-            if x < offset:
-                if mode_id == "type":
-                    self.app.action_view_type()
-                else:
-                    self.app._set_view_mode(mode_id)
+        for start, end, target in self._click_targets:
+            if start <= x < end:
+                if target in ("all", "locked", "free"):
+                    self.app._set_base_filter(target)
+                elif target == "git":
+                    self.app._toggle_git_filter()
+                elif target == "type":
+                    self.app._toggle_type_filter()
                 return
-            offset += sep_width
-        last_mode = self.MODES[-1][2]
-        if last_mode == "type":
-            self.app.action_view_type()
-        else:
-            self.app._set_view_mode(last_mode)
 
 
 class TaskCard(Static):
@@ -3141,7 +3181,7 @@ class KanbanApp(TuiSwitcherMixin, App):
     .child-wrapper TaskCard { width: 1fr; }
     .child-connector { width: auto; height: auto; padding: 0; margin: 1 0 0 0; color: $text-muted; }
     #filter_area { dock: top; height: auto; margin: 0 0 1 0; }
-    #view_col { width: 36; height: auto; }
+    #view_col { width: 48; height: auto; }
     #view_label { height: 1; padding: 0 1; color: $text-muted; }
     #view_selector { height: 1; padding: 0 1; }
     .type-filter-summary { height: auto; padding: 0 1; color: $text-muted; }
@@ -3313,10 +3353,11 @@ class KanbanApp(TuiSwitcherMixin, App):
         Binding("X", "toggle_column_collapsed", "Collapse Col", show=False),
         # Settings
         Binding("O", "open_settings", "Options"),
-        # View modes
+        # View filters: base radio (a/l/f) + add-on toggles (g/t)
         Binding("a", "view_all", "All", show=False),
+        Binding("l", "view_locked", "Locked", show=False),
+        Binding("f", "view_free", "Free", show=False),
         Binding("g", "view_git", "Git", show=False),
-        Binding("i", "view_implementing", "Impl", show=False),
         Binding("t", "view_type", "Type", show=False),
     ]
 
@@ -3325,7 +3366,9 @@ class KanbanApp(TuiSwitcherMixin, App):
         self.current_tui_name = "board"
         self.manager = TaskManager()
         self.search_filter = ""
-        self.view_mode = "all"
+        self.base_filter = "all"          # "all" | "locked" | "free"
+        self.git_filter_active = False
+        self.type_filter_active = False
         self._view_auto_expanded: set = set()
         self.expanded_tasks: set = set()
         self._auto_refresh_timer = None
@@ -3390,7 +3433,12 @@ class KanbanApp(TuiSwitcherMixin, App):
         with Horizontal(id="filter_area"):
             with Container(id="view_col"):
                 yield Static("Task filter", id="view_label")
-                yield ViewSelector(self.view_mode, id="view_selector")
+                yield ViewSelector(
+                    self.base_filter,
+                    self.git_filter_active,
+                    self.type_filter_active,
+                    id="view_selector",
+                )
                 yield Static("", id="type_filter_summary", classes="type-filter-summary hidden")
             yield Input(placeholder="Search tasks... (Tab to focus, Esc to return to board)", id="search_box")
         yield HorizontalScroll(id="board_container")
@@ -3442,8 +3490,8 @@ class KanbanApp(TuiSwitcherMixin, App):
         focused = self._focused_card()
         refocus = focused.task_data.filename if focused else ""
         self.manager.load_tasks()
-        if self.view_mode == "implementing":
-            self._auto_expand_implementing()
+        if self.base_filter == "locked":
+            self._auto_expand_locked()
         self.refresh_board(refocus_filename=refocus, refresh_locks=True)
 
     def refresh_board(self, refocus_filename: str = "", refresh_locks: bool = False):
@@ -3555,43 +3603,57 @@ class KanbanApp(TuiSwitcherMixin, App):
         self.apply_filter()
 
     def apply_filter(self):
-        # Compute view-mode visible set
-        visible_set = None
-        if self.view_mode == "implementing":
-            visible_set = self._implementing_visible_set()
-        elif self.view_mode == "git":
-            visible_set = self._git_visible_set()
-        elif self.view_mode == "type":
-            visible_set = self._type_visible_set()
+        """Apply base filter ∩ active add-ons ∩ search to all cards."""
+        if self.base_filter == "locked":
+            visible = self._locked_visible_set()
+        elif self.base_filter == "free":
+            visible = self._free_visible_set()
+        else:  # "all"
+            visible = None  # sentinel — all cards eligible
+
+        if self.git_filter_active:
+            git_set = self._git_visible_set()
+            visible = git_set if visible is None else visible & git_set
+
+        if self.type_filter_active:
+            type_set = self._type_visible_set()
+            visible = type_set if visible is None else visible & type_set
 
         for card in self.query(TaskCard):
-            visible = True
-
-            # View mode filter
-            if visible_set is not None:
-                if card.task_data.filename not in visible_set:
-                    visible = False
-
-            # Search filter
-            if visible and self.search_filter:
+            v = True
+            if visible is not None and card.task_data.filename not in visible:
+                v = False
+            if v and self.search_filter:
                 search_content = f"{card.task_data.filename} {card.task_data.metadata}".lower()
                 if self.search_filter not in search_content:
-                    visible = False
+                    v = False
+            card.styles.display = "block" if v else "none"
 
-            card.styles.display = "block" if visible else "none"
+    def _is_busy(self, filename: str, task) -> bool:
+        """A task is busy when status==Implementing OR present in lock_map."""
+        if task.metadata.get('status') == 'Implementing':
+            return True
+        task_num, _ = TaskCard._parse_filename(filename)
+        return task_num.lstrip('t') in self.manager.lock_map
 
-    def _implementing_visible_set(self) -> set:
-        """Tasks visible in implementing view."""
+    def _locked_visible_set(self) -> set:
+        """Tasks visible in locked view: busy tasks plus context grouping.
+
+        A task is busy when status==Implementing OR present in lock_map.
+        When a *child* is busy, also include the parent and all siblings —
+        preserves the existing context-view UX (see what's in flight + its
+        surrounding work). Inverse of `_free_visible_set()` at the leaf level.
+        """
         visible = set()
 
-        # Parent tasks with Implementing status
+        # Parent tasks that are themselves busy.
         for filename, task in self.manager.task_datas.items():
-            if task.metadata.get('status') == 'Implementing':
+            if self._is_busy(filename, task):
                 visible.add(filename)
 
-        # Child tasks with Implementing status + their parent + all siblings
+        # Busy children + parent + sibling grouping.
         for filename, task in self.manager.child_task_datas.items():
-            if task.metadata.get('status') == 'Implementing':
+            if self._is_busy(filename, task):
                 visible.add(filename)
                 parent_num = self.manager.get_parent_num_for_child(task)
                 parent = self.manager.find_task_by_id(parent_num)
@@ -3599,6 +3661,30 @@ class KanbanApp(TuiSwitcherMixin, App):
                     visible.add(parent.filename)
                 for sib in self.manager.get_child_tasks_for_parent(parent_num):
                     visible.add(sib.filename)
+
+        return visible
+
+    def _free_visible_set(self) -> set:
+        """Tasks visible in free view: not busy, with parent cascade.
+
+        Children: shown when the child itself is not busy.
+        Parents: shown only when the parent itself is not busy AND no child
+        is busy.
+        """
+        visible = set()
+
+        for filename, task in self.manager.child_task_datas.items():
+            if not self._is_busy(filename, task):
+                visible.add(filename)
+
+        for filename, task in self.manager.task_datas.items():
+            if self._is_busy(filename, task):
+                continue
+            task_num, _ = TaskCard._parse_filename(filename)
+            children = self.manager.get_child_tasks_for_parent(task_num)
+            if any(self._is_busy(c.filename, c) for c in children):
+                continue
+            visible.add(filename)
 
         return visible
 
@@ -3628,115 +3714,156 @@ class KanbanApp(TuiSwitcherMixin, App):
         return visible
 
     def _refresh_type_filter_summary(self):
-        """Show selected types under the ViewSelector when in type mode."""
+        """Show selected types under the ViewSelector when type add-on is on."""
         try:
             summary = self.query_one("#type_filter_summary", Static)
         except Exception:
             return
         selected = self.manager.settings.get("filter_issue_types", [])
-        if self.view_mode == "type" and selected:
+        if self.type_filter_active and selected:
             summary.update(f"types: {', '.join(sorted(selected))}")
             summary.remove_class("hidden")
         else:
             summary.update("")
             summary.add_class("hidden")
 
-    # --- View Modes ---
+    # --- View Filters: base radio + add-on toggles ---
 
     def action_view_all(self):
-        self._set_view_mode("all")
+        self._set_base_filter("all")
+
+    def action_view_locked(self):
+        self._set_base_filter("locked")
+
+    def action_view_free(self):
+        self._set_base_filter("free")
 
     def action_view_git(self):
-        self._set_view_mode("git")
-
-    def action_view_implementing(self):
-        self._set_view_mode("implementing")
+        self._toggle_git_filter()
 
     def action_view_type(self):
-        # Re-press while in type mode → re-open the dialog. First-time use
-        # (no persisted selection) → also open the dialog before flipping
-        # the mode. Otherwise, switch into type mode using the persisted
-        # selection without prompting.
-        persisted = self.manager.settings.get("filter_issue_types", [])
-        if self.view_mode == "type" or not persisted:
-            self._open_type_filter_dialog()
-        else:
-            self._set_view_mode("type")
+        self._toggle_type_filter()
 
     def _open_type_filter_dialog(self):
+        """Open the type-picker modal. Used both when toggling type on and
+        when the user wants to reconfirm/edit the type selection."""
         types = _load_task_types()
         initial = self.manager.settings.get("filter_issue_types", [])
 
         def on_dismiss(result):
             if result is None:
-                # Cancel / Esc — keep current view & selection unchanged.
+                # Cancel / Esc — keep current state & selection unchanged.
                 return
             if not result:
-                # Empty confirm → clear filter and revert to All view.
+                # Empty confirm → clear selection and disable the add-on.
                 self.manager.settings["filter_issue_types"] = []
                 self.manager.save_metadata()
-                if self.view_mode == "type":
-                    self._set_view_mode("all")
-                else:
-                    self._refresh_type_filter_summary()
+                self.type_filter_active = False
+                self._refresh_selector()
+                self._refresh_type_filter_summary()
+                self._update_search_placeholder()
+                self.apply_filter()
                 return
             self.manager.settings["filter_issue_types"] = sorted(result)
             self.manager.save_metadata()
-            if self.view_mode != "type":
-                self._set_view_mode("type")
-            else:
-                self._refresh_type_filter_summary()
-                self.apply_filter()
+            self.type_filter_active = True
+            self._refresh_selector()
+            self._refresh_type_filter_summary()
+            self._update_search_placeholder()
+            self.apply_filter()
 
         self.push_screen(IssueTypeFilterScreen(types, initial), on_dismiss)
 
-    def _set_view_mode(self, mode: str):
-        if self.view_mode == mode:
+    def _set_base_filter(self, name: str):
+        """Switch the base radio (a/l/f). No-op when already active."""
+        if name == self.base_filter:
             return
-        old_mode = self.view_mode
-        self.view_mode = mode
+        old = self.base_filter
+        self.base_filter = name
 
-        # Manage auto-expansion for implementing view
-        if old_mode == "implementing":
+        # Manage auto-expansion for the locked context-view.
+        if old == "locked":
             self.expanded_tasks -= self._view_auto_expanded
             self._view_auto_expanded.clear()
+        if name == "locked":
+            self._auto_expand_locked()
 
-        if mode == "implementing":
-            self._auto_expand_implementing()
+        self._refresh_selector()
+        self._update_search_placeholder()
 
-        # Update the selector widget
-        selector = self.query_one("#view_selector", ViewSelector)
-        selector.active_mode = mode
-        selector.refresh()
-
-        # Update search box placeholder for active view mode
-        placeholders = {
-            "all": "Search tasks... (Tab to focus, Esc to return to board)",
-            "git": "Search tasks linked to issues/PRs (a to exit git view)",
-            "implementing": "Search tasks currently implementing (a to exit Impl view)",
-            "type": "Search tasks filtered by issue type (a to exit Type view)",
-        }
-        search_box = self.query_one("#search_box", Input)
-        search_box.placeholder = placeholders.get(mode, placeholders["all"])
-
-        # Show/hide the selected-types summary line.
-        self._refresh_type_filter_summary()
-
-        # Re-render board with new expansion state, then filter
+        # Re-render board with new expansion state, then filter.
         focused = self._focused_card()
         refocus = focused.task_data.filename if focused else ""
         self.refresh_board(refocus_filename=refocus)
 
-    def _auto_expand_implementing(self):
-        """Auto-expand parents that have implementing children."""
+    def _toggle_git_filter(self):
+        """Flip the git add-on. No board re-render needed."""
+        self.git_filter_active = not self.git_filter_active
+        self._refresh_selector()
+        self._update_search_placeholder()
+        self.apply_filter()
+
+    def _toggle_type_filter(self):
+        """Flip the type add-on.
+
+        Turning ON always re-opens the type-picker dialog so the user can
+        reconfirm or edit the selection. Turning OFF requires no dialog.
+        """
+        if self.type_filter_active:
+            self.type_filter_active = False
+            self._refresh_selector()
+            self._refresh_type_filter_summary()
+            self._update_search_placeholder()
+            self.apply_filter()
+        else:
+            self._open_type_filter_dialog()
+
+    def _refresh_selector(self):
+        """Push current filter state into the ViewSelector widget."""
+        try:
+            selector = self.query_one("#view_selector", ViewSelector)
+        except Exception:
+            return
+        selector.active_base = self.base_filter
+        selector.git_on = self.git_filter_active
+        selector.type_on = self.type_filter_active
+        selector.refresh()
+
+    def _compute_search_placeholder(self) -> str:
+        if self.base_filter == "locked":
+            base = "Search locked tasks"
+        elif self.base_filter == "free":
+            base = "Search free tasks"
+        else:
+            base = "Search tasks..."
+        addons = []
+        if self.git_filter_active:
+            addons.append("git")
+        if self.type_filter_active:
+            addons.append("type")
+        if addons:
+            base += " + " + " + ".join(addons)
+        if self.base_filter == "all" and not addons:
+            base += " (Tab to focus, Esc to return to board)"
+        else:
+            base += " (a/l/f to switch base)"
+        return base
+
+    def _update_search_placeholder(self):
+        try:
+            search_box = self.query_one("#search_box", Input)
+        except Exception:
+            return
+        search_box.placeholder = self._compute_search_placeholder()
+
+    def _auto_expand_locked(self):
+        """Auto-expand parents that have busy (locked or Implementing) children."""
         self._view_auto_expanded.clear()
         for filename, task in self.manager.task_datas.items():
             task_num, _ = TaskCard._parse_filename(filename)
             children = self.manager.get_child_tasks_for_parent(task_num)
-            has_implementing = any(
-                c.metadata.get('status') == 'Implementing' for c in children
-            )
-            if has_implementing and filename not in self.expanded_tasks:
+            has_busy = any(self._is_busy(c.filename, c) for c in children)
+            if has_busy and filename not in self.expanded_tasks:
                 self._view_auto_expanded.add(filename)
                 self.expanded_tasks.add(filename)
 

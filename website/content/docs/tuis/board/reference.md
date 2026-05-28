@@ -24,9 +24,11 @@ depth: [advanced]
 | `r` | Refresh board from disk | Board |
 | `s` | Sync task data with remote | Board |
 | `O` | Open board options/settings dialog | Board |
-| `a` | Switch to All view (show all tasks) | Board |
-| `g` | Switch to Git view (show git-linked tasks) | Board |
-| `i` | Switch to Implementing view (show implementing tasks + context) | Board |
+| `a` | Switch base filter to All (show all tasks) | Board |
+| `l` | Switch base filter to Locked (busy tasks + context) | Board |
+| `f` | Switch base filter to Free (tasks ready to pick) | Board |
+| `g` | Toggle Git add-on (intersect with git-linked tasks) | Board |
+| `t` | Toggle Type add-on (intersect with selected issue types — opens picker dialog) | Board |
 
 #### Task Operations
 
@@ -117,17 +119,36 @@ Tasks created from pull requests (via `ait pr-import`) display a pull request in
 
 GitLab uses "MR" (Merge Request) terminology, which the indicator reflects.
 
-### View Modes
+### View Filters
 
-The View Selector widget at the top-left of the filter area provides three task filtering modes. The active mode is highlighted in bold cyan; inactive modes appear dimmed. View modes combine with text search using AND logic.
+The View Selector widget at the top-left of the filter area renders as:
 
-| Mode | Key | Selector Label | Shows |
+```
+[a All | l Locked | f Free]   g Git   t Type
+```
+
+It splits filtering into a **base radio** (mutually exclusive — exactly one is always active) and two **independent add-on toggles**. The active base and any active toggle are highlighted in bold cyan; inactive segments are dimmed. All filters compose with text search using AND logic.
+
+#### Base filters (radio)
+
+| Base | Key | Selector Label | Shows |
 |------|-----|----------------|-------|
 | All | `a` | `a All` | All tasks (default) |
-| Git | `g` | `g Git` | Tasks with `issue` or `pull_request` metadata |
-| Implementing | `i` | `i Impl` | Tasks with status "Implementing", plus parent tasks with implementing children and all siblings of implementing children |
+| Locked | `l` | `l Locked` | Busy tasks: status `Implementing` **or** present in the lock list. When a *child* is busy, also includes its parent and all sibling children (context grouping). |
+| Free | `f` | `f Free` | Tasks that are ready to pick: neither `Implementing` nor locked. Parents are hidden when any of their children is busy. |
 
-**Implementing view auto-expansion:** When Implementing mode is activated, parent tasks that have at least one child with status "Implementing" are automatically expanded (their child cards are displayed). When switching away from Implementing mode, these auto-expanded parents are collapsed back unless they were manually expanded before entering the mode.
+Pressing the key for the currently active base is a no-op. Locked and Free are leaf-level inverses (`Locked ∪ Free = All`, `Locked ∩ Free = ∅`) — the Locked view additionally includes parent/sibling cards as context.
+
+#### Add-on filters (toggle)
+
+| Add-on | Key | Selector Label | Shows |
+|--------|-----|----------------|-------|
+| Git | `g` | `g Git` | Restricts the visible set to tasks with `issue` or `pull_request` metadata. |
+| Type | `t` | `t Type` | Restricts the visible set to tasks whose `issue_type` is in the persisted selection. Turning the toggle on always opens the type-picker dialog so the selection can be reconfirmed or edited; turning it off requires no dialog. |
+
+Add-ons compose with the active base. Example: `l + g` shows busy tasks linked to an issue/PR; `f + t` (with `bug` selected) shows free `bug` tasks ready to pick.
+
+**Locked view auto-expansion:** When the base filter switches to Locked, parent tasks that have at least one busy child are automatically expanded (their child cards are displayed). When switching away, these auto-expanded parents are collapsed back unless they were manually expanded before entering the view.
 
 ### Column Configuration
 

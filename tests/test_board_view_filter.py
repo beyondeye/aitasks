@@ -64,73 +64,73 @@ class BoardViewFilterTests(unittest.TestCase):
         return asyncio.get_event_loop().run_until_complete(coro) \
             if False else asyncio.run(coro)
 
-    async def _assert_view(self, mode_key: str, expected_set_attr: str | None):
-        """Press `mode_key`, then assert visible filenames == expected set.
+    async def _assert_visible_matches(self, app, keys, expected_set_attrs):
+        """Press each key in `keys`, then assert visible cards equal the
+        intersection of the helper sets named in `expected_set_attrs`.
 
-        `expected_set_attr` is the name of the helper on KanbanApp that
-        returns the intended visible filename set (e.g.
-        `_implementing_visible_set`). When `None`, the view should be "all"
-        and every card is expected visible.
+        When `expected_set_attrs` is empty, every card is expected visible
+        (i.e. base "all" with no add-on).
         """
+        for k in keys:
+            await app._pilot.press(k)  # use the pilot bound by caller
+            await app._pilot.pause()
+            await app._pilot.pause()
+
+        cards = list(app.query(self.TaskCard))
+        visible = _visible(cards)
+
+        if not expected_set_attrs:
+            self.assertEqual(_filenames(visible), _filenames(cards),
+                             "no active filter — every card must be visible")
+            return
+
+        expected = None
+        for attr in expected_set_attrs:
+            s = getattr(app, attr)()
+            expected = s if expected is None else expected & s
+
+        live_filenames = (set(app.manager.task_datas)
+                          | set(app.manager.child_task_datas))
+        visible_live = {c.task_data.filename for c in visible
+                        if c.task_data.filename in live_filenames}
+
+        self.assertTrue(
+            visible_live.issubset(expected),
+            f"keys={keys!r}: visible cards {visible_live - expected} leaked "
+            f"past filter (expected subset of {len(expected)})")
+        for card in cards:
+            if card.task_data.filename in expected:
+                self.assertNotEqual(
+                    card.styles.display, "none",
+                    f"keys={keys!r}: card {card.task_data.filename} should "
+                    f"be visible (in intended set) but was hidden")
+
+    async def _drive(self, keys, expected_set_attrs, *, prime=None):
+        """Spin up the app, optionally `prime(app)` before the first keypress,
+        then assert the keypress sequence yields the expected visible set."""
         app = self.KanbanApp()
         async with app.run_test(size=(160, 48)) as pilot:
             await pilot.pause()
-            # Sanity: starting view is "all", every card visible.
-            cards = list(app.query(self.TaskCard))
-            self.assertGreater(len(cards), 0,
+            self.assertGreater(len(list(app.query(self.TaskCard))), 0,
                                "test repo must contain at least one task")
-            self.assertEqual(len(_visible(cards)), len(cards),
-                             "before filter, all cards must be visible")
+            if prime is not None:
+                prime(app)
+            app._pilot = pilot  # let _assert_visible_matches reuse it
+            await self._assert_visible_matches(app, keys, expected_set_attrs)
 
-            await pilot.press(mode_key)
-            await pilot.pause()
-            # Allow one extra refresh tick — call_after_refresh schedules our
-            # apply_filter for the *next* refresh, and pilot.pause() only
-            # guarantees one tick.
-            await pilot.pause()
-
-            cards = list(app.query(self.TaskCard))
-            visible = _visible(cards)
-
-            if expected_set_attr is None:
-                self.assertEqual(_filenames(visible), _filenames(cards),
-                                 "All view must show every card")
-                return
-
-            expected = getattr(app, expected_set_attr)()
-            # The intended set is computed against the manager's task_datas.
-            # Some cards in the DOM may belong to old, mid-removal columns that
-            # the filter does not narrow (it only sets display on what it sees).
-            # Constrain the comparison to cards whose filename is currently in
-            # the manager — those are the ones the filter is responsible for.
-            live_filenames = (set(app.manager.task_datas)
-                              | set(app.manager.child_task_datas))
-            visible_live = [c for c in visible
-                            if c.task_data.filename in live_filenames]
-            visible_set_live = {c.task_data.filename for c in visible_live}
-
-            # Every visible (live) card must be in the intended set.
-            self.assertTrue(
-                visible_set_live.issubset(expected),
-                f"{mode_key!r}: visible cards {visible_set_live - expected} "
-                f"leaked past filter (expected subset of {len(expected)} entries)")
-
-            # Every card whose filename IS in the intended set must be visible.
-            for card in cards:
-                if card.task_data.filename in expected:
-                    self.assertNotEqual(
-                        card.styles.display, "none",
-                        f"{mode_key!r}: card {card.task_data.filename} should "
-                        f"be visible (in intended set) but was hidden")
-
-    def test_implementing_filter_hides_non_matching(self):
+    def test_locked_filter_hides_non_matching(self):
         async def go():
-            await self._assert_view("i", "_implementing_visible_set")
+            await self._drive(["l"], ["_locked_visible_set"])
         self._run(go())
 
     def test_git_filter_hides_non_matching(self):
         async def go():
-            await self._assert_view("g", "_git_visible_set")
+            await self._drive(["g"], ["_git_visible_set"])
+        self._run(go())
+
+    def test_free_filter_hides_busy_tasks(self):
+        async def go():
+            await self._drive(["f"], ["_free_visible_set"])
         self._run(go())
 
     def test_back_to_all_restores_visibility(self):
@@ -138,10 +138,9 @@ class BoardViewFilterTests(unittest.TestCase):
             app = self.KanbanApp()
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
-                await pilot.press("i")
+                await pilot.press("l")
                 await pilot.pause()
                 await pilot.pause()
-                # Now back to all.
                 await pilot.press("a")
                 await pilot.pause()
                 await pilot.pause()
@@ -150,6 +149,105 @@ class BoardViewFilterTests(unittest.TestCase):
                 self.assertEqual(hidden, [],
                                  "after pressing 'a', no cards should be hidden")
         self._run(go())
+
+    def test_active_base_keypress_is_noop(self):
+        async def go():
+            app = self.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                self.assertEqual(app.base_filter, "all")
+                await pilot.press("a")
+                await pilot.pause()
+                await pilot.pause()
+                self.assertEqual(app.base_filter, "all")
+                cards = list(app.query(self.TaskCard))
+                hidden = [c for c in cards if c.styles.display == "none"]
+                self.assertEqual(hidden, [],
+                                 "press 'a' while in All view must be a no-op")
+        self._run(go())
+
+    def test_locked_and_git_compose(self):
+        async def go():
+            await self._drive(["l", "g"],
+                              ["_locked_visible_set", "_git_visible_set"])
+        self._run(go())
+
+    def test_free_and_type_compose(self):
+        """Type add-on toggled on via monkeypatched dialog; intersection
+        with free base must hold."""
+        def prime(app):
+            # Seed a non-empty type selection so the type helper has something
+            # to intersect with.
+            from aitask_board import _load_task_types
+            types = _load_task_types()
+            self.assertTrue(types, "test repo must define at least one task type")
+            app.manager.settings["filter_issue_types"] = [types[0]]
+            # Replace the dialog with a synchronous activator: turning the
+            # type toggle ON in tests must not actually push a modal.
+            def fake_open():
+                app.type_filter_active = True
+                app._refresh_selector()
+                app._refresh_type_filter_summary()
+                app._update_search_placeholder()
+                app.apply_filter()
+            app._open_type_filter_dialog = fake_open
+
+        async def go():
+            await self._drive(["f", "t"],
+                              ["_free_visible_set", "_type_visible_set"],
+                              prime=prime)
+        self._run(go())
+
+    # --- Pure helper unit tests (no Pilot) ---
+
+    def test_locked_filter_includes_lockmap_only_tasks(self):
+        """A task present in lock_map with status != Implementing must
+        appear in `_locked_visible_set()` (and be excluded from free)."""
+        app = self.KanbanApp()
+        candidate = next(
+            ((fn, t) for fn, t in app.manager.task_datas.items()
+             if t.metadata.get('status') != 'Implementing'),
+            None,
+        )
+        self.assertIsNotNone(candidate,
+                             "test repo must have a non-Implementing task")
+        fn, _ = candidate
+        task_num, _ = self.TaskCard._parse_filename(fn)
+        app.manager.lock_map[task_num.lstrip('t')] = {
+            "locked_by": "test", "hostname": "h", "locked_at": "now",
+        }
+        self.assertIn(fn, app._locked_visible_set())
+        self.assertNotIn(fn, app._free_visible_set())
+
+    def test_free_parent_hidden_when_child_busy(self):
+        """A parent with a busy child must be excluded from
+        `_free_visible_set()`, even if the parent itself is free."""
+        app = self.KanbanApp()
+        eligible = None
+        for fn, task in app.manager.task_datas.items():
+            if app._is_busy(fn, task):
+                continue
+            task_num, _ = self.TaskCard._parse_filename(fn)
+            children = app.manager.get_child_tasks_for_parent(task_num)
+            if not children:
+                continue
+            if any(app._is_busy(c.filename, c) for c in children):
+                continue
+            eligible = (fn, children)
+            break
+        if eligible is None:
+            self.skipTest("no eligible parent-with-children in test repo")
+        parent_fn, children = eligible
+        self.assertIn(parent_fn, app._free_visible_set(),
+                      "parent should start in free set")
+        # Inject a lock for one child; parent must drop out.
+        child_fn = children[0].filename
+        child_num, _ = self.TaskCard._parse_filename(child_fn)
+        app.manager.lock_map[child_num.lstrip('t')] = {
+            "locked_by": "test", "hostname": "h", "locked_at": "now",
+        }
+        self.assertNotIn(parent_fn, app._free_visible_set(),
+                         f"{parent_fn} must be hidden when child {child_fn} is busy")
 
 
 if __name__ == "__main__":
