@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: [t812_3]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [geminicli, docs]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-26 12:07
-updated_at: 2026-05-27 23:12
+updated_at: 2026-05-28 03:28
+completed_at: 2026-05-28 03:28
 ---
 
 ## Context
