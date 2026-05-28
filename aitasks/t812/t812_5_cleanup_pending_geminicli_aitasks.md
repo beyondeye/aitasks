@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: [t812_4]
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [geminicli, backlog]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-26 12:07
-updated_at: 2026-05-26 12:07
+updated_at: 2026-05-28 07:47
 ---
 
 ## Context
