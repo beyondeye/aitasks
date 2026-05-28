@@ -113,3 +113,28 @@ Manual (per the task's Verification section):
 Follow the standard task-workflow Step 9 flow: commit on the current branch
 (profile `fast`, no worktree), update the plan with Final Implementation
 Notes, then run `./.aitask-scripts/aitask_archive.sh 845`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `manual_verification_auto_mode` to
+  `.aitask-scripts/lib/profile_editor.py` in three places: `PROFILE_SCHEMA`
+  (enum with 5 values), `PROFILE_FIELD_INFO` (short + detailed description
+  condensed from `profiles.md`), and `PROFILE_FIELD_GROUPS` (added to the
+  existing "Manual Verification" group). Verified with an in-process
+  `import profile_editor` smoke test confirming the key is reachable through
+  all three structures.
+- **Deviations from plan:** None. The change matches the plan exactly.
+- **Issues encountered:** None.
+- **Key decisions:** Followed the values implemented in t843
+  (`ask`, `never`, `autonomous`, `prebuilt_approve`, `prebuilt_autorun`)
+  rather than the value list in the task description, which still listed the
+  pre-rename `impromptu` instead of `autonomous`. Source of truth: the Jinja
+  branches in `.claude/skills/task-workflow/manual-verification.md:50-102`
+  and the `profiles.md` schema row.
+- **Upstream defects identified:** None.
+- **User feedback / follow-up:** User noted that the parameter name
+  `manual_verification_auto_mode` and its value names (`ask`, `never`,
+  `autonomous`, `prebuilt_approve`, `prebuilt_autorun`) are not
+  self-explanatory in the GUI and the explainer text could be clearer.
+  Spawned a follow-up brainstorming task to propose better names and
+  clearer explainer copy before website docs land.
