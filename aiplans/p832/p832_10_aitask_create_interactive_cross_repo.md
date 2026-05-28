@@ -10,322 +10,332 @@ plan_verified:
   - claudecode/opus4_7_1m @ 2026-05-28 17:27
 ---
 
-# Plan: aitask-create interactive cross-repo support (t832_10)
+# Plan: `xdeprepo` + cross-repo refs in `aitask_create.sh` interactive mode (t832_10)
 
-See parent plan §t832 and pending sibling plan
-`aiplans/p832/p832_5_parallel_cross_repo_planning_procedure.md` for
-the upstream metadata-only trigger contract.
+## Scope (rescoped 2026-05-28)
+
+This task is narrowly scoped to **the `ait create` interactive (fzf)
+bash flow**. It adds:
+
+1. **`xdeprepo` declaration** — picking a registered sibling project
+   sets the new task's `xdeprepo:` frontmatter field.
+2. **Cross-repo archived task references** — when a project has been
+   picked, the existing "Add archived task reference" menu gains a
+   second variant that lists archived tasks from the cross-repo
+   project and inserts them inline in the description using the
+   documented `<project>#<id>` notation.
+3. **Cross-repo file references** — when a project has been picked,
+   the existing "Add file reference" menu gains a second variant
+   that runs the fzf file walker rooted in the cross-repo project
+   and inserts the path inline using `<project>:<relative/path>`
+   notation.
+
+The companion changes to the `aitask-create` AI skill (`SKILL.md`)
+are **deferred to a separate non-sibling follow-up task** to be
+created after this lands. Cross-repo `xdeps:` (actual cross-repo
+dependencies) remain batch-only — interactive collection of `xdeps`
+is out of scope.
 
 ## Goal
 
-Teach `aitask-create` interactive mode to capture cross-repo intent
-at task-creation time:
+When a user runs `ait create` (no flags, interactive mode), the
+fzf-driven flow:
 
-- Ask early whether the new task involves a second (cross-repo)
-  project; pick from the registered registry.
-- Persist that choice as `xdeprepo:` (and optional `xdeps:`) in the
-  task frontmatter via the existing `aitask_create.sh --batch
-  --xdeprepo` / `--xdeps` surface (already shipped in t832_3).
-- Make dependency selection, labels, and (optionally) file/task
-  references in the description aware of the chosen cross-repo
-  project.
+- Offers a fzf prompt to declare the task as cross-repo by picking
+  a registered sibling project.
+- If a project is picked, gates two additional sub-menu items on
+  the file/task reference loop:
+  - "Add cross-repo archived task reference (from `<name>`)" →
+    inserts `<name>#<id>` inline in the description.
+  - "Add cross-repo file reference (from `<name>`)" → opens fzf
+    rooted at the cross-repo project's path, inserts
+    `<name>:<relative/path>` inline in the description.
+- Writes `xdeprepo: <name>` to the draft frontmatter.
 
-Result: a freshly-created task already declares its cross-repo
-relationship, so when the user later runs `/aitask-pick <id>`, the
-metadata-only trigger inside `parallel-cross-repo-planning.md`
-(landed in t832_5) fires automatically and the user is prompted to
-proceed with paired planning.
+Result: a draft with `xdeprepo: <name>` and a description body
+that may contain cross-repo task / file references in the
+documented notation. No `xdeps:` line is written by the interactive
+flow.
 
-## Architectural decisions (locked during t832_5 planning)
+## Architectural decisions (locked)
 
-1. **Trigger source is `xdeprepo` metadata only** — no body-text
-   scanning, no registered-project-name matching anywhere in the
-   trigger path. This task's job is to populate the metadata via
-   UI, NOT to add fallback heuristics elsewhere.
-2. **Rollout order:** t832_5 → t832_10 (this task) → t832_11
-   (aitask-explore cross-repo follow-up; opened after this
-   stabilises).
-3. **Cross-repo is scalar:** exactly one `xdeprepo` per task. No
-   N-way prompts.
+1. **Trigger source is `xdeprepo` metadata only.** Interactive flow
+   populates it via the project picker.
+2. **`xdeprepo` is scalar:** exactly one cross-repo project per
+   task. fzf single-select.
+3. **`xdeps:` collection in interactive mode is out of scope.**
+   Users who need explicit cross-repo deps continue to use
+   `--batch --xdeps <csv> --xdeprepo <name>`.
+4. **Validator must allow `xdeprepo` alone** (intent-only). The
+   only remaining failure case is `xdeps` without `xdeprepo`.
+   Load-bearing for the metadata-only trigger contract.
+5. **Cross-repo references are inline-only.** Following the
+   precedent of the local "Add archived task reference" flow
+   (which is deliberately NOT added to `file_references:`),
+   cross-repo task refs AND cross-repo file refs stay in the
+   description body only — they do NOT pollute the
+   `file_references:` frontmatter field. Downstream consumers
+   (`aitask_explain_context.sh`, etc.) are not yet cross-repo
+   aware; keeping refs inline avoids leaking unresolvable
+   project-prefixed entries into a structured field.
+6. **Notation:** uses the conventions already documented in
+   `aidocs/cross_repo_references.md`:
+   - Task IDs: `<project>#<id>` (e.g., `aitasks_mobile#42_3`).
+   - File paths (new in this task): `<project>:<relative/path>`.
+     The colon separator is unambiguous because file paths cannot
+     contain `:` and project names cannot contain `:`. Document the
+     file form in `aidocs/cross_repo_references.md` in the same PR.
+7. **The `aitask-create` AI skill is out of scope.** Follow-up
+   non-sibling top-level task.
 
 ## Implementation steps
 
-### Step 1 — Add a "cross-repo?" question in `aitask-create` interactive
+### Step 1 — Add `list` subcommand to `aitask_project_resolve.sh`
 
-`.claude/skills/aitask-create/SKILL.md` — insert a new **Step 1b**
-between the current Step 1 (parent task selection) and Step 2
-(draft creation):
+Emit one line per registered project for machine consumption by the
+fzf prompts:
 
-```markdown
-### Step 1b: Cross-Repo Mode (Optional)
+    PROJECT:<name>:<path>:<status>
 
-After parent selection (Step 1), ask whether the new task
-coordinates with a second (cross-repo) aitasks project.
+where `<status>` ∈ {`RESOLVED`, `STALE`}. Iterate the per-user
+registry via the existing `index_lookup_path`-style awk parser;
+classify each entry by calling the existing
+`path_is_aitasks_project` predicate.
 
-- `AskUserQuestion`:
-  - Question: "Does this task coordinate work in a second
-    (cross-repo) aitasks project?"
-  - Header: "Cross-repo"
-  - Options:
-    - "No, single-repo task (default)" — skip to Step 2.
-    - "Yes, cross-repo task" — proceed to project picker.
+No whitelisting needed: called from `aitask_create.sh`, not from a
+skill. (Per "whitelist only skill-invoked helpers".)
 
-**Project picker (only on "Yes"):**
+### Step 2 — Add `select_xdeprepo()` helper in `aitask_create.sh`
 
-- Enumerate registered projects:
-  ```bash
-  ./.aitask-scripts/aitask_project_resolve.sh --list
-  ```
-  Parse each `PROJECT:<name>:<root>:<status>` line; skip
-  `status=STALE` and `status=NOT_FOUND` (display a one-line warning
-  for each skipped entry).
-- `AskUserQuestion` with the resolved candidates as options. On
-  selection, store `<xdeprepo_name>` for use in Steps 3c / 3d /
-  description prompts.
-- If no resolvable projects remain: display "No usable registered
-  cross-repo projects found. Continuing in single-repo mode." and
-  fall through to Step 2.
+Mirror the existing `select_priority` / `select_effort` /
+`select_status` helpers. Enumerate via `aitask_project_resolve.sh
+list`, build fzf options:
+
+```
+None (single-repo)
+<resolved_name_1>
+<resolved_name_2>
+…
 ```
 
-The actual `aitask_project_resolve.sh --list` subcommand may not
-exist yet — confirm during exploration; if absent, either add a
-minimal `--list` subcommand to that helper or read the registry
-directly via the existing resolver script's machinery. Whichever
-path is chosen, encapsulate the enumeration in the helper script
-(per the `feedback_archive_encapsulation` pattern) — do NOT
-hand-parse `~/.config/aitasks/projects.yaml` from `SKILL.md`.
+(STALE entries are skipped with a one-line warn to stderr.)
 
-### Step 2 — Thread `xdeprepo` mode through dependency selection (Step 3c)
+Echo the chosen project name to stdout (empty for "None").
 
-In current `SKILL.md` Step 3c, dependencies are gathered from local
-active tasks. In cross-repo mode, also list cross-repo active tasks
-and let the user select any mix.
+### Step 3 — Wire `select_xdeprepo()` into `main()`
 
-Insert (in cross-repo mode only) before the existing local listing:
+In `main()`, after `select_dependencies` (current line ~1911) and
+before `get_task_name`, call `select_xdeprepo` and store the
+result in a local `xdeprepo` variable. If the registry is empty,
+the helper short-circuits to "None" without showing the prompt.
+
+### Step 4 — Cross-repo task references in `get_task_definition()`
+
+Modify the reference loop (around line 1188) to gate two extra
+menu items on a non-empty `xdeprepo` argument passed in from
+`main()`:
+
+- Pass `xdeprepo` into `get_task_definition` as a new argument.
+- When non-empty, extend the menu options string to include:
+  - "Add cross-repo archived task reference (from `<name>`)"
+  - "Add cross-repo file reference (from `<name>`)"
+
+#### Step 4a — `select_cross_repo_archived_task_ref(xdeprepo)`
+
+Mirror of `select_archived_task_ref` (line 1088) using
+`aitask_query_files.sh --project <xdeprepo> recent-archived 999`.
+For each `RECENT_ARCHIVED:<path>|<completed_at>|<issue_type>|<task_name>`
+line, parse the task ID out of the basename (e.g.,
+`t832/t832_1_foo.md` → `832_1`) and present in the fzf list as:
+
+    832_1    [<completed_at>] <task_name> (<issue_type>)
+
+On selection, emit the cross-repo notation:
+`<xdeprepo>#<id>` (e.g., `aitasks_mobile#42_3`).
+
+That string is what gets appended inline to `task_desc` — the
+same insertion path as the existing archived-task-ref code.
+
+#### Step 4b — Cross-repo file picker
+
+Resolve the cross-repo project root once via
+`aitask_project_resolve.sh <xdeprepo>` → `RESOLVED:<root>`. Then
+run the fzf walker rooted in that path:
 
 ```bash
-./.aitask-scripts/aitask_query_files.sh --project <xdeprepo_name> active-children-all
+cd "<root>" && fzf --prompt="Select file from <xdeprepo>: " \
+    --height=20 --preview 'head -50 {}' \
+    --walker=file,hidden --walker-skip=.git,node_modules,build < /dev/tty
 ```
 
-(use the closest existing subcommand — likely a combination of the
-existing `--project` re-exec path with a listing that covers both
-parents and children. Confirm exact subcommand during exploration.)
+On selection, compose `<xdeprepo>:<relative/path>` (the path is
+already relative to the project root because we `cd`'d into it).
+Append inline to `task_desc`.
 
-Present a unified `AskUserQuestion multiSelect: true` with two
-visually grouped sections — local tasks first, cross-repo tasks
-second (prefixed with `[<xdeprepo_name>] ` for clarity). On submit,
-partition selections by section and assemble:
+**NOT added to `all_file_refs`** (consistent with cross-repo
+archived task refs and with the existing local archived-task-ref
+precedent).
 
-- `--deps "<local_ids_csv>"` (existing behaviour).
-- `--xdeps "<cross_ids_csv>" --xdeprepo "<xdeprepo_name>"` when any
-  cross-repo task was selected.
+### Step 5 — Plumb `xdeprepo` through `create_draft_file()`
 
-In single-repo mode this behaviour is unchanged.
+`create_draft_file()` currently consults `BATCH_XDEPS:-` /
+`BATCH_XDEPREPO:-` globals to decide whether to emit the YAML
+lines. The interactive path never sets these globals, so:
 
-### Step 3 — Labels union (Step 3d)
+- Add a new positional parameter `local xdeprepo_arg="${17:-}"`
+  (one slot after the current last param `verifies` at slot 16,
+  if any — confirm exact slot during implementation; insert
+  immediately after `verifies`).
+- In the YAML-emission block, write `xdeprepo: <value>` when the
+  parameter is set, **independently of `xdeps`**.
 
-In cross-repo mode, read both `aitasks/metadata/labels.txt` (local)
-and the cross-repo project's labels via:
+#### Step 5a — Independent emission of `xdeps:` and `xdeprepo:`
 
-```bash
-./.aitask-scripts/aitask_query_files.sh --project <xdeprepo_name> labels
-```
+Today the script emits both lines together when `BATCH_XDEPS` is
+non-empty. Replace with two independent conditionals in all
+**3 emit sites** (`create_draft_file`, `finalize_draft`,
+`run_batch_mode`):
 
-(again, exact subcommand TBD — extend if needed). Deduplicate and
-sort; present as a single multiSelect list. Selected labels go into
-the local task's `labels:`. The cross-planning procedure landed in
-t832_5 will mirror them onto the counterpart task at spawn time.
+    if [[ -n "${xdeps_value:-}" ]]; then
+        echo "xdeps: $xdeps_yaml"
+    fi
+    if [[ -n "${xdeprepo_value:-}" ]]; then
+        echo "xdeprepo: $xdeprepo_value"
+    fi
 
-### Step 4 — Task references during description authoring (optional polish)
+### Step 6 — Relax `validate_xdeps_pair` in `lib/task_utils.sh`
 
-When the user is composing the task description, recognise
-`aitasks#N_M` notation (regex `^([a-z0-9_-]+)#t?([0-9]+(?:_[0-9]+)?)$`
-from `aidocs/cross_repo_references.md`). On match, offer to resolve
-into a link by re-reading the referenced task's title via
-`aitask_query_files.sh --project <name> task-file <id>`.
+Currently both-or-neither. Change to:
 
-This is **polish, not load-bearing**. Gate it behind an explicit
-profile or skip entirely on first pass if it inflates scope. The
-trigger contract does NOT depend on it (per architectural
-decision 1).
+- `xdeprepo` alone → OK (intent-only mode).
+- `xdeps` alone → still dies.
+- Both set → validate as today.
 
-### Step 5 — File references in description (cross-repo file picker)
+Update the die message:
+`die "--xdeps requires --xdeprepo (xdeps without a project context cannot be resolved)."`
 
-If the user invokes the file picker to add a `--file-ref` while in
-cross-repo mode, `.claude/skills/user-file-select/SKILL.md` needs a
-`--project <name>` option to list files from the cross-repo project.
+### Step 7 — Wire interactive `xdeprepo` into `create_draft_file` call
 
-This is a separate skill and may not fit cleanly inside t832_10. If
-the planning conversation suggests scope creep, split into a
-follow-up:
+In `main()`'s call to `create_draft_file` (around line 1948), pass
+the interactively-selected `xdeprepo` as the new positional.
 
-- `t832_10` ships Steps 1–3 above.
-- `t832_12` (new follow-up) ports `user-file-select` for
-  `--project`.
+### Step 8 — Print `xdeprepo` in the summary block
 
-Confirm the cut during plan review.
+In the `main()` summary block (around line 1957):
 
-### Step 6 — Final batch call
+    echo "  Cross-repo:    ${xdeprepo:-None}"
 
-The existing batch invocation in `aitask-create` ultimately reaches
-this shape:
+### Step 9 — Document the file-ref notation
 
-```bash
-./.aitask-scripts/aitask_create.sh --batch \
-  --name "<n>" --priority <p> --effort <e> --type <t> \
-  --labels "<l>" --deps "<l_csv>" --commit \
-  --desc-file <draft>
-```
+Append a short paragraph to `aidocs/cross_repo_references.md`
+under "Cross-repo task ID notation" introducing the symmetric
+file-path form `<project>:<relative/path>`. Keep it brief
+(matches the prose style already there).
 
-In cross-repo mode, append:
+### Step 10 — Tests
 
-```bash
-  --xdeps "<x_csv>" --xdeprepo "<xdeprepo_name>"
-```
+- **`tests/test_project_resolve_list.sh`** (new): scaffold a fake
+  registry with one resolvable and one stale entry; run
+  `aitask_project_resolve.sh list`; assert one `RESOLVED` and one
+  `STALE` line.
 
-When `--xdeps` is empty even in cross-repo mode (e.g., user picked
-`<xdeprepo_name>` but selected no cross-repo deps), still pass
-`--xdeprepo "<name>"` with an empty `--xdeps ""` only if the
-existing validator allows it — otherwise either:
+- **`tests/test_xdeps_validation.sh`** (update): change Case 2
+  (`--xdeprepo` alone) to expect **success** and assert the draft
+  contains `xdeprepo:` without `xdeps:`. Case 1 (`--xdeps` alone)
+  still fails — keep that.
 
-- Pass neither (and rely on the user / planning phase to add
-  `xdeprepo:` later via `aitask_update.sh --xdeprepo <name>`), or
-- Extend `validate_xdeps_pair` to allow `xdeprepo` without `xdeps`
-  for the "intent recorded, no concrete deps yet" case.
+- **`tests/test_aitask_create_xdeprepo_alone.sh`** (new): drive
+  batch mode (interactive isn't shell-testable) with `--xdeprepo
+  <name>` only; assert the draft contains `xdeprepo: <name>` and
+  NO `xdeps:` line.
 
-The current validator (per `p832_3` notes) enforces both-or-neither.
-Discuss in plan review which option is preferred; the cleanest fit
-for the t832_5 trigger contract is to allow `xdeprepo` alone (since
-intent should propagate even without explicit deps).
+The interactive-only behaviors (the `select_xdeprepo` fzf prompt,
+the cross-repo task/file ref menus) are exercised via manual
+verification (Step 11). The reusable building blocks (the `list`
+subcommand, the validator relaxation, the YAML emission, and the
+batch surface) all get automated coverage.
 
-## Tests
+### Step 11 — Manual verification (smoke)
 
-`tests/test_aitask_create_interactive_cross_repo.sh`:
-
-1. Scaffold two fake projects via
-   `tests/lib/test_scaffold.sh::setup_fake_aitask_repo`; register
-   both in a temporary `projects.yaml`.
-2. Drive `aitask-create` batch entry (interactive mock via env vars
-   for AskUserQuestion answers — follow the pattern in any existing
-   interactive-flow test) with:
-   - cross-repo Yes
-   - project = `<B>`
-   - 1 local dep + 1 cross-repo dep
-   - 2 labels (one local-only, one cross-repo-only)
-3. Assert resulting task file has:
-   - `xdeprepo: <B>`
-   - `xdeps: [<cross_id>]`
-   - `depends: [<local_id>]`
-   - `labels:` containing both selected labels.
-4. **Negative — STALE registry entry:** point `<B>`'s registered
-   `root` at a deleted directory; assert the project picker warns
-   and offers single-repo fallback.
-5. **Negative — NOT_FOUND registry entry:** ditto with a never-
-   existed root.
-6. **Regression — single-repo flow:** answer "No" to cross-repo
-   question; assert resulting task has no `xdeprepo:` / no `xdeps:`
-   and matches existing single-repo task expectations.
-7. **xdeprepo-alone case** (if the validator change in Step 6
-   lands): cross-repo Yes + no cross-repo deps selected → resulting
-   task has `xdeprepo: <B>` and no `xdeps:` line.
+1. Verify the local registry has at least one resolvable cross-repo
+   entry: `ait projects list`. Register one if needed.
+2. Run `ait create` interactively. Walk through the prompts;
+   confirm the new "Cross-repo project" prompt appears after
+   dependencies/labels. Pick a registered project.
+3. In the file/task reference loop, confirm both new menu items
+   appear: "Add cross-repo archived task reference (from
+   `<name>`)" and "Add cross-repo file reference (from
+   `<name>`)".
+4. Select an archived task from the cross-repo project; confirm
+   `<name>#<id>` is appended to the description.
+5. Select a file from the cross-repo project; confirm
+   `<name>:<relative/path>` is appended to the description.
+6. Inspect the resulting draft file under `aitasks/new/`:
+   - `xdeprepo: <name>` present in frontmatter.
+   - NO `xdeps:` line.
+   - `file_references:` field (if any) contains ONLY local file
+     paths — no cross-repo entries.
+   - Description body contains the cross-repo refs in the
+     documented notation.
+7. Finalize the draft. Confirm the final task file under
+   `aitasks/` keeps the same frontmatter.
+8. Regression: re-run with "None (single-repo)" — confirm draft
+   has NO `xdeprepo:`/`xdeps:` lines and the cross-repo menu items
+   are NOT offered.
 
 ## Verification
 
-1. `bash tests/test_aitask_create_interactive_cross_repo.sh` —
-   all assertions pass.
-2. Regression suite: `bash tests/test_xdeps_parser.sh`,
-   `test_xdeps_validation.sh`, `test_xdeps_fold_warn.sh`,
-   `test_query_files_cross_repo.sh`, `test_create_project_flag.sh`
-   — none regress.
-3. `./.aitask-scripts/aitask_skill_verify.sh` — PASS.
-4. `shellcheck` clean on any touched helper.
-5. **Manual smoke (golden path):**
-   - Register a synthetic second project locally.
-   - Run `ait create` interactively; answer Yes to cross-repo,
-     pick the second project, select one cross-repo dep, one
-     cross-repo label.
-   - Verify the resulting file has the expected frontmatter.
-   - Run `/aitask-pick <new_id>`.
-   - Confirm the metadata-only trigger in
-     `parallel-cross-repo-planning.md` (landed by t832_5) fires
-     and the confirmation prompt is presented.
+1. `bash tests/test_project_resolve_list.sh` — passes.
+2. `bash tests/test_xdeps_validation.sh` — passes with updated
+   Case 2.
+3. `bash tests/test_aitask_create_xdeprepo_alone.sh` — passes.
+4. Regression: `bash tests/test_xdeps_parser.sh`,
+   `tests/test_xdeps_fold_warn.sh`,
+   `tests/test_query_files_cross_repo.sh`,
+   `tests/test_create_project_flag.sh`,
+   `tests/test_update_cross_repo.sh` — none regress.
+5. `shellcheck .aitask-scripts/aitask_project_resolve.sh
+   .aitask-scripts/aitask_create.sh
+   .aitask-scripts/lib/task_utils.sh` clean.
+6. `./.aitask-scripts/aitask_skill_verify.sh` — PASS (defensive;
+   no skills touched).
+7. Manual smoke per Step 11.
 
-## Dependencies and Sequencing
+## Out of scope (this task)
 
-This task depends on:
+- Any change to `.claude/skills/aitask-create/SKILL.md` or the
+  Codex / OpenCode equivalents — deferred follow-up.
+- Cross-repo deps (`xdeps:`) selection inside the interactive
+  flow — batch-only for now.
+- Labels-union or cross-repo label awareness.
+- `aitask_query_files.sh labels` subcommand.
+- Parsers / consumers for `<project>#<id>` and
+  `<project>:<path>` notation in downstream tooling
+  (`aitask_explain_context.sh`, board, etc.).
+- aitask-explore cross-repo integration → t832_11.
+- TUI display of `xdeprepo` in `ait board` → t832_8.
+- N-way (≥3) cross-repo plans.
 
-- t832_3 (xdeps parser & validation) — already landed; verified.
-- t832_1 (cross-repo retrieval `--project`) — already landed;
-  verified.
-- t832_5 (parallel-cross-repo-planning procedure) — **MUST land
-  before this task is meaningful end-to-end.** Without t832_5, this
-  task's output (`xdeprepo`-tagged tasks) is recorded but never
-  triggers paired planning at pick-time.
+## Follow-up (to be created after this lands)
 
-Sequencing: implement t832_10 only after t832_5 lands and its
-metadata-only trigger is verified to fire on `xdeprepo`-tagged tasks.
+A new top-level (non-sibling) task to mirror this behaviour into
+the `aitask-create` AI skill: cross-repo question, project picker,
+cross-repo task/file references, batch-call wiring, plus the
+corresponding helper additions and whitelisting.
 
 ## Notes for sibling tasks
 
-- **The validator's xdeprepo-without-xdeps behaviour is potentially
-  load-bearing** for both t832_5 (trigger fires on xdeprepo alone)
-  and t832_11 (aitask-explore will also want to record xdeprepo
-  intent without concrete xdeps). The Step 6 decision should be
-  documented in the implementation notes so t832_11 inherits the
-  same contract.
-- **The `aitask_project_resolve.sh --list` subcommand** (if
-  introduced here) is reusable by t832_11 and by `ait board`
-  cross-repo display work (t832_8). Encapsulate cleanly.
-
-## Out of scope
-
-- aitask-explore cross-repo integration → t832_11.
-- `user-file-select --project` (cross-repo file picker) → possibly
-  split into t832_12 (decided in plan review).
-- Templating `aitask-create` to `.j2` — orthogonal cleanup task.
-- TUI display of `xdeprepo` in `ait board` (t832_8).
-- N-way (≥3) cross-repo plans.
-
-## Plan Verification Notes (2026-05-28)
-
-Verified the plan against current `main`. Concrete decisions locked
-during verification (these resolve the "TBD" spots in the original
-plan body):
-
-- **New helper subcommand for project enumeration:** add
-  `aitask_project_resolve.sh list` (no `--` prefix; matches other
-  subcommands) emitting `PROJECT:<name>:<path>:<status>` per line
-  where status ∈ {`RESOLVED`, `STALE`}. Whitelist via
-  `aitask_audit_wrappers.sh apply-helper-whitelist
-  aitask_project_resolve.sh` (5 touchpoints).
-- **New `labels` subcommand on `aitask_query_files.sh`:** emit
-  one `LABEL:<name>` line per non-blank, non-comment line in
-  `aitasks/metadata/labels.txt`. Reuses the existing `--project`
-  re-exec path, so cross-repo labels just work via
-  `aitask_query_files.sh --project <name> labels`.
-- **Validator relaxation:** `validate_xdeps_pair` in
-  `lib/task_utils.sh` allows `xdeprepo` alone (intent-only). The
-  remaining failure case is `xdeps` without `xdeprepo` (xdeps need
-  a project). `aitask_create.sh` emits the two YAML lines
-  independently so a `--xdeprepo`-only invocation writes only
-  `xdeprepo:` to the draft. **This is load-bearing** for the
-  metadata-only trigger contract t832_5 will land.
-- **Labels prompt is new for ALL tasks (not just cross-repo):** the
-  current SKILL.md hardcodes `labels: []`. The simplest cut adds a
-  multiSelect labels prompt during Step 3, and in cross-repo mode
-  the candidate list is the union of local + cross-repo labels.
-- **Defer Steps 4 and 5** per the original plan: notation polish
-  and cross-repo file picker stay out of this task.
-- **Test surface:** drive batch mode through the CLI (the
-  established pattern; `AskUserQuestion` is Claude-driven and not
-  shell-testable). New tests: `test_project_resolve_list.sh`,
-  `test_query_files_labels.sh`, `test_aitask_create_xdeprepo_alone.sh`.
-  Update `test_xdeps_validation.sh` case 2 (only `--xdeprepo` now
-  succeeds).
-- **Inertness ack:** t832_5 (the trigger consumer) and t832_9 (the
-  manual verification of t832_1..8) are still Ready as of plan
-  verification. User explicitly chose to ship t832_10 first
-  anyway; the captured metadata is harmless until t832_5 lands.
+- The validator's `xdeprepo`-without-`xdeps` allowance landed
+  here is load-bearing for t832_5 (its trigger fires on `xdeprepo`
+  alone) and the future skill follow-up.
+- The `aitask_project_resolve.sh list` subcommand landed here is
+  reusable by the skill follow-up and by `ait board` cross-repo
+  display (t832_8).
+- The `<project>:<path>` file-ref notation introduced here joins
+  the existing `<project>#<id>` task-ref notation as the second
+  cross-repo authoring convention. Future tooling that parses
+  task descriptions can extend the existing regex catalogue in
+  `aidocs/cross_repo_references.md`.
 
 ## Final Implementation Notes
 
