@@ -15,3 +15,14 @@ boardidx: 110
 I have noticed that many time claude code when running the model-self-detection procedure in the task workflow, it writes custom code to parse the models_claudecode.json, it fails,then retries, this is not efficient. I would like to make the procedure execution faster and without need to retry. once the procedure has been rewritten, add child tasks (to be run on opencode, geminicli, codex) also to check the new procedure to be sure that it work also in the other codeagents suported by the aitasks framework
 
 here is an excerpt of claude code execution code when running the model-self-detecion procedure with the failure: ● Read(.claude/skills/task-workflow/model-self-detection.md)
+
+---
+
+## t401_3 disposition note (2026-05-28, t812_5)
+
+Child task **t401_3** (verify detection geminicli) was closed as
+obsolete after t812 removed geminicli support from the framework.
+The detection-verification concern was migrated to a new t835 child:
+**`aitasks/t835/t835_2_verify_detection_agy.md`** (verify
+`aitask_parse_detected_agent.sh` for agy, the geminicli replacement).
+`children_to_implement` has been updated to `[t401_2, t401_4]`.
