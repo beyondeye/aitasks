@@ -179,24 +179,69 @@ Standard archival. Final Implementation Notes **must** include the
 though this child is primarily admin work — t814's planner may
 benefit from the migrate/close decisions).
 
-## Final Implementation Notes (template)
+## Final Implementation Notes
 
-- **Actual work done:** …
-- **Deviations from plan:** …
-- **Issues encountered:** …
-- **Key decisions:** …
-- **Upstream defects identified:** None (or list)
-- **Notes for sibling tasks:** …
+- **Actual work done:**
+  - **Phase A** — Created two new children of t835 (the add-agy task):
+    - `aitasks/t835/t835_1_identifying_model_id_in_agy.md` (commit `4403f1d9`)
+    - `aitasks/t835/t835_2_verify_detection_agy.md` (commit `6edeeb48`)
+  - **Phase B** — Closed and archived four geminicli backlog tasks
+    after appending obsolescence notes (t345 and t401_3 include
+    pointers to their migrated t835 children):
+    - t343 → `aitasks/archived/t343_*` (commit `511f92c1`)
+    - t344 → `aitasks/archived/t344_*` (commit `d464dae7`)
+    - t345 → `aitasks/archived/t345_*` (commit `1bf44477`)
+    - t401_3 → `aitasks/archived/t401/t401_3_*` (commit `8c73eb78`)
+  - **Phase C** — Parent t401's `children_to_implement` was
+    automatically updated by `aitask_archive.sh` (now
+    `[t401_2, t401_4]`); a disposition note pointing to t835_2 was
+    added to t401's body (commit `82b56d1f`).
+- **Deviations from plan:**
+  - Original draft plan defaulted to "close all four as obsolete"; per
+    user direction at the verify step, t345 and t401_3 were instead
+    **migrated** to new t835 children. The plan file (this document)
+    was updated to reflect the migration before implementation.
+  - Phase C was simpler than planned: `aitask_archive.sh` removed
+    t401_3 from `children_to_implement` automatically, so the manual
+    edit was reduced to adding the human-readable disposition note.
+  - Original plan's "t814" naming retained as a subsection title
+    convention (per t835's own description, lines 62-65). Body text
+    elsewhere uses "t835" with an alias note up top.
+- **Issues encountered:**
+  - `aitask_create.sh` uses `--type`, not `--issue-type` (one-off
+    flag-name confusion; resolved on second invocation).
+- **Key decisions:**
+  - Both t835 children seeded with detailed Context and Scope
+    sections referencing the migrated source task's framing, so
+    t835's planner doesn't need to re-derive the concerns from the
+    archived geminicli plans.
+  - Disposition notes appended to each closed task body (rather than
+    inserted in frontmatter) so the archived files remain readable
+    standalone, and the obsolescence reason travels with the file
+    forever.
+- **Upstream defects identified:** None — but several pre-existing
+  geminicli references in unrelated active tasks were noticed (out of
+  scope for this cleanup): `t720_*`, `t369_*`, `t399/t399_2_*`,
+  `t369/t369_4_*`, `t717/t717_5_*`. These are stale task descriptions
+  and labels, not code defects. They warrant a separate light-touch
+  cleanup task if desired.
+- **Notes for sibling tasks:** This was the final t812 child. No
+  further sibling work pending — t812 parent can archive once this
+  child archives.
 
 ### For t814 (add-agy): inverse instructions
 
 - **Migrated-to-t814 (now t835) task IDs:**
-  - `t345 → t835_<MODEL_ID>_identifying_model_id_in_agy` — model-id
-    detection surface for agy must be researched and wired into the
-    resolver.
-  - `t401_3 → t835_<VERIFY_ID>_verify_detection_agy` — end-to-end
-    verification of agy detection through
-    `aitask_parse_detected_agent.sh`.
+  - `t345 → t835_1_identifying_model_id_in_agy` — model-id detection
+    surface for agy must be researched (candidates: `agy --version`,
+    `cli_help`/`cli_info` equivalent, or `~/.gemini/settings.json`)
+    and wired into `aitask_resolve_detected_agent.sh` + the Model
+    Self-Detection Sub-Procedure.
+  - `t401_3 → t835_2_verify_detection_agy` — end-to-end verification
+    of agy detection through `aitask_parse_detected_agent.sh`
+    (`--agent agy --cli-id <id>` → valid `AGENT_STRING:agy/<name>`
+    matching `models_agy.json`). Depends on t835_1 landing first so
+    the resolver has agy entries to match against.
 - **Closed as obsolete (no migration):**
   - `t343` — geminicli planning-step skip bug (gitignored-path read
     failure); agy uses markdown skills + native sandbox, not
@@ -212,5 +257,5 @@ benefit from the migrate/close decisions).
     `aidocs/geminicli_to_agy.md`).
   - t345's framing flagged that geminicli's model-id surface was
     inconsistent — only `cli_help` was reliable. The migrated
-    t835 child should evaluate agy's surface explicitly; do not
+    t835_1 child should evaluate agy's surface explicitly; do not
     assume `agy --version` is sufficient without practical testing.
