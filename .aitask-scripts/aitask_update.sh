@@ -23,6 +23,10 @@ BATCH_STATUS=""
 BATCH_TYPE=""
 BATCH_DEPS=""
 BATCH_DEPS_SET=false
+BATCH_XDEPS=""
+BATCH_XDEPS_SET=false
+BATCH_XDEPREPO=""
+BATCH_XDEPREPO_SET=false
 BATCH_VERIFIES=""
 BATCH_VERIFIES_SET=false
 BATCH_ADD_VERIFIES=()
@@ -67,6 +71,8 @@ BATCH_COMMIT=false
 CURRENT_PRIORITY=""
 CURRENT_EFFORT=""
 CURRENT_DEPS=""
+CURRENT_XDEPS=""
+CURRENT_XDEPREPO=""
 CURRENT_VERIFIES=""
 CURRENT_TYPE=""
 CURRENT_STATUS=""
@@ -108,6 +114,12 @@ Metadata options (batch mode):
   --status, -s STATUS    Status: Ready, Editing, Implementing, Postponed, Done, Folded
   --type TYPE            Issue type (see aitasks/metadata/task_types.txt)
   --deps DEPS            Dependencies (comma-separated task numbers, replaces all)
+  --xdeps DEPS           Cross-repo dependencies (comma-separated task numbers,
+                         replaces all). Requires --xdeprepo. Pass "" to clear
+                         both fields.
+  --xdeprepo NAME        Cross-repo project name (resolved via the registry)
+                         that --xdeps numbers refer to. Required when --xdeps
+                         is set; both must be cleared together.
 
 Verifies options (batch mode, for manual-verification tasks):
   --verifies VERIFIES    Verifies list (comma-separated task IDs, replaces all)
@@ -150,6 +162,21 @@ File reference options (batch mode):
                          PATH | PATH:N | PATH:N-M | PATH:N-M^N-M^... (^ joins ranges).
                          Dedup is exact-string only (order-sensitive).
   --remove-file-ref REF  Remove a file reference by exact-string match; repeatable.
+
+Cross-repo options (batch mode only):
+  --project NAME         Update a task in a sibling aitasks project resolved
+                         via the per-user registry (~/.config/aitasks/projects.yaml).
+                         Requires --batch. Only administrative fields can be
+                         updated cross-repo: --xdeps, --xdeprepo, --labels,
+                         --add-label, --remove-label, --priority, --effort,
+                         --deps, --assigned-to, --boardcol, --boardidx, and
+                         --status (Ready|Editing|Postponed only).
+                         Refused cross-repo: --name (rename), --status
+                         Implementing|Done|Folded (workflow transitions go
+                         through the cross-repo project's own /aitask-pick).
+                         A lock-check inside the cross-repo project refuses
+                         the update if the task is locked by a different
+                         host/owner.
 
 Other options:
   --name, -n NAME        Rename task (changes filename, sanitizes input)
@@ -202,6 +229,8 @@ parse_args() {
             --status|-s) BATCH_STATUS="$2"; shift 2 ;;
             --type) BATCH_TYPE="$2"; shift 2 ;;
             --deps) BATCH_DEPS="$2"; BATCH_DEPS_SET=true; shift 2 ;;
+            --xdeps) BATCH_XDEPS="$2"; BATCH_XDEPS_SET=true; shift 2 ;;
+            --xdeprepo) BATCH_XDEPREPO="$2"; BATCH_XDEPREPO_SET=true; shift 2 ;;
             --verifies) BATCH_VERIFIES="$2"; BATCH_VERIFIES_SET=true; shift 2 ;;
             --add-verifies) BATCH_ADD_VERIFIES+=("$2"); shift 2 ;;
             --remove-verifies) BATCH_REMOVE_VERIFIES+=("$2"); shift 2 ;;
@@ -291,6 +320,8 @@ parse_yaml_frontmatter() {
     CURRENT_PRIORITY="medium"
     CURRENT_EFFORT="medium"
     CURRENT_DEPS=""
+    CURRENT_XDEPS=""
+    CURRENT_XDEPREPO=""
     CURRENT_TYPE="feature"
     CURRENT_STATUS="Ready"
     CURRENT_LABELS=""
@@ -352,6 +383,11 @@ parse_yaml_frontmatter() {
                     CURRENT_DEPS=$(parse_yaml_list "$value")
                     CURRENT_DEPS=$(normalize_task_ids "$CURRENT_DEPS")
                     ;;
+                xdeps)
+                    CURRENT_XDEPS=$(parse_yaml_list "$value")
+                    CURRENT_XDEPS=$(normalize_task_ids "$CURRENT_XDEPS")
+                    ;;
+                xdeprepo) CURRENT_XDEPREPO="$value" ;;
                 verifies)
                     CURRENT_VERIFIES=$(parse_yaml_list "$value")
                     CURRENT_VERIFIES=$(normalize_task_ids "$CURRENT_VERIFIES")
@@ -433,6 +469,8 @@ write_task_file() {
     local implemented_with="${20:-}"
     local file_references="${21:-}"
     local verifies="${22:-}"
+    local xdeps="${23:-}"
+    local xdeprepo="${24:-}"
 
     local updated_at
     updated_at=$(get_timestamp)
@@ -449,6 +487,13 @@ write_task_file() {
         echo "priority: $priority"
         echo "effort: $effort"
         echo "depends: $deps_yaml"
+        # Cross-repo deps (both-or-neither, validated by validate_xdeps_pair)
+        if [[ -n "$xdeps" ]]; then
+            local xdeps_yaml
+            xdeps_yaml=$(format_yaml_list "$xdeps")
+            echo "xdeps: $xdeps_yaml"
+            echo "xdeprepo: $xdeprepo"
+        fi
         echo "issue_type: $issue_type"
         echo "status: $status"
         echo "labels: $labels_yaml"
@@ -810,6 +855,8 @@ handle_child_task_completion() {
     local saved_priority="$CURRENT_PRIORITY"
     local saved_effort="$CURRENT_EFFORT"
     local saved_deps="$CURRENT_DEPS"
+    local saved_xdeps="$CURRENT_XDEPS"
+    local saved_xdeprepo="$CURRENT_XDEPREPO"
     local saved_type="$CURRENT_TYPE"
     local saved_status="$CURRENT_STATUS"
     local saved_labels="$CURRENT_LABELS"
@@ -837,7 +884,7 @@ handle_child_task_completion() {
         "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE" "$CURRENT_FOLDED_TASKS" \
         "$CURRENT_FOLDED_INTO" "$CURRENT_PULL_REQUEST" "$CURRENT_CONTRIBUTOR" \
         "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES" \
-        "$CURRENT_VERIFIES"
+        "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO"
 
     if [[ -z "$new_children" ]]; then
         success "All children of t$parent_num are complete! Parent can now be completed."
@@ -849,6 +896,8 @@ handle_child_task_completion() {
     CURRENT_PRIORITY="$saved_priority"
     CURRENT_EFFORT="$saved_effort"
     CURRENT_DEPS="$saved_deps"
+    CURRENT_XDEPS="$saved_xdeps"
+    CURRENT_XDEPREPO="$saved_xdeprepo"
     CURRENT_ASSIGNED_TO="$saved_assigned_to"
     CURRENT_TYPE="$saved_type"
     CURRENT_STATUS="$saved_status"
@@ -1290,7 +1339,7 @@ run_interactive_mode() {
         "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE" "$CURRENT_FOLDED_TASKS" \
         "$CURRENT_FOLDED_INTO" "$CURRENT_PULL_REQUEST" "$CURRENT_CONTRIBUTOR" \
         "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES" \
-        "$CURRENT_VERIFIES"
+        "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO"
 
     # Handle child task completion
     if [[ "$new_status" == "Done" ]]; then
@@ -1334,6 +1383,32 @@ run_batch_mode() {
     # Validate task number
     [[ -z "$BATCH_TASK_NUM" ]] && die "Batch mode requires a task number"
 
+    # Cross-repo lock-check guard (t832_7). Only fires when this invocation
+    # was re-exec'd from a remote --project caller (sentinel env var set in
+    # main()). Plain local invocations skip the lock-fetch cost — local
+    # callers go through aitask_pick_own.sh which already owns the lock.
+    if [[ "${AIT_CROSS_REPO_REEXEC:-}" == "1" ]]; then
+        local lock_state lock_exit=0
+        lock_state=$("$SCRIPT_DIR/aitask_lock.sh" --check "$BATCH_TASK_NUM" 2>/dev/null) || lock_exit=$?
+        if [[ "$lock_exit" -eq 0 && -n "$lock_state" ]]; then
+            local locked_by locked_at locked_host
+            locked_by=$(echo "$lock_state" | grep '^locked_by:' | sed 's/locked_by: *//' | head -1)
+            locked_at=$(echo "$lock_state" | grep '^locked_at:' | sed 's/locked_at: *//' | head -1)
+            locked_host=$(echo "$lock_state" | grep '^hostname:' | sed 's/hostname: *//' | head -1)
+            local my_host my_email=""
+            my_host=$(hostname 2>/dev/null || echo "unknown")
+            if [[ -f "aitasks/metadata/userconfig.yaml" ]]; then
+                my_email=$(grep '^email:' aitasks/metadata/userconfig.yaml | sed 's/^email: *//' | head -1)
+            fi
+            # Refuse only when a DIFFERENT host or DIFFERENT owner holds the
+            # lock. Same-host + same-owner is fine (local administrative
+            # update while picking is allowed).
+            if [[ "$locked_host" != "$my_host" || ( -n "$my_email" && "$locked_by" != "$my_email" ) ]]; then
+                die "cross-repo task t${BATCH_TASK_NUM} is locked by ${locked_by}@${locked_host} (since ${locked_at}); cannot update from this host. Pick the task there to release, or wait."
+            fi
+        fi
+    fi
+
     # Resolve task file
     local file_path
     file_path=$(resolve_task_file "$BATCH_TASK_NUM")
@@ -1348,6 +1423,8 @@ run_batch_mode() {
     [[ -n "$BATCH_STATUS" ]] && has_update=true
     [[ -n "$BATCH_TYPE" ]] && has_update=true
     [[ "$BATCH_DEPS_SET" == true ]] && has_update=true
+    [[ "$BATCH_XDEPS_SET" == true ]] && has_update=true
+    [[ "$BATCH_XDEPREPO_SET" == true ]] && has_update=true
     [[ "$BATCH_VERIFIES_SET" == true ]] && has_update=true
     [[ ${#BATCH_ADD_VERIFIES[@]} -gt 0 ]] && has_update=true
     [[ ${#BATCH_REMOVE_VERIFIES[@]} -gt 0 ]] && has_update=true
@@ -1425,6 +1502,32 @@ run_batch_mode() {
         new_deps="$BATCH_DEPS"
     fi
     new_deps=$(normalize_task_ids "$new_deps")
+
+    # Cross-repo deps (xdeps + xdeprepo) — both-or-neither, replaces-all
+    local new_xdeps="$CURRENT_XDEPS"
+    local new_xdeprepo="$CURRENT_XDEPREPO"
+    if [[ "$BATCH_XDEPS_SET" == true ]]; then
+        new_xdeps="$BATCH_XDEPS"
+    fi
+    if [[ "$BATCH_XDEPREPO_SET" == true ]]; then
+        new_xdeprepo="$BATCH_XDEPREPO"
+    fi
+    new_xdeps=$(normalize_task_ids "$new_xdeps")
+    # Validate both-or-neither + cross-repo ID existence when either flag was
+    # set in this invocation. Skip when neither flag is set (preserves existing
+    # values without re-validating cross-repo on unrelated updates).
+    if [[ "$BATCH_XDEPS_SET" == true || "$BATCH_XDEPREPO_SET" == true ]]; then
+        # validate_xdeps_pair reads BATCH_XDEPS / BATCH_XDEPREPO globals. Point
+        # those at the resolved new_* values for the duration of the call so
+        # explicit "" clears (both flags set to empty) validate as a no-op.
+        local _saved_batch_xdeps="$BATCH_XDEPS"
+        local _saved_batch_xdeprepo="$BATCH_XDEPREPO"
+        BATCH_XDEPS="$new_xdeps"
+        BATCH_XDEPREPO="$new_xdeprepo"
+        validate_xdeps_pair
+        BATCH_XDEPS="$_saved_batch_xdeps"
+        BATCH_XDEPREPO="$_saved_batch_xdeprepo"
+    fi
 
     # Process verifies
     local new_verifies
@@ -1527,7 +1630,7 @@ run_batch_mode() {
         "$new_children" "$new_assigned_to" "$new_boardcol" "$new_boardidx" "$new_issue" \
         "$new_folded_tasks" "$new_folded_into" "$new_pull_request" "$new_contributor" \
         "$new_contributor_email" "$new_implemented_with" "$new_file_references" \
-        "$new_verifies"
+        "$new_verifies" "$new_xdeps" "$new_xdeprepo"
 
     # Handle child task completion (update parent if needed)
     if [[ "$new_status" == "Done" ]]; then
@@ -1553,6 +1656,82 @@ run_batch_mode() {
 # --- Main ---
 
 main() {
+    # Cross-repo redirect (t832_7): if `--project <name>` appears, resolve
+    # the name to a sibling aitasks project root, then re-exec that
+    # project's own aitask_update.sh with `--project <name>` stripped.
+    # Mirrors aitask_create.sh:1778-1838. Requires --batch; refuses
+    # workflow-state transitions (Implementing/Done/Folded) and rename
+    # (--name) cross-repo.
+    local project_name=""
+    local has_batch=false
+    local has_name=false
+    local cross_status=""
+    local forwarded=()
+    local _i=0
+    local _argv=("$@")
+    while [[ $_i -lt ${#_argv[@]} ]]; do
+        case "${_argv[$_i]}" in
+            --project)
+                project_name="${_argv[$_i+1]:-}"
+                [[ -n "$project_name" ]] || die "--project requires a value"
+                _i=$((_i + 2))
+                ;;
+            --batch)
+                has_batch=true
+                forwarded+=("${_argv[$_i]}")
+                _i=$((_i + 1))
+                ;;
+            --name|-n)
+                has_name=true
+                forwarded+=("${_argv[$_i]}" "${_argv[$_i+1]:-}")
+                _i=$((_i + 2))
+                ;;
+            --status|-s)
+                cross_status="${_argv[$_i+1]:-}"
+                forwarded+=("${_argv[$_i]}" "${_argv[$_i+1]:-}")
+                _i=$((_i + 2))
+                ;;
+            *)
+                forwarded+=("${_argv[$_i]}")
+                _i=$((_i + 1))
+                ;;
+        esac
+    done
+
+    if [[ -n "$project_name" ]]; then
+        [[ "$has_batch" == true ]] || die "--project requires --batch"
+        [[ "$has_name" == false ]] || die "--project cannot be combined with --name (rename is not supported cross-repo)"
+        case "$cross_status" in
+            Implementing|Done)
+                die "cross-repo status transition to '$cross_status' must go through '$project_name's own /aitask-pick workflow (lock acquisition + plan externalization happen there)."
+                ;;
+            Folded)
+                die "folding requires reading both task bodies and is not supported cross-repo."
+                ;;
+        esac
+
+        local resolved
+        resolved=$("$SCRIPT_DIR/aitask_project_resolve.sh" "$project_name")
+        case "$resolved" in
+            RESOLVED:*)
+                local root="${resolved#RESOLVED:}"
+                local target_script="$root/.aitask-scripts/aitask_update.sh"
+                [[ -x "$target_script" ]] || die "Resolved $project_name → $root, but $target_script is missing or not executable"
+                cd "$root"
+                AIT_CROSS_REPO_REEXEC=1 exec "$target_script" "${forwarded[@]}"
+                ;;
+            STALE:*)
+                die "Project '$project_name' is registered but its path is stale: ${resolved#STALE:}"
+                ;;
+            NOT_FOUND:*)
+                die "Project '$project_name' is not registered. Run \`cd /path/to/$project_name && ait projects add\`."
+                ;;
+            *)
+                die "Resolver returned unexpected output: $resolved"
+                ;;
+        esac
+    fi
+
     # Store original args for detecting --deps flag
     ORIGINAL_ARGS=("$@")
 

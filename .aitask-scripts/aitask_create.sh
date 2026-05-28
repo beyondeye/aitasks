@@ -877,55 +877,9 @@ validate_task_type() {
     fi
 }
 
-# Validate the cross-repo dep pair: both BATCH_XDEPS and BATCH_XDEPREPO must
-# be set together (both-or-neither); BATCH_XDEPREPO must resolve via the
-# project registry; each id in BATCH_XDEPS must exist in the cross-repo
-# project.  No-op if both are empty (most tasks).
-validate_xdeps_pair() {
-    if [[ -z "$BATCH_XDEPS" && -z "$BATCH_XDEPREPO" ]]; then
-        return 0
-    fi
-    if [[ -z "$BATCH_XDEPS" || -z "$BATCH_XDEPREPO" ]]; then
-        die "--xdeps and --xdeprepo must be provided together (both-or-neither)."
-    fi
-
-    # Resolve the cross-repo project via the registry (t826_1).
-    local resolved
-    resolved=$("$SCRIPT_DIR/aitask_project_resolve.sh" "$BATCH_XDEPREPO" 2>/dev/null || true)
-    case "$resolved" in
-        RESOLVED:*) ;;
-        STALE:*)
-            die "Project '$BATCH_XDEPREPO' is registered but its path is stale: ${resolved#STALE:}"
-            ;;
-        NOT_FOUND:*|"")
-            die "Project '$BATCH_XDEPREPO' is not registered. Run \`cd /path/to/$BATCH_XDEPREPO && ait projects add\`."
-            ;;
-        *)
-            die "Project resolver returned unexpected output for '$BATCH_XDEPREPO': $resolved"
-            ;;
-    esac
-
-    # Validate each xdeps id exists cross-repo. Uses `task-status` which
-    # accepts both parent (N) and child (N_M) IDs and emits STATUS:NOT_FOUND
-    # for missing tasks; archived tasks resolve to STATUS:Done.
-    local IFS=','
-    local id
-    for id in $BATCH_XDEPS; do
-        id="${id#t}"
-        [[ -z "$id" ]] && continue
-        local result
-        result=$("$SCRIPT_DIR/aitask_query_files.sh" --project "$BATCH_XDEPREPO" task-status "$id" 2>/dev/null || true)
-        case "$result" in
-            STATUS:NOT_FOUND|"")
-                die "--xdeps id $id not found in cross-repo project '$BATCH_XDEPREPO'."
-                ;;
-            STATUS:*) ;;
-            *)
-                die "Unexpected task-status output for xdeps id $id in '$BATCH_XDEPREPO': $result"
-                ;;
-        esac
-    done
-}
+# validate_xdeps_pair is defined in lib/task_utils.sh and shared with
+# aitask_update.sh. It reads BATCH_XDEPS / BATCH_XDEPREPO / SCRIPT_DIR
+# from the caller's environment.
 
 # Get labels interactively - sets SELECTED_LABELS variable
 # This function works directly with the terminal, not via command substitution

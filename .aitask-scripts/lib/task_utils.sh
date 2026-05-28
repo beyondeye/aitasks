@@ -277,6 +277,55 @@ read_xdeprepo() {
     read_yaml_field "$file_path" "xdeprepo"
 }
 
+# Validate the cross-repo dep pair: both BATCH_XDEPS and BATCH_XDEPREPO must
+# be set together (both-or-neither); BATCH_XDEPREPO must resolve via the
+# project registry; each id in BATCH_XDEPS must exist in the cross-repo
+# project. No-op if both are empty (most tasks).
+#
+# Reads globals: BATCH_XDEPS, BATCH_XDEPREPO, SCRIPT_DIR. Callers (create.sh,
+# update.sh) populate these before invoking.
+validate_xdeps_pair() {
+    if [[ -z "${BATCH_XDEPS:-}" && -z "${BATCH_XDEPREPO:-}" ]]; then
+        return 0
+    fi
+    if [[ -z "${BATCH_XDEPS:-}" || -z "${BATCH_XDEPREPO:-}" ]]; then
+        die "--xdeps and --xdeprepo must be provided together (both-or-neither)."
+    fi
+
+    local resolved
+    resolved=$("$SCRIPT_DIR/aitask_project_resolve.sh" "$BATCH_XDEPREPO" 2>/dev/null || true)
+    case "$resolved" in
+        RESOLVED:*) ;;
+        STALE:*)
+            die "Project '$BATCH_XDEPREPO' is registered but its path is stale: ${resolved#STALE:}"
+            ;;
+        NOT_FOUND:*|"")
+            die "Project '$BATCH_XDEPREPO' is not registered. Run \`cd /path/to/$BATCH_XDEPREPO && ait projects add\`."
+            ;;
+        *)
+            die "Project resolver returned unexpected output for '$BATCH_XDEPREPO': $resolved"
+            ;;
+    esac
+
+    local IFS=','
+    local id
+    for id in $BATCH_XDEPS; do
+        id="${id#t}"
+        [[ -z "$id" ]] && continue
+        local result
+        result=$("$SCRIPT_DIR/aitask_query_files.sh" --project "$BATCH_XDEPREPO" task-status "$id" 2>/dev/null || true)
+        case "$result" in
+            STATUS:NOT_FOUND|"")
+                die "--xdeps id $id not found in cross-repo project '$BATCH_XDEPREPO'."
+                ;;
+            STATUS:*) ;;
+            *)
+                die "Unexpected task-status output for xdeps id $id in '$BATCH_XDEPREPO': $result"
+                ;;
+        esac
+    done
+}
+
 # Normalize child task IDs: ensure entries with underscore have 't' prefix.
 # e.g. "85_2,t85_3,16" -> "t85_2,t85_3,16"
 normalize_task_ids() {
