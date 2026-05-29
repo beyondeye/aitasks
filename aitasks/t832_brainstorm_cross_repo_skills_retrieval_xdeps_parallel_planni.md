@@ -5,9 +5,9 @@ depends: [t826_1]
 issue_type: feature
 status: Ready
 labels: [brainstorming, cross_repo, aitask_query, aitask_create]
-children_to_implement: [t832_5, t832_6, t832_8, t832_9, t832_10]
+children_to_implement: [t832_5, t832_6, t832_8, t832_9]
 created_at: 2026-05-25 22:30
-updated_at: 2026-05-28 12:03
+updated_at: 2026-05-29 18:34
 boardidx: 10
 ---
 
