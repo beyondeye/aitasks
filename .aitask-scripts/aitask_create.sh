@@ -407,11 +407,15 @@ create_child_task_file() {
         echo "priority: $priority"
         echo "effort: $effort"
         echo "depends: $deps_yaml"
-        # Cross-repo deps (both-or-neither, validated by validate_xdeps_pair)
+        # Cross-repo fields. As of t832_10, `xdeprepo:` may appear alone
+        # (intent-only mode); `xdeps:` still requires `xdeprepo:`
+        # (enforced by validate_xdeps_pair).
         if [[ -n "${BATCH_XDEPS:-}" ]]; then
             local xdeps_yaml
             xdeps_yaml=$(format_yaml_list "$BATCH_XDEPS")
             echo "xdeps: $xdeps_yaml"
+        fi
+        if [[ -n "${BATCH_XDEPREPO:-}" ]]; then
             echo "xdeprepo: $BATCH_XDEPREPO"
         fi
         echo "issue_type: $issue_type"
@@ -480,6 +484,11 @@ create_draft_file() {
     local contributor_email="${14:-}"
     local file_references="${15:-}"
     local verifies="${16:-}"
+    # Cross-repo project name. When set (interactive path) overrides
+    # BATCH_XDEPREPO. The xdeps list still comes only from BATCH_XDEPS
+    # since interactive collection of cross-repo deps is out of scope
+    # for t832_10.
+    local xdeprepo_arg="${17:-}"
 
     mkdir -p "$DRAFT_DIR"
 
@@ -496,17 +505,25 @@ create_draft_file() {
     local labels_yaml
     labels_yaml=$(format_yaml_list "$labels")
 
+    # Resolve effective xdeps/xdeprepo: interactive `xdeprepo_arg` wins
+    # over the BATCH_XDEPREPO global; xdeps stays batch-only. The two
+    # YAML lines emit independently (intent-only `xdeprepo:` is allowed
+    # by validate_xdeps_pair as of t832_10).
+    local eff_xdeps="${BATCH_XDEPS:-}"
+    local eff_xdeprepo="${xdeprepo_arg:-${BATCH_XDEPREPO:-}}"
+
     {
         echo "---"
         echo "priority: $priority"
         echo "effort: $effort"
         echo "depends: $deps_yaml"
-        # Cross-repo deps (both-or-neither, validated by validate_xdeps_pair)
-        if [[ -n "${BATCH_XDEPS:-}" ]]; then
+        if [[ -n "$eff_xdeps" ]]; then
             local xdeps_yaml
-            xdeps_yaml=$(format_yaml_list "$BATCH_XDEPS")
+            xdeps_yaml=$(format_yaml_list "$eff_xdeps")
             echo "xdeps: $xdeps_yaml"
-            echo "xdeprepo: $BATCH_XDEPREPO"
+        fi
+        if [[ -n "$eff_xdeprepo" ]]; then
+            echo "xdeprepo: $eff_xdeprepo"
         fi
         echo "issue_type: $issue_type"
         echo "status: $status"
@@ -796,6 +813,56 @@ select_issue_type() {
 
 select_status() {
     echo -e "Ready\nEditing\nImplementing\nPostponed" | fzf --prompt="Status: " --height=12 --no-info --header="Select task status"
+}
+
+# Cross-repo project picker. Writes the chosen project name to stdout, or
+# empty if the user picks "None (single-repo)" / cancels / no registered
+# resolvable projects exist. STALE registry entries are skipped with a
+# stderr warn. Caller stores the result in a local `xdeprepo` to thread
+# through draft creation.
+select_xdeprepo() {
+    local list_out
+    list_out=$("$SCRIPT_DIR/aitask_project_resolve.sh" list 2>/dev/null || true)
+    if [[ -z "$list_out" ]]; then
+        echo ""
+        return
+    fi
+
+    local -a candidates=()
+    local line name path status
+    while IFS= read -r line; do
+        [[ "$line" == PROJECT:* ]] || continue
+        IFS=':' read -r _ name path status <<< "$line"
+        case "$status" in
+            RESOLVED)
+                # Exclude the current project (resolves to $(pwd)) from the
+                # candidate list — a task cannot declare itself cross-repo
+                # against its own project.
+                if [[ "$path" != "$(pwd)" ]]; then
+                    candidates+=("$name")
+                fi
+                ;;
+            STALE)
+                warn "Cross-repo registry entry '$name' → $path is stale (skipped)" >&2
+                ;;
+        esac
+    done <<< "$list_out"
+
+    if [[ ${#candidates[@]} -eq 0 ]]; then
+        echo ""
+        return
+    fi
+
+    local options selected
+    options=$(printf '%s\n' "None (single-repo)" "${candidates[@]}")
+    selected=$(echo "$options" | fzf --prompt="Cross-repo project: " --height=12 --no-info \
+        --header="Select a cross-repo project (or None) — sets xdeprepo:" 2>/dev/null || echo "")
+
+    if [[ -z "$selected" ]] || [[ "$selected" == "None (single-repo)" ]]; then
+        echo ""
+        return
+    fi
+    echo "$selected"
 }
 
 LABELS_FILE="aitasks/metadata/labels.txt"
@@ -1116,6 +1183,52 @@ select_archived_task_ref() {
     echo "$path"
 }
 
+# Cross-repo variant: select an archived task from the registered project
+# named by $1 (the active xdeprepo). Echoes `<xdeprepo>#<id>` (e.g.
+# `aitasks_mobile#42_3`) on selection, empty on cancel / no results.
+# Preview is omitted because the path lives in the cross-repo project root
+# and would resolve incorrectly from this shell's pwd.
+select_cross_repo_archived_task_ref() {
+    local xdeprepo="$1"
+    [[ -n "$xdeprepo" ]] || { echo ""; return; }
+
+    local lines rows selected path id basename_f
+    lines=$("$SCRIPT_DIR/aitask_query_files.sh" --project "$xdeprepo" recent-archived 999 2>/dev/null || true)
+
+    if [[ -z "$lines" ]] || [[ "$lines" == "NO_RECENT_ARCHIVED" ]]; then
+        warn "No archived tasks found in cross-repo project '$xdeprepo'." >&2
+        echo ""
+        return
+    fi
+
+    rows=$(echo "$lines" | awk -F'|' '
+        /^RECENT_ARCHIVED:/ {
+            sub(/^RECENT_ARCHIVED:/, "", $1)
+            printf "%s    [%s] %s (%s)\n", $1, $2, $4, $3
+        }')
+
+    selected=$(echo "$rows" | fzf --prompt="Archived task ($xdeprepo): " --height=20 --no-info \
+        --header="Select cross-repo archived task to reference (Esc to cancel)" \
+        2>/dev/null || echo "")
+
+    if [[ -z "$selected" ]]; then
+        echo ""
+        return
+    fi
+
+    path=$(echo "$selected" | awk '{print $1}')
+    basename_f=$(basename "$path" .md)
+    # Strip the leading `t` and the trailing `_<slug>` to land on the bare id.
+    # e.g. `t832_1_xdeps_parser_and_validation` → `832_1`.
+    id=$(echo "$basename_f" | sed -E 's/^t([0-9]+(_[0-9]+)?).*/\1/')
+    if [[ -z "$id" ]] || [[ "$id" == "$basename_f" ]]; then
+        warn "Could not extract task ID from '$basename_f' — skipping insert." >&2
+        echo ""
+        return
+    fi
+    echo "${xdeprepo}#${id}"
+}
+
 # --- Step 3: Task Name ---
 
 sanitize_name() {
@@ -1155,6 +1268,25 @@ get_task_name() {
 
 get_task_definition() {
     local task_desc="${1:-}"
+    # Optional cross-repo project name. When non-empty, two extra menu
+    # items are offered in the file/task reference loop: cross-repo
+    # archived task ref and cross-repo file ref. Both insert into the
+    # description body using the documented notation
+    # (<project>#<id> for tasks, <project>:<relative/path> for files);
+    # neither pollutes `file_references:` (consistent with the local
+    # archived-task-ref precedent).
+    local xdeprepo="${2:-}"
+    local xdeprepo_root=""
+    if [[ -n "$xdeprepo" ]]; then
+        local resolve_out
+        resolve_out=$("$SCRIPT_DIR/aitask_project_resolve.sh" "$xdeprepo" 2>/dev/null || true)
+        if [[ "$resolve_out" == RESOLVED:* ]]; then
+            xdeprepo_root="${resolve_out#RESOLVED:}"
+        else
+            warn "Cross-repo project '$xdeprepo' did not resolve cleanly ($resolve_out) — cross-repo reference items disabled." >&2
+            xdeprepo=""
+        fi
+    fi
 
     if [[ -n "$task_desc" ]]; then
         info "Pre-populated description with your earlier text. You can add more or finish." >&2
@@ -1187,11 +1319,16 @@ $desc_block"
         local -a current_round_refs=()
         while true; do
             local add_file
-            local menu_opts="Add file reference\nAdd archived task reference\nDone with files"
-            if [[ ${#current_round_refs[@]} -gt 0 ]]; then
-                menu_opts="Add file reference\nAdd archived task reference\nRemove reference\nDone with files"
+            local menu_opts="Add file reference\nAdd archived task reference"
+            if [[ -n "$xdeprepo" ]]; then
+                menu_opts="${menu_opts}\nAdd cross-repo file reference (from ${xdeprepo})\nAdd cross-repo archived task reference (from ${xdeprepo})"
             fi
-            add_file=$(echo -e "$menu_opts" | fzf --prompt="Add reference? " --height=8 --no-info)
+            menu_opts="${menu_opts}\nDone with files"
+            if [[ ${#current_round_refs[@]} -gt 0 ]]; then
+                # Insert Remove option just before Done
+                menu_opts="${menu_opts%\\nDone with files}\nRemove reference\nDone with files"
+            fi
+            add_file=$(echo -e "$menu_opts" | fzf --prompt="Add reference? " --height=10 --no-info)
 
             if [[ "$add_file" == "Done with files" ]] || [[ -z "$add_file" ]]; then
                 break
@@ -1211,6 +1348,42 @@ $selected_archived"
                     # in the description only, not in file_references:.
                     current_round_refs+=("$selected_archived")
                     success "Added archived ref: $selected_archived" >&2
+                fi
+                continue
+            elif [[ "$add_file" == "Add cross-repo archived task reference (from ${xdeprepo})" ]]; then
+                local selected_xr_task
+                selected_xr_task=$(select_cross_repo_archived_task_ref "$xdeprepo")
+                if [[ -n "$selected_xr_task" ]]; then
+                    if [[ -n "$task_desc" ]]; then
+                        task_desc="$task_desc
+$selected_xr_task"
+                    else
+                        task_desc="$selected_xr_task"
+                    fi
+                    current_round_refs+=("$selected_xr_task")
+                    success "Added cross-repo task ref: $selected_xr_task" >&2
+                fi
+                continue
+            elif [[ "$add_file" == "Add cross-repo file reference (from ${xdeprepo})" ]]; then
+                local selected_xr_file rel_path
+                # fzf walker rooted in the cross-repo project so paths are
+                # relative to that root; compose <xdeprepo>:<relative-path>.
+                selected_xr_file=$(cd "$xdeprepo_root" && fzf --prompt="Select file from ${xdeprepo}: " \
+                    --height=20 --preview 'head -50 {}' \
+                    --walker=file,hidden --walker-skip=.git,node_modules,build < /dev/tty 2>/dev/null || echo "")
+                if [[ -n "$selected_xr_file" ]]; then
+                    rel_path="${selected_xr_file#./}"
+                    local xr_ref="${xdeprepo}:${rel_path}"
+                    if [[ -n "$task_desc" ]]; then
+                        task_desc="$task_desc
+$xr_ref"
+                    else
+                        task_desc="$xr_ref"
+                    fi
+                    # Inline only — NOT added to all_file_refs (same precedent
+                    # as cross-repo archived task refs above).
+                    current_round_refs+=("$xr_ref")
+                    success "Added cross-repo file ref: $xr_ref" >&2
                 fi
                 continue
             elif [[ "$add_file" == "Remove reference" ]]; then
@@ -1470,11 +1643,15 @@ create_task_file() {
         echo "priority: $priority"
         echo "effort: $effort"
         echo "depends: $deps_yaml"
-        # Cross-repo deps (both-or-neither, validated by validate_xdeps_pair)
+        # Cross-repo fields. As of t832_10, `xdeprepo:` may appear alone
+        # (intent-only mode); `xdeps:` still requires `xdeprepo:`
+        # (enforced by validate_xdeps_pair).
         if [[ -n "${BATCH_XDEPS:-}" ]]; then
             local xdeps_yaml
             xdeps_yaml=$(format_yaml_list "$BATCH_XDEPS")
             echo "xdeps: $xdeps_yaml"
+        fi
+        if [[ -n "${BATCH_XDEPREPO:-}" ]]; then
             echo "xdeprepo: $BATCH_XDEPREPO"
         fi
         echo "issue_type: $issue_type"
@@ -1910,9 +2087,14 @@ main() {
     local deps
     deps=$(select_dependencies "$parent_num")
 
+    # Cross-repo project pick (sets xdeprepo: in the draft frontmatter).
+    # Empty means single-repo task.
+    local xdeprepo
+    xdeprepo=$(select_xdeprepo)
+
     echo ""
     info "Priority: $priority, Effort: $effort, Issue: $issue_type, Status: $status"
-    info "Dependencies: ${deps:-None}, Labels: ${labels:-None}"
+    info "Dependencies: ${deps:-None}, Labels: ${labels:-None}, Cross-repo: ${xdeprepo:-None}"
     echo ""
 
     # Step 3: Get task name
@@ -1927,7 +2109,7 @@ main() {
     # Step 4-5: Get task definition
     info "Enter task definition..."
     local raw_definition task_desc
-    raw_definition=$(get_task_definition "$predesc_text")
+    raw_definition=$(get_task_definition "$predesc_text" "$xdeprepo")
 
     # Split the raw output at the __FILE_REFS_MARKER__ line: the portion
     # above is the description body; the portion below is one file ref per line.
@@ -1948,7 +2130,7 @@ main() {
     filepath=$(create_draft_file "$task_name" "$priority" "$effort" "$deps" \
         "$task_desc" "$issue_type" "$status" "$labels" "" "" \
         "$([[ "$is_child_task" == true ]] && echo "$parent_num" || echo "")" \
-        "" "" "" "$deduped_file_refs")
+        "" "" "" "$deduped_file_refs" "" "$xdeprepo")
 
     success "Draft created: $filepath"
     echo ""
@@ -1965,6 +2147,7 @@ main() {
     echo "  Status:        $status"
     echo "  Dependencies:  ${deps:-None}"
     echo "  Labels:        ${labels:-None}"
+    echo "  Cross-repo:    ${xdeprepo:-None}"
     if [[ "$is_child_task" == true ]]; then
         echo "  Parent task:   t$parent_num"
     fi

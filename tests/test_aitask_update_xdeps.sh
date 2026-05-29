@@ -6,7 +6,8 @@
 #
 # Covers:
 #   - happy path: --xdeps + --xdeprepo writes both YAML fields
-#   - both-or-neither: only --xdeps fails, only --xdeprepo fails
+#   - --xdeps alone fails (xdeps without project context).
+#   - --xdeprepo alone succeeds (intent-only mode, t832_10).
 #   - clearing: both "" together removes the fields
 #   - parser round-trip: read_xdeps / read_xdeprepo see what update wrote
 #
@@ -137,15 +138,28 @@ run_update() {
     set -e
 }
 
-# --- Case 1: only --xdeps → fails (both-or-neither) ----------------------
+# --- Case 1: only --xdeps → fails (xdeps requires xdeprepo) --------------
 run_update --xdeps "1"
 assert_exits_nonzero "only --xdeps fails"             "$LAST_RC"
-assert_contains    "both-or-neither error surfaces" "both-or-neither" "$LAST_OUT"
+assert_contains    "xdeps-without-xdeprepo error surfaces" \
+    "--xdeps requires --xdeprepo" "$LAST_OUT"
 
-# --- Case 2: only --xdeprepo → fails -------------------------------------
+# --- Case 2: only --xdeprepo → succeeds (intent-only, t832_10) ----------
 run_update --xdeprepo sister
-assert_exits_nonzero "only --xdeprepo fails"          "$LAST_RC"
-assert_contains    "both-or-neither error surfaces" "both-or-neither" "$LAST_OUT"
+assert_exits_zero  "only --xdeprepo succeeds (intent-only)" "$LAST_RC"
+
+# Task should now have xdeprepo: sister and no xdeps: line.
+TOTAL=$((TOTAL + 1))
+if grep -q '^xdeprepo: sister$' "$TASK_FILE" && ! grep -q '^xdeps:' "$TASK_FILE"; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: intent-only update should leave xdeprepo: sister and no xdeps:"
+    cat "$TASK_FILE"
+fi
+
+# Reset the task for subsequent cases.
+sed -i.bak '/^xdeprepo:/d' "$TASK_FILE" && rm -f "$TASK_FILE.bak"
 
 # --- Case 3: --xdeprepo unregistered → die with hint ---------------------
 run_update --xdeps "1" --xdeprepo "not_registered_xxx"
@@ -194,13 +208,33 @@ else
     cat "$TASK_FILE"
 fi
 
-# --- Case 8: clearing only one side → fails ------------------------------
+# --- Case 8: clearing only xdeps while keeping xdeprepo → succeeds ------
+# As of t832_10, intent-only `xdeprepo:` is allowed, so this becomes
+# the "drop concrete deps but keep the cross-repo intent link" flow.
 # First repopulate.
 run_update --xdeps "1,2" --xdeprepo "sister"
 assert_exits_zero "repopulate xdeps before half-clear" "$LAST_RC"
 run_update --xdeps ""
-assert_exits_nonzero "half-clear (xdeps only) fails" "$LAST_RC"
-assert_contains "half-clear error surfaces" "both-or-neither" "$LAST_OUT"
+assert_exits_zero "half-clear (xdeps only) succeeds, intent-only mode" "$LAST_RC"
+
+TOTAL=$((TOTAL + 1))
+if grep -q '^xdeprepo: sister$' "$TASK_FILE" && ! grep -q '^xdeps:' "$TASK_FILE"; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: half-clear should leave xdeprepo: sister and no xdeps:"
+    cat "$TASK_FILE"
+fi
+
+# --- Case 9: clearing xdeprepo while xdeps still present → fails ---------
+# Inverse of Case 8: dropping the project context while concrete xdeps
+# remain is invalid (those ids would lose their resolution context).
+run_update --xdeps "1,2" --xdeprepo "sister"
+assert_exits_zero "repopulate before inverse half-clear" "$LAST_RC"
+run_update --xdeprepo ""
+assert_exits_nonzero "inverse half-clear (xdeprepo only) fails" "$LAST_RC"
+assert_contains "inverse half-clear surfaces requires-xdeprepo error" \
+    "--xdeps requires --xdeprepo" "$LAST_OUT"
 
 # --- Summary ------------------------------------------------------------
 

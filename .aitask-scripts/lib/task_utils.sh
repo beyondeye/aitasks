@@ -277,19 +277,28 @@ read_xdeprepo() {
     read_yaml_field "$file_path" "xdeprepo"
 }
 
-# Validate the cross-repo dep pair: both BATCH_XDEPS and BATCH_XDEPREPO must
-# be set together (both-or-neither); BATCH_XDEPREPO must resolve via the
-# project registry; each id in BATCH_XDEPS must exist in the cross-repo
-# project. No-op if both are empty (most tasks).
+# Validate the cross-repo dep pair.
 #
-# Reads globals: BATCH_XDEPS, BATCH_XDEPREPO, SCRIPT_DIR. Callers (create.sh,
-# update.sh) populate these before invoking.
+# As of t832_10:
+#   - Neither set                 → no-op (most tasks).
+#   - Both set                    → BATCH_XDEPREPO must resolve cleanly;
+#                                   every id in BATCH_XDEPS must exist in
+#                                   the cross-repo project.
+#   - BATCH_XDEPREPO alone        → OK (intent-only; the new task declares
+#                                   cross-repo coordination without any
+#                                   concrete deps yet). The xdeprepo
+#                                   registry resolution still runs.
+#   - BATCH_XDEPS alone           → die (xdeps cannot exist without a
+#                                   project context to resolve them in).
+#
+# Reads globals: BATCH_XDEPS, BATCH_XDEPREPO, SCRIPT_DIR. Callers
+# (create.sh, update.sh) populate these before invoking.
 validate_xdeps_pair() {
     if [[ -z "${BATCH_XDEPS:-}" && -z "${BATCH_XDEPREPO:-}" ]]; then
         return 0
     fi
-    if [[ -z "${BATCH_XDEPS:-}" || -z "${BATCH_XDEPREPO:-}" ]]; then
-        die "--xdeps and --xdeprepo must be provided together (both-or-neither)."
+    if [[ -n "${BATCH_XDEPS:-}" && -z "${BATCH_XDEPREPO:-}" ]]; then
+        die "--xdeps requires --xdeprepo (xdeps without a project context cannot be resolved)."
     fi
 
     local resolved

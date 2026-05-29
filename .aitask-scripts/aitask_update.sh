@@ -487,11 +487,15 @@ write_task_file() {
         echo "priority: $priority"
         echo "effort: $effort"
         echo "depends: $deps_yaml"
-        # Cross-repo deps (both-or-neither, validated by validate_xdeps_pair)
+        # Cross-repo fields. As of t832_10, `xdeprepo:` may appear alone
+        # (intent-only mode); `xdeps:` still requires `xdeprepo:`
+        # (enforced by validate_xdeps_pair).
         if [[ -n "$xdeps" ]]; then
             local xdeps_yaml
             xdeps_yaml=$(format_yaml_list "$xdeps")
             echo "xdeps: $xdeps_yaml"
+        fi
+        if [[ -n "$xdeprepo" ]]; then
             echo "xdeprepo: $xdeprepo"
         fi
         echo "issue_type: $issue_type"

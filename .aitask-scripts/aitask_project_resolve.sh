@@ -25,11 +25,18 @@
 #
 # Usage:
 #   ./.aitask-scripts/aitask_project_resolve.sh <name>
+#   ./.aitask-scripts/aitask_project_resolve.sh list
 #
-# Output (exactly one line, exit 0):
+# Output for <name> (exactly one line, exit 0):
 #   RESOLVED:<absolute-path>
 #   NOT_FOUND:<name>
 #   STALE:<name>:<path>
+#
+# Output for `list` (one line per registered entry, exit 0):
+#   PROJECT:<name>:<path>:<status>
+# where <status> is RESOLVED or STALE. Entries from the tmux scan and
+# process env-var are NOT included — `list` enumerates the persistent
+# per-user registry only.
 
 set -euo pipefail
 
@@ -44,16 +51,71 @@ REGISTRY_FILE="${AITASKS_PROJECTS_INDEX:-$HOME/.config/aitasks/projects.yaml}"
 show_help() {
     cat <<'EOF'
 Usage: aitask_project_resolve.sh <name>
+       aitask_project_resolve.sh list
 
-Resolve a logical aitasks project name to its filesystem root.
+Resolve a logical aitasks project name to its filesystem root, or list
+every entry from the per-user registry.
 
-Output (exactly one line, exit 0):
-  RESOLVED:<absolute-path>   The project was found and the path is valid.
+Resolve output (single line, exit 0):
+  RESOLVED:<absolute-path>   Project found and path is a valid aitasks root.
   NOT_FOUND:<name>           No registered project matched.
-  STALE:<name>:<path>        Registered, but the path no longer holds an aitasks project.
+  STALE:<name>:<path>        Registered, but the path is no longer a valid root.
 
-Internal helper. Prefer `ait projects resolve <name>` for user-facing use.
+List output (one line per registered entry, exit 0):
+  PROJECT:<name>:<path>:<status>   Where <status> is RESOLVED or STALE.
+
+Internal helper. Prefer `ait projects resolve <name>` / `ait projects list`
+for user-facing use.
 EOF
+}
+
+# Iterate every (name, path) pair from the per-user registry and emit one
+# `PROJECT:<name>:<path>:<status>` line per entry. STALE when the path no
+# longer holds an aitasks project root. Only the persistent registry is
+# enumerated — the tmux scan and process env-var lookups are intentionally
+# excluded so the output is reproducible across shells.
+cmd_list() {
+    [[ -f "$REGISTRY_FILE" ]] || return 0
+    local raw name path status
+    raw=$(awk '
+        function flush() {
+            if (cur_name == "") return
+            printf "%s\t%s\n", cur_name, cur_path
+            cur_name=""; cur_path=""
+        }
+        function unquote(s) {
+            gsub(/^[[:space:]]+/, "", s)
+            gsub(/[[:space:]]+$/, "", s)
+            gsub(/^"/, "", s); gsub(/"$/, "", s)
+            gsub(/^'\''/, "", s); gsub(/'\''$/, "", s)
+            return s
+        }
+        /^[[:space:]]*-[[:space:]]*name:[[:space:]]*/ {
+            flush()
+            v=$0; sub(/^[[:space:]]*-[[:space:]]*name:[[:space:]]*/, "", v)
+            cur_name=unquote(v); next
+        }
+        /^[[:space:]]+name:[[:space:]]*/ {
+            flush()
+            v=$0; sub(/^[[:space:]]+name:[[:space:]]*/, "", v)
+            cur_name=unquote(v); next
+        }
+        /^[[:space:]]+path:[[:space:]]*/ {
+            v=$0; sub(/^[[:space:]]+path:[[:space:]]*/, "", v)
+            cur_path=unquote(v); next
+        }
+        END { flush() }
+    ' "$REGISTRY_FILE")
+    [[ -z "$raw" ]] && return 0
+    while IFS=$'\t' read -r name path; do
+        [[ -z "$name" ]] && continue
+        if path_is_aitasks_project "$path"; then
+            status="RESOLVED"
+        else
+            status="STALE"
+        fi
+        printf 'PROJECT:%s:%s:%s\n' "$name" "$path" "$status"
+    done <<< "$raw"
 }
 
 # Print RESOLVED:<path> if a tmux scan finds a session whose project_name or
@@ -162,6 +224,10 @@ main() {
     case "${1:-}" in
         ""|--help|-h)
             show_help
+            return 0
+            ;;
+        list)
+            cmd_list
             return 0
             ;;
     esac

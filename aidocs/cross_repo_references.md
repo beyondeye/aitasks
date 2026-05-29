@@ -126,6 +126,29 @@ notation is documented; parsers come in later siblings). Use it in
 plans / commit messages / task descriptions so the convention spreads
 ahead of the tooling.
 
+## Cross-repo file path notation
+
+For pointing at a file inside a registered cross-repo project, use:
+
+```
+aitasks_mobile:Sources/Login.kt
+```
+
+Pattern: `^([a-z0-9_-]+):([^:].*)$`
+
+- The part before `:` is the registry key (same project namespace as
+  the `#` task notation above).
+- The part after `:` is the file path relative to the project root.
+
+The colon separator is unambiguous because POSIX file paths cannot
+contain `:` and project names cannot contain `:` either. The
+`aitask_create.sh` interactive flow emits this notation when a user
+picks a file from the cross-repo project via the "Add cross-repo
+file reference" menu item.
+
+Like the `#` task notation, this is authoring-only — downstream
+tooling that resolves the path lives in follow-up tasks.
+
 ## Failure modes & escalation
 
 | Resolver output | Recommended caller behavior |

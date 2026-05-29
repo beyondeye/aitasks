@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# test_xdeps_validation.sh - Verify validate_xdeps_pair in aitask_create.sh (t832_3).
+# test_xdeps_validation.sh - Verify validate_xdeps_pair in aitask_create.sh
+# (originally t832_3; xdeprepo-alone allowance added in t832_10).
 #
 # Covers:
-#   - both-or-neither (only --xdeps fails; only --xdeprepo fails)
-#   - --xdeprepo not registered → die-with-hint
-#   - --xdeprepo registered but stale path → die-with-stale-hint
-#   - --xdeps id not present cross-repo → die
-#   - happy path: both present and valid → succeeds
+#   - --xdeps alone fails (xdeps without a project context).
+#   - --xdeprepo alone SUCCEEDS (intent-only mode added in t832_10) and
+#     emits `xdeprepo:` without `xdeps:`.
+#   - --xdeprepo not registered → die-with-hint.
+#   - --xdeprepo registered but stale path → die-with-stale-hint.
+#   - --xdeps id not present cross-repo → die.
+#   - happy path: both present and valid → succeeds, both emitted.
 #
 # Run: bash tests/test_xdeps_validation.sh
 
@@ -132,12 +135,26 @@ run_create() {
 # --- Case 1: only --xdeps → fails -----------------------------------------
 run_create --xdeps "1"
 assert_exits_nonzero "only --xdeps fails"          "$LAST_RC"
-assert_contains    "both-or-neither error surfaces" "both-or-neither" "$LAST_OUT"
+assert_contains    "xdeps-without-xdeprepo error surfaces" \
+    "--xdeps requires --xdeprepo" "$LAST_OUT"
 
-# --- Case 2: only --xdeprepo → fails --------------------------------------
+# --- Case 2: only --xdeprepo → succeeds (intent-only mode, t832_10) ------
+rm -f "$LOCAL_ROOT/aitasks/new/"*.md
 run_create --xdeprepo sister
-assert_exits_nonzero "only --xdeprepo fails"        "$LAST_RC"
-assert_contains    "both-or-neither error surfaces" "both-or-neither" "$LAST_OUT"
+assert_exits_zero  "only --xdeprepo succeeds (intent-only)" "$LAST_RC"
+
+# Inspect the draft: xdeprepo line present, xdeps line absent.
+draft_only_xdeprepo=$(ls "$LOCAL_ROOT/aitasks/new/"*.md 2>/dev/null | head -1)
+TOTAL=$((TOTAL + 1))
+if [[ -n "$draft_only_xdeprepo" ]] \
+        && grep -q '^xdeprepo: sister$' "$draft_only_xdeprepo" \
+        && ! grep -q '^xdeps:' "$draft_only_xdeprepo"; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: intent-only draft should have xdeprepo: but no xdeps:"
+    [[ -n "$draft_only_xdeprepo" ]] && cat "$draft_only_xdeprepo"
+fi
 
 # --- Case 3: --xdeprepo not registered → die with hint --------------------
 run_create --xdeps "1" --xdeprepo "not_registered_xxx"
@@ -155,6 +172,7 @@ assert_exits_nonzero "missing cross-repo id fails"  "$LAST_RC"
 assert_contains    "missing id surfaced"            "999" "$LAST_OUT"
 
 # --- Case 6: valid pair → succeeds, frontmatter includes xdeps/xdeprepo ---
+rm -f "$LOCAL_ROOT/aitasks/new/"*.md
 run_create --xdeps "1,2" --xdeprepo "sister"
 assert_exits_zero    "valid pair succeeds" "$LAST_RC"
 
