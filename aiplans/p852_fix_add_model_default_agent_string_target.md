@@ -192,3 +192,34 @@ After approval + implementation, follow task-workflow **Step 8** (review →
 commit; framework code committed via plain `git` on `main`, no `aitasks/`
 files in the code commit) and **Step 9** (archival via
 `./.aitask-scripts/aitask_archive.sh 852`, then `./ait git push`).
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly as planned. Rewrote
+  `cmd_promote_default_agent_string` in `aitask_add_model.sh` to patch two
+  files — `DEFAULT_AGENT_STRING` in `lib/agent_string.sh` (preserving the
+  `${DEFAULT_AGENT_STRING:-<value>}` parameter-expansion shape) and the
+  resolution-chain note in `aitask_codeagent.sh`. Updated the top-of-file
+  subcommand comment, `tests/test_add_model.sh` (fixture splits a
+  `lib/agent_string.sh` stub out of the codeagent stub; Test 4 asserts the
+  preserved shape + exec-bit on both files; Test 5 expects two dry-run diff
+  headers), `aitask-add-model/SKILL.md` (4 sites), and
+  `aidocs/model_reference_locations.md` section 3.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Verified `shellcheck` clean, `bash
+  tests/test_add_model.sh` → 31/31 pass, and the real-tree dry-run that
+  previously died now exits 0 emitting both file diffs with the override
+  shape intact.
+- **Key decisions:** Kept the resolution-chain note patch targeting
+  `aitask_codeagent.sh` (the note genuinely still lives there) rather than
+  moving it — the subcommand legitimately spans two files now.
+- **Upstream defects identified:** None. (The original anchor-mismatch bug
+  *is* this task's subject, not a separate pre-existing defect in another
+  module.)
+- **Cross-agent port follow-up (NOT an upstream defect):** The same stale
+  guidance exists in the mirrored add-model skills at
+  `.agents/skills/aitask-add-model/SKILL.md` (Codex),
+  `.opencode/skills/aitask-add-model/SKILL.md`, and
+  `.opencode/commands/aitask-add-model.md`. Per CLAUDE.md, skill changes land
+  in the Claude Code version first; a separate task should port the
+  `lib/agent_string.sh` correction to those trees. Suggested at Step 8b.
