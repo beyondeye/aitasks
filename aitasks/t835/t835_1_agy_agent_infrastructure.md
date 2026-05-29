@@ -3,11 +3,10 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [codeagent]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-28 12:17
-updated_at: 2026-05-28 17:27
+updated_at: 2026-05-29 12:37
 ---
 
 ## Context
