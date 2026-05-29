@@ -10,7 +10,8 @@
 # Subcommands:
 #   add-json                       Append model entry to models_<agent>.json + seed
 #   promote-config                 Update codeagent_config.json defaults for ops
-#   promote-default-agent-string   Update DEFAULT_AGENT_STRING + resolution-chain
+#   promote-default-agent-string   Update DEFAULT_AGENT_STRING in
+#                                  lib/agent_string.sh + the resolution-chain
 #                                  note in aitask_codeagent.sh (claudecode only)
 
 set -euo pipefail
@@ -236,39 +237,54 @@ cmd_promote_default_agent_string() {
         die "promote-default-agent-string only supports agent 'claudecode' (got '$agent'). Other agents do not have a hardcoded DEFAULT_AGENT_STRING."
     fi
 
-    local src_rel=".aitask-scripts/aitask_codeagent.sh"
-    local src_file="$REPO_ROOT/$src_rel"
-    [[ -f "$src_file" ]] || die "Source file not found: $src_rel"
-
     local new_value="${agent}/${name}"
 
-    local tmp_src
-    tmp_src=$(mktemp "${TMPDIR:-/tmp}/aitask_add_model_src_XXXXXX.sh")
-    cp "$src_file" "$tmp_src"
+    # DEFAULT_AGENT_STRING lives in lib/agent_string.sh as a parameter-expansion
+    # default: DEFAULT_AGENT_STRING="${DEFAULT_AGENT_STRING:-<value>}" (callers
+    # may pre-set it to override). The resolution-chain help note still lives
+    # in aitask_codeagent.sh, so this subcommand patches two files.
+    local lib_rel=".aitask-scripts/lib/agent_string.sh"
+    local note_rel=".aitask-scripts/aitask_codeagent.sh"
+    local lib_file="$REPO_ROOT/$lib_rel"
+    local note_file="$REPO_ROOT/$note_rel"
+    [[ -f "$lib_file" ]]  || die "Source file not found: $lib_rel"
+    [[ -f "$note_file" ]] || die "Source file not found: $note_rel"
 
-    sed_inplace "s|^DEFAULT_AGENT_STRING=\".*\"|DEFAULT_AGENT_STRING=\"${new_value}\"|" "$tmp_src"
-    sed_inplace "s|^\(  4\. Hardcoded default: \).*|\1${new_value}|" "$tmp_src"
-
-    if ! grep -q "^DEFAULT_AGENT_STRING=\"${new_value}\"$" "$tmp_src"; then
-        rm -f "$tmp_src"
-        die "Failed to update DEFAULT_AGENT_STRING in $src_rel (anchor pattern did not match)"
+    # --- Patch 1: DEFAULT_AGENT_STRING in lib/agent_string.sh ---
+    # Preserve the ${DEFAULT_AGENT_STRING:-...} parameter-expansion shape so the
+    # caller-override capability survives; only swap the default value.
+    local tmp_lib
+    tmp_lib=$(mktemp "${TMPDIR:-/tmp}/aitask_add_model_lib_XXXXXX.sh")
+    cp "$lib_file" "$tmp_lib"
+    sed_inplace "s|^DEFAULT_AGENT_STRING=\"\${DEFAULT_AGENT_STRING:-.*}\"|DEFAULT_AGENT_STRING=\"\${DEFAULT_AGENT_STRING:-${new_value}}\"|" "$tmp_lib"
+    if ! grep -q "^DEFAULT_AGENT_STRING=\"\${DEFAULT_AGENT_STRING:-${new_value}}\"\$" "$tmp_lib"; then
+        rm -f "$tmp_lib"
+        die "Failed to update DEFAULT_AGENT_STRING in $lib_rel (anchor pattern did not match)"
     fi
-    if ! grep -q "^  4\. Hardcoded default: ${new_value}$" "$tmp_src"; then
-        rm -f "$tmp_src"
-        die "Failed to update resolution-chain note in $src_rel (anchor pattern did not match)"
+
+    # --- Patch 2: resolution-chain note in aitask_codeagent.sh ---
+    local tmp_note
+    tmp_note=$(mktemp "${TMPDIR:-/tmp}/aitask_add_model_note_XXXXXX.sh")
+    cp "$note_file" "$tmp_note"
+    sed_inplace "s|^\(  4\. Hardcoded default: \).*|\1${new_value}|" "$tmp_note"
+    if ! grep -q "^  4\. Hardcoded default: ${new_value}\$" "$tmp_note"; then
+        rm -f "$tmp_lib" "$tmp_note"
+        die "Failed to update resolution-chain note in $note_rel (anchor pattern did not match)"
     fi
 
     if $dry_run; then
-        print_diff "$src_rel" "$tmp_src"
-        rm -f "$tmp_src"
+        print_diff "$lib_rel" "$tmp_lib"
+        print_diff "$note_rel" "$tmp_note"
+        rm -f "$tmp_lib" "$tmp_note"
         return 0
     fi
 
-    # Preserve the source file's mode (executable bit) by rewriting content
-    # in place instead of `mv`-ing a non-executable tempfile over it.
-    cat "$tmp_src" > "$src_file"
-    rm -f "$tmp_src"
-    info "Updated DEFAULT_AGENT_STRING to $new_value in $src_rel"
+    # Preserve each file's mode (executable bit) by rewriting content in place
+    # instead of `mv`-ing a non-executable tempfile over it.
+    cat "$tmp_lib"  > "$lib_file"
+    cat "$tmp_note" > "$note_file"
+    rm -f "$tmp_lib" "$tmp_note"
+    info "Updated DEFAULT_AGENT_STRING to $new_value in $lib_rel (resolution-chain note in $note_rel)"
 }
 
 # --- Main dispatcher ---

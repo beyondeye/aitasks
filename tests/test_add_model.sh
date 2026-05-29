@@ -60,7 +60,8 @@ setup_fixture() {
     # Creates a temp repo layout and exports AITASK_REPO_ROOT.
     FIXTURE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/test_add_model_XXXXXX")
     export AITASK_REPO_ROOT="$FIXTURE_DIR"
-    mkdir -p "$FIXTURE_DIR/aitasks/metadata" "$FIXTURE_DIR/seed" "$FIXTURE_DIR/.aitask-scripts"
+    mkdir -p "$FIXTURE_DIR/aitasks/metadata" "$FIXTURE_DIR/seed" \
+        "$FIXTURE_DIR/.aitask-scripts" "$FIXTURE_DIR/.aitask-scripts/lib"
 
     # Minimal models_claudecode.json with one existing entry carrying verified scores
     cat > "$FIXTURE_DIR/aitasks/metadata/models_claudecode.json" <<'EOF'
@@ -111,14 +112,25 @@ EOF
 }
 EOF
 
-    # Stub aitask_codeagent.sh with the two anchor lines the helper patches.
-    # Keep the anchors byte-exact with the real file.
+    # Stub lib/agent_string.sh with the DEFAULT_AGENT_STRING anchor the helper
+    # patches. Keep the parameter-expansion shape byte-exact with the real file
+    # so the caller-override capability is exercised.
+    cat > "$FIXTURE_DIR/.aitask-scripts/lib/agent_string.sh" <<'EOF'
+#!/usr/bin/env bash
+# stub for tests
+
+DEFAULT_AGENT_STRING="${DEFAULT_AGENT_STRING:-claudecode/opus4_6}"
+METADATA_DIR="aitasks/metadata"
+EOF
+    chmod +x "$FIXTURE_DIR/.aitask-scripts/lib/agent_string.sh"
+
+    # Stub aitask_codeagent.sh with the resolution-chain note the helper patches.
+    # Keep the anchor byte-exact with the real file.
     cat > "$FIXTURE_DIR/.aitask-scripts/aitask_codeagent.sh" <<'EOF'
 #!/usr/bin/env bash
 # stub for tests
 
 METADATA_DIR="aitasks/metadata"
-DEFAULT_AGENT_STRING="claudecode/opus4_6"
 DEFAULT_COAUTHOR_DOMAIN="aitasks.io"
 
 # ...help text...
@@ -181,24 +193,26 @@ assert_eq "seed pick updated" "claudecode/opus4_7" "$seed_pick"
 assert_eq "seed does not gain brainstorm-explorer" "false" "$seed_has_brainstorm"
 teardown_fixture
 
-echo "=== Test 4: promote-default-agent-string rejects non-claudecode + updates lines 21 & 663 ==="
+echo "=== Test 4: promote-default-agent-string rejects non-claudecode + patches lib/agent_string.sh and the codeagent note ==="
 setup_fixture
 # Rejection path
 result=$(bash "$HELPER" promote-default-agent-string --agent codex --name gpt5_4 2>&1 || true)
 assert_contains "rejects non-claudecode" "only supports agent 'claudecode'" "$result"
 # Apply path
 bash "$HELPER" promote-default-agent-string --agent claudecode --name opus4_7 >/dev/null
-src="$FIXTURE_DIR/.aitask-scripts/aitask_codeagent.sh"
-line21=$(grep '^DEFAULT_AGENT_STRING=' "$src")
-assert_eq "DEFAULT_AGENT_STRING updated" 'DEFAULT_AGENT_STRING="claudecode/opus4_7"' "$line21"
-resolution_line=$(grep '^  4\. Hardcoded default:' "$src")
+lib="$FIXTURE_DIR/.aitask-scripts/lib/agent_string.sh"
+note_src="$FIXTURE_DIR/.aitask-scripts/aitask_codeagent.sh"
+default_line=$(grep '^DEFAULT_AGENT_STRING=' "$lib")
+assert_eq "DEFAULT_AGENT_STRING updated (param-expansion shape preserved)" \
+    'DEFAULT_AGENT_STRING="${DEFAULT_AGENT_STRING:-claudecode/opus4_7}"' "$default_line"
+resolution_line=$(grep '^  4\. Hardcoded default:' "$note_src")
 assert_eq "resolution-chain note updated" "  4. Hardcoded default: claudecode/opus4_7" "$resolution_line"
-# Executable bit preserved
-if [[ -x "$src" ]]; then
-    echo "  PASS: executable bit preserved"
+# Executable bit preserved on both patched files
+if [[ -x "$lib" && -x "$note_src" ]]; then
+    echo "  PASS: executable bit preserved on both patched files"
     PASS=$((PASS + 1))
 else
-    echo "  FAIL: executable bit NOT preserved"
+    echo "  FAIL: executable bit NOT preserved on both patched files"
     FAIL=$((FAIL + 1))
 fi
 TOTAL=$((TOTAL + 1))
@@ -220,7 +234,8 @@ assert_contains "promote-config dry-run emits diff" "+++ b/aitasks/metadata/code
 
 dry3=$(bash "$HELPER" promote-default-agent-string --dry-run --agent claudecode \
     --name opus4_7 2>&1)
-assert_contains "promote-default dry-run emits diff" "+++ b/.aitask-scripts/aitask_codeagent.sh" "$dry3"
+assert_contains "promote-default dry-run emits lib diff" "+++ b/.aitask-scripts/lib/agent_string.sh" "$dry3"
+assert_contains "promote-default dry-run emits note diff" "+++ b/.aitask-scripts/aitask_codeagent.sh" "$dry3"
 
 checksum_after=$(find "$FIXTURE_DIR" -type f -print0 | sort -z | xargs -0 cat | md5sum | awk '{print $1}')
 assert_eq "filesystem unchanged after all dry-runs" "$checksum_before" "$checksum_after"

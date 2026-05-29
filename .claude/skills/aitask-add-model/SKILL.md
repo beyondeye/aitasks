@@ -11,7 +11,8 @@ models via web research, this one skips research and takes known inputs
   and the matching `seed/` file.
 - **Promote mode** — in addition, patch `codeagent_config.json` defaults
   for listed ops and, for `claudecode`, update `DEFAULT_AGENT_STRING` in
-  `.aitask-scripts/aitask_codeagent.sh`.
+  `.aitask-scripts/lib/agent_string.sh` (and the resolution-chain help note
+  in `.aitask-scripts/aitask_codeagent.sh`).
 
 All writes go through `.aitask-scripts/aitask_add_model.sh`. The helper
 is idempotent (errors clearly on duplicates), atomic (tempfile + `mv`),
@@ -102,7 +103,8 @@ order when promoting:
 
 1. `add-json` — registers the model
 2. `promote-config` — updates `codeagent_config.json` (and seed)
-3. `promote-default-agent-string` — updates
+3. `promote-default-agent-string` — updates `DEFAULT_AGENT_STRING` in
+   `.aitask-scripts/lib/agent_string.sh` and the resolution-chain note in
    `.aitask-scripts/aitask_codeagent.sh` (claudecode only)
 
 ### Step 5: Manual-Review Reminder (promote mode only)
@@ -149,7 +151,7 @@ git commit -m "ait: Sync <agent>/<name> registration to seed"
 
 **DEFAULT_AGENT_STRING (main branch, promote mode + claudecode only):**
 ```bash
-git add .aitask-scripts/aitask_codeagent.sh
+git add .aitask-scripts/lib/agent_string.sh .aitask-scripts/aitask_codeagent.sh
 git commit -m "refactor: Promote <agent>/<name> as hardcoded DEFAULT_AGENT_STRING"
 ```
 
@@ -174,7 +176,11 @@ Execute the **Satisfaction Feedback Procedure** (see
   ops, so brainstorm keys are silently skipped in seed — this is
   intended so that the seed stays minimal.
 - `promote-default-agent-string` is `claudecode`-only because only
-  `.aitask-scripts/aitask_codeagent.sh` hardcodes a default fallback.
+  `.aitask-scripts/lib/agent_string.sh` hardcodes a default fallback
+  (`DEFAULT_AGENT_STRING="${DEFAULT_AGENT_STRING:-...}"`). The subcommand
+  preserves that parameter-expansion shape (so callers can still override)
+  and also refreshes the matching resolution-chain note in
+  `.aitask-scripts/aitask_codeagent.sh`.
 - All writes are atomic: subcommands write to a tempfile, validate JSON
   with `jq .`, then `mv` into place. `--dry-run` uses the same pipeline
   but prints a unified diff instead of moving.
