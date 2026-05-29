@@ -31,6 +31,7 @@ from sync_action_runner import (
     STATUS_TIMEOUT,
 )
 from tui_switcher import TuiSwitcherMixin, TuiSwitcherOverlay
+from shortcuts_mixin import ShortcutsMixin, get_label
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
@@ -599,14 +600,16 @@ class ViewSelector(Static):
     - Two independent add-on toggles to the right.
     """
 
+    # (action_id, label, target_id). action_id is the App-level Binding action;
+    # target_id is the radio/toggle identifier used by hit-test + click handlers.
     BASES = [
-        ("a", "All", "all"),
-        ("l", "Locked", "locked"),
-        ("f", "Free", "free"),
+        ("view_all", "All", "all"),
+        ("view_locked", "Locked", "locked"),
+        ("view_free", "Free", "free"),
     ]
     ADDONS = [
-        ("g", "Git", "git"),
-        ("t", "Type", "type"),
+        ("view_git", "Git", "git"),
+        ("view_type", "Type", "type"),
     ]
     BASE_SEP = " | "
     ADDON_GAP = "   "
@@ -631,11 +634,11 @@ class ViewSelector(Static):
         col += 1
 
         # Base radio segments.
-        for i, (key, label, base_id) in enumerate(self.BASES):
+        for i, (action_id, label, base_id) in enumerate(self.BASES):
             if i > 0:
                 parts.append(f"[dim]{self.BASE_SEP}[/]")
                 col += len(self.BASE_SEP)
-            seg_text = f"{key} {label}"
+            seg_text = get_label("board", action_id, label, style="leading")
             if self.active_base == base_id:
                 parts.append(f"[bold cyan]{seg_text}[/]")
             else:
@@ -649,10 +652,10 @@ class ViewSelector(Static):
         col += 1
 
         # Add-on toggle segments.
-        for key, label, addon_id in self.ADDONS:
+        for action_id, label, addon_id in self.ADDONS:
             parts.append(f"[dim]{self.ADDON_GAP}[/]")
             col += len(self.ADDON_GAP)
-            seg_text = f"{key} {label}"
+            seg_text = get_label("board", action_id, label, style="leading")
             active = (addon_id == "git" and self.git_on) or (addon_id == "type" and self.type_on)
             if active:
                 parts.append(f"[bold cyan]{seg_text}[/]")
@@ -2095,8 +2098,10 @@ class ResetTaskConfirmScreen(ModalScreen):
         self.dismiss(False)
 
 
-class TaskDetailScreen(ModalScreen):
+class TaskDetailScreen(ShortcutsMixin, ModalScreen):
     """Popup to view/edit task details with metadata editing."""
+
+    _shortcuts_scope = "board.detail"
 
     BINDINGS = [
         Binding("escape", "close_modal", "Close", show=False),
@@ -2299,26 +2304,26 @@ class TaskDetailScreen(ModalScreen):
             is_locked = self._lock_info is not None
             with Container(id="detail_buttons_area"):
                 with Horizontal(id="detail_buttons_workflow"):
-                    yield Button("(P)ick", variant="warning", id="btn_pick", disabled=is_done_or_ro)
-                    yield Button("(B)rainstorm", variant="primary", id="btn_brainstorm", disabled=is_done_or_ro or is_locked)
-                    yield Button("\U0001f512 (L)ock", variant="primary", id="btn_lock",
+                    yield Button(self.label("pick", "Pick"), variant="warning", id="btn_pick", disabled=is_done_or_ro)
+                    yield Button(self.label("brainstorm", "Brainstorm"), variant="primary", id="btn_brainstorm", disabled=is_done_or_ro or is_locked)
+                    yield Button("\U0001f512 " + self.label("lock", "Lock"), variant="primary", id="btn_lock",
                                  disabled=is_done_or_ro or is_locked)
-                    yield Button("\U0001f513 (U)nlock", variant="warning", id="btn_unlock",
+                    yield Button("\U0001f513 " + self.label("unlock", "Unlock"), variant="warning", id="btn_unlock",
                                  disabled=not is_locked)
-                    yield Button("(C)lose", variant="default", id="btn_close")
+                    yield Button(self.label("close", "Close"), variant="default", id="btn_close")
                 with Horizontal(id="detail_buttons_file"):
-                    yield Button("(V)iew Plan", variant="primary", id="btn_view",
+                    yield Button(self.label("toggle_view", "View Plan"), variant="primary", id="btn_view",
                                  disabled=not has_plan)
-                    yield Button("(S)ave Changes", variant="success", id="btn_save",
+                    yield Button(self.label("save", "Save Changes"), variant="success", id="btn_save",
                                  disabled=True)
                     is_modified = self.manager.is_modified(self.task_data) if self.manager else False
-                    yield Button("(R)evert", variant="error", id="btn_revert",
+                    yield Button(self.label("revert", "Revert"), variant="error", id="btn_revert",
                                  disabled=is_done_or_ro or not is_modified)
-                    yield Button("(E)dit", variant="primary", id="btn_edit", disabled=is_done_or_ro)
-                    yield Button("(N)ame", variant="primary", id="btn_rename", disabled=is_done_or_ro or is_locked)
+                    yield Button(self.label("edit", "Edit"), variant="primary", id="btn_edit", disabled=is_done_or_ro)
+                    yield Button(self.label("rename", "Name"), variant="primary", id="btn_rename", disabled=is_done_or_ro or is_locked)
                     can_delete = (not is_done and not is_folded and not self.read_only
                                   and self.task_data.metadata.get("status", "") != "Implementing")
-                    yield Button("(D)elete/Archive", variant="error", id="btn_delete",
+                    yield Button(self.label("delete", "Delete/Archive"), variant="error", id="btn_delete",
                                  disabled=not can_delete)
 
     @on(CycleField.Changed)
@@ -3128,7 +3133,9 @@ class KanbanCommandProvider(Provider):
 
 # --- Main Application ---
 
-class KanbanApp(TuiSwitcherMixin, App):
+class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
+    _shortcuts_scope = "board"
+
     CSS = """
     Screen { align: center middle; }
     #detail_dialog {
@@ -3317,6 +3324,7 @@ class KanbanApp(TuiSwitcherMixin, App):
 
     BINDINGS = [
         *TuiSwitcherMixin.SWITCHER_BINDINGS,
+        *ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS,
         Binding("q", "quit", "Quit"),
         Binding("tab", "focus_search", "Search", show=False, priority=True),
         Binding("escape", "focus_board", "Board", show=False, priority=True),
