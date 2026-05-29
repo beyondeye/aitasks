@@ -3,11 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [framework, codeagent]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/claude-opus-4-8[1m]
 created_at: 2026-05-29 09:31
-updated_at: 2026-05-29 09:33
+updated_at: 2026-05-29 12:30
+completed_at: 2026-05-29 12:30
 ---
 
 ## Problem
