@@ -337,6 +337,96 @@ corresponding helper additions and whitelisting.
   task descriptions can extend the existing regex catalogue in
   `aidocs/cross_repo_references.md`.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-05-29)
+
+- **Requested by user:** Ensure the t832_5 sibling task (which writes
+  the cross-repo planning procedure consumed by `/aitask-pick` on
+  `xdeprepo`-tagged tasks) knows how to resolve the
+  `<project>#<id>` and `<project>:<relative/path>` notations that
+  this task introduces into task descriptions.
+- **Changes made:** Added a "Cross-repo reference resolution"
+  subsection to both `aitasks/t832/t832_5_*.md` (task file, under
+  Notes for sibling tasks) and
+  `aiplans/p832/p832_5_*.md` (plan file, inside Step 2 — Paired
+  exploration). The note specifies:
+  - `<project>#<id>` → resolve via `aitask_query_files.sh --project
+    <project> task-file <id>` and inline the resolved title into
+    the cross-repo subagent's question.
+  - `<project>:<relative/path>` → resolve root via
+    `aitask_project_resolve.sh <project>`, include the file in the
+    cross-repo subagent's reading list.
+  - Both resolved during exploration, not during trigger detection
+    (the trigger remains `xdeprepo` metadata-only per the
+    architectural decision).
+- **Files affected:**
+  - `aitasks/t832/t832_5_parallel_cross_repo_planning_procedure.md`
+  - `aiplans/p832/p832_5_parallel_cross_repo_planning_procedure.md`
+
 ## Final Implementation Notes
 
-(To be filled by the implementing agent during/after execution.)
+- **Actual work done:** Implemented per the rescoped plan: added
+  `list` subcommand to `aitask_project_resolve.sh`; added
+  `select_xdeprepo()` and `select_cross_repo_archived_task_ref()`
+  helpers to `aitask_create.sh`; extended `get_task_definition`'s
+  reference loop with two new menu items gated on a non-empty
+  `xdeprepo`; threaded `xdeprepo` as a new positional through
+  `create_draft_file` (slot 17, after `verifies`); split the
+  `xdeps:` / `xdeprepo:` YAML emission into independent conditionals
+  at all 3 sites in `aitask_create.sh` and the 1 site in
+  `aitask_update.sh`; relaxed `validate_xdeps_pair` to allow
+  `xdeprepo` alone (intent-only mode); printed the chosen
+  cross-repo project in the post-create summary; documented the new
+  `<project>:<relative/path>` file-ref notation in
+  `aidocs/cross_repo_references.md`. Added three tests
+  (`test_project_resolve_list.sh`,
+  `test_aitask_create_xdeprepo_alone.sh`, plus updates to
+  `test_xdeps_validation.sh` Case 2 and
+  `test_aitask_update_xdeps.sh` Cases 1/2/8/9).
+- **Deviations from plan:** None of substance. The plan called for
+  updating `aitask_create.sh` 3 emit sites; `aitask_update.sh`
+  needed a parallel update (1 emit site) to honour the same
+  intent-only semantics — surfaced naturally during regression
+  runs.
+- **Issues encountered:** Initial awk implementation of the `list`
+  subcommand used a nested-quoting `system()` call; replaced with
+  bash-side classification (cleaner, no quoting hazards). Existing
+  `test_aitask_update_xdeps.sh` had cases that asserted the old
+  both-or-neither error; updated to assert the new semantics and
+  added an inverse-half-clear case (clearing `xdeprepo` while
+  `xdeps` remains → fails).
+- **Key decisions:**
+  - Cross-repo task IDs use the documented `<project>#<id>`
+    notation; cross-repo file paths use the new `<project>:<path>`
+    notation (added to `aidocs/cross_repo_references.md`).
+  - Cross-repo refs are inline-only (not added to `file_references:`)
+    — same precedent as the existing local archived-task-ref code.
+  - The `select_xdeprepo` helper excludes the current project from
+    candidates (a task cannot declare itself cross-repo against its
+    own project).
+  - `select_xdeprepo` short-circuits when the registry has no
+    resolvable entries other than self.
+  - Validator relaxed semantics: `xdeprepo` alone OK,
+    `xdeps` alone dies, both OK. Mirrored in `aitask_update.sh`.
+- **Upstream defects identified:** None.
+  - Pre-existing parity test failure
+    (`tests/test_skill_parity_runtime_vs_rendered.sh:
+    manual-verification-followup.md/default
+    key=manual_verification_followup_mode`) confirmed to exist on
+    clean `main` — unrelated to this task.
+- **Notes for sibling tasks:**
+  - t832_5: must resolve the new `<project>#<id>` and
+    `<project>:<path>` notations during paired exploration (see
+    Post-Review Change 1 above; notes added to t832_5's task and
+    plan files).
+  - Future skill-side follow-up (the deferred
+    `aitask-create` AI skill update) should reuse
+    `aitask_project_resolve.sh list` to populate the project
+    picker — same helper introduced here. Whitelisting will be
+    required at that point since the skill calls it directly.
+  - The `<project>:<path>` file-ref notation is symmetric with the
+    existing `<project>#<id>` task-ref notation; both live in
+    `aidocs/cross_repo_references.md`. Future tooling that parses
+    task descriptions can extend the regex catalogue documented
+    there.

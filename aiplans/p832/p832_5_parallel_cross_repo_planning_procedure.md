@@ -138,6 +138,27 @@ with a focused question distilled from `trigger_source` (the
 implementing agent composes the question). Subagent results stay in
 this conversation's context for the decomposition step.
 
+**Cross-repo reference resolution (added by t832_10 follow-up).** Before
+spawning the subagents, scan `trigger_source` for the two notations
+introduced by t832_10's interactive `aitask_create.sh` flow and
+documented in `aidocs/cross_repo_references.md`:
+
+- `<project>#<id>` (e.g. `aitasks_mobile#42_3`) — resolve to the
+  referenced task's title/description via
+  `aitask_query_files.sh --project <project> task-file <id>` and
+  inline the resolved title into the question composed for the
+  cross-repo subagent so it can reference the work by name.
+- `<project>:<relative/path>` (e.g. `aitasks_mobile:Sources/Login.kt`)
+  — resolve the cross-repo root via `aitask_project_resolve.sh
+  <project>` → `RESOLVED:<root>`, then include the file at
+  `<root>/<relative/path>` in the cross-repo subagent's reading
+  list as a high-priority context file.
+
+Both notations are authoring-only inside `trigger_source` — the
+trigger itself remains `xdeprepo` metadata-only (per the architectural
+decision in Step 0). These notations are resolved here, during
+exploration, not during trigger detection.
+
 ### Step 3 — Design child decomposition (≥2 children)
 
 Synthesise the cross-repo task as a sequence of **at least two**

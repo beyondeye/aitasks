@@ -121,6 +121,35 @@ Do NOT bundle the ports here.
 - t832_6 will dogfood this procedure on a real `aitasks` + `aitasks_mobile`
   coordination task and document friction.
 
+## Cross-repo reference resolution (added by t832_10 follow-up)
+
+t832_10 introduced two notations into task descriptions written via
+the interactive `aitask_create.sh` flow:
+
+- `<project>#<id>` (e.g. `aitasks_mobile#42_3`) — a reference to a
+  task in the cross-repo project.
+- `<project>:<relative/path>` (e.g. `aitasks_mobile:Sources/Login.kt`)
+  — a reference to a file in the cross-repo project root.
+
+The procedure landed by this task **must resolve both notations** when
+they appear in a task description that triggers paired planning:
+
+- For `<project>#<id>` references: re-read the referenced task's
+  title/description via
+  `aitask_query_files.sh --project <project> task-file <id>` so the
+  cross-planning prompt can quote the referenced task by name (not by
+  bare ID).
+- For `<project>:<relative/path>` references: resolve the cross-repo
+  root via `aitask_project_resolve.sh <project>` → `RESOLVED:<root>`,
+  then read the file at `<root>/<relative/path>` when exploring shared
+  context during Step 2 (paired exploration).
+
+The notations are documented in `aidocs/cross_repo_references.md`.
+Both are authoring-only inside the trigger source — the trigger itself
+remains `xdeprepo` metadata-only (per the architectural decision); the
+notations are consumed during the planning exploration phase, not
+during trigger detection.
+
 ## Out of scope
 
 - The Codex/Gemini/OpenCode ports (separate follow-ups).

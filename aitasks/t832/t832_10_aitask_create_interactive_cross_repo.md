@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [cross_repo, aitask_create]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-28 12:03
-updated_at: 2026-05-28 12:18
+updated_at: 2026-05-29 18:29
 ---
 
 ## Context
