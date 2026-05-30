@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [codeagent, documentation]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-29 12:31
-updated_at: 2026-05-30 22:11
+updated_at: 2026-05-30 22:18
+completed_at: 2026-05-30 22:18
 boardidx: 10
 ---
 
