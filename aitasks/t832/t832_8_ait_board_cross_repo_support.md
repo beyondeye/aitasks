@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [t832_3, t832_4]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [cross_repo, aitask_board, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-26 18:29
-updated_at: 2026-05-26 18:30
+updated_at: 2026-05-30 23:26
 ---
 
 ## Context
