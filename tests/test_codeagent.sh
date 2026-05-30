@@ -153,13 +153,13 @@ assert_contains "list-models shows verified" "VERIFIED:" "$output"
 echo "--- Test 4: list-models invalid agent ---"
 assert_exit_nonzero "list-models with invalid agent" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' list-models notanagent"
 
-# Test 5: resolve pick returns claudecode/opus4_7_1m (current default)
+# Test 5: resolve pick returns claudecode/opus4_8 (current default)
 echo "--- Test 5: resolve pick ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve pick 2>&1)
-assert_contains "resolve returns opus4_7_1m for pick" "AGENT_STRING:claudecode/opus4_7_1m" "$output"
+assert_contains "resolve returns opus4_8 for pick" "AGENT_STRING:claudecode/opus4_8" "$output"
 assert_contains "resolve returns agent" "AGENT:claudecode" "$output"
-assert_contains "resolve returns model" "MODEL:opus4_7_1m" "$output"
-assert_contains "resolve returns cli_id" "CLI_ID:claude-opus-4-7\[1m\]" "$output"
+assert_contains "resolve returns model" "MODEL:opus4_8" "$output"
+assert_contains "resolve returns cli_id" "CLI_ID:claude-opus-4-8" "$output"
 
 # Test 6: resolve with --agent-string override
 echo "--- Test 6: resolve with --agent-string override ---"
@@ -208,7 +208,7 @@ echo "--- Test 11: --dry-run invoke ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --dry-run invoke pick 42 2>&1)
 assert_contains "dry-run starts with DRY_RUN:" "DRY_RUN:" "$output"
 assert_contains "dry-run contains claude" "claude" "$output"
-assert_contains "dry-run contains model flag" "claude-opus-4-7" "$output"
+assert_contains "dry-run contains model flag" "claude-opus-4-8" "$output"
 assert_contains "dry-run contains aitask-pick" "aitask-pick" "$output"
 assert_contains "dry-run contains task number" "42" "$output"
 

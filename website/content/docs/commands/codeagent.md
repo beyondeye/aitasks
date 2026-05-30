@@ -50,9 +50,9 @@ Each operation maps to a different use case with its own default model:
 
 | Operation | Description | Default |
 |-----------|-------------|---------|
-| `pick` | Picking and implementing tasks | `claudecode/opus4_7_1m` |
+| `pick` | Picking and implementing tasks | `claudecode/opus4_8` |
 | `explain` | Explaining or documenting code | `claudecode/sonnet4_6` |
-| `explore` | Exploring the codebase | `claudecode/opus4_7_1m` |
+| `explore` | Exploring the codebase | `claudecode/opus4_8` |
 | `batch-review` | Batch code review | `claudecode/sonnet4_6` |
 | `qa` | Test coverage analysis | `claudecode/sonnet4_6` |
 | `raw` | Direct/ad-hoc invocations (passthrough) | `claudecode/sonnet4_6` |
@@ -166,7 +166,7 @@ The agent/model for each operation is resolved through a 4-level chain (highest 
 1. **`--agent-string` flag** -- CLI override for a single invocation
 2. **Per-user config** -- `aitasks/metadata/codeagent_config.local.json` (gitignored)
 3. **Per-project config** -- `aitasks/metadata/codeagent_config.json` (git-tracked)
-4. **Hardcoded default** -- `claudecode/opus4_7_1m`
+4. **Hardcoded default** -- `claudecode/opus4_8`
 
 #### Project config (`codeagent_config.json`)
 

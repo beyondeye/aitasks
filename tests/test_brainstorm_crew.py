@@ -375,10 +375,10 @@ class TestGetAgentTypes(unittest.TestCase):
     """Test that get_agent_types reads agent_string from codeagent config."""
 
     FULL_DEFAULTS = {
-        "brainstorm-explorer": "claudecode/opus4_7_1m",
+        "brainstorm-explorer": "claudecode/opus4_8",
         "brainstorm-comparator": "claudecode/sonnet4_6",
-        "brainstorm-synthesizer": "claudecode/opus4_7_1m",
-        "brainstorm-detailer": "claudecode/opus4_7_1m",
+        "brainstorm-synthesizer": "claudecode/opus4_8",
+        "brainstorm-detailer": "claudecode/opus4_8",
         "brainstorm-patcher": "claudecode/sonnet4_6",
         "brainstorm-initializer": "claudecode/sonnet4_6",
     }
@@ -443,7 +443,7 @@ class TestGetAgentTypes(unittest.TestCase):
 
     def test_non_brainstorm_keys_ignored(self):
         """Non-brainstorm keys in config don't affect agent types."""
-        self._write_full_config({"pick": "claudecode/opus4_7_1m", "brainstorm-detailer": "codex/o3"})
+        self._write_full_config({"pick": "claudecode/opus4_8", "brainstorm-detailer": "codex/o3"})
         result = get_agent_types(config_root=Path(self.tmpdir))
         self.assertEqual(result["detailer"]["agent_string"], "codex/o3")
         self.assertNotIn("pick", result)
@@ -491,7 +491,7 @@ class TestGetAgentTypes(unittest.TestCase):
         """Setting launch_mode in config doesn't affect agent_string."""
         self._write_full_config({"brainstorm-explorer-launch-mode": "interactive"})
         result = get_agent_types(config_root=Path(self.tmpdir))
-        self.assertEqual(result["explorer"]["agent_string"], "claudecode/opus4_7_1m")
+        self.assertEqual(result["explorer"]["agent_string"], "claudecode/opus4_8")
         self.assertEqual(result["explorer"]["launch_mode"], "interactive")
 
 
