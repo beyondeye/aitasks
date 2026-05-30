@@ -147,3 +147,52 @@ Single-task parent, working on `main`. Commit code/source files with
 (upstream defect) — note the golden-staleness root cause. Step 8c — manual
 `ait settings` render check is a good manual-verification follow-up
 candidate. No cross-agent port follow-up needed (see Finding 2).
+
+## Final Implementation Notes
+
+- **Actual work done:** Renamed the key `manual_verification_auto_mode` →
+  `manual_verification_mode` and its values (`never`→`manual`,
+  `prebuilt_approve`→`autonomous_with_plan`, `prebuilt_autorun` dropped)
+  across the 4 source sites: `default.yaml`, `profile_editor.py`
+  (`PROFILE_SCHEMA` enum, `PROFILE_FIELD_INFO` short+detailed strings
+  swapped for the t851 drafts, `PROFILE_FIELD_GROUPS`),
+  `task-workflow/profiles.md` (schema row), and
+  `task-workflow/manual-verification.md` (Jinja: renamed key/markers,
+  `manual` branch, `autonomous_with_plan` branch, deleted the
+  `prebuilt_autorun` branch). Regenerated the two affected goldens
+  (`manual-verification-default`, plus the incidental
+  `manual-verification-followup-default`) and corrected one parity fixture.
+- **Deviations from plan:** (1) The parity test
+  `tests/test_skill_parity_runtime_vs_rendered.sh:168` was also stale (same
+  root cause as the followup golden — `default.yaml` carries
+  `manual_verification_followup_mode: never` but the `default` fixture
+  expected the key-absent prose). Corrected it to expect the resolved
+  `never` branch, consistent with the user-approved followup-golden fix.
+  (2) The `default.yaml` rename was committed by a **concurrent `ait`
+  process** (commit `9b8bc95c` "ait: Start work on t855") that swept the
+  uncommitted working-tree change into its status-update commit on the
+  shared `aitask-data` branch. The change is correctly in the committed
+  tree; only its commit attribution differs. No re-commit needed.
+- **Issues encountered:** Tracked vs gitignored rendered variants: the
+  `-default-`/`-fast-` `*-<profile>-` dirs are gitignored (self-refresh on
+  invocation), but the headless `-remote-` variants ARE tracked — running
+  `aitask_skill_rerender.sh remote` updated the 3 tracked `-remote-`
+  `profiles.md` copies (claude/codex/opencode), which are part of the
+  commit. Re-rendering all three profiles also cleared the
+  `aitask_skill_verify.sh` parity check.
+- **Key decisions:** Confirmed the task's "Cross-agent skill ports"
+  follow-up is moot — codex/opencode variants render from the single Claude
+  authoring source via `aitask_skill_rerender.sh`, not separately authored,
+  so no cross-agent follow-up task is needed.
+- **Upstream defects identified:**
+  - `tests/test_skill_parity_runtime_vs_rendered.sh:168` & goldens
+    `manual-verification-followup-default.md` — were stale from the
+    t843/t849 era (added `manual_verification_followup_mode: never` /
+    `manual_verification_auto_mode: autonomous` to `default.yaml` without
+    regenerating goldens/fixtures). Fixed incidentally here.
+  - `aitasks/metadata/profiles/default.yaml` — the `default` profile is
+    described as "all questions asked normally" yet sets
+    `manual_verification_followup_mode: never` and
+    `manual_verification_mode: autonomous`, both of which *suppress*
+    prompts. Possible design inconsistency worth a separate review (NOT a
+    code bug seeded by this task; out of t859 scope).
