@@ -3,11 +3,13 @@ priority: high
 effort: low
 depends: [852]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [framework, codeagent]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-29 09:31
-updated_at: 2026-05-30 21:23
+updated_at: 2026-05-30 21:36
+completed_at: 2026-05-30 21:36
 ---
 
 ## Goal
