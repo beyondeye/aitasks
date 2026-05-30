@@ -426,7 +426,111 @@ this task's implementation via `aitask_create.sh --parent 848` (depends on
 I will create this task (not implement it) as part of t848_4, and add it to the
 parent's `children_to_implement`.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-05-30 23:00)
+- **Requested by user:** Two issues found while testing the editor live:
+  1. In `ait board`, up/down arrows did not move the editor's table cursor (they
+     scrolled the task board behind the modal). Not reproducible in `ait monitor`.
+  2. In `ait monitor`, the `j` key was listed twice — `monitor/tui_switcher` and
+     `shared/tui_switcher`. It is a shared key, so it should appear once.
+- **Changes made:**
+  1. **Board arrow fall-through** — `KanbanApp.check_action` now returns `False`
+     for `nav_up/nav_down/nav_left/nav_right` whenever a screen is pushed
+     (`len(self.screen_stack) > 1`). The board binds arrows with `priority=True`,
+     which Textual checks before the focused widget; disabling them while a modal
+     is up lets the arrows reach the modal's `DataTable`.
+  2. **Shared-action de-duplication** — `keybinding_registry.register_app_bindings`
+     now detects a binding whose action is already registered under `shared`
+     (the `j` TUI switcher, spliced into every App via
+     `TuiSwitcherMixin.SWITCHER_BINDINGS`). It resolves the override from the
+     `shared` scope and does NOT record a per-App-scope copy, so the editor lists
+     `j` once (under `shared`) and a shared edit applies in every TUI.
+- **Files affected:** `.aitask-scripts/board/aitask_board.py`,
+  `.aitask-scripts/lib/keybinding_registry.py`,
+  `tests/test_shortcut_editor_modal.py` (added
+  `test_shared_action_not_duplicated_under_app_scope` +
+  `test_shared_override_applies_to_app_binding`).
+- **Follow-up created:** **t848_9** (eager sub-scope registration) for the
+  related finding that the editor only lists sub-scopes registered this session.
+
 ## Step 9 — Post-implementation
 
-Standard child-task archival (Step 9 of task-workflow). Note: the new t848_8 is a
-*pending* sibling, not part of this task's archival.
+Standard child-task archival (Step 9 of task-workflow). Note: t848_8 (cascade
+reset) and t848_9 (eager sub-scope registration) are *pending* siblings, not part
+of this task's archival.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `lib/keybinding_registry.py` — added public `iter_scope_bindings(prefix)`
+    (returns `(scope, action_id, default_key, label)` for the prefix scope, its
+    `prefix.*` sub-scopes, and the global `shared`/`shared.*` scopes, sorted).
+    Also taught `register_app_bindings` to treat any action already registered
+    under `shared` as a shared binding (resolve override from `shared`, no
+    per-App shadow copy) — added in the Post-Review pass.
+  - `lib/key_capture_screen.py` (new) — `KeyCaptureScreen(ModalScreen[str|None])`,
+    one-shot capture; Esc → `None`; ignores bare modifier keys; own `DEFAULT_CSS`.
+  - `lib/shortcut_editor_modal.py` (new) — `ShortcutEditorModal(ModalScreen[None])`
+    with a `DataTable` (Scope·Action·Key·Default·Label·Origin), rebind via
+    `on_data_table_row_selected` → `KeyCaptureScreen`, `r` revert pending / `d`
+    reset-to-default / `s` save / Esc cancel. Collisions blocked at edit time
+    with an error toast (`_would_collide`); display-only red highlight for
+    pre-existing hand-edited collisions. Save persists via `shortcut_persist`,
+    drops the registry cache, best-effort `refresh_bindings()`, then a
+    "restart to apply" toast. Own `DEFAULT_CSS`; does NOT use `ShortcutsMixin`.
+  - `lib/shortcuts_mixin.py` — stub `action_open_shortcuts_editor` replaced with
+    `self.app.push_screen(ShortcutEditorModal(scope=self._shortcuts_scope))`
+    (top-level import).
+  - `board/aitask_board.py` — `check_action` disables `nav_*` while a modal is on
+    the screen stack (Post-Review pass).
+  - `tests/test_shortcut_editor_modal.py` (new) — 14 tests: registry filter +
+    shared-dedup, modal logic (effective key, collision blocking on rebind +
+    reset, revert, save/clear), and 2 Pilot integration cases. All pass.
+
+- **Deviations from plan:**
+  - **Test is `.py`, not `.sh`** — matched the repo's established Pilot pattern
+    (`test_brainstorm_dag_op_keybinding.py`) run via `run_all_python_tests.sh`.
+  - **Rebind trigger is `DataTable.RowSelected`**, not a modal `enter` binding
+    (a `cursor_type="row"` DataTable consumes `enter` first).
+  - **Collision handling is block-at-edit-time** (user decision), so the planned
+    `_ConfirmScreen`/save-confirm was dropped entirely.
+  - **Collision highlight uses Rich `Text(..., style="bold red")`**, not
+    `add_class` — DataTable cells are not widgets.
+  - **Added a "Scope" column** to disambiguate same-named actions across
+    sub-scopes.
+  - **Two follow-up siblings created:** t848_8 (cascade reset) per the design
+    decision; t848_9 (eager sub-scope registration) from a Post-Review finding.
+
+- **Issues encountered:**
+  - `refresh_bindings()` does not rebuild the active key-map from `BINDINGS` in
+    Textual 8.2.7, so saved rebinds apply on next launch (restart-fallback). The
+    save toast says so.
+  - Post-review live testing surfaced two real bugs (board arrow capture; `j`
+    duplicated under app + shared) — both fixed; see Post-Review Changes.
+
+- **Key decisions:**
+  - Shared bindings (`j` TUI switcher) resolve from the `shared` scope so a single
+    edit applies in every TUI; the editor lists them once. `?`
+    (`open_shortcuts_editor`) was left per-App scope (not duplicated in any single
+    editor view) — flagged in t848_9 as a possible consistency follow-up.
+  - Board card-nav disabled generically whenever a screen is pushed, rather than
+    enumerating each modal class — covers the editor and any future modal.
+
+- **Upstream defects identified:** None. (The `j` duplication and board arrow
+  capture were within this task's own t848 feature surface, fixed here, not
+  pre-existing defects in unrelated code.)
+
+- **Notes for sibling tasks:**
+  - **t848_5 (Settings → Shortcuts tab):** `refresh_bindings()` is NOT sufficient
+    for live re-keying in Textual 8.2.7 — the editor uses a restart-fallback
+    notification; set the same expectation (or implement an App-bindings rebuild).
+    Shared actions now resolve from the `shared` scope — the Settings global tree
+    should write shared edits under `shortcuts.shared.<action>`.
+  - **t848_8 (cascade reset):** reuse `_would_collide` / `_effective_key` /
+    `_pending` (sentinel `_CLEAR`); replace the block-with-message dead-end in
+    `action_reset_default` with the cascade offer.
+  - **t848_9 (eager sub-scope registration):** the editor only lists scopes
+    registered this session; sub-scope modals register lazily on first open.
+  - `KeyCaptureScreen` applies no combo allow-list yet (only Esc + bare-modifier
+    suppression) — t848_5 can share one from there.
