@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t848_4]
 issue_type: feature
 status: Ready
 labels: [custom_shortcuts]
 created_at: 2026-05-30 22:50
-updated_at: 2026-05-30 22:50
+updated_at: 2026-05-30 22:51
 ---
 
 ## Context
