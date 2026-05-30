@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t848_3]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [custom_shortcuts]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-05-27 17:29
-updated_at: 2026-05-30 22:44
+updated_at: 2026-05-30 23:22
+completed_at: 2026-05-30 23:22
 ---
 
 ## Context
