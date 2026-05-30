@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [manual_verification, task_workflow, ait_settings]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-05-30 22:34
-updated_at: 2026-05-30 23:20
+updated_at: 2026-05-30 23:29
+completed_at: 2026-05-30 23:29
 ---
 
 ## Origin
