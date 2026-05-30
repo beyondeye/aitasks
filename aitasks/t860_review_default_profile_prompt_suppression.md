@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [manual_verification, task_workflow, ait_settings]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-30 22:34
-updated_at: 2026-05-30 22:34
+updated_at: 2026-05-30 22:57
 ---
 
 ## Origin
