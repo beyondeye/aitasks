@@ -123,3 +123,41 @@ Working on `main` directly (no worktree). After review/commit: archive via
 `./.aitask-scripts/aitask_archive.sh 854`, then `./ait git push`. No linked
 issue/PR expected. Changelog/blog announcement is explicitly out of scope
 (handled via `/aitask-changelog` at release time per task note).
+
+## Final Implementation Notes
+
+- **Actual work done:** Updated 4 files to the new `claudecode/opus4_8` default
+  promoted by t853:
+  - `aidocs/claudecode_tools.md:5` — `Claude Opus 4.7 (claude-opus-4-7)` →
+    `Claude Opus 4.8 (claude-opus-4-8)`.
+  - `website/content/docs/commands/codeagent.md` — defaults-table `pick` &
+    `explore` rows (53, 55) and the hardcoded-default line (169) →
+    `claudecode/opus4_8`.
+  - `tests/test_codeagent.sh` — Test 5 resolve-pick assertions (agent string,
+    model, cli_id) and Test 11 dry-run model-flag assertion → opus4_8 /
+    `claude-opus-4-8` (dropped the `\[1m\]` cli_id suffix; the new default has
+    no bracket suffix since 1M context is the model default).
+  - `tests/test_brainstorm_crew.py` — `FULL_DEFAULTS` explorer/synthesizer/
+    detailer fixtures, the `pick` ignored-key fixture, and the
+    `test_launch_mode_does_not_clobber_agent_string` assertion → opus4_8.
+- **Deviations from plan:** None. Scope held exactly to the plan.
+- **Issues encountered:** None.
+- **Key decisions:**
+  - `tests/test_agent_string.sh` was listed in the task but needed **no
+    change** — it already passes (12/12). Its `opus4_7_1m` refs are incidental
+    parse / `get_cli_model_id` fixtures for a still-registered model; Test 13
+    asserts `DEFAULT_AGENT_STRING` is non-empty/contains `/` only (value-
+    agnostic). Reconciled, not duplicated.
+  - `tests/test_brainstorm_crew.py` already passed (self-written temp-config
+    fixtures asserted against themselves). Fixtures were still updated to stay
+    representative of the real `codeagent_config.json` (audit tags them
+    `needed_for_promote`).
+  - Left the `resolve pick` output example (codeagent.md:105-108) and the
+    project-config JSON example (line 178) on `opus4_7_1m` per the audit's
+    `informational_only` tag and the task's explicit "leave those" instruction.
+- **Upstream defects identified:** None. (Note, not a defect: leaving the
+  `resolve pick` example on opus4_7_1m while the defaults table two lines up
+  reads opus4_8 is a minor in-doc inconsistency, intentionally left per the
+  audit scoping. Could be a small future doc-polish task if the project wants
+  the format examples to also track the live default — surfaced to the user at
+  Step 8 review; not pursued here.)
