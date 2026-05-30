@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [853]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation, codeagent]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-29 09:31
-updated_at: 2026-05-29 09:31
+updated_at: 2026-05-30 21:47
 ---
 
 ## Goal
