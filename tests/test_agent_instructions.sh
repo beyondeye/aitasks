@@ -303,6 +303,9 @@ create_codex_staging() {
     # Create a minimal seed config
     cat > "$dir/aitasks/metadata/codex_config.seed.toml" <<'TOML'
 sandbox_mode = "workspace-write"
+
+[features]
+default_mode_request_user_input = true
 TOML
     cat > "$dir/aitasks/metadata/codex_rules.default.rules" <<'RULES'
 prefix_rule(pattern = ["./.aitask-scripts/aitask_skill_render.sh"], decision = "allow", justification = "Aitasks helper script")
@@ -324,6 +327,8 @@ assert_file_contains "T13: instructions.md created with markers" ">>>aitasks" "$
 assert_file_contains "T13: instructions.md has shared content" "## Git Operations" "$TMPDIR_TEST/.codex/instructions.md"
 assert_file_contains "T13: instructions.md has codex content" "## Skills" "$TMPDIR_TEST/.codex/instructions.md"
 assert_file_contains "T13: config.toml created" "sandbox_mode" "$TMPDIR_TEST/.codex/config.toml"
+assert_file_contains "T13: config.toml has features table" "[features]" "$TMPDIR_TEST/.codex/config.toml"
+assert_file_contains "T13: config.toml enables request_user_input" "default_mode_request_user_input = true" "$TMPDIR_TEST/.codex/config.toml"
 assert_file_contains "T13: rules created" "aitask_skill_render.sh" "$TMPDIR_TEST/.codex/rules/default.rules"
 assert_file_contains "T13: skill wrapper installed" "# Pick skill" "$TMPDIR_TEST/.agents/skills/aitask-pick/SKILL.md"
 assert_file_contains "T13: tool mapping installed" "# Tool mapping" "$TMPDIR_TEST/.agents/skills/codex_tool_mapping.md"
@@ -375,7 +380,31 @@ marker_count=$(grep -c ">>>aitasks" "$TMPDIR_TEST/.codex/instructions.md" || tru
 assert_eq "T15: exactly one start marker" "1" "$marker_count"
 cleanup_tmpdir
 
-# Test 16: Existing Codex rules are preserved and missing aitask rules are merged
+# Test 16: Existing Codex config is preserved and missing feature flag is merged idempotently
+setup_tmpdir
+create_codex_staging "$TMPDIR_TEST"
+mkdir -p "$TMPDIR_TEST/.codex"
+cat > "$TMPDIR_TEST/.codex/config.toml" <<'TOML'
+model = "custom-model"
+
+[features]
+custom_existing_feature = true
+TOML
+(
+    SCRIPT_DIR="$TMPDIR_TEST/.aitask-scripts"
+    mkdir -p "$SCRIPT_DIR"
+    setup_codex_cli < /dev/null
+    setup_codex_cli < /dev/null
+)
+config_result="$(cat "$TMPDIR_TEST/.codex/config.toml")"
+assert_contains "T16: custom model preserved" 'model = "custom-model"' "$config_result"
+assert_contains "T16: existing feature preserved" "custom_existing_feature = true" "$config_result"
+assert_contains "T16: request_user_input feature merged" "default_mode_request_user_input = true" "$config_result"
+feature_count=$(grep -c "default_mode_request_user_input = true" "$TMPDIR_TEST/.codex/config.toml" || true)
+assert_eq "T16: request_user_input feature not duplicated" "1" "$feature_count"
+cleanup_tmpdir
+
+# Test 17: Existing Codex rules are preserved and missing aitask rules are merged
 setup_tmpdir
 create_codex_staging "$TMPDIR_TEST"
 mkdir -p "$TMPDIR_TEST/.codex/rules"
@@ -389,10 +418,10 @@ RULES
     setup_codex_cli < /dev/null
 )
 rules_result="$(cat "$TMPDIR_TEST/.codex/rules/default.rules")"
-assert_contains "T16: custom rule preserved" "Custom user rule" "$rules_result"
-assert_contains "T16: missing aitask rule merged" "aitask_skill_resolve_profile.sh" "$rules_result"
+assert_contains "T17: custom rule preserved" "Custom user rule" "$rules_result"
+assert_contains "T17: missing aitask rule merged" "aitask_skill_resolve_profile.sh" "$rules_result"
 render_rule_count=$(grep -c "aitask_skill_render.sh" "$TMPDIR_TEST/.codex/rules/default.rules" || true)
-assert_eq "T16: existing aitask rule not duplicated" "1" "$render_rule_count"
+assert_eq "T17: existing aitask rule not duplicated" "1" "$render_rule_count"
 cleanup_tmpdir
 
 # ============================================================

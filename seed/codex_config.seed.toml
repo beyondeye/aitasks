@@ -5,6 +5,9 @@
 # Sandbox: allow writes to workspace + network access (needed for git push, web search)
 sandbox_mode = "workspace-write"
 
+[features]
+default_mode_request_user_input = true
+
 [sandbox_workspace_write]
 network_access = true
 
