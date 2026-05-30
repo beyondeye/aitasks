@@ -8,7 +8,7 @@ labels: [brainstorming, ait_monitor, aitask_create]
 children_to_implement: [t826_3, t826_4]
 created_at: 2026-05-25 14:28
 updated_at: 2026-05-26 18:54
-boardidx: 20
+boardidx: 50
 ---
 
 Brainstorm and refine: easier cross-repo references when an aitasks project's task needs to reach into a sister aitasks project (create a task there, reference a file/spec, coordinate work across both).

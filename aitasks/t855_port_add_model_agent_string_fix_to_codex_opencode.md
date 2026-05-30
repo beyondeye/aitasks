@@ -8,6 +8,7 @@ labels: [codeagent, documentation]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-29 12:31
 updated_at: 2026-05-30 22:11
+boardidx: 10
 ---
 
 ## Origin

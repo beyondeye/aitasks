@@ -8,6 +8,7 @@ labels: [manual_verification, task_workflow, ait_settings, skill_authoring]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-30 21:47
 updated_at: 2026-05-30 21:52
+boardidx: 30
 ---
 
 ## Context

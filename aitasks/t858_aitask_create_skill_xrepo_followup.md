@@ -7,6 +7,8 @@ status: Ready
 labels: [cross_repo, aitask-create]
 created_at: 2026-05-29 18:33
 updated_at: 2026-05-30 22:11
+boardcol: now
+boardidx: 50
 ---
 
 ## Context

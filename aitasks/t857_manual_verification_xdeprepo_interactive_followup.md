@@ -1,13 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [832_10]
+depends: [t832_10]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [832_10]
+verifies: ['832_10']
 created_at: 2026-05-29 18:32
 updated_at: 2026-05-29 18:32
+boardidx: 20
 ---
 
 ## Manual Verification Task
