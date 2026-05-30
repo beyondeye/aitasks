@@ -295,3 +295,145 @@ shellcheck tests/test_shortcuts_registry_coverage.sh
 ## Step 9 — Post-implementation
 
 Standard archival; no special cleanup.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Added `ShortcutsMixin` (and `_shortcuts_scope`) to every top-level App
+    plus selected sub-screens with their own BINDINGS and user-visible
+    labels:
+    - Apps: `SyncerApp` (`syncer`), `DiffViewerApp` (`diffviewer`),
+      `ApplinkApp` (`applink`), `CodeBrowserApp` (`codebrowser`),
+      `MonitorApp` (`monitor`), `MiniMonitorApp` (`minimonitor`),
+      `StatsApp` (`stats`), `SettingsApp` (`settings`),
+      `BrainstormApp` (`brainstorm`),
+      `AgentCommandScreen` (`board.agent_cmd`).
+    - Sub-screens / modals: `CopyFilePathScreen` (`codebrowser.copypath`),
+      `PairingScreen` (`applink.pairing`), `StatusScreen`
+      (`applink.status`), `CompareNodeSelectModal`
+      (`brainstorm.compare_select`), `StaleEntryModal`
+      (`shared.stale_entry`).
+    - Widget `DAGDisplay` (`brainstorm.dag`) registers via
+      `register_app_bindings(...)` at class-body load time (Widgets do
+      not go through `App.__init__`).
+  - Migrated hand-coded `(X)`-style button literals to `self.label(...)`:
+    `Copy Rel` / `Copy Abs` in codebrowser; `Copy Prompt` / `Copy cmd` /
+    `Run in terminal` / `Run in tmux` in `agent_command_screen`;
+    `Prune` / `Repoint` / `Cancel` in `stale_entry_modal`; `Compare` in
+    `brainstorm.CompareNodeSelectModal`.
+  - **Brainstorm `?` → `H` swap.** `BrainstormApp.BINDINGS`
+    `Binding("question_mark", "op_help", ...)` rebound to
+    `Binding("H", "op_help", "Op help")`; `OperationHelpModal.BINDINGS`
+    dropped its now-dead `Binding("question_mark", "close", ...)` line
+    (escape still closes); the modal's footer label updated from
+    `"[dim]Esc / ? close[/]"` to `"[dim]Esc / H close[/]"`.
+  - `tui_switcher.py` registers `SWITCHER_BINDINGS` under a synthetic
+    `"shared"` scope at module import so the t848_4 editor can
+    enumerate the `j` shortcut once globally.
+  - New test `tests/test_shortcuts_registry_coverage.sh` instantiates
+    each App (or for `BrainstormApp`, replays the mixin's registration
+    against the class BINDINGS), asserts every expected scope exists in
+    `keybinding_registry._DEFAULTS`, asserts the `"shared"` scope is
+    present, and prints (does not fail on) `coherence_lint()` advisory
+    warnings.
+
+- **Deviations from plan:**
+  - **stats Session footer left as-is.** The plan called for migrating
+    `"Session  [dim]← / → to cycle[/]"` (line 218) to a registry-driven
+    label by adding `prev_session` / `next_session` bindings. On
+    inspection, `left`/`right` are already bound to
+    `prev_verified_op` / `next_verified_op`, so adding parallel
+    `prev_session` bindings would have created a key conflict (same key
+    bound to two actions). The hand-coded label is now a stale
+    informational hint, not a binding; leaving it avoids a regression
+    and the override surface is not load-bearing for `left`/`right`
+    keys. Follow-up if needed: rename `prev_verified_op` →
+    `prev_session` if the action ID is actually session-cycling, and
+    re-render via the registry.
+  - **settings three hand-composed footer strings left as-is.** The
+    plan called for converting the literals at lines 1734, 1864-1865,
+    and 1965 to a registry-derived
+    `self.app.label("nav_up", ...)` join helper. The strings are
+    informational tab hints (`Enter: edit | ↑↓: navigate | a/b/c/m/p/t:
+    switch tabs`) tied to existing per-tab bindings that the registry
+    already records. Adding a helper plus hidden `Binding("up",
+    "nav_up", ...)` entries would create new actions without any
+    user-customization story. Mixin attach alone gives full scope
+    coverage; deferring footer-string migration to t848_5/t848_6 (which
+    own the editor + docs) avoids speculative refactoring.
+  - **`AgentCommandScreen` extra `(X)` labels deferred.** The plan
+    listed 4 button literals (377/380/381/467) — migrated. Additional
+    `(X)`-labelled tab/Select/Label headers exist (e.g.
+    `TabPane("(D)irect")`, `Label("(S)ession:")`, `Button("(A)gent")`,
+    `Button("(E)dit")`) and remain hand-coded; they are bindings the
+    user can already trigger by the matched letter, and the mixin scope
+    covers them in the registry. Migration of these labels can land
+    incrementally without further scope work.
+  - **`run` action_id is overloaded.** `AgentCommandScreen` has a
+    single `Binding("r", "run", ...)` action that drives both
+    `Run in terminal` (line 381) and `Run in tmux` (line 467). Both
+    button literals now call `self.label("run", ...)` with different
+    descriptive text; that's the right semantics because the user
+    re-binding `r` should re-key both buttons together.
+  - **`?` no longer fires inside `OperationHelpModal`.** With the
+    `Binding("question_mark", "close", ...)` removed and the App-level
+    `?` reserved for the shortcuts-editor stub, pressing `?` while the
+    op-help modal is open now toasts "Shortcuts editor not yet
+    available". This is the intended end state — close with `Esc` or
+    `H` (per the updated footer label).
+
+- **Issues encountered:**
+  - First attempt at adding the `"shared"` registration to
+    `tui_switcher.py` accidentally inserted the module-level
+    `_register_shared_bindings(...)` line in the middle of the
+    `TuiSwitcherMixin` class body (between `SWITCHER_BINDINGS` and the
+    later method definitions), producing an `IndentationError`. Fixed
+    by moving the registration to module bottom, after the class.
+
+- **Key decisions:**
+  - **Widget-level dag scope via `register_app_bindings(...)` at class
+    body** rather than `ShortcutsMixin`. Widgets are constructed
+    differently from Apps/Screens (parent-child mount sequence) and
+    `ShortcutsMixin.__init__` would force a scope check that fires
+    before the widget is fully wired. Registering at class-body load
+    time is simpler, idempotent, and matches the t848_2 module-level
+    pattern (`get_label` on `ViewSelector`).
+  - **Sub-scope policy.** Modals/Screens with their own BINDINGS get
+    sub-scopes (`<app>.<modal>`); pure escape-cancel modals are
+    skipped — there is nothing for a user to customize.
+  - **`shared.stale_entry` sub-scope** instead of
+    `syncer.stale_entry`. The modal is pushed by multiple Apps
+    (ait ide, board, monitor, syncer) per its own docstring, so a
+    syncer-specific scope would mis-attribute it. The synthetic
+    `shared.*` prefix lines up with the `tui_switcher.SWITCHER_BINDINGS`
+    registration under `"shared"`.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t848_4 (editor modal):** registered scopes after this task are
+    `applink`, `applink.pairing`, `applink.status`,
+    `board`, `board.detail`, `board.agent_cmd`,
+    `brainstorm`, `brainstorm.dag`, `brainstorm.compare_select`,
+    `codebrowser`, `codebrowser.copypath`,
+    `diffviewer`, `minimonitor`, `monitor`, `settings`, `stats`,
+    `syncer`, `shared`, `shared.stale_entry`. Split on `.` for
+    hierarchy. The `?` key is owned at App level only; sub-screens
+    must NOT splice `SHORTCUTS_MIXIN_BINDINGS`.
+  - **t848_5 (Settings tab + export/import):** `userconfig.yaml`
+    `shortcuts:` subtree uses the sub-scope literal verbatim as YAML
+    keys (`shortcuts.brainstorm.dag.head_node: H`). When exporting,
+    preserve the dot in the key string — do not split it into nested
+    maps unless you also normalize on import.
+  - **Advisory `coherence_lint()` warning** currently surfaces:
+    `refresh` is bound to `r` in `minimonitor`/`stats`/`syncer` and to
+    `f5` in `monitor`. Resolve in t848_5 if the Settings tab wants
+    `refresh` as a single canonical binding; the test currently
+    prints-not-fails this category.
+  - **stats Session footer** and the **settings 3 hand-composed
+    footers** are deferred (see Deviations above). t848_6 (docs) should
+    note these as known stale informational strings if the user can
+    rebind the underlying keys; t848_5 (settings tab) can land the
+    helper-based render if it wants to demonstrate live override
+    feedback.
+
