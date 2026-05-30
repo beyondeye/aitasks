@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [853]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [documentation, codeagent]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-05-29 09:31
-updated_at: 2026-05-30 21:55
+updated_at: 2026-05-30 22:02
+completed_at: 2026-05-30 22:02
 ---
 
 ## Goal
