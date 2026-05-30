@@ -3383,6 +3383,13 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def check_action(self, action: str, parameters) -> bool | None:
         """Control visibility of conditional actions in the footer bar."""
+        # A modal/overlay screen on top owns its own arrow-key navigation
+        # (e.g. the shortcut editor's DataTable). The board binds arrows with
+        # priority=True, which Textual checks before the focused widget — so
+        # disable board card-nav whenever a screen is pushed, letting the arrow
+        # keys fall through to the focused modal widget.
+        if action in ("nav_up", "nav_down", "nav_left", "nav_right") and len(self.screen_stack) > 1:
+            return False
         # Let TuiSwitcherOverlay's ListView handle arrow keys natively
         if action in ("nav_up", "nav_down", "nav_left", "nav_right") and isinstance(self.screen, TuiSwitcherOverlay):
             return False

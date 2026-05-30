@@ -47,14 +47,11 @@ class ShortcutsMixin:
         return render_label(text, key, style=style)
 
     def action_open_shortcuts_editor(self) -> None:
-        # t848_4 will replace this stub with the actual modal.
-        notify = getattr(self, "notify", None)
-        if callable(notify):
-            notify(
-                "Shortcuts editor not yet available — coming in t848_4.",
-                severity="information",
-                timeout=3,
-            )
+        # Top-level import name: .aitask-scripts/lib/ is on sys.path, so modules
+        # there import as bare names (not package-relative).
+        from shortcut_editor_modal import ShortcutEditorModal
+
+        self.app.push_screen(ShortcutEditorModal(scope=self._shortcuts_scope))
 
 
 def get_label(scope: str, action_id: str, text: str, *, style: str = "wrap") -> str:

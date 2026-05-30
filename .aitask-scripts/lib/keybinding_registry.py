@@ -87,15 +87,32 @@ def register_app_bindings(scope: str, bindings: list[Any]) -> list[Any]:
     that scope, we return a new `Binding` with the override key substituted;
     otherwise the original `Binding` is returned unchanged.
     """
-    overrides = load_user_overrides().get(scope, {})
+    all_overrides = load_user_overrides()
+    overrides = all_overrides.get(scope, {})
+    shared_overrides = all_overrides.get("shared", {})
     result: list[Any] = []
     for b in bindings:
         action = getattr(b, "action", None)
         default_key = getattr(b, "key", None)
         label = getattr(b, "description", "") or ""
         if action and default_key is not None:
-            _DEFAULTS[(scope, str(action))] = (str(default_key), str(label))
-            override_key = overrides.get(str(action))
+            action_s = str(action)
+            # A binding whose action is already registered under "shared"
+            # (e.g. the `j` TUI switcher, spliced into every App's BINDINGS via
+            # TuiSwitcherMixin.SWITCHER_BINDINGS) is a cross-TUI shared binding.
+            # Resolve its override from the shared scope and do NOT shadow it
+            # with a per-App-scope copy, so the in-TUI shortcut editor lists it
+            # once (under "shared") and an edit there applies in every TUI.
+            if scope != "shared" and ("shared", action_s) in _DEFAULTS:
+                shared_default = _DEFAULTS[("shared", action_s)][0]
+                override_key = shared_overrides.get(action_s)
+                if override_key is not None and override_key != shared_default:
+                    result.append(dataclasses.replace(b, key=override_key))
+                    continue
+                result.append(b)
+                continue
+            _DEFAULTS[(scope, action_s)] = (str(default_key), str(label))
+            override_key = overrides.get(action_s)
             if override_key is not None and override_key != default_key:
                 result.append(dataclasses.replace(b, key=override_key))
                 continue
@@ -151,6 +168,27 @@ def coherence_lint(scopes_to_check: list[str] | None = None) -> list[str]:
             )
             warnings.append(f"`{action}` is bound to {parts}")
     return warnings
+
+
+def iter_scope_bindings(prefix: str) -> list[tuple[str, str, str, str]]:
+    """Return ``(scope, action_id, default_key, label)`` rows for the editor.
+
+    Includes every recorded binding whose scope equals ``prefix`` or starts
+    with ``prefix + "."`` (a TUI's own scope plus its modal sub-scopes), plus
+    the global ``shared`` / ``shared.*`` scopes — those bindings (e.g. the
+    ``j`` TUI switcher) are active in every TUI, so the in-TUI shortcut editor
+    surfaces them too. Sorted by ``(scope, action_id)`` for a stable order.
+    """
+    out: list[tuple[str, str, str, str]] = []
+    for (scope, action_id), (default_key, label) in _DEFAULTS.items():
+        if (
+            scope == prefix
+            or scope.startswith(prefix + ".")
+            or scope == "shared"
+            or scope.startswith("shared.")
+        ):
+            out.append((scope, action_id, default_key, label))
+    return sorted(out, key=lambda row: (row[0], row[1]))
 
 
 def _reset_for_tests() -> None:
