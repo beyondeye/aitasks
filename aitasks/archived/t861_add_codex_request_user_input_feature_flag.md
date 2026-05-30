@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [codexcli, setup]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: codex/gpt5_5
 created_at: 2026-05-30 22:35
-updated_at: 2026-05-30 22:48
+updated_at: 2026-05-30 22:52
+completed_at: 2026-05-30 22:52
 ---
 
 ## Exploration Summary
