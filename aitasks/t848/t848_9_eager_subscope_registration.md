@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t848_4]
 issue_type: enhancement
 status: Ready
 labels: [custom_shortcuts]
