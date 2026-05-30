@@ -6,6 +6,7 @@ Archived Sibling Plans: aiplans/archived/p832/p832_10_aitask_create_interactive_
 Base branch: main
 plan_verified:
   - claudecode/opus4_7_1m @ 2026-05-30 21:48
+  - claudecode/opus4_8 @ 2026-05-30 21:58
 ---
 
 # Plan: parallel cross-repo planning procedure (t832_5, verify-refreshed 2026-05-30)
@@ -60,11 +61,15 @@ plan revision is now a no-op (kept below as a historical note).
   automatically via `aitask_skill_render.sh` / `aitask_skill_verify.sh`.
 - Cross-repo plumbing scripts present:
   - `aitask_create.sh` — supports `--project`, `--parent`, `--batch`,
-    `--xdeps`, `--xdeprepo`, `--commit`, `--desc-file`, `--name`,
-    `--priority`, `--effort`, `--type` (NOT `--issue-type`),
-    `--labels`, `--silent`. **Output protocol:** in `--silent` mode,
-    emits only the created filepath on stdout (no `TASK_CREATED:<id>:<path>`
-    line yet). The procedure must derive `<id>` from the filename.
+    `--xdeps`, `--xdeprepo`, `--deps`, `--commit`, `--desc-file`,
+    `--name`, `--priority`, `--effort`, `--type` (NOT `--issue-type`),
+    `--labels`, `--silent`. `--deps` (line 149) IS wired at create time —
+    it is merged with the auto sibling-dep and passed to the task-creation
+    function (lines 1817-1820, 1827/1866/1893), so in-repo deps can be set
+    at creation without a post-create update. **Output protocol:** in
+    `--silent` mode, emits only the created filepath on stdout (no
+    `TASK_CREATED:<id>:<path>` line yet). The procedure must derive `<id>`
+    from the filename.
   - `aitask_update.sh` — supports `--project`, `--batch`, `--xdeps`,
     `--xdeprepo`, `--status`, `--assigned-to`, `--desc-file`.
   - `aitask_query_files.sh` — supports `--project <name>` across all
@@ -97,6 +102,11 @@ plan revision is now a no-op (kept below as a historical note).
 - **Filename parsing for child IDs:** since `aitask_create.sh --silent`
   emits only the filepath (no `TASK_CREATED:` line), the procedure
   extracts the task ID from the basename (e.g., `t832_5_*.md` → `832_5`).
+- **`--deps` available at create time (re-verify, 2026-05-30 2nd pass):**
+  `aitask_create.sh` exposes a working `--deps` flag. In-repo child deps
+  are passed directly at creation; the post-create `aitask_update.sh
+  --deps` back-fill is reserved for the rare forward-reference case only.
+  (Supersedes the earlier note that `--deps` did not exist.)
 
 ## Key files to modify
 
@@ -241,12 +251,13 @@ For each planned child:
     --desc-file <tmp>
   ```
   When `--xdeps` is empty, omit both `--xdeps` and `--xdeprepo` (the
-  validator enforces both-or-neither). Note: `aitask_create.sh` does
-  not currently expose a `--deps` flag for in-repo dependencies;
-  child tasks under a parent automatically depend on prior siblings
-  via the existing parent/child sequencing. If the procedure needs
-  finer-grained in-repo deps, post-create via `aitask_update.sh
-  --batch <child_id> --deps "<ids>"`.
+  validator enforces both-or-neither). For in-repo dependencies, pass
+  `--deps "<resolved_local_sibling_ids>"` directly to `aitask_create.sh`
+  (the flag is wired through to creation and is merged with the automatic
+  prior-sibling dep). A post-create `aitask_update.sh --batch <child_id>
+  --deps "<ids>"` is only needed for the rare forward-reference case where
+  a sibling that must be depended on has not been created yet at this
+  child's creation moment (see Step 6).
 
 - **If owning repo is cross-repo:**
   ```bash
