@@ -2,20 +2,21 @@
 Task: t832_5_parallel_cross_repo_planning_procedure.md
 Parent Task: aitasks/t832_brainstorm_cross_repo_skills_retrieval_xdeps_parallel_planni.md
 Sibling Tasks: aitasks/t832/t832_6_retrospective_dogfooding_evaluation.md, aitasks/t832/t832_8_ait_board_cross_repo_support.md, aitasks/t832/t832_9_manual_verification_cross_repo.md
-Archived Sibling Plans: aiplans/archived/p832/p832_1_cross_repo_retrieval_reexec_trio.md, aiplans/archived/p832/p832_2_explain_context_cross_repo.md, aiplans/archived/p832/p832_3_xdeps_parser_and_validation.md, aiplans/archived/p832/p832_4_xdeps_blocking_logic.md, aiplans/archived/p832/p832_7_cross_repo_task_update.md
+Archived Sibling Plans: aiplans/archived/p832/p832_10_aitask_create_interactive_cross_repo.md, aiplans/archived/p832/p832_1_cross_repo_retrieval_reexec_trio.md, aiplans/archived/p832/p832_2_explain_context_cross_repo.md, aiplans/archived/p832/p832_3_xdeps_parser_and_validation.md, aiplans/archived/p832/p832_4_xdeps_blocking_logic.md, aiplans/archived/p832/p832_7_cross_repo_task_update.md
 Base branch: main
 plan_verified:
-  - claudecode/opus4_7_1m @ 2026-05-28 12:00
+  - claudecode/opus4_7_1m @ 2026-05-30 21:48
 ---
 
-# Plan: parallel cross-repo planning procedure (t832_5, revised)
+# Plan: parallel cross-repo planning procedure (t832_5, verify-refreshed 2026-05-30)
 
 ## Context
 
 After the cross-repo plumbing landed (t832_1 retrieval, t832_3 `xdeps` /
 `xdeprepo` parser & validation, t832_7 cross-repo `aitask_update.sh
---project`), no planning surface yet knows how to **design a single
-coordinated change spanning two aitasks projects**.
+--project`, t832_10 `aitask-create` interactive cross-repo flow), no
+planning surface yet knows how to **design a single coordinated change
+spanning two aitasks projects**.
 
 User direction (revised): the cross-planning procedure is invoked
 during the **task-workflow planning phase** (the path reached via
@@ -29,52 +30,85 @@ deps via `depends:` (in-repo) and `xdeps:` / `xdeprepo:` (cross-repo).
 ## Scope restriction
 
 t832_5 covers **aitask-pick only** (the planning phase inside
-`task-workflow`). Two follow-up tasks are created:
+`task-workflow`). One sibling task remains as a deferred follow-up:
 
-1. `t832/t832_10_aitask_create_interactive_cross_repo.md` — sibling
-   task that adds cross-repo support to `aitask-create` interactive
-   mode (cross-repo question, file refs / task refs / labels with
-   cross-repo references, `xdeprepo` stored in task metadata at
-   creation time). Created at the start of this task's
-   implementation phase (not part of the planning deliverable).
-2. `t832/t832_11_aitask_explore_cross_repo.md` — sibling task for
-   `aitask-explore` cross-repo integration; opened after the
-   `aitask-create` sibling stabilises. Filed as a follow-up after
-   t832_5 + t832_10 land.
+- `t832/t832_11_aitask_explore_cross_repo.md` — `aitask-explore`
+  cross-repo integration. **NOT YET FILED** as of plan refresh
+  (2026-05-30). To be created during this task's Step 9 archival as
+  a follow-up (top-level or under t832 as the user prefers).
 
-## Verified deviations from the prior plan
+The earlier `t832_10_aitask_create_interactive_cross_repo.md` sibling
+(interactive `aitask-create` cross-repo flow, including `select_xdeprepo`)
+is **already archived (Done, 2026-05-29)** — its functionality is the
+direct trigger source this procedure consumes. No pre-implementation
+work is needed for it; the Pre-implementation section in the prior
+plan revision is now a no-op (kept below as a historical note).
+
+## Verified facts (2026-05-30 codebase scan)
+
+- `.claude/skills/task-workflow/planning.md` line 187 still reads
+  `- **Complexity Assessment:**` — the prior plan's wire-in line
+  reference is current.
+- No existing references to `parallel-cross-repo`, `cross_repo_handled`,
+  or `xdeprepo` exist anywhere under `.claude/skills/task-workflow/`.
+- `.claude/skills/task-workflow/parallel-cross-repo-planning.md`
+  does NOT exist yet (this task creates it).
+- `task-workflow/planning.md` contains Jinja conditionals (no `.j2`
+  suffix); rendered output lives at
+  `.claude/skills/task-workflow-<profile>-/planning.md`. The wire-in
+  edit must go in the source `planning.md`; rendered variants update
+  automatically via `aitask_skill_render.sh` / `aitask_skill_verify.sh`.
+- Cross-repo plumbing scripts present:
+  - `aitask_create.sh` — supports `--project`, `--parent`, `--batch`,
+    `--xdeps`, `--xdeprepo`, `--commit`, `--desc-file`, `--name`,
+    `--priority`, `--effort`, `--type` (NOT `--issue-type`),
+    `--labels`, `--silent`. **Output protocol:** in `--silent` mode,
+    emits only the created filepath on stdout (no `TASK_CREATED:<id>:<path>`
+    line yet). The procedure must derive `<id>` from the filename.
+  - `aitask_update.sh` — supports `--project`, `--batch`, `--xdeps`,
+    `--xdeprepo`, `--status`, `--assigned-to`, `--desc-file`.
+  - `aitask_query_files.sh` — supports `--project <name>` across all
+    subcommands.
+  - `aitask_project_resolve.sh` — emits `RESOLVED:<root>` /
+    `NOT_FOUND:<name>` / `STALE:<name>:<path>`.
+  - `lib/task_utils.sh` — exposes `read_xdeps`, `read_xdeprepo`,
+    `validate_xdeps_pair`.
+- `aidocs/cross_repo_references.md` documents both notations:
+  - Task: `^([a-z0-9_-]+)#t?([0-9]+(?:_[0-9]+)?)$` (line 117)
+  - File: `<project>:<relative/path>` (colon separator)
+- `tests/lib/test_scaffold.sh::setup_fake_aitask_repo` copies
+  `aitask_path.sh`, `terminal_compat.sh`, `python_resolve.sh`,
+  `yaml_utils.sh` into the fake repo's `lib/`. The new test must add
+  whatever extra libs it sources.
+
+## Verified deviations from the pre-verify plan
 
 - **Wire-in surface narrowed to one site:**
   `.claude/skills/task-workflow/planning.md` (Complexity Assessment
-  branch). Previous draft also wired into `aitask-explore/SKILL.md.j2`
-  — pulled out and deferred to t832_11. `aitask-create/SKILL.md` is
-  not Jinja-templated and has no planning step — out of scope here.
-- **Procedure shape:** previous design said "two parents whose
-  children straddle repos is forbidden". Revised design **enforces**
-  exactly that shape (two parents, mixed children) by always
-  splitting and assigning children to whichever parent fits. The
-  abort path stays as a safety net for malformed inputs.
-- **Creation order:** previous design suggested reserving cross-repo
-  child IDs first to back-fill `xdeps:`. Revised design creates the
-  **cross-repo parent first** (so its ID is known), then iterates
-  child-by-child — each child is created at the correct parent with
-  fully-resolved deps at write time (no two-phase back-fill needed
-  for the common case; back-fill via `aitask_update.sh --project` is
-  only used when a later child's existence completes a forward
-  reference from an earlier one).
+  branch, line 187). `aitask-explore` is deferred to t832_11.
+  `aitask-create/SKILL.md` is not Jinja-templated and has no planning
+  step — out of scope here.
+- **Procedure shape:** enforces two parents with mixed children by
+  always splitting and assigning children to whichever parent fits.
+- **Creation order:** creates the **cross-repo parent first** (so its
+  ID is known), then iterates child-by-child.
+- **Flag name fix:** `aitask_create.sh` uses `--type`, not
+  `--issue-type`. All command templates below use `--type`.
+- **Filename parsing for child IDs:** since `aitask_create.sh --silent`
+  emits only the filepath (no `TASK_CREATED:` line), the procedure
+  extracts the task ID from the basename (e.g., `t832_5_*.md` → `832_5`).
 
 ## Key files to modify
 
 | File | Change |
 |------|--------|
 | `.claude/skills/task-workflow/parallel-cross-repo-planning.md` | **NEW** procedure file (trigger detection + confirmation + paired exploration + decomposition + cross-repo-parent-first creation + commit-ordering + return contract). |
-| `.claude/skills/task-workflow/planning.md` | Insert one-line dispatch at top of the Complexity Assessment branch (§6.1, ~line 187). |
-| `aitasks/t832/t832_10_aitask_create_interactive_cross_repo.md` | **NEW** sibling task (created via `aitask_create.sh --parent 832 --batch`). |
+| `.claude/skills/task-workflow/planning.md` | Insert one-line dispatch at top of the Complexity Assessment branch (§6.1, line 187). |
 | `tests/test_parallel_cross_repo_planning_procedure.sh` | **NEW** — exercises trigger detection, cross-repo-parent-first creation, deps wiring, push-failure warning. |
 
 No Jinja `.md.j2` files are touched, so no goldens regen is needed for
 this task. `task-workflow/planning.md` contains Jinja conditionals (no
-`.j2` suffix), so `aitask_skill_verify.sh` still re-renders it via the
+`.j2` suffix), so `aitask_skill_verify.sh` re-renders it via the
 existing path — verify clean.
 
 ## Procedure content (`parallel-cross-repo-planning.md`)
@@ -98,12 +132,12 @@ frontmatter:
 If `xdeprepo` is empty / absent: set `cross_repo_handled: false` and
 return immediately. The local-only flow continues.
 
-**Note:** This means the trigger never fires until at least one of
-the following is true for the picked task:
+**Note:** The trigger never fires until at least one of the following
+is true for the picked task:
 - The task was created via `aitask_create.sh --batch --xdeprepo
-  <name> --xdeps ...` (already supported since t832_3).
+  <name> --xdeps ...` (supported since t832_3).
 - The task was created via `aitask-create` interactive in cross-repo
-  mode (lands in sibling t832_10).
+  mode (landed in t832_10's `select_xdeprepo` helper).
 - The user manually added `xdeprepo:` to the frontmatter (via `ait
   board` edit, direct file edit, etc.).
 
@@ -119,8 +153,7 @@ intent at creation but the planning agent confirms before acting.
   spanning both repos and create a counterpart parent in `<name>`."
 - Options: "Yes, plan paired (Recommended)" / "No, plan locally only".
 
-On "No": `cross_repo_handled: false`, return (the local-only flow
-continues; `xdeprepo` stays in metadata for future picks).
+On "No": `cross_repo_handled: false`, return.
 
 `xdeprepo` is a scalar — exactly one cross-repo project per task —
 so no disambiguation prompt is needed.
@@ -138,10 +171,10 @@ with a focused question distilled from `trigger_source` (the
 implementing agent composes the question). Subagent results stay in
 this conversation's context for the decomposition step.
 
-**Cross-repo reference resolution (added by t832_10 follow-up).** Before
-spawning the subagents, scan `trigger_source` for the two notations
-introduced by t832_10's interactive `aitask_create.sh` flow and
-documented in `aidocs/cross_repo_references.md`:
+**Cross-repo reference resolution.** Before spawning the subagents,
+scan `trigger_source` for the two notations introduced by t832_10's
+interactive `aitask_create.sh` flow and documented in
+`aidocs/cross_repo_references.md`:
 
 - `<project>#<id>` (e.g. `aitasks_mobile#42_3`) — resolve to the
   referenced task's title/description via
@@ -155,9 +188,9 @@ documented in `aidocs/cross_repo_references.md`:
   list as a high-priority context file.
 
 Both notations are authoring-only inside `trigger_source` — the
-trigger itself remains `xdeprepo` metadata-only (per the architectural
-decision in Step 0). These notations are resolved here, during
-exploration, not during trigger detection.
+trigger itself remains `xdeprepo` metadata-only (per Step 0). These
+notations are resolved here, during exploration, not during trigger
+detection.
 
 ### Step 3 — Design child decomposition (≥2 children)
 
@@ -178,14 +211,16 @@ For each planned child, record:
 ```bash
 ./.aitask-scripts/aitask_create.sh --project <name> --batch \
   --name "<mirrored title>" --priority <p> --effort <e> \
-  --issue-type <t> --labels "<labels>" --commit \
-  --description-file <tmp>
+  --type <t> --labels "<labels>" --commit --silent \
+  --desc-file <tmp>
 ```
 
-Capture `TASK_CREATED:<id>:<path>` line → `<B_parent_id>`. Use the
-local task as the basis for `<mirrored title>` — usually `"<local
-title> (cross-repo counterpart)"` unless the user supplied an
-explicit override during Step 0b.
+Capture the printed filepath, then derive `<B_parent_id>` from the
+basename: strip the leading `t`, the `.md` suffix, and the trailing
+`_<slug>` portion (i.e., the numeric ID prefix). Use the local task
+as the basis for `<mirrored title>` — usually `"<local title>
+(cross-repo counterpart)"` unless the user supplied an explicit
+override during Step 0b.
 
 ### Step 5 — Write children one-by-one
 
@@ -200,29 +235,32 @@ For each planned child:
   ```bash
   ./.aitask-scripts/aitask_create.sh --parent <current_task_id> --batch \
     --name "<child_name>" --priority <p> --effort <e> \
-    --issue-type <t> --labels "<labels>" \
-    --deps "<resolved_local_sibling_ids>" \
+    --type <t> --labels "<labels>" \
     --xdeps "<resolved_cross_repo_sibling_ids>" \
-    --xdeprepo "<name>" \
-    --description-file <tmp>
+    --xdeprepo "<name>" --silent \
+    --desc-file <tmp>
   ```
   When `--xdeps` is empty, omit both `--xdeps` and `--xdeprepo` (the
-  validator enforces both-or-neither).
+  validator enforces both-or-neither). Note: `aitask_create.sh` does
+  not currently expose a `--deps` flag for in-repo dependencies;
+  child tasks under a parent automatically depend on prior siblings
+  via the existing parent/child sequencing. If the procedure needs
+  finer-grained in-repo deps, post-create via `aitask_update.sh
+  --batch <child_id> --deps "<ids>"`.
 
 - **If owning repo is cross-repo:**
   ```bash
   ./.aitask-scripts/aitask_create.sh --project <name> --parent <B_parent_id> --batch \
     --name "<child_name>" --priority <p> --effort <e> \
-    --issue-type <t> --labels "<labels>" \
-    --deps "<resolved_cross_repo_sibling_ids>" \
+    --type <t> --labels "<labels>" \
     --xdeps "<resolved_local_sibling_ids>" \
-    --xdeprepo "<local_project_name>" \
-    --description-file <tmp>
+    --xdeprepo "<local_project_name>" --silent \
+    --desc-file <tmp>
   ```
 
-For each child, capture the returned `TASK_CREATED:<id>:<path>` so
-subsequent children that depend on it can reference the resolved ID
-when they are written.
+For each child, capture the printed filepath and derive the ID from
+the basename so subsequent children that depend on it can reference
+the resolved ID when they are written.
 
 Also write each child's plan file to its parent's plan tree
 (`aiplans/p<parent>/p<parent>_<N>_<name>.md` locally;
@@ -295,12 +333,13 @@ reason — caller continues with local-only flow.
 After t832_5 lands (Claude Code), file three follow-up aitasks (each
 top-level, not children of t832) to port `parallel-cross-repo-
 planning.md` to Codex CLI, Gemini CLI (or `agy` if t812 redirects by
-then), and OpenCode.
+then), and OpenCode. Also file t832_11 for `aitask-explore` cross-repo
+integration (deferred from this task's scope).
 
 ## Wire-in edit
 
 **`task-workflow/planning.md` — top of Complexity Assessment branch
-(§6.1, ~line 187, just before `- **Complexity Assessment:**`):**
+(line 187, just before `- **Complexity Assessment:**`):**
 
 ```markdown
 - **Cross-repo dispatch check (auto-fire with confirmation):** Read
@@ -382,59 +421,23 @@ In addition:
    `test_query_files_cross_repo.sh`, and (if present)
    `test_update_project_flag.sh` — none should regress.
 
-## Pre-implementation step — Create sibling task t832_10
+## Pre-implementation step (HISTORICAL — now a no-op)
 
-Before authoring the procedure file, create the sibling task that
-captures the `aitask-create` interactive cross-repo follow-up so
-nothing is lost during this task's review cycle:
+The earlier plan revision (2026-05-28) included a "Pre-implementation
+step — Create sibling task t832_10" because the `aitask-create`
+interactive cross-repo flow did not yet exist. As of 2026-05-29 that
+sibling has been completed and archived — t832_10 lives at
+`aitasks/archived/t832/t832_10_aitask_create_interactive_cross_repo.md`
+and the `select_xdeprepo` helper is live at
+`.aitask-scripts/aitask_create.sh:823-866`. This task no longer needs
+to create or wait on t832_10.
 
-```bash
-./.aitask-scripts/aitask_create.sh --parent 832 --batch \
-  --name aitask_create_interactive_cross_repo \
-  --priority medium --effort medium --issue-type feature \
-  --labels "cross_repo,aitask_create" --commit \
-  --description-file <(cat <<'EOF'
-## Context
-
-Sibling of t832_5. After the cross-planning procedure lands in
-`task-workflow`, the `aitask-create` interactive flow itself needs
-cross-repo awareness so cross-repo intent can be captured at create
-time (rather than waiting for the planning phase).
-
-## Scope
-
-- Add a cross-repo question to `aitask-create` interactive Step 3
-  ("Does this task involve a second repo?"). On Yes, pick from
-  registered projects (resolved via `aitask_project_resolve.sh`).
-- Store `xdeprepo` in the task frontmatter at creation.
-- In cross-repo mode, all subsequent interactive UIs must support
-  cross-repo references:
-  - File references in description (file picker reads both repos).
-  - Task references in deps and elsewhere (`xdeps` candidates pulled
-    from cross-repo `aitask_query_files.sh --project`).
-  - Labels (union of both repos' `labels.txt`).
-- After creation, downstream `/aitask-pick` planning sees the
-  `xdeprepo` metadata and trips the Match A signal in
-  `parallel-cross-repo-planning.md` (already supported by t832_5).
-
-## Out of scope
-
-- aitask-explore cross-repo integration → t832_11.
-
-See parent plan §t832 and the cross-planning procedure landed in
-t832_5 for context.
-EOF
-)
-```
-
-(The actual sibling-task creation will use the canonical Batch Task
-Creation Procedure — `task-creation-batch.md` — at implementation
-time. The shell block above is illustrative of the metadata.)
+The t832_11 follow-up (aitask-explore cross-repo integration) is still
+deferred — file it during Step 9 archival of this task.
 
 ## Out of scope
 
 - Wire-in to `aitask-explore` (deferred to t832_11).
-- Wire-in to `aitask-create` interactive (deferred to t832_10).
 - Cross-repo merge coordination / transactional commits (t826
   scope).
 - TUI surfacing of in-progress paired plans (t832_8 for `ait board`).
@@ -448,20 +451,22 @@ time. The shell block above is illustrative of the metadata.)
 After implementation, the standard Step 9 (Post-Implementation) flow
 applies: archive via `aitask_archive.sh 832_5`, push, and answer the
 satisfaction-feedback prompt. The new procedure file and tests are
-regular framework additions.
+regular framework additions. Also file t832_11 as a follow-up during
+this archival step.
 
 ## Implementation order
 
-1. Create sibling task t832_10 via `aitask_create.sh --parent 832
-   --batch` (Pre-implementation step above).
-2. Write `.claude/skills/task-workflow/parallel-cross-repo-planning.md`
+1. Write `.claude/skills/task-workflow/parallel-cross-repo-planning.md`
    with the 10-step structure above.
-3. Edit `task-workflow/planning.md` to add the one-line dispatch.
-4. Write `tests/test_parallel_cross_repo_planning_procedure.sh`
-   covering the eight scenarios above.
-5. Run `./.aitask-scripts/aitask_skill_verify.sh` — confirm PASS.
-6. Run the new test — confirm all assertions pass.
-7. Manual smoke against a synthetic two-fake-projects scenario.
-8. Append `plan_verified` entry to the plan file (already done in
-   Step 6.1's verify-path append).
-9. Step 8 review → commit → Step 9 archive.
+2. Edit `task-workflow/planning.md` to add the one-line dispatch at
+   line 187.
+3. Write `tests/test_parallel_cross_repo_planning_procedure.sh`
+   covering the seven scenarios above.
+4. Run `./.aitask-scripts/aitask_skill_verify.sh` — confirm PASS for
+   all profiles.
+5. Run the new test — confirm all assertions pass.
+6. Manual smoke against a synthetic two-fake-projects scenario.
+7. Append `plan_verified` entry to the plan file (handled by Step 6.1
+   verify-path append on this re-verification, and again on subsequent
+   re-verifications).
+8. Step 8 review → commit → Step 9 archive (including filing t832_11).
