@@ -37,7 +37,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `qa_run_tests` | bool | no | `true` = run discovered tests; `false` = skip test execution; omit or `true` = run | aitask-qa Step 4 |
 | `qa_tier` | string | no | `"quick"`, `"standard"` (default), `"exhaustive"` | aitask-qa Step 1c |
 | `remote_drift_check` | string | no | `"warn"` (default — soft warning when remote is ahead with no plan-overlap, strong warning with overlap), `"skip"` (do nothing), `"strong-only"` (only prompt when overlap exists) | Step 6 checkpoint (post-plan) |
-| `manual_verification_auto_mode` | string | no | `"ask"` (default — prompt fires with autonomous / pre-built+approve / skip), `"never"` (skip prompt; straight to interactive), `"autonomous"` (skip prompt; run autonomous), `"prebuilt_approve"` (skip prompt; design + approve + execute), `"prebuilt_autorun"` (skip prompt; design + execute, no approval). Controls only the up-front prompt — the per-item `auto` verb in the interactive loop is always available regardless. | Manual Verification Step 1.5 |
+| `manual_verification_mode` | string | no | `"ask"` (default — prompt fires with autonomous / autonomous_with_plan / skip), `"manual"` (skip prompt; straight to interactive), `"autonomous"` (skip prompt; run autonomous), `"autonomous_with_plan"` (skip prompt; design + approve + execute). Controls only the up-front prompt — the per-item `auto` verb in the interactive loop is always available regardless. | Manual Verification Step 1.5 |
 
 Only `name` and `description` are required. Omitting any other key means the corresponding question is asked interactively.
 

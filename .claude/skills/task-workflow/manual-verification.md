@@ -47,27 +47,22 @@ interactive Pass/Fail/Skip/Defer loop. The per-item `auto` verb in step 2's
 "Other" branch remains independently available regardless of what happens
 here.
 
-{# ---------- manual_verification_auto_mode ---------- #}{% if profile.manual_verification_auto_mode is defined %}
-{% if profile.manual_verification_auto_mode == "never" %}
-Profile '{{ profile.name }}' sets `manual_verification_auto_mode: never`.
+{# ---------- manual_verification_mode ---------- #}{% if profile.manual_verification_mode is defined %}
+{% if profile.manual_verification_mode == "manual" %}
+Profile '{{ profile.name }}' sets `manual_verification_mode: manual`.
 Skip the up-front prompt and proceed to step 2 (interactive loop).
-{% elif profile.manual_verification_auto_mode == "autonomous" %}
-Profile '{{ profile.name }}' sets `manual_verification_auto_mode: autonomous`.
+{% elif profile.manual_verification_mode == "autonomous" %}
+Profile '{{ profile.name }}' sets `manual_verification_mode: autonomous`.
 Skip the up-front prompt; execute the **Auto-Verification Procedure** (see
 `auto-verification.md`) with `strategy = "autonomous"`. When the procedure
 returns, fall through to step 2 for any items still in `pending` / `defer`.
-{% elif profile.manual_verification_auto_mode == "prebuilt_approve" %}
-Profile '{{ profile.name }}' sets `manual_verification_auto_mode:
-prebuilt_approve`. Skip the up-front prompt; execute the **Auto-Verification
+{% elif profile.manual_verification_mode == "autonomous_with_plan" %}
+Profile '{{ profile.name }}' sets `manual_verification_mode:
+autonomous_with_plan`. Skip the up-front prompt; execute the **Auto-Verification
 Procedure** with `strategy = "prebuilt"` and `approval_required = true`.
 Fall through to step 2 when it returns.
-{% elif profile.manual_verification_auto_mode == "prebuilt_autorun" %}
-Profile '{{ profile.name }}' sets `manual_verification_auto_mode:
-prebuilt_autorun`. Skip the up-front prompt; execute the **Auto-Verification
-Procedure** with `strategy = "prebuilt"` and `approval_required = false`.
-Fall through to step 2 when it returns.
-{% else %}{# manual_verification_auto_mode == "ask" or any other value #}
-Profile '{{ profile.name }}' sets `manual_verification_auto_mode: {{ profile.manual_verification_auto_mode }}`. Show the prompt below.
+{% else %}{# manual_verification_mode == "ask" or any other value #}
+Profile '{{ profile.name }}' sets `manual_verification_mode: {{ profile.manual_verification_mode }}`. Show the prompt below.
 {% endif %}
 {% else %}{# key absent — defaults to "ask" #}
 Use `AskUserQuestion`:
@@ -99,7 +94,7 @@ Branch on the answer:
   `strategy = "prebuilt"` and `approval_required = true`. Fall through to
   step 2.
 - "No, go straight to interactive" → proceed directly to step 2.
-{% endif %}{# ---------- end manual_verification_auto_mode ---------- #}
+{% endif %}{# ---------- end manual_verification_mode ---------- #}
 
 ### 2. Main loop — render checklist, then ask about the current item
 

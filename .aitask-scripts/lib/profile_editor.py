@@ -58,9 +58,9 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
     "post_plan_action_for_child": ("enum", ["start_implementation", "ask"]),
     "enableFeedbackQuestions": ("bool", None),
     "manual_verification_followup_mode": ("enum", ["ask", "never"]),
-    "manual_verification_auto_mode": (
+    "manual_verification_mode": (
         "enum",
-        ["ask", "never", "autonomous", "prebuilt_approve", "prebuilt_autorun"],
+        ["ask", "manual", "autonomous", "autonomous_with_plan"],
     ),
     "explore_auto_continue": ("bool", None),
     "review_default_modes": ("string", None),
@@ -188,19 +188,19 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "  (unset): same as 'ask'\n"
         "Set to 'never' for non-interactive or remote profiles."
     ),
-    "manual_verification_auto_mode": (
-        "Up-front auto-execution prompt mode for manual-verification tasks",
-        "Controls Manual Verification Step 1.5 — whether the up-front "
-        "auto-execute prompt fires, and which strategy runs when it is "
-        "suppressed:\n"
-        "  'ask': prompt fires (autonomous / pre-built+approve / skip)\n"
-        "  'never': skip prompt; go straight to interactive\n"
-        "  'autonomous': skip prompt; run autonomous strategy\n"
-        "  'prebuilt_approve': skip prompt; design + approve + execute\n"
-        "  'prebuilt_autorun': skip prompt; design + execute, no approval\n"
-        "  (unset): same as 'ask'\n"
-        "The per-item `auto` verb in the interactive loop is always "
-        "available regardless of this setting."
+    "manual_verification_mode": (
+        "Manual verification mode: how (or whether) to auto-run the checklist",
+        "Controls Manual Verification Step 1.5 — the up-front offer to "
+        "auto-run the verification checklist before the interactive "
+        "Pass/Fail/Skip/Defer loop. The per-item `auto` action inside the "
+        "interactive loop is always available, regardless of this setting.\n"
+        "  ask                  — show the offer prompt (default)\n"
+        "  manual               — skip the offer; go straight to interactive\n"
+        "  autonomous           — auto-verify each item as the agent reaches it\n"
+        "                         (no upfront plan-design step)\n"
+        "  autonomous_with_plan — design the per-item plan up front, then enter\n"
+        "                         plan mode for your approval before running\n"
+        "  (unset) — same as `ask`"
     ),
     "explore_auto_continue": (
         "Auto-continue to implementation in exploration mode",
@@ -312,7 +312,7 @@ PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
     ("Feedback", ["enableFeedbackQuestions"]),
     ("Manual Verification", [
         "manual_verification_followup_mode",
-        "manual_verification_auto_mode",
+        "manual_verification_mode",
     ]),
     ("QA Analysis", ["qa_mode", "qa_run_tests", "qa_tier"]),
     ("Exploration", ["explore_auto_continue"]),

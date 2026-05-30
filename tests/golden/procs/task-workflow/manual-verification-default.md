@@ -48,35 +48,12 @@ interactive Pass/Fail/Skip/Defer loop. The per-item `auto` verb in step 2's
 here.
 
 
-Use `AskUserQuestion`:
-- Question: "Try to auto-verify checklist items before the interactive loop?
-  The agent will inspect each item, attempt to verify it (CLI calls, file
-  inspection, tmux interaction with TUIs), and mark pass/fail/defer. Items
-  it can't automate are left pending and you'll work through them
-  interactively as usual."
-- Header: "Auto-verify"
-- Options:
-  - "Yes, autonomous (Recommended)" (description: "Agent picks a
-    verification approach per item on the fly, runs it, and documents what
-    was actually done at the end in the plan file. Fastest; no upfront
-    plan-design step.")
-  - "Yes, design plan first and approve" (description: "Agent designs the
-    per-item execution plan up front, enters plan mode, you approve via
-    ExitPlanMode, then it executes. Use when you want to veto risky
-    automation (fake-data creation, irreversible commands) before it
-    happens.")
-  - "No, go straight to interactive" (description: "Skip auto-execution.
-    The `auto` verb is still available per-item via the Other field in
-    step 2.")
 
-Branch on the answer:
-- "Yes, autonomous" → execute the **Auto-Verification Procedure** (see
-  `auto-verification.md`) with `strategy = "autonomous"`. Fall through to
-  step 2 when it returns.
-- "Yes, design plan first and approve" → execute the procedure with
-  `strategy = "prebuilt"` and `approval_required = true`. Fall through to
-  step 2.
-- "No, go straight to interactive" → proceed directly to step 2.
+Profile 'default' sets `manual_verification_mode: autonomous`.
+Skip the up-front prompt; execute the **Auto-Verification Procedure** (see
+`auto-verification.md`) with `strategy = "autonomous"`. When the procedure
+returns, fall through to step 2 for any items still in `pending` / `defer`.
+
 
 
 ### 2. Main loop — render checklist, then ask about the current item
