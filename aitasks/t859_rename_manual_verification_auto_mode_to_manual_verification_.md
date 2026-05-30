@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [851]
 issue_type: refactor
 status: Ready
 labels: [manual_verification, task_workflow, ait_settings, skill_authoring]

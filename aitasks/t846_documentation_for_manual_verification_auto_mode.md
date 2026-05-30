@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: low
-depends: [843, 851]
+depends: [843, 851, 859]
 issue_type: documentation
 status: Ready
 labels: [manual_verification, web_site, task_workflow]
@@ -24,16 +24,14 @@ The runtime behaviour is documented in the skill / procedure files
 `.claude/skills/task-workflow/profiles.md`) but the website docs need a
 full pass.
 
-**Important — coordinate with the t851 rename:** as of writing, the
-rename + value-drop follow-up task from t851 has not yet been created /
-executed, so the source files still use the old key
-`manual_verification_auto_mode` with values
-`ask | never | autonomous | prebuilt_approve | prebuilt_autorun`. The
-website docs produced by this task MUST use the **new** names
-(`manual_verification_mode` with values `ask | manual | autonomous |
-autonomous_with_plan`). If the rename task has not landed by the time
-t846 is picked up, raise it as a blocker — do not document the
-soon-to-be-renamed names.
+**Important — coordinate with the t851 rename (t859):** the rename +
+value-drop follow-up from t851 is tracked as **t859**. Until t859 lands,
+the source files still use the old key `manual_verification_auto_mode`
+with values `ask | never | autonomous | prebuilt_approve |
+prebuilt_autorun`. The website docs produced by this task MUST use the
+**new** names (`manual_verification_mode` with values `ask | manual |
+autonomous | autonomous_with_plan`). t859 is in this task's `depends:`
+list — do not start t846 before t859 is Done.
 
 ## Goal
 
@@ -82,14 +80,11 @@ the primary workflow page:
 
 - Respect CLAUDE.md "Documentation Writing" rule: describe the **current
   state only**. No "previously" / "earlier we recommended" phrasing.
-- Depends on t843 being merged AND on the t851 rename follow-up landing
-  (key `manual_verification_auto_mode` → `manual_verification_mode`,
-  value `never` → `manual`, value `prebuilt_approve` →
-  `autonomous_with_plan`, value `prebuilt_autorun` dropped). The
-  follow-up rename task referenced at the end of
-  `aiplans/archived/p851_brainstorm_better_names_for_manual_verification_auto_mode.md`
-  must exist and be Done before picking t846 up; if missing, create it
-  first.
+- Depends on t843 being merged AND on **t859** (the t851 rename
+  follow-up: key `manual_verification_auto_mode` →
+  `manual_verification_mode`, value `never` → `manual`, value
+  `prebuilt_approve` → `autonomous_with_plan`, value `prebuilt_autorun`
+  dropped).
 - The task filename itself still embeds the old key name
   (`..._for_manual_verification_auto_mode.md`). Per the t851 plan's
   Migration sites §5 option (a), leave the filename and only update the
