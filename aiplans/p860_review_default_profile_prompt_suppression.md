@@ -138,3 +138,46 @@ Commit split (per CLAUDE.md): code/test files (`tests/...`) via plain `git`
 with `chore: ... (t860)`; the `default.yaml` profile change via `./ait git`
 with an `ait:` administrative message. Then Step 8 review → 8b/8c follow-ups →
 Step 9 archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** Chose Option A (remove the keys). Deleted
+  `manual_verification_followup_mode: never` and
+  `manual_verification_mode: autonomous` from
+  `aitasks/metadata/profiles/default.yaml`, leaving only `name` +
+  `description`. Regenerated the two affected goldens
+  (`tests/golden/procs/task-workflow/manual-verification-default.md`,
+  `manual-verification-followup-default.md`) via
+  `skill_template.py <file> default.yaml claude`. Updated the `default` row at
+  `tests/test_skill_parity_runtime_vs_rendered.sh:168` to assert the
+  key-absent fallback (PRESENT = "If the active profile has
+  `manual_verification_followup_mode` set to") and forbid the resolved
+  regression token (ABSENT = "Profile 'default' sets
+  `manual_verification_followup_mode: never`").
+- **Deviations from plan:** None functionally. One environment note: the
+  `default.yaml` edit was **swept into a concurrent `ait` writer's commit**
+  (`86d94155` "ait: Start work on t846") on the shared `aitask-data` branch
+  before this workflow could commit it — the same shared-branch divergence p859
+  documented. The committed data-branch state is correct (keyless); no
+  re-commit was needed, only commit attribution differs.
+- **Issues encountered:** `./ait git status` showed clean for `default.yaml`
+  despite a live edit, because the concurrent writer had already committed it.
+  Verified via `./ait git show HEAD:...default.yaml` (keyless) and
+  `./ait git log -- ...default.yaml` (most recent touch = `86d94155`).
+- **Key decisions:** Option A over Option B because the evidence is one-sided —
+  the seed (`seed/profiles/default.yaml`) never had the keys, p843's plan
+  specified "No change" for default.yaml and expected the Step 1.5 prompt to
+  fire under `default`, and the CHANGELOG attributes prompt suppression to
+  fast/remote only. No description edit was needed (it becomes accurate once
+  the keys are gone). No new `manual_verification_mode` parity row was added —
+  that key's key-absent rendering is already covered by the full-golden diff
+  (Test 1) for `manual-verification-default.md`.
+- **Upstream defects identified:** None. The `default.yaml` drift was this
+  task's own subject (surfaced by p859); diagnosis did not reveal a separate
+  pre-existing bug in another script/helper/module.
+
+### Build verification
+- `tests/test_skill_parity_runtime_vs_rendered.sh` — 86/86 pass.
+- `tests/test_skill_render_task_workflow.sh` — 70/70 pass.
+- Sanity: `default` render of `manual-verification.md` now contains the
+  interactive "Auto-verify" prompt (1 occurrence).
