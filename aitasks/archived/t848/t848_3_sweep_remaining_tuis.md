@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t848_2]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [custom_shortcuts]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-27 17:28
-updated_at: 2026-05-30 21:49
+updated_at: 2026-05-30 21:54
+completed_at: 2026-05-30 21:54
 ---
 
 ## Context
