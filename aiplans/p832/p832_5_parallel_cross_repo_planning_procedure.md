@@ -481,3 +481,139 @@ this archival step.
    verify-path append on this re-verification, and again on subsequent
    re-verifications).
 8. Step 8 review → commit → Step 9 archive (including filing t832_11).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-30 22:1x) — two-phase split (design vs. execute)
+
+- **Requested by user:** The procedure performed actual task creation
+  (`aitask_create.sh --commit`) during the planning phase, which runs in
+  **plan mode (read-only)** — creation cannot happen there. Defer all
+  creation to **after plan approval**: during planning, only *design* the
+  decomposition and *nominally* assign each child to the current task or to
+  the future cross-repo parent. Move cross-repo parent creation + cross-repo
+  child writing to after approval, adapting the single-repo
+  create-after-approval pattern.
+- **Changes made:**
+  - Restructured `parallel-cross-repo-planning.md` into **Phase 1 — Design**
+    (read-only: trigger, confirm, resolve, explore, design with symbolic
+    label-based deps; records the paired decomposition in the local parent's
+    plan; returns `cross_repo_planned: true`; **creates nothing**) and
+    **Phase 2 — Execute** (post-approval, from Step 7: create cross-repo
+    parent first, create children with resolved deps + plans, back-fill,
+    demote the local parent to a parent-of-children, commit-ordering, child
+    checkpoint; returns `cross_repo_executed: true`).
+  - `planning.md` §6.1 dispatch reworded: invokes **Phase 1 only** (design,
+    no creation), sets `cross_repo_planned = true`, proceeds to Save Plan +
+    the standard approval Checkpoint.
+  - Added a single post-approval hook in **`SKILL.md` Step 7** (the common
+    funnel for all "Start implementation" paths): when `cross_repo_planned`
+    is true, run Phase 2 and end at its child checkpoint (no normal
+    implementation, no Step 8 code review). "Approve and stop here" cleanly
+    defers creation to a later pick.
+  - Return fields renamed: `cross_repo_handled` → `cross_repo_planned`
+    (Phase 1) / `cross_repo_executed` (Phase 2).
+  - Test `test_parallel_cross_repo_planning_procedure.sh` updated: asserts
+    the two-phase split (Phase headers, "No task is created in this phase",
+    "after the plan is approved"), the renamed return flags, the design-only
+    dispatch, and the SKILL.md Step 7 hook (33 assertions, all pass).
+  - Regenerated goldens: `planning-{default,fast,remote}.md`,
+    `SKILL-{default,fast,remote}.md`, `parallel-cross-repo-planning-default.md`.
+- **Files affected:** `.claude/skills/task-workflow/parallel-cross-repo-planning.md`,
+  `.claude/skills/task-workflow/planning.md`, `.claude/skills/task-workflow/SKILL.md`,
+  `tests/test_parallel_cross_repo_planning_procedure.sh`,
+  `tests/test_skill_render_task_workflow.sh`,
+  `tests/golden/procs/task-workflow/{planning,SKILL}-{default,fast,remote}.md`,
+  `tests/golden/procs/task-workflow/parallel-cross-repo-planning-default.md`.
+
+### Change Request 2 (2026-05-30 22:2x) — split into two named procedure files
+
+- **Requested by user:** Rename `parallel-cross-repo-planning.md` and split
+  it into two files: keep the actual planning/design in
+  `planning-cross-repo.md`, and move the part that creates the cross-repo
+  parent and assigns children (to the local task and the cross-repo parent)
+  into `cross-repo-child-assignment.md`.
+- **Changes made:**
+  - **Deleted** `parallel-cross-repo-planning.md`.
+  - **New** `planning-cross-repo.md` — the design half (read-only; the former
+    Phase 1). Dispatched from `planning.md` §6.1. Returns
+    `cross_repo_planned`; points forward to `cross-repo-child-assignment.md`.
+  - **New** `cross-repo-child-assignment.md` — the creation half (the former
+    Phase 2): create cross-repo parent first, assign children (local +
+    cross-repo) under their parents, back-fill, demote local parent,
+    commit-ordering, child checkpoint. Returns `cross_repo_executed`.
+    Dispatched from `SKILL.md` Step 7 after approval.
+  - Rewired references: `planning.md` §6.1 → `planning-cross-repo.md`;
+    `SKILL.md` Step 7 hook renamed to "Cross-repo child assignment
+    (post-approval creation)" → `cross-repo-child-assignment.md`.
+  - Test + golden coverage updated: assertions split across the two files;
+    `WRAPPED_FILES_INVARIANT` now lists both new files (golden test 70/70);
+    new canonical goldens `planning-cross-repo-default.md` and
+    `cross-repo-child-assignment-default.md`; old combined golden removed.
+- **Files affected:** `.claude/skills/task-workflow/planning-cross-repo.md`
+  (new), `.claude/skills/task-workflow/cross-repo-child-assignment.md` (new),
+  `.claude/skills/task-workflow/parallel-cross-repo-planning.md` (deleted),
+  `.claude/skills/task-workflow/planning.md`,
+  `.claude/skills/task-workflow/SKILL.md`,
+  `tests/test_parallel_cross_repo_planning_procedure.sh`,
+  `tests/test_skill_render_task_workflow.sh`, and the corresponding goldens.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added two task-workflow closure procedures —
+  `planning-cross-repo.md` (read-only **design**, dispatched from
+  `planning.md` §6.1) and `cross-repo-child-assignment.md` (post-approval
+  **creation**, dispatched from `SKILL.md` Step 7) — that let the
+  `/aitask-pick` planning phase design and then create a paired ≥2-child
+  decomposition spanning two registered aitasks projects. Trigger is a
+  non-empty `xdeprepo` frontmatter scalar (metadata-only). Wired both into
+  `planning.md` (§6.1 design dispatch, threads `cross_repo_planned`) and
+  `SKILL.md` (Step 7 creation hook). Added
+  `tests/test_parallel_cross_repo_planning_procedure.sh` (36 assertions:
+  document contract for both procedures + both wire-ins; the `read_xdeprepo`
+  metadata-only trigger primitive incl. "body mention does not trigger"; and
+  end-to-end `aitask_create.sh` plumbing for the local-child command shape).
+  Registered both procedures as profile-invariant in
+  `test_skill_render_task_workflow.sh` with canonical goldens.
+- **Deviations from plan:**
+  - The plan's single combined `parallel-cross-repo-planning.md` was split
+    into two files per user review (Change Request 2).
+  - Task creation was moved out of the planning phase to a post-approval
+    Step 7 hook (Change Request 1) — the original plan embedded creation in
+    the planning dispatch, invalid in read-only plan mode.
+  - The plan claimed `aitask_create.sh` lacked `--deps`; it has a working
+    `--deps` flag (corrected during the verify pass; in-repo deps are now set
+    at create time).
+  - The test realizes the plan's 7 behavioral scenarios as a document-contract
+    + trigger-primitive + plumbing test, because the procedures are
+    agent-interpreted markdown (not bash-executable). The plan's manual smoke
+    (`/aitask-pick` against a synthetic `aitasks_mobile#1_2` prompt) remains a
+    manual check.
+- **Issues encountered:** (a) A golden grep anchor ("creates no tasks") was
+  split across a source line wrap, breaking one assertion — reflowed the
+  source line so the phrase stays contiguous. (b) Two unrelated working-tree
+  files (`tests/test_agent_instructions.sh`, mtime-only touch with empty
+  content diff; `tests/test_shortcut_editor_modal.py`, from t848_4) were
+  present and deliberately excluded from this commit.
+- **Key decisions:** (a) Post-approval creation is hooked at `SKILL.md` Step 7
+  — the single funnel for every "Start implementation" path — rather than
+  editing the Jinja-heavy Checkpoint. (b) The Step 2 confirmation plus the
+  standard plan-approval Checkpoint are the two gates; no execution profile
+  bypasses either. (c) Both procedures are profile-invariant (no Jinja) →
+  `WRAPPED_FILES_INVARIANT` + canonical `<stem>-default.md` goldens.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - The metadata-only `xdeprepo` trigger is the load-bearing design decision —
+    incidental body mentions / `aitasks#N_M` notation must NOT trigger paired
+    planning. t832_11 (aitask-explore wire-in) should reuse
+    `planning-cross-repo.md` for design and `cross-repo-child-assignment.md`
+    for creation, hooking creation at explore's own post-approval point.
+  - Adding a task-workflow closure procedure requires: (1) referencing it via
+    a sibling `` `name.md` `` ref so the dep-walker renders it into every
+    profile dir; (2) if profile-invariant, registering it in
+    `test_skill_render_task_workflow.sh` `WRAPPED_FILES_INVARIANT` and
+    committing a canonical `<stem>-default.md` golden; (3) regenerating
+    affected goldens (planning/SKILL) in the same commit.
+  - Step 14 / Step 8 of `cross-repo-child-assignment.md` notes the follow-ups
+    to file at archival: Codex/Gemini(agy)/OpenCode ports of both procedures,
+    and t832_11 (aitask-explore cross-repo wire-in).
