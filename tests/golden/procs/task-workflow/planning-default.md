@@ -140,6 +140,22 @@ While in plan mode:
      Parse the `aitask_fold_mark.sh` output for a `COMMITTED:<hash>` line confirming the fold was committed. The marking script automatically handles transitive folds and removes folded child tasks from their parent's `children_to_implement`.
 
   5. **Resume planning** — Re-read the updated task file to pick up the merged content, then continue planning with the enriched description.
+- **Cross-repo dispatch check (auto-fire with confirmation):** Read and
+  follow the **Cross-Repo Planning Procedure** (see `planning-cross-repo.md`)
+  with `current_task_id` = the current task ID and `trigger_source` = the
+  task body. Trigger detection is metadata-only (it reads `xdeprepo` from the
+  task frontmatter); the body is not scanned. The procedure is **read-only**
+  — it designs a paired decomposition (nominally assigning each child to the
+  current task or to a future cross-repo parent) and records it in the plan,
+  but **creates no tasks** (creation runs in plan mode, which is read-only).
+  If it returns `cross_repo_planned: true`, skip the rest of this Complexity
+  Assessment branch (child-task batch creation, child-plan writing, the
+  manual-verification sibling, and the child-task checkpoint), set
+  `cross_repo_planned = true` in the workflow context, and proceed to **Save
+  Plan to External File** for the local parent. The actual cross-repo parent
+  and child creation runs after the plan is approved, at the start of Step 7
+  (see `cross-repo-child-assignment.md`). If it returns `cross_repo_planned:
+  false`, continue with the Complexity Assessment below.
 - **Complexity Assessment:**
   - After initial exploration, assess implementation complexity
   - If the complexity appears HIGH for a parent task, use `AskUserQuestion`:

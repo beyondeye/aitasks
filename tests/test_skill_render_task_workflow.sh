@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # test_skill_render_task_workflow.sh - Regression tests for the wrapped
 # shared workflow under .claude/skills/task-workflow/:
-#   - 5 wrapped .md files
-#   - 19 golden files under tests/golden/procs/task-workflow/
+#   - 9 wrapped .md files (6 profile-varying + 3 profile-invariant)
+#   - 21 golden files under tests/golden/procs/task-workflow/
 # Coverage:
 #   1.  Per-(file, profile) golden diff for the 4 profile-varying wrapped
 #       files × 3 profiles.
@@ -89,6 +89,8 @@ WRAPPED_FILES_VARYING=(
 )
 WRAPPED_FILES_INVARIANT=(
     "remote-drift-check.md"
+    "planning-cross-repo.md"
+    "cross-repo-child-assignment.md"
 )
 PROFILES=(default fast remote)
 AGENTS=(claude codex opencode)
