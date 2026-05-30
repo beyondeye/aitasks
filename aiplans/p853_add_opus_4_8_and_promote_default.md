@@ -164,3 +164,38 @@ After commit + Step 8 user review, proceed to Step 9 (Post-Implementation)
 for archival via `./.aitask-scripts/aitask_archive.sh 853` and push via
 `./ait git push`. No worktree to clean (profile 'fast' kept us on the
 current branch).
+
+## Final Implementation Notes
+
+- **Actual work done:** Drove `aitask-add-model` skill via three helper
+  subcommands (`add-json`, `promote-config`, `promote-default-agent-string`).
+  Inputs matched the task spec exactly. All three dry-run diffs reviewed
+  before apply and were identical to expected.
+- **Deviations from plan:** None. The helper produced clean atomic updates;
+  no manual touch-up of JSON or `agent_string.sh` was needed.
+- **Issues encountered:** `test_codeagent.sh` has 4 failures (out of 87)
+  that assert against the previous default model string:
+  `resolve returns opus4_7_1m for pick`, `resolve returns model`,
+  `resolve returns cli_id` (expecting `claude-opus-4-7[1m]`), and
+  `dry-run contains model flag` (expecting `claude-opus-4-7`). All four
+  are fixture-bound default-string assertions and were explicitly
+  out-of-scope per the task ("test_codeagent may need fixture updates —
+  those are handled in the follow-up docs/test task"). The follow-up doc
+  task should refresh these fixtures to `opus4_8` / `claude-opus-4-8`.
+  `test_add_model.sh` (31/31) and `test_agent_string.sh` (12/12) both
+  pass cleanly.
+- **Key decisions:**
+  - Bundled the main-branch commit (seed JSON + `agent_string.sh` +
+    `aitask_codeagent.sh` resolution-chain note) under a single
+    `feature: ... (t853)` subject because all four files are one
+    semantic change ("framework defaults to Opus 4.8"). This deviates
+    slightly from the SKILL.md example which splits them into two
+    `git commit` invocations — bundling matches the actual semantic
+    grouping and reduces noise.
+  - Kept the helper-emitted comment "(claudecode/opus4_7_1m at time of
+    writing)" near the docstring at the top of `agent_string.sh`
+    untouched. The phrase "at time of writing" makes it a historical
+    note rather than a stale current-state claim; the helper does not
+    patch it and editing it manually is out of scope here.
+- **Upstream defects identified:** None.
+
