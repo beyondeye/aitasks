@@ -537,7 +537,7 @@ Resolution chain (highest priority first):
   1. --agent-string flag
   2. aitasks/metadata/codeagent_config.local.json (per-user, gitignored)
   3. aitasks/metadata/codeagent_config.json (per-project, git-tracked)
-  4. Hardcoded default: claudecode/opus4_7_1m
+  4. Hardcoded default: claudecode/opus4_8
 
 Examples:
   ait codeagent list-agents

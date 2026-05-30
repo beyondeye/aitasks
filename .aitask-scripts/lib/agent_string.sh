@@ -23,7 +23,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/terminal_compat.sh"
 
 # --- Constants (caller may pre-set any of these to override) ---
 
-DEFAULT_AGENT_STRING="${DEFAULT_AGENT_STRING:-claudecode/opus4_7_1m}"
+DEFAULT_AGENT_STRING="${DEFAULT_AGENT_STRING:-claudecode/opus4_8}"
 METADATA_DIR="${METADATA_DIR:-${TASK_DIR:-aitasks}/metadata}"
 SUPPORTED_AGENTS=(claudecode codex opencode)
 
