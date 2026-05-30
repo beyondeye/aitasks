@@ -6,6 +6,7 @@ issue_type: feature
 status: Implementing
 labels: [codexcli, setup]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt5_5
 created_at: 2026-05-30 22:35
 updated_at: 2026-05-30 22:48
 ---
