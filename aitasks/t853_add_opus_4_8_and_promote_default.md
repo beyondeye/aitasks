@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: [852]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [framework, codeagent]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-29 09:31
-updated_at: 2026-05-29 18:49
+updated_at: 2026-05-30 21:23
 ---
 
 ## Goal
