@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [843, 851, 859]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [manual_verification, web_site, task_workflow]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-27 13:32
-updated_at: 2026-05-30 00:00
+updated_at: 2026-05-30 23:22
 boardidx: 60
 ---
 
