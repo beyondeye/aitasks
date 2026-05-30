@@ -155,9 +155,4 @@ issue/PR expected. Changelog/blog announcement is explicitly out of scope
   - Left the `resolve pick` output example (codeagent.md:105-108) and the
     project-config JSON example (line 178) on `opus4_7_1m` per the audit's
     `informational_only` tag and the task's explicit "leave those" instruction.
-- **Upstream defects identified:** None. (Note, not a defect: leaving the
-  `resolve pick` example on opus4_7_1m while the defaults table two lines up
-  reads opus4_8 is a minor in-doc inconsistency, intentionally left per the
-  audit scoping. Could be a small future doc-polish task if the project wants
-  the format examples to also track the live default — surfaced to the user at
-  Step 8 review; not pursued here.)
+- **Upstream defects identified:** None.
