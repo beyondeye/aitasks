@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [custom_shortcuts]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-05-27 17:29
-updated_at: 2026-05-30 21:58
+updated_at: 2026-05-30 22:44
 ---
 
 ## Context

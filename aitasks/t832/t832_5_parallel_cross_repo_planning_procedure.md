@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [cross_repo, task_workflow]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-05-26 18:28
-updated_at: 2026-05-30 21:53
+updated_at: 2026-05-30 22:13
 ---
 
 ## Context

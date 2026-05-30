@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codexcli, setup]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-30 22:35
-updated_at: 2026-05-30 22:35
+updated_at: 2026-05-30 22:48
 ---
 
 ## Exploration Summary
