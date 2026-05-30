@@ -165,7 +165,7 @@ ROWS=(
     # --- task-workflow manual-verification-followup.md / manual_verification_followup_mode ---
     "task-workflow|manual-verification-followup.md|fast|mvf.md:34|manual_verification_followup_mode|Profile 'fast' sets \`manual_verification_followup_mode: ask\`. Continue with step 2 (no skip)|Profile 'remote' sets \`manual_verification_followup_mode: never\`"
     "task-workflow|manual-verification-followup.md|remote|mvf.md:34|manual_verification_followup_mode|Profile 'remote' sets \`manual_verification_followup_mode: never\`|Profile 'fast' sets \`manual_verification_followup_mode: ask\`"
-    "task-workflow|manual-verification-followup.md|default|mvf.md:34|manual_verification_followup_mode|Profile 'default' sets \`manual_verification_followup_mode: never\`|Profile 'fast' sets \`manual_verification_followup_mode: ask\`"
+    "task-workflow|manual-verification-followup.md|default|mvf.md:34|manual_verification_followup_mode|If the active profile has \`manual_verification_followup_mode\` set to|Profile 'default' sets \`manual_verification_followup_mode: never\`"
 )
 
 echo "=== Per-row parity assertions ==="

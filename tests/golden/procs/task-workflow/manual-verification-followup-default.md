@@ -31,13 +31,11 @@ The only valid skips are:
 ### 1. Profile check
 
 
+If the active profile has `manual_verification_followup_mode` set to `"never"`, display:
 
-Profile 'default' sets `manual_verification_followup_mode: never`. Display:
+> "Profile '\<name\>': skipping manual-verification follow-up prompt."
 
-> "Profile 'default': skipping manual-verification follow-up prompt."
-
-Return to the caller (which proceeds to Step 9).
-
+and return to the caller (which proceeds to Step 9). If the key is unset or `"ask"` (the default), continue.
 
 
 ### 2. Skip conditions
