@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [t848_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [custom_shortcuts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-27 17:29
-updated_at: 2026-05-27 17:29
+updated_at: 2026-05-30 21:58
 ---
 
 ## Context

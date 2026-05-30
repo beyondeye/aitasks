@@ -6,8 +6,9 @@ issue_type: documentation
 status: Implementing
 labels: [documentation, codeagent]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-05-29 09:31
-updated_at: 2026-05-30 21:47
+updated_at: 2026-05-30 21:55
 ---
 
 ## Goal
