@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
+from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -1409,7 +1410,6 @@ class OperationHelpModal(ModalScreen):
 
     BINDINGS = [
         Binding("escape", "close", "Close", show=False),
-        Binding("question_mark", "close", "Close", show=False),
     ]
 
     def __init__(self, op_key: str):
@@ -1425,7 +1425,7 @@ class OperationHelpModal(ModalScreen):
                 Markdown(self._render_markdown(info), id="op_help_content"),
                 id="op_help_scroll",
             )
-            yield Label("[dim]Esc / ? close[/]", id="op_help_footer")
+            yield Label("[dim]Esc / H close[/]", id="op_help_footer")
 
     def _render_markdown(self, info: dict | None) -> str:
         if not info:
@@ -1478,8 +1478,10 @@ def _filter_labels(query: str, labels: list[str]) -> list[str]:
     return [lbl for lbl in labels if q in lbl.lower()]
 
 
-class CompareNodeSelectModal(ModalScreen):
+class CompareNodeSelectModal(ShortcutsMixin, ModalScreen):
     """Modal for selecting 2-4 nodes to compare in the dimension matrix."""
+
+    _shortcuts_scope = "brainstorm.compare_select"
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
@@ -1501,7 +1503,7 @@ class CompareNodeSelectModal(ModalScreen):
                 for nid in self.node_ids:
                     yield Checkbox(nid, id=f"chk_cmp_{nid}")
             with Horizontal(id="compare_select_buttons"):
-                yield Button("(C)ompare", variant="primary", id="btn_compare")
+                yield Button(self.label("confirm", "Compare"), variant="primary", id="btn_compare")
                 yield Button("Cancel", variant="default", id="btn_compare_cancel")
 
     def on_mount(self) -> None:
@@ -2107,8 +2109,10 @@ class CompareDataTable(DataTable):
 # ---------------------------------------------------------------------------
 
 
-class BrainstormApp(TuiSwitcherMixin, App):
+class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     """Textual app for interactive brainstorm session orchestration."""
+
+    _shortcuts_scope = "brainstorm"
 
     TITLE = "ait brainstorm"
 
@@ -2741,6 +2745,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
 
     BINDINGS = [
         *TuiSwitcherMixin.SWITCHER_BINDINGS,
+        *ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS,
         Binding("q", "quit", "Quit"),
         Binding("d", "tab_dashboard", "Dashboard", show=False),
         Binding("g", "tab_graph", "Graph", show=False),
@@ -2751,7 +2756,7 @@ class BrainstormApp(TuiSwitcherMixin, App):
         Binding("r", "compare_regenerate", "Regenerate"),
         Binding("D", "compare_diff", "Diff"),
         Binding("A", "node_action", "Node op"),
-        Binding("question_mark", "op_help", "Op help", key_display="?"),
+        Binding("H", "op_help", "Op help"),
         Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
         Binding("ctrl+shift+r", "retry_patcher_apply",
                 "Retry patcher apply", show=False),

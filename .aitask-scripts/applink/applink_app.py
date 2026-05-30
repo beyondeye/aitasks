@@ -18,6 +18,7 @@ from pathlib import Path
 # Repo lib path -- pulls in TuiSwitcherMixin alongside the other TUIs.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
+from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
@@ -46,8 +47,10 @@ def _hostname() -> str:
         return ""
 
 
-class PairingScreen(Screen):
+class PairingScreen(ShortcutsMixin, Screen):
     """QR-pairing screen: shows token, URI, and a scannable QR code."""
+
+    _shortcuts_scope = "applink.pairing"
 
     BINDINGS = [
         Binding("r", "regenerate", "Regenerate token"),
@@ -116,8 +119,10 @@ class PairingScreen(Screen):
         self.app.push_screen(StatusScreen())
 
 
-class StatusScreen(Screen):
+class StatusScreen(ShortcutsMixin, Screen):
     """Placeholder status screen until the WebSocket listener lands."""
+
+    _shortcuts_scope = "applink.status"
 
     BINDINGS = [
         Binding("p", "show_pairing", "Pairing"),
@@ -144,13 +149,16 @@ class StatusScreen(Screen):
         self.app.pop_screen()
 
 
-class ApplinkApp(TuiSwitcherMixin, App):
+class ApplinkApp(TuiSwitcherMixin, ShortcutsMixin, App):
     """Textual app for the App Linker TUI."""
+
+    _shortcuts_scope = "applink"
 
     TITLE = "ait applink"
 
     BINDINGS = [
         *TuiSwitcherMixin.SWITCHER_BINDINGS,
+        *ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS,
         Binding("q", "quit", "Quit"),
     ]
 

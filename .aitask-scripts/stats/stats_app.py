@@ -32,6 +32,7 @@ from textual.containers import Container, Horizontal, Vertical  # noqa: E402
 from textual.widgets import Footer, Header, Label, ListItem, ListView, Static  # noqa: E402
 
 from lib.tui_switcher import TuiSwitcherMixin  # noqa: E402  (also adds lib/ to sys.path)
+from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from agent_launch_utils import AitasksSession, discover_aitasks_sessions  # noqa: E402
 from stats import stats_config  # noqa: E402
 from stats.modals.name_input import NameInputModal  # noqa: E402
@@ -72,8 +73,10 @@ class _SessionItem(ListItem):
         self.session_key = session_key
 
 
-class StatsApp(TuiSwitcherMixin, App):
+class StatsApp(TuiSwitcherMixin, ShortcutsMixin, App):
     """Top-level app: sidebar + layout picker on the left, content on the right."""
+
+    _shortcuts_scope = "stats"
 
     TITLE = "ait stats"
 
@@ -153,6 +156,7 @@ class StatsApp(TuiSwitcherMixin, App):
         Binding("]", "next_window", "next window", show=True),
         Binding("q", "quit", "Quit"),
         *TuiSwitcherMixin.SWITCHER_BINDINGS,
+        *ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS,
     ]
 
     def __init__(self) -> None:

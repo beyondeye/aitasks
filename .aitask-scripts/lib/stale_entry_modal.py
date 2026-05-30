@@ -18,6 +18,8 @@ from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label
 
+from shortcuts_mixin import ShortcutsMixin
+
 
 class RegistryRefresh(Message):
     """Posted by StaleEntryModal after a successful prune/repoint so the
@@ -83,13 +85,15 @@ class _RepointInputScreen(ModalScreen):
         self.dismiss(None)
 
 
-class StaleEntryModal(ModalScreen):
+class StaleEntryModal(ShortcutsMixin, ModalScreen):
     """Prune / Repoint / Cancel modal for a STALE registry entry.
 
     Self-contained CSS because modals under lib/ are pushed by multiple
     Apps (ait ide, board, monitor, ...) and cannot rely on App-level CSS
     for focus / button height / dialog sizing.
     """
+
+    _shortcuts_scope = "shared.stale_entry"
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
@@ -144,12 +148,12 @@ class StaleEntryModal(ModalScreen):
             )
             yield Label(str(self._project_root), id="stale_path")
             with Horizontal(id="stale_actions"):
-                yield Button("(P)rune", variant="error", id="btn_stale_prune")
+                yield Button(self.label("prune", "Prune"), variant="error", id="btn_stale_prune")
                 yield Button(
-                    "(R)epoint", variant="primary", id="btn_stale_repoint",
+                    self.label("repoint", "Repoint"), variant="primary", id="btn_stale_repoint",
                 )
                 yield Button(
-                    "(C)ancel", variant="default", id="btn_stale_cancel",
+                    self.label("cancel", "Cancel"), variant="default", id="btn_stale_cancel",
                 )
 
     # --- Actions --------------------------------------------------------

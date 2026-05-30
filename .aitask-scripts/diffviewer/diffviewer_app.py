@@ -7,15 +7,19 @@ import sys
 
 # Ensure the parent directory is on the path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
 
 from textual.app import App
 from textual.binding import Binding
 
 from diffviewer.plan_manager_screen import PlanManagerScreen
+from shortcuts_mixin import ShortcutsMixin
 
 
-class DiffViewerApp(App):
+class DiffViewerApp(ShortcutsMixin, App):
     """TUI application for viewing diffs between implementation plans."""
+
+    _shortcuts_scope = "diffviewer"
 
     TITLE = "ait diffviewer"
 
@@ -259,6 +263,7 @@ class DiffViewerApp(App):
     """
 
     BINDINGS = [
+        *ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS,
         Binding("q", "quit", "Quit"),
     ]
 

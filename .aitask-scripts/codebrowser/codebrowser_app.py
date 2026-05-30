@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile
 from agent_launch_utils import find_terminal as _find_terminal, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, _lookup_window_name, tmux_session_target
 from tui_switcher import TuiSwitcherMixin
+from shortcuts_mixin import ShortcutsMixin
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -106,8 +107,10 @@ class GoToLineScreen(ModalScreen):
         self.dismiss(None)
 
 
-class CopyFilePathScreen(ModalScreen):
+class CopyFilePathScreen(ShortcutsMixin, ModalScreen):
     """Modal dialog to copy the current file path."""
+
+    _shortcuts_scope = "codebrowser.copypath"
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
@@ -125,10 +128,10 @@ class CopyFilePathScreen(ModalScreen):
             yield Label("Copy file path:")
             with Horizontal(classes="copy-path-row"):
                 yield Label(self.relative_path, id="copy_path_rel_label", classes="copy-path-value")
-                yield Button("Copy (R)el", variant="primary", id="btn_copy_rel")
+                yield Button(self.label("copy_relative", "Copy Rel"), variant="primary", id="btn_copy_rel")
             with Horizontal(classes="copy-path-row"):
                 yield Label(self.absolute_path, id="copy_path_abs_label", classes="copy-path-value")
-                yield Button("Copy (A)bs", variant="primary", id="btn_copy_abs")
+                yield Button(self.label("copy_absolute", "Copy Abs"), variant="primary", id="btn_copy_abs")
             with Horizontal(id="copy_path_buttons"):
                 yield Button("Cancel", variant="default", id="btn_copy_cancel")
 
@@ -288,7 +291,9 @@ class ContextualFooter(Footer):
                 yield fk
 
 
-class CodeBrowserApp(TuiSwitcherMixin, App):
+class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
+    _shortcuts_scope = "codebrowser"
+
     CSS = """
     #left_sidebar {
         width: 35;
@@ -369,6 +374,7 @@ class CodeBrowserApp(TuiSwitcherMixin, App):
 
     BINDINGS = [
         *TuiSwitcherMixin.SWITCHER_BINDINGS,
+        *ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS,
         Binding("escape", "handle_escape_key", "Escape", show=False, priority=True),
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh_explain", "Refresh annotations"),

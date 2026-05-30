@@ -54,6 +54,7 @@ from agent_launch_utils import (  # noqa: E402
     load_tmux_defaults,
     resolve_dry_run_command,
 )
+from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 
 
 _NEW_SESSION_SENTINEL = "__new_session__"
@@ -128,7 +129,9 @@ def pick_initial_session(
     return _NEW_SESSION_SENTINEL
 
 
-class AgentCommandScreen(ModalScreen):
+class AgentCommandScreen(ShortcutsMixin, ModalScreen):
+    _shortcuts_scope = "board.agent_cmd"
+
     """Dialog showing an agent command for copying or running.
 
     Supports two modes via tabs:
@@ -374,11 +377,11 @@ class AgentCommandScreen(ModalScreen):
         row = Horizontal(classes="agent-cmd-copy-row")
         direct.mount(row)
         row.mount(Label(self.prompt_str, id="agent_cmd_prompt_label"))
-        row.mount(Button("Copy (P)rompt", variant="primary", id="btn_copy_prompt"))
+        row.mount(Button(self.label("copy_prompt", "Copy Prompt"), variant="primary", id="btn_copy_prompt"))
         buttons = Horizontal(classes="agent-cmd-buttons")
         direct.mount(buttons)
-        buttons.mount(Button("(C)opy cmd", variant="primary", id="btn_copy_command"))
-        buttons.mount(Button("(R)un in terminal", variant="warning", id="btn_run_terminal"))
+        buttons.mount(Button(self.label("copy_command", "Copy cmd"), variant="primary", id="btn_copy_command"))
+        buttons.mount(Button(self.label("run", "Run in terminal"), variant="warning", id="btn_run_terminal"))
         buttons.mount(Button("Cancel", variant="default", id="btn_cancel"))
 
         if self._tmux_available:
@@ -464,7 +467,7 @@ class AgentCommandScreen(ModalScreen):
         # Buttons
         buttons = Horizontal(classes="agent-cmd-buttons")
         tmux.mount(buttons)
-        buttons.mount(Button("(R)un in tmux", variant="warning", id="btn_run_tmux"))
+        buttons.mount(Button(self.label("run", "Run in tmux"), variant="warning", id="btn_run_tmux"))
         buttons.mount(Button("Cancel", variant="default", id="btn_tmux_cancel"))
 
         # The Select is already populated; defer only the post-mount visibility

@@ -1055,3 +1055,11 @@ class TuiSwitcherMixin:
         self.push_screen(TuiSwitcherOverlay(
             session=session, current_tui=current, selected_session=selected,
         ))
+
+
+# Register the switcher binding under a synthetic "shared" scope so the
+# t848_4 shortcuts editor can surface it from every TUI (the `j` key is
+# bound in every host App via the mixin, but the editor enumerates by
+# scope, not by host).
+from keybinding_registry import register_app_bindings as _register_shared_bindings  # noqa: E402
+_register_shared_bindings("shared", TuiSwitcherMixin.SWITCHER_BINDINGS)

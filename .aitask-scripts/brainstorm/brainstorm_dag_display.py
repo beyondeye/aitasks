@@ -12,12 +12,15 @@ from collections import deque
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
 
 from textual import events
 from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.message import Message
 from textual.widgets import Static
+
+from keybinding_registry import register_app_bindings
 
 from rich.style import Style
 from rich.text import Text
@@ -444,7 +447,7 @@ class DAGDisplay(VerticalScroll):
 
     can_focus = True
 
-    BINDINGS = [
+    BINDINGS = register_app_bindings("brainstorm.dag", [
         Binding("up", "prev_layer", "↑ Layer", show=True),
         Binding("down", "next_layer", "↓ Layer", show=True),
         Binding("left", "prev_col", "← Col", show=True),
@@ -456,7 +459,7 @@ class DAGDisplay(VerticalScroll):
         Binding("l", "view_plan", "Plan", show=True),
         Binding("x", "compare_with", "Compare", show=True),
         Binding("escape", "cancel_compare", show=False),
-    ]
+    ])
 
     class NodeSelected(Message):
         """Emitted when Enter is pressed on a focused node."""

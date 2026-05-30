@@ -38,6 +38,7 @@ from monitor.monitor_shared import (  # noqa: E402
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
+from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 
 import subprocess  # noqa: E402
 from agent_launch_utils import resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, tmux_session_target  # noqa: E402
@@ -495,8 +496,10 @@ class RestartConfirmDialog(ModalScreen):
 
 # -- Main app -----------------------------------------------------------------
 
-class MonitorApp(TuiSwitcherMixin, App):
+class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
     """Textual app for monitoring tmux panes running code agents."""
+
+    _shortcuts_scope = "monitor"
 
     TITLE = "tmux Monitor"
 
@@ -575,6 +578,7 @@ class MonitorApp(TuiSwitcherMixin, App):
     """
 
     BINDINGS = [
+        *ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS,
         Binding("tab", "switch_zone", "← Back (Tab)", show=True),
         Binding("j", "tui_switcher", "TUI switcher"),
         Binding("q", "quit", "Quit"),

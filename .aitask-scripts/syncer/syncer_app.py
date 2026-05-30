@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from desync_state import snapshot  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
+from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
     TmuxLaunchConfig,
     launch_in_tmux,
@@ -66,8 +67,10 @@ def _format_clock(ts: float) -> str:
     return datetime.fromtimestamp(ts).strftime("%H:%M:%S")
 
 
-class SyncerApp(TuiSwitcherMixin, App):
+class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
     """Textual TUI for the syncer."""
+
+    _shortcuts_scope = "syncer"
 
     TITLE = "aitasks syncer"
 
@@ -90,6 +93,7 @@ class SyncerApp(TuiSwitcherMixin, App):
 
     BINDINGS = [
         *TuiSwitcherMixin.SWITCHER_BINDINGS,
+        *ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS,
         Binding("r", "refresh", "Refresh"),
         Binding("s", "sync_data", "Sync (data)"),
         Binding("u", "pull", "Pull"),

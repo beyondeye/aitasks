@@ -36,6 +36,7 @@ from monitor.monitor_shared import (  # noqa: E402
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
+from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
     tmux_session_target,
     tmux_window_target,
@@ -61,8 +62,10 @@ class MiniPaneCard(Static, can_focus=True):
 
 # -- Main app -----------------------------------------------------------------
 
-class MiniMonitorApp(TuiSwitcherMixin, App):
+class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
     """Compact Textual app for monitoring tmux agent panes."""
+
+    _shortcuts_scope = "minimonitor"
 
     TITLE = "Mini Monitor"
 
@@ -106,6 +109,7 @@ class MiniMonitorApp(TuiSwitcherMixin, App):
     """
 
     BINDINGS = [
+        *ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS,
         Binding("tab", "focus_sibling_pane", "Focus agent", show=False),
         Binding("enter", "send_enter_to_sibling", "Send Enter", show=False),
         Binding("j", "tui_switcher", "TUI switcher", show=False),

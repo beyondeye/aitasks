@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 # Add .aitask-scripts to path for sibling packages (e.g. brainstorm)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
+from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from agent_launch_utils import detect_git_tuis  # noqa: E402
 
 from agent_model_picker import (  # noqa: E402
@@ -1032,8 +1033,10 @@ class SaveProfileConfirmScreen(ModalScreen):
 # ---------------------------------------------------------------------------
 # Main App
 # ---------------------------------------------------------------------------
-class SettingsApp(TuiSwitcherMixin, App):
+class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
     """aitasks Settings TUI."""
+
+    _shortcuts_scope = "settings"
 
     CSS = """
     /* Tab panes */
@@ -1120,6 +1123,7 @@ class SettingsApp(TuiSwitcherMixin, App):
 
     BINDINGS = [
         *TuiSwitcherMixin.SWITCHER_BINDINGS,
+        *ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS,
         Binding("q", "quit", "Quit"),
         Binding("e", "export_configs", "Export"),
         Binding("i", "import_configs", "Import"),
