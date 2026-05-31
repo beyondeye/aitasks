@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [custom_shortcuts, tui_switcher]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 14:08
-updated_at: 2026-05-31 14:08
+updated_at: 2026-05-31 15:19
 ---
 
 The TUI switcher *dialog's* shortcuts do not appear in the customizable-shortcuts
