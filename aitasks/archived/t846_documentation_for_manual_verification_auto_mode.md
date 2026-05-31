@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: [843, 851, 859]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [manual_verification, web_site, task_workflow]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-05-27 13:32
-updated_at: 2026-05-30 23:22
+updated_at: 2026-05-31 08:33
+completed_at: 2026-05-31 08:33
 boardidx: 60
 ---
 
