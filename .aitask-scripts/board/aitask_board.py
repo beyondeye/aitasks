@@ -32,6 +32,7 @@ from sync_action_runner import (
 )
 from tui_switcher import TuiSwitcherMixin, TuiSwitcherOverlay
 from shortcuts_mixin import ShortcutsMixin, get_label
+from cross_repo_notation import parse as parse_cross_repo_notation
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
@@ -235,6 +236,10 @@ class TaskManager:
         self.column_order: list[str] = []
         self.modified_files: set = set()  # Relative paths of git-modified .md files
         self.lock_map: dict[str, dict] = {}  # task_id -> {locked_by, locked_at, hostname}
+        # Cross-repo dependency status cache: (repo, task_id) -> status string.
+        # Populated lazily during card render and cleared each full refresh so
+        # the task-status probe does not fire per redraw.
+        self.xdep_status_cache: dict[tuple[str, str], str] = {}
         self.settings: dict = {}
         self._ensure_paths()
         self.load_metadata()
@@ -412,6 +417,39 @@ class TaskManager:
                         }
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
+
+    def get_xdep_status(self, repo: str, task_id: str) -> str:
+        """Live status of a cross-repo dependency, cached per refresh cycle.
+
+        Shells out to ``aitask_query_files.sh --project <repo> task-status
+        <id>`` (cross-repo re-exec resolves <repo> via the registry). Returns
+        the cross-repo task's status (e.g. ``Implementing``, ``Done``),
+        ``NOT_FOUND`` when the project resolves but the task is missing, or
+        ``""`` (empty) when the project is unreachable (stale/unregistered)
+        or the probe fails — callers treat both empty and ``NOT_FOUND`` as
+        UNREACHABLE. Results are cached in ``self.xdep_status_cache`` keyed
+        by ``(repo, task_id)`` so the probe does not fire per redraw.
+        """
+        key = (repo, task_id)
+        if key in self.xdep_status_cache:
+            return self.xdep_status_cache[key]
+        status = ""
+        try:
+            result = subprocess.run(
+                ["./.aitask-scripts/aitask_query_files.sh",
+                 "--project", repo, "task-status", task_id],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                for line in result.stdout.splitlines():
+                    line = line.strip()
+                    if line.startswith("STATUS:"):
+                        status = line[len("STATUS:"):].strip()
+                        break
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            status = ""
+        self.xdep_status_cache[key] = status
+        return status
 
     def is_modified(self, task: Task) -> bool:
         """Check if a task file is modified vs git."""
@@ -758,6 +796,29 @@ class TaskCard(Static):
                 if dep_task and dep_task.metadata.get('status') != 'Done':
                     unresolved_deps.append(dep_id)
 
+        # Cross-repo dependencies (xdeps + xdeprepo, t832_8). Build a per-ref
+        # display string with live status; xdep_blocked drives the distinct
+        # "blocked by cross-repo" indicator. Both fields must be present
+        # (both-or-neither invariant from t832_3). xdeps values are NOT
+        # normalized by task_yaml, so coerce/strip the leading 't' here.
+        xdep_display = []
+        xdep_blocked = False
+        xdeprepo = meta.get('xdeprepo')
+        xdeps = meta.get('xdeps', []) or []
+        if self.manager and xdeprepo and xdeps:
+            for xd in xdeps:
+                xid = str(xd).lstrip('t')
+                ref = f"{xdeprepo}#{xid}"
+                xstatus = self.manager.get_xdep_status(xdeprepo, xid)
+                if xstatus == 'Done':
+                    xdep_display.append(ref)
+                elif not xstatus or xstatus == 'NOT_FOUND':
+                    xdep_display.append(f"{ref} (UNREACHABLE)")
+                    xdep_blocked = True
+                else:
+                    xdep_display.append(f"{ref} [{xstatus}]")
+                    xdep_blocked = True
+
         # Determine implementing children for parent tasks
         implementing_children = []
         total_children = 0
@@ -769,10 +830,13 @@ class TaskCard(Static):
                 c for c in children if c.metadata.get('status') == 'Implementing'
             ]
 
+        is_blocked = bool(unresolved_deps) or xdep_blocked
         status_parts = []
         if unresolved_deps:
             status_parts.append("🚫 blocked")
-        elif status and not implementing_children:
+        if xdep_blocked:
+            status_parts.append("🌐 blocked (cross-repo)")
+        if not is_blocked and status and not implementing_children:
             status_parts.append(f"📋 {status}")
         if assigned_to: status_parts.append(f"👤 {assigned_to}")
         if status_parts:
@@ -780,6 +844,8 @@ class TaskCard(Static):
 
         if unresolved_deps:
             yield Label(f"🔗 {', '.join(unresolved_deps)}", classes="task-info")
+        if xdep_display:
+            yield Label(f"↗ {', '.join(xdep_display)}", classes="task-info")
 
         folded_into = meta.get('folded_into')
         if folded_into:
@@ -1743,6 +1809,188 @@ class DependencyPickerScreen(ModalScreen):
         self.dismiss()
 
     def action_close_picker(self):
+        self.dismiss()
+
+
+def _resolve_cross_repo_task(repo: str, task_id: str):
+    """Resolve a ``<repo>#<id>`` reference to ``(title, content, is_error)``.
+
+    Read-only: resolves the project root via ``aitask_project_resolve.sh``
+    and reads the task file directly — it acquires NO lock and runs no pick
+    flow. On any failure (unregistered/stale project, missing task, read
+    error) it returns ``is_error=True`` with a human-readable message so the
+    popup shows the error instead of crashing the board.
+    """
+    tid = task_id.lstrip("t")
+    title = f"↗ {repo}#{tid}"
+    try:
+        result = subprocess.run(
+            ["./.aitask-scripts/aitask_project_resolve.sh", repo],
+            capture_output=True, text=True, timeout=10
+        )
+        out = result.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        return (title, f"Could not resolve project '{repo}': {e}", True)
+
+    if out.startswith("RESOLVED:"):
+        root = Path(out[len("RESOLVED:"):])
+    elif out.startswith("STALE:"):
+        return (title,
+                f"Project '{repo}' is registered but its path is stale "
+                f"(missing aitasks/metadata). Fix it with `ait projects`.",
+                True)
+    elif out.startswith("NOT_FOUND:"):
+        return (title,
+                f"Project '{repo}' is not registered. Add it with "
+                f"`ait projects add`.",
+                True)
+    else:
+        return (title, f"Unexpected resolver output for '{repo}': {out}", True)
+
+    # Locate the task file under the resolved root (active tasks only).
+    if "_" in tid:
+        parent = tid.split("_")[0]
+        matches = sorted((root / "aitasks" / f"t{parent}").glob(f"t{tid}_*.md"))
+    else:
+        matches = sorted((root / "aitasks").glob(f"t{tid}_*.md"))
+    if not matches:
+        return (title, f"Task t{tid} not found in project '{repo}'.", True)
+    try:
+        content = matches[0].read_text(encoding="utf-8")
+    except OSError as e:
+        return (title, f"Could not read task file: {e}", True)
+    return (title, content, False)
+
+
+class CrossRepoRefItem(Static):
+    """A selectable cross-repo reference in the picker."""
+
+    can_focus = True
+
+    def __init__(self, repo, task_id, **kwargs):
+        super().__init__(**kwargs)
+        self.repo = repo
+        self.task_id = task_id
+
+    def render(self) -> str:
+        return f"  ↗ {self.repo}#{self.task_id}"
+
+    def on_key(self, event):
+        if event.key == "enter":
+            repo, task_id, app = self.repo, self.task_id, self.app
+            self.screen.dismiss()
+            app._open_cross_repo_task(repo, task_id)
+            event.prevent_default()
+            event.stop()
+
+    def on_focus(self):
+        self.add_class("xrepo-item-focused")
+
+    def on_blur(self):
+        self.remove_class("xrepo-item-focused")
+
+
+class CrossRepoRefPickerScreen(ModalScreen):
+    """Popup to select which cross-repo reference to open (read-only)."""
+
+    DEFAULT_CSS = """
+    CrossRepoRefPickerScreen { align: center middle; }
+    #xrepo_picker_dialog {
+        width: 60%;
+        height: auto;
+        max-height: 80%;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+    }
+    #xrepo_picker_title { text-align: center; padding: 0 0 1 0; }
+    CrossRepoRefItem { height: 1; width: 100%; padding: 0 1; }
+    CrossRepoRefItem.xrepo-item-focused {
+        background: $primary 20%;
+        border-left: thick $accent;
+    }
+    #btn_xrepo_cancel { margin: 1 0 0 0; }
+    """
+
+    BINDINGS = [
+        Binding("escape", "close_picker", "Close", show=False),
+    ]
+
+    def __init__(self, refs):
+        super().__init__()
+        self._refs = refs
+
+    def compose(self):
+        with Container(id="xrepo_picker_dialog"):
+            yield Label("Select cross-repo reference to open:", id="xrepo_picker_title")
+            for repo, task_id in self._refs:
+                yield CrossRepoRefItem(repo, task_id)
+            yield Button("Cancel", variant="default", id="btn_xrepo_cancel")
+
+    @on(Button.Pressed, "#btn_xrepo_cancel")
+    def cancel(self):
+        self.dismiss()
+
+    def action_close_picker(self):
+        self.dismiss()
+
+
+class CrossRepoTaskScreen(ModalScreen):
+    """Read-only popup showing a cross-repo task's content (no lock).
+
+    Self-contained DEFAULT_CSS so it renders consistently regardless of the
+    App-level stylesheet.
+    """
+
+    DEFAULT_CSS = """
+    CrossRepoTaskScreen { align: center middle; }
+    #xrepo_dialog {
+        width: 80%;
+        height: 80%;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+    }
+    #xrepo_title {
+        dock: top;
+        text-align: center;
+        background: $secondary;
+        color: $text;
+        padding: 1;
+    }
+    #xrepo_view { margin: 1 0; border: solid $secondary-background; }
+    #xrepo_error { padding: 1 2; color: $warning; }
+    #xrepo_buttons { dock: bottom; height: 3; align: center middle; }
+    """
+
+    BINDINGS = [
+        Binding("escape", "close", "Close", show=False),
+        Binding("c", "close", "Close", show=False),
+        Binding("C", "close", "Close", show=False),
+    ]
+
+    def __init__(self, title: str, content: str, is_error: bool = False):
+        super().__init__()
+        self._title = title
+        self._content = content
+        self._is_error = is_error
+
+    def compose(self):
+        with Container(id="xrepo_dialog"):
+            yield Label(self._title, id="xrepo_title")
+            with VerticalScroll(id="xrepo_view"):
+                if self._is_error:
+                    yield Static(self._content, id="xrepo_error")
+                else:
+                    yield Markdown(self._content)
+            with Horizontal(id="xrepo_buttons"):
+                yield Button("Close", variant="default", id="btn_xrepo_close")
+
+    @on(Button.Pressed, "#btn_xrepo_close")
+    def _on_close(self):
+        self.dismiss()
+
+    def action_close(self):
         self.dismiss()
 
 
@@ -3352,6 +3600,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("p", "pick_task", "Pick"),
         # Brainstorm task (shown conditionally via check_action)
         Binding("b", "brainstorm_task", "Brainstorm"),
+        # Open cross-repo reference (shown conditionally via check_action)
+        Binding("#", "open_cross_repo", "Cross-repo"),
         # Expand/Collapse children (shown conditionally via check_action)
         Binding("x", "toggle_children", "Toggle Children"),
         # Column Movement
@@ -3434,6 +3684,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             focused = self._focused_card()
             if not focused:
                 return None
+        elif action == "open_cross_repo":
+            focused = self._focused_card()
+            if not focused or not self._gather_cross_repo_refs(focused.task_data):
+                return None  # Hide unless the focused task has cross-repo refs
         elif action in ("move_task_right", "move_task_left", "move_task_up", "move_task_down",
                         "move_task_top", "move_task_bottom"):
             focused = self._focused_card()
@@ -3513,6 +3767,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.manager.refresh_git_status()
         if refresh_locks:
             self.manager.refresh_lock_map()
+        # New refresh cycle: drop cached cross-repo dep statuses so cards
+        # re-probe live status (cards repopulate the cache on render).
+        self.manager.xdep_status_cache.clear()
         container = self.query_one("#board_container")
         container.remove_children()
 
@@ -4126,6 +4383,56 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     self.refresh_column(old_col, refocus_filename=filename)
 
             self.push_screen(TaskDetailScreen(focused.task_data, self.manager), check_edit)
+
+    def _gather_cross_repo_refs(self, task):
+        """Collect ordered, de-duplicated (repo, id) cross-repo references for
+        a task: its xdeps/xdeprepo frontmatter (canonical) plus any
+        ``<repo>#<id>`` notation found in the task body."""
+        refs = []
+        seen = set()
+        meta = task.metadata
+        xdeprepo = meta.get('xdeprepo')
+        xdeps = meta.get('xdeps', []) or []
+        if xdeprepo and xdeps:
+            for xd in xdeps:
+                key = (xdeprepo, str(xd).lstrip('t'))
+                if key not in seen:
+                    seen.add(key)
+                    refs.append(key)
+        for repo, task_id in parse_cross_repo_notation(task.content or ""):
+            key = (repo, task_id)
+            if key not in seen:
+                seen.add(key)
+                refs.append(key)
+        return refs
+
+    def _open_cross_repo_task(self, repo, task_id):
+        """Resolve a cross-repo reference read-only and show it in a popup."""
+        title, content, is_error = _resolve_cross_repo_task(repo, task_id)
+        self.push_screen(CrossRepoTaskScreen(title, content, is_error))
+
+    def action_open_cross_repo(self):
+        """Open a cross-repo reference from the focused task (read-only).
+
+        Gathers references from the task's xdeps frontmatter and body
+        notation. Opens directly when there is exactly one; otherwise shows
+        a picker. Never acquires a lock on the cross-repo task.
+        """
+        if self._modal_is_active():
+            return
+        focused = self._focused_card()
+        if not focused:
+            return
+        refs = self._gather_cross_repo_refs(focused.task_data)
+        if not refs:
+            self.notify("No cross-repo references in this task.",
+                        severity="information")
+            return
+        if len(refs) == 1:
+            repo, task_id = refs[0]
+            self._open_cross_repo_task(repo, task_id)
+        else:
+            self.push_screen(CrossRepoRefPickerScreen(refs))
 
     def action_pick_task(self):
         """Open pick command dialog for the focused task."""
