@@ -1,13 +1,12 @@
 ---
-priority: medium
+priority: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Ready
 labels: [custom_shortcuts]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 16:28
-updated_at: 2026-05-31 17:01
+updated_at: 2026-05-31 18:45
 boardidx: 110
 ---
 
