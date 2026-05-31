@@ -6,6 +6,8 @@ Archived Sibling Plans: aiplans/archived/p873/p873_*_*.md
 Worktree: aiwork/t873_1_glob_dimension_link_expansion_and_badge_count
 Branch: aitask/t873_1_glob_dimension_link_expansion_and_badge_count
 Base branch: main
+plan_verified:
+  - claudecode/opus4_8 @ 2026-05-31 13:52
 ---
 
 # Plan: t873_1 — Glob/prefix dimension-link expansion + badge-count fix + template tag hygiene
