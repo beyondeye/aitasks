@@ -5,9 +5,9 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [brainstorming, ait_brainstorm, ui]
-children_to_implement: [t873_2, t873_3, t873_4, t873_5]
+children_to_implement: [t873_3, t873_4, t873_5]
 created_at: 2026-05-31 12:44
-updated_at: 2026-05-31 14:10
+updated_at: 2026-05-31 16:20
 ---
 
 Fix a cluster of related defects in the `ait brainstorm` TUI around **dimensions** — how they link to proposals, how they render in the node detail pane, and how they feed the `compare` operation. Surfaced while using session 635 (`crew-brainstorm-635`); validated against its real data (8 nodes, 50 unique dimension keys, 26 `active_dimensions`).
