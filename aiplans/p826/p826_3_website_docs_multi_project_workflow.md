@@ -182,3 +182,41 @@ After implementation and review (Step 8), follow the shared workflow's Step 9
 (child-task archival of t826_3 to `aitasks/archived/t826/` and
 `aiplans/archived/p826/`). Profile `fast` works on the current branch — no
 worktree/branch to clean. `verify_build` (if configured) runs at archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `website/content/docs/workflows/multi_project.md`
+  (weight 48, Parallel group) covering the full t826-family registry surface —
+  Why / per-project identity / registry + resolution order + LIVE/OK/STALE
+  states / **all 8 `ait projects` verbs** (list/add/resolve/exec +
+  remove/update/prune/doctor) / `ait create --project` (with `--batch`-required
+  and no-`--parent` constraints) / cross-project `#`/`:` notation / TUI switcher
+  inactive+stale behavior with explicit "`ait monitor` unchanged" note /
+  recipe. Added the nav bullet under **Parallel** in `_index.md`. In
+  `aidocs/cross_repo_references.md`, appended a "See also" cross-link to the new
+  page and trimmed the now-false "What is NOT in scope" bullets (notation
+  parser, `remove`/`prune`, switcher t826_2, website docs t826_3 — all shipped
+  or landing). Created follow-up **t832_12** (documentation, child of t832,
+  `depends: [826_3]`) to document the t832-family surface.
+- **Deviations from plan:** None of substance. All examples use generic
+  placeholder project names (`frontend`/`backend`) per user feedback delivered
+  at the first plan-approval prompt; the plan was revised to bake that rule in
+  before approval.
+- **Issues encountered:** None. `hugo build --gc --minify` is clean (201 pages);
+  the two `.Language.LanguageDirection` / `.Site.AllPages` deprecation WARNs are
+  pre-existing theme-level warnings, unrelated to this page.
+- **Key decisions:** (1) Page scope = full 8-verb registry surface (user-chosen)
+  rather than the originally-planned 4 core verbs, reflecting t826_7/8/9 +
+  t826_10 shipping after the task was written. (2) Follow-up placed as a child
+  of t832 (t832_12), not a standalone top-level task (user-chosen). (3) Did NOT
+  forward-reference the (not-yet-existing) t832 deps page from the new page, per
+  the current-state-only doc rule.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** The cross-repo doc surface is now split across two
+  pages by design — `multi_project.md` (this task, the registry/projects layer)
+  and the forthcoming `cross_project_dependencies.md` (t832_12, the deps /
+  planning / data layer). t832_12 should cross-link back to this page rather
+  than re-document the registry. Generic-example-project-names is now a standing
+  doc convention (see the doc-writing rules in this plan's Context); apply it in
+  t832_12. Source of truth for `ait projects` verb wording is the help block in
+  `.aitask-scripts/aitask_projects.sh` (lines 44–96).
