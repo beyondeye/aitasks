@@ -128,3 +128,41 @@ cat aitasks/metadata/userconfig.yaml   # email + last_used_labels still present
 ```
 
 Then Step 9 (Post-Implementation): commit, archive, merge per task-workflow.
+
+## Final Implementation Notes
+
+- **Actual work done:** Guarded the unguarded `yaml.safe_load` in
+  `userconfig_persist._load_full()` (the post-t864 home of the bug the task
+  pointed at in `shortcut_persist.py`). Added a typed
+  `MalformedUserConfigError(Exception)`; `_load_full()` raises it on
+  `yaml.YAMLError` while still returning `{}` for the legitimate missing-file
+  case. Split read vs write per the task's nuance:
+  `get_last_used_labels()` (read) catches and degrades to `[]` with a stderr
+  warning; `set_last_used_labels()` (write) propagates fail-loud; `_main()`
+  catches `MalformedUserConfigError` for a clean non-zero CLI exit (no
+  traceback). `shortcut_editor_modal.action_save()` wraps its persistence loop
+  and, on the error, shows an error toast, keeps the modal open, and retains
+  pending edits — nothing is written because each writer reads the whole file
+  *before* `_atomic_dump`. Added tests in `test_keybinding_registry.sh`
+  (Cases 8 & 9), `test_last_used_labels.sh` (Case 8), and
+  `test_shortcut_editor_modal.py` (`test_save_aborts_on_malformed_config`).
+- **Deviations from plan:** None functionally. The bug location differed from
+  the task text (t864 refactor relocated `_load_full`/`_atomic_dump` from
+  `shortcut_persist.py` into the shared `userconfig_persist.py`); the plan
+  already accounted for this. `shortcut_persist.py` needed no edit — its
+  writers propagate the exception naturally. One test-only fix: the
+  `assert_contains` helper in `test_last_used_labels.sh` uses `grep -qF`
+  (fixed string), so the `[newlabel]` needle must be literal, not regex-escaped.
+- **Issues encountered:** The bash `set_last_used_labels` wrapper falls back to
+  the block-safe `_set_last_used_labels_fallback` line-editor when the Python
+  writer exits non-zero, so on a malformed file it preserves `email` AND
+  repairs the orphan `- item` line — verified by Case 8. `pytest` is not
+  installed in the venv; the modal suite runs via `python tests/...py`
+  (unittest). Smoke test confirmed: `save_override` on a malformed file raises
+  and leaves the file byte-for-byte intact.
+- **Key decisions:** Chose a typed exception that *raises by default* (write-safe)
+  with read consumers opting into graceful degradation — rather than a `{}`
+  default with writers opting into strictness — because `_load_full()` is now
+  shared and the dangerous direction (silent data loss) must be the one that
+  requires explicit opt-in. Mirrors the t863 read-side wording for the warning.
+- **Upstream defects identified:** None.
