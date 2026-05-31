@@ -157,3 +157,40 @@ Docs-only change on `main` (no worktree). After review/commit: standard
 archival via `./.aitask-scripts/aitask_archive.sh 846`, then `./ait git push`.
 Per CLAUDE.md, the Claude Code skill is source of truth — but here only website
 docs change, so no sibling skill-port tasks for other agents are needed.
+
+## Final Implementation Notes
+
+- **Actual work done:** Edited all 4 planned website pages.
+  - `workflows/manual-verification.md`: added the `## Autonomous verification`
+    H2 (lead framing + 4 subsections: up-front offer / per-item autonomy / run
+    record / `manual_verification_mode` value table), a forward cross-link in
+    the "Running" intro, refreshed the in-render tip example and the "Other
+    (free text)" table row to include the `auto` verb.
+  - `skills/aitask-pick/execution-profiles.md`: added the
+    `manual_verification_mode` row to the Standard Profile Fields table,
+    cross-linked to the new workflow section.
+  - `tuis/settings/reference.md`: added the `manual_verification_mode` row to
+    the "Manual Verification" section (enum values match `profile_editor.py`).
+  - `concepts/execution-profiles.md`: added the key to the illustrative key
+    list.
+- **Deviations from plan:** None. User feedback during planning steered the
+  terminology away from "auto-execution" toward "autonomous" / "AI agent runs
+  a human checklist fully or partially" — incorporated into the plan before
+  approval and reflected throughout.
+- **Issues encountered:** Initial HTML-anchor verification grep used quoted
+  attribute matching (`id="…"`), which missed Hugo's minified output (unquoted
+  attributes). Re-ran unquoted and confirmed `<h2 id=autonomous-verification>`,
+  the same-page links, and the cross-page link
+  (`../../workflows/manual-verification/#autonomous-verification`) all resolve.
+- **Key decisions:** Refreshed the stale verb lists to include `auto` (a t843
+  addition the page predated) so the docs match the runtime tip. Left the two
+  dated blog posts (`v0181`, `v0170`) untouched — they are release
+  announcements, not current-state docs. Kept literal tokens (`auto`,
+  `autonomous` / `autonomous_with_plan`, `…_manual_verification_auto.md`,
+  `## Execution Log`) verbatim; the "autonomous, not auto-execution" rule
+  governs prose/headings only.
+- **Verification:** `hugo --source website build --gc --minify` succeeds (only
+  pre-existing theme deprecation WARNs, no broken-ref errors); `grep` confirms
+  `manual_verification_mode` rendered on all four pages with a consistent value
+  set; new H2 anchor and all cross-links resolve in the generated HTML.
+- **Upstream defects identified:** None.
