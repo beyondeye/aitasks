@@ -13,6 +13,12 @@ Two styles, callsite-selected:
   falls back to a middle-dot separator ``o · Locked`` so the active
   key is still visible.
 
+The ``wrap`` style uppercases the matched in-text character by default
+(``Export`` + ``x`` -> ``E(X)port``). Pass ``uppercase_key=False`` to
+preserve the matched character's actual case (``E(x)port``); this is
+driven globally by the ``shortcut_label_case`` user setting, resolved in
+``shortcuts_mixin`` (this module stays config-free and parameter-driven).
+
 No Textual dependency.
 """
 
@@ -37,13 +43,17 @@ def display_form(key: str) -> str:
     return _MULTI_KEY_SEPARATOR.join(p.capitalize() if p.isalpha() else p.upper() for p in parts)
 
 
-def render_label(text: str, key: str, *, style: str = "wrap") -> str:
+def render_label(
+    text: str, key: str, *, style: str = "wrap", uppercase_key: bool = True
+) -> str:
     """Render ``text`` annotated with shortcut ``key`` in the chosen ``style``.
 
     ``style="wrap"``:
       * empty key -> ``text``
       * single char in text (case-insensitive, first occurrence anywhere
-        including mid-word): wrap that char in parens uppercased.
+        including mid-word): wrap that char in parens. Uppercased when
+        ``uppercase_key`` (default), otherwise the matched character's
+        original case is preserved.
       * single char not in text: prefix ``(K) text``.
       * multi-key combo: prefix ``(Display) text``.
 
@@ -53,24 +63,29 @@ def render_label(text: str, key: str, *, style: str = "wrap") -> str:
         ``k text`` (lowercase key + space + original-case text).
       * single char != first letter (or absent): ``k · text``.
       * multi-key combo: ``Display · text``.
+
+    ``uppercase_key`` governs only the matched-in-text character of the
+    ``wrap`` style. The no-match prefix, multi-key display form, and the
+    ``leading`` style are unaffected.
     """
     if not key:
         return text
     if style == "wrap":
-        return _render_wrap(text, key)
+        return _render_wrap(text, key, uppercase_key)
     if style == "leading":
         return _render_leading(text, key)
     raise ValueError(f"unknown render_label style: {style!r}")
 
 
-def _render_wrap(text: str, key: str) -> str:
+def _render_wrap(text: str, key: str, uppercase_key: bool = True) -> str:
     if _is_multi_key(key):
         return f"({display_form(key)}) {text}"
     # Single-char key: search case-insensitively for first occurrence.
     target = key.lower()
     for i, ch in enumerate(text):
         if ch.lower() == target:
-            return f"{text[:i]}({ch.upper()}){text[i + 1:]}"
+            glyph = ch.upper() if uppercase_key else ch
+            return f"{text[:i]}({glyph}){text[i + 1:]}"
     return f"({key.upper()}) {text}"
 
 

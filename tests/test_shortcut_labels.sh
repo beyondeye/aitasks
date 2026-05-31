@@ -22,8 +22,11 @@ PASS=0
 FAIL=0
 TOTAL=0
 
-# Case format: <golden_name>|<style>|<text>|<key>
+# Case format: <golden_name>|<style>|<text>|<key>[|<uppercase_key>]
 # Empty key is encoded as <KEY_EMPTY> so the field separator stays usable.
+# The optional 5th field is the uppercase_key flag (1=uppercase the wrapped
+# mnemonic, default; 0=preserve the matched character's case). Omit it for the
+# default behavior.
 CASES=(
     "wrap_pick_p|wrap|Pick|p"
     "wrap_pick_uppercase_P|wrap|Pick|P"
@@ -39,24 +42,30 @@ CASES=(
     "lead_all_a|leading|All|a"
     "lead_move_right_ctrl_r|leading|Move Right|ctrl+r"
     "lead_empty_key|leading|Foo|<KEY_EMPTY>"
+    # case-aware mnemonic rendering (uppercase_key flag, t848_10)
+    "wrap_export_x|wrap|Export shortcuts|x|1"
+    "wrap_export_x_preserve|wrap|Export shortcuts|x|0"
+    "wrap_save_changes_a_preserve|wrap|Save Changes|a|0"
+    "wrap_reset_scope_d_preserve|wrap|Reset scope|d|0"
 )
 
 run_case() {
-    local name="$1" style="$2" text="$3" key="$4"
+    local name="$1" style="$2" text="$3" key="$4" upper="$5"
     if [[ "$key" == "<KEY_EMPTY>" ]]; then
         key=""
     fi
     PYTHONPATH="$LIB_DIR" "$AITASK_PYTHON" -c "
 import sys
 from shortcut_labels import render_label
-print(render_label(sys.argv[1], sys.argv[2], style=sys.argv[3]), end='')
-" "$text" "$key" "$style"
+print(render_label(sys.argv[1], sys.argv[2], style=sys.argv[3], uppercase_key=(sys.argv[4] == '1')), end='')
+" "$text" "$key" "$style" "$upper"
 }
 
 for entry in "${CASES[@]}"; do
-    IFS='|' read -r name style text key <<<"$entry"
+    IFS='|' read -r name style text key upper <<<"$entry"
+    [[ -z "$upper" ]] && upper=1
     TOTAL=$((TOTAL + 1))
-    actual=$(run_case "$name" "$style" "$text" "$key")
+    actual=$(run_case "$name" "$style" "$text" "$key" "$upper")
     golden_file="$GOLDEN_DIR/${name}.txt"
     if [[ ! -f "$golden_file" ]]; then
         FAIL=$((FAIL + 1))

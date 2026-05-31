@@ -15,14 +15,63 @@ active shortcut key should:
 Module-level ``get_label`` is provided for callsites that don't have a
 ``ShortcutsMixin`` instance available (e.g. custom widgets that render
 labels from a parent app's scope).
+
+This module also owns the *global* ``shortcut_label_case`` user setting
+(``upper`` | ``preserve``, default ``upper``) read from
+``aitasks/metadata/userconfig.yaml``. It is resolved once (cached, mirroring
+``keybinding_registry``'s overrides cache) and threaded into every
+``render_label`` call so the wrapped mnemonic is uppercased (``E(X)port``)
+or case-preserving (``E(x)port``) across every TUI from one place. The
+``shortcut_labels`` renderer stays config-free; the config dependency lives
+here.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from textual.binding import Binding
 
+from config_utils import load_yaml_config
 from keybinding_registry import register_app_bindings, resolve_key
 from shortcut_labels import render_label
+
+
+# Cached resolution of the global ``shortcut_label_case`` setting.
+# None = not loaded yet; True = uppercase the mnemonic (default);
+# False = preserve the matched character's case.
+_LABEL_CASE_CACHE: bool | None = None
+
+
+def _resolve_uppercase_key() -> bool:
+    """Return whether wrapped mnemonics should be uppercased (global setting).
+
+    Reads ``shortcut_label_case`` from ``userconfig.yaml`` once and caches it.
+    Only the literal value ``preserve`` flips the default; anything else
+    (missing, ``upper``, garbage) keeps the back-compatible uppercase behavior.
+    Fail-soft: a malformed (gitignored) userconfig must not crash every TUI at
+    label-render time, so any read/parse error degrades to uppercase.
+    """
+    global _LABEL_CASE_CACHE
+    if _LABEL_CASE_CACHE is not None:
+        return _LABEL_CASE_CACHE
+    try:
+        cfg = load_yaml_config(Path("aitasks/metadata/userconfig.yaml"))
+        value = str(cfg.get("shortcut_label_case", "upper")).strip().lower()
+    except Exception:
+        value = "upper"
+    _LABEL_CASE_CACHE = value != "preserve"
+    return _LABEL_CASE_CACHE
+
+
+def refresh_label_case() -> None:
+    """Drop the cached ``shortcut_label_case`` so the next read re-loads.
+
+    Mirrors ``keybinding_registry.refresh``; call after editing the setting
+    (and from tests that mutate userconfig.yaml).
+    """
+    global _LABEL_CASE_CACHE
+    _LABEL_CASE_CACHE = None
 
 
 class ShortcutsMixin:
@@ -44,7 +93,9 @@ class ShortcutsMixin:
 
     def label(self, action_id: str, text: str, *, style: str = "wrap") -> str:
         key = resolve_key(self._shortcuts_scope, action_id) or ""
-        return render_label(text, key, style=style)
+        return render_label(
+            text, key, style=style, uppercase_key=_resolve_uppercase_key()
+        )
 
     def action_open_shortcuts_editor(self) -> None:
         # Top-level import name: .aitask-scripts/lib/ is on sys.path, so modules
@@ -70,7 +121,21 @@ class ShortcutsMixin:
 def get_label(scope: str, action_id: str, text: str, *, style: str = "wrap") -> str:
     """Render ``text`` annotated with the active key for ``(scope, action_id)``."""
     key = resolve_key(scope, action_id) or ""
-    return render_label(text, key, style=style)
+    return render_label(
+        text, key, style=style, uppercase_key=_resolve_uppercase_key()
+    )
+
+
+def render_label_cfg(text: str, key: str, *, style: str = "wrap") -> str:
+    """Config-aware ``render_label`` for callsites with a literal key.
+
+    Use when a callsite passes a literal shortcut key (not a registry
+    ``(scope, action_id)``) but still needs the global ``shortcut_label_case``
+    setting applied — e.g. static button labels outside a ``ShortcutsMixin``.
+    """
+    return render_label(
+        text, key, style=style, uppercase_key=_resolve_uppercase_key()
+    )
 
 
 def register_shared_bindings() -> None:

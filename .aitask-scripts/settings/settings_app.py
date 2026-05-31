@@ -20,14 +20,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 # Add .aitask-scripts to path for sibling packages (e.g. brainstorm)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
-from shortcuts_mixin import ShortcutsMixin  # noqa: E402
+from shortcuts_mixin import ShortcutsMixin, render_label_cfg  # noqa: E402
 from agent_launch_utils import detect_git_tuis  # noqa: E402
 
 import keybinding_registry  # noqa: E402
 import shortcut_persist  # noqa: E402
 import shortcut_scopes  # noqa: E402
 from shortcut_editor_modal import ShortcutEditorModal  # noqa: E402
-from shortcut_labels import render_label  # noqa: E402
 
 from agent_model_picker import (  # noqa: E402
     AgentModelPickerScreen,
@@ -2902,8 +2901,8 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 "Scope", "Action", "Current", "Default", "Label", "Origin",
             )
             container.mount(Horizontal(
-                Button(render_label("Reset scope", "d"), id="btn_sc_reset"),
-                Button(render_label("Lint coherence", "l"), id="btn_sc_lint"),
+                Button(render_label_cfg("Reset scope", "d"), id="btn_sc_reset"),
+                Button(render_label_cfg("Lint coherence", "l"), id="btn_sc_lint"),
                 classes="tab-buttons",
             ))
 

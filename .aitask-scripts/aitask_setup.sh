@@ -2915,6 +2915,8 @@ setup_userconfig() {
     {
         echo "# Local user configuration (gitignored, not shared)"
         echo "email: $email"
+        echo "# TUI shortcut label mnemonic case: upper => E(X)port, preserve => E(x)port"
+        echo "shortcut_label_case: preserve"
     } > "$config_file"
 
     success "Created userconfig.yaml (email: $email)"
