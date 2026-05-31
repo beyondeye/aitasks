@@ -33,6 +33,17 @@ from pathlib import Path
 import yaml
 
 
+class MalformedUserConfigError(Exception):
+    """Raised when userconfig.yaml exists but is not parseable YAML.
+
+    Distinct from the missing-file case (which legitimately yields ``{}``).
+    Write paths must surface this rather than round-trip an empty dict, which
+    would erase the user's other top-level keys (``email``,
+    ``last_used_labels``, ``shortcuts``). Read-only consumers may catch it and
+    degrade to their default.
+    """
+
+
 _USERCONFIG_HEADER = "# Local user configuration (gitignored, not shared)\n"
 
 
@@ -66,7 +77,16 @@ def _load_full() -> dict:
     if not path.is_file():
         return {}
     with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
+        try:
+            data = yaml.safe_load(f) or {}
+        except yaml.YAMLError as exc:
+            # A malformed file is NOT the same as a missing one. Raising here
+            # (rather than degrading to {}) keeps the write paths that round-trip
+            # the whole file via _atomic_dump from silently overwriting a corrupt
+            # userconfig.yaml with {} and erasing the user's other top-level keys.
+            raise MalformedUserConfigError(
+                f"{path} is not valid YAML: {exc}"
+            ) from exc
     return data if isinstance(data, dict) else {}
 
 
@@ -104,7 +124,17 @@ def _atomic_dump(data: dict) -> None:
 
 def get_last_used_labels() -> list[str]:
     """Return the last_used_labels list (empty if absent or not a list)."""
-    val = _load_full().get("last_used_labels")
+    try:
+        val = _load_full().get("last_used_labels")
+    except MalformedUserConfigError as exc:
+        # Read-only consumer: degrade to "no labels" on a malformed config
+        # rather than crashing the label picker. Write paths (set_last_used_labels,
+        # shortcut_persist) instead let this propagate so a corrupt file is never
+        # round-tripped back to disk.
+        sys.stderr.write(
+            f"userconfig_persist: ignoring malformed config: {exc}\n"
+        )
+        return []
     if val is None:
         return []
     if isinstance(val, str):
@@ -133,12 +163,19 @@ def _main(argv: list[str]) -> int:
         )
         return 2
     cmd = argv[0]
-    if cmd == "get-labels":
-        print(",".join(get_last_used_labels()))
-        return 0
-    if cmd == "set-labels":
-        set_last_used_labels(_csv_to_list(argv[1] if len(argv) > 1 else ""))
-        return 0
+    try:
+        if cmd == "get-labels":
+            print(",".join(get_last_used_labels()))
+            return 0
+        if cmd == "set-labels":
+            set_last_used_labels(_csv_to_list(argv[1] if len(argv) > 1 else ""))
+            return 0
+    except MalformedUserConfigError as exc:
+        # Fail loud (no traceback): the bash wrapper treats a non-zero exit as a
+        # signal to fall back to its block-safe line-editor, which never
+        # round-trips the whole file.
+        sys.stderr.write(f"userconfig_persist: {exc}\n")
+        return 1
     sys.stderr.write(f"unknown command: {cmd}\n")
     return 2
 

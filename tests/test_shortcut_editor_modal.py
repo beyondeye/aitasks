@@ -222,6 +222,27 @@ class ModalLogicTests(_Fixture):
         cfg = _read_userconfig().get("shortcuts", {}).get("testscope", {})
         self.assertNotIn("pick", cfg)
 
+    def test_save_aborts_on_malformed_config(self):
+        # A malformed userconfig.yaml must NOT be overwritten by a save: the
+        # writer round-trips the whole file, so a silent {} would erase the
+        # user's keys. action_save() should notify an error, keep the modal
+        # open (no dismiss), and leave the file byte-for-byte intact. (t865)
+        cfg_path = Path("aitasks/metadata/userconfig.yaml")
+        cfg_path.write_text(
+            "email: tester@example.com\nlast_used_labels: [a]\n- orphan\n",
+            encoding="utf-8",
+        )
+        before = cfg_path.read_text(encoding="utf-8")
+        modal = self._modal()
+        modal._pending[("testscope", "pick")] = "x"   # a real rebind to persist
+        modal.action_save()
+        # Error surfaced, modal stays open, pending edit retained.
+        self.assertEqual(modal.app.notify.call_args.kwargs.get("severity"), "error")
+        modal.dismiss.assert_not_called()
+        self.assertIn(("testscope", "pick"), modal._pending)
+        # File untouched — no whole-file overwrite.
+        self.assertEqual(cfg_path.read_text(encoding="utf-8"), before)
+
 
 class HostApp(ShortcutsMixin, App):
     _shortcuts_scope = "testscope"

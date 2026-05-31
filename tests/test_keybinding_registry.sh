@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# test_keybinding_registry.sh — Coverage for lib/keybinding_registry.py and
-# lib/shortcut_persist.py (the t848_1 shortcut-customisation foundation).
+# test_keybinding_registry.sh — Coverage for lib/keybinding_registry.py,
+# lib/shortcut_persist.py (the t848_1 shortcut-customisation foundation), and
+# the malformed-config guard in lib/userconfig_persist.py (t865).
 #
 # Run: bash tests/test_keybinding_registry.sh
 
@@ -200,6 +201,73 @@ assert "malformed" in err, err
 print("OK")
 ')
 assert_eq "case7: malformed yaml falls back to {} with warning" "OK" "$OUT"
+
+# --- Case 8: malformed userconfig.yaml + WRITE path fails loud (t865) ---
+
+# Unlike the read-only load_user_overrides (case 7), a shortcut WRITE path
+# round-trips the whole file via _atomic_dump. A silent {} fallback would erase
+# the user's email/labels. So save_override must raise MalformedUserConfigError
+# and leave the file byte-for-byte unchanged instead of overwriting it.
+write_userconfig "case8" 'email: me@example.test
+last_used_labels: [codexcli]
+- agentcrew'
+OUT=$(run_py "case8" '
+import keybinding_registry as kr
+import shortcut_persist as sp
+from userconfig_persist import MalformedUserConfigError
+kr._reset_for_tests()
+path = "aitasks/metadata/userconfig.yaml"
+with open(path, "r", encoding="utf-8") as f:
+    before = f.read()
+try:
+    sp.save_override("board", "pick_task", "o")
+except MalformedUserConfigError:
+    raised = True
+else:
+    raised = False
+assert raised, "save_override should raise on malformed userconfig.yaml"
+with open(path, "r", encoding="utf-8") as f:
+    after = f.read()
+assert before == after, "malformed file must NOT be overwritten by a failed save"
+print("OK")
+')
+assert_eq "case8: malformed yaml + save_override fails loud, file intact" "OK" "$OUT"
+
+# --- Case 9: userconfig_persist read-degrade vs write-fail-loud (t865) --
+
+# Same malformed fixture, exercised directly through userconfig_persist:
+#   * get_last_used_labels (READ)  -> degrades to [] with a stderr warning
+#   * set_last_used_labels (WRITE) -> raises, leaves the file untouched
+write_userconfig "case9" 'email: me@example.test
+last_used_labels: [codexcli]
+- agentcrew'
+OUT=$(run_py "case9" '
+import io, contextlib
+import userconfig_persist as ucp
+from userconfig_persist import MalformedUserConfigError
+path = "aitasks/metadata/userconfig.yaml"
+with open(path, "r", encoding="utf-8") as f:
+    before = f.read()
+# READ degrades gracefully.
+buf = io.StringIO()
+with contextlib.redirect_stderr(buf):
+    labels = ucp.get_last_used_labels()
+assert labels == [], labels
+assert "malformed" in buf.getvalue(), buf.getvalue()
+# WRITE fails loud.
+try:
+    ucp.set_last_used_labels(["x"])
+except MalformedUserConfigError:
+    raised = True
+else:
+    raised = False
+assert raised, "set_last_used_labels should raise on malformed userconfig.yaml"
+with open(path, "r", encoding="utf-8") as f:
+    after = f.read()
+assert before == after, "malformed file must NOT be overwritten by a failed set"
+print("OK")
+')
+assert_eq "case9: read degrades to [], write fails loud, file intact" "OK" "$OUT"
 
 # --- Summary -----------------------------------------------------------
 

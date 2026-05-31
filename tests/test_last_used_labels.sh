@@ -125,6 +125,24 @@ assert_eq "absent field reads empty" "" "$(get_last_used_labels)"
 rm -f "$CONFIG"
 assert_eq "missing file reads empty" "" "$(get_last_used_labels)"
 
+# --- Case 8: malformed file -> write must NOT lose sibling keys (t865) ---
+# A dangling block-sequence item makes the file unparseable. The Python writer
+# now fails loud (non-zero exit) on a malformed file rather than round-tripping
+# {} back to disk; the bash wrapper then falls back to its block-safe
+# line-editor, which preserves the email line and drops the orphan continuation.
+# Either path must keep the user's email intact (no whole-file overwrite).
+cat > "$CONFIG" <<'EOF'
+# Local user configuration (gitignored, not shared)
+email: foo@bar.test
+last_used_labels: [codexcli]
+- agentcrew
+EOF
+set_last_used_labels "newlabel"
+file_content="$(cat "$CONFIG")"
+assert_contains "malformed write preserves email" "email: foo@bar.test" "$file_content"
+assert_contains "malformed write records new label" "last_used_labels: [newlabel]" "$file_content"
+assert_eq "malformed write reads back new label" "newlabel" "$(get_last_used_labels)"
+
 echo ""
 if [[ $FAIL -eq 0 ]]; then
     echo "PASS: $PASS/$TOTAL tests passed"

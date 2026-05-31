@@ -29,6 +29,7 @@ from textual.widgets import DataTable, Footer, Label
 import keybinding_registry
 import shortcut_persist
 from key_capture_screen import KeyCaptureScreen
+from userconfig_persist import MalformedUserConfigError
 
 # Pending-edit sentinel: "clear this override on save (revert to default)".
 _CLEAR = object()
@@ -246,13 +247,27 @@ class ShortcutEditorModal(ModalScreen[None]):
     def action_save(self) -> None:
         # Pending is collision-free by construction, so save unconditionally.
         touched: set[str] = set()
-        for (scope, action_id), pend in self._pending.items():
-            default_key = self._default_for(scope, action_id)
-            if pend is _CLEAR or pend == default_key:
-                shortcut_persist.clear_override(scope, action_id)
-            else:
-                shortcut_persist.save_override(scope, action_id, str(pend))
-            touched.add(scope)
+        try:
+            for (scope, action_id), pend in self._pending.items():
+                default_key = self._default_for(scope, action_id)
+                if pend is _CLEAR or pend == default_key:
+                    shortcut_persist.clear_override(scope, action_id)
+                else:
+                    shortcut_persist.save_override(scope, action_id, str(pend))
+                touched.add(scope)
+        except MalformedUserConfigError as exc:
+            # Each writer reads the whole file before writing, so a malformed
+            # userconfig.yaml raises before anything is persisted — nothing is
+            # half-written. Surface the error and keep the modal open with the
+            # pending edits intact so the user can fix the file and retry (or
+            # cancel) instead of silently overwriting their config.
+            self.app.notify(
+                f"Cannot save shortcuts: {exc}. "
+                "Fix or delete userconfig.yaml, then retry.",
+                severity="error",
+                timeout=8,
+            )
+            return
         for scope in touched:
             keybinding_registry.refresh(scope)
         # refresh_bindings() refreshes enabled-state/footer but does NOT rebuild
