@@ -180,6 +180,27 @@ print("OK")
 ')
 assert_eq "case6: reset_scope removes board, monitor intact" "OK" "$OUT"
 
+# --- Case 7: malformed userconfig.yaml degrades to {} (no crash) -------
+
+# A dangling block-sequence item after a mapping key (the real corruption
+# seen during t832_8) makes yaml.safe_load raise. load_user_overrides must
+# fall back to {} and warn on stderr instead of crashing every TUI at import.
+write_userconfig "case7" 'last_used_labels: [codexcli]
+- agentcrew'
+OUT=$(run_py "case7" '
+import io, contextlib
+import keybinding_registry as kr
+kr._reset_for_tests()
+buf = io.StringIO()
+with contextlib.redirect_stderr(buf):
+    result = kr.load_user_overrides()
+assert result == {}, result
+err = buf.getvalue()
+assert "malformed" in err, err
+print("OK")
+')
+assert_eq "case7: malformed yaml falls back to {} with warning" "OK" "$OUT"
+
 # --- Summary -----------------------------------------------------------
 
 echo

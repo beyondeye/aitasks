@@ -14,6 +14,7 @@ label-rendering code that needs the active key outside of a `Binding`.
 from __future__ import annotations
 
 import dataclasses
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -48,8 +49,18 @@ def load_user_overrides() -> dict[str, dict[str, str]]:
 
     import yaml  # local import: tests may run before yaml is on sys.path
 
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except yaml.YAMLError as exc:
+        # A malformed (gitignored) userconfig.yaml must not crash every
+        # board/TUI at import time; degrade to "no overrides" like the
+        # missing-file case above.
+        sys.stderr.write(
+            f"keybinding_registry: ignoring malformed {path}: {exc}\n"
+        )
+        _OVERRIDES_CACHE = {}
+        return _OVERRIDES_CACHE
     shortcuts = data.get("shortcuts") or {}
     if not isinstance(shortcuts, dict):
         shortcuts = {}
