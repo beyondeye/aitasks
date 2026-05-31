@@ -210,4 +210,82 @@ Set up two fake registered projects (registry points at both).
 
 ## Final Implementation Notes
 
-(To be filled by the implementing agent during/after execution.)
+- **Actual work done:**
+  - New `.aitask-scripts/lib/cross_repo_notation.py` — single `parse(text)`
+    using the unanchored canonical regex `([a-z0-9_-]+)#t?(\d+(?:_\d+)?)`;
+    returns `(project, id)` tuples with the `t` prefix stripped.
+  - `.aitask-scripts/board/aitask_board.py`:
+    - Import `parse as parse_cross_repo_notation`.
+    - `TaskManager.__init__`: new `xdep_status_cache: dict[(repo,id)] -> str`.
+    - `TaskManager.get_xdep_status(repo, id)`: subprocess
+      `aitask_query_files.sh --project <repo> task-status <id>`, parses
+      `STATUS:<value>`; returns `""`/`NOT_FOUND` → UNREACHABLE; cached.
+    - `refresh_board()` clears `xdep_status_cache` each full refresh cycle.
+    - `TaskCard.compose()`: renders the `↗ repo#id [status]` cross-repo dep
+      line (distinct from the local `🔗` line) and a `🌐 blocked
+      (cross-repo)` status chip when any xdep is unmet, with live status /
+      `(UNREACHABLE)` inline.
+    - New `#` board binding → `action_open_cross_repo` (footer-gated via
+      `check_action` to tasks that actually have cross-repo refs).
+      `_gather_cross_repo_refs` merges xdeps frontmatter + body notation;
+      one ref opens directly, several show `CrossRepoRefPickerScreen`.
+    - New module helper `_resolve_cross_repo_task(repo, id)` →
+      `(title, content, is_error)`: resolves via `aitask_project_resolve.sh`
+      (`RESOLVED:`/`STALE:`/`NOT_FOUND:`), reads the task file **read-only**
+      (no lock, no pick flow), graceful error messages on every failure.
+    - New `CrossRepoTaskScreen` (read-only `VerticalScroll + Markdown`
+      popup, self-contained `DEFAULT_CSS`, ESC/`c` to close) and
+      `CrossRepoRefItem` / `CrossRepoRefPickerScreen`.
+  - New `tests/test_cross_repo_notation.py` — 9 parser unit tests (basic,
+    `t`-prefix strip, child `N_M`, empty/None, dash/underscore project,
+    multi-in-prose, uppercase-leading-char partial match).
+- **Deviations from plan:**
+  - **Blocked status computed in Python, not parsed from `aitask_ls.sh`.**
+    Verified during planning: the board builds `unresolved_deps` itself in
+    `TaskCard.compose()`. Implemented cross-repo blocking by extending that
+    Python loop (per-xdep `get_xdep_status` probe), not by pattern-matching
+    `aitask_ls.sh`'s `blocking_info`. `<repo>#<id>` remains the mirrored
+    display format.
+  - **Navigation is a focused-card `#` binding + picker, not inline
+    clickable Markdown links.** The plan floated "render matched substrings
+    as activatable links". Activating arbitrary inline Markdown spans is
+    fragile in Textual; a board-level binding that gathers refs (xdeps +
+    body notation) and offers a picker mirrors the existing dependency-
+    navigation UX (`DependencyPickerScreen`) and is far more robust. Body
+    notation is still parsed via `cross_repo_notation.parse()`.
+  - **`task-status` flag order** is `--project <repo> task-status <id>`
+    (flag precedes subcommand — the cross-repo re-exec strips it first).
+  - **Parser test is Python** (`tests/test_cross_repo_notation.py`), not the
+    `tests/test_cross_repo_notation.sh` the draft named — new `lib/*.py`
+    modules are unit-tested in Python.
+- **Issues encountered:**
+  - The board could not be import-smoke-tested directly because the local
+    (gitignored) `aitasks/metadata/userconfig.yaml` is malformed and the
+    keybinding registry's `load_user_overrides()` lets the resulting
+    `yaml.ParserError` propagate, crashing every TUI import. Worked around
+    by temporarily moving the file aside (loader falls back to `{}` when
+    absent) for the smoke test and the full-suite run, restoring it after.
+    See "Upstream defects identified".
+- **Key decisions:**
+  - **Lazy-populate + clear-on-refresh cache** for cross-repo status rather
+    than a threaded pre-scan: keeps the change small, satisfies "no
+    per-redraw subprocess", and matches the board's existing
+    `lock_map`/`modified_files` refresh model. Probe `timeout=10`, all
+    failures squashed to UNREACHABLE — never crashes the board.
+  - **Read-only popup reads the task file directly** under the resolved
+    root (active tasks only) instead of routing through a pick/query that
+    might lock; guarantees the "no lock acquisition" requirement.
+  - **`#` binding key** — the cross-repo notation separator; punctuation
+    bindings are proven to work here (`shortcuts_mixin` binds `?`).
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/keybinding_registry.py:50-52 — load_user_overrides() calls yaml.safe_load without catching yaml.YAMLError; a malformed (gitignored) aitasks/metadata/userconfig.yaml therefore propagates a ParserError that crashes every board/TUI at import. Should fall back to {} (and warn) on parse failure, matching the existing missing-file fallback.`
+- **Notes for sibling tasks:**
+  - `cross_repo_notation.parse(text)` is the shared task-ID notation parser
+    (distinct from `aitask_explain_context.sh`'s bash file-path classifier).
+    Future `ait monitor` cross-repo surfacing should reuse it.
+  - `TaskManager.get_xdep_status(repo, id)` returns the live cross-repo
+    status (`""`/`NOT_FOUND` ⇒ UNREACHABLE), cached per refresh — reuse it
+    rather than re-shelling `task-status`.
+  - Cross-repo TUI behavior (card line, blocked chip, popup, UNREACHABLE
+    fallback) is interactive-only; the manual checklist above seeds the
+    t832_9 manual-verification sibling.
