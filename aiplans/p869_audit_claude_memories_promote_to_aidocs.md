@@ -246,3 +246,60 @@ user_machine_omarchy_g16, project_g16_line_out_override (personal/hardware).
 - Step 9 (Post-Implementation): commit on current branch (profile 'fast'), then
   archive t869 via `aitask_archive.sh 869`. Memory files live outside the repo —
   their deletion is not part of any git commit.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added/extended aidoc conventions across 7 existing files
+  + 1 new file, plus 2 CLAUDE.md edits, then deleted 24 now-redundant memories,
+  kept 5, added 1 new feedback memory, and rewrote `MEMORY.md`.
+  - `skill_authoring_conventions.md`: manual-refactor parallel-name staging;
+    install-distribution `aitask-*/` glob; drop-no-profile-fallback; stub-vs-full
+    before porting wording; authoring-docs-live-in-aidocs.
+  - `tui_conventions.md`: switcher-registration quadruple; modal self-contained
+    DEFAULT_CSS; multi-select filter visibility; modal-vs-App priority-binding
+    augmentation (check_action + duck-typing).
+  - `aitasks_extension_points.md`: dispatcher-user-facing-only; constants-in-
+    source-not-yaml; whitelist-only-for-skill-invoked-helpers clarification.
+  - `planning_conventions.md`: planning-is-read-only/split-design-from-creation;
+    user-facing-feature docs-child + reuse export/import.
+  - `testing_conventions.md`: golden-file template-engine tests (intro de-scoped).
+  - `model_reference_locations.md` + CLAUDE.md Model Attribution: 1M `[1m]`
+    verbatim cli_id rule.
+  - `cross_repo_references.md`: "sister" → "cross-repo".
+  - new `documentation_conventions.md`: autonomous-not-auto-execution + a
+    cross-ref to the genericization rule; CLAUDE.md Documentation-Writing pointer.
+- **Deviations from plan (all driven by verify-before-act discovering existing
+  coverage):**
+  1. `feedback_shared_skill_path_extend_suffix` was planned as a promotion to
+     `skill_authoring_conventions.md`, but `aidocs/adding_a_new_codeagent.md`
+     §1a/1b/1d already documents the `<skill>-<profile>-<agent>-/` naming AND a
+     callout that cites the memory by name ("Don't substitute runtime checks for
+     prerendering"). → delete-only, no edit.
+  2. `feedback_generic_agent_enumerations_in_docs` was planned as primary content
+     for the new doc, but `adding_a_new_codeagent.md` §23b already documents the
+     full genericization rule (preferred phrasing + literal-exception list). →
+     `documentation_conventions.md` now cross-references §23b instead of
+     duplicating it, and carries the autonomous-terminology rule as its primary
+     new content.
+  3. `feedback_authoring_docs_in_aidocs` landed in `skill_authoring_conventions.md`
+     (closure/dep-walker hygiene) rather than `aitasks_extension_points.md` — a
+     better home for that rationale.
+  4. `feedback_claude_code_1m_model_id` was additionally placed in CLAUDE.md's
+     Model Attribution section (always-loaded → load-bearing at detection time
+     without a skill-closure goldens regen), not only `model_reference_locations.md`.
+- **Part H (system_injected_directives_scope):** audited the task-workflow source
+  (`.claude/skills/task-workflow/SKILL.md`). Steps 8 (commit review) and 9 (merge
+  approval) — the load-bearing gates over irreversible actions — already carry
+  `⚠️ NON-SKIPPABLE` banners (`:296`, `:429`), so deleting the memory does not
+  remove the safety net. Steps 8b/8c/9b lack banners; the follow-up the memory
+  cited (t782) no longer exists anywhere. Re-filed as a focused follow-up task
+  (kept out of this docs task because it is a profile-aware closure edit + full
+  task-workflow goldens regen). Saved a new `feedback` memory recording the
+  user's principle: prefer explicit skill-source enforcement over implicit
+  behavior-memories.
+- **Issues encountered:** A concurrent session's uncommitted customizable-shortcuts
+  work (`settings_app.py` +340, `config_utils.py`, `keybinding_registry.py`,
+  `shortcut_scopes.py`, three `tests/*.py`) was present in the working tree
+  (t848_5 `Implementing`). Staged only my own 9 docs files explicitly; left all
+  concurrent changes and pre-existing untracked files untouched.
+- **Upstream defects identified:** None.
