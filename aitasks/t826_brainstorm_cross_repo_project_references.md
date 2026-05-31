@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [brainstorming, ait_monitor, aitask_create]
-children_to_implement: [t826_3, t826_4]
+children_to_implement: [t826_3]
 created_at: 2026-05-25 14:28
-updated_at: 2026-05-26 18:54
+updated_at: 2026-05-31 12:26
 boardidx: 50
 ---
 
