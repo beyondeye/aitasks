@@ -5,9 +5,9 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [brainstorming, ait_brainstorm, ui]
-children_to_implement: [t873_3, t873_4, t873_5]
+children_to_implement: [t873_4, t873_5]
 created_at: 2026-05-31 12:44
-updated_at: 2026-05-31 16:20
+updated_at: 2026-05-31 17:41
 boardidx: 60
 ---
 
