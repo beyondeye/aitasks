@@ -134,6 +134,7 @@ Execution profiles are YAML files with the following keys. All keys are optional
 | Key | Type | Options | Description |
 |-----|------|---------|-------------|
 | `manual_verification_followup_mode` | enum | `ask`, `never` | Controls task-workflow Step 8c — whether to offer a manual-verification follow-up task after committing changes |
+| `manual_verification_mode` | enum | `ask`, `manual`, `autonomous`, `autonomous_with_plan` | Controls Manual Verification Step 1.5 — whether (and how) an AI agent runs the checklist before the interactive loop. The per-item `auto` verb stays available regardless |
 
 ### Lock Management
 

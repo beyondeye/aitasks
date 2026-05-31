@@ -75,6 +75,8 @@ Set `manual_verification_followup_mode: never` in an active profile to skip Step
 
 When [`/aitask-pick`](../../skills/aitask-pick/) picks a task whose `issue_type` is `manual_verification`, Step 3 Check 3 dispatches to the Manual Verification Procedure — replacing Steps 6 (plan), 7 (implement), and 8 (review). Steps 4 (ownership lock) and 5 (worktree) still run first: manual verification is owned work that should be locked against concurrent pickers.
 
+Before the interactive loop begins, the picker offers to hand the checklist to an AI agent that runs it — fully or partially — on your behalf. See [Autonomous verification](#autonomous-verification).
+
 Before each prompt, the picker re-renders the **full numbered checklist** with each item's current state (`pending` / `pass` / `fail` / `skip` / `defer`), so the overview is always in view, then prints a one-line tip advertising the Other-field batch path. The prompt itself is scoped to the first remaining `pending` or `defer` item — the "current item" — but the Other field also accepts a **batch update** that resolves multiple items in one round-trip. Example checklist render:
 
 ```
@@ -86,7 +88,8 @@ Verification checklist (5 items):
   5. ⏸ defer   Verify tmux session reuse logic
 
 Tip: in the Other field you can batch-resolve multiple items in one go,
-e.g. "3 pass, 4 fail, 5 skip not applicable" (verbs: pass / fail / skip / defer).
+e.g. "3 pass, 4 fail, 5 skip not applicable, 6 auto"
+(verbs: pass / fail / skip / defer / auto).
 ```
 
 Per-item outcomes:
@@ -97,11 +100,46 @@ Per-item outcomes:
 | **Fail** | Runs `aitask_verification_followup.sh` — creates a pre-populated bug task with commit hashes, touched files, verbatim failing text, and `depends: [<origin>]`. The current item is annotated `follow-up t<new_id>`. |
 | **Skip (with reason)** | Prompts for a free-text reason; marks the current item `skip` with the reason appended. |
 | **Defer** | Marks the current item `defer` — the task will not archive cleanly while any item is in this state. |
-| **Other (free text)** | Triaged by intent. **Batch update** (e.g. `3 pass, 4 fail, 5 skip not applicable`) — one or more `<idx> <verb> [args]` entries, comma- semicolon- or newline-separated, each routed through the same handler as its per-option counterpart; failing entries spawn the same follow-up bug task, skip entries take the rest of the entry text as the reason. The shorthand `pass` / `skip <reason>` (no leading index) targets the current item. **Pause / abort / stop** phrasing ends the loop without mutating state; the task stays `Implementing` with the lock held so only the original picker can resume. Anything else is treated as a conversational message — answer a question, perform an investigation, apply a correction — and the current item is re-asked without advancing. |
+| **Other (free text)** | Triaged by intent. **Batch update** (e.g. `3 pass, 4 fail, 5 skip not applicable, 6 auto`) — one or more `<idx> <verb> [args]` entries, comma- semicolon- or newline-separated, each routed through the same handler as its per-option counterpart; failing entries spawn the same follow-up bug task, skip entries take the rest of the entry text as the reason. The `auto` verb (e.g. `3 auto`, or bare `auto` for the current item) hands that single item to the AI agent to verify autonomously — see [Autonomous verification](#autonomous-verification). The shorthand `pass` / `skip <reason>` (no leading index) targets the current item. **Pause / abort / stop** phrasing ends the loop without mutating state; the task stays `Implementing` with the lock held so only the original picker can resume. Anything else is treated as a conversational message — answer a question, perform an investigation, apply a correction — and the current item is re-asked without advancing. |
 
 After every state mutation (single-option choice or batch entry) the loop re-renders the checklist, re-prints the tip, and re-picks the new first-remaining item as the current one. Invalid batch entries (out-of-range index, index already in a terminal state, unknown verb) stop the batch — no silent drops; the user is shown the problem entries and re-asked. Already-applied entries from the same batch stay applied (no rollback).
 
 The "Other" path intentionally has no fixed keyword list — intent is judged from the user's phrasing, not string-matched. This is how conversational corrections ("check this one more time with the minimonitor open") stay inside the loop without interrupting the verification flow.
+
+## Autonomous verification
+
+A manual-verification checklist is meant to be worked through by a human — but many items follow a mechanical recipe: run a CLI command and check the exit code, `grep` a file, drive a TUI in tmux and read back a pane. Those, an AI agent can run itself. Autonomous verification lets the agent work the checklist **fully or partially** on your behalf: it attempts each item it can, marks it `pass` / `fail` / `defer`, and leaves the genuinely human checks — visual rendering, UX judgement, multi-screen flows — for the interactive loop.
+
+### The up-front offer (Step 1.5)
+
+Right after the checklist is confirmed and before the interactive Pass/Fail/Skip/Defer loop, the picker offers to have the agent run the whole checklist:
+
+- **Yes, autonomous** (recommended) — the agent picks a verification approach per item on the fly, runs it, and records what it actually did afterward. Fastest; no up-front plan-design step.
+- **Yes, design plan first and approve** — the agent designs a per-item execution plan, enters plan mode, and waits for your approval via `ExitPlanMode` before running anything. Use this when you want to veto risky automation (fabricated test data, irreversible commands) before it happens.
+- **No, go straight to interactive** — skip the agent run entirely.
+
+Either "Yes" branch runs what it can and then falls through to the interactive loop for every item still `pending` or `defer`. A failing item spawns the same follow-up bug task as a manual **Fail**; an item the agent cannot decide is left `defer` with a reason, so you pick it up by hand.
+
+### Per-item autonomy
+
+The whole-list offer is not the only entry point. Inside the interactive loop, the `auto` verb in the Other field verifies a single item on demand — `3 auto`, or bare `auto` for the current item. This is the "partially" path: let the agent take the mechanical items one at a time while you drive the rest. Per-item `auto` is always autonomous (no plan-design or approval gate for one item) and stays available regardless of the `manual_verification_mode` profile setting below.
+
+### The run record (plan file)
+
+Every agent run — whole-list or per-item — is persisted to a plan file at `aiplans/p<id>_manual_verification_auto.md` (`aiplans/p<parent>/p<id>_manual_verification_auto.md` for child tasks). For each item it records the item text, the approach the agent chose, the command it ran, trimmed output, and the verdict. The autonomous strategy writes this log at the end as a retroactive record; the "design plan first" strategy writes the plan up front and appends an execution log as it goes. The file is committed automatically.
+
+### Profile control: `manual_verification_mode`
+
+The up-front offer can be pre-answered with the `manual_verification_mode` profile key, so an established workflow skips the prompt:
+
+| Value | Effect |
+|---|---|
+| `ask` (default) | Show the up-front offer (autonomous / design-plan-first / skip). |
+| `manual` | Skip the offer; go straight to the interactive loop. |
+| `autonomous` | Skip the offer; run the checklist with the autonomous strategy. |
+| `autonomous_with_plan` | Skip the offer; design the per-item plan, enter plan mode for approval, then run. |
+
+The key controls **only** the up-front offer — the per-item `auto` verb stays available no matter what. See [Execution Profiles](../../skills/aitask-pick/execution-profiles/) for the full profile schema.
 
 ## Fail → Follow-up Bug Task
 
