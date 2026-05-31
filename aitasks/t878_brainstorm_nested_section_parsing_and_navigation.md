@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [brainstorming, ait_brainstorm, ui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-05-31 16:19
-updated_at: 2026-05-31 16:36
+updated_at: 2026-05-31 16:59
 boardidx: 100
 ---
 

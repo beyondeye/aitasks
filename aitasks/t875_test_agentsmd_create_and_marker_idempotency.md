@@ -6,8 +6,9 @@ issue_type: test
 status: Implementing
 labels: [testing, agents_md, ait_setup]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-05-31 12:54
-updated_at: 2026-05-31 16:37
+updated_at: 2026-05-31 16:59
 boardidx: 60
 ---
 
